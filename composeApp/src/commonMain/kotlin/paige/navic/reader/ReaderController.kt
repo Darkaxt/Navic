@@ -426,11 +426,7 @@ data class ReaderController(
 				copy(
 					state = state.copy(
 						lastOverlayInteraction = ReaderOverlayInteraction.PullUp,
-						menuVisible = if (event.source == ReaderPullUpSourceScrolledEdgeSwipe) {
-							state.menuVisible
-						} else {
-							true
-						}
+						menuVisible = state.menuVisible
 					)
 				)
 			)

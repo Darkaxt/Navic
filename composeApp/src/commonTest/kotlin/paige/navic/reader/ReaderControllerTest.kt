@@ -277,7 +277,7 @@ class ReaderControllerTest {
 			ReaderOverlayInteraction.PullUp,
 			pullUp.controller.state.lastOverlayInteraction
 		)
-		assertTrue(pullUp.controller.state.menuVisible)
+		assertFalse(pullUp.controller.state.menuVisible)
 		assertEquals(emptyList(), pullUp.engineCommands)
 	}
 
@@ -289,6 +289,20 @@ class ReaderControllerTest {
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.PullUp(source = ReaderPullUpSourceScrolledEdgeSwipe)
 		)
+
+		assertEquals(
+			ReaderOverlayInteraction.PullUp,
+			step.controller.state.lastOverlayInteraction
+		)
+		assertFalse(step.controller.state.menuVisible)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu() {
+		val controller = ReaderController()
+
+		val step = controller.onEngineEvent(ReaderEngineEvent.PullUp())
 
 		assertEquals(
 			ReaderOverlayInteraction.PullUp,

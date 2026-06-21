@@ -6959,3 +6959,34 @@ Results:
 - GREEN/FULL-HOST-RERUN: full `:composeApp:testAndroidHostTest` passed (`BUILD SUCCESSFUL in 26s`).
 - GREEN/WHITESPACE-RERUN: `git diff --check` passed after the residual test-maintenance patch.
 - ARTIFACTS: `tmp\codex-logs\reader-host-targeted-after-navback.out.log`, `tmp\codex-logs\reader-host-full-after-navback.out.log`.
+
+## 2026-06-22 PullUp Does Not Implicitly Surface Chrome
+
+Scope:
+- Address the user-reported vertical-drag regression where moving to the next chapter can surface the menu without an explicit center/menu action.
+- Preserve Anx `PullUp` bridge parity while keeping Komikku shell ownership of reader chrome visibility.
+
+Diagnosis:
+- CONFIRMED: `ReaderController` routed every source-less `ReaderEngineEvent.PullUp()` to `menuVisible=true`.
+- CONFIRMED: the runtime's intentional scrolled-edge path posts `pullUp` with `source='scrolled-edge-swipe'`, and the controller already preserved menu state for that source.
+- ROOT CAUSE: ambiguous/default pull-up events were treated as hidden menu commands instead of bridge events feeding controller overlay state.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu"
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.FoliateAnxParityTest"
+```
+
+Artifacts:
+- `tmp\codex-logs\pullup-ambiguous-red.out.log`
+- `tmp\codex-logs\pullup-ambiguous-green.out.log`
+- `tmp\codex-logs\pullup-controller-parity.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderControllerTest.ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu` failed before implementation because source-less `PullUp()` forced `menuVisible=true`.
+- FIXED: `ReaderEngineEvent.PullUp` now records `ReaderOverlayInteraction.PullUp` and preserves the existing menu state instead of opening chrome.
+- FIXED: `FoliateAnxParityTest` now requires the `PullUp` route to preserve controller menu state, preventing future reintroduction of hidden chrome toggling.
+- GREEN/FOCUSED: `ReaderControllerTest.ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu`, `anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded`, `scrolledEdgePullUpRecordsBridgeParityWithoutOpeningReaderMenu`, and `FoliateAnxParityTest.everyAnxHandlerIsDocumentedInKnownGaps` passed.
+- GREEN/BROAD: full `ReaderControllerTest` and `FoliateAnxParityTest` passed together (`BUILD SUCCESSFUL in 16s`).
+- NOTE: no ADB device was connected for a live vertical-drag smoke; this closes the controller-level cause but still needs emulator/device confirmation in the next readerdev matrix.
