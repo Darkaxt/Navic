@@ -6226,3 +6226,25 @@ Results:
 - GREEN/BRIDGE: the probe moved from `OEBPS/xhtml/chapter1.xhtml` to `OEBPS/xhtml/mini_toc.xhtml` and captured `visibleTextRange(OEBPS/xhtml/mini_toc.xhtml, 1-486, source=media-overlay-follow)` in Android logcat.
 - GREEN/LOOP-GUARD: the same artifact contains no `Whispersync audiobook seek` after the `media-overlay-follow` visible range, proving the controller suppression path held for a non-duplicate WebView bridge event.
 - Remaining: this is readerdev/emulator evidence. Release-device validation of the paired Bindery sidecar/audiobook flow is still required.
+
+## 2026-06-21 Whispersync Page-Scoped Playback Control
+
+Scope:
+- Tightened the top-left Whispersync audiobook affordance so it represents cue coverage on the current page, not merely the presence of a loaded sidecar.
+- `ReaderWhispersyncStatusKind.Ready` now hides the playback control; cue-covered pages use `SeekingAudio` as the visible loading state while the paired audiobook plan/player is not available.
+- Moving from a synced visible text range to an unsupported visible range now demotes the controller status back to `Ready`, clears the active media overlay, clears the audio metadata label, and dispatches `ClearMediaOverlay` when needed.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.ReaderControllerTest.visibleTextRangeWithoutCueDemotesWhispersyncToReadyAndClearsOverlay
+.\gradlew.bat --no-daemon --no-parallel --rerun-tasks :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.ReaderControllerTest.visibleTextRangeWithoutCueDemotesWhispersyncToReadyAndClearsOverlay
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeVisibleTextRangeForWhispersync
+```
+
+Results:
+- RED: the policy test first failed because `Ready` still rendered the control.
+- RED: the controller test first failed because an unsupported visible range preserved the previous Whispersync status/overlay instead of returning to sidecar-ready state.
+- GREEN/FOCUSED: the forced focused run passed after updating `ReaderWhispersyncPlaybackPolicy` and `ReaderWhispersyncSyncCoordinator`.
+- GREEN/REGRESSION: the broader reader/Whispersync host set passed.
+- Remaining: this is host-level proof. Release-device validation still needs to confirm the icon appears only on cue-covered pages for a real paired Bindery sidecar/audiobook session.

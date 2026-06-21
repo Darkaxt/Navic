@@ -136,11 +136,30 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
-	fun whispersyncControlShowsLoadingWhenSidecarIsReadyButAudioIsNotLoaded() {
+	fun whispersyncControlIsHiddenWhenSidecarIsReadyButCurrentPageHasNoCue() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Ready,
 				label = "Whispersync ready"
+			),
+			playbackState = null
+		)
+
+		assertFalse(control.visible)
+		assertFalse(control.loading)
+		assertTrue(control.crossed)
+		assertFalse(control.enabled)
+		assertNull(control.command)
+	}
+
+	@Test
+	fun whispersyncControlShowsLoadingWhenCurrentPageHasCueButAudioIsNotLoaded() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				label = "Syncing audiobook",
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 42_000L
 			),
 			playbackState = null
 		)

@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.repositories.BinderyReadingProgress
@@ -1463,6 +1464,44 @@ class ReaderControllerTest {
 			),
 			step.controller.state.whispersync.status
 		)
+	}
+
+	@Test
+	fun visibleTextRangeWithoutCueDemotesWhispersyncToReadyAndClearsOverlay() {
+		val synced = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 80,
+					visibleEnd = 140
+				)
+			).controller
+		assertNotNull(synced.state.whispersync.audioSeekTarget)
+		assertNotNull(synced.state.activeMediaOverlay)
+
+		val step = synced.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/appendix.xhtml",
+				visibleStart = 1,
+				visibleEnd = 60
+			)
+		)
+
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.Ready,
+				label = "Whispersync ready",
+				detail = "2 synced segments"
+			),
+			step.controller.state.whispersync.status
+		)
+		assertNull(step.controller.state.whispersync.audioSeekTarget)
+		assertNull(step.controller.state.activeMediaOverlay)
+		assertNull(step.controller.state.audioMetadataLabel)
+		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), step.engineCommands)
+		assertNull(step.whispersyncAudioSeekTarget)
 	}
 
 	@Test

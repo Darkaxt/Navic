@@ -152,14 +152,26 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 	visibleStart: Int,
 	visibleEnd: Int
 ): ReaderWhispersyncVisibleRangeStep {
-	if (!syncEnabled || timeline == null) {
+	if (timeline == null) {
 		return ReaderWhispersyncVisibleRangeStep(state = this)
 	}
 	val target = timeline.seekTargetForVisibleTextRange(
 		textHref = textHref,
 		visibleStart = visibleStart,
 		visibleEnd = visibleEnd
-	) ?: return ReaderWhispersyncVisibleRangeStep(state = this)
+	) ?: return ReaderWhispersyncVisibleRangeStep(
+		state = clearOverlayIfNeeded(),
+		status = readerWhispersyncReadyStatus(timeline)
+	)
+	if (!syncEnabled) {
+		return ReaderWhispersyncVisibleRangeStep(
+			state = this,
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SyncDisabled,
+				label = "Whispersync paused"
+			)
+		)
+	}
 	val key = target.segment.readerOverlaySyncKey()
 	if (key == activeSegmentKey) {
 		return ReaderWhispersyncVisibleRangeStep(state = this)
