@@ -572,7 +572,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(fontSizeProbe, "probe.remove()")
 		assertContains(fontSizeProbe, "finally")
 		assertContains(fontSizeProbe, "data-navic-font-size-probe=\"true\"], [data-navic-publisher-font-size-probe=\"true\"")
-		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100")
+		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140")
 	}
 
 	@Test

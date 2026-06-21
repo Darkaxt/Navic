@@ -16,6 +16,7 @@ import paige.navic.domain.models.lidaClipsVideoCacheSizeLabel
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.models.settings.*
+import paige.navic.reader.DefaultReaderFontSizePercent
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderFlowPaged
@@ -64,7 +65,7 @@ internal fun settingsSearchEbookRows(context: SettingsSearchContext): List<Searc
 			keywords = listOf("reader", "ebook", "EPUB", "text"),
 			items = readerFontSizeSearchOptions,
 			label = { percent -> "$percent%" },
-			selection = readerSettings.fontSizePercent ?: 100,
+			selection = readerSettings.fontSizePercent ?: DefaultReaderFontSizePercent,
 			onSelect = { percent -> preferenceManager.readerFontSizePercent = percent }
 		))
 		add(selectionRow(

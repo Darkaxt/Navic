@@ -87,8 +87,8 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerFontSource = normalized.fontSource ?: ReaderFontSourceNavic
 	readerCustomFontFamily = normalized.customFontFamily.orEmpty()
 	readerCustomFontUrl = normalized.customFontUrl.orEmpty()
-	readerFontSizePercent = normalized.fontSizePercent ?: 100
-	readerLineHeightPercent = (((normalized.lineHeight ?: 1.55) * 100.0).roundToInt())
+	readerFontSizePercent = normalized.fontSizePercent ?: DefaultReaderFontSizePercent
+	readerLineHeightPercent = (((normalized.lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt())
 	readerParagraphSpacingPercent = normalized.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent
 	readerParagraphSpacingDefaultMigrated = true
 	readerParagraphSpacingReadableDefaultMigrated = true

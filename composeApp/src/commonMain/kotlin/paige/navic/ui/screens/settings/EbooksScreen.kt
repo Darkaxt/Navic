@@ -152,6 +152,8 @@ import org.koin.compose.koinInject
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.reader.DefaultReaderFontSizePercent
+import paige.navic.reader.DefaultReaderLineHeight
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderBlackTheme
@@ -233,7 +235,7 @@ fun SettingsEbooksScreen() {
 	val tapZoneInvertMode = ReaderTapZoneInvertOption.forTapZoneInvertMode(settings.tapZoneInvertMode)
 	val orientation = ReaderOrientationOption.forOrientation(settings.orientation)
 	val pdfFit = ReaderPdfFitOption.forPdfFitMode(settings.pdfFitMode)
-	val lineHeightPercent = (((settings.lineHeight ?: 1.55) * 100.0).roundToInt())
+	val lineHeightPercent = (((settings.lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt())
 	val importFontSuccessMessage = stringResource(Res.string.info_ebook_reader_import_font_success)
 	val clearImportedFontSuccessMessage = stringResource(Res.string.info_ebook_reader_clear_imported_font_success)
 	val importFontErrorFallback = stringResource(Res.string.info_error)
@@ -400,7 +402,7 @@ fun SettingsEbooksScreen() {
 						items = readerFontSizeOptions.toImmutableList(),
 						label = { percent -> "$percent%" },
 						description = stringResource(Res.string.subtitle_ebook_reader_font_size),
-						selection = settings.fontSizePercent ?: 100,
+						selection = settings.fontSizePercent ?: DefaultReaderFontSizePercent,
 						onSelect = { percent -> preferenceManager.readerFontSizePercent = percent }
 					)
 					SettingSelectionRow(
@@ -587,7 +589,7 @@ fun SettingsEbooksScreen() {
 }
 
 private val readerFontSizeOptions = listOf(90, 100, 112, 125, 140, 160, 180)
-private val readerLineHeightOptions = listOf(120, 135, 155, 170, 190, 220)
+private val readerLineHeightOptions = listOf(120, 135, 155, 170, 180, 190, 220)
 private val readerParagraphSpacingOptions = listOf(0, 25, 50, 75, 100, 150, 200)
 private val readerMarginOptions = listOf(0, 4, 8, 12, 16, 24)
 private val readerColumnThresholdOptions = listOf(400, 520, 640, 720, 840, 960, 1080, 1200)

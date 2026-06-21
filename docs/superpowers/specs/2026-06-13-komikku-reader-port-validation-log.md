@@ -6688,3 +6688,31 @@ Results:
 - GREEN/LONG-PRESS: long-pressing the same top-left glyph opened the controller-owned Whispersync player dialog. The hierarchy contained `Audio sync`, `Pause audiobook`, the audiobook metadata, and `Close`; the MediaSession remained `PLAYING(3)`.
 - GREEN/BOTTOM-CHROME: after closing the player and showing reader chrome, `tmp\navic-bottom-chrome-visible.xml` exposed bottom actions `Chapters`, `Search`, and `Settings`. There was no bottom-bar `Whispersync player` or `Audio sync` shortcut; the only audiobook-related node remained the top-left headset glyph.
 - Remaining: this is readerdev/emulator proof. A signed release-device pass is still required before claiming the physical phone release has the same no-circle headset treatment and playback behavior.
+
+## 2026-06-21 Anx Default Typography Scale Alignment
+
+Scope:
+- Align Navic reader defaults with the Anx `BookStyle` readable prose baseline instead of the older compact Navic defaults.
+- Move the default font scale from `100%` to `140%` and line height from `1.55` to `1.8`.
+- Keep the defaults consistent across Kotlin reader state, persisted app-level ebook settings, in-reader settings UI, Settings search rows, WebView CSS, pagination profile hashing, and the ADB WebView font-size probe.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsPreserveAnxReadableProseScale
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination-model.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+git diff --check
+```
+
+Results:
+- RED/HOST: the new `ReaderSettingsDefaultsTest.readerSettingsDefaultsPreserveAnxReadableProseScale` guard initially failed against the legacy `100%` / `1.55` defaults.
+- FIX/STATE: `defaultReaderSettings`, `ReaderChromeState.adjustFontSize`, and preference fallback paths now use `DefaultReaderFontSizePercent = 140` and `DefaultReaderLineHeight = 1.8`.
+- FIX/UI: the in-reader settings dialog, Settings > Ebooks rows, and Settings search fallbacks now show the same Anx-aligned defaults; the line-height selector includes `180%`.
+- FIX/RUNTIME: the WebView typography CSS and pagination profile fallback now use the same readable default scale, and the ADB font-size probe restores to `140%` when no original value is available.
+- GREEN/HOST: the focused Android host test report recorded `ReaderSettingsDefaultsTest` with `tests="1"`, `failures="0"`, including `readerSettingsDefaultsPreserveAnxReadableProseScale`.
+- GREEN/JS: all edited reader runtime/probe JS files passed `node --check`.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- Remaining: existing installations with already-persisted custom reader values will continue honoring those values. A migration from legacy persisted `100/155` to `140/180` should be handled explicitly if we decide old saved defaults must be upgraded in place.

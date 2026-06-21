@@ -293,7 +293,7 @@ export const readerHeadingFontSizeValue = settings =>
   readerStyleNumber(settings, 'headingFontSize', 1, 0.5, 2)
 
 export const readerFontSizePercentValue = settings =>
-  readerStyleNumber(settings, 'fontSizePercent', 100, 50, 250)
+  readerStyleNumber(settings, 'fontSizePercent', 140, 50, 250)
 
 export const readerMaxColumnCountValue = settings => {
   const value = Number(settings?.maxColumnCount)
@@ -373,7 +373,7 @@ export const readerTypographyCss = settings => {
   }
   body {
     font-size: 1rem !important;
-    line-height: ${settings.lineHeight || 1.55} !important;
+    line-height: ${settings.lineHeight || 1.8} !important;
     width: auto !important;
     max-width: none !important;
     ${usePublisherStyles || !fontFamily ? '' : `font-family: ${fontFamily} !important;`}

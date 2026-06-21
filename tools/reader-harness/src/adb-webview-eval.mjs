@@ -1594,7 +1594,7 @@ async function runFontSizeProbe(page) {
       }
       return {
         probe: 'font-size',
-        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140,
         at100,
         at140,
         existingAt100,
@@ -1612,7 +1612,7 @@ async function runFontSizeProbe(page) {
       probe.remove()
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
-        settings: { fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100 },
+        settings: { fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140 },
       })
     }
   }})()`)
@@ -1692,7 +1692,7 @@ async function runPublisherStyleFontSizeProbe(page) {
       }
       return {
         probe: 'font-size-publisher-styles',
-        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140,
         restoredPublisherStyles: originalPublisherStyles,
         at100,
         at140,
@@ -1706,7 +1706,7 @@ async function runPublisherStyleFontSizeProbe(page) {
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
         settings: {
-          fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+          fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140,
           publisherStyles: originalPublisherStyles,
         },
       })
