@@ -391,6 +391,21 @@ class ReaderRuntimeSettingsBridgeTest {
 			"normalizeReaderInlineTypography(doc, settings)",
 			message = "Every loaded EPUB document must normalize inline prose typography before pagination/reflow evidence is trusted."
 		)
+		assertContains(
+			bridgeText,
+			"normalizeReaderLineFragmentParagraphs",
+			message = "Storyteller/PDF-derived EPUBs can encode one visual source line per paragraph; the reader must normalize those fragments before pagination."
+		)
+		assertContains(
+			applyDocumentTheme,
+			"normalizeReaderLineFragmentParagraphs(doc, settings)",
+			message = "Loaded EPUB documents must merge source-line fragments before paragraph spacing and pagination evidence are trusted."
+		)
+		assertTrue(
+			applyDocumentTheme.indexOf("normalizeReaderLineFragmentParagraphs(doc, settings)") <
+				applyDocumentTheme.indexOf("applyReaderParagraphSpacing(doc, settings)"),
+			"Line-fragment normalization must run before paragraph spacing so removed source-line blocks do not leave fake paragraph gaps."
+		)
 	}
 
 	@Test

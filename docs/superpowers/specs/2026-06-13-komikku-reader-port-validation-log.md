@@ -6776,3 +6776,53 @@ Results:
 - GREEN/HOST-GUARD: the focused host guard passed and still rejects `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, `IconButton`, `.background`, `.border`, `.clip`, and Material background usage inside `KomikkuWhispersyncPlaybackControl`.
 - GREEN/VISUAL: `captures\reader-headset-current\screen.png` shows the Whispersync affordance as a bare low-opacity headset icon at the top-left of the page. There is no circle, ring, pill, or visible tap container around the headset.
 - NOTE: the visible circular controls in the same screenshot belong to the right-side chapter rail, not to the Whispersync headset control.
+
+## 2026-06-21 Headset No-Circle Recheck And Bastille Line-Fragment Dirty Validation
+
+Scope:
+- Re-check the clarified Whispersync headset requirement: the page-level audioebook affordance must be just the headset glyph, with no circular container.
+- Validate the EPUB line-fragment normalizer against the real Bastille EPUB that was visibly splitting source/OCR line fragments into separate paragraphs.
+- Record the validation blocker where the native cover overlay stayed visible even after WebView navigation.
+
+Commands:
+
+```powershell
+adb devices
+adb exec-out screencap -p > captures\reader-headset-latest\screen.png
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+node tools\reader-harness\src\run-reader-harness.mjs --mode line-fragment-prose-smoke
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+.\scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554
+adb -s emulator-5554 shell am start -S -n darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity ...
+node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --package darkaxt.navic.readerdev --probe chapter-progress-endpoints
+```
+
+Artifacts:
+- `captures\reader-headset-latest\screen.png`
+- `captures\reader-line-fragment-dirty\screen-after-launch.png`
+- `captures\reader-line-fragment-dirty\screen-after-cover-taps.png`
+- `captures\reader-line-fragment-dirty\screen-after-chapter-progress.png`
+- `tmp\reader-headset-guard.out.log`
+- `tmp\reader-line-fragment-host.out.log`
+- `tmp\readerdev-install-line-fragment.out.log`
+- `tmp\chapter-progress-endpoints.out.log`
+
+Results:
+- GREEN/HEADSET-SOURCE: `KomikkuWhispersyncPlaybackControl` still renders a transparent 48dp tap area with `Icons.Outlined.Headset`, a 25dp glyph, and optional crossed-state slash only. It does not render a `Surface`, `IconButton`, `RoundedCornerShape`, `CircularProgressIndicator`, background, border, clip, pill, ring, or visible tap container.
+- GREEN/HEADSET-VISUAL: `captures\reader-headset-latest\screen.png` again shows the top-left Whispersync affordance as only the bare headset glyph. The visible round controls in the image are the right-side chapter rail, not the headset.
+- GREEN/HEADSET-GUARD: `ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary` passed against the current source.
+- RED/HARNESS: the new `line-fragment-prose-smoke` harness initially failed before implementation because `normalizeReaderLineFragmentParagraphs` did not exist.
+- GREEN/HARNESS: `line-fragment-prose-smoke` passed after adding the normalizer. The synthetic fixture merges split-word visual lines such as `th` + `e`, `extra-spe` + `cial`, and `wishe` + `d`, while preserving source-leading whitespace where it represents a real word gap.
+- GREEN/RUNTIME-WIRING: `ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes` passed after adding a host guard that requires `normalizeReaderLineFragmentParagraphs(doc, settings)` to run before `applyReaderParagraphSpacing(doc, settings)`.
+- GREEN/JS: edited reader runtime and harness files passed `node --check`; `font-css-smoke` still passed; `git diff --check` was clean.
+- GREEN/DIRTY-INSTALL: `scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554` built and installed a dirty readerDev APK successfully, including the changed reader assets.
+- GREEN/REAL-EPUB-DOM: DevTools inspection of the dirty readerDev WebView after jumping to `OEBPS/xhtml/chapter4.xhtml` showed the real EPUB content document with `data-navic-line-fragments-normalized="true"` and merged paragraphs:
+  - `If you remember... I didn't even know him...`
+  - `The point is... I'm not the warmest cinnamon roll... extra-special effort...`
+  - `All my life, I'd wished to be an Oculator... with enhanced skills...`
+- BLOCKED/VISUAL: screenshot validation of the fixed text page is still blocked because the native cover overlay remained visible after direct WebView navigation and did not dismiss after two right-edge taps. The WebView document was correctly navigated and normalized behind it, but `screen-after-chapter-progress.png` still shows the native cover.
+- FOLLOW-UP: treat the stuck native cover overlay as a separate cover-shell/controller issue. Do not weaken the line-fragment normalizer to work around the cover overlay.
