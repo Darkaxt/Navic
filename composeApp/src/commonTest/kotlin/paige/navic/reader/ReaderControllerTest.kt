@@ -210,7 +210,7 @@ class ReaderControllerTest {
 			overlayCreated.state.lastOverlayInteraction
 		)
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = false),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = true),
 			navigation.state.engineNavigation
 		)
 		assertEquals(
@@ -243,13 +243,13 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault() {
+	fun pushStateSurfacesHistoryCapsuleWhenHistoryIsAvailable() {
 		val controller = ReaderController().onEngineEvent(
 			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = true)
 		).controller
 
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = false),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = true),
 			controller.state.engineNavigation
 		)
 

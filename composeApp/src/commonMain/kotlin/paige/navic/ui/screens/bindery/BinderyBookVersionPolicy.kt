@@ -452,7 +452,7 @@ private fun BinderyBookVersionRow.visibleIdentityKey(): String =
 		subtitle.normalizedDuplicateRowField()
 	).joinToString(separator = "\u001f")
 
-private fun String?.normalizedDuplicateRowField(): String =
+internal fun String?.normalizedDuplicateRowField(): String =
 	orEmpty()
 		.trim()
 		.replace(Regex("\\s+"), " ")
@@ -845,7 +845,7 @@ private fun BinderyReadingOrderItem.displayFormat(): String? =
 		?: type.toReadableBookFormat()
 		?: properties.firstNonBlankValue("format")?.uppercase()
 
-private fun BinderyFindingMetadata?.findingKind(): BinderyBookFindingKind? {
+internal fun BinderyFindingMetadata?.findingKind(): BinderyBookFindingKind? {
 	val media = this?.mediaType.orEmpty().lowercase()
 	val format = this?.format.orEmpty()
 	return when {
@@ -857,7 +857,7 @@ private fun BinderyFindingMetadata?.findingKind(): BinderyBookFindingKind? {
 	}
 }
 
-private fun BinderyFindingMetadata?.findingTitle(
+internal fun BinderyFindingMetadata?.findingTitle(
 	kind: BinderyBookFindingKind,
 	fallbackTitle: String
 ): String {
@@ -884,7 +884,7 @@ private fun BinderyFindingMetadata?.findingTitle(
 		}
 }
 
-private fun BinderyFindingMetadata?.findingSubtitle(
+internal fun BinderyFindingMetadata?.findingSubtitle(
 	fallbackSubtitle: String?,
 	kind: BinderyBookFindingKind
 ): String? {
@@ -909,8 +909,8 @@ private fun BinderyFindingMetadata?.findingSubtitle(
 		?: fallbackSubtitle
 }
 
-private fun BinderyFindingMetadata?.findingAudioQualityRank(): Int =
+internal fun BinderyFindingMetadata?.findingAudioQualityRank(): Int =
 	this?.format.audioFormatQualityRank()
 
-private fun BinderyFindingMetadata?.findingEbookQualityRank(): Int =
+internal fun BinderyFindingMetadata?.findingEbookQualityRank(): Int =
 	this?.format.ebookFormatQualityRank()

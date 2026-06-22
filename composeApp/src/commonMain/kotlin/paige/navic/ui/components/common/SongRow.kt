@@ -150,8 +150,8 @@ fun SongRow(
 			)
 		},
 		leadingContent = {
-			CoverArt(
-				coverArtId = song.coverArtId,
+			PlaybackSongCoverArt(
+				song = song,
 				modifier = Modifier.size(50.dp),
 				shape = preferenceManager.coverArtShape.decreasedShape
 			)

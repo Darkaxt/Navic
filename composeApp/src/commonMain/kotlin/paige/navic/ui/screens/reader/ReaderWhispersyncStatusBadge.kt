@@ -47,49 +47,44 @@ internal fun KomikkuWhispersyncPlaybackControl(
 		exit = fadeOut(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
 		modifier = modifier.pointerInput(Unit) {}
 	) {
-		val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-		Surface(
-			shape = RoundedCornerShape(999.dp),
-			color = MaterialTheme.colorScheme.surface.copy(alpha = 0.60f),
-			contentColor = contentColor
+		val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
+		Box(
+			modifier = Modifier.size(48.dp),
+			contentAlignment = Alignment.Center
 		) {
-			Box(
-				modifier = Modifier.size(48.dp),
-				contentAlignment = Alignment.Center
+			if (control.loading) {
+				CircularProgressIndicator(
+					modifier = Modifier
+						.matchParentSize()
+						.padding(7.dp),
+					color = contentColor,
+					strokeWidth = 2.dp
+				)
+			}
+			IconButton(
+				onClick = { control.command?.let(onCommand) },
+				enabled = control.enabled
 			) {
-				if (control.loading) {
-					CircularProgressIndicator(
-						modifier = Modifier
-							.matchParentSize()
-							.padding(7.dp),
-						color = contentColor,
-						strokeWidth = 2.dp
-					)
-				}
-				IconButton(
-					onClick = { control.command?.let(onCommand) },
-					enabled = control.enabled
+				Icon(
+					imageVector = Icons.Outlined.Audiobooks,
+					contentDescription = control.contentDescription,
+					tint = contentColor,
+					modifier = Modifier.size(24.dp)
+				)
+			}
+			if (control.crossed) {
+				Canvas(
+					modifier = Modifier
+						.matchParentSize()
+						.padding(13.dp)
 				) {
-					Icon(
-						imageVector = Icons.Outlined.Audiobooks,
-						contentDescription = control.contentDescription,
-						modifier = Modifier.size(24.dp)
+					drawLine(
+						color = contentColor,
+						start = Offset(size.width * 0.14f, size.height * 0.86f),
+						end = Offset(size.width * 0.86f, size.height * 0.14f),
+						strokeWidth = 2.dp.toPx(),
+						cap = StrokeCap.Round
 					)
-				}
-				if (control.crossed) {
-					Canvas(
-						modifier = Modifier
-							.matchParentSize()
-							.padding(13.dp)
-					) {
-						drawLine(
-							color = contentColor,
-							start = Offset(size.width * 0.14f, size.height * 0.86f),
-							end = Offset(size.width * 0.86f, size.height * 0.14f),
-							strokeWidth = 2.dp.toPx(),
-							cap = StrokeCap.Round
-						)
-					}
 				}
 			}
 		}

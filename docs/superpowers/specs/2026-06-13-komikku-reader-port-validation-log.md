@@ -6456,3 +6456,163 @@ Results:
 - GREEN/TINY-SECTION-VISUAL: Chapter 38 is a one-page section and rendered only previous/next chapter buttons, with no decorative progress rail.
 - NOTE/COORDINATES: an earlier tap near `x=1215 y=1830` toggled the reader menu because it was inside the page area on the actual `1848x2960` surface. That was a coordinate error in the validation pass, not a rail failure.
 - Remaining: this validates the readerdev emulator path. Physical release validation is still needed for the user's phone/tablet feel and for any release-only regressions.
+
+## 2026-06-22 Scrolled-Edge Pull-Up Harness Route Check
+
+Scope:
+- Re-check whether the remaining scrolled-edge pull-up validation gap can be closed through the WebView DevTools helper instead of native ADB gestures.
+- Avoid keeping a false-positive harness path for Foliate inner-document touch behavior.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-configuration-cache '-Pkotlin.compiler.execution.strategy=in-process' :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeScrolledEdgePullUpThroughRealTouchPath
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe scrolled-edge-pullup
+.\scripts\adb-reader-smoke.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-eta79 -ReaderDevtoolsProbe scrolled-edge-pullup -CaptureReaderDiagnostics -NoLaunch -ArtifactDir tmp\readerdev-scrolled-edge-pullup-20260622-a
+```
+
+Results:
+- RED/HOST-FIRST: a temporary guard correctly failed while the DevTools helper had no non-diagnostic scrolled-edge pull-up probe.
+- RED/DEVTOOLS-SYNTHETIC: synthetic `touchstart`/`touchmove`/`touchend` events dispatched through `Runtime.evaluate` did not reach Foliate's inner content document on Android WebView; the probe captured `eventCaptures=[]` and no bridge payload.
+- RED/DEVTOOLS-CDP: CDP `Input.dispatchTouchEvent` also did not enter Foliate's inner content document on the current readerdev surface; diagnostics captured `contentTouchCaptures=[]` and no `pullUp` payload even while the runtime listener flag was attached.
+- DECISION: do not add or keep `-ReaderDevtoolsProbe scrolled-edge-pullup`. It would be a misleading route because DevTools input is not equivalent to native reader-surface touch dispatch for this Foliate embedded-document path.
+- CLEANUP: the temporary DevTools probe, smoke-script option, and host guard were removed; `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed after cleanup.
+- VALIDATION ROUTE: real scrolled-edge validation should continue to use native ADB gestures and bridge-log assertions, for example `-SwipeFraction @('0.50,0.90,0.50,0.10,450,1400') -RequireReaderBridgeEvent 'pullUp(source=scrolled-edge-swipe)'`, as recorded in the 2026-06-20 scrolled-edge source validation.
+- Remaining: no product behavior changed in this slice. The open validation item is still release/physical-device confirmation of the native scrolled-edge path, not a DevTools helper task.
+
+## 2026-06-22 Reader Host Guard Refresh
+
+Scope:
+- Re-align stale source-inspection guards after moving reader diagnostics out of the reader settings dialog and into Developer Options.
+- Re-check the modular settings-search split without weakening the Komikku/Anx reader contract.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: focused Android host guards failed because two tests still expected `Show tap zones` inside `ReaderSettingsDialog.kt`, and one flow-mode guard expected shared option declarations inside `EbooksScreen.kt`.
+- GREEN/HOST-FOCUSED: the same three focused reader guard classes passed after updating the assertions to require `Show tap zones` only in Developer Options, keep `Smaller tap zones` in the reader dialog, and verify flow modes through `EbookReaderSettingOptions.kt` plus settings-search rows.
+- GREEN/HOST-BROAD: `:composeApp:testAndroidHostTest` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- Remaining: no Android device behavior was validated in this host-only guard refresh.
+
+## 2026-06-22 PushState History Capsule Guard
+
+Scope:
+- Align Anx `PushState` parity with the controller-owned Komikku history capsule. The previous guard allowed the controller to store `canGoBack/canGoForward` while forcing the native capsule hidden.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: updated `ReaderControllerTest` and `FoliateAnxParityTest` first failed because `ReaderController` still set `ReaderEngineNavigationState.visible = false`.
+- GREEN/HOST: `ReaderController` now sets `visible = event.canGoBack || event.canGoForward`, so `PushState` surfaces `KomikkuReaderHistoryCapsule` when history navigation is available and still allows controller dismissal.
+- GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 3m 36s`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- Remaining: host parity only. No emulator/device visual validation was needed for this controller-state guard.
+
+## 2026-06-22 Anx Font Size Body-Prose Guard
+
+Scope:
+- Fix the reported tablet behavior where the reader font-size control could resize headings/chapter titles while ebook body text stayed effectively pinned.
+- Align the Anx `BookStyle.fontSize` capability with the Navic Foliate renderer boundary: the controller owns the setting, and the engine stylesheet must apply it to body prose, table/preformatted prose, and publisher inline-important text.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes --tests paige.navic.reader.FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest --tests paige.navic.reader.FoliateAnxParityTest --tests paige.navic.reader.ReaderRuntimeAssetsTest
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: the focused guards failed while `navic-reader-typography.js` still pinned body/prose selectors to `font-size: 1rem !important`.
+- GREEN/RENDERER: body and prose normalization now inherit from `--reader-content-font-size` through `1em`; inline publisher font-size normalization also rewrites prose to `1em` so body text follows the reader setting instead of only headings reacting.
+- GREEN/BODY-CANDIDATE: `BODY` is treated as a prose block in the inline typography normalizer, matching the existing `doc.body` candidate path and preventing body-level important font-size styles from bypassing the reader setting.
+- GREEN/SYNTAX: `node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js` passed.
+- GREEN/HOST-FOCUSED: `ReaderRuntimeSettingsBridgeTest`, `FoliateAnxParityTest`, and `ReaderRuntimeAssetsTest` passed.
+- GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 35s`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- Remaining: host/source validation only. Tablet visual validation should confirm perceived body text scaling across normal text pages and generated/typewriter-style pages before a release claim.
+
+## 2026-06-22 Reader Spec Stale-Item Cleanup
+
+Scope:
+- Reconcile `2026-06-13-komikku-reader-port-design.md` with already-recorded guard and emulator evidence so future compactions do not revive closed implementation items.
+
+Evidence used:
+- 2026-06-21 boundary-preview validation: host guard, browser harness, readerdev matrix, and `texture-offset-logic` all passed after the section-boundary loading fallback kept the current page moving instead of showing a black void.
+- 2026-06-22 reader host guard refresh: focused reader guards and full `:composeApp:testAndroidHostTest` passed after WebView debugging and tap-zone visibility moved to Developer Options and Settings search routed them there.
+
+Result:
+- The active spec now treats the drag-preview black-void fallback and developer diagnostics placement as host/emulator-closed.
+- Remaining work is still explicit: physical/release drag-feel validation, texture transition polish, settings overlay density, paper texture visibility, and lower-priority page-curl exploration.
+
+Commands:
+
+```powershell
+git diff --check -- docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md
+```
+
+Results:
+- GREEN/WHITESPACE: the focused spec diff check passed.
+
+## 2026-06-22 Komikku Custom-Filter Dim Amount Parity
+
+Scope:
+- Match Komikku's reader settings dialog behavior for the custom-filter tab: normal settings tabs keep the modal dim at `0.5f`, while the custom-filter tab sets dialog dim to `0f` so the filter can be adjusted against the live reader surface.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogMatchesKomikkuCustomFilterDimAmount
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `commonReaderSettingsDialogMatchesKomikkuCustomFilterDimAmount` first failed because Navic hid chrome on `CustomFilter` but did not carry Komikku's `window?.setDimAmount(0f)` / `0.5f` behavior through the adaptive sheet.
+- GREEN/COMMON: `KomikkuReaderSettingsDialog` now computes `settingsDimAmount` from the active settings tab and passes it through `KomikkuTabbedDialog`.
+- GREEN/ANDROID: `KomikkuAdaptiveSheet.android.kt` now applies `dimAmount` to the active Dialog window through `DialogWindowProvider`, matching the Komikku source behavior.
+- GREEN/HOST-FOCUSED: the new dim parity guard passed.
+- GREEN/HOST-RELATED: `ReaderRuntimeCommonChromeTest`, `ReaderRuntimeNavigationFlowTest`, and `ReaderRuntimeSettingsBridgeTest` passed.
+- GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 24s`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- Remaining: no emulator/device visual validation was run for this UI dim behavior.
+
+## 2026-06-22 Publisher Styles Settings Placement Parity
+
+Scope:
+- Keep Komikku's Custom filter page visual-filter-only and move the EPUB `Publisher styles` toggle into General, beside typography/theme controls.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderPublisherStylesBelongsToGeneralInsteadOfCustomFilter
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `commonReaderPublisherStylesBelongsToGeneralInsteadOfCustomFilter` first failed because `Publisher styles` still lived under `KomikkuSettingsTab.CustomFilter`.
+- GREEN/REFERENCE: the guard reads Komikku `ColorFilterPage.kt` and asserts that no publisher-style control exists in that visual-filter-only page.
+- GREEN/UI: `Publisher styles` now renders in the General settings page after Theme and before Rotation; Custom filter now contains only dim/color/grayscale/invert controls.
+- GREEN/HOST-FOCUSED: the new placement guard passed.
+- GREEN/HOST-RELATED: `ReaderRuntimeCommonChromeTest` and `ReaderRuntimeSettingsBridgeTest` passed.
+- GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 24s`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- Remaining: no emulator/device visual validation was run for this small settings-placement parity fix.

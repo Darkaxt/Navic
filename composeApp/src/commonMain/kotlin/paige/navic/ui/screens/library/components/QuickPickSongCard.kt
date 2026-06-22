@@ -16,7 +16,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.hasStableNavidromeSongId
-import paige.navic.ui.components.layouts.ArtGridItem
+import paige.navic.ui.components.layouts.PlaybackSongArtGridItem
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
@@ -49,15 +49,13 @@ fun QuickPickSongCard(
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	Box(modifier) {
-		ArtGridItem(
+		PlaybackSongArtGridItem(
 			onClick = dropUnlessResumed {
 				platformContext.clickSound()
 				onClick()
 			},
 			onLongClick = onSelect,
-			coverArtId = song.coverArtId,
-			title = song.title,
-			subtitle = song.artistName,
+			song = song,
 			ownershipStatus = ownershipStatus,
 			id = song.id,
 			tab = "quick-picks"

@@ -240,13 +240,13 @@ class FoliateAnxParityTest {
 			readerUiRoute("ReaderRoot.kt", "controllerState.annotationPopup")
 		),
 		"onPushState" to exists(
-			"PushState event updates history capabilities without auto-surfacing chrome",
-			controllerTest("pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault"),
+			"PushState event updates history capabilities and surfaces the controller-owned history capsule",
+			controllerTest("pushStateSurfacesHistoryCapsuleWhenHistoryIsAvailable"),
 			readerUiRoute("ReaderRoot.kt", "KomikkuReaderHistoryCapsule"),
 			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryBack()"),
 			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryForward()"),
 			routeStop("ReaderController.kt", "engineNavigation = ReaderEngineNavigationState"),
-			routeStop("ReaderController.kt", "visible = false"),
+			routeStop("ReaderController.kt", "visible = event.canGoBack || event.canGoForward"),
 			routeStop("ReaderController.kt", "ReaderEngineCommand.NavigateHistory"),
 			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryBack"),
 			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryForward"),
@@ -890,10 +890,10 @@ class FoliateAnxParityTest {
 		assertTrue(
 			navicReaderHelpersText.contains("--reader-content-font-size") &&
 				navicReaderHelpersText.contains("font-size: var(--reader-content-font-size") &&
-				navicReaderHelpersText.contains("body {\n    font-size: 1rem !important;") &&
+				!navicReaderHelpersText.contains("font-size: 1rem !important") &&
 				navicReaderHelpersText.contains("p span,\n  p font,") &&
 				navicReaderHelpersText.contains("body > span:not(:has(img)):not(:has(svg)):not(:has(canvas))"),
-			"Reader font-size controls must scale publisher inline ebook body text, not only headings."
+			"Reader font-size controls must scale publisher inline ebook body text, not only headings; prose resets must inherit the reader-scaled body size instead of pinning to 1rem."
 		)
 		assertTrue(
 			navicReaderMainText.contains("setAttribute('top-margin'") &&

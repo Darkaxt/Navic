@@ -87,6 +87,7 @@ import paige.navic.icons.outlined.Share
 import paige.navic.domain.manager.ShareManager
 import paige.navic.ui.components.common.Dropdown
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.visibleCoverArtIdForAurralPolicy
 import paige.navic.ui.theme.blue
 import paige.navic.ui.theme.pink
 import paige.navic.ui.theme.positive
@@ -100,6 +101,7 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 @Composable
 fun LyricsShareSheet(
 	song: DomainSong,
+	coverArtId: String? = null,
 	imageUrl: String? = null,
 	imageCacheKey: String? = null,
 	selectedLyrics: ImmutableList<String>,
@@ -115,13 +117,19 @@ fun LyricsShareSheet(
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val serverArtworkUrl = song.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
+	val externalArtworkUrl = imageUrl?.takeIf { it.isNotBlank() }
+	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
+		coverArtId = coverArtId,
+		imageUrl = externalArtworkUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
+	)
+	val serverArtworkUrl = visibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	val resolvedImageUrl = activeArtworkUrl(
 		serverArtworkUrl = serverArtworkUrl,
-		externalArtworkUrl = imageUrl
+		externalArtworkUrl = externalArtworkUrl
 	)
-	val resolvedImageCacheKey = imageCacheKey ?: imageUrl?.takeIf { it.isNotBlank() } ?: song.coverArtId
-	val model = remember(song.coverArtId, imageUrl, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
+	val resolvedImageCacheKey = imageCacheKey ?: externalArtworkUrl ?: visibleCoverArtId
+	val model = remember(visibleCoverArtId, externalArtworkUrl, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
 		ImageRequest.Builder(coilPlatformContext)
 			.data(resolvedImageUrl)
 			.memoryCacheKey(resolvedImageCacheKey)
@@ -132,7 +140,7 @@ fun LyricsShareSheet(
 				if (
 					shouldSendServerArtworkHeaders(
 						serverArtworkUrl = serverArtworkUrl,
-						externalArtworkUrl = imageUrl
+						externalArtworkUrl = externalArtworkUrl
 					)
 				) {
 					httpHeaders(serverRequestHeaders.toNetworkHeaders())

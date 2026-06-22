@@ -44,6 +44,7 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralRepository
+import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralArtistMonitorBadge
@@ -243,9 +244,19 @@ fun ArtistsScreenItem(
 	onAddToQueue: () -> Unit,
 	onSetStarred: (starred: Boolean) -> Unit
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val uriHandler = LocalUriHandler.current
+	val artistImageUrl = artistImageUrlForExternalArtworkPolicy(
+		artist = artist,
+		externalArtworkEnabled = preferenceManager.aurralEnabled
+	)
+	val artistImageRequestHeaders = aurralRequestHeadersForUrl(
+		baseUrl = preferenceManager.aurralBaseUrl,
+		imageUrl = artistImageUrl,
+		requestHeaders = preferenceManager.aurralRequestHeadersMap()
+	)
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
@@ -256,8 +267,12 @@ fun ArtistsScreenItem(
 				backStack.add(Screen.ArtistDetail(artist.id))
 			},
 			onLongClick = onSelect,
-			coverArtId = artist.coverArtId,
-			imageUrl = artist.artistImageUrl,
+			coverArtId = artistCoverArtIdForExternalArtworkPolicy(
+				artist = artist,
+				externalArtworkEnabled = preferenceManager.aurralEnabled
+			),
+			imageUrl = artistImageUrl,
+			imageRequestHeaders = artistImageRequestHeaders,
 			imageDiagnosticLabel = "artist-list-${artist.id}",
 			title = artist.name,
 			subtitle = pluralStringResource(

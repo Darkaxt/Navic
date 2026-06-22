@@ -132,6 +132,26 @@ class MostPlayedArtistPhotoCachePolicyTest {
 	}
 
 	@Test
+	fun cachedArtistPhotoIgnoresNavidromeArtistImageUrls() {
+		val shortcut = mostPlayedArtistShortcut(id = "local-iu", title = "IU", coverArtId = null)
+
+		val resolved = mostPlayedArtistPhotoCacheArtworkForShortcut(
+			shortcut = shortcut,
+			entries = listOf(
+				MostPlayedArtistPhotoCacheEntry(
+					artistId = "local-iu",
+					sourceArtistId = null,
+					name = "IU",
+					normalizedName = "iu",
+					imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=iu"
+				)
+			)
+		)
+
+		assertNull(resolved)
+	}
+
+	@Test
 	fun persistedArtistPhotoUsesShortcutTitleAsNormalizedName() {
 		val shortcut = mostPlayedArtistShortcut(id = "local-iu", title = "IU", coverArtId = null)
 
@@ -148,6 +168,24 @@ class MostPlayedArtistPhotoCachePolicyTest {
 
 		assertNotNull(entity)
 		assertEquals("iu", entity.normalizedName)
+	}
+
+	@Test
+	fun persistedArtistPhotoRejectsNavidromeArtistImageUrls() {
+		val shortcut = mostPlayedArtistShortcut(id = "local-iu", title = "IU", coverArtId = null)
+
+		val entity = mostPlayedArtistPhotoCacheEntity(
+			shortcut = shortcut,
+			artist = MostPlayedShortcutArtistArtwork(
+				id = "navidrome-iu",
+				name = "IU",
+				coverArtId = null,
+				artistImageUrl = "https://navidrome.example.com/rest/getArtistImage?id=iu"
+			),
+			nowMillis = 1_000L
+		)
+
+		assertNull(entity)
 	}
 
 	private fun mostPlayedArtistShortcut(

@@ -58,8 +58,8 @@ import paige.navic.icons.outlined.DownloadOff
 import paige.navic.icons.outlined.PlaylistPlay
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
@@ -207,8 +207,8 @@ fun SongListScreenItem(
 					)
 				},
 				leadingContent = {
-					CoverArt(
-						coverArtId = song.coverArtId,
+					PlaybackSongCoverArt(
+						song = song,
 						modifier = Modifier.size(50.dp),
 						shape = preferenceManager.coverArtShape.decreasedShape
 					)

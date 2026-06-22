@@ -108,6 +108,7 @@ import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.artistImageUrlForExternalArtworkPolicy
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.screens.artist.components.AurralPreviewTracks
@@ -161,7 +162,12 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			artist = artist,
 			localArtist = localArtist,
 			localAlbums = localAlbums,
-			heroImageUrl = route.imageUrl ?: localArtist?.artistImageUrl,
+			heroImageUrl = route.imageUrl ?: localArtist?.let { artist ->
+				artistImageUrlForExternalArtworkPolicy(
+					artist = artist,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
+				)
+			},
 			loading = configured,
 			error = null
 		)
@@ -290,6 +296,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				AurralArtistHero(
 					artist = state.artist,
 					localArtist = state.localArtist,
+					externalArtworkEnabled = preferenceManager.aurralEnabled,
 					imageUrl = state.heroImageUrl,
 					imageRequestHeaders = heroHeaders
 				)
@@ -414,6 +421,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 							imageUrl = row.artist.imageUrl,
 							requestHeaders = requestHeaders
 						),
+						externalArtworkEnabled = preferenceManager.aurralEnabled,
 						onClickLocalArtist = { artistId ->
 							backStack.add(Screen.ArtistDetail(artistId))
 						},
@@ -455,6 +463,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 private fun AurralArtistHero(
 	artist: DomainArtist,
 	localArtist: DomainArtist?,
+	externalArtworkEnabled: Boolean,
 	imageUrl: String?,
 	imageRequestHeaders: Map<String, String>
 ) {
@@ -463,7 +472,10 @@ private fun AurralArtistHero(
 		modifier = Modifier.fillMaxWidth()
 	) {
 		CoverArt(
-			coverArtId = localArtist?.coverArtId,
+			coverArtId = aurralArtistHeroCoverArtId(
+				localArtist = localArtist,
+				externalArtworkEnabled = externalArtworkEnabled
+			),
 			imageUrl = imageUrl,
 			imageCacheKey = imageUrl?.let { "aurral-artist-${artist.musicBrainzId.orEmpty()}" },
 			imageRequestHeaders = imageRequestHeaders,
@@ -642,6 +654,7 @@ private fun CarouselItemScope.AurralArtistMissingAlbumItem(
 private fun CarouselItemScope.AurralArtistSimilarArtistItem(
 	row: AurralSimilarArtistRow,
 	imageRequestHeaders: Map<String, String>,
+	externalArtworkEnabled: Boolean,
 	onClickLocalArtist: (String) -> Unit,
 	onClickAurralArtist: () -> Unit
 ) {
@@ -657,7 +670,7 @@ private fun CarouselItemScope.AurralArtistSimilarArtistItem(
 			.alpha(if (row.inLibrary) 1f else .62f)
 	) {
 		CoverArt(
-			coverArtId = row.localCoverArtId,
+			coverArtId = row.localCoverArtId.takeUnless { externalArtworkEnabled },
 			imageUrl = row.artist.imageUrl,
 			imageCacheKey = "aurral-similar-artist-${row.artist.id}",
 			imageRequestHeaders = imageRequestHeaders,

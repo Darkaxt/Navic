@@ -55,6 +55,7 @@ import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
@@ -64,12 +65,15 @@ import paige.navic.domain.models.DomainSongListType
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.components.sheets.CollectionSheet
+import paige.navic.ui.screens.artist.artistCoverArtIdForExternalArtworkPolicy
+import paige.navic.ui.screens.artist.artistImageUrlForExternalArtworkPolicy
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.core.UiState
 
@@ -128,6 +132,7 @@ fun StarredScreenContent(
 	val songs = songsState.data.orEmpty()
 	val artists = artistsState.data.orEmpty()
 	val downloadManager = koinInject<DownloadManager>()
+	val preferenceManager = koinInject<PreferenceManager>()
 	val uriHandler = LocalUriHandler.current
 
 	val scope = rememberCoroutineScope()
@@ -303,8 +308,22 @@ fun StarredScreenContent(
 				artists.toImmutableList(),
 				Screen.ArtistList(true, DomainArtistListType.Starred)
 			) { artist ->
+				val artistImageUrl = artistImageUrlForExternalArtworkPolicy(
+					artist = artist,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
+				)
+				val artistImageRequestHeaders = aurralRequestHeadersForUrl(
+					baseUrl = preferenceManager.aurralBaseUrl,
+					imageUrl = artistImageUrl,
+					requestHeaders = preferenceManager.aurralRequestHeadersMap()
+				)
 				ArtCarouselItem(
-					coverArtId = artist.coverArtId, 
+					coverArtId = artistCoverArtIdForExternalArtworkPolicy(
+						artist = artist,
+						externalArtworkEnabled = preferenceManager.aurralEnabled
+					),
+					imageUrl = artistImageUrl,
+					imageRequestHeaders = artistImageRequestHeaders,
 					title = artist.name, 
 					subtitle = pluralStringResource(
 						Res.plurals.count_albums,

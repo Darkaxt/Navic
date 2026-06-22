@@ -17,7 +17,6 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
-import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.ui.core.UiState
@@ -136,10 +135,7 @@ class MostPlayedShortcutsViewModel(
 		this as? Exception ?: Exception(this)
 
 	private fun hydrateAurralArtistPhotos(shortcuts: List<DomainMostPlayedShortcut>) {
-		if (
-			!preferenceManager.aurralEnabled ||
-			preferenceManager.artistArtworkPriority == ArtworkSourcePriority.NativeOnly
-		) {
+		if (!preferenceManager.aurralEnabled) {
 			Logger.i(
 				MOST_PLAYED_ARTWORK_TAG,
 				"hydrate disabled aurralEnabled=${preferenceManager.aurralEnabled} " +
@@ -160,8 +156,6 @@ class MostPlayedShortcutsViewModel(
 								"title=${mostPlayedDiagnosticText(shortcut.title)}"
 						)
 					}
-
-					targets.size >= AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT -> Unit
 
 					!attemptedAurralArtistPhotoKeys.add(key) -> {
 						Logger.i(
@@ -432,7 +426,6 @@ class MostPlayedShortcutsViewModel(
 
 	private companion object {
 		const val MOST_PLAYED_LIMIT = 20
-		const val AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT = 8
 		const val AURRAL_ARTIST_PHOTO_SEARCH_LIMIT = 5
 	}
 }

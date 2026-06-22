@@ -23,7 +23,14 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(factoryText, "internal class AndroidMediaItemFactory")
 		assertContains(factoryText, "fun toMediaItem(song: DomainSong): MediaItem")
 		assertContains(factoryText, "MediaMetadata.Builder()")
+		assertContains(factoryText, "effectiveAurralArtworkPriority(")
+		assertContains(factoryText, "visiblePlaybackCoverArtId(")
+		assertContains(factoryText, "visiblePlaybackImageUrl(")
 		assertContains(factoryText, "downloadManager.getDownloadedFilePath(id)")
+		assertFalse(
+			factoryText.contains("song.coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }"),
+			"Media3 metadata must not publish raw Navidrome artwork before applying Aurral-first policy."
+		)
 	}
 
 	@Test
@@ -42,7 +49,14 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(broadcasterText, "internal class AndroidNowPlayingBroadcaster")
 		assertContains(broadcasterText, "fun send(")
 		assertContains(broadcasterText, "shouldSendNowPlayingWidgetUpdate(")
+		assertContains(broadcasterText, "effectiveAurralArtworkPriority(")
+		assertContains(broadcasterText, "visiblePlaybackCoverArtId(")
+		assertContains(broadcasterText, "visiblePlaybackImageUrl(")
 		assertContains(broadcasterText, "activeArtworkUrl(")
+		assertFalse(
+			broadcasterText.contains("serverArtworkUrl = song.coverArtId?.let { sessionManager.getCoverArtUrl(it) }"),
+			"Android now-playing broadcasts must not publish raw Navidrome artwork before applying Aurral-first policy."
+		)
 	}
 
 	@Test

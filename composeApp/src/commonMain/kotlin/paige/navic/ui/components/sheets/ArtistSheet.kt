@@ -44,6 +44,7 @@ import paige.navic.LocalPlatformContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Lastfm
 import paige.navic.icons.brand.Musicbrainz
@@ -58,6 +59,8 @@ import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.screens.artist.artistCoverArtIdForExternalArtworkPolicy
+import paige.navic.ui.screens.artist.artistImageUrlForExternalArtworkPolicy
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -78,6 +81,15 @@ fun ArtistSheet(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
+	val artistImageUrl = artistImageUrlForExternalArtworkPolicy(
+		artist = artist,
+		externalArtworkEnabled = preferenceManager.aurralEnabled
+	)
+	val artistImageRequestHeaders = aurralRequestHeadersForUrl(
+		baseUrl = preferenceManager.aurralBaseUrl,
+		imageUrl = artistImageUrl,
+		requestHeaders = preferenceManager.aurralRequestHeadersMap()
+	)
 	val contentPadding = PaddingValues(horizontal = 16.dp)
 	val colors = ListItemDefaults.colors(
 		containerColor = Color.Transparent,
@@ -97,7 +109,12 @@ fun ArtistSheet(
 		ListItem(
 			leadingContent = {
 				CoverArt(
-					coverArtId = artist.coverArtId,
+					coverArtId = artistCoverArtIdForExternalArtworkPolicy(
+						artist = artist,
+						externalArtworkEnabled = preferenceManager.aurralEnabled
+					),
+					imageUrl = artistImageUrl,
+					imageRequestHeaders = artistImageRequestHeaders,
 					modifier = Modifier.size(50.dp),
 					shape = preferenceManager.coverArtShape.decreasedShape
 				)

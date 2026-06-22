@@ -42,6 +42,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
+import paige.navic.domain.models.effectiveAurralArtworkPriority
 import paige.navic.domain.models.LidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.NowPlayingArtworkTapDestination
 import paige.navic.domain.models.externalFallbackArtworkCacheKey
@@ -55,6 +56,8 @@ import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
+import paige.navic.domain.models.visiblePlaybackCoverArtId
+import paige.navic.domain.models.visiblePlaybackImageUrl
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.KeyboardArrowDown
@@ -110,6 +113,25 @@ fun NowPlayingScreen() {
 		externalArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
+	val effectiveArtworkPriority = effectiveAurralArtworkPriority(
+		aurralEnabled = preferenceManager.aurralEnabled,
+		configuredPriority = preferenceManager.coverArtworkPriority
+	)
+	val selectedPlaybackCoverArtId = visiblePlaybackCoverArtId(
+		serverCoverArtId = song?.coverArtId,
+		externalArtworkUrl = currentMusicBrainzFallbackArtworkUrl,
+		priority = effectiveArtworkPriority
+	)
+	val selectedPlaybackImageUrl = visiblePlaybackImageUrl(
+		serverCoverArtId = song?.coverArtId,
+		externalArtworkUrl = currentMusicBrainzFallbackArtworkUrl,
+		priority = effectiveArtworkPriority
+	)
+	val selectedPlaybackImageCacheKey = if (selectedPlaybackImageUrl == null) {
+		null
+	} else {
+		currentMusicBrainzFallbackArtworkCacheKey
+	}
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
@@ -244,9 +266,9 @@ fun NowPlayingScreen() {
 		Box(Modifier.fillMaxSize()) {
 			if (isDynamicBackground) {
 				BlendBackground(
-					coverArtId = song?.coverArtId,
-					imageUrl = currentMusicBrainzFallbackArtworkUrl,
-					imageCacheKey = currentMusicBrainzFallbackArtworkCacheKey,
+					coverArtId = selectedPlaybackCoverArtId,
+					imageUrl = selectedPlaybackImageUrl,
+					imageCacheKey = selectedPlaybackImageCacheKey,
 					isPaused = playerState.isPaused,
 					showBottomGradient = shouldShowNowPlayingBackgroundBottomGradient(
 						enabled = preferenceManager.nowPlayingBackgroundBottomGradient,

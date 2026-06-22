@@ -191,6 +191,7 @@ Phase 3 is host-verified:
 - These events are no longer allowed to remain adapter-only. `ReaderController` must retain link, annotation, overlay, loaded-document, and navigation state for downstream UI behavior.
 - `AnnotationClick` now has a visible controller-owned UI route: tapping an existing Foliate/Anx annotation can surface a native Komikku annotation popup instead of only updating debug/controller state.
 - `ExternalLink` now has a visible controller-owned UI route: Foliate external-link events surface a native confirmation prompt and open only through the app boundary, not through WebView chrome.
+- `PushState` is not passive history metadata: Anx routes history capability changes into visible reader chrome, so Navic now surfaces `KomikkuReaderHistoryCapsule` whenever `canGoBack || canGoForward` and only hides it through the controller-owned dismiss route.
 - Do not convert unrelated product divergences or out-of-scope entries to `Exists`.
 - Android/emulator bridge-path validation now covers `externalLink`, `loadDoc`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `footnoteClose`, and diagnostic `pullUp` in a dirty readerdev WebView.
 - Dirty-emulator validation now proves a user-like ADB tap can clear an existing WebView selection and emit Android-side `selectionCleared` without center-menu dispatch. This still used a DevTools probe to create the selection, so real manual text selection and scrolled-edge pull-up gestures remain release-readiness validation items.
@@ -243,7 +244,7 @@ Priority 0:
 
 Priority 1:
 
-- Improve drag preview so the next/previous page is visible during drag instead of a black void.
+- Host/emulator-closed on 2026-06-21: drag preview now keeps the current page moving while a section-boundary adjacent preview is still loading, avoiding the black-void fallback. Keep manual release/physical validation open for perceived drag feel.
 - Correct remaining texture transition weirdness during page movement and page/section transitions.
 - Confirm cover drag behavior is faithful: cover should not vanish on touch; drag should produce reader-owned feedback and commit on release.
 - Keep progress rail chapter-local and Komikku-like; avoid whole-book rail behavior unless explicitly designed as a separate UI.
@@ -253,7 +254,7 @@ Priority 2:
 
 - Redesign the settings overlay density and scroll treatment around Komikku behavior.
 - Improve paper texture/border texture visibility and asset strategy.
-- Move developer-only reader options, including WebView debugging, to Developer Options.
+- Host-closed on 2026-06-22: developer-only reader options, including WebView debugging and tap-zone visibility, live under Developer Options and Settings search routes them there instead of bloating the reader sheet.
 - Keep page-curl animation sample as low-priority follow-up: `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
 
 ## Implementation Order
@@ -262,7 +263,7 @@ Priority 2:
 2. Validate remaining user-driven Phase 3 bridge flows: scrolled-edge pull-up gestures must be observed without diagnostic commands.
 3. Validate/fix release-candidate parity for the progress rail and cover chrome.
 4. Resume persistence after disrupted drag/app interruption is dirty-emulator validated; keep clean release/physical confirmation open.
-5. Fix drag preview black void and texture movement as one interaction slice.
+5. Continue texture movement polish as the remaining drag-feel slice; the black-void boundary fallback itself is host/emulator-closed but still needs release-device feel validation.
 6. Continue the remaining Anx/Foliate behavior work behind the controller boundary: PDF runtime interaction, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
 7. Continue Komikku UI parity: rail proportions, bottom menu placement, non-duplicated bottom actions, settings overlay, tap-zone visibility.
 8. Only after the shell is stable, revisit lower-priority page curl animation and optional visual polish.

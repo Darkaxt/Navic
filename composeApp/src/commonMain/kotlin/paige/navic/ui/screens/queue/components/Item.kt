@@ -43,8 +43,8 @@ import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.DragHandle
 import paige.navic.icons.outlined.Offline
 import paige.navic.icons.outlined.QueuePlayNext
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.components.common.Waveform
 import paige.navic.util.ui.DraggableListState
 import paige.navic.util.ui.dragHandle
@@ -180,9 +180,9 @@ fun QueueScreenItem(
 					content = { MarqueeText(song.title) },
 					supportingContent = { MarqueeText(song.artistName) },
 					leadingContent = {
-						CoverArt(
+						PlaybackSongCoverArt(
 							modifier = Modifier.size(48.dp),
-							coverArtId = song.coverArtId,
+							song = song,
 							shape = ContinuousRoundedRectangle(10.dp)
 						)
 					},

@@ -135,6 +135,47 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun discoverArtistRouteDropsNavidromeImageUrls() {
+		assertEquals(
+			Screen.AurralArtist(
+				artistMbid = "artist-mbid",
+				artistName = "The Artist",
+				imageUrl = null
+			),
+			aurralArtistRoute(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "The Artist",
+					imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=artist-mbid"
+				)
+			)
+		)
+	}
+
+	@Test
+	fun aurralArtistHeroSuppressesLocalNavidromeCoverWhenAurralIsEnabled() {
+		val localArtist = DomainArtist(
+			id = "local-jason-ross",
+			name = "Jason Ross",
+			coverArtId = "navidrome-artist-cover"
+		)
+
+		assertNull(
+			aurralArtistHeroCoverArtId(
+				localArtist = localArtist,
+				externalArtworkEnabled = true
+			)
+		)
+		assertEquals(
+			"navidrome-artist-cover",
+			aurralArtistHeroCoverArtId(
+				localArtist = localArtist,
+				externalArtworkEnabled = false
+			)
+		)
+	}
+
+	@Test
 	fun discoverArtistRecommendationRouteUsesNativeArtistWhenKnown() {
 		val localArtist = DomainArtist(
 			id = "local-artist-id",
@@ -258,6 +299,58 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun discoverArtistsKeepAurralArtworkAheadOfMatchedNavidromeLibraryRows() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "Jason Ross",
+					imageUrl = "https://aurral.example.com/artist/jason-ross.webp"
+				)
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(
+					id = "ARTIST-MBID",
+					name = "Jason Ross",
+					imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=artist-mbid",
+					monitored = true
+				)
+			)
+		)
+
+		val artist = aurralHubDiscoverArtists(summary).single()
+
+		assertEquals("https://aurral.example.com/artist/jason-ross.webp", artist.imageUrl)
+		assertEquals(true, artist.monitored)
+	}
+
+	@Test
+	fun discoverArtistsDropMatchedNavidromeLibraryArtworkWhenAurralImageIsMissing() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "Jason Ross",
+					imageUrl = null
+				)
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(
+					id = "ARTIST-MBID",
+					name = "Jason Ross",
+					imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=artist-mbid",
+					monitored = true
+				)
+			)
+		)
+
+		val artist = aurralHubDiscoverArtists(summary).single()
+
+		assertNull(artist.imageUrl)
+		assertEquals(true, artist.monitored)
+	}
+
+	@Test
 	fun discoveryCollectionRowsMergePreferredArtworkFromLibraryArtistRows() {
 		val summary = AurralDiscoverySummary(
 			basedOn = listOf(
@@ -283,6 +376,75 @@ class AurralHubDisplayPolicyTest {
 
 		assertEquals("https://aurral.example.com/artist/iu.webp", row.artists.single().imageUrl)
 		assertEquals(true, row.artists.single().monitored)
+	}
+
+	@Test
+	fun discoveryCollectionRowsKeepAurralArtworkAheadOfMatchedNavidromeLibraryRows() {
+		val summary = AurralDiscoverySummary(
+			basedOn = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://aurral.example.com/artist/iu.webp"
+				)
+			),
+			libraryArtists = listOf(
+				AurralDiscoverArtist(
+					id = "ARTIST-MBID",
+					name = "IU",
+					imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=artist-mbid",
+					monitored = true
+				)
+			)
+		)
+
+		val row = aurralDiscoveryCollectionRows(summary, limit = 8)
+			.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.single { it.kind == AurralDiscoveryCollectionKind.BasedOnArtists }
+
+		assertEquals("https://aurral.example.com/artist/iu.webp", row.artists.single().imageUrl)
+		assertEquals(true, row.artists.single().monitored)
+	}
+
+	@Test
+	fun discoveryMergeKeepsNonNavidromeArtworkWhenDuplicateRowsArriveLater() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=artist-mbid"
+				)
+			),
+			globalTop = listOf(
+				AurralDiscoverArtist(
+					id = "ARTIST-MBID",
+					name = "IU",
+					imageUrl = "https://aurral.example.com/artist/iu.webp"
+				)
+			)
+		)
+
+		val artist = aurralDiscoverListArtists(summary).single()
+
+		assertEquals("https://aurral.example.com/artist/iu.webp", artist.imageUrl)
+	}
+
+	@Test
+	fun discoveryMergeDropsNavidromeArtworkWhenNoAurralAlternativeExists() {
+		val summary = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist-mbid",
+					name = "IU",
+					imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=artist-mbid"
+				)
+			)
+		)
+
+		val artist = aurralDiscoverListArtists(summary).single()
+
+		assertNull(artist.imageUrl)
 	}
 
 	@Test

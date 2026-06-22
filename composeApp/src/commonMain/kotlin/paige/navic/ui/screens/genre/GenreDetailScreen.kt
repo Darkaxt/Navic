@@ -49,6 +49,7 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
+import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
@@ -63,6 +64,8 @@ import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.artistCoverArtIdForExternalArtworkPolicy
+import paige.navic.ui.screens.artist.artistImageUrlForExternalArtworkPolicy
 import paige.navic.ui.screens.genre.viewmodels.GenreDetailState
 import paige.navic.ui.screens.genre.viewmodels.GenreDetailViewModel
 import paige.navic.util.ui.withoutTop
@@ -144,6 +147,7 @@ private fun GenreDetailContent(
 ) {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val preferenceManager = koinInject<PreferenceManager>()
 	val durationLabel = queueTotalDurationLabel(state.totalDuration.inWholeSeconds)
 
 	LazyColumn(
@@ -228,13 +232,27 @@ private fun GenreDetailContent(
 					contentPadding = PaddingValues(horizontal = 16.dp)
 				) {
 					items(state.artists, key = { it.id }) { artist ->
+						val artistImageUrl = artistImageUrlForExternalArtworkPolicy(
+							artist = artist,
+							externalArtworkEnabled = preferenceManager.aurralEnabled
+						)
+						val artistImageRequestHeaders = aurralRequestHeadersForUrl(
+							baseUrl = preferenceManager.aurralBaseUrl,
+							imageUrl = artistImageUrl,
+							requestHeaders = preferenceManager.aurralRequestHeadersMap()
+						)
 						ArtGridItem(
 							modifier = Modifier.width(150.dp),
 							onClick = dropUnlessResumed {
 								platformContext.clickSound()
 								backStack.add(Screen.ArtistDetail(artist.id))
 							},
-							coverArtId = artist.coverArtId,
+							coverArtId = artistCoverArtIdForExternalArtworkPolicy(
+								artist = artist,
+								externalArtworkEnabled = preferenceManager.aurralEnabled
+							),
+							imageUrl = artistImageUrl,
+							imageRequestHeaders = artistImageRequestHeaders,
 							title = artist.name,
 							subtitle = pluralStringResource(
 								Res.plurals.count_albums,

@@ -44,20 +44,45 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 ): List<DomainMostPlayedShortcut> =
 	shortcuts.map { shortcut ->
 		if (shortcut.type != PlaybackOriginType.Artist) {
-			shortcut.copy(coverArtId = shortcut.coverArtId.cleanArtworkValue())
+			shortcut.copy(
+				coverArtId = shortcut.coverArtId.visibleShortcutArtworkForAurralPolicy(
+					aurralArtworkEnabled = aurralArtworkEnabled
+				)
+			)
 		} else {
-			val nativeArtistCover = artists.artistCoverArtIdFor(shortcut)
+			val effectiveArtworkPriority = if (aurralArtworkEnabled) {
+				ArtworkSourcePriority.AurralFirst
+			} else {
+				artistArtworkPriority
+			}
+			val nativeArtistCover = if (aurralArtworkEnabled) {
+				null
+			} else {
+				artists.artistCoverArtIdFor(shortcut)
+			}
 			val trustedExternalPhoto = if (aurralArtworkEnabled) {
 				artists.trustedArtistImageUrlFor(shortcut)
 			} else {
 				null
 			}
-			val localSongCover = songs.songArtworkFor(shortcut)
-			val localAlbumCover = albums.albumArtworkFor(shortcut)
-			val localSnapshotCover = shortcut.coverArtId.cleanArtworkValue()
-				?.takeUnless { it.isAbsoluteHttpUrl() }
+			val localSongCover = if (aurralArtworkEnabled) {
+				null
+			} else {
+				songs.songArtworkFor(shortcut)
+			}
+			val localAlbumCover = if (aurralArtworkEnabled) {
+				null
+			} else {
+				albums.albumArtworkFor(shortcut)
+			}
+			val localSnapshotCover = if (aurralArtworkEnabled) {
+				null
+			} else {
+				shortcut.coverArtId.cleanArtworkValue()
+					?.takeUnless { it.isAbsoluteHttpUrl() }
+			}
 			shortcut.copy(
-				coverArtId = when (artistArtworkPriority) {
+				coverArtId = when (effectiveArtworkPriority) {
 					ArtworkSourcePriority.AurralFirst ->
 						trustedExternalPhoto
 							?: nativeArtistCover
@@ -92,7 +117,7 @@ private fun List<MostPlayedShortcutArtistArtwork>.trustedArtistImageUrlFor(
 		artist.artistImageUrl.cleanArtworkValue()
 			?.takeIf {
 				artist.trustedExternalPhoto &&
-					it.isAbsoluteHttpUrl() &&
+					it.isExternalArtistPhotoUrl() &&
 					artist.matches(shortcut)
 			}
 	}
@@ -103,7 +128,7 @@ fun mostPlayedArtistArtworkForShortcut(
 ): MostPlayedShortcutArtistArtwork? =
 	candidates.firstOrNull { artist ->
 		artist.trustedExternalPhoto &&
-		artist.artistImageUrl.cleanArtworkValue()?.isAbsoluteHttpUrl() == true &&
+			artist.artistImageUrl.cleanArtworkValue()?.isExternalArtistPhotoUrl() == true &&
 			artist.matches(shortcut)
 	}
 
@@ -158,6 +183,14 @@ private fun MostPlayedShortcutSongArtwork.matches(shortcut: DomainMostPlayedShor
 
 private fun String?.cleanArtworkValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun String?.visibleShortcutArtworkForAurralPolicy(
+	aurralArtworkEnabled: Boolean
+): String? {
+	val artwork = cleanArtworkValue() ?: return null
+	if (!aurralArtworkEnabled) return artwork
+	return artwork.takeIf { it.isExternalArtworkUrl() }
+}
 
 private fun String?.normalizedArtworkMatchKey(): String? =
 	this
@@ -249,3 +282,18 @@ private fun Char.isArtworkNameCharacter(): Boolean =
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private fun String.isExternalArtistPhotoUrl(): Boolean =
+	isExternalArtworkUrl()
+
+private fun String.isExternalArtworkUrl(): Boolean =
+	isAbsoluteHttpUrl() && !isNavidromeArtworkUrl()
+
+private fun String.isNavidromeArtworkUrl(): Boolean {
+	val normalized = lowercase()
+	return "navidrome" in normalized ||
+		"/rest/getcoverart" in normalized ||
+		"/rest/getartistimage" in normalized ||
+		"/getcoverart" in normalized ||
+		"/getartistimage" in normalized
+}

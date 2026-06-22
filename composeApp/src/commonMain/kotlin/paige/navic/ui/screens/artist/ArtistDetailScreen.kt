@@ -333,7 +333,10 @@ fun ArtistDetailScreen(
 					) {
 						ArtistDetailScreenHeading(
 							artistName = state.artist.name,
-							coverArtId = state.artist.coverArtId,
+							coverArtId = artistDetailHeadingCoverArtId(
+								artist = state.artist,
+								externalArtworkEnabled = preferenceManager.aurralEnabled
+							),
 							imageUrl = headingImageUrl,
 							imageRequestHeaders = headingImageRequestHeaders,
 							imageDiagnosticLabel = "artist-detail-${state.artist.id}",
@@ -657,7 +660,10 @@ fun ArtistDetailScreen(
 										artist = AurralSimilarArtist(
 											id = artist.musicBrainzId ?: artist.id,
 											name = artist.name,
-											imageUrl = artist.artistImageUrl
+											imageUrl = artistImageUrlForExternalArtworkPolicy(
+												artist = artist,
+												externalArtworkEnabled = preferenceManager.aurralEnabled
+											)
 										),
 										localArtistId = artist.id,
 										localCoverArtId = artist.coverArtId,
@@ -844,6 +850,7 @@ private fun CarouselItemScope.AurralSimilarArtistItem(
 	onClickLocalArtist: (String) -> Unit,
 	onClickAurralArtist: () -> Unit
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
 	val localArtistId = row.localArtistId
 	val subtitle = row.matchPercent?.let {
@@ -856,7 +863,7 @@ private fun CarouselItemScope.AurralSimilarArtistItem(
 			.alpha(if (row.inLibrary) 1f else .62f)
 	) {
 		CoverArt(
-			coverArtId = row.localCoverArtId,
+			coverArtId = row.localCoverArtId?.takeUnless { preferenceManager.aurralEnabled },
 			imageUrl = row.artist.imageUrl,
 			imageCacheKey = "aurral-similar-artist-${row.artist.id}",
 			imageRequestHeaders = imageRequestHeaders,

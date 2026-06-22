@@ -63,6 +63,7 @@ expect fun ReaderSystemBarsEffect(
 @Composable
 expect fun KomikkuAdaptiveSheet(
 	onDismissRequest: () -> Unit,
+	dimAmount: Float = 0.5f,
 	modifier: Modifier = Modifier,
 	content: @Composable () -> Unit
 )

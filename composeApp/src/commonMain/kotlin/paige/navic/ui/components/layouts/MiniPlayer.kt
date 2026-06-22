@@ -66,13 +66,10 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.shouldShowMiniPlayerQueueAction
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NavbarConfig
-import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.filled.Pause
@@ -86,6 +83,9 @@ import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.applyCoverArtNormalization
 import paige.navic.ui.components.common.normalizedCoverArtCacheKey
 import paige.navic.ui.components.common.playPauseIconPainter
+import paige.navic.ui.components.common.rememberPlaybackSongArtworkState
+import paige.navic.ui.components.common.visibleCoverArtIdForAurralPolicy
+import paige.navic.ui.components.common.visibleImageUrlForAurralPolicy
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
@@ -119,31 +119,26 @@ fun MiniPlayer(
 
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
-	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
-	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
-	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
-	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
-	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
-	val musicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
-		serverCoverLoadFailed = serverCoverLoadFailed
+	val artwork = song?.let { rememberPlaybackSongArtworkState(it) }
+	val miniPlayerImageUrl = visibleImageUrlForAurralPolicy(
+		imageUrl = artwork?.imageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
 	)
-	val musicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
-		serverCoverLoadFailed = serverCoverLoadFailed
+	val miniPlayerVisibleCoverArtId = visibleCoverArtIdForAurralPolicy(
+		coverArtId = artwork?.coverArtId,
+		imageUrl = miniPlayerImageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
 	)
-	val hasArtwork = !song?.coverArtId.isNullOrEmpty() || !musicBrainzFallbackArtworkUrl.isNullOrBlank()
+	val hasArtwork = !miniPlayerVisibleCoverArtId.isNullOrEmpty() || !miniPlayerImageUrl.isNullOrBlank()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val model = remember(song?.coverArtId, musicBrainzFallbackArtworkUrl, musicBrainzFallbackArtworkCacheKey, serverRequestHeaders) {
-		val usesServerCoverArt = musicBrainzFallbackArtworkUrl.isNullOrBlank()
+	val model = remember(artwork?.imageCacheKey, miniPlayerImageUrl, miniPlayerVisibleCoverArtId, serverRequestHeaders) {
+		val usesServerCoverArt = miniPlayerImageUrl == null && miniPlayerVisibleCoverArtId != null
 		val imageCacheKey = normalizedCoverArtCacheKey(
-			cacheKey = musicBrainzFallbackArtworkCacheKey ?: song?.coverArtId,
+			cacheKey = artwork?.imageCacheKey ?: miniPlayerVisibleCoverArtId,
 			normalization = CoverArtNormalization.TrimWhitespace
 		)
 		ImageRequest.Builder(coilPlatformContext)
-			.data(musicBrainzFallbackArtworkUrl ?: song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.data(miniPlayerImageUrl ?: miniPlayerVisibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(imageCacheKey)
 			.diskCacheKey(imageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
@@ -269,12 +264,9 @@ fun MiniPlayer(
 							contentDescription = null,
 							contentScale = ContentScale.Crop,
 							onError = {
-								if (musicBrainzFallbackArtworkUrl.isNullOrBlank()) {
-									song?.let { failedSong ->
-										musicBrainzArtworkRepository.reportServerCoverLoadFailed(failedSong.id)
-										scope.launch {
-											musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(failedSong)
-										}
+								if (artwork?.imageUrl.isNullOrBlank()) {
+									scope.launch {
+										artwork?.onServerCoverLoadFailed?.invoke()
 									}
 								}
 							},

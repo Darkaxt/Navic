@@ -180,8 +180,7 @@ const readerInlineTypographyLooksLikeProse = element => {
   return text.length > 0
 }
 
-const readerInlineTypographyFontSize = element =>
-  readerInlineTypographyBlockTags.has(element?.tagName || '') ? '1rem' : '1em'
+const readerInlineTypographyFontSize = element => '1em'
 
 export const normalizeReaderInlineTypography = (doc, settings = {}) => {
   if (!doc?.body) return 0
@@ -372,7 +371,7 @@ export const readerTypographyCss = settings => {
     `}
   }
   body {
-    font-size: 1rem !important;
+    font-size: 1em !important;
     line-height: ${settings.lineHeight || 1.55} !important;
     width: auto !important;
     max-width: none !important;
@@ -421,7 +420,7 @@ export const readerTypographyCss = settings => {
   body > samp:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   body > kbd:not(:has(img)):not(:has(svg)):not(:has(canvas)),
   font {
-    font-size: 1rem !important;
+    font-size: 1em !important;
     ${usePublisherStyles ? '' : `
     font-weight: ${fontWeight} !important;
     `}

@@ -55,6 +55,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_theme_sepia
 import org.jetbrains.compose.resources.StringResource
 import paige.navic.reader.ReaderBlackTheme
 import paige.navic.reader.ReaderBookFontFamily
+import paige.navic.reader.ReaderDarkTheme
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderDirectionLtr
 import paige.navic.reader.ReaderDirectionRtl

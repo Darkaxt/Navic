@@ -149,7 +149,6 @@ class AndroidMediaPlayerViewModel(
 ) {
 	private var controller: MediaController? = null
 	private var controllerFuture: ListenableFuture<MediaController>? = null
-
 	private var loadingCollectionId: String? = null
 
 	private var pendingSyncState: PlayerUiState? = null
@@ -160,12 +159,15 @@ class AndroidMediaPlayerViewModel(
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
 		downloadManager = downloadManager,
+		preferenceManager = preferenceManager,
+		musicBrainzArtworkRepository = musicBrainzArtworkRepository,
 		platformContext = platformContext,
 		streamUriForSongId = ::getStreamUrl
 	)
 	private val nowPlayingBroadcaster = AndroidNowPlayingBroadcaster(
 		application = application,
 		sessionManager = sessionManager,
+		preferenceManager = preferenceManager,
 		musicBrainzArtworkRepository = musicBrainzArtworkRepository
 	)
 	private val playbackAssetPrefetcher = AndroidPlaybackAssetPrefetcher(

@@ -1,44 +1,76 @@
 package paige.navic.domain.models
 
+import paige.navic.domain.models.settings.ArtworkSourcePriority
+
 fun activeArtworkUrl(
 	serverArtworkUrl: String?,
 	externalArtworkUrl: String?
-): String? = serverArtworkUrl.nonBlankOrNull() ?: externalArtworkUrl.nonBlankOrNull()
+): String? = externalArtworkUrl.nonBlankOrNull() ?: serverArtworkUrl.nonBlankOrNull()
 
 fun dominantColorArtworkUrl(
 	serverArtworkUrl: String?,
 	externalArtworkUrl: String?
 ): String? =
-	serverArtworkUrl.nonBlankOrNull()?.withQueryParameter("size", "128")
-		?: externalArtworkUrl.nonBlankOrNull()
+	externalArtworkUrl.nonBlankOrNull()
+		?: serverArtworkUrl.nonBlankOrNull()?.withQueryParameter("size", "128")
 
+@Suppress("UNUSED_PARAMETER")
 fun externalFallbackArtworkUrl(
 	serverCoverArtId: String?,
 	externalArtworkUrl: String?,
 	serverCoverLoadFailed: Boolean = false
 ): String? =
-	if (serverCoverArtId.isNullOrBlank() || serverCoverLoadFailed) {
-		externalArtworkUrl.nonBlankOrNull()
-	} else {
-		null
-	}
+	externalArtworkUrl.nonBlankOrNull()
 
+@Suppress("UNUSED_PARAMETER")
 fun externalFallbackArtworkCacheKey(
 	serverCoverArtId: String?,
 	externalArtworkCacheKey: String?,
 	serverCoverLoadFailed: Boolean = false
 ): String? =
-	if (serverCoverArtId.isNullOrBlank() || serverCoverLoadFailed) {
-		externalArtworkCacheKey.nonBlankOrNull()
-	} else {
-		null
-	}
+	externalArtworkCacheKey.nonBlankOrNull()
 
 fun shouldSendServerArtworkHeaders(
 	serverArtworkUrl: String?,
 	externalArtworkUrl: String?
 ): Boolean =
-	serverArtworkUrl.nonBlankOrNull() != null || externalArtworkUrl.isNullOrBlank()
+	externalArtworkUrl.nonBlankOrNull() == null &&
+		(serverArtworkUrl.nonBlankOrNull() != null || externalArtworkUrl.isNullOrBlank())
+
+fun effectiveAurralArtworkPriority(
+	aurralEnabled: Boolean,
+	configuredPriority: ArtworkSourcePriority
+): ArtworkSourcePriority =
+	if (aurralEnabled) {
+		ArtworkSourcePriority.AurralFirst
+	} else {
+		configuredPriority
+	}
+
+@Suppress("UNUSED_PARAMETER")
+fun visiblePlaybackCoverArtId(
+	serverCoverArtId: String?,
+	externalArtworkUrl: String?,
+	priority: ArtworkSourcePriority
+): String? =
+	when (priority) {
+		ArtworkSourcePriority.AurralFirst -> null
+		ArtworkSourcePriority.NativeFirst,
+		ArtworkSourcePriority.NativeOnly -> serverCoverArtId.nonBlankOrNull()
+	}
+
+fun visiblePlaybackImageUrl(
+	serverCoverArtId: String?,
+	externalArtworkUrl: String?,
+	priority: ArtworkSourcePriority
+): String? {
+	val external = externalArtworkUrl.nonBlankOrNull()
+	return when (priority) {
+		ArtworkSourcePriority.AurralFirst -> external
+		ArtworkSourcePriority.NativeFirst -> if (serverCoverArtId.nonBlankOrNull() == null) external else null
+		ArtworkSourcePriority.NativeOnly -> null
+	}
+}
 
 private fun String?.nonBlankOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }

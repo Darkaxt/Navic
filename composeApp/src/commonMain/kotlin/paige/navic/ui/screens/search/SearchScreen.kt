@@ -85,12 +85,12 @@ import paige.navic.icons.outlined.Offline
 import paige.navic.icons.outlined.Queue
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.dialogs.QueueDuplicateDialog
@@ -339,8 +339,8 @@ fun SearchScreen(
 												)
 											},
 											leadingContent = {
-												CoverArt(
-													coverArtId = song.coverArtId,
+												PlaybackSongCoverArt(
+													song = song,
 													modifier = Modifier.size(50.dp),
 													shape = preferenceManager.coverArtShape.decreasedShape
 												)

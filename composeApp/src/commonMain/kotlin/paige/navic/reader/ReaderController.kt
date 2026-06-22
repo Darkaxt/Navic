@@ -386,7 +386,7 @@ data class ReaderController(
 						engineNavigation = ReaderEngineNavigationState(
 							canGoBack = event.canGoBack,
 							canGoForward = event.canGoForward,
-							visible = false
+							visible = event.canGoBack || event.canGoForward
 						)
 					)
 				)

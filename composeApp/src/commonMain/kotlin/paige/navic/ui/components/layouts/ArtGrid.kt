@@ -44,11 +44,13 @@ import paige.navic.LocalSharedTransitionScope
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAcquisitionProgress
 import paige.navic.domain.models.AurralOwnershipStatus
+import paige.navic.domain.models.DomainSong
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.rememberPlaybackSongArtworkState
 import paige.navic.ui.core.UiState
 import paige.navic.util.ui.EmphasizedDecelerateEasing
 import paige.navic.util.ui.shimmerLoading
@@ -96,6 +98,7 @@ fun ArtGridItem(
 	onLongClick: (() -> Unit)? = null,
 	coverArtId: String?,
 	imageUrl: String? = null,
+	imageCacheKey: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	imageDiagnosticLabel: String? = null,
 	title: String,
@@ -106,6 +109,7 @@ fun ArtGridItem(
 	coverAspectRatio: Float = 1f,
 	coverContentScale: ContentScale = ContentScale.Crop,
 	fallbackKind: String? = null,
+	onServerCoverLoadFailed: (suspend () -> Unit)? = null,
 	id: String,
 	// this parameter is a shitty workaround for shared element
 	// transitions being performed when switching between tabs
@@ -129,10 +133,12 @@ fun ArtGridItem(
 				CoverArt(
 					coverArtId = coverArtId,
 					imageUrl = imageUrl,
+					imageCacheKey = imageCacheKey,
 					imageRequestHeaders = imageRequestHeaders,
 					imageDiagnosticLabel = imageDiagnosticLabel,
 					contentDescription = title,
 					fallbackKind = fallbackKind,
+					onServerCoverLoadFailed = onServerCoverLoadFailed,
 					modifier = Modifier
 						.fillMaxWidth()
 						.aspectRatio(coverAspectRatio)
@@ -185,6 +191,39 @@ fun ArtGridItem(
 			}
 		}
 	}
+}
+
+@Composable
+fun PlaybackSongArtGridItem(
+	modifier: Modifier = Modifier,
+	onClick: () -> Unit,
+	onLongClick: (() -> Unit)? = null,
+	song: DomainSong,
+	subtitle: String? = song.artistName,
+	acquisitionProgress: AurralAcquisitionProgress? = null,
+	ownershipStatus: AurralOwnershipStatus? = null,
+	coverOverlay: (@Composable BoxScope.() -> Unit)? = null,
+	id: String = song.id,
+	tab: String
+) {
+	val artwork = rememberPlaybackSongArtworkState(song)
+	ArtGridItem(
+		modifier = modifier,
+		onClick = onClick,
+		onLongClick = onLongClick,
+		coverArtId = artwork.coverArtId,
+		imageUrl = artwork.imageUrl,
+		imageCacheKey = artwork.imageCacheKey,
+		title = song.title,
+		subtitle = subtitle,
+		acquisitionProgress = acquisitionProgress,
+		ownershipStatus = ownershipStatus,
+		coverOverlay = coverOverlay,
+		fallbackKind = "Track",
+		onServerCoverLoadFailed = artwork.onServerCoverLoadFailed,
+		id = id,
+		tab = tab
+	)
 }
 
 @Composable

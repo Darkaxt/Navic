@@ -34,8 +34,8 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.nowPlayingUpNextItems
 import paige.navic.domain.models.shouldShowNowPlayingUpNextArtwork
 import paige.navic.shared.MediaPlayerViewModel
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.CoverArtNormalization
+import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.navigation.Screen
 
 internal fun nowPlayingUpNextItemWidth(showArtwork: Boolean): Dp =
@@ -137,12 +137,11 @@ private fun NowPlayingUpNextItem(
 				verticalAlignment = Alignment.CenterVertically,
 				modifier = Modifier.padding(8.dp)
 			) {
-				CoverArt(
-					coverArtId = song.coverArtId,
+				PlaybackSongCoverArt(
+					song = song,
 					contentDescription = null,
 					modifier = Modifier.size(36.dp),
 					normalization = CoverArtNormalization.TrimWhitespace,
-					crossfadeMs = 200
 				)
 				Column(
 					modifier = Modifier

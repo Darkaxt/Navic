@@ -87,8 +87,8 @@ import paige.navic.icons.outlined.Share
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.icons.outlined.Speed
 import paige.navic.icons.outlined.Star
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.components.common.RatingRow
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.theme.positive
@@ -172,8 +172,8 @@ fun SongSheet(
 				)
 			},
 			leadingContent = {
-				CoverArt(
-					coverArtId = song.coverArtId,
+				PlaybackSongCoverArt(
+					song = song,
 					modifier = Modifier.size(50.dp),
 					shape = preferenceManager.coverArtShape.decreasedShape
 				)
