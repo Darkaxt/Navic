@@ -651,7 +651,15 @@ data class ReaderController(
 			currentWhispersync.sync.setSyncEnabled(playbackState.syncEnabled)
 		}
 		val playbackStep = if (!playbackState.isPlaying) {
-			ReaderWhispersyncPlaybackPositionStep(state = baseSync)
+			if (currentWhispersync.status.kind == ReaderWhispersyncStatusKind.Playing) {
+				baseSync.onAudiobookPlaybackPausedStep(
+					audioResource = playbackState.audioResource,
+					positionMs = playbackState.positionMs,
+					clearPlaybackOverlay = true
+				)
+			} else {
+				ReaderWhispersyncPlaybackPositionStep(state = baseSync)
+			}
 		} else {
 			playbackState.audioResource
 				?.takeIf { it.isNotBlank() }

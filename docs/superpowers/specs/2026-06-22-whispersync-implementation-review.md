@@ -3,7 +3,7 @@
 - **Date:** 2026-06-22
 - **Scope:** Static code review of the Whispersync feature against the design intent.
 - **Reference:** extends `docs/superpowers/specs/2026-06-18-whispersync-design.md`
-- **Status:** eta81 hardening addressed findings 1-4 with focused regression coverage; findings 5-7 remain lower-priority follow-up/watch items.
+- **Status:** eta81 hardening addressed findings 1-4 with focused regression coverage; post-eta81 controller hardening addressed finding 6; findings 5 and 7 remain lower-priority follow-up/watch items.
 
 ## Method
 
@@ -47,6 +47,12 @@ The eta81 release hardening addressed the release-blocking findings before publi
 - Sidecar numeric parsing skips malformed segment fields safely and accepts fractional millisecond values.
 - Audio resource matching now prefers exact normalized resource candidates and explicit track indexes; it no longer cross-matches unrelated tracks by suffix-only basename.
 - Regression coverage was added in `WhispersyncTimelineParserTest`, `ReaderWhispersyncSyncCoordinatorTest`, and `ReaderWhispersyncPlaybackPolicyTest`.
+
+Post-eta81 controller hardening addressed finding 6:
+
+- Pausing after an audiobook-position-driven Whispersync overlay now emits `ClearMediaOverlay`, clears the controller-owned active overlay/metadata label, and changes status to `Whispersync paused`.
+- Page-to-audio visible-range overlays are intentionally preserved when playback is paused before audio starts; the pause clear is scoped to the prior `Playing` state so reader-visible cue coverage does not disappear.
+- Regression coverage was added in `ReaderControllerTest.pausingAudiobookPlaybackClearsPlaybackDrivenOverlayAndStatus`.
 
 ## Findings (ranked by severity)
 
@@ -134,7 +140,7 @@ contiguous (`startMs == prev.endMs`).
 the mechanical trigger behind finding #2; narration sidecars are rarely perfectly
 contiguous.
 
-### 6. Pausing playback does not update Whispersync status or clear the overlay — Low
+### 6. Pausing playback does not update Whispersync status or clear the overlay — Low — Addressed post-eta81
 
 **Location:** `ReaderController.kt:653-654` (`onReadaloudPlaybackState`).
 
@@ -142,6 +148,11 @@ contiguous.
 status (e.g. "Whispersync playing") and the text overlay persist while paused.
 
 **Impact:** minor state/UX inconsistency (status says "playing" while paused).
+
+**Resolution:** the controller now routes a prior `Playing` status through
+`onAudiobookPlaybackPausedStep(...)`, clearing playback-driven media overlays and
+setting a paused status while preserving overlays created by visible-range
+reader-to-audio sync.
 
 ### 7. Zero-length / inverted segments dropped silently — Low
 

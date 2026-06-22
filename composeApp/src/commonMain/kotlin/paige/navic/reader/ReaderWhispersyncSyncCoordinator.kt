@@ -147,6 +147,27 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	)
 }
 
+fun ReaderWhispersyncSyncState.onAudiobookPlaybackPausedStep(
+	audioResource: String? = null,
+	positionMs: Long? = null,
+	clearPlaybackOverlay: Boolean = false
+): ReaderWhispersyncPlaybackPositionStep {
+	val nextState = if (clearPlaybackOverlay) {
+		clearOverlayIfNeeded()
+	} else {
+		this
+	}
+	return ReaderWhispersyncPlaybackPositionStep(
+		state = nextState,
+		status = ReaderWhispersyncStatus(
+			kind = ReaderWhispersyncStatusKind.SyncDisabled,
+			label = "Whispersync paused",
+			audioResource = audioResource?.trim()?.takeIf { it.isNotEmpty() },
+			positionMs = positionMs
+		)
+	)
+}
+
 fun ReaderWhispersyncSyncState.onVisibleTextRange(
 	timeline: WhispersyncTimeline?,
 	textHref: String,

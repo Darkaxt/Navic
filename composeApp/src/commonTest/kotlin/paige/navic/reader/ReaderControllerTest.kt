@@ -1725,6 +1725,49 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun pausingAudiobookPlaybackClearsPlaybackDrivenOverlayAndStatus() {
+		val playing = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onReadaloudPlaybackState(
+				ReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					isPlaying = true,
+					trackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 5_500L,
+					durationMs = 8_000L
+				)
+			).controller
+		assertEquals(ReaderWhispersyncStatusKind.Playing, playing.state.whispersync.status.kind)
+		assertNotNull(playing.state.activeMediaOverlay)
+
+		val paused = playing.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+
+		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), paused.engineCommands)
+		assertNull(paused.controller.state.activeMediaOverlay)
+		assertNull(paused.controller.state.audioMetadataLabel)
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SyncDisabled,
+				label = "Whispersync paused",
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L
+			),
+			paused.controller.state.whispersync.status
+		)
+	}
+
+	@Test
 	fun audioFollowVisibleRangeDoesNotSeekAudiobookBackToReaderViewport() {
 		val playing = ReaderController()
 			.open(hobbitOpenRequest()).controller
