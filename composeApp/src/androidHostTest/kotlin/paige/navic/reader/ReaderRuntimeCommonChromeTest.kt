@@ -1947,13 +1947,14 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerRootText, "KomikkuWhispersyncPlaybackControl(")
 		assertContains(readerRootText, ".align(Alignment.TopStart)")
 		assertContains(playbackControlBody, "MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)")
-		assertContains(playbackControlBody, "Icons.Outlined.Audiobooks")
-		assertContains(playbackControlBody, "CircularProgressIndicator(")
+		assertContains(playbackControlBody, "Icons.Outlined.Headset")
 		assertContains(playbackControlBody, "drawLine(")
 		assertFalse(
 			playbackControlBody.contains("Surface(") ||
 				playbackControlBody.contains("RoundedCornerShape(") ||
-				playbackControlBody.contains("MaterialTheme.colorScheme.surface.copy"),
+				playbackControlBody.contains("MaterialTheme.colorScheme.surface.copy") ||
+				playbackControlBody.contains("CircularProgressIndicator(") ||
+				playbackControlBody.contains("IconButton("),
 			"The page-scoped Whispersync control should be a faint headset glyph on the paper surface, not a persistent chrome pill/circle."
 		)
 	}

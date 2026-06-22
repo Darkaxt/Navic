@@ -478,7 +478,7 @@ export const readerTypographyCss = settings => {
     `}
   }
   body {
-    font-size: 1rem !important;
+    font-size: 1em !important;
     line-height: ${settings.lineHeight || 1.8} !important;
     width: auto !important;
     max-width: none !important;

@@ -125,6 +125,65 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
+	fun sidecarTrackIndexWinsOverAmbiguousSuffixMatches() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = ReadaloudPlaybackPlan(
+				sessionId = "ambiguous-book",
+				title = "Ambiguous audiobook",
+				kind = ReaderPublicationKind.Readaloud,
+				mediaItems = listOf(
+					ReadaloudMediaItemDescriptor(
+						mediaId = "wrong-track",
+						uri = "https://bindery.local/files/wrong-book/chapter.m4b",
+						title = "Wrong track",
+						subtitle = null,
+						artist = "Narrator",
+						albumTitle = "Ambiguous audiobook",
+						albumArtist = "Author",
+						trackNumber = 1,
+						discNumber = null,
+						requestHeaders = emptyMap(),
+						resourceKey = "wrong-book/chapter.m4b"
+					),
+					ReadaloudMediaItemDescriptor(
+						mediaId = "correct-track",
+						uri = "https://bindery.local/files/correct-book/chapter.m4b",
+						title = "Correct track",
+						subtitle = null,
+						artist = "Narrator",
+						albumTitle = "Ambiguous audiobook",
+						albumArtist = "Author",
+						trackNumber = 2,
+						discNumber = null,
+						requestHeaders = emptyMap(),
+						resourceKey = "correct-book/chapter.m4b"
+					)
+				),
+				startTrackIndex = 0,
+				startPositionMs = 0L,
+				playbackSpeed = 1f
+			),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "chapter.m4b",
+				positionMs = 63_000L,
+				segment = WhispersyncSegment(
+					audioTrackIndex = 1,
+					audioResource = "chapter.m4b",
+					startMs = 63_000L,
+					endMs = 65_000L,
+					textHref = "Text/chapter2.xhtml",
+					textStart = 10,
+					textEnd = 60
+				)
+			)
+		)
+
+		val seekCommand = assertIs<ReaderReadaloudPlaybackCommand.SeekToTrack>(command)
+		assertEquals(1, seekCommand.trackIndex)
+		assertEquals(63_000L, seekCommand.positionMs)
+	}
+
+	@Test
 	fun whispersyncControlIsHiddenWhenReaderHasNoSyncedAudio() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(),
@@ -141,6 +200,23 @@ class ReaderWhispersyncPlaybackPolicyTest {
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Ready,
 				label = "Whispersync ready"
+			),
+			playbackState = null
+		)
+
+		assertFalse(control.visible)
+		assertFalse(control.loading)
+		assertTrue(control.crossed)
+		assertFalse(control.enabled)
+		assertNull(control.command)
+	}
+
+	@Test
+	fun whispersyncControlIsHiddenWhenAudioIsInTimelineGap() {
+		val control = readerWhispersyncPlaybackControlState(
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.NoActiveCue,
+				label = "No synced text here"
 			),
 			playbackState = null
 		)
