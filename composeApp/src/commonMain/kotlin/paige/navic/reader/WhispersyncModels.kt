@@ -26,7 +26,9 @@ data class WhispersyncSidecar(
 	val ebookBookFileId: String? = null,
 	val audiobookBookFileId: String? = null,
 	val documentTextLength: Int? = null,
-	val timeline: WhispersyncTimeline = WhispersyncTimeline()
+	val timeline: WhispersyncTimeline = WhispersyncTimeline(),
+	val droppedSegmentCount: Int = 0,
+	val droppedSegmentReasons: List<String> = emptyList()
 )
 
 @Serializable
@@ -130,14 +132,19 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 		.mapNotNull { (it as? JsonObject)?.stringValue("href") }
 	val defaultAudioResource = audioResources.firstOrNull()
 	val defaultTextHref = ebook?.stringValue("href") ?: ebook?.stringValue("textHref")
-	val segments = (root.segmentArray() ?: root.objectValue("timeline")?.segmentArray())
+	val parsedSegments = (root.segmentArray() ?: root.objectValue("timeline")?.segmentArray())
 		.orEmpty()
-		.mapNotNull { element ->
-			(element as? JsonObject)?.toWhispersyncSegment(
+		.mapIndexed { index, element ->
+			val segment = element as? JsonObject
+				?: return@mapIndexed WhispersyncSegmentParseResult.dropped(index, "invalid-segment")
+			segment.toWhispersyncSegmentResult(
+				index = index,
 				defaultAudioResource = defaultAudioResource,
 				defaultTextHref = defaultTextHref
 			)
 		}
+	val segments = parsedSegments.mapNotNull { it.segment }
+	val droppedReasons = parsedSegments.mapNotNull { it.dropReason }
 
 	return WhispersyncSidecar(
 		artifactId = root.stringValue("artifactId") ?: root.stringValue("id"),
@@ -149,8 +156,20 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 			?: audiobook?.stringValue("id"),
 		documentTextLength = root.intValue("documentTextLength")
 			?: ebook?.intValue("documentTextLength"),
-		timeline = WhispersyncTimeline(segments = segments)
+		timeline = WhispersyncTimeline(segments = segments),
+		droppedSegmentCount = droppedReasons.size,
+		droppedSegmentReasons = droppedReasons
 	)
+}
+
+private data class WhispersyncSegmentParseResult(
+	val segment: WhispersyncSegment? = null,
+	val dropReason: String? = null
+) {
+	companion object {
+		fun dropped(index: Int, reason: String): WhispersyncSegmentParseResult =
+			WhispersyncSegmentParseResult(dropReason = "segment[$index]: $reason")
+	}
 }
 
 private data class WhispersyncRangeScore(
@@ -185,10 +204,11 @@ private fun JsonObject.segmentArray(): List<JsonElement>? =
 		?: arrayValue("clips")
 		?: arrayValue("cues")
 
-private fun JsonObject.toWhispersyncSegment(
+private fun JsonObject.toWhispersyncSegmentResult(
+	index: Int,
 	defaultAudioResource: String?,
 	defaultTextHref: String?
-): WhispersyncSegment? {
+): WhispersyncSegmentParseResult {
 	val audio = objectValue("audio")
 	val text = objectValue("text") ?: objectValue("ebook")
 	val audioResource = stringValue("audioResource")
@@ -197,7 +217,7 @@ private fun JsonObject.toWhispersyncSegment(
 		?: audio?.stringValue("href")
 		?: audio?.stringValue("resource")
 		?: defaultAudioResource
-		?: return null
+		?: return WhispersyncSegmentParseResult.dropped(index, "missing-audio-resource")
 	val textHref = stringValue("textHref")
 		?: stringValue("textResource")
 		?: stringValue("ebookHref")
@@ -205,40 +225,44 @@ private fun JsonObject.toWhispersyncSegment(
 		?: text?.stringValue("href")
 		?: text?.stringValue("resource")
 		?: defaultTextHref
-		?: return null
+		?: return WhispersyncSegmentParseResult.dropped(index, "missing-text-href")
 	val startMs = millisecondValue("startMs")
 		?: millisecondValue("audioStartMs")
 		?: secondsValue("audioStart")
 		?: secondsValue("startSeconds")
 		?: secondsValue("audioStartSeconds")
 		?: secondsValue("start")
-		?: return null
+		?: return WhispersyncSegmentParseResult.dropped(index, "missing-audio-start")
 	val endMs = millisecondValue("endMs")
 		?: millisecondValue("audioEndMs")
 		?: secondsValue("audioEnd")
 		?: secondsValue("endSeconds")
 		?: secondsValue("audioEndSeconds")
 		?: secondsValue("end")
-		?: return null
-	if (endMs <= startMs) return null
-	return WhispersyncSegment(
-		id = stringValue("id"),
-		audioResourceId = stringValue("audioResourceId")
-			?: stringValue("audioId")
-			?: audio?.stringValue("resourceId")
-			?: audio?.stringValue("id"),
-		audioTrackIndex = intValue("audioTrackIndex")
-			?: intValue("trackIndex")
-			?: audio?.intValue("trackIndex"),
-		audioResource = audioResource,
-		startMs = startMs,
-		endMs = endMs,
-		textHref = textHref,
-		fragmentId = stringValue("fragmentId"),
-		rangeCfi = stringValue("rangeCfi") ?: stringValue("cfi"),
-		textStart = intValue("textStart") ?: intValue("ebookStart") ?: intValue("startChar") ?: text?.intValue("start"),
-		textEnd = intValue("textEnd") ?: intValue("ebookEnd") ?: intValue("endChar") ?: text?.intValue("end"),
-		label = stringValue("label") ?: stringValue("chapterLabel") ?: stringValue("sectionLabel")
+		?: return WhispersyncSegmentParseResult.dropped(index, "missing-audio-end")
+	if (endMs <= startMs) {
+		return WhispersyncSegmentParseResult.dropped(index, "invalid-audio-range")
+	}
+	return WhispersyncSegmentParseResult(
+		segment = WhispersyncSegment(
+			id = stringValue("id"),
+			audioResourceId = stringValue("audioResourceId")
+				?: stringValue("audioId")
+				?: audio?.stringValue("resourceId")
+				?: audio?.stringValue("id"),
+			audioTrackIndex = intValue("audioTrackIndex")
+				?: intValue("trackIndex")
+				?: audio?.intValue("trackIndex"),
+			audioResource = audioResource,
+			startMs = startMs,
+			endMs = endMs,
+			textHref = textHref,
+			fragmentId = stringValue("fragmentId"),
+			rangeCfi = stringValue("rangeCfi") ?: stringValue("cfi"),
+			textStart = intValue("textStart") ?: intValue("ebookStart") ?: intValue("startChar") ?: text?.intValue("start"),
+			textEnd = intValue("textEnd") ?: intValue("ebookEnd") ?: intValue("endChar") ?: text?.intValue("end"),
+			label = stringValue("label") ?: stringValue("chapterLabel") ?: stringValue("sectionLabel")
+		)
 	)
 }
 

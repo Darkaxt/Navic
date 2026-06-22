@@ -3,7 +3,7 @@
 - **Date:** 2026-06-22
 - **Scope:** Static code review of the Whispersync feature against the design intent.
 - **Reference:** extends `docs/superpowers/specs/2026-06-18-whispersync-design.md`
-- **Status:** eta81 hardening addressed findings 1-4 with focused regression coverage; post-eta81 controller hardening addressed finding 6; findings 5 and 7 remain lower-priority follow-up/watch items.
+- **Status:** eta81 hardening addressed findings 1-4 with focused regression coverage; post-eta81 controller/parser hardening addressed findings 6 and 7; finding 5 remains a lower-priority follow-up/watch item.
 
 ## Method
 
@@ -53,6 +53,12 @@ Post-eta81 controller hardening addressed finding 6:
 - Pausing after an audiobook-position-driven Whispersync overlay now emits `ClearMediaOverlay`, clears the controller-owned active overlay/metadata label, and changes status to `Whispersync paused`.
 - Page-to-audio visible-range overlays are intentionally preserved when playback is paused before audio starts; the pause clear is scoped to the prior `Playing` state so reader-visible cue coverage does not disappear.
 - Regression coverage was added in `ReaderControllerTest.pausingAudiobookPlaybackClearsPlaybackDrivenOverlayAndStatus`.
+
+Post-eta81 parser diagnostics addressed finding 7:
+
+- Dropped sidecar segments are now counted in `WhispersyncSidecar.droppedSegmentCount` with indexed reason strings in `droppedSegmentReasons`.
+- Invalid, zero-length, and inverted audio ranges are preserved as diagnostics instead of disappearing silently.
+- Regression coverage was added in `WhispersyncTimelineParserTest.sidecarParserReportsDroppedSegmentDiagnostics`.
 
 ## Findings (ranked by severity)
 
@@ -154,15 +160,17 @@ status (e.g. "Whispersync playing") and the text overlay persist while paused.
 setting a paused status while preserving overlays created by visible-range
 reader-to-audio sync.
 
-### 7. Zero-length / inverted segments dropped silently — Low
+### 7. Zero-length / inverted segments dropped silently — Low — Addressed post-eta81
 
-**Location:** `WhispersyncModels.kt:227` (`if (endMs <= startMs) return null`).
+**Location:** `WhispersyncModels.kt` (`toWhispersyncSegmentResult` invalid-range branch).
 
 **Issue:** reasonable to drop, but combined with finding #3's all-or-nothing decode
 there is no diagnostic when segments are lost, making field-evolution bugs
 invisible.
 
-**Suggested fix:** log/count dropped segments for diagnostics.
+**Resolution:** parser drops now return `WhispersyncSegmentParseResult` values, so
+invalid entries are omitted from the timeline while their indexed reasons remain
+visible on the decoded sidecar.
 
 ## Verified correct (checked, not flaws)
 

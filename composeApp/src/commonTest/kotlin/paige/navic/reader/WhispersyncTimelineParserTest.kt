@@ -252,6 +252,52 @@ class WhispersyncTimelineParserTest {
 	}
 
 	@Test
+	fun sidecarParserReportsDroppedSegmentDiagnostics() {
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "segments": [
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 1000,
+			      "endMs": 1000,
+			      "href": "Text/chapter1.xhtml",
+			      "textStart": 0,
+			      "textEnd": 20
+			    },
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 5000,
+			      "endMs": 3000,
+			      "href": "Text/chapter1.xhtml",
+			      "textStart": 20,
+			      "textEnd": 40
+			    },
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 7000,
+			      "endMs": 9000,
+			      "href": "Text/chapter1.xhtml",
+			      "textStart": 40,
+			      "textEnd": 60
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		assertEquals(1, sidecar.timeline.segments.size)
+		assertEquals(2, sidecar.droppedSegmentCount)
+		assertEquals(
+			listOf(
+				"segment[0]: invalid-audio-range",
+				"segment[1]: invalid-audio-range"
+			),
+			sidecar.droppedSegmentReasons
+		)
+	}
+
+	@Test
 	fun activeSegmentDoesNotCrossMatchWrongAudioTrackBySuffixOnly() {
 		val timeline = WhispersyncTimeline(
 			segments = listOf(
