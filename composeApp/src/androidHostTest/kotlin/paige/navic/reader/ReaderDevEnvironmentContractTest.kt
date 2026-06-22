@@ -152,6 +152,15 @@ class ReaderDevEnvironmentContractTest {
 			"The install script must capture adb stderr/progress output and throw only on non-zero exit; adb pull progress is not a failed setup."
 		)
 		assertTrue(
+			installScriptText.contains("function Invoke-GradleWrapper") &&
+				installScriptText.contains("gradle-wrapper.jar") &&
+				!installScriptText.contains("& .\\gradlew.bat") &&
+				!installScriptText.contains("& ./gradlew.bat") &&
+				!installScriptText.contains("& \$gradle") &&
+				!installScriptText.contains("cmd.exe /c"),
+			"The install script must invoke the Gradle wrapper jar directly through ProcessStartInfo; calling gradlew.bat creates cmd/conhost windows during reader validation."
+		)
+		assertTrue(
 			installScriptText.contains("function Wait-ReaderDevForeground") &&
 				installScriptText.contains("\"dumpsys\", \"activity\", \"activities\"") &&
 				installScriptText.contains("mCurrentFocus") &&

@@ -86,6 +86,50 @@ function Invoke-Adb {
     return $output
 }
 
+function Invoke-GradleWrapper {
+    param([Parameter(Mandatory = $true)][string[]] $Arguments)
+
+    $wrapperJar = Join-Path (Get-Location) "gradle\wrapper\gradle-wrapper.jar"
+    if (!(Test-Path -LiteralPath $wrapperJar -PathType Leaf)) {
+        throw "Gradle wrapper jar not found: $wrapperJar"
+    }
+
+    $javaCommand = Get-Command java -ErrorAction Stop
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $javaCommand.Source
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    [void] $startInfo.ArgumentList.Add("-jar")
+    [void] $startInfo.ArgumentList.Add($wrapperJar)
+    foreach ($argument in $Arguments) {
+        [void] $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (!$process.Start()) {
+        throw "Failed to start Gradle wrapper jar."
+    }
+
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+
+    if (![string]::IsNullOrWhiteSpace($stdout)) {
+        Write-Output $stdout.TrimEnd()
+    }
+    if (![string]::IsNullOrWhiteSpace($stderr)) {
+        Write-Error -Message $stderr.TrimEnd() -ErrorAction Continue
+    }
+    if ($process.ExitCode -ne 0) {
+        throw "Gradle $($Arguments -join ' ') failed with exit code $($process.ExitCode)"
+    }
+}
+
 function Wait-ReaderDevForeground {
     param([Parameter(Mandatory = $true)][string] $Package)
 
@@ -642,10 +686,7 @@ if ($RequireReaderLaunch -and !$NoLaunch -and !$readerLaunchHasPublication) {
 
 if (!$NoBuild) {
     Write-Host "Building androidApp:assembleReaderDev..."
-    & .\gradlew.bat --no-daemon :androidApp:assembleReaderDev
-    if ($LASTEXITCODE -ne 0) {
-        throw "Gradle assembleReaderDev failed with exit code $LASTEXITCODE"
-    }
+    Invoke-GradleWrapper -Arguments @("--no-daemon", ":androidApp:assembleReaderDev")
 }
 
 $apkPath = Join-Path (Get-Location) "androidApp\build\outputs\apk\readerDev\Navic.apk"

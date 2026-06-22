@@ -7262,3 +7262,33 @@ Results:
 - GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 24s`.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - Remaining: no emulator/device visual validation was run for this small settings-placement parity fix.
+
+
+## 2026-06-22 Readerdev No-Console Gradle Launcher and eta81 Readable Matrix
+
+Scope:
+- Fix the readerdev install pipeline regression where `install-reader-dev.ps1` still invoked `gradlew.bat`, spawning `cmd.exe`/`conhost` windows during validation.
+- Refresh the emulator to the eta81 readerdev build and run the documented readable-content gesture matrix without relaunching out of the current EPUB page.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoBuild -NoInstall -NoLaunch -NoDiscoverPublication -PublicationUrl https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426 -ResourceHref OEBPS/xhtml/Authorforeword.xhtml -Title Probe -Kind epub
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta81 -NoLaunch -ArtifactRoot tmp\readerdev-matrix-eta81-readable-20260622-213611 -ContinueOnFailure
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: the focused readerdev environment guard failed before implementation because the installer had no direct Gradle wrapper jar invocation guard and still allowed `gradlew.bat`/`cmd.exe` paths.
+- GREEN/INSTALLER: `scripts\install-reader-dev.ps1` now uses `Invoke-GradleWrapper`, launching `java -jar gradle\wrapper\gradle-wrapper.jar` through `ProcessStartInfo` with `UseShellExecute=false` and `CreateNoWindow=true`.
+- GREEN/HOST-FOCUSED: `ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored` passed after the installer fix.
+- GREEN/SMOKE: the no-build/no-install script parse and argument path completed with exit code 0.
+- GREEN/INSTALL: the emulator package refreshed to `darkaxt.navic.readerdev` `versionName=v1.0.11-eta81`, `versionCode=414`, `lastUpdateTime=2026-06-22 21:33:13`.
+- GREEN/MATRIX: readable-content matrix artifact `tmp\readerdev-matrix-eta81-readable-20260622-213611` passed `baseline-current-reader`, `enter-readable-content`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` with no matrix failures.
+- GREEN/HOST-CONTRACT: full `ReaderDevEnvironmentContractTest` passed.
+- GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 26s`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- NOTE: this matrix started from a readable EPUB page, not the native/shell cover. Cover-state checks still need a dedicated launch or manual setup before claiming cover behavior.
