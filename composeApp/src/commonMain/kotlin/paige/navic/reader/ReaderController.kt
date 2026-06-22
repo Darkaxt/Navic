@@ -1234,7 +1234,12 @@ private fun readerExplicitReadableRelocationDismissesNativeShellCover(
 ): Boolean {
 	if (!shellCoverVisible) return false
 	val reason = locator.reason?.trim().orEmpty()
-	if (reason.isBlank() || reason == "relocate-committed" || reason == "initial-resume") return false
+	if (
+		reason.isBlank() ||
+		reason == "relocate-committed" ||
+		reason == "initial-resume" ||
+		reason.startsWith("pagination-profile-")
+	) return false
 	val href = locator.href?.trim().orEmpty()
 	return href.isBlank() || !readerHrefLooksLikeNativeShellCoverBoundary(href)
 }

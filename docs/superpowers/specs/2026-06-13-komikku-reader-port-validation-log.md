@@ -7292,3 +7292,30 @@ Results:
 - GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 26s`.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - NOTE: this matrix started from a readable EPUB page, not the native/shell cover. Cover-state checks still need a dedicated launch or manual setup before claiming cover behavior.
+
+
+## 2026-06-22 Native Cover Pagination-Profile Retention
+
+Scope:
+- Fix a native/shell cover regression where EPUB pagination-profile relocation events could dismiss the controller-owned cover immediately after launch, leaving the reader on a later saved text location instead of the cover.
+- Validate the patched eta81 readerdev install with a cover-inclusive emulator gesture matrix.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.paginationProfileReadyRelocationDoesNotDismissControllerOwnedShellCover
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest --tests paige.navic.reader.ReaderRuntimeImageLinkTest
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch -ReaderPublicationUrl https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426 -ReaderResourceHref api/v1/book/3809/file?bookFileId=426 -ReaderBookId 3809 -ReaderTitle "Bastille vs. the Evil Librarians" -ReaderKind ebook -ReaderFormat epub -Capture
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-eta81 -NoLaunch -IncludeCoverChecks -ArtifactRoot tmp\readerdev-matrix-eta81-cover-20260622-220105 -ContinueOnFailure
+```
+
+Results:
+- RED/HOST-FIRST: `paginationProfileReadyRelocationDoesNotDismissControllerOwnedShellCover` first failed because `ReaderController` treated `reason=pagination-profile-ready` as an explicit readable relocation and dismissed `shellCoverVisible`.
+- GREEN/CONTROLLER: pagination-profile relocation reasons are now treated like non-user navigation (`initial-resume` / `relocate-committed`) while the native cover is visible, so page-count/profile updates do not steal the cover.
+- GREEN/HOST-FOCUSED: the new cover-retention guard passed.
+- GREEN/HOST-RELATED: `ReaderControllerTest`, `ReaderRuntimeShellProgressTest`, and `ReaderRuntimeImageLinkTest` passed.
+- GREEN/INSTALL: patched readerdev APK installed on `emulator-5554` as `darkaxt.navic.readerdev` `versionName=v1.0.11-eta81`, `versionCode=414`, `lastUpdateTime=2026-06-22 21:58:52`.
+- GREEN/LOGCAT: after launch, the WebView emitted `pagination-profile-cached` and `relocate-committed` for `OEBPS/xhtml/Authorforeword.xhtml`, and `KomikkuReaderRoot` remained `shellCover=true`.
+- GREEN/VISUAL: capture `captures\reader-dev\reader-dev-20260622-215859.png` and matrix `baseline-native-cover\screen.png` show the native cover still visible after pagination profiling.
+- GREEN/MATRIX: cover-inclusive matrix artifact `tmp\readerdev-matrix-eta81-cover-20260622-220105` passed `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` with no matrix failures.
+- Remaining: this validates emulator readerdev behavior, not a public release APK on the user's phone.
