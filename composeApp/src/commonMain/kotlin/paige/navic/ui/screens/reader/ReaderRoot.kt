@@ -54,6 +54,7 @@ internal fun KomikkuReaderRoot(
 	onDismissHistory: () -> Unit,
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
+	onWhispersyncPlayer: () -> Unit,
 	onSearchQuery: (String) -> Unit,
 	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
 	onDismissSearch: () -> Unit,
@@ -165,6 +166,7 @@ internal fun KomikkuReaderRoot(
 						reader = reader,
 						controllerState = controllerState,
 						whispersyncPlaybackControl = whispersyncPlaybackControl,
+						readaloudPlaybackState = readaloudPlaybackState,
 						onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
 						onPreviousChapter = onPreviousChapter,
 						onNextChapter = onNextChapter,
@@ -174,6 +176,7 @@ internal fun KomikkuReaderRoot(
 						onDismissHistory = onDismissHistory,
 						onContents = onContents,
 						onSearch = onSearch,
+						onWhispersyncPlayer = onWhispersyncPlayer,
 						onSearchQuery = onSearchQuery,
 						onNavigateToSearchResult = onNavigateToSearchResult,
 						onDismissSearch = onDismissSearch,
@@ -237,6 +240,7 @@ private fun KomikkuComposeOverlay(
 	reader: Screen.Reader,
 	controllerState: ReaderControllerState,
 	whispersyncPlaybackControl: ReaderWhispersyncPlaybackControlState,
+	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
@@ -246,6 +250,7 @@ private fun KomikkuComposeOverlay(
 	onDismissHistory: () -> Unit,
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
+	onWhispersyncPlayer: () -> Unit,
 	onSearchQuery: (String) -> Unit,
 	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
 	onDismissSearch: () -> Unit,
@@ -346,6 +351,7 @@ private fun KomikkuComposeOverlay(
 			KomikkuWhispersyncPlaybackControl(
 				control = whispersyncPlaybackControl,
 				onCommand = onWhispersyncPlaybackCommand,
+				onOpenPlayer = onWhispersyncPlayer,
 				modifier = Modifier
 					.align(Alignment.TopStart)
 					.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
@@ -379,6 +385,12 @@ private fun KomikkuComposeOverlay(
 				onSearchQuery = onSearchQuery,
 				onNavigateToSearchResult = onNavigateToSearchResult,
 				onDismissSearch = onDismissSearch
+			)
+			ReaderControllerDialog.WhispersyncPlayer -> KomikkuWhispersyncPlayerDialog(
+				status = controllerState.whispersync.status,
+				playbackState = readaloudPlaybackState ?: ReaderReadaloudPlaybackUiState(),
+				onCommand = onWhispersyncPlaybackCommand,
+				onDismissRequest = onDismissDialog
 			)
 			null -> Unit
 		}

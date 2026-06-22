@@ -92,6 +92,62 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun explicitReadableRelocationDismissesControllerOwnedShellCover() {
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "OEBPS/xhtml/chapter4.xhtml",
+					progress = 0.28,
+					pageIndex = 42,
+					pageCount = 373,
+					reason = "chapter-progress-seek"
+				),
+				tocTitle = "Chapter 4"
+			)
+		)
+
+		assertFalse(step.controller.state.shellCoverVisible)
+		assertFalse(step.controller.state.menuVisible)
+		assertEquals("Chapter 4", step.controller.state.chrome.currentSectionTitle)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun startupReadableRelocationDoesNotDismissControllerOwnedShellCover() {
+		val controller = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "OEBPS/xhtml/chapter4.xhtml",
+					progress = 0.28,
+					pageIndex = 42,
+					pageCount = 373,
+					reason = "relocate-committed"
+				),
+				tocTitle = "Chapter 4"
+			)
+		)
+
+		assertTrue(step.controller.state.shellCoverVisible)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
 	fun paginationProfileStatusFeedsControllerStateWithoutNavigationCommands() {
 		val profile = ReaderPaginationProfileStatus(
 			status = "measuring",
@@ -221,7 +277,7 @@ class ReaderControllerTest {
 			ReaderOverlayInteraction.PullUp,
 			pullUp.controller.state.lastOverlayInteraction
 		)
-		assertTrue(pullUp.controller.state.menuVisible)
+		assertFalse(pullUp.controller.state.menuVisible)
 		assertEquals(emptyList(), pullUp.engineCommands)
 	}
 
@@ -243,7 +299,21 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pushStateSurfacesHistoryCapsuleWhenHistoryIsAvailable() {
+	fun ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu() {
+		val controller = ReaderController()
+
+		val step = controller.onEngineEvent(ReaderEngineEvent.PullUp())
+
+		assertEquals(
+			ReaderOverlayInteraction.PullUp,
+			step.controller.state.lastOverlayInteraction
+		)
+		assertFalse(step.controller.state.menuVisible)
+		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault() {
 		val controller = ReaderController().onEngineEvent(
 			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = true)
 		).controller
@@ -876,6 +946,19 @@ class ReaderControllerTest {
 		assertEquals(ReaderControllerDialog.Settings, settings.controller.state.dialog)
 		assertTrue(settings.controller.state.menuVisible)
 		assertEquals(emptyList(), settings.engineCommands)
+		assertNull(dismissed.controller.state.dialog)
+		assertTrue(dismissed.controller.state.menuVisible)
+		assertEquals(emptyList(), dismissed.engineCommands)
+	}
+
+	@Test
+	fun whispersyncPlayerDialogIsControllerOwnedLikeKomikkuReaderChrome() {
+		val step = ReaderController().openWhispersyncPlayerDialog()
+		val dismissed = step.controller.closeDialog()
+
+		assertEquals(ReaderControllerDialog.WhispersyncPlayer, step.controller.state.dialog)
+		assertTrue(step.controller.state.menuVisible)
+		assertEquals(emptyList(), step.engineCommands)
 		assertNull(dismissed.controller.state.dialog)
 		assertTrue(dismissed.controller.state.menuVisible)
 		assertEquals(emptyList(), dismissed.engineCommands)

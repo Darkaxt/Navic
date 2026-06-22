@@ -107,6 +107,7 @@ import {
   readerPageNumberBlendMode,
   readerFontFaceCss,
   readerParagraphSpacingEm,
+  normalizeReaderLineFragmentParagraphs,
   applyReaderParagraphSpacing,
   normalizeReaderInlineTypography,
   readerNormalizeChapterOpeningMargins,
@@ -242,6 +243,7 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
   const root = doc.documentElement
   const body = doc.body
   const styleHost = doc.head || root
+  normalizeReaderLineFragmentParagraphs(doc, settings)
   applyReaderParagraphSpacing(doc, settings)
   root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
   delete root.dataset.navicPaperTextureKey

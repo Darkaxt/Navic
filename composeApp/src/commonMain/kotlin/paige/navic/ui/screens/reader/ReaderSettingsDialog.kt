@@ -50,6 +50,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import paige.navic.reader.DefaultReaderFontSizePercent
+import paige.navic.reader.DefaultReaderLineHeight
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderColorFilterModeSrcOver
 import paige.navic.reader.ReaderDirectionDefault
@@ -343,14 +345,14 @@ internal fun KomikkuReaderSettingsDialog(
 						)
 						SliderItem(
 							label = "Font size",
-							value = settings.fontSizePercent ?: 100,
+							value = settings.fontSizePercent ?: DefaultReaderFontSizePercent,
 							valueRange = 80..180,
-							valueString = "${settings.fontSizePercent ?: 100}%",
+							valueString = "${settings.fontSizePercent ?: DefaultReaderFontSizePercent}%",
 							onChange = { fontSizePercent ->
 								onSettingsChange(settings.copy(fontSizePercent = fontSizePercent))
 							}
 						)
-						val lineHeightPercent = ((settings.lineHeight ?: 1.55) * 100.0).roundToInt()
+						val lineHeightPercent = ((settings.lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()
 						SliderItem(
 							label = "Line height",
 							value = lineHeightPercent,

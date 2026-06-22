@@ -11,7 +11,33 @@ param(
     [switch] $NoDiscoverPublication,
     [switch] $RequireReaderLaunch,
     [int] $MaxDiscoveryBooks = 150,
-    [string] $StartProgress
+    [string] $StartProgress,
+    [Alias("PublicationUrl")]
+    [string] $ReaderPublicationUrl,
+    [Alias("ResourceHref")]
+    [string] $ReaderResourceHref,
+    [Alias("BookId")]
+    [string] $ReaderBookId,
+    [Alias("Title")]
+    [string] $ReaderTitle,
+    [Alias("Kind")]
+    [string] $ReaderKind,
+    [Alias("Format")]
+    [string] $ReaderFormat,
+    [Alias("StartHref")]
+    [string] $ReaderStartHref,
+    [Alias("StartCfi")]
+    [string] $ReaderStartCfi,
+    [Alias("WhispersyncSidecarUrl")]
+    [string] $ReaderWhispersyncSidecarUrl,
+    [Alias("WhispersyncArtifactId")]
+    [string] $ReaderWhispersyncArtifactId,
+    [Alias("WhispersyncAudiobookId")]
+    [string] $ReaderWhispersyncAudiobookId,
+    [Alias("WhispersyncAudiobookBookFileId")]
+    [string] $ReaderWhispersyncAudiobookBookFileId,
+    [Alias("WhispersyncAudiobookTitle")]
+    [string] $ReaderWhispersyncAudiobookTitle
 )
 
 $ErrorActionPreference = "Stop"
@@ -515,27 +541,79 @@ $opdsBaseUrl = Get-EnvValue -Values $envValues -Keys @("BINDERY_OPDS_BASE_URL", 
 $apiKey = Get-EnvValue -Values $envValues -Keys @("BINDERY_API_KEY")
 $apiKeyHeader = Get-EnvValue -Values $envValues -Keys @("BINDERY_API_KEY_HEADER")
 $languageFilter = Get-EnvValue -Values $envValues -Keys @("BINDERY_LANGUAGE_FILTER")
-$resourceHref = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_RESOURCE_HREF", "BINDERY_TEST_RESOURCE_ID")
-$publicationUrl = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_PUBLICATION_URL")
+$resourceHref = if (![string]::IsNullOrWhiteSpace($ReaderResourceHref)) {
+    $ReaderResourceHref.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_RESOURCE_HREF", "BINDERY_TEST_RESOURCE_ID")
+}
+$publicationUrl = if (![string]::IsNullOrWhiteSpace($ReaderPublicationUrl)) {
+    $ReaderPublicationUrl.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_PUBLICATION_URL")
+}
 if (!$publicationUrl -and $opdsBaseUrl -and $resourceHref) {
     $publicationUrl = Join-BinderyEndpoint -BaseUrl $opdsBaseUrl -Path $resourceHref
 }
-$bookId = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_BOOK_ID", "BINDERY_TEST_PUBLICATION_ID")
-$title = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_TITLE")
-$kind = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_KIND")
-$format = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_FORMAT")
-$startHref = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_HREF")
-$startCfi = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_CFI")
+$bookId = if (![string]::IsNullOrWhiteSpace($ReaderBookId)) {
+    $ReaderBookId.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_BOOK_ID", "BINDERY_TEST_PUBLICATION_ID")
+}
+$title = if (![string]::IsNullOrWhiteSpace($ReaderTitle)) {
+    $ReaderTitle.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_TITLE")
+}
+$kind = if (![string]::IsNullOrWhiteSpace($ReaderKind)) {
+    $ReaderKind.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_KIND")
+}
+$format = if (![string]::IsNullOrWhiteSpace($ReaderFormat)) {
+    $ReaderFormat.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_FORMAT")
+}
+$startHref = if (![string]::IsNullOrWhiteSpace($ReaderStartHref)) {
+    $ReaderStartHref.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_HREF")
+}
+$startCfi = if (![string]::IsNullOrWhiteSpace($ReaderStartCfi)) {
+    $ReaderStartCfi.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_CFI")
+}
 $startProgress = if (![string]::IsNullOrWhiteSpace($StartProgress)) {
     $StartProgress
 } else {
     Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_PROGRESS")
 }
-$whispersyncSidecarUrl = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL")
-$whispersyncArtifactId = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_ARTIFACT_ID")
-$whispersyncAudiobookId = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID")
-$whispersyncAudiobookBookFileId = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_BOOK_FILE_ID")
-$whispersyncAudiobookTitle = Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_TITLE")
+$whispersyncSidecarUrl = if (![string]::IsNullOrWhiteSpace($ReaderWhispersyncSidecarUrl)) {
+    $ReaderWhispersyncSidecarUrl.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL")
+}
+$whispersyncArtifactId = if (![string]::IsNullOrWhiteSpace($ReaderWhispersyncArtifactId)) {
+    $ReaderWhispersyncArtifactId.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_ARTIFACT_ID")
+}
+$whispersyncAudiobookId = if (![string]::IsNullOrWhiteSpace($ReaderWhispersyncAudiobookId)) {
+    $ReaderWhispersyncAudiobookId.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID")
+}
+$whispersyncAudiobookBookFileId = if (![string]::IsNullOrWhiteSpace($ReaderWhispersyncAudiobookBookFileId)) {
+    $ReaderWhispersyncAudiobookBookFileId.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_BOOK_FILE_ID")
+}
+$whispersyncAudiobookTitle = if (![string]::IsNullOrWhiteSpace($ReaderWhispersyncAudiobookTitle)) {
+    $ReaderWhispersyncAudiobookTitle.Trim()
+} else {
+    Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_TITLE")
+}
 
 if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
     $discoveredPublication = Resolve-ReaderDevPublicationFromBindery `
@@ -559,7 +637,7 @@ if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
 
 $readerLaunchHasPublication = ![string]::IsNullOrWhiteSpace($publicationUrl) -or ![string]::IsNullOrWhiteSpace($resourceHref)
 if ($RequireReaderLaunch -and !$NoLaunch -and !$readerLaunchHasPublication) {
-    throw "Reader launch target required, but no publication URL or resource href was resolved from $EnvFile. Set NAVIC_READER_DEV_PUBLICATION_URL, NAVIC_READER_DEV_RESOURCE_HREF, BINDERY_TEST_RESOURCE_ID, or allow Bindery discovery to find an EPUB/PDF resource."
+    throw "Reader launch target required, but no publication URL or resource href was resolved. Pass -PublicationUrl/-ResourceHref, set NAVIC_READER_DEV_PUBLICATION_URL, NAVIC_READER_DEV_RESOURCE_HREF, BINDERY_TEST_RESOURCE_ID in $EnvFile, or allow Bindery discovery to find an EPUB/PDF resource."
 }
 
 if (!$NoBuild) {

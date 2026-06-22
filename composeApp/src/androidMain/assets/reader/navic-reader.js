@@ -165,6 +165,55 @@ import { NavicReaderViewportMethods } from './navic-reader-viewport.js'
 import { NavicReaderLocationMethods } from './navic-reader-location.js'
 
 const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
+const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
+
+const readerMediaOverlayTextEntries = doc => {
+  const root = doc?.body
+  if (!root || !doc.createTreeWalker) return []
+  const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter
+  const walker = doc.createTreeWalker(root, nodeFilter.SHOW_TEXT)
+  const entries = []
+  let offset = 0
+  let node = walker.nextNode()
+  while (node) {
+    const text = node.nodeValue || ''
+    const start = offset
+    const end = start + text.length
+    entries.push({ node, start, end, text })
+    offset = end
+    node = walker.nextNode()
+  }
+  return entries
+}
+
+const readerMediaOverlayTextPoint = (entries, requestedOffset) => {
+  if (!entries.length) return null
+  const last = entries[entries.length - 1]
+  const offset = Math.max(0, Math.min(last.end, requestedOffset))
+  for (const entry of entries) {
+    if (offset >= entry.start && offset <= entry.end) {
+      return {
+        node: entry.node,
+        offset: Math.max(0, Math.min(entry.text.length, offset - entry.start)),
+      }
+    }
+  }
+  return {
+    node: last.node,
+    offset: last.text.length,
+  }
+}
+
+const readerMediaOverlayUnwrapRangeMarker = marker => {
+  const parent = marker?.parentNode
+  if (!parent) return false
+  while (marker.firstChild) {
+    parent.insertBefore(marker.firstChild, marker)
+  }
+  parent.removeChild(marker)
+  parent.normalize?.()
+  return true
+}
 
 const readerDrawNoteAnnotation = (rects, options = {}) => {
   const group = document.createElementNS(ReaderSvgNamespace, 'g')
@@ -632,18 +681,78 @@ class NavicReaderRuntime {
       await this.goTo(targetHref, 'media-overlay-follow')
     }
     this.clearOverlay()
+    let highlighted = false
     if (fragment.fragmentId) {
       for (const doc of this.contentDocuments()) {
         const element = doc.getElementById(fragment.fragmentId)
-        if (element) element.classList.add(overlayClass)
+        if (element) {
+          element.classList.add(overlayClass)
+          highlighted = true
+        }
       }
     }
+    if (!highlighted) {
+      this.highlightMediaOverlayTextRange(fragment)
+    }
     post({ type: 'overlayFragmentActive', ...fragment })
+  }
+
+  highlightMediaOverlayTextRange(fragment) {
+    const textStart = Number(fragment?.textStart)
+    const textEnd = Number(fragment?.textEnd)
+    if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
+    let highlighted = false
+    for (const content of this.contentEntries()) {
+      const section = Number.isFinite(Number(content.index))
+        ? this.view?.book?.sections?.[Math.floor(Number(content.index))]
+        : null
+      const sectionHref = section?.href || content.href || ''
+      if (fragment.textHref && sectionHref && !readerHrefMatches(sectionHref, fragment.textHref)) continue
+      const entries = readerMediaOverlayTextEntries(content.doc)
+      if (!entries.length) continue
+      const start = readerMediaOverlayTextPoint(entries, Math.floor(textStart))
+      const end = readerMediaOverlayTextPoint(entries, Math.ceil(textEnd))
+      if (!start || !end) continue
+      const range = content.doc.createRange()
+      try {
+        range.setStart(start.node, start.offset)
+        range.setEnd(end.node, end.offset)
+        if (range.collapsed) continue
+        const marker = content.doc.createElement('span')
+        marker.className = `${overlayClass} navic-media-overlay-range`
+        marker.setAttribute(ReaderMediaOverlayRangeAttribute, 'true')
+        marker.dataset.navicTextStart = String(Math.floor(textStart))
+        marker.dataset.navicTextEnd = String(Math.ceil(textEnd))
+        try {
+          range.surroundContents(marker)
+        } catch (error) {
+          marker.appendChild(range.extractContents())
+          range.insertNode(marker)
+        }
+        highlighted = true
+      } catch (error) {
+        logError('media-overlay-range:failed', error?.message || String(error))
+      } finally {
+        range.detach?.()
+      }
+    }
+    if (!highlighted) {
+      log('media-overlay-range:missing', fragment.textHref || 'unknown', `${textStart}-${textEnd}`)
+      readerTrace('media-overlay-range:missing', {
+        textHref: fragment.textHref || null,
+        textStart,
+        textEnd,
+      })
+    }
+    return highlighted
   }
 
   clearOverlay() {
     let removedAny = false
     for (const doc of this.contentDocuments()) {
+      for (const marker of Array.from(doc.querySelectorAll(`[${ReaderMediaOverlayRangeAttribute}="true"]`))) {
+        removedAny = readerMediaOverlayUnwrapRangeMarker(marker) || removedAny
+      }
       for (const element of doc.querySelectorAll(`.${overlayClass}`)) {
         element.classList.remove(overlayClass)
         removedAny = true

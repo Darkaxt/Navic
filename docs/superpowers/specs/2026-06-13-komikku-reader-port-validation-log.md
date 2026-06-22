@@ -6457,6 +6457,646 @@ Results:
 - NOTE/COORDINATES: an earlier tap near `x=1215 y=1830` toggled the reader menu because it was inside the page area on the actual `1848x2960` surface. That was a coordinate error in the validation pass, not a rail failure.
 - Remaining: this validates the readerdev emulator path. Physical release validation is still needed for the user's phone/tablet feel and for any release-only regressions.
 
+## 2026-06-21 Whispersync Character-Offset Overlay Guard
+
+Scope:
+- Close GLM's confirmed gap where Bindery ASR sidecar segments carried `ebookStart`/`ebookEnd` character offsets, but `WhispersyncSegment.toReaderOverlayFragment()` dropped them and the Foliate runtime only highlighted EPUB fragment ids.
+- Preserve the existing fragment-id path for Storyteller/media-overlay style cues while adding a fallback for ASR cues with no DOM id.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderBridgeProtocolTest
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.ReaderRuntimeAssetsTest
+git diff --check
+```
+
+Results:
+- RED/HOST: the new parser/bridge assertions first failed because `ReaderOverlayFragment` had no `textStart` or `textEnd` fields.
+- FIX: `ReaderOverlayFragment` now carries `textStart`/`textEnd`, bridge command/event serialization preserves them, and `WhispersyncSegment.toReaderOverlayFragment()` forwards sidecar offsets.
+- FIX/RUNTIME: `applyOverlayFragment()` now falls back to `highlightMediaOverlayTextRange()` when no EPUB fragment id is highlighted. The helper walks the same raw content text-node offset space used by visible text range reporting, wraps the requested sentence range with the existing media-overlay CSS class, and unwraps old range markers in `clearOverlay()`.
+- GREEN/FOCUSED: `WhispersyncTimelineParserTest`, `ReaderBridgeProtocolTest`, and `ReaderRuntimeAssetsTest` passed after the fix.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader.js` passed.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- Remaining: this is host/source proof only. A readerdev or release-device probe still needs to prove that a production Bindery cue with `ebookStart`/`ebookEnd` visibly highlights the expected sentence in the WebView.
+
+## 2026-06-21 Readerdev Whispersync Character-Offset Overlay Probe
+
+Scope:
+- Promote the Whispersync ASR character-offset overlay fallback from host/source proof to live Android WebView proof.
+- Validate that the runtime can highlight a raw text-node character range when there is no EPUB fragment id, which is the Bindery ASR sidecar shape GLM flagged.
+- Keep this as readerdev/emulator validation; it does not claim release-device paired playback is complete.
+
+Commands:
+
+```powershell
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-char-offset-overlay -RequireReaderBridgeEvent overlayFragmentActive -ArtifactDir tmp\readerdev-whispersync-char-offset-overlay-20260621-r3
+```
+
+Artifacts:
+- `tmp\readerdev-whispersync-char-offset-overlay-20260621-r3`
+- `tmp\readerdev-whispersync-char-offset-overlay-20260621-r3\reader-devtools-probe.json`
+- `tmp\readerdev-whispersync-char-offset-overlay-20260621-r3\logcat-reader.log`
+
+Results:
+- RED/HARNESS: the first live smoke probe failed because it required the DevTools monkey-patch to observe `overlayFragmentActive` directly, even though Android logcat is the authoritative bridge event sink for this script.
+- FIX/HARNESS: the probe now verifies the DOM marker directly inside the WebView and lets `adb-reader-smoke.ps1 -RequireReaderBridgeEvent overlayFragmentActive` validate the Android bridge event through logcat.
+- RED/HARNESS: the second live smoke probe failed because it expected `Dispatching reader engine command: clearOverlay`, which only appears for Android-controller dispatched commands. This probe clears through `NavicReaderBridge.dispatch(...)`, whose correct runtime evidence is `[NavicReader] dispatch clearOverlay`.
+- GREEN/HOST: `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- GREEN/HOST: focused `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay` passed.
+- GREEN/EMULATOR: readerdev `v1.0.11-eta78` / `versionCode=411` on `emulator-5554` ran the `whispersync-char-offset-overlay` probe successfully.
+- GREEN/RANGE: the probe observed `visibleTextRange(OEBPS/Text/Chapter-37.xhtml, 8-3432, source=whispersync-char-offset-overlay-initial)`, targeted characters `32-80`, and found a live marker with class `navic-active-overlay-fragment navic-media-overlay-range`.
+- GREEN/MARKER: the wrapped text snippet was `ttle\n\n    \n      Dawn broke that morning on Polo`, proving raw text-node range wrapping rather than fragment-id lookup.
+- GREEN/BRIDGE: logcat captured `Reader bridge raw: {"type":"overlayFragmentActive","textHref":"OEBPS/Text/Chapter-37.xhtml","textStart":32,"textEnd":80,...}` and `Reader bridge event: overlayFragmentActive()`.
+- GREEN/CLEAR: the probe dispatched `clearOverlay` and verified no `data-navic-media-overlay-range="true"` markers remained in rendered Foliate contents.
+- Remaining: release-device validation still needs to prove the same character-offset sentence highlight during real paired audiobook playback.
+
+## 2026-06-21 Komikku Whispersync Player Chrome Surface
+
+Scope:
+- Add the first controller-owned audioebook player surface inside the Komikku reader shell.
+- Keep the page-scoped headset affordance as-is, but add a bottom-bar audiobook action when Whispersync/readaloud playback is available.
+- Route the action through `ReaderController` / `ReaderCoordinator` into `ReaderControllerDialog.WhispersyncPlayer`.
+- Reuse `ReaderReadaloudPlaybackUiState` and `ReaderReadaloudPlaybackCommand` for play/pause, seek, scrubber, speed, and sync toggle without embedding the full Bindery audiobook screen in the reader.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest.whispersyncPlayerDialogIsControllerOwnedLikeKomikkuReaderChrome --tests paige.navic.reader.ReaderCoordinatorTest.bottomBarDialogsRouteThroughControllerWithoutEngineCommands --tests paige.navic.reader.ReaderViewerTest.whispersyncPlayerSurfaceIsKomikkuOwnedReaderChrome
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.reader.ReaderCoordinatorTest --tests paige.navic.reader.ReaderViewerTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest
+git diff --check
+```
+
+Results:
+- RED/HOST: the focused player-surface tests first failed at compile time because `ReaderControllerDialog.WhispersyncPlayer` and `openWhispersyncPlayerDialog()` did not exist.
+- FIX/CONTROLLER: `ReaderController` now owns the Whispersync player dialog route and keeps the reader menu visible without emitting engine commands.
+- FIX/COORDINATOR: `ReaderCoordinator.openWhispersyncPlayerDialog()` routes the bottom-chrome action through controller state, matching the Komikku shell ownership model.
+- FIX/UI: `ReaderAppBars` exposes a conditional audiobook bottom-bar action, and `ReaderRoot` renders `KomikkuWhispersyncPlayerDialog` as reader chrome instead of embedding `BinderyAudiobookPlayerScreen`.
+- GREEN/FOCUSED: the three focused controller/coordinator/source-guard tests passed.
+- GREEN/READER-SLICE: `ReaderControllerTest`, `ReaderCoordinatorTest`, `ReaderViewerTest`, and `ReaderWhispersyncPlaybackPolicyTest` passed together.
+- RED/FULL-SUITE: the first full `testAndroidHostTest` pass exposed a stale `ReaderRuntimeCommonChromeTest` source guard still expecting the old `totalPages > 1` chapter-slider rule.
+- FIX/GUARD: the guard now matches the current tiny-section rule, `readerShouldShowChapterProgressSlider(totalPages) == totalPages > 2`, so one/two-page sections remain uncluttered.
+- GREEN/GUARD: focused `ReaderRuntimeCommonChromeTest.commonReaderChromeUsesKomikkuEquivalentSideProgressRail` passed after the guard correction.
+- GREEN/FULL-SUITE: full `:composeApp:testAndroidHostTest` passed after the guard correction.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- Remaining: this is host/source proof only. Readerdev or release-device validation still needs to prove the player opens from a real Whispersync-capable page, commands reach `AudiobookPlaybackManager`, and the UI matches the Komikku overlay feel on phone/tablet surfaces.
+
+## 2026-06-21 Readerdev Whispersync Player Chrome Runtime Probe
+
+Scope:
+- Promote the Komikku Whispersync player chrome from host/source proof to live Android readerdev proof.
+- Validate the production Bindery book 3809 sidecar/audio pairing path in the emulator.
+- Prove the native bottom-bar player action appears only after the EPUB reader page is active, opens the controller-owned player dialog, and sends play/pause commands to the readaloud MediaSession.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -EnvFile tmp\readerdev-whispersync-3809.env -DeviceSerial emulator-5554 -RequireReaderLaunch
+adb -s emulator-5554 shell input tap 924 1480
+adb -s emulator-5554 shell input swipe 1600 1480 400 1480 500
+adb -s emulator-5554 shell input tap 924 1480
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-window.xml
+adb -s emulator-5554 pull /sdcard/navic-window.xml tmp\navic-window.xml
+adb -s emulator-5554 shell input tap 1105 2858
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-window-dialog.xml
+adb -s emulator-5554 pull /sdcard/navic-window-dialog.xml tmp\navic-window-dialog.xml
+adb -s emulator-5554 shell input tap 924 1460
+adb -s emulator-5554 logcat -d -v time
+adb -s emulator-5554 shell input tap 924 1460
+adb -s emulator-5554 logcat -d -v time
+```
+
+Artifacts:
+- `tmp\whispersync-before-menu.png`
+- `tmp\whispersync-after-cover-tap.png`
+- `tmp\whispersync-after-cover-swipe.png`
+- `tmp\whispersync-page-menu.png`
+- `tmp\navic-window.xml`
+- `tmp\whispersync-player-dialog.png`
+- `tmp\navic-window-dialog.xml`
+- `tmp\whispersync-after-play.png`
+- `tmp\navic-window-after-play.xml`
+
+Results:
+- GREEN/INSTALL: readerdev `v1.0.11-eta78` / `versionCode=411` installed on `emulator-5554` and launched directly into the Whispersync-capable book 3809.
+- GREEN/SIDECAR: logcat before the focused UI probe showed `Bindery metadata fetched type=whispersync-sidecar path=/opds/books/3809/sync/3`, `Whispersync sidecar loaded artifact=3 audiobook=34 bookFile=633 segments=4188`, and `Whispersync audiobook plan loaded audiobook=34 items=1`.
+- GREEN/COVER: the reader initially rendered the native cover. A center tap on the cover routed through `KomikkuReaderNativeFrameHost` as `Reader native tap action=MENU` and changed `menuVisible=false->true` while preserving `shellCover=true`; it did not discard the cover.
+- GREEN/EPUB-PAGE: a horizontal swipe from the native cover entered the EPUB reader at `3 / 79`.
+- GREEN/BOTTOM-ACTION: after opening page chrome, `tmp\navic-window.xml` contained the bottom-bar action with `content-desc="Whispersync player"` at bounds roughly `[1069,2822][1141,2894]`.
+- GREEN/DIALOG: tapping that action opened `KomikkuWhispersyncPlayerDialog`; `tmp\navic-window-dialog.xml` contained the audiobook metadata, seekbar, `Play audiobook`, `Seek back 10 seconds`, `Seek forward 10 seconds`, `Speed`, speed chips, and `Audio sync`.
+- GREEN/PLAY: tapping `Play audiobook` changed Android MediaSession `darkaxt.navic.readerdev/androidx.media3.session.id.navic-readaloud/34` to `PLAYING(3)` at position `263360`, and the dialog changed to `Pause audiobook`.
+- GREEN/PAUSE: tapping the same control again changed the same MediaSession to `PAUSED(2)` at position `300794`.
+- Remaining: this is readerdev/emulator proof. A release-device pass is still needed before publishing a user-facing release claim, and the visual design of the dialog still needs Komikku-style polish after the feature path is stable.
+
+## 2026-06-21 Whispersync Headset Glyph Visual Correction
+
+Scope:
+- Correct the page-level Whispersync affordance after user feedback that the top-left indicator must not look like a mobile UI button.
+- Replace the audiobook/library glyph with a dedicated headset glyph.
+- Remove the circular button/progress-ring treatment from the page-level affordance while preserving its touch shield.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:generateValkyrieImageVector --rerun-tasks
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile tmp\readerdev-whispersync-3809.env -NoBuild -NoInstall -RequireReaderLaunch -Capture
+adb -s emulator-5554 shell input swipe 1050 1100 220 1100 300
+adb -s emulator-5554 shell screencap -p /sdcard/navic-reader-headset-check-2.png
+adb -s emulator-5554 pull /sdcard/navic-reader-headset-check-2.png captures\reader-dev\readerdev-3809-headset-check-2.png
+```
+
+Artifacts:
+- `captures\reader-dev\reader-dev-20260621-183205.png`
+- `captures\reader-dev\reader-dev-20260621-183352.png`
+- `captures\reader-dev\readerdev-3809-headset-check-2.png`
+
+Results:
+- RED/HOST: the first focused guard failed because it expected literal `alpha = 0.52f` / `alpha = 0.34f` strings, while production used `copy(alpha = if (control.enabled) 0.52f else 0.34f)`.
+- FIX/ICON: added `composeApp/src/commonMain/valkyrieResources/outlined/ic_headset.svg` and switched `KomikkuWhispersyncPlaybackControl` from `Icons.Outlined.Audiobooks` to `Icons.Outlined.Headset`.
+- FIX/VISUAL: the page-level control now renders only a low-opacity headset glyph plus the crossed state line when muted/paused; no `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, or Material background is allowed in that control body.
+- GREEN/HOST: focused `ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary` passed.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- GREEN/EMULATOR: dirty readerdev installed on `emulator-5554`, launched the production book `3809` route, swiped from the cover into `Author's Foreword`, and `captures\reader-dev\readerdev-3809-headset-check-2.png` shows a bare low-opacity headset glyph in the top-left corner with no surrounding circle/ring.
+
+## 2026-06-21 Whispersync Player Route Belongs To Page Headset
+
+Scope:
+- Remove the Navic-specific Whispersync audiobook shortcut from the Komikku bottom chrome.
+- Keep the full Whispersync player dialog route available, but anchor it to the page-level headset control instead of growing the bottom action row.
+- Preserve the user's requested short-tap behavior: tapping the headset toggles audiobook playback; long-pressing the headset opens the controller-owned player dialog.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomBarUsesKomikkuBottomButtonActionModel --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+.\gradlew.bat --stop
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderBottomBarUsesKomikkuBottomButtonActionModel --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+```
+
+Results:
+- RED/HOST: the focused guard failed while `KomikkuReaderBottomBar` still accepted `showWhispersyncPlayer`, rendered `Icons.Outlined.Audiobooks`, and exposed `contentDescription = "Whispersync player"`.
+- RED/HOST: the focused headset guard failed while `KomikkuWhispersyncPlaybackControl` had no `onOpenPlayer` route.
+- FIX/CHROME: `KomikkuReaderBottomBar` now keeps the Komikku-supported bottom actions only: chapters, search, and settings. It no longer receives or renders Whispersync player state.
+- FIX/HEADSET: `KomikkuWhispersyncPlaybackControl` now uses the bare headset as the single page-level audioebook affordance: short tap dispatches play/pause and long press opens the existing controller-owned `ReaderControllerDialog.WhispersyncPlayer`.
+- ENV: the first green rerun hit a stale Kotlin compile-cache deletion lock left by the killed Gradle wrapper process; `.\gradlew.bat --stop` cleared the stale daemon before rerunning the same focused checks.
+- GREEN/HOST: the focused Komikku bottom-bar guard and Whispersync headset-route guard passed after the production update.
+- Remaining: this is host/source proof. Readerdev/emulator validation still needs to confirm short tap toggles playback and long press opens the player dialog on the real page-level headset surface.
+
+## 2026-06-21 Readerdev Page-Level Whispersync Headset Runtime Probe
+
+Scope:
+- Validate the current readerdev build after the page-level Whispersync control was moved out of the bottom chrome.
+- Confirm the affordance is only a low-opacity headset glyph in the top-left page area, with no circular button, ring, capsule, or progress container.
+- Confirm short tap toggles the readaloud session, long press opens the controller-owned Whispersync player dialog, and the Komikku bottom bar keeps only its normal reader actions.
+
+Commands:
+
+```powershell
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+adb -s emulator-5554 shell screencap -p /sdcard/navic-headset-live.png
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-headset-live.xml
+adb -s emulator-5554 shell input tap 78 78
+adb -s emulator-5554 shell dumpsys media_session
+adb -s emulator-5554 shell input swipe 78 78 78 78 900
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-after-headset-longpress.xml
+adb -s emulator-5554 shell input keyevent BACK
+adb -s emulator-5554 shell input tap 900 1200
+adb -s emulator-5554 shell screencap -p /sdcard/navic-bottom-chrome-visible.png
+adb -s emulator-5554 shell uiautomator dump /sdcard/navic-bottom-chrome-visible.xml
+```
+
+Artifacts:
+- `tmp\navic-headset-live.png`
+- `tmp\navic-headset-live.xml`
+- `tmp\navic-after-headset-short.xml`
+- `tmp\navic-after-headset-longpress.xml`
+- `tmp\navic-bottom-chrome-visible.png`
+- `tmp\navic-bottom-chrome-visible.xml`
+
+Results:
+- GREEN/BUILD-EVIDENCE: emulator `emulator-5554` was running `darkaxt.navic.readerdev` `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 19:05:02`.
+- GREEN/GLYPH: `tmp\navic-headset-live.png` shows only a small low-opacity headset glyph at the top-left of the page. The playback-control source still rejects `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, and Material background usage inside `KomikkuWhispersyncPlaybackControl`.
+- GREEN/SHORT-TAP: tapping the top-left headset at roughly `(78, 78)` changed the accessibility description from `Play Whispersync audiobook` to `Pause Whispersync audiobook`; Android MediaSession `androidx.media3.session.id.navic-readaloud` moved to `PLAYING(3)` for `Bastille vs. the Evil Librarians`.
+- GREEN/LONG-PRESS: long-pressing the same top-left glyph opened the controller-owned Whispersync player dialog. The hierarchy contained `Audio sync`, `Pause audiobook`, the audiobook metadata, and `Close`; the MediaSession remained `PLAYING(3)`.
+- GREEN/BOTTOM-CHROME: after closing the player and showing reader chrome, `tmp\navic-bottom-chrome-visible.xml` exposed bottom actions `Chapters`, `Search`, and `Settings`. There was no bottom-bar `Whispersync player` or `Audio sync` shortcut; the only audiobook-related node remained the top-left headset glyph.
+- Remaining: this is readerdev/emulator proof. A signed release-device pass is still required before claiming the physical phone release has the same no-circle headset treatment and playback behavior.
+
+## 2026-06-21 Anx Default Typography Scale Alignment
+
+Scope:
+- Align Navic reader defaults with the Anx `BookStyle` readable prose baseline instead of the older compact Navic defaults.
+- Move the default font scale from `100%` to `140%` and line height from `1.55` to `1.8`.
+- Keep the defaults consistent across Kotlin reader state, persisted app-level ebook settings, in-reader settings UI, Settings search rows, WebView CSS, pagination profile hashing, and the ADB WebView font-size probe.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderSettingsDefaultsTest.readerSettingsDefaultsPreserveAnxReadableProseScale
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination-model.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+git diff --check
+```
+
+Results:
+- RED/HOST: the new `ReaderSettingsDefaultsTest.readerSettingsDefaultsPreserveAnxReadableProseScale` guard initially failed against the legacy `100%` / `1.55` defaults.
+- FIX/STATE: `defaultReaderSettings`, `ReaderChromeState.adjustFontSize`, and preference fallback paths now use `DefaultReaderFontSizePercent = 140` and `DefaultReaderLineHeight = 1.8`.
+- FIX/UI: the in-reader settings dialog, Settings > Ebooks rows, and Settings search fallbacks now show the same Anx-aligned defaults; the line-height selector includes `180%`.
+- FIX/RUNTIME: the WebView typography CSS and pagination profile fallback now use the same readable default scale, and the ADB font-size probe restores to `140%` when no original value is available.
+- GREEN/HOST: the focused Android host test report recorded `ReaderSettingsDefaultsTest` with `tests="1"`, `failures="0"`, including `readerSettingsDefaultsPreserveAnxReadableProseScale`.
+- GREEN/JS: all edited reader runtime/probe JS files passed `node --check`.
+- GREEN/WHITESPACE: `git diff --check` exited `0`.
+- Remaining: existing installations with already-persisted custom reader values will continue honoring those values. A migration from legacy persisted `100/155` to `140/180` should be handled explicitly if we decide old saved defaults must be upgraded in place.
+
+## 2026-06-21 Readerdev eta78 Komikku Matrix After Headset/Typography Updates
+
+Scope:
+- Verify the installed readerdev build after the page-level Whispersync headset and Anx typography-default changes.
+- Confirm the headset control remains a bare top-left glyph with no circular container.
+- Record current Komikku matrix pass/fail state before any further reader-shell work.
+
+Commands:
+
+```powershell
+adb devices
+adb -s emulator-5554 shell dumpsys package darkaxt.navic.readerdev
+.\scripts\adb-reader-komikku-matrix.ps1 `
+  -Package darkaxt.navic.readerdev `
+  -DeviceSerial emulator-5554 `
+  -ExpectedVersionName v1.0.11-eta78 `
+  -NoLaunch `
+  -IncludeCoverChecks `
+  -ContinueOnFailure `
+  -ArtifactRoot C:\Users\darka\Documents\Projects\Android\.codex-temp\navic-bindery-cache-master\captures\reader-komikku-matrix\20260621-201932-eta78-headset
+```
+
+Artifacts:
+- `captures\reader-komikku-matrix\20260621-201932-eta78-headset\reader-matrix-summary.csv`
+- `captures\reader-komikku-matrix\20260621-201932-eta78-headset\reader-matrix-failures.txt`
+- `captures\reader-komikku-matrix\20260621-201932-eta78-headset\baseline-current-reader\screen.png`
+
+Results:
+- GREEN/INSTALL: emulator `emulator-5554` was running `darkaxt.navic.readerdev` `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 19:05:02`.
+- GREEN/HEADSET: source inspection of `KomikkuWhispersyncPlaybackControl` showed a transparent 48dp tap target with a 25dp low-opacity headset glyph and crossed-state slash only. The control body does not use `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, `IconButton`, `.background`, `.border`, or `.clip`.
+- GREEN/VISUAL: `baseline-current-reader\screen.png` showed the top-left Whispersync affordance as only the small headset icon; no circle, ring, pill, or Material background was visible around it.
+- GREEN/MATRIX: `baseline-current-reader`, `cover-center-tap-toggle`, `center-tap-toggle`, `native-long-press-center`, `drag-next`, and `drag-previous` passed on the installed eta78 readerdev build.
+- FAIL/COVER-START: `baseline-native-cover` failed because the run started from readable content rather than the native shell cover. `cover-drag-next` also failed because no shell-cover swipe could be captured in that state.
+- FAIL/TEXTURE-DIAGNOSTICS: `edge-tap-next`, `texture-next-walk`, `edge-tap-previous`, and `texture-previous-walk` failed because captured texture diagnostics did not include the expected `pos=` marker.
+- OBSERVED/COMPOSITION: the baseline screenshot still shows unrelated EPUB composition problems on the Bastille test book, including visible word fragmentation and awkward line/page layout. This remains separate from the no-circle headset request.
+
+## 2026-06-21 Readerdev eta78 Headset No-Circle Confirmation
+
+Scope:
+- Re-check the user-facing Whispersync page control after clarification that it must be only a headset icon with no circle around it.
+- Distinguish the top-left headset from unrelated circular buttons in the right chapter rail.
+
+Commands:
+
+```powershell
+adb devices
+adb shell dumpsys package darkaxt.navic.readerdev
+adb exec-out screencap -p > captures\reader-headset-current\screen.png
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+```
+
+Artifacts:
+- `captures\reader-headset-current\screen.png`
+
+Results:
+- GREEN/INSTALL: emulator `emulator-5554` is still running `darkaxt.navic.readerdev` `versionName=v1.0.11-eta78`, `versionCode=411`, `lastUpdateTime=2026-06-21 19:05:02`.
+- GREEN/HOST-GUARD: the focused host guard passed and still rejects `Surface`, `RoundedCornerShape`, `CircularProgressIndicator`, `IconButton`, `.background`, `.border`, `.clip`, and Material background usage inside `KomikkuWhispersyncPlaybackControl`.
+- GREEN/VISUAL: `captures\reader-headset-current\screen.png` shows the Whispersync affordance as a bare low-opacity headset icon at the top-left of the page. There is no circle, ring, pill, or visible tap container around the headset.
+- NOTE: the visible circular controls in the same screenshot belong to the right-side chapter rail, not to the Whispersync headset control.
+
+## 2026-06-21 Headset No-Circle Recheck And Bastille Line-Fragment Dirty Validation
+
+Scope:
+- Re-check the clarified Whispersync headset requirement: the page-level audioebook affordance must be just the headset glyph, with no circular container.
+- Validate the EPUB line-fragment normalizer against the real Bastille EPUB that was visibly splitting source/OCR line fragments into separate paragraphs.
+- Record the validation blocker where the native cover overlay stayed visible even after WebView navigation.
+
+Commands:
+
+```powershell
+adb devices
+adb exec-out screencap -p > captures\reader-headset-latest\screen.png
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary
+node tools\reader-harness\src\run-reader-harness.mjs --mode line-fragment-prose-smoke
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+.\scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554
+adb -s emulator-5554 shell am start -S -n darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity ...
+node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --package darkaxt.navic.readerdev --probe chapter-progress-endpoints
+```
+
+Artifacts:
+- `captures\reader-headset-latest\screen.png`
+- `captures\reader-line-fragment-dirty\screen-after-launch.png`
+- `captures\reader-line-fragment-dirty\screen-after-cover-taps.png`
+- `captures\reader-line-fragment-dirty\screen-after-chapter-progress.png`
+- `tmp\reader-headset-guard.out.log`
+- `tmp\reader-line-fragment-host.out.log`
+- `tmp\readerdev-install-line-fragment.out.log`
+- `tmp\chapter-progress-endpoints.out.log`
+
+Results:
+- GREEN/HEADSET-SOURCE: `KomikkuWhispersyncPlaybackControl` still renders a transparent 48dp tap area with `Icons.Outlined.Headset`, a 25dp glyph, and optional crossed-state slash only. It does not render a `Surface`, `IconButton`, `RoundedCornerShape`, `CircularProgressIndicator`, background, border, clip, pill, ring, or visible tap container.
+- GREEN/HEADSET-VISUAL: `captures\reader-headset-latest\screen.png` again shows the top-left Whispersync affordance as only the bare headset glyph. The visible round controls in the image are the right-side chapter rail, not the headset.
+- GREEN/HEADSET-GUARD: `ReaderKomikkuBackboneResetTest.readerScreenConsumesWhispersyncSeekTargetsThroughAudiobookBoundary` passed against the current source.
+- RED/HARNESS: the new `line-fragment-prose-smoke` harness initially failed before implementation because `normalizeReaderLineFragmentParagraphs` did not exist.
+- GREEN/HARNESS: `line-fragment-prose-smoke` passed after adding the normalizer. The synthetic fixture merges split-word visual lines such as `th` + `e`, `extra-spe` + `cial`, and `wishe` + `d`, while preserving source-leading whitespace where it represents a real word gap.
+- GREEN/RUNTIME-WIRING: `ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes` passed after adding a host guard that requires `normalizeReaderLineFragmentParagraphs(doc, settings)` to run before `applyReaderParagraphSpacing(doc, settings)`.
+- GREEN/JS: edited reader runtime and harness files passed `node --check`; `font-css-smoke` still passed; `git diff --check` was clean.
+- GREEN/DIRTY-INSTALL: `scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554` built and installed a dirty readerDev APK successfully, including the changed reader assets.
+- GREEN/REAL-EPUB-DOM: DevTools inspection of the dirty readerDev WebView after jumping to `OEBPS/xhtml/chapter4.xhtml` showed the real EPUB content document with `data-navic-line-fragments-normalized="true"` and merged paragraphs:
+  - `If you remember... I didn't even know him...`
+  - `The point is... I'm not the warmest cinnamon roll... extra-special effort...`
+  - `All my life, I'd wished to be an Oculator... with enhanced skills...`
+- BLOCKED/VISUAL: screenshot validation of the fixed text page is still blocked because the native cover overlay remained visible after direct WebView navigation and did not dismiss after two right-edge taps. The WebView document was correctly navigated and normalized behind it, but `screen-after-chapter-progress.png` still shows the native cover.
+- FOLLOW-UP: treat the stuck native cover overlay as a separate cover-shell/controller issue. Do not weaken the line-fragment normalizer to work around the cover overlay.
+
+## 2026-06-21 Controller-Owned Cover Dismissal Red/Green
+
+Scope:
+- Fix the cover-shell/controller issue found during Bastille line-fragment validation: the native cover overlay could remain mounted above real EPUB content after an explicit engine navigation moved the WebView underneath it.
+- Preserve the intended startup behavior where passive/default relocation does not immediately dismiss the native cover.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.explicitReadableRelocationDismissesControllerOwnedShellCover"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.explicitReadableRelocationDismissesControllerOwnedShellCover" --tests "paige.navic.reader.ReaderControllerTest.startupReadableRelocationDoesNotDismissControllerOwnedShellCover"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.ReaderChromeStateTest.nativeShellCoverBoundary*"
+git diff --check
+```
+
+Artifacts:
+- `build\codex-logs\reader-controller-shell-cover-red.out.log`
+- `build\codex-logs\reader-controller-shell-cover-green.out.log`
+- `build\codex-logs\reader-controller-shell-cover-broad.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderControllerTest.explicitReadableRelocationDismissesControllerOwnedShellCover` failed before implementation at `ReaderControllerTest.kt:117`; `shellCoverVisible` stayed `true` after an explicit `chapter-progress-seek` relocation to readable content.
+- GREEN/FIXED: the same scenario now clears `shellCoverVisible` and `menuVisible`, while `startupReadableRelocationDoesNotDismissControllerOwnedShellCover` keeps the shell cover mounted for passive `relocate-committed` startup relocation.
+- GREEN/BROAD: full `ReaderControllerTest` plus `ReaderChromeStateTest.nativeShellCoverBoundary*` passed, preserving previous-from-first-readable-page native-cover return behavior.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- NOTE: this is host/controller validation. The next dirty readerDev/emulator validation should verify that TOC/progress/Whispersync chapter navigation no longer leaves the native cover visually mounted over the WebView.
+
+## 2026-06-21 Controller-Owned Cover Dismissal Dirty Emulator Validation
+
+Scope:
+- Validate the controller-owned cover dismissal fix on the emulator after installing a dirty readerDev APK.
+- Confirm explicit chapter-progress navigation reaches visible EPUB content instead of leaving the native cover mounted above the WebView.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554
+.\scripts\install-reader-dev.ps1 -NoBuild -NoInstall -DeviceSerial emulator-5554 -RequireReaderLaunch
+node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --probe runtime-state
+node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --probe chapter-progress-endpoints
+adb -s emulator-5554 shell screencap -p /sdcard/navic-cover-dismiss-probe-after.png
+adb -s emulator-5554 pull /sdcard/navic-cover-dismiss-probe-after.png captures\reader-cover-dismiss-dirty\probe-after.png
+```
+
+Artifacts:
+- `build\codex-logs\readerdev-install-cover-dismiss.out.log`
+- `build\codex-logs\readerdev-install-cover-dismiss.err.log`
+- `build\codex-logs\chapter-progress-endpoints-cover-dismiss.out.log`
+- `build\codex-logs\chapter-progress-endpoints-cover-dismiss.err.log`
+- `captures\reader-cover-dismiss-dirty\before.png`
+- `captures\reader-cover-dismiss-dirty\after.png`
+- `captures\reader-cover-dismiss-dirty\probe-after.png`
+
+Results:
+- GREEN/DIRTY-INSTALL: `scripts\install-reader-dev.ps1 -NoLaunch -NoDiscoverPublication -DeviceSerial emulator-5554` built and installed readerDev successfully.
+- GREEN/DEVTOOLS: `runtime-state` connected to `darkaxt.navic.readerdev` WebView `https://appassets.androidplatform.net/assets/reader/index.html`; the runtime reported `flowMode=paged`, `rendererFlow=paginated`, viewport `1232x1974`, and one content document.
+- GREEN/CHAPTER-ENDPOINTS: `chapter-progress-endpoints` selected `OEBPS/Text/Chapter-37.xhtml` with `chapterPageCount=82`; the endpoint probe reached page `461 / 623` at chapter progress `0` and page `542 / 623` at chapter progress `1`.
+- GREEN/VISUAL: `captures\reader-cover-dismiss-dirty\probe-after.png` shows readable EPUB content at `543 / 623`, not the native cover. This confirms the explicit navigation path no longer leaves the native cover visually mounted over the WebView in the dirty emulator build.
+- NOTE: the foreground launch command hit the shell tool's foreground ceiling while waiting for `publicationReady`; the app had already launched and was then validated through DevTools and screenshots. Future long readerDev launches should use the hidden captured-process pattern used for Gradle and DevTools probes.
+
+## 2026-06-21 Komikku Effective Nav-Bar Guard
+
+Scope:
+- Match Komikku's rule that vertical seekbars belong to vertical viewer modes only. Normal paged EPUB must use the bottom navigator even if the stored nav-bar preference is vertical.
+- Replace the failed foreground/`Start-Process` launch pattern with a hidden captured-process pattern for long Gradle validation.
+
+Commands:
+
+```powershell
+# RED and GREEN were both run through a hidden ProcessStartInfo wrapper with CreateNoWindow=true,
+# stdout/stderr redirected to build\codex-logs, and PID files beside the logs.
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderViewerTest.komikkuVerticalRailIsEffectiveOnlyForVerticalViewerModes"
+.\gradlew.bat --no-daemon --no-parallel "-Pkotlin.incremental=false" :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderViewerTest"
+git diff --check
+```
+
+Artifacts:
+- `build\codex-logs\komikku-effective-nav-red.out.log`
+- `build\codex-logs\komikku-effective-nav-green.out.log`
+- `build\codex-logs\reader-viewer-tests.out.log`
+- `build\codex-logs\reader-viewer-tests-rerun.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderViewerTest.komikkuVerticalRailIsEffectiveOnlyForVerticalViewerModes` failed before production code because `readerEffectiveNavBarTypeFor` did not exist.
+- GREEN/FIXED: `readerEffectiveNavBarTypeFor` now resolves the effective chrome from the active viewer mode: paged readers force `bottom`, while scrolled/webtoon and vertical-paged readers can use the stored vertical-left/right preference.
+- GREEN/CHROME: `KomikkuReaderAppBars` now consumes the effective nav-bar type instead of the raw stored setting, preventing the full-height vertical rail from appearing in normal paged EPUB.
+- GREEN/BROAD: `ReaderViewerTest` passed after updating a stale Whispersync source-inspection guard to the current root-owned headset overlay route (`KomikkuWhispersyncPlaybackControl` -> `onOpenPlayer = onWhispersyncPlayer` -> `KomikkuWhispersyncPlayerDialog`).
+- PROCESS: the working hidden wrapper pattern is `cmd.exe /d /c call "<repo>\gradlew.bat" ... > "<out.log>" 2> "<err.log>"`, launched with `ProcessStartInfo.UseShellExecute=false` and `CreateNoWindow=true`. Do not use foreground shells or `Start-Process` directly on `.bat` files for long reader validation.
+
+## 2026-06-21 App Back Navigation Policy
+
+Scope:
+- Validate GLM's back-navigation report against source and fix the basic app experience before continuing reader/Whispersync integrations.
+- Unify Android system back, visible top-left back affordances, reader back, and bottom-tab switching around a single policy.
+
+Diagnosis:
+- CONFIRMED: `App.kt` system back removed the last stack entry whenever the stack was non-empty, so a detail screen opened as root could drain the app to Android home.
+- CONFIRMED: `BottomBar.kt` tab clicks cleared the whole stack and added only the selected root destination, so returning from a tab switch discarded the previous book/collection/detail context.
+- CONFIRMED: `NestedTopBar.kt` used a stricter local rule (`backStack.size > 1`) than system back and also hid several settings arrows on medium+ width.
+- CONFIRMED: `ReaderScreen.kt` used the same local `backStack.size > 1` rule, so a reader launched as root could not fall back to its owning Bindery book.
+- CONFIRMED: `AndroidManifest.xml` did not opt into Android's predictive back callback.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.navigation.NavBackPolicyTest"
+git diff --check
+.\gradlew.bat --no-daemon :androidApp:assembleDebug
+```
+
+Artifacts:
+- `tmp\codex-logs\navback-policy-red2.out.log`
+- `tmp\codex-logs\navback-policy-green.out.log`
+- `tmp\codex-logs\navback-policy-green2.out.log`
+- `tmp\codex-logs\navback-full-host.out.log`
+- `tmp\codex-logs\navback-assemble-debug.out.log`
+
+Results:
+- RED/HOST-GUARD: `NavBackPolicyTest` failed before implementation because `NavBackAction`, `navBackActionFor`, and `navBackStackAfterTabSelection` did not exist.
+- GREEN/POLICY: the first focused rerun passed after adding `NavBackPolicy.kt` and wiring `App.kt`, `NestedTopBar.kt`, `RootTopBar.kt`, `BottomBar.kt`, and `ReaderScreen.kt` through the shared policy.
+- FIXED: root-level detail screens now fall back to useful roots instead of exiting: reader -> owning `BinderyBook`, `BinderyBook` -> `BinderyBooks`, collection -> `BinderyCollections`, author -> `BinderyAuthors`, settings details -> `Settings.Root`.
+- FIXED: bottom-tab selection appends the destination when it changes instead of clearing history, preserving the previous window for back navigation.
+- FIXED: visible root/detail back affordances now use the same policy as system back, and nested bars can still show a back affordance when the policy has a fallback even if a medium-width screen requested `hideBack`.
+- FIXED: Android manifest opts into `android:enableOnBackInvokedCallback="true"`.
+- GREEN/RERUN: the second focused rerun passed after adding the root-back-affordance assertion (`BUILD SUCCESSFUL in 3m 10s`).
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/APK-COMPILE: `:androidApp:assembleDebug` passed (`BUILD SUCCESSFUL in 2m 38s`), including the manifest change.
+- RED/FULL-HOST-RESIDUAL: full `:composeApp:testAndroidHostTest` failed with three reader-only assertions outside this change's files: `ReaderChromeStateTest.typographyControlsUpdateReaderSettings`, `ReaderRuntimeCommonChromeTest.commonReaderProgressRailPlacementIsControllerSettingNotHardcoded`, and `ReaderRuntimeNavigationFlowTest.androidReaderMapsExplicitReadingFlowModesToFoliateRuntime`.
+- GREEN/RESIDUAL-TARGETED: `:composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderChromeStateTest.typographyControlsUpdateReaderSettings" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderProgressRailPlacementIsControllerSettingNotHardcoded" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest.androidReaderMapsExplicitReadingFlowModesToFoliateRuntime"` passed after updating stale guards to the current adaptive-reader defaults, effective nav-bar helper, and extracted `EbookReaderSettingOptions.kt` flow-option source.
+- GREEN/FULL-HOST-RERUN: full `:composeApp:testAndroidHostTest` passed (`BUILD SUCCESSFUL in 26s`).
+- GREEN/WHITESPACE-RERUN: `git diff --check` passed after the residual test-maintenance patch.
+- ARTIFACTS: `tmp\codex-logs\reader-host-targeted-after-navback.out.log`, `tmp\codex-logs\reader-host-full-after-navback.out.log`.
+
+## 2026-06-22 PullUp Does Not Implicitly Surface Chrome
+
+Scope:
+- Address the user-reported vertical-drag regression where moving to the next chapter can surface the menu without an explicit center/menu action.
+- Preserve Anx `PullUp` bridge parity while keeping Komikku shell ownership of reader chrome visibility.
+
+Diagnosis:
+- CONFIRMED: `ReaderController` routed every source-less `ReaderEngineEvent.PullUp()` to `menuVisible=true`.
+- CONFIRMED: the runtime's intentional scrolled-edge path posts `pullUp` with `source='scrolled-edge-swipe'`, and the controller already preserved menu state for that source.
+- ROOT CAUSE: ambiguous/default pull-up events were treated as hidden menu commands instead of bridge events feeding controller overlay state.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu"
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest" --tests "paige.navic.reader.FoliateAnxParityTest"
+```
+
+Artifacts:
+- `tmp\codex-logs\pullup-ambiguous-red.out.log`
+- `tmp\codex-logs\pullup-ambiguous-green.out.log`
+- `tmp\codex-logs\pullup-controller-parity.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderControllerTest.ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu` failed before implementation because source-less `PullUp()` forced `menuVisible=true`.
+- FIXED: `ReaderEngineEvent.PullUp` now records `ReaderOverlayInteraction.PullUp` and preserves the existing menu state instead of opening chrome.
+- FIXED: `FoliateAnxParityTest` now requires the `PullUp` route to preserve controller menu state, preventing future reintroduction of hidden chrome toggling.
+- GREEN/FOCUSED: `ReaderControllerTest.ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu`, `anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded`, `scrolledEdgePullUpRecordsBridgeParityWithoutOpeningReaderMenu`, and `FoliateAnxParityTest.everyAnxHandlerIsDocumentedInKnownGaps` passed.
+- GREEN/BROAD: full `ReaderControllerTest` and `FoliateAnxParityTest` passed together (`BUILD SUCCESSFUL in 16s`).
+- NOTE: no ADB device was connected for a live vertical-drag smoke; this closes the controller-level cause but still needs emulator/device confirmation in the next readerdev matrix.
+
+## 2026-06-22 Boundary Drag Paper Fallback
+
+Scope:
+- Address the drag-preview black void at EPUB section/chapter boundaries without changing the tap-zone or release-navigation paths.
+- Keep the current page moving during the gesture, but ensure the exposed adjacent area is paper-colored while the next section iframe is still loading.
+
+Diagnosis:
+- CONFIRMED: `updatePageDragPreviewLayer` kept the active renderer moving during boundary drag, but hid the adjacent preview layer when `pageDragPreviewReadyKey` did not match the target section.
+- ROOT CAUSE: the not-ready branch collapsed the preview surface to a transparent offscreen 1px layer (`left='-1px'`, `width='1px'`, `opacity='0'`), exposing the native/root background until the adjacent iframe finished loading.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderShowsPaperFallbackWhileBoundaryPreviewLoads"
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+git diff --check
+```
+
+Artifacts:
+- `tmp\codex-logs\drag-preview-fallback-red2.out.log`
+- `tmp\codex-logs\drag-preview-fallback-green2.out.log`
+- `tmp\codex-logs\drag-preview-fallback-broad.out.log`
+
+Results:
+- RED/HOST-GUARD: `ReaderRuntimePaperSurfaceTest.androidReaderShowsPaperFallbackWhileBoundaryPreviewLoads` failed before implementation because the runtime did not mark or display any paper fallback in the not-ready boundary preview branch.
+- FIXED: the not-ready branch now sizes the preview layer to the actually exposed drag area, keeps it visible with the reader paper palette, and records `navicPageDragPreviewFallback='paper'` plus exposed dimensions for diagnostics.
+- FIXED: the ready branch explicitly clears fallback state and restores iframe opacity, so the real adjacent preview replaces the paper fallback as soon as it is available.
+- GREEN/FOCUSED: `ReaderRuntimePaperSurfaceTest.androidReaderShowsPaperFallbackWhileBoundaryPreviewLoads` passed (`BUILD SUCCESSFUL in 14s`).
+- GREEN/BROAD: `ReaderRuntimePaperSurfaceTest` plus the existing Komikku readable-drag guard passed (`BUILD SUCCESSFUL in 23s`).
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- NOTE: no ADB device was connected for a live chapter-boundary drag; this closes the renderer fallback cause, but the next readerdev matrix still needs a real gesture pass.
+
+## 2026-06-22 Whispersync Icon Compose Vector Crash
+
+Scope:
+- Fix the CrashActivity failure on opening a Whispersync-capable Bindery book detail screen.
+- Keep the fix to the resource-parser root cause before resuming launcher work.
+
+Diagnosis:
+- CONFIRMED: the emulator crash stack reported `java.lang.IllegalArgumentException: Invalid color value @android:color/transparent` from Compose's vector parser while loading `Res.drawable.ic_whispersync` in `BinderyBookScreen`.
+- ROOT CAUSE: `composeResources/drawable/ic_whispersync.xml` used framework color references (`@android:color/transparent`) inside a common Compose resource. The Compose resource parser accepts literal color values here, not Android framework color resource references.
+
+Commands:
+
+```powershell
+rg "@android:color/transparent" composeApp\src\commonMain\composeResources\drawable
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.ui.components.common.ComposeVectorResourceSourceTest.composeVectorDrawablesUseLiteralTransparentColors"
+git diff --check -- composeApp\src\commonMain\composeResources\drawable\ic_whispersync.xml composeApp\src\androidHostTest\kotlin\paige\navic\ui\components\common\ComposeVectorResourceSourceTest.kt
+adb -s emulator-5554 logcat -c
+adb -s emulator-5554 shell input tap 925 462
+adb -s emulator-5554 logcat -d -v brief
+```
+
+Artifacts:
+- `captures\reader-dev\navic-vector-before.png`
+- `captures\reader-dev\navic-vector-after-card.png`
+- Verification worktree guard log: `C:\Users\darka\Documents\Projects\Android\.codex-temp\navic-vector-crash-verify\tmp\codex-logs\vector-crash-verify-install.out.log`
+
+Results:
+- FIXED: all `@android:color/transparent` fills in `ic_whispersync.xml` were replaced with literal `#00000000`.
+- GUARD: `ComposeVectorResourceSourceTest.composeVectorDrawablesUseLiteralTransparentColors` now scans common Compose drawables and fails if this parser-incompatible value returns.
+- GREEN/HOST-GUARD: the focused guard passed in the clean verification worktree (`BUILD SUCCESSFUL in 5m 6s`, `GuardExitCode=0`).
+- GREEN/INSTALL: the patched readerDev APK installed on `emulator-5554`.
+- GREEN/EMULATOR: after dismissing the update sheet and tapping the visible `Bastille vs. the Evil Librarians` card, the book detail screen rendered with Whispersync icons instead of CrashActivity.
+- GREEN/LOGCAT: the focused logcat check after the tap contained `Bindery book loaded bookId=3809 ... syncPairs=1`, and no `Invalid color value`, `XmlVectorParser`, `CrashActivity`, or app `FATAL EXCEPTION` entry for the repro path.
+- NEXT: fix the readerdev launcher so this route can be opened deterministically without manual tap coordinates or null intent extras.
+
+## 2026-06-22 Readerdev Launcher Explicit Target Overrides
+
+Scope:
+- Replace manual `am start` reader launches with a deterministic `install-reader-dev.ps1` path.
+- Avoid env-file edits when a validation run needs a specific EPUB/PDF, start location, or Whispersync sidecar target.
+
+Diagnosis:
+- CONFIRMED: the current `bindery-debug.env` has Bindery credentials but no nonblank `BINDERY_TEST_PUBLICATION_ID` / `BINDERY_TEST_RESOURCE_ID` direct target.
+- CONFIRMED: a manual direct launch with blank values can shift `am start --es` arguments and fall back to the Books grid instead of opening the reader.
+- ROOT CAUSE: `install-reader-dev.ps1` could discover from Bindery or read env-driven targets, but had no explicit CLI reader-target overrides for validation fixtures.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --no-parallel :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored"
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -NoDiscoverPublication -RequireReaderLaunch -PublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -BookId "3809" -Title "Bastille vs. the Evil Librarians" -Format epub -Capture
+git diff --check -- scripts\install-reader-dev.ps1 composeApp\src\androidHostTest\kotlin\paige\navic\reader\ReaderDevEnvironmentContractTest.kt
+```
+
+Artifacts:
+- `tmp\codex-logs\launcher-contract-red.out.log`
+- `tmp\codex-logs\launcher-contract-green.out.log`
+- `tmp\codex-logs\launcher-direct-bastille.out.log`
+- `captures\reader-dev\reader-dev-20260622-013122.png`
+
+Results:
+- RED/HOST-GUARD: `ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored` failed before implementation because the launcher had no explicit reader-target CLI overrides.
+- FIXED: `install-reader-dev.ps1` now accepts explicit aliases for `-PublicationUrl`, `-ResourceHref`, `-BookId`, `-Title`, `-Kind`, `-Format`, `-StartHref`, `-StartCfi`, and Whispersync sidecar/audiobook fields.
+- FIXED: explicit CLI values override env-file values, then flow through the existing null-safe `Add-ShellStringExtra` path so blank values are not emitted as shifted `am start` arguments.
+- GREEN/HOST-GUARD: the focused launcher contract passed after the script change (`BUILD SUCCESSFUL in 14s`).
+- GREEN/LAUNCHER: the no-build/no-install launcher run opened `darkaxt.navic.readerdev` directly into production book `3809` using file `426`, waited for `Reader bridge raw: {"type":"publicationReady"}`, and pulled a rendered reader screenshot.
+- GREEN/LOGCAT: the direct launch produced real reader bridge data (`loadDoc`, cached pagination profile, `locationChanged`, `visibleTextRange`, `publicationReady`) for `OEBPS/xhtml/chapter4.xhtml`.
+- GREEN/WHITESPACE: `git diff --check` passed for the launcher and contract-test changes.
+- GREEN/COMBINED-GUARD: the focused rerun covering both `ComposeVectorResourceSourceTest.composeVectorDrawablesUseLiteralTransparentColors` and `ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored` passed together (`BUILD SUCCESSFUL in 4m 7s`).
+
+## Merged Local Validation Sections After eta80
+
 ## 2026-06-22 Scrolled-Edge Pull-Up Harness Route Check
 
 Scope:
@@ -6481,6 +7121,7 @@ Results:
 - VALIDATION ROUTE: real scrolled-edge validation should continue to use native ADB gestures and bridge-log assertions, for example `-SwipeFraction @('0.50,0.90,0.50,0.10,450,1400') -RequireReaderBridgeEvent 'pullUp(source=scrolled-edge-swipe)'`, as recorded in the 2026-06-20 scrolled-edge source validation.
 - Remaining: no product behavior changed in this slice. The open validation item is still release/physical-device confirmation of the native scrolled-edge path, not a DevTools helper task.
 
+
 ## 2026-06-22 Reader Host Guard Refresh
 
 Scope:
@@ -6502,6 +7143,7 @@ Results:
 - GREEN/WHITESPACE: `git diff --check` passed.
 - Remaining: no Android device behavior was validated in this host-only guard refresh.
 
+
 ## 2026-06-22 PushState History Capsule Guard
 
 Scope:
@@ -6520,6 +7162,7 @@ Results:
 - GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 3m 36s`.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - Remaining: host parity only. No emulator/device visual validation was needed for this controller-state guard.
+
 
 ## 2026-06-22 Anx Font Size Body-Prose Guard
 
@@ -6547,6 +7190,7 @@ Results:
 - GREEN/WHITESPACE: `git diff --check` passed.
 - Remaining: host/source validation only. Tablet visual validation should confirm perceived body text scaling across normal text pages and generated/typewriter-style pages before a release claim.
 
+
 ## 2026-06-22 Reader Spec Stale-Item Cleanup
 
 Scope:
@@ -6568,6 +7212,7 @@ git diff --check -- docs/superpowers/specs/2026-06-13-komikku-reader-port-design
 
 Results:
 - GREEN/WHITESPACE: the focused spec diff check passed.
+
 
 ## 2026-06-22 Komikku Custom-Filter Dim Amount Parity
 
@@ -6592,6 +7237,7 @@ Results:
 - GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 24s`.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - Remaining: no emulator/device visual validation was run for this UI dim behavior.
+
 
 ## 2026-06-22 Publisher Styles Settings Placement Parity
 

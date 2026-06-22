@@ -10,6 +10,12 @@ class ReaderSettingsDefaultsTest {
 	}
 
 	@Test
+	fun readerSettingsDefaultsPreserveAnxReadableProseScale() {
+		assertEquals(140, defaultReaderSettings().fontSizePercent)
+		assertEquals(1.8, defaultReaderSettings().lineHeight)
+	}
+
+	@Test
 	fun readerSettingsDefaultsExposeAnxStyleDimensions() {
 		assertEquals(400.0, defaultReaderSettings().fontWeight)
 		assertEquals(0.0, defaultReaderSettings().letterSpacing)

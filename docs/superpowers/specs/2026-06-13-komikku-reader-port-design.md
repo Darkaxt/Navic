@@ -56,9 +56,11 @@ If a Navic feature works but is not faithful to the reference, treat it as unfin
 - Do not publish a release candidate for minor fixes unless the user explicitly asks or a major reader bug is addressed.
 - Do not build iOS artifacts for this Android reader work.
 - Do not treat host tests, desktop browser harnesses, or manual screenshots as proof of Android input/progress behavior.
+- Do not ask for routine human testing while host tests, emulator probes, or readerdev automation can still answer the question. Human/physical-device validation is the final acceptance gate for coherent candidates, not the normal implementation loop.
 - Do not let Foliate/WebView own normal reader tap zones. Short taps belong to the native Komikku-style surface; long press can reach content actions.
 - Do not regress links, image interaction, search, EPUB text rendering, PDF rendering, or readaloud hooks while replacing the shell.
 - Do not invent Navic-specific reader behavior where Anx already defines a bridge callback, payload field, style dimension, or engine action.
+- Do not launch long Gradle, readerDev, emulator, or DevTools validation work through a foreground shell or `Start-Process` directly on `.bat` files. Use a no-console launch path with `ProcessStartInfo.UseShellExecute=false`, `CreateNoWindow=true`, file logs, and a PID file; smoke-test the wrapper before using it for a long command.
 
 ## Current Architecture
 
@@ -133,7 +135,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 5 dirty emulator evidence proves the selection payload can reach Android with `footnote=true`, CFI, context text, and bounds, and that the native Komikku-style `Highlight`, `Copy`, and `Note` action overlay appears after shell-cover dismissal. Highlight has a repeatable smoke gate through `applyHighlights` + `annotationDrawn`; Copy has a repeatable node-tap smoke gate that reaches the native clipboard boundary (`Reader selection copied length=31`). Note is dirty-emulator verified through a DevTools-created selection plus native UI taps: `Reader selection note save length=10`, `applyHighlights(... notes=1)`, and `annotationDrawn` were captured on eta76. The 2026-06-20 dirty emulator run now also proves real ADB long-press normal-text selection plus native Highlight, Copy, and Note Save actions without DevTools-created selection. Clean release/physical-device validation remains open.
 - Phase 3 controller behavior routes are now required: bridge/engine events must feed `ReaderControllerState` or an explicit UI route, not stop at type/decode/debug-label parity. The guard rejects no-op controller branches for `InternalLinkRequested`, `ExternalLinkOpened`, `AnnotationClicked`, `AnnotationDrawn`, `OverlayCreated`, `DocLoaded`, `NavigationStateChanged`, `FootnoteClose`, and `PullUp`.
 - `PushState` is not passive history metadata: Anx routes it to a visible history capsule when `canGoBack || canGoForward`. Navic now stores `ReaderEngineNavigationState.visible`, renders `KomikkuReaderHistoryCapsule`, and routes capsule back/forward through `ReaderEngineCommand.NavigateHistory` to `ReaderBridgeCommand.HistoryBack` / `HistoryForward` and Foliate `view.history.back()` / `forward()`.
-- `PullUp` is not a passive diagnostic event: Anx routes it to `showOrHideAppBarAndBottomBar(true)`, so Navic must route it to controller-owned `menuVisible = true` while keeping the renderer command list empty.
+- `PullUp` is not a passive diagnostic event: Navic must route it to controller-owned overlay state while keeping the renderer command list empty, but it must not implicitly force `menuVisible=true`. The Komikku shell owns explicit chrome visibility through center/menu actions; pull-up bridge events only preserve menu state so vertical page movement cannot surface chrome by accident.
 - Phase 3 now has dirty-emulator WebView evidence for the high-risk bridge path. `captures\reader-bridge-probes\20260618-phase3-pullup-diagnostic-command\reader-devtools-probe.json` shows `externalLink`, `annotationDrawn`, `annotationClick`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and diagnostic `pullUp` crossing into Android logcat. This is bridge-path evidence, not a replacement for user-driven scrolled-edge gesture validation.
 - Phase 4 extends `ReaderLocator` and `locationChanged` with Anx relocation payload fields: `rangeCfi`, `reason`, `fraction`, `size`, `tocItemLabel`, and `pageItemLabel`.
 - Phase 4 keeps Navic-specific page/progress extensions alongside the Anx fields and adds an ADB-visible `locationChanged(... reason=..., rangeCfi=...)` debug label.
@@ -261,7 +263,7 @@ Priority 2:
 
 1. Validate Phase 5 selection actions on a clean release APK/physical device before release-candidate claims; dirty-emulator real normal-text selection is now proven.
 2. Validate remaining user-driven Phase 3 bridge flows: scrolled-edge pull-up gestures must be observed without diagnostic commands.
-3. Validate/fix release-candidate parity for the progress rail and cover chrome.
+3. Validate/fix release-candidate parity for the progress rail and cover chrome through host/emulator automation first; batch physical-device confirmation into the final candidate pass.
 4. Resume persistence after disrupted drag/app interruption is dirty-emulator validated; keep clean release/physical confirmation open.
 5. Continue texture movement polish as the remaining drag-feel slice; the black-void boundary fallback itself is host/emulator-closed but still needs release-device feel validation.
 6. Continue the remaining Anx/Foliate behavior work behind the controller boundary: PDF runtime interaction, annotations/highlights, media/readaloud sync, hyperlink behavior, and image interaction.
@@ -281,6 +283,18 @@ After every major reader code/asset/script change:
 7. Append only a concise result to `2026-06-13-komikku-reader-port-validation-log.md`.
 
 If emulator launch, install, Bindery seed, or the matrix script fails, that validation path failure becomes the current task.
+
+## Human And Release-Device Gate
+
+Real devices and human review are reserved for the final stage of a coherent candidate, or for issues that cannot be judged by automation:
+
+- Physical touch feel: drag, cover drag, tap zones, menu show/hide.
+- Visual judgment: texture strength, typography, margins, settings density, and whether the result feels faithful to Komikku instead of merely inspired by it.
+- Release APK validation with real app data/login state.
+- Foldable/tablet layout checks, especially Tab S9 Ultra and Fold dimensions.
+- End-to-end Whispersync enjoyment pass: open paired ebook, tap the headset, playback seeks correctly, highlight follows audio, resume works, and no release-only regressions appear.
+
+Until that stage, the implementation loop should use host tests, browser/WebView harnesses, readerdev, emulator, ADB, and DevTools probes. Asking for human testing before those paths are exhausted is a validation-pipeline failure.
 
 ## Acceptance Criteria
 

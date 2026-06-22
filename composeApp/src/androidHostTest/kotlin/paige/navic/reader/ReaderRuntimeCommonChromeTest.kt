@@ -750,8 +750,8 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(settingsDialogText, "ReaderSupportedNavBarTypes")
 		assertContains(settingsDialogText, "readerNavBarTypeShortLabel")
-		assertContains(appBarsText, "normalizedReaderNavBarType")
-		assertContains(appBarsBody, "val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)")
+		assertContains(appBarsText, "readerEffectiveNavBarTypeFor")
+		assertContains(appBarsBody, "val navBarType = readerEffectiveNavBarTypeFor(controllerState.chrome.settings)")
 		assertFalse(
 			appBarsBody.contains("val navBarType = KomikkuNavBarType.VerticalRight"),
 			"Komikku nav bar placement must be a reader setting, not a hardcoded right rail."
@@ -966,6 +966,13 @@ class ReaderRuntimeCommonChromeTest {
 			bottomChromeBody.contains("KomikkuReaderBottomButton.ReadingMode.isIn(enabledButtons)") ||
 				bottomChromeBody.contains("stringResource(Res.string.action_reader_reading_mode)"),
 			"Navic keeps Komikku's ReaderBottomButton model, but must not render ReadingMode as a duplicate settings-sheet entry."
+		)
+		assertFalse(
+			bottomChromeBody.contains("showWhispersyncPlayer") ||
+				bottomChromeBody.contains("onWhispersyncPlayer") ||
+				bottomChromeBody.contains("Icons.Outlined.Audiobooks") ||
+				bottomChromeBody.contains("Whispersync player"),
+			"Whispersync playback belongs to the page-scoped headset/control surface; the Komikku bottom bar must not grow a Navic-specific audiobook shortcut."
 		)
 		assertFalse(
 			appBarsBody.contains("val bottomActions = listOf(") ||

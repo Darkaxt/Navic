@@ -420,7 +420,7 @@ function readerPaginationRenderMetadata() {
     fontFamily: readerEffectiveFontFamily(settings),
     customFontFamily: settings.customFontFamily || '',
     customFontUrl: settings.customFontUrl || '',
-    fontSizePercent: settings.fontSizePercent ?? 100,
+    fontSizePercent: settings.fontSizePercent ?? 140,
     lineHeight: settings.lineHeight ?? 1,
     paragraphSpacingPercent: settings.paragraphSpacingPercent ?? settings.paragraphSpacing ?? 0,
     marginPercent: settings.marginPercent ?? 0,

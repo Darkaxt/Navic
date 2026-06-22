@@ -815,6 +815,150 @@ async function runWhispersyncPageScopedControlProbe(page) {
   }})()`)
 }
 
+async function runWhispersyncCharOffsetOverlayProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+
+    const originalPostMessage = window.NavicAndroidBridge?.postMessage?.bind(window.NavicAndroidBridge)
+    if (!originalPostMessage) {
+      throw new Error('Missing NavicAndroidBridge.postMessage')
+    }
+    const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
+    if (!readerBridgeDispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+
+    const observedPayloads = []
+    const settleFrames = async (count = 2) => {
+      for (let index = 0; index < count; index += 1) {
+        await new Promise(resolve => requestAnimationFrame(resolve))
+      }
+    }
+    const latestPayload = (type, startIndex = 0) => {
+      for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {
+        const payload = observedPayloads[index]
+        if (payload?.type === type) return payload
+      }
+      return null
+    }
+    const rangeMarkers = () => {
+      const contents = view?.renderer?.getContents?.() || []
+      return contents.flatMap(content => {
+        const href = String(
+          view?.book?.sections?.[Math.floor(Number(content?.index))]?.href ||
+          content?.href ||
+          ''
+        )
+        return Array.from(content?.doc?.querySelectorAll?.('[data-navic-media-overlay-range="true"]') || [])
+          .map(marker => ({
+            href,
+            text: marker.textContent || '',
+            className: marker.className || '',
+            textStart: marker.dataset.navicTextStart || '',
+            textEnd: marker.dataset.navicTextEnd || '',
+          }))
+      })
+    }
+
+    window.NavicAndroidBridge.postMessage = message => {
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
+      }
+    }
+
+    try {
+      const snapshot = await Promise.resolve(readerBridgeDispatch({
+        type: 'diagnosticLocationSnapshot',
+        reason: 'whispersync-char-offset-overlay-initial',
+      }))
+      const visibleRange = latestPayload('visibleTextRange') ||
+        snapshot?.visibleTextRangeResult?.visibleRange ||
+        null
+      if (!visibleRange) {
+        throw new Error(`Expected visibleTextRange before char-offset probe; snapshot=${JSON.stringify(snapshot)}`)
+      }
+      const visibleStart = Number(visibleRange.visibleStart)
+      const visibleEnd = Number(visibleRange.visibleEnd)
+      if (!Number.isFinite(visibleStart) || !Number.isFinite(visibleEnd) || visibleEnd - visibleStart < 4) {
+        throw new Error(`Visible range too small for char-offset probe: ${JSON.stringify(visibleRange)}`)
+      }
+
+      const targetStart = Math.floor(visibleStart + Math.max(1, Math.min(24, (visibleEnd - visibleStart) * 0.15)))
+      const targetEnd = Math.min(Math.ceil(targetStart + 48), Math.floor(visibleEnd))
+      if (targetEnd <= targetStart) {
+        throw new Error(`Computed invalid char-offset range ${targetStart}-${targetEnd} from ${JSON.stringify(visibleRange)}`)
+      }
+
+      const overlayStartIndex = observedPayloads.length
+      await Promise.resolve(readerBridgeDispatch({
+        type: 'applyOverlayFragment',
+        fragment: {
+          textHref: visibleRange.textHref,
+          textStart: targetStart,
+          textEnd: targetEnd,
+          resourceHref: 'navic-whispersync-char-offset-overlay-probe',
+          clipBeginSeconds: 1,
+          clipEndSeconds: 2,
+          label: 'Whispersync character offset overlay probe',
+        },
+      }))
+      await settleFrames()
+
+      const markerMatches = rangeMarkers()
+      if (!markerMatches.length) {
+        throw new Error(
+          `Expected data-navic-media-overlay-range marker for ${targetStart}-${targetEnd}; observed=${
+            JSON.stringify(observedPayloads.slice(overlayStartIndex))
+          }`
+        )
+      }
+      const marker = markerMatches.find(entry =>
+        entry.textStart === String(targetStart) &&
+        entry.textEnd === String(targetEnd) &&
+        entry.className.includes('navic-active-overlay-fragment')
+      )
+      if (!marker) {
+        throw new Error(`Expected navic-active-overlay-fragment marker with exact offsets; markers=${JSON.stringify(markerMatches)}`)
+      }
+      const overlayEvent = latestPayload('overlayFragmentActive', overlayStartIndex)
+
+      await Promise.resolve(readerBridgeDispatch({ type: 'clearOverlay' }))
+      await settleFrames()
+      const afterClearMarkers = rangeMarkers()
+      if (afterClearMarkers.length) {
+        throw new Error(`clearOverlay left char-offset markers behind: ${JSON.stringify(afterClearMarkers)}`)
+      }
+
+      return {
+        probe: 'whispersync-char-offset-overlay',
+        visibleRange,
+        targetRange: {
+          textHref: visibleRange.textHref,
+          textStart: targetStart,
+          textEnd: targetEnd,
+        },
+        marker,
+        overlayEvent,
+        observedOverlayFragments: observedPayloads.filter(payload => payload?.type === 'overlayFragmentActive'),
+        expectedLogLabels: [
+          'Reader bridge event: visibleTextRange',
+          'overlayFragmentActive',
+        ],
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    } finally {
+      window.NavicAndroidBridge.postMessage = originalPostMessage
+    }
+  }})()`)
+}
+
 async function runChapterProgressEndpointsProbe(page) {
   return evaluateOnPage(page, `window.__navicChapterProgressProbePromise = (${async () => {
     const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
@@ -1450,7 +1594,7 @@ async function runFontSizeProbe(page) {
       }
       return {
         probe: 'font-size',
-        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140,
         at100,
         at140,
         existingAt100,
@@ -1468,7 +1612,7 @@ async function runFontSizeProbe(page) {
       probe.remove()
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
-        settings: { fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100 },
+        settings: { fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140 },
       })
     }
   }})()`)
@@ -1548,7 +1692,7 @@ async function runPublisherStyleFontSizeProbe(page) {
       }
       return {
         probe: 'font-size-publisher-styles',
-        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+        restoredFontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140,
         restoredPublisherStyles: originalPublisherStyles,
         at100,
         at140,
@@ -1562,7 +1706,7 @@ async function runPublisherStyleFontSizeProbe(page) {
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
         settings: {
-          fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100,
+          fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140,
           publisherStyles: originalPublisherStyles,
         },
       })
@@ -1677,6 +1821,7 @@ async function main() {
       'visible-range': runVisibleRangeProbe,
       'whispersync-audio-follow': runWhispersyncAudioFollowProbe,
       'whispersync-page-scoped-control': runWhispersyncPageScopedControlProbe,
+      'whispersync-char-offset-overlay': runWhispersyncCharOffsetOverlayProbe,
       'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,

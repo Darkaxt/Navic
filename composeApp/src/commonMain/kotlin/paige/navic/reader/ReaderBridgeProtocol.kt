@@ -81,6 +81,8 @@ data class ReaderOverlayFragment(
 	val textHref: String? = null,
 	val clipBeginSeconds: Double? = null,
 	val clipEndSeconds: Double? = null,
+	val textStart: Int? = null,
+	val textEnd: Int? = null,
 	val label: String? = null
 )
 
@@ -693,6 +695,8 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		textHref?.let { put("textHref", it) }
 		clipBeginSeconds?.let { put("clipBeginSeconds", it) }
 		clipEndSeconds?.let { put("clipEndSeconds", it) }
+		textStart?.let { put("textStart", it) }
+		textEnd?.let { put("textEnd", it) }
 		label?.let { put("label", it) }
 	}
 
@@ -760,6 +764,8 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		textHref = stringValue("textHref"),
 		clipBeginSeconds = doubleValue("clipBeginSeconds"),
 		clipEndSeconds = doubleValue("clipEndSeconds"),
+		textStart = intValue("textStart"),
+		textEnd = intValue("textEnd"),
 		label = stringValue("label")
 	)
 }

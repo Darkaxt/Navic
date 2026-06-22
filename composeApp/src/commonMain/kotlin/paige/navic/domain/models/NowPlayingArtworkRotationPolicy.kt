@@ -37,6 +37,19 @@ fun shouldShowNowPlayingVinylOverlay(
 	hasCoverArt: Boolean
 ): Boolean = isRotatingArtwork && hasCoverArt
 
+fun nowPlayingVinylOverlayRotationDegrees(
+	isRotatingArtwork: Boolean,
+	artworkRotationDegrees: Float
+): Float = if (isRotatingArtwork) artworkRotationDegrees else 0f
+
+fun nowPlayingArtworkRotationDegreesForElapsedMillis(elapsedMillis: Long): Float {
+	val durationMillis = NowPlayingArtworkRotationDurationMs.toLong()
+	if (durationMillis <= 0L) return 0f
+
+	val cycleMillis = elapsedMillis.floorMod(durationMillis)
+	return cycleMillis.toFloat() / durationMillis.toFloat() * 360f
+}
+
 fun shouldUseTurnTableWidgetVinylArtwork(hasCoverArt: Boolean): Boolean = hasCoverArt
 
 fun nowPlayingFallbackLabelStyle(isRotatingArtwork: Boolean): NowPlayingFallbackLabelStyle =
@@ -54,3 +67,5 @@ fun nowPlayingTechnicalInfoPlacement(
 			else -> 28
 		}
 	)
+
+private fun Long.floorMod(modulus: Long): Long = ((this % modulus) + modulus) % modulus

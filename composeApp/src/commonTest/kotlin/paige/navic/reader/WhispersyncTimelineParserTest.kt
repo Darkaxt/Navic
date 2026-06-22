@@ -123,6 +123,8 @@ class WhispersyncTimelineParserTest {
 		assertEquals("OEBPS/Text/chapter1.xhtml", overlay.textHref)
 		assertEquals(1.25, overlay.clipBeginSeconds)
 		assertEquals(3.5, overlay.clipEndSeconds)
+		assertEquals(10, overlay.textStart)
+		assertEquals(42, overlay.textEnd)
 		assertEquals("Opening sentence", overlay.label)
 
 		assertNull(

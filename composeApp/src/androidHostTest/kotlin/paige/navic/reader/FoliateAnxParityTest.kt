@@ -267,10 +267,10 @@ class FoliateAnxParityTest {
 			routeStop("ReaderController.kt", "ReaderOverlayInteraction.FootnoteClosed")
 		),
 		"onPullUp" to exists(
-			"PullUp event from scroll-end hook",
-			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
+			"PullUp event from scroll-end hook without implicit reader chrome toggling",
+			controllerTest("ambiguousPullUpRecordsBridgeParityWithoutOpeningReaderMenu"),
 			routeStop("ReaderController.kt", "ReaderOverlayInteraction.PullUp"),
-			routeStop("ReaderController.kt", "menuVisible = true")
+			routeStop("ReaderController.kt", "menuVisible = state.menuVisible")
 		),
 		"link" to exists(
 			"InternalLinkRequested with prevented/source semantics",

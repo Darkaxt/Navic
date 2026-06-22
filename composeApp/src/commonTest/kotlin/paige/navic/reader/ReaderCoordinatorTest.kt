@@ -682,11 +682,14 @@ class ReaderCoordinatorTest {
 
 		val contents = coordinator.openContentsDialog().coordinator
 		val settings = contents.openSettingsDialog().coordinator
+		val whispersyncPlayer = settings.openWhispersyncPlayerDialog().coordinator
 
 		assertEquals(ReaderControllerDialog.Contents, contents.controller.state.dialog)
 		assertEquals(ReaderControllerDialog.Settings, settings.controller.state.dialog)
+		assertEquals(ReaderControllerDialog.WhispersyncPlayer, whispersyncPlayer.controller.state.dialog)
 		assertEquals(coordinator.viewState, contents.viewState)
 		assertEquals(contents.viewState, settings.viewState)
+		assertEquals(settings.viewState, whispersyncPlayer.viewState)
 	}
 
 	private fun hobbitOpenRequest(): ReaderEngineOpenRequest =

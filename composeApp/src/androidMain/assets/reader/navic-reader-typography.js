@@ -53,6 +53,113 @@ const classifyReaderParagraphBlocks = doc => {
   }
 }
 
+const readerLineFragmentInlineTags = new Set([
+  'A',
+  'ABBR',
+  'B',
+  'BDI',
+  'BDO',
+  'BR',
+  'CITE',
+  'CODE',
+  'DFN',
+  'EM',
+  'FONT',
+  'I',
+  'KBD',
+  'MARK',
+  'Q',
+  'S',
+  'SAMP',
+  'SMALL',
+  'SPAN',
+  'STRONG',
+  'SUB',
+  'SUP',
+  'TIME',
+  'U',
+  'VAR',
+])
+
+const readerLineFragmentText = element => String(element?.textContent || '')
+
+const readerLineFragmentTerminalPattern = /[.!?…]["'”’)\]]*$/
+
+const readerLineFragmentCanMergeAfter = element => {
+  const text = readerLineFragmentText(element).trim()
+  return Boolean(text) && !readerLineFragmentTerminalPattern.test(text)
+}
+
+const readerLineFragmentCandidate = element => {
+  if (element?.tagName !== 'P') return false
+  if (element.querySelector?.(readerMediaSelector)) return false
+  for (const child of element.children || []) {
+    const tagName = child.tagName || ''
+    if (!readerLineFragmentInlineTags.has(tagName)) return false
+  }
+  return true
+}
+
+const readerLineFragmentRuns = doc => {
+  const parents = Array.from(doc?.body?.querySelectorAll?.('body, body *') || [])
+  const runs = []
+  for (const parent of parents) {
+    let currentRun = []
+    let currentClass = null
+    const flush = () => {
+      if (currentRun.length >= 3) runs.push(currentRun)
+      currentRun = []
+      currentClass = null
+    }
+    for (const child of Array.from(parent.children || [])) {
+      if (!readerLineFragmentCandidate(child) || !readerLineFragmentText(child).trim()) {
+        flush()
+        continue
+      }
+      const className = String(child.className || '')
+      if (currentRun.length > 0 && className !== currentClass) {
+        flush()
+      }
+      currentRun.push(child)
+      currentClass = className
+    }
+    flush()
+  }
+  return runs
+}
+
+const readerLineFragmentJoinEvidenceCount = run =>
+  run.slice(1).filter((element, index) => readerLineFragmentCanMergeAfter(run[index]) && readerLineFragmentText(element).trim()).length
+
+const moveReaderLineFragmentChildren = (target, source) => {
+  while (source.firstChild) {
+    target.append(source.firstChild)
+  }
+}
+
+export const normalizeReaderLineFragmentParagraphs = doc => {
+  if (!doc?.body) return 0
+  if (doc.documentElement?.dataset?.navicLineFragmentsNormalized === 'true') return 0
+  let normalized = 0
+  for (const run of readerLineFragmentRuns(doc)) {
+    if (readerLineFragmentJoinEvidenceCount(run) < 2) continue
+    let current = run[0]
+    for (const next of run.slice(1)) {
+      if (!readerLineFragmentCanMergeAfter(current) || !readerLineFragmentText(next).trim()) {
+        current = next
+        continue
+      }
+      moveReaderLineFragmentChildren(current, next)
+      next.remove()
+      normalized += 1
+    }
+  }
+  if (doc.documentElement?.dataset && normalized > 0) {
+    doc.documentElement.dataset.navicLineFragmentsNormalized = 'true'
+  }
+  return normalized
+}
+
 export const readerFontFaceCss = settings => readerFontSource(settings) === ReaderFontSourceNavic
   ? `
   @font-face {
@@ -292,7 +399,7 @@ export const readerHeadingFontSizeValue = settings =>
   readerStyleNumber(settings, 'headingFontSize', 1, 0.5, 2)
 
 export const readerFontSizePercentValue = settings =>
-  readerStyleNumber(settings, 'fontSizePercent', 100, 50, 250)
+  readerStyleNumber(settings, 'fontSizePercent', 140, 50, 250)
 
 export const readerMaxColumnCountValue = settings => {
   const value = Number(settings?.maxColumnCount)
@@ -371,8 +478,8 @@ export const readerTypographyCss = settings => {
     `}
   }
   body {
-    font-size: 1em !important;
-    line-height: ${settings.lineHeight || 1.55} !important;
+    font-size: 1rem !important;
+    line-height: ${settings.lineHeight || 1.8} !important;
     width: auto !important;
     max-width: none !important;
     ${usePublisherStyles || !fontFamily ? '' : `font-family: ${fontFamily} !important;`}

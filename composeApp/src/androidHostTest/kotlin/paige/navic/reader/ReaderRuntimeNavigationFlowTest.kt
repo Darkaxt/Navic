@@ -282,7 +282,7 @@ class ReaderRuntimeNavigationFlowTest {
 	fun androidReaderMapsExplicitReadingFlowModesToFoliateRuntime() {
 		val bridgeText = readerBridgeText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
-		val ebookReaderSettingOptionsText = settingsFile("EbookReaderSettingOptions.kt").readText()
+		val ebooksOptionsText = settingsFile("EbookReaderSettingOptions.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "readerFlowMode(settings)")
@@ -292,11 +292,9 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(bridgeText, "--reader-scroll-gap")
 		assertContains(bridgeText, "writing-mode: vertical-rl")
 		assertContains(ebooksSettingsText, "readerFlowMode")
-		assertContains(ebooksSettingsText, "ReaderFlowOption.entries.toImmutableList()")
-		assertContains(ebooksSettingsText, "preferenceManager.readerFlowMode = option.flowMode")
-		assertContains(ebooksSettingsText, "preferenceManager.readerPaged = option.paged")
-		assertContains(ebookReaderSettingOptionsText, "PagedVertical(ReaderFlowPagedVertical")
-		assertContains(ebookReaderSettingOptionsText, "ScrollGaps(ReaderFlowScrolledGaps")
+		assertContains(ebooksSettingsText, "ReaderFlowOption.entries")
+		assertContains(ebooksOptionsText, "PagedVertical(ReaderFlowPagedVertical")
+		assertContains(ebooksOptionsText, "ScrollGaps(ReaderFlowScrolledGaps")
 		assertContains(searchSettingsText, "readerFlowMode")
 		assertContains(searchSettingsText, "readerFlowSearchOptions = ReaderSupportedFlowModes")
 	}

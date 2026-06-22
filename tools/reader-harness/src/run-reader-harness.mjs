@@ -1082,6 +1082,80 @@ if (mode === 'font-css-smoke') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'line-fragment-prose-smoke') {
+  const server = await startReaderAssetServer({ repoRoot })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    const result = await page.evaluate(async helperUrl => {
+      const helpers = await import(helperUrl)
+      const frame = document.createElement('iframe')
+      document.body.appendChild(frame)
+      const doc = frame.contentDocument
+      doc.open()
+      doc.write(`
+        <!doctype html>
+        <html>
+          <body>
+            <section>
+              <p class="TX">The point is, I was not th</p>
+              <p class="TX">e warmest cinnamon roll, but I made an extra-spe</p>
+              <p class="TX">cial effort.</p>
+              <p class="TX">The answer is simple.</p>
+              <p class="TX"> I wanted to be Alcatraz.</p>
+              <p class="TX"></p>
+              <p class="TX">All my life, I’d wishe</p>
+              <p class="TX">d to be an Oculator with enhanced</p>
+              <p class="TX"> skills and resolve.</p>
+              <p class="OTHER">Other block.</p>
+            </section>
+          </body>
+        </html>
+      `)
+      doc.close()
+      const normalized = helpers.normalizeReaderLineFragmentParagraphs(doc)
+      const paragraphs = Array.from(doc.querySelectorAll('p'))
+        .map(p => ({
+          className: p.className,
+          text: p.textContent,
+        }))
+      frame.remove()
+      return {
+        normalized,
+        paragraphs,
+      }
+    }, `${server.origin}/navic-reader-helpers.js`)
+    assertNoConsoleErrors(errors)
+    if (!Number.isFinite(result.normalized) || result.normalized < 4) {
+      throw new Error(`Expected line-fragment normalizer to merge multiple continuation blocks; observed ${result.normalized}`)
+    }
+    const texts = result.paragraphs.map(item => item.text)
+    if (!texts.includes('The point is, I was not the warmest cinnamon roll, but I made an extra-special effort.')) {
+      throw new Error(`Expected word-fragment paragraphs to merge without inserted spaces: ${JSON.stringify(texts)}`)
+    }
+    if (!texts.includes('All my life, I’d wished to be an Oculator with enhanced skills and resolve.')) {
+      throw new Error(`Expected source-leading whitespace to preserve a real word space: ${JSON.stringify(texts)}`)
+    }
+    if (!texts.includes('The answer is simple.') || !texts.includes(' I wanted to be Alcatraz.')) {
+      throw new Error(`Expected terminal punctuation to preserve paragraph breaks: ${JSON.stringify(texts)}`)
+    }
+    console.log('reader harness line-fragment-prose-smoke passed')
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode === 'epub-frontmatter') {
   const fixture = argValue('--fixture')
   if (!fixture) {

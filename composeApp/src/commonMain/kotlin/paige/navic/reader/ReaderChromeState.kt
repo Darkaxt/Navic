@@ -4,10 +4,11 @@ import kotlin.math.roundToInt
 
 private const val MinReaderFontSizePercent = 80
 private const val MaxReaderFontSizePercent = 180
-private const val DefaultReaderFontSizePercent = 100
+const val DefaultReaderFontSizePercent = 140
 private const val MinReaderLineHeight = 1.2
 private const val MaxReaderLineHeight = 2.2
-private const val DefaultReaderLineHeight = 1.55
+const val DefaultReaderLineHeight = 1.8
+const val DefaultReaderLineHeightPercent = 180
 private const val MinReaderParagraphSpacingPercent = 0
 private const val MaxReaderParagraphSpacingPercent = 200
 const val DefaultReaderParagraphSpacingPercent = 100
@@ -448,7 +449,7 @@ private fun readerLocatorCanRepresentNativeShellCoverBoundary(locator: ReaderLoc
 	return readerHrefLooksLikeNativeShellCoverBoundary(href)
 }
 
-private fun readerHrefLooksLikeNativeShellCoverBoundary(href: String): Boolean {
+fun readerHrefLooksLikeNativeShellCoverBoundary(href: String): Boolean {
 	val leaf = href
 		.substringBefore('#')
 		.substringBefore('?')
@@ -664,7 +665,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		fontFamily = ReaderSansFontFamily,
 		fontSource = ReaderFontSourceNavic,
 		fontSizePercent = DefaultReaderFontSizePercent,
-		lineHeightPercent = (DefaultReaderLineHeight * 100).roundToInt(),
+		lineHeightPercent = DefaultReaderLineHeightPercent,
 		paragraphSpacingPercent = DefaultReaderParagraphSpacingPercent,
 		marginPercent = DefaultReaderMarginPercent,
 		dimOverlayPercent = DefaultReaderDimOverlayPercent,
@@ -912,7 +913,7 @@ data class ReaderChromeState(
 	fun adjustFontSize(deltaPercent: Int): ReaderChromeState =
 		copy(
 			settings = settings.copy(
-				fontSizePercent = ((settings.fontSizePercent ?: 100) + deltaPercent)
+				fontSizePercent = ((settings.fontSizePercent ?: DefaultReaderFontSizePercent) + deltaPercent)
 					.coerceIn(MinReaderFontSizePercent, MaxReaderFontSizePercent)
 			)
 		)

@@ -56,7 +56,6 @@ import paige.navic.reader.ReaderNavBarTypeBottom
 import paige.navic.reader.ReaderNavBarTypeVerticalLeft
 import paige.navic.reader.ReaderNavBarTypeVerticalRight
 import paige.navic.reader.normalizedReaderDirection
-import paige.navic.reader.normalizedReaderNavBarType
 import paige.navic.ui.navigation.Screen
 
 private val readerBarsSlideAnimationSpec = tween<IntOffset>(200)
@@ -85,7 +84,7 @@ internal fun KomikkuReaderAppBars(
 		!controllerState.chrome.currentSectionTitle.isNullOrBlank() -> controllerState.chrome.currentSectionTitle
 		else -> controllerState.chrome.progressLabel
 	}
-	val navBarType = normalizedReaderNavBarType(controllerState.chrome.settings.navBarType)
+	val navBarType = readerEffectiveNavBarTypeFor(controllerState.chrome.settings)
 	val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl
 	val enabledButtons = KomikkuReaderBottomButton.NAVIC_SUPPORTED_DEFAULTS
 	val backgroundColor = MaterialTheme.colorScheme

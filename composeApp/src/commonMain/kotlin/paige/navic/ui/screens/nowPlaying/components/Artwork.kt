@@ -1,12 +1,6 @@
 package paige.navic.ui.screens.nowPlaying.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -18,8 +12,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -30,14 +29,15 @@ import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.NowPlayingArtworkRotationDurationMs
 import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylSpindleRadiusFraction
 import paige.navic.domain.models.nowPlayingFallbackLabelStyle
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
+import paige.navic.domain.models.nowPlayingArtworkRotationDegreesForElapsedMillis
 import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
+import paige.navic.domain.models.nowPlayingVinylOverlayRotationDegrees
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
 import paige.navic.domain.models.shouldShowNowPlayingVinylOverlay
 import paige.navic.icons.Icons
@@ -89,35 +89,43 @@ fun NowPlayingArtwork(
 		.aspectRatio(1f)
 		.then(if (isLandscape) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
 		.padding(padding)
+	val discRotationDegrees = nowPlayingVinylOverlayRotationDegrees(
+		isRotatingArtwork = isRotatingArtwork,
+		artworkRotationDegrees = rotationDegrees
+	)
+	val discModifier = artworkModifier.then(
+		if (discRotationDegrees == 0f) Modifier else Modifier.rotate(discRotationDegrees)
+	)
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = modifier.then(
 			if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)
 		)
 	) {
-		CoverArt(
-			coverArtId = artwork.coverArtId,
-			imageUrl = artwork.imageUrl,
-			imageCacheKey = artwork.imageCacheKey,
-			contentDescription = song.title,
-			fallbackKind = "Track",
-			fallbackLabelStyle = nowPlayingFallbackLabelStyle(isRotatingArtwork),
-			onServerCoverLoadFailed = artwork.onServerCoverLoadFailed,
-			normalization = CoverArtNormalization.TrimWhitespace,
-			modifier = artworkModifier
-				.then(if (rotationDegrees == 0f) Modifier else Modifier.rotate(rotationDegrees)),
-			shadowElevation = 8.dp,
-			shape = artworkShape.shape
-		)
-		if (
-			shouldShowNowPlayingVinylOverlay(
-				isRotatingArtwork = isRotatingArtwork,
-				hasCoverArt = hasArtwork
+		Box(modifier = discModifier) {
+			CoverArt(
+				coverArtId = artwork.coverArtId,
+				imageUrl = artwork.imageUrl,
+				imageCacheKey = artwork.imageCacheKey,
+				contentDescription = song.title,
+				fallbackKind = "Track",
+				fallbackLabelStyle = nowPlayingFallbackLabelStyle(isRotatingArtwork),
+				onServerCoverLoadFailed = artwork.onServerCoverLoadFailed,
+				normalization = CoverArtNormalization.TrimWhitespace,
+				modifier = Modifier.fillMaxSize(),
+				shadowElevation = 8.dp,
+				shape = artworkShape.shape
 			)
-		) {
-			VinylRecordOverlay(
-				modifier = artworkModifier
-			)
+			if (
+				shouldShowNowPlayingVinylOverlay(
+					isRotatingArtwork = isRotatingArtwork,
+					hasCoverArt = hasArtwork
+				)
+			) {
+				VinylRecordOverlay(
+					modifier = Modifier.fillMaxSize()
+				)
+			}
 		}
 		if (!hasArtwork) {
 			Icon(
@@ -198,20 +206,20 @@ private fun VinylRecordOverlay(modifier: Modifier = Modifier) {
 
 @Composable
 private fun rememberNowPlayingArtworkRotationDegrees(enabled: Boolean): Float {
-	if (!enabled) return 0f
+	var rotationDegrees by remember { mutableFloatStateOf(0f) }
+	LaunchedEffect(enabled) {
+		if (!enabled) {
+			rotationDegrees = 0f
+			return@LaunchedEffect
+		}
 
-	val transition = rememberInfiniteTransition(label = "nowPlayingArtworkRotation")
-	val rotationDegrees by transition.animateFloat(
-		initialValue = 0f,
-		targetValue = 360f,
-		animationSpec = infiniteRepeatable(
-			animation = tween(
-				durationMillis = NowPlayingArtworkRotationDurationMs,
-				easing = LinearEasing
-			),
-			repeatMode = RepeatMode.Restart
-		),
-		label = "nowPlayingArtworkRotation"
-	)
-	return rotationDegrees
+		val startFrameNanos = withFrameNanos { it }
+		while (true) {
+			withFrameNanos { frameNanos ->
+				val elapsedMillis = ((frameNanos - startFrameNanos) / 1_000_000L).coerceAtLeast(0L)
+				rotationDegrees = nowPlayingArtworkRotationDegreesForElapsedMillis(elapsedMillis)
+			}
+		}
+	}
+	return if (enabled) rotationDegrees else 0f
 }

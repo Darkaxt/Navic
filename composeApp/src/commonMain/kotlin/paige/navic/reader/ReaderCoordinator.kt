@@ -91,6 +91,9 @@ data class ReaderCoordinator(
 	fun repairWhispersyncMismatch(): ReaderCoordinatorStep =
 		applyControllerStep(controller.repairWhispersyncMismatch())
 
+	fun openWhispersyncPlayerDialog(): ReaderCoordinatorStep =
+		applyControllerStep(controller.openWhispersyncPlayerDialog())
+
 	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderCoordinatorStep =
 		applyControllerStep(controller.addSelectionHighlight(color))
 

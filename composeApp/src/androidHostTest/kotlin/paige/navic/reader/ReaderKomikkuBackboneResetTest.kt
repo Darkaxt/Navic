@@ -1790,6 +1790,10 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderRoot must render the native top-left Whispersync playback affordance."
 		)
 		assertTrue(
+			readerRootText.contains("onOpenPlayer = onWhispersyncPlayer"),
+			"The full Whispersync player route must stay anchored to the page-level headset, not a duplicate Komikku bottom-bar shortcut."
+		)
+		assertTrue(
 			statusBadgeText.contains("ReaderWhispersyncPlaybackControlState"),
 			"The Whispersync UI file must contain a dedicated playback control instead of overloading the mismatch badge."
 		)
@@ -1797,6 +1801,36 @@ class ReaderKomikkuBackboneResetTest {
 			statusBadgeText.contains("KomikkuWhispersyncPlaybackControl") &&
 				statusBadgeText.contains("modifier = modifier.pointerInput(Unit)"),
 			"The visible Whispersync playback control must shield its own touch area so disabled/loading states cannot leak taps to page navigation."
+		)
+		val playbackControlBody = statusBadgeText
+			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
+			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
+		assertTrue(
+			playbackControlBody.contains("copy(alpha =") &&
+				playbackControlBody.contains("0.52f") &&
+				playbackControlBody.contains("0.34f"),
+			"The page-level Whispersync headset must be a low-opacity paper-layer glyph, not high-contrast chrome."
+		)
+		assertTrue(
+			playbackControlBody.contains("Icons.Outlined.Headset") &&
+				!playbackControlBody.contains("Icons.Outlined.Audiobooks"),
+			"The page-level Whispersync affordance must render a headset glyph, not the audiobook/library icon."
+		)
+		assertTrue(
+			playbackControlBody.contains("onOpenPlayer: () -> Unit") &&
+				playbackControlBody.contains("onLongPress = { latestOnOpenPlayer.value() }"),
+			"The page-level headset must own the full player route through a secondary gesture while short tap remains playback toggle."
+		)
+		assertFalse(
+			playbackControlBody.contains("Surface(") ||
+				playbackControlBody.contains("RoundedCornerShape(") ||
+				playbackControlBody.contains("CircularProgressIndicator(") ||
+				playbackControlBody.contains("IconButton(") ||
+				playbackControlBody.contains(".background(") ||
+				playbackControlBody.contains(".border(") ||
+				playbackControlBody.contains(".clip(") ||
+				playbackControlBody.contains("color = MaterialTheme.colorScheme.surface"),
+			"The page-level Whispersync headset must not render a circular button, pill, progress ring, outline, clipped container, or Material background."
 		)
 		assertTrue(
 			statusBadgeText.contains("onRepairMismatch: () -> Unit"),

@@ -77,6 +77,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "window.NavicReaderBridge")
 		assertContains(bridgeText, "selectionChanged")
 		assertContains(bridgeText, "applyOverlayFragment")
+		assertContains(bridgeText, "highlightMediaOverlayTextRange")
+		assertContains(bridgeText, "textStart")
+		assertContains(bridgeText, "textEnd")
 		assertContains(bridgeText, "applyHighlights")
 		assertContains(bridgeText, "publicationReady")
 		assertContains(bridgeText, "overlayFragmentActive")
@@ -279,6 +282,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "font-size-publisher-styles")
 		assertContains(scriptText, "chapter-progress-endpoints")
 		assertContains(scriptText, "whispersync-audio-follow")
+		assertContains(scriptText, "whispersync-char-offset-overlay")
 		assertContains(scriptText, "reader-bridge-events.log")
 		assertContains(scriptText, "requiredBridgeEvents=")
 		assertContains(scriptText, "Reader bridge event: \$requiredBridgeEvent")
@@ -328,6 +332,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "relocation-payload")
 		assertContains(helperText, "visible-range")
 		assertContains(helperText, "whispersync-audio-follow")
+		assertContains(helperText, "whispersync-char-offset-overlay")
 		assertContains(helperText, "runtime-state")
 		assertContains(helperText, "page-box")
 		assertContains(helperText, "chapter-progress-endpoints")
@@ -386,6 +391,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "expectedLogLabels")
 		assertContains(probe, "Whispersync audiobook seek")
 		assertContains(probe, "Dispatching reader engine command: clearOverlay")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val probe = helperText
+			.substringAfter("async function runWhispersyncCharOffsetOverlayProbe(page)")
+			.substringBefore("async function runChapterProgressEndpointsProbe(page)")
+
+		assertContains(scriptText, "whispersync-char-offset-overlay")
+		assertContains(helperText, "'whispersync-char-offset-overlay': runWhispersyncCharOffsetOverlayProbe")
+		assertContains(probe, "probe: 'whispersync-char-offset-overlay'")
+		assertContains(probe, "textStart")
+		assertContains(probe, "textEnd")
+		assertContains(probe, "type: 'applyOverlayFragment'")
+		assertContains(probe, "data-navic-media-overlay-range")
+		assertContains(probe, "navic-active-overlay-fragment")
+		assertContains(probe, "overlayFragmentActive")
+		assertContains(probe, "type: 'clearOverlay'")
 	}
 
 	@Test
@@ -547,7 +572,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(fontSizeProbe, "probe.remove()")
 		assertContains(fontSizeProbe, "finally")
 		assertContains(fontSizeProbe, "data-navic-font-size-probe=\"true\"], [data-navic-publisher-font-size-probe=\"true\"")
-		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 100")
+		assertContains(fontSizeProbe, "fontSizePercent: Number.isFinite(originalPercent) ? originalPercent : 140")
 	}
 
 	@Test

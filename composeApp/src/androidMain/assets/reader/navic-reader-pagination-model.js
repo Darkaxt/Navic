@@ -29,7 +29,7 @@ export const readerPaginationRenderState = input => ({
   fontFamily: String(input?.fontFamily || ''),
   customFontFamily: String(input?.customFontFamily || ''),
   customFontUrl: String(input?.customFontUrl || ''),
-  fontSizePercent: readerPaginationInteger(input?.fontSizePercent, 100),
+  fontSizePercent: readerPaginationInteger(input?.fontSizePercent, 140),
   lineHeight: readerPaginationNumber(input?.lineHeight, 1),
   paragraphSpacingPercent: readerPaginationInteger(input?.paragraphSpacingPercent, 0),
   marginPercent: readerPaginationInteger(input?.marginPercent, 0),

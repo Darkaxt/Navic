@@ -180,6 +180,15 @@ class ReaderDevEnvironmentContractTest {
 			"The install script must pass explicit progress-fraction reader starts for resume/persistence validation."
 		)
 		assertTrue(
+			installScriptText.contains("[Alias(\"PublicationUrl\")]") &&
+				installScriptText.contains("[Alias(\"ResourceHref\")]") &&
+				installScriptText.contains("[Alias(\"BookId\")]") &&
+				installScriptText.contains("\$ReaderPublicationUrl") &&
+				installScriptText.contains("\$ReaderResourceHref") &&
+				installScriptText.contains("\$ReaderBookId"),
+			"The install script must accept explicit reader target CLI overrides so validation never needs manual am-start commands or env-file edits."
+		)
+		assertTrue(
 			installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL") &&
 				installScriptText.contains("navic.dev.reader.whispersync_sidecar_url") &&
 				installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID") &&

@@ -45,7 +45,8 @@ data class ReaderSelectionNoteDraft(
 enum class ReaderControllerDialog {
 	Contents,
 	Search,
-	Settings
+	Settings,
+	WhispersyncPlayer
 }
 
 data class ReaderChapterProgressState(
@@ -299,6 +300,10 @@ data class ReaderController(
 					} else {
 						null
 					}
+				val dismissShellCover = readerExplicitReadableRelocationDismissesNativeShellCover(
+					shellCoverVisible = state.shellCoverVisible,
+					locator = event.locator
+				)
 				ReaderControllerStep(
 					controller = copy(
 						progressSaveGate = decision.state,
@@ -306,7 +311,9 @@ data class ReaderController(
 							chrome = nextChrome,
 							chapterProgress = state.chapterProgress.updatedFrom(event.locator, event.tocTitle),
 							readingProgress = nextReadingProgress,
-							nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey
+							nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey,
+							shellCoverVisible = if (dismissShellCover) false else state.shellCoverVisible,
+							menuVisible = if (dismissShellCover) false else state.menuVisible
 						)
 					),
 					progressToSave = progress
@@ -419,11 +426,7 @@ data class ReaderController(
 				copy(
 					state = state.copy(
 						lastOverlayInteraction = ReaderOverlayInteraction.PullUp,
-						menuVisible = if (event.source == ReaderPullUpSourceScrolledEdgeSwipe) {
-							state.menuVisible
-						} else {
-							true
-						}
+						menuVisible = state.menuVisible
 					)
 				)
 			)
@@ -1025,6 +1028,9 @@ data class ReaderController(
 	fun openSettingsDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Settings)
 
+	fun openWhispersyncPlayerDialog(): ReaderControllerStep =
+		openDialog(ReaderControllerDialog.WhispersyncPlayer)
+
 	private fun openDialog(dialog: ReaderControllerDialog): ReaderControllerStep =
 		ReaderControllerStep(
 			copy(
@@ -1212,6 +1218,17 @@ private fun readerNativeShellCoverReturnLocatorKey(locator: ReaderLocator?): Str
 		chapterPageIndex,
 		chapterPageCount
 	).joinToString("|")
+}
+
+private fun readerExplicitReadableRelocationDismissesNativeShellCover(
+	shellCoverVisible: Boolean,
+	locator: ReaderLocator
+): Boolean {
+	if (!shellCoverVisible) return false
+	val reason = locator.reason?.trim().orEmpty()
+	if (reason.isBlank() || reason == "relocate-committed" || reason == "initial-resume") return false
+	val href = locator.href?.trim().orEmpty()
+	return href.isBlank() || !readerHrefLooksLikeNativeShellCoverBoundary(href)
 }
 
 private fun ReaderChapterProgressState.updatedFrom(

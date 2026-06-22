@@ -37,6 +37,7 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.LidaClipCacheFileInfo
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.MusicBrainzCacheStats
+import paige.navic.reader.DefaultReaderLineHeight
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.shared.MediaPlayerViewModel
@@ -136,7 +137,7 @@ internal fun searchableSettingsRows(): List<SearchableSettingsRow> {
 		navigationBar = stringResource(Res.string.title_navigation_bar),
 		streamingQuality = stringResource(Res.string.title_streaming_quality),
 		readerSettings = readerSettings,
-		readerLineHeightPercent = (((readerSettings.lineHeight ?: 1.55) * 100.0).roundToInt())
+		readerLineHeightPercent = (((readerSettings.lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt())
 	)
 
 	return buildList {

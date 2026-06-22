@@ -60,6 +60,7 @@ import paige.navic.ui.screens.bindery.binderyAudiobookResumeProgressForWhispersy
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressForReader
 import paige.navic.ui.screens.bindery.binderyWhispersyncCompanionProgressJsonWithUpdate
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.performNavicBack
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
@@ -498,6 +499,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onSearch = {
 			applyCoordinatorStep(coordinator.openSearchDialog())
 		},
+		onWhispersyncPlayer = {
+			applyCoordinatorStep(coordinator.openWhispersyncPlayerDialog())
+		},
 		onSearchQuery = { query ->
 			applyCoordinatorStep(coordinator.search(query))
 		},
@@ -510,9 +514,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(coordinator.closeSearchDialog())
 		},
 		onNavigateBack = {
-			if (backStack.size > 1) {
-				backStack.removeLastOrNull()
-			}
+			backStack.performNavicBack()
 		},
 		onSettings = {
 			applyCoordinatorStep(coordinator.openSettingsDialog())

@@ -100,6 +100,49 @@ class NowPlayingArtworkRotationPolicyTest {
 	}
 
 	@Test
+	fun vinylOverlayUsesArtworkRotationWhileSpinning() {
+		assertEquals(
+			137f,
+			nowPlayingVinylOverlayRotationDegrees(
+				isRotatingArtwork = true,
+				artworkRotationDegrees = 137f
+			)
+		)
+		assertEquals(
+			0f,
+			nowPlayingVinylOverlayRotationDegrees(
+				isRotatingArtwork = false,
+				artworkRotationDegrees = 137f
+			)
+		)
+	}
+
+	@Test
+	fun rotationDegreesAdvanceFromElapsedFrameTime() {
+		val durationMillis = NowPlayingArtworkRotationDurationMs.toLong()
+		assertEquals(
+			0f,
+			nowPlayingArtworkRotationDegreesForElapsedMillis(0L),
+			absoluteTolerance = 0.001f
+		)
+		assertEquals(
+			90f,
+			nowPlayingArtworkRotationDegreesForElapsedMillis(durationMillis / 4L),
+			absoluteTolerance = 0.001f
+		)
+		assertEquals(
+			0f,
+			nowPlayingArtworkRotationDegreesForElapsedMillis(durationMillis),
+			absoluteTolerance = 0.001f
+		)
+		assertEquals(
+			180f,
+			nowPlayingArtworkRotationDegreesForElapsedMillis(durationMillis + durationMillis / 2L),
+			absoluteTolerance = 0.001f
+		)
+	}
+
+	@Test
 	fun turnTableWidgetUsesStaticVinylArtworkOnlyWithCoverArt() {
 		assertTrue(shouldUseTurnTableWidgetVinylArtwork(hasCoverArt = true))
 		assertFalse(shouldUseTurnTableWidgetVinylArtwork(hasCoverArt = false))
