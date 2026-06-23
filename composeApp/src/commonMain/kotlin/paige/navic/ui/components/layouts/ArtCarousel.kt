@@ -108,6 +108,9 @@ fun <T> ArtCarousel(
 @Composable
 fun CarouselItemScope.ArtCarouselItem(
 	coverArtId: String?,
+	imageUrl: String? = null,
+	imageCacheKey: String? = null,
+	imageRequestHeaders: Map<String, String> = emptyMap(),
 	title: String,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
@@ -126,6 +129,9 @@ fun CarouselItemScope.ArtCarouselItem(
 		Box(Modifier.fillMaxWidth()) {
 			CoverArt(
 				coverArtId = coverArtId,
+				imageUrl = imageUrl,
+				imageCacheKey = imageCacheKey,
+				imageRequestHeaders = imageRequestHeaders,
 				contentDescription = contentDescription,
 				modifier = Modifier
 					.fillMaxWidth()

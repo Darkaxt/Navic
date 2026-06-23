@@ -65,8 +65,6 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.lyricsLineScale
 import paige.navic.domain.models.lyricsAccentBackgroundAlpha
 import paige.navic.domain.models.shouldSeekLyricsLineOnTap
@@ -89,6 +87,7 @@ import paige.navic.ui.components.common.KeepScreenOn
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
@@ -160,19 +159,15 @@ fun LyricsScreen(
 	val resolvingMusicBrainzSongIds by musicBrainzArtworkRepository.resolvingMusicBrainzSongIds.collectAsStateWithLifecycle()
 	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
 	val serverCoverLoadFailed = song.id in serverCoverLoadFailedSongIds
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+		serverCoverLoadFailed = serverCoverLoadFailed
+	)
 	val lyricsIntegrationIndicators = integrationLoadingIndicators(
 		musicBrainzLoading = song.id in resolvingMusicBrainzSongIds,
 		lyricsLoading = state is UiState.Loading
-	)
-	val musicBrainzArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
-		serverCoverLoadFailed = serverCoverLoadFailed
-	)
-	val musicBrainzArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
-		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 
 	val progressState = playerState.progress
@@ -314,8 +309,8 @@ fun LyricsScreen(
 						} else -1
 						val showArtwork = shouldShowLyricsArtwork(
 							showLyricsArtwork = preferenceManager.showLyricsArtwork,
-							coverArtId = song.coverArtId,
-							imageUrl = musicBrainzArtworkUrl
+							coverArtId = playbackArtwork.coverArtId,
+							imageUrl = playbackArtwork.imageUrl
 						)
 						val lyricListIndexOffset = if (showArtwork) 1 else 0
 
@@ -385,9 +380,10 @@ fun LyricsScreen(
 										contentAlignment = Alignment.Center
 									) {
 										CoverArt(
-											coverArtId = song.coverArtId,
-											imageUrl = musicBrainzArtworkUrl,
-											imageCacheKey = musicBrainzArtworkCacheKey,
+											coverArtId = playbackArtwork.coverArtId,
+											imageUrl = playbackArtwork.imageUrl,
+											imageCacheKey = playbackArtwork.imageCacheKey,
+											imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 											contentDescription = song.title,
 											onServerCoverLoadFailed = {
 												musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
@@ -592,8 +588,10 @@ fun LyricsScreen(
 
 				LyricsShareSheet(
 					song = song,
-					imageUrl = musicBrainzArtworkUrl,
-					imageCacheKey = musicBrainzArtworkCacheKey,
+					coverArtId = playbackArtwork.coverArtId,
+					imageUrl = playbackArtwork.imageUrl,
+					imageCacheKey = playbackArtwork.imageCacheKey,
+					imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 					selectedLyrics = stringsToShare,
 					onDismiss = { showShareSheet = false },
 					onShare = {

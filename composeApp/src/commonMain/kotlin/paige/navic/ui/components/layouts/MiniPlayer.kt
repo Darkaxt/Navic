@@ -66,8 +66,6 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.shouldShowMiniPlayerQueueAction
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
@@ -86,6 +84,7 @@ import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.applyCoverArtNormalization
 import paige.navic.ui.components.common.normalizedCoverArtCacheKey
 import paige.navic.ui.components.common.playPauseIconPainter
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
@@ -124,34 +123,41 @@ fun MiniPlayer(
 	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
 	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
-	val musicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val musicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
-		serverCoverLoadFailed = serverCoverLoadFailed
-	)
-	val hasArtwork = !song?.coverArtId.isNullOrEmpty() || !musicBrainzFallbackArtworkUrl.isNullOrBlank()
+	val hasArtwork = playbackArtwork.hasArtwork
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val model = remember(song?.coverArtId, musicBrainzFallbackArtworkUrl, musicBrainzFallbackArtworkCacheKey, serverRequestHeaders) {
-		val usesServerCoverArt = musicBrainzFallbackArtworkUrl.isNullOrBlank()
+	val model = remember(
+		playbackArtwork.coverArtId,
+		playbackArtwork.imageUrl,
+		playbackArtwork.imageCacheKey,
+		playbackArtwork.imageRequestHeaders,
+		serverRequestHeaders
+	) {
+		val usesServerCoverArt = playbackArtwork.imageUrl.isNullOrBlank()
 		val imageCacheKey = normalizedCoverArtCacheKey(
-			cacheKey = musicBrainzFallbackArtworkCacheKey ?: song?.coverArtId,
+			cacheKey = playbackArtwork.imageCacheKey ?: playbackArtwork.coverArtId,
 			normalization = CoverArtNormalization.TrimWhitespace
 		)
 		ImageRequest.Builder(coilPlatformContext)
-			.data(musicBrainzFallbackArtworkUrl ?: song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.data(playbackArtwork.imageUrl ?: playbackArtwork.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(imageCacheKey)
 			.diskCacheKey(imageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.applyCoverArtNormalization(CoverArtNormalization.TrimWhitespace)
 			.apply {
-				if (usesServerCoverArt) {
-					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				val requestHeaders = if (usesServerCoverArt) {
+					serverRequestHeaders
+				} else {
+					playbackArtwork.imageRequestHeaders
+				}
+				if (requestHeaders.isNotEmpty()) {
+					httpHeaders(requestHeaders.toNetworkHeaders())
 				}
 			}
 			.build()
@@ -269,7 +275,7 @@ fun MiniPlayer(
 							contentDescription = null,
 							contentScale = ContentScale.Crop,
 							onError = {
-								if (musicBrainzFallbackArtworkUrl.isNullOrBlank()) {
+								if (playbackArtwork.imageUrl.isNullOrBlank()) {
 									song?.let { failedSong ->
 										musicBrainzArtworkRepository.reportServerCoverLoadFailed(failedSong.id)
 										scope.launch {

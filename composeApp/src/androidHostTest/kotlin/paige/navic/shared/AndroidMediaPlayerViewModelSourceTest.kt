@@ -42,7 +42,12 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(broadcasterText, "internal class AndroidNowPlayingBroadcaster")
 		assertContains(broadcasterText, "fun send(")
 		assertContains(broadcasterText, "shouldSendNowPlayingWidgetUpdate(")
-		assertContains(broadcasterText, "activeArtworkUrl(")
+		assertContains(broadcasterText, "playbackArtworkForSong(song)")
+		assertFalse(
+			broadcasterText.contains("activeArtworkUrl(") ||
+				broadcasterText.contains("externalFallbackArtworkUrl("),
+			"Now-playing broadcasts must use the shared Aurral-first playback artwork resolver, not server-first fallback helpers."
+		)
 	}
 
 	@Test
@@ -72,7 +77,7 @@ class AndroidMediaPlayerViewModelSourceTest {
 		val recorderText = recorder.readText()
 
 		assertTrue(
-			viewModel.readLines().size < 1_370,
+			viewModel.readLines().size < 1_360,
 			"AndroidMediaPlayerViewModel should not own playback-origin tracker/checkpoint state."
 		)
 		assertContains(viewModelText, "private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(")
@@ -91,10 +96,11 @@ class AndroidMediaPlayerViewModelSourceTest {
 		val radioFactoryText = radioFactory.readText()
 
 		assertTrue(
-			viewModel.readLines().size < 1_320,
+			viewModel.readLines().size < 1_360,
 			"AndroidMediaPlayerViewModel should not own radio dummy-song and Media3 item construction."
 		)
 		assertContains(viewModelText, "private val radioMediaItemFactory = AndroidRadioMediaItemFactory()")
+		assertContains(viewModelText, "private val playbackArtworkResolver = AndroidPlaybackArtworkResolver(")
 		assertContains(viewModelText, "val radioItem = radioMediaItemFactory.create(radio)")
 		assertContains(radioFactoryText, "internal class AndroidRadioMediaItemFactory")
 		assertContains(radioFactoryText, "data class AndroidRadioMediaItem")

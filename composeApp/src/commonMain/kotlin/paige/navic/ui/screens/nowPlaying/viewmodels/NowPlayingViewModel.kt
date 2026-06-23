@@ -54,6 +54,7 @@ class NowPlayingViewModel(
 	private var currentLidaClipSongId: String? = null
 	private var lidaClipLookupJob: Job? = null
 	private var currentLyricsSongId: String? = null
+	private var lastLyricsProgress: Float? = null
 	private var lyricsLookupJob: Job? = null
 	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
 
@@ -70,10 +71,16 @@ class NowPlayingViewModel(
 					clearLidaClip()
 					clearLyrics()
 				} else {
+					val previousLyricsProgress = lastLyricsProgress
 					_songIsStarred.value = songRepository.isSongStarred(song)
 					_songRating.value = songRepository.getSongRating(song)
 					loadLidaClip(song)
-					loadLyrics(song)
+					loadLyrics(
+						song = song,
+						previousProgress = previousLyricsProgress,
+						currentProgress = state.progress
+					)
+					lastLyricsProgress = state.progress
 				}
 			}
 		}
@@ -204,8 +211,19 @@ class NowPlayingViewModel(
 			songId = songId
 		)
 
-	private fun loadLyrics(song: DomainSong) {
-		if (currentLyricsSongId == song.id) return
+	private fun loadLyrics(
+		song: DomainSong,
+		previousProgress: Float?,
+		currentProgress: Float
+	) {
+		if (!shouldStartLyricsLookup(
+				currentSongId = currentLyricsSongId,
+				requestedSongId = song.id,
+				lyricsState = _lyricsAvailableState.value,
+				previousProgress = previousProgress,
+				currentProgress = currentProgress
+			)
+		) return
 
 		currentLyricsSongId = song.id
 		lyricsLookupJob?.cancel()
@@ -238,6 +256,7 @@ class NowPlayingViewModel(
 
 	private fun clearLyrics() {
 		currentLyricsSongId = null
+		lastLyricsProgress = null
 		lyricsLookupJob?.cancel()
 		_lyricsAvailableState.value = UiState.Success(false)
 	}

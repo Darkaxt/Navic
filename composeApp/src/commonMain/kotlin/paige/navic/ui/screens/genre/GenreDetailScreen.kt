@@ -57,6 +57,7 @@ import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.rememberArtistArtworkUiState
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -228,13 +229,17 @@ private fun GenreDetailContent(
 					contentPadding = PaddingValues(horizontal = 16.dp)
 				) {
 					items(state.artists, key = { it.id }) { artist ->
+						val artistArtwork = rememberArtistArtworkUiState(artist)
 						ArtGridItem(
 							modifier = Modifier.width(150.dp),
 							onClick = dropUnlessResumed {
 								platformContext.clickSound()
 								backStack.add(Screen.ArtistDetail(artist.id))
 							},
-							coverArtId = artist.coverArtId,
+							coverArtId = artistArtwork.coverArtId,
+							imageUrl = artistArtwork.imageUrl,
+							imageCacheKey = artistArtwork.imageCacheKey,
+							imageRequestHeaders = artistArtwork.imageRequestHeaders,
 							title = artist.name,
 							subtitle = pluralStringResource(
 								Res.plurals.count_albums,

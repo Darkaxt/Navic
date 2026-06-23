@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.dao.AlbumDao
@@ -136,6 +137,7 @@ class AndroidMediaPlayerViewModel(
 	private val sessionManager: SessionManager,
 	private val platformContext: CoilPlatformContext,
 	private val songRepository: SongRepository,
+	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val playbackOriginRepository: PlaybackOriginRepository,
 	private val audioPlaybackArbitrator: AudioPlaybackArbitrator,
@@ -157,16 +159,21 @@ class AndroidMediaPlayerViewModel(
 	private var pendingSourceErrorRecovery: PendingSourceErrorRecovery? = null
 	private var latestDownloadsById: Map<String, DownloadEntity> = emptyMap()
 	private var nowPlayingVideoClipAudioActive = false
+	private val playbackArtworkResolver = AndroidPlaybackArtworkResolver(
+		preferenceManager = preferenceManager,
+		musicBrainzArtworkRepository = musicBrainzArtworkRepository
+	)
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
 		downloadManager = downloadManager,
 		platformContext = platformContext,
+		playbackArtworkForSong = playbackArtworkResolver::resolve,
 		streamUriForSongId = ::getStreamUrl
 	)
 	private val nowPlayingBroadcaster = AndroidNowPlayingBroadcaster(
 		application = application,
 		sessionManager = sessionManager,
-		musicBrainzArtworkRepository = musicBrainzArtworkRepository
+		playbackArtworkForSong = playbackArtworkResolver::resolve
 	)
 	private val playbackAssetPrefetcher = AndroidPlaybackAssetPrefetcher(
 		scope = viewModelScope,
@@ -205,8 +212,23 @@ class AndroidMediaPlayerViewModel(
 	)
 
 	init {
+		observePlaybackArtworkCache()
 		connectToService()
 		observeAudioPlaybackClaims()
+	}
+
+	private fun observePlaybackArtworkCache() {
+		viewModelScope.launch {
+			artistPhotoCacheDao.observeArtistPhotoCache().collectLatest { entries ->
+				playbackArtworkResolver.updateArtistPhotoCache(entries)
+				val state = _uiState.value
+				nowPlayingBroadcaster.send(
+					currentSong = state.currentSong,
+					isPlaying = !state.isPaused,
+					force = true
+				)
+			}
+		}
 	}
 
 	private fun observeAudioPlaybackClaims() {

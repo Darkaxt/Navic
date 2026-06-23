@@ -488,11 +488,18 @@ fun aurralArtistIdentityCandidatesForLocalArtist(
 	).forEach { discoveredArtist ->
 		val mbid = discoveredArtist.id.trim().takeIf { it.isNotEmpty() } ?: return@forEach
 		val name = discoveredArtist.name.trim().takeIf { it.isNotEmpty() } ?: localName ?: mbid
-		if (candidates.none { it.mbid.normalizedAurralKey() == mbid.normalizedAurralKey() }) {
+		val imageUrl = discoveredArtist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+		val existingIndex = candidates.indexOfFirst { it.mbid.normalizedAurralKey() == mbid.normalizedAurralKey() }
+		if (existingIndex >= 0) {
+			val existing = candidates[existingIndex]
+			if (existing.imageUrl.isNullOrBlank() && imageUrl != null) {
+				candidates[existingIndex] = existing.copy(imageUrl = imageUrl)
+			}
+		} else {
 			candidates += AurralArtistIdentity(
 				mbid = mbid,
 				name = name,
-				imageUrl = discoveredArtist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+				imageUrl = imageUrl
 			)
 		}
 	}

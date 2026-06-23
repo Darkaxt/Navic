@@ -260,6 +260,25 @@ const readerInlineTypographyTextTags = new Set([
 ])
 
 const readerInlineTypographyCandidateSelector = [
+  'body',
+  'p',
+  'li',
+  'blockquote',
+  'dd',
+  'td',
+  'th',
+  'main',
+  'section',
+  'article',
+  'center',
+  'div',
+  'pre',
+  'span',
+  'font',
+  'code',
+  'samp',
+  'kbd',
+  'a',
   '[style*="font-size"]',
   '[style*="font:"]',
   '[style*="font "]',
@@ -292,13 +311,12 @@ const readerInlineTypographyFontSize = element =>
 
 export const normalizeReaderInlineTypography = (doc, settings = {}) => {
   if (!doc?.body) return 0
-  const candidates = [
+  const candidates = Array.from(new Set([
     doc.body,
     ...Array.from(doc.querySelectorAll?.(readerInlineTypographyCandidateSelector) || []),
-  ]
+  ]))
   let normalized = 0
   for (const element of candidates) {
-    if (!readerElementHasInlineFontSize(element)) continue
     if (!readerInlineTypographyLooksLikeProse(element)) continue
     if (element.dataset?.navicOriginalInlineFontSize === undefined) {
       element.dataset.navicOriginalInlineFontSize = element.style.getPropertyValue('font-size') || ''
@@ -306,6 +324,7 @@ export const normalizeReaderInlineTypography = (doc, settings = {}) => {
       element.dataset.navicOriginalInlineFont = element.style.getPropertyValue('font') || ''
       element.dataset.navicOriginalInlineFontPriority = element.style.getPropertyPriority('font') || ''
       element.dataset.navicOriginalFontSizeAttribute = element.getAttribute?.('size') || ''
+      element.dataset.navicHadInlineFontSize = String(readerElementHasInlineFontSize(element))
     }
     if (element.hasAttribute?.('size')) {
       element.removeAttribute('size')

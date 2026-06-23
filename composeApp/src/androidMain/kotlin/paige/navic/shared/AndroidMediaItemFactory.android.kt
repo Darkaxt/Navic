@@ -10,6 +10,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.PlaybackArtworkResolution
 import paige.navic.util.core.Logger
 import java.io.File
 
@@ -17,6 +18,7 @@ internal class AndroidMediaItemFactory(
 	private val sessionManager: SessionManager,
 	private val downloadManager: DownloadManager,
 	private val platformContext: CoilPlatformContext,
+	private val playbackArtworkForSong: (DomainSong) -> PlaybackArtworkResolution,
 	private val streamUriForSongId: (String) -> Uri
 ) {
 	fun toMediaItem(song: DomainSong): MediaItem {
@@ -27,7 +29,8 @@ internal class AndroidMediaItemFactory(
 			.setAlbumTitle(song.albumTitle)
 			.setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
 
-		val artworkData = song.coverArtId?.let { coverId ->
+		val playbackArtwork = playbackArtworkForSong(song)
+		val artworkData = playbackArtwork.coverArtId?.let { coverId ->
 			val snapshot = platformContext.imageLoader.diskCache?.openSnapshot(coverId) ?: return@let null
 			try {
 				snapshot.use { it.data.toFile().readBytes() }
@@ -41,7 +44,8 @@ internal class AndroidMediaItemFactory(
 			metadataBuilder.setArtworkData(artworkData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
 		} else {
 			metadataBuilder.setArtworkUri(
-				song.coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }
+				playbackArtwork.imageUrl?.toUri()
+					?: playbackArtwork.coverArtId?.let { sessionManager.getCoverArtUrl(it).toUri() }
 			)
 		}
 

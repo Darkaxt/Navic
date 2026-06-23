@@ -239,6 +239,31 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
+	fun readerViewerLifecycleCitesKomikkuUpdateViewerAndViewerContract() {
+		val readerViewerFile = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewer.kt"
+		)
+		val viewerText = readerViewerFile.readText()
+
+		assertTrue(
+			viewerText.contains("tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt"),
+			"ReaderViewer.kt must cite Komikku's ReaderActivity.updateViewer() source before claiming lifecycle parity."
+		)
+		assertTrue(
+			viewerText.contains("updateViewer"),
+			"ReaderViewer.kt must identify the Komikku viewer swap method it ports."
+		)
+		assertTrue(
+			viewerText.contains("tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/Viewer.kt"),
+			"ReaderViewer.kt must cite Komikku's Viewer lifecycle contract source."
+		)
+		assertTrue(
+			viewerText.contains("getView()"),
+			"ReaderViewer.kt must record that renderer mounting is modeled after Komikku's Viewer.getView() boundary."
+		)
+	}
+
+	@Test
 	fun readerViewerHostConsumesEngineRendererDescriptorInsteadOfConcreteViewerClass() {
 		val readerViewerFile = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderViewer.kt"

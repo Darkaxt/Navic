@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.effectiveArtworkSourcePriority
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
@@ -26,7 +27,12 @@ fun artistDetailHeadingImageUrl(
 ): String? {
 	val verifiedImageUrl = verifiedExternalImageUrl?.trim()?.takeIf { it.isNotEmpty() }
 	if (!externalArtworkEnabled || verifiedImageUrl == null) return null
-	return when (artistArtworkPriority) {
+	return when (
+		effectiveArtworkSourcePriority(
+			artworkSourcePriority = artistArtworkPriority,
+			aurralArtworkEnabled = externalArtworkEnabled
+		)
+	) {
 		ArtworkSourcePriority.AurralFirst -> verifiedImageUrl
 		ArtworkSourcePriority.NativeFirst ->
 			verifiedImageUrl.takeIf { artist.coverArtId.isNullOrBlank() }
@@ -52,8 +58,12 @@ fun artistDetailCachedImageUrl(
 	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	externalArtworkEnabled: Boolean = true
 ): String? {
-	if (!externalArtworkEnabled || artistArtworkPriority == ArtworkSourcePriority.NativeOnly) return null
-	if (artistArtworkPriority == ArtworkSourcePriority.NativeFirst && !artist.coverArtId.isNullOrBlank()) return null
+	val effectivePriority = effectiveArtworkSourcePriority(
+		artworkSourcePriority = artistArtworkPriority,
+		aurralArtworkEnabled = externalArtworkEnabled
+	)
+	if (!externalArtworkEnabled || effectivePriority == ArtworkSourcePriority.NativeOnly) return null
+	if (effectivePriority == ArtworkSourcePriority.NativeFirst && !artist.coverArtId.isNullOrBlank()) return null
 	return artistDetailCachedImageEntry(artist, entries)?.imageUrl?.trim()
 }
 

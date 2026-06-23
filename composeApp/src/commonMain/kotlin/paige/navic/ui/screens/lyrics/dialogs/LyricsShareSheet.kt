@@ -77,7 +77,6 @@ import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.activeArtworkUrl
 import paige.navic.domain.models.shouldSendServerArtworkHeaders
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Navic
@@ -100,8 +99,10 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 @Composable
 fun LyricsShareSheet(
 	song: DomainSong,
+	coverArtId: String? = song.coverArtId,
 	imageUrl: String? = null,
 	imageCacheKey: String? = null,
+	imageRequestHeaders: Map<String, String> = emptyMap(),
 	selectedLyrics: ImmutableList<String>,
 	onDismiss: () -> Unit,
 	onShare: () -> Unit
@@ -115,13 +116,27 @@ fun LyricsShareSheet(
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val serverArtworkUrl = song.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
-	val resolvedImageUrl = activeArtworkUrl(
-		serverArtworkUrl = serverArtworkUrl,
-		externalArtworkUrl = imageUrl
-	)
-	val resolvedImageCacheKey = imageCacheKey ?: imageUrl?.takeIf { it.isNotBlank() } ?: song.coverArtId
-	val model = remember(song.coverArtId, imageUrl, resolvedImageUrl, resolvedImageCacheKey, serverRequestHeaders) {
+	val serverArtworkUrl = coverArtId?.let { sessionManager.getCoverArtUrl(it) }
+	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() } ?: serverArtworkUrl
+	val resolvedImageCacheKey = imageCacheKey ?: imageUrl?.takeIf { it.isNotBlank() } ?: coverArtId
+	val model = remember(
+		coverArtId,
+		imageUrl,
+		resolvedImageUrl,
+		resolvedImageCacheKey,
+		imageRequestHeaders,
+		serverRequestHeaders
+	) {
+		val requestHeaders = if (
+			shouldSendServerArtworkHeaders(
+				serverArtworkUrl = serverArtworkUrl,
+				externalArtworkUrl = imageUrl
+			)
+		) {
+			serverRequestHeaders
+		} else {
+			imageRequestHeaders
+		}
 		ImageRequest.Builder(coilPlatformContext)
 			.data(resolvedImageUrl)
 			.memoryCacheKey(resolvedImageCacheKey)
@@ -129,13 +144,8 @@ fun LyricsShareSheet(
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.apply {
-				if (
-					shouldSendServerArtworkHeaders(
-						serverArtworkUrl = serverArtworkUrl,
-						externalArtworkUrl = imageUrl
-					)
-				) {
-					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				if (requestHeaders.isNotEmpty()) {
+					httpHeaders(requestHeaders.toNetworkHeaders())
 				}
 			}
 			.build()

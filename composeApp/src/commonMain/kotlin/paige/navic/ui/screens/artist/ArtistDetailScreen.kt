@@ -118,6 +118,7 @@ import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberAurralFirstArtistArtworkUiState
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.ArtCarousel
@@ -293,24 +294,15 @@ fun ArtistDetailScreen(
 							missingAlbums = state.aurralMissingAlbums
 						).toImmutableList()
 					}
-					val headingImageUrl = artistDetailHeadingImageUrl(
-						artist = state.artist,
-						verifiedExternalImageUrl = state.aurralArtistImageUrl,
-						artistArtworkPriority = preferenceManager.artistArtworkPriority,
-						externalArtworkEnabled = preferenceManager.aurralEnabled
+					val headingArtwork = rememberAurralFirstArtistArtworkUiState(
+						artistId = state.artist.id,
+						artistMusicBrainzId = state.artist.musicBrainzId,
+						artistName = state.artist.name,
+						serverCoverArtId = state.artist.coverArtId
+							.takeUnless { preferenceManager.aurralEnabled && state.aurralLoading },
+						externalArtistImageUrl = state.aurralArtistImageUrl ?: state.artist.artistImageUrl,
+						externalArtistCacheKey = state.aurralArtistImageUrl ?: state.artist.artistImageUrl
 					)
-					val headingImageRequestHeaders = if (
-						headingImageUrl != null &&
-						headingImageUrl == state.aurralArtistImageUrl?.trim()
-					) {
-						aurralRequestHeadersForUrl(
-							baseUrl = preferenceManager.aurralBaseUrl,
-							imageUrl = headingImageUrl,
-							requestHeaders = preferenceManager.aurralRequestHeadersMap()
-						)
-					} else {
-						emptyMap()
-					}
 					BulkDownloadDialog(
 						title = stringResource(Res.string.title_bulk_download),
 						message = stringResource(Res.string.info_bulk_download_warning, state.artist.name),
@@ -333,9 +325,9 @@ fun ArtistDetailScreen(
 					) {
 						ArtistDetailScreenHeading(
 							artistName = state.artist.name,
-							coverArtId = state.artist.coverArtId,
-							imageUrl = headingImageUrl,
-							imageRequestHeaders = headingImageRequestHeaders,
+							coverArtId = headingArtwork.coverArtId,
+							imageUrl = headingArtwork.imageUrl,
+							imageRequestHeaders = headingArtwork.imageRequestHeaders,
 							imageDiagnosticLabel = "artist-detail-${state.artist.id}",
 							subtitle = state.artist.biography,
 							innerPadding = contentPadding,
@@ -657,7 +649,7 @@ fun ArtistDetailScreen(
 										artist = AurralSimilarArtist(
 											id = artist.musicBrainzId ?: artist.id,
 											name = artist.name,
-											imageUrl = artist.artistImageUrl
+											imageUrl = null
 										),
 										localArtistId = artist.id,
 										localCoverArtId = artist.coverArtId,
@@ -672,11 +664,6 @@ fun ArtistDetailScreen(
 							) { row ->
 								AurralSimilarArtistItem(
 									row = row,
-									imageRequestHeaders = aurralRequestHeadersForUrl(
-										baseUrl = preferenceManager.aurralBaseUrl,
-										imageUrl = row.artist.imageUrl,
-										requestHeaders = preferenceManager.aurralRequestHeadersMap()
-									),
 									onClickLocalArtist = { localArtistId ->
 										backStack.add(Screen.ArtistDetail(localArtistId))
 									},
@@ -840,12 +827,19 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 @Composable
 private fun CarouselItemScope.AurralSimilarArtistItem(
 	row: AurralSimilarArtistRow,
-	imageRequestHeaders: Map<String, String>,
 	onClickLocalArtist: (String) -> Unit,
 	onClickAurralArtist: () -> Unit
 ) {
 	val platformContext = LocalPlatformContext.current
 	val localArtistId = row.localArtistId
+	val artistArtwork = rememberAurralFirstArtistArtworkUiState(
+		artistId = localArtistId,
+		artistMusicBrainzId = row.artist.id,
+		artistName = row.artist.name,
+		serverCoverArtId = row.localCoverArtId,
+		externalArtistImageUrl = row.artist.imageUrl,
+		externalArtistCacheKey = "aurral-similar-artist-${row.artist.id}"
+	)
 	val subtitle = row.matchPercent?.let {
 		stringResource(Res.string.info_aurral_match_percent, it)
 	} ?: if (row.inLibrary) null else stringResource(Res.string.info_aurral_external_artist)
@@ -856,10 +850,10 @@ private fun CarouselItemScope.AurralSimilarArtistItem(
 			.alpha(if (row.inLibrary) 1f else .62f)
 	) {
 		CoverArt(
-			coverArtId = row.localCoverArtId,
-			imageUrl = row.artist.imageUrl,
-			imageCacheKey = "aurral-similar-artist-${row.artist.id}",
-			imageRequestHeaders = imageRequestHeaders,
+			coverArtId = artistArtwork.coverArtId,
+			imageUrl = artistArtwork.imageUrl,
+			imageCacheKey = artistArtwork.imageCacheKey,
+			imageRequestHeaders = artistArtwork.imageRequestHeaders,
 			contentDescription = row.artist.name,
 			fallbackKind = "Artist",
 			modifier = Modifier

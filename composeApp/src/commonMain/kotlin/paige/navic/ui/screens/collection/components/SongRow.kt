@@ -64,8 +64,8 @@ import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
-import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.components.common.Waveform
 import paige.navic.ui.screens.collection.collectionDetailAlbumTrackLeadingWidth
 import paige.navic.util.core.InlineExplicitIcon
@@ -201,13 +201,13 @@ fun CollectionDetailScreenSongRow(
 				containerColor = MaterialTheme.colorScheme.surfaceContainer
 			),
 			leadingContent = {
-				if (isPlaylist) 
-						CoverArt(
-							modifier = Modifier.size(48.dp),
-							coverArtId = song.coverArtId,
-							shape = MaterialTheme.shapes.small
-						)
-				else
+				if (isPlaylist) {
+					PlaybackSongCoverArt(
+						song = song,
+						modifier = Modifier.size(48.dp),
+						shape = MaterialTheme.shapes.small
+					)
+				} else {
 					Column(
 						modifier = Modifier.width(collectionDetailAlbumTrackLeadingWidth()),
 						horizontalAlignment = Alignment.CenterHorizontally
@@ -229,6 +229,7 @@ fun CollectionDetailScreenSongRow(
 							autoSize = TextAutoSize.StepBased(6.sp, 13.sp)
 						)
 					}
+				}
 			},
 			content = {
 				Column {

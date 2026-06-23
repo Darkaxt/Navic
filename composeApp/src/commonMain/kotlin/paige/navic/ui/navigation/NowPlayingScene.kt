@@ -38,12 +38,11 @@ import io.ktor.http.Url
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
-import paige.navic.domain.models.activeArtworkUrl
 import paige.navic.domain.models.dominantColorArtworkUrl
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.shouldSendServerArtworkHeaders
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.NowPlayingSceneStrategy.Companion.bottomSheet
 import paige.navic.ui.theme.NavicTheme
@@ -157,42 +156,45 @@ private fun colorSchemeForCurrentSong(): ColorScheme {
 	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
 	val song = playerState.currentSong
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
-	val serverCoverUri = remember(song?.coverArtId) {
-		song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
-	}
-	val activeServerCoverUri = serverCoverUri.takeUnless { serverCoverLoadFailed }
-	val externalCoverUri = externalFallbackArtworkUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = song?.id?.let { musicBrainzArtworkBySongId[it]?.imageUrl },
+	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val coverUri = remember(activeServerCoverUri, externalCoverUri) {
-		activeArtworkUrl(
-			serverArtworkUrl = activeServerCoverUri,
-			externalArtworkUrl = externalCoverUri
-		)
+	val serverCoverUri = remember(playbackArtwork.coverArtId) {
+		playbackArtwork.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	}
-	val paletteCoverUri = remember(activeServerCoverUri, externalCoverUri) {
+	val coverUri = remember(serverCoverUri, playbackArtwork.imageUrl) {
+		playbackArtwork.imageUrl ?: serverCoverUri
+	}
+	val paletteCoverUri = remember(serverCoverUri, playbackArtwork.imageUrl) {
 		dominantColorArtworkUrl(
-			serverArtworkUrl = activeServerCoverUri,
-			externalArtworkUrl = externalCoverUri
+			serverArtworkUrl = serverCoverUri,
+			externalArtworkUrl = playbackArtwork.imageUrl
 		)
 	}
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val shouldSendServerHeaders = shouldSendServerArtworkHeaders(
-		serverArtworkUrl = activeServerCoverUri,
-		externalArtworkUrl = externalCoverUri
+		serverArtworkUrl = serverCoverUri,
+		externalArtworkUrl = playbackArtwork.imageUrl
 	)
-	val httpClient = remember(serverRequestHeaders, shouldSendServerHeaders) {
+	val imageRequestHeaders = if (shouldSendServerHeaders) {
+		serverRequestHeaders
+	} else {
+		playbackArtwork.imageRequestHeaders
+	}
+	val httpClient = remember(imageRequestHeaders) {
 		HttpClient {
 			install(HttpTimeout) {
 				requestTimeoutMillis = 60_000
 				connectTimeoutMillis = 60_000
 				socketTimeoutMillis = 60_000
 			}
-			if (shouldSendServerHeaders && serverRequestHeaders.isNotEmpty()) {
+			if (imageRequestHeaders.isNotEmpty()) {
 				defaultRequest {
-					serverRequestHeaders.forEach { (key, value) -> header(key, value) }
+					imageRequestHeaders.forEach { (key, value) -> header(key, value) }
 				}
 			}
 		}

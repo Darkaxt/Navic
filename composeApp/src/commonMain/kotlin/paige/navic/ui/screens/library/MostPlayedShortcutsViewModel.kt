@@ -17,7 +17,6 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
-import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.ui.core.UiState
@@ -136,9 +135,10 @@ class MostPlayedShortcutsViewModel(
 		this as? Exception ?: Exception(this)
 
 	private fun hydrateAurralArtistPhotos(shortcuts: List<DomainMostPlayedShortcut>) {
-		if (
-			!preferenceManager.aurralEnabled ||
-			preferenceManager.artistArtworkPriority == ArtworkSourcePriority.NativeOnly
+		if (!shouldHydrateAurralArtistPhotos(
+				aurralEnabled = preferenceManager.aurralEnabled,
+				artistArtworkPriority = preferenceManager.artistArtworkPriority
+			)
 		) {
 			Logger.i(
 				MOST_PLAYED_ARTWORK_TAG,

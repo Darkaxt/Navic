@@ -44,8 +44,6 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.LidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.NowPlayingArtworkTapDestination
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
@@ -68,6 +66,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetActionButton
@@ -100,14 +99,10 @@ fun NowPlayingScreen() {
 	val song = playerState.currentSong
 	val currentMusicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
-	val currentMusicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = currentMusicBrainzArtwork?.imageUrl,
-		serverCoverLoadFailed = serverCoverLoadFailed
-	)
-	val currentMusicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+	val currentPlaybackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = currentMusicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
@@ -244,9 +239,10 @@ fun NowPlayingScreen() {
 		Box(Modifier.fillMaxSize()) {
 			if (isDynamicBackground) {
 				BlendBackground(
-					coverArtId = song?.coverArtId,
-					imageUrl = currentMusicBrainzFallbackArtworkUrl,
-					imageCacheKey = currentMusicBrainzFallbackArtworkCacheKey,
+					coverArtId = currentPlaybackArtwork.coverArtId,
+					imageUrl = currentPlaybackArtwork.imageUrl,
+					imageCacheKey = currentPlaybackArtwork.imageCacheKey,
+					imageRequestHeaders = currentPlaybackArtwork.imageRequestHeaders,
 					isPaused = playerState.isPaused,
 					showBottomGradient = shouldShowNowPlayingBackgroundBottomGradient(
 						enabled = preferenceManager.nowPlayingBackgroundBottomGradient,

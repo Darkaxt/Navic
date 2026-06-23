@@ -52,6 +52,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberArtistArtworkUiState
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -248,6 +249,7 @@ fun ArtistsScreenItem(
 	val uriHandler = LocalUriHandler.current
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	val artistArtwork = rememberArtistArtworkUiState(artist)
 
 	Box(modifier) {
 		ArtGridItem(
@@ -256,8 +258,10 @@ fun ArtistsScreenItem(
 				backStack.add(Screen.ArtistDetail(artist.id))
 			},
 			onLongClick = onSelect,
-			coverArtId = artist.coverArtId,
-			imageUrl = artist.artistImageUrl,
+			coverArtId = artistArtwork.coverArtId,
+			imageUrl = artistArtwork.imageUrl,
+			imageCacheKey = artistArtwork.imageCacheKey,
+			imageRequestHeaders = artistArtwork.imageRequestHeaders,
 			imageDiagnosticLabel = "artist-list-${artist.id}",
 			title = artist.name,
 			subtitle = pluralStringResource(

@@ -96,6 +96,7 @@ fun ArtGridItem(
 	onLongClick: (() -> Unit)? = null,
 	coverArtId: String?,
 	imageUrl: String? = null,
+	imageCacheKey: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	imageDiagnosticLabel: String? = null,
 	title: String,
@@ -129,6 +130,7 @@ fun ArtGridItem(
 				CoverArt(
 					coverArtId = coverArtId,
 					imageUrl = imageUrl,
+					imageCacheKey = imageCacheKey,
 					imageRequestHeaders = imageRequestHeaders,
 					imageDiagnosticLabel = imageDiagnosticLabel,
 					contentDescription = title,

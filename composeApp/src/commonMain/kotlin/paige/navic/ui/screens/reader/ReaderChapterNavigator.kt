@@ -1,8 +1,6 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -34,7 +32,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -50,7 +47,6 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.SkipNext
 import paige.navic.icons.outlined.SkipPrevious
-import kotlin.math.roundToInt
 
 @Composable
 internal fun KomikkuChapterNavigator(
@@ -181,18 +177,7 @@ internal fun KomikkuChapterNavigator(
 	}
 }
 
-internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages > 2
-
-internal fun readerPageForVerticalChapterProgressOffset(
-	offsetY: Float,
-	railHeight: Float,
-	totalPages: Int
-): Int {
-	val pageCount = totalPages.coerceAtLeast(1)
-	if (pageCount == 1 || railHeight <= 0f) return 1
-	val fraction = (offsetY / railHeight).coerceIn(0f, 1f)
-	return (1 + (fraction * (pageCount - 1)).roundToInt()).coerceIn(1, pageCount)
-}
+internal fun readerShouldShowChapterProgressSlider(totalPages: Int): Boolean = totalPages > 1
 
 @Composable
 private fun KomikkuChapterProgressSlider(
@@ -320,80 +305,34 @@ private fun ColumnScope.KomikkuVerticalChapterProgressRail(
 		}
 	}
 
-	Box(
+	KomikkuChapterProgressSlider(
 		modifier = modifier
-			.weight(1f)
-	) {
-		KomikkuChapterProgressSlider(
-			modifier = Modifier
-				.matchParentSize()
-				.padding(vertical = 8.dp)
-				.graphicsLayer {
-					rotationZ = 90f
-					transformOrigin = TransformOrigin(0f, 0f)
-				}
-				.layout { measurable, constraints ->
-					val placeable = measurable.measure(
-						Constraints(
-							minWidth = constraints.minHeight,
-							maxWidth = constraints.maxHeight,
-							minHeight = constraints.minWidth,
-							maxHeight = constraints.maxWidth
-						)
+			.padding(vertical = 8.dp)
+			.graphicsLayer {
+				rotationZ = 90f
+				transformOrigin = TransformOrigin(0f, 0f)
+			}
+			.layout { measurable, constraints ->
+				val placeable = measurable.measure(
+					Constraints(
+						minWidth = constraints.minHeight,
+						maxWidth = constraints.maxHeight,
+						minHeight = constraints.minWidth,
+						maxHeight = constraints.maxWidth
 					)
-					layout(placeable.height, placeable.width) {
-						placeable.place(0, -placeable.height)
-					}
-				},
-			value = currentValue,
-			valueRange = 1..pageCount,
-			onValueChange = { page ->
-				if (page != currentValue) {
-					onPageChange(page)
+				)
+				layout(placeable.height, placeable.width) {
+					placeable.place(0, -placeable.height)
 				}
-			},
-			interactionSource = interactionSource
-		)
-		Box(
-			Modifier
-				.matchParentSize()
-				.pointerInput(currentValue, pageCount) {
-					detectTapGestures { offset ->
-						val page = readerPageForVerticalChapterProgressOffset(
-							offsetY = offset.y,
-							railHeight = size.height.toFloat(),
-							totalPages = pageCount
-						)
-						if (page != currentValue) {
-							onPageChange(page)
-						}
-					}
-				}
-				.pointerInput(currentValue, pageCount) {
-					detectDragGestures(
-						onDragStart = { offset ->
-							val page = readerPageForVerticalChapterProgressOffset(
-								offsetY = offset.y,
-								railHeight = size.height.toFloat(),
-								totalPages = pageCount
-							)
-							if (page != currentValue) {
-								onPageChange(page)
-							}
-						},
-						onDrag = { change, _ ->
-							change.consume()
-							val page = readerPageForVerticalChapterProgressOffset(
-								offsetY = change.position.y,
-								railHeight = size.height.toFloat(),
-								totalPages = pageCount
-							)
-							if (page != currentValue) {
-								onPageChange(page)
-							}
-						}
-					)
-				}
-		)
-	}
+			}
+			.weight(1f),
+		value = currentValue,
+		valueRange = 1..pageCount,
+		onValueChange = { page ->
+			if (page != currentValue) {
+				onPageChange(page)
+			}
+		},
+		interactionSource = interactionSource
+	)
 }

@@ -57,8 +57,6 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.repositories.MusicBrainzMetadataDisplayField
 import paige.navic.domain.repositories.MusicBrainzMetadataField
@@ -73,6 +71,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicBrainzIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
@@ -94,14 +93,10 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 	val metadata = song?.id?.let(musicBrainzMetadataBySongId::get)
 	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
-	val musicBrainzArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
-		serverCoverLoadFailed = serverCoverLoadFailed
-	)
-	val musicBrainzArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
 	val trackRows = remember(song, preferenceManager.replayGainMode) {
@@ -157,9 +152,10 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 	) { contentPadding ->
 		Box(Modifier.fillMaxSize()) {
 			BlendBackground(
-				coverArtId = song?.coverArtId,
-				imageUrl = musicBrainzArtworkUrl,
-				imageCacheKey = musicBrainzArtworkCacheKey,
+				coverArtId = playbackArtwork.coverArtId,
+				imageUrl = playbackArtwork.imageUrl,
+				imageCacheKey = playbackArtwork.imageCacheKey,
+				imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 				isPaused = false,
 				modifier = Modifier.fillMaxSize()
 			)
@@ -202,9 +198,10 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 						contentAlignment = Alignment.Center
 					) {
 						CoverArt(
-							coverArtId = song.coverArtId,
-							imageUrl = musicBrainzArtworkUrl,
-							imageCacheKey = musicBrainzArtworkCacheKey,
+							coverArtId = playbackArtwork.coverArtId,
+							imageUrl = playbackArtwork.imageUrl,
+							imageCacheKey = playbackArtwork.imageCacheKey,
+							imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 							contentDescription = song.title,
 							onServerCoverLoadFailed = {
 								musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)

@@ -1642,9 +1642,25 @@ async function runPublisherStyleFontSizeProbe(page) {
     const originalStyleText = doc.getElementById('navic-reader-document-theme')?.textContent || ''
     const originalPublisherStyles = !originalStyleText.includes('font-weight:') &&
       !originalStyleText.includes('letter-spacing:')
+    const publisherStyle = doc.createElement('style')
+    publisherStyle.setAttribute('data-navic-publisher-font-size-probe-style', 'true')
+    publisherStyle.textContent = `
+      [data-navic-publisher-font-size-probe="true"] .publisher-important-wrapper p,
+      [data-navic-publisher-font-size-probe="true"] .publisher-important-wrapper span {
+        font-size: 10px !important;
+      }
+    `
     const probe = doc.createElement('section')
     probe.setAttribute('data-navic-publisher-font-size-probe', 'true')
-    probe.innerHTML = '<p data-navic-publisher-font-size-probe-paragraph="true" style="font-size: 12px">Navic publisher style font-size probe paragraph text.</p>'
+    probe.innerHTML = `
+      <p data-navic-publisher-font-size-probe-paragraph="true" style="font-size: 12px">Navic publisher style font-size probe paragraph text.</p>
+      <section class="publisher-important-wrapper">
+        <p data-navic-publisher-font-size-probe-class-important="true">
+          <span>Navic publisher class-important font-size probe paragraph text.</span>
+        </p>
+      </section>
+    `
+    doc.head.append(publisherStyle)
     doc.body.prepend(probe)
     const flushStyle = () => {
       void doc.documentElement.offsetHeight
@@ -1655,12 +1671,17 @@ async function runPublisherStyleFontSizeProbe(page) {
       const readMetrics = label => {
         const htmlStyle = win.getComputedStyle(doc.documentElement)
         const paragraphStyle = win.getComputedStyle(paragraph)
+        const classImportantStyle = win.getComputedStyle(
+          doc.querySelector('[data-navic-publisher-font-size-probe-class-important="true"] span')
+        )
         return {
           label,
           rootFontSize: htmlStyle.fontSize,
           rootFontSizeValue: Number.parseFloat(htmlStyle.fontSize || '0'),
           publisherParagraphFontSize: paragraphStyle.fontSize,
           publisherParagraphFontSizeValue: Number.parseFloat(paragraphStyle.fontSize || '0'),
+          publisherClassImportantFontSize: classImportantStyle.fontSize,
+          publisherClassImportantFontSizeValue: Number.parseFloat(classImportantStyle.fontSize || '0'),
           contentFontSizeVariable: htmlStyle.getPropertyValue('--reader-content-font-size').trim(),
         }
       }
@@ -1683,11 +1704,19 @@ async function runPublisherStyleFontSizeProbe(page) {
       flushStyle()
       const at140 = readMetrics('140')
       const publisherParagraphDelta = at140.publisherParagraphFontSizeValue - at100.publisherParagraphFontSizeValue
+      const publisherClassImportantDelta =
+        at140.publisherClassImportantFontSizeValue - at100.publisherClassImportantFontSizeValue
       const rootDelta = at140.rootFontSizeValue - at100.rootFontSizeValue
       if (publisherParagraphDelta < 5) {
         throw new Error(
           'Publisher-style fixed paragraph did not scale with reader Font size: ' +
           JSON.stringify({ at100, at140, publisherParagraphDelta, rootDelta })
+        )
+      }
+      if (publisherClassImportantDelta < 5) {
+        throw new Error(
+          'Publisher-style class-important paragraph did not scale with reader Font size: ' +
+          JSON.stringify({ at100, at140, publisherClassImportantDelta, rootDelta })
         )
       }
       return {
@@ -1697,12 +1726,14 @@ async function runPublisherStyleFontSizeProbe(page) {
         at100,
         at140,
         publisherParagraphDelta,
+        publisherClassImportantDelta,
         rootDelta,
         pageTitle: document.title,
         pageUrl: window.location.href,
       }
     } finally {
       probe.remove()
+      publisherStyle.remove()
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
         settings: {

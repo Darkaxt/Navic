@@ -33,8 +33,6 @@ import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylSpindleRadiusFraction
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.nowPlayingFallbackLabelStyle
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.nowPlayingArtworkRotationDegreesForElapsedMillis
@@ -49,6 +47,7 @@ import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.CoverArtNormalization
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import kotlin.math.min
 
 @Composable
@@ -66,17 +65,13 @@ fun NowPlayingArtwork(
 	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
 	val musicBrainzArtwork = musicBrainzArtworkBySongId[song.id]
 	val serverCoverLoadFailed = song.id in serverCoverLoadFailedSongIds
-	val musicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val musicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
-		serverCoverLoadFailed = serverCoverLoadFailed
-	)
-	val hasArtwork = !song.coverArtId.isNullOrEmpty() || !musicBrainzFallbackArtworkUrl.isNullOrBlank()
+	val hasArtwork = playbackArtwork.hasArtwork
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
@@ -120,9 +115,10 @@ fun NowPlayingArtwork(
 	) {
 		Box(modifier = discModifier) {
 			CoverArt(
-				coverArtId = song.coverArtId,
-				imageUrl = musicBrainzFallbackArtworkUrl,
-				imageCacheKey = musicBrainzFallbackArtworkCacheKey,
+				coverArtId = playbackArtwork.coverArtId,
+				imageUrl = playbackArtwork.imageUrl,
+				imageCacheKey = playbackArtwork.imageCacheKey,
+				imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 				contentDescription = song.title,
 				fallbackKind = "Track",
 				fallbackLabelStyle = nowPlayingFallbackLabelStyle(isRotatingArtwork),

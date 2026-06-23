@@ -66,6 +66,7 @@ import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.SongRow
+import paige.navic.ui.components.common.rememberArtistArtworkUiState
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.sheets.ArtistSheet
@@ -303,8 +304,12 @@ fun StarredScreenContent(
 				artists.toImmutableList(),
 				Screen.ArtistList(true, DomainArtistListType.Starred)
 			) { artist ->
+				val artistArtwork = rememberArtistArtworkUiState(artist)
 				ArtCarouselItem(
-					coverArtId = artist.coverArtId, 
+					coverArtId = artistArtwork.coverArtId,
+					imageUrl = artistArtwork.imageUrl,
+					imageCacheKey = artistArtwork.imageCacheKey,
+					imageRequestHeaders = artistArtwork.imageRequestHeaders,
 					title = artist.name, 
 					subtitle = pluralStringResource(
 						Res.plurals.count_albums,

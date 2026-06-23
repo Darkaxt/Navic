@@ -4,15 +4,13 @@ import android.app.Application
 import android.content.Intent
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.activeArtworkUrl
-import paige.navic.domain.models.externalFallbackArtworkUrl
+import paige.navic.domain.models.PlaybackArtworkResolution
 import paige.navic.domain.models.shouldSendNowPlayingWidgetUpdate
-import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 
 internal class AndroidNowPlayingBroadcaster(
 	private val application: Application,
 	private val sessionManager: SessionManager,
-	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository
+	private val playbackArtworkForSong: (DomainSong) -> PlaybackArtworkResolution
 ) {
 	private var lastSongId: String? = null
 	private var lastIsPlaying: Boolean? = null
@@ -52,11 +50,7 @@ internal class AndroidNowPlayingBroadcaster(
 	}
 
 	private fun currentArtworkUrl(song: DomainSong): String? =
-		activeArtworkUrl(
-			serverArtworkUrl = song.coverArtId?.let { sessionManager.getCoverArtUrl(it) },
-			externalArtworkUrl = externalFallbackArtworkUrl(
-				serverCoverArtId = song.coverArtId,
-				externalArtworkUrl = musicBrainzArtworkRepository.artworkBySongId.value[song.id]?.imageUrl
-			)
-		)
+		playbackArtworkForSong(song).let { artwork ->
+			artwork.imageUrl ?: artwork.coverArtId?.let(sessionManager::getCoverArtUrl)
+		}
 }

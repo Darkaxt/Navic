@@ -56,7 +56,7 @@ import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.Queue
 import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.icons.outlined.Star
-import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.AurralFirstArtistCoverArt
 import paige.navic.ui.components.common.MarqueeText
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -96,8 +96,8 @@ fun ArtistSheet(
 
 		ListItem(
 			leadingContent = {
-				CoverArt(
-					coverArtId = artist.coverArtId,
+				AurralFirstArtistCoverArt(
+					artist = artist,
 					modifier = Modifier.size(50.dp),
 					shape = preferenceManager.coverArtShape.decreasedShape
 				)

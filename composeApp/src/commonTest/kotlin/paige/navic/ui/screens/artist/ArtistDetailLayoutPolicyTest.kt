@@ -55,7 +55,8 @@ class ArtistDetailLayoutPolicyTest {
 				artistArtworkPriority = ArtworkSourcePriority.AurralFirst
 			)
 		)
-		assertNull(
+		assertEquals(
+			"https://aurral.example.com/bond.webp",
 			artistDetailHeadingImageUrl(
 				artist = DomainArtist(
 					id = "bond",
@@ -213,8 +214,9 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
-	fun headingSkipsPersistentArtistPhotoCacheWhenNativeCoverArtExistsAndNativeIsFirst() {
-		assertNull(
+	fun headingUsesPersistentArtistPhotoCacheWhenAurralIsEnabledEvenIfNativeIsFirst() {
+		assertEquals(
+			"https://aurral.example.com/iu.webp",
 			artistDetailCachedImageUrl(
 				artist = DomainArtist(
 					id = "local-iu",

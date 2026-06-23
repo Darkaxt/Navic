@@ -16,6 +16,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.hasStableNavidromeSongId
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
@@ -47,6 +48,12 @@ fun QuickPickSongCard(
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = null,
+		musicBrainzArtworkCacheKey = null,
+		serverCoverLoadFailed = false
+	)
 
 	Box(modifier) {
 		ArtGridItem(
@@ -55,7 +62,10 @@ fun QuickPickSongCard(
 				onClick()
 			},
 			onLongClick = onSelect,
-			coverArtId = song.coverArtId,
+			coverArtId = playbackArtwork.coverArtId,
+			imageUrl = playbackArtwork.imageUrl,
+			imageCacheKey = playbackArtwork.imageCacheKey,
+			imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 			title = song.title,
 			subtitle = song.artistName,
 			ownershipStatus = ownershipStatus,
