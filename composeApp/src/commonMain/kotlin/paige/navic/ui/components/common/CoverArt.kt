@@ -198,16 +198,10 @@ fun CoverArt(
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val sessionManager = koinInject<SessionManager>()
-	val resolvedImageUrl = visibleImageUrlForAurralPolicy(
-		imageUrl = imageUrl,
-		nativeCoverArtId = coverArtId,
-		aurralEnabled = preferenceManager.aurralEnabled
-	)
-	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
-		coverArtId = coverArtId,
-		imageUrl = resolvedImageUrl,
-		aurralEnabled = preferenceManager.aurralEnabled
-	)
+	// Pure renderer: the caller is responsible for source selection (see resolveStaticArtwork /
+	// resolvedPlaybackArtwork). CoverArt no longer applies any Aurral/Navidrome policy itself.
+	val resolvedImageUrl = imageUrl
+	val visibleCoverArtId = coverArtId
 	val usesServerCoverArt = resolvedImageUrl == null && visibleCoverArtId != null
 	val resolvedRequestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
 	val resolvedImageCacheKey = normalizedCoverArtCacheKey(

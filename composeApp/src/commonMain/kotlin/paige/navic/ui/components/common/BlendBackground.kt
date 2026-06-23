@@ -35,6 +35,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
 import paige.navic.domain.models.nowPlayingBackgroundDimAlpha
+import paige.navic.domain.models.resolveStaticArtwork
 import paige.navic.util.core.toNetworkHeaders
 import kotlin.time.TimeSource
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
@@ -68,16 +69,14 @@ fun BlendBackground(
 	val blurDp = nowPlayingBackgroundBlurDp(preferenceManager.nowPlayingBackgroundBlurDp)
 	val dimAlpha = nowPlayingBackgroundDimAlpha(preferenceManager.nowPlayingBackgroundDimPercent)
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val resolvedImageUrl = visibleImageUrlForAurralPolicy(
-		imageUrl = imageUrl,
-		nativeCoverArtId = coverArtId,
+	val staticArtwork = resolveStaticArtwork(
+		serverCoverArtId = coverArtId,
+		externalArtworkUrl = imageUrl,
+		externalArtworkCacheKey = imageCacheKey,
 		aurralEnabled = preferenceManager.aurralEnabled
 	)
-	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
-		coverArtId = coverArtId,
-		imageUrl = resolvedImageUrl,
-		aurralEnabled = preferenceManager.aurralEnabled
-	)
+	val resolvedImageUrl = staticArtwork.imageUrl
+	val visibleCoverArtId = staticArtwork.coverArtId
 	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: visibleCoverArtId
 	val model = remember(visibleCoverArtId, resolvedImageUrl, resolvedImageCacheKey, imageRequestHeaders, serverRequestHeaders) {
 		val usesServerCoverArt = resolvedImageUrl == null && visibleCoverArtId != null

@@ -77,9 +77,8 @@ import paige.navic.LocalSnackbarState
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.resolveStaticArtwork
 import paige.navic.domain.models.shouldSendServerArtworkHeaders
-import paige.navic.ui.components.common.visibleCoverArtIdForAurralPolicy
-import paige.navic.ui.components.common.visibleImageUrlForAurralPolicy
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Navic
 import paige.navic.icons.outlined.Check
@@ -118,16 +117,14 @@ fun LyricsShareSheet(
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val resolvedExternalImageUrl = visibleImageUrlForAurralPolicy(
-		imageUrl = imageUrl,
-		nativeCoverArtId = coverArtId,
+	val staticArtwork = resolveStaticArtwork(
+		serverCoverArtId = coverArtId,
+		externalArtworkUrl = imageUrl,
+		externalArtworkCacheKey = imageCacheKey,
 		aurralEnabled = preferenceManager.aurralEnabled
 	)
-	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
-		coverArtId = coverArtId,
-		imageUrl = resolvedExternalImageUrl,
-		aurralEnabled = preferenceManager.aurralEnabled
-	)
+	val resolvedExternalImageUrl = staticArtwork.imageUrl
+	val visibleCoverArtId = staticArtwork.coverArtId
 	val serverArtworkUrl = visibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	val resolvedImageUrl = resolvedExternalImageUrl ?: serverArtworkUrl
 	val resolvedImageCacheKey = imageCacheKey ?: resolvedExternalImageUrl ?: visibleCoverArtId

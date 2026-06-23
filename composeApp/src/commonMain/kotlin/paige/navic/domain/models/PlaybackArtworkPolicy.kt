@@ -18,6 +18,7 @@ enum class PlaybackArtworkSource {
 	AurralArtist,
 	NativeCover,
 	MusicBrainz,
+	External,
 	None
 }
 
@@ -138,6 +139,45 @@ fun resolvedPlaybackArtwork(
 	)
 }
 
+/**
+ * Single source of truth for non-playback (static) artwork: decides whether a native server
+ * cover id or an external image URL should be rendered, applying the Aurral/Navidrome
+ * suppression rules. Renderers ([CoverArt], [BlendBackground], …) must consume this instead
+ * of re-deciding — this is the only place static cover/URL selection policy lives.
+ *
+ * Reproduces the former `visibleCoverArtIdForAurralPolicy` + `visibleImageUrlForAurralPolicy`
+ * pair exactly, so behaviour is unchanged for existing call sites.
+ */
+fun resolveStaticArtwork(
+	serverCoverArtId: String?,
+	externalArtworkUrl: String?,
+	externalArtworkCacheKey: String?,
+	aurralEnabled: Boolean
+): PlaybackArtworkResolution {
+	val nativeCover = serverCoverArtId.nonBlankOrNull()
+	val externalUrl = externalArtworkUrl.nonBlankOrNull()?.let { url ->
+		// Suppress Navidrome-pattern URLs when a native cover fallback exists, so the native
+		// cover wins instead of a redundant server artwork URL. External (e.g. Aurral) URLs
+		// are always kept.
+		url.takeUnless { aurralEnabled && nativeCover != null && url.isNavidromeArtworkUrl() }
+	}
+	val visibleCoverArtId = when {
+		!aurralEnabled -> nativeCover
+		externalUrl != null -> null
+		else -> nativeCover
+	}
+	return PlaybackArtworkResolution(
+		coverArtId = visibleCoverArtId,
+		imageUrl = externalUrl,
+		imageCacheKey = externalArtworkCacheKey.nonBlankOrNull(),
+		source = when {
+			externalUrl != null -> PlaybackArtworkSource.External
+			visibleCoverArtId != null -> PlaybackArtworkSource.NativeCover
+			else -> PlaybackArtworkSource.None
+		}
+	)
+}
+
 fun resolvedPlaybackArtistPhoto(
 	artistId: String?,
 	artistName: String?,
@@ -202,6 +242,15 @@ private fun externalImageCacheKey(
 
 private fun String?.nonBlankOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun String.isNavidromeArtworkUrl(): Boolean {
+	val normalized = lowercase()
+	return "navidrome" in normalized ||
+		"/rest/getcoverart" in normalized ||
+		"/rest/getartistimage" in normalized ||
+		"/getcoverart" in normalized ||
+		"/getartistimage" in normalized
+}
 
 private fun String?.normalizedPlaybackArtworkId(): String? =
 	this

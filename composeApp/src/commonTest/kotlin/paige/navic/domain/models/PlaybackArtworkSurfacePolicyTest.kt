@@ -110,31 +110,39 @@ class PlaybackArtworkSurfacePolicyTest {
 	}
 
 	@Test
-	fun genericArtworkComponentsGateNativeFallbackThroughAurralPolicy() {
-		val visibleArtworkComponents = listOf(
-			"src/commonMain/kotlin/paige/navic/ui/components/common/CoverArt.kt",
-			"src/commonMain/kotlin/paige/navic/ui/components/common/BlendBackground.kt"
+	fun coverArtIsAPureRendererAndStaticSurfacesRouteThroughTheSingleResolver() {
+		// CoverArt must be a pure renderer: it applies no source-selection policy itself, so a
+		// future priority change can't silently diverge inside the component.
+		val coverArtSource = File("src/commonMain/kotlin/paige/navic/ui/components/common/CoverArt.kt").readText()
+		assertFalse(
+			"resolveStaticArtwork(" in coverArtSource,
+			"CoverArt must be a pure renderer and must not apply artwork source-selection policy itself."
+		)
+		assertFalse(
+			"visibleCoverArtIdForAurralPolicy(" in coverArtSource ||
+				"visibleImageUrlForAurralPolicy(" in coverArtSource,
+			"CoverArt must not reference the removed Aurral visibility helpers."
 		)
 
-		visibleArtworkComponents.forEach { path ->
-			val source = File(path).readText()
-			assertTrue(
-				"visibleCoverArtIdForAurralPolicy(" in source,
-				"$path must route native/Navidrome cover fallback through the Aurral visibility policy."
-			)
-			assertTrue(
-				"visibleImageUrlForAurralPolicy(" in source,
-				"$path must route visible image URLs through the Aurral visibility policy."
-			)
+		// BlendBackground resolves through the single static resolver instead of re-deciding.
+		val blendSource = File("src/commonMain/kotlin/paige/navic/ui/components/common/BlendBackground.kt").readText()
+		assertTrue(
+			"resolveStaticArtwork(" in blendSource,
+			"BlendBackground must route native/Navidrome cover fallback through resolveStaticArtwork."
+		)
+		assertFalse(
+			"visibleCoverArtIdForAurralPolicy(" in blendSource ||
+				"visibleImageUrlForAurralPolicy(" in blendSource,
+			"BlendBackground must not reference the removed Aurral visibility helpers."
+		)
+
+		listOf(coverArtSource, blendSource).forEach { source ->
 			assertFalse(
 				Regex("""\.data\s*\(\s*resolvedImageUrl\s*\?:\s*coverArtId\?\.let""").containsMatchIn(source),
-				"$path must not build visible Navidrome image requests from raw coverArtId."
-			)
-			assertFalse(
-				Regex("""\.data\s*\(\s*artwork\?\.imageUrl\s*\?:\s*artwork\?\.coverArtId\?\.let""").containsMatchIn(source),
-				"$path must not build visible Navidrome image requests from raw playback cover IDs."
+				"Artwork components must not build visible Navidrome image requests from raw coverArtId."
 			)
 		}
+
 		val miniPlayerSource = File("src/commonMain/kotlin/paige/navic/ui/components/layouts/MiniPlayer.kt").readText()
 		assertTrue(
 			"rememberPlaybackArtworkUiState(" in miniPlayerSource,
@@ -228,8 +236,8 @@ class PlaybackArtworkSurfacePolicyTest {
 			"$sheetPath must not use raw song.coverArtId as the visible artwork cache fallback."
 		)
 		assertTrue(
-			"visibleCoverArtIdForAurralPolicy(" in sheetSource,
-			"$sheetPath must defensively suppress native/Navidrome cover IDs even if a future caller passes one directly."
+			"resolveStaticArtwork(" in sheetSource,
+			"$sheetPath must defensively suppress native/Navidrome cover IDs through the single static resolver."
 		)
 		assertFalse(
 			"coverArtId?.let { sessionManager.getCoverArtUrl(it) }" in sheetSource,
