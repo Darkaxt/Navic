@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -53,6 +54,7 @@ open class AlbumListViewModel(
 
 	val gridState = LazyGridState()
 
+	private var refreshAlbumsJob: Job? = null
 	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
 
 	init {
@@ -74,7 +76,8 @@ open class AlbumListViewModel(
 
 	fun refreshAlbums(fullRefresh: Boolean) {
 		refreshAurralAcquisitionRequests()
-		viewModelScope.launch {
+		refreshAlbumsJob?.cancel()
+		refreshAlbumsJob = viewModelScope.launch {
 			repository.getAlbumsFlow(fullRefresh, _listType.value, _selectedReversed.value)
 				.collect {
 					_albumsState.value = it

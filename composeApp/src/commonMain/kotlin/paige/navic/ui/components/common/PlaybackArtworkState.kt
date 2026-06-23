@@ -71,7 +71,7 @@ fun rememberPlaybackArtworkUiState(
 		artistPhoto?.cacheKey,
 		musicBrainzArtworkUrl,
 		musicBrainzArtworkCacheKey,
-		preferenceManager.artistArtworkPriority,
+		preferenceManager.coverArtworkPriority,
 		preferenceManager.aurralEnabled,
 		preferenceManager.musicBrainzArtworkFallbackEnabled,
 		serverCoverLoadFailed
@@ -82,7 +82,7 @@ fun rememberPlaybackArtworkUiState(
 			aurralArtistCacheKey = artistPhoto?.cacheKey,
 			musicBrainzArtworkUrl = musicBrainzArtworkUrl,
 			musicBrainzArtworkCacheKey = musicBrainzArtworkCacheKey,
-			artworkSourcePriority = preferenceManager.artistArtworkPriority,
+			artworkSourcePriority = preferenceManager.coverArtworkPriority,
 			aurralArtworkEnabled = preferenceManager.aurralEnabled,
 			musicBrainzArtworkEnabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
 			serverCoverLoadFailed = serverCoverLoadFailed

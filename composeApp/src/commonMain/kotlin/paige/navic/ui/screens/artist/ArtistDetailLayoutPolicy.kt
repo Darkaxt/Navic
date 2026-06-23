@@ -44,21 +44,28 @@ fun artistDetailHeadingImageUrl(
 
 fun artistDetailHeadingCoverArtId(
 	artist: DomainArtist,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	externalArtworkEnabled: Boolean = true
 ): String? =
 	artistCoverArtIdForExternalArtworkPolicy(
 		artist = artist,
+		artistArtworkPriority = artistArtworkPriority,
 		externalArtworkEnabled = externalArtworkEnabled
 	)
 
 fun artistCoverArtIdForExternalArtworkPolicy(
 	artist: DomainArtist,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	externalArtworkEnabled: Boolean = true
 ): String? =
-	if (externalArtworkEnabled) {
-		null
-	} else {
-		artist.coverArtId?.trim()?.takeIf { it.isNotEmpty() }
+	when {
+		!externalArtworkEnabled -> artist.coverArtId?.trim()?.takeIf { it.isNotEmpty() }
+		effectiveArtworkSourcePriority(
+			artworkSourcePriority = artistArtworkPriority,
+			aurralArtworkEnabled = externalArtworkEnabled
+		) == ArtworkSourcePriority.AurralFirst -> null
+
+		else -> artist.coverArtId?.trim()?.takeIf { it.isNotEmpty() }
 	}
 
 fun artistImageUrlForExternalArtworkPolicy(
@@ -242,6 +249,7 @@ fun artistDetailPlaybackOrigin(
 		coverArtId = resolvedArtwork
 			?: artistDetailHeadingCoverArtId(
 				artist = state.artist,
+				artistArtworkPriority = artistArtworkPriority,
 				externalArtworkEnabled = externalArtworkEnabled
 			)
 	)

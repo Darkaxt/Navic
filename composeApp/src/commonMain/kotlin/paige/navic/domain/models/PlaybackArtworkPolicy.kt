@@ -123,14 +123,14 @@ fun resolvedPlaybackArtwork(
 
 	return when (effectivePriority) {
 		ArtworkSourcePriority.AurralFirst ->
-			aurralResolution()
+			musicBrainzResolution()
 				?: nativeResolution()
-				?: musicBrainzResolution()
+				?: aurralResolution()
 
 		ArtworkSourcePriority.NativeFirst ->
 			nativeResolution()
-				?: aurralResolution()
 				?: musicBrainzResolution()
+				?: aurralResolution()
 
 		ArtworkSourcePriority.NativeOnly ->
 			nativeResolution()
@@ -146,11 +146,7 @@ fun effectiveArtworkSourcePriority(
 	artworkSourcePriority: ArtworkSourcePriority,
 	aurralArtworkEnabled: Boolean
 ): ArtworkSourcePriority =
-	if (aurralArtworkEnabled) {
-		ArtworkSourcePriority.AurralFirst
-	} else {
-		artworkSourcePriority
-	}
+	artworkSourcePriority
 
 fun effectiveAurralArtworkPriority(
 	aurralEnabled: Boolean,
@@ -168,7 +164,8 @@ fun visiblePlaybackCoverArtId(
 	priority: ArtworkSourcePriority
 ): String? =
 	when (priority) {
-		ArtworkSourcePriority.AurralFirst -> null
+		ArtworkSourcePriority.AurralFirst ->
+			serverCoverArtId.nonBlankOrNull().takeUnless { !externalArtworkUrl.isNullOrBlank() }
 		ArtworkSourcePriority.NativeFirst,
 		ArtworkSourcePriority.NativeOnly -> serverCoverArtId.nonBlankOrNull()
 	}

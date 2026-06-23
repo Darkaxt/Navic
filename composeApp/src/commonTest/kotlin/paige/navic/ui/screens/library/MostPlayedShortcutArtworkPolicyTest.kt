@@ -64,7 +64,7 @@ class MostPlayedShortcutArtworkPolicyTest {
 	}
 
 	@Test
-	fun artistShortcutsPreferAurralWhenAurralIsEnabledEvenIfNativeIsFirst() {
+	fun artistShortcutsKeepNativeArtistCoverWhenNativeIsFirst() {
 		val shortcut = mostPlayedArtistShortcut(coverArtId = null)
 
 		val resolved = mostPlayedShortcutsWithResolvedArtwork(
@@ -89,13 +89,13 @@ class MostPlayedShortcutArtworkPolicyTest {
 			aurralArtworkEnabled = true
 		).single()
 
-		assertEquals("https://tadb.example.com/iu.webp", resolved.coverArtId)
+		assertEquals("ar-iu-native", resolved.coverArtId)
 	}
 
 	@Test
-	fun artistPhotoHydrationRunsWhenAurralIsEnabledEvenIfStoredPriorityIsNativeOnly() {
+	fun artistPhotoHydrationDoesNotRunWhenStoredPriorityIsNativeOnly() {
 		assertEquals(
-			true,
+			false,
 			shouldHydrateAurralArtistPhotos(
 				aurralEnabled = true,
 				artistArtworkPriority = ArtworkSourcePriority.NativeOnly

@@ -72,6 +72,8 @@ internal data class AurralAlbumSearchItemDto(
 	@SerialName("primaryType") val primaryType: String? = null,
 	@SerialName("secondaryTypes") val secondaryTypes: List<String> = emptyList(),
 	@SerialName("coverUrl") val coverUrl: String? = null,
+	val image: String? = null,
+	val imageUrl: String? = null,
 	@SerialName("inLibrary") val inLibrary: Boolean = false,
 	@SerialName("libraryAlbumId") val libraryAlbumId: String? = null,
 	@SerialName("libraryArtistId") val libraryArtistId: String? = null,

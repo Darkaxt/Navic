@@ -18,11 +18,29 @@ class AurralVisibleArtworkPolicyTest {
 	}
 
 	@Test
-	fun nativeCoverArtIdIsSuppressedWhenAurralIsEnabled() {
-		assertNull(
+	fun nativeCoverArtIdStaysVisibleWhenAurralIsEnabledAndNoExternalImageIsSelected() {
+		assertEquals(
+			"native-cover-id",
 			visibleCoverArtIdForAurralPolicy(
 				coverArtId = "native-cover-id",
 				imageUrl = null,
+				aurralEnabled = true
+			)
+		)
+	}
+
+	@Test
+	fun nativeCoverArtIdStaysVisibleWhenAurralIsEnabledAndNavidromeImageIsSuppressed() {
+		val visibleImageUrl = visibleImageUrlForAurralPolicy(
+			imageUrl = "https://music.example.com/rest/getCoverArt?id=album-1",
+			aurralEnabled = true
+		)
+
+		assertEquals(
+			"native-cover-id",
+			visibleCoverArtIdForAurralPolicy(
+				coverArtId = "native-cover-id",
+				imageUrl = visibleImageUrl,
 				aurralEnabled = true
 			)
 		)

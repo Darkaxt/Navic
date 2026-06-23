@@ -254,7 +254,7 @@ private fun AurralAlbumSearchItemDto.toAlbumSearchItem(baseUrl: String): AurralA
 		releaseDate = releaseDate?.trim()?.takeIf { it.isNotEmpty() },
 		primaryType = primaryType?.trim()?.takeIf { it.isNotEmpty() },
 		secondaryTypes = secondaryTypes.cleanedAurralStrings(),
-		coverUrl = aurralAbsoluteImageUrl(baseUrl, coverUrl),
+		coverUrl = aurralAbsoluteImageUrl(baseUrl, coverUrl ?: imageUrl ?: image),
 		inLibrary = inLibrary,
 		libraryAlbumId = libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() },
 		libraryArtistId = libraryArtistId?.trim()?.takeIf { it.isNotEmpty() },

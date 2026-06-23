@@ -91,22 +91,26 @@ class PlaybackArtworkSurfacePolicyTest {
 	}
 
 	@Test
-	fun sharedPlaybackArtworkHelperUsesAurralEnabledPriorityOverride() {
+	fun sharedPlaybackArtworkHelperUsesCoverArtworkPriorityForSongCovers() {
 		val path = "src/commonMain/kotlin/paige/navic/ui/components/common/PlaybackArtworkState.kt"
 		val source = File(path).readText()
 
 		assertTrue(
 			"resolvedPlaybackArtwork(" in source,
-			"$path must route song artwork through the shared Aurral-aware resolution policy."
+			"$path must route song cover artwork through the shared resolution policy."
 		)
-		assertFalse(
-			"val artworkPriority = preferenceManager.coverArtworkPriority" in source,
-			"$path must not read coverArtworkPriority directly as the visible playback artwork authority."
+		assertTrue(
+			"artworkSourcePriority = preferenceManager.coverArtworkPriority" in source,
+			"$path must use coverArtworkPriority for song/album cover surfaces."
+		)
+		assertTrue(
+			"artworkSourcePriority = preferenceManager.artistArtworkPriority" in source,
+			"$path must still use artistArtworkPriority for artist image surfaces."
 		)
 	}
 
 	@Test
-	fun sharedVisibleArtworkComponentsSuppressNativeCoverArtWhenAurralIsEnabled() {
+	fun genericArtworkComponentsGateNativeFallbackThroughAurralPolicy() {
 		val visibleArtworkComponents = listOf(
 			"src/commonMain/kotlin/paige/navic/ui/components/common/CoverArt.kt",
 			"src/commonMain/kotlin/paige/navic/ui/components/common/BlendBackground.kt"
@@ -116,11 +120,11 @@ class PlaybackArtworkSurfacePolicyTest {
 			val source = File(path).readText()
 			assertTrue(
 				"visibleCoverArtIdForAurralPolicy(" in source,
-				"$path must not let raw native/Navidrome cover IDs become visible artwork while Aurral is enabled."
+				"$path must route native/Navidrome cover fallback through the Aurral visibility policy."
 			)
 			assertTrue(
 				"visibleImageUrlForAurralPolicy(" in source,
-				"$path must not let raw native/Navidrome image URLs become visible artwork while Aurral is enabled."
+				"$path must route visible image URLs through the Aurral visibility policy."
 			)
 			assertFalse(
 				Regex("""\.data\s*\(\s*resolvedImageUrl\s*\?:\s*coverArtId\?\.let""").containsMatchIn(source),

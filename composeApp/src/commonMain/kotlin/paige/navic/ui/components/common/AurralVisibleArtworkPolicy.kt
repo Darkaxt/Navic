@@ -1,6 +1,5 @@
 package paige.navic.ui.components.common
 
-@Suppress("UNUSED_PARAMETER")
 internal fun visibleCoverArtIdForAurralPolicy(
 	coverArtId: String?,
 	imageUrl: String?,
@@ -8,7 +7,7 @@ internal fun visibleCoverArtIdForAurralPolicy(
 ): String? {
 	val nativeCoverArtId = coverArtId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 	if (!aurralEnabled) return nativeCoverArtId
-	return null
+	return nativeCoverArtId.takeUnless { !imageUrl.isNullOrBlank() }
 }
 
 internal fun visibleImageUrlForAurralPolicy(

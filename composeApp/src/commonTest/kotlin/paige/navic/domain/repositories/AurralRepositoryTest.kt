@@ -634,6 +634,33 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun aurralRecentReleasesAcceptsAlbumImageAliasesAsCoverUrls() {
+		assertEquals(
+			listOf(
+				AurralAlbumSearchItem(
+					id = "release-group-mbid",
+					title = "Recommended Album",
+					artistName = "Recommended Artist",
+					artistMbid = "artist-mbid",
+					coverUrl = "https://aurral.example.com/aurral/api/images/releases/release-group-mbid"
+				)
+			),
+			aurralRecentReleases(
+				baseUrl = "https://aurral.example.com/aurral",
+				response = listOf(
+					AurralAlbumSearchItemDto(
+						mbid = "release-group-mbid",
+						albumName = "Recommended Album",
+						artistName = "Recommended Artist",
+						artistMbid = "artist-mbid",
+						imageUrl = "/api/images/releases/release-group-mbid"
+					)
+				)
+			)
+		)
+	}
+
+	@Test
 	fun aurralAlbumTracksDecodeBareReleaseGroupArray() {
 		val tracks = aurralAlbumTrackItems(
 			decodeAurralAlbumTracks(

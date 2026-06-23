@@ -56,8 +56,7 @@ class ArtistDetailLayoutPolicyTest {
 				artistArtworkPriority = ArtworkSourcePriority.AurralFirst
 			)
 		)
-		assertEquals(
-			"https://aurral.example.com/bond.webp",
+		assertNull(
 			artistDetailHeadingImageUrl(
 				artist = DomainArtist(
 					id = "bond",
@@ -88,6 +87,22 @@ class ArtistDetailLayoutPolicyTest {
 		assertNull(
 			artistCoverArtIdForExternalArtworkPolicy(
 				artist = artist,
+				externalArtworkEnabled = true
+			)
+		)
+		assertEquals(
+			"navidrome-artist-cover",
+			artistDetailHeadingCoverArtId(
+				artist = artist,
+				artistArtworkPriority = ArtworkSourcePriority.NativeFirst,
+				externalArtworkEnabled = true
+			)
+		)
+		assertEquals(
+			"navidrome-artist-cover",
+			artistCoverArtIdForExternalArtworkPolicy(
+				artist = artist,
+				artistArtworkPriority = ArtworkSourcePriority.NativeFirst,
 				externalArtworkEnabled = true
 			)
 		)
@@ -307,9 +322,8 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
-	fun headingUsesPersistentArtistPhotoCacheWhenAurralIsEnabledEvenIfNativeIsFirst() {
-		assertEquals(
-			"https://aurral.example.com/iu.webp",
+	fun headingKeepsNativeCoverBeforePersistentArtistPhotoCacheWhenNativeIsFirst() {
+		assertNull(
 			artistDetailCachedImageUrl(
 				artist = DomainArtist(
 					id = "local-iu",
