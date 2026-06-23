@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.repositories.BinderyAudiobookVersion
 import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyCatalog
@@ -25,7 +26,8 @@ data class BinderyBookData(
 
 class BinderyBookViewModel(
 	private val bookId: String,
-	private val repository: BinderyRepository
+	private val repository: BinderyRepository,
+	private val shareManager: ShareManager
 ) : ViewModel() {
 	private val _bookState = MutableStateFlow<UiState<BinderyBookData>>(UiState.Loading())
 	val bookState = _bookState.asStateFlow()
@@ -125,6 +127,33 @@ class BinderyBookViewModel(
 				},
 				onFailure = { error ->
 					_actionInFlight.value = _actionInFlight.value - actionPath
+					_actionError.value = error
+				}
+			)
+		}
+	}
+
+	fun downloadVersionResource(row: BinderyBookVersionRow) {
+		val resourcePath = row.id.trim().takeIf { it.isNotEmpty() } ?: return
+		if (resourcePath in _actionInFlight.value) return
+		viewModelScope.launch {
+			_actionInFlight.value = _actionInFlight.value + resourcePath
+			repository.getResourceBytes(resourcePath).fold(
+				onSuccess = { bytes ->
+					try {
+						shareManager.shareFile(
+							fileName = row.downloadFileName(),
+							mimeType = row.downloadMimeType(),
+							bytes = bytes
+						)
+					} catch (error: Throwable) {
+						_actionError.value = error
+					} finally {
+						_actionInFlight.value = _actionInFlight.value - resourcePath
+					}
+				},
+				onFailure = { error ->
+					_actionInFlight.value = _actionInFlight.value - resourcePath
 					_actionError.value = error
 				}
 			)

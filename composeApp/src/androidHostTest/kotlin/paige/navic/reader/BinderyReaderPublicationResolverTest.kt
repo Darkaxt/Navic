@@ -100,6 +100,39 @@ class BinderyReaderPublicationResolverTest {
 	}
 
 	@Test
+	fun resolvesFoliateFormatsToMatchingCacheFileExtensions() = runBlocking {
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { path -> "BYTES:$path".encodeToByteArray() },
+			cacheRoot = createTempDirectory("navic-reader-foliate-format-publications").toFile()
+		)
+		val cases = listOf(
+			ReaderPublicationFormat.Azw3 to "azw3",
+			ReaderPublicationFormat.Mobi to "mobi",
+			ReaderPublicationFormat.Cbz to "cbz",
+			ReaderPublicationFormat.Fb2 to "fb2"
+		)
+
+		cases.forEach { (format, extension) ->
+			val resolved = resolver.resolve(
+				ReaderPublicationResourceRequest(
+					bookId = "3816",
+					title = "The Hobbit",
+					resourceHref = "/opds/books/3816/resources/ebook-$extension",
+					sourceUrl = "https://bindery.local/opds/books/3816/resources/ebook-$extension",
+					kind = ReaderPublicationKind.Ebook,
+					format = format,
+					mediaOverlayEnabled = false
+				)
+			)
+
+			assertTrue(resolved.publicationUrl.endsWith("/publication.$extension"))
+			assertEquals("publication.$extension", resolved.publicationFile.name)
+			assertEquals("BYTES:/opds/books/3816/resources/ebook-$extension", resolved.publicationFile.readText())
+			assertNull(resolved.shellCoverUrl)
+		}
+	}
+
+	@Test
 	fun extractsEpubCoverImageForNativeShellCoverSurface() = runBlocking {
 		val coverBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
 		val resolver = BinderyReaderPublicationResolver(

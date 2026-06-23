@@ -155,7 +155,11 @@ enum class ReaderPublicationKind {
 
 enum class ReaderPublicationFormat {
 	Epub,
-	Pdf
+	Pdf,
+	Azw3,
+	Mobi,
+	Cbz,
+	Fb2
 }
 
 sealed interface ReaderBridgeCommand {

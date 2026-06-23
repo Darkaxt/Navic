@@ -49,7 +49,8 @@ enum class BinderyBookVersionKind {
 enum class BinderyBookVersionRoutingAction {
 	OpenAudiobook,
 	OpenReadaloud,
-	OpenEbook
+	OpenEbook,
+	DownloadEbook
 }
 
 enum class BinderyWhispersyncAudiobookLaunchAction {
@@ -78,6 +79,8 @@ data class BinderyBookVersionRow(
 	val title: String,
 	val subtitle: String?,
 	val format: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
+	val readerSupported: Boolean = true,
+	val downloadExtension: String? = null,
 	val finding: BinderyCatalogCard.Finding? = null,
 	val audiobookId: String? = null,
 	val audiobookBookFileId: String? = null,
@@ -129,7 +132,11 @@ fun BinderyBookVersionRow.routingAction(): BinderyBookVersionRoutingAction =
 	when (kind) {
 		BinderyBookVersionKind.Audiobook -> BinderyBookVersionRoutingAction.OpenAudiobook
 		BinderyBookVersionKind.Readaloud -> BinderyBookVersionRoutingAction.OpenReadaloud
-		BinderyBookVersionKind.Ebook -> BinderyBookVersionRoutingAction.OpenEbook
+		BinderyBookVersionKind.Ebook -> if (readerSupported) {
+			BinderyBookVersionRoutingAction.OpenEbook
+		} else {
+			BinderyBookVersionRoutingAction.DownloadEbook
+		}
 	}
 
 fun binderyReaderDestinationForVersionRow(
@@ -158,11 +165,12 @@ fun binderyReaderDestinationForVersionRow(
 			publicationFormat = row.format,
 			mediaOverlayEnabled = false
 		)
-		BinderyBookVersionRoutingAction.OpenAudiobook -> null
+		BinderyBookVersionRoutingAction.OpenAudiobook,
+		BinderyBookVersionRoutingAction.DownloadEbook -> null
 	}
 
 fun BinderyBookVersionRow.whispersyncAudiobookLaunchMatches(): List<BinderyWhispersyncMatch> =
-	if (kind != BinderyBookVersionKind.Ebook) {
+	if (kind != BinderyBookVersionKind.Ebook || !readerSupported || format != ReaderPublicationFormat.Epub) {
 		emptyList()
 	} else {
 		syncMatches.filter { match ->
@@ -187,6 +195,7 @@ fun binderyWhispersyncReaderDestinationForMatch(
 	opdsBaseUrl: String
 ): Screen.Reader? {
 	if (ebookRow.kind != BinderyBookVersionKind.Ebook) return null
+	if (!ebookRow.readerSupported || ebookRow.format != ReaderPublicationFormat.Epub) return null
 	if (match.oppositeKind != BinderyBookVersionKind.Audiobook) return null
 
 	val resourceHref = ebookRow.id.trim().takeIf { it.isNotEmpty() } ?: return null
@@ -349,12 +358,16 @@ private fun List<BinderyBookVersionRow>.withWhispersyncMatches(
 		.filter(BinderySyncPair::hasReadyWhispersync)
 	if (readyPairs.isEmpty()) return this
 
-	val ebookRowsByBookFileId = filter { row -> row.kind == BinderyBookVersionKind.Ebook }
-		.mapNotNull { row -> row.ebookBookFileId?.normalizedDuplicateRowField()?.takeIf { it.isNotEmpty() }?.let { it to row } }
-		.toMap()
 	val audiobookRowsByBookFileId = filter { row -> row.kind == BinderyBookVersionKind.Audiobook }
 		.mapNotNull { row -> row.audiobookBookFileId?.normalizedDuplicateRowField()?.takeIf { it.isNotEmpty() }?.let { it to row } }
 		.toMap()
+	val whispersyncEligibleEbookRowsByBookFileId = filter { row ->
+		row.kind == BinderyBookVersionKind.Ebook &&
+			row.readerSupported &&
+			row.format == ReaderPublicationFormat.Epub
+	}.mapNotNull { row ->
+		row.ebookBookFileId?.normalizedDuplicateRowField()?.takeIf { it.isNotEmpty() }?.let { it to row }
+	}.toMap()
 
 	return map { row ->
 		val matches = when (row.kind) {
@@ -364,13 +377,15 @@ private fun List<BinderyBookVersionRow>.withWhispersyncMatches(
 					.filter { pair -> pair.audiobookBookFileId?.toString() == audioBookFileId }
 					.mapNotNull { pair ->
 						val ebookBookFileId = pair.ebookBookFileId?.toString()?.normalizedBookFileId() ?: return@mapNotNull null
+						val oppositeRow = whispersyncEligibleEbookRowsByBookFileId[ebookBookFileId] ?: return@mapNotNull null
 						pair.toWhispersyncMatch(
-							oppositeRow = ebookRowsByBookFileId[ebookBookFileId],
+							oppositeRow = oppositeRow,
 							oppositeKind = BinderyBookVersionKind.Ebook
 						)
 					}
 			}
 			BinderyBookVersionKind.Ebook -> {
+				if (!row.readerSupported || row.format != ReaderPublicationFormat.Epub) return@map row
 				val ebookBookFileId = row.ebookBookFileId.normalizedBookFileId() ?: return@map row
 				readyPairs
 					.filter { pair -> pair.ebookBookFileId?.toString() == ebookBookFileId }
@@ -548,16 +563,20 @@ private fun BinderyBookResource.toEbookVersionRow(
 	findingByBookFileId: Map<String, BinderyCatalogCard.Finding>
 ): BinderyBookVersionRow {
 	val title = ebookVersionTitle()
+	val readerFormat = readerPublicationFormatOrNull()
+	val displayFormat = displayFormat()
 	return BinderyBookVersionRow(
 		id = href,
 		kind = BinderyBookVersionKind.Ebook,
 		title = title,
 		subtitle = listOfNotNull(
 			providerLabel(),
-			displayFormat().takeUnless { it == title },
+			displayFormat.takeUnless { it == title },
 			sizeBytes?.toFileSize()
 		).joinToString(separator = " / ").takeIf { it.isNotBlank() },
-		format = readerPublicationFormat(),
+		format = readerFormat ?: ReaderPublicationFormat.Epub,
+		readerSupported = readerFormat != null,
+		downloadExtension = if (readerFormat == null) displayFormat.downloadExtension() else null,
 		finding = bookFileId()?.let(findingByBookFileId::get),
 		ebookBookFileId = bookFileId()
 	)
@@ -812,16 +831,76 @@ private fun Map<String, String>.providerLabel(): String? =
 private fun BinderyBookResource.ebookFormatQualityRank(): Int =
 	displayFormat().ebookFormatQualityRank()
 
-private fun BinderyBookResource.readerPublicationFormat(): ReaderPublicationFormat =
-	if (
-		displayFormat().equals("PDF", ignoreCase = true) ||
-		type?.contains("pdf", ignoreCase = true) == true ||
-		displayName().fileExtension().equals("PDF", ignoreCase = true)
-	) {
-		ReaderPublicationFormat.Pdf
-	} else {
-		ReaderPublicationFormat.Epub
+private fun BinderyBookResource.readerPublicationFormatOrNull(): ReaderPublicationFormat? {
+	val format = displayFormat()
+	val extension = displayName().fileExtension()
+	return when {
+		format.equals("EPUB", ignoreCase = true) ||
+			type?.contains("epub", ignoreCase = true) == true ||
+			extension.equals("EPUB", ignoreCase = true) -> ReaderPublicationFormat.Epub
+		format.equals("PDF", ignoreCase = true) ||
+			type?.contains("pdf", ignoreCase = true) == true ||
+			extension.equals("PDF", ignoreCase = true) -> ReaderPublicationFormat.Pdf
+		format.equals("AZW3", ignoreCase = true) ||
+			type?.contains("azw3", ignoreCase = true) == true ||
+			type?.contains("kindle", ignoreCase = true) == true ||
+			type?.contains("amazon", ignoreCase = true) == true ||
+			extension.equals("AZW3", ignoreCase = true) -> ReaderPublicationFormat.Azw3
+		format.equals("MOBI", ignoreCase = true) ||
+			type?.contains("mobi", ignoreCase = true) == true ||
+			extension.equals("MOBI", ignoreCase = true) -> ReaderPublicationFormat.Mobi
+		format.equals("CBZ", ignoreCase = true) ||
+			type?.contains("comicbook", ignoreCase = true) == true ||
+			type?.contains("cbz", ignoreCase = true) == true ||
+			extension.equals("CBZ", ignoreCase = true) -> ReaderPublicationFormat.Cbz
+		format.equals("FB2", ignoreCase = true) ||
+			type?.contains("fictionbook", ignoreCase = true) == true ||
+			type?.contains("fb2", ignoreCase = true) == true ||
+			extension.equals("FB2", ignoreCase = true) -> ReaderPublicationFormat.Fb2
+		else -> null
 	}
+}
+
+fun BinderyBookVersionRow.downloadFileName(): String {
+	val extension = downloadExtension ?: format.downloadExtension()
+	val base = title
+		.trim()
+		.takeIf { it.isNotEmpty() }
+		?.replace(Regex("""[\\/:*?"<>|]+"""), " ")
+		?.replace(Regex("\\s+"), " ")
+		?.trim()
+		?: "ebook"
+	return if (base.endsWith(".$extension", ignoreCase = true)) base else "$base.$extension"
+}
+
+fun BinderyBookVersionRow.downloadMimeType(): String =
+	when ((downloadExtension ?: format.downloadExtension()).lowercase()) {
+		"epub" -> "application/epub+zip"
+		"pdf" -> "application/pdf"
+		"azw3" -> "application/vnd.amazon.ebook"
+		"mobi" -> "application/x-mobipocket-ebook"
+		"cbz" -> "application/vnd.comicbook+zip"
+		"fb2" -> "application/x-fictionbook+xml"
+		"txt" -> "text/plain"
+		"docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+		else -> "application/octet-stream"
+	}
+
+private fun ReaderPublicationFormat.downloadExtension(): String =
+	when (this) {
+		ReaderPublicationFormat.Epub -> "epub"
+		ReaderPublicationFormat.Pdf -> "pdf"
+		ReaderPublicationFormat.Azw3 -> "azw3"
+		ReaderPublicationFormat.Mobi -> "mobi"
+		ReaderPublicationFormat.Cbz -> "cbz"
+		ReaderPublicationFormat.Fb2 -> "fb2"
+	}
+
+private fun String?.downloadExtension(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.takeIf { it.matches(Regex("[a-z0-9]{2,6}")) }
 
 private fun BinderyBookResource.displayName(): String =
 	properties.firstNonBlankValue("relativePath") ?: title

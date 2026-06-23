@@ -743,6 +743,188 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun ebookVersionRowsKeepUnsupportedFormatsAsDownloadOnlyAndMapFoliateFormats() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3693",
+			title = "Alcatraz"
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Alcatraz Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-epub",
+					title = "Alcatraz EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					properties = mapOf("format" to "epub")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-pdf",
+					title = "Alcatraz PDF",
+					type = "application/pdf",
+					kind = "ebook",
+					properties = mapOf("format" to "pdf")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-azw3",
+					title = "Alcatraz AZW3",
+					type = "application/vnd.amazon.ebook",
+					kind = "ebook",
+					properties = mapOf("format" to "azw3")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-mobi",
+					title = "Alcatraz MOBI",
+					type = "application/x-mobipocket-ebook",
+					kind = "ebook",
+					properties = mapOf("format" to "mobi")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-cbz",
+					title = "Alcatraz CBZ",
+					type = "application/vnd.comicbook+zip",
+					kind = "ebook",
+					properties = mapOf("format" to "cbz")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-fb2",
+					title = "Alcatraz FB2",
+					type = "application/x-fictionbook+xml",
+					kind = "ebook",
+					properties = mapOf("format" to "fb2")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-txt",
+					title = "Alcatraz TXT",
+					type = "text/plain",
+					kind = "ebook",
+					properties = mapOf("format" to "txt")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-docx",
+					title = "Alcatraz DOCX",
+					type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					kind = "ebook",
+					properties = mapOf("format" to "docx")
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-epub",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "EPUB",
+					subtitle = null
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-pdf",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "PDF",
+					subtitle = null,
+					format = ReaderPublicationFormat.Pdf
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-azw3",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "AZW3",
+					subtitle = null,
+					format = ReaderPublicationFormat.Azw3
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-mobi",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "MOBI",
+					subtitle = null,
+					format = ReaderPublicationFormat.Mobi
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-cbz",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "CBZ",
+					subtitle = null,
+					format = ReaderPublicationFormat.Cbz
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-fb2",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "FB2",
+					subtitle = null,
+					format = ReaderPublicationFormat.Fb2
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-txt",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "TXT",
+					subtitle = null,
+					readerSupported = false,
+					downloadExtension = "txt"
+				),
+				BinderyBookVersionRow(
+					id = "/opds/books/3693/resources/ebook-docx",
+					kind = BinderyBookVersionKind.Ebook,
+					title = "DOCX",
+					subtitle = null,
+					readerSupported = false,
+					downloadExtension = "docx"
+				)
+			),
+			binderyBookVersionRows(manifest, resources)
+		)
+	}
+
+	@Test
+	fun whispersyncReadyPairsOnlyAttachToEpubRows() {
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3693/resources/ebook-azw3",
+					title = "Alcatraz AZW3",
+					type = "application/vnd.amazon.ebook",
+					kind = "ebook",
+					properties = mapOf(
+						"bookFileId" to "435",
+						"format" to "azw3"
+					)
+				)
+			)
+		)
+		val rows = binderyBookVersionRows(
+			manifest = BinderyManifest(id = "urn:bindery:book:3693", title = "Alcatraz"),
+			resourceCatalog = resources,
+			audiobookVersions = listOf(
+				BinderyAudiobookVersion(
+					id = 69,
+					bookId = 3693,
+					bookFileId = 694,
+					title = "Alcatraz",
+					language = "English",
+					narrator = "Narrator"
+				)
+			),
+			bookSync = BinderyBookSync(
+				bookId = 3693,
+				syncPairs = listOf(
+					BinderySyncPair(
+						bookId = 3693,
+						ebookBookFileId = 435,
+						audiobookBookFileId = 694,
+						whispersync = BinderyWhispersyncArtifact(
+							status = "ready",
+							artifactId = 3,
+							artifactHref = "/opds/books/3693/sync/3"
+						)
+					)
+				)
+			)
+		)
+
+		assertTrue(rows.all { row -> row.syncMatches.isEmpty() })
+	}
+
+	@Test
 	fun versionRowsFilterByLanguageAndShowProviderPublisherFields() {
 		val manifest = BinderyManifest(
 			id = "urn:bindery:book:3693",
@@ -927,6 +1109,34 @@ class BinderyBookVersionPolicyTest {
 					subtitle = "AudioBook Bay / PDF / 7.0 MB",
 					format = ReaderPublicationFormat.Pdf
 				),
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
+	fun unsupportedEbookRowsRouteToDownloadInsteadOfReader() {
+		val row = BinderyBookVersionRow(
+			id = "/opds/books/3816/resources/ebook-docx",
+			kind = BinderyBookVersionKind.Ebook,
+			title = "DOCX",
+			subtitle = null,
+			readerSupported = false,
+			downloadExtension = "docx"
+		)
+
+		assertEquals(BinderyBookVersionRoutingAction.DownloadEbook, row.routingAction())
+		assertEquals("DOCX.docx", row.downloadFileName())
+		assertEquals(
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			row.downloadMimeType()
+		)
+		assertEquals(
+			null,
+			binderyReaderDestinationForVersionRow(
+				row = row,
 				bookId = "3816",
 				bookTitle = "The Hobbit",
 				opdsBaseUrl = "https://bindery.local/opds"

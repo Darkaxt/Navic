@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
 import navic.composeapp.generated.resources.action_play
@@ -73,6 +74,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Audiobooks
 import paige.navic.icons.outlined.Book
+import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.Info
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
@@ -285,7 +287,12 @@ fun BinderyBookScreen(
 										onOpenWhispersyncReader = { row ->
 											platformContext.clickSound()
 											syncLaunchSheetRow = row
-										}
+										},
+										onDownloadResource = { row ->
+											platformContext.clickSound()
+											viewModel.downloadVersionResource(row)
+										},
+										downloadInFlight = row.id in actionInFlight
 									)
 								}
 							}
@@ -322,7 +329,12 @@ fun BinderyBookScreen(
 										onOpenWhispersyncReader = { row ->
 											platformContext.clickSound()
 											syncLaunchSheetRow = row
-										}
+										},
+										onDownloadResource = { row ->
+											platformContext.clickSound()
+											viewModel.downloadVersionResource(row)
+										},
+										downloadInFlight = row.id in actionInFlight
 									)
 								}
 							}
@@ -531,8 +543,11 @@ private fun BinderyBookVersionListItem(
 	onOpenAudiobook: (Screen.BinderyAudiobookPlayer) -> Unit,
 	onOpenAudiobookDetail: (Screen.BinderyAudiobookDetail) -> Unit,
 	onOpenWhispersync: (BinderyBookVersionRow) -> Unit,
-	onOpenWhispersyncReader: (BinderyBookVersionRow) -> Unit
+	onOpenWhispersyncReader: (BinderyBookVersionRow) -> Unit,
+	onDownloadResource: (BinderyBookVersionRow) -> Unit,
+	downloadInFlight: Boolean
 ) {
+	val routingAction = row.routingAction()
 	val readerDestination = binderyReaderDestinationForVersionRow(
 		row = row,
 		bookId = bookId,
@@ -540,7 +555,7 @@ private fun BinderyBookVersionListItem(
 		opdsBaseUrl = opdsBaseUrl,
 		readaloudMediaOverlayEnabled = readaloudMediaOverlayEnabled
 	)
-	val audiobookDestination = if (row.routingAction() == BinderyBookVersionRoutingAction.OpenAudiobook) {
+	val audiobookDestination = if (routingAction == BinderyBookVersionRoutingAction.OpenAudiobook) {
 		row.audiobookId?.let { audiobookId ->
 			Screen.BinderyAudiobookPlayer(
 				bookId = bookId,
@@ -559,6 +574,12 @@ private fun BinderyBookVersionListItem(
 	}
 	val whispersyncLaunchMatches = row.whispersyncAudiobookLaunchMatches()
 	val whispersyncLaunchAction = row.whispersyncAudiobookLaunchAction()
+	val isDownloadAction = routingAction == BinderyBookVersionRoutingAction.DownloadEbook
+	val primaryActionEnabled = when {
+		audiobookDestination != null || readerDestination != null -> true
+		isDownloadAction -> !downloadInFlight
+		else -> false
+	}
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
 		shape = RoundedCornerShape(8.dp),
@@ -659,13 +680,16 @@ private fun BinderyBookVersionListItem(
 					when {
 						audiobookDestination != null -> onOpenAudiobook(audiobookDestination)
 						readerDestination != null -> onOpenReader(readerDestination)
+						isDownloadAction -> onDownloadResource(row)
 					}
 				},
-				enabled = audiobookDestination != null || readerDestination != null
+				enabled = primaryActionEnabled
 			) {
 				Icon(
-					imageVector = Icons.Filled.Play,
-					contentDescription = stringResource(Res.string.action_play)
+					imageVector = if (isDownloadAction) Icons.Outlined.Download else Icons.Filled.Play,
+					contentDescription = stringResource(
+						if (isDownloadAction) Res.string.action_download else Res.string.action_play
+					)
 				)
 			}
 		}

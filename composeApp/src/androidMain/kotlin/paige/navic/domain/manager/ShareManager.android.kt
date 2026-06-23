@@ -1,6 +1,7 @@
 package paige.navic.domain.manager
 
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.ImageBitmap
@@ -50,6 +51,47 @@ actual class ShareManager(
 		context.startActivity(chooser)
 	}
 
+	actual suspend fun shareFile(fileName: String, mimeType: String, bytes: ByteArray) {
+		val safeFileName = fileName.sanitizedSharedFileName()
+		val fileFolder = File(context.cacheDir, "shared_files")
+		fileFolder.mkdirs()
+		val file = File(fileFolder, safeFileName)
+
+		withContext(dispatcher) {
+			FileOutputStream(file).use { outputStream ->
+				outputStream.write(bytes)
+			}
+		}
+
+		val contentUri = FileProvider.getUriForFile(
+			context,
+			"${context.packageName}.fileprovider",
+			file
+		)
+
+		val intent = Intent(Intent.ACTION_SEND).apply {
+			type = mimeType.ifBlank { "application/octet-stream" }
+			putExtra(Intent.EXTRA_STREAM, contentUri)
+			addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+		}
+		val chooser = Intent.createChooser(intent, "Share File")
+		chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+		try {
+			context.startActivity(chooser)
+		} catch (_: ActivityNotFoundException) {
+			val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+				setDataAndType(contentUri, mimeType.ifBlank { "application/octet-stream" })
+				addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+				addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+			}
+			try {
+				context.startActivity(viewIntent)
+			} catch (_: ActivityNotFoundException) {
+				return
+			}
+		}
+	}
+
 	actual suspend fun shareString(string: String) {
 		val intent = Intent(Intent.ACTION_SEND).apply {
 			type = "text/plain"
@@ -61,3 +103,12 @@ actual class ShareManager(
 		context.startActivity(chooser)
 	}
 }
+
+private fun String.sanitizedSharedFileName(): String =
+	trim()
+		.takeIf { it.isNotEmpty() }
+		?.replace(Regex("""[\\/:*?"<>|]+"""), " ")
+		?.replace(Regex("\\s+"), " ")
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: "navic-file"

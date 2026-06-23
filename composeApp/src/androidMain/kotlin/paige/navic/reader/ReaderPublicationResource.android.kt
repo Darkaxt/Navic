@@ -98,8 +98,14 @@ internal fun ReaderPublicationResourceRequest.readerPublicationCacheKey(): Strin
 private fun ReaderPublicationResourceRequest.publicationExtension(): String =
 	when {
 		kind == ReaderPublicationKind.Readaloud -> "epub"
-		format == ReaderPublicationFormat.Pdf -> "pdf"
-		else -> "epub"
+		else -> when (format) {
+			ReaderPublicationFormat.Epub -> "epub"
+			ReaderPublicationFormat.Pdf -> "pdf"
+			ReaderPublicationFormat.Azw3 -> "azw3"
+			ReaderPublicationFormat.Mobi -> "mobi"
+			ReaderPublicationFormat.Cbz -> "cbz"
+			ReaderPublicationFormat.Fb2 -> "fb2"
+		}
 	}
 
 private fun ReaderPublicationResourceRequest.resolvedPublicationResource(

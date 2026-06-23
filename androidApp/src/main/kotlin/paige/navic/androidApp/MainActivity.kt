@@ -234,6 +234,12 @@ private fun Intent.readerDevPublicationKind(): ReaderPublicationKind =
 private fun Intent.readerDevPublicationFormat(): ReaderPublicationFormat =
 	when (stringExtra(ReaderDevExtraFormat, "NAVIC_READER_DEV_FORMAT")?.trim()?.lowercase()) {
 		"pdf" -> ReaderPublicationFormat.Pdf
+		"azw3",
+		"kf8" -> ReaderPublicationFormat.Azw3
+		"mobi" -> ReaderPublicationFormat.Mobi
+		"cbz" -> ReaderPublicationFormat.Cbz
+		"fb2",
+		"fbz" -> ReaderPublicationFormat.Fb2
 		else -> ReaderPublicationFormat.Epub
 	}
 
