@@ -161,8 +161,6 @@ class MostPlayedShortcutsViewModel(
 						)
 					}
 
-					targets.size >= AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT -> Unit
-
 					!attemptedAurralArtistPhotoKeys.add(key) -> {
 						Logger.i(
 							MOST_PLAYED_ARTWORK_TAG,
@@ -432,7 +430,6 @@ class MostPlayedShortcutsViewModel(
 
 	private companion object {
 		const val MOST_PLAYED_LIMIT = 20
-		const val AURRAL_ARTIST_PHOTO_LOOKUP_LIMIT = 8
 		const val AURRAL_ARTIST_PHOTO_SEARCH_LIMIT = 5
 	}
 }

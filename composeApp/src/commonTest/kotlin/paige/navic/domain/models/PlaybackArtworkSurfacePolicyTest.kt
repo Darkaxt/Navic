@@ -26,8 +26,8 @@ class PlaybackArtworkSurfacePolicyTest {
 				"""(?<!PlaybackSong)CoverArt\s*\([\s\S]{0,500}coverArtId\s*=\s*song\.coverArtId"""
 			)
 			assertTrue(
-				"PlaybackSongCoverArt(" in source,
-				"$path must route song artwork through PlaybackSongCoverArt so external/Aurral artwork can beat Navidrome."
+				"PlaybackSongCoverArt(" in source || "rememberPlaybackArtworkUiState(" in source,
+				"$path must route song artwork through shared playback artwork state so external/Aurral artwork can beat Navidrome."
 			)
 			assertFalse(
 				rawSongCoverArtCall.containsMatchIn(source),
@@ -37,12 +37,12 @@ class PlaybackArtworkSurfacePolicyTest {
 	}
 
 	@Test
-	fun quickPickSongCardsUsePlaybackArtworkGridItem() {
+	fun quickPickSongCardsUsePlaybackArtworkState() {
 		val source = File("src/commonMain/kotlin/paige/navic/ui/screens/library/components/QuickPickSongCard.kt").readText()
 
 		assertTrue(
-			"PlaybackSongArtGridItem(" in source,
-			"Quick picks must route song artwork through PlaybackSongArtGridItem so external/Aurral artwork can beat Navidrome."
+			"rememberPlaybackArtworkUiState(" in source,
+			"Quick picks must route song artwork through shared playback artwork state so external/Aurral artwork can beat Navidrome."
 		)
 		assertFalse(
 			"coverArtId = song.coverArtId" in source,
@@ -60,16 +60,8 @@ class PlaybackArtworkSurfacePolicyTest {
 		dynamicBackgroundSurfaces.forEach { path ->
 			val source = File(path).readText()
 			assertTrue(
-				"effectiveAurralArtworkPriority(" in source,
-				"$path must treat Aurral enabled as the effective playback artwork priority, regardless of the stored setting."
-			)
-			assertTrue(
-				"visiblePlaybackCoverArtId(" in source,
-				"$path must suppress visible Navidrome cover IDs when cover artwork priority is Aurral-first."
-			)
-			assertTrue(
-				"visiblePlaybackImageUrl(" in source,
-				"$path must route visible external artwork through the Aurral-first playback policy."
+				"rememberPlaybackArtworkUiState(" in source,
+				"$path must use shared playback artwork state before rendering dynamic backgrounds."
 			)
 			assertFalse(
 				Regex("""BlendBackground\s*\([\s\S]{0,500}coverArtId\s*=\s*song\?\.coverArtId""")
@@ -85,16 +77,12 @@ class PlaybackArtworkSurfacePolicyTest {
 		val source = File(path).readText()
 
 		assertTrue(
-			"effectiveAurralArtworkPriority(" in source,
-			"$path must treat Aurral enabled as the effective palette artwork priority, regardless of the stored setting."
+			"rememberPlaybackArtworkUiState(" in source,
+			"$path must use shared playback artwork state before palette extraction."
 		)
 		assertTrue(
-			"visiblePlaybackCoverArtId(" in source,
-			"$path must suppress visible Navidrome palette artwork when cover artwork priority is Aurral-first."
-		)
-		assertTrue(
-			"visiblePlaybackImageUrl(" in source,
-			"$path must route palette extraction through the same visible playback artwork policy."
+			"dominantColorArtworkUrl(" in source,
+			"$path must route palette extraction through the shared dominant color artwork policy."
 		)
 		assertFalse(
 			"song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) }" in source,
@@ -104,12 +92,12 @@ class PlaybackArtworkSurfacePolicyTest {
 
 	@Test
 	fun sharedPlaybackArtworkHelperUsesAurralEnabledPriorityOverride() {
-		val path = "src/commonMain/kotlin/paige/navic/ui/components/common/PlaybackSongArtwork.kt"
+		val path = "src/commonMain/kotlin/paige/navic/ui/components/common/PlaybackArtworkState.kt"
 		val source = File(path).readText()
 
 		assertTrue(
-			"effectiveAurralArtworkPriority(" in source,
-			"$path must make Aurral enabled override stored NativeFirst/NativeOnly preferences."
+			"resolvedPlaybackArtwork(" in source,
+			"$path must route song artwork through the shared Aurral-aware resolution policy."
 		)
 		assertFalse(
 			"val artworkPriority = preferenceManager.coverArtworkPriority" in source,
@@ -121,8 +109,7 @@ class PlaybackArtworkSurfacePolicyTest {
 	fun sharedVisibleArtworkComponentsSuppressNativeCoverArtWhenAurralIsEnabled() {
 		val visibleArtworkComponents = listOf(
 			"src/commonMain/kotlin/paige/navic/ui/components/common/CoverArt.kt",
-			"src/commonMain/kotlin/paige/navic/ui/components/common/BlendBackground.kt",
-			"src/commonMain/kotlin/paige/navic/ui/components/layouts/MiniPlayer.kt"
+			"src/commonMain/kotlin/paige/navic/ui/components/common/BlendBackground.kt"
 		)
 
 		visibleArtworkComponents.forEach { path ->
@@ -144,22 +131,32 @@ class PlaybackArtworkSurfacePolicyTest {
 				"$path must not build visible Navidrome image requests from raw playback cover IDs."
 			)
 		}
+		val miniPlayerSource = File("src/commonMain/kotlin/paige/navic/ui/components/layouts/MiniPlayer.kt").readText()
+		assertTrue(
+			"rememberPlaybackArtworkUiState(" in miniPlayerSource,
+			"MiniPlayer must receive policy-selected artwork from the shared playback state."
+		)
+		assertFalse(
+			Regex("""\.data\s*\(\s*artwork\?\.imageUrl\s*\?:\s*artwork\?\.coverArtId\?\.let""")
+				.containsMatchIn(miniPlayerSource),
+			"MiniPlayer must not build visible Navidrome image requests from raw playback cover IDs."
+		)
 	}
 
 	@Test
 	fun artistSurfacesUseAurralArtistImagePolicyInsteadOfRawNavidromeArtistImages() {
 		val artistSurfaces = listOf(
-			"src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistListScreen.kt",
-			"src/commonMain/kotlin/paige/navic/ui/components/sheets/ArtistSheet.kt",
-			"src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistDetailScreen.kt",
-			"src/commonMain/kotlin/paige/navic/ui/screens/genre/GenreDetailScreen.kt",
-			"src/commonMain/kotlin/paige/navic/ui/screens/starred/components/Content.kt"
+			"src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistListScreen.kt" to "rememberArtistArtworkUiState(",
+			"src/commonMain/kotlin/paige/navic/ui/components/sheets/ArtistSheet.kt" to "AurralFirstArtistCoverArt(",
+			"src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistDetailScreen.kt" to "rememberAurralFirstArtistArtworkUiState(",
+			"src/commonMain/kotlin/paige/navic/ui/screens/genre/GenreDetailScreen.kt" to "rememberArtistArtworkUiState(",
+			"src/commonMain/kotlin/paige/navic/ui/screens/starred/components/Content.kt" to "rememberArtistArtworkUiState("
 		)
 
-		artistSurfaces.forEach { path ->
+		artistSurfaces.forEach { (path, expectedResolver) ->
 			val source = File(path).readText()
 			assertTrue(
-				"artistImageUrlForExternalArtworkPolicy(" in source,
+				expectedResolver in source,
 				"$path must route artist image URLs through the Aurral-first artist image policy."
 			)
 			assertFalse(
@@ -211,7 +208,7 @@ class PlaybackArtworkSurfacePolicyTest {
 		val sheetSource = File(sheetPath).readText()
 
 		assertTrue(
-			"coverArtId = selectedPlaybackCoverArtId" in screenSource,
+			"coverArtId = playbackArtwork.coverArtId" in screenSource,
 			"$screenPath must pass the policy-selected cover ID into the share sheet."
 		)
 		assertTrue(

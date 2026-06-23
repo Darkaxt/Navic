@@ -50,7 +50,7 @@ import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
-import paige.navic.ui.components.common.rememberPlaybackSongArtworkState
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.core.UiState
 import paige.navic.util.ui.EmphasizedDecelerateEasing
 import paige.navic.util.ui.shimmerLoading
@@ -206,7 +206,12 @@ fun PlaybackSongArtGridItem(
 	id: String = song.id,
 	tab: String
 ) {
-	val artwork = rememberPlaybackSongArtworkState(song)
+	val artwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = null,
+		musicBrainzArtworkCacheKey = null,
+		serverCoverLoadFailed = false
+	)
 	ArtGridItem(
 		modifier = modifier,
 		onClick = onClick,
@@ -214,13 +219,13 @@ fun PlaybackSongArtGridItem(
 		coverArtId = artwork.coverArtId,
 		imageUrl = artwork.imageUrl,
 		imageCacheKey = artwork.imageCacheKey,
+		imageRequestHeaders = artwork.imageRequestHeaders,
 		title = song.title,
 		subtitle = subtitle,
 		acquisitionProgress = acquisitionProgress,
 		ownershipStatus = ownershipStatus,
 		coverOverlay = coverOverlay,
 		fallbackKind = "Track",
-		onServerCoverLoadFailed = artwork.onServerCoverLoadFailed,
 		id = id,
 		tab = tab
 	)

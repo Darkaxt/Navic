@@ -7,6 +7,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.settings.ArtworkSourcePriority
+import paige.navic.domain.repositories.AurralDiscoverArtist
 
 class ArtistDetailLayoutPolicyTest {
 	@Test
@@ -66,6 +67,98 @@ class ArtistDetailLayoutPolicyTest {
 				),
 				verifiedExternalImageUrl = "https://aurral.example.com/bond.webp",
 				artistArtworkPriority = ArtworkSourcePriority.NativeFirst
+			)
+		)
+	}
+
+	@Test
+	fun headingSuppressesNativeCoverWhileAurralArtworkIsEnabled() {
+		val artist = DomainArtist(
+			id = "jason-ross",
+			name = "Jason Ross",
+			coverArtId = "navidrome-artist-cover"
+		)
+
+		assertNull(
+			artistDetailHeadingCoverArtId(
+				artist = artist,
+				externalArtworkEnabled = true
+			)
+		)
+		assertNull(
+			artistCoverArtIdForExternalArtworkPolicy(
+				artist = artist,
+				externalArtworkEnabled = true
+			)
+		)
+		assertNull(
+			artistDetailPlaybackOrigin(
+				artistStateForTransition("jason-ross").copy(
+					artist = artist,
+					aurralArtistImageUrl = null
+				),
+				externalArtworkEnabled = true
+			).coverArtId
+		)
+		assertEquals(
+			"navidrome-artist-cover",
+			artistDetailHeadingCoverArtId(
+				artist = artist,
+				externalArtworkEnabled = false
+			)
+		)
+		assertEquals(
+			"navidrome-artist-cover",
+			artistCoverArtIdForExternalArtworkPolicy(
+				artist = artist,
+				externalArtworkEnabled = false
+			)
+		)
+	}
+
+	@Test
+	fun artistImagePolicyTreatsNavidromeArtistImageAsUnresolvedWhenAurralIsEnabled() {
+		assertNull(
+			artistImageUrlForExternalArtworkPolicy(
+				artist = DomainArtist(
+					id = "jason-ross",
+					name = "Jason Ross",
+					coverArtId = "navidrome-cover",
+					artistImageUrl = "https://navidrome.example.com/rest/getArtistImage?id=jason-ross"
+				),
+				externalArtworkEnabled = true
+			)
+		)
+		assertNull(
+			artistImageUrlForExternalArtworkPolicy(
+				artist = DomainArtist(
+					id = "jason-ross",
+					name = "Jason Ross",
+					artistImageUrl = "https://navidrome.example.com/rest/getCoverArt?id=jason-cover"
+				),
+				externalArtworkEnabled = true
+			)
+		)
+		assertEquals(
+			"https://aurral.example.com/artists/jason-ross.webp",
+			artistImageUrlForExternalArtworkPolicy(
+				artist = DomainArtist(
+					id = "jason-ross",
+					name = "Jason Ross",
+					coverArtId = "navidrome-cover",
+					artistImageUrl = " https://aurral.example.com/artists/jason-ross.webp "
+				),
+				externalArtworkEnabled = true
+			)
+		)
+		assertNull(
+			artistImageUrlForExternalArtworkPolicy(
+				artist = DomainArtist(
+					id = "jason-ross",
+					name = "Jason Ross",
+					artistImageUrl = "https://aurral.example.com/artists/jason-ross.webp"
+				),
+				externalArtworkEnabled = false
 			)
 		)
 	}
@@ -279,6 +372,139 @@ class ArtistDetailLayoutPolicyTest {
 				)
 			)
 		)
+	}
+
+	@Test
+	fun headingIgnoresNavidromeArtistPhotoCacheUrlsWhenAurralIsEnabled() {
+		assertNull(
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(id = "local-jason", name = "Jason Ross"),
+				entries = listOf(
+					ArtistHeaderImageCacheEntry(
+						artistId = "local-jason",
+						sourceArtistId = "source-jason",
+						name = "Jason Ross",
+						normalizedName = "jason ross",
+						imageUrl = "https://navidrome.example.com/rest/getArtistImage?id=jason-ross",
+						source = "Navidrome",
+						updatedAtMillis = 2_000L
+					)
+				),
+				externalArtworkEnabled = true
+			)
+		)
+	}
+
+	@Test
+	fun artistListHydrationTargetsArtistsWithoutCachedAurralPhotos() {
+		val targets = artistListAurralPhotoHydrationTargets(
+			artists = listOf(
+				DomainArtist(
+					id = "jason-ross",
+					name = "Jason Ross",
+					coverArtId = "navidrome-jason-cover",
+					artistImageUrl = null
+				),
+				DomainArtist(
+					id = "iu",
+					name = "IU",
+					coverArtId = "navidrome-iu-cover",
+					artistImageUrl = "https://aurral.example.com/iu.webp"
+				)
+			),
+			attemptedLookupKeys = emptySet(),
+			externalArtworkEnabled = true
+		)
+
+		assertEquals(listOf("jason-ross|jason ross"), targets.map { it.lookupKey })
+		assertEquals("Jason Ross", targets.single().artist.name)
+	}
+
+	@Test
+	fun artistListHydrationTreatsNavidromeArtistImageAsUnresolvedWhenAurralIsEnabled() {
+		val targets = artistListAurralPhotoHydrationTargets(
+			artists = listOf(
+				DomainArtist(
+					id = "jason-ross",
+					name = "Jason Ross",
+					coverArtId = "navidrome-jason-cover",
+					artistImageUrl = "https://navidrome.example.com/rest/getArtistImage?id=jason-ross"
+				),
+				DomainArtist(
+					id = "iu",
+					name = "IU",
+					coverArtId = "navidrome-iu-cover",
+					artistImageUrl = "https://aurral.example.com/artist/iu.webp"
+				)
+			),
+			attemptedLookupKeys = emptySet(),
+			externalArtworkEnabled = true
+		)
+
+		assertEquals(listOf("jason-ross|jason ross"), targets.map { it.lookupKey })
+	}
+
+	@Test
+	fun artistListHydrationSkipsWhenAurralIsDisabledOrAlreadyAttempted() {
+		val artist = DomainArtist(
+			id = "jason-ross",
+			name = "Jason Ross",
+			coverArtId = "navidrome-jason-cover"
+		)
+
+		assertEquals(
+			emptyList(),
+			artistListAurralPhotoHydrationTargets(
+				artists = listOf(artist),
+				attemptedLookupKeys = emptySet(),
+				externalArtworkEnabled = false
+			)
+		)
+		assertEquals(
+			emptyList(),
+			artistListAurralPhotoHydrationTargets(
+				artists = listOf(artist),
+				attemptedLookupKeys = setOf("jason-ross|jason ross"),
+				externalArtworkEnabled = true
+			)
+		)
+	}
+
+	@Test
+	fun artistListHydrationUsesAurralCandidateAndCreatesPersistentCache() {
+		val localArtist = DomainArtist(
+			id = "local-jason",
+			name = "Jason Ross",
+			coverArtId = "navidrome-jason-cover",
+			musicBrainzId = "jason-mbid"
+		)
+		val candidate = artistListAurralPhotoCandidate(
+			localArtist = localArtist,
+			candidates = listOf(
+				AurralDiscoverArtist(
+					id = "other-mbid",
+					name = "Other Jason",
+					imageUrl = "https://aurral.example.com/other.webp"
+				),
+				AurralDiscoverArtist(
+					id = "jason-mbid",
+					name = "Jason Ross",
+					imageUrl = "https://aurral.example.com/jason.webp",
+					detailsIdVerified = true
+				)
+			)
+		)
+		val entity = artistListAurralPhotoCacheEntity(
+			localArtist = localArtist,
+			sourceArtist = candidate,
+			nowMillis = 2_000L
+		)
+
+		assertEquals("https://aurral.example.com/jason.webp", candidate?.imageUrl)
+		assertEquals("artist:local-jason", entity?.cacheKey)
+		assertEquals("local-jason", entity?.artistId)
+		assertEquals("jason-mbid", entity?.sourceArtistId)
+		assertEquals("https://aurral.example.com/jason.webp", entity?.imageUrl)
 	}
 
 	@Test

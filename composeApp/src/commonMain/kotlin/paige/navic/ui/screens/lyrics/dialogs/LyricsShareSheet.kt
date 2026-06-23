@@ -78,6 +78,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.shouldSendServerArtworkHeaders
+import paige.navic.ui.components.common.visibleCoverArtIdForAurralPolicy
+import paige.navic.ui.components.common.visibleImageUrlForAurralPolicy
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Navic
 import paige.navic.icons.outlined.Check
@@ -99,7 +101,7 @@ import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 @Composable
 fun LyricsShareSheet(
 	song: DomainSong,
-	coverArtId: String? = song.coverArtId,
+	coverArtId: String? = null,
 	imageUrl: String? = null,
 	imageCacheKey: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
@@ -116,12 +118,21 @@ fun LyricsShareSheet(
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val serverArtworkUrl = coverArtId?.let { sessionManager.getCoverArtUrl(it) }
-	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() } ?: serverArtworkUrl
-	val resolvedImageCacheKey = imageCacheKey ?: imageUrl?.takeIf { it.isNotBlank() } ?: coverArtId
+	val resolvedExternalImageUrl = visibleImageUrlForAurralPolicy(
+		imageUrl = imageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
+	)
+	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
+		coverArtId = coverArtId,
+		imageUrl = resolvedExternalImageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
+	)
+	val serverArtworkUrl = visibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) }
+	val resolvedImageUrl = resolvedExternalImageUrl ?: serverArtworkUrl
+	val resolvedImageCacheKey = imageCacheKey ?: resolvedExternalImageUrl ?: visibleCoverArtId
 	val model = remember(
-		coverArtId,
-		imageUrl,
+		visibleCoverArtId,
+		resolvedExternalImageUrl,
 		resolvedImageUrl,
 		resolvedImageCacheKey,
 		imageRequestHeaders,
@@ -130,7 +141,7 @@ fun LyricsShareSheet(
 		val requestHeaders = if (
 			shouldSendServerArtworkHeaders(
 				serverArtworkUrl = serverArtworkUrl,
-				externalArtworkUrl = imageUrl
+				externalArtworkUrl = resolvedExternalImageUrl
 			)
 		) {
 			serverRequestHeaders

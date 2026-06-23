@@ -7,6 +7,7 @@ import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.effectiveArtworkSourcePriority
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.toPlaybackOrigin
+import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
 
 private const val TopSongRowHeightDp = 84
@@ -41,6 +42,37 @@ fun artistDetailHeadingImageUrl(
 	}
 }
 
+fun artistDetailHeadingCoverArtId(
+	artist: DomainArtist,
+	externalArtworkEnabled: Boolean = true
+): String? =
+	artistCoverArtIdForExternalArtworkPolicy(
+		artist = artist,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
+
+fun artistCoverArtIdForExternalArtworkPolicy(
+	artist: DomainArtist,
+	externalArtworkEnabled: Boolean = true
+): String? =
+	if (externalArtworkEnabled) {
+		null
+	} else {
+		artist.coverArtId?.trim()?.takeIf { it.isNotEmpty() }
+	}
+
+fun artistImageUrlForExternalArtworkPolicy(
+	artist: DomainArtist,
+	externalArtworkEnabled: Boolean = true
+): String? {
+	if (!externalArtworkEnabled) return null
+	val imageUrl = artist.artistImageUrl
+		?.trim()
+		?.takeIf { it.isNotEmpty() && it.isAbsoluteHttpUrl() }
+		?: return null
+	return imageUrl.takeUnless { it.isNavidromeArtworkUrl() }
+}
+
 @Immutable
 data class ArtistHeaderImageCacheEntry(
 	val artistId: String?,
@@ -50,6 +82,12 @@ data class ArtistHeaderImageCacheEntry(
 	val imageUrl: String,
 	val source: String = "Aurral",
 	val updatedAtMillis: Long = 0L
+)
+
+@Immutable
+data class ArtistListAurralPhotoHydrationTarget(
+	val artist: DomainArtist,
+	val lookupKey: String
 )
 
 fun artistDetailCachedImageUrl(
@@ -91,6 +129,70 @@ fun DomainArtist.withCachedArtistPhoto(
 			externalArtworkEnabled = externalArtworkEnabled
 		)
 	)
+
+fun artistListAurralPhotoHydrationTargets(
+	artists: List<DomainArtist>,
+	attemptedLookupKeys: Set<String>,
+	externalArtworkEnabled: Boolean,
+	limit: Int = Int.MAX_VALUE
+): List<ArtistListAurralPhotoHydrationTarget> {
+	if (!externalArtworkEnabled || limit <= 0) return emptyList()
+	return artists
+		.asSequence()
+		.mapNotNull { artist ->
+			val lookupKey = artistListAurralPhotoLookupKey(artist) ?: return@mapNotNull null
+			if (lookupKey in attemptedLookupKeys) return@mapNotNull null
+			if (artist.artistImageUrl.isResolvedExternalArtistImageUrl()) return@mapNotNull null
+			ArtistListAurralPhotoHydrationTarget(artist = artist, lookupKey = lookupKey)
+		}
+		.distinctBy { target -> target.lookupKey }
+		.take(limit)
+		.toList()
+}
+
+fun artistListAurralPhotoCandidate(
+	localArtist: DomainArtist,
+	candidates: List<AurralDiscoverArtist>
+): AurralDiscoverArtist? {
+	val localMusicBrainzId = localArtist.musicBrainzId.normalizedArtistHeaderImageId()
+	val localName = localArtist.name.normalizedArtistHeaderImageName()
+	val withImages = candidates.filter { candidate -> candidate.imageUrl?.isAbsoluteHttpUrl() == true }
+	return withImages.firstOrNull { candidate ->
+		candidate.id.normalizedArtistHeaderImageId()?.let { it == localMusicBrainzId } == true
+	} ?: withImages.firstOrNull { candidate ->
+		candidate.name.normalizedArtistHeaderImageName()?.let { it == localName } == true
+	} ?: withImages.firstOrNull()
+}
+
+fun artistListAurralPhotoCacheEntity(
+	localArtist: DomainArtist,
+	sourceArtist: AurralDiscoverArtist?,
+	nowMillis: Long
+): ArtistPhotoCacheEntity? {
+	val candidate = sourceArtist ?: return null
+	return artistDetailPhotoCacheEntity(
+		localArtist = localArtist,
+		sourceArtist = DomainArtist(
+			id = candidate.id,
+			name = candidate.name,
+			musicBrainzId = candidate.id.takeIf { candidate.detailsIdVerified }
+		),
+		imageUrl = candidate.imageUrl.orEmpty(),
+		nowMillis = nowMillis,
+		source = "Aurral"
+	)
+}
+
+fun artistListAurralPhotoLookupKey(artist: DomainArtist): String? {
+	val id = artist.id.trim().lowercase().takeIf { it.isNotEmpty() }
+	val name = artist.name.normalizedArtistHeaderImageName()
+	return when {
+		id != null && name != null -> "$id|$name"
+		name != null -> "name:$name"
+		id != null -> "id:$id"
+		else -> null
+	}
+}
 
 fun artistDetailPhotoCacheEntity(
 	localArtist: DomainArtist,
@@ -137,7 +239,11 @@ fun artistDetailPlaybackOrigin(
 		externalArtworkEnabled = externalArtworkEnabled
 	)
 	return state.artist.toPlaybackOrigin().copy(
-		coverArtId = resolvedArtwork ?: state.artist.coverArtId?.trim()?.takeIf { it.isNotEmpty() }
+		coverArtId = resolvedArtwork
+			?: artistDetailHeadingCoverArtId(
+				artist = state.artist,
+				externalArtworkEnabled = externalArtworkEnabled
+			)
 	)
 }
 
@@ -195,7 +301,7 @@ private fun artistDetailCachedImageEntry(
 ): ArtistHeaderImageCacheEntry? =
 	entries
 		.asSequence()
-		.filter { entry -> entry.imageUrl.isAbsoluteHttpUrl() }
+		.filter { entry -> entry.imageUrl.isResolvedExternalArtistImageUrl() }
 		.mapNotNull { entry -> entry.matchScore(artist)?.let { score -> score to entry } }
 		.sortedWith(
 			compareBy<Pair<ArtistHeaderImageCacheMatchScore, ArtistHeaderImageCacheEntry>> { it.first.matchRank }
@@ -245,6 +351,20 @@ private fun String?.normalizedArtistHeaderImageName(): String? =
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private fun String?.isResolvedExternalArtistImageUrl(): Boolean {
+	val imageUrl = this?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+	return imageUrl.isAbsoluteHttpUrl() && !imageUrl.isNavidromeArtworkUrl()
+}
+
+private fun String.isNavidromeArtworkUrl(): Boolean {
+	val normalized = lowercase()
+	return "navidrome" in normalized ||
+		"/rest/getcoverart" in normalized ||
+		"/rest/getartistimage" in normalized ||
+		"/getcoverart" in normalized ||
+		"/getartistimage" in normalized
+}
 
 private fun String.artistHeaderImageSourceRank(): Int =
 	when (trim().lowercase()) {
