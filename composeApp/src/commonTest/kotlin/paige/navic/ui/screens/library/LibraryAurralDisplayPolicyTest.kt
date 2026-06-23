@@ -384,27 +384,46 @@ class LibraryAurralDisplayPolicyTest {
 	}
 
 	@Test
-	fun libraryShowsAurralLoadingPlaceholderOnlyWithoutCachedRows() {
+	fun libraryAurralCollectionRowsStateSettlesEmptyLoadingWithoutPlaceholder() {
+		val emptyLoadingRows = libraryAurralCollectionRowsState(
+			aurralConfigured = true,
+			discoveryState = UiState.Loading(null)
+		)
+
 		assertEquals(
-			true,
-			libraryAurralLoadingPlaceholderVisible(UiState.Loading(emptyList()))
+			UiState.Success(emptyList()),
+			emptyLoadingRows
 		)
 		assertEquals(
 			false,
-			libraryAurralLoadingPlaceholderVisible(
-				UiState.Loading(
-					listOf(
-						AurralDiscoveryCollectionRow.Artists(
-							kind = AurralDiscoveryCollectionKind.RecommendedArtists,
-							artists = listOf(AurralDiscoverArtist(id = "artist", name = "Artist"))
-						)
-					)
+			libraryAurralLoadingPlaceholderVisible(emptyLoadingRows)
+		)
+	}
+
+	@Test
+	fun libraryAurralCollectionRowsStateKeepsCachedRowsWhileLoading() {
+		val discovery = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist",
+					name = "Artist",
+					imageUrl = "https://aurral.example.com/artist.jpg"
 				)
 			)
 		)
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery
+		)
+		val loadingRows = libraryAurralCollectionRowsState(
+			aurralConfigured = true,
+			discoveryState = UiState.Loading(discovery)
+		)
+
+		assertEquals(UiState.Loading(rows), loadingRows)
 		assertEquals(
 			false,
-			libraryAurralLoadingPlaceholderVisible(UiState.Success(emptyList()))
+			libraryAurralLoadingPlaceholderVisible(loadingRows)
 		)
 	}
 

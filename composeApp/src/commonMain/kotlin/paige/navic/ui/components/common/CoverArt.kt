@@ -191,7 +191,8 @@ fun CoverArt(
 	colorFilter: ColorFilter? = null,
 	artworkResolving: Boolean = false,
 	normalization: CoverArtNormalization = CoverArtNormalization.None,
-	contentScale: ContentScale = ContentScale.Crop
+	contentScale: ContentScale = ContentScale.Crop,
+	onImageSizeResolved: ((width: Int, height: Int) -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = shape ?: preferenceManager.coverArtShape.shape
@@ -283,6 +284,10 @@ fun CoverArt(
 		modifier = commonModifier,
 		contentScale = contentScale,
 		colorFilter = colorFilter,
+		onSuccess = { state ->
+			val image = state.result.image
+			onImageSizeResolved?.invoke(image.width, image.height)
+		},
 		loading = {
 			CoverArtFallback(
 				fallbackContent = fallbackContent,

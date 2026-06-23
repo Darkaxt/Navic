@@ -17,6 +17,9 @@ import kotlin.math.roundToInt
 
 private const val ContinueShelfLimit = 12
 private const val MaxStoredWhispersyncCompanionProgressEntries = 80
+private const val ContinueListeningSquareAspectRatio = 1f
+private const val ContinueListeningPortraitAspectRatio = 2f / 3f
+private const val ContinueListeningPortraitHeightThreshold = 1.2f
 
 private val BinderyWhispersyncCompanionProgressJson = Json {
 	ignoreUnknownKeys = true
@@ -75,6 +78,19 @@ sealed interface BinderyContinueReadingLaunchDecision {
 		val ebookRow: BinderyBookVersionRow,
 		val matches: List<BinderyWhispersyncMatch>
 	) : BinderyContinueReadingLaunchDecision
+}
+
+fun binderyContinueListeningCoverAspectRatio(
+	width: Int?,
+	height: Int?
+): Float {
+	val safeWidth = width?.takeIf { it > 0 } ?: return ContinueListeningSquareAspectRatio
+	val safeHeight = height?.takeIf { it > 0 } ?: return ContinueListeningSquareAspectRatio
+	return if (safeHeight.toFloat() / safeWidth.toFloat() >= ContinueListeningPortraitHeightThreshold) {
+		ContinueListeningPortraitAspectRatio
+	} else {
+		ContinueListeningSquareAspectRatio
+	}
 }
 
 fun binderyContinueListeningItems(

@@ -110,6 +110,7 @@ fun ArtGridItem(
 	coverContentScale: ContentScale = ContentScale.Crop,
 	fallbackKind: String? = null,
 	onServerCoverLoadFailed: (suspend () -> Unit)? = null,
+	onImageSizeResolved: ((width: Int, height: Int) -> Unit)? = null,
 	id: String,
 	// this parameter is a shitty workaround for shared element
 	// transitions being performed when switching between tabs
@@ -154,7 +155,8 @@ fun ArtGridItem(
 						),
 					square = false,
 					contentScale = coverContentScale,
-					interactionSource = interactionSource
+					interactionSource = interactionSource,
+					onImageSizeResolved = onImageSizeResolved
 				)
 				acquisitionProgress?.let { progress ->
 					AurralAcquisitionProgressBar(
