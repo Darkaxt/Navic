@@ -230,7 +230,7 @@ fun App(initialScreenOverride: Screen? = null) {
 								backStack.performNavicBack()
 							}
 						},
-						entryProvider = entryProvider(backStack),
+						entryProvider = remember(backStack.size) { entryProvider(backStack) },
 						transitionSpec = {
 							Material3Transitions.SharedXAxisEnterTransition(
 								density
