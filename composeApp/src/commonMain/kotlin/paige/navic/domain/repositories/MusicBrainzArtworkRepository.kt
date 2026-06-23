@@ -25,7 +25,6 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.IntegrationService
-import paige.navic.domain.models.effectiveAurralArtworkPriority
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.isSyntheticUnknownArtistName
 import paige.navic.util.core.Logger
@@ -541,19 +540,15 @@ internal fun shouldResolveMusicBrainzArtworkOnPlayback(
 	songTitle: String? = null,
 	artistName: String? = null
 ): Boolean {
-	val effectiveArtworkPriority = effectiveAurralArtworkPriority(
-		aurralEnabled = aurralEnabled,
-		configuredPriority = coverArtworkPriority
-	)
 	return externalPlaybackArtworkEnabled(
 		musicBrainzArtworkFallbackEnabled = enabled,
 		aurralEnabled = aurralEnabled
 	) &&
 		isOnline &&
 		!isRadio &&
-		effectiveArtworkPriority != ArtworkSourcePriority.NativeOnly &&
+		coverArtworkPriority != ArtworkSourcePriority.NativeOnly &&
 		(
-			effectiveArtworkPriority == ArtworkSourcePriority.AurralFirst ||
+			coverArtworkPriority == ArtworkSourcePriority.AurralFirst ||
 				serverCoverLoadFailed ||
 				(songCoverArtId.isNullOrBlank() && albumCoverArtId.isNullOrBlank())
 		) &&

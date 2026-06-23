@@ -120,6 +120,7 @@ fun LyricsShareSheet(
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val resolvedExternalImageUrl = visibleImageUrlForAurralPolicy(
 		imageUrl = imageUrl,
+		nativeCoverArtId = coverArtId,
 		aurralEnabled = preferenceManager.aurralEnabled
 	)
 	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(

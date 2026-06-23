@@ -189,7 +189,7 @@ internal fun settingsSearchIntegrationRows(context: SettingsSearchContext): List
 			subtitle = stringResource(Res.string.subtitle_cover_artwork_priority),
 			keywords = listOf("Aurral", "album", "track", "cover", "artwork"),
 			items = ArtworkSourcePriority.entries,
-			label = { stringResource(it.displayName) },
+			label = { stringResource(it.coverDisplayName) },
 			selection = preferenceManager.coverArtworkPriority,
 			onSelect = { preferenceManager.coverArtworkPriority = it }
 		))

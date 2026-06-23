@@ -33,6 +33,7 @@ class AurralVisibleArtworkPolicyTest {
 	fun nativeCoverArtIdStaysVisibleWhenAurralIsEnabledAndNavidromeImageIsSuppressed() {
 		val visibleImageUrl = visibleImageUrlForAurralPolicy(
 			imageUrl = "https://music.example.com/rest/getCoverArt?id=album-1",
+			nativeCoverArtId = "native-cover-id",
 			aurralEnabled = true
 		)
 
@@ -58,16 +59,38 @@ class AurralVisibleArtworkPolicyTest {
 	}
 
 	@Test
-	fun navidromeImageUrlsAreSuppressedWhenAurralIsEnabled() {
+	fun navidromeImageUrlsAreSuppressedWhenAurralIsEnabledAndNativeCoverCanReplaceThem() {
 		assertNull(
 			visibleImageUrlForAurralPolicy(
 				imageUrl = " https://navidrome.example.com/rest/getArtistImage?id=jason-ross ",
+				nativeCoverArtId = "native-artist-cover",
 				aurralEnabled = true
 			)
 		)
 		assertNull(
 			visibleImageUrlForAurralPolicy(
 				imageUrl = "https://music.example.com/rest/getCoverArt?id=album-1",
+				nativeCoverArtId = "native-album-cover",
+				aurralEnabled = true
+			)
+		)
+	}
+
+	@Test
+	fun navidromeImageUrlsStayVisibleWhenTheyAreTheOnlyArtworkFallback() {
+		assertEquals(
+			"https://navidrome.example.com/rest/getArtistImage?id=jason-ross",
+			visibleImageUrlForAurralPolicy(
+				imageUrl = " https://navidrome.example.com/rest/getArtistImage?id=jason-ross ",
+				nativeCoverArtId = null,
+				aurralEnabled = true
+			)
+		)
+		assertEquals(
+			"https://music.example.com/rest/getCoverArt?id=album-1",
+			visibleImageUrlForAurralPolicy(
+				imageUrl = " https://music.example.com/rest/getCoverArt?id=album-1 ",
+				nativeCoverArtId = " ",
 				aurralEnabled = true
 			)
 		)

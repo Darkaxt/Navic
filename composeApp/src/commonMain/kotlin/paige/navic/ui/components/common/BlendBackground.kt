@@ -70,6 +70,7 @@ fun BlendBackground(
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val resolvedImageUrl = visibleImageUrlForAurralPolicy(
 		imageUrl = imageUrl,
+		nativeCoverArtId = coverArtId,
 		aurralEnabled = preferenceManager.aurralEnabled
 	)
 	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(

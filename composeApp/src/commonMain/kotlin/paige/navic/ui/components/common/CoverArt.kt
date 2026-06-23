@@ -200,6 +200,7 @@ fun CoverArt(
 	val sessionManager = koinInject<SessionManager>()
 	val resolvedImageUrl = visibleImageUrlForAurralPolicy(
 		imageUrl = imageUrl,
+		nativeCoverArtId = coverArtId,
 		aurralEnabled = preferenceManager.aurralEnabled
 	)
 	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(

@@ -351,7 +351,9 @@
 	<string name="option_artist_artwork_priority">Artist artwork source</string>
 	<string name="option_cover_artwork_priority">Cover artwork source</string>
 	<string name="option_artwork_source_aurral_first">Aurral first</string>
+	<string name="option_artwork_source_external_cover_first">External cover first</string>
 	<string name="option_artwork_source_native_first">Native first</string>
+	<string name="option_artwork_source_native_cover_first">Native cover first</string>
 	<string name="option_artwork_source_native_only">Native only</string>
 	<string name="option_use_marquee_text">Text auto-scroll speed</string>
 	<string name="option_alphabetical_scroll">Alphabetical scrolling</string>

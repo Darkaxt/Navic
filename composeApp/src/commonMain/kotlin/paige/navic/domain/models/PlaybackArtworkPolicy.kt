@@ -72,10 +72,6 @@ fun resolvedPlaybackArtwork(
 	musicBrainzArtworkEnabled: Boolean = true,
 	serverCoverLoadFailed: Boolean = false
 ): PlaybackArtworkResolution {
-	val effectivePriority = effectiveArtworkSourcePriority(
-		artworkSourcePriority = artworkSourcePriority,
-		aurralArtworkEnabled = aurralArtworkEnabled
-	)
 	val nativeCover = serverCoverArtId.nonBlankOrNull()
 		?.takeUnless { serverCoverLoadFailed }
 	val aurralImage = aurralArtistImageUrl.nonBlankOrNull()
@@ -121,7 +117,7 @@ fun resolvedPlaybackArtwork(
 			)
 		}
 
-	return when (effectivePriority) {
+	return when (artworkSourcePriority) {
 		ArtworkSourcePriority.AurralFirst ->
 			musicBrainzResolution()
 				?: nativeResolution()
@@ -140,47 +136,6 @@ fun resolvedPlaybackArtwork(
 		imageCacheKey = null,
 		source = PlaybackArtworkSource.None
 	)
-}
-
-fun effectiveArtworkSourcePriority(
-	artworkSourcePriority: ArtworkSourcePriority,
-	aurralArtworkEnabled: Boolean
-): ArtworkSourcePriority =
-	artworkSourcePriority
-
-fun effectiveAurralArtworkPriority(
-	aurralEnabled: Boolean,
-	configuredPriority: ArtworkSourcePriority
-): ArtworkSourcePriority =
-	effectiveArtworkSourcePriority(
-		artworkSourcePriority = configuredPriority,
-		aurralArtworkEnabled = aurralEnabled
-	)
-
-@Suppress("UNUSED_PARAMETER")
-fun visiblePlaybackCoverArtId(
-	serverCoverArtId: String?,
-	externalArtworkUrl: String?,
-	priority: ArtworkSourcePriority
-): String? =
-	when (priority) {
-		ArtworkSourcePriority.AurralFirst ->
-			serverCoverArtId.nonBlankOrNull().takeUnless { !externalArtworkUrl.isNullOrBlank() }
-		ArtworkSourcePriority.NativeFirst,
-		ArtworkSourcePriority.NativeOnly -> serverCoverArtId.nonBlankOrNull()
-	}
-
-fun visiblePlaybackImageUrl(
-	serverCoverArtId: String?,
-	externalArtworkUrl: String?,
-	priority: ArtworkSourcePriority
-): String? {
-	val external = externalArtworkUrl.nonBlankOrNull()
-	return when (priority) {
-		ArtworkSourcePriority.AurralFirst -> external
-		ArtworkSourcePriority.NativeFirst -> if (serverCoverArtId.nonBlankOrNull() == null) external else null
-		ArtworkSourcePriority.NativeOnly -> null
-	}
 }
 
 fun resolvedPlaybackArtistPhoto(

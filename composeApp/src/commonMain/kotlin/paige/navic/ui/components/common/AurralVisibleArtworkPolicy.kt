@@ -12,11 +12,13 @@ internal fun visibleCoverArtIdForAurralPolicy(
 
 internal fun visibleImageUrlForAurralPolicy(
 	imageUrl: String?,
+	nativeCoverArtId: String? = null,
 	aurralEnabled: Boolean
 ): String? {
 	val resolvedImageUrl = imageUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 	if (!aurralEnabled) return resolvedImageUrl
-	return resolvedImageUrl.takeUnless { it.isNavidromeArtworkUrl() }
+	val hasNativeCoverFallback = !nativeCoverArtId.isNullOrBlank()
+	return resolvedImageUrl.takeUnless { hasNativeCoverFallback && it.isNavidromeArtworkUrl() }
 }
 
 private fun String.isNavidromeArtworkUrl(): Boolean {

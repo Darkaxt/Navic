@@ -3,7 +3,6 @@ package paige.navic.ui.screens.library
 import androidx.compose.runtime.Immutable
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
-import paige.navic.domain.models.effectiveArtworkSourcePriority
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 
 @Immutable
@@ -47,10 +46,6 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 		if (shortcut.type != PlaybackOriginType.Artist) {
 			shortcut.copy(coverArtId = shortcut.coverArtId.cleanArtworkValue())
 		} else {
-			val effectivePriority = effectiveArtworkSourcePriority(
-				artworkSourcePriority = artistArtworkPriority,
-				aurralArtworkEnabled = aurralArtworkEnabled
-			)
 			val nativeArtistCover = artists.artistCoverArtIdFor(shortcut)
 			val trustedExternalPhoto = if (aurralArtworkEnabled) {
 				artists.trustedArtistImageUrlFor(shortcut)
@@ -62,7 +57,7 @@ fun mostPlayedShortcutsWithResolvedArtwork(
 			val localSnapshotCover = shortcut.coverArtId.cleanArtworkValue()
 				?.takeUnless { it.isAbsoluteHttpUrl() }
 			shortcut.copy(
-				coverArtId = when (effectivePriority) {
+				coverArtId = when (artistArtworkPriority) {
 					ArtworkSourcePriority.AurralFirst ->
 						trustedExternalPhoto
 							?: nativeArtistCover
@@ -91,10 +86,7 @@ fun shouldHydrateAurralArtistPhotos(
 	aurralEnabled: Boolean,
 	artistArtworkPriority: ArtworkSourcePriority
 ): Boolean =
-	aurralEnabled && effectiveArtworkSourcePriority(
-		artworkSourcePriority = artistArtworkPriority,
-		aurralArtworkEnabled = aurralEnabled
-	) == ArtworkSourcePriority.AurralFirst
+	aurralEnabled && artistArtworkPriority == ArtworkSourcePriority.AurralFirst
 
 private fun DomainMostPlayedShortcut.normalizedArtistId(): String? =
 	id.normalizedArtworkMatchKey()

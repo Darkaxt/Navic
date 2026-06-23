@@ -171,7 +171,7 @@ fun SettingsAurralScreen() {
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_cover_artwork_priority)) },
 						items = ArtworkSourcePriority.entries.toImmutableList(),
-						label = { priority -> stringResource(priority.displayName) },
+						label = { priority -> stringResource(priority.coverDisplayName) },
 						description = stringResource(Res.string.subtitle_cover_artwork_priority),
 						selection = preferenceManager.coverArtworkPriority,
 						onSelect = { priority -> preferenceManager.coverArtworkPriority = priority }
