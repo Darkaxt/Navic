@@ -275,6 +275,7 @@ fun SearchScreen(
 								}
 								items(
 									songs.take(10).size,
+									key = { songs[it].id },
 									span = { GridItemSpan(maxLineSpan) }) { index ->
 									val song = songs[index]
 									val isDownloaded = downloadedSongs.containsKey(song.id)
