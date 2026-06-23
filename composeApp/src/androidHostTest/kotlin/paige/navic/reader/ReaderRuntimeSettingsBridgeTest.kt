@@ -242,8 +242,11 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(runtimeText, "updateTapZoneOverlayLayer(")
 		assertContains(runtimeText, "settings.showTapZones !== true")
 		assertContains(readerRootText, "navigationOverlayVisible = controllerState.menuVisible && controllerState.chrome.settings.showTapZones == true")
-		assertContains(settingsDialogText, "label = \"Show tap zones\"")
-		assertContains(settingsDialogText, "settings.copy(showTapZones = settings.showTapZones != true)")
+		assertFalse(
+			settingsDialogText.contains("label = \"Show tap zones\"") ||
+				settingsDialogText.contains("settings.copy(showTapZones = settings.showTapZones != true)"),
+			"Visible tap-zone overlays are diagnostics and should not be exposed from the in-reader settings dialog."
+		)
 		assertFalse(
 			ebooksSettingsText.contains("option_ebook_reader_show_tap_zones"),
 			"Visible tap-zone overlays are diagnostics and should not be shown as an Ebook reading default."
@@ -357,6 +360,9 @@ class ReaderRuntimeSettingsBridgeTest {
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
 			.substringBefore("\n  applyReaderDirection")
+		val inlineTypographyBlockTags = bridgeText
+			.substringAfter("const readerInlineTypographyBlockTags = new Set([")
+			.substringBefore("])")
 
 		assertFalse(
 			typographyCss.contains("if (settings.publisherStyles === true) return ''"),
@@ -364,22 +370,30 @@ class ReaderRuntimeSettingsBridgeTest {
 		)
 		assertContains(typographyCss, "const usePublisherStyles = settings.publisherStyles === true")
 		assertContains(typographyCss, "font-size: var(--reader-content-font-size")
-		assertContains(typographyCss, "font-size: 1rem !important")
 		assertContains(typographyCss, "font-size: 1em !important")
+		assertFalse(
+			typographyCss.contains("font-size: 1rem !important"),
+			"Reader body/prose font-size resets must inherit from the scaled reader document size; pinning prose to 1rem can leave body text unchanged while headings scale."
+		)
 		assertContains(
 			typographyCss,
 			"td,",
 			message = "Font-size control must reset table-cell prose; older EPUBs commonly put body text in table-like wrappers."
 		)
-		assertTrue(
-			typographyCss.indexOf("font-size: 1rem !important") <
-				typographyCss.indexOf("font-size: 1em !important"),
-			"Prose block containers must reset to reader-root size before inline descendants inherit from them; otherwise fixed publisher wrapper sizes can pin body text while headings scale."
+		assertContains(
+			bridgeText,
+			"const readerInlineTypographyFontSize = element => '1em'",
+			message = "Inline publisher font-size normalization must keep prose blocks attached to the reader-scaled body size instead of resetting them to an unscaled rem."
 		)
 		assertContains(
 			bridgeText,
 			"normalizeReaderInlineTypography",
 			message = "PDF-converted EPUB prose can use inline font-size declarations with !important; the reader must rewrite inline prose font-size ownership after injecting the reader stylesheet."
+		)
+		assertContains(
+			inlineTypographyBlockTags,
+			"'BODY',",
+			message = "The inline typography normalizer adds doc.body as a candidate; BODY must be treated as prose so body-level important font-size styles cannot pin ebook text while headings scale."
 		)
 		assertContains(
 			bridgeText,

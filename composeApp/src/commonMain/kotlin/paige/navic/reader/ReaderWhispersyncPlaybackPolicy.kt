@@ -13,7 +13,10 @@ fun readerWhispersyncPlaybackControlState(
 	status: ReaderWhispersyncStatus,
 	playbackState: ReaderReadaloudPlaybackUiState?
 ): ReaderWhispersyncPlaybackControlState {
-	if (!status.visible || status.kind == ReaderWhispersyncStatusKind.Ready) {
+	if (!status.visible ||
+		status.kind == ReaderWhispersyncStatusKind.Ready ||
+		status.kind == ReaderWhispersyncStatusKind.NoActiveCue
+	) {
 		return ReaderWhispersyncPlaybackControlState()
 	}
 	val availablePlayback = playbackState?.takeIf { it.isAvailable }
@@ -55,18 +58,16 @@ fun readerWhispersyncPlaybackCommandForSeekTarget(
 private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
 	seekTarget: WhispersyncAudioSeekTarget
 ): Int? {
-	val targetCandidates = listOf(seekTarget.audioResource) + seekTarget.segment.audioResourceCandidates()
+	val targetCandidates = (listOf(seekTarget.audioResource) + seekTarget.segment.audioResourceCandidates())
+		.flatMap(String::normalizedWhispersyncResourceCandidates)
+		.toSet()
 	if (targetCandidates.isEmpty()) return null
 	val exactIndex = mediaItems.indexOfFirst { item ->
 		val itemCandidates = listOfNotNull(item.uri, item.mediaId, item.resourceKey)
 			.flatMap(String::normalizedWhispersyncResourceCandidates)
 			.toSet()
 		targetCandidates.any { target ->
-			itemCandidates.any { candidate ->
-				candidate == target ||
-					candidate.endsWith("/$target") ||
-					target.endsWith("/$candidate")
-			}
+			target in itemCandidates
 		}
 	}.takeIf { index -> index >= 0 }
 	if (exactIndex != null) return exactIndex

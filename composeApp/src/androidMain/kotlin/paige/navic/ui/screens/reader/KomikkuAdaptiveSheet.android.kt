@@ -41,11 +41,13 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
@@ -57,6 +59,7 @@ private val sheetAnimationSpec = tween<Float>(durationMillis = 350)
 @Composable
 actual fun KomikkuAdaptiveSheet(
 	onDismissRequest: () -> Unit,
+	dimAmount: Float,
 	modifier: Modifier,
 	content: @Composable () -> Unit
 ) {
@@ -69,6 +72,10 @@ actual fun KomikkuAdaptiveSheet(
 				decorFitsSystemWindows = true
 			)
 		) {
+			val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+			LaunchedEffect(window, dimAmount) {
+				window?.setDimAmount(dimAmount)
+			}
 			KomikkuAdaptiveSheetContent(
 				isTabletUi = isTabletUi,
 				enableSwipeDismiss = true,

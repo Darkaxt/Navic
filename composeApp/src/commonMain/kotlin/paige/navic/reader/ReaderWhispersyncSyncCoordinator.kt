@@ -35,6 +35,7 @@ enum class ReaderWhispersyncStatusKind {
 	SyncDisabled,
 	SeekingAudio,
 	Playing,
+	NoActiveCue,
 	Mismatch,
 	LoadFailed
 }
@@ -120,8 +121,8 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 		?: return ReaderWhispersyncPlaybackPositionStep(
 			state = clearOverlayIfNeeded(),
 			status = ReaderWhispersyncStatus(
-				kind = ReaderWhispersyncStatusKind.Mismatch,
-				label = "Whispersync mismatch",
+				kind = ReaderWhispersyncStatusKind.NoActiveCue,
+				label = "No synced text here",
 				detail = audioResource,
 				audioResource = audioResource,
 				positionMs = positionMs

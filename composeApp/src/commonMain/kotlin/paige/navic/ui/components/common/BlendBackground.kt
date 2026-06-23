@@ -68,13 +68,21 @@ fun BlendBackground(
 	val blurDp = nowPlayingBackgroundBlurDp(preferenceManager.nowPlayingBackgroundBlurDp)
 	val dimAlpha = nowPlayingBackgroundDimAlpha(preferenceManager.nowPlayingBackgroundDimPercent)
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
-	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId
-	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, imageRequestHeaders, serverRequestHeaders) {
-		val usesServerCoverArt = resolvedImageUrl == null
+	val resolvedImageUrl = visibleImageUrlForAurralPolicy(
+		imageUrl = imageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
+	)
+	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
+		coverArtId = coverArtId,
+		imageUrl = resolvedImageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
+	)
+	val resolvedImageCacheKey = imageCacheKey ?: resolvedImageUrl ?: visibleCoverArtId
+	val model = remember(visibleCoverArtId, resolvedImageUrl, resolvedImageCacheKey, imageRequestHeaders, serverRequestHeaders) {
+		val usesServerCoverArt = resolvedImageUrl == null && visibleCoverArtId != null
 		val requestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
 		ImageRequest.Builder(coilPlatformContext)
-			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.data(resolvedImageUrl ?: visibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(resolvedImageCacheKey?.let { "${it}_static" })
 			.diskCacheKey(resolvedImageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)

@@ -198,11 +198,19 @@ fun CoverArt(
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val sessionManager = koinInject<SessionManager>()
-	val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
-	val usesServerCoverArt = resolvedImageUrl == null
+	val resolvedImageUrl = visibleImageUrlForAurralPolicy(
+		imageUrl = imageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
+	)
+	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
+		coverArtId = coverArtId,
+		imageUrl = resolvedImageUrl,
+		aurralEnabled = preferenceManager.aurralEnabled
+	)
+	val usesServerCoverArt = resolvedImageUrl == null && visibleCoverArtId != null
 	val resolvedRequestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
 	val resolvedImageCacheKey = normalizedCoverArtCacheKey(
-		cacheKey = imageCacheKey ?: resolvedImageUrl ?: coverArtId,
+		cacheKey = imageCacheKey ?: resolvedImageUrl ?: visibleCoverArtId,
 		normalization = normalization
 	)
 	LaunchedEffect(
@@ -224,9 +232,9 @@ fun CoverArt(
 			)
 		}
 	}
-	val model = remember(coverArtId, resolvedImageUrl, resolvedImageCacheKey, resolvedRequestHeaders) {
+	val model = remember(visibleCoverArtId, resolvedImageUrl, resolvedImageCacheKey, resolvedRequestHeaders) {
 		ImageRequest.Builder(coilPlatformContext)
-			.data(resolvedImageUrl ?: coverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.data(resolvedImageUrl ?: visibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(resolvedImageCacheKey)
 			.diskCacheKey(resolvedImageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
@@ -257,15 +265,15 @@ fun CoverArt(
 			Modifier.indication(interactionSource, ripple())
 		else Modifier)
 
-	val fallbackContent = remember(contentDescription, coverArtId, resolvedImageUrl) {
+	val fallbackContent = remember(contentDescription, visibleCoverArtId, resolvedImageUrl) {
 		coverArtFallbackContent(
 			contentDescription = contentDescription,
-			coverArtId = coverArtId,
+			coverArtId = visibleCoverArtId,
 			imageUrl = resolvedImageUrl
 		)
 	}
 
-	if (coverArtId.isNullOrBlank() && resolvedImageUrl == null) {
+	if (visibleCoverArtId.isNullOrBlank() && resolvedImageUrl == null) {
 		return CoverArtFallback(
 			fallbackContent = fallbackContent,
 			fallbackKind = fallbackKind,

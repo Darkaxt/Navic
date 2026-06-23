@@ -2,7 +2,9 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class ReaderWhispersyncSyncCoordinatorTest {
@@ -69,6 +71,29 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals(ReaderEngineCommand.ClearMediaOverlay, outsideSegment.engineCommand)
 		assertEquals(2L, outsideSegment.engineCommandKey)
 		assertNull(outsideSegment.activeSegmentKey)
+	}
+
+	@Test
+	fun playbackPositionInTimelineGapClearsOverlayWithoutMismatchRepairPrompt() {
+		val timeline = whispersyncTimeline()
+		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 1_500
+		)
+
+		val gap = active.onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 4_000
+		)
+
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, gap.state.engineCommand)
+		val status = assertNotNull(gap.status)
+		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, status.kind)
+		assertFalse(status.requiresAttention)
+		assertFalse(status.repairable)
+		assertNull(gap.state.activeSegmentKey)
 	}
 
 	@Test

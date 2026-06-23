@@ -42,6 +42,18 @@ This is the recommended approach. It preserves Navidrome as the source of truth 
 
 ## Selected Design
 
+### Artwork Source Authority
+
+When Aurral is enabled, Aurral is the first visible artwork authority across Navic. Navidrome/Subsonic still owns normal library metadata, playback identity, scrobbling, downloaded-file ownership, and long-lived song ids, but it must sit behind Aurral for visible artwork.
+
+Required behavior:
+
+- Song, album, artist, mini-player, now-playing, notification/media-session, widget, dynamic background, sheet, lyrics-share, list, grid, carousel, shortcut, and Aurral hub surfaces must route visible artwork through an Aurral-first policy before any Navidrome cover-art URL is built.
+- Stored `Native first` or `Native only` artwork preferences must not override Aurral while Aurral is enabled. Those preferences only matter when Aurral is disabled.
+- Artist images from Navidrome endpoints such as `getArtistImage` or `getCoverArt` must be treated as unresolved while Aurral is enabled, not as valid external artwork.
+- Aurral artist-photo hydration must attempt every unresolved visible artist source by default. It must not stop at a small fixed batch that leaves later artists using empty/native placeholders until their detail page is opened.
+- Navidrome cover IDs are allowed as a fallback only when Aurral is disabled, when rendering non-visible offline/download metadata, or when an explicitly documented non-Aurral path owns that artwork.
+
 ### Settings and Auth
 
 Add `Settings -> Integrations -> Aurral` with:
@@ -150,6 +162,7 @@ Pure policy tests should cover:
 - Auth header/session precedence and credential fingerprinting without raw secret exposure.
 - Stream URL generation using bearer tokens and correct path scoping.
 - Aurral Flow playback eligibility: prefer Navidrome station when available, use direct jobs when ready, hide actions for transient jobs.
+- Aurral-first visible artwork policy: Aurral-enabled playback and artist surfaces suppress Navidrome cover IDs, ignore stored native-priority preferences, reject Navidrome image URLs as external artist art, and queue all unresolved visible artists for Aurral hydration.
 - Up Next ordering for normal, repeat-one, repeat-all, and shuffle mode.
 
 Integration-level smoke tests should cover:

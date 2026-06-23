@@ -296,7 +296,7 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(ebooksOptionsText, "PagedVertical(ReaderFlowPagedVertical")
 		assertContains(ebooksOptionsText, "ScrollGaps(ReaderFlowScrolledGaps")
 		assertContains(searchSettingsText, "readerFlowMode")
-		assertContains(searchSettingsText, "ReaderSupportedFlowModes")
+		assertContains(searchSettingsText, "readerFlowSearchOptions = ReaderSupportedFlowModes")
 	}
 
 	@Test

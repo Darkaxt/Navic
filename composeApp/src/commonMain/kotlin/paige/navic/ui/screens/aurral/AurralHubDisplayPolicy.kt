@@ -526,6 +526,7 @@ fun aurralHubSearchArtists(
 ): List<AurralDiscoverArtist> =
 	artists
 		.filter { artist -> artist.id.isNotBlank() && artist.name.isNotBlank() }
+		.map { artist -> artist.copy(imageUrl = artist.imageUrl.externalAurralArtworkUrlOrNull()) }
 		.distinctBy { it.id.trim().lowercase() }
 		.take(limit.coerceAtLeast(0))
 
@@ -554,9 +555,19 @@ fun aurralArtistRoute(artist: AurralDiscoverArtist): Screen.AurralArtist? {
 	return Screen.AurralArtist(
 		artistMbid = artistMbid,
 		artistName = artistName,
-		imageUrl = artist.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+		imageUrl = artist.imageUrl.externalAurralArtworkUrlOrNull()
 	)
 }
+
+fun aurralArtistHeroCoverArtId(
+	localArtist: DomainArtist?,
+	externalArtworkEnabled: Boolean
+): String? =
+	if (externalArtworkEnabled) {
+		null
+	} else {
+		localArtist?.coverArtId?.trim()?.takeIf { it.isNotEmpty() }
+	}
 
 fun aurralArtistRecommendationRoute(
 	artist: AurralDiscoverArtist,
@@ -651,6 +662,7 @@ private fun mergeAurralDiscoverArtists(
 		val safeArtist = artist.copy(
 			id = artist.id.trim(),
 			name = artist.name.trim(),
+			imageUrl = artist.imageUrl.externalAurralArtworkUrlOrNull(),
 			recommendedAlbums = artist.recommendedAlbums.distinctBy { it.id.trim().lowercase() }
 		)
 		val existing = merged[key]
@@ -658,7 +670,7 @@ private fun mergeAurralDiscoverArtists(
 			safeArtist
 		} else {
 			existing.copy(
-				imageUrl = existing.imageUrl ?: safeArtist.imageUrl,
+				imageUrl = preferredExternalArtworkUrl(existing.imageUrl, safeArtist.imageUrl),
 				tags = (existing.tags + safeArtist.tags).distinctBy { it.trim().lowercase() },
 				matchedTags = (existing.matchedTags + safeArtist.matchedTags)
 					.distinctBy { it.trim().lowercase() },
@@ -688,8 +700,10 @@ private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
 		val libraryArtist = artist.id.normalizedAurralKey()?.let(libraryById::get)
 			?: artist.name.normalizedAurralName()?.let(libraryByName::get)
 		artist.copy(
-			imageUrl = libraryArtist?.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
-				?: artist.imageUrl,
+			imageUrl = preferredExternalArtworkUrl(
+				primary = artist.imageUrl,
+				fallback = libraryArtist?.imageUrl
+			),
 			monitored = libraryArtist?.monitored ?: artist.monitored ?: false
 		)
 	}
@@ -1006,6 +1020,33 @@ private fun String?.normalizedAurralName(): String? =
 		?.lowercase()
 		?.replace(Regex("""\s+"""), " ")
 		?.takeIf { it.isNotEmpty() }
+
+private fun preferredExternalArtworkUrl(
+	primary: String?,
+	fallback: String?
+): String? {
+	val primaryUrl = primary.externalAurralArtworkUrlOrNull()
+	val fallbackUrl = fallback.externalAurralArtworkUrlOrNull()
+	return when {
+		primaryUrl == null -> fallbackUrl
+		fallbackUrl == null -> primaryUrl
+		else -> primaryUrl
+	}
+}
+
+private fun String?.externalAurralArtworkUrlOrNull(): String? {
+	val url = this?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	return url.takeUnless { it.isNavidromeArtworkUrl() }
+}
+
+private fun String.isNavidromeArtworkUrl(): Boolean {
+	val normalized = lowercase()
+	return "navidrome" in normalized ||
+		"/rest/getcoverart" in normalized ||
+		"/rest/getartistimage" in normalized ||
+		"/getcoverart" in normalized ||
+		"/getartistimage" in normalized
+}
 
 private fun String?.aurralSearchYearOrNull(): Int? =
 	this

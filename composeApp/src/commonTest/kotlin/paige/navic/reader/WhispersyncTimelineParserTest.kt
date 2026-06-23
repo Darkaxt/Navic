@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class WhispersyncTimelineParserTest {
 	@Test
@@ -184,6 +185,96 @@ class WhispersyncTimelineParserTest {
 		assertEquals("Audio/chapter01.m4b", target.audioResource)
 		assertEquals(1_250, target.positionMs)
 		assertEquals("Visible paragraph", target.segment.label)
+	}
+
+	@Test
+	fun visibleTextRangeIgnoresRangeLessSegmentsInsteadOfSeekingBlindly() {
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "segments": [
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "audioStartMs": 12000,
+			      "audioEndMs": 18000,
+			      "href": "Text/chapter1.xhtml",
+			      "label": "Range-less cue"
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val target = sidecar.timeline.seekTargetForVisibleTextRange(
+			textHref = "Text/chapter1.xhtml",
+			visibleStart = 300,
+			visibleEnd = 450
+		)
+
+		assertNull(target)
+	}
+
+	@Test
+	fun sidecarParserSkipsMalformedSegmentsAndAcceptsFractionalMilliseconds() {
+		val result = runCatching {
+			decodeWhispersyncSidecar(
+				"""
+				{
+				  "segments": [
+				    {
+				      "audioHref": "Audio/chapter01.m4b",
+				      "startMs": { "bad": true },
+				      "endMs": 1000,
+				      "href": "Text/chapter1.xhtml",
+				      "textStart": 0,
+				      "textEnd": 10
+				    },
+				    {
+				      "audioHref": "Audio/chapter01.m4b",
+				      "startMs": 263360.5,
+				      "endMs": 282920.25,
+				      "href": "Text/chapter1.xhtml",
+				      "textStart": 20,
+				      "textEnd": 80
+				    }
+				  ]
+				}
+				""".trimIndent()
+			)
+		}
+
+		assertTrue(result.isSuccess, result.exceptionOrNull()?.message.orEmpty())
+		val segment = result.getOrThrow().timeline.segments.single()
+		assertEquals(263_361L, segment.startMs)
+		assertEquals(282_920L, segment.endMs)
+		assertEquals(20, segment.textStart)
+		assertEquals(80, segment.textEnd)
+	}
+
+	@Test
+	fun activeSegmentDoesNotCrossMatchWrongAudioTrackBySuffixOnly() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "chapter-2",
+					audioTrackIndex = 1,
+					audioResource = "chapter.m4b",
+					startMs = 1_000,
+					endMs = 2_000,
+					textHref = "Text/chapter2.xhtml",
+					textStart = 10,
+					textEnd = 30
+				)
+			)
+		)
+
+		val segment = timeline.activeSegment(
+			audioResource = "wrong-book/chapter.m4b",
+			audioTrackIndex = 0,
+			positionMs = 1_500
+		)
+
+		assertNull(segment)
 	}
 
 	@Test

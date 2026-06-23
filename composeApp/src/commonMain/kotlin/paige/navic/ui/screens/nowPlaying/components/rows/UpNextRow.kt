@@ -142,7 +142,6 @@ private fun NowPlayingUpNextItem(
 					contentDescription = null,
 					modifier = Modifier.size(36.dp),
 					normalization = CoverArtNormalization.TrimWhitespace,
-					crossfadeMs = 200
 				)
 				Column(
 					modifier = Modifier

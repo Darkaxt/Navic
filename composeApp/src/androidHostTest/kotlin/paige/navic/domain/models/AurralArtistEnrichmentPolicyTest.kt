@@ -162,7 +162,7 @@ class AurralArtistEnrichmentPolicyTest {
 			listOf(
 				"https://aurral.example.com/local.jpg",
 				"https://aurral.example.com/external.jpg",
-				"https://navidrome.example.com/local-only.jpg"
+				null
 			),
 			rows.map { it.artist.imageUrl }
 		)

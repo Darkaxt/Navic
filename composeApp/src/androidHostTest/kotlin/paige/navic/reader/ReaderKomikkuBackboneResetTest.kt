@@ -1407,7 +1407,7 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun settingsDialogAppliesTapZoneOverlayThroughControllerSettingsCommand() {
+	fun settingsDialogAppliesTapZoneSettingsThroughControllerSettingsCommand() {
 		val readerScreenText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt"
 		).readText()
@@ -1416,6 +1416,9 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 		val settingsDialogText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt"
+		).readText()
+		val developerSettingsText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/DeveloperScreen.kt"
 		).readText()
 		val readingModePageText = root.resolve(
 			"tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReadingModePage.kt"
@@ -1440,9 +1443,19 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderScreen must persist normalized settings before routing them through ReaderCoordinator.applySettings."
 		)
 		assertTrue(
-			settingsDialogText.contains("Show tap zones") &&
+			settingsDialogText.contains("Smaller tap zones") &&
+				settingsDialogText.contains("settings.copy(smallerTapZone = settings.smallerTapZone != true)"),
+			"Reader-facing tap-zone settings should still route through ReaderSettings, not through a local UI flag."
+		)
+		assertFalse(
+			settingsDialogText.contains("Show tap zones") ||
 				settingsDialogText.contains("settings.copy(showTapZones = settings.showTapZones != true)"),
-			"The first migrated control should toggle tap-zone visualization through ReaderSettings, not through a local UI flag."
+			"Tap-zone visualization is diagnostic UI and must not return to the reader settings dialog."
+		)
+		assertTrue(
+			developerSettingsText.contains("readerShowTapZones") &&
+				developerSettingsText.contains("option_ebook_reader_show_tap_zones"),
+			"Tap-zone visualization belongs in Developer Options while still feeding ReaderSettings through preferences."
 		)
 		assertFalse(
 			readerScreenText.contains("ReaderOptionsPanel(") || readerRootText.contains("ReaderOptionsPanel("),
@@ -1819,8 +1832,7 @@ class ReaderKomikkuBackboneResetTest {
 			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
 		assertTrue(
 			playbackControlBody.contains("copy(alpha =") &&
-				playbackControlBody.contains("0.52f") &&
-				playbackControlBody.contains("0.34f"),
+				playbackControlBody.contains("0.60f"),
 			"The page-level Whispersync headset must be a low-opacity paper-layer glyph, not high-contrast chrome."
 		)
 		assertTrue(

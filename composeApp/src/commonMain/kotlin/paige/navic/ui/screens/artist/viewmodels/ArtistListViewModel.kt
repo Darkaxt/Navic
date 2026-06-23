@@ -19,11 +19,17 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
+import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.screens.artist.artistListAurralPhotoCacheEntity
+import paige.navic.ui.screens.artist.artistListAurralPhotoCandidate
+import paige.navic.ui.screens.artist.artistListAurralPhotoHydrationTargets
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.core.UiState
+import paige.navic.util.core.Logger
+import kotlin.time.Clock
 
 class ArtistListViewModel(
 	initialListType: DomainArtistListType = DomainArtistListType.AlphabeticalByName,
@@ -31,7 +37,8 @@ class ArtistListViewModel(
 	private val albumDao: AlbumDao,
 	private val sessionManager: SessionManager,
 	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val aurralRepository: AurralRepository
 ) : ViewModel() {
 	private val _artistsState =
 		MutableStateFlow<UiState<ImmutableList<DomainArtist>>>(UiState.Loading())
@@ -53,6 +60,7 @@ class ArtistListViewModel(
 	val selectedReversed = _selectedReversed.asStateFlow()
 
 	val gridState = LazyGridState()
+	private val attemptedAurralArtistPhotoKeys = mutableSetOf<String>()
 
 	init {
 		viewModelScope.launch {
@@ -82,6 +90,7 @@ class ArtistListViewModel(
 				}
 				.collect {
 					_artistsState.value = it
+					hydrateAurralArtistPhotos(it.data.orEmpty())
 				}
 		}
 	}
@@ -160,4 +169,51 @@ class ArtistListViewModel(
 				externalArtworkEnabled = preferenceManager.aurralEnabled
 			)
 		}
+
+	private fun hydrateAurralArtistPhotos(artists: List<DomainArtist>) {
+		val targets = artistListAurralPhotoHydrationTargets(
+			artists = artists,
+			attemptedLookupKeys = attemptedAurralArtistPhotoKeys,
+			externalArtworkEnabled = preferenceManager.aurralEnabled
+		)
+		if (targets.isEmpty()) return
+		attemptedAurralArtistPhotoKeys += targets.map { target -> target.lookupKey }
+
+		viewModelScope.launch {
+			val cacheEntries = targets.mapNotNull { target ->
+				val result = aurralRepository.searchArtists(
+					query = target.artist.name,
+					limit = AURRAL_ARTIST_PHOTO_SEARCH_LIMIT
+				)
+				result.onFailure { error ->
+					Logger.w(
+						ARTIST_LIST_AURRAL_ARTWORK_TAG,
+						"Aurral artist photo lookup failed for ${target.artist.name}",
+						error
+					)
+				}
+				val candidate = artistListAurralPhotoCandidate(
+					localArtist = target.artist,
+					candidates = result.getOrNull()?.artists.orEmpty()
+				)
+				artistListAurralPhotoCacheEntity(
+					localArtist = target.artist,
+					sourceArtist = candidate,
+					nowMillis = Clock.System.now().toEpochMilliseconds()
+				)
+			}
+			if (cacheEntries.isNotEmpty()) {
+				artistPhotoCacheDao.upsertArtistPhotoCacheEntries(cacheEntries)
+				Logger.i(
+					ARTIST_LIST_AURRAL_ARTWORK_TAG,
+					"Persisted ${cacheEntries.size} Aurral artist photos from artist list hydration."
+				)
+			}
+		}
+	}
+
+	private companion object {
+		const val AURRAL_ARTIST_PHOTO_SEARCH_LIMIT = 5
+		const val ARTIST_LIST_AURRAL_ARTWORK_TAG = "ArtistListAurralArtwork"
+	}
 }

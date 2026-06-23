@@ -266,7 +266,7 @@ class ReaderControllerTest {
 			overlayCreated.state.lastOverlayInteraction
 		)
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = false),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = true),
 			navigation.state.engineNavigation
 		)
 		assertEquals(
@@ -313,13 +313,13 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun pushStateUpdatesHistoryCapabilitiesWithoutShowingNativeCapsuleByDefault() {
+	fun pushStateSurfacesHistoryCapsuleWhenHistoryIsAvailable() {
 		val controller = ReaderController().onEngineEvent(
 			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = true)
 		).controller
 
 		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = false),
+			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = true),
 			controller.state.engineNavigation
 		)
 
@@ -1605,7 +1605,7 @@ class ReaderControllerTest {
 	}
 
 	@Test
-	fun audiobookPlaybackOutsideTimelineSurfacesWhispersyncMismatchStatus() {
+	fun audiobookPlaybackOutsideTimelineSurfacesNeutralNoActiveCueStatus() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
@@ -1623,8 +1623,8 @@ class ReaderControllerTest {
 
 		assertEquals(
 			ReaderWhispersyncStatus(
-				kind = ReaderWhispersyncStatusKind.Mismatch,
-				label = "Whispersync mismatch",
+				kind = ReaderWhispersyncStatusKind.NoActiveCue,
+				label = "No synced text here",
 				detail = "Audio/chapter99.m4b",
 				audioResource = "Audio/chapter99.m4b",
 				positionMs = 5_500L
@@ -1646,16 +1646,7 @@ class ReaderControllerTest {
 				rangeCfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)"
 			)
 		).controller
-		val mismatched = synced.onReadaloudPlaybackState(
-			ReaderReadaloudPlaybackUiState(
-				isAvailable = true,
-				isPlaying = true,
-				trackIndex = 0,
-				audioResource = "Audio/chapter99.m4b",
-				positionMs = 5_500L,
-				durationMs = 8_000L
-			)
-		).controller
+		val mismatched = synced.withRepairableWhispersyncMismatch()
 
 		val step = mismatched.repairWhispersyncMismatch()
 
@@ -2181,6 +2172,21 @@ class ReaderControllerTest {
 						textStart = 80,
 						textEnd = 140,
 						label = "Second sentence"
+					)
+				)
+			)
+		)
+
+	private fun ReaderController.withRepairableWhispersyncMismatch(): ReaderController =
+		copy(
+			state = state.copy(
+				whispersync = state.whispersync.copy(
+					status = ReaderWhispersyncStatus(
+						kind = ReaderWhispersyncStatusKind.Mismatch,
+						label = "Whispersync mismatch",
+						detail = "Audio/chapter99.m4b",
+						audioResource = "Audio/chapter99.m4b",
+						positionMs = 5_500L
 					)
 				)
 			)

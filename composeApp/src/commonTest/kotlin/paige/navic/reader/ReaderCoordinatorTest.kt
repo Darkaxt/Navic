@@ -197,16 +197,7 @@ class ReaderCoordinatorTest {
 				visibleEnd = 140
 			)
 		).coordinator
-		val mismatched = visible.onReadaloudPlaybackState(
-			ReaderReadaloudPlaybackUiState(
-				isAvailable = true,
-				isPlaying = true,
-				trackIndex = 0,
-				audioResource = "Audio/chapter99.m4b",
-				positionMs = 5_500L,
-				durationMs = 8_000L
-			)
-		).coordinator
+		val mismatched = visible.withRepairableWhispersyncMismatch()
 
 		val step = mismatched.repairWhispersyncMismatch()
 
@@ -758,6 +749,23 @@ class ReaderCoordinatorTest {
 						textStart = 80,
 						textEnd = 140,
 						label = "Second"
+					)
+				)
+			)
+		)
+
+	private fun ReaderCoordinator.withRepairableWhispersyncMismatch(): ReaderCoordinator =
+		copy(
+			controller = controller.copy(
+				state = controller.state.copy(
+					whispersync = controller.state.whispersync.copy(
+						status = ReaderWhispersyncStatus(
+							kind = ReaderWhispersyncStatusKind.Mismatch,
+							label = "Whispersync mismatch",
+							detail = "Audio/chapter99.m4b",
+							audioResource = "Audio/chapter99.m4b",
+							positionMs = 5_500L
+						)
 					)
 				)
 			)

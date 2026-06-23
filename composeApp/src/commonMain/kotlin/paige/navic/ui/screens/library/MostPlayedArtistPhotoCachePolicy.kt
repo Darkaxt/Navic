@@ -23,7 +23,7 @@ fun mostPlayedArtistPhotoCacheArtworkForShortcut(
 	if (shortcut.type != PlaybackOriginType.Artist) return null
 	return entries
 		.asSequence()
-		.filter { entry -> entry.imageUrl.isAbsoluteHttpUrl() }
+		.filter { entry -> entry.imageUrl.isExternalArtistPhotoUrl() }
 		.mapNotNull { entry -> entry.matchScore(shortcut)?.let { score -> score to entry } }
 		.sortedWith(
 			compareBy<Pair<MostPlayedArtistPhotoCacheMatchScore, MostPlayedArtistPhotoCacheEntry>> { it.first.matchRank }
@@ -63,7 +63,7 @@ fun mostPlayedArtistPhotoCacheEntity(
 	source: String = "Aurral"
 ): ArtistPhotoCacheEntity? {
 	if (shortcut.type != PlaybackOriginType.Artist) return null
-	val imageUrl = artist.artistImageUrl?.trim()?.takeIf { it.isAbsoluteHttpUrl() } ?: return null
+	val imageUrl = artist.artistImageUrl?.trim()?.takeIf { it.isExternalArtistPhotoUrl() } ?: return null
 	val normalizedName = listOf(shortcut.title, artist.name)
 		.firstNotNullOfOrNull { it.normalizedArtistPhotoCacheName() }
 		?: return null
@@ -117,6 +117,18 @@ private fun String?.normalizedArtistPhotoCacheName(): String? =
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private fun String.isExternalArtistPhotoUrl(): Boolean =
+	isAbsoluteHttpUrl() && !isNavidromeArtworkUrl()
+
+private fun String.isNavidromeArtworkUrl(): Boolean {
+	val normalized = lowercase()
+	return "navidrome" in normalized ||
+		"/rest/getcoverart" in normalized ||
+		"/rest/getartistimage" in normalized ||
+		"/getcoverart" in normalized ||
+		"/getartistimage" in normalized
+}
 
 private fun String.artistPhotoCacheSourceRank(): Int =
 	when (trim().lowercase()) {

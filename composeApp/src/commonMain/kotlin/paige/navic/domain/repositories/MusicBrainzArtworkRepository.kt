@@ -25,6 +25,8 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.IntegrationService
+import paige.navic.domain.models.effectiveAurralArtworkPriority
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.isSyntheticUnknownArtistName
 import paige.navic.util.core.Logger
 import paige.navic.util.core.synchronized
@@ -79,7 +81,10 @@ class MusicBrainzArtworkRepository(
 	private val initialCacheEntries = loadCacheEntries()
 	private val _artworkBySongId = MutableStateFlow(
 		initialCacheEntries.visibleMusicBrainzArtworkBySongId(
-			enabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
+			enabled = externalPlaybackArtworkEnabled(
+				musicBrainzArtworkFallbackEnabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
+				aurralEnabled = preferenceManager.aurralEnabled
+			),
 			nowMillis = currentTimeMillis()
 		)
 	)
@@ -101,6 +106,9 @@ class MusicBrainzArtworkRepository(
 
 	init {
 		preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.MusicBrainz) {
+			refreshCacheVisibility()
+		}
+		preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) {
 			refreshCacheVisibility()
 		}
 	}
@@ -153,6 +161,8 @@ class MusicBrainzArtworkRepository(
 				songCoverArtId = song.coverArtId,
 				albumCoverArtId = albumCoverArtId,
 				serverCoverLoadFailed = serverCoverLoadFailed,
+				coverArtworkPriority = preferenceManager.coverArtworkPriority,
+				aurralEnabled = preferenceManager.aurralEnabled,
 				songMusicBrainzId = song.musicBrainzId,
 				albumMusicBrainzId = albumMusicBrainzId,
 				songTitle = song.title,
@@ -447,13 +457,16 @@ class MusicBrainzArtworkRepository(
 	private fun emitCache() {
 		val nowMillis = currentTimeMillis()
 		val entries = loadCacheEntries()
-		val enabled = preferenceManager.musicBrainzArtworkFallbackEnabled
+		val artworkEnabled = externalPlaybackArtworkEnabled(
+			musicBrainzArtworkFallbackEnabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
+			aurralEnabled = preferenceManager.aurralEnabled
+		)
 		_artworkBySongId.value = entries.visibleMusicBrainzArtworkBySongId(
-			enabled = enabled,
+			enabled = artworkEnabled,
 			nowMillis = nowMillis
 		)
 		_metadataBySongId.value = entries.visibleMusicBrainzMetadataBySongId(
-			enabled = enabled,
+			enabled = preferenceManager.musicBrainzArtworkFallbackEnabled,
 			nowMillis = nowMillis
 		)
 		_cacheStats.value = musicBrainzCacheStats(
@@ -521,23 +534,41 @@ internal fun shouldResolveMusicBrainzArtworkOnPlayback(
 	songCoverArtId: String?,
 	albumCoverArtId: String?,
 	serverCoverLoadFailed: Boolean = false,
+	coverArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.NativeFirst,
+	aurralEnabled: Boolean = false,
 	songMusicBrainzId: String?,
 	albumMusicBrainzId: String?,
 	songTitle: String? = null,
 	artistName: String? = null
-): Boolean =
-	enabled &&
+): Boolean {
+	val effectiveArtworkPriority = effectiveAurralArtworkPriority(
+		aurralEnabled = aurralEnabled,
+		configuredPriority = coverArtworkPriority
+	)
+	return externalPlaybackArtworkEnabled(
+		musicBrainzArtworkFallbackEnabled = enabled,
+		aurralEnabled = aurralEnabled
+	) &&
 		isOnline &&
 		!isRadio &&
+		effectiveArtworkPriority != ArtworkSourcePriority.NativeOnly &&
 		(
-			serverCoverLoadFailed ||
+			effectiveArtworkPriority == ArtworkSourcePriority.AurralFirst ||
+				serverCoverLoadFailed ||
 				(songCoverArtId.isNullOrBlank() && albumCoverArtId.isNullOrBlank())
 		) &&
 		(
 			musicBrainzLookupMbidOrNull(songMusicBrainzId) != null ||
 				musicBrainzLookupMbidOrNull(albumMusicBrainzId) != null ||
-				canSearchMusicBrainzRecording(songTitle, artistName)
+			canSearchMusicBrainzRecording(songTitle, artistName)
 		)
+}
+
+internal fun externalPlaybackArtworkEnabled(
+	musicBrainzArtworkFallbackEnabled: Boolean,
+	aurralEnabled: Boolean
+): Boolean =
+	musicBrainzArtworkFallbackEnabled || aurralEnabled
 
 internal fun coverArtArchiveReleaseEndpoint(mbid: String): String =
 	"$COVER_ART_ARCHIVE_BASE_URL/release/${mbid.normalizedMbidOrNull() ?: mbid.trim()}"

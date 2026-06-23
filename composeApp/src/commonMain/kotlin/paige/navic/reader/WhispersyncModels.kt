@@ -9,7 +9,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -39,11 +38,11 @@ data class WhispersyncTimeline(
 		positionMs: Long,
 		audioTrackIndex: Int? = null
 	): WhispersyncSegment? {
-		val normalizedAudio = normalizedMediaOverlayResource(audioResource)
+		val normalizedAudioCandidates = audioResource.normalizedWhispersyncResourceCandidates()
 		val position = positionMs.coerceAtLeast(0L)
 		return segments.firstOrNull { segment ->
 			segment.matchesAudioResourceOrTrack(
-				normalizedAudio = normalizedAudio,
+				normalizedAudioCandidates = normalizedAudioCandidates,
 				audioTrackIndex = audioTrackIndex
 			) &&
 				position >= segment.startMs &&
@@ -167,10 +166,7 @@ private fun WhispersyncSegment.overlapScore(
 	val rangeStart = textStart
 	val rangeEnd = textEnd
 	if (rangeStart == null || rangeEnd == null) {
-		return WhispersyncRangeScore(
-			overlap = 0,
-			centerDistance = Double.MAX_VALUE
-		)
+		return null
 	}
 	val start = minOf(rangeStart, rangeEnd)
 	val end = maxOf(rangeStart, rangeEnd)
@@ -259,18 +255,17 @@ private fun JsonObject.stringValue(key: String): String? =
 		?.takeIf { it.isNotEmpty() }
 
 private fun JsonObject.intValue(key: String): Int? =
-	valueFor(key)
-		?.jsonPrimitive
+	(valueFor(key) as? JsonPrimitive)
 		?.intOrNull
 
 private fun JsonObject.millisecondValue(key: String): Long? =
-	valueFor(key)
-		?.jsonPrimitive
-		?.longOrNull
+	(valueFor(key) as? JsonPrimitive)
+		?.let { primitive ->
+			primitive.longOrNull ?: primitive.doubleOrNull?.roundToLong()
+		}
 
 private fun JsonObject.secondsValue(key: String): Long? =
-	valueFor(key)
-		?.jsonPrimitive
+	(valueFor(key) as? JsonPrimitive)
 		?.doubleOrNull
 		?.let { seconds -> (seconds * 1000.0).roundToLong() }
 
@@ -278,13 +273,11 @@ private fun JsonObject.valueFor(key: String): JsonElement? =
 	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }?.value
 
 private fun WhispersyncSegment.matchesAudioResourceOrTrack(
-	normalizedAudio: String,
+	normalizedAudioCandidates: List<String>,
 	audioTrackIndex: Int?
 ): Boolean {
 	val resourceMatches = audioResourceCandidates().any { candidate ->
-		candidate == normalizedAudio ||
-			candidate.endsWith("/$normalizedAudio") ||
-			normalizedAudio.endsWith("/$candidate")
+		candidate in normalizedAudioCandidates
 	}
 	if (resourceMatches) return true
 	return audioTrackIndex != null &&
@@ -305,9 +298,14 @@ internal fun String.normalizedWhispersyncResourceCandidates(): List<String> {
 		.trimStart('/')
 		.takeIf { it.isNotBlank() }
 		?: return emptyList()
+	val hasScheme = cleaned.contains("://")
 	val withoutScheme = cleaned.substringAfter("://", missingDelimiterValue = cleaned)
-	val urlPath = withoutScheme.substringAfter('/', missingDelimiterValue = withoutScheme)
-	return listOf(
+	val urlPath = if (hasScheme) {
+		withoutScheme.substringAfter('/', missingDelimiterValue = withoutScheme)
+	} else {
+		null
+	}
+	return listOfNotNull(
 		cleaned,
 		withoutScheme,
 		urlPath

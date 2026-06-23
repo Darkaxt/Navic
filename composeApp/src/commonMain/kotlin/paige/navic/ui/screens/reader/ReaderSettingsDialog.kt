@@ -228,6 +228,7 @@ internal fun KomikkuReaderSettingsDialog(
 
 	BoxWithConstraints {
 		val compactTabLabels = maxWidth < 520.dp
+		val settingsDimAmount = if (tabs[pagerState.currentPage] == KomikkuSettingsTab.CustomFilter) 0f else 0.5f
 		KomikkuTabbedDialog(
 			onDismissRequest = {
 				onDismissRequest()
@@ -236,6 +237,7 @@ internal fun KomikkuReaderSettingsDialog(
 			tabs = tabs,
 			pagerState = pagerState,
 			useCompactLabels = compactTabLabels,
+			dimAmount = settingsDimAmount,
 			modifier = Modifier.heightIn(max = maxHeight * 0.75f)
 		) { page ->
 			val settingsScrollState = rememberScrollState()
@@ -315,13 +317,6 @@ internal fun KomikkuReaderSettingsDialog(
 							checked = settings.smallerTapZone == true,
 							onClick = {
 								onSettingsChange(settings.copy(smallerTapZone = settings.smallerTapZone != true))
-							}
-						)
-						CheckboxItem(
-							label = "Show tap zones",
-							checked = settings.showTapZones == true,
-							onClick = {
-								onSettingsChange(settings.copy(showTapZones = settings.showTapZones != true))
 							}
 						)
 					}
@@ -495,6 +490,13 @@ internal fun KomikkuReaderSettingsDialog(
 								onSettingsChange(settings.copy(theme = theme))
 							}
 						)
+						CheckboxItem(
+							label = "Publisher styles",
+							checked = settings.publisherStyles == true,
+							onClick = {
+								onSettingsChange(settings.copy(publisherStyles = settings.publisherStyles != true))
+							}
+						)
 						SettingsSelectableChipRow(
 							title = "Rotation",
 							options = ReaderSupportedOrientations.map { orientation ->
@@ -622,13 +624,6 @@ internal fun KomikkuReaderSettingsDialog(
 								onSettingsChange(settings.copy(invertedColors = settings.invertedColors != true))
 							}
 						)
-						CheckboxItem(
-							label = "Publisher styles",
-							checked = settings.publisherStyles == true,
-							onClick = {
-								onSettingsChange(settings.copy(publisherStyles = settings.publisherStyles != true))
-							}
-						)
 					}
 				}
 			}
@@ -675,6 +670,7 @@ private fun KomikkuTabbedDialog(
 	tabs: List<KomikkuSettingsTab>,
 	pagerState: PagerState,
 	useCompactLabels: Boolean,
+	dimAmount: Float,
 	modifier: Modifier = Modifier,
 	content: @Composable (Int) -> Unit
 ) {
@@ -682,6 +678,7 @@ private fun KomikkuTabbedDialog(
 
 	KomikkuAdaptiveSheet(
 		onDismissRequest = onDismissRequest,
+		dimAmount = dimAmount,
 		modifier = modifier
 	) {
 		Column {

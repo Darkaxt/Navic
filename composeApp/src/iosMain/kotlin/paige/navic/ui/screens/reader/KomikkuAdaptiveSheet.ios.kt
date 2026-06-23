@@ -19,6 +19,7 @@ import androidx.compose.ui.window.DialogProperties
 @Composable
 actual fun KomikkuAdaptiveSheet(
 	onDismissRequest: () -> Unit,
+	dimAmount: Float,
 	modifier: Modifier,
 	content: @Composable () -> Unit
 ) {

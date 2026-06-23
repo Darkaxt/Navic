@@ -1689,6 +1689,67 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSettingsDialogMatchesKomikkuCustomFilterDimAmount() {
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val platformHostsText = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val androidAdaptiveSheetText = readerAndroidFile("KomikkuAdaptiveSheet.android.kt").readText()
+		val iosAdaptiveSheetText = listOf(
+			File("src/iosMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.ios.kt"),
+			File("composeApp/src/iosMain/kotlin/paige/navic/ui/screens/reader/KomikkuAdaptiveSheet.ios.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: ""
+		val komikkuSettingsDialogText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ReaderSettingsDialog.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku ReaderSettingsDialog.kt reference")
+		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
+			.substringBefore("\n@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nprivate fun KomikkuTabbedDialog(")
+		val tabbedDialogBody = settingsDialogText.substringAfter("private fun KomikkuTabbedDialog(")
+			.substringBefore("\n@Composable\nprivate fun KomikkuSettingsTabRow(")
+
+		assertContains(komikkuSettingsDialogText, "window?.setDimAmount(0f)")
+		assertContains(komikkuSettingsDialogText, "window?.setDimAmount(0.5f)")
+		assertContains(settingsDialogBody, "val settingsDimAmount = if (tabs[pagerState.currentPage] == KomikkuSettingsTab.CustomFilter) 0f else 0.5f")
+		assertContains(settingsDialogBody, "dimAmount = settingsDimAmount")
+		assertContains(tabbedDialogBody, "dimAmount = dimAmount")
+		assertContains(platformHostsText, "dimAmount: Float = 0.5f")
+		assertContains(androidAdaptiveSheetText, "DialogWindowProvider")
+		assertContains(androidAdaptiveSheetText, "window?.setDimAmount(dimAmount)")
+		assertContains(iosAdaptiveSheetText, "dimAmount: Float")
+	}
+
+	@Test
+	fun commonReaderPublisherStylesBelongsToGeneralInsteadOfCustomFilter() {
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val komikkuColorFilterText = listOf(
+			File("tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt"),
+			File("../tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/settings/ColorFilterPage.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku ColorFilterPage.kt reference")
+		val generalPageBody = settingsDialogText.substringAfter("KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(")
+			.substringBefore("KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(")
+		val customFilterPageBody = settingsDialogText.substringAfter("KomikkuSettingsTab.CustomFilter -> KomikkuSettingsDialogPage(")
+			.substringBefore("\n\t\t\t\t}\n\t\t\t}\n\t\t}")
+
+		assertFalse(
+			komikkuColorFilterText.contains("Publisher styles") ||
+				komikkuColorFilterText.contains("publisherStyles"),
+			"Komikku's ColorFilterPage is visual-filter-only; EPUB publisher style controls do not belong in Custom filter."
+		)
+		assertContains(generalPageBody, "label = \"Publisher styles\"")
+		assertContains(generalPageBody, "publisherStyles = settings.publisherStyles != true")
+		assertFalse(
+			customFilterPageBody.contains("Publisher styles") ||
+				customFilterPageBody.contains("publisherStyles"),
+			"Custom filter must stay aligned with Komikku's visual filter page; publisher CSS controls belong in General with typography/theme settings."
+		)
+	}
+
+	@Test
 	fun commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")
@@ -1874,6 +1935,29 @@ class ReaderRuntimeCommonChromeTest {
 		assertFalse(
 			runtimeHostText.contains("toLegacyReaderBridgeCommand"),
 			"The active Komikku reader must not reattach readaloud by converting sync commands back to legacy bridge ownership."
+		)
+	}
+
+	@Test
+	fun commonWhispersyncPlaybackControlBlendsIntoPageInsteadOfRenderingChromePill() {
+		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
+		val whispersyncControlText = readerCommonUiFile("ReaderWhispersyncStatusBadge.kt").readText()
+		val playbackControlBody = whispersyncControlText
+			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
+			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
+
+		assertContains(readerRootText, "KomikkuWhispersyncPlaybackControl(")
+		assertContains(readerRootText, ".align(Alignment.TopStart)")
+		assertContains(playbackControlBody, "MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)")
+		assertContains(playbackControlBody, "Icons.Outlined.Headset")
+		assertContains(playbackControlBody, "drawLine(")
+		assertFalse(
+			playbackControlBody.contains("Surface(") ||
+				playbackControlBody.contains("RoundedCornerShape(") ||
+				playbackControlBody.contains("MaterialTheme.colorScheme.surface.copy") ||
+				playbackControlBody.contains("CircularProgressIndicator(") ||
+				playbackControlBody.contains("IconButton("),
+			"The page-scoped Whispersync control should be a faint headset glyph on the paper surface, not a persistent chrome pill/circle."
 		)
 	}
 

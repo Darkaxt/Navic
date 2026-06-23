@@ -6,6 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 
 private const val RecordingMbid = "0f6d28a0-2fb9-4c67-8f7b-53b6c7a7f2a1"
 private const val ReleaseMbid = "76df3287-6cda-33eb-8e9a-044b5e15ffdd"
@@ -291,6 +292,49 @@ class MusicBrainzArtworkRepositoryTest {
 				albumMusicBrainzId = null
 			)
 		)
+		assertFalse(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = null,
+				albumCoverArtId = null,
+				serverCoverLoadFailed = true,
+				coverArtworkPriority = ArtworkSourcePriority.NativeOnly,
+				songMusicBrainzId = RecordingMbid,
+				albumMusicBrainzId = null
+			)
+		)
+	}
+
+	@Test
+	fun artworkLookupIgnoresHealthyServerCoverWhenExternalCoverPriorityIsAurralFirst() {
+		assertTrue(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = "song-cover",
+				albumCoverArtId = "album-cover",
+				serverCoverLoadFailed = false,
+				coverArtworkPriority = ArtworkSourcePriority.AurralFirst,
+				songMusicBrainzId = RecordingMbid,
+				albumMusicBrainzId = null
+			)
+		)
+		assertTrue(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = "song-cover",
+				albumCoverArtId = "album-cover",
+				serverCoverLoadFailed = false,
+				coverArtworkPriority = ArtworkSourcePriority.AurralFirst,
+				songMusicBrainzId = null,
+				albumMusicBrainzId = ReleaseGroupMbid
+			)
+		)
 	}
 
 	@Test
@@ -303,8 +347,70 @@ class MusicBrainzArtworkRepositoryTest {
 				songCoverArtId = "song-cover",
 				albumCoverArtId = "album-cover",
 				serverCoverLoadFailed = false,
+				coverArtworkPriority = ArtworkSourcePriority.NativeFirst,
 				songMusicBrainzId = RecordingMbid,
 				albumMusicBrainzId = null
+			)
+		)
+		assertFalse(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = "song-cover",
+				albumCoverArtId = "album-cover",
+				serverCoverLoadFailed = false,
+				coverArtworkPriority = ArtworkSourcePriority.NativeOnly,
+				songMusicBrainzId = RecordingMbid,
+				albumMusicBrainzId = null
+			)
+		)
+	}
+
+	@Test
+	fun artworkLookupIgnoresHealthyServerCoverWhenAurralIsEnabledEvenWithNativePriority() {
+		assertTrue(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = true,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = "song-cover",
+				albumCoverArtId = "album-cover",
+				serverCoverLoadFailed = false,
+				coverArtworkPriority = ArtworkSourcePriority.NativeOnly,
+				aurralEnabled = true,
+				songMusicBrainzId = RecordingMbid,
+				albumMusicBrainzId = null
+			)
+		)
+	}
+
+	@Test
+	fun aurralEnabledMakesExternalPlaybackArtworkVisibleEvenWhenMusicBrainzFallbackIsDisabled() {
+		assertTrue(
+			shouldResolveMusicBrainzArtworkOnPlayback(
+				enabled = false,
+				isOnline = true,
+				isRadio = false,
+				songCoverArtId = "song-cover",
+				albumCoverArtId = "album-cover",
+				serverCoverLoadFailed = false,
+				coverArtworkPriority = ArtworkSourcePriority.NativeOnly,
+				aurralEnabled = true,
+				songMusicBrainzId = RecordingMbid,
+				albumMusicBrainzId = null
+			)
+		)
+		assertTrue(
+			externalPlaybackArtworkEnabled(
+				musicBrainzArtworkFallbackEnabled = false,
+				aurralEnabled = true
+			)
+		)
+		assertFalse(
+			externalPlaybackArtworkEnabled(
+				musicBrainzArtworkFallbackEnabled = false,
+				aurralEnabled = false
 			)
 		)
 	}
@@ -1010,6 +1116,35 @@ class MusicBrainzArtworkRepositoryTest {
 		assertEquals(
 			mapOf("song-1" to metadata),
 			entries.visibleMusicBrainzMetadataBySongId(enabled = true, nowMillis = 1_000L)
+		)
+	}
+
+	@Test
+	fun aurralEnabledShowsArtworkCacheWithoutShowingMusicBrainzMetadata() {
+		val metadata = MusicBrainzTrackMetadata(recordingMbid = "recording-mbid")
+		val entry = MusicBrainzArtworkCacheEntry(
+			songId = "song-1",
+			fingerprint = "fingerprint",
+			status = MusicBrainzArtworkCacheStatus.Found,
+			imageUrl = "https://coverartarchive.org/front.jpg",
+			sourceMbid = "release-mbid",
+			sourceType = MusicBrainzArtworkSourceType.Release,
+			metadata = metadata,
+			updatedAtMillis = 1_000L
+		)
+		val entries = listOf(entry)
+		val artworkEnabled = externalPlaybackArtworkEnabled(
+			musicBrainzArtworkFallbackEnabled = false,
+			aurralEnabled = true
+		)
+
+		assertEquals(
+			mapOf("song-1" to entry),
+			entries.visibleMusicBrainzArtworkBySongId(enabled = artworkEnabled, nowMillis = 1_000L)
+		)
+		assertEquals(
+			emptyMap(),
+			entries.visibleMusicBrainzMetadataBySongId(enabled = false, nowMillis = 1_000L)
 		)
 	}
 

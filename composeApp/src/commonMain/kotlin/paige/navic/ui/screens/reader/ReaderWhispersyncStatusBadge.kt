@@ -61,7 +61,7 @@ internal fun KomikkuWhispersyncPlaybackControl(
 			)
 		}
 	) {
-		val glyphColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (control.enabled) 0.52f else 0.34f)
+		val glyphColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
 		Box(
 			modifier = Modifier.size(48.dp),
 			contentAlignment = Alignment.Center

@@ -349,9 +349,11 @@ fun aurralSimilarArtistRows(
 		val externalArtist = artist.id.normalizedAurralIdOrNull()?.let(externalByMusicBrainzId::get)
 			?: artist.name.normalizedAurralNameOrNull()?.let(externalByName::get)
 		val rowArtist = artist.copy(
-			imageUrl = artist.imageUrl
-				?: localArtist?.artistImageUrl
-				?: externalArtist?.imageUrl
+			imageUrl = preferredAurralArtworkUrl(
+				primary = artist.imageUrl,
+				fallback = externalArtist?.imageUrl
+			)
+				?: localArtist?.artistImageUrl.externalAurralArtworkUrlOrNull()
 		)
 		localArtist?.id?.let { seenKeys += "local:$it" }
 		artist.id.normalizedAurralIdOrNull()?.let { seenKeys += "mbid:$it" }
@@ -382,7 +384,10 @@ fun aurralSimilarArtistRows(
 			artist = AurralSimilarArtist(
 				id = artist.musicBrainzId ?: artist.id,
 				name = artist.name,
-				imageUrl = artist.artistImageUrl ?: externalArtist?.imageUrl,
+				imageUrl = preferredAurralArtworkUrl(
+					primary = externalArtist?.imageUrl,
+					fallback = artist.artistImageUrl
+				),
 				matchPercent = null
 			),
 			localArtistId = artist.id,
@@ -415,6 +420,33 @@ private fun String?.normalizedAurralNameOrNull(): String? =
 		?.lowercase()
 		?.replace(Regex("""\s+"""), " ")
 		?.takeIf { it.isNotEmpty() }
+
+private fun preferredAurralArtworkUrl(
+	primary: String?,
+	fallback: String?
+): String? {
+	val primaryUrl = primary.externalAurralArtworkUrlOrNull()
+	val fallbackUrl = fallback.externalAurralArtworkUrlOrNull()
+	return when {
+		primaryUrl == null -> fallbackUrl
+		fallbackUrl == null -> primaryUrl
+		else -> primaryUrl
+	}
+}
+
+private fun String?.externalAurralArtworkUrlOrNull(): String? {
+	val url = this?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	return url.takeUnless { it.isNavidromeArtworkUrl() }
+}
+
+private fun String.isNavidromeArtworkUrl(): Boolean {
+	val normalized = lowercase()
+	return "navidrome" in normalized ||
+		"/rest/getcoverart" in normalized ||
+		"/rest/getartistimage" in normalized ||
+		"/getcoverart" in normalized ||
+		"/getartistimage" in normalized
+}
 
 private fun String?.normalizedAurralAlbumTitleOrNull(): String? =
 	normalizedAurralNameOrNull()
