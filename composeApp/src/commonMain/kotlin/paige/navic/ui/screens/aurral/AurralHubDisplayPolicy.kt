@@ -9,6 +9,7 @@ import paige.navic.domain.models.aurralOwnershipStatusForProgress
 import paige.navic.domain.models.aurralOwnershipStatusForStatus
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.AurralSimilarArtist
+import paige.navic.domain.models.isNavidromeArtworkUrl
 import paige.navic.domain.models.isStationPlaylist
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.stationDisplayName
@@ -1037,15 +1038,6 @@ private fun preferredExternalArtworkUrl(
 private fun String?.externalAurralArtworkUrlOrNull(): String? {
 	val url = this?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 	return url.takeUnless { it.isNavidromeArtworkUrl() }
-}
-
-private fun String.isNavidromeArtworkUrl(): Boolean {
-	val normalized = lowercase()
-	return "navidrome" in normalized ||
-		"/rest/getcoverart" in normalized ||
-		"/rest/getartistimage" in normalized ||
-		"/getcoverart" in normalized ||
-		"/getartistimage" in normalized
 }
 
 private fun String?.aurralSearchYearOrNull(): Int? =

@@ -126,4 +126,22 @@ class ResolveStaticArtworkTest {
 			"Removed Aurral visibility helpers must not be called from commonMain (use resolveStaticArtwork): $offenders"
 		)
 	}
+
+	@Test
+	fun isNavidromeArtworkUrlIsDefinedExactlyOnceInCommonMain() {
+		val commonMain = File("src/commonMain/kotlin/paige/navic")
+		val definitionRegex = Regex("""fun\s+String\.isNavidromeArtworkUrl\b""")
+		val (total, byFile) = commonMain.walkTopDown()
+			.filter { it.isFile && it.extension == "kt" }
+			.fold(0 to mutableListOf<String>()) { (count, files), file ->
+				val matches = definitionRegex.findAll(file.readText()).count()
+				if (matches > 0) files += "${file.path}=$matches"
+				(count + matches) to files
+			}
+		assertEquals(
+			1,
+			total,
+			"isNavidromeArtworkUrl must be defined exactly once (in PlaybackArtworkPolicy) and imported elsewhere, found: $byFile"
+		)
+	}
 }

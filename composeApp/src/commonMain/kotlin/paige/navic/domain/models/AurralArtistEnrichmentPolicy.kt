@@ -439,15 +439,6 @@ private fun String?.externalAurralArtworkUrlOrNull(): String? {
 	return url.takeUnless { it.isNavidromeArtworkUrl() }
 }
 
-private fun String.isNavidromeArtworkUrl(): Boolean {
-	val normalized = lowercase()
-	return "navidrome" in normalized ||
-		"/rest/getcoverart" in normalized ||
-		"/rest/getartistimage" in normalized ||
-		"/getcoverart" in normalized ||
-		"/getartistimage" in normalized
-}
-
 private fun String?.normalizedAurralAlbumTitleOrNull(): String? =
 	normalizedAurralNameOrNull()
 		?.replace(Regex("""\s*[\(\[](deluxe|expanded|bonus|remaster|anniversary|edition).*$"""), "")

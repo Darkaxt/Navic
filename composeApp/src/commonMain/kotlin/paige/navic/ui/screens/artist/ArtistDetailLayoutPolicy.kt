@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.isNavidromeArtworkUrl
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.domain.repositories.AurralDiscoverArtist
@@ -350,15 +351,6 @@ private fun String.isAbsoluteHttpUrl(): Boolean =
 private fun String?.isResolvedExternalArtistImageUrl(): Boolean {
 	val imageUrl = this?.trim()?.takeIf { it.isNotEmpty() } ?: return false
 	return imageUrl.isAbsoluteHttpUrl() && !imageUrl.isNavidromeArtworkUrl()
-}
-
-private fun String.isNavidromeArtworkUrl(): Boolean {
-	val normalized = lowercase()
-	return "navidrome" in normalized ||
-		"/rest/getcoverart" in normalized ||
-		"/rest/getartistimage" in normalized ||
-		"/getcoverart" in normalized ||
-		"/getartistimage" in normalized
 }
 
 private fun String.artistHeaderImageSourceRank(): Int =

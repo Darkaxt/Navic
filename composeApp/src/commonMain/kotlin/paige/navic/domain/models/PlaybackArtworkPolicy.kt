@@ -243,7 +243,7 @@ private fun externalImageCacheKey(
 private fun String?.nonBlankOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
 
-private fun String.isNavidromeArtworkUrl(): Boolean {
+internal fun String.isNavidromeArtworkUrl(): Boolean {
 	val normalized = lowercase()
 	return "navidrome" in normalized ||
 		"/rest/getcoverart" in normalized ||
