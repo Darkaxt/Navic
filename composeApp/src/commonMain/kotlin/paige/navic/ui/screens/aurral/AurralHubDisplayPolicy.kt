@@ -205,6 +205,8 @@ fun aurralHubCanRenderDiscoveryWithoutStatus(
 fun aurralDiscoveryCollectionRows(
 	discovery: AurralDiscoverySummary,
 	limit: Int = 8,
+	genreRowLimit: Int = Int.MAX_VALUE,
+	tagLimit: Int = Int.MAX_VALUE,
 	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
 	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	externalArtworkEnabled: Boolean = true
@@ -289,13 +291,14 @@ fun aurralDiscoveryCollectionRows(
 			aurralDiscoveryGenreRows(
 				discovery = discovery,
 				limit = safeLimit,
+				genreRowLimit = genreRowLimit,
 				artistPhotoCacheEntries = artistPhotoCacheEntries,
 				artistArtworkPriority = artistArtworkPriority,
 				externalArtworkEnabled = externalArtworkEnabled
 			)
 		)
 
-		val topTags = aurralDiscoverTopTags(discovery)
+		val topTags = aurralDiscoverTopTags(discovery, limit = tagLimit)
 		if (topTags.isNotEmpty()) {
 			add(AurralDiscoveryCollectionRow.Tags(tags = topTags))
 		}
@@ -713,12 +716,14 @@ private fun List<AurralDiscoverArtist>.withLibraryArtistMonitoring(
 private fun aurralDiscoveryGenreRows(
 	discovery: AurralDiscoverySummary,
 	limit: Int,
+	genreRowLimit: Int,
 	artistPhotoCacheEntries: List<ArtistHeaderImageCacheEntry> = emptyList(),
 	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	externalArtworkEnabled: Boolean = true
 ): List<AurralDiscoveryCollectionRow.Artists> {
 	val safeLimit = limit.coerceAtLeast(0)
-	if (safeLimit == 0) return emptyList()
+	val safeGenreRowLimit = genreRowLimit.coerceAtLeast(0)
+	if (safeLimit == 0 || safeGenreRowLimit == 0) return emptyList()
 	val libraryArtists = discovery.libraryArtists.withCachedArtistPhotos(
 		entries = artistPhotoCacheEntries,
 		artistArtworkPriority = artistArtworkPriority,
@@ -732,6 +737,7 @@ private fun aurralDiscoveryGenreRows(
 				externalArtworkEnabled = externalArtworkEnabled
 			)
 	val fallbackRows = discovery.fallbackGenres
+		.asSequence()
 		.mapNotNull { section ->
 			val genre = section.genre.trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
 			val artists = aurralHubSearchArtists(
@@ -748,6 +754,8 @@ private fun aurralDiscoveryGenreRows(
 				)
 			}
 		}
+		.take(safeGenreRowLimit)
+		.toList()
 	if (fallbackRows.isNotEmpty()) return fallbackRows
 
 	val candidatePool = aurralDiscoverTagCandidateArtists(
@@ -758,6 +766,7 @@ private fun aurralDiscoveryGenreRows(
 	)
 	return discovery.topGenres
 		.cleanedAurralDisplayStrings()
+		.asSequence()
 		.mapNotNull { genre ->
 			val normalizedGenre = genre.normalizedAurralName() ?: return@mapNotNull null
 			val artists = candidatePool
@@ -779,6 +788,8 @@ private fun aurralDiscoveryGenreRows(
 				)
 			}
 		}
+		.take(safeGenreRowLimit)
+		.toList()
 }
 
 private fun aurralDiscoverTagCandidateArtists(

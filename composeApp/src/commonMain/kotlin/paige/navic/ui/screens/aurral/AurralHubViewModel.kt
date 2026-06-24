@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import paige.navic.domain.repositories.AurralArtistSearchResult
 import paige.navic.domain.repositories.AurralAlbumSearchResult
 import paige.navic.domain.repositories.AurralDiscoverArtist
@@ -172,7 +173,9 @@ class AurralHubViewModel(
 			_activeFlowActionId.value = flowId
 			_flowActionState.value = UiState.Loading(_flowActionState.value.data)
 			try {
-				val playableStation = playlistRepository.getPlaylistForPlayback(station)
+				val playableStation = withContext(Dispatchers.IO) {
+					playlistRepository.getPlaylistForPlayback(station)
+				}
 				updateStationPlaylist(playableStation)
 				if (playableStation.songs.isEmpty()) {
 					throw IllegalStateException("Station has no songs yet")
@@ -200,7 +203,9 @@ class AurralHubViewModel(
 			_activeFlowActionId.value = flow.id
 			_flowActionState.value = UiState.Loading(_flowActionState.value.data)
 			try {
-				val songs = repository.getFlowPlayableSongs(flow.id).getOrThrow()
+				val songs = withContext(Dispatchers.IO) {
+					repository.getFlowPlayableSongs(flow.id).getOrThrow()
+				}
 				if (songs.isEmpty()) {
 					throw IllegalStateException("Flow has no ready tracks yet")
 				}

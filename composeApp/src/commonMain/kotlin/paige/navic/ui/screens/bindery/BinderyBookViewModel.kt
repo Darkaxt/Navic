@@ -2,6 +2,7 @@ package paige.navic.ui.screens.bindery
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +41,7 @@ class BinderyBookViewModel(
 
 	fun refreshBook(fullRefresh: Boolean) {
 		bookJob?.cancel()
-		bookJob = viewModelScope.launch {
+		bookJob = viewModelScope.launch(Dispatchers.IO) {
 			val currentData = _bookState.value.data
 			val cachedData = if (!fullRefresh && currentData == null) cachedBookDataOrNull() else null
 			if (cachedData != null) {
@@ -118,7 +119,7 @@ class BinderyBookViewModel(
 	fun performAction(link: BinderyLink) {
 		val actionPath = link.href.trim().takeIf { it.isNotEmpty() } ?: return
 		if (actionPath in _actionInFlight.value) return
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_actionInFlight.value = _actionInFlight.value + actionPath
 			repository.performAction(actionPath).fold(
 				onSuccess = {
@@ -136,7 +137,7 @@ class BinderyBookViewModel(
 	fun downloadVersionResource(row: BinderyBookVersionRow) {
 		val resourcePath = row.id.trim().takeIf { it.isNotEmpty() } ?: return
 		if (resourcePath in _actionInFlight.value) return
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_actionInFlight.value = _actionInFlight.value + resourcePath
 			repository.getResourceBytes(resourcePath).fold(
 				onSuccess = { bytes ->

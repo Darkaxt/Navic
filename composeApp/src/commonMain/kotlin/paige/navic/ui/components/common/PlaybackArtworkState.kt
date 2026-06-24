@@ -3,6 +3,7 @@ package paige.navic.ui.components.common
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
@@ -11,6 +12,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
@@ -45,15 +48,8 @@ fun rememberPlaybackArtworkUiState(
 	serverCoverLoadFailed: Boolean
 ): PlaybackArtworkUiState {
 	val preferenceManager = koinInject<PreferenceManager>()
-	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
-	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
-		.collectAsStateWithLifecycle(emptyList())
 	val aurralBaseUrl = preferenceManager.aurralBaseUrl
-	val artistPhotoEntries = remember(cachedArtistPhotos, aurralBaseUrl) {
-		cachedArtistPhotos.map { entry ->
-			entry.toPlaybackArtistPhotoCacheEntry(aurralBaseUrl)
-		}
-	}
+	val artistPhotoEntries = rememberPlaybackArtistPhotoCacheEntries(aurralBaseUrl)
 	val artistPhoto = remember(
 		song?.artistId,
 		song?.artistName,
@@ -137,15 +133,8 @@ fun rememberAurralFirstArtistArtworkUiState(
 	externalArtistCacheKey: String?
 ): PlaybackArtworkUiState {
 	val preferenceManager = koinInject<PreferenceManager>()
-	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
-	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
-		.collectAsStateWithLifecycle(emptyList())
 	val aurralBaseUrl = preferenceManager.aurralBaseUrl
-	val artistPhotoEntries = remember(cachedArtistPhotos, aurralBaseUrl) {
-		cachedArtistPhotos.map { entry ->
-			entry.toPlaybackArtistPhotoCacheEntry(aurralBaseUrl)
-		}
-	}
+	val artistPhotoEntries = rememberPlaybackArtistPhotoCacheEntries(aurralBaseUrl)
 	val artistPhoto = remember(
 		artistId,
 		artistMusicBrainzId,
@@ -206,6 +195,27 @@ fun rememberAurralFirstArtistArtworkUiState(
 		imageRequestHeaders = requestHeaders,
 		source = resolution.source
 	)
+}
+
+@Composable
+private fun rememberPlaybackArtistPhotoCacheEntries(
+	aurralBaseUrl: String
+): List<PlaybackArtistPhotoCacheEntry> {
+	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
+	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
+		.collectAsStateWithLifecycle(emptyList())
+	val artistPhotoEntries by produceState<List<PlaybackArtistPhotoCacheEntry>>(
+		initialValue = emptyList(),
+		cachedArtistPhotos,
+		aurralBaseUrl
+	) {
+		value = withContext(Dispatchers.Default) {
+			cachedArtistPhotos.map { entry ->
+				entry.toPlaybackArtistPhotoCacheEntry(aurralBaseUrl)
+			}
+		}
+	}
+	return artistPhotoEntries
 }
 
 @Composable

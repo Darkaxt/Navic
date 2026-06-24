@@ -11,6 +11,9 @@ import paige.navic.ui.screens.aurral.aurralHubDiscoverArtists
 import paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry
 import paige.navic.ui.core.UiState
 
+private const val LibraryAurralGenreRowPreviewLimit = 3
+private const val LibraryAurralTagPreviewLimit = 24
+
 fun libraryAlbumAurralRequests(
 	showAurralHub: Boolean,
 	requests: List<AurralAlbumRequest>
@@ -49,6 +52,8 @@ fun libraryAurralCollectionRows(
 		aurralDiscoveryCollectionRows(
 			discovery = discovery,
 			limit = limit,
+			genreRowLimit = LibraryAurralGenreRowPreviewLimit,
+			tagLimit = LibraryAurralTagPreviewLimit,
 			artistPhotoCacheEntries = artistPhotoCacheEntries,
 			artistArtworkPriority = artistArtworkPriority,
 			externalArtworkEnabled = externalArtworkEnabled

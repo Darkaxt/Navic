@@ -244,6 +244,42 @@ class LibraryAurralDisplayPolicyTest {
 	}
 
 	@Test
+	fun libraryAurralCollectionRowsKeepDiscoveryPreviewBounded() {
+		val discovery = AurralDiscoverySummary(
+			topGenres = (1..12).map { index -> "Genre $index" },
+			topTags = (1..40).map { index -> "tag-$index" },
+			recommendations = (1..12).map { index ->
+				AurralDiscoverArtist(
+					id = "artist-$index",
+					name = "Artist $index",
+					imageUrl = "https://aurral.example.com/artist-$index.jpg",
+					matchedTags = listOf("Genre $index")
+				)
+			}
+		)
+
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery,
+			limit = 8
+		)
+		val genreRows = rows.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.filter { row -> row.kind == AurralDiscoveryCollectionKind.GenreArtists }
+		val tagRow = rows.filterIsInstance<AurralDiscoveryCollectionRow.Tags>().single()
+
+		assertEquals(
+			3,
+			genreRows.size,
+			"Library should preview only a few Aurral genre rows instead of injecting every backend row at once."
+		)
+		assertEquals(
+			(1..24).map { index -> "tag-$index" },
+			tagRow.tags,
+			"Library tag wall should stay bounded; the full tag set belongs in the Aurral hub."
+		)
+	}
+
+	@Test
 	fun libraryAurralCollectionRowsKeepFallbackArtworkOutOfLibraryRows() {
 		val discovery = AurralDiscoverySummary(
 			recentlyAdded = listOf(

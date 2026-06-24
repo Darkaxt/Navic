@@ -44,8 +44,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_monitor_artist
 import navic.composeapp.generated.resources.action_view_artist
@@ -142,27 +144,37 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 	)
 
 	LaunchedEffect(route, configured) {
-		val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
-			.map { entry -> entry.toArtistHeaderImageCacheEntry() }
-		val localArtists = artistDao.getAllArtistsList().map { artist ->
-			artist.toDomainModel().withCachedArtistPhoto(
-				entries = artistPhotoCacheEntries,
-				artistArtworkPriority = preferenceManager.artistArtworkPriority,
-				externalArtworkEnabled = preferenceManager.aurralEnabled
+		val localCatalog = withContext(Dispatchers.IO) {
+			val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
+				.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+			val localArtists = artistDao.getAllArtistsList().map { artist ->
+				artist.toDomainModel().withCachedArtistPhoto(
+					entries = artistPhotoCacheEntries,
+					artistArtworkPriority = preferenceManager.artistArtworkPriority,
+					externalArtworkEnabled = preferenceManager.aurralEnabled
+				)
+			}
+			val localArtist = localArtists.findAurralLocalArtist(route.artistMbid, route.artistName)
+			val artist = localArtist ?: route.toDomainArtist()
+			val localAlbums = when {
+				localArtist != null -> albumDao.getAlbumsByArtist(localArtist.id).firstOrNull().orEmpty()
+				else -> albumDao.getAlbumsByArtistName(route.artistName).firstOrNull().orEmpty()
+			}.map { it.toDomainModel() }.sortedByAlbumYearDescending()
+			AurralArtistLocalCatalog(
+				artist = artist,
+				localArtist = localArtist,
+				localArtists = localArtists,
+				localAlbums = localAlbums,
+				artistPhotoCacheEntries = artistPhotoCacheEntries
 			)
 		}
-		val localArtist = localArtists.findAurralLocalArtist(route.artistMbid, route.artistName)
-		val artist = localArtist ?: route.toDomainArtist()
-		val localAlbums = when {
-			localArtist != null -> albumDao.getAlbumsByArtist(localArtist.id).firstOrNull().orEmpty()
-			else -> albumDao.getAlbumsByArtistName(route.artistName).firstOrNull().orEmpty()
-		}.map { it.toDomainModel() }.sortedByAlbumYearDescending()
+		val artist = localCatalog.artist
 
 		state = state.copy(
 			artist = artist,
-			localArtist = localArtist,
-			localAlbums = localAlbums,
-			heroImageUrl = route.imageUrl ?: localArtist?.let { artist ->
+			localArtist = localCatalog.localArtist,
+			localAlbums = localCatalog.localAlbums,
+			heroImageUrl = route.imageUrl ?: localCatalog.localArtist?.let { artist ->
 				artistImageUrlForExternalArtworkPolicy(
 					artist = artist,
 					externalArtworkEnabled = preferenceManager.aurralEnabled
@@ -186,10 +198,19 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			return@LaunchedEffect
 		}
 
-		aurralRepository.getArtistEnrichment(artist)
-			.onSuccess { enrichment ->
-				val discovery = aurralRepository.getDiscovery(hydrateMissingImages = false)
+		val enrichmentResult = withContext(Dispatchers.IO) {
+			aurralRepository.getArtistEnrichment(artist)
+		}
+		val discovery = if (enrichmentResult.isSuccess) {
+			withContext(Dispatchers.IO) {
+				aurralRepository.getDiscovery(hydrateMissingImages = false)
 					.getOrNull()
+			}
+		} else {
+			null
+		}
+		enrichmentResult
+			.onSuccess { enrichment ->
 				val recommendedAlbums = discovery
 					?.let {
 						aurralRecommendedAlbumsForArtist(
@@ -200,7 +221,7 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 					}
 					.orEmpty()
 				state = state.copy(
-					artist = if (localArtist == null && enrichment != null) {
+					artist = if (localCatalog.localArtist == null && enrichment != null) {
 						DomainArtist(
 							id = "aurral-${enrichment.artistMbid}",
 							name = enrichment.artistName.ifBlank { route.artistName },
@@ -211,17 +232,17 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 						state.artist
 					},
 					enrichment = enrichment,
-					missingAlbums = enrichment?.let { aurralMissingAlbumRows(it, localAlbums) }.orEmpty(),
+					missingAlbums = enrichment?.let { aurralMissingAlbumRows(it, localCatalog.localAlbums) }.orEmpty(),
 					recommendedAlbums = recommendedAlbums,
 					similarArtists = enrichment?.let {
 						aurralSimilarArtistRows(
 							enrichment = it,
-							allLocalArtists = localArtists,
+							allLocalArtists = localCatalog.localArtists,
 							localSimilarArtists = emptyList(),
 							externalArtists = discovery?.let { discoverySummary ->
 								aurralSimilarArtistImageCandidates(
 									discovery = discoverySummary,
-									artistPhotoCacheEntries = artistPhotoCacheEntries,
+									artistPhotoCacheEntries = localCatalog.artistPhotoCacheEntries,
 									artistArtworkPriority = preferenceManager.artistArtworkPriority,
 									externalArtworkEnabled = preferenceManager.aurralEnabled
 								)
@@ -317,7 +338,9 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 						scope.launch {
 							state = state.copy(monitoring = true, error = null)
 							launch { snackbarState.showSnackbar(monitorWaitingMessage) }
-							aurralRepository.monitorArtist(state.artist)
+							withContext(Dispatchers.IO) {
+								aurralRepository.monitorArtist(state.artist)
+							}
 								.onSuccess {
 									state = state.copy(error = null)
 								}
@@ -752,4 +775,12 @@ private data class AurralArtistUiState(
 	val monitoring: Boolean = false,
 	val monitorConfirmed: Boolean = false,
 	val error: Throwable? = null
+)
+
+private data class AurralArtistLocalCatalog(
+	val artist: DomainArtist,
+	val localArtist: DomainArtist?,
+	val localArtists: List<DomainArtist>,
+	val localAlbums: List<DomainAlbum>,
+	val artistPhotoCacheEntries: List<paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry>
 )
