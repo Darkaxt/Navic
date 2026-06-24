@@ -18,9 +18,14 @@ import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.ArtistCreditContext
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
+import paige.navic.domain.models.artistCreditDisplayNames
+import paige.navic.domain.models.artistCreditIdentityKey
+import paige.navic.domain.models.splitArtistCredit
+import paige.navic.domain.repositories.ArtistCreditResolutionRepository
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.shared.MediaPlayerViewModel
@@ -30,6 +35,7 @@ import paige.navic.ui.screens.artist.artistListAurralPhotoHydrationTargets
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.artist.aurralNameLookupArtistId
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
@@ -40,7 +46,8 @@ class ArtistListViewModel(
 	private val sessionManager: SessionManager,
 	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val preferenceManager: PreferenceManager,
-	private val aurralRepository: AurralRepository
+	private val aurralRepository: AurralRepository,
+	private val artistCreditResolutionRepository: ArtistCreditResolutionRepository
 ) : ViewModel() {
 	private val _artistsState =
 		MutableStateFlow<UiState<ImmutableList<DomainArtist>>>(UiState.Loading())
@@ -63,6 +70,9 @@ class ArtistListViewModel(
 
 	val gridState = LazyGridState()
 	private val attemptedAurralArtistPhotoKeys = mutableSetOf<String>()
+	private val attemptedArtistCreditKeys = mutableSetOf<String>()
+	private var lastRawArtists: List<DomainArtist> = emptyList()
+	private var lastRawArtistKey: String = ""
 
 	init {
 		viewModelScope.launch {
@@ -72,6 +82,9 @@ class ArtistListViewModel(
 
 	fun refreshArtists(fullRefresh: Boolean) {
 		viewModelScope.launch {
+			if (fullRefresh) {
+				attemptedArtistCreditKeys.clear()
+			}
 			repository.getArtistsFlow(fullRefresh, _listType.value, _selectedReversed.value)
 				.combine(artistPhotoCacheDao.observeArtistPhotoCache()) { state, cachedPhotos ->
 					val entries = cachedPhotos.map { entry -> entry.toArtistHeaderImageCacheEntry() }
@@ -93,7 +106,11 @@ class ArtistListViewModel(
 				.flowOn(Dispatchers.Default)
 				.collect {
 					_artistsState.value = it
-					hydrateAurralArtistPhotos(it.data.orEmpty())
+					val rawArtists = it.data.orEmpty()
+					lastRawArtists = rawArtists
+					lastRawArtistKey = rawArtists.artistCreditListKey()
+					hydrateAurralArtistPhotos(rawArtists)
+					hydrateArtistCreditResolutions(rawArtists)
 				}
 		}
 	}
@@ -214,6 +231,97 @@ class ArtistListViewModel(
 			}
 		}
 	}
+
+	private fun hydrateArtistCreditResolutions(artists: List<DomainArtist>) {
+		if (!preferenceManager.aurralEnabled) return
+		val sourceKey = artists.artistCreditListKey()
+		val targets = artists.mapNotNull { artist ->
+			val context = artist.toArtistCreditContext()
+			if (splitArtistCredit(context.originalCredit).size <= 1) return@mapNotNull null
+			context.takeIf { attemptedArtistCreditKeys.add(it.artistCreditAttemptKey()) }
+		}
+		if (targets.isEmpty()) return
+
+		viewModelScope.launch(Dispatchers.IO) {
+			var resolvedAny = false
+			targets.forEach { context ->
+				val resolution = artistCreditResolutionRepository.cachedResolution(context)
+					?: artistCreditResolutionRepository.resolveAndCache(context)
+				if (resolution != null) {
+					resolvedAny = true
+				}
+			}
+			if (!resolvedAny || lastRawArtistKey != sourceKey) return@launch
+
+			val expandedArtists = lastRawArtists.withCachedArtistCreditRows()
+			_artistsState.value = _artistsState.value.withArtistData(expandedArtists.toImmutableList())
+			hydrateAurralArtistPhotos(expandedArtists)
+		}
+	}
+
+	private suspend fun List<DomainArtist>.withCachedArtistCreditRows(): List<DomainArtist> {
+		val localArtistsByName = associateBy { artist -> artistCreditIdentityKey(artist.name) }
+		val expanded = mutableListOf<DomainArtist>()
+		val seen = mutableSetOf<String>()
+		forEach { artist ->
+			val context = artist.toArtistCreditContext()
+			val resolution = artistCreditResolutionRepository.cachedResolution(context)
+			val displayNames = artistCreditDisplayNames(context, resolution)
+			val artistsForCredit = if (resolution != null && displayNames.size > 1) {
+				displayNames.map { name ->
+					localArtistsByName[artistCreditIdentityKey(name)] ?: artist.asSyntheticArtistCredit(name)
+				}
+			} else {
+				listOf(artist)
+			}
+			artistsForCredit.forEach { resolvedArtist ->
+				if (seen.add(artistCreditIdentityKey(resolvedArtist.name))) {
+					expanded += resolvedArtist
+				}
+			}
+		}
+		return expanded
+	}
+
+	private fun DomainArtist.toArtistCreditContext(): ArtistCreditContext =
+		ArtistCreditContext(
+			originalCredit = name,
+			sourceId = id
+		)
+
+	private fun DomainArtist.asSyntheticArtistCredit(name: String): DomainArtist =
+		copy(
+			id = aurralNameLookupArtistId(name),
+			name = name,
+			albumCount = 0,
+			coverArtId = null,
+			artistImageUrl = null,
+			starredAt = null,
+			userRating = null,
+			sortName = name,
+			musicBrainzId = null,
+			lastFmUrl = null,
+			roles = emptyList(),
+			biography = null,
+			similarArtistIds = emptyList()
+		)
+
+	private fun ArtistCreditContext.artistCreditAttemptKey(): String =
+		artistCreditIdentityKey(originalCredit)
+
+	private fun List<DomainArtist>.artistCreditListKey(): String =
+		joinToString("\u001F") { artist ->
+			listOf(artist.id, artist.name).joinToString("\u001E") { artistCreditIdentityKey(it) }
+		}
+
+	private fun UiState<ImmutableList<DomainArtist>>.withArtistData(
+		artists: ImmutableList<DomainArtist>
+	): UiState<ImmutableList<DomainArtist>> =
+		when (this) {
+			is UiState.Loading -> UiState.Loading(artists)
+			is UiState.Success -> UiState.Success(artists)
+			is UiState.Error -> UiState.Error(error = error, data = artists)
+		}
 
 	private companion object {
 		const val AURRAL_ARTIST_PHOTO_SEARCH_LIMIT = 5

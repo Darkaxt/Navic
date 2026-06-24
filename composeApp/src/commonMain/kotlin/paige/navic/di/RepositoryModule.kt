@@ -6,6 +6,7 @@ import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.ArtistRepository
 import paige.navic.domain.repositories.AurralMetadataCache
+import paige.navic.domain.repositories.AurralArtistCreditLookup
 import paige.navic.domain.repositories.BinderyMetadataCache
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.domain.repositories.CollectionRepository
@@ -23,6 +24,8 @@ import paige.navic.domain.repositories.RoomBinderyMetadataCache
 import paige.navic.domain.repositories.SearchRepository
 import paige.navic.domain.repositories.ShareRepository
 import paige.navic.domain.repositories.SongRepository
+import paige.navic.domain.repositories.ArtistCreditLookup
+import paige.navic.domain.repositories.ArtistCreditResolutionRepository
 
 val repositoryModule = module {
 	singleOf(::AlbumRepository)
@@ -35,6 +38,8 @@ val repositoryModule = module {
 	single { BinderyRepository(preferenceManager = get(), metadataCache = get()) }
 	single { LidaClipsRepository(get()) }
 	single { AurralRepository(preferenceManager = get(), metadataCache = get(), confirmationWorkerEnabled = true) }
+	single<ArtistCreditLookup> { AurralArtistCreditLookup(get()) }
+	single { ArtistCreditResolutionRepository(metadataCache = get(), lookup = get()) }
 	singleOf(::LyricsRepository)
 	singleOf(::MusicBrainzArtworkRepository)
 	single { PlaybackOriginRepository(get()) }

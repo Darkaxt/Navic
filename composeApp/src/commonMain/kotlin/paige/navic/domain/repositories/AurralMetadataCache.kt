@@ -13,6 +13,7 @@ internal object AurralMetadataPayloadType {
 	const val AlbumTracks = "album-tracks"
 	const val ArtistEnrichment = "artist-enrichment"
 	const val ReleaseGroupCover = "release-group-cover"
+	const val ArtistCreditResolution = "artist-credit-resolution"
 }
 
 interface AurralMetadataCache {
