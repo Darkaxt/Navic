@@ -216,6 +216,16 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun artistCreditPartsSplitBulletCreditsAndRemoveDuplicates() {
+		assertEquals(
+			listOf("Eric Buchholz", "Braxton Burks"),
+			aurralAlbumArtistCreditParts(
+				"Eric Buchholz & Braxton Burks, Eric Buchholz • Eric Buchholz & Braxton Burks"
+			)
+		)
+	}
+
+	@Test
 	fun recoveryRowsMatchOwnedTrackByRecordingMbidEvenWhenTitlesDiffer() {
 		val localSong = song(
 			title = "Paradigm Shift",

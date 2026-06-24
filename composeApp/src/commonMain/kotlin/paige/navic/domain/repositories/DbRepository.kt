@@ -44,6 +44,25 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.util.core.Logger
 import kotlin.coroutines.cancellation.CancellationException
 
+internal data class AlbumSyncSongArtistOverrides(
+	val artistId: String?,
+	val artistName: String?
+)
+
+internal fun albumSyncSongArtistOverrides(
+	songArtistId: String?,
+	songArtistName: String?,
+	albumArtistId: String,
+	albumArtistName: String
+): AlbumSyncSongArtistOverrides {
+	val hasSongArtist = !songArtistId.isNullOrBlank() || !songArtistName.isNullOrBlank()
+	return if (hasSongArtist) {
+		AlbumSyncSongArtistOverrides(artistId = null, artistName = null)
+	} else {
+		AlbumSyncSongArtistOverrides(artistId = albumArtistId, artistName = albumArtistName)
+	}
+}
+
 class DbRepository(
 	private val albumDao: AlbumDao,
 	private val playlistDao: PlaylistDao,
@@ -199,9 +218,15 @@ class DbRepository(
 					allValidAlbumIds.add(albumEntity.albumId)
 
 					album.songs.forEach { song ->
+						val artistOverrides = albumSyncSongArtistOverrides(
+							songArtistId = song.artistId,
+							songArtistName = song.artistName,
+							albumArtistId = albumEntity.artistId,
+							albumArtistName = albumEntity.artistName
+						)
 						val songEntity = song.toEntity(
-							artistIdOverride = albumEntity.artistId,
-							artistNameOverride = albumEntity.artistName,
+							artistIdOverride = artistOverrides.artistId,
+							artistNameOverride = artistOverrides.artistName,
 							albumCoverArtId = albumEntity.coverArtId
 						)
 						songBatch.add(songEntity)

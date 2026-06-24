@@ -145,7 +145,7 @@ fun aurralAlbumArtistCreditParts(artistCredit: String?): List<String> {
 		?.takeIf { it.isNotEmpty() }
 		?: return emptyList()
 	return normalized
-		.split(Regex("""\s+(?:&|and|feat\.?|featuring|with|x)\s+|[,;/]""", RegexOption.IGNORE_CASE))
+		.split(Regex("""\s+(?:&|and|feat\.?|featuring|with|x)\s+|[,;/•]""", RegexOption.IGNORE_CASE))
 		.map { it.trim() }
 		.filter { it.isNotEmpty() }
 		.distinctBy { it.normalizedAurralAlbumRecoveryKey() ?: it.lowercase() }
