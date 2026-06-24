@@ -291,7 +291,10 @@ class ArtistListViewModel(
 			}
 			publishArtistCreditResolutionUpdates(resolvedUpdates)
 			if (lastRawArtistKey == sourceKey) {
-				hydrateAurralArtistPhotos(_artistsState.value.data.orEmpty())
+				viewModelScope.launch {
+					hydrateAurralArtistPhotos(_artistsState.value.data.orEmpty())
+					hydrateArtistCreditResolutions(artists)
+				}
 			}
 		}
 	}

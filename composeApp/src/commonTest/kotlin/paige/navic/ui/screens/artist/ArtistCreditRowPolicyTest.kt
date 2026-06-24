@@ -56,13 +56,15 @@ class ArtistCreditRowPolicyTest {
 	}
 
 	@Test
-	fun unresolvedCompositeArtistCreditStaysRaw() {
+	fun unresolvedCompositeArtistCreditIsHiddenFromVisibleRows() {
 		val artists = listOf(
+			DomainArtist(id = "solo", name = "LISA"),
 			DomainArtist(id = "group", name = "Chase & Status")
 		)
 
 		val rows = artistCreditResolvedRows(artists) { null }
 
-		assertEquals(listOf("Chase & Status"), rows.map { it.name })
+		assertEquals(listOf("LISA"), rows.map { it.name })
+		assertFalse(rows.any { it.name == "Chase & Status" })
 	}
 }

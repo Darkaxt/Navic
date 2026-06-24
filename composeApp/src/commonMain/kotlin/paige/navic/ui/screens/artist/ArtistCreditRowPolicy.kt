@@ -5,6 +5,7 @@ import paige.navic.domain.models.ArtistCreditResolution
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.artistCreditDisplayNames
 import paige.navic.domain.models.artistCreditIdentityKey
+import paige.navic.domain.models.splitArtistCredit
 
 internal fun artistCreditResolvedRows(
 	artists: List<DomainArtist>,
@@ -16,6 +17,7 @@ internal fun artistCreditResolvedRows(
 
 	artists.forEach { artist ->
 		val resolution = resolutionForArtist(artist)
+		val isCompoundCredit = splitArtistCredit(artist.name).size > 1
 		val displayNames = artistCreditDisplayNames(
 			context = ArtistCreditContext(originalCredit = artist.name, sourceId = artist.id),
 			cachedResolution = resolution
@@ -24,6 +26,8 @@ internal fun artistCreditResolvedRows(
 			displayNames.map { name ->
 				localArtistsByName[artistCreditIdentityKey(name)] ?: artist.asSyntheticArtistCredit(name)
 			}
+		} else if (isCompoundCredit) {
+			emptyList()
 		} else {
 			listOf(artist)
 		}
