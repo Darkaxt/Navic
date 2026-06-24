@@ -78,7 +78,7 @@ fun libraryAurralCollectionRowsState(
 		externalArtworkEnabled = externalArtworkEnabled
 	)
 	return when (discoveryState) {
-		is UiState.Loading -> if (rows.isEmpty()) UiState.Success(rows) else UiState.Loading(rows)
+		is UiState.Loading -> if (aurralConfigured) UiState.Loading(rows) else UiState.Success(rows)
 		is UiState.Success -> UiState.Success(rows)
 		is UiState.Error -> UiState.Success(rows)
 	}

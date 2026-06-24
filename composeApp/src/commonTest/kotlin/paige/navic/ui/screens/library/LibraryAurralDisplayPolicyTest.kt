@@ -420,18 +420,18 @@ class LibraryAurralDisplayPolicyTest {
 	}
 
 	@Test
-	fun libraryAurralCollectionRowsStateSettlesEmptyLoadingWithoutPlaceholder() {
+	fun libraryAurralCollectionRowsStateKeepsEmptyLoadingPlaceholderWhileResolving() {
 		val emptyLoadingRows = libraryAurralCollectionRowsState(
 			aurralConfigured = true,
 			discoveryState = UiState.Loading(null)
 		)
 
 		assertEquals(
-			UiState.Success(emptyList()),
+			UiState.Loading(emptyList()),
 			emptyLoadingRows
 		)
 		assertEquals(
-			false,
+			true,
 			libraryAurralLoadingPlaceholderVisible(emptyLoadingRows)
 		)
 	}
