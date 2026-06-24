@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -87,8 +88,11 @@ class SongListViewModel(
 		_selectedSong.value = null
 	}
 
+	private var refreshSongsJob: Job? = null
+
 	fun refreshSongs(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshSongsJob?.cancel()
+		refreshSongsJob = viewModelScope.launch {
 			repository.getSongsFlow(
 				fullRefresh,
 				_selectedSorting.value,

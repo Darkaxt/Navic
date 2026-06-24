@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -29,8 +30,11 @@ class RadioListViewModel(
 		}
 	}
 
+	private var refreshRadiosJob: Job? = null
+
 	fun refreshRadios(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshRadiosJob?.cancel()
+		refreshRadiosJob = viewModelScope.launch {
 			repository.getRadiosFlow(fullRefresh).collect {
 				_radiosState.value = it
 			}

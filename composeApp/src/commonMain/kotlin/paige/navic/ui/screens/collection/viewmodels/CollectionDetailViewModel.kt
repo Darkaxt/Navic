@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -174,9 +175,12 @@ class CollectionDetailViewModel(
 		super.onCleared()
 	}
 
+	private var refreshCollectionJob: Job? = null
+
 	fun refreshCollection(fullRefresh: Boolean) {
 		refreshAurralAcquisitionRequests()
-		viewModelScope.launch(Dispatchers.IO) {
+		refreshCollectionJob?.cancel()
+		refreshCollectionJob = viewModelScope.launch(Dispatchers.IO) {
 			repository.getCollectionFlow(fullRefresh, collectionId).collect {
 				_collectionState.value = it
 				if (it.data is DomainAlbum) {

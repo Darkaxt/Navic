@@ -58,4 +58,22 @@ class PerformanceAntiRegressionGuardTest {
 			)
 		}
 	}
+
+	@Test
+	fun refreshViewModelsCancelPreviousCollectorBeforeRelaunch() {
+		listOf(
+			"src/commonMain/kotlin/paige/navic/ui/screens/artist/viewmodels/ArtistListViewModel.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/collection/viewmodels/CollectionDetailViewModel.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/song/viewmodels/SongListViewModel.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/playlist/viewmodels/PlaylistListViewModel.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/genre/viewmodels/GenreListViewModel.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/radio/viewmodels/RadioListViewModel.kt"
+		).forEach { path ->
+			val source = File(path).readText()
+			assertTrue(
+				Regex("""\w+Job\s*\?\s*\.\s*cancel\s*\(\s*\)""").containsMatchIn(source),
+				"$path must cancel its previous refresh Job before relaunching (see AlbumListViewModel)."
+			)
+		}
+	}
 }

@@ -7,6 +7,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -80,8 +81,11 @@ class ArtistListViewModel(
 		}
 	}
 
+	private var refreshArtistsJob: Job? = null
+
 	fun refreshArtists(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshArtistsJob?.cancel()
+		refreshArtistsJob = viewModelScope.launch {
 			if (fullRefresh) {
 				attemptedArtistCreditKeys.clear()
 			}
