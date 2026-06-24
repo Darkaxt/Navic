@@ -15,14 +15,15 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
+import paige.navic.data.database.entities.ArtistPhotoCacheEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.ArtistCreditContext
+import paige.navic.domain.models.ArtistCreditResolution
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
-import paige.navic.domain.models.artistCreditDisplayNames
 import paige.navic.domain.models.artistCreditIdentityKey
 import paige.navic.domain.models.splitArtistCredit
 import paige.navic.domain.repositories.ArtistCreditResolutionRepository
@@ -32,10 +33,10 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.screens.artist.artistListAurralPhotoCacheEntity
 import paige.navic.ui.screens.artist.artistListAurralPhotoCandidate
 import paige.navic.ui.screens.artist.artistListAurralPhotoHydrationTargets
+import paige.navic.ui.screens.artist.artistCreditResolvedRows
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.core.UiState
-import paige.navic.ui.screens.artist.aurralNameLookupArtistId
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
@@ -71,7 +72,8 @@ class ArtistListViewModel(
 	val gridState = LazyGridState()
 	private val attemptedAurralArtistPhotoKeys = mutableSetOf<String>()
 	private val attemptedArtistCreditKeys = mutableSetOf<String>()
-	private var lastRawArtists: List<DomainArtist> = emptyList()
+	private val artistCreditResolutionState =
+		MutableStateFlow<Map<String, ArtistCreditResolution>>(emptyMap())
 	private var lastRawArtistKey: String = ""
 
 	init {
@@ -83,33 +85,44 @@ class ArtistListViewModel(
 	fun refreshArtists(fullRefresh: Boolean) {
 		viewModelScope.launch {
 			if (fullRefresh) {
+				attemptedAurralArtistPhotoKeys.clear()
 				attemptedArtistCreditKeys.clear()
 			}
-			repository.getArtistsFlow(fullRefresh, _listType.value, _selectedReversed.value)
-				.combine(artistPhotoCacheDao.observeArtistPhotoCache()) { state, cachedPhotos ->
-					val entries = cachedPhotos.map { entry -> entry.toArtistHeaderImageCacheEntry() }
-					when (state) {
-						is UiState.Loading -> UiState.Loading(
-							state.data?.withCachedArtistPhotos(entries)?.toImmutableList()
-						)
+			combine(
+				repository.getArtistsFlow(fullRefresh, _listType.value, _selectedReversed.value),
+				artistPhotoCacheDao.observeArtistPhotoCache(),
+				artistCreditResolutionState
+			) { state: UiState<ImmutableList<DomainArtist>>,
+				cachedPhotos: List<ArtistPhotoCacheEntity>,
+				creditResolutions: Map<String, ArtistCreditResolution> ->
+				val entries = cachedPhotos.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+				val rawArtists = state.data.orEmpty()
+				val displayedArtists = state.data
+					?.withKnownArtistCreditRows(creditResolutions)
+					?.withCachedArtistPhotos(entries)
+					?.toImmutableList()
+				ArtistListSnapshot(
+					state = when (state) {
+						is UiState.Loading -> UiState.Loading(displayedArtists)
 
 						is UiState.Success -> UiState.Success(
-							state.data.withCachedArtistPhotos(entries).toImmutableList()
+							displayedArtists ?: persistentListOf()
 						)
 
 						is UiState.Error -> UiState.Error(
 							error = state.error,
-							data = state.data?.withCachedArtistPhotos(entries)?.toImmutableList()
+							data = displayedArtists
 						)
-					}
-				}
+					},
+					rawArtists = rawArtists
+				)
+			}
 				.flowOn(Dispatchers.Default)
-				.collect {
-					_artistsState.value = it
-					val rawArtists = it.data.orEmpty()
-					lastRawArtists = rawArtists
+				.collect { snapshot ->
+					_artistsState.value = snapshot.state
+					val rawArtists = snapshot.rawArtists
 					lastRawArtistKey = rawArtists.artistCreditListKey()
-					hydrateAurralArtistPhotos(rawArtists)
+					hydrateAurralArtistPhotos(snapshot.state.data.orEmpty())
 					hydrateArtistCreditResolutions(rawArtists)
 				}
 		}
@@ -190,11 +203,19 @@ class ArtistListViewModel(
 			)
 		}
 
+	private fun List<DomainArtist>.withKnownArtistCreditRows(
+		resolutions: Map<String, ArtistCreditResolution>
+	): List<DomainArtist> =
+		artistCreditResolvedRows(this) { artist ->
+			resolutions[artist.artistCreditAttemptKey()]
+		}
+
 	private fun hydrateAurralArtistPhotos(artists: List<DomainArtist>) {
 		val targets = artistListAurralPhotoHydrationTargets(
 			artists = artists,
 			attemptedLookupKeys = attemptedAurralArtistPhotoKeys,
-			externalArtworkEnabled = preferenceManager.aurralEnabled
+			externalArtworkEnabled = preferenceManager.aurralEnabled,
+			limit = AURRAL_ARTIST_PHOTO_BATCH_LIMIT
 		)
 		if (targets.isEmpty()) return
 		attemptedAurralArtistPhotoKeys += targets.map { target -> target.lookupKey }
@@ -235,52 +256,51 @@ class ArtistListViewModel(
 	private fun hydrateArtistCreditResolutions(artists: List<DomainArtist>) {
 		if (!preferenceManager.aurralEnabled) return
 		val sourceKey = artists.artistCreditListKey()
-		val targets = artists.mapNotNull { artist ->
-			val context = artist.toArtistCreditContext()
-			if (splitArtistCredit(context.originalCredit).size <= 1) return@mapNotNull null
-			context.takeIf { attemptedArtistCreditKeys.add(it.artistCreditAttemptKey()) }
-		}
+		val targets = artists
+			.asSequence()
+			.mapNotNull { artist ->
+				val context = artist.toArtistCreditContext()
+				if (splitArtistCredit(context.originalCredit).size <= 1) return@mapNotNull null
+				context.takeIf { attemptedArtistCreditKeys.add(it.artistCreditAttemptKey()) }
+			}
+			.take(ARTIST_CREDIT_RESOLUTION_BATCH_LIMIT)
+			.toList()
 		if (targets.isEmpty()) return
 
 		viewModelScope.launch(Dispatchers.IO) {
-			var resolvedAny = false
+			val cachedUpdates = mutableMapOf<String, ArtistCreditResolution>()
+			val uncachedTargets = mutableListOf<ArtistCreditContext>()
 			targets.forEach { context ->
 				val resolution = artistCreditResolutionRepository.cachedResolution(context)
-					?: artistCreditResolutionRepository.resolveAndCache(context)
 				if (resolution != null) {
-					resolvedAny = true
+					cachedUpdates[context.artistCreditAttemptKey()] = resolution
+				} else {
+					uncachedTargets += context
 				}
 			}
-			if (!resolvedAny || lastRawArtistKey != sourceKey) return@launch
+			publishArtistCreditResolutionUpdates(cachedUpdates)
 
-			val expandedArtists = lastRawArtists.withCachedArtistCreditRows()
-			_artistsState.value = _artistsState.value.withArtistData(expandedArtists.toImmutableList())
-			hydrateAurralArtistPhotos(expandedArtists)
+			val resolvedUpdates = mutableMapOf<String, ArtistCreditResolution>()
+			uncachedTargets.forEach { context ->
+				val resolution = artistCreditResolutionRepository.resolveAndCache(context) ?: return@forEach
+				resolvedUpdates[context.artistCreditAttemptKey()] = resolution
+				if (resolvedUpdates.size >= ARTIST_CREDIT_RESOLUTION_PUBLISH_BATCH_SIZE) {
+					publishArtistCreditResolutionUpdates(resolvedUpdates.toMap())
+					resolvedUpdates.clear()
+				}
+			}
+			publishArtistCreditResolutionUpdates(resolvedUpdates)
+			if (lastRawArtistKey == sourceKey) {
+				hydrateAurralArtistPhotos(_artistsState.value.data.orEmpty())
+			}
 		}
 	}
 
-	private suspend fun List<DomainArtist>.withCachedArtistCreditRows(): List<DomainArtist> {
-		val localArtistsByName = associateBy { artist -> artistCreditIdentityKey(artist.name) }
-		val expanded = mutableListOf<DomainArtist>()
-		val seen = mutableSetOf<String>()
-		forEach { artist ->
-			val context = artist.toArtistCreditContext()
-			val resolution = artistCreditResolutionRepository.cachedResolution(context)
-			val displayNames = artistCreditDisplayNames(context, resolution)
-			val artistsForCredit = if (resolution != null && displayNames.size > 1) {
-				displayNames.map { name ->
-					localArtistsByName[artistCreditIdentityKey(name)] ?: artist.asSyntheticArtistCredit(name)
-				}
-			} else {
-				listOf(artist)
-			}
-			artistsForCredit.forEach { resolvedArtist ->
-				if (seen.add(artistCreditIdentityKey(resolvedArtist.name))) {
-					expanded += resolvedArtist
-				}
-			}
-		}
-		return expanded
+	private fun publishArtistCreditResolutionUpdates(
+		updates: Map<String, ArtistCreditResolution>
+	) {
+		if (updates.isEmpty()) return
+		artistCreditResolutionState.value = artistCreditResolutionState.value + updates
 	}
 
 	private fun DomainArtist.toArtistCreditContext(): ArtistCreditContext =
@@ -289,42 +309,27 @@ class ArtistListViewModel(
 			sourceId = id
 		)
 
-	private fun DomainArtist.asSyntheticArtistCredit(name: String): DomainArtist =
-		copy(
-			id = aurralNameLookupArtistId(name),
-			name = name,
-			albumCount = 0,
-			coverArtId = null,
-			artistImageUrl = null,
-			starredAt = null,
-			userRating = null,
-			sortName = name,
-			musicBrainzId = null,
-			lastFmUrl = null,
-			roles = emptyList(),
-			biography = null,
-			similarArtistIds = emptyList()
-		)
-
 	private fun ArtistCreditContext.artistCreditAttemptKey(): String =
 		artistCreditIdentityKey(originalCredit)
+
+	private fun DomainArtist.artistCreditAttemptKey(): String =
+		artistCreditIdentityKey(name)
 
 	private fun List<DomainArtist>.artistCreditListKey(): String =
 		joinToString("\u001F") { artist ->
 			listOf(artist.id, artist.name).joinToString("\u001E") { artistCreditIdentityKey(it) }
 		}
 
-	private fun UiState<ImmutableList<DomainArtist>>.withArtistData(
-		artists: ImmutableList<DomainArtist>
-	): UiState<ImmutableList<DomainArtist>> =
-		when (this) {
-			is UiState.Loading -> UiState.Loading(artists)
-			is UiState.Success -> UiState.Success(artists)
-			is UiState.Error -> UiState.Error(error = error, data = artists)
-		}
-
 	private companion object {
+		const val AURRAL_ARTIST_PHOTO_BATCH_LIMIT = 24
+		const val ARTIST_CREDIT_RESOLUTION_BATCH_LIMIT = 24
+		const val ARTIST_CREDIT_RESOLUTION_PUBLISH_BATCH_SIZE = 8
 		const val AURRAL_ARTIST_PHOTO_SEARCH_LIMIT = 5
 		const val ARTIST_LIST_AURRAL_ARTWORK_TAG = "ArtistListAurralArtwork"
 	}
 }
+
+private data class ArtistListSnapshot(
+	val state: UiState<ImmutableList<DomainArtist>>,
+	val rawArtists: List<DomainArtist>
+)

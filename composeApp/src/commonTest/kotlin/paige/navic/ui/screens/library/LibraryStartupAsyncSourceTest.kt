@@ -30,7 +30,8 @@ class LibraryStartupAsyncSourceTest {
 		)
 
 		assertTrue(
-			".combine(artistPhotoCacheDao.observeArtistPhotoCache())" in source,
+			"artistPhotoCacheDao.observeArtistPhotoCache()" in source &&
+				"artistCreditResolutionState" in source,
 			"Artist list must keep merging cached Aurral photos into catalog rows."
 		)
 		assertTrue(
