@@ -44,4 +44,18 @@ class PerformanceAntiRegressionGuardTest {
 			"Search song results must be keyed by song id."
 		)
 	}
+
+	@Test
+	fun songRowsDoNotSubscribeToPlayerUiStatePerRow() {
+		listOf(
+			"src/commonMain/kotlin/paige/navic/ui/components/common/SongRow.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/collection/components/SongRow.kt"
+		).forEach { path ->
+			val source = File(path).readText()
+			assertFalse(
+				"player.uiState.collectAsState" in source,
+				"$path must not subscribe to MediaPlayerViewModel.uiState per row; pass isCurrentTrack/isPlaying from the screen."
+			)
+		}
+	}
 }

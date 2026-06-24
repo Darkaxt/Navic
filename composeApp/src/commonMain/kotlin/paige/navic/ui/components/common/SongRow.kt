@@ -63,6 +63,8 @@ import paige.navic.util.core.InlineExplicitIcon
 fun SongRow(
 	modifier: Modifier = Modifier,
 	song: DomainSong,
+	isCurrentTrack: Boolean,
+	isPlaying: Boolean,
 	selected: Boolean = false,
 	onClick: (() -> Unit),
 	onLongClick: (() -> Unit),
@@ -85,7 +87,6 @@ fun SongRow(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
-	val playerState by player.uiState.collectAsStateWithLifecycle()
 
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
@@ -106,7 +107,6 @@ fun SongRow(
 	}
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
-	val isCurrentTrack = playerState.currentSong?.id == song.id
 	val showNowPlayingIndicator = shouldShowNowPlayingIndicator(
 		userEnabled = preferenceManager.showNowPlayingIndicator,
 		isCurrentSong = isCurrentTrack
@@ -228,7 +228,7 @@ fun SongRow(
 				if (showNowPlayingIndicator) {
 					Waveform(
 						modifier = Modifier.padding(end = 12.dp),
-						isPlaying = !playerState.isPaused
+						isPlaying = isPlaying
 					)
 				}
 			}

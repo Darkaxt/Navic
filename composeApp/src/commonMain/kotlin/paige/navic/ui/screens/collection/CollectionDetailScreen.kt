@@ -315,6 +315,8 @@ fun CollectionDetailScreen(
 								Box {
 									CollectionDetailScreenSongRow(
 										song = song,
+										isCurrentTrack = playerState.currentSong?.id == song.id,
+										isPlaying = !playerState.isPaused,
 										index = index,
 										count = group.value.count(),
 										isPlaylist = false,
@@ -369,6 +371,8 @@ fun CollectionDetailScreen(
 							Box {
 								CollectionDetailScreenSongRow(
 									song = song,
+									isCurrentTrack = playerState.currentSong?.id == song.id,
+									isPlaying = !playerState.isPaused,
 									index = index,
 									count = contentCollection.songs.count(),
 									isPlaylist = true,
