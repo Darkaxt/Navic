@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
@@ -113,6 +115,7 @@ class MostPlayedShortcutsViewModel(
 					aurralArtworkEnabled = preferenceManager.aurralEnabled
 				).toImmutableList()
 			}
+				.flowOn(Dispatchers.Default)
 				.catch { error ->
 					_shortcutsState.value = UiState.Error(
 						error.asException(),
@@ -183,7 +186,7 @@ class MostPlayedShortcutsViewModel(
 			}
 		if (targets.isEmpty()) return
 
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			val resolved = targets.mapNotNull { shortcut ->
 				val result = aurralRepository.searchArtists(
 					query = shortcut.title,

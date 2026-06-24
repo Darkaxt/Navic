@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -86,7 +87,7 @@ open class AlbumListViewModel(
 	}
 
 	private fun refreshAurralAcquisitionRequests() {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			aurralRepository.getServiceStatus()
 				.onSuccess { status ->
 					_aurralAlbumRequests.value = status.acquisitionQueue.map { it.toAlbumRequest() }

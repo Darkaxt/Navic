@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
@@ -88,6 +90,7 @@ class ArtistListViewModel(
 						)
 					}
 				}
+				.flowOn(Dispatchers.Default)
 				.collect {
 					_artistsState.value = it
 					hydrateAurralArtistPhotos(it.data.orEmpty())
@@ -179,7 +182,7 @@ class ArtistListViewModel(
 		if (targets.isEmpty()) return
 		attemptedAurralArtistPhotoKeys += targets.map { target -> target.lookupKey }
 
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			val cacheEntries = targets.mapNotNull { target ->
 				val result = aurralRepository.searchArtists(
 					query = target.artist.name,
