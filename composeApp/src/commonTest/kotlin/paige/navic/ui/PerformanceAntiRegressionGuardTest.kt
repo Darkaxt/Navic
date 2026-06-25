@@ -101,4 +101,16 @@ class PerformanceAntiRegressionGuardTest {
 			"Album card must collect getCollectionDownloadStatus only inside the if (selected) branch, not for every card."
 		)
 	}
+
+	@Test
+	fun coverArtArtGridAreMadeSkippableViaStabilityConfig() {
+		val conf = File("stability_config.conf")
+		assertTrue(conf.isFile, "composeApp/stability_config.conf must exist to mark Map stable.")
+		val text = conf.readText()
+		assertTrue("kotlin.collections.Map" in text, "stability config must mark kotlin.collections.Map stable.")
+		assertTrue(
+			"stabilityConfigurationFile" in File("build.gradle.kts").readText(),
+			"build.gradle.kts must wire stabilityConfigurationFile into composeCompiler."
+		)
+	}
 }

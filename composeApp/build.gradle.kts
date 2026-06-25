@@ -23,6 +23,12 @@ configurations.all {
 	exclude(group = "androidx.compose.material", module = "material")
 }
 
+composeCompiler {
+	// Treat Map params as stable so hot composables that take a Map (e.g. CoverArt's and
+	// ArtGridItem's imageRequestHeaders: Map<String, String>) become skippable.
+	stabilityConfigurationFile = project.layout.projectDirectory.file("stability_config.conf")
+}
+
 extensions.configure<ValkyrieExtension> {
 	packageName = "paige.navic.icons"
 	generateAtSync = true
