@@ -2,6 +2,7 @@ package paige.navic.data
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -17,4 +18,15 @@ class CacheAntiRegressionGuardTest {
 			"LibraryScreen must gate section refreshes on already-loaded state (!is UiState.Success) so returning to the tab doesn't re-query Room for every section."
 		)
 	}
+
+	@Test
+	fun playlistScreenReservesNetworkRefreshForPullToRefresh() {
+		val src = File("src/commonMain/kotlin/paige/navic/ui/screens/playlist/PlaylistListScreen.kt").readText()
+		val trueCount = Regex("refreshPlaylists\\(true\\)").findAll(src).count()
+		assertEquals(
+			3, trueCount,
+			"refreshPlaylists(true) must be reserved for the 3 pull-to-refresh handlers; reactive/re-entry events must use false to avoid blocking on the network."
+		)
+	}
 }
+
