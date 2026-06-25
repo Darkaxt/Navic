@@ -12,6 +12,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralArtistExternalLink
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.AurralReleaseGroup
@@ -1396,6 +1397,44 @@ class AurralRepositoryTest {
 		)
 
 		assertEquals(true, enrichment.monitored)
+	}
+
+	@Test
+	fun repositoryArtistEnrichmentSurfacesFullAurralProfileFields() {
+		val enrichment = aurralArtistEnrichment(
+			baseUrl = "https://aurral.example.com",
+			details = AurralArtistDetailsDto(
+				id = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+				name = "John Powell",
+				bio = "English score composer.",
+				genres = listOf("Soundtrack", "Classical"),
+				links = listOf(
+					AurralExternalLinkDto(
+						type = "musicbrainz",
+						target = "https://musicbrainz.org/artist/52bb713d-b0c9-4bf6-9f58-392388d5cc11"
+					)
+				),
+				relations = listOf(
+					AurralRelationDto(
+						type = "imdb",
+						url = AurralRelationUrlDto(resource = "https://www.imdb.com/name/nm0694173/")
+					)
+				)
+			),
+			preview = AurralArtistPreviewDto(),
+			similar = AurralSimilarArtistsDto(),
+			requests = emptyList()
+		)
+
+		assertEquals("English score composer.", enrichment.bio)
+		assertEquals(listOf("Soundtrack", "Classical"), enrichment.genres)
+		assertEquals(
+			listOf(
+				AurralArtistExternalLink(type = "musicbrainz", url = "https://musicbrainz.org/artist/52bb713d-b0c9-4bf6-9f58-392388d5cc11"),
+				AurralArtistExternalLink(type = "imdb", url = "https://www.imdb.com/name/nm0694173/")
+			),
+			enrichment.externalLinks
+		)
 	}
 
 	@Test

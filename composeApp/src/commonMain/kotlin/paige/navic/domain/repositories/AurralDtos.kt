@@ -243,8 +243,29 @@ internal data class AurralRequestDto(
 internal data class AurralArtistDetailsDto(
 	val id: String? = null,
 	val name: String? = null,
+	val bio: String? = null,
+	val genres: List<String> = emptyList(),
+	val links: List<AurralExternalLinkDto> = emptyList(),
+	val relations: List<AurralRelationDto> = emptyList(),
 	@SerialName("_lidarrData") val lidarrData: AurralArtistLidarrDataDto? = null,
 	@SerialName("release-groups") val releaseGroups: List<AurralReleaseGroupDto> = emptyList()
+)
+
+@Serializable
+internal data class AurralExternalLinkDto(
+	val type: String? = null,
+	val target: String? = null
+)
+
+@Serializable
+internal data class AurralRelationDto(
+	val type: String? = null,
+	val url: AurralRelationUrlDto? = null
+)
+
+@Serializable
+internal data class AurralRelationUrlDto(
+	val resource: String? = null
 )
 
 @Serializable

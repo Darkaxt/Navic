@@ -84,6 +84,50 @@ data class ArtistHeaderImageCacheEntry(
 )
 
 @Immutable
+data class ArtistHeaderImageCacheIndex(
+	private val byArtistId: Map<String, List<ArtistHeaderImageCacheEntry>>,
+	private val bySourceArtistId: Map<String, List<ArtistHeaderImageCacheEntry>>,
+	private val byName: Map<String, List<ArtistHeaderImageCacheEntry>>
+) {
+	fun candidatesFor(artist: DomainArtist): List<ArtistHeaderImageCacheEntry> {
+		val localArtistId = artist.id.normalizedArtistHeaderImageId()
+		val musicBrainzId = artist.musicBrainzId.normalizedArtistHeaderImageId()
+		val artistName = artist.name.normalizedArtistHeaderImageName()
+		return listOfNotNull(
+			localArtistId?.let(byArtistId::get),
+			musicBrainzId?.let(byArtistId::get),
+			localArtistId?.let(bySourceArtistId::get),
+			musicBrainzId?.let(bySourceArtistId::get),
+			artistName?.let(byName::get)
+		)
+			.flatten()
+			.distinct()
+	}
+}
+
+fun artistHeaderImageCacheIndex(
+	entries: List<ArtistHeaderImageCacheEntry>
+): ArtistHeaderImageCacheIndex {
+	val resolvedEntries = entries.filter { entry -> entry.imageUrl.isResolvedExternalArtistImageUrl() }
+	return ArtistHeaderImageCacheIndex(
+		byArtistId = resolvedEntries
+			.mapNotNull { entry -> entry.artistId.normalizedArtistHeaderImageId()?.let { it to entry } }
+			.groupBy({ it.first }, { it.second }),
+		bySourceArtistId = resolvedEntries
+			.mapNotNull { entry -> entry.sourceArtistId.normalizedArtistHeaderImageId()?.let { it to entry } }
+			.groupBy({ it.first }, { it.second }),
+		byName = resolvedEntries
+			.flatMap { entry ->
+				listOfNotNull(
+					entry.normalizedName.normalizedArtistHeaderImageName()?.let { it to entry },
+					entry.name.normalizedArtistHeaderImageName()?.let { it to entry }
+				)
+			}
+			.groupBy({ it.first }, { it.second })
+	)
+}
+
+@Immutable
 data class ArtistListAurralPhotoHydrationTarget(
 	val artist: DomainArtist,
 	val lookupKey: String
@@ -98,6 +142,17 @@ fun artistDetailCachedImageUrl(
 	if (!externalArtworkEnabled || artistArtworkPriority == ArtworkSourcePriority.NativeOnly) return null
 	if (artistArtworkPriority == ArtworkSourcePriority.NativeFirst && !artist.coverArtId.isNullOrBlank()) return null
 	return artistDetailCachedImageEntry(artist, entries)?.imageUrl?.trim()
+}
+
+fun artistDetailCachedImageUrl(
+	artist: DomainArtist,
+	index: ArtistHeaderImageCacheIndex,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
+): String? {
+	if (!externalArtworkEnabled || artistArtworkPriority == ArtworkSourcePriority.NativeOnly) return null
+	if (artistArtworkPriority == ArtworkSourcePriority.NativeFirst && !artist.coverArtId.isNullOrBlank()) return null
+	return artistDetailCachedImageEntry(artist, index.candidatesFor(artist))?.imageUrl?.trim()
 }
 
 fun ArtistPhotoCacheEntity.toArtistHeaderImageCacheEntry(): ArtistHeaderImageCacheEntry =

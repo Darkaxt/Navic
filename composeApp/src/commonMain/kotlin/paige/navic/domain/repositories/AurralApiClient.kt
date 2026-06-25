@@ -465,7 +465,6 @@ internal class KtorAurralApiClient : AurralApiClient {
 		) {
 			aurralJsonRequest(requestHeaders)
 			parameter("artistName", artistName)
-			parameter("mode", "core")
 		}
 		if (!response.status.isSuccess()) {
 			error(aurralHttpErrorMessage("Aurral artist details", response.status))

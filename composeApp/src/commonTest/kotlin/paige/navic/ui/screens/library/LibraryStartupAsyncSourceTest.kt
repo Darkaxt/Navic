@@ -45,6 +45,26 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun artistDetailAurralEnrichmentRunsOffTheUiDispatcher() {
+		val source = commonMain(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		)
+		val start = source.indexOf("private fun loadAurralEnrichment(")
+		val end = source.indexOf("private suspend fun persistArtistPhotoCache", start)
+		val loadAurralEnrichment = source.substring(start, end)
+
+		assertTrue(
+			"viewModelScope.launch(Dispatchers.IO)" in loadAurralEnrichment,
+			"Artist detail Aurral enrichment reads cache/network data and builds broad image candidates; " +
+				"that work must not run on the UI dispatcher."
+		)
+		assertTrue(
+			"artistHeaderImageCacheIndex(" in source,
+			"Artist detail should build an indexed artist-photo cache once instead of repeatedly scanning the full cache."
+		)
+	}
+
+	@Test
 	fun albumAurralStatusRefreshRunsOffTheUiDispatcher() {
 		val source = commonMain(
 			"paige/navic/ui/screens/album/viewmodels/AlbumListViewModel.kt"

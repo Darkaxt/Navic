@@ -5,6 +5,7 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -31,9 +32,12 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
+import paige.navic.domain.models.AurralArtistExternalLink
+import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAcquisitionProgress
+import paige.navic.domain.models.aurralArtistOwnershipAlbumRows
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.IntegrationService
@@ -58,6 +62,7 @@ import paige.navic.ui.screens.artist.artistDetailAurralCandidateArtist
 import paige.navic.ui.screens.artist.artistDetailAurralFallbackIdentities
 import paige.navic.ui.screens.artist.artistDetailPhotoCacheEntity
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
+import paige.navic.ui.screens.artist.artistHeaderImageCacheIndex
 import paige.navic.ui.screens.artist.shouldApplyLastFmTopTrackResult
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
@@ -76,12 +81,17 @@ data class ArtistState(
 	val similarArtists: List<DomainArtist> = emptyList(),
 	val aurralAlbumRequests: List<AurralAlbumRequest> = emptyList(),
 	val aurralMissingAlbums: List<AurralMissingAlbumRow> = emptyList(),
+	val aurralOwnedOrPartialAlbums: List<AurralArtistOwnershipAlbumRow> = emptyList(),
+	val aurralMissingReleaseGroups: List<AurralArtistOwnershipAlbumRow> = emptyList(),
 	val aurralRecommendedAlbums: List<AurralAlbumSearchItem> = emptyList(),
 	val aurralSimilarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val aurralPreviewTracks: List<AurralPreviewTrack> = emptyList(),
 	val aurralMonitored: Boolean? = null,
 	val aurralArtistMbid: String? = null,
 	val aurralArtistName: String? = null,
+	val aurralArtistBio: String? = null,
+	val aurralArtistGenres: List<String> = emptyList(),
+	val aurralArtistExternalLinks: List<AurralArtistExternalLink> = emptyList(),
 	val aurralArtistImageUrl: String? = null,
 	val aurralLoading: Boolean = false,
 	val lastFmLoading: Boolean = false,
@@ -217,9 +227,10 @@ class ArtistDetailViewModel(
 				}
 				val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
 					.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+				val artistPhotoCacheIndex = artistHeaderImageCacheIndex(artistPhotoCacheEntries)
 				val cachedArtistImageUrl = artistDetailCachedImageUrl(
 					artist = domainArtist,
-					entries = artistPhotoCacheEntries,
+					index = artistPhotoCacheIndex,
 					artistArtworkPriority = preferenceManager.artistArtworkPriority,
 					externalArtworkEnabled = preferenceManager.aurralEnabled
 				)
@@ -263,10 +274,10 @@ class ArtistDetailViewModel(
 											externalArtworkEnabled = preferenceManager.aurralEnabled
 										)
 									}
-								val cachedUpdatedArtistImageUrl =
+									val cachedUpdatedArtistImageUrl =
 									currentState.aurralArtistImageUrl ?: artistDetailCachedImageUrl(
 										artist = updatedArtist,
-										entries = artistPhotoCacheEntries,
+										index = artistPhotoCacheIndex,
 										artistArtworkPriority = preferenceManager.artistArtworkPriority,
 										externalArtworkEnabled = preferenceManager.aurralEnabled
 									)
@@ -368,7 +379,7 @@ class ArtistDetailViewModel(
 			clearAurralUiState()
 			return
 		}
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			val currentState = (_artistState.value as? UiState.Success)?.data ?: return@launch
 			_artistState.value = UiState.Success(
 				currentState.copy(
@@ -487,6 +498,16 @@ class ArtistDetailViewModel(
 						externalArtworkEnabled = preferenceManager.aurralEnabled
 					)
 				}
+				val ownershipRows = enrichment
+					?.let { aurralArtistOwnershipAlbumRows(it, albums) }
+				val ownedOrPartialAlbumRows = ownershipRows
+					?.ownedOrPartial
+					?.let { rows -> resolveAurralOwnershipAlbumCovers(resolvedAurralArtist, rows) }
+					.orEmpty()
+				val missingReleaseGroupRows = ownershipRows
+					?.missing
+					?.let { rows -> resolveAurralOwnershipAlbumCovers(resolvedAurralArtist, rows) }
+					.orEmpty()
 				val missingAlbumRows = enrichment
 					?.let { aurralMissingAlbumRows(it, albums) }
 					.orEmpty()
@@ -521,6 +542,8 @@ class ArtistDetailViewModel(
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						aurralMissingAlbums = missingAlbumRows,
+						aurralOwnedOrPartialAlbums = ownedOrPartialAlbumRows,
+						aurralMissingReleaseGroups = missingReleaseGroupRows,
 						aurralRecommendedAlbums = recommendedAlbums,
 						aurralAlbumRequests = enrichment?.requests.orEmpty(),
 						aurralSimilarArtists = enrichment
@@ -537,6 +560,9 @@ class ArtistDetailViewModel(
 						aurralMonitored = enrichment?.monitored,
 						aurralArtistMbid = resolvedAurralArtistMbid,
 						aurralArtistName = resolvedAurralArtistName,
+						aurralArtistBio = enrichment?.bio?.trim()?.takeIf { it.isNotEmpty() },
+						aurralArtistGenres = enrichment?.genres.orEmpty(),
+						aurralArtistExternalLinks = enrichment?.externalLinks.orEmpty(),
 						aurralArtistImageUrl = resolvedArtistImageUrl,
 						aurralLoading = false,
 						aurralError = null
@@ -587,6 +613,25 @@ class ArtistDetailViewModel(
 					row
 				} else {
 					aurralRepository.getReleaseGroupCoverImageUrl(row.releaseGroup, artist.name)
+						.getOrNull()
+						?.let { coverUrl -> row.copy(coverUrl = coverUrl) }
+						?: row
+				}
+			}
+		}.awaitAll()
+	}
+
+	private suspend fun resolveAurralOwnershipAlbumCovers(
+		artist: DomainArtist,
+		rows: List<AurralArtistOwnershipAlbumRow>
+	): List<AurralArtistOwnershipAlbumRow> = coroutineScope {
+		rows.map { row ->
+			async {
+				val releaseGroup = row.releaseGroup
+				if (!row.coverUrl.isNullOrBlank() || releaseGroup == null) {
+					row
+				} else {
+					aurralRepository.getReleaseGroupCoverImageUrl(releaseGroup, artist.name)
 						.getOrNull()
 						?.let { coverUrl -> row.copy(coverUrl = coverUrl) }
 						?: row
@@ -741,6 +786,17 @@ class ArtistDetailViewModel(
 					} else {
 						row
 					}
+				},
+				aurralMissingReleaseGroups = currentState.aurralMissingReleaseGroups.map { row ->
+					if (row.releaseGroup?.id == releaseGroupId) {
+						row.copy(
+							requestStatus = status,
+							requestable = false,
+							acquisitionProgress = aurralAcquisitionProgress(status)
+						)
+					} else {
+						row
+					}
 				}
 			)
 		)
@@ -773,7 +829,17 @@ class ArtistDetailViewModel(
 				.onSuccess {
 					val latestState = (_artistState.value as? UiState.Success)?.data
 					if (latestState != null) {
-						_artistState.value = UiState.Success(latestState.copy(aurralError = null))
+						_artistState.value = UiState.Success(
+							latestState.copy(
+								aurralMonitored = monitored,
+								aurralError = null,
+								aurralFeedback = if (monitored) {
+									AurralArtistActionFeedback.MonitoringEnabled
+								} else {
+									AurralArtistActionFeedback.MonitoringDisabled
+								}
+							)
+						)
 					}
 				}
 				.onFailure { error ->
@@ -823,12 +889,17 @@ class ArtistDetailViewModel(
 			currentState.copy(
 				aurralAlbumRequests = emptyList(),
 				aurralMissingAlbums = emptyList(),
+				aurralOwnedOrPartialAlbums = emptyList(),
+				aurralMissingReleaseGroups = emptyList(),
 				aurralRecommendedAlbums = emptyList(),
 				aurralSimilarArtists = emptyList(),
 				aurralPreviewTracks = emptyList(),
 				aurralMonitored = null,
 				aurralArtistMbid = null,
 				aurralArtistName = null,
+				aurralArtistBio = null,
+				aurralArtistGenres = emptyList(),
+				aurralArtistExternalLinks = emptyList(),
 				aurralArtistImageUrl = null,
 				aurralLoading = false,
 				aurralError = null,

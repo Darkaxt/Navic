@@ -22,6 +22,16 @@ fun isAurralMonitorActionVerified(state: AurralMonitorActionState): Boolean =
 fun shouldShowVerifiedAurralMonitorAction(aurralMonitored: Boolean?): Boolean =
 	isAurralMonitorActionVerified(aurralMonitorActionState(aurralMonitored))
 
+fun shouldShowAurralMonitorAction(
+	aurralEnabled: Boolean,
+	candidateArtistMbid: String?,
+	aurralMonitored: Boolean?
+): Boolean {
+	if (!aurralEnabled) return false
+	val resolvedMbid = candidateArtistMbid?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+	return resolvedMbid.isNotEmpty()
+}
+
 fun aurralMonitorActionIconOverlay(state: AurralMonitorActionState): AurralActionIconOverlay =
 	when (state) {
 		AurralMonitorActionState.PendingVerification -> AurralActionIconOverlay.QuestionMark

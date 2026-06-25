@@ -101,6 +101,7 @@
 	<string name="title_aurral_requests">Requests</string>
 	<string name="title_aurral_flows">Flows</string>
 	<string name="title_aurral_create_flow">New Flow</string>
+	<string name="title_aurral_owned_partial_albums">Owned &amp; partial albums</string>
 	<string name="title_aurral_missing_albums">Missing from library</string>
 	<string name="title_aurral_missing_album">Missing album</string>
 	<string name="title_aurral_similar_artists">Similar artists</string>

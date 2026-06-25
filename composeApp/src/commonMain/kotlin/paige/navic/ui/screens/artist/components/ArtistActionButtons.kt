@@ -139,8 +139,7 @@ fun ArtistActionButtons(
 			}
 			val monitorButtonIsActionable = monitorInAurralEnabled &&
 				!monitoringInAurral &&
-				!monitorPendingInAurral &&
-				monitoredInAurral != null
+				!monitorPendingInAurral
 			OutlinedButton(
 				modifier = Modifier.size(width = 52.dp, height = 44.dp),
 				onClick = {

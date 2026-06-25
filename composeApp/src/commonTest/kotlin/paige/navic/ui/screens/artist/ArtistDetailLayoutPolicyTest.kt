@@ -203,6 +203,40 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
+	fun headingCanUsePersistentArtistPhotoCacheFromPrecomputedIndex() {
+		val index = artistHeaderImageCacheIndex(
+			listOf(
+				ArtistHeaderImageCacheEntry(
+					artistId = "other-local-id",
+					sourceArtistId = "other-source-id",
+					name = "Other Artist",
+					normalizedName = "other artist",
+					imageUrl = "https://aurral.example.com/other.webp"
+				),
+				ArtistHeaderImageCacheEntry(
+					artistId = "local-john-powell",
+					sourceArtistId = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+					name = "John Powell",
+					normalizedName = "john powell",
+					imageUrl = "https://aurral.example.com/john-powell.webp"
+				)
+			)
+		)
+
+		assertEquals(
+			"https://aurral.example.com/john-powell.webp",
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-john-powell",
+					name = "John   Powell",
+					musicBrainzId = "52bb713d-b0c9-4bf6-9f58-392388d5cc11"
+				),
+				index = index
+			)
+		)
+	}
+
+	@Test
 	fun headingCanUsePersistentArtistPhotoCacheByNormalizedNameAfterIdChange() {
 		assertEquals(
 			"https://aurral.example.com/lindsey.webp",

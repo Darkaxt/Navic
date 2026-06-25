@@ -4,6 +4,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.decodeFromString
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralArtistExternalLink
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.AurralPreviewTrack
@@ -598,6 +599,11 @@ internal fun aurralArtistEnrichment(
 	return AurralArtistEnrichment(
 		artistMbid = artistMbid,
 		artistName = artistName,
+		bio = details.bio?.trim()?.takeIf { it.isNotEmpty() },
+		genres = details.genres
+			.mapNotNull { genre -> genre.trim().takeIf { it.isNotEmpty() } }
+			.distinctBy { it.lowercase() },
+		externalLinks = aurralArtistExternalLinks(details),
 		releaseGroups = details.releaseGroups.mapNotNull { releaseGroup ->
 			val id = releaseGroup.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
 			val title = releaseGroup.title?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
@@ -647,3 +653,24 @@ internal fun aurralArtistEnrichment(
 		monitored = details.lidarrData?.monitored
 	)
 }
+
+private fun aurralArtistExternalLinks(
+	details: AurralArtistDetailsDto
+): List<AurralArtistExternalLink> {
+	val links = details.links.mapNotNull { link ->
+		val type = link.type?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		val url = link.target?.trim()?.takeIf { it.isAbsoluteHttpUrl() } ?: return@mapNotNull null
+		AurralArtistExternalLink(type = type, url = url)
+	}
+	val relations = details.relations.mapNotNull { relation ->
+		val type = relation.type?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		val url = relation.url?.resource?.trim()?.takeIf { it.isAbsoluteHttpUrl() } ?: return@mapNotNull null
+		AurralArtistExternalLink(type = type, url = url)
+	}
+	return (links + relations).distinctBy { link ->
+		link.type.lowercase() to link.url.lowercase()
+	}
+}
+
+private fun String.isAbsoluteHttpUrl(): Boolean =
+	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)

@@ -28,6 +28,31 @@ class ArtistAurralMonitorDisplayPolicyTest {
 	}
 
 	@Test
+	fun aurralMonitorActionIsVisibleWhileMonitorStatusIsResolvingWhenMbidIsKnown() {
+		assertTrue(
+			shouldShowAurralMonitorAction(
+				aurralEnabled = true,
+				candidateArtistMbid = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+				aurralMonitored = null
+			)
+		)
+		assertFalse(
+			shouldShowAurralMonitorAction(
+				aurralEnabled = true,
+				candidateArtistMbid = " ",
+				aurralMonitored = false
+			)
+		)
+		assertFalse(
+			shouldShowAurralMonitorAction(
+				aurralEnabled = false,
+				candidateArtistMbid = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+				aurralMonitored = false
+			)
+		)
+	}
+
+	@Test
 	fun aurralMonitorActionUsesAurralSpecificIconOverlays() {
 		assertEquals(
 			AurralActionIconOverlay.QuestionMark,
