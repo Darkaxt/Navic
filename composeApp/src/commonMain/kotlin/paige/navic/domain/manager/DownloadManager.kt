@@ -11,6 +11,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpMethod
+import io.ktor.http.HttpHeaders
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -50,6 +51,8 @@ import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.queuedDownloadRecovery
 import paige.navic.domain.models.shouldSaveLidaClipWithDownloadedMusic
 import paige.navic.domain.models.shouldFailHostedDownload
+import paige.navic.domain.models.shouldRejectAudioDownloadContentType
+import paige.navic.domain.models.shouldUseDownloadedAudioFile
 import paige.navic.domain.models.shouldTreatLidaClipAsMusicVideo
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.LyricsRepository
@@ -108,8 +111,13 @@ class DownloadManager(
 		scope.launch {
 			allDownloads.collectLatest { downloads ->
 				_downloadedSongs.value = downloads
-					.filter { it.status == DownloadStatus.DOWNLOADED && it.filePath != null }
-					.associate { it.songId to it.filePath!! }
+					.mapNotNull { download ->
+						val path = download.filePath
+						if (download.status != DownloadStatus.DOWNLOADED || path == null) return@mapNotNull null
+						if (!isUsableDownloadedAudioFile(path)) return@mapNotNull null
+						download.songId to path
+					}
+					.toMap()
 			}
 		}
 		repeat(downloadSchedulerWorkerCount()) {
@@ -120,8 +128,13 @@ class DownloadManager(
 	}
 
 	fun getDownloadedFilePath(songId: String): String? {
-		return _downloadedSongs.value[songId]
+		val path = _downloadedSongs.value[songId] ?: return null
+		return path.takeIf(::isUsableDownloadedAudioFile)
 	}
+
+	private fun isUsableDownloadedAudioFile(path: String): Boolean =
+		storageManager.fileExists(path) &&
+			shouldUseDownloadedAudioFile(storageManager.getFileSize(path))
 
 	fun downloadSong(song: DomainSong): Job {
 		return scope.launch(Dispatchers.IO) {
@@ -639,6 +652,12 @@ class DownloadManager(
 			if (response.status.value !in 200..299) {
 				throw IllegalStateException(
 					"Stream request failed for ${song.id}: HTTP ${response.status.value} ${response.status.description}"
+				)
+			}
+			val contentType = response.headers[HttpHeaders.ContentType]
+			if (shouldRejectAudioDownloadContentType(contentType)) {
+				throw IllegalStateException(
+					"Stream request returned non-audio content for ${song.id}: $contentType"
 				)
 			}
 			Logger.i("DownloadManager", "writing download for ${song.id}")
