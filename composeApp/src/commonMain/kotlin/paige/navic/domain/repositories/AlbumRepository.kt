@@ -5,8 +5,10 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
@@ -77,6 +79,39 @@ class AlbumRepository(
 			emit(UiState.Success(data = localData))
 		}
 	}.flowOn(Dispatchers.IO)
+
+	/**
+	 * Reactive view of albums for a list type, backed by the shared Room query
+	 * ([getAlbumsByQueryFlow]). The SQL sort/filter is unchanged from [getLocalData];
+	 * the Downloaded filter combines with the reactive downloads flow. The mapping runs
+	 * per emission and the underlying Room query is shared across collectors.
+	 */
+	fun albumsFlow(
+		listType: DomainAlbumListType,
+		reversed: Boolean
+	): Flow<ImmutableList<DomainAlbum>> {
+		val queried = albumDao.getAlbumsByQueryFlow(listType.toSqlQuery())
+			.map { rows -> rows.map { it.toDomainModel() } }
+		val filtered = if (listType == DomainAlbumListType.Downloaded) {
+			queried.combine(downloadManager.allDownloads) { albums, downloads ->
+				val downloadedSongIds = downloads
+					.filter { it.status == DownloadStatus.DOWNLOADED }
+					.map { it.songId }
+					.toSet()
+				albums.filter { album -> downloadedSongIds.containsAll(album.songs.map { it.id }) }
+			}
+		} else {
+			queried
+		}
+		return filtered.map { albums ->
+			(if (reversed) albums.asReversed() else albums).toImmutableList()
+		}
+	}
+
+	/** Background network sync; writes to Room, which [albumsFlow] observes. */
+	suspend fun syncAlbums() {
+		dbRepository.syncLibrarySongs().getOrThrow()
+	}
 
 	suspend fun isAlbumStarred(album: DomainAlbum) = albumDao.isAlbumStarred(album.id)
 	suspend fun getAlbumRating(album: DomainAlbum) = albumDao.getAlbumRating(album.id) ?: 0
