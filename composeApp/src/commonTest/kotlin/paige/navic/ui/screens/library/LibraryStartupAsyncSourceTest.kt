@@ -104,6 +104,47 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun libraryAurralRowsReuseViewModelCacheOnTabReentry() {
+		val librarySource = commonMain(
+			"paige/navic/ui/screens/library/LibraryScreen.kt"
+		)
+		val viewModelSource = commonMain(
+			"paige/navic/ui/screens/aurral/AurralHubViewModel.kt"
+		)
+
+		assertTrue(
+			"aurralViewModel.libraryCollectionRows" in librarySource &&
+				"initialValue = cachedAurralCollectionRowsState" in librarySource,
+			"Library Aurral rows must seed from the ViewModel cache instead of flashing an empty row state on tab re-entry."
+		)
+		assertTrue(
+			"libraryAurralRowsStateWithCache(value, nextState)" in librarySource &&
+				"rememberLibraryCollectionRows(value)" in librarySource,
+			"Library Aurral row projection must keep resolved rows visible while recomputing in the background."
+		)
+		assertTrue(
+			"val libraryCollectionRows = _libraryCollectionRows.asStateFlow()" in viewModelSource,
+			"AurralHubViewModel must retain projected Library rows across Library composable disposal."
+		)
+	}
+
+	@Test
+	fun aurralDiscoveryRefreshIsIdempotentForAlreadyLoadedConfiguration() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralHubViewModel.kt")
+
+		assertTrue(
+			"repository.discoveryConfigurationKey(hydrateMissingImages)" in source,
+			"Aurral discovery refresh should identify whether the currently loaded config already matches the requested config."
+		)
+		assertTrue(
+			"!forceRefresh" in source &&
+				"nextConfigurationKey == discoveryConfigurationKey" in source &&
+				"_discovery.value.data != null" in source,
+			"Entering a tab with already-loaded Aurral discovery must not re-run the repository load."
+		)
+	}
+
+	@Test
 	fun aurralDetailLocalCatalogLookupsRunOffTheUiDispatcher() {
 		val artistSource = commonMain(
 			"paige/navic/ui/screens/aurral/AurralArtistScreen.kt"

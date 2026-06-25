@@ -145,6 +145,21 @@ class AurralRepository(
 	suspend fun getLibraryDiscovery(): Result<AurralDiscoverySummary> =
 		getDiscovery(hydrateMissingImages = false)
 
+	fun discoveryConfigurationKey(hydrateMissingImages: Boolean = true): String? {
+		if (!preferenceManager.aurralEnabled) return "disabled"
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return null
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+			.entries
+			.sortedBy { it.key }
+			.joinToString("|") { (key, value) -> "$key:${value.hashCode()}" }
+		return listOf(
+			baseUrl.trimEnd('/'),
+			hydrateMissingImages.toString(),
+			requestHeaders
+		).joinToString("|")
+	}
+
 	suspend fun searchArtists(
 		query: String,
 		limit: Int = 12,

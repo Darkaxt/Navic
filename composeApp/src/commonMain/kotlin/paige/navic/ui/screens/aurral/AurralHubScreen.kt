@@ -220,7 +220,10 @@ fun AurralHubScreen() {
 					}
 					TopBarButton(
 						onClick = {
-							viewModel.refreshDiscovery(hydrateMissingImages = false)
+							viewModel.refreshDiscovery(
+								hydrateMissingImages = false,
+								forceRefresh = true
+							)
 							viewModel.refreshServiceStatus()
 						},
 						enabled = configured && serviceStatus !is UiState.Loading

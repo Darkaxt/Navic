@@ -70,6 +70,9 @@ fun libraryAurralCollectionRowsState(
 	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	externalArtworkEnabled: Boolean = true
 ): UiState<List<AurralDiscoveryCollectionRow>> {
+	if (aurralConfigured && discoveryState.data == null && discoveryState is UiState.Success) {
+		return UiState.Loading(emptyList())
+	}
 	val rows = libraryAurralCollectionRows(
 		aurralConfigured = aurralConfigured,
 		discovery = discoveryState.data,
@@ -93,6 +96,21 @@ fun libraryAurralLoadingPlaceholderVisible(
 	state: UiState<List<AurralDiscoveryCollectionRow>>
 ): Boolean =
 	state is UiState.Loading && state.data.orEmpty().isEmpty()
+
+fun libraryAurralRowsStateWithCache(
+	cachedState: UiState<List<AurralDiscoveryCollectionRow>>,
+	nextState: UiState<List<AurralDiscoveryCollectionRow>>
+): UiState<List<AurralDiscoveryCollectionRow>> {
+	val cachedRows = cachedState.data.orEmpty()
+	return if (nextState is UiState.Loading &&
+		nextState.data.orEmpty().isEmpty() &&
+		cachedRows.isNotEmpty()
+	) {
+		UiState.Loading(cachedRows)
+	} else {
+		nextState
+	}
+}
 
 private fun withoutFallbackArtworkCards(
 	row: AurralDiscoveryCollectionRow

@@ -420,10 +420,10 @@ class LibraryAurralDisplayPolicyTest {
 	}
 
 	@Test
-	fun libraryAurralCollectionRowsStateKeepsEmptyLoadingPlaceholderWhileResolving() {
+	fun libraryAurralCollectionRowsStateTreatsConfiguredMissingDiscoveryAsLoading() {
 		val emptyLoadingRows = libraryAurralCollectionRowsState(
 			aurralConfigured = true,
-			discoveryState = UiState.Loading(null)
+			discoveryState = UiState.Success(null)
 		)
 
 		assertEquals(
@@ -434,6 +434,30 @@ class LibraryAurralDisplayPolicyTest {
 			true,
 			libraryAurralLoadingPlaceholderVisible(emptyLoadingRows)
 		)
+	}
+
+	@Test
+	fun libraryAurralRowsStateWithCacheKeepsResolvedRowsDuringReentryRefresh() {
+		val cachedRows = listOf(
+			AurralDiscoveryCollectionRow.Artists(
+				kind = AurralDiscoveryCollectionKind.RecentlyAddedArtists,
+				artists = listOf(
+					AurralDiscoverArtist(
+						id = "cached",
+						name = "Cached",
+						imageUrl = "https://aurral.example.com/cached.jpg"
+					)
+				)
+			)
+		)
+
+		val state = libraryAurralRowsStateWithCache(
+			cachedState = UiState.Success(cachedRows),
+			nextState = UiState.Loading(emptyList())
+		)
+
+		assertEquals(UiState.Loading(cachedRows), state)
+		assertEquals(false, libraryAurralLoadingPlaceholderVisible(state))
 	}
 
 	@Test

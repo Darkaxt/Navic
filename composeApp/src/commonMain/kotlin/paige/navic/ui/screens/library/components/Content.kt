@@ -33,7 +33,6 @@ import navic.composeapp.generated.resources.option_sort_starred
 import navic.composeapp.generated.resources.title_artists
 import navic.composeapp.generated.resources.title_aurral_based_on_library
 import navic.composeapp.generated.resources.title_aurral_because_you_like
-import navic.composeapp.generated.resources.title_aurral_discover
 import navic.composeapp.generated.resources.title_aurral_explore_by_tag
 import navic.composeapp.generated.resources.title_aurral_global_top
 import navic.composeapp.generated.resources.title_aurral_recently_added
@@ -430,7 +429,7 @@ fun LibraryScreenContent(
 
 		if (libraryAurralLoadingPlaceholderVisible(aurralCollectionRowsState)) {
 			horizontalSection(
-				title = Res.string.title_aurral_discover,
+				title = Res.string.title_aurral_recently_added,
 				destination = Screen.AurralHub,
 				state = UiState.Loading(emptyList<AurralDiscoverArtist>()),
 				key = { it.id.trim().ifEmpty { it.name } },

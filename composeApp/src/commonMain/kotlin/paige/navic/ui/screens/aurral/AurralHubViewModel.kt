@@ -37,6 +37,11 @@ class AurralHubViewModel(
 
 	private val _discovery = MutableStateFlow<UiState<AurralDiscoverySummary?>>(UiState.Success(null))
 	val discovery = _discovery.asStateFlow()
+	private var discoveryConfigurationKey: String? = null
+
+	private val _libraryCollectionRows =
+		MutableStateFlow<UiState<List<AurralDiscoveryCollectionRow>>>(UiState.Success(emptyList()))
+	val libraryCollectionRows = _libraryCollectionRows.asStateFlow()
 
 	private val _artistSearchQuery = MutableStateFlow("")
 	val artistSearchQuery = _artistSearchQuery.asStateFlow()
@@ -65,6 +70,8 @@ class AurralHubViewModel(
 	fun clearServiceStatus() {
 		_serviceStatus.value = UiState.Success(null)
 		_discovery.value = UiState.Success(null)
+		discoveryConfigurationKey = null
+		_libraryCollectionRows.value = UiState.Success(emptyList())
 		_artistSearchQuery.value = ""
 		_artistSearch.value = UiState.Success(null)
 		_albumSearch.value = UiState.Success(null)
@@ -83,12 +90,27 @@ class AurralHubViewModel(
 		}
 	}
 
-	fun refreshDiscovery(hydrateMissingImages: Boolean = true) {
+	fun refreshDiscovery(
+		hydrateMissingImages: Boolean = true,
+		forceRefresh: Boolean = false
+	) {
 		if (_discovery.value is UiState.Loading) return
+		val nextConfigurationKey = repository.discoveryConfigurationKey(hydrateMissingImages)
+		if (!forceRefresh &&
+			nextConfigurationKey != null &&
+			nextConfigurationKey == discoveryConfigurationKey &&
+			_discovery.value.data != null
+		) {
+			return
+		}
 
 		viewModelScope.launch(Dispatchers.IO) {
-			loadDiscovery(hydrateMissingImages)
+			loadDiscovery(hydrateMissingImages, nextConfigurationKey)
 		}
+	}
+
+	fun rememberLibraryCollectionRows(state: UiState<List<AurralDiscoveryCollectionRow>>) {
+		_libraryCollectionRows.value = state
 	}
 
 	fun updateArtistSearchQuery(query: String) {
@@ -284,7 +306,10 @@ class AurralHubViewModel(
 		loadStationPlaylists()
 	}
 
-	private suspend fun loadDiscovery(hydrateMissingImages: Boolean = true) {
+	private suspend fun loadDiscovery(
+		hydrateMissingImages: Boolean = true,
+		configurationKey: String? = repository.discoveryConfigurationKey(hydrateMissingImages)
+	) {
 		_discovery.value = UiState.Loading(_discovery.value.data)
 		val result = if (hydrateMissingImages) {
 			repository.getDiscovery()
@@ -292,7 +317,10 @@ class AurralHubViewModel(
 			repository.getLibraryDiscovery()
 		}
 		_discovery.value = result.fold(
-			onSuccess = { UiState.Success(it) },
+			onSuccess = {
+				discoveryConfigurationKey = configurationKey
+				UiState.Success(it)
+			},
 			onFailure = { UiState.Error(Exception(it), _discovery.value.data) }
 		)
 	}

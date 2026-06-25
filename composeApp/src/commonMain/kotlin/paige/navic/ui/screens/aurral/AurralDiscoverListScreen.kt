@@ -145,7 +145,12 @@ fun AurralDiscoverListScreen(
 					.background(MaterialTheme.colorScheme.surface),
 				finished = discoveryState !is UiState.Loading && localArtistsState !is UiState.Loading,
 				onRefresh = {
-					if (configured) viewModel.refreshDiscovery(hydrateMissingImages = false)
+					if (configured) {
+						viewModel.refreshDiscovery(
+							hydrateMissingImages = false,
+							forceRefresh = true
+						)
+					}
 					localArtistsViewModel.refreshArtists(false)
 				},
 				key = discoveryState

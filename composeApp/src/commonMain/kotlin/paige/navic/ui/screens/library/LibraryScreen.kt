@@ -152,20 +152,22 @@ fun LibraryScreen() {
 	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
 	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
 		.collectAsStateWithLifecycle(emptyList())
+	val cachedAurralCollectionRowsState by aurralViewModel.libraryCollectionRows
+		.collectAsStateWithLifecycle()
 	val quickPicksEnabled = preferenceManager.quickPicksEnabled
 	val quickPicksLimit = preferenceManager.quickPicksLimit
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 	val aurralCollectionRowsState by produceState<UiState<List<AurralDiscoveryCollectionRow>>>(
-		initialValue = UiState.Success(emptyList()),
+		initialValue = cachedAurralCollectionRowsState,
 		aurralConfigured,
 		aurralDiscovery,
 		cachedArtistPhotos,
 		preferenceManager.artistArtworkPriority,
 		preferenceManager.aurralEnabled
 	) {
-		value = withContext(Dispatchers.Default) {
+		val nextState = withContext(Dispatchers.Default) {
 			val artistPhotoCacheEntries = cachedArtistPhotos.map { entry ->
 				entry.toArtistHeaderImageCacheEntry()
 			}
@@ -177,6 +179,8 @@ fun LibraryScreen() {
 				externalArtworkEnabled = preferenceManager.aurralEnabled
 			)
 		}
+		value = libraryAurralRowsStateWithCache(value, nextState)
+		aurralViewModel.rememberLibraryCollectionRows(value)
 	}
 	val libraryIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading,
@@ -272,7 +276,10 @@ fun LibraryScreen() {
 					artistsViewModel.refreshArtists(true)
 					genresViewModel.refreshGenres(true)
 					if (aurralConfigured) {
-						aurralViewModel.refreshDiscovery(hydrateMissingImages = false)
+						aurralViewModel.refreshDiscovery(
+							hydrateMissingImages = false,
+							forceRefresh = true
+						)
 					}
 				},
 				key = listOf(
