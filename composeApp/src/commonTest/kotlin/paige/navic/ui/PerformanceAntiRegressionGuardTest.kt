@@ -76,4 +76,18 @@ class PerformanceAntiRegressionGuardTest {
 			)
 		}
 	}
+
+	@Test
+	fun artistPhotoCacheIsCollectedOnceViaCompositionLocalNotPerRow() {
+		val state = File("src/commonMain/kotlin/paige/navic/ui/components/common/PlaybackArtworkState.kt").readText()
+		assertTrue(
+			"LocalArtistPhotoEntries.current?.let { return it }" in state,
+			"rememberPlaybackArtistPhotoCacheEntries must read the shared LocalArtistPhotoEntries snapshot before falling back to collecting."
+		)
+		val app = File("src/commonMain/kotlin/paige/navic/App.kt").readText()
+		assertTrue(
+			"LocalArtistPhotoEntries provides artistPhotoEntries" in app,
+			"App must provide the artist-photo snapshot once via LocalArtistPhotoEntries."
+		)
+	}
 }
