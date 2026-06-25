@@ -3,6 +3,7 @@ package paige.navic.shared
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -10,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -36,6 +39,15 @@ abstract class MediaPlayerViewModel(
 	@Suppress("PropertyName")
 	protected val _uiState = MutableStateFlow(PlayerUiState())
 	val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+	// Narrow views of uiState so always-on chrome (mini player, bottom bar) can subscribe to
+	// only the slice they render and avoid recomposing on every playback-position tick.
+	val currentSongFlow: Flow<DomainSong?> = uiState.map { it.currentSong }.distinctUntilChanged()
+	val isPausedFlow: Flow<Boolean> = uiState.map { it.isPaused }.distinctUntilChanged()
+	val progressFlow: Flow<Float> = uiState.map { it.progress }.distinctUntilChanged()
+	val isLoadingFlow: Flow<Boolean> = uiState.map { it.isLoading }.distinctUntilChanged()
+	val playbackDownloadProgressFlow: Flow<Float?> =
+		uiState.map { it.playbackDownloadProgress }.distinctUntilChanged()
 
 	private val _seekEvents = MutableSharedFlow<Float>(extraBufferCapacity = 1)
 	val seekEvents: SharedFlow<Float> = _seekEvents.asSharedFlow()

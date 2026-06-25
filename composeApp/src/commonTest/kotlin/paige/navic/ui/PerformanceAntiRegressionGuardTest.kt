@@ -113,4 +113,17 @@ class PerformanceAntiRegressionGuardTest {
 			"build.gradle.kts must wire stabilityConfigurationFile into composeCompiler."
 		)
 	}
+
+	@Test
+	fun miniPlayerDoesNotCollectFullUiState() {
+		val source = File("src/commonMain/kotlin/paige/navic/ui/components/layouts/MiniPlayer.kt").readText()
+		assertFalse(
+			"player.uiState.collectAsState" in source,
+			"MiniPlayer must not collect the full player.uiState; use the narrow flows to avoid recomposing on every progress tick."
+		)
+		assertTrue(
+			"player.progressFlow.collectAsState" in source,
+			"MiniPlayer progress overlay must isolate progress via progressFlow."
+		)
+	}
 }
