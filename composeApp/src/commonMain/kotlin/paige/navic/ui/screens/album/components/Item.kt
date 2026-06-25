@@ -57,11 +57,6 @@ fun AlbumListScreenItem(
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
 
-	val downloadManager = koinInject<DownloadManager>()
-	val downloadStatus by downloadManager
-		.getCollectionDownloadStatus(album.songs.map { it.id })
-		.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
-
 	Box(modifier) {
 		ArtGridItem(
 			onClick = dropUnlessResumed {
@@ -84,6 +79,10 @@ fun AlbumListScreenItem(
 			tab = tab
 		)
 		if (selected) {
+			val downloadManager = koinInject<DownloadManager>()
+			val downloadStatus by downloadManager
+				.getCollectionDownloadStatus(album.songs.map { it.id })
+				.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
 			CollectionSheet(
 				onDismissRequest = onDeselect,
 				collection = album,

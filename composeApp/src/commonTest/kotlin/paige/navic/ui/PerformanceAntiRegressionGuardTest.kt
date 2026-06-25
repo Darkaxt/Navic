@@ -90,4 +90,15 @@ class PerformanceAntiRegressionGuardTest {
 			"App must provide the artist-photo snapshot once via LocalArtistPhotoEntries."
 		)
 	}
+
+	@Test
+	fun albumCardOnlyCollectsDownloadStatusWhenSelected() {
+		val lines = File("src/commonMain/kotlin/paige/navic/ui/screens/album/components/Item.kt").readLines()
+		val selectedLine = lines.indexOfFirst { it.contains("if (selected)") }
+		val collectLine = lines.indexOfLast { it.contains("getCollectionDownloadStatus") }
+		assertTrue(
+			selectedLine in 0..<collectLine,
+			"Album card must collect getCollectionDownloadStatus only inside the if (selected) branch, not for every card."
+		)
+	}
 }
