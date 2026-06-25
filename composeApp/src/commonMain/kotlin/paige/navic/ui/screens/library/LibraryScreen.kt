@@ -222,12 +222,29 @@ fun LibraryScreen() {
 		if (quickPicksEnabled) {
 			quickPicksViewModel.refreshSongs(false)
 		}
-		albumsViewModel.refreshAlbums(false)
-		newestAlbumsViewModel.refreshAlbums(false)
-		starredAlbumsViewModel.refreshAlbums(false)
-		playlistsViewModel.refreshPlaylists(false)
-		artistsViewModel.refreshArtists(false)
-		genresViewModel.refreshGenres(false)
+		// Re-entry guard: these ViewModels survive navigation (Activity-scoped) and load once
+		// in their own init. Only refresh a section if it hasn't loaded yet, so returning to
+		// the Library tab serves the cached data instead of re-querying Room + re-mapping
+		// every section on every visit. (quickPicks above is intentionally unguarded: its
+		// limit/min-duration come from preferences, so it must reload when those change.)
+		if (albumsViewModel.albumsState.value !is UiState.Success) {
+			albumsViewModel.refreshAlbums(false)
+		}
+		if (newestAlbumsViewModel.albumsState.value !is UiState.Success) {
+			newestAlbumsViewModel.refreshAlbums(false)
+		}
+		if (starredAlbumsViewModel.albumsState.value !is UiState.Success) {
+			starredAlbumsViewModel.refreshAlbums(false)
+		}
+		if (playlistsViewModel.playlistsState.value !is UiState.Success) {
+			playlistsViewModel.refreshPlaylists(false)
+		}
+		if (artistsViewModel.artistsState.value !is UiState.Success) {
+			artistsViewModel.refreshArtists(false)
+		}
+		if (genresViewModel.genresState.value !is UiState.Success) {
+			genresViewModel.refreshGenres(false)
+		}
 	}
 
 	LaunchedEffect(
