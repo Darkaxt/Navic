@@ -21,6 +21,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -195,14 +196,19 @@ fun SongListScreenItem(
 					)
 				},
 				supportingContent = {
-					Text(
+					val unknownAlbum = stringResource(Res.string.info_unknown_album)
+					val unknownYear = stringResource(Res.string.info_unknown_year)
+					val subtitle = remember(song.albumTitle, song.artistName, song.year, unknownAlbum, unknownYear) {
 						buildString {
-							append(song.albumTitle ?: stringResource(Res.string.info_unknown_album))
+							append(song.albumTitle ?: unknownAlbum)
 							append(" • ")
 							append(song.artistName)
 							append(" • ")
-							append(song.year ?: stringResource(Res.string.info_unknown_year))
-						},
+							append(song.year ?: unknownYear)
+						}
+					}
+					Text(
+						subtitle,
 						maxLines = 1
 					)
 				},
