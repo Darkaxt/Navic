@@ -85,6 +85,8 @@ class PreferenceManager(
 	var quickPicksEnabled by preference(true)
 	var quickPicksLimit by preference(QuickPicksDefaultSize)
 	var quickPicksMinDurationSeconds by preference(0)
+	var libraryRowOrder by preference("")
+	var libraryHiddenRows by preference("")
 	var lyricsAutoscroll by preference(true)
 	var lyricsBeatByBeat by preference(true)
 	var lyricsKeepAlive by preference(true)

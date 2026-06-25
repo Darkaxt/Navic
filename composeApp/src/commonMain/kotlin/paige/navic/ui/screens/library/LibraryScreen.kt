@@ -157,6 +157,11 @@ fun LibraryScreen() {
 	val quickPicksEnabled = preferenceManager.quickPicksEnabled
 	val quickPicksLimit = preferenceManager.quickPicksLimit
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
+	val libraryRows = visibleLibraryRows(
+		savedOrder = preferenceManager.libraryRowOrder,
+		hiddenRows = preferenceManager.libraryHiddenRows
+	)
+	val quickPicksRowVisible = LibraryRowId.QuickPicks in libraryRows
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 	val aurralCollectionRowsState by produceState<UiState<List<AurralDiscoveryCollectionRow>>>(
@@ -216,17 +221,23 @@ fun LibraryScreen() {
 		}
 	}
 
-	LaunchedEffect(isLoggedIn, quickPicksEnabled, quickPicksLimit, quickPicksMinDurationSeconds) {
+	LaunchedEffect(
+		isLoggedIn,
+		quickPicksEnabled,
+		quickPicksRowVisible,
+		quickPicksLimit,
+		quickPicksMinDurationSeconds
+	) {
 		if (!isLoggedIn) return@LaunchedEffect
 
-		if (quickPicksEnabled) {
+		if (quickPicksEnabled && quickPicksRowVisible) {
 			quickPicksViewModel.refreshSongs(false)
 		}
 		// Re-entry guard: these ViewModels survive navigation (Activity-scoped) and load once
 		// in their own init. Only refresh a section if it hasn't loaded yet, so returning to
 		// the Library tab serves the cached data instead of re-querying Room + re-mapping
-		// every section on every visit. (quickPicks above is intentionally unguarded: its
-		// limit/min-duration come from preferences, so it must reload when those change.)
+		// every section on every visit. Quick Picks reloads only while its managed row is
+		// visible because its limit/min-duration come from preferences.
 		if (albumsViewModel.albumsState.value !is UiState.Success) {
 			albumsViewModel.refreshAlbums(false)
 		}
@@ -276,14 +287,14 @@ fun LibraryScreen() {
 				finished = albumsState !is UiState.Loading &&
 					newestAlbumsState !is UiState.Loading &&
 					starredAlbumsState !is UiState.Loading &&
-					(!quickPicksEnabled || quickPicksState !is UiState.Loading) &&
+					(!quickPicksEnabled || !quickPicksRowVisible || quickPicksState !is UiState.Loading) &&
 					playlistsState !is UiState.Loading &&
 					artistsState !is UiState.Loading &&
 					genresState !is UiState.Loading &&
 					mostPlayedShortcutsState !is UiState.Loading &&
 					(!aurralConfigured || aurralDiscovery !is UiState.Loading),
 				onRefresh = {
-					if (quickPicksEnabled) {
+					if (quickPicksEnabled && quickPicksRowVisible) {
 						quickPicksViewModel.refreshSongs(true)
 					}
 					albumsViewModel.refreshAlbums(true)
@@ -315,6 +326,7 @@ fun LibraryScreen() {
 				scrollBehavior = scrollBehavior,
 				innerPadding = innerPadding,
 				onSetShareId = { shareId = it },
+				libraryRows = libraryRows,
 
 				quickPicksEnabled = quickPicksEnabled,
 				quickPicksState = quickPicksState,

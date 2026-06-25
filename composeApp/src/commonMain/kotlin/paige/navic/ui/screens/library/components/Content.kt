@@ -82,9 +82,9 @@ import paige.navic.ui.screens.album.components.AlbumListScreenItem
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.screens.genre.components.GenreListScreenCard
-import paige.navic.ui.screens.library.LibraryDiscoveryAlbumRow
+import paige.navic.ui.screens.library.LibraryRowId
+import paige.navic.ui.screens.library.libraryRowIdForAurralKind
 import paige.navic.ui.screens.library.libraryAurralLoadingPlaceholderVisible
-import paige.navic.ui.screens.library.libraryDiscoveryAlbumRows
 import paige.navic.ui.screens.library.libraryLocalOwnershipStatus
 import paige.navic.ui.screens.library.mostPlayedShortcutDestination
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
@@ -98,6 +98,7 @@ fun LibraryScreenContent(
 	innerPadding: PaddingValues,
 	onSetShareId: (String) -> Unit,
 	gridState: LazyGridState = rememberLazyGridState(),
+	libraryRows: List<LibraryRowId>,
 
 	// quick picks
 	quickPicksEnabled: Boolean,
@@ -183,6 +184,264 @@ fun LibraryScreenContent(
 		}
 	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
 	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
+
+	fun LazyGridScope.quickPicksRow() {
+		if (!quickPicksEnabled) return
+		horizontalSection(
+			title = Res.string.option_sort_quick_picks,
+			destination = Screen.SongList(true, listType = DomainSongListType.QuickPicks),
+			state = quickPicksState,
+			key = { it.id },
+			seeAll = true
+		) { song ->
+			QuickPickSongCard(
+				modifier = Modifier.animateItem().width(150.dp),
+				song = song,
+				selected = song == selectedQuickPick,
+				starred = selectedQuickPickIsStarred,
+				rating = selectedQuickPickRating,
+				download = quickPickDownloads.find { it.songId == song.id },
+				ownershipStatus = localOwnershipStatus,
+				onSelect = { onSelectQuickPick(song) },
+				onDeselect = onClearQuickPickSelection,
+				onSetStarred = onStarSelectedQuickPick,
+				onSetShareId = onSetShareId,
+				onStartSongRadio = { onStartQuickPickRadio(song) },
+				onPlayNext = { onPlayQuickPickNext(song) },
+				onAddToQueue = { onAddQuickPickToQueue(song) },
+				onClick = { onPlayQuickPick(song) },
+				onSetRating = onRateSelectedQuickPick,
+				onDownload = { onDownloadQuickPick(song) },
+				onCancelDownload = { onCancelQuickPickDownload(song) },
+				onDeleteDownload = { onDeleteQuickPickDownload(song) }
+			)
+		}
+	}
+
+	fun LazyGridScope.mostPlayedRow() {
+		horizontalSection(
+			title = Res.string.title_most_played,
+			destination = Screen.Library(true),
+			state = mostPlayedShortcutsState,
+			key = { "${it.type.name}:${it.id}" },
+			seeAll = false
+		) { shortcut ->
+			MostPlayedShortcutCard(
+				modifier = Modifier.animateItem().width(150.dp),
+				shortcut = shortcut,
+				imageRequestHeaders = aurralImageRequestHeaders(shortcut.coverArtId),
+				onOpen = {
+					if (shortcut.type == PlaybackOriginType.Artist) {
+						scope.launch {
+							resolveArtistCreditDestination(
+								shortcut.id,
+								shortcut.title,
+								false
+							)?.let(backStack::add)
+						}
+					} else {
+						backStack.add(mostPlayedShortcutDestination(shortcut))
+					}
+				}
+			)
+		}
+	}
+
+	fun LazyGridScope.albumRow(
+		title: StringResource,
+		listType: DomainAlbumListType,
+		state: UiState<ImmutableList<DomainAlbum>>
+	) {
+		horizontalSection(
+			title = title,
+			destination = Screen.AlbumList(true, listType),
+			state = state,
+			key = { it.id },
+			seeAll = true
+		) { album ->
+			AlbumListScreenItem(
+				modifier = Modifier.animateItem().width(150.dp),
+				tab = "library",
+				album = album,
+				aurralAlbumRequests = aurralAlbumRequests,
+				ownershipStatus = localOwnershipStatus,
+				selected = album == selectedAlbum,
+				starred = selectedAlbumIsStarred,
+				onSelect = { onSelectAlbum(album) },
+				onDeselect = { onClearAlbumSelection() },
+				onSetStarred = { onStarSelectedAlbum(it) },
+				onSetShareId = { onSetShareId(it) },
+				onPlayNext = onPlayAlbumNext,
+				onAddToQueue = onAddAlbumToQueue,
+				rating = selectedAlbumRating,
+				onSetRating = onRateSelectedAlbum
+			)
+		}
+	}
+
+	fun LazyGridScope.stationsRow() {
+		if (stationPlaylistsState.data.orEmpty().isEmpty()) return
+		horizontalSection(
+			title = Res.string.title_stations,
+			destination = Screen.PlaylistList(nested = true, stationsOnly = true),
+			state = stationPlaylistsState,
+			key = { it.id },
+			seeAll = true
+		) { playlist ->
+			PlaylistListScreenItem(
+				modifier = Modifier.animateItem().width(150.dp),
+				tab = "stations",
+				playlist = playlist,
+				selected = playlist == selectedPlaylist,
+				onSelect = { onSelectPlaylist(playlist) },
+				onDeselect = { onClearPlaylistSelection() },
+				onSetDeletionId = { onDeletePlaylist(it) },
+				onSetShareId = { onSetShareId(it) },
+				onPlayNext = onPlayPlaylistNext,
+				onAddToQueue = onAddPlaylistToQueue
+			)
+		}
+	}
+
+	fun LazyGridScope.playlistsRow() {
+		horizontalSection(
+			title = Res.string.title_playlists,
+			destination = Screen.PlaylistList(true),
+			state = regularPlaylistsState,
+			key = { it.id },
+			seeAll = true
+		) { playlist ->
+			PlaylistListScreenItem(
+				modifier = Modifier.animateItem().width(150.dp),
+				tab = "library",
+				playlist = playlist,
+				selected = playlist == selectedPlaylist,
+				onSelect = { onSelectPlaylist(playlist) },
+				onDeselect = { onClearPlaylistSelection() },
+				onSetDeletionId = { onDeletePlaylist(it) },
+				onSetShareId = { onSetShareId(it) },
+				onPlayNext = onPlayPlaylistNext,
+				onAddToQueue = onAddPlaylistToQueue
+			)
+		}
+	}
+
+	fun LazyGridScope.artistsRow() {
+		horizontalSection(
+			title = Res.string.title_artists,
+			destination = Screen.ArtistList(true),
+			state = artistsState,
+			key = { it.id },
+			seeAll = true
+		) { artist ->
+			ArtistsScreenItem(
+				modifier = Modifier.animateItem().width(150.dp),
+				tab = "library",
+				artist = artist,
+				selected = artist == selectedArtist,
+				selectedArtistAlbums = selectedArtistAlbums,
+				starred = selectedArtistIsStarred,
+				aurralMonitorState = aurralMonitorStateForLocalArtist(
+					artist = artist,
+					libraryArtists = aurralLibraryArtists,
+					confirmationQueue = aurralConfirmationQueue
+				),
+				onSelect = { onSelectArtist(artist) },
+				onDeselect = { onClearArtistSelection() },
+				onSetStarred = { onStarSelectedArtist(it) },
+				onPlayNext = onPlayArtistNext,
+				onAddToQueue = onAddArtistToQueue
+			)
+		}
+	}
+
+	fun LazyGridScope.genresRow() {
+		horizontalSection(
+			title = Res.string.title_genres,
+			destination = Screen.GenreList(true),
+			state = genresState,
+			key = { it.name },
+			seeAll = true
+		) { genreWithAlbums ->
+			GenreListScreenCard(genre = genreWithAlbums)
+		}
+	}
+
+	fun LazyGridScope.aurralLoadingPlaceholderRow() {
+		if (!libraryAurralLoadingPlaceholderVisible(aurralCollectionRowsState)) return
+		horizontalSection(
+			title = Res.string.title_aurral_recently_added,
+			destination = Screen.AurralHub,
+			state = UiState.Loading(emptyList<AurralDiscoverArtist>()),
+			key = { it.id.trim().ifEmpty { it.name } },
+			seeAll = true
+		) { artist ->
+			AurralDiscoverArtistCard(
+				modifier = Modifier.animateItem().width(150.dp),
+				artist = artist,
+				confirmationQueue = aurralConfirmationQueue,
+				onOpenArtist = onOpenAurralDiscoverArtist
+			)
+		}
+	}
+
+	fun LazyGridScope.aurralRows(rowId: LibraryRowId) {
+		aurralCollectionRowsState.data.orEmpty()
+			.filter { row -> libraryRowIdForAurralKind(row.kind) == rowId }
+			.forEach { row ->
+				when (row) {
+					is AurralDiscoveryCollectionRow.Artists -> {
+						val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralDiscoverList
+						horizontalSection(
+							title = row.kind.titleResource(),
+							titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
+								listOf(row.tag.orEmpty())
+							} else {
+								emptyList()
+							},
+							destination = destination,
+							state = UiState.Success(row.artists),
+							key = { it.id.trim().ifEmpty { it.name } },
+							seeAll = true
+						) { artist ->
+							AurralDiscoverArtistCard(
+								modifier = Modifier.animateItem().width(150.dp),
+								artist = artist,
+								confirmationQueue = aurralConfirmationQueue,
+								onOpenArtist = onOpenAurralDiscoverArtist
+							)
+						}
+					}
+
+					is AurralDiscoveryCollectionRow.Albums -> horizontalSection(
+						title = row.kind.titleResource(),
+						destination = Screen.AurralHub,
+						state = UiState.Success(row.albums),
+						key = { album -> album.id.trim().ifEmpty { "${album.artistMbid}:${album.title}" } },
+						seeAll = false
+					) { album ->
+						AurralAlbumSearchCard(
+							modifier = Modifier.animateItem().width(150.dp),
+							album = album,
+							imageRequestHeaders = aurralImageRequestHeaders(album.coverUrl),
+							onClick = { onOpenAurralDiscoverAlbum(album) }
+						)
+					}
+
+					is AurralDiscoveryCollectionRow.Tags -> {
+						val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralHub
+						aurralTagBrickSection(
+							title = row.kind.titleResource(),
+							destination = destination,
+							tags = row.tags,
+							seeAll = destination != Screen.AurralHub,
+							onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
+						)
+					}
+				}
+			}
+	}
+
 	BackToTopScrollHandler(gridState)
 
 	LazyVerticalGrid(
@@ -217,283 +476,39 @@ fun LibraryScreenContent(
 			destination = Screen.AlbumList(true, DomainAlbumListType.Frequent),
 			start = false
 		)
-		if (quickPicksEnabled) {
-			horizontalSection(
-				title = Res.string.option_sort_quick_picks,
-				destination = Screen.SongList(true, listType = DomainSongListType.QuickPicks),
-				state = quickPicksState,
-				key = { it.id },
-				seeAll = true
-			) { song ->
-				QuickPickSongCard(
-					modifier = Modifier.animateItem().width(150.dp),
-					song = song,
-					selected = song == selectedQuickPick,
-					starred = selectedQuickPickIsStarred,
-					rating = selectedQuickPickRating,
-					download = quickPickDownloads.find { it.songId == song.id },
-					ownershipStatus = localOwnershipStatus,
-					onSelect = { onSelectQuickPick(song) },
-					onDeselect = onClearQuickPickSelection,
-					onSetStarred = onStarSelectedQuickPick,
-					onSetShareId = onSetShareId,
-					onStartSongRadio = { onStartQuickPickRadio(song) },
-					onPlayNext = { onPlayQuickPickNext(song) },
-					onAddToQueue = { onAddQuickPickToQueue(song) },
-					onClick = { onPlayQuickPick(song) },
-					onSetRating = onRateSelectedQuickPick,
-					onDownload = { onDownloadQuickPick(song) },
-					onCancelDownload = { onCancelQuickPickDownload(song) },
-					onDeleteDownload = { onDeleteQuickPickDownload(song) }
-				)
-			}
-		}
-
-		horizontalSection(
-			title = Res.string.title_most_played,
-			destination = Screen.Library(true),
-			state = mostPlayedShortcutsState,
-			key = { "${it.type.name}:${it.id}" },
-			seeAll = false
-		) { shortcut ->
-			MostPlayedShortcutCard(
-				modifier = Modifier.animateItem().width(150.dp),
-				shortcut = shortcut,
-				imageRequestHeaders = aurralImageRequestHeaders(shortcut.coverArtId),
-				onOpen = {
-					if (shortcut.type == PlaybackOriginType.Artist) {
-						scope.launch {
-							resolveArtistCreditDestination(
-								shortcut.id,
-								shortcut.title,
-								false
-							)?.let(backStack::add)
-						}
-					} else {
-						backStack.add(mostPlayedShortcutDestination(shortcut))
-					}
-				}
-			)
-		}
-
-		libraryDiscoveryAlbumRows(
-			newestAlbumCount = newestAlbumsState.data.orEmpty().size,
-			starredAlbumCount = starredAlbumsState.data.orEmpty().size
-		).forEach { row ->
-			val title = when (row) {
-				LibraryDiscoveryAlbumRow.NewestAlbums -> Res.string.option_sort_newest
-				LibraryDiscoveryAlbumRow.StarredAlbums -> Res.string.option_sort_starred
-			}
-			val listType = when (row) {
-				LibraryDiscoveryAlbumRow.NewestAlbums -> DomainAlbumListType.Newest
-				LibraryDiscoveryAlbumRow.StarredAlbums -> DomainAlbumListType.Starred
-			}
-			val state = when (row) {
-				LibraryDiscoveryAlbumRow.NewestAlbums -> newestAlbumsState
-				LibraryDiscoveryAlbumRow.StarredAlbums -> starredAlbumsState
-			}
-
-			horizontalSection(
-				title = title,
-				destination = Screen.AlbumList(true, listType),
-				state = state,
-				key = { it.id },
-				seeAll = true
-			) { album ->
-				AlbumListScreenItem(
-					modifier = Modifier.animateItem().width(150.dp),
-					tab = "library",
-					album = album,
-					aurralAlbumRequests = aurralAlbumRequests,
-					ownershipStatus = localOwnershipStatus,
-					selected = album == selectedAlbum,
-					starred = selectedAlbumIsStarred,
-					onSelect = { onSelectAlbum(album) },
-					onDeselect = { onClearAlbumSelection() },
-					onSetStarred = { onStarSelectedAlbum(it) },
-					onSetShareId = { onSetShareId(it) },
-					onPlayNext = onPlayAlbumNext,
-					onAddToQueue = onAddAlbumToQueue,
-					rating = selectedAlbumRating,
-					onSetRating = onRateSelectedAlbum
-				)
-			}
-		}
-
-		horizontalSection(
-			title = Res.string.option_sort_recent,
-			destination = Screen.AlbumList(true, DomainAlbumListType.Recent),
-			state = albumsState,
-			key = { it.id },
-			seeAll = true
-		) { album ->
-			AlbumListScreenItem(
-				modifier = Modifier.animateItem().width(150.dp),
-				tab = "library",
-				album = album,
-				aurralAlbumRequests = aurralAlbumRequests,
-				ownershipStatus = localOwnershipStatus,
-				selected = album == selectedAlbum,
-				starred = selectedAlbumIsStarred,
-				onSelect = { onSelectAlbum(album) },
-				onDeselect = { onClearAlbumSelection() },
-				onSetStarred = { onStarSelectedAlbum(it) },
-				onSetShareId = { onSetShareId(it) },
-				onPlayNext = onPlayAlbumNext,
-				onAddToQueue = onAddAlbumToQueue,
-				rating = selectedAlbumRating,
-				onSetRating = onRateSelectedAlbum
-			)
-		}
-
-		if (stationPlaylistsState.data.orEmpty().isNotEmpty()) {
-			horizontalSection(
-				title = Res.string.title_stations,
-				destination = Screen.PlaylistList(nested = true, stationsOnly = true),
-				state = stationPlaylistsState,
-				key = { it.id },
-				seeAll = true
-			) { playlist ->
-				PlaylistListScreenItem(
-					modifier = Modifier.animateItem().width(150.dp),
-					tab = "stations",
-					playlist = playlist,
-					selected = playlist == selectedPlaylist,
-					onSelect = { onSelectPlaylist(playlist) },
-					onDeselect = { onClearPlaylistSelection() },
-					onSetDeletionId = { onDeletePlaylist(it) },
-					onSetShareId = { onSetShareId(it) },
-					onPlayNext = onPlayPlaylistNext,
-					onAddToQueue = onAddPlaylistToQueue
-				)
-			}
-		}
-
-		horizontalSection(
-			title = Res.string.title_playlists,
-			destination = Screen.PlaylistList(true),
-			state = regularPlaylistsState,
-			key = { it.id },
-			seeAll = true
-		) { playlist ->
-			PlaylistListScreenItem(
-				modifier = Modifier.animateItem().width(150.dp),
-				tab = "library",
-				playlist = playlist,
-				selected = playlist == selectedPlaylist,
-				onSelect = { onSelectPlaylist(playlist) },
-				onDeselect = { onClearPlaylistSelection() },
-				onSetDeletionId = { onDeletePlaylist(it) },
-				onSetShareId = { onSetShareId(it) },
-				onPlayNext = onPlayPlaylistNext,
-				onAddToQueue = onAddPlaylistToQueue
-			)
-		}
-
-		horizontalSection(
-			title = Res.string.title_artists,
-			destination = Screen.ArtistList(true),
-			state = artistsState,
-			key = { it.id },
-			seeAll = true
-		) { artist ->
-			ArtistsScreenItem(
-				modifier = Modifier.animateItem().width(150.dp),
-				tab = "library",
-				artist = artist,
-				selected = artist == selectedArtist,
-				selectedArtistAlbums = selectedArtistAlbums,
-				starred = selectedArtistIsStarred,
-				aurralMonitorState = aurralMonitorStateForLocalArtist(
-					artist = artist,
-					libraryArtists = aurralLibraryArtists,
-					confirmationQueue = aurralConfirmationQueue
-				),
-				onSelect = { onSelectArtist(artist) },
-				onDeselect = { onClearArtistSelection() },
-				onSetStarred = { onStarSelectedArtist(it) },
-				onPlayNext = onPlayArtistNext,
-				onAddToQueue = onAddArtistToQueue
-			)
-		}
-
-		horizontalSection(
-			title = Res.string.title_genres,
-			destination = Screen.GenreList(true),
-			state = genresState,
-			key = { it.name },
-			seeAll = true
-		) { genreWithAlbums ->
-			GenreListScreenCard(genre = genreWithAlbums)
-		}
-
-		if (libraryAurralLoadingPlaceholderVisible(aurralCollectionRowsState)) {
-			horizontalSection(
-				title = Res.string.title_aurral_recently_added,
-				destination = Screen.AurralHub,
-				state = UiState.Loading(emptyList<AurralDiscoverArtist>()),
-				key = { it.id.trim().ifEmpty { it.name } },
-				seeAll = true
-			) { artist ->
-				AurralDiscoverArtistCard(
-					modifier = Modifier.animateItem().width(150.dp),
-					artist = artist,
-					confirmationQueue = aurralConfirmationQueue,
-					onOpenArtist = onOpenAurralDiscoverArtist
-				)
-			}
-		}
-
-		aurralCollectionRowsState.data.orEmpty().forEach { row ->
+		libraryRows.forEach { row ->
 			when (row) {
-				is AurralDiscoveryCollectionRow.Artists -> {
-					val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralDiscoverList
-					horizontalSection(
-						title = row.kind.titleResource(),
-						titleFormatArgs = if (row.kind == AurralDiscoveryCollectionKind.GenreArtists) {
-							listOf(row.tag.orEmpty())
-						} else {
-							emptyList()
-						},
-						destination = destination,
-						state = UiState.Success(row.artists),
-						key = { it.id.trim().ifEmpty { it.name } },
-						seeAll = true
-					) { artist ->
-						AurralDiscoverArtistCard(
-							modifier = Modifier.animateItem().width(150.dp),
-							artist = artist,
-							confirmationQueue = aurralConfirmationQueue,
-							onOpenArtist = onOpenAurralDiscoverArtist
-						)
+				LibraryRowId.QuickPicks -> quickPicksRow()
+				LibraryRowId.MostPlayed -> mostPlayedRow()
+				LibraryRowId.NewestAlbums -> {
+					if (newestAlbumsState.data.orEmpty().isNotEmpty()) {
+						albumRow(Res.string.option_sort_newest, DomainAlbumListType.Newest, newestAlbumsState)
 					}
 				}
-
-				is AurralDiscoveryCollectionRow.Albums -> horizontalSection(
-					title = row.kind.titleResource(),
-					destination = Screen.AurralHub,
-					state = UiState.Success(row.albums),
-					key = { album -> album.id.trim().ifEmpty { "${album.artistMbid}:${album.title}" } },
-					seeAll = false
-				) { album ->
-					AurralAlbumSearchCard(
-						modifier = Modifier.animateItem().width(150.dp),
-						album = album,
-						imageRequestHeaders = aurralImageRequestHeaders(album.coverUrl),
-						onClick = { onOpenAurralDiscoverAlbum(album) }
-					)
+				LibraryRowId.StarredAlbums -> {
+					if (starredAlbumsState.data.orEmpty().isNotEmpty()) {
+						albumRow(Res.string.option_sort_starred, DomainAlbumListType.Starred, starredAlbumsState)
+					}
 				}
-
-				is AurralDiscoveryCollectionRow.Tags -> {
-					val destination = aurralDiscoverCollectionRoute(row) ?: Screen.AurralHub
-					aurralTagBrickSection(
-						title = row.kind.titleResource(),
-						destination = destination,
-						tags = row.tags,
-						seeAll = destination != Screen.AurralHub,
-						onOpenTag = { backStack.add(Screen.AurralDiscoverTag(it)) }
-					)
+				LibraryRowId.RecentAlbums -> albumRow(
+					Res.string.option_sort_recent,
+					DomainAlbumListType.Recent,
+					albumsState
+				)
+				LibraryRowId.Stations -> stationsRow()
+				LibraryRowId.Playlists -> playlistsRow()
+				LibraryRowId.Artists -> artistsRow()
+				LibraryRowId.Genres -> genresRow()
+				LibraryRowId.AurralRecentlyAdded -> {
+					aurralLoadingPlaceholderRow()
+					aurralRows(row)
 				}
+				LibraryRowId.AurralRecentReleases,
+				LibraryRowId.AurralRecommended,
+				LibraryRowId.AurralBasedOnLibrary,
+				LibraryRowId.AurralGlobalTop,
+				LibraryRowId.AurralGenreRows,
+				LibraryRowId.AurralTags -> aurralRows(row)
 			}
 		}
 	}

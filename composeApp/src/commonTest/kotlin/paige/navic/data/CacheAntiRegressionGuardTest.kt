@@ -28,4 +28,17 @@ class CacheAntiRegressionGuardTest {
 			"refreshPlaylists(true) must be reserved for the 3 pull-to-refresh handlers; reactive/re-entry events must use false to avoid blocking on the network."
 		)
 	}
+
+	@Test
+	fun quickPicksRefreshIsGatedByLibraryRowVisibility() {
+		val src = File("src/commonMain/kotlin/paige/navic/ui/screens/library/LibraryScreen.kt").readText()
+		assertTrue(
+			src.contains("quickPicksRowVisible"),
+			"Quick Picks refresh must check the Library row visibility preference, not only the legacy quickPicksEnabled value."
+		)
+		assertTrue(
+			Regex("""if\s*\(\s*quickPicksEnabled\s*&&\s*quickPicksRowVisible\s*\)""").containsMatchIn(src),
+			"Quick Picks refresh should be skipped when the row is hidden."
+		)
+	}
 }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -49,15 +50,15 @@ import navic.composeapp.generated.resources.option_grid_items_per_row
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.option_quick_picks_min_duration
 import navic.composeapp.generated.resources.option_quick_picks_size
-import navic.composeapp.generated.resources.option_show_quick_picks
 import navic.composeapp.generated.resources.option_use_marquee_text
+import navic.composeapp.generated.resources.subtitle_library_row_order
 import navic.composeapp.generated.resources.subtitle_quick_picks_min_duration
 import navic.composeapp.generated.resources.subtitle_quick_picks_size
-import navic.composeapp.generated.resources.subtitle_show_quick_picks
 import navic.composeapp.generated.resources.title_appearance
 import navic.composeapp.generated.resources.title_choose_font
 import navic.composeapp.generated.resources.title_layout
 import navic.composeapp.generated.resources.title_library
+import navic.composeapp.generated.resources.title_library_row_order
 import navic.composeapp.generated.resources.title_miscellaneous
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -67,6 +68,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.settings.AnimationStyle
 import paige.navic.domain.models.settings.MarqueeSpeed
 import paige.navic.domain.models.settings.Theme
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.ChevronForward
 import paige.navic.ui.components.common.Dropdown
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormRow
@@ -273,12 +276,21 @@ fun SettingsAppearanceScreen() {
 
 				FormTitle(stringResource(Res.string.title_library))
 				Form {
-					SettingSwitchRow(
-						title = { Text(stringResource(Res.string.option_show_quick_picks)) },
-						subtitle = { Text(stringResource(Res.string.subtitle_show_quick_picks)) },
-						value = preferenceManager.quickPicksEnabled,
-						onSetValue = { preferenceManager.quickPicksEnabled = it }
-					)
+					FormRow(
+						onClick = {
+							backStack.add(Screen.Settings.LibraryRows)
+						}
+					) {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.title_library_row_order))
+							Text(
+								stringResource(Res.string.subtitle_library_row_order),
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
+							)
+						}
+						Icon(Icons.Outlined.ChevronForward, null)
+					}
 
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_quick_picks_size)) },

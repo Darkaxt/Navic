@@ -2,6 +2,7 @@
 	<string name="app_name" translatable="false">Navic</string>
 
 	<string name="title_library">Library</string>
+	<string name="title_library_row_order">Library row order</string>
 	<string name="title_activity">Activity</string>
 	<string name="title_starred">Starred</string>
 	<string name="title_playlists">Playlists</string>
@@ -110,6 +111,7 @@
 	<string name="title_aurral_based_on_library">Based on your library</string>
 	<string name="title_aurral_global_top">Global picks</string>
 	<string name="title_aurral_because_you_like">Because you like %1$s</string>
+	<string name="title_aurral_genre_rows">Aurral genre rows</string>
 	<string name="title_aurral_explore_by_tag">Explore by tag</string>
 	<string name="title_aurral_recent_releases">Recent releases</string>
 	<string name="title_lastfm_top_tracks">Most popular tracks</string>
@@ -127,6 +129,7 @@
 	<string name="title_select_lyrics">Select Lyrics</string>
 	<string name="title_advanced">Advanced Transcoding</string>
 	<string name="subtitle_appearance">Themes, colours, layout</string>
+	<string name="subtitle_library_row_order">Reorder and hide Library rows</string>
 	<string name="subtitle_now_playing">Customise the fullscreen now playing and lyrics views</string>
 	<string name="subtitle_bottom_app_bar">Customise the bottom bar &amp; mini player</string>
 	<string name="subtitle_playback">Audio behaviour and scrobbling</string>
@@ -945,6 +948,8 @@
 	<string name="action_add_to_queue">Add to Queue</string>
 	<string name="action_queue">Queue</string>
 	<string name="action_reorder">Reorder</string>
+	<string name="action_show_row">Show row</string>
+	<string name="action_hide_row">Hide row</string>
 	<string name="action_remove_from_queue">Remove from queue</string>
 	<string name="action_clear_queue">Clear queue</string>
 	<string name="action_search_history">Recent Searches</string>

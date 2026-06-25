@@ -82,15 +82,6 @@ internal fun settingsSearchAppearanceRows(context: SettingsSearchContext): List<
 			valueRange = 50f..500f,
 			steps = 8
 		))
-		add(switchRow(
-			id = "appearance.quick-picks",
-			path = path(appearance, library),
-			title = stringResource(Res.string.option_show_quick_picks),
-			subtitle = stringResource(Res.string.subtitle_show_quick_picks),
-			keywords = listOf("discover", "home", "library"),
-			value = preferenceManager.quickPicksEnabled,
-			onSetValue = { preferenceManager.quickPicksEnabled = it }
-		))
 		add(selectionRow(
 			id = "appearance.quick-picks-size",
 			path = path(appearance, library),
