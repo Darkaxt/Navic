@@ -54,7 +54,7 @@ internal fun aurralArtistSearchResult(
 		query = query,
 		count = response.count,
 		offset = response.offset,
-		artists = response.artists.mapNotNull { it.toDiscoverArtist(baseUrl) }
+		artists = response.artists.mapNotNull { it.toDiscoverArtist(baseUrl, trustUuidId = true) }
 	)
 
 internal fun aurralAlbumSearchResult(
@@ -100,7 +100,10 @@ internal fun aurralLibraryArtists(
 ): List<AurralDiscoverArtist> =
 	response.mapNotNull { it.toLibraryArtist(baseUrl) }
 
-private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDiscoverArtist? {
+private fun AurralDiscoverArtistDto.toDiscoverArtist(
+	baseUrl: String,
+	trustUuidId: Boolean = false
+): AurralDiscoverArtist? {
 	val recommendedAlbum = toRecommendedAlbum(baseUrl)
 	if (recommendedAlbum != null) {
 		val recommendedArtistId = listOf(artistMbid, foreignArtistId)
@@ -123,7 +126,7 @@ private fun AurralDiscoverArtistDto.toDiscoverArtist(baseUrl: String): AurralDis
 		)
 	}
 
-	val artistId = verifiedAurralArtistIdCandidate()
+	val artistId = verifiedAurralArtistIdCandidate(trustUuidId)
 		?: return null
 	val artistName = listOf(name, artistName)
 		.firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
@@ -185,15 +188,22 @@ private data class AurralArtistIdCandidate(
 	val verified: Boolean
 )
 
-private fun AurralDiscoverArtistDto.verifiedAurralArtistIdCandidate(): AurralArtistIdCandidate? =
+private fun AurralDiscoverArtistDto.verifiedAurralArtistIdCandidate(trustUuidId: Boolean = false): AurralArtistIdCandidate? =
 	listOf(
 		foreignArtistId to true,
 		mbid to true,
 		artistMbid to true,
-		id to false
+		id to (trustUuidId && id.isMusicBrainzUuid())
 	).firstNotNullOfOrNull { (candidate, verified) ->
 		candidate?.trim()?.takeIf(String::isNotEmpty)?.let { AurralArtistIdCandidate(it, verified) }
 	}
+
+private fun String?.isMusicBrainzUuid(): Boolean =
+	this?.trim()?.matches(MUSICBRAINZ_UUID_REGEX) == true
+
+private val MUSICBRAINZ_UUID_REGEX = Regex(
+	"""^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"""
+)
 
 private fun AurralFallbackGenreSectionDto.toFallbackGenreSection(baseUrl: String): AurralFallbackGenreSection? {
 	val safeGenre = listOf(genre, name, title)

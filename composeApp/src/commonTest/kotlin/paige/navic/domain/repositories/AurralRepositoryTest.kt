@@ -6,6 +6,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -520,6 +521,32 @@ class AurralRepositoryTest {
 
 		assertEquals("musicbrainz-artist-mbid", summary.recommendations.single().id)
 		assertTrue(summary.recommendations.single().detailsIdVerified)
+	}
+
+	@Test
+	fun aurralArtistSearchResultTreatsUuidIdAsVerifiedMusicBrainzArtistId() {
+		val result = aurralArtistSearchResult(
+			baseUrl = "https://aurral.example.com",
+			query = "John Powell",
+			response = AurralArtistSearchResponseDto(
+				artists = listOf(
+					AurralDiscoverArtistDto(
+						id = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+						name = "John Powell",
+						imageUrl = "https://assets.example.com/john-powell.jpg"
+					),
+					AurralDiscoverArtistDto(
+						id = "internal-artist-row-id",
+						name = "Internal Artist"
+					)
+				)
+			)
+		)
+
+		assertEquals("52bb713d-b0c9-4bf6-9f58-392388d5cc11", result.artists.first().id)
+		assertTrue(result.artists.first().detailsIdVerified)
+		assertEquals("internal-artist-row-id", result.artists.last().id)
+		assertFalse(result.artists.last().detailsIdVerified)
 	}
 
 	@Test
