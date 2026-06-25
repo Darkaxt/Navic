@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -61,8 +62,11 @@ class PlaylistListViewModel(
 		}
 	}
 
+	private var refreshPlaylistsJob: Job? = null
+
 	fun refreshPlaylists(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshPlaylistsJob?.cancel()
+		refreshPlaylistsJob = viewModelScope.launch {
 			repository.getPlaylistsFlow(
 				fullRefresh,
 				_selectedSorting.value,

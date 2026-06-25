@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -50,6 +51,7 @@ import navic.composeapp.generated.resources.title_songs
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
@@ -129,6 +131,8 @@ fun StarredScreenContent(
 	val songs = songsState.data.orEmpty()
 	val artists = artistsState.data.orEmpty()
 	val downloadManager = koinInject<DownloadManager>()
+	val player = koinInject<MediaPlayerViewModel>()
+	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val uriHandler = LocalUriHandler.current
 
 	val scope = rememberCoroutineScope()
@@ -225,6 +229,8 @@ fun StarredScreenContent(
 						SongRow(
 							modifier = Modifier.weight(1f),
 							song = song,
+						isCurrentTrack = playerState.currentSong?.id == song.id,
+						isPlaying = !playerState.isPaused,
 							selected = selectedSong == song,
 							onClick = { onPlaySong(index) },
 							onLongClick = { onSelectSong(song) },

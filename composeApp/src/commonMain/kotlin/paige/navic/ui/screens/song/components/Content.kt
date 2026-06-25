@@ -36,7 +36,7 @@ fun LazyListScope.songListScreenContent(
 ) {
 	val data = state.data.orEmpty()
 	if (data.isNotEmpty()) {
-		items(data) { song ->
+		items(data, key = { it.id }) { song ->
 			val download = allDownloads.find { it.songId == song.id }
 			SongListScreenItem(
 				modifier = Modifier.animateItem(),

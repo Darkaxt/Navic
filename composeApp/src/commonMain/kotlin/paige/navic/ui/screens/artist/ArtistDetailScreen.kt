@@ -434,6 +434,8 @@ fun ArtistDetailScreen(
 											SongRow(
 												modifier = Modifier.weight(1f),
 												song = song,
+											isCurrentTrack = playerState.currentSong?.id == song.id,
+											isPlaying = !playerState.isPaused,
 												selected = selection == song,
 												onClick = {
 													if (playerState.currentSong?.id != song.id) {
@@ -496,6 +498,8 @@ fun ArtistDetailScreen(
 											SongRow(
 												modifier = Modifier.weight(1f),
 												song = song,
+											isCurrentTrack = playerState.currentSong?.id == song.id,
+											isPlaying = !playerState.isPaused,
 												selected = selection == song,
 												onClick = {
 													if (playerState.currentSong?.id != song.id) {
