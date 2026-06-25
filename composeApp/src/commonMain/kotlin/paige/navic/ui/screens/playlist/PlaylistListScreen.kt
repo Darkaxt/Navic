@@ -145,7 +145,7 @@ fun PlaylistListScreen(
 
 	LaunchedEffect(stationsOnly, aurralFlowActionState) {
 		if (stationsOnly && aurralFlowActionState is UiState.Success && aurralFlowActionState.data != null) {
-			viewModel.refreshPlaylists(true)
+			viewModel.refreshPlaylists(false)
 		}
 	}
 
