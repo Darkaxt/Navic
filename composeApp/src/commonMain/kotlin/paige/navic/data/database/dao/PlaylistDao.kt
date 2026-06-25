@@ -40,6 +40,22 @@ interface PlaylistDao {
 
 	@Transaction
 	@Query("SELECT * FROM PlaylistEntity ORDER BY name ASC")
+	fun getAllPlaylistsByNameFlow(): Flow<List<PlaylistWithSongs>>
+
+	@Transaction
+	@Query("SELECT * FROM PlaylistEntity ORDER BY createdAt DESC")
+	fun getAllPlaylistsByDateAddedFlow(): Flow<List<PlaylistWithSongs>>
+
+	@Transaction
+	@Query("SELECT * FROM PlaylistEntity ORDER BY duration DESC")
+	fun getAllPlaylistsByDurationFlow(): Flow<List<PlaylistWithSongs>>
+
+	@Transaction
+	@Query("SELECT * FROM PlaylistEntity ORDER BY RANDOM()")
+	fun getAllPlaylistsRandomFlow(): Flow<List<PlaylistWithSongs>>
+
+	@Transaction
+	@Query("SELECT * FROM PlaylistEntity ORDER BY name ASC")
 	fun getAllPlaylistsFlow(): Flow<List<PlaylistWithSongs>>
 
 	@Transaction

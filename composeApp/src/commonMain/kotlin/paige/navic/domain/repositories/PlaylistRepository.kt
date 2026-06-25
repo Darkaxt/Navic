@@ -5,6 +5,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
@@ -94,4 +95,40 @@ class PlaylistRepository(
 			emit(UiState.Success(data = localData))
 		}
 	}.flowOn(Dispatchers.IO)
+
+	/**
+	 * Reactive playlist view, backed by the shared Room queries (same SQL as
+	 * [getLocalData]). The Downloaded filter combines with the reactive downloads flow.
+	 * Mapped per emission and shareable across collectors.
+	 */
+	fun playlistsFlow(
+		listType: DomainPlaylistListType,
+		reversed: Boolean
+	): Flow<ImmutableList<DomainPlaylist>> {
+		val base = when (listType) {
+			DomainPlaylistListType.Name -> playlistDao.getAllPlaylistsByNameFlow()
+			DomainPlaylistListType.DateAdded -> playlistDao.getAllPlaylistsByDateAddedFlow()
+			DomainPlaylistListType.Duration -> playlistDao.getAllPlaylistsByDurationFlow()
+			DomainPlaylistListType.Random -> playlistDao.getAllPlaylistsRandomFlow()
+			DomainPlaylistListType.Downloaded -> playlistDao.getAllPlaylistsByDateAddedFlow()
+				.combine(downloadDao.getAllDownloads()) { playlists, downloads ->
+					val downloadedSongIds = downloads
+						.filter { it.status == DownloadStatus.DOWNLOADED }
+						.map { it.songId }
+					playlists.filter { playlist ->
+						downloadedSongIds.containsAll(playlist.songs.map { it.song.songId })
+					}
+				}
+		}
+		return base
+			.map { it.map { playlist -> playlist.toDomainModel() } }
+			.map { playlists -> (if (reversed) playlists.reversed() else playlists).toImmutableList() }
+	}
+
+	/** Background network sync; writes to Room, which [playlistsFlow] observes. */
+	suspend fun syncPlaylists() {
+		dbRepository.syncPlaylists().getOrThrow().forEach { playlist ->
+			dbRepository.syncPlaylistSongs(playlist.playlistId).getOrThrow()
+		}
+	}
 }
