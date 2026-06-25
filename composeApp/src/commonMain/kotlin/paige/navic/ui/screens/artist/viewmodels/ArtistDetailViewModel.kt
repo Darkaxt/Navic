@@ -54,12 +54,13 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.artist.artistDetailPlaybackOrigin
 import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
+import paige.navic.ui.screens.artist.artistDetailAurralCandidateArtist
+import paige.navic.ui.screens.artist.artistDetailAurralFallbackIdentities
 import paige.navic.ui.screens.artist.artistDetailPhotoCacheEntity
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.artist.shouldApplyLastFmTopTrackResult
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
-import paige.navic.ui.screens.aurral.AurralArtistIdentity
 import paige.navic.ui.screens.aurral.aurralArtistIdentityCandidatesForLocalArtist
 import paige.navic.ui.screens.aurral.aurralRecommendedAlbumsForArtist
 import paige.navic.ui.screens.aurral.aurralSimilarArtistImageCandidates
@@ -413,21 +414,9 @@ class ArtistDetailViewModel(
 			val aurralIdentities = discovery
 				?.let { summary -> aurralArtistIdentityCandidatesForLocalArtist(summary, artist) }
 				.orEmpty()
-				.ifEmpty {
-					artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }?.let { mbid ->
-						listOf(
-							AurralArtistIdentity(
-								mbid = mbid,
-								name = artist.name.trim().takeIf { it.isNotEmpty() } ?: mbid
-							)
-						)
-					}.orEmpty()
-				}
+				.ifEmpty { artistDetailAurralFallbackIdentities(artist) }
 			val aurralArtistCandidates = aurralIdentities.map { identity ->
-				identity to artist.copy(
-					name = identity.name,
-					musicBrainzId = identity.mbid
-				)
+				identity to artistDetailAurralCandidateArtist(artist, identity)
 			}
 
 			if (aurralArtistCandidates.isEmpty()) {
@@ -477,6 +466,18 @@ class ArtistDetailViewModel(
 					?: aurralIdentities.firstNotNullOfOrNull { identity ->
 						identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
 					}
+				val resolvedAurralArtistMbid = enrichment?.artistMbid
+					?.trim()
+					?.takeIf { it.isNotEmpty() }
+					?: aurralArtist.musicBrainzId
+				val resolvedAurralArtistName = enrichment?.artistName
+					?.trim()
+					?.takeIf { it.isNotEmpty() }
+					?: aurralArtist.name
+				val resolvedAurralArtist = aurralArtist.copy(
+					name = resolvedAurralArtistName,
+					musicBrainzId = resolvedAurralArtistMbid
+				)
 				val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
 					.map { entry -> entry.toArtistHeaderImageCacheEntry() }
 				val localArtists = artistDao.getAllArtistsList().map { artist ->
@@ -489,13 +490,13 @@ class ArtistDetailViewModel(
 				val missingAlbumRows = enrichment
 					?.let { aurralMissingAlbumRows(it, albums) }
 					.orEmpty()
-					.let { rows -> resolveAurralMissingAlbumCovers(aurralArtist, rows) }
+					.let { rows -> resolveAurralMissingAlbumCovers(resolvedAurralArtist, rows) }
 				val recommendedAlbums = discovery
 					?.let { discovery ->
 						aurralRecommendedAlbumsForArtist(
 							discovery = discovery,
-							artistMbid = aurralArtist.musicBrainzId,
-							artistName = aurralArtist.name
+							artistMbid = resolvedAurralArtistMbid,
+							artistName = resolvedAurralArtistName
 						)
 					}
 					.orEmpty()
@@ -514,7 +515,7 @@ class ArtistDetailViewModel(
 					?: latestState.aurralArtistImageUrl
 				persistArtistPhotoCache(
 					localArtist = latestState.artist,
-					sourceArtist = aurralArtist,
+					sourceArtist = resolvedAurralArtist,
 					imageUrl = verifiedAurralArtistImageUrl
 				)
 				_artistState.value = UiState.Success(
@@ -534,8 +535,8 @@ class ArtistDetailViewModel(
 							.orEmpty(),
 						aurralPreviewTracks = enrichment?.previewTracks.orEmpty(),
 						aurralMonitored = enrichment?.monitored,
-						aurralArtistMbid = aurralArtist.musicBrainzId,
-						aurralArtistName = aurralArtist.name,
+						aurralArtistMbid = resolvedAurralArtistMbid,
+						aurralArtistName = resolvedAurralArtistName,
 						aurralArtistImageUrl = resolvedArtistImageUrl,
 						aurralLoading = false,
 						aurralError = null
@@ -725,8 +726,8 @@ class ArtistDetailViewModel(
 						AurralAlbumRequest(
 							albumMbid = releaseGroupId,
 							albumName = row.title,
-							artistMbid = currentState.artist.musicBrainzId,
-							artistName = currentState.artist.name,
+							artistMbid = currentState.aurralArtistMbid ?: currentState.artist.musicBrainzId,
+							artistName = currentState.aurralArtistName ?: currentState.artist.name,
 							status = status
 						)
 					),

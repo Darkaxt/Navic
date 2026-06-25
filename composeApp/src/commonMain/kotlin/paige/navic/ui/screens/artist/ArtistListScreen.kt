@@ -255,7 +255,7 @@ fun ArtistsScreenItem(
 		ArtGridItem(
 			onClick = dropUnlessResumed {
 				platformContext.clickSound()
-				backStack.add(Screen.ArtistDetail(artist.id))
+				backStack.add(artistListDestination(artist))
 			},
 			onLongClick = onSelect,
 			coverArtId = artistArtwork.coverArtId,
