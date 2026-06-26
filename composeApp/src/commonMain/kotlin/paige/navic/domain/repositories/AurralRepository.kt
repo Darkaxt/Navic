@@ -303,13 +303,11 @@ class AurralRepository(
 						requestHeaders = requestHeaders,
 						artistMbid = resolvedArtist.artistMbid,
 						artistName = resolvedArtist.artistName
-					) ?: runCatching {
-						apiClient.fetchLibraryArtistMonitoring(
-							baseUrl = baseUrl,
-							requestHeaders = requestHeaders,
-							artistMbid = resolvedArtist.artistMbid
-						)
-					}.onSuccess { monitored ->
+					) ?: apiClient.fetchLibraryArtistMonitoring(
+						baseUrl = baseUrl,
+						requestHeaders = requestHeaders,
+						artistMbid = resolvedArtist.artistMbid
+					).also { monitored ->
 						monitored?.let {
 							rememberLibraryArtistMonitoring(
 								baseUrl = baseUrl,
@@ -319,9 +317,7 @@ class AurralRepository(
 								monitored = it
 							)
 						}
-					}.onFailure { error ->
-						Logger.w(TAG, "Aurral library artist monitoring lookup failed for $artistName", error)
-					}.getOrNull()
+					}
 				}
 				enrichment.await().withLocalArtistState(libraryArtistMonitoring.await())
 			}
@@ -373,13 +369,11 @@ class AurralRepository(
 						requestHeaders = requestHeaders,
 						artistMbid = resolvedArtist.artistMbid,
 						artistName = resolvedArtist.artistName
-					) ?: runCatching {
-						apiClient.fetchLibraryArtistMonitoring(
-							baseUrl = baseUrl,
-							requestHeaders = requestHeaders,
-							artistMbid = resolvedArtist.artistMbid
-						)
-					}.onSuccess { monitored ->
+					) ?: apiClient.fetchLibraryArtistMonitoring(
+						baseUrl = baseUrl,
+						requestHeaders = requestHeaders,
+						artistMbid = resolvedArtist.artistMbid
+					).also { monitored ->
 						monitored?.let {
 							rememberLibraryArtistMonitoring(
 								baseUrl = baseUrl,
@@ -389,9 +383,7 @@ class AurralRepository(
 								monitored = it
 							)
 						}
-					}.onFailure { error ->
-						Logger.w(TAG, "Aurral library artist monitoring lookup failed for $artistName", error)
-					}.getOrNull()
+					}
 				}
 				enrichment.await().withLocalArtistState(libraryArtistMonitoring.await())
 			}

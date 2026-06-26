@@ -1578,6 +1578,33 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistEnrichmentSurfacesLibraryMonitoringAuthFailures(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "Bond",
+				monitored = null
+			),
+			libraryArtistMonitoringFailure = IllegalStateException("Aurral library artist lookup: HTTP 401 Unauthorized")
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val result = repository.getArtistEnrichment(
+			DomainArtist(id = "local-bond", name = "BOND", musicBrainzId = "artist-mbid")
+		)
+
+		assertTrue(result.isFailure)
+		assertEquals(
+			"Aurral library artist lookup: HTTP 401 Unauthorized",
+			result.exceptionOrNull()?.message
+		)
+	}
+
+	@Test
 	fun repositoryCachedArtistEnrichmentReadsProfileWithoutNetworkFetch(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true
@@ -2065,6 +2092,7 @@ class AurralRepositoryTest {
 		private val artistSimilarArtists: List<AurralSimilarArtist> = artistEnrichment.similarArtists,
 		private val albumRequests: List<AurralAlbumRequest> = artistEnrichment.requests,
 		private val libraryArtistMonitoring: Boolean? = null,
+		private val libraryArtistMonitoringFailure: Exception? = null,
 		private val releaseGroupCoverImageUrl: String? = null,
 		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
 		private val sessionToken: String? = null,
@@ -2250,6 +2278,7 @@ class AurralRepositoryTest {
 			artistMbid: String
 		): Boolean? {
 			libraryArtistMonitoringRequests += artistMbid
+			libraryArtistMonitoringFailure?.let { throw it }
 			return libraryArtistMonitoring
 		}
 

@@ -544,8 +544,6 @@ internal class KtorAurralApiClient : AurralApiClient {
 		return when {
 			response.status.isSuccess() -> response.body<AurralLibraryArtistDto>().monitored ?: false
 			response.status == HttpStatusCode.NotFound -> false
-			response.status == HttpStatusCode.Unauthorized -> null
-			response.status == HttpStatusCode.Forbidden -> null
 			else -> error(aurralHttpErrorMessage("Aurral library artist lookup", response.status))
 		}
 	}
