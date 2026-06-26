@@ -106,6 +106,7 @@ class AurralHubViewModel(
 
 		viewModelScope.launch(Dispatchers.IO) {
 			loadDiscovery(hydrateMissingImages, nextConfigurationKey)
+			loadServiceStatus()
 		}
 	}
 

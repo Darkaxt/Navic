@@ -200,8 +200,6 @@ fun AurralHubScreen() {
 	) {
 		if (configured) {
 			viewModel.refreshDiscovery(hydrateMissingImages = false)
-			delay(500L)
-			viewModel.refreshServiceStatus()
 		} else {
 			viewModel.clearServiceStatus()
 		}
