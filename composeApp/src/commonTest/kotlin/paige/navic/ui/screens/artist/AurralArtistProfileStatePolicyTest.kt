@@ -28,6 +28,16 @@ class AurralArtistProfileStatePolicyTest {
 	}
 
 	@Test
+	fun artistDetailViewModelUsesSearchFallbackWhenDiscoveryDoesNotCarryAurralImage() {
+		val source = sourceFile(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		).readText()
+
+		assertTrue("aurralRepository.searchArtists(" in source)
+		assertTrue("artistDetailAurralSearchImageUrl(" in source)
+	}
+
+	@Test
 	fun verifiedUnmonitoredArtistKeepsMonitorActionVisibleAndEnabled() {
 		val state = aurralArtistProfileUiState(
 			state = artistState(aurralMonitored = false),

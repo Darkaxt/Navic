@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.repositories.AurralArtistSearchResult
+import paige.navic.domain.repositories.AurralDiscoverArtist
 
 class ArtistDetailAurralIdentityPolicyTest {
 	@Test
@@ -47,5 +49,31 @@ class ArtistDetailAurralIdentityPolicyTest {
 
 		assertEquals("Local Artist", candidate.name)
 		assertNull(candidate.musicBrainzId)
+	}
+
+	@Test
+	fun searchImageUsesExactMusicBrainzMatchWhenDiscoveryDoesNotCarryTheArtist() {
+		val imageUrl = artistDetailAurralSearchImageUrl(
+			artistMbid = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+			artistName = "John Powell",
+			search = AurralArtistSearchResult(
+				artists = listOf(
+					AurralDiscoverArtist(
+						id = "unrelated",
+						name = "John Williams",
+						imageUrl = "https://aurral.example.com/williams.jpg",
+						detailsIdVerified = true
+					),
+					AurralDiscoverArtist(
+						id = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+						name = "John Powell",
+						imageUrl = "https://aurral.example.com/powell.jpg",
+						detailsIdVerified = true
+					)
+				)
+			)
+		)
+
+		assertEquals("https://aurral.example.com/powell.jpg", imageUrl)
 	}
 }

@@ -63,6 +63,7 @@ import paige.navic.ui.screens.artist.artistDetailPlaybackOrigin
 import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
 import paige.navic.ui.screens.artist.artistDetailAurralCandidateArtist
 import paige.navic.ui.screens.artist.artistDetailAurralFallbackIdentities
+import paige.navic.ui.screens.artist.artistDetailAurralSearchImageUrl
 import paige.navic.ui.screens.artist.artistDetailPhotoCacheEntity
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.artist.artistHeaderImageCacheIndex
@@ -618,6 +619,15 @@ class ArtistDetailViewModel(
 					aurralError = null
 				)
 			)
+			if (verifiedAurralArtistImageUrl == null && latestState.aurralArtistImageUrl.isNullOrBlank()) {
+				launch {
+					hydrateAurralArtistImageFromSearch(
+						stateArtistId = artist.id,
+						localArtist = artist,
+						sourceArtist = resolvedAurralArtist
+					)
+				}
+			}
 			(_artistState.value as? UiState.Success)?.data?.let { stateAfterCore ->
 				launch {
 					hydrateAurralArtistAlbumCovers(
@@ -1034,6 +1044,32 @@ class ArtistDetailViewModel(
 			nowMillis = Clock.System.now().toEpochMilliseconds()
 		) ?: return
 		artistPhotoCacheDao.upsertArtistPhotoCacheEntries(listOf(cacheEntry))
+	}
+
+	private suspend fun hydrateAurralArtistImageFromSearch(
+		stateArtistId: String,
+		localArtist: DomainArtist,
+		sourceArtist: DomainArtist
+	) {
+		val searchResult = aurralRepository.searchArtists(
+			query = sourceArtist.name,
+			limit = 5
+		).getOrNull() ?: return
+		val imageUrl = artistDetailAurralSearchImageUrl(
+			artistMbid = sourceArtist.musicBrainzId,
+			artistName = sourceArtist.name,
+			search = searchResult
+		) ?: return
+		persistArtistPhotoCache(
+			localArtist = localArtist,
+			sourceArtist = sourceArtist,
+			imageUrl = imageUrl
+		)
+		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
+		if (latestState.artist.id != stateArtistId || !latestState.aurralArtistImageUrl.isNullOrBlank()) return
+		_artistState.value = UiState.Success(
+			latestState.copy(aurralArtistImageUrl = imageUrl)
+		)
 	}
 
 	fun refreshAurralEnrichment() {
