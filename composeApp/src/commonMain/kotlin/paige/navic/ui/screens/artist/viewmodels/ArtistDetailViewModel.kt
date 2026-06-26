@@ -100,6 +100,7 @@ data class ArtistState(
 )
 
 enum class AurralArtistActionFeedback {
+	AlbumRequested,
 	MonitoringQueued,
 	UnmonitoringQueued,
 	MonitoringEnabled,
@@ -512,16 +513,13 @@ class ArtistDetailViewModel(
 					?.let { aurralArtistOwnershipAlbumRows(it, albums) }
 				val ownedOrPartialAlbumRows = ownershipRows
 					?.ownedOrPartial
-					?.let { rows -> resolveAurralOwnershipAlbumCovers(resolvedAurralArtist, rows) }
 					.orEmpty()
 				val missingReleaseGroupRows = ownershipRows
 					?.missing
-					?.let { rows -> resolveAurralOwnershipAlbumCovers(resolvedAurralArtist, rows) }
 					.orEmpty()
 				val missingAlbumRows = enrichment
 					?.let { aurralMissingAlbumRows(it, albums) }
 					.orEmpty()
-					.let { rows -> resolveAurralMissingAlbumCovers(resolvedAurralArtist, rows) }
 				val recommendedAlbums = discovery
 					?.let { discovery ->
 						aurralRecommendedAlbumsForArtist(
@@ -578,6 +576,13 @@ class ArtistDetailViewModel(
 						aurralError = null
 					)
 				)
+				hydrateAurralArtistAlbumCovers(
+					stateArtistId = latestState.artist.id,
+					artist = resolvedAurralArtist,
+					ownedOrPartialRows = ownedOrPartialAlbumRows,
+					missingReleaseGroupRows = missingReleaseGroupRows,
+					missingAlbumRows = missingAlbumRows
+				)
 			} else {
 				val error = enrichmentResult.exceptionOrNull()
 					?: IllegalStateException("Aurral artist enrichment failed")
@@ -624,6 +629,39 @@ class ArtistDetailViewModel(
 				aurralArtistImageUrl = latestState.aurralArtistImageUrl,
 				aurralLoading = loading,
 				aurralError = null
+			)
+		)
+	}
+
+	private suspend fun hydrateAurralArtistAlbumCovers(
+		stateArtistId: String,
+		artist: DomainArtist,
+		ownedOrPartialRows: List<AurralArtistOwnershipAlbumRow>,
+		missingReleaseGroupRows: List<AurralArtistOwnershipAlbumRow>,
+		missingAlbumRows: List<AurralMissingAlbumRow>
+	) {
+		val hydratedOwnedOrPartialRows = resolveAurralOwnershipAlbumCovers(
+			artist = artist,
+			rows = ownedOrPartialRows
+		)
+		val hydratedMissingReleaseGroupRows = resolveAurralOwnershipAlbumCovers(
+			artist = artist,
+			rows = missingReleaseGroupRows
+		)
+		val hydratedMissingAlbumRows = resolveAurralMissingAlbumCovers(
+			artist = artist,
+			rows = missingAlbumRows
+		)
+		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
+		if (latestState.artist.id != stateArtistId) return
+		_artistState.value = UiState.Success(
+			latestState.copy(
+				aurralOwnedOrPartialAlbums = latestState.aurralOwnedOrPartialAlbums
+					.withHydratedOwnershipCovers(hydratedOwnedOrPartialRows),
+				aurralMissingReleaseGroups = latestState.aurralMissingReleaseGroups
+					.withHydratedOwnershipCovers(hydratedMissingReleaseGroupRows),
+				aurralMissingAlbums = latestState.aurralMissingAlbums
+					.withHydratedMissingAlbumCovers(hydratedMissingAlbumRows)
 			)
 		)
 	}
@@ -785,18 +823,15 @@ class ArtistDetailViewModel(
 			return
 		}
 		val artist = (_artistState.value as? UiState.Success)?.data?.artist ?: return
-		viewModelScope.launch {
+		updateAurralAlbumRequestStatus(row, "requested", AurralArtistActionFeedback.AlbumRequested)
+		viewModelScope.launch(Dispatchers.IO) {
 			aurralRepository.requestAlbum(artist, row.releaseGroup)
-				.onSuccess {
-					updateAurralAlbumRequestStatus(row, "requested")
-				}
 				.onFailure { error ->
 					Logger.w("ArtistDetailViewModel", "Failed to request Aurral album", error)
-					val latestState = (_artistState.value as? UiState.Success)?.data ?: return@onFailure
-					_artistState.value = UiState.Success(
-						latestState.copy(
-							aurralError = error.message ?: error::class.simpleName
-						)
+					updateAurralAlbumRequestStatus(
+						row = row,
+						status = "failed",
+						errorMessage = error.message ?: error::class.simpleName
 					)
 				}
 		}
@@ -804,12 +839,17 @@ class ArtistDetailViewModel(
 
 	private fun updateAurralAlbumRequestStatus(
 		row: AurralMissingAlbumRow,
-		status: String
+		status: String,
+		feedback: AurralArtistActionFeedback? = null,
+		errorMessage: String? = null
 	) {
 		val currentState = (_artistState.value as? UiState.Success)?.data ?: return
 		val releaseGroupId = row.releaseGroup.id
+		val requestable = status.equals("failed", ignoreCase = true)
 		_artistState.value = UiState.Success(
 			currentState.copy(
+				aurralError = errorMessage,
+				aurralFeedback = feedback ?: currentState.aurralFeedback,
 				aurralAlbumRequests = currentState.aurralAlbumRequests
 					.filterNot { request -> request.albumMbid == releaseGroupId }
 					.plus(
@@ -825,7 +865,7 @@ class ArtistDetailViewModel(
 					if (row.releaseGroup.id == releaseGroupId) {
 						row.copy(
 							requestStatus = status,
-							requestable = false,
+							requestable = requestable,
 							acquisitionProgress = aurralAcquisitionProgress(status)
 						)
 					} else {
@@ -836,7 +876,7 @@ class ArtistDetailViewModel(
 					if (row.releaseGroup?.id == releaseGroupId) {
 						row.copy(
 							requestStatus = status,
-							requestable = false,
+							requestable = requestable,
 							acquisitionProgress = aurralAcquisitionProgress(status)
 						)
 					} else {
@@ -1017,6 +1057,48 @@ class ArtistDetailViewModel(
 			} else {
 				flowOf(DownloadStatus.NOT_DOWNLOADED)
 			}
+		}
+	}
+}
+
+private fun List<AurralArtistOwnershipAlbumRow>.withHydratedOwnershipCovers(
+	hydratedRows: List<AurralArtistOwnershipAlbumRow>
+): List<AurralArtistOwnershipAlbumRow> {
+	val coverUrlsByReleaseGroupId = hydratedRows
+		.mapNotNull { row ->
+			val releaseGroupId = row.releaseGroup?.id?.trim()?.takeIf { it.isNotEmpty() }
+			val coverUrl = row.coverUrl?.trim()?.takeIf { it.isNotEmpty() }
+			if (releaseGroupId != null && coverUrl != null) releaseGroupId to coverUrl else null
+		}
+		.toMap()
+	return map { row ->
+		val releaseGroupId = row.releaseGroup?.id?.trim()?.takeIf { it.isNotEmpty() }
+		val hydratedCoverUrl = releaseGroupId?.let(coverUrlsByReleaseGroupId::get)
+		if (row.coverUrl.isNullOrBlank() && hydratedCoverUrl != null) {
+			row.copy(coverUrl = hydratedCoverUrl)
+		} else {
+			row
+		}
+	}
+}
+
+private fun List<AurralMissingAlbumRow>.withHydratedMissingAlbumCovers(
+	hydratedRows: List<AurralMissingAlbumRow>
+): List<AurralMissingAlbumRow> {
+	val coverUrlsByReleaseGroupId = hydratedRows
+		.mapNotNull { row ->
+			val releaseGroupId = row.releaseGroup.id.trim().takeIf { it.isNotEmpty() }
+			val coverUrl = row.coverUrl?.trim()?.takeIf { it.isNotEmpty() }
+			if (releaseGroupId != null && coverUrl != null) releaseGroupId to coverUrl else null
+		}
+		.toMap()
+	return map { row ->
+		val releaseGroupId = row.releaseGroup.id.trim().takeIf { it.isNotEmpty() }
+		val hydratedCoverUrl = releaseGroupId?.let(coverUrlsByReleaseGroupId::get)
+		if (row.coverUrl.isNullOrBlank() && hydratedCoverUrl != null) {
+			row.copy(coverUrl = hydratedCoverUrl)
+		} else {
+			row
 		}
 	}
 }

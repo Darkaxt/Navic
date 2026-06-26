@@ -65,6 +65,31 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun artistDetailAurralRowsPublishBeforeCoverHydration() {
+		val source = commonMain(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		)
+		val start = source.indexOf("private fun loadAurralEnrichment(")
+		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val loadAurralEnrichment = source.substring(start, end)
+		val statePublish = loadAurralEnrichment.indexOf("aurralOwnedOrPartialAlbums = ownedOrPartialAlbumRows")
+		val coverHydration = loadAurralEnrichment.indexOf("hydrateAurralArtistAlbumCovers(")
+
+		assertTrue(
+			coverHydration >= 0,
+			"Artist detail should hydrate missing Aurral release-group covers after publishing album rows."
+		)
+		assertTrue(
+			statePublish >= 0 && statePublish < coverHydration,
+			"Artist detail must publish Aurral album row titles before waiting on release-group cover lookups."
+		)
+		assertFalse(
+			"resolveAurralOwnershipAlbumCovers(resolvedAurralArtist, rows)" in loadAurralEnrichment,
+			"Fresh Aurral artist rows must not block on cover URL hydration before rendering."
+		)
+	}
+
+	@Test
 	fun albumAurralStatusRefreshRunsOffTheUiDispatcher() {
 		val source = commonMain(
 			"paige/navic/ui/screens/album/viewmodels/AlbumListViewModel.kt"

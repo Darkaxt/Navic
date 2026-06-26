@@ -30,6 +30,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,9 +40,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.info_no_songs
+import navic.composeapp.generated.resources.notice_aurral_album_requested
 import navic.composeapp.generated.resources.title_disc_number
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -49,6 +52,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalSnackbarState
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralOwnershipStatus
@@ -101,6 +105,9 @@ fun CollectionDetailScreen(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
+	val snackbarState = LocalSnackbarState.current
+	val albumRequestedMessage = stringResource(Res.string.notice_aurral_album_requested)
+	val scope = rememberCoroutineScope()
 
 	val viewModel = koinViewModel<CollectionDetailViewModel>(
 		key = collectionId,
@@ -247,7 +254,12 @@ fun CollectionDetailScreen(
 							onAcquireAurralAlbum = if (aurralAlbumActionStatus == AurralOwnershipStatus.Missing ||
 								aurralAlbumActionStatus == AurralOwnershipStatus.Failed
 							) {
-								{ viewModel.requestAurralRecoveryAlbum() }
+								{
+									scope.launch {
+										snackbarState.showSnackbar(albumRequestedMessage)
+									}
+									viewModel.requestAurralRecoveryAlbum()
+								}
 							} else {
 								null
 							}

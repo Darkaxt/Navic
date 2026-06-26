@@ -75,6 +75,7 @@ import navic.composeapp.generated.resources.info_aurral_monitor_waiting
 import navic.composeapp.generated.resources.info_aurral_unmonitor_waiting
 import navic.composeapp.generated.resources.info_bulk_download_warning
 import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirmation
+import navic.composeapp.generated.resources.notice_aurral_album_requested
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_aurral_recommendations
 import navic.composeapp.generated.resources.title_bulk_download
@@ -223,6 +224,8 @@ fun ArtistDetailScreen(
 	}.orEmpty()
 	val aurralFeedback = artistData?.aurralFeedback
 	val aurralFeedbackMessage = when (aurralFeedback) {
+		AurralArtistActionFeedback.AlbumRequested ->
+			stringResource(Res.string.notice_aurral_album_requested)
 		AurralArtistActionFeedback.MonitoringQueued ->
 			stringResource(Res.string.info_aurral_monitor_waiting)
 		AurralArtistActionFeedback.UnmonitoringQueued ->

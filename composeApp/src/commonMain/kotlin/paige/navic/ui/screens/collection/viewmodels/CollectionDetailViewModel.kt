@@ -24,6 +24,7 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.IntegrationService
@@ -327,12 +328,22 @@ class CollectionDetailViewModel(
 
 	fun requestAurralRecoveryAlbum() {
 		val album = _aurralAlbumRecoveryMatch.value ?: return
+		_aurralAlbumRecoveryMatch.value = album.copy(status = "requested")
+		_aurralAlbumRecoveryRows.value = _aurralAlbumRecoveryRows.value.withAurralRecoveryRequestStatus(
+			status = "requested",
+			ownershipStatus = AurralOwnershipStatus.Requested
+		)
 		viewModelScope.launch(Dispatchers.IO) {
 			aurralRepository.requestAlbum(album)
 				.onSuccess {
 					refreshAurralAcquisitionRequests()
 				}
 				.onFailure { error ->
+					_aurralAlbumRecoveryMatch.value = album.copy(status = "failed")
+					_aurralAlbumRecoveryRows.value = _aurralAlbumRecoveryRows.value.withAurralRecoveryRequestStatus(
+						status = "failed",
+						ownershipStatus = AurralOwnershipStatus.Failed
+					)
 					_collectionState.value = UiState.Error(
 						error as? Exception ?: Exception(error),
 						_collectionState.value.data
@@ -498,3 +509,24 @@ private fun AurralAlbumTrackItem.toRecoveryTrack() = AurralAlbumRecoveryTrack(
 	status = status,
 	requested = requested
 )
+
+private fun List<AurralAlbumRecoveryTrackRow>.withAurralRecoveryRequestStatus(
+	status: String,
+	ownershipStatus: AurralOwnershipStatus
+): List<AurralAlbumRecoveryTrackRow> =
+	map { row ->
+		when (row.ownershipStatus) {
+			AurralOwnershipStatus.Missing,
+			AurralOwnershipStatus.Failed,
+			AurralOwnershipStatus.Requested,
+			AurralOwnershipStatus.Processing -> row.copy(
+				track = row.track.copy(
+					status = status,
+					requested = ownershipStatus == AurralOwnershipStatus.Requested
+				),
+				ownershipStatus = ownershipStatus
+			)
+			AurralOwnershipStatus.Owned,
+			AurralOwnershipStatus.Partial -> row
+		}
+	}
