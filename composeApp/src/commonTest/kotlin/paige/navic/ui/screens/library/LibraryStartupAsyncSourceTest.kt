@@ -375,6 +375,21 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun aurralDiscoverListProjectionRunsOffTheUiDispatcher() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralDiscoverListScreen.kt")
+
+		assertTrue(
+			"val projectedDiscovery by produceState(" in source &&
+				"withContext(Dispatchers.Default)" in source,
+			"Aurral Discover should project artist/tag rows off the UI dispatcher; tag and image-cache resolution can be large."
+		)
+		assertFalse(
+			"val artistPhotoCacheEntries = cachedArtistPhotos.map" in source,
+			"Aurral Discover must not map the full artist-photo cache directly during composition."
+		)
+	}
+
+	@Test
 	fun settingsSearchStorageMetricsRunOffTheUiDispatcher() {
 		val source = commonMain("paige/navic/ui/screens/settings/SettingsSearchRegistry.kt")
 
