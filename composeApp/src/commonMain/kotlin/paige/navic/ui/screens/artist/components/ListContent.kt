@@ -34,6 +34,7 @@ import paige.navic.icons.outlined.Artist
 import paige.navic.ui.components.common.AlphabeticalScroller
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.layouts.ArtGrid
+import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.artist.ArtistsScreenItem
 import paige.navic.ui.core.UiState
 import paige.navic.util.ui.withoutTop
@@ -49,6 +50,7 @@ fun ArtistListScreenContent(
 	nested: Boolean,
 	selectedArtist: DomainArtist?,
 	selectedArtistAlbums: ImmutableList<DomainAlbum>?,
+	aurralMonitorStates: Map<String, AurralMonitorActionState>,
 	onUpdateSelection: (DomainArtist) -> Unit,
 	onClearSelection: () -> Unit,
 	onSetStarred: (Boolean) -> Unit,
@@ -124,6 +126,7 @@ fun ArtistListScreenContent(
 						selected = artist == selectedArtist,
 						selectedArtistAlbums = selectedArtistAlbums,
 						starred = starred,
+						aurralMonitorState = aurralMonitorStates[artist.id],
 						onSelect = { onUpdateSelection(artist) },
 						onDeselect = { onClearSelection() },
 						onSetStarred = { onSetStarred(it) },

@@ -50,6 +50,10 @@ class AurralRepository(
 		onArtistMonitoringConfirmed = ::rememberOptimisticArtistMonitoring
 	)
 	val confirmationQueue = confirmationQueueManager.confirmationQueue
+	private val _albumRequests = MutableStateFlow<List<AurralAlbumRequest>>(emptyList())
+	val albumRequests = _albumRequests.asStateFlow()
+	private val _libraryArtistMonitorStates = MutableStateFlow<Map<String, Boolean?>>(emptyMap())
+	val libraryArtistMonitorStates = _libraryArtistMonitorStates.asStateFlow()
 	private val _artistStateRevision = MutableStateFlow(0)
 	val artistStateRevision = _artistStateRevision.asStateFlow()
 
@@ -57,6 +61,8 @@ class AurralRepository(
 		preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
 			if (!enabled) {
 				confirmationQueueManager.cancel(clearQueue = true)
+				_albumRequests.value = emptyList()
+				_libraryArtistMonitorStates.value = emptyMap()
 			}
 		}
 	}
@@ -81,20 +87,32 @@ class AurralRepository(
 
 	suspend fun getServiceStatus(): Result<AurralServiceStatus> {
 		if (!preferenceManager.aurralEnabled) {
+			_albumRequests.value = emptyList()
 			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
 		}
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
-		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		if (baseUrlError != null) {
+			_albumRequests.value = emptyList()
+			return Result.failure(IllegalStateException(baseUrlError))
+		}
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
-			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+			?: run {
+				_albumRequests.value = emptyList()
+				return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+			}
 		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			apiClient.fetchServiceStatus(baseUrl, requestHeaders)
+		}.onSuccess { status ->
+			_albumRequests.value = status.acquisitionQueue.map { it.toAlbumRequest() }
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral service status failed", error)
 		}.recordAurralAvailability()
 	}
+
+	suspend fun refreshAlbumRequests(): Result<List<AurralAlbumRequest>> =
+		getServiceStatus().map { status -> status.acquisitionQueue.map { it.toAlbumRequest() } }
 
 	suspend fun getActivityStatus(): Result<AurralServiceStatus> {
 		if (!preferenceManager.aurralEnabled) {
@@ -108,6 +126,8 @@ class AurralRepository(
 
 		return runCatching {
 			apiClient.fetchActivityStatus(baseUrl, requestHeaders)
+		}.onSuccess { status ->
+			_albumRequests.value = status.acquisitionQueue.map { it.toAlbumRequest() }
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral activity status failed", error)
 		}.recordAurralAvailability()
@@ -147,6 +167,25 @@ class AurralRepository(
 
 	suspend fun getLibraryDiscovery(): Result<AurralDiscoverySummary> =
 		getDiscovery(hydrateMissingImages = false)
+
+	suspend fun refreshLibraryArtistMonitorStates(): Result<Map<String, Boolean?>> {
+		if (!preferenceManager.aurralEnabled) {
+			_libraryArtistMonitorStates.value = emptyMap()
+			return Result.success(emptyMap())
+		}
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			getCachedLibraryArtists(baseUrl, requestHeaders)
+			_libraryArtistMonitorStates.value
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral library artist monitor state refresh failed", error)
+		}.recordAurralAvailability()
+	}
 
 	fun discoveryConfigurationKey(hydrateMissingImages: Boolean = true): String? {
 		if (!preferenceManager.aurralEnabled) return "disabled"
@@ -621,6 +660,7 @@ class AurralRepository(
 					bumpArtistStateRevision()
 				}
 			}
+			removeAlbumRequest(item.albumMbid, item.albumName)
 			clearAurralMetadataCache(baseUrl)
 			Unit
 		}.onFailure { error ->
@@ -1188,7 +1228,33 @@ class AurralRepository(
 		)
 		if (optimisticAlbumRequestsByMbid[albumKey] == request) return
 		optimisticAlbumRequestsByMbid[albumKey] = request
+		upsertAlbumRequest(request)
 		bumpArtistStateRevision()
+	}
+
+	private fun upsertAlbumRequest(request: AurralAlbumRequest) {
+		val requestKey = request.albumMbid.normalizedAurralCacheKey()
+			?: request.albumName.normalizedAurralCacheKey()
+			?: return
+		val current = _albumRequests.value
+		val filtered = current.filterNot { existing ->
+			existing.albumMbid.normalizedAurralCacheKey() == requestKey ||
+				(existing.albumMbid.normalizedAurralCacheKey() == null &&
+					existing.albumName.normalizedAurralCacheKey() == requestKey)
+		}
+		_albumRequests.value = filtered + request
+	}
+
+	private fun removeAlbumRequest(
+		albumMbid: String?,
+		albumName: String
+	) {
+		val albumMbidKey = albumMbid.normalizedAurralCacheKey()
+		val albumNameKey = albumName.normalizedAurralCacheKey()
+		_albumRequests.value = _albumRequests.value.filterNot { request ->
+			(albumMbidKey != null && request.albumMbid.normalizedAurralCacheKey() == albumMbidKey) ||
+				(albumNameKey != null && request.albumName.normalizedAurralCacheKey() == albumNameKey)
+		}
 	}
 
 	private fun rememberOptimisticArtistMonitoring(
@@ -1204,6 +1270,8 @@ class AurralRepository(
 			artistName = artistName,
 			monitored = monitored
 		)
+		publishLibraryArtistMonitorStates(libraryArtistsCache?.artists.orEmpty())
+		upsertLibraryArtistMonitorState(artistMbid, artistName, monitored)
 		bumpArtistStateRevision()
 	}
 
@@ -1229,7 +1297,11 @@ class AurralRepository(
 		val currentTime = nowMillis()
 		libraryArtistsCache
 			?.takeIf { it.key == cacheKey && it.isFresh(currentTime) }
-			?.let { return it.artists.withOptimisticMonitoring() }
+			?.let {
+				val artists = it.artists.withOptimisticMonitoring()
+				publishLibraryArtistMonitorStates(artists)
+				return artists
+			}
 
 		val cachedFallback = libraryArtistsCache?.takeIf { it.key == cacheKey }
 		return runCatching {
@@ -1247,10 +1319,11 @@ class AurralRepository(
 				artists = artists.withOptimisticMonitoring(),
 				loadedAtMillis = currentTime
 			)
+			publishLibraryArtistMonitorStates(libraryArtistsCache?.artists.orEmpty())
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral library artists failed", error)
 		}.getOrElse {
-			cachedFallback?.artists?.withOptimisticMonitoring().orEmpty()
+			cachedFallback?.artists?.withOptimisticMonitoring().orEmpty().also(::publishLibraryArtistMonitorStates)
 		}
 	}
 
@@ -1289,6 +1362,31 @@ class AurralRepository(
 			artistName = artistName,
 			monitored = monitored,
 			loadedAtMillis = currentTime
+		)
+		publishLibraryArtistMonitorStates(libraryArtistsCache?.artists.orEmpty())
+		upsertLibraryArtistMonitorState(artistMbid, artistName, monitored)
+	}
+
+	private fun publishLibraryArtistMonitorStates(artists: List<AurralDiscoverArtist>) {
+		_libraryArtistMonitorStates.value = artists
+			.withOptimisticMonitoring()
+			.flatMap { artist ->
+				listOfNotNull(
+					artist.id.normalizedAurralCacheKey()?.let { key -> key to artist.monitored },
+					artist.name.normalizedAurralCacheKey()?.let { key -> key to artist.monitored }
+				)
+			}
+			.toMap()
+	}
+
+	private fun upsertLibraryArtistMonitorState(
+		artistMbid: String,
+		artistName: String,
+		monitored: Boolean
+	) {
+		_libraryArtistMonitorStates.value = _libraryArtistMonitorStates.value + listOfNotNull(
+			artistMbid.normalizedAurralCacheKey()?.let { key -> key to monitored },
+			artistName.normalizedAurralCacheKey()?.let { key -> key to monitored }
 		)
 	}
 

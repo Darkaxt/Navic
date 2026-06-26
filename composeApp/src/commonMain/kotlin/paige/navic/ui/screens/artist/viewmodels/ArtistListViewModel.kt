@@ -41,6 +41,8 @@ import paige.navic.ui.screens.artist.artistListAurralPhotoCacheEntity
 import paige.navic.ui.screens.artist.artistListAurralPhotoCandidate
 import paige.navic.ui.screens.artist.artistListAurralPhotoHydrationTargets
 import paige.navic.ui.screens.artist.artistCreditResolvedRows
+import paige.navic.ui.screens.artist.AurralMonitorActionState
+import paige.navic.ui.screens.artist.aurralMonitorActionState
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.core.UiState
@@ -104,11 +106,16 @@ class ArtistListViewModel(
 	private val attemptedArtistCreditKeys = mutableSetOf<String>()
 	private val artistCreditResolutionState =
 		MutableStateFlow<Map<String, ArtistCreditResolution>>(emptyMap())
+	private val _aurralMonitorStates = MutableStateFlow<Map<String, AurralMonitorActionState>>(emptyMap())
+	val aurralMonitorStates = _aurralMonitorStates.asStateFlow()
 	private var lastRawArtistKey: String = ""
 	private var artistsCollectorJob: Job? = null
 
 	init {
 		observeArtists()
+		viewModelScope.launch(Dispatchers.IO) {
+			sessionManager.isLoggedIn.collect { if (it) refreshAurralLibraryMonitorStates() }
+		}
 	}
 
 	/**
@@ -122,10 +129,12 @@ class ArtistListViewModel(
 			combine(
 				reactiveArtists,
 				artistPhotoCacheDao.observeArtistPhotoCache(),
-				artistCreditResolutionState
+				artistCreditResolutionState,
+				aurralRepository.libraryArtistMonitorStates
 			) { rawArtists: ImmutableList<DomainArtist>,
 				cachedPhotos: List<ArtistPhotoCacheEntity>,
-				creditResolutions: Map<String, ArtistCreditResolution> ->
+				creditResolutions: Map<String, ArtistCreditResolution>,
+				libraryArtistMonitorStates: Map<String, Boolean?> ->
 				val entries = cachedPhotos.map { entry -> entry.toArtistHeaderImageCacheEntry() }
 				val displayedArtists = rawArtists
 					.withKnownArtistCreditRows(creditResolutions)
@@ -133,12 +142,14 @@ class ArtistListViewModel(
 					.toImmutableList()
 				ArtistListSnapshot(
 					state = UiState.Success(displayedArtists),
-					rawArtists = rawArtists
+					rawArtists = rawArtists,
+					aurralMonitorStates = displayedArtists.aurralMonitorStates(libraryArtistMonitorStates)
 				)
 			}
 				.flowOn(Dispatchers.Default)
 				.collect { snapshot ->
 					_artistsState.value = snapshot.state
+					_aurralMonitorStates.value = snapshot.aurralMonitorStates
 					val rawArtists = snapshot.rawArtists
 					lastRawArtistKey = rawArtists.artistCreditListKey()
 					hydrateAurralArtistPhotos(snapshot.state.data.orEmpty())
@@ -151,6 +162,7 @@ class ArtistListViewModel(
 		if (fullRefresh) {
 			attemptedAurralArtistPhotoKeys.clear()
 			attemptedArtistCreditKeys.clear()
+			refreshAurralLibraryMonitorStates()
 			viewModelScope.launch {
 				_isRefreshing.value = true
 				_refreshError.value = runCatching { repository.syncArtists() }.exceptionOrNull() as? Exception
@@ -158,6 +170,16 @@ class ArtistListViewModel(
 			}
 		}
 		// The reactive observeArtists collector auto-updates from Room changes after sync.
+	}
+
+	private fun refreshAurralLibraryMonitorStates() {
+		if (!preferenceManager.aurralEnabled) return
+		viewModelScope.launch(Dispatchers.IO) {
+			aurralRepository.refreshLibraryArtistMonitorStates()
+				.onFailure { error ->
+					Logger.w("ArtistListViewModel", "Aurral library monitor state refresh failed", error)
+				}
+		}
 	}
 
 	fun selectArtist(artist: DomainArtist) {
@@ -348,6 +370,22 @@ class ArtistListViewModel(
 	private fun DomainArtist.artistCreditAttemptKey(): String =
 		artistCreditIdentityKey(name)
 
+	private fun List<DomainArtist>.aurralMonitorStates(
+		libraryArtistMonitorStates: Map<String, Boolean?>
+	): Map<String, AurralMonitorActionState> =
+		mapNotNull { artist ->
+			val monitored = listOfNotNull(
+				artist.musicBrainzId.normalizedAurralMonitorKey(),
+				artist.id.normalizedAurralMonitorKey(),
+				artist.name.normalizedAurralMonitorKey()
+			).firstNotNullOfOrNull(libraryArtistMonitorStates::get)
+				?: return@mapNotNull null
+			artist.id to aurralMonitorActionState(monitored)
+		}.toMap()
+
+	private fun String?.normalizedAurralMonitorKey(): String? =
+		this?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+
 	private fun List<DomainArtist>.artistCreditListKey(): String =
 		joinToString("\u001F") { artist ->
 			listOf(artist.id, artist.name).joinToString("\u001E") { artistCreditIdentityKey(it) }
@@ -364,5 +402,6 @@ class ArtistListViewModel(
 
 private data class ArtistListSnapshot(
 	val state: UiState<ImmutableList<DomainArtist>>,
-	val rawArtists: List<DomainArtist>
+	val rawArtists: List<DomainArtist>,
+	val aurralMonitorStates: Map<String, AurralMonitorActionState>
 )

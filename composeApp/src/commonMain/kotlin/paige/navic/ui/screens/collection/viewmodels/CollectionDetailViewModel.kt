@@ -7,9 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -23,7 +25,6 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
-import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
@@ -31,7 +32,6 @@ import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.AlbumRepository
-import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralAlbumTrackItem
 import paige.navic.domain.repositories.AurralRepository
@@ -124,8 +124,9 @@ class CollectionDetailViewModel(
 	private val _selectedAlbumRating = MutableStateFlow(0)
 	val selectedAlbumRating = _selectedAlbumRating.asStateFlow()
 
-	private val _aurralAlbumRequests = MutableStateFlow<List<AurralAlbumRequest>>(emptyList())
-	val aurralAlbumRequests = _aurralAlbumRequests.asStateFlow()
+	val aurralAlbumRequests = aurralRepository.albumRequests
+	private val _aurralAlbumRequestFailures = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+	val aurralAlbumRequestFailures = _aurralAlbumRequestFailures.asSharedFlow()
 
 	private val _aurralAlbumRecoveryMatch = MutableStateFlow<AurralAlbumSearchItem?>(null)
 	val aurralAlbumRecoveryMatch = _aurralAlbumRecoveryMatch.asStateFlow()
@@ -148,7 +149,6 @@ class CollectionDetailViewModel(
 		loadLocalCollection()
 		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
 			if (!enabled) {
-				_aurralAlbumRequests.value = emptyList()
 				_aurralAlbumRecoveryMatch.value = null
 				_aurralAlbumRecoveryRows.value = emptyList()
 				_aurralAlbumRecoveryLoading.value = false
@@ -158,6 +158,9 @@ class CollectionDetailViewModel(
 		}
 		viewModelScope.launch {
 			sessionManager.isLoggedIn.collect { if (it) refreshCollection(false) }
+		}
+		viewModelScope.launch(Dispatchers.IO) {
+			aurralRepository.artistStateRevision.collect { refreshAurralAcquisitionRequests() }
 		}
 	}
 
@@ -289,13 +292,8 @@ class CollectionDetailViewModel(
 
 	private fun refreshAurralAcquisitionRequests() {
 		viewModelScope.launch(Dispatchers.IO) {
-			aurralRepository.getServiceStatus()
-				.onSuccess { status ->
-					_aurralAlbumRequests.value = status.acquisitionQueue.map { it.toAlbumRequest() }
-				}
-				.onFailure {
-					_aurralAlbumRequests.value = emptyList()
-				}
+			aurralRepository.refreshAlbumRequests()
+				.onFailure { error -> Logger.w("CollectionDetailViewModel", "Aurral acquisition queue refresh failed", error) }
 		}
 	}
 
@@ -339,7 +337,13 @@ class CollectionDetailViewModel(
 					refreshAurralAcquisitionRequests()
 				}
 				.onFailure { error ->
-					Logger.w("CollectionDetailViewModel", "Aurral album request is still pending server-side", error)
+					_aurralAlbumRecoveryMatch.value = _aurralAlbumRecoveryMatch.value?.copy(status = "failed")
+					_aurralAlbumRecoveryRows.value = _aurralAlbumRecoveryRows.value.withAurralRecoveryRequestStatus(
+						status = "failed",
+						ownershipStatus = AurralOwnershipStatus.Failed
+					)
+					_aurralAlbumRequestFailures.emit(Unit)
+					Logger.w("CollectionDetailViewModel", "Aurral album request failed", error)
 				}
 		}
 	}
@@ -480,14 +484,6 @@ class CollectionDetailViewModel(
 		return downloadManager.getCollectionDownloadStatus(songs.map { it.id })
 	}
 }
-
-private fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(
-	albumMbid = albumMbid,
-	albumName = albumName,
-	artistMbid = artistMbid,
-	artistName = artistName,
-	status = status
-)
 
 private fun AurralAlbumTrackItem.toRecoveryTrack() = AurralAlbumRecoveryTrack(
 	id = id,

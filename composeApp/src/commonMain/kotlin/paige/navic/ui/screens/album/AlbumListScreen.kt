@@ -69,6 +69,7 @@ fun AlbumListScreen(
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
 	val albumsState by viewModel.albumsState.collectAsStateWithLifecycle()
 	val aurralAlbumRequests by viewModel.aurralAlbumRequests.collectAsStateWithLifecycle()
+	val albumDownloadOwnershipStatuses by viewModel.albumDownloadOwnershipStatuses.collectAsStateWithLifecycle()
 	val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsStateWithLifecycle()
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
@@ -128,6 +129,7 @@ fun AlbumListScreen(
 					albumListScreenContent(
 						state = albumsState,
 						aurralAlbumRequests = aurralAlbumRequests,
+						albumDownloadOwnershipStatuses = albumDownloadOwnershipStatuses,
 						starred = starred,
 						selectedAlbum = selectedAlbum,
 						selectedAlbumRating = rating,

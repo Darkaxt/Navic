@@ -19,16 +19,18 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
+import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.SessionManager
-import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AlbumRepository
-import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralRepository
+import paige.navic.domain.models.AurralOwnershipStatus
+import paige.navic.ui.screens.album.albumDownloadOwnershipStatuses
 import paige.navic.ui.core.UiState
+import paige.navic.util.core.Logger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 open class AlbumListViewModel(
@@ -36,6 +38,7 @@ open class AlbumListViewModel(
 	private val repository: AlbumRepository,
 	private val sessionManager: SessionManager,
 	private val aurralRepository: AurralRepository,
+	private val downloadManager: DownloadManager,
 	private val preferenceManager: PreferenceManager
 ) : ViewModel(), KoinComponent {
 	private val _listType = MutableStateFlow(initialListType)
@@ -66,8 +69,19 @@ open class AlbumListViewModel(
 			}
 			.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState.Loading())
 
-	private val _aurralAlbumRequests = MutableStateFlow<List<AurralAlbumRequest>>(emptyList())
-	val aurralAlbumRequests = _aurralAlbumRequests.asStateFlow()
+	val aurralAlbumRequests = aurralRepository.albumRequests
+
+	val albumDownloadOwnershipStatuses: StateFlow<Map<String, AurralOwnershipStatus>> =
+		combine(
+			albumsState.map { state -> state.data.orEmpty() }.distinctUntilChanged(),
+			downloadManager.allDownloads
+		) { albums, downloads ->
+			albumDownloadOwnershipStatuses(albums, downloads)
+		}.stateIn(
+			scope = viewModelScope,
+			started = SharingStarted.WhileSubscribed(5_000),
+			initialValue = emptyMap()
+		)
 
 	private val _selectedAlbum = MutableStateFlow<DomainAlbum?>(null)
 	val selectedAlbum = _selectedAlbum.asStateFlow()
@@ -84,12 +98,13 @@ open class AlbumListViewModel(
 
 	init {
 		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
-			if (!enabled) {
-				_aurralAlbumRequests.value = emptyList()
-			}
+			if (!enabled) refreshAurralAcquisitionRequests()
 		}
 		viewModelScope.launch {
 			sessionManager.isLoggedIn.collect { if (it) refreshAurralAcquisitionRequests() }
+		}
+		viewModelScope.launch(Dispatchers.IO) {
+			aurralRepository.artistStateRevision.collect { refreshAurralAcquisitionRequests() }
 		}
 	}
 
@@ -113,13 +128,8 @@ open class AlbumListViewModel(
 
 	private fun refreshAurralAcquisitionRequests() {
 		viewModelScope.launch(Dispatchers.IO) {
-			aurralRepository.getServiceStatus()
-				.onSuccess { status ->
-					_aurralAlbumRequests.value = status.acquisitionQueue.map { it.toAlbumRequest() }
-				}
-				.onFailure {
-					_aurralAlbumRequests.value = emptyList()
-				}
+			aurralRepository.refreshAlbumRequests()
+				.onFailure { error -> Logger.w("AlbumListViewModel", "Aurral acquisition queue refresh failed", error) }
 		}
 	}
 
@@ -171,11 +181,3 @@ open class AlbumListViewModel(
 		_refreshError.value = null
 	}
 }
-
-private fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(
-	albumMbid = albumMbid,
-	albumName = albumName,
-	artistMbid = artistMbid,
-	artistName = artistName,
-	status = status
-)

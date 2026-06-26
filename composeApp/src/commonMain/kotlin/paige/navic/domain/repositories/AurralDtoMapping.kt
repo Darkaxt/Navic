@@ -599,6 +599,7 @@ internal fun aurralArtistEnrichment(
 	return AurralArtistEnrichment(
 		artistMbid = artistMbid,
 		artistName = artistName,
+		imageUrl = aurralArtistDetailsImageUrl(baseUrl, details),
 		bio = details.bio?.trim()?.takeIf { it.isNotEmpty() },
 		genres = details.genres
 			.mapNotNull { genre -> genre.trim().takeIf { it.isNotEmpty() } }
@@ -622,6 +623,19 @@ internal fun aurralArtistEnrichment(
 		monitored = details.lidarrData?.monitored
 	)
 }
+
+internal fun aurralArtistDetailsImageUrl(
+	baseUrl: String,
+	details: AurralArtistDetailsDto
+): String? =
+	listOf(
+		details.imageUrl,
+		details.coverUrl,
+		details.image,
+		details.images.firstOrNull { image -> image.isNotBlank() }
+	).firstNotNullOfOrNull { image ->
+		aurralAbsoluteImageUrl(baseUrl, image?.trim()?.takeIf { it.isNotEmpty() })
+	}
 
 internal fun aurralPreviewTracks(preview: AurralArtistPreviewDto): List<AurralPreviewTrack> =
 	preview.tracks.mapNotNull { track ->

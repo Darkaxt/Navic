@@ -89,6 +89,7 @@ fun ArtistListScreen(
 	val artistsState by viewModel.artistsState.collectAsStateWithLifecycle()
 	val selectedArtist by viewModel.selectedArtist.collectAsStateWithLifecycle()
 	val selectedArtistAlbums by viewModel.selectedArtistAlbums.collectAsStateWithLifecycle()
+	val aurralMonitorStates by viewModel.aurralMonitorStates.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsStateWithLifecycle()
 	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
@@ -175,6 +176,7 @@ fun ArtistListScreen(
 					starred = starred,
 					selectedArtist = selectedArtist,
 					selectedArtistAlbums = selectedArtistAlbums,
+					aurralMonitorStates = aurralMonitorStates,
 					gridState = viewModel.gridState,
 					scrollBehavior = scrollBehavior,
 					innerPadding = innerPadding,

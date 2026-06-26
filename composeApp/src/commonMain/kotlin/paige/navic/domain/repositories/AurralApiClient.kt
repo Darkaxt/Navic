@@ -580,9 +580,7 @@ internal class KtorAurralApiClient : AurralApiClient {
 		}
 		return when {
 			response.status.isSuccess() -> response.body()
-			response.status == HttpStatusCode.Unauthorized -> AurralArtistPreviewDto()
-			response.status == HttpStatusCode.Forbidden -> AurralArtistPreviewDto()
-			else -> AurralArtistPreviewDto()
+			else -> error(aurralHttpErrorMessage("Aurral artist preview", response.status))
 		}
 	}
 
@@ -601,9 +599,7 @@ internal class KtorAurralApiClient : AurralApiClient {
 		}
 		return when {
 			response.status.isSuccess() -> response.body()
-			response.status == HttpStatusCode.Unauthorized -> AurralSimilarArtistsDto()
-			response.status == HttpStatusCode.Forbidden -> AurralSimilarArtistsDto()
-			else -> AurralSimilarArtistsDto()
+			else -> error(aurralHttpErrorMessage("Aurral similar artists", response.status))
 		}
 	}
 

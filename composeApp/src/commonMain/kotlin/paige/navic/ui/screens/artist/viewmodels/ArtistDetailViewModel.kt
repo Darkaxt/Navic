@@ -512,9 +512,12 @@ class ArtistDetailViewModel(
 					}
 				}
 			}
-			val verifiedAurralArtistImageUrl = selectedCandidate.first.imageUrl
+			val verifiedAurralArtistImageUrl = coreEnrichmentResult.getOrNull()?.imageUrl
 				?.trim()
 				?.takeIf { it.isNotEmpty() }
+				?: selectedCandidate.first.imageUrl
+					?.trim()
+					?.takeIf { it.isNotEmpty() }
 				?: aurralIdentities.firstNotNullOfOrNull { identity ->
 					identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
 				}
@@ -534,23 +537,17 @@ class ArtistDetailViewModel(
 				val error = coreEnrichmentResult.exceptionOrNull()
 					?: IllegalStateException("Aurral artist profile failed")
 				Logger.w("ArtistDetailViewModel", "Failed to fetch Aurral artist profile", error)
-				val latestState = (_artistState.value as? UiState.Success)?.data ?: return@launch
-				_artistState.value = UiState.Success(
-					latestState.copy(
-						aurralLoading = false,
-						aurralProfileLoading = false,
-						aurralOwnershipLoading = false,
-						aurralPreviewTracksLoading = false,
-						aurralSimilarArtistsLoading = false,
-						aurralRequestsLoading = false,
-						aurralError = error.message ?: error::class.simpleName,
-						aurralProfileError = error.message ?: error::class.simpleName,
-						aurralOwnershipError = error.message ?: error::class.simpleName,
-						aurralPreviewTracksError = error.message ?: error::class.simpleName,
-						aurralSimilarArtistsError = error.message ?: error::class.simpleName,
-						aurralRequestsError = error.message ?: error::class.simpleName
+				val latestState = (_artistState.value as? UiState.Success)?.data
+				if (latestState != null) {
+					_artistState.value = UiState.Success(
+						latestState.copy(
+							aurralLoading = false,
+							aurralProfileLoading = false,
+							aurralError = error.message ?: error::class.simpleName,
+							aurralProfileError = error.message ?: error::class.simpleName
+						)
 					)
-				)
+				}
 				return@launch
 			}
 

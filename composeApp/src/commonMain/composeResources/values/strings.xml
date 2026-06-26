@@ -984,6 +984,7 @@
 	<string name="notice_added_to_multiple_playlists">Added to multiple playlists.</string>
 	<string name="notice_download_started">Download started.</string>
 	<string name="notice_aurral_album_requested">Album requested</string>
+	<string name="notice_aurral_album_request_failed">Album request failed</string>
 	<string name="notice_song_not_found">Song not found.</string>
 	<string name="notice_failed_download">Failed download.</string>
 	<string name="notice_failed_to_play_song">Failed to play song.</string>

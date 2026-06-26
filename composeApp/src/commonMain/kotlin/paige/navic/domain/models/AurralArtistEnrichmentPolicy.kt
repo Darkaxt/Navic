@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 data class AurralArtistEnrichment(
 	val artistMbid: String,
 	val artistName: String,
+	val imageUrl: String? = null,
 	val bio: String? = null,
 	val genres: List<String> = emptyList(),
 	val externalLinks: List<AurralArtistExternalLink> = emptyList(),

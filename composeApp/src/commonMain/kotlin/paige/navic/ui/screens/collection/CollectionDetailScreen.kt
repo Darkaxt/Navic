@@ -25,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -45,6 +46,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.info_no_songs
 import navic.composeapp.generated.resources.notice_aurral_album_requested
+import navic.composeapp.generated.resources.notice_aurral_album_request_failed
 import navic.composeapp.generated.resources.title_disc_number
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -107,6 +109,7 @@ fun CollectionDetailScreen(
 	val backStack = LocalNavStack.current
 	val snackbarState = LocalSnackbarState.current
 	val albumRequestedMessage = stringResource(Res.string.notice_aurral_album_requested)
+	val albumRequestFailedMessage = stringResource(Res.string.notice_aurral_album_request_failed)
 	val scope = rememberCoroutineScope()
 
 	val viewModel = koinViewModel<CollectionDetailViewModel>(
@@ -162,6 +165,13 @@ fun CollectionDetailScreen(
 
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
 	BackToTopScrollHandler(viewModel.listState)
+
+	LaunchedEffect(viewModel, albumRequestFailedMessage) {
+		viewModel.aurralAlbumRequestFailures.collect {
+			snackbarState.currentSnackbarData?.dismiss()
+			snackbarState.showSnackbar(albumRequestFailedMessage)
+		}
+	}
 
 	val titleAlpha by remember {
 		derivedStateOf {
