@@ -173,6 +173,25 @@ class AurralArtistProfileStatePolicyTest {
 		assertEquals(AurralArtistSectionUiState.Ready, state.similarArtists)
 	}
 
+	@Test
+	fun previewFiveHundredFailureMarksOnlyThePreviewSectionAsError() {
+		val state = aurralArtistProfileUiState(
+			state = artistState(
+				aurralArtistBio = "Ready biography.",
+				aurralOwnedOrPartialAlbums = listOf(ownershipRow("How to Train Your Dragon")),
+				aurralPreviewTracksError = "Aurral artist preview returned HTTP 500 Internal Server Error"
+			),
+			aurralEnabled = true,
+			monitoringInAurral = false,
+			monitorPendingInAurral = false
+		)
+
+		assertEquals(AurralArtistSectionUiState.Ready, state.profile)
+		assertEquals(AurralArtistSectionUiState.Ready, state.ownership)
+		assertEquals(AurralArtistSectionUiState.Error, state.previewTracks)
+		assertEquals(AurralArtistSectionUiState.Empty, state.similarArtists)
+	}
+
 	private fun artistState(
 		aurralMonitored: Boolean? = null,
 		aurralLoading: Boolean = false,

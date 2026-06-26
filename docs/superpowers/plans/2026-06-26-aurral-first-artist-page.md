@@ -39,7 +39,7 @@ The flaw is conceptual: the page is still a Navidrome artist page with Aurral en
 
 ### Task 1: Lock The Desired State With Policy Tests
 
-**Status: ✅ MOSTLY DONE** — Policy tests exist for ownership matching, monitor state, cache seeding, and split rows. Verify they cover the edge cases below.
+**Status: ✅ DONE** — Policy tests exist for ownership matching, monitor state, cache seeding, split rows, and preview/similar failure surfacing.
 
 **Files:**
 - `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/artist/AurralArtistProfileStatePolicyTest.kt`
@@ -51,7 +51,7 @@ The flaw is conceptual: the page is still a Navidrome artist page with Aurral en
 - [x] John Powell ownership test: one local `Test Drive` track → partial How to Train Your Dragon release group.
 - [x] Split-row test: owned/partial release groups separate from missing.
 - [x] Cache-seeding test: cached Aurral profile data renders before fresh sections finish.
-- [ ] **Add:** test that `fetchArtistPreview` returning a 5xx → section state is `Error`, not `Empty`. (See Task 3 gap.)
+- [x] Test that `fetchArtistPreview` returning a 5xx → section state is `Error`, not `Empty`. Covered by `AurralFirstArtistPageSourceTest.previewAndSimilarNonSuccessResponsesThrowInsteadOfReturningEmpty` plus `AurralArtistProfileStatePolicyTest.previewFiveHundredFailureMarksOnlyThePreviewSectionAsError`.
 
 ---
 
@@ -157,7 +157,7 @@ When `coreEnrichment == null` (`ArtistDetailViewModel.kt:533-555`), the ViewMode
 
 ### Task 9: Release Gate
 
-**Status: ✅ READY** — Task 3 fixes are implemented, focused tests pass, adjacent caching/artwork/performance tests pass, debug APK builds, and master was synced before commit/release.
+**Status: ✅ DONE** — Task 3 fixes are implemented, focused tests pass, adjacent caching/artwork/performance tests pass, debug APK builds, and master was synced before commit/release.
 
 - [x] Focused Aurral artist tests pass (including the new Task 3 error-surfacing test).
 - [x] Existing artwork/caching tests still pass.
@@ -274,7 +274,7 @@ The Artist flow (`ArtistDetailViewModel`) correctly handles failures: rolls back
 | 3B: Silent HTTP failures | Medium | ✅ Done | Small |
 | 5: Core-failure error propagation | Low | ✅ Done | Trivial |
 | 8: Build verification | Required | ✅ Done | Automated |
-| 9: Release gate | Required | ✅ Ready | After push/tag |
+| 9: Release gate | Required | ✅ Done | Released |
 | 10: Album grid download status | High | ✅ Done | Medium |
 | 11: Artist list monitor badge | High | ✅ Done | Medium |
 | 12: Acquisition queue reactivity | Medium | ✅ Done | Medium |
