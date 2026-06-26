@@ -1733,6 +1733,74 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistCoreEnrichmentPrefersLoginBearerHeadersForProtectedAurralEndpoints(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val apiClient = FakeAurralApiClient(
+			artistCoreEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "John Powell",
+				monitored = null
+			),
+			libraryArtistMonitoring = false,
+			sessionToken = " session-token "
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		repository.getArtistCoreEnrichment(
+			DomainArtist(id = "local-john-powell", name = "John Powell", musicBrainzId = "artist-mbid")
+		).getOrThrow()
+
+		assertEquals(listOf("user" to "pass"), apiClient.loginRequests)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Basic dXNlcjpwYXNz")),
+			apiClient.loginRequestHeaders
+		)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Bearer session-token")),
+			apiClient.artistCoreEnrichmentRequestHeaders
+		)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Bearer session-token")),
+			apiClient.libraryArtistMonitoringRequestHeaders
+		)
+	}
+
+	@Test
+	fun repositoryRequestAlbumAndMonitorArtistPreferLoginBearerHeadersForProtectedAurralActions(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+			aurralUsername = " user "
+			aurralPassword = " pass "
+		}
+		val apiClient = FakeAurralApiClient(sessionToken = " session-token ")
+		val repository = AurralRepository(preferenceManager, apiClient)
+		val artist = DomainArtist(id = "local-john-powell", name = "John Powell", musicBrainzId = "artist-mbid")
+		val releaseGroup = AurralReleaseGroup(
+			id = "how-to-train-your-dragon",
+			title = "How to Train Your Dragon"
+		)
+
+		repository.requestAlbum(artist, releaseGroup).getOrThrow()
+		repository.monitorArtist(artist).getOrThrow()
+
+		assertEquals(listOf("user" to "pass"), apiClient.loginRequests)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Bearer session-token")),
+			apiClient.requestAlbumRequestHeaders
+		)
+		assertEquals(
+			listOf(mapOf("Authorization" to "Bearer session-token")),
+			apiClient.monitorArtistRequestHeaders
+		)
+	}
+
+	@Test
 	fun repositoryCachedArtistEnrichmentReadsProfileWithoutNetworkFetch(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true
@@ -2262,12 +2330,15 @@ class AurralRepositoryTest {
 		val monitorArtistIds = mutableListOf<String>()
 		val monitorArtistPayloads = mutableListOf<AurralArtistMonitorPayload>()
 		val libraryArtistMonitoringRequests = mutableListOf<String>()
+		val libraryArtistMonitoringRequestHeaders = mutableListOf<Map<String, String>>()
 		val cancelAcquisitionBaseUrls = mutableListOf<String>()
 		val cancelAcquisitionRequestHeaders = mutableListOf<Map<String, String>>()
 		val cancelAcquisitionTargets = mutableListOf<AurralAcquisitionDeleteTarget>()
 		val requestAlbumPayloads = mutableListOf<AurralAlbumRequestPayload>()
+		val requestAlbumRequestHeaders = mutableListOf<Map<String, String>>()
 		val artistEnrichmentRequests = mutableListOf<Pair<String, String>>()
 		val artistCoreEnrichmentRequests = mutableListOf<Pair<String, String>>()
+		val artistCoreEnrichmentRequestHeaders = mutableListOf<Map<String, String>>()
 		val artistPreviewTrackRequests = mutableListOf<Pair<String, String>>()
 		val artistSimilarArtistRequests = mutableListOf<Pair<String, String>>()
 		val albumRequestBaseUrls = mutableListOf<String>()
@@ -2366,6 +2437,7 @@ class AurralRepositoryTest {
 			artistName: String
 		): AurralArtistEnrichment {
 			artistCoreEnrichmentRequests += artistMbid to artistName
+			artistCoreEnrichmentRequestHeaders += requestHeaders
 			return artistCoreEnrichment.copy(
 				artistMbid = artistMbid,
 				artistName = artistName
@@ -2406,6 +2478,7 @@ class AurralRepositoryTest {
 			artistMbid: String
 		): Boolean? {
 			libraryArtistMonitoringRequests += artistMbid
+			libraryArtistMonitoringRequestHeaders += requestHeaders
 			libraryArtistMonitoringFailure?.let { throw it }
 			return libraryArtistMonitoring
 		}
@@ -2415,6 +2488,7 @@ class AurralRepositoryTest {
 			requestHeaders: Map<String, String>,
 			payload: AurralAlbumRequestPayload
 		) {
+			requestAlbumRequestHeaders += requestHeaders
 			requestAlbumPayloads += payload
 		}
 

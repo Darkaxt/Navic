@@ -41,6 +41,7 @@ class AurralRepository(
 	private val releaseGroupCoverUrlsByMbid = mutableMapOf<String, String>()
 	private val discoverArtistImageUrlsByName = mutableMapOf<String, String?>()
 	private var libraryArtistsCache: AurralLibraryArtistsCacheEntry? = null
+	private var authenticatedHeadersCache: AurralAuthenticatedHeadersCacheEntry? = null
 	private val confirmationQueueManager = AurralConfirmationQueueManager(
 		preferenceManager = preferenceManager,
 		apiClient = apiClient,
@@ -66,7 +67,7 @@ class AurralRepository(
 		if (baseUrlError != null) return AurralConnectionResult.Failed(baseUrlError)
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return AurralConnectionResult.Failed(AURRAL_BASE_URL_REQUIRED_MESSAGE)
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return try {
 			apiClient.testConnection(baseUrl, requestHeaders)
@@ -86,7 +87,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			apiClient.fetchServiceStatus(baseUrl, requestHeaders)
@@ -103,7 +104,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			apiClient.fetchActivityStatus(baseUrl, requestHeaders)
@@ -120,7 +121,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val discovery = cachedAurralPayload<AurralDiscoverySummary>(
@@ -174,7 +175,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val request = AurralArtistSearchRequest(
 			query = trimmedQuery,
 			limit = limit.coerceIn(1, 50),
@@ -207,7 +208,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val request = AurralAlbumSearchRequest(
 			query = trimmedQuery,
 			limit = limit.coerceIn(1, 50),
@@ -238,7 +239,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val libraryAlbumId = album.libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() }
@@ -269,7 +270,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val resolvedArtist = resolveArtistForEnrichment(
@@ -335,7 +336,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val resolvedArtist = resolveArtistForEnrichment(
@@ -402,7 +403,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val resolvedArtist = resolveArtistForEnrichment(
@@ -443,7 +444,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val resolvedArtist = resolveArtistForEnrichment(
@@ -484,7 +485,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val resolvedArtist = resolveArtistForEnrichment(
@@ -607,7 +608,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			apiClient.cancelAcquisitionRequest(
@@ -643,7 +644,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val payload = AurralAlbumRequestPayload(
 			albumMbid = albumMbid,
 			albumName = albumName,
@@ -682,7 +683,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val payload = AurralAlbumRequestPayload(
 			albumMbid = albumMbid,
 			albumName = albumName,
@@ -720,7 +721,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val payload = AurralAlbumRequestPayload(
 			albumMbid = albumMbid,
 			albumName = albumName,
@@ -780,7 +781,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val payload = AurralArtistMonitorPayload(
 			foreignArtistId = artistMbid,
 			artistName = artistName,
@@ -853,7 +854,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 		val payload = runCatching {
 			aurralDefaultFlowCreatePayload(
 				name = name,
@@ -888,7 +889,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			apiClient.setFlowEnabled(
@@ -916,7 +917,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			apiClient.startFlow(
@@ -942,7 +943,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			val readyJobs = apiClient.fetchFlowJobs(
@@ -953,10 +954,11 @@ class AurralRepository(
 			).filter { it.status.equals("done", ignoreCase = true) }
 			if (readyJobs.isEmpty()) return@runCatching emptyList()
 
-			val sessionToken = aurralLoginSessionToken(
-				baseUrl = baseUrl,
-				requestHeaders = requestHeaders
-			)
+			val sessionToken = aurralBearerTokenFromHeaders(requestHeaders)
+				?: aurralLoginSessionToken(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders
+				)
 			val streamToken = if (sessionToken == null && requestHeaders.isNotEmpty()) {
 				runCatching {
 					apiClient.fetchStreamToken(baseUrl, requestHeaders)?.token?.trim()?.takeIf { it.isNotEmpty() }
@@ -999,6 +1001,46 @@ class AurralRepository(
 		}.getOrNull()
 	}
 
+	private suspend fun aurralApiRequestHeaders(baseUrl: String): Map<String, String> {
+		val fallbackHeaders = preferenceManager.aurralRequestHeadersMap()
+		val username = preferenceManager.aurralUsername.trim().takeIf { it.isNotEmpty() }
+			?: return fallbackHeaders
+		val password = preferenceManager.aurralPassword.trim().takeIf { it.isNotEmpty() }
+			?: return fallbackHeaders
+		val cacheKey = aurralAuthenticatedHeadersCacheKey(
+			baseUrl = baseUrl,
+			username = username,
+			password = password,
+			fallbackHeaders = fallbackHeaders
+		)
+		authenticatedHeadersCache?.takeIf { it.key == cacheKey }?.let { return it.headers }
+		val bearerHeaders = aurralBearerAuthHeaders(
+			aurralLoginSessionToken(
+				baseUrl = baseUrl,
+				requestHeaders = fallbackHeaders
+			)
+		)
+		if (bearerHeaders.isNotEmpty()) {
+			authenticatedHeadersCache = AurralAuthenticatedHeadersCacheEntry(
+				key = cacheKey,
+				headers = bearerHeaders
+			)
+			return bearerHeaders
+		}
+		return fallbackHeaders
+	}
+
+	private fun aurralBearerTokenFromHeaders(requestHeaders: Map<String, String>): String? {
+		val authorization = requestHeaders.entries.firstOrNull { (key, _) ->
+			key.equals("Authorization", ignoreCase = true)
+		}?.value?.trim().orEmpty()
+		return authorization
+			.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
+			?.drop("Bearer ".length)
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+	}
+
 	suspend fun getReleaseGroupCoverImageUrl(
 		releaseGroup: AurralReleaseGroup,
 		artistName: String
@@ -1012,7 +1054,7 @@ class AurralRepository(
 		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
 		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
 			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
-		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
 
 		return runCatching {
 			cachedAurralPayload<AurralCachedString>(

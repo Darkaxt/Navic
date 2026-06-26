@@ -33,6 +33,26 @@ internal data class ResolvedAurralArtist(
 	val artistName: String
 )
 
+internal data class AurralAuthenticatedHeadersCacheEntry(
+	val key: String,
+	val headers: Map<String, String>
+)
+
+internal fun aurralAuthenticatedHeadersCacheKey(
+	baseUrl: String,
+	username: String,
+	password: String,
+	fallbackHeaders: Map<String, String>
+): String =
+	listOf(
+		baseUrl.trimEnd('/'),
+		username,
+		password.hashCode().toString(),
+		fallbackHeaders.entries
+			.sortedBy { it.key }
+			.joinToString("|") { (key, value) -> "$key:${value.hashCode()}" }
+	).joinToString("|")
+
 @Serializable
 internal data class AurralCachedString(
 	val value: String? = null
