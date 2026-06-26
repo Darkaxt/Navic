@@ -75,6 +75,26 @@ class AurralMissingAlbumActionPolicyTest {
 	}
 
 	@Test
+	fun albumRequestFeedbackPreemptsOlderSnackbarMessages() {
+		listOf(
+			commonMain("paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt") to
+				"snackbarState.showSnackbar(albumRequestedMessage)",
+			commonMain("paige/navic/ui/screens/artist/ArtistDetailScreen.kt") to
+				"snackbarState.showSnackbar(message)",
+			commonMain("paige/navic/ui/screens/collection/CollectionDetailScreen.kt") to
+				"snackbarState.showSnackbar(albumRequestedMessage)"
+		).forEach { (source, feedbackCall) ->
+			val feedback = source.indexOf(feedbackCall)
+			val dismiss = source.lastIndexOf("snackbarState.currentSnackbarData?.dismiss()", feedback)
+
+			assertTrue(
+				dismiss >= 0 && dismiss < feedback,
+				"Album request feedback must dismiss any older snackbar before showing Album requested."
+			)
+		}
+	}
+
+	@Test
 	fun artistDetailAlbumRequestShowsFeedbackAndOptimisticallyMarksRequested() {
 		val screenSource = commonMain("paige/navic/ui/screens/artist/ArtistDetailScreen.kt")
 		val viewModelSource = commonMain("paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt")

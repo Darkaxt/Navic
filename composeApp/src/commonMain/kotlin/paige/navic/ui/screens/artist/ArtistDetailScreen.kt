@@ -238,6 +238,7 @@ fun ArtistDetailScreen(
 	}
 	LaunchedEffect(aurralFeedback) {
 		val message = aurralFeedbackMessage ?: return@LaunchedEffect
+		snackbarState.currentSnackbarData?.dismiss()
 		snackbarState.showSnackbar(message)
 		viewModel.clearAurralFeedback()
 	}

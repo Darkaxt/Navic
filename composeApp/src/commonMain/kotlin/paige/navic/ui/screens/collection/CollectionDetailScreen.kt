@@ -256,6 +256,7 @@ fun CollectionDetailScreen(
 							) {
 								{
 									scope.launch {
+										snackbarState.currentSnackbarData?.dismiss()
 										snackbarState.showSnackbar(albumRequestedMessage)
 									}
 									viewModel.requestAurralRecoveryAlbum()

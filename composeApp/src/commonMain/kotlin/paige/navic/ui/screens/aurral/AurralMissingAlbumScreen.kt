@@ -312,6 +312,7 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 							progress = aurralAcquisitionProgress("requested")
 						)
 						scope.launch {
+							snackbarState.currentSnackbarData?.dismiss()
 							snackbarState.showSnackbar(albumRequestedMessage)
 						}
 						scope.launch {
