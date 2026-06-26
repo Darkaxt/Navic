@@ -11,6 +11,7 @@ internal object AurralMetadataPayloadType {
 	const val ArtistSearch = "artist-search"
 	const val AlbumSearch = "album-search"
 	const val AlbumTracks = "album-tracks"
+	const val ArtistCoreEnrichment = "artist-core-enrichment"
 	const val ArtistEnrichment = "artist-enrichment"
 	const val ReleaseGroupCover = "release-group-cover"
 	const val ArtistCreditResolution = "artist-credit-resolution"

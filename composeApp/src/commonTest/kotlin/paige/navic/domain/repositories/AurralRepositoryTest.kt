@@ -1141,6 +1141,36 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistCoreEnrichmentUsesCoreEndpointWithoutFullSectionFetch(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistCoreEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "John Powell",
+				bio = "Core profile",
+				releaseGroups = listOf(AurralReleaseGroup(id = "httyd", title = "How to Train Your Dragon")),
+				previewTracks = emptyList(),
+				similarArtists = emptyList(),
+				requests = emptyList()
+			),
+			libraryArtistMonitoring = false
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val enrichment = repository.getArtistCoreEnrichment(
+			DomainArtist(id = "john-powell", name = "John Powell", musicBrainzId = "artist-mbid")
+		).getOrThrow()
+
+		assertEquals("Core profile", enrichment?.bio)
+		assertEquals(listOf("artist-mbid" to "John Powell"), apiClient.artistCoreEnrichmentRequests)
+		assertEquals(emptyList(), apiClient.artistEnrichmentRequests)
+		assertEquals(false, enrichment?.monitored)
+	}
+
+	@Test
 	fun repositoryMonitoringActionQueuesConfirmationWithoutOverridingCachedRows(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true
@@ -1996,6 +2026,7 @@ class AurralRepositoryTest {
 			artistMbid = "artist-mbid",
 			artistName = "Artist"
 		),
+		private val artistCoreEnrichment: AurralArtistEnrichment = artistEnrichment,
 		private val libraryArtistMonitoring: Boolean? = null,
 		private val releaseGroupCoverImageUrl: String? = null,
 		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
@@ -2043,6 +2074,7 @@ class AurralRepositoryTest {
 		val cancelAcquisitionTargets = mutableListOf<AurralAcquisitionDeleteTarget>()
 		val requestAlbumPayloads = mutableListOf<AurralAlbumRequestPayload>()
 		val artistEnrichmentRequests = mutableListOf<Pair<String, String>>()
+		val artistCoreEnrichmentRequests = mutableListOf<Pair<String, String>>()
 		val albumTracksRequests = mutableListOf<Pair<String, String?>>()
 
 		override suspend fun testConnection(
@@ -2126,6 +2158,19 @@ class AurralRepositoryTest {
 		): AurralArtistEnrichment {
 			artistEnrichmentRequests += artistMbid to artistName
 			return artistEnrichment.copy(
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		}
+
+		override suspend fun fetchArtistCoreEnrichment(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String,
+			artistName: String
+		): AurralArtistEnrichment {
+			artistCoreEnrichmentRequests += artistMbid to artistName
+			return artistCoreEnrichment.copy(
 				artistMbid = artistMbid,
 				artistName = artistName
 			)

@@ -79,6 +79,18 @@ interface AurralApiClient {
 		artistName: String
 	): AurralArtistEnrichment
 
+	suspend fun fetchArtistCoreEnrichment(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): AurralArtistEnrichment = fetchArtistEnrichment(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		artistMbid = artistMbid,
+		artistName = artistName
+	)
+
 	suspend fun fetchLibraryArtistMonitoring(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -426,6 +438,27 @@ internal class KtorAurralApiClient : AurralApiClient {
 			preview = preview.await(),
 			similar = similar.await(),
 			requests = requests.await()
+		)
+	}
+
+	override suspend fun fetchArtistCoreEnrichment(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): AurralArtistEnrichment {
+		val details = fetchArtistDetails(
+			baseUrl = baseUrl,
+			requestHeaders = requestHeaders,
+			artistMbid = artistMbid,
+			artistName = artistName
+		)
+		return aurralArtistEnrichment(
+			baseUrl = baseUrl,
+			details = details,
+			preview = AurralArtistPreviewDto(),
+			similar = AurralSimilarArtistsDto(),
+			requests = emptyList()
 		)
 	}
 

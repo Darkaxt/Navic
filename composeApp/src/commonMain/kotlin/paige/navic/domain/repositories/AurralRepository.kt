@@ -328,6 +328,76 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun getArtistCoreEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
+		if (!preferenceManager.aurralEnabled) return Result.success(null)
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(null)
+		val directArtistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			val resolvedArtist = resolveArtistForEnrichment(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = directArtistMbid,
+				artistName = artistName
+			) ?: return@runCatching null
+			coroutineScope {
+				val enrichment = async {
+					cachedAurralPayload<AurralArtistEnrichment>(
+						baseUrl = baseUrl,
+						payloadType = AurralMetadataPayloadType.ArtistCoreEnrichment,
+						path = aurralArtistEnrichmentCachePath(
+							artistMbid = resolvedArtist.artistMbid,
+							artistName = resolvedArtist.artistName
+						),
+						operation = "Aurral artist core enrichment for ${resolvedArtist.artistName}"
+					) {
+						apiClient.fetchArtistCoreEnrichment(
+							baseUrl = baseUrl,
+							requestHeaders = requestHeaders,
+							artistMbid = resolvedArtist.artistMbid,
+							artistName = resolvedArtist.artistName
+						)
+					}
+				}
+				val libraryArtistMonitoring = async {
+					getCachedLibraryArtistMonitoring(
+						baseUrl = baseUrl,
+						requestHeaders = requestHeaders,
+						artistMbid = resolvedArtist.artistMbid,
+						artistName = resolvedArtist.artistName
+					) ?: runCatching {
+						apiClient.fetchLibraryArtistMonitoring(
+							baseUrl = baseUrl,
+							requestHeaders = requestHeaders,
+							artistMbid = resolvedArtist.artistMbid
+						)
+					}.onSuccess { monitored ->
+						monitored?.let {
+							rememberLibraryArtistMonitoring(
+								baseUrl = baseUrl,
+								requestHeaders = requestHeaders,
+								artistMbid = resolvedArtist.artistMbid,
+								artistName = resolvedArtist.artistName,
+								monitored = it
+							)
+						}
+					}.onFailure { error ->
+						Logger.w(TAG, "Aurral library artist monitoring lookup failed for $artistName", error)
+					}.getOrNull()
+				}
+				enrichment.await().withLocalArtistState(libraryArtistMonitoring.await())
+			}
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral artist core enrichment failed for $artistName", error)
+		}
+	}
+
 	suspend fun getCachedArtistEnrichment(artist: DomainArtist): Result<AurralArtistEnrichment?> {
 		if (!preferenceManager.aurralEnabled) return Result.success(null)
 		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
@@ -349,6 +419,16 @@ class AurralRepository(
 		return runCatching {
 			metadataCache.get(cacheKey)
 				?.decodeAurralMetadata<AurralArtistEnrichment>("cached Aurral artist enrichment for $artistName")
+				?: metadataCache.get(
+					aurralMetadataCacheKey(
+						baseUrl = baseUrl,
+						payloadType = AurralMetadataPayloadType.ArtistCoreEnrichment,
+						path = aurralArtistEnrichmentCachePath(
+							artistMbid = artistMbid,
+							artistName = artistName
+						)
+					)
+				)?.decodeAurralMetadata<AurralArtistEnrichment>("cached Aurral artist core enrichment for $artistName")
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist enrichment cache read failed for $artistName", error)
 		}

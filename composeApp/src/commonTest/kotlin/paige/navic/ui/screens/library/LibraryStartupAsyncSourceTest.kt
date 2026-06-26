@@ -90,6 +90,32 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun artistDetailFreshProfilePublishesBeforeFullAurralSections() {
+		val source = commonMain(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		)
+		val start = source.indexOf("private fun loadAurralEnrichment(")
+		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val loadAurralEnrichment = source.substring(start, end)
+		val coreFetch = loadAurralEnrichment.indexOf("getArtistCoreEnrichment(")
+		val corePublish = loadAurralEnrichment.indexOf("applyAurralCoreEnrichmentSnapshot(")
+		val fullFetch = loadAurralEnrichment.indexOf("getArtistEnrichment(")
+
+		assertTrue(
+			coreFetch >= 0,
+			"Artist detail should fetch a core Aurral profile/release-group snapshot that is not blocked by preview, similar, or request sections."
+		)
+		assertTrue(
+			corePublish > coreFetch && corePublish < fullFetch,
+			"Fresh Aurral profile rows must render from the core snapshot before starting or awaiting the full enrichment section refresh."
+		)
+		assertFalse(
+			"primaryEnrichmentDeferred = primaryAurralArtist?.let" in loadAurralEnrichment,
+			"Artist detail must not start by awaiting the full combined Aurral enrichment payload before rendering the profile."
+		)
+	}
+
+	@Test
 	fun albumAurralStatusRefreshRunsOffTheUiDispatcher() {
 		val source = commonMain(
 			"paige/navic/ui/screens/album/viewmodels/AlbumListViewModel.kt"

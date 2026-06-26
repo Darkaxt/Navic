@@ -408,28 +408,30 @@ class ArtistDetailViewModel(
 						loading = true
 					)
 				}
-			val primaryEnrichmentDeferred = primaryAurralArtist?.let { aurralArtist ->
-				async { aurralRepository.getArtistEnrichment(aurralArtist) }
-			}
 			val discoveryDeferred = async {
 				aurralRepository.getDiscovery(hydrateMissingImages = false).getOrNull()
 			}
-			var primaryEnrichmentResult: Result<AurralArtistEnrichment?>? = primaryEnrichmentDeferred
-				?.await()
+			val coreEnrichmentResultsByMbid = mutableMapOf<String, Result<AurralArtistEnrichment?>>()
+			suspend fun coreEnrichmentResultFor(aurralArtist: DomainArtist): Result<AurralArtistEnrichment?> {
+				val cacheKey = aurralArtist.musicBrainzId.orEmpty()
+					.trim()
+					.takeIf { it.isNotEmpty() }
+					?: aurralArtist.name.trim()
+				coreEnrichmentResultsByMbid[cacheKey]?.let { return it }
+				val result = aurralRepository.getArtistCoreEnrichment(aurralArtist)
+				coreEnrichmentResultsByMbid[cacheKey] = result
+				return result
+			}
+			val primaryCoreEnrichmentResult = primaryAurralArtist
+				?.let { aurralArtist -> coreEnrichmentResultFor(aurralArtist) }
 				?.also { result ->
-					val monitored = result.getOrNull()?.monitored
-					if (monitored == true) {
-						val latestState = (_artistState.value as? UiState.Success)?.data
-						if (latestState != null) {
-							_artistState.value = UiState.Success(
-								latestState.copy(
-									aurralMonitored = true,
-									aurralArtistMbid = primaryAurralArtist.musicBrainzId,
-									aurralArtistName = primaryAurralArtist.name,
-									aurralError = null
-								)
-							)
-						}
+					result.getOrNull()?.let { enrichment ->
+						applyAurralCoreEnrichmentSnapshot(
+							artist = artist,
+							albums = albums,
+							enrichment = enrichment,
+							artistImageUrl = null
+						)
 					}
 				}
 			val discovery = discoveryDeferred.await()
@@ -454,40 +456,52 @@ class ArtistDetailViewModel(
 
 			var selectedCandidate = aurralArtistCandidates.first()
 			var aurralArtist = selectedCandidate.second
-			var enrichmentResult = primaryEnrichmentResult
-				?.takeIf { primaryAurralArtist?.musicBrainzId == aurralArtist.musicBrainzId }
-				?: aurralRepository.getArtistEnrichment(aurralArtist)
-			if (enrichmentResult.isFailure || enrichmentResult.getOrNull()?.monitored == null) {
+			var coreEnrichmentResult = primaryCoreEnrichmentResult
+				?.takeIf { primaryAurralArtist.musicBrainzId == aurralArtist.musicBrainzId }
+				?: coreEnrichmentResultFor(aurralArtist)
+			if (coreEnrichmentResult.isFailure || coreEnrichmentResult.getOrNull()?.monitored == null) {
 				for (candidate in aurralArtistCandidates.drop(1)) {
 					val candidateArtist = candidate.second
-					val candidateResult = aurralRepository.getArtistEnrichment(candidateArtist)
-					val currentMonitoring = enrichmentResult.getOrNull()?.monitored
+					val candidateResult = coreEnrichmentResultFor(candidateArtist)
+					val currentMonitoring = coreEnrichmentResult.getOrNull()?.monitored
 					val candidateMonitoring = candidateResult.getOrNull()?.monitored
 					val shouldUseCandidate = when {
 						candidateResult.isFailure -> false
-						enrichmentResult.isFailure -> true
+						coreEnrichmentResult.isFailure -> true
 						currentMonitoring == null && candidateMonitoring != null -> true
-						enrichmentResult.getOrNull() == null && candidateResult.getOrNull() != null -> true
+						coreEnrichmentResult.getOrNull() == null && candidateResult.getOrNull() != null -> true
 						else -> false
 					}
 					if (shouldUseCandidate) {
 						selectedCandidate = candidate
 						aurralArtist = candidateArtist
-						enrichmentResult = candidateResult
+						coreEnrichmentResult = candidateResult
 					}
-					if (enrichmentResult.isSuccess && enrichmentResult.getOrNull()?.monitored != null) {
+					if (coreEnrichmentResult.isSuccess && coreEnrichmentResult.getOrNull()?.monitored != null) {
 						break
 					}
 				}
 			}
+			val verifiedAurralArtistImageUrl = selectedCandidate.first.imageUrl
+				?.trim()
+				?.takeIf { it.isNotEmpty() }
+				?: aurralIdentities.firstNotNullOfOrNull { identity ->
+					identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
+				}
+			coreEnrichmentResult
+				.getOrNull()
+				?.let { enrichment ->
+					applyAurralCoreEnrichmentSnapshot(
+						artist = artist,
+						albums = albums,
+						enrichment = enrichment,
+						artistImageUrl = verifiedAurralArtistImageUrl
+					)
+				}
+
+			val enrichmentResult = aurralRepository.getArtistEnrichment(aurralArtist)
 			if (enrichmentResult.isSuccess) {
 				val enrichment = enrichmentResult.getOrNull()
-				val verifiedAurralArtistImageUrl = selectedCandidate.first.imageUrl
-					?.trim()
-					?.takeIf { it.isNotEmpty() }
-					?: aurralIdentities.firstNotNullOfOrNull { identity ->
-						identity.imageUrl?.trim()?.takeIf { it.isNotEmpty() }
-					}
 				val resolvedAurralArtistMbid = enrichment?.artistMbid
 					?.trim()
 					?.takeIf { it.isNotEmpty() }
@@ -602,34 +616,84 @@ class ArtistDetailViewModel(
 		artist: DomainArtist,
 		albums: List<DomainAlbum>,
 		enrichment: AurralArtistEnrichment,
-		loading: Boolean
+		loading: Boolean,
+		artistImageUrl: String? = null
 	) {
 		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
 		if (latestState.artist.id != artist.id) return
 		val ownershipRows = aurralArtistOwnershipAlbumRows(enrichment, albums)
 		val missingAlbumRows = aurralMissingAlbumRows(enrichment, albums)
+		val hasOwnershipRows = ownershipRows.ownedOrPartial.isNotEmpty() || ownershipRows.missing.isNotEmpty()
+		val nextOwnedOrPartialRows = if (loading && !hasOwnershipRows) {
+			latestState.aurralOwnedOrPartialAlbums
+		} else {
+			ownershipRows.ownedOrPartial
+		}
+		val nextMissingReleaseGroups = if (loading && !hasOwnershipRows) {
+			latestState.aurralMissingReleaseGroups
+		} else {
+			ownershipRows.missing
+		}
+		val nextMissingAlbums = if (loading && missingAlbumRows.isEmpty()) {
+			latestState.aurralMissingAlbums
+		} else {
+			missingAlbumRows
+		}
+		val nextSimilarArtists = if (loading && enrichment.similarArtists.isEmpty()) {
+			latestState.aurralSimilarArtists
+		} else {
+			aurralSimilarArtistRows(
+				enrichment = enrichment,
+				allLocalArtists = emptyList(),
+				localSimilarArtists = latestState.similarArtists
+			)
+		}
+		val nextPreviewTracks = if (loading && enrichment.previewTracks.isEmpty()) {
+			latestState.aurralPreviewTracks
+		} else {
+			enrichment.previewTracks
+		}
+		val nextRequests = if (loading && enrichment.requests.isEmpty()) {
+			latestState.aurralAlbumRequests
+		} else {
+			enrichment.requests
+		}
 		_artistState.value = UiState.Success(
 			latestState.copy(
-				aurralMissingAlbums = missingAlbumRows,
-				aurralOwnedOrPartialAlbums = ownershipRows.ownedOrPartial,
-				aurralMissingReleaseGroups = ownershipRows.missing,
-				aurralAlbumRequests = enrichment.requests,
-				aurralSimilarArtists = aurralSimilarArtistRows(
-					enrichment = enrichment,
-					allLocalArtists = emptyList(),
-					localSimilarArtists = latestState.similarArtists
-				),
-				aurralPreviewTracks = enrichment.previewTracks,
-				aurralMonitored = enrichment.monitored,
+				aurralMissingAlbums = nextMissingAlbums,
+				aurralOwnedOrPartialAlbums = nextOwnedOrPartialRows,
+				aurralMissingReleaseGroups = nextMissingReleaseGroups,
+				aurralAlbumRequests = nextRequests,
+				aurralSimilarArtists = nextSimilarArtists,
+				aurralPreviewTracks = nextPreviewTracks,
+				aurralMonitored = enrichment.monitored ?: latestState.aurralMonitored,
 				aurralArtistMbid = enrichment.artistMbid,
 				aurralArtistName = enrichment.artistName,
 				aurralArtistBio = enrichment.bio?.trim()?.takeIf { it.isNotEmpty() },
 				aurralArtistGenres = enrichment.genres,
 				aurralArtistExternalLinks = enrichment.externalLinks,
-				aurralArtistImageUrl = latestState.aurralArtistImageUrl,
+				aurralArtistImageUrl = artistImageUrl
+					?.trim()
+					?.takeIf { it.isNotEmpty() }
+					?: latestState.aurralArtistImageUrl,
 				aurralLoading = loading,
 				aurralError = null
 			)
+		)
+	}
+
+	private fun applyAurralCoreEnrichmentSnapshot(
+		artist: DomainArtist,
+		albums: List<DomainAlbum>,
+		enrichment: AurralArtistEnrichment,
+		artistImageUrl: String?
+	) {
+		applyAurralEnrichmentSnapshot(
+			artist = artist,
+			albums = albums,
+			enrichment = enrichment,
+			loading = true,
+			artistImageUrl = artistImageUrl
 		)
 	}
 
