@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import java.io.File
 import paige.navic.domain.models.AurralArtistExternalLink
 import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
 import paige.navic.domain.models.AurralAlbumRequest
@@ -15,6 +16,17 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
 
 class AurralArtistProfileStatePolicyTest {
+	@Test
+	fun artistDetailViewModelLoadsAurralReleaseTrackEvidenceForOwnershipOverlay() {
+		val source = sourceFile(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		).readText()
+
+		assertTrue("getAlbumTracks(" in source)
+		assertTrue("AurralReleaseGroupTrackEvidence(" in source)
+		assertTrue("releaseGroupTrackEvidence = combinedTrackEvidence" in source)
+	}
+
 	@Test
 	fun verifiedUnmonitoredArtistKeepsMonitorActionVisibleAndEnabled() {
 		val state = aurralArtistProfileUiState(
@@ -220,4 +232,11 @@ class AurralArtistProfileStatePolicyTest {
 		requestable = ownershipStatus == AurralOwnershipStatus.Missing,
 		ownershipStatus = ownershipStatus
 	)
+
+	private fun sourceFile(path: String): File =
+		listOf(
+			File("src/commonMain/kotlin/$path"),
+			File("composeApp/src/commonMain/kotlin/$path"),
+			File("../composeApp/src/commonMain/kotlin/$path")
+		).first(File::exists)
 }

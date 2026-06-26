@@ -44,6 +44,73 @@ class AurralArtistOwnershipPolicyTest {
 	}
 
 	@Test
+	fun johnPowellSingleLocalTrackCanUseAurralReleaseTrackEvidenceWhenLocalAlbumTitleIsOnlyEditionText() {
+		val howToTrainYourDragon = releaseGroup(
+			id = "bb0b5c4b-7e84-4d17-ae7d-e9a79b070cb0",
+			title = "How to Train Your Dragon: Music From the Motion Picture",
+			firstReleaseDate = "2010-03-23"
+		)
+		val hubris = releaseGroup(
+			id = "6233201d-be60-4ada-b0fa-b4179174866c",
+			title = "Hubris: Choral Works by John Powell",
+			firstReleaseDate = "2018-06-15"
+		)
+		val enrichment = AurralArtistEnrichment(
+			artistMbid = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+			artistName = "John Powell",
+			releaseGroups = listOf(howToTrainYourDragon, hubris)
+		)
+		val album = album(
+			name = "For Your Consideration Best Original Score [2 CD]",
+			songs = listOf(song(title = "Test Drive"))
+		)
+
+		val rows = aurralArtistOwnershipAlbumRows(
+			enrichment = enrichment,
+			localAlbums = listOf(album),
+			releaseGroupTrackEvidence = mapOf(
+				howToTrainYourDragon.id to listOf(AurralReleaseGroupTrackEvidence(title = "Test Drive")),
+				hubris.id to listOf(AurralReleaseGroupTrackEvidence(title = "Agnus Dei"))
+			)
+		)
+
+		assertEquals(listOf("How to Train Your Dragon: Music From the Motion Picture"), rows.ownedOrPartial.map { it.title })
+		assertEquals(AurralOwnershipStatus.Partial, rows.ownedOrPartial.single().ownershipStatus)
+		assertEquals(listOf("Test Drive"), rows.ownedOrPartial.single().localSongs.map { it.title })
+		assertEquals(listOf("Hubris: Choral Works by John Powell"), rows.missing.map { it.title })
+	}
+
+	@Test
+	fun trackEvidenceDoesNotAttachUnrelatedLocalAlbumTitleToAurralReleaseGroup() {
+		val releaseGroup = releaseGroup(
+			id = "bb0b5c4b-7e84-4d17-ae7d-e9a79b070cb0",
+			title = "How to Train Your Dragon: Music From the Motion Picture",
+			firstReleaseDate = "2010-03-23"
+		)
+		val enrichment = AurralArtistEnrichment(
+			artistMbid = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+			artistName = "John Powell",
+			releaseGroups = listOf(releaseGroup)
+		)
+		val album = album(
+			name = "Workout Mix 150 BPM",
+			songs = listOf(song(title = "Test Drive"))
+		)
+
+		val rows = aurralArtistOwnershipAlbumRows(
+			enrichment = enrichment,
+			localAlbums = listOf(album),
+			releaseGroupTrackEvidence = mapOf(
+				releaseGroup.id to listOf(AurralReleaseGroupTrackEvidence(title = "Test Drive"))
+			)
+		)
+
+		assertEquals(listOf("Workout Mix 150 BPM"), rows.ownedOrPartial.map { it.title })
+		assertEquals(null, rows.ownedOrPartial.single().releaseGroup)
+		assertEquals(listOf("How to Train Your Dragon: Music From the Motion Picture"), rows.missing.map { it.title })
+	}
+
+	@Test
 	fun localAlbumWithSameReleaseGroupMbidIsOwnedWhenItHasMultipleTracks() {
 		val enrichment = AurralArtistEnrichment(
 			artistMbid = "artist-mbid",

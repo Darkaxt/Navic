@@ -138,6 +138,12 @@ data class AurralArtistOwnershipAlbumRows(
 )
 
 @Immutable
+data class AurralReleaseGroupTrackEvidence(
+	val title: String,
+	val recordingMbid: String? = null
+)
+
+@Immutable
 data class AurralArtistOwnershipAlbumRow(
 	val releaseGroup: AurralReleaseGroup?,
 	val localAlbum: DomainAlbum?,
@@ -153,7 +159,8 @@ data class AurralArtistOwnershipAlbumRow(
 
 fun aurralArtistOwnershipAlbumRows(
 	enrichment: AurralArtistEnrichment,
-	localAlbums: List<DomainAlbum>
+	localAlbums: List<DomainAlbum>,
+	releaseGroupTrackEvidence: Map<String, List<AurralReleaseGroupTrackEvidence>> = emptyMap()
 ): AurralArtistOwnershipAlbumRows {
 	val requestsByMusicBrainzId = enrichment.requests
 		.mapNotNull { request ->
@@ -169,7 +176,16 @@ fun aurralArtistOwnershipAlbumRows(
 	val ownedOrPartial = localAlbums.map { album ->
 		val match = enrichment.releaseGroups
 			.mapNotNull { releaseGroup ->
-				localAlbumReleaseGroupMatchScore(album, releaseGroup)?.let { score -> score to releaseGroup }
+				val directScore = localAlbumReleaseGroupMatchScore(album, releaseGroup)
+				val releaseGroupTracks = releaseGroup.id.normalizedAurralIdOrNull()
+					?.let(releaseGroupTrackEvidence::get)
+					.orEmpty()
+				val trackEvidenceScore = localAlbumReleaseGroupTrackEvidenceMatchScore(
+					album = album,
+					releaseGroup = releaseGroup,
+					tracks = releaseGroupTracks
+				)
+				listOfNotNull(directScore, trackEvidenceScore).maxOrNull()?.let { score -> score to releaseGroup }
 			}
 			.maxWithOrNull(
 				compareBy<Pair<Int, AurralReleaseGroup>> { it.first }
@@ -625,12 +641,77 @@ private fun localAlbumReleaseGroupMatchScore(
 	}
 }
 
+private fun localAlbumReleaseGroupTrackEvidenceMatchScore(
+	album: DomainAlbum,
+	releaseGroup: AurralReleaseGroup,
+	tracks: List<AurralReleaseGroupTrackEvidence>
+): Int? {
+	if (tracks.isEmpty() || !localAlbumLooksLikeReleaseGroupEdition(album, releaseGroup)) return null
+	val localTrackTitles = album.songs
+		.mapNotNull { song -> song.title.normalizedAurralTrackTitleOrNull() }
+		.toSet()
+	if (localTrackTitles.isEmpty()) return null
+	val releaseTrackTitles = tracks
+		.mapNotNull { track -> track.title.normalizedAurralTrackTitleOrNull() }
+		.toSet()
+	val matchedTitles = localTrackTitles.intersect(releaseTrackTitles)
+	if (matchedTitles.isEmpty()) return null
+	val yearBonus = if (album.year != null && album.year == releaseGroup.firstReleaseDate.toAurralYearOrNull()) 50 else 0
+	val soundtrackBonus = if (releaseGroup.isSoundtrackReleaseGroup()) 40 else 0
+	val evidenceStrength = matchedTitles.sumOf { title -> title.length.coerceAtMost(30) }
+	return 580 + evidenceStrength + yearBonus + soundtrackBonus
+}
+
+private fun localAlbumLooksLikeReleaseGroupEdition(
+	album: DomainAlbum,
+	releaseGroup: AurralReleaseGroup
+): Boolean {
+	val localTitle = album.name.normalizedAurralAlbumTitleOrNull() ?: return false
+	val releaseTitle = releaseGroup.title.normalizedAurralAlbumTitleOrNull() ?: return false
+	val localTokens = localTitle.normalizedAurralAlbumMatchTokens()
+	val releaseTokens = releaseTitle.normalizedAurralAlbumMatchTokens()
+	if (localTokens.intersect(releaseTokens).isNotEmpty()) return true
+
+	val localEditionTokens = localTitle.normalizedAurralAlbumEditionTokens()
+	return localEditionTokens.isNotEmpty() && releaseGroup.isSoundtrackReleaseGroup()
+}
+
 private fun String.normalizedAurralAlbumMatchTokens(): Set<String> =
 	split(Regex("""[^a-z0-9]+"""))
 		.mapNotNull { token ->
 			token.trim()
 				.takeIf { it.length >= 3 }
 				?.takeUnless { it in AurralAlbumMatchStopWords }
+		}
+		.toSet()
+
+private fun String.normalizedAurralAlbumEditionTokens(): Set<String> =
+	normalizedAurralCueTokens()
+		.filter { it in AurralAlbumEditionEvidenceWords }
+		.toSet()
+
+private fun String?.normalizedAurralTrackTitleOrNull(): String? =
+	normalizedAurralNameOrNull()
+		?.replace(Regex("""\s*[\(\[](feat\.?|ft\.?|with|live|remaster|remastered).*$"""), "")
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+
+private fun AurralReleaseGroup.isSoundtrackReleaseGroup(): Boolean {
+	val releaseTypeTokens = (listOfNotNull(primaryType) + secondaryTypes)
+		.flatMap { type -> type.normalizedAurralCueTokens() }
+		.toSet()
+	val releaseTitleTokens = title.normalizedAurralCueTokens()
+	return "soundtrack" in releaseTypeTokens ||
+		"score" in releaseTypeTokens ||
+		"soundtrack" in releaseTitleTokens ||
+		"score" in releaseTitleTokens ||
+		("motion" in releaseTitleTokens && "picture" in releaseTitleTokens)
+}
+
+private fun String.normalizedAurralCueTokens(): Set<String> =
+	split(Regex("""[^a-z0-9]+"""))
+		.mapNotNull { token ->
+			token.trim().takeIf { it.length >= 3 }
 		}
 		.toSet()
 
@@ -648,6 +729,18 @@ private val AurralAlbumMatchStopWords = setOf(
 	"soundtrack",
 	"consideration",
 	"album"
+)
+
+private val AurralAlbumEditionEvidenceWords = setOf(
+	"consideration",
+	"score",
+	"soundtrack",
+	"ost",
+	"edition",
+	"complete",
+	"expanded",
+	"disc",
+	"bonus"
 )
 
 private fun aurralArtistOwnershipRowComparator(): Comparator<AurralArtistOwnershipAlbumRow> =

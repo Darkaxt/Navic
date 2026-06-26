@@ -35,6 +35,8 @@ import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralArtistExternalLink
 import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
 import paige.navic.domain.models.AurralPreviewTrack
+import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.AurralReleaseGroupTrackEvidence
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAcquisitionProgress
 import paige.navic.domain.models.aurralArtistOwnershipAlbumRows
@@ -43,6 +45,7 @@ import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.repositories.AurralAlbumSearchItem
+import paige.navic.domain.repositories.AurralAlbumTrackItem
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.ArtistRepository
@@ -83,6 +86,7 @@ data class ArtistState(
 	val aurralMissingAlbums: List<AurralMissingAlbumRow> = emptyList(),
 	val aurralOwnedOrPartialAlbums: List<AurralArtistOwnershipAlbumRow> = emptyList(),
 	val aurralMissingReleaseGroups: List<AurralArtistOwnershipAlbumRow> = emptyList(),
+	val aurralReleaseGroupTrackEvidence: Map<String, List<AurralReleaseGroupTrackEvidence>> = emptyMap(),
 	val aurralRecommendedAlbums: List<AurralAlbumSearchItem> = emptyList(),
 	val aurralSimilarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val aurralPreviewTracks: List<AurralPreviewTrack> = emptyList(),
@@ -625,6 +629,14 @@ class ArtistDetailViewModel(
 					)
 				}
 			}
+			launch {
+				hydrateAurralArtistTrackEvidenceOwnership(
+					stateArtistId = artist.id,
+					artist = resolvedAurralArtist,
+					albums = albums,
+					enrichment = coreEnrichment
+				)
+			}
 
 			launch {
 				aurralRepository.getArtistAlbumRequests(aurralArtist)
@@ -694,8 +706,13 @@ class ArtistDetailViewModel(
 	) {
 		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
 		if (latestState.artist.id != artist.id) return
-		val ownershipRows = aurralArtistOwnershipAlbumRows(enrichment, albums)
+		val ownershipRows = aurralArtistOwnershipAlbumRows(
+			enrichment = enrichment,
+			localAlbums = albums,
+			releaseGroupTrackEvidence = latestState.aurralReleaseGroupTrackEvidence
+		)
 		val missingAlbumRows = aurralMissingAlbumRows(enrichment, albums)
+			.withoutOwnershipMatches(ownershipRows.ownedOrPartial)
 		val hasOwnershipRows = ownershipRows.ownedOrPartial.isNotEmpty() || ownershipRows.missing.isNotEmpty()
 		val nextOwnedOrPartialRows = if (loading && !hasOwnershipRows) {
 			latestState.aurralOwnedOrPartialAlbums
@@ -790,8 +807,13 @@ class ArtistDetailViewModel(
 	) {
 		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
 		if (latestState.artist.id != artist.id) return
-		val ownershipRows = aurralArtistOwnershipAlbumRows(enrichment, albums)
+		val ownershipRows = aurralArtistOwnershipAlbumRows(
+			enrichment = enrichment,
+			localAlbums = albums,
+			releaseGroupTrackEvidence = latestState.aurralReleaseGroupTrackEvidence
+		)
 		val missingAlbumRows = aurralMissingAlbumRows(enrichment, albums)
+			.withoutOwnershipMatches(ownershipRows.ownedOrPartial)
 		_artistState.value = UiState.Success(
 			latestState.copy(
 				aurralAlbumRequests = enrichment.requests,
@@ -880,6 +902,88 @@ class ArtistDetailViewModel(
 			latestState.copy(
 				aurralSimilarArtistsLoading = false,
 				aurralSimilarArtistsError = error.message ?: error::class.simpleName
+			)
+		)
+	}
+
+	private suspend fun hydrateAurralArtistTrackEvidenceOwnership(
+		stateArtistId: String,
+		artist: DomainArtist,
+		albums: List<DomainAlbum>,
+		enrichment: AurralArtistEnrichment
+	) {
+		if (albums.none { album -> album.songs.isNotEmpty() } || enrichment.releaseGroups.isEmpty()) return
+		val baselineRows = aurralArtistOwnershipAlbumRows(enrichment, albums)
+		val unmatchedLocalAlbums = baselineRows.ownedOrPartial
+			.mapNotNull { row ->
+				row.localAlbum?.takeIf { album ->
+					row.releaseGroup == null && album.songs.isNotEmpty()
+				}
+			}
+		if (unmatchedLocalAlbums.isEmpty()) return
+		val candidateReleaseGroups = enrichment.releaseGroups.filter { releaseGroup ->
+			unmatchedLocalAlbums.any { album -> album.isAurralTrackEvidenceCandidateFor(releaseGroup) }
+		}
+		if (candidateReleaseGroups.isEmpty()) return
+		val trackEvidenceByReleaseGroup = coroutineScope {
+			candidateReleaseGroups.map { releaseGroup ->
+				async(Dispatchers.IO) {
+					val releaseGroupKey = releaseGroup.id.normalizedAurralViewModelKey()
+						?: return@async null
+					val album = releaseGroup.toAurralAlbumSearchItem(enrichment)
+					aurralRepository.getAlbumTracks(album)
+						.onFailure { error ->
+							Logger.w(
+								"ArtistDetailViewModel",
+								"Failed to load Aurral release track evidence for ${releaseGroup.title}",
+								error
+							)
+						}
+						.getOrNull()
+						.orEmpty()
+						.map(AurralAlbumTrackItem::toReleaseGroupTrackEvidence)
+						.takeIf { evidence -> evidence.isNotEmpty() }
+						?.let { evidence -> releaseGroupKey to evidence }
+				}
+			}.awaitAll().filterNotNull().toMap()
+		}
+		if (trackEvidenceByReleaseGroup.isEmpty()) return
+		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
+		if (latestState.artist.id != stateArtistId) return
+		val combinedTrackEvidence = latestState.aurralReleaseGroupTrackEvidence + trackEvidenceByReleaseGroup
+		val latestEnrichment = enrichment.copy(
+			requests = latestState.aurralAlbumRequests,
+			monitored = latestState.aurralMonitored
+		)
+		val ownershipRows = aurralArtistOwnershipAlbumRows(
+			enrichment = latestEnrichment,
+			localAlbums = albums,
+			releaseGroupTrackEvidence = combinedTrackEvidence
+		)
+		val missingAlbumRows = aurralMissingAlbumRows(latestEnrichment, albums)
+			.withoutOwnershipMatches(ownershipRows.ownedOrPartial)
+		val hydratedOwnedOrPartialRows = resolveAurralOwnershipAlbumCovers(
+			artist = artist,
+			rows = ownershipRows.ownedOrPartial
+		)
+		val hydratedMissingReleaseGroupRows = resolveAurralOwnershipAlbumCovers(
+			artist = artist,
+			rows = ownershipRows.missing
+		)
+		val hydratedMissingAlbumRows = resolveAurralMissingAlbumCovers(
+			artist = artist,
+			rows = missingAlbumRows
+		)
+		val stateBeforeApply = (_artistState.value as? UiState.Success)?.data ?: return
+		if (stateBeforeApply.artist.id != stateArtistId) return
+		_artistState.value = UiState.Success(
+			stateBeforeApply.copy(
+				aurralReleaseGroupTrackEvidence = combinedTrackEvidence,
+				aurralOwnedOrPartialAlbums = hydratedOwnedOrPartialRows,
+				aurralMissingReleaseGroups = hydratedMissingReleaseGroupRows,
+				aurralMissingAlbums = hydratedMissingAlbumRows,
+				aurralOwnershipLoading = false,
+				aurralOwnershipError = null
 			)
 		)
 	}
@@ -1238,6 +1342,7 @@ class ArtistDetailViewModel(
 				aurralMissingAlbums = emptyList(),
 				aurralOwnedOrPartialAlbums = emptyList(),
 				aurralMissingReleaseGroups = emptyList(),
+				aurralReleaseGroupTrackEvidence = emptyMap(),
 				aurralRecommendedAlbums = emptyList(),
 				aurralSimilarArtists = emptyList(),
 				aurralPreviewTracks = emptyList(),
@@ -1374,6 +1479,92 @@ private fun List<AurralMissingAlbumRow>.withHydratedMissingAlbumCovers(
 		}
 	}
 }
+
+private fun List<AurralMissingAlbumRow>.withoutOwnershipMatches(
+	ownedOrPartialRows: List<AurralArtistOwnershipAlbumRow>
+): List<AurralMissingAlbumRow> {
+	val ownedReleaseGroupIds = ownedOrPartialRows
+		.mapNotNull { row -> row.releaseGroup?.id.normalizedAurralViewModelKey() }
+		.toSet()
+	if (ownedReleaseGroupIds.isEmpty()) return this
+	return filterNot { row ->
+		val releaseGroupId = row.releaseGroup.id.normalizedAurralViewModelKey()
+		releaseGroupId != null && releaseGroupId in ownedReleaseGroupIds
+	}
+}
+
+private fun AurralReleaseGroup.toAurralAlbumSearchItem(
+	enrichment: AurralArtistEnrichment
+): AurralAlbumSearchItem =
+	AurralAlbumSearchItem(
+		id = id,
+		title = title,
+		artistName = enrichment.artistName,
+		artistMbid = enrichment.artistMbid,
+		releaseDate = firstReleaseDate,
+		primaryType = primaryType,
+		secondaryTypes = secondaryTypes,
+		coverUrl = coverUrl
+	)
+
+private fun AurralAlbumTrackItem.toReleaseGroupTrackEvidence(): AurralReleaseGroupTrackEvidence =
+	AurralReleaseGroupTrackEvidence(
+		title = title,
+		recordingMbid = recordingMbid
+	)
+
+private fun DomainAlbum.isAurralTrackEvidenceCandidateFor(
+	releaseGroup: AurralReleaseGroup
+): Boolean {
+	val localTitleTokens = name.normalizedAurralViewModelTokens()
+	val releaseTitleTokens = releaseGroup.title.normalizedAurralViewModelTokens()
+	if (localTitleTokens.intersect(releaseTitleTokens).isNotEmpty()) return true
+
+	val sameYear = year != null && year == releaseGroup.firstReleaseDate?.toAurralViewModelYear()
+	if (!sameYear) return false
+	val localEditionCue = localTitleTokens.any { token -> token in AurralTrackEvidenceAlbumCueWords }
+	val releaseSoundtrackCue = releaseGroup.hasAurralSoundtrackCue()
+	return localEditionCue && releaseSoundtrackCue
+}
+
+private fun AurralReleaseGroup.hasAurralSoundtrackCue(): Boolean {
+	val typeTokens = (listOfNotNull(primaryType) + secondaryTypes)
+		.flatMap { type -> type.normalizedAurralViewModelTokens() }
+		.toSet()
+	val titleTokens = title.normalizedAurralViewModelTokens()
+	return "soundtrack" in typeTokens ||
+		"score" in typeTokens ||
+		"soundtrack" in titleTokens ||
+		"score" in titleTokens ||
+		("motion" in titleTokens && "picture" in titleTokens)
+}
+
+private fun String?.normalizedAurralViewModelKey(): String? =
+	this?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+
+private fun String.normalizedAurralViewModelTokens(): Set<String> =
+	lowercase()
+		.split(Regex("""[^a-z0-9]+"""))
+		.mapNotNull { token -> token.trim().takeIf { it.length >= 3 } }
+		.toSet()
+
+private fun String.toAurralViewModelYear(): Int? =
+	trim()
+		.take(4)
+		.takeIf { value -> value.length == 4 && value.all { it.isDigit() } }
+		?.toIntOrNull()
+
+private val AurralTrackEvidenceAlbumCueWords = setOf(
+	"consideration",
+	"score",
+	"soundtrack",
+	"ost",
+	"edition",
+	"complete",
+	"expanded",
+	"disc",
+	"bonus"
+)
 
 private fun fallbackArtistFromRouteId(artistId: String): DomainArtist {
 	val fallbackName = artistId
