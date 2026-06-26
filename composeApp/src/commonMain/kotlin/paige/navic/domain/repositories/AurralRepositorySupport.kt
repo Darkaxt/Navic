@@ -81,6 +81,16 @@ internal fun aurralArtistEnrichmentCachePath(
 		"name=${artistName.normalizedAurralSearchName().orEmpty()}"
 	).joinToString("|")
 
+internal fun aurralArtistSectionCachePath(
+	artistMbid: String,
+	artistName: String,
+	section: String
+): String =
+	listOf(
+		aurralArtistEnrichmentCachePath(artistMbid, artistName),
+		"section=${section.trim().lowercase()}"
+	).joinToString("|")
+
 internal fun aurralReleaseGroupCoverCachePath(
 	releaseGroupMbid: String,
 	artistName: String,

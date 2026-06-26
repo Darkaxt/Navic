@@ -21,7 +21,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
+import paige.navic.domain.models.AurralPreviewTrack
+import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.util.core.Logger
 
 private const val TAG = "AurralApiClient"
@@ -90,6 +93,35 @@ interface AurralApiClient {
 		artistMbid = artistMbid,
 		artistName = artistName
 	)
+
+	suspend fun fetchArtistPreviewTracks(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralPreviewTrack> = fetchArtistEnrichment(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		artistMbid = artistMbid,
+		artistName = artistName
+	).previewTracks
+
+	suspend fun fetchArtistSimilarArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralSimilarArtist> = fetchArtistEnrichment(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		artistMbid = artistMbid,
+		artistName = artistName
+	).similarArtists
+
+	suspend fun fetchAlbumRequests(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralAlbumRequest> = emptyList()
 
 	suspend fun fetchLibraryArtistMonitoring(
 		baseUrl: String,
@@ -461,6 +493,43 @@ internal class KtorAurralApiClient : AurralApiClient {
 			requests = emptyList()
 		)
 	}
+
+	override suspend fun fetchArtistPreviewTracks(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralPreviewTrack> =
+		aurralPreviewTracks(
+			fetchArtistPreview(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		)
+
+	override suspend fun fetchArtistSimilarArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralSimilarArtist> =
+		aurralSimilarArtists(
+			baseUrl = baseUrl,
+			similar = fetchSimilarArtists(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		)
+
+	override suspend fun fetchAlbumRequests(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralAlbumRequest> =
+		aurralAlbumRequests(fetchRequests(baseUrl, requestHeaders))
 
 	override suspend fun fetchLibraryArtistMonitoring(
 		baseUrl: String,

@@ -10,7 +10,9 @@ import kotlinx.serialization.encodeToString
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
+import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.IntegrationService
@@ -395,6 +397,129 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist core enrichment failed for $artistName", error)
+		}
+	}
+
+	suspend fun getArtistPreviewTracks(artist: DomainArtist): Result<List<AurralPreviewTrack>> {
+		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(emptyList())
+		val directArtistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			val resolvedArtist = resolveArtistForEnrichment(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = directArtistMbid,
+				artistName = artistName
+			) ?: return@runCatching emptyList()
+			cachedAurralPayload<List<AurralPreviewTrack>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.ArtistPreviewTracks,
+				path = aurralArtistSectionCachePath(
+					artistMbid = resolvedArtist.artistMbid,
+					artistName = resolvedArtist.artistName,
+					section = "preview"
+				),
+				operation = "Aurral artist preview tracks for ${resolvedArtist.artistName}"
+			) {
+				apiClient.fetchArtistPreviewTracks(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					artistMbid = resolvedArtist.artistMbid,
+					artistName = resolvedArtist.artistName
+				)
+			}
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral artist preview tracks failed for $artistName", error)
+		}
+	}
+
+	suspend fun getArtistSimilarArtists(artist: DomainArtist): Result<List<AurralSimilarArtist>> {
+		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(emptyList())
+		val directArtistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			val resolvedArtist = resolveArtistForEnrichment(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = directArtistMbid,
+				artistName = artistName
+			) ?: return@runCatching emptyList()
+			cachedAurralPayload<List<AurralSimilarArtist>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.ArtistSimilarArtists,
+				path = aurralArtistSectionCachePath(
+					artistMbid = resolvedArtist.artistMbid,
+					artistName = resolvedArtist.artistName,
+					section = "similar"
+				),
+				operation = "Aurral similar artists for ${resolvedArtist.artistName}"
+			) {
+				apiClient.fetchArtistSimilarArtists(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders,
+					artistMbid = resolvedArtist.artistMbid,
+					artistName = resolvedArtist.artistName
+				)
+			}
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral similar artists failed for $artistName", error)
+		}
+	}
+
+	suspend fun getArtistAlbumRequests(artist: DomainArtist): Result<List<AurralAlbumRequest>> {
+		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(emptyList())
+		val directArtistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = preferenceManager.aurralRequestHeadersMap()
+
+		return runCatching {
+			val resolvedArtist = resolveArtistForEnrichment(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = directArtistMbid,
+				artistName = artistName
+			) ?: return@runCatching emptyList()
+			val requests = cachedAurralPayload<List<AurralAlbumRequest>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.AlbumRequests,
+				path = aurralArtistSectionCachePath(
+					artistMbid = resolvedArtist.artistMbid,
+					artistName = resolvedArtist.artistName,
+					section = "requests"
+				),
+				operation = "Aurral album requests for ${resolvedArtist.artistName}"
+			) {
+				apiClient.fetchAlbumRequests(
+					baseUrl = baseUrl,
+					requestHeaders = requestHeaders
+				)
+			}
+			AurralArtistEnrichment(
+				artistMbid = resolvedArtist.artistMbid,
+				artistName = resolvedArtist.artistName,
+				requests = requests
+			).withLocalArtistState(libraryArtistMonitoring = null).requests
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral album requests failed for $artistName", error)
 		}
 	}
 

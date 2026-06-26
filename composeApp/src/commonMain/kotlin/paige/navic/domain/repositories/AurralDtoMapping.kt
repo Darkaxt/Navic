@@ -616,43 +616,55 @@ internal fun aurralArtistEnrichment(
 				coverUrl = releaseGroup.coverUrl
 			)
 		},
-		previewTracks = preview.tracks.mapNotNull { track ->
-			val id = track.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-			val title = track.title?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-			AurralPreviewTrack(
-				id = id,
-				title = title,
-				album = track.album,
-				previewUrl = track.previewUrl,
-				durationMs = track.durationMs,
-				owned = track.owned,
-				requested = track.requested,
-				inLibrary = track.inLibrary,
-				status = track.status
-			)
-		},
-		similarArtists = similar.artists.mapNotNull { artist ->
-			val id = artist.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-			val name = artist.name?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-			AurralSimilarArtist(
-				id = id,
-				name = name,
-				imageUrl = aurralAbsoluteImageUrl(baseUrl, artist.imageUrl ?: artist.image),
-				matchPercent = artist.match
-			)
-		},
-		requests = requests.map { request ->
-			AurralAlbumRequest(
-				albumMbid = request.resolvedAlbumMbid(),
-				albumName = request.resolvedAlbumName(),
-				artistMbid = request.artistMbid,
-				artistName = request.artistName,
-				status = request.status
-			)
-		},
+		previewTracks = aurralPreviewTracks(preview),
+		similarArtists = aurralSimilarArtists(baseUrl, similar),
+		requests = aurralAlbumRequests(requests),
 		monitored = details.lidarrData?.monitored
 	)
 }
+
+internal fun aurralPreviewTracks(preview: AurralArtistPreviewDto): List<AurralPreviewTrack> =
+	preview.tracks.mapNotNull { track ->
+		val id = track.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		val title = track.title?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		AurralPreviewTrack(
+			id = id,
+			title = title,
+			album = track.album,
+			previewUrl = track.previewUrl,
+			durationMs = track.durationMs,
+			owned = track.owned,
+			requested = track.requested,
+			inLibrary = track.inLibrary,
+			status = track.status
+		)
+	}
+
+internal fun aurralSimilarArtists(
+	baseUrl: String,
+	similar: AurralSimilarArtistsDto
+): List<AurralSimilarArtist> =
+	similar.artists.mapNotNull { artist ->
+		val id = artist.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		val name = artist.name?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+		AurralSimilarArtist(
+			id = id,
+			name = name,
+			imageUrl = aurralAbsoluteImageUrl(baseUrl, artist.imageUrl ?: artist.image),
+			matchPercent = artist.match
+		)
+	}
+
+internal fun aurralAlbumRequests(requests: List<AurralRequestDto>): List<AurralAlbumRequest> =
+	requests.map { request ->
+		AurralAlbumRequest(
+			albumMbid = request.resolvedAlbumMbid(),
+			albumName = request.resolvedAlbumName(),
+			artistMbid = request.artistMbid,
+			artistName = request.artistName,
+			status = request.status
+		)
+	}
 
 private fun aurralArtistExternalLinks(
 	details: AurralArtistDetailsDto

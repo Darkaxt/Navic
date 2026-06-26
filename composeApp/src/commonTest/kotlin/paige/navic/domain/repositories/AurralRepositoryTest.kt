@@ -16,7 +16,9 @@ import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistExternalLink
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralFlowSongIdPrefix
+import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralConfirmationType
@@ -1171,6 +1173,38 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistSectionsUseIndependentEndpointsWithoutFullEnrichmentFetch(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistPreviewTracks = listOf(AurralPreviewTrack(id = "test-drive", title = "Test Drive")),
+			artistSimilarArtists = listOf(AurralSimilarArtist(id = "similar-mbid", name = "Hans Zimmer")),
+			albumRequests = listOf(
+				AurralAlbumRequest(
+					albumMbid = "httyd",
+					albumName = "How to Train Your Dragon",
+					artistMbid = "artist-mbid",
+					artistName = "John Powell",
+					status = "requested"
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+		val artist = DomainArtist(id = "john-powell", name = "John Powell", musicBrainzId = "artist-mbid")
+
+		assertEquals("Test Drive", repository.getArtistPreviewTracks(artist).getOrThrow().single().title)
+		assertEquals("Hans Zimmer", repository.getArtistSimilarArtists(artist).getOrThrow().single().name)
+		assertEquals("requested", repository.getArtistAlbumRequests(artist).getOrThrow().single().status)
+
+		assertEquals(listOf("artist-mbid" to "John Powell"), apiClient.artistPreviewTrackRequests)
+		assertEquals(listOf("artist-mbid" to "John Powell"), apiClient.artistSimilarArtistRequests)
+		assertEquals(listOf("https://aurral.example.com"), apiClient.albumRequestBaseUrls)
+		assertEquals(emptyList(), apiClient.artistEnrichmentRequests)
+	}
+
+	@Test
 	fun repositoryMonitoringActionQueuesConfirmationWithoutOverridingCachedRows(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true
@@ -2027,6 +2061,9 @@ class AurralRepositoryTest {
 			artistName = "Artist"
 		),
 		private val artistCoreEnrichment: AurralArtistEnrichment = artistEnrichment,
+		private val artistPreviewTracks: List<AurralPreviewTrack> = artistEnrichment.previewTracks,
+		private val artistSimilarArtists: List<AurralSimilarArtist> = artistEnrichment.similarArtists,
+		private val albumRequests: List<AurralAlbumRequest> = artistEnrichment.requests,
 		private val libraryArtistMonitoring: Boolean? = null,
 		private val releaseGroupCoverImageUrl: String? = null,
 		private val flowJobs: List<AurralFlowJobDto> = emptyList(),
@@ -2075,6 +2112,9 @@ class AurralRepositoryTest {
 		val requestAlbumPayloads = mutableListOf<AurralAlbumRequestPayload>()
 		val artistEnrichmentRequests = mutableListOf<Pair<String, String>>()
 		val artistCoreEnrichmentRequests = mutableListOf<Pair<String, String>>()
+		val artistPreviewTrackRequests = mutableListOf<Pair<String, String>>()
+		val artistSimilarArtistRequests = mutableListOf<Pair<String, String>>()
+		val albumRequestBaseUrls = mutableListOf<String>()
 		val albumTracksRequests = mutableListOf<Pair<String, String?>>()
 
 		override suspend fun testConnection(
@@ -2174,6 +2214,34 @@ class AurralRepositoryTest {
 				artistMbid = artistMbid,
 				artistName = artistName
 			)
+		}
+
+		override suspend fun fetchArtistPreviewTracks(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String,
+			artistName: String
+		): List<AurralPreviewTrack> {
+			artistPreviewTrackRequests += artistMbid to artistName
+			return artistPreviewTracks
+		}
+
+		override suspend fun fetchArtistSimilarArtists(
+			baseUrl: String,
+			requestHeaders: Map<String, String>,
+			artistMbid: String,
+			artistName: String
+		): List<AurralSimilarArtist> {
+			artistSimilarArtistRequests += artistMbid to artistName
+			return artistSimilarArtists
+		}
+
+		override suspend fun fetchAlbumRequests(
+			baseUrl: String,
+			requestHeaders: Map<String, String>
+		): List<AurralAlbumRequest> {
+			albumRequestBaseUrls += baseUrl
+			return albumRequests
 		}
 
 		override suspend fun fetchLibraryArtistMonitoring(

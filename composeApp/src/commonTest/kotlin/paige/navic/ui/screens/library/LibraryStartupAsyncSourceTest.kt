@@ -72,7 +72,7 @@ class LibraryStartupAsyncSourceTest {
 		val start = source.indexOf("private fun loadAurralEnrichment(")
 		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
 		val loadAurralEnrichment = source.substring(start, end)
-		val statePublish = loadAurralEnrichment.indexOf("aurralOwnedOrPartialAlbums = ownedOrPartialAlbumRows")
+		val statePublish = loadAurralEnrichment.indexOf("applyAurralCoreEnrichmentSnapshot(")
 		val coverHydration = loadAurralEnrichment.indexOf("hydrateAurralArtistAlbumCovers(")
 
 		assertTrue(
@@ -99,19 +99,54 @@ class LibraryStartupAsyncSourceTest {
 		val loadAurralEnrichment = source.substring(start, end)
 		val coreFetch = loadAurralEnrichment.indexOf("getArtistCoreEnrichment(")
 		val corePublish = loadAurralEnrichment.indexOf("applyAurralCoreEnrichmentSnapshot(")
-		val fullFetch = loadAurralEnrichment.indexOf("getArtistEnrichment(")
+		val sectionFetch = listOf(
+			loadAurralEnrichment.indexOf("getArtistPreviewTracks("),
+			loadAurralEnrichment.indexOf("getArtistSimilarArtists("),
+			loadAurralEnrichment.indexOf("getArtistAlbumRequests(")
+		).filter { it >= 0 }.minOrNull() ?: -1
 
 		assertTrue(
 			coreFetch >= 0,
 			"Artist detail should fetch a core Aurral profile/release-group snapshot that is not blocked by preview, similar, or request sections."
 		)
 		assertTrue(
-			corePublish > coreFetch && corePublish < fullFetch,
-			"Fresh Aurral profile rows must render from the core snapshot before starting or awaiting the full enrichment section refresh."
+			corePublish > coreFetch && corePublish < sectionFetch,
+			"Fresh Aurral profile rows must render from the core snapshot before starting or awaiting independent section refreshes."
 		)
 		assertFalse(
 			"primaryEnrichmentDeferred = primaryAurralArtist?.let" in loadAurralEnrichment,
 			"Artist detail must not start by awaiting the full combined Aurral enrichment payload before rendering the profile."
+		)
+	}
+
+	@Test
+	fun artistDetailAurralSectionsRefreshIndependentlyAfterCoreProfile() {
+		val source = commonMain(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		)
+		val start = source.indexOf("private fun loadAurralEnrichment(")
+		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val loadAurralEnrichment = source.substring(start, end)
+		val corePublish = loadAurralEnrichment.indexOf("applyAurralCoreEnrichmentSnapshot(")
+		val previewFetch = loadAurralEnrichment.indexOf("getArtistPreviewTracks(")
+		val similarFetch = loadAurralEnrichment.indexOf("getArtistSimilarArtists(")
+		val requestFetch = loadAurralEnrichment.indexOf("getArtistAlbumRequests(")
+
+		assertTrue(
+			previewFetch > corePublish,
+			"Artist detail preview tracks must refresh independently after the core Aurral profile renders."
+		)
+		assertTrue(
+			similarFetch > corePublish,
+			"Artist detail similar artists must refresh independently after the core Aurral profile renders."
+		)
+		assertTrue(
+			requestFetch > corePublish,
+			"Artist detail request/download status must refresh independently after the core Aurral profile renders."
+		)
+		assertFalse(
+			"getArtistEnrichment(" in loadAurralEnrichment,
+			"Artist detail must not call the combined full Aurral enrichment endpoint after the core profile is available."
 		)
 	}
 
