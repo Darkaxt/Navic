@@ -165,7 +165,7 @@ fun aurralAlbumRecoveryRows(
 			localSong = localSong,
 			ownershipStatus = when {
 				localSong != null -> AurralOwnershipStatus.Owned
-				track.requested == true -> AurralOwnershipStatus.Partial
+				track.requested == true -> AurralOwnershipStatus.Requested
 				track.status != null -> aurralOwnershipStatusForStatus(track.status)
 				else -> AurralOwnershipStatus.Missing
 			}
@@ -252,6 +252,12 @@ fun aurralAlbumHeaderActionStatus(
 	when {
 		recoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Missing } ->
 			AurralOwnershipStatus.Missing
+		recoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Failed } ->
+			AurralOwnershipStatus.Failed
+		recoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Requested } ->
+			AurralOwnershipStatus.Requested
+		recoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Processing } ->
+			AurralOwnershipStatus.Processing
 		recoveryRows.any { it.ownershipStatus == AurralOwnershipStatus.Partial } ->
 			AurralOwnershipStatus.Partial
 		recoveryRows.isNotEmpty() -> AurralOwnershipStatus.Owned

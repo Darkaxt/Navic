@@ -244,7 +244,9 @@ fun CollectionDetailScreen(
 						CollectionDetailScreenHeadingRowButtons(
 							collection = contentCollection,
 							aurralAlbumActionStatus = aurralAlbumActionStatus,
-							onAcquireAurralAlbum = if (aurralAlbumActionStatus == AurralOwnershipStatus.Missing) {
+							onAcquireAurralAlbum = if (aurralAlbumActionStatus == AurralOwnershipStatus.Missing ||
+								aurralAlbumActionStatus == AurralOwnershipStatus.Failed
+							) {
 								{ viewModel.requestAurralRecoveryAlbum() }
 							} else {
 								null
@@ -573,7 +575,10 @@ private fun AurralAlbumDisplayRow.displaySubtitleText(): String? =
 	artistName?.takeIf { it.isNotBlank() }
 		?: when (ownershipStatus) {
 			AurralOwnershipStatus.Owned -> localSong?.let { "Owned locally" } ?: "Owned"
-			AurralOwnershipStatus.Partial -> track?.status?.takeIf { it.isNotBlank() } ?: "Requested"
+			AurralOwnershipStatus.Partial -> track?.status?.takeIf { it.isNotBlank() } ?: "Partial"
+			AurralOwnershipStatus.Requested -> track?.status?.takeIf { it.isNotBlank() } ?: "Requested"
+			AurralOwnershipStatus.Processing -> track?.status?.takeIf { it.isNotBlank() } ?: "Processing"
+			AurralOwnershipStatus.Failed -> track?.status?.takeIf { it.isNotBlank() } ?: "Failed"
 			AurralOwnershipStatus.Missing,
 			null -> null
 		}

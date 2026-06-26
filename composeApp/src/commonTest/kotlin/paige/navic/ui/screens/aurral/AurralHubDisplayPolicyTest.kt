@@ -1027,7 +1027,7 @@ class AurralHubDisplayPolicyTest {
 			)
 		)
 		assertEquals(
-			AurralOwnershipStatus.Partial,
+			AurralOwnershipStatus.Processing,
 			aurralSearchAlbumOwnershipStatus(
 				albumSearchItem(
 					id = "requested",
@@ -1047,7 +1047,7 @@ class AurralHubDisplayPolicyTest {
 			)
 		)
 		assertEquals(
-			AurralOwnershipStatus.Partial,
+			AurralOwnershipStatus.Requested,
 			aurralMissingAlbumOwnershipStatus(
 				missingAlbumRow(
 					title = "Requested Missing",
@@ -1076,7 +1076,7 @@ class AurralHubDisplayPolicyTest {
 			)
 		)
 		assertEquals(
-			AurralOwnershipStatus.Partial,
+			AurralOwnershipStatus.Requested,
 			aurralPreviewTrackOwnershipStatus(
 				AurralPreviewTrack(
 					id = "requested-track",

@@ -37,6 +37,9 @@ fun AurralOwnershipStatusDot(
 fun aurralOwnershipStatusColor(status: AurralOwnershipStatus): Color =
 	when (status) {
 		AurralOwnershipStatus.Owned -> Color(0xFF2AC769)
-		AurralOwnershipStatus.Partial -> Color(0xFFFFB020)
+		AurralOwnershipStatus.Partial,
+		AurralOwnershipStatus.Requested,
+		AurralOwnershipStatus.Processing -> Color(0xFFFFB020)
+		AurralOwnershipStatus.Failed,
 		AurralOwnershipStatus.Missing -> MaterialTheme.colorScheme.error
 	}

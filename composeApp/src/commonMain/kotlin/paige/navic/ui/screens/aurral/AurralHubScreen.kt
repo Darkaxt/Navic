@@ -944,7 +944,9 @@ private fun AurralHubAlbumSearchRow(
 	}
 	val ownershipStatus = aurralSearchAlbumOwnershipStatus(album)
 	val colorFilter = remember(ownershipStatus) {
-		if (ownershipStatus == AurralOwnershipStatus.Missing) {
+		if (ownershipStatus == AurralOwnershipStatus.Missing ||
+			ownershipStatus == AurralOwnershipStatus.Failed
+		) {
 			ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 		} else {
 			null

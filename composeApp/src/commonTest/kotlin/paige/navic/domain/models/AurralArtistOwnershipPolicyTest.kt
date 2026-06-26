@@ -66,7 +66,7 @@ class AurralArtistOwnershipPolicyTest {
 	}
 
 	@Test
-	fun missingReleaseGroupsCarryRequestProgress() {
+	fun missingReleaseGroupsCarryProcessingProgress() {
 		val enrichment = AurralArtistEnrichment(
 			artistMbid = "artist-mbid",
 			artistName = "Artist",
@@ -85,8 +85,18 @@ class AurralArtistOwnershipPolicyTest {
 		val row = aurralArtistOwnershipAlbumRows(enrichment, emptyList()).missing.single()
 
 		assertEquals("processing", row.requestStatus)
-		assertEquals(AurralOwnershipStatus.Partial, row.ownershipStatus)
+		assertEquals(AurralOwnershipStatus.Processing, row.ownershipStatus)
 		assertNotNull(row.acquisitionProgress)
+	}
+
+	@Test
+	fun requestStatusesUseSpecificOwnershipBuckets() {
+		assertEquals(AurralOwnershipStatus.Requested, aurralOwnershipStatusForStatus("requested"))
+		assertEquals(AurralOwnershipStatus.Requested, aurralOwnershipStatusForStatus("queued"))
+		assertEquals(AurralOwnershipStatus.Processing, aurralOwnershipStatusForStatus("searching"))
+		assertEquals(AurralOwnershipStatus.Processing, aurralOwnershipStatusForStatus("downloading"))
+		assertEquals(AurralOwnershipStatus.Failed, aurralOwnershipStatusForStatus("failed"))
+		assertEquals(AurralOwnershipStatus.Failed, aurralOwnershipStatusForStatus("download error"))
 	}
 
 	private fun releaseGroup(

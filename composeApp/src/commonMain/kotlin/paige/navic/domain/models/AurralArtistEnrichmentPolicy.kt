@@ -125,6 +125,9 @@ data class AurralAcquisitionProgress(
 enum class AurralOwnershipStatus {
 	Owned,
 	Partial,
+	Requested,
+	Processing,
+	Failed,
 	Missing
 }
 
@@ -180,8 +183,7 @@ fun aurralArtistOwnershipAlbumRows(
 		}
 		val progress = request?.status?.trim()?.takeIf { it.isNotEmpty() }?.let(::aurralAcquisitionProgress)
 		val ownershipStatus = when {
-			progress?.completed == true -> AurralOwnershipStatus.Owned
-			progress?.active == true -> AurralOwnershipStatus.Partial
+			progress != null -> aurralOwnershipStatusForProgress(progress)
 			match == null -> if (album.songs.size > 1 || album.songCount > 1) {
 				AurralOwnershipStatus.Owned
 			} else {
@@ -329,7 +331,13 @@ fun aurralArtistAlbumRows(
 fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
 	val normalized = status.trim().lowercase()
 	val failed = normalized == "failed" || normalized.contains("fail") || normalized.contains("error")
-	val completed = normalized == "available" || normalized == "added" || normalized == "completed"
+	val completed = normalized == "available" ||
+		normalized == "added" ||
+		normalized == "completed" ||
+		normalized == "downloaded" ||
+		normalized == "owned" ||
+		normalized == "in_library" ||
+		normalized == "in library"
 	val active = !failed && !completed
 	return AurralAcquisitionProgress(
 		status = status,
@@ -340,16 +348,14 @@ fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
 }
 
 fun aurralOwnershipStatusForProgress(progress: AurralAcquisitionProgress?): AurralOwnershipStatus =
-	when {
-		progress?.completed == true -> AurralOwnershipStatus.Owned
-		progress?.active == true -> AurralOwnershipStatus.Partial
-		else -> AurralOwnershipStatus.Missing
-	}
+	progress?.status?.let(::aurralOwnershipStatusForStatus) ?: AurralOwnershipStatus.Missing
 
 fun aurralOwnershipStatusForStatus(status: String?): AurralOwnershipStatus {
 	val normalized = status?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
 		?: return AurralOwnershipStatus.Missing
 	return when {
+		normalized.contains("fail") ||
+			normalized.contains("error") -> AurralOwnershipStatus.Failed
 		normalized == "available" ||
 			normalized == "added" ||
 			normalized == "completed" ||
@@ -359,13 +365,13 @@ fun aurralOwnershipStatusForStatus(status: String?): AurralOwnershipStatus {
 			normalized == "in library" -> AurralOwnershipStatus.Owned
 		normalized == "partial" ||
 			normalized == "partially_owned" ||
-			normalized == "partially owned" ||
-			normalized == "requested" ||
+			normalized == "partially owned" -> AurralOwnershipStatus.Partial
+		normalized == "requested" ||
 			normalized == "queued" ||
-			normalized == "pending" ||
-			normalized == "processing" ||
+			normalized == "pending" -> AurralOwnershipStatus.Requested
+		normalized == "processing" ||
 			normalized == "downloading" ||
-			normalized == "searching" -> AurralOwnershipStatus.Partial
+			normalized == "searching" -> AurralOwnershipStatus.Processing
 		else -> AurralOwnershipStatus.Missing
 	}
 }
@@ -376,7 +382,7 @@ fun aurralPreviewTrackOwnershipStatus(
 ): AurralOwnershipStatus =
 	when {
 		track.owned == true || track.inLibrary == true -> AurralOwnershipStatus.Owned
-		track.requested == true -> AurralOwnershipStatus.Partial
+		track.requested == true -> AurralOwnershipStatus.Requested
 		track.status != null -> aurralOwnershipStatusForStatus(track.status)
 		fallbackAlbumStatus != null -> fallbackAlbumStatus
 		else -> AurralOwnershipStatus.Missing

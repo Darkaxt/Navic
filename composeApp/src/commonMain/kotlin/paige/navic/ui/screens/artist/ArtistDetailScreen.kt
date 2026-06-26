@@ -674,7 +674,8 @@ fun ArtistDetailScreen(
 											imageUrl = row.coverUrl,
 											requestHeaders = preferenceManager.aurralRequestHeadersMap()
 										),
-										grayscale = row.ownershipStatus == AurralOwnershipStatus.Missing,
+										grayscale = row.ownershipStatus == AurralOwnershipStatus.Missing ||
+											row.ownershipStatus == AurralOwnershipStatus.Failed,
 										onClick = {
 											row.releaseGroup?.let { releaseGroup ->
 												backStack.add(
@@ -707,7 +708,8 @@ fun ArtistDetailScreen(
 										imageUrl = row.coverUrl,
 										requestHeaders = preferenceManager.aurralRequestHeadersMap()
 									),
-									grayscale = true,
+									grayscale = row.ownershipStatus == AurralOwnershipStatus.Missing ||
+										row.ownershipStatus == AurralOwnershipStatus.Failed,
 									onClick = {
 										row.releaseGroup?.let { releaseGroup ->
 											backStack.add(
