@@ -3,6 +3,7 @@ package paige.navic.domain.repositories
 import com.russhwolf.settings.MapSettings
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -1510,6 +1511,64 @@ class AurralRepositoryTest {
 		).getOrThrow()
 
 		assertEquals(false, enrichment?.monitored)
+	}
+
+	@Test
+	fun repositoryCachedArtistEnrichmentReadsProfileWithoutNetworkFetch(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient()
+		val cache = RecordingAurralMetadataCache()
+		val cachedProfile = AurralArtistEnrichment(
+			artistMbid = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+			artistName = "John Powell",
+			bio = "Cached biography",
+			releaseGroups = listOf(
+				AurralReleaseGroup(
+					id = "how-to-train-your-dragon",
+					title = "How to Train Your Dragon: Music From the Motion Picture"
+				)
+			),
+			monitored = false
+		)
+		val baseUrl = "https://aurral.example.com"
+		val path = aurralArtistEnrichmentCachePath(
+			artistMbid = cachedProfile.artistMbid,
+			artistName = cachedProfile.artistName
+		)
+		val cacheKey = aurralMetadataCacheKey(
+			baseUrl = baseUrl,
+			payloadType = AurralMetadataPayloadType.ArtistEnrichment,
+			path = path
+		)
+		cache.put(
+			AurralMetadataCacheRecord(
+				cacheKey = cacheKey,
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.ArtistEnrichment,
+				path = path,
+				payloadJson = AURRAL_JSON.encodeToString(cachedProfile),
+				updatedAtMillis = 0L
+			)
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient,
+			metadataCache = cache
+		)
+
+		val cached = repository.getCachedArtistEnrichment(
+			DomainArtist(
+				id = "john-powell",
+				name = "John Powell",
+				musicBrainzId = "52bb713d-b0c9-4bf6-9f58-392388d5cc11"
+			)
+		).getOrThrow()
+
+		assertEquals(cachedProfile, cached)
+		assertTrue(apiClient.artistEnrichmentRequests.isEmpty())
 	}
 
 	@Test

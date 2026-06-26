@@ -32,6 +32,12 @@ fun shouldShowAurralMonitorAction(
 	return resolvedMbid.isNotEmpty()
 }
 
+fun shouldShowAurralMonitorAction(state: AurralArtistProfileUiState): Boolean =
+	state.monitorActionVisible
+
+fun isAurralMonitorActionEnabled(state: AurralArtistProfileUiState): Boolean =
+	state.monitorActionEnabled
+
 fun aurralMonitorActionIconOverlay(state: AurralMonitorActionState): AurralActionIconOverlay =
 	when (state) {
 		AurralMonitorActionState.PendingVerification -> AurralActionIconOverlay.QuestionMark

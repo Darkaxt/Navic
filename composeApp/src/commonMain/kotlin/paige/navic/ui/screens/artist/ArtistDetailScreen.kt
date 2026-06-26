@@ -63,7 +63,9 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_see_all
+import navic.composeapp.generated.resources.action_stop_monitoring_artist
 import navic.composeapp.generated.resources.info_aurral_external_artist
 import navic.composeapp.generated.resources.info_aurral_loading_catalog
 import navic.composeapp.generated.resources.info_aurral_match_percent
@@ -72,9 +74,11 @@ import navic.composeapp.generated.resources.info_aurral_monitor_stopped
 import navic.composeapp.generated.resources.info_aurral_monitor_waiting
 import navic.composeapp.generated.resources.info_aurral_unmonitor_waiting
 import navic.composeapp.generated.resources.info_bulk_download_warning
+import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirmation
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_aurral_recommendations
 import navic.composeapp.generated.resources.title_bulk_download
+import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_lastfm_top_tracks
 import navic.composeapp.generated.resources.title_similar_artists
 import navic.composeapp.generated.resources.title_aurral_missing_albums
@@ -106,6 +110,8 @@ import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
+import paige.navic.ui.components.common.AurralActionIcon
+import paige.navic.ui.components.common.AurralActionIconOverlay
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
@@ -118,6 +124,8 @@ import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.common.rememberAurralFirstArtistArtworkUiState
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
+import paige.navic.ui.components.common.FormButton
+import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.RootBottomBar
@@ -198,6 +206,7 @@ fun ArtistDetailScreen(
 	var shareExpiry by remember { mutableStateOf<Duration?>(null) }
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	var stopMonitoringDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	val artistData = (artistState as? UiState.Success)?.data
 	val artistAurralMonitorPending = artistData?.let { data ->
@@ -284,6 +293,19 @@ fun ArtistDetailScreen(
 
 					is UiState.Success -> {
 						val state = currentArtistState.data
+						val aurralProfileState = remember(
+							state,
+							preferenceManager.aurralEnabled,
+							monitoringInAurral,
+							artistAurralMonitorPending
+						) {
+							aurralArtistProfileUiState(
+								state = state,
+								aurralEnabled = preferenceManager.aurralEnabled,
+								monitoringInAurral = monitoringInAurral,
+								monitorPendingInAurral = artistAurralMonitorPending
+							)
+						}
 					val ownedOrPartialRows = remember(state.aurralOwnedOrPartialAlbums, state.albums) {
 						state.aurralOwnedOrPartialAlbums.ifEmpty {
 							state.albums.map { album ->
@@ -319,14 +341,8 @@ fun ArtistDetailScreen(
 							)
 						}.toImmutableMap()
 					}
-					val displayArtistName = state.aurralArtistName
-						?.trim()
-						?.takeIf { it.isNotEmpty() }
-						?: state.artist.name
-					val displayBiography = state.aurralArtistBio
-						?.trim()
-						?.takeIf { it.isNotEmpty() }
-						?: state.artist.biography
+					val displayArtistName = aurralProfileState.displayName
+					val displayBiography = aurralProfileState.displayBio
 					val headingArtwork = rememberAurralFirstArtistArtworkUiState(
 						artistId = state.artist.id,
 						artistMusicBrainzId = state.artist.musicBrainzId,
@@ -393,15 +409,11 @@ fun ArtistDetailScreen(
 							downloadStatus = downloadStatus,
 							playEnabled = state.albums.isNotEmpty(),
 							onMonitorInAurral = if (
-								shouldShowAurralMonitorAction(
-									aurralEnabled = preferenceManager.aurralEnabled,
-									candidateArtistMbid = state.aurralArtistMbid ?: state.artist.musicBrainzId,
-									aurralMonitored = state.aurralMonitored
-								)
+								shouldShowAurralMonitorAction(aurralProfileState)
 							) {
 								{
 									when (state.aurralMonitored) {
-										true -> viewModel.setArtistMonitoringInAurral(monitored = false)
+										true -> stopMonitoringDialogShown = true
 										false -> viewModel.monitorArtistInAurral()
 										null -> viewModel.monitorArtistInAurral()
 									}
@@ -409,7 +421,7 @@ fun ArtistDetailScreen(
 							} else {
 								null
 							},
-							monitorInAurralEnabled = true,
+							monitorInAurralEnabled = isAurralMonitorActionEnabled(aurralProfileState),
 							monitoringInAurral = monitoringInAurral,
 							monitorPendingInAurral = artistAurralMonitorPending,
 							monitoredInAurral = state.aurralMonitored,
@@ -782,6 +794,48 @@ fun ArtistDetailScreen(
 					)
 			)
 		}
+	}
+
+	if (stopMonitoringDialogShown) {
+		val artistName = (artistState as? UiState.Success)?.data?.aurralArtistName
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?: (artistState as? UiState.Success)?.data?.artist?.name.orEmpty()
+		FormDialog(
+			onDismissRequest = { stopMonitoringDialogShown = false },
+			icon = {
+				AurralActionIcon(
+					overlay = AurralActionIconOverlay.Crossed,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.onSurface,
+					overlayColor = MaterialTheme.colorScheme.error
+				)
+			},
+			title = { Text(stringResource(Res.string.title_confirm)) },
+			content = {
+				Text(
+					text = stringResource(
+						Res.string.info_stop_monitoring_artist_confirmation,
+						artistName
+					)
+				)
+			},
+			buttons = {
+				FormButton(
+					onClick = {
+						stopMonitoringDialogShown = false
+						viewModel.setArtistMonitoringInAurral(monitored = false)
+					}
+				) {
+					Text(stringResource(Res.string.action_stop_monitoring_artist))
+				}
+				FormButton(
+					onClick = { stopMonitoringDialogShown = false }
+				) {
+					Text(stringResource(Res.string.action_cancel))
+				}
+			}
+		)
 	}
 
 	ShareDialog(

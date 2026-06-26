@@ -2,7 +2,6 @@ package paige.navic.domain.repositories
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.accept
@@ -155,11 +154,6 @@ interface AurralApiClient {
 
 internal class KtorAurralApiClient : AurralApiClient {
 	private val client = HttpClient {
-		install(HttpTimeout) {
-			requestTimeoutMillis = 30000
-			connectTimeoutMillis = 30000
-			socketTimeoutMillis = 30000
-		}
 		install(ContentNegotiation) {
 			json(AURRAL_JSON)
 		}

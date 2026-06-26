@@ -397,6 +397,16 @@ class ArtistDetailViewModel(
 						musicBrainzId = mbid
 					)
 				}
+			primaryAurralArtist
+				?.let { aurralRepository.getCachedArtistEnrichment(it).getOrNull() }
+				?.let { cachedEnrichment ->
+					applyAurralEnrichmentSnapshot(
+						artist = artist,
+						albums = albums,
+						enrichment = cachedEnrichment,
+						loading = true
+					)
+				}
 			val primaryEnrichmentDeferred = primaryAurralArtist?.let { aurralArtist ->
 				async { aurralRepository.getArtistEnrichment(aurralArtist) }
 			}
@@ -576,11 +586,46 @@ class ArtistDetailViewModel(
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						aurralLoading = false,
-						aurralError = null
+						aurralError = error.message ?: error::class.simpleName
 					)
 				)
 			}
 		}
+	}
+
+	private fun applyAurralEnrichmentSnapshot(
+		artist: DomainArtist,
+		albums: List<DomainAlbum>,
+		enrichment: AurralArtistEnrichment,
+		loading: Boolean
+	) {
+		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
+		if (latestState.artist.id != artist.id) return
+		val ownershipRows = aurralArtistOwnershipAlbumRows(enrichment, albums)
+		val missingAlbumRows = aurralMissingAlbumRows(enrichment, albums)
+		_artistState.value = UiState.Success(
+			latestState.copy(
+				aurralMissingAlbums = missingAlbumRows,
+				aurralOwnedOrPartialAlbums = ownershipRows.ownedOrPartial,
+				aurralMissingReleaseGroups = ownershipRows.missing,
+				aurralAlbumRequests = enrichment.requests,
+				aurralSimilarArtists = aurralSimilarArtistRows(
+					enrichment = enrichment,
+					allLocalArtists = emptyList(),
+					localSimilarArtists = latestState.similarArtists
+				),
+				aurralPreviewTracks = enrichment.previewTracks,
+				aurralMonitored = enrichment.monitored,
+				aurralArtistMbid = enrichment.artistMbid,
+				aurralArtistName = enrichment.artistName,
+				aurralArtistBio = enrichment.bio?.trim()?.takeIf { it.isNotEmpty() },
+				aurralArtistGenres = enrichment.genres,
+				aurralArtistExternalLinks = enrichment.externalLinks,
+				aurralArtistImageUrl = latestState.aurralArtistImageUrl,
+				aurralLoading = loading,
+				aurralError = null
+			)
+		)
 	}
 
 	private suspend fun persistArtistPhotoCache(

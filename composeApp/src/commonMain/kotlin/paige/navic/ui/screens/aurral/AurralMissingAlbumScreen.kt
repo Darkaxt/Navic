@@ -48,6 +48,7 @@ import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_acquire_album
 import navic.composeapp.generated.resources.info_aurral_no_album_previews
 import navic.composeapp.generated.resources.info_aurral_request_status
+import navic.composeapp.generated.resources.notice_aurral_album_requested
 import navic.composeapp.generated.resources.title_aurral_missing_album
 import navic.composeapp.generated.resources.title_aurral_preview_tracks
 import navic.composeapp.generated.resources.title_more_by_artist
@@ -56,6 +57,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.LocalSnackbarState
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.mappers.toDomainModel
@@ -77,6 +79,7 @@ import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
+import paige.navic.icons.outlined.Check
 import paige.navic.icons.outlined.LibraryAdd
 import paige.navic.icons.outlined.Note
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
@@ -96,6 +99,46 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.AurralPreviewTracks
 import paige.navic.ui.theme.defaultFont
 
+internal enum class AurralMissingAlbumActionIcon {
+	Acquire,
+	Requesting,
+	Requested,
+	Play
+}
+
+internal data class AurralMissingAlbumActionState(
+	val icon: AurralMissingAlbumActionIcon,
+	val enabled: Boolean,
+	val showSpinner: Boolean
+)
+
+internal fun aurralMissingAlbumActionState(
+	progress: AurralAcquisitionProgress?,
+	requesting: Boolean
+): AurralMissingAlbumActionState =
+	when {
+		requesting -> AurralMissingAlbumActionState(
+			icon = AurralMissingAlbumActionIcon.Requesting,
+			enabled = false,
+			showSpinner = true
+		)
+		progress?.completed == true -> AurralMissingAlbumActionState(
+			icon = AurralMissingAlbumActionIcon.Play,
+			enabled = false,
+			showSpinner = false
+		)
+		progress?.active == true -> AurralMissingAlbumActionState(
+			icon = AurralMissingAlbumActionIcon.Requested,
+			enabled = false,
+			showSpinner = false
+		)
+		else -> AurralMissingAlbumActionState(
+			icon = AurralMissingAlbumActionIcon.Acquire,
+			enabled = true,
+			showSpinner = false
+		)
+	}
+
 @Composable
 fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -104,7 +147,9 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 	val aurralRepository = koinInject<AurralRepository>()
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
+	val snackbarState = LocalSnackbarState.current
 	val scope = rememberCoroutineScope()
+	val albumRequestedMessage = stringResource(Res.string.notice_aurral_album_requested)
 	val releaseGroup = remember(route) {
 		AurralReleaseGroup(
 			id = route.releaseGroupId,
@@ -260,19 +305,25 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 					requesting = state.requesting,
 					onAcquire = {
 						platformContext.clickSound()
+						val requestArtist = state.artist
+						state = state.copy(
+							requesting = false,
+							error = null,
+							progress = aurralAcquisitionProgress("requested")
+						)
 						scope.launch {
-							state = state.copy(requesting = true, error = null)
+							snackbarState.showSnackbar(albumRequestedMessage)
+						}
+						scope.launch {
 							withContext(Dispatchers.IO) {
-								aurralRepository.requestAlbum(state.artist, releaseGroup)
+								aurralRepository.requestAlbum(requestArtist, releaseGroup)
 							}
-								.onSuccess {
+								.onFailure { error ->
 									state = state.copy(
 										requesting = false,
-										progress = aurralAcquisitionProgress("requested")
+										progress = route.requestStatus?.let(::aurralAcquisitionProgress),
+										error = error
 									)
-								}
-								.onFailure { error ->
-									state = state.copy(requesting = false, error = error)
 								}
 						}
 					}
@@ -414,6 +465,10 @@ private fun AurralMissingAlbumActions(
 ) {
 	if (!aurralConfigured) return
 	val status = progress?.status?.trim()?.takeIf { it.isNotEmpty() }
+	val actionState = aurralMissingAlbumActionState(
+		progress = progress,
+		requesting = requesting
+	)
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -427,14 +482,14 @@ private fun AurralMissingAlbumActions(
 				.height(44.dp),
 			onClick = onAcquire,
 			shape = RoundedCornerShape(22.dp),
-			enabled = !requesting && progress?.active != true && progress?.completed != true,
+			enabled = actionState.enabled,
 			contentPadding = PaddingValues(horizontal = 16.dp),
 			colors = ButtonDefaults.buttonColors(
 				containerColor = MaterialTheme.colorScheme.primary,
 				contentColor = MaterialTheme.colorScheme.onPrimary
 			)
 		) {
-			if (requesting) {
+			if (actionState.showSpinner) {
 				CircularProgressIndicator(
 					modifier = Modifier
 						.size(20.dp)
@@ -444,7 +499,12 @@ private fun AurralMissingAlbumActions(
 				)
 			} else {
 				Icon(
-					imageVector = if (progress?.completed == true) Icons.Filled.Play else Icons.Outlined.LibraryAdd,
+					imageVector = when (actionState.icon) {
+						AurralMissingAlbumActionIcon.Acquire,
+						AurralMissingAlbumActionIcon.Requesting -> Icons.Outlined.LibraryAdd
+						AurralMissingAlbumActionIcon.Requested -> Icons.Outlined.Check
+						AurralMissingAlbumActionIcon.Play -> Icons.Filled.Play
+					},
 					contentDescription = null,
 					modifier = Modifier
 						.size(22.dp)
