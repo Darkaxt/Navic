@@ -33,8 +33,8 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -80,7 +80,6 @@ import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirma
 import navic.composeapp.generated.resources.notice_aurral_album_requested
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_aurral_recommendations
-import navic.composeapp.generated.resources.title_aurral_external_links
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_lastfm_top_tracks
@@ -457,10 +456,149 @@ fun ArtistDetailScreen(
 							verticalArrangement = Arrangement.spacedBy(12.dp),
 							horizontalAlignment = Alignment.CenterHorizontally
 						) {
-							AurralArtistExternalLinksSection(
-								externalLinks = state.aurralArtistExternalLinks,
-								modifier = Modifier.fillMaxWidth()
-							)
+							state.topSongs.takeIf { state.topSongs.isNotEmpty() }
+								?.let { songs ->
+									Row(
+										modifier = Modifier
+											.heightIn(min = 32.dp)
+											.padding(top = 8.dp)
+											.padding(horizontal = 16.dp)
+											.fillMaxWidth(),
+										verticalAlignment = Alignment.CenterVertically,
+										horizontalArrangement = Arrangement.SpaceBetween
+									) {
+										Text(
+											stringResource(Res.string.option_sort_frequent),
+											style = MaterialTheme.typography.titleMediumEmphasized,
+											fontWeight = FontWeight(600)
+										)
+										Text(
+											stringResource(Res.string.action_see_all),
+											style = MaterialTheme.typography.labelLarge,
+											color = MaterialTheme.colorScheme.primary,
+											modifier = Modifier.clickable(onClick = dropUnlessResumed {
+												platformContext.clickSound()
+												backStack.add(
+													Screen.SongList(
+														nested = true,
+														artistId = state.artist.id,
+														artistName = state.artist.name
+													)
+												)
+											})
+										)
+									}
+									LazyHorizontalGrid(
+										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
+										state = frequentGridState,
+										flingBehavior = rememberSnapFlingBehavior(lazyGridState = frequentGridState),
+										modifier = Modifier
+											.fillMaxWidth()
+											.height(artistTopSongsGridHeightDp(songs.size).dp)
+									) {
+										itemsIndexed(songs) { index, song ->
+											val download = allDownloads.find { it.songId == song.id }
+											SongRow(
+												modifier = Modifier.weight(1f),
+												song = song,
+												isCurrentTrack = playerState.currentSong?.id == song.id,
+												isPlaying = !playerState.isPaused,
+												selected = selection == song,
+												onClick = {
+													if (playerState.currentSong?.id != song.id) {
+														player.clearQueue()
+														songs.forEach { song -> player.addToQueueSingle(song) }
+														player.playAt(index)
+													} else {
+														player.togglePlay()
+													}
+												},
+												onLongClick = {
+													viewModel.selectSong(song)
+												},
+												onDismissRequest = { viewModel.clearSelection() },
+												starredState = if (selection == song) selectedSongIsStarred else song.starredAt != null,
+												onAddStar = { viewModel.starSelectedSong() },
+												onRemoveStar = { viewModel.unstarSelectedSong() },
+												download = download,
+												onDownload = { viewModel.downloadSong(song) },
+												onCancelDownload = { viewModel.cancelDownload(song.id) },
+												onDeleteDownload = { viewModel.deleteDownload(song.id) },
+												onPlayNext = { player.playNextSingle(song) },
+												onAddToQueue = { player.addToQueueSingle(song) },
+												onShare = { shareId = song.id },
+												isOnline = isOnline,
+												rating = selectedSongRating,
+												onSetRating = { viewModel.rateSelectedSong(it) },
+												inPlaylist = song.id in playlistSongIds
+											)
+										}
+									}
+								}
+							state.lastFmTopSongs.takeIf { state.lastFmTopSongs.isNotEmpty() }
+								?.let { songs ->
+									Row(
+										modifier = Modifier
+											.heightIn(min = 32.dp)
+											.padding(top = 8.dp)
+											.padding(horizontal = 16.dp)
+											.fillMaxWidth(),
+										verticalAlignment = Alignment.CenterVertically,
+										horizontalArrangement = Arrangement.SpaceBetween
+									) {
+										Text(
+											stringResource(Res.string.title_lastfm_top_tracks),
+											style = MaterialTheme.typography.titleMediumEmphasized,
+											fontWeight = FontWeight(600)
+										)
+									}
+									LazyHorizontalGrid(
+										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
+										state = lastFmGridState,
+										flingBehavior = rememberSnapFlingBehavior(lazyGridState = lastFmGridState),
+										modifier = Modifier
+											.fillMaxWidth()
+											.height(artistTopSongsGridHeightDp(songs.size).dp)
+									) {
+										itemsIndexed(songs) { index, song ->
+											val download = allDownloads.find { it.songId == song.id }
+											SongRow(
+												modifier = Modifier.weight(1f),
+												song = song,
+												isCurrentTrack = playerState.currentSong?.id == song.id,
+												isPlaying = !playerState.isPaused,
+												selected = selection == song,
+												onClick = {
+													if (playerState.currentSong?.id != song.id) {
+														player.clearQueue()
+														songs.forEach { song -> player.addToQueueSingle(song) }
+														player.playAt(index)
+													} else {
+														player.togglePlay()
+													}
+												},
+												onLongClick = {
+													viewModel.selectSong(song)
+												},
+												onDismissRequest = { viewModel.clearSelection() },
+												starredState = selectedSongIsStarred,
+												onAddStar = { viewModel.starSelectedSong() },
+												onRemoveStar = { viewModel.unstarSelectedSong() },
+												download = download,
+												onDownload = { viewModel.downloadSong(song) },
+												onCancelDownload = { viewModel.cancelDownload(song.id) },
+												onDeleteDownload = { viewModel.deleteDownload(song.id) },
+												onPlayNext = { player.playNextSingle(song) },
+												onAddToQueue = { player.addToQueueSingle(song) },
+												onShare = { shareId = song.id },
+												isOnline = isOnline,
+												rating = selectedSongRating,
+												onSetRating = { viewModel.rateSelectedSong(it) },
+												inPlaylist = song.id in playlistSongIds
+											)
+										}
+									}
+								}
 							ArtCarousel(
 								stringResource(Res.string.title_aurral_recommendations),
 								state.aurralRecommendedAlbums.toImmutableList()
@@ -668,149 +806,6 @@ fun ArtistDetailScreen(
 									}
 								)
 							}
-							state.topSongs.takeIf { state.topSongs.isNotEmpty() }
-								?.let { songs ->
-									Row(
-										modifier = Modifier
-											.heightIn(min = 32.dp)
-											.padding(top = 8.dp)
-											.padding(horizontal = 16.dp)
-											.fillMaxWidth(),
-										verticalAlignment = Alignment.CenterVertically,
-										horizontalArrangement = Arrangement.SpaceBetween
-									) {
-										Text(
-											stringResource(Res.string.option_sort_frequent),
-											style = MaterialTheme.typography.titleMediumEmphasized,
-											fontWeight = FontWeight(600)
-										)
-										Text(
-											stringResource(Res.string.action_see_all),
-											style = MaterialTheme.typography.labelLarge,
-											color = MaterialTheme.colorScheme.primary,
-											modifier = Modifier.clickable(onClick = dropUnlessResumed {
-												platformContext.clickSound()
-												backStack.add(
-													Screen.SongList(
-														nested = true,
-														artistId = state.artist.id,
-														artistName = state.artist.name
-													)
-												)
-											})
-										)
-									}
-									LazyHorizontalGrid(
-										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
-										state = frequentGridState,
-										flingBehavior = rememberSnapFlingBehavior(lazyGridState = frequentGridState),
-										modifier = Modifier
-											.fillMaxWidth()
-											.height(artistTopSongsGridHeightDp(songs.size).dp)
-									) {
-										itemsIndexed(songs) { index, song ->
-											val download = allDownloads.find { it.songId == song.id }
-											SongRow(
-												modifier = Modifier.weight(1f),
-												song = song,
-												isCurrentTrack = playerState.currentSong?.id == song.id,
-												isPlaying = !playerState.isPaused,
-												selected = selection == song,
-												onClick = {
-													if (playerState.currentSong?.id != song.id) {
-														player.clearQueue()
-														songs.forEach { song -> player.addToQueueSingle(song) }
-														player.playAt(index)
-													} else {
-														player.togglePlay()
-													}
-												},
-												onLongClick = {
-													viewModel.selectSong(song)
-												},
-												onDismissRequest = { viewModel.clearSelection() },
-												starredState = if (selection == song) selectedSongIsStarred else song.starredAt != null,
-												onAddStar = { viewModel.starSelectedSong() },
-												onRemoveStar = { viewModel.unstarSelectedSong() },
-												download = download,
-												onDownload = { viewModel.downloadSong(song) },
-												onCancelDownload = { viewModel.cancelDownload(song.id) },
-												onDeleteDownload = { viewModel.deleteDownload(song.id) },
-												onPlayNext = { player.playNextSingle(song) },
-												onAddToQueue = { player.addToQueueSingle(song) },
-												onShare = { shareId = song.id },
-												isOnline = isOnline,
-												rating = selectedSongRating,
-												onSetRating = { viewModel.rateSelectedSong(it) },
-												inPlaylist = song.id in playlistSongIds
-											)
-										}
-									}
-								}
-							state.lastFmTopSongs.takeIf { state.lastFmTopSongs.isNotEmpty() }
-								?.let { songs ->
-									Row(
-										modifier = Modifier
-											.heightIn(min = 32.dp)
-											.padding(top = 8.dp)
-											.padding(horizontal = 16.dp)
-											.fillMaxWidth(),
-										verticalAlignment = Alignment.CenterVertically,
-										horizontalArrangement = Arrangement.SpaceBetween
-									) {
-										Text(
-											stringResource(Res.string.title_lastfm_top_tracks),
-											style = MaterialTheme.typography.titleMediumEmphasized,
-											fontWeight = FontWeight(600)
-										)
-									}
-									LazyHorizontalGrid(
-										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
-										state = lastFmGridState,
-										flingBehavior = rememberSnapFlingBehavior(lazyGridState = lastFmGridState),
-										modifier = Modifier
-											.fillMaxWidth()
-											.height(artistTopSongsGridHeightDp(songs.size).dp)
-									) {
-										itemsIndexed(songs) { index, song ->
-											val download = allDownloads.find { it.songId == song.id }
-											SongRow(
-												modifier = Modifier.weight(1f),
-												song = song,
-												isCurrentTrack = playerState.currentSong?.id == song.id,
-												isPlaying = !playerState.isPaused,
-												selected = selection == song,
-												onClick = {
-													if (playerState.currentSong?.id != song.id) {
-														player.clearQueue()
-														songs.forEach { song -> player.addToQueueSingle(song) }
-														player.playAt(index)
-													} else {
-														player.togglePlay()
-													}
-												},
-												onLongClick = {
-													viewModel.selectSong(song)
-												},
-												onDismissRequest = { viewModel.clearSelection() },
-												starredState = selectedSongIsStarred,
-												onAddStar = { viewModel.starSelectedSong() },
-												onRemoveStar = { viewModel.unstarSelectedSong() },
-												download = download,
-												onDownload = { viewModel.downloadSong(song) },
-												onCancelDownload = { viewModel.cancelDownload(song.id) },
-												onDeleteDownload = { viewModel.deleteDownload(song.id) },
-												onPlayNext = { player.playNextSingle(song) },
-												onAddToQueue = { player.addToQueueSingle(song) },
-												onShare = { shareId = song.id },
-												isOnline = isOnline,
-												rating = selectedSongRating,
-												onSetRating = { viewModel.rateSelectedSong(it) },
-												inPlaylist = song.id in playlistSongIds
-											)
-										}
-									}
-								}
 						}
 						Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
 					}
@@ -999,40 +994,58 @@ private fun CarouselItemScope.AurralOwnershipAlbumItem(
 }
 
 @Composable
-private fun AurralArtistExternalLinksSection(
+private fun AurralArtistProfileMetadata(
+	genres: List<String>,
 	externalLinks: List<AurralArtistExternalLink>,
 	modifier: Modifier = Modifier
 ) {
 	val uriHandler = LocalUriHandler.current
-	val visibleLinks = remember(externalLinks) {
-		externalLinks
-			.filter { link -> link.url.trim().startsWith("http", ignoreCase = true) }
-			.distinctBy { link -> link.type.lowercase() to link.url }
-			.take(8)
+	val visibleGenres = remember(genres) { artistHeaderGenreLabels(genres) }
+	val allLinks = remember(externalLinks) {
+		artistHeaderExternalLinks(externalLinks, limit = Int.MAX_VALUE)
 	}
-	if (visibleLinks.isEmpty()) return
+	val linksKey = remember(allLinks) { allLinks.joinToString("|") { link -> link.url } }
+	var linksExpanded by rememberSaveable(linksKey) { mutableStateOf(false) }
+	val visibleLinks = remember(allLinks, linksExpanded) {
+		if (linksExpanded) allLinks else allLinks.take(4)
+	}
+	val hiddenLinkCount = allLinks.size - visibleLinks.size
+	if (visibleGenres.isEmpty() && allLinks.isEmpty()) return
 
 	Column(
-		modifier = modifier.padding(horizontal = 16.dp),
-		verticalArrangement = Arrangement.spacedBy(4.dp)
+		modifier = modifier,
+		verticalArrangement = Arrangement.spacedBy(8.dp)
 	) {
-		Text(
-			text = stringResource(Res.string.title_aurral_external_links),
-			style = MaterialTheme.typography.titleMediumEmphasized,
-			fontWeight = FontWeight(600)
-		)
-		FlowRow(
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-			verticalArrangement = Arrangement.spacedBy(4.dp)
-		) {
-			visibleLinks.forEach { link ->
-				TextButton(
-					onClick = { uriHandler.openUri(link.url) }
-				) {
-					Text(
-						text = link.type.trim().ifEmpty { link.url },
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis
+		if (visibleGenres.isNotEmpty()) {
+			FlowRow(
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalArrangement = Arrangement.spacedBy(6.dp)
+			) {
+				visibleGenres.forEach { genre ->
+					ArtistHeaderMetadataChip(
+						label = genre,
+						onClick = null
+					)
+				}
+			}
+		}
+		if (visibleLinks.isNotEmpty()) {
+			FlowRow(
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalArrangement = Arrangement.spacedBy(6.dp)
+			) {
+				visibleLinks.forEach { link ->
+					ArtistHeaderMetadataChip(
+						label = link.label,
+						primary = true,
+						onClick = { uriHandler.openUri(link.url) }
+					)
+				}
+				if (hiddenLinkCount > 0) {
+					ArtistHeaderMetadataChip(
+						label = "More",
+						primary = true,
+						onClick = { linksExpanded = true }
 					)
 				}
 			}
@@ -1041,51 +1054,40 @@ private fun AurralArtistExternalLinksSection(
 }
 
 @Composable
-private fun AurralArtistProfileMetadata(
-	genres: List<String>,
-	externalLinks: List<AurralArtistExternalLink>,
-	modifier: Modifier = Modifier
+private fun ArtistHeaderMetadataChip(
+	label: String,
+	primary: Boolean = false,
+	onClick: (() -> Unit)?
 ) {
-	val uriHandler = LocalUriHandler.current
-	val visibleGenres = remember(genres) {
-		genres
-			.mapNotNull { genre -> genre.trim().takeIf { it.isNotEmpty() } }
-			.distinct()
-			.take(8)
+	val clickableModifier = if (onClick != null) {
+		Modifier.clickable(onClick = onClick)
+	} else {
+		Modifier
 	}
-	val visibleLinks = remember(externalLinks) {
-		externalLinks
-			.filter { link -> link.url.trim().startsWith("http", ignoreCase = true) }
-			.distinctBy { link -> link.type.lowercase() to link.url }
-			.take(4)
-	}
-	if (visibleGenres.isEmpty() && visibleLinks.isEmpty()) return
-
-	Column(
-		modifier = modifier,
-		verticalArrangement = Arrangement.spacedBy(6.dp)
+	Surface(
+		modifier = Modifier
+			.heightIn(min = 30.dp)
+			.then(clickableModifier),
+		shape = MaterialTheme.shapes.small,
+		color = if (primary) {
+			MaterialTheme.colorScheme.primaryContainer
+		} else {
+			MaterialTheme.colorScheme.surfaceVariant
+		}
 	) {
-		if (visibleGenres.isNotEmpty()) {
-			Text(
-				text = visibleGenres.joinToString(" • "),
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
-		}
-		visibleLinks.forEach { link ->
-			Text(
-				text = link.type.trim().ifEmpty { link.url },
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.primary,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-				modifier = Modifier.clickable {
-					uriHandler.openUri(link.url)
-				}
-			)
-		}
+		Text(
+			text = label,
+			style = MaterialTheme.typography.labelLarge,
+			fontWeight = FontWeight.Medium,
+			color = if (primary) {
+				MaterialTheme.colorScheme.onPrimaryContainer
+			} else {
+				MaterialTheme.colorScheme.onSurfaceVariant
+			},
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+		)
 	}
 }
 

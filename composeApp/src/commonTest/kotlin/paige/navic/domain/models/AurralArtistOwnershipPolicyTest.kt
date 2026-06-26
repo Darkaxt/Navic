@@ -133,6 +133,30 @@ class AurralArtistOwnershipPolicyTest {
 	}
 
 	@Test
+	fun exactAlbumMatchWithOnlyDuplicateLocalTrackTitlesStaysPartial() {
+		val enrichment = AurralArtistEnrichment(
+			artistMbid = "artist-mbid",
+			artistName = "John Powell",
+			releaseGroups = listOf(
+				releaseGroup(
+					id = "httyd",
+					title = "How to Train Your Dragon: Music From the Motion Picture",
+					firstReleaseDate = "2010-03-23"
+				)
+			)
+		)
+		val localAlbum = album(
+			name = "How to Train Your Dragon: Music From the Motion Picture",
+			musicBrainzId = "httyd",
+			songs = listOf(song("Test Drive"), song("Test Drive"))
+		)
+
+		val rows = aurralArtistOwnershipAlbumRows(enrichment, listOf(localAlbum))
+
+		assertEquals(AurralOwnershipStatus.Partial, rows.ownedOrPartial.single().ownershipStatus)
+	}
+
+	@Test
 	fun missingReleaseGroupsCarryProcessingProgress() {
 		val enrichment = AurralArtistEnrichment(
 			artistMbid = "artist-mbid",
@@ -154,6 +178,21 @@ class AurralArtistOwnershipPolicyTest {
 		assertEquals("processing", row.requestStatus)
 		assertEquals(AurralOwnershipStatus.Processing, row.ownershipStatus)
 		assertNotNull(row.acquisitionProgress)
+	}
+
+	@Test
+	fun missingReleaseGroupsWithoutRequestStayMissing() {
+		val enrichment = AurralArtistEnrichment(
+			artistMbid = "artist-mbid",
+			artistName = "Artist",
+			releaseGroups = listOf(releaseGroup(id = "missing", title = "Missing Album"))
+		)
+
+		val row = aurralArtistOwnershipAlbumRows(enrichment, emptyList()).missing.single()
+
+		assertEquals(null, row.requestStatus)
+		assertEquals(null, row.acquisitionProgress)
+		assertEquals(AurralOwnershipStatus.Missing, row.ownershipStatus)
 	}
 
 	@Test

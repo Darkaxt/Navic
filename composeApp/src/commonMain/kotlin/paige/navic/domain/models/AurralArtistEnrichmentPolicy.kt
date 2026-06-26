@@ -199,15 +199,16 @@ fun aurralArtistOwnershipAlbumRows(
 				?: releaseGroup.title.normalizedAurralNameOrNull()?.let(requestsByTitle::get)
 		}
 		val progress = request?.status?.trim()?.takeIf { it.isNotEmpty() }?.let(::aurralAcquisitionProgress)
+		val hasMultipleDistinctLocalTracks = album.hasMultipleDistinctAurralTracks()
 		val ownershipStatus = when {
 			progress != null -> aurralOwnershipStatusForProgress(progress)
-			match == null -> if (album.songs.size > 1 || album.songCount > 1) {
+			match == null -> if (hasMultipleDistinctLocalTracks) {
 				AurralOwnershipStatus.Owned
 			} else {
 				AurralOwnershipStatus.Partial
 			}
 			localAlbumReleaseGroupMatchScore(album, match).isExactAurralAlbumMatchScore() &&
-				(album.songs.size > 1 || album.songCount > 1) -> AurralOwnershipStatus.Owned
+				hasMultipleDistinctLocalTracks -> AurralOwnershipStatus.Owned
 			else -> AurralOwnershipStatus.Partial
 		}
 		AurralArtistOwnershipAlbumRow(
@@ -611,6 +612,17 @@ private const val ExactTitleMatchScore = 900
 
 private fun Int?.isExactAurralAlbumMatchScore(): Boolean =
 	this != null && this >= ExactTitleMatchScore
+
+private fun DomainAlbum.hasMultipleDistinctAurralTracks(): Boolean {
+	val distinctLocalTrackTitles = songs
+		.mapNotNull { song -> song.title.normalizedAurralTrackTitleOrNull() }
+		.toSet()
+	return if (distinctLocalTrackTitles.isNotEmpty()) {
+		distinctLocalTrackTitles.size > 1
+	} else {
+		songCount > 1
+	}
+}
 
 private fun localAlbumReleaseGroupMatchScore(
 	album: DomainAlbum,

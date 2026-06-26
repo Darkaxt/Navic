@@ -2,10 +2,14 @@ package paige.navic.ui.screens.artist
 
 import androidx.compose.runtime.Immutable
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
+import paige.navic.domain.models.AurralArtistExternalLink
+import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.PlaybackOrigin
 import paige.navic.domain.models.isNavidromeArtworkUrl
 import paige.navic.domain.models.settings.ArtworkSourcePriority
+import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.models.toPlaybackOrigin
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
@@ -13,12 +17,104 @@ import paige.navic.ui.screens.artist.viewmodels.ArtistState
 private const val TopSongRowHeightDp = 84
 private const val MaxTopSongRows = 3
 private const val ArtistBiographyPreviewLimit = 200
+private const val ArtistHeaderGenreLimit = 8
+private const val ArtistHeaderExternalLinkLimit = 4
+
+@Immutable
+data class ArtistHeaderExternalLink(
+	val label: String,
+	val url: String
+)
+
+@Immutable
+data class ArtistDetailLocalCatalog(
+	val albums: List<DomainAlbum>,
+	val songs: List<DomainSong>
+)
 
 fun artistTopSongsGridRows(songCount: Int): Int =
 	songCount.coerceIn(0, MaxTopSongRows)
 
 fun artistTopSongsGridHeightDp(songCount: Int): Int =
 	artistTopSongsGridRows(songCount) * TopSongRowHeightDp
+
+fun artistHeaderGenreLabels(
+	genres: List<String>,
+	limit: Int = ArtistHeaderGenreLimit
+): List<String> =
+	genres
+		.asSequence()
+		.mapNotNull { genre -> genre.trim().takeIf { it.isNotEmpty() } }
+		.distinct()
+		.take(limit)
+		.toList()
+
+fun artistHeaderExternalLinks(
+	externalLinks: List<AurralArtistExternalLink>,
+	limit: Int = ArtistHeaderExternalLinkLimit
+): List<ArtistHeaderExternalLink> =
+	externalLinks
+		.asSequence()
+		.mapNotNull { link ->
+			val url = link.url.trim().takeIf { it.startsWith("http", ignoreCase = true) }
+				?: return@mapNotNull null
+			ArtistHeaderExternalLink(
+				label = link.type.trim().ifEmpty { url },
+				url = url
+			)
+		}
+		.distinctBy { link -> link.label.lowercase() to link.url }
+		.take(limit)
+		.toList()
+
+fun artistDetailLocalCatalog(
+	artist: DomainArtist,
+	directAlbums: List<DomainAlbum>,
+	allSongs: List<DomainSong>,
+	creditCandidateAlbums: List<DomainAlbum>
+): ArtistDetailLocalCatalog {
+	val directAlbumIds = directAlbums.map { it.id }.toSet()
+	val directSongs = directAlbums.flatMap { it.songs }
+	val creditedSongs = allSongs.filter { song -> song.matchesArtistCredit(artist) }
+	val creditedSongsByAlbumId = creditedSongs
+		.mapNotNull { song -> song.albumId?.let { it to song } }
+		.groupBy({ it.first }, { it.second })
+	val creditedAlbums = creditCandidateAlbums.mapNotNull { album ->
+		if (album.id in directAlbumIds) return@mapNotNull null
+		val matchingSongs = creditedSongsByAlbumId[album.id]
+			.orEmpty()
+			.distinctBy { it.id }
+		if (matchingSongs.isEmpty()) return@mapNotNull null
+		album.copy(
+			songs = matchingSongs,
+			songCount = matchingSongs.size,
+			duration = matchingSongs.fold(kotlin.time.Duration.ZERO) { total, song ->
+				total + song.duration
+			}
+		)
+	}
+	return ArtistDetailLocalCatalog(
+		albums = (directAlbums + creditedAlbums)
+			.distinctBy { it.id }
+			.sortedByAlbumYearDescending(),
+		songs = (directSongs + creditedSongs)
+			.distinctBy { it.id }
+			.sortedByDescending { it.playCount }
+	)
+}
+
+fun artistDetailSongCreditAlbumIds(
+	artist: DomainArtist,
+	allSongs: List<DomainSong>,
+	excludedAlbumIds: Set<String> = emptySet()
+): List<String> =
+	allSongs
+		.asSequence()
+		.filter { song -> song.matchesArtistCredit(artist) }
+		.mapNotNull { song -> song.albumId?.trim()?.takeIf { it.isNotEmpty() } }
+		.filterNot { albumId -> albumId in excludedAlbumIds }
+		.distinct()
+		.toList()
 
 fun artistDetailHeadingImageUrl(
 	artist: DomainArtist,
@@ -242,6 +338,19 @@ fun artistListAurralPhotoLookupKey(artist: DomainArtist): String? {
 		id != null -> "id:$id"
 		else -> null
 	}
+}
+
+private fun DomainSong.matchesArtistCredit(artist: DomainArtist): Boolean {
+	val artistId = artist.id.normalizedArtistHeaderImageId()
+	val artistMbid = artist.musicBrainzId.normalizedArtistHeaderImageId()
+	val artistName = artist.name.normalizedArtistHeaderImageName()
+	return (artistId != null && this.artistId.normalizedArtistHeaderImageId() == artistId) ||
+		(artistName != null && this.artistName.normalizedArtistHeaderImageName() == artistName) ||
+		this.contributors.any { contributor ->
+			(artistId != null && contributor.artistId.normalizedArtistHeaderImageId() == artistId) ||
+				(artistMbid != null && contributor.artistId.normalizedArtistHeaderImageId() == artistMbid) ||
+				(artistName != null && contributor.artistName.normalizedArtistHeaderImageName() == artistName)
+		}
 }
 
 fun artistDetailPhotoCacheEntity(

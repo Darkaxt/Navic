@@ -64,7 +64,9 @@ import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
 import paige.navic.ui.screens.artist.artistDetailAurralCandidateArtist
 import paige.navic.ui.screens.artist.artistDetailAurralFallbackIdentities
 import paige.navic.ui.screens.artist.artistDetailAurralSearchImageUrl
+import paige.navic.ui.screens.artist.artistDetailLocalCatalog
 import paige.navic.ui.screens.artist.artistDetailPhotoCacheEntity
+import paige.navic.ui.screens.artist.artistDetailSongCreditAlbumIds
 import paige.navic.ui.screens.artist.artistLastFmTopTrackSongs
 import paige.navic.ui.screens.artist.artistHeaderImageCacheIndex
 import paige.navic.ui.screens.artist.shouldApplyLastFmTopTrackResult
@@ -214,7 +216,7 @@ class ArtistDetailViewModel(
 	}
 
 	private fun loadArtistData() {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			try {
 				val artistEntity = artistDao.getArtistById(artistId)
 				val domainArtist = artistEntity?.toDomainModel()
@@ -227,12 +229,29 @@ class ArtistDetailViewModel(
 					albumsWithSongs = albumDao.getAlbumsByArtistName(domainArtist.name).firstOrNull() ?: emptyList()
 				}
 
-				val domainAlbums = albumsWithSongs
+				val directAlbums = albumsWithSongs
 					.map { it.toDomainModel() }
 					.sortedByAlbumYearDescending()
 
-				val allArtistSongs = albumsWithSongs.flatMap { it.songs }
-					.map { it.toDomainModel() }
+				val allSongs = songRepository.getAllSongs()
+				val creditAlbumIds = artistDetailSongCreditAlbumIds(
+					artist = domainArtist,
+					allSongs = allSongs,
+					excludedAlbumIds = directAlbums.map { it.id }.toSet()
+				)
+				val creditCandidateAlbums = if (creditAlbumIds.isEmpty()) {
+					emptyList()
+				} else {
+					albumDao.getAlbumsByIds(creditAlbumIds).map { it.toDomainModel() }
+				}
+				val localCatalog = artistDetailLocalCatalog(
+					artist = domainArtist,
+					directAlbums = directAlbums,
+					allSongs = allSongs,
+					creditCandidateAlbums = creditCandidateAlbums
+				)
+				val domainAlbums = localCatalog.albums
+				val allArtistSongs = localCatalog.songs
 
 				val domainSongs = allArtistSongs
 					.sortedByDescending { it.playCount }
