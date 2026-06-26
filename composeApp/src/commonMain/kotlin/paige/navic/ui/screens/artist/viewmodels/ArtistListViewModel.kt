@@ -183,7 +183,7 @@ class ArtistListViewModel(
 	}
 
 	fun selectArtist(artist: DomainArtist) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedArtist.value = artist
 			val artistAlbums = 
 				albumDao.getAlbumsByArtist(artist.id).firstOrNull() ?: emptyList()

@@ -5,6 +5,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -86,7 +88,7 @@ fun ExtraScreenLidaClipBackground(
 		lidaClipsRepository.findClipForSong(currentSong)
 			.onSuccess { clip ->
 				cachedClip = clip
-					?.let { lidaClipCacheManager.cachedClipFor(currentSong.id, it) }
+					?.let { withContext(Dispatchers.IO) { lidaClipCacheManager.cachedClipFor(currentSong.id, it) } }
 					?.takeIf { isCachedLidaClipStreamUrl(it.streamUrl) }
 			}
 			.onFailure {

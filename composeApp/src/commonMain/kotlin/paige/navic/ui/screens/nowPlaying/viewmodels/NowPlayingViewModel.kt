@@ -62,7 +62,7 @@ class NowPlayingViewModel(
 		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.LidaClips) { enabled ->
 			if (!enabled) clearLidaClip()
 		}
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			player.uiState.collect { state ->
 				val song = state.currentSong
 				if (song == null) {

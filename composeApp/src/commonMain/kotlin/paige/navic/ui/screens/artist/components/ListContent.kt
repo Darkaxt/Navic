@@ -62,9 +62,11 @@ fun ArtistListScreenContent(
 
 	val totalArtistCount = data.size
 
-	val grouped = data.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
-		.toList()
-		.sortedBy { it.first }
+	val grouped = remember(data) {
+		data.groupBy { it.name.firstOrNull()?.uppercaseChar() ?: '#' }
+			.toList()
+			.sortedBy { it.first }
+	}
 
 	val headerIndices = remember(grouped) {
 		var currentIndex = 1

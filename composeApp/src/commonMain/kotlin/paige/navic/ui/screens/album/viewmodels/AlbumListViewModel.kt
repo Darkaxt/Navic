@@ -134,7 +134,7 @@ open class AlbumListViewModel(
 	}
 
 	fun selectAlbum(album: DomainAlbum) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedAlbum.value = album
 			_starred.value = repository.isAlbumStarred(album)
 			_rating.value = repository.getAlbumRating(album)

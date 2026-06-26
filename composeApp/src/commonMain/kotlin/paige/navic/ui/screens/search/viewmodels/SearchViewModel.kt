@@ -8,6 +8,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -139,7 +140,7 @@ class SearchViewModel(
 	}
 
 	fun selectSong(song: DomainSong) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedSong.value = song
 			_selectedSongIsStarred.value = songRepository.isSongStarred(song)
 			_selectedSongRating.value = songRepository.getSongRating(song)

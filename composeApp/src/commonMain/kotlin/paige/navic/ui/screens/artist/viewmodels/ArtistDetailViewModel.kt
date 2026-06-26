@@ -1131,7 +1131,7 @@ class ArtistDetailViewModel(
 	}
 
 	fun selectSong(song: DomainSong) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedSong.value = song
 			_selectedSongIsStarred.value = songRepository.isSongStarred(song)
 			_selectedSongRating.value = songRepository.getSongRating(song)
@@ -1143,7 +1143,7 @@ class ArtistDetailViewModel(
 	}
 
 	fun selectAlbum(album: DomainAlbum) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedAlbum.value = album
 			_selectedAlbumIsStarred.value = albumRepository.isAlbumStarred(album)
 			_selectedAlbumRating.value = albumRepository.getAlbumRating(album)

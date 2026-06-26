@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -91,7 +92,7 @@ class SongListViewModel(
 	val isOnline = connectivityManager.isOnline
 
 	fun selectSong(song: DomainSong) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedSong.value = song
 			_starred.value = repository.isSongStarred(song)
 			_selectedSongRating.value = repository.getSongRating(song)
