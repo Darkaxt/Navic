@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -78,6 +80,7 @@ import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirma
 import navic.composeapp.generated.resources.notice_aurral_album_requested
 import navic.composeapp.generated.resources.option_sort_frequent
 import navic.composeapp.generated.resources.title_aurral_recommendations
+import navic.composeapp.generated.resources.title_aurral_external_links
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_lastfm_top_tracks
@@ -454,149 +457,10 @@ fun ArtistDetailScreen(
 							verticalArrangement = Arrangement.spacedBy(12.dp),
 							horizontalAlignment = Alignment.CenterHorizontally
 						) {
-							state.topSongs.takeIf { state.topSongs.isNotEmpty() }
-								?.let { songs ->
-									Row(
-										modifier = Modifier
-											.heightIn(min = 32.dp)
-											.padding(top = 8.dp)
-											.padding(horizontal = 16.dp)
-											.fillMaxWidth(),
-										verticalAlignment = Alignment.CenterVertically,
-										horizontalArrangement = Arrangement.SpaceBetween
-									) {
-										Text(
-											stringResource(Res.string.option_sort_frequent),
-											style = MaterialTheme.typography.titleMediumEmphasized,
-											fontWeight = FontWeight(600)
-										)
-										Text(
-											stringResource(Res.string.action_see_all),
-											style = MaterialTheme.typography.labelLarge,
-											color = MaterialTheme.colorScheme.primary,
-											modifier = Modifier.clickable(onClick = dropUnlessResumed {
-												platformContext.clickSound()
-												backStack.add(
-													Screen.SongList(
-														nested = true,
-														artistId = state.artist.id,
-														artistName = state.artist.name
-													)
-												)
-											})
-										)
-									}
-									LazyHorizontalGrid(
-										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
-										state = frequentGridState,
-										flingBehavior = rememberSnapFlingBehavior(lazyGridState = frequentGridState),
-										modifier = Modifier
-											.fillMaxWidth()
-											.height(artistTopSongsGridHeightDp(songs.size).dp)
-									) {
-										itemsIndexed(songs) { index, song ->
-											val download = allDownloads.find { it.songId == song.id }
-											SongRow(
-												modifier = Modifier.weight(1f),
-												song = song,
-											isCurrentTrack = playerState.currentSong?.id == song.id,
-											isPlaying = !playerState.isPaused,
-												selected = selection == song,
-												onClick = {
-													if (playerState.currentSong?.id != song.id) {
-														player.clearQueue()
-														songs.forEach { song -> player.addToQueueSingle(song) }
-														player.playAt(index)
-													} else {
-														player.togglePlay()
-													}
-												},
-												onLongClick = {
-													viewModel.selectSong(song)
-												},
-												onDismissRequest = { viewModel.clearSelection() },
-												starredState = if (selection == song) selectedSongIsStarred else song.starredAt != null,
-												onAddStar = { viewModel.starSelectedSong() },
-												onRemoveStar = { viewModel.unstarSelectedSong() },
-												download = download,
-												onDownload = { viewModel.downloadSong(song) },
-												onCancelDownload = { viewModel.cancelDownload(song.id) },
-												onDeleteDownload = { viewModel.deleteDownload(song.id) },
-												onPlayNext = { player.playNextSingle(song) },
-												onAddToQueue = { player.addToQueueSingle(song) },
-												onShare = { shareId = song.id },
-												isOnline = isOnline,
-												rating = selectedSongRating,
-												onSetRating = { viewModel.rateSelectedSong(it) },
-												inPlaylist = song.id in playlistSongIds
-											)
-										}
-									}
-								}
-							state.lastFmTopSongs.takeIf { state.lastFmTopSongs.isNotEmpty() }
-								?.let { songs ->
-									Row(
-										modifier = Modifier
-											.heightIn(min = 32.dp)
-											.padding(top = 8.dp)
-											.padding(horizontal = 16.dp)
-											.fillMaxWidth(),
-										verticalAlignment = Alignment.CenterVertically,
-										horizontalArrangement = Arrangement.SpaceBetween
-									) {
-										Text(
-											stringResource(Res.string.title_lastfm_top_tracks),
-											style = MaterialTheme.typography.titleMediumEmphasized,
-											fontWeight = FontWeight(600)
-										)
-									}
-									LazyHorizontalGrid(
-										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
-										state = lastFmGridState,
-										flingBehavior = rememberSnapFlingBehavior(lazyGridState = lastFmGridState),
-										modifier = Modifier
-											.fillMaxWidth()
-											.height(artistTopSongsGridHeightDp(songs.size).dp)
-									) {
-										itemsIndexed(songs) { index, song ->
-											val download = allDownloads.find { it.songId == song.id }
-											SongRow(
-												modifier = Modifier.weight(1f),
-												song = song,
-											isCurrentTrack = playerState.currentSong?.id == song.id,
-											isPlaying = !playerState.isPaused,
-												selected = selection == song,
-												onClick = {
-													if (playerState.currentSong?.id != song.id) {
-														player.clearQueue()
-														songs.forEach { song -> player.addToQueueSingle(song) }
-														player.playAt(index)
-													} else {
-														player.togglePlay()
-													}
-												},
-												onLongClick = {
-													viewModel.selectSong(song)
-												},
-												onDismissRequest = { viewModel.clearSelection() },
-												starredState = selectedSongIsStarred,
-												onAddStar = { viewModel.starSelectedSong() },
-												onRemoveStar = { viewModel.unstarSelectedSong() },
-												download = download,
-												onDownload = { viewModel.downloadSong(song) },
-												onCancelDownload = { viewModel.cancelDownload(song.id) },
-												onDeleteDownload = { viewModel.deleteDownload(song.id) },
-												onPlayNext = { player.playNextSingle(song) },
-												onAddToQueue = { player.addToQueueSingle(song) },
-												onShare = { shareId = song.id },
-												isOnline = isOnline,
-												rating = selectedSongRating,
-												onSetRating = { viewModel.rateSelectedSong(it) },
-												inPlaylist = song.id in playlistSongIds
-											)
-										}
-									}
-								}
+							AurralArtistExternalLinksSection(
+								externalLinks = state.aurralArtistExternalLinks,
+								modifier = Modifier.fillMaxWidth()
+							)
 							ArtCarousel(
 								stringResource(Res.string.title_aurral_recommendations),
 								state.aurralRecommendedAlbums.toImmutableList()
@@ -804,6 +668,149 @@ fun ArtistDetailScreen(
 									}
 								)
 							}
+							state.topSongs.takeIf { state.topSongs.isNotEmpty() }
+								?.let { songs ->
+									Row(
+										modifier = Modifier
+											.heightIn(min = 32.dp)
+											.padding(top = 8.dp)
+											.padding(horizontal = 16.dp)
+											.fillMaxWidth(),
+										verticalAlignment = Alignment.CenterVertically,
+										horizontalArrangement = Arrangement.SpaceBetween
+									) {
+										Text(
+											stringResource(Res.string.option_sort_frequent),
+											style = MaterialTheme.typography.titleMediumEmphasized,
+											fontWeight = FontWeight(600)
+										)
+										Text(
+											stringResource(Res.string.action_see_all),
+											style = MaterialTheme.typography.labelLarge,
+											color = MaterialTheme.colorScheme.primary,
+											modifier = Modifier.clickable(onClick = dropUnlessResumed {
+												platformContext.clickSound()
+												backStack.add(
+													Screen.SongList(
+														nested = true,
+														artistId = state.artist.id,
+														artistName = state.artist.name
+													)
+												)
+											})
+										)
+									}
+									LazyHorizontalGrid(
+										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
+										state = frequentGridState,
+										flingBehavior = rememberSnapFlingBehavior(lazyGridState = frequentGridState),
+										modifier = Modifier
+											.fillMaxWidth()
+											.height(artistTopSongsGridHeightDp(songs.size).dp)
+									) {
+										itemsIndexed(songs) { index, song ->
+											val download = allDownloads.find { it.songId == song.id }
+											SongRow(
+												modifier = Modifier.weight(1f),
+												song = song,
+												isCurrentTrack = playerState.currentSong?.id == song.id,
+												isPlaying = !playerState.isPaused,
+												selected = selection == song,
+												onClick = {
+													if (playerState.currentSong?.id != song.id) {
+														player.clearQueue()
+														songs.forEach { song -> player.addToQueueSingle(song) }
+														player.playAt(index)
+													} else {
+														player.togglePlay()
+													}
+												},
+												onLongClick = {
+													viewModel.selectSong(song)
+												},
+												onDismissRequest = { viewModel.clearSelection() },
+												starredState = if (selection == song) selectedSongIsStarred else song.starredAt != null,
+												onAddStar = { viewModel.starSelectedSong() },
+												onRemoveStar = { viewModel.unstarSelectedSong() },
+												download = download,
+												onDownload = { viewModel.downloadSong(song) },
+												onCancelDownload = { viewModel.cancelDownload(song.id) },
+												onDeleteDownload = { viewModel.deleteDownload(song.id) },
+												onPlayNext = { player.playNextSingle(song) },
+												onAddToQueue = { player.addToQueueSingle(song) },
+												onShare = { shareId = song.id },
+												isOnline = isOnline,
+												rating = selectedSongRating,
+												onSetRating = { viewModel.rateSelectedSong(it) },
+												inPlaylist = song.id in playlistSongIds
+											)
+										}
+									}
+								}
+							state.lastFmTopSongs.takeIf { state.lastFmTopSongs.isNotEmpty() }
+								?.let { songs ->
+									Row(
+										modifier = Modifier
+											.heightIn(min = 32.dp)
+											.padding(top = 8.dp)
+											.padding(horizontal = 16.dp)
+											.fillMaxWidth(),
+										verticalAlignment = Alignment.CenterVertically,
+										horizontalArrangement = Arrangement.SpaceBetween
+									) {
+										Text(
+											stringResource(Res.string.title_lastfm_top_tracks),
+											style = MaterialTheme.typography.titleMediumEmphasized,
+											fontWeight = FontWeight(600)
+										)
+									}
+									LazyHorizontalGrid(
+										rows = GridCells.Fixed(artistTopSongsGridRows(songs.size)),
+										state = lastFmGridState,
+										flingBehavior = rememberSnapFlingBehavior(lazyGridState = lastFmGridState),
+										modifier = Modifier
+											.fillMaxWidth()
+											.height(artistTopSongsGridHeightDp(songs.size).dp)
+									) {
+										itemsIndexed(songs) { index, song ->
+											val download = allDownloads.find { it.songId == song.id }
+											SongRow(
+												modifier = Modifier.weight(1f),
+												song = song,
+												isCurrentTrack = playerState.currentSong?.id == song.id,
+												isPlaying = !playerState.isPaused,
+												selected = selection == song,
+												onClick = {
+													if (playerState.currentSong?.id != song.id) {
+														player.clearQueue()
+														songs.forEach { song -> player.addToQueueSingle(song) }
+														player.playAt(index)
+													} else {
+														player.togglePlay()
+													}
+												},
+												onLongClick = {
+													viewModel.selectSong(song)
+												},
+												onDismissRequest = { viewModel.clearSelection() },
+												starredState = selectedSongIsStarred,
+												onAddStar = { viewModel.starSelectedSong() },
+												onRemoveStar = { viewModel.unstarSelectedSong() },
+												download = download,
+												onDownload = { viewModel.downloadSong(song) },
+												onCancelDownload = { viewModel.cancelDownload(song.id) },
+												onDeleteDownload = { viewModel.deleteDownload(song.id) },
+												onPlayNext = { player.playNextSingle(song) },
+												onAddToQueue = { player.addToQueueSingle(song) },
+												onShare = { shareId = song.id },
+												isOnline = isOnline,
+												rating = selectedSongRating,
+												onSetRating = { viewModel.rateSelectedSong(it) },
+												inPlaylist = song.id in playlistSongIds
+											)
+										}
+									}
+								}
 						}
 						Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
 					}
@@ -987,6 +994,48 @@ private fun CarouselItemScope.AurralOwnershipAlbumItem(
 				maxLines = 1,
 				modifier = Modifier.padding(start = 4.dp, end = 4.dp)
 			)
+		}
+	}
+}
+
+@Composable
+private fun AurralArtistExternalLinksSection(
+	externalLinks: List<AurralArtistExternalLink>,
+	modifier: Modifier = Modifier
+) {
+	val uriHandler = LocalUriHandler.current
+	val visibleLinks = remember(externalLinks) {
+		externalLinks
+			.filter { link -> link.url.trim().startsWith("http", ignoreCase = true) }
+			.distinctBy { link -> link.type.lowercase() to link.url }
+			.take(8)
+	}
+	if (visibleLinks.isEmpty()) return
+
+	Column(
+		modifier = modifier.padding(horizontal = 16.dp),
+		verticalArrangement = Arrangement.spacedBy(4.dp)
+	) {
+		Text(
+			text = stringResource(Res.string.title_aurral_external_links),
+			style = MaterialTheme.typography.titleMediumEmphasized,
+			fontWeight = FontWeight(600)
+		)
+		FlowRow(
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalArrangement = Arrangement.spacedBy(4.dp)
+		) {
+			visibleLinks.forEach { link ->
+				TextButton(
+					onClick = { uriHandler.openUri(link.url) }
+				) {
+					Text(
+						text = link.type.trim().ifEmpty { link.url },
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis
+					)
+				}
+			}
 		}
 	}
 }
