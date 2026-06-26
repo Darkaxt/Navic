@@ -7,6 +7,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import paige.navic.domain.manager.SyncManager
 import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.entities.SyncActionType
@@ -64,6 +65,27 @@ class ArtistRepository(
 			emit(UiState.Success(data = localData))
 		}
 	}.flowOn(Dispatchers.IO)
+
+	/**
+	 * Reactive artist view, backed by the shared Room queries (same SQL as [getLocalData]).
+	 * Mapped per emission and shareable across collectors.
+	 */
+	fun artistsFlow(
+		listType: DomainArtistListType,
+		reversed: Boolean = false
+	): Flow<ImmutableList<DomainArtist>> =
+		when (listType) {
+			DomainArtistListType.AlphabeticalByName -> artistDao.getArtistsAlphabeticalByNameFlow()
+			DomainArtistListType.Random -> artistDao.getArtistsRandomFlow()
+			DomainArtistListType.Starred -> artistDao.getArtistsStarredFlow()
+		}
+			.map { it.map { entity -> entity.toDomainModel() } }
+			.map { artists -> artists.visibleArtistListEntries().applyArtistListDirection(reversed).toImmutableList() }
+
+	/** Background network sync; writes to Room, which [artistsFlow] observes. */
+	suspend fun syncArtists() {
+		dbRepository.syncArtists().getOrThrow()
+	}
 
 	suspend fun isArtistStarred(artist: DomainArtist) = artistDao.isArtistStarred(artist.id)
 

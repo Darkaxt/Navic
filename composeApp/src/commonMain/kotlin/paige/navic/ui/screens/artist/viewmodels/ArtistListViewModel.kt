@@ -7,12 +7,18 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
@@ -41,6 +47,7 @@ import paige.navic.ui.core.UiState
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ArtistListViewModel(
 	initialListType: DomainArtistListType = DomainArtistListType.AlphabeticalByName,
 	private val repository: ArtistRepository,
@@ -51,9 +58,37 @@ class ArtistListViewModel(
 	private val aurralRepository: AurralRepository,
 	private val artistCreditResolutionRepository: ArtistCreditResolutionRepository
 ) : ViewModel() {
+	private val _listType = MutableStateFlow(initialListType)
+	val listType = _listType.asStateFlow()
+
+	private val _selectedReversed = MutableStateFlow(false)
+	val selectedReversed = _selectedReversed.asStateFlow()
+
+	private val _isRefreshing = MutableStateFlow(false)
+	private val _refreshError = MutableStateFlow<Exception?>(null)
+
+	/** Reactive raw artist list (before photo/credit enrichment); re-derives on
+	 *  listType/reversed change and auto-updates on Room changes. */
+	private val reactiveArtists: kotlinx.coroutines.flow.Flow<ImmutableList<DomainArtist>> =
+		combine(_listType, _selectedReversed) { listType, reversed -> listType to reversed }
+			.distinctUntilChanged()
+			.flatMapLatest { (listType, reversed) ->
+				repository.artistsFlow(listType, reversed)
+			}
+
+	/** Backing state set by the long-lived [observeArtists] collector (runs hydration). */
 	private val _artistsState =
 		MutableStateFlow<UiState<ImmutableList<DomainArtist>>>(UiState.Loading())
-	val artistsState = _artistsState.asStateFlow()
+
+	/** Public state: derived from the collector snapshot + refresh loading/error. */
+	val artistsState: kotlinx.coroutines.flow.StateFlow<UiState<ImmutableList<DomainArtist>>> =
+		combine(_artistsState, _isRefreshing, _refreshError) { state, refreshing, error ->
+			when {
+				error != null -> UiState.Error(error, state.data)
+				refreshing -> UiState.Loading(state.data)
+				else -> state
+			}
+		}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState.Loading())
 
 	private val _starred = MutableStateFlow(false)
 	val starred = _starred.asStateFlow()
@@ -64,60 +99,40 @@ class ArtistListViewModel(
 	private val _selectedArtistAlbums = MutableStateFlow<ImmutableList<DomainAlbum>?>(null)
 	val selectedArtistAlbums = _selectedArtistAlbums.asStateFlow()
 
-	private val _listType = MutableStateFlow(initialListType)
-	val listType = _listType.asStateFlow()
-
-	private val _selectedReversed = MutableStateFlow(false)
-	val selectedReversed = _selectedReversed.asStateFlow()
-
 	val gridState = LazyGridState()
 	private val attemptedAurralArtistPhotoKeys = mutableSetOf<String>()
 	private val attemptedArtistCreditKeys = mutableSetOf<String>()
 	private val artistCreditResolutionState =
 		MutableStateFlow<Map<String, ArtistCreditResolution>>(emptyMap())
 	private var lastRawArtistKey: String = ""
+	private var artistsCollectorJob: Job? = null
 
 	init {
-		viewModelScope.launch {
-			sessionManager.isLoggedIn.collect { if (it) refreshArtists(false) }
-		}
+		observeArtists()
 	}
 
-	private var refreshArtistsJob: Job? = null
-
-	fun refreshArtists(fullRefresh: Boolean) {
-		refreshArtistsJob?.cancel()
-		refreshArtistsJob = viewModelScope.launch {
-			if (fullRefresh) {
-				attemptedAurralArtistPhotoKeys.clear()
-				attemptedArtistCreditKeys.clear()
-			}
+	/**
+	 * Long-lived reactive collector: combines the shared artist flow with the photo cache
+	 * and credit resolutions, builds the display snapshot, and runs Aurral photo / credit
+	 * hydration as a side-effect. Subscribed once (VM-scoped), so no per-visit re-query.
+	 */
+	private fun observeArtists() {
+		artistsCollectorJob?.cancel()
+		artistsCollectorJob = viewModelScope.launch {
 			combine(
-				repository.getArtistsFlow(fullRefresh, _listType.value, _selectedReversed.value),
+				reactiveArtists,
 				artistPhotoCacheDao.observeArtistPhotoCache(),
 				artistCreditResolutionState
-			) { state: UiState<ImmutableList<DomainArtist>>,
+			) { rawArtists: ImmutableList<DomainArtist>,
 				cachedPhotos: List<ArtistPhotoCacheEntity>,
 				creditResolutions: Map<String, ArtistCreditResolution> ->
 				val entries = cachedPhotos.map { entry -> entry.toArtistHeaderImageCacheEntry() }
-				val rawArtists = state.data.orEmpty()
-				val displayedArtists = state.data
-					?.withKnownArtistCreditRows(creditResolutions)
-					?.withCachedArtistPhotos(entries)
-					?.toImmutableList()
+				val displayedArtists = rawArtists
+					.withKnownArtistCreditRows(creditResolutions)
+					.withCachedArtistPhotos(entries)
+					.toImmutableList()
 				ArtistListSnapshot(
-					state = when (state) {
-						is UiState.Loading -> UiState.Loading(displayedArtists)
-
-						is UiState.Success -> UiState.Success(
-							displayedArtists ?: persistentListOf()
-						)
-
-						is UiState.Error -> UiState.Error(
-							error = state.error,
-							data = displayedArtists
-						)
-					},
+					state = UiState.Success(displayedArtists),
 					rawArtists = rawArtists
 				)
 			}
@@ -130,6 +145,19 @@ class ArtistListViewModel(
 					hydrateArtistCreditResolutions(rawArtists)
 				}
 		}
+	}
+
+	fun refreshArtists(fullRefresh: Boolean) {
+		if (fullRefresh) {
+			attemptedAurralArtistPhotoKeys.clear()
+			attemptedArtistCreditKeys.clear()
+			viewModelScope.launch {
+				_isRefreshing.value = true
+				_refreshError.value = runCatching { repository.syncArtists() }.exceptionOrNull() as? Exception
+				_isRefreshing.value = false
+			}
+		}
+		// The reactive observeArtists collector auto-updates from Room changes after sync.
 	}
 
 	fun selectArtist(artist: DomainArtist) {
@@ -184,16 +212,14 @@ class ArtistListViewModel(
 
 	fun setListType(listType: DomainArtistListType) {
 		_listType.value = listType
-		refreshArtists(false)
 	}
 
 	fun setReversed(reversed: Boolean) {
 		_selectedReversed.value = reversed
-		refreshArtists(false)
 	}
 
 	fun clearError() {
-		_artistsState.value = UiState.Success(_artistsState.value.data ?: persistentListOf())
+		_refreshError.value = null
 	}
 
 	private fun List<DomainArtist>.withCachedArtistPhotos(

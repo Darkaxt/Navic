@@ -21,6 +21,15 @@ interface ArtistDao {
 	suspend fun getArtistsStarred(): List<ArtistEntity>
 
 	@Query("SELECT * FROM ArtistEntity ORDER BY name COLLATE NOCASE ASC")
+	fun getArtistsAlphabeticalByNameFlow(): Flow<List<ArtistEntity>>
+
+	@Query("SELECT * FROM ArtistEntity ORDER BY RANDOM()")
+	fun getArtistsRandomFlow(): Flow<List<ArtistEntity>>
+
+	@Query("SELECT * FROM ArtistEntity WHERE starredAt IS NOT NULL ORDER BY starredAt DESC")
+	fun getArtistsStarredFlow(): Flow<List<ArtistEntity>>
+
+	@Query("SELECT * FROM ArtistEntity ORDER BY name COLLATE NOCASE ASC")
 	fun getAllArtists(): Flow<List<ArtistEntity>>
 
 	@Query("SELECT * FROM ArtistEntity")

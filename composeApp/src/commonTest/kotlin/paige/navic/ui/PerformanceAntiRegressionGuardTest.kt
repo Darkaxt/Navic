@@ -81,10 +81,9 @@ class PerformanceAntiRegressionGuardTest {
 		listOf(
 			"src/commonMain/kotlin/paige/navic/ui/screens/artist/viewmodels/ArtistListViewModel.kt",
 			"src/commonMain/kotlin/paige/navic/ui/screens/collection/viewmodels/CollectionDetailViewModel.kt",
-			"src/commonMain/kotlin/paige/navic/ui/screens/song/viewmodels/SongListViewModel.kt",
 			"src/commonMain/kotlin/paige/navic/ui/screens/genre/viewmodels/GenreListViewModel.kt",
 			"src/commonMain/kotlin/paige/navic/ui/screens/radio/viewmodels/RadioListViewModel.kt"
-			// PlaylistListViewModel migrated to a reactive stateIn cache (perf/album-reactive-cache) — no manual collector to cancel.
+			// PlaylistListViewModel + SongListViewModel migrated to reactive stateIn caches — no manual collector to cancel.
 		).forEach { path ->
 			val source = File(path).readText()
 			assertTrue(
