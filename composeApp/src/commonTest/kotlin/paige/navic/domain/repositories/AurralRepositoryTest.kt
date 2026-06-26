@@ -1205,6 +1205,134 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistDetailRefreshesFreshCachedSectionsFromAurral(): Unit = runBlocking {
+		val nowMillis = 10_000L
+		val metadataCache = RecordingAurralMetadataCache()
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val artist = DomainArtist(
+			id = "john-powell",
+			name = "John Powell",
+			musicBrainzId = "artist-mbid"
+		)
+		val baseUrl = "https://aurral.example.com"
+		val artistPath = aurralArtistEnrichmentCachePath(
+			artistMbid = "artist-mbid",
+			artistName = "John Powell"
+		)
+		val previewPath = aurralArtistSectionCachePath(
+			artistMbid = "artist-mbid",
+			artistName = "John Powell",
+			section = "preview"
+		)
+		val similarPath = aurralArtistSectionCachePath(
+			artistMbid = "artist-mbid",
+			artistName = "John Powell",
+			section = "similar"
+		)
+		val requestsPath = aurralArtistSectionCachePath(
+			artistMbid = "artist-mbid",
+			artistName = "John Powell",
+			section = "requests"
+		)
+		metadataCache.put(
+			AurralMetadataCacheRecord(
+				cacheKey = aurralMetadataCacheKey(baseUrl, AurralMetadataPayloadType.ArtistCoreEnrichment, artistPath),
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.ArtistCoreEnrichment,
+				path = artistPath,
+				payloadJson = AURRAL_JSON.encodeToString(
+					AurralArtistEnrichment(
+						artistMbid = "artist-mbid",
+						artistName = "John Powell",
+						bio = "Cached core profile"
+					)
+				),
+				updatedAtMillis = nowMillis - 1_000L
+			)
+		)
+		metadataCache.put(
+			AurralMetadataCacheRecord(
+				cacheKey = aurralMetadataCacheKey(baseUrl, AurralMetadataPayloadType.ArtistPreviewTracks, previewPath),
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.ArtistPreviewTracks,
+				path = previewPath,
+				payloadJson = AURRAL_JSON.encodeToString(
+					listOf(AurralPreviewTrack(id = "cached-preview", title = "Cached Preview"))
+				),
+				updatedAtMillis = nowMillis - 1_000L
+			)
+		)
+		metadataCache.put(
+			AurralMetadataCacheRecord(
+				cacheKey = aurralMetadataCacheKey(baseUrl, AurralMetadataPayloadType.ArtistSimilarArtists, similarPath),
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.ArtistSimilarArtists,
+				path = similarPath,
+				payloadJson = AURRAL_JSON.encodeToString(
+					listOf(AurralSimilarArtist(id = "cached-similar", name = "Cached Similar"))
+				),
+				updatedAtMillis = nowMillis - 1_000L
+			)
+		)
+		metadataCache.put(
+			AurralMetadataCacheRecord(
+				cacheKey = aurralMetadataCacheKey(baseUrl, AurralMetadataPayloadType.AlbumRequests, requestsPath),
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.AlbumRequests,
+				path = requestsPath,
+				payloadJson = AURRAL_JSON.encodeToString(
+					listOf(
+						AurralAlbumRequest(
+							albumMbid = "cached-request",
+							albumName = "Cached Request",
+							artistMbid = "artist-mbid",
+							artistName = "John Powell",
+							status = "cached"
+						)
+					)
+				),
+				updatedAtMillis = nowMillis - 1_000L
+			)
+		)
+		val apiClient = FakeAurralApiClient(
+			artistCoreEnrichment = AurralArtistEnrichment(
+				artistMbid = "artist-mbid",
+				artistName = "John Powell",
+				bio = "Fresh core profile"
+			),
+			artistPreviewTracks = listOf(AurralPreviewTrack(id = "fresh-preview", title = "Fresh Preview")),
+			artistSimilarArtists = listOf(AurralSimilarArtist(id = "fresh-similar", name = "Fresh Similar")),
+			albumRequests = listOf(
+				AurralAlbumRequest(
+					albumMbid = "fresh-request",
+					albumName = "Fresh Request",
+					artistMbid = "artist-mbid",
+					artistName = "John Powell",
+					status = "requested"
+				)
+			)
+		)
+		val repository = AurralRepository(
+			preferenceManager = preferenceManager,
+			apiClient = apiClient,
+			nowMillis = { nowMillis },
+			metadataCache = metadataCache
+		)
+
+		assertEquals("Fresh core profile", repository.getArtistCoreEnrichment(artist).getOrThrow()?.bio)
+		assertEquals("Fresh Preview", repository.getArtistPreviewTracks(artist).getOrThrow().single().title)
+		assertEquals("Fresh Similar", repository.getArtistSimilarArtists(artist).getOrThrow().single().name)
+		assertEquals("Fresh Request", repository.getArtistAlbumRequests(artist).getOrThrow().single().albumName)
+		assertEquals(listOf("artist-mbid" to "John Powell"), apiClient.artistCoreEnrichmentRequests)
+		assertEquals(listOf("artist-mbid" to "John Powell"), apiClient.artistPreviewTrackRequests)
+		assertEquals(listOf("artist-mbid" to "John Powell"), apiClient.artistSimilarArtistRequests)
+		assertEquals(listOf("https://aurral.example.com"), apiClient.albumRequestBaseUrls)
+	}
+
+	@Test
 	fun repositoryMonitoringActionQueuesConfirmationWithoutOverridingCachedRows(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true

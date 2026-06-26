@@ -353,7 +353,8 @@ class AurralRepository(
 							artistMbid = resolvedArtist.artistMbid,
 							artistName = resolvedArtist.artistName
 						),
-						operation = "Aurral artist core enrichment for ${resolvedArtist.artistName}"
+						operation = "Aurral artist core enrichment for ${resolvedArtist.artistName}",
+						useFreshCache = false
 					) {
 						apiClient.fetchArtistCoreEnrichment(
 							baseUrl = baseUrl,
@@ -418,7 +419,8 @@ class AurralRepository(
 					artistName = resolvedArtist.artistName,
 					section = "preview"
 				),
-				operation = "Aurral artist preview tracks for ${resolvedArtist.artistName}"
+				operation = "Aurral artist preview tracks for ${resolvedArtist.artistName}",
+				useFreshCache = false
 			) {
 				apiClient.fetchArtistPreviewTracks(
 					baseUrl = baseUrl,
@@ -458,7 +460,8 @@ class AurralRepository(
 					artistName = resolvedArtist.artistName,
 					section = "similar"
 				),
-				operation = "Aurral similar artists for ${resolvedArtist.artistName}"
+				operation = "Aurral similar artists for ${resolvedArtist.artistName}",
+				useFreshCache = false
 			) {
 				apiClient.fetchArtistSimilarArtists(
 					baseUrl = baseUrl,
@@ -498,7 +501,8 @@ class AurralRepository(
 					artistName = resolvedArtist.artistName,
 					section = "requests"
 				),
-				operation = "Aurral album requests for ${resolvedArtist.artistName}"
+				operation = "Aurral album requests for ${resolvedArtist.artistName}",
+				useFreshCache = false
 			) {
 				apiClient.fetchAlbumRequests(
 					baseUrl = baseUrl,
@@ -1065,6 +1069,7 @@ class AurralRepository(
 		payloadType: String,
 		path: String,
 		operation: String,
+		useFreshCache: Boolean = true,
 		crossinline fetch: suspend () -> T
 	): T {
 		val cacheKey = aurralMetadataCacheKey(baseUrl, payloadType, path)
@@ -1072,10 +1077,12 @@ class AurralRepository(
 		val cached = runCatching { metadataCache.get(cacheKey) }
 			.onFailure { error -> Logger.w(TAG, "Aurral metadata cache read failed for $operation", error) }
 			.getOrNull()
-		cached
-			?.takeIf { it.isFreshAurralMetadata(currentTime) }
-			?.decodeAurralMetadata<T>(operation)
-			?.let { return it }
+		if (useFreshCache) {
+			cached
+				?.takeIf { it.isFreshAurralMetadata(currentTime) }
+				?.decodeAurralMetadata<T>(operation)
+				?.let { return it }
+		}
 
 		return try {
 			fetch().also { payload ->
