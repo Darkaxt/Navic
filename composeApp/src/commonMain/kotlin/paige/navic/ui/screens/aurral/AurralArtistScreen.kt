@@ -110,6 +110,7 @@ import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.artist.artistHeaderImageCacheIndex
 import paige.navic.ui.screens.artist.artistImageUrlForExternalArtworkPolicy
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
@@ -147,9 +148,10 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 		val localCatalog = withContext(Dispatchers.IO) {
 			val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
 				.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+			val artistPhotoCacheIndex = artistHeaderImageCacheIndex(artistPhotoCacheEntries)
 			val localArtists = artistDao.getAllArtistsList().map { artist ->
 				artist.toDomainModel().withCachedArtistPhoto(
-					entries = artistPhotoCacheEntries,
+					index = artistPhotoCacheIndex,
 					artistArtworkPriority = preferenceManager.artistArtworkPriority,
 					externalArtworkEnabled = preferenceManager.aurralEnabled
 				)

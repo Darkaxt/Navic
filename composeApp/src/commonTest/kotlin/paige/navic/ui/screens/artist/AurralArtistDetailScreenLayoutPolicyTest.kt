@@ -42,6 +42,20 @@ class AurralArtistDetailScreenLayoutPolicyTest {
 		)
 	}
 
+	@Test
+	fun expandedExternalLinksCanCollapseBackToCompactHeader() {
+		val source = artistDetailScreenSource()
+
+		assertTrue(
+			"label = if (linksExpanded) \"Less\" else \"More\"" in source,
+			"The header external-link toggle must offer Less after More expands the full link list."
+		)
+		assertTrue(
+			"onClick = { linksExpanded = !linksExpanded }" in source,
+			"The same header external-link toggle should expand and collapse the link list."
+		)
+	}
+
 	private fun artistDetailScreenSource(): String =
 		File("src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistDetailScreen.kt").readText()
 }

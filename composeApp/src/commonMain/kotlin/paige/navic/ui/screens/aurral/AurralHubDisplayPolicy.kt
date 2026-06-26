@@ -27,6 +27,7 @@ import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.aurralMonitorActionState
 import paige.navic.ui.screens.artist.artistDetailCachedImageUrl
+import paige.navic.ui.screens.artist.artistHeaderImageCacheIndex
 
 @Immutable
 enum class AurralHubSection {
@@ -823,6 +824,7 @@ private fun List<AurralDiscoverArtist>.withCachedArtistPhotos(
 	if (entries.isEmpty()) {
 		this
 	} else {
+		val index = artistHeaderImageCacheIndex(entries)
 		map { artist ->
 			val cachedImageUrl = artistDetailCachedImageUrl(
 				artist = DomainArtist(
@@ -831,7 +833,7 @@ private fun List<AurralDiscoverArtist>.withCachedArtistPhotos(
 					musicBrainzId = artist.id,
 					coverArtId = null
 				),
-				entries = entries,
+				index = index,
 				artistArtworkPriority = artistArtworkPriority,
 				externalArtworkEnabled = externalArtworkEnabled
 			)

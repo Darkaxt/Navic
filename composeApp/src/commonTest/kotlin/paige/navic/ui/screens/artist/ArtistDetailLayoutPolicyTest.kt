@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.artist
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -319,6 +320,20 @@ class ArtistDetailLayoutPolicyTest {
 				),
 				index = index
 			)
+		)
+	}
+
+	@Test
+	fun artistPhotoCacheLookupDoesNotUseRegexInHotNormalizationPath() {
+		val source = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistDetailLayoutPolicy.kt"
+		).readText()
+		val normalizer = source.substringAfter("private fun String?.normalizedArtistHeaderImageName()")
+			.substringBefore("private fun String.isAbsoluteHttpUrl()")
+
+		assertFalse(
+			normalizer.contains("Regex("),
+			"Artist photo cache matching runs while artist grids scroll; the name normalizer must not allocate Regex/ICU matchers in that hot path."
 		)
 	}
 

@@ -186,15 +186,13 @@ data class ArtistHeaderImageCacheIndex(
 	private val byName: Map<String, List<ArtistHeaderImageCacheEntry>>
 ) {
 	fun candidatesFor(artist: DomainArtist): List<ArtistHeaderImageCacheEntry> {
-		val localArtistId = artist.id.normalizedArtistHeaderImageId()
-		val musicBrainzId = artist.musicBrainzId.normalizedArtistHeaderImageId()
-		val artistName = artist.name.normalizedArtistHeaderImageName()
+		val lookup = artist.toArtistHeaderImageCacheLookup()
 		return listOfNotNull(
-			localArtistId?.let(byArtistId::get),
-			musicBrainzId?.let(byArtistId::get),
-			localArtistId?.let(bySourceArtistId::get),
-			musicBrainzId?.let(bySourceArtistId::get),
-			artistName?.let(byName::get)
+			lookup.localArtistId?.let(byArtistId::get),
+			lookup.musicBrainzId?.let(byArtistId::get),
+			lookup.localArtistId?.let(bySourceArtistId::get),
+			lookup.musicBrainzId?.let(bySourceArtistId::get),
+			lookup.artistName?.let(byName::get)
 		)
 			.flatten()
 			.distinct()
@@ -271,6 +269,20 @@ fun DomainArtist.withCachedArtistPhoto(
 		artistImageUrl = artistDetailCachedImageUrl(
 			artist = this,
 			entries = entries,
+			artistArtworkPriority = artistArtworkPriority,
+			externalArtworkEnabled = externalArtworkEnabled
+		)
+	)
+
+fun DomainArtist.withCachedArtistPhoto(
+	index: ArtistHeaderImageCacheIndex,
+	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	externalArtworkEnabled: Boolean = true
+): DomainArtist =
+	copy(
+		artistImageUrl = artistDetailCachedImageUrl(
+			artist = this,
+			index = index,
 			artistArtworkPriority = artistArtworkPriority,
 			externalArtworkEnabled = externalArtworkEnabled
 		)
@@ -458,11 +470,12 @@ fun artistBiographyScrollFades(
 private fun artistDetailCachedImageEntry(
 	artist: DomainArtist,
 	entries: List<ArtistHeaderImageCacheEntry>
-): ArtistHeaderImageCacheEntry? =
-	entries
+): ArtistHeaderImageCacheEntry? {
+	val lookup = artist.toArtistHeaderImageCacheLookup()
+	return entries
 		.asSequence()
 		.filter { entry -> entry.imageUrl.isResolvedExternalArtistImageUrl() }
-		.mapNotNull { entry -> entry.matchScore(artist)?.let { score -> score to entry } }
+		.mapNotNull { entry -> entry.matchScore(lookup)?.let { score -> score to entry } }
 		.sortedWith(
 			compareBy<Pair<ArtistHeaderImageCacheMatchScore, ArtistHeaderImageCacheEntry>> { it.first.matchRank }
 				.thenBy { it.first.sourceRank }
@@ -470,24 +483,41 @@ private fun artistDetailCachedImageEntry(
 		)
 		.firstOrNull()
 		?.second
+}
+
+private data class ArtistHeaderImageCacheLookup(
+	val localArtistId: String?,
+	val musicBrainzId: String?,
+	val artistName: String?
+)
+
+private fun DomainArtist.toArtistHeaderImageCacheLookup(): ArtistHeaderImageCacheLookup =
+	ArtistHeaderImageCacheLookup(
+		localArtistId = id.normalizedArtistHeaderImageId(),
+		musicBrainzId = musicBrainzId.normalizedArtistHeaderImageId(),
+		artistName = name.normalizedArtistHeaderImageName()
+	)
 
 private data class ArtistHeaderImageCacheMatchScore(
 	val matchRank: Int,
 	val sourceRank: Int
 )
 
-private fun ArtistHeaderImageCacheEntry.matchScore(artist: DomainArtist): ArtistHeaderImageCacheMatchScore? {
-	val localArtistId = artist.id.normalizedArtistHeaderImageId()
-	val musicBrainzId = artist.musicBrainzId.normalizedArtistHeaderImageId()
-	val artistName = artist.name.normalizedArtistHeaderImageName()
+private fun ArtistHeaderImageCacheEntry.matchScore(
+	lookup: ArtistHeaderImageCacheLookup
+): ArtistHeaderImageCacheMatchScore? {
+	val entryArtistId = artistId.normalizedArtistHeaderImageId()
+	val entrySourceArtistId = sourceArtistId.normalizedArtistHeaderImageId()
+	val entryNormalizedName = normalizedName.normalizedArtistHeaderImageName()
+	val entryName = name.normalizedArtistHeaderImageName()
 	val matchRank = when {
-		artistId.normalizedArtistHeaderImageId()?.let { it == localArtistId } == true -> 0
-		artistId.normalizedArtistHeaderImageId()?.let { it == musicBrainzId } == true -> 1
-		sourceArtistId.normalizedArtistHeaderImageId()?.let { id ->
-			id == localArtistId || id == musicBrainzId
+		entryArtistId?.let { it == lookup.localArtistId } == true -> 0
+		entryArtistId?.let { it == lookup.musicBrainzId } == true -> 1
+		entrySourceArtistId?.let { id ->
+			id == lookup.localArtistId || id == lookup.musicBrainzId
 		} == true -> 2
-		normalizedName.normalizedArtistHeaderImageName()?.let { it == artistName } == true -> 3
-		name.normalizedArtistHeaderImageName()?.let { it == artistName } == true -> 4
+		entryNormalizedName?.let { it == lookup.artistName } == true -> 3
+		entryName?.let { it == lookup.artistName } == true -> 4
 		else -> null
 	} ?: return null
 	return ArtistHeaderImageCacheMatchScore(
@@ -503,11 +533,24 @@ private fun String?.normalizedArtistHeaderImageId(): String? =
 		?.takeIf { it.isNotEmpty() }
 
 private fun String?.normalizedArtistHeaderImageName(): String? =
-	this
-		?.trim()
-		?.lowercase()
-		?.replace(Regex("""\s+"""), " ")
-		?.takeIf { it.isNotEmpty() }
+	this?.trim()?.takeIf { it.isNotEmpty() }?.collapseArtistHeaderWhitespace()
+
+private fun String.collapseArtistHeaderWhitespace(): String {
+	val normalized = StringBuilder(length)
+	var previousWasWhitespace = false
+	for (char in this) {
+		if (char.isWhitespace()) {
+			if (!previousWasWhitespace) {
+				normalized.append(' ')
+				previousWasWhitespace = true
+			}
+		} else {
+			normalized.append(char.lowercaseChar())
+			previousWasWhitespace = false
+		}
+	}
+	return normalized.toString()
+}
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)

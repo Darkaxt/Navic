@@ -271,7 +271,7 @@ class ArtistDetailViewModel(
 				)
 				val cachedSimilarArtists = initialSimilarArtists.map { similarArtist ->
 					similarArtist.withCachedArtistPhoto(
-						entries = artistPhotoCacheEntries,
+						index = artistPhotoCacheIndex,
 						artistArtworkPriority = preferenceManager.artistArtworkPriority,
 						externalArtworkEnabled = preferenceManager.aurralEnabled
 					)
@@ -304,7 +304,7 @@ class ArtistDetailViewModel(
 										artistDao.getArtistById(id)?.toDomainModel()
 									}.map { similarArtist ->
 										similarArtist.withCachedArtistPhoto(
-											entries = artistPhotoCacheEntries,
+											index = artistPhotoCacheIndex,
 											artistArtworkPriority = preferenceManager.artistArtworkPriority,
 											externalArtworkEnabled = preferenceManager.aurralEnabled
 										)
@@ -584,9 +584,10 @@ class ArtistDetailViewModel(
 			)
 			val artistPhotoCacheEntries = artistPhotoCacheDao.getArtistPhotoCache()
 				.map { entry -> entry.toArtistHeaderImageCacheEntry() }
+			val artistPhotoCacheIndex = artistHeaderImageCacheIndex(artistPhotoCacheEntries)
 			val localArtists = artistDao.getAllArtistsList().map { artist ->
 				artist.toDomainModel().withCachedArtistPhoto(
-					entries = artistPhotoCacheEntries,
+					index = artistPhotoCacheIndex,
 					artistArtworkPriority = preferenceManager.artistArtworkPriority,
 					externalArtworkEnabled = preferenceManager.aurralEnabled
 				)

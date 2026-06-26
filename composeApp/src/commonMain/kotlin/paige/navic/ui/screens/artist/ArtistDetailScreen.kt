@@ -1009,7 +1009,7 @@ private fun AurralArtistProfileMetadata(
 	val visibleLinks = remember(allLinks, linksExpanded) {
 		if (linksExpanded) allLinks else allLinks.take(4)
 	}
-	val hiddenLinkCount = allLinks.size - visibleLinks.size
+	val showLinkToggle = allLinks.size > visibleLinks.size || linksExpanded
 	if (visibleGenres.isEmpty() && allLinks.isEmpty()) return
 
 	Column(
@@ -1041,11 +1041,11 @@ private fun AurralArtistProfileMetadata(
 						onClick = { uriHandler.openUri(link.url) }
 					)
 				}
-				if (hiddenLinkCount > 0) {
+				if (showLinkToggle) {
 					ArtistHeaderMetadataChip(
-						label = "More",
+						label = if (linksExpanded) "Less" else "More",
 						primary = true,
-						onClick = { linksExpanded = true }
+						onClick = { linksExpanded = !linksExpanded }
 					)
 				}
 			}

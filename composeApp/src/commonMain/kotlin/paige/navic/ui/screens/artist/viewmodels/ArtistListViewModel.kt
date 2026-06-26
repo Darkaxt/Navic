@@ -43,6 +43,7 @@ import paige.navic.ui.screens.artist.artistListAurralPhotoHydrationTargets
 import paige.navic.ui.screens.artist.artistCreditResolvedRows
 import paige.navic.ui.screens.artist.AurralMonitorActionState
 import paige.navic.ui.screens.artist.aurralMonitorActionState
+import paige.navic.ui.screens.artist.artistHeaderImageCacheIndex
 import paige.navic.ui.screens.artist.toArtistHeaderImageCacheEntry
 import paige.navic.ui.screens.artist.withCachedArtistPhoto
 import paige.navic.ui.core.UiState
@@ -246,14 +247,17 @@ class ArtistListViewModel(
 
 	private fun List<DomainArtist>.withCachedArtistPhotos(
 		entries: List<paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry>
-	): List<DomainArtist> =
-		map { artist ->
+	): List<DomainArtist> {
+		if (entries.isEmpty()) return this
+		val index = artistHeaderImageCacheIndex(entries)
+		return map { artist ->
 			artist.withCachedArtistPhoto(
-				entries = entries,
+				index = index,
 				artistArtworkPriority = preferenceManager.artistArtworkPriority,
 				externalArtworkEnabled = preferenceManager.aurralEnabled
 			)
 		}
+	}
 
 	private fun List<DomainArtist>.withKnownArtistCreditRows(
 		resolutions: Map<String, ArtistCreditResolution>
