@@ -339,15 +339,7 @@ class CollectionDetailViewModel(
 					refreshAurralAcquisitionRequests()
 				}
 				.onFailure { error ->
-					_aurralAlbumRecoveryMatch.value = album.copy(status = "failed")
-					_aurralAlbumRecoveryRows.value = _aurralAlbumRecoveryRows.value.withAurralRecoveryRequestStatus(
-						status = "failed",
-						ownershipStatus = AurralOwnershipStatus.Failed
-					)
-					_collectionState.value = UiState.Error(
-						error as? Exception ?: Exception(error),
-						_collectionState.value.data
-					)
+					Logger.w("CollectionDetailViewModel", "Aurral album request is still pending server-side", error)
 				}
 		}
 	}

@@ -115,14 +115,9 @@ class AurralMissingAlbumActionPolicyTest {
 			optimisticUpdate >= 0 && optimisticUpdate < repositoryCall,
 			"Artist detail album requests must mark the row requested before waiting for Aurral."
 		)
-		assertTrue(
-			"status = \"failed\"" in requestAurralAlbum &&
-				"errorMessage = error.message ?: error::class.simpleName" in requestAurralAlbum,
-			"A failed background Aurral request should downgrade the row into the retryable failed state."
-		)
-		assertTrue(
-			"aurralFeedback = feedback ?: currentState.aurralFeedback" in viewModelSource,
-			"A fast background failure must not erase the immediate Album requested snackbar before Compose displays it."
+		assertFalse(
+			"status = \"failed\"" in requestAurralAlbum,
+			"After the request is accepted locally, background Aurral/Lidarr failures must not flip the visible row back to failed."
 		)
 	}
 
@@ -149,9 +144,25 @@ class AurralMissingAlbumActionPolicyTest {
 			optimisticUpdate >= 0 && optimisticUpdate < repositoryCall,
 			"Collection album recovery must switch the header icon to requested before waiting for Aurral."
 		)
-		assertTrue(
+		assertFalse(
 			"_aurralAlbumRecoveryMatch.value = album.copy(status = \"failed\")" in requestAurralAlbum,
-			"A failed background Aurral request should downgrade the recovery header into the retryable failed state."
+			"After the request is accepted locally, background Aurral/Lidarr failures must not restore the failed/crossed header icon."
+		)
+	}
+
+	@Test
+	fun missingAlbumDetailKeepsAcceptedRequestVisibleWhenBackgroundRequestFails() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt")
+		val failureStart = source.indexOf(".onFailure { error ->")
+		val failureBody = source.substring(failureStart, source.indexOf("\n\t\t\t\t\t\t}", failureStart))
+
+		assertFalse(
+			"progress = route.requestStatus?.let(::aurralAcquisitionProgress)" in failureBody,
+			"After the request is accepted locally, background Aurral/Lidarr failures must not restore the old request status."
+		)
+		assertFalse(
+			"error = error" in failureBody,
+			"Background request failures should be logged; they should not replace the immediate Album requested popup."
 		)
 	}
 

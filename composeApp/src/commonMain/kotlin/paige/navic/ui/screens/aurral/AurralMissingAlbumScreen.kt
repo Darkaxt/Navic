@@ -98,6 +98,7 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.components.AurralPreviewTracks
 import paige.navic.ui.theme.defaultFont
+import paige.navic.util.core.Logger
 
 internal enum class AurralMissingAlbumActionIcon {
 	Acquire,
@@ -320,11 +321,7 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 								aurralRepository.requestAlbum(requestArtist, releaseGroup)
 							}
 								.onFailure { error ->
-									state = state.copy(
-										requesting = false,
-										progress = route.requestStatus?.let(::aurralAcquisitionProgress),
-										error = error
-									)
+									Logger.w("AurralMissingAlbumScreen", "Aurral album request is still pending server-side", error)
 								}
 						}
 					}

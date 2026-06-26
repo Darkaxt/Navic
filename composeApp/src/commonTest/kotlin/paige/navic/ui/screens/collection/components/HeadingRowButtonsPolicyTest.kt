@@ -23,11 +23,15 @@ class HeadingRowButtonsPolicyTest {
 	}
 
 	@Test
-	fun requestedAndProcessingAurralAlbumsUseProgressActionIcon() {
+	fun requestedAurralAlbumUsesNormalActionIconAfterAcceptedClick() {
 		assertEquals(
-			AurralActionIconOverlay.Progress,
+			AurralActionIconOverlay.None,
 			aurralAlbumActionIconOverlay(AurralOwnershipStatus.Requested)
 		)
+	}
+
+	@Test
+	fun processingAurralAlbumUsesProgressActionIcon() {
 		assertEquals(
 			AurralActionIconOverlay.Progress,
 			aurralAlbumActionIconOverlay(AurralOwnershipStatus.Processing)

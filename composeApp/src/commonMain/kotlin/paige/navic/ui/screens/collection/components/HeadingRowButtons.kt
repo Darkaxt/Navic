@@ -55,8 +55,8 @@ import paige.navic.ui.theme.defaultFont
 fun aurralAlbumActionIconOverlay(status: AurralOwnershipStatus): AurralActionIconOverlay =
 	when (status) {
 		AurralOwnershipStatus.Owned -> AurralActionIconOverlay.None
-		AurralOwnershipStatus.Partial,
-		AurralOwnershipStatus.Requested,
+		AurralOwnershipStatus.Partial -> AurralActionIconOverlay.Progress
+		AurralOwnershipStatus.Requested -> AurralActionIconOverlay.None
 		AurralOwnershipStatus.Processing -> AurralActionIconOverlay.Progress
 		AurralOwnershipStatus.Failed,
 		AurralOwnershipStatus.Missing -> AurralActionIconOverlay.Crossed

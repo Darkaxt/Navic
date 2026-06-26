@@ -1182,12 +1182,7 @@ class ArtistDetailViewModel(
 		viewModelScope.launch(Dispatchers.IO) {
 			aurralRepository.requestAlbum(artist, row.releaseGroup)
 				.onFailure { error ->
-					Logger.w("ArtistDetailViewModel", "Failed to request Aurral album", error)
-					updateAurralAlbumRequestStatus(
-						row = row,
-						status = "failed",
-						errorMessage = error.message ?: error::class.simpleName
-					)
+					Logger.w("ArtistDetailViewModel", "Aurral album request is still pending server-side", error)
 				}
 		}
 	}
