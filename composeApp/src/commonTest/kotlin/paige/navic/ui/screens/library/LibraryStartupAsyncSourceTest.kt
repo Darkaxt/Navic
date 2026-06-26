@@ -151,6 +151,37 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun artistDetailAurralSectionsRefreshWithResolvedCoreArtistIdentity() {
+		val source = commonMain(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		)
+		val start = source.indexOf("private fun loadAurralEnrichment(")
+		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val loadAurralEnrichment = source.substring(start, end)
+		val resolvedArtist = loadAurralEnrichment.indexOf("val resolvedAurralArtist =")
+		val requestRefresh = loadAurralEnrichment.indexOf("getArtistAlbumRequests(resolvedAurralArtist)")
+		val previewRefresh = loadAurralEnrichment.indexOf("getArtistPreviewTracks(resolvedAurralArtist)")
+		val similarRefresh = loadAurralEnrichment.indexOf("getArtistSimilarArtists(resolvedAurralArtist)")
+
+		assertTrue(
+			resolvedArtist >= 0,
+			"Artist detail must canonicalize the Aurral artist identity from the core profile before refreshing sections."
+		)
+		assertTrue(
+			requestRefresh > resolvedArtist,
+			"Aurral request status must refresh with the core profile's resolved artist MBID/name."
+		)
+		assertTrue(
+			previewRefresh > resolvedArtist,
+			"Aurral preview tracks must refresh with the core profile's resolved artist MBID/name."
+		)
+		assertTrue(
+			similarRefresh > resolvedArtist,
+			"Aurral similar artists must refresh with the core profile's resolved artist MBID/name."
+		)
+	}
+
+	@Test
 	fun albumAurralStatusRefreshRunsOffTheUiDispatcher() {
 		val source = commonMain(
 			"paige/navic/ui/screens/album/viewmodels/AlbumListViewModel.kt"

@@ -639,7 +639,7 @@ class ArtistDetailViewModel(
 			}
 
 			launch {
-				aurralRepository.getArtistAlbumRequests(aurralArtist)
+				aurralRepository.getArtistAlbumRequests(resolvedAurralArtist)
 					.onSuccess { requests ->
 						val enrichment = coreEnrichment.copy(requests = requests)
 						applyAurralAlbumRequestSnapshot(
@@ -662,7 +662,7 @@ class ArtistDetailViewModel(
 					}
 			}
 			launch {
-				aurralRepository.getArtistPreviewTracks(aurralArtist)
+				aurralRepository.getArtistPreviewTracks(resolvedAurralArtist)
 					.onSuccess { tracks ->
 						applyAurralPreviewTracksSnapshot(
 							artist = artist,
@@ -675,7 +675,7 @@ class ArtistDetailViewModel(
 					}
 			}
 			launch {
-				aurralRepository.getArtistSimilarArtists(aurralArtist)
+				aurralRepository.getArtistSimilarArtists(resolvedAurralArtist)
 					.onSuccess { similarArtists ->
 						val enrichment = coreEnrichment.copy(similarArtists = similarArtists)
 						val latest = (_artistState.value as? UiState.Success)?.data ?: return@onSuccess
