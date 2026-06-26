@@ -106,10 +106,65 @@ class AurralArtistProfileStatePolicyTest {
 		assertEquals(AurralArtistSectionUiState.Ready, state.ownership)
 	}
 
+	@Test
+	fun sectionLoadingFlagsOnlyAffectTheSectionBeingResolved() {
+		val state = aurralArtistProfileUiState(
+			state = artistState(
+				aurralArtistBio = "Ready biography.",
+				aurralOwnedOrPartialAlbums = listOf(ownershipRow("How to Train Your Dragon")),
+				aurralPreviewTracksLoading = true
+			),
+			aurralEnabled = true,
+			monitoringInAurral = false,
+			monitorPendingInAurral = false
+		)
+
+		assertEquals(AurralArtistSectionUiState.Ready, state.profile)
+		assertEquals(AurralArtistSectionUiState.Ready, state.ownership)
+		assertEquals(AurralArtistSectionUiState.Loading, state.previewTracks)
+		assertEquals(AurralArtistSectionUiState.Empty, state.similarArtists)
+		assertEquals(AurralArtistSectionUiState.Empty, state.requests)
+	}
+
+	@Test
+	fun sectionErrorsStayLocalToTheFailedAurralSection() {
+		val state = aurralArtistProfileUiState(
+			state = artistState(
+				aurralArtistBio = "Ready biography.",
+				aurralSimilarArtists = listOf(
+					AurralSimilarArtistRow(
+						artist = AurralSimilarArtist(id = "similar", name = "Hans Zimmer"),
+						localArtistId = null,
+						inLibrary = false,
+						matchPercent = 82
+					)
+				),
+				aurralPreviewTracksError = "Preview tracks failed"
+			),
+			aurralEnabled = true,
+			monitoringInAurral = false,
+			monitorPendingInAurral = false
+		)
+
+		assertEquals(AurralArtistSectionUiState.Ready, state.profile)
+		assertEquals(AurralArtistSectionUiState.Error, state.previewTracks)
+		assertEquals(AurralArtistSectionUiState.Ready, state.similarArtists)
+	}
+
 	private fun artistState(
 		aurralMonitored: Boolean? = null,
 		aurralLoading: Boolean = false,
+		aurralProfileLoading: Boolean = false,
+		aurralOwnershipLoading: Boolean = false,
+		aurralPreviewTracksLoading: Boolean = false,
+		aurralSimilarArtistsLoading: Boolean = false,
+		aurralRequestsLoading: Boolean = false,
 		aurralError: String? = null,
+		aurralProfileError: String? = null,
+		aurralOwnershipError: String? = null,
+		aurralPreviewTracksError: String? = null,
+		aurralSimilarArtistsError: String? = null,
+		aurralRequestsError: String? = null,
 		aurralArtistName: String? = "John Powell",
 		aurralArtistBio: String? = null,
 		aurralArtistGenres: List<String> = emptyList(),
@@ -139,7 +194,17 @@ class AurralArtistProfileStatePolicyTest {
 		aurralSimilarArtists = aurralSimilarArtists,
 		aurralAlbumRequests = aurralAlbumRequests,
 		aurralLoading = aurralLoading,
-		aurralError = aurralError
+		aurralProfileLoading = aurralProfileLoading,
+		aurralOwnershipLoading = aurralOwnershipLoading,
+		aurralPreviewTracksLoading = aurralPreviewTracksLoading,
+		aurralSimilarArtistsLoading = aurralSimilarArtistsLoading,
+		aurralRequestsLoading = aurralRequestsLoading,
+		aurralError = aurralError,
+		aurralProfileError = aurralProfileError,
+		aurralOwnershipError = aurralOwnershipError,
+		aurralPreviewTracksError = aurralPreviewTracksError,
+		aurralSimilarArtistsError = aurralSimilarArtistsError,
+		aurralRequestsError = aurralRequestsError
 	)
 
 	private fun ownershipRow(

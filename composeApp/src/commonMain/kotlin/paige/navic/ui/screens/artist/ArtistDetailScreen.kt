@@ -218,7 +218,14 @@ fun ArtistDetailScreen(
 	}?.status == AurralConfirmationStatus.Pending
 	val artistIntegrationIndicators = artistData?.let { data ->
 		integrationLoadingIndicators(
-			aurralLoading = data.aurralLoading || monitoringInAurral || artistAurralMonitorPending,
+			aurralLoading = data.aurralLoading ||
+				data.aurralProfileLoading ||
+				data.aurralOwnershipLoading ||
+				data.aurralPreviewTracksLoading ||
+				data.aurralSimilarArtistsLoading ||
+				data.aurralRequestsLoading ||
+				monitoringInAurral ||
+				artistAurralMonitorPending,
 			lastFmLoading = data.lastFmLoading
 		)
 	}.orEmpty()
@@ -352,7 +359,7 @@ fun ArtistDetailScreen(
 						artistMusicBrainzId = state.artist.musicBrainzId,
 						artistName = displayArtistName,
 						serverCoverArtId = state.artist.coverArtId
-							.takeUnless { preferenceManager.aurralEnabled && state.aurralLoading },
+							.takeUnless { preferenceManager.aurralEnabled && state.aurralProfileLoading },
 						externalArtistImageUrl = state.aurralArtistImageUrl ?: state.artist.artistImageUrl,
 						externalArtistCacheKey = state.aurralArtistImageUrl ?: state.artist.artistImageUrl
 					)
@@ -385,7 +392,7 @@ fun ArtistDetailScreen(
 							subtitle = displayBiography,
 							innerPadding = contentPadding,
 							scrolled = scrolled,
-							artworkResolving = state.aurralLoading
+							artworkResolving = state.aurralProfileLoading
 						)
 						AurralArtistProfileMetadata(
 							genres = state.aurralArtistGenres,
@@ -606,6 +613,13 @@ fun ArtistDetailScreen(
 									}
 								)
 							}
+							if (aurralProfileState.ownership == AurralArtistSectionUiState.Loading &&
+								ownedOrPartialRows.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_aurral_owned_partial_albums)
+								)
+							}
 							ArtCarousel(
 								stringResource(Res.string.title_aurral_owned_partial_albums),
 								ownedOrPartialRows
@@ -701,6 +715,13 @@ fun ArtistDetailScreen(
 									)
 									}
 							}
+							if (aurralProfileState.requests == AurralArtistSectionUiState.Loading &&
+								missingReleaseGroupRows.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_aurral_missing_albums)
+								)
+							}
 							ArtCarousel(
 								stringResource(Res.string.title_aurral_missing_albums),
 								missingReleaseGroupRows
@@ -734,22 +755,19 @@ fun ArtistDetailScreen(
 									}
 								)
 							}
+							if (aurralProfileState.previewTracks == AurralArtistSectionUiState.Loading &&
+								state.aurralPreviewTracks.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_aurral_preview_tracks)
+								)
+							}
 							AurralPreviewTracks(
 								title = stringResource(Res.string.title_aurral_preview_tracks),
 								tracks = state.aurralPreviewTracks.toImmutableList(),
 								modifier = Modifier.fillMaxWidth(),
 								ownershipStatuses = previewTrackOwnershipStatuses
 							)
-							if (state.aurralLoading) {
-								Text(
-									text = stringResource(Res.string.info_aurral_loading_catalog),
-									style = MaterialTheme.typography.bodySmall,
-									color = MaterialTheme.colorScheme.onSurfaceVariant,
-									modifier = Modifier
-										.fillMaxWidth()
-										.padding(horizontal = 16.dp)
-								)
-							}
 							val similarRows = state.aurralSimilarArtists.ifEmpty {
 								state.similarArtists.map { artist ->
 									AurralSimilarArtistRow(
@@ -764,6 +782,13 @@ fun ArtistDetailScreen(
 										matchPercent = null
 									)
 								}
+							}
+							if (aurralProfileState.similarArtists == AurralArtistSectionUiState.Loading &&
+								similarRows.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_similar_artists)
+								)
 							}
 							ArtCarousel(
 								stringResource(Res.string.title_similar_artists),
@@ -855,6 +880,40 @@ fun ArtistDetailScreen(
 		PlaylistUpdateDialog(
 			songs = selectedAlbum?.songs.orEmpty().toPersistentList(),
 			onDismissRequest = { playlistDialogShown = false }
+		)
+	}
+}
+
+@Composable
+private fun AurralSectionLoadingPlaceholder(
+	title: String,
+	modifier: Modifier = Modifier
+) {
+	Column(
+		modifier = modifier
+			.fillMaxWidth()
+			.padding(horizontal = 16.dp),
+		verticalArrangement = Arrangement.spacedBy(8.dp)
+	) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.heightIn(min = 32.dp)
+				.padding(top = 8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.SpaceBetween
+		) {
+			Text(
+				text = title,
+				style = MaterialTheme.typography.titleMediumEmphasized,
+				fontWeight = FontWeight(600)
+			)
+			ContainedLoadingIndicator(Modifier.size(24.dp))
+		}
+		Text(
+			text = stringResource(Res.string.info_aurral_loading_catalog),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
 		)
 	}
 }

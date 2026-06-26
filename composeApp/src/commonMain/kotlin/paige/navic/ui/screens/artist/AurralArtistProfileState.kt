@@ -73,33 +73,33 @@ fun aurralArtistProfileUiState(
 		displayBio = state.aurralArtistBio?.trim()?.takeIf { it.isNotEmpty() } ?: state.artist.biography,
 		profile = aurralSectionState(
 			enabled = aurralEnabled,
-			loading = state.aurralLoading,
-			error = state.aurralError != null && !aurralHasProfile,
+			loading = state.aurralProfileLoading,
+			error = (state.aurralProfileError != null || state.aurralError != null) && !aurralHasProfile,
 			ready = aurralHasProfile
 		),
 		monitor = monitor,
 		ownership = aurralSectionState(
 			enabled = aurralEnabled,
-			loading = state.aurralLoading,
-			error = state.aurralError != null && !aurralHasOwnership,
+			loading = state.aurralOwnershipLoading,
+			error = (state.aurralOwnershipError != null || state.aurralError != null) && !aurralHasOwnership,
 			ready = aurralHasOwnership
 		),
 		previewTracks = aurralSectionState(
 			enabled = aurralEnabled,
-			loading = state.aurralLoading,
-			error = false,
+			loading = state.aurralPreviewTracksLoading,
+			error = state.aurralPreviewTracksError != null,
 			ready = state.aurralPreviewTracks.isNotEmpty()
 		),
 		similarArtists = aurralSectionState(
 			enabled = aurralEnabled,
-			loading = state.aurralLoading,
-			error = false,
+			loading = state.aurralSimilarArtistsLoading,
+			error = state.aurralSimilarArtistsError != null,
 			ready = state.aurralSimilarArtists.isNotEmpty()
 		),
 		requests = aurralSectionState(
 			enabled = aurralEnabled,
-			loading = state.aurralLoading,
-			error = false,
+			loading = state.aurralRequestsLoading,
+			error = state.aurralRequestsError != null,
 			ready = aurralHasRequests
 		),
 		localPlayback = if (state.albums.isNotEmpty() || state.topSongs.isNotEmpty()) {

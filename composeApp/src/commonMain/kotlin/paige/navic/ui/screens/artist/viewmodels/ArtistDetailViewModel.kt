@@ -94,8 +94,18 @@ data class ArtistState(
 	val aurralArtistExternalLinks: List<AurralArtistExternalLink> = emptyList(),
 	val aurralArtistImageUrl: String? = null,
 	val aurralLoading: Boolean = false,
+	val aurralProfileLoading: Boolean = false,
+	val aurralOwnershipLoading: Boolean = false,
+	val aurralPreviewTracksLoading: Boolean = false,
+	val aurralSimilarArtistsLoading: Boolean = false,
+	val aurralRequestsLoading: Boolean = false,
 	val lastFmLoading: Boolean = false,
 	val aurralError: String? = null,
+	val aurralProfileError: String? = null,
+	val aurralOwnershipError: String? = null,
+	val aurralPreviewTracksError: String? = null,
+	val aurralSimilarArtistsError: String? = null,
+	val aurralRequestsError: String? = null,
 	val aurralFeedback: AurralArtistActionFeedback? = null
 )
 
@@ -385,7 +395,17 @@ class ArtistDetailViewModel(
 			_artistState.value = UiState.Success(
 				currentState.copy(
 					aurralLoading = true,
-					aurralError = null
+					aurralProfileLoading = true,
+					aurralOwnershipLoading = true,
+					aurralPreviewTracksLoading = true,
+					aurralSimilarArtistsLoading = true,
+					aurralRequestsLoading = true,
+					aurralError = null,
+					aurralProfileError = null,
+					aurralOwnershipError = null,
+					aurralPreviewTracksError = null,
+					aurralSimilarArtistsError = null,
+					aurralRequestsError = null
 				)
 			)
 
@@ -448,6 +468,11 @@ class ArtistDetailViewModel(
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						aurralLoading = false,
+						aurralProfileLoading = false,
+						aurralOwnershipLoading = false,
+						aurralPreviewTracksLoading = false,
+						aurralSimilarArtistsLoading = false,
+						aurralRequestsLoading = false,
 						aurralError = null
 					)
 				)
@@ -508,7 +533,17 @@ class ArtistDetailViewModel(
 				_artistState.value = UiState.Success(
 					latestState.copy(
 						aurralLoading = false,
-						aurralError = error.message ?: error::class.simpleName
+						aurralProfileLoading = false,
+						aurralOwnershipLoading = false,
+						aurralPreviewTracksLoading = false,
+						aurralSimilarArtistsLoading = false,
+						aurralRequestsLoading = false,
+						aurralError = error.message ?: error::class.simpleName,
+						aurralProfileError = error.message ?: error::class.simpleName,
+						aurralOwnershipError = error.message ?: error::class.simpleName,
+						aurralPreviewTracksError = error.message ?: error::class.simpleName,
+						aurralSimilarArtistsError = error.message ?: error::class.simpleName,
+						aurralRequestsError = error.message ?: error::class.simpleName
 					)
 				)
 				return@launch
@@ -566,6 +601,16 @@ class ArtistDetailViewModel(
 					aurralArtistImageUrl = verifiedAurralArtistImageUrl
 						?: latestState.aurralArtistImageUrl,
 					aurralLoading = false,
+					aurralProfileLoading = false,
+					aurralOwnershipLoading = false,
+					aurralPreviewTracksLoading = latestState.aurralPreviewTracks.isEmpty(),
+					aurralSimilarArtistsLoading = latestState.aurralSimilarArtists.isEmpty(),
+					aurralRequestsLoading = latestState.aurralAlbumRequests.isEmpty(),
+					aurralProfileError = null,
+					aurralOwnershipError = null,
+					aurralPreviewTracksError = null,
+					aurralSimilarArtistsError = null,
+					aurralRequestsError = null,
 					aurralError = null
 				)
 			)
@@ -601,6 +646,7 @@ class ArtistDetailViewModel(
 					}
 					.onFailure { error ->
 						Logger.w("ArtistDetailViewModel", "Failed to refresh Aurral album requests", error)
+						markAurralAlbumRequestsRefreshFailed(artist, error)
 					}
 			}
 			launch {
@@ -613,6 +659,7 @@ class ArtistDetailViewModel(
 					}
 					.onFailure { error ->
 						Logger.w("ArtistDetailViewModel", "Failed to refresh Aurral preview tracks", error)
+						markAurralPreviewTracksRefreshFailed(artist, error)
 					}
 			}
 			launch {
@@ -632,6 +679,7 @@ class ArtistDetailViewModel(
 					}
 					.onFailure { error ->
 						Logger.w("ArtistDetailViewModel", "Failed to refresh Aurral similar artists", error)
+						markAurralSimilarArtistsRefreshFailed(artist, error)
 					}
 			}
 		}
@@ -702,6 +750,19 @@ class ArtistDetailViewModel(
 					?.takeIf { it.isNotEmpty() }
 					?: latestState.aurralArtistImageUrl,
 				aurralLoading = loading,
+				aurralProfileLoading = loading && enrichment.artistName.isBlank() &&
+					enrichment.bio.isNullOrBlank() &&
+					enrichment.genres.isEmpty() &&
+					enrichment.externalLinks.isEmpty(),
+				aurralOwnershipLoading = loading && !hasOwnershipRows,
+				aurralPreviewTracksLoading = loading && enrichment.previewTracks.isEmpty(),
+				aurralSimilarArtistsLoading = loading && enrichment.similarArtists.isEmpty(),
+				aurralRequestsLoading = loading && enrichment.requests.isEmpty(),
+				aurralProfileError = null,
+				aurralOwnershipError = null,
+				aurralPreviewTracksError = null,
+				aurralSimilarArtistsError = null,
+				aurralRequestsError = null,
 				aurralError = null
 			)
 		)
@@ -737,6 +798,10 @@ class ArtistDetailViewModel(
 				aurralOwnedOrPartialAlbums = ownershipRows.ownedOrPartial,
 				aurralMissingReleaseGroups = ownershipRows.missing,
 				aurralMissingAlbums = missingAlbumRows,
+				aurralRequestsLoading = false,
+				aurralOwnershipLoading = false,
+				aurralRequestsError = null,
+				aurralOwnershipError = null,
 				aurralError = null
 			)
 		)
@@ -751,6 +816,8 @@ class ArtistDetailViewModel(
 		_artistState.value = UiState.Success(
 			latestState.copy(
 				aurralPreviewTracks = tracks,
+				aurralPreviewTracksLoading = false,
+				aurralPreviewTracksError = null,
 				aurralError = null
 			)
 		)
@@ -765,7 +832,54 @@ class ArtistDetailViewModel(
 		_artistState.value = UiState.Success(
 			latestState.copy(
 				aurralSimilarArtists = rows,
+				aurralSimilarArtistsLoading = false,
+				aurralSimilarArtistsError = null,
 				aurralError = null
+			)
+		)
+	}
+
+	private fun markAurralAlbumRequestsRefreshFailed(
+		artist: DomainArtist,
+		error: Throwable
+	) {
+		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
+		if (latestState.artist.id != artist.id) return
+		val message = error.message ?: error::class.simpleName
+		_artistState.value = UiState.Success(
+			latestState.copy(
+				aurralRequestsLoading = false,
+				aurralOwnershipLoading = false,
+				aurralRequestsError = message,
+				aurralOwnershipError = message
+			)
+		)
+	}
+
+	private fun markAurralPreviewTracksRefreshFailed(
+		artist: DomainArtist,
+		error: Throwable
+	) {
+		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
+		if (latestState.artist.id != artist.id) return
+		_artistState.value = UiState.Success(
+			latestState.copy(
+				aurralPreviewTracksLoading = false,
+				aurralPreviewTracksError = error.message ?: error::class.simpleName
+			)
+		)
+	}
+
+	private fun markAurralSimilarArtistsRefreshFailed(
+		artist: DomainArtist,
+		error: Throwable
+	) {
+		val latestState = (_artistState.value as? UiState.Success)?.data ?: return
+		if (latestState.artist.id != artist.id) return
+		_artistState.value = UiState.Success(
+			latestState.copy(
+				aurralSimilarArtistsLoading = false,
+				aurralSimilarArtistsError = error.message ?: error::class.simpleName
 			)
 		)
 	}
@@ -998,6 +1112,8 @@ class ArtistDetailViewModel(
 							status = status
 						)
 					),
+				aurralRequestsLoading = false,
+				aurralRequestsError = errorMessage,
 				aurralMissingAlbums = currentState.aurralMissingAlbums.map { row ->
 					if (row.releaseGroup.id == releaseGroupId) {
 						row.copy(
@@ -1080,7 +1196,16 @@ class ArtistDetailViewModel(
 
 	fun clearAurralError() {
 		val state = (_artistState.value as? UiState.Success)?.data ?: return
-		_artistState.value = UiState.Success(state.copy(aurralError = null))
+		_artistState.value = UiState.Success(
+			state.copy(
+				aurralError = null,
+				aurralProfileError = null,
+				aurralOwnershipError = null,
+				aurralPreviewTracksError = null,
+				aurralSimilarArtistsError = null,
+				aurralRequestsError = null
+			)
+		)
 	}
 
 	fun clearAurralFeedback() {
@@ -1124,7 +1249,17 @@ class ArtistDetailViewModel(
 				aurralArtistExternalLinks = emptyList(),
 				aurralArtistImageUrl = null,
 				aurralLoading = false,
+				aurralProfileLoading = false,
+				aurralOwnershipLoading = false,
+				aurralPreviewTracksLoading = false,
+				aurralSimilarArtistsLoading = false,
+				aurralRequestsLoading = false,
 				aurralError = null,
+				aurralProfileError = null,
+				aurralOwnershipError = null,
+				aurralPreviewTracksError = null,
+				aurralSimilarArtistsError = null,
+				aurralRequestsError = null,
 				aurralFeedback = null
 			)
 		)
