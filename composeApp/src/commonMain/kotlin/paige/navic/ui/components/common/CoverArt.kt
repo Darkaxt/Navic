@@ -299,18 +299,18 @@ fun CoverArt(
 		},
 		error = {
 			LaunchedEffect(it.result.throwable) {
-				Logger.w(
-					"CoverArt",
-					"Failed to load cover art, falling back to placeholder" +
-						(imageDiagnosticLabel?.let { label ->
-							" [$label] usesServer=$usesServerCoverArt " +
-								"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
-								"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
-								"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
-								"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}"
-						} ?: ""),
-					it.result.throwable
-				)
+				if (imageDiagnosticLabel != null) {
+					Logger.w(
+						"CoverArt",
+						"Failed to load cover art, falling back to placeholder" +
+							" [$imageDiagnosticLabel] usesServer=$usesServerCoverArt " +
+							"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
+							"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
+							"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
+							"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}",
+						it.result.throwable
+					)
+				}
 				if (usesServerCoverArt) {
 					onServerCoverLoadFailed?.invoke()
 				}

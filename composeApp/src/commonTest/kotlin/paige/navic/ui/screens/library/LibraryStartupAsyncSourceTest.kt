@@ -282,6 +282,49 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun aurralLibraryDiscoveryRefreshDoesNotEscalateToHydratedDiscovery() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralHubViewModel.kt")
+
+		assertTrue(
+			"loadServiceStatus(refreshDiscovery = false)" in source,
+			"refreshDiscovery already loaded the requested discovery mode; service status must not immediately re-run the heavier hydrated discovery path."
+		)
+		assertTrue(
+			"refreshDiscovery: Boolean = true" in source &&
+				"if (refreshDiscovery) {" in source,
+			"Service status may refresh discovery for status-only screens, but Library's lightweight discovery request must be able to opt out."
+		)
+	}
+
+	@Test
+	fun sharedImageMemoryCacheIsBoundedForArtworkHeavyTabs() {
+		val source = commonMain("paige/navic/di/SingletonImageLoaderInit.kt")
+
+		assertTrue(
+			"SHARED_IMAGE_MEMORY_CACHE_PERCENT" in source,
+			"The shared Coil cache should use an explicit reviewed limit; a raw percentage makes tablet artwork grids risky."
+		)
+		assertFalse(
+			".maxSizePercent(context, 0.25)" in source,
+			"Artwork-heavy Library scrolling must not reserve 25% of the process memory class for decoded image cache."
+		)
+	}
+
+	@Test
+	fun coverArtExpectedFailuresDoNotSpamThrowableStacksWhileScrolling() {
+		val source = commonMain("paige/navic/ui/components/common/CoverArt.kt")
+
+		assertTrue(
+			"if (imageDiagnosticLabel != null) {\n\t\t\t\t\tLogger.w(" in source,
+			"CoverArt should only log image-load failures when an explicit diagnostic label is present."
+		)
+		assertFalse(
+			"coverArtFailureThrowable(" in source,
+			"Normal artwork failures should not call a helper that still evaluates a scroll-time log path."
+		)
+	}
+
+	@Test
 	fun aurralDetailLocalCatalogLookupsRunOffTheUiDispatcher() {
 		val artistSource = commonMain(
 			"paige/navic/ui/screens/aurral/AurralArtistScreen.kt"

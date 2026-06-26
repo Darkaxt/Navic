@@ -106,7 +106,7 @@ class AurralHubViewModel(
 
 		viewModelScope.launch(Dispatchers.IO) {
 			loadDiscovery(hydrateMissingImages, nextConfigurationKey)
-			loadServiceStatus()
+			loadServiceStatus(refreshDiscovery = false)
 		}
 	}
 
@@ -296,14 +296,18 @@ class AurralHubViewModel(
 		}
 	}
 
-	private suspend fun loadServiceStatus() {
+	private suspend fun loadServiceStatus(
+		refreshDiscovery: Boolean = true
+	) {
 		_serviceStatus.value = UiState.Loading(_serviceStatus.value.data)
 		val result = repository.getServiceStatus()
 		_serviceStatus.value = result.fold(
 			onSuccess = { UiState.Success(it) },
 			onFailure = { UiState.Error(Exception(it), _serviceStatus.value.data) }
 		)
-		loadDiscovery()
+		if (refreshDiscovery) {
+			loadDiscovery()
+		}
 		loadStationPlaylists()
 	}
 
