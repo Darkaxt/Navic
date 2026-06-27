@@ -4,7 +4,6 @@ import coil3.SingletonImageLoader
 import coil3.network.httpHeaders
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import coil3.size.Size
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.header
@@ -535,7 +534,6 @@ class DownloadManager(
 
 		val imageRequest = ImageRequest.Builder(coilPlatformContext)
 			.data(coverArtUrl)
-			.size(Size.ORIGINAL)
 			.memoryCacheKey(coverId)
 			.diskCacheKey(coverId)
 			.diskCachePolicy(CachePolicy.ENABLED)

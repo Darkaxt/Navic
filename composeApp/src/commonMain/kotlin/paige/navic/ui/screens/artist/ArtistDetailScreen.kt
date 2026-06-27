@@ -106,6 +106,7 @@ import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.models.aurralPreviewTrackOwnershipStatus
+import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
@@ -628,64 +629,67 @@ fun ArtistDetailScreen(
 							) { row ->
 								val album = row.localAlbum
 								if (album != null) {
-										val albumDownloadStatus by downloadManager
-											.getCollectionDownloadStatus(album.songs.map { it.id })
-											.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
-										val coverUrl = row.coverUrl
-										val imageRequestHeaders = aurralRequestHeadersForUrl(
-											baseUrl = preferenceManager.aurralBaseUrl,
-											imageUrl = coverUrl,
-											requestHeaders = preferenceManager.aurralRequestHeadersMap()
+									val albumDownloadStatus = remember(album.songs, allDownloads) {
+										collectionDownloadStatus(
+											songIds = album.songs.map { it.id },
+											downloads = allDownloads
 										)
-										ArtCarouselItem(
-											coverArtId = album.coverArtId,
-											imageUrl = coverUrl,
-											imageCacheKey = row.releaseGroup?.id?.let { "aurral-release-group-$it" },
-											imageRequestHeaders = imageRequestHeaders,
-											title = row.title,
-											subtitle = row.year ?: album.year?.toString(),
-											acquisitionProgress = row.acquisitionProgress
-												?: aurralAlbumAcquisitionProgress(
-													album = album,
-													requests = state.aurralAlbumRequests
-												),
-											ownershipStatus = row.ownershipStatus,
-											contentDescription = null,
-											onSelect = { viewModel.selectAlbum(album) },
-											onClick = dropUnlessResumed {
-												backStack.add(Screen.CollectionDetail(album.id, "artist"))
-											}
-										)
-										if (selectedAlbum == album) {
-											CollectionSheet(
-												onDismissRequest = { viewModel.clearAlbumSelection() },
-												collection = album,
-												starred = selectedAlbumIsStarred,
-												onShare = { shareId = album.id },
-												onPlayNext = { player.playNext(album) },
-												onAddToQueue = { player.addToQueue(album) },
-												onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
-												onAddAllToPlaylist = { playlistDialogShown = true },
-												downloadStatus = albumDownloadStatus,
-												onDownloadAll = {
-													scope.launch {
-														downloadManager.downloadCollection(album)
-													}
-												},
-												onCancelDownloadAll = {
-													scope.launch {
-														downloadManager.cancelCollectionDownload(album)
-													}
-												},
-												onDeleteDownloadAll = {
-													scope.launch {
-														downloadManager.deleteDownloadedCollection(album)
-													}
-												},
-												rating = selectedAlbumRating,
-												onSetRating = { viewModel.rateSelectedAlbum(it) }
-											)
+									}
+									val coverUrl = row.coverUrl
+									val imageRequestHeaders = aurralRequestHeadersForUrl(
+										baseUrl = preferenceManager.aurralBaseUrl,
+										imageUrl = coverUrl,
+										requestHeaders = preferenceManager.aurralRequestHeadersMap()
+									)
+									ArtCarouselItem(
+										coverArtId = album.coverArtId,
+										imageUrl = coverUrl,
+										imageCacheKey = row.releaseGroup?.id?.let { "aurral-release-group-$it" },
+										imageRequestHeaders = imageRequestHeaders,
+										title = row.title,
+										subtitle = row.year ?: album.year?.toString(),
+										acquisitionProgress = row.acquisitionProgress
+											?: aurralAlbumAcquisitionProgress(
+												album = album,
+												requests = state.aurralAlbumRequests
+											),
+										ownershipStatus = row.ownershipStatus,
+										contentDescription = null,
+										onSelect = { viewModel.selectAlbum(album) },
+										onClick = dropUnlessResumed {
+											backStack.add(Screen.CollectionDetail(album.id, "artist"))
 										}
+									)
+									if (selectedAlbum == album) {
+										CollectionSheet(
+											onDismissRequest = { viewModel.clearAlbumSelection() },
+											collection = album,
+											starred = selectedAlbumIsStarred,
+											onShare = { shareId = album.id },
+											onPlayNext = { player.playNext(album) },
+											onAddToQueue = { player.addToQueue(album) },
+											onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
+											onAddAllToPlaylist = { playlistDialogShown = true },
+											downloadStatus = albumDownloadStatus,
+											onDownloadAll = {
+												scope.launch {
+													downloadManager.downloadCollection(album)
+												}
+											},
+											onCancelDownloadAll = {
+												scope.launch {
+													downloadManager.cancelCollectionDownload(album)
+												}
+											},
+											onDeleteDownloadAll = {
+												scope.launch {
+													downloadManager.deleteDownloadedCollection(album)
+												}
+											},
+											rating = selectedAlbumRating,
+											onSetRating = { viewModel.rateSelectedAlbum(it) }
+										)
+									}
 								} else {
 									AurralOwnershipAlbumItem(
 										row = row,

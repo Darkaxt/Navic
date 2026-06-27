@@ -390,6 +390,41 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun aurralHubArtistPhotoProjectionRunsOffTheUiDispatcher() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralHubScreen.kt")
+
+		assertTrue(
+			"produceState<List<ArtistHeaderImageCacheEntry>>" in source,
+			"Aurral Hub should produce projected artist-photo cache entries asynchronously."
+		)
+		assertTrue(
+			"withContext(Dispatchers.Default)" in source,
+			"Aurral Hub artist-photo cache projection is CPU work and should run off the UI dispatcher."
+		)
+		assertFalse(
+			"val artistPhotoCacheEntries = cachedArtistPhotos.map" in source,
+			"Aurral Hub must not map the full artist-photo cache directly during composition."
+		)
+	}
+
+	@Test
+	fun offlineCoverCacheDoesNotDecodeOriginalArtworkSize() {
+		val source = commonMain("paige/navic/domain/manager/DownloadManager.kt")
+		val start = source.indexOf("private suspend fun cacheCoverArt(")
+		val end = source.indexOf("private suspend fun cacheAlbumCoverArt(", start)
+		val cacheCoverArt = source.substring(start, end)
+
+		assertFalse(
+			"Size.ORIGINAL" in cacheCoverArt,
+			"Offline cover cache warming must not decode original-size artwork; the server URL already carries the configured cover size."
+		)
+		assertTrue(
+			".diskCachePolicy(CachePolicy.ENABLED)" in cacheCoverArt,
+			"Offline cover cache warming should keep priming the Coil disk cache."
+		)
+	}
+
+	@Test
 	fun settingsSearchStorageMetricsRunOffTheUiDispatcher() {
 		val source = commonMain("paige/navic/ui/screens/settings/SettingsSearchRegistry.kt")
 
@@ -440,6 +475,25 @@ class LibraryStartupAsyncSourceTest {
 		assertTrue(
 			"repository.getFlowPlayableSongs(flow.id).getOrThrow()" in source,
 			"Direct flow playback must keep resolving playable songs before queueing them."
+		)
+	}
+
+	@Test
+	fun artistDetailAurralAlbumRowsDoNotCollectDownloadFlowsPerRow() {
+		val source = commonMain("paige/navic/ui/screens/artist/ArtistDetailScreen.kt")
+		val start = source.indexOf("ArtCarousel(\n\t\t\t\t\t\t\t\tstringResource(Res.string.title_aurral_owned_partial_albums)")
+		val end = source.indexOf("ArtCarousel(\n\t\t\t\t\t\t\t\tstringResource(Res.string.title_aurral_missing_albums)", start)
+		val ownedAlbumCarousel = source.substring(start, end)
+
+		assertFalse(
+			"downloadManager\n\t\t\t\t\t\t\t\t\t\t\t.getCollectionDownloadStatus" in ownedAlbumCarousel,
+			"Artist detail's Aurral-owned album carousel already has allDownloads from the ViewModel; " +
+				"it should not create one download-status Flow collector per rendered album row."
+		)
+		assertTrue(
+			"collectionDownloadStatus(" in ownedAlbumCarousel &&
+				"allDownloads" in ownedAlbumCarousel,
+			"Aurral-owned album rows should derive the selected sheet status from the existing download snapshot."
 		)
 	}
 

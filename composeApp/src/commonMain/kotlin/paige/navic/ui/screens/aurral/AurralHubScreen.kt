@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -43,7 +44,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_create_aurral_flow
 import navic.composeapp.generated.resources.action_open_aurral_settings
@@ -167,8 +170,15 @@ fun AurralHubScreen() {
 	val confirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
 		.collectAsStateWithLifecycle(emptyList())
-	val artistPhotoCacheEntries = cachedArtistPhotos.map { entry ->
-		entry.toArtistHeaderImageCacheEntry()
+	val artistPhotoCacheEntries by produceState<List<ArtistHeaderImageCacheEntry>>(
+		initialValue = emptyList(),
+		cachedArtistPhotos
+	) {
+		value = withContext(Dispatchers.Default) {
+			cachedArtistPhotos.map { entry ->
+				entry.toArtistHeaderImageCacheEntry()
+			}
+		}
 	}
 	val localArtistsViewModel = koinViewModel<ArtistListViewModel>(
 		key = "aurralHubLocalArtists",
