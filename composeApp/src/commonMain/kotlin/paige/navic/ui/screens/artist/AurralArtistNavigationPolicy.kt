@@ -16,6 +16,17 @@ fun aurralExternalArtistRoute(row: AurralSimilarArtistRow): Screen.AurralArtist?
 	)
 }
 
+fun artistListDestination(artist: DomainArtist): Screen {
+	if (isAurralNameLookupArtistId(artist.id)) {
+		return Screen.AurralArtist(
+			artistMbid = artist.id.trim(),
+			artistName = artist.name.trim().takeIf { it.isNotEmpty() } ?: artist.id,
+			imageUrl = artist.artistImageUrl?.trim()?.takeIf { it.isNotEmpty() }
+		)
+	}
+	return Screen.ArtistDetail(artist.id)
+}
+
 fun albumArtistCreditRoute(
 	artistId: String?,
 	artistName: String?,

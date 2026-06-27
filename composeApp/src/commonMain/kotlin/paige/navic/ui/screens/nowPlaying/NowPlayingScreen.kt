@@ -42,11 +42,8 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
-import paige.navic.domain.models.effectiveAurralArtworkPriority
 import paige.navic.domain.models.LidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.NowPlayingArtworkTapDestination
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
@@ -56,8 +53,6 @@ import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
-import paige.navic.domain.models.visiblePlaybackCoverArtId
-import paige.navic.domain.models.visiblePlaybackImageUrl
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.KeyboardArrowDown
@@ -71,6 +66,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetActionButton
@@ -103,35 +99,12 @@ fun NowPlayingScreen() {
 	val song = playerState.currentSong
 	val currentMusicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
-	val currentMusicBrainzFallbackArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = currentMusicBrainzArtwork?.imageUrl,
+	val currentPlaybackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = currentMusicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val currentMusicBrainzFallbackArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = currentMusicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
-		serverCoverLoadFailed = serverCoverLoadFailed
-	)
-	val effectiveArtworkPriority = effectiveAurralArtworkPriority(
-		aurralEnabled = preferenceManager.aurralEnabled,
-		configuredPriority = preferenceManager.coverArtworkPriority
-	)
-	val selectedPlaybackCoverArtId = visiblePlaybackCoverArtId(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = currentMusicBrainzFallbackArtworkUrl,
-		priority = effectiveArtworkPriority
-	)
-	val selectedPlaybackImageUrl = visiblePlaybackImageUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = currentMusicBrainzFallbackArtworkUrl,
-		priority = effectiveArtworkPriority
-	)
-	val selectedPlaybackImageCacheKey = if (selectedPlaybackImageUrl == null) {
-		null
-	} else {
-		currentMusicBrainzFallbackArtworkCacheKey
-	}
 	val viewModel = koinViewModel<NowPlayingViewModel> { parametersOf(player) }
 	val songIsStarred by viewModel.songIsStarred.collectAsStateWithLifecycle()
 	val songRating by viewModel.songRating.collectAsStateWithLifecycle()
@@ -266,9 +239,10 @@ fun NowPlayingScreen() {
 		Box(Modifier.fillMaxSize()) {
 			if (isDynamicBackground) {
 				BlendBackground(
-					coverArtId = selectedPlaybackCoverArtId,
-					imageUrl = selectedPlaybackImageUrl,
-					imageCacheKey = selectedPlaybackImageCacheKey,
+					coverArtId = currentPlaybackArtwork.coverArtId,
+					imageUrl = currentPlaybackArtwork.imageUrl,
+					imageCacheKey = currentPlaybackArtwork.imageCacheKey,
+					imageRequestHeaders = currentPlaybackArtwork.imageRequestHeaders,
 					isPaused = playerState.isPaused,
 					showBottomGradient = shouldShowNowPlayingBackgroundBottomGradient(
 						enabled = preferenceManager.nowPlayingBackgroundBottomGradient,

@@ -181,8 +181,8 @@ fun QueueScreenItem(
 					supportingContent = { MarqueeText(song.artistName) },
 					leadingContent = {
 						PlaybackSongCoverArt(
-							modifier = Modifier.size(48.dp),
 							song = song,
+							modifier = Modifier.size(48.dp),
 							shape = ContinuousRoundedRectangle(10.dp)
 						)
 					},

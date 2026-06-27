@@ -3,11 +3,15 @@ package paige.navic.ui.screens.collection.viewmodels
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -15,21 +19,19 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
-import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.repositories.AlbumRepository
-import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralAlbumTrackItem
 import paige.navic.domain.repositories.AurralRepository
@@ -57,15 +59,7 @@ class CollectionDetailViewModel(
 	private val preferenceManager: PreferenceManager,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
-	private val _collectionState = MutableStateFlow<UiState<DomainSongCollection>>(
-		runBlocking {
-			try {
-				UiState.Loading(repository.getLocalData(collectionId))
-			} catch (_: Exception) {
-				UiState.Loading()
-			}
-		}
-	)
+	private val _collectionState = MutableStateFlow<UiState<DomainSongCollection>>(UiState.Loading())
 	val collectionState: StateFlow<UiState<DomainSongCollection>> = _collectionState.asStateFlow()
 	@OptIn(ExperimentalCoroutinesApi::class)
 	val playlistSongIds = collectionState
@@ -90,13 +84,24 @@ class CollectionDetailViewModel(
 			initialValue = emptyList()
 		)
 
-	val otherAlbums = (_collectionState.value.data as? DomainAlbum)?.let { album ->
-		repository.getOtherAlbums(album.artistId, album.id)
-	}?.stateIn(
-		scope = viewModelScope,
-		started = SharingStarted.Lazily,
-		initialValue = emptyList()
-	) ?: MutableStateFlow(emptyList())
+	@OptIn(ExperimentalCoroutinesApi::class)
+	val otherAlbums = collectionState
+		.map { state -> state.data as? DomainAlbum }
+		.distinctUntilChanged { old, new ->
+			old?.artistId == new?.artistId && old?.id == new?.id
+		}
+		.flatMapLatest { album ->
+			if (album == null) {
+				flowOf(emptyList())
+			} else {
+				repository.getOtherAlbums(album.artistId, album.id)
+			}
+		}
+		.stateIn(
+			scope = viewModelScope,
+			started = SharingStarted.Lazily,
+			initialValue = emptyList()
+		)
 
 	private val _selectedSong = MutableStateFlow<DomainSong?>(null)
 	val selectedSong: StateFlow<DomainSong?> = _selectedSong.asStateFlow()
@@ -119,8 +124,9 @@ class CollectionDetailViewModel(
 	private val _selectedAlbumRating = MutableStateFlow(0)
 	val selectedAlbumRating = _selectedAlbumRating.asStateFlow()
 
-	private val _aurralAlbumRequests = MutableStateFlow<List<AurralAlbumRequest>>(emptyList())
-	val aurralAlbumRequests = _aurralAlbumRequests.asStateFlow()
+	val aurralAlbumRequests = aurralRepository.albumRequests
+	private val _aurralAlbumRequestFailures = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+	val aurralAlbumRequestFailures = _aurralAlbumRequestFailures.asSharedFlow()
 
 	private val _aurralAlbumRecoveryMatch = MutableStateFlow<AurralAlbumSearchItem?>(null)
 	val aurralAlbumRecoveryMatch = _aurralAlbumRecoveryMatch.asStateFlow()
@@ -140,9 +146,9 @@ class CollectionDetailViewModel(
 	private val integrationEnabledListenerRemovers = mutableListOf<() -> Unit>()
 
 	init {
+		loadLocalCollection()
 		integrationEnabledListenerRemovers += preferenceManager.addIntegrationEnabledChangeListener(IntegrationService.Aurral) { enabled ->
 			if (!enabled) {
-				_aurralAlbumRequests.value = emptyList()
 				_aurralAlbumRecoveryMatch.value = null
 				_aurralAlbumRecoveryRows.value = emptyList()
 				_aurralAlbumRecoveryLoading.value = false
@@ -153,6 +159,18 @@ class CollectionDetailViewModel(
 		viewModelScope.launch {
 			sessionManager.isLoggedIn.collect { if (it) refreshCollection(false) }
 		}
+		viewModelScope.launch(Dispatchers.IO) {
+			aurralRepository.artistStateRevision.collect { refreshAurralAcquisitionRequests() }
+		}
+	}
+
+	private fun loadLocalCollection() {
+		viewModelScope.launch(Dispatchers.IO) {
+			runCatching { repository.getLocalData(collectionId) }
+				.onSuccess { collection ->
+					_collectionState.value = UiState.Loading(collection)
+				}
+		}
 	}
 
 	override fun onCleared() {
@@ -161,9 +179,12 @@ class CollectionDetailViewModel(
 		super.onCleared()
 	}
 
+	private var refreshCollectionJob: Job? = null
+
 	fun refreshCollection(fullRefresh: Boolean) {
 		refreshAurralAcquisitionRequests()
-		viewModelScope.launch {
+		refreshCollectionJob?.cancel()
+		refreshCollectionJob = viewModelScope.launch(Dispatchers.IO) {
 			repository.getCollectionFlow(fullRefresh, collectionId).collect {
 				_collectionState.value = it
 				if (it.data is DomainAlbum) {
@@ -270,19 +291,14 @@ class CollectionDetailViewModel(
 	}
 
 	private fun refreshAurralAcquisitionRequests() {
-		viewModelScope.launch {
-			aurralRepository.getServiceStatus()
-				.onSuccess { status ->
-					_aurralAlbumRequests.value = status.acquisitionQueue.map { it.toAlbumRequest() }
-				}
-				.onFailure {
-					_aurralAlbumRequests.value = emptyList()
-				}
+		viewModelScope.launch(Dispatchers.IO) {
+			aurralRepository.refreshAlbumRequests()
+				.onFailure { error -> Logger.w("CollectionDetailViewModel", "Aurral acquisition queue refresh failed", error) }
 		}
 	}
 
 	fun selectSong(song: DomainSong) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedSong.value = song
 			_selectedSongIsStarred.value = songRepository.isSongStarred(song)
 			_selectedSongRating.value = songRepository.getSongRating(song)
@@ -290,7 +306,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun selectAlbum(album: DomainAlbum) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedAlbum.value = album
 			_selectedAlbumIsStarred.value = albumRepository.isAlbumStarred(album)
 			_selectedAlbumRating.value = albumRepository.getAlbumRating(album)
@@ -310,23 +326,31 @@ class CollectionDetailViewModel(
 
 	fun requestAurralRecoveryAlbum() {
 		val album = _aurralAlbumRecoveryMatch.value ?: return
-		viewModelScope.launch {
+		_aurralAlbumRecoveryMatch.value = album.copy(status = "requested")
+		_aurralAlbumRecoveryRows.value = _aurralAlbumRecoveryRows.value.withAurralRecoveryRequestStatus(
+			status = "requested",
+			ownershipStatus = AurralOwnershipStatus.Requested
+		)
+		viewModelScope.launch(Dispatchers.IO) {
 			aurralRepository.requestAlbum(album)
 				.onSuccess {
 					refreshAurralAcquisitionRequests()
 				}
 				.onFailure { error ->
-					_collectionState.value = UiState.Error(
-						error as? Exception ?: Exception(error),
-						_collectionState.value.data
+					_aurralAlbumRecoveryMatch.value = _aurralAlbumRecoveryMatch.value?.copy(status = "failed")
+					_aurralAlbumRecoveryRows.value = _aurralAlbumRecoveryRows.value.withAurralRecoveryRequestStatus(
+						status = "failed",
+						ownershipStatus = AurralOwnershipStatus.Failed
 					)
+					_aurralAlbumRequestFailures.emit(Unit)
+					Logger.w("CollectionDetailViewModel", "Aurral album request failed", error)
 				}
 		}
 	}
 
 	fun selectAurralRecoveryCandidate(candidate: AurralAlbumSearchItem) {
 		val album = _collectionState.value.data as? DomainAlbum ?: return
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_aurralAlbumRecoveryMatch.value = candidate
 			_aurralAlbumRecoveryCandidates.value = emptyList()
 			_aurralAlbumRecoveryRows.value = emptyList()
@@ -339,7 +363,7 @@ class CollectionDetailViewModel(
 	fun removeFromPlaylist() {
 		val song = _selectedSong.value ?: return
 		val songs = _collectionState.value.data?.songs ?: return
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			try {
 				sessionManager.api.updatePlaylist(
 					id = collectionId,
@@ -354,7 +378,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun starSelectedSong() {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			val selection = _selectedSong.value ?: return@launch
 			runCatching {
 				songRepository.starSong(selection)
@@ -365,7 +389,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun unstarSelectedSong() {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			val selection = _selectedSong.value ?: return@launch
 			runCatching {
 				songRepository.unstarSong(selection)
@@ -376,7 +400,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun rateSelectedSong(rating: Int) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			val selection = _selectedSong.value ?: return@launch
 			runCatching {
 				songRepository.rateSong(selection, rating)
@@ -386,7 +410,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun rateAlbum(rating: Int) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			(_collectionState.value.data as? DomainAlbum)?.let { album ->
 				albumRepository.rateAlbum(album, rating)
 				_rating.value = rating
@@ -395,7 +419,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun starAlbum(starred: Boolean) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			runCatching {
 				val collection = _collectionState.value.data ?: return@launch
 				if (collection !is DomainAlbum) return@launch
@@ -410,7 +434,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun rateSelectedAlbum(rating: Int) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedAlbum.value?.let { album ->
 				albumRepository.rateAlbum(album, rating)
 				_selectedAlbumRating.value = rating
@@ -419,7 +443,7 @@ class CollectionDetailViewModel(
 	}
 
 	fun starSelectedAlbum(starred: Boolean) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			runCatching {
 				val collection = _selectedAlbum.value ?: return@launch
 				if (starred) {
@@ -446,7 +470,7 @@ class CollectionDetailViewModel(
 
 	fun downloadAll() {
 		val collection = _collectionState.value.data ?: return
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			downloadManager.downloadCollection(collection)
 		}
 	}
@@ -461,14 +485,6 @@ class CollectionDetailViewModel(
 	}
 }
 
-private fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(
-	albumMbid = albumMbid,
-	albumName = albumName,
-	artistMbid = artistMbid,
-	artistName = artistName,
-	status = status
-)
-
 private fun AurralAlbumTrackItem.toRecoveryTrack() = AurralAlbumRecoveryTrack(
 	id = id,
 	title = title,
@@ -481,3 +497,24 @@ private fun AurralAlbumTrackItem.toRecoveryTrack() = AurralAlbumRecoveryTrack(
 	status = status,
 	requested = requested
 )
+
+private fun List<AurralAlbumRecoveryTrackRow>.withAurralRecoveryRequestStatus(
+	status: String,
+	ownershipStatus: AurralOwnershipStatus
+): List<AurralAlbumRecoveryTrackRow> =
+	map { row ->
+		when (row.ownershipStatus) {
+			AurralOwnershipStatus.Missing,
+			AurralOwnershipStatus.Failed,
+			AurralOwnershipStatus.Requested,
+			AurralOwnershipStatus.Processing -> row.copy(
+				track = row.track.copy(
+					status = status,
+					requested = ownershipStatus == AurralOwnershipStatus.Requested
+				),
+				ownershipStatus = ownershipStatus
+			)
+			AurralOwnershipStatus.Owned,
+			AurralOwnershipStatus.Partial -> row
+		}
+	}

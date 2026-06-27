@@ -6,8 +6,10 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.SongDao
@@ -102,6 +104,43 @@ class SongRepository(
 			emit(UiState.Success(data = localData))
 		}
 	}.flowOn(Dispatchers.IO)
+
+	/**
+	 * Reactive song view combining songs + downloads + albums (all reactive Room flows),
+	 * sorted via the same [sortedByListType] as [getLocalData]. Mapped per emission and
+	 * shareable across collectors. QuickPicks prefs are re-read on each emission (fresh
+	 * after any data change; note: a quickPicks-only setting change without a data change
+	 * is stale until the next Room emission or pull-to-refresh).
+	 */
+	fun songsFlow(
+		listType: DomainSongListType,
+		reversed: Boolean,
+		artistId: String? = null
+	): Flow<ImmutableList<DomainSong>> =
+		combine(
+			songDao.getAllSongsFlow().map { it.map { song -> song.toDomainModel() } },
+			downloadManager.allDownloads,
+			albumDao.getAllAlbums().map { albums -> albums.map { it.toDomainModel() } }
+		) { songs, downloads, albums ->
+			if (listType == DomainSongListType.QuickPicks && !preferenceManager.quickPicksEnabled) {
+				emptyList()
+			} else {
+				val filtered = if (artistId != null) songs.filter { it.artistId == artistId } else songs
+				filtered.toImmutableList().sortedByListType(
+					listType,
+					downloads = downloads,
+					albums = albums,
+					quickPicksEnabled = preferenceManager.quickPicksEnabled,
+					quickPicksLimit = preferenceManager.quickPicksLimit,
+					quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
+				)
+			}
+		}.map { songs -> (if (reversed) songs.reversed() else songs).toImmutableList() }
+
+	/** Background network sync; writes to Room, which [songsFlow] observes. */
+	suspend fun syncSongs() {
+		dbRepository.syncLibrarySongs().getOrThrow()
+	}
 
 	suspend fun isSongStarred(song: DomainSong) = songDao.isSongStarred(song.id)
 	suspend fun getSongRating(song: DomainSong) = songDao.getSongRating(song.id) ?: 0

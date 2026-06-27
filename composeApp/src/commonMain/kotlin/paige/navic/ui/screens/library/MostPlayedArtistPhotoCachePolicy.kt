@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
+import paige.navic.domain.models.isNavidromeArtworkUrl
 
 @Immutable
 data class MostPlayedArtistPhotoCacheEntry(
@@ -120,15 +121,6 @@ private fun String.isAbsoluteHttpUrl(): Boolean =
 
 private fun String.isExternalArtistPhotoUrl(): Boolean =
 	isAbsoluteHttpUrl() && !isNavidromeArtworkUrl()
-
-private fun String.isNavidromeArtworkUrl(): Boolean {
-	val normalized = lowercase()
-	return "navidrome" in normalized ||
-		"/rest/getcoverart" in normalized ||
-		"/rest/getartistimage" in normalized ||
-		"/getcoverart" in normalized ||
-		"/getartistimage" in normalized
-}
 
 private fun String.artistPhotoCacheSourceRank(): Int =
 	when (trim().lowercase()) {

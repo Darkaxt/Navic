@@ -4,10 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -31,9 +35,33 @@ class SongListViewModel(
 	private val sessionManager: SessionManager,
 	connectivityManager: ConnectivityManager
 ) : ViewModel() {
-	private val _songsState =
-		MutableStateFlow<UiState<ImmutableList<DomainSong>>>(UiState.Loading())
-	val songsState = _songsState.asStateFlow()
+	private val _selectedSorting = MutableStateFlow(initialListType)
+	val selectedSorting = _selectedSorting.asStateFlow()
+
+	private val _selectedReversed = MutableStateFlow(false)
+	val selectedReversed = _selectedReversed.asStateFlow()
+
+	private val _isRefreshing = MutableStateFlow(false)
+	private val _refreshError = MutableStateFlow<Exception?>(null)
+
+	@OptIn(ExperimentalCoroutinesApi::class)
+	val songsState: StateFlow<UiState<ImmutableList<DomainSong>>> =
+		combine(_selectedSorting, _selectedReversed) { sorting, reversed -> sorting to reversed }
+			.distinctUntilChanged()
+			.flatMapLatest { (sorting, reversed) ->
+				repository.songsFlow(sorting, reversed, artistId)
+			}
+			.combine(_refreshError) { songs, error ->
+				when (error) {
+					null -> UiState.Success(songs)
+					else -> UiState.Error(error, songs)
+				}
+			}
+			.combine(_isRefreshing) { state, refreshing ->
+				if (refreshing) UiState.Loading(state.data) else state
+			}
+			.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState.Loading())
+
 	@OptIn(ExperimentalCoroutinesApi::class)
 	val playlistSongIds = songsState
 		.map { state -> state.data.orEmpty().map { it.id }.distinct() }
@@ -61,22 +89,10 @@ class SongListViewModel(
 	private val _selectedSongRating = MutableStateFlow(0)
 	val selectedSongRating = _selectedSongRating.asStateFlow()
 
-	private val _selectedSorting = MutableStateFlow(initialListType)
-	val selectedSorting = _selectedSorting.asStateFlow()
-
-	private val _selectedReversed = MutableStateFlow(false)
-	val selectedReversed = _selectedReversed.asStateFlow()
-
 	val isOnline = connectivityManager.isOnline
 
-	init {
-		viewModelScope.launch {
-			sessionManager.isLoggedIn.collect { if (it) refreshSongs(false) }
-		}
-	}
-
 	fun selectSong(song: DomainSong) {
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_selectedSong.value = song
 			_starred.value = repository.isSongStarred(song)
 			_selectedSongRating.value = repository.getSongRating(song)
@@ -88,16 +104,14 @@ class SongListViewModel(
 	}
 
 	fun refreshSongs(fullRefresh: Boolean) {
-		viewModelScope.launch {
-			repository.getSongsFlow(
-				fullRefresh,
-				_selectedSorting.value,
-				_selectedReversed.value,
-				artistId
-			).collect {
-				_songsState.value = it
+		if (fullRefresh) {
+			viewModelScope.launch {
+				_isRefreshing.value = true
+				_refreshError.value = runCatching { repository.syncSongs() }.exceptionOrNull() as? Exception
+				_isRefreshing.value = false
 			}
 		}
+		// Non-fullRefresh is a no-op: songsState serves the reactive cache.
 	}
 
 	fun starSong(starred: Boolean) {
@@ -127,16 +141,14 @@ class SongListViewModel(
 
 	fun setSorting(sorting: DomainSongListType) {
 		_selectedSorting.value = sorting
-		refreshSongs(false)
 	}
 
 	fun setReversed(reversed: Boolean) {
 		_selectedReversed.value = reversed
-		refreshSongs(false)
 	}
 
 	fun clearError() {
-		_songsState.value = UiState.Success(_songsState.value.data ?: persistentListOf())
+		_refreshError.value = null
 	}
 
 	fun downloadSong(song: DomainSong) {

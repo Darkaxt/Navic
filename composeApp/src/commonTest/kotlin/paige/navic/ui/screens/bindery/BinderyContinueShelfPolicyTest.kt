@@ -21,6 +21,14 @@ import paige.navic.ui.navigation.Screen
 
 class BinderyContinueShelfPolicyTest {
 	@Test
+	fun continueListeningCoverAspectRatioUsesSquareUnlessLoadedImageIsClearlyPortrait() {
+		assertEquals(1f, binderyContinueListeningCoverAspectRatio(width = null, height = null))
+		assertEquals(1f, binderyContinueListeningCoverAspectRatio(width = 1200, height = 1200))
+		assertEquals(1f, binderyContinueListeningCoverAspectRatio(width = 1200, height = 900))
+		assertEquals(2f / 3f, binderyContinueListeningCoverAspectRatio(width = 900, height = 1400))
+	}
+
+	@Test
 	fun continueListeningItemsUseCachedAudiobookDetailAndProgressRoute() {
 		val progressJson = binderyAudiobookProgressJsonWithUpdate(
 			json = "",

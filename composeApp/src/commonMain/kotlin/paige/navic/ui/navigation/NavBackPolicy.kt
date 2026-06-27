@@ -53,8 +53,7 @@ fun shouldShowRootBackForScreen(screen: Screen?): Boolean =
 	screen != null && fallbackRootDestinationFor(screen) != null
 
 fun navBackStackAfterTabSelection(backStack: List<NavKey>, destination: Screen): List<NavKey> {
-	if (backStack.lastOrNull() == destination) return backStack
-	return backStack + destination
+	return listOf(destination)
 }
 
 fun MutableList<NavKey>.performNavicBack(): Boolean =

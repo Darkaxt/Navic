@@ -60,8 +60,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.notice_failed_download
+import navic.composeapp.generated.resources.notice_failed_to_play_song
+import navic.composeapp.generated.resources.notice_song_not_found
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.dao.AlbumDao
@@ -84,6 +89,7 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.PlaybackErrorNotice
 import paige.navic.domain.models.collectionShufflePlaybackPlan
 import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.audioReverbPresetValue
@@ -94,6 +100,7 @@ import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
 import paige.navic.domain.models.playbackVolumeMultiplier
+import paige.navic.domain.models.playbackErrorNotice
 import paige.navic.domain.models.mediaNotificationActions
 import paige.navic.domain.models.replayGainLoudnessBoostMillibels
 import paige.navic.domain.models.replayGainVolumeMultiplier
@@ -136,6 +143,7 @@ class AndroidMediaPlayerViewModel(
 	private val sessionManager: SessionManager,
 	private val platformContext: CoilPlatformContext,
 	private val songRepository: SongRepository,
+	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val playbackOriginRepository: PlaybackOriginRepository,
 	private val audioPlaybackArbitrator: AudioPlaybackArbitrator,
@@ -149,6 +157,7 @@ class AndroidMediaPlayerViewModel(
 ) {
 	private var controller: MediaController? = null
 	private var controllerFuture: ListenableFuture<MediaController>? = null
+
 	private var loadingCollectionId: String? = null
 
 	private var pendingSyncState: PlayerUiState? = null
@@ -156,19 +165,21 @@ class AndroidMediaPlayerViewModel(
 	private var pendingSourceErrorRecovery: PendingSourceErrorRecovery? = null
 	private var latestDownloadsById: Map<String, DownloadEntity> = emptyMap()
 	private var nowPlayingVideoClipAudioActive = false
+	private val playbackArtworkResolver = AndroidPlaybackArtworkResolver(
+		preferenceManager = preferenceManager,
+		musicBrainzArtworkRepository = musicBrainzArtworkRepository
+	)
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
 		downloadManager = downloadManager,
-		preferenceManager = preferenceManager,
-		musicBrainzArtworkRepository = musicBrainzArtworkRepository,
 		platformContext = platformContext,
+		playbackArtworkForSong = playbackArtworkResolver::resolve,
 		streamUriForSongId = ::getStreamUrl
 	)
 	private val nowPlayingBroadcaster = AndroidNowPlayingBroadcaster(
 		application = application,
 		sessionManager = sessionManager,
-		preferenceManager = preferenceManager,
-		musicBrainzArtworkRepository = musicBrainzArtworkRepository
+		playbackArtworkForSong = playbackArtworkResolver::resolve
 	)
 	private val playbackAssetPrefetcher = AndroidPlaybackAssetPrefetcher(
 		scope = viewModelScope,
@@ -207,8 +218,23 @@ class AndroidMediaPlayerViewModel(
 	)
 
 	init {
+		observePlaybackArtworkCache()
 		connectToService()
 		observeAudioPlaybackClaims()
+	}
+
+	private fun observePlaybackArtworkCache() {
+		viewModelScope.launch {
+			artistPhotoCacheDao.observeArtistPhotoCache().collectLatest { entries ->
+				playbackArtworkResolver.updateArtistPhotoCache(entries)
+				val state = _uiState.value
+				nowPlayingBroadcaster.send(
+					currentSong = state.currentSong,
+					isPlaying = !state.isPaused,
+					force = true
+				)
+			}
+		}
 	}
 
 	private fun observeAudioPlaybackClaims() {
@@ -323,6 +349,7 @@ class AndroidMediaPlayerViewModel(
 						if (recoverCurrentMediaItemFromDownloadedFile(this@apply)) {
 							return
 						}
+						notifyPlaybackError(error)
 						val shouldSkip = shouldSkipMediaAfterPlaybackError(
 							skipMediaOnError = preferenceManager.skipMediaOnError,
 							hasNextMediaItem = hasNextMediaItem()
@@ -444,6 +471,32 @@ class AndroidMediaPlayerViewModel(
 				}
 			}
 		}
+	}
+
+	private fun notifyPlaybackError(error: PlaybackException) {
+		val notice = playbackErrorNotice(
+			errorCodeName = error.errorCodeName,
+			message = error.message,
+			details = error.throwableMessages()
+		)
+		snackBarManager.notify(
+			when (notice) {
+				PlaybackErrorNotice.SongNotFound -> Res.string.notice_song_not_found
+				PlaybackErrorNotice.FailedDownload -> Res.string.notice_failed_download
+				PlaybackErrorNotice.FailedToPlaySong -> Res.string.notice_failed_to_play_song
+			}
+		)
+	}
+
+	private fun Throwable.throwableMessages(): List<String> {
+		val messages = mutableListOf<String>()
+		val seen = mutableSetOf<Throwable>()
+		var current: Throwable? = this
+		while (current != null && seen.add(current)) {
+			current.message?.takeIf { it.isNotBlank() }?.let(messages::add)
+			current = current.cause
+		}
+		return messages
 	}
 
 	override fun refreshAudioEffects() {

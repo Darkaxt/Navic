@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -29,8 +30,11 @@ class GenreListViewModel(
 		}
 	}
 
+	private var refreshGenresJob: Job? = null
+
 	fun refreshGenres(fullRefresh: Boolean) {
-		viewModelScope.launch {
+		refreshGenresJob?.cancel()
+		refreshGenresJob = viewModelScope.launch {
 			repository.getGenresFlow(fullRefresh).collect {
 				_genresState.value = it
 			}

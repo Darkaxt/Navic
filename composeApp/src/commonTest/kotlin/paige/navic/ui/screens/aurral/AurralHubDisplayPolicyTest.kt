@@ -906,6 +906,35 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun localArtistAurralIdentityCandidatesMergeDiscoveryImageIntoMatchingLocalMbid() {
+		val localArtist = DomainArtist(
+			id = "local-iu",
+			name = "IU",
+			musicBrainzId = "iu-mbid"
+		)
+		val discovery = AurralDiscoverySummary(
+			basedOn = listOf(
+				AurralDiscoverArtist(
+					id = "IU-MBID",
+					name = "IU",
+					imageUrl = "https://aurral.example.com/iu.webp"
+				)
+			)
+		)
+
+		assertEquals(
+			listOf(
+				AurralArtistIdentity(
+					mbid = "iu-mbid",
+					name = "IU",
+					imageUrl = "https://aurral.example.com/iu.webp"
+				)
+			),
+			aurralArtistIdentityCandidatesForLocalArtist(discovery, localArtist)
+		)
+	}
+
+	@Test
 	fun searchArtistsDedupeByArtistIdAndCapRows() {
 		assertEquals(
 			listOf("artist-1", "artist-2"),
@@ -998,7 +1027,7 @@ class AurralHubDisplayPolicyTest {
 			)
 		)
 		assertEquals(
-			AurralOwnershipStatus.Partial,
+			AurralOwnershipStatus.Processing,
 			aurralSearchAlbumOwnershipStatus(
 				albumSearchItem(
 					id = "requested",
@@ -1018,7 +1047,7 @@ class AurralHubDisplayPolicyTest {
 			)
 		)
 		assertEquals(
-			AurralOwnershipStatus.Partial,
+			AurralOwnershipStatus.Requested,
 			aurralMissingAlbumOwnershipStatus(
 				missingAlbumRow(
 					title = "Requested Missing",
@@ -1047,7 +1076,7 @@ class AurralHubDisplayPolicyTest {
 			)
 		)
 		assertEquals(
-			AurralOwnershipStatus.Partial,
+			AurralOwnershipStatus.Requested,
 			aurralPreviewTrackOwnershipStatus(
 				AurralPreviewTrack(
 					id = "requested-track",

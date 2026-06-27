@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -32,6 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.carousel.CarouselItemScope
 import androidx.compose.runtime.Composable
@@ -52,12 +54,14 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
@@ -73,13 +77,16 @@ import navic.composeapp.generated.resources.info_aurral_monitor_waiting
 import navic.composeapp.generated.resources.info_aurral_unmonitor_waiting
 import navic.composeapp.generated.resources.info_bulk_download_warning
 import navic.composeapp.generated.resources.info_stop_monitoring_artist_confirmation
+import navic.composeapp.generated.resources.notice_aurral_album_requested
 import navic.composeapp.generated.resources.option_sort_frequent
-import navic.composeapp.generated.resources.title_albums
 import navic.composeapp.generated.resources.title_aurral_recommendations
 import navic.composeapp.generated.resources.title_bulk_download
 import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_lastfm_top_tracks
 import navic.composeapp.generated.resources.title_similar_artists
+import navic.composeapp.generated.resources.title_aurral_missing_albums
+import navic.composeapp.generated.resources.title_aurral_owned_partial_albums
+import navic.composeapp.generated.resources.title_aurral_preview_tracks
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -91,13 +98,15 @@ import paige.navic.LocalSnackbarState
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.AurralArtistAlbumRow
-import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralArtistExternalLink
+import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
 import paige.navic.domain.models.AurralOwnershipStatus
+import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
-import paige.navic.domain.models.aurralArtistAlbumRows
+import paige.navic.domain.models.aurralPreviewTrackOwnershipStatus
+import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
@@ -112,13 +121,15 @@ import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.ErrorSnackbar
-import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberAurralFirstArtistArtworkUiState
+import paige.navic.ui.components.common.rememberResolvedArtworkColorScheme
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
+import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.dialogs.FormDialog
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
@@ -129,14 +140,15 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.aurral.AurralConfirmationQueueSnackbar
 import paige.navic.ui.screens.aurral.AurralRecommendedAlbumItem
 import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
-import paige.navic.ui.screens.aurral.aurralMissingAlbumOwnershipStatus
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
+import paige.navic.ui.screens.artist.components.AurralPreviewTracks
 import paige.navic.ui.screens.artist.viewmodels.AurralArtistActionFeedback
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.theme.NavicTheme
 import paige.navic.icons.Icons
 import kotlin.time.Duration
 
@@ -211,12 +223,49 @@ fun ArtistDetailScreen(
 	}?.status == AurralConfirmationStatus.Pending
 	val artistIntegrationIndicators = artistData?.let { data ->
 		integrationLoadingIndicators(
-			aurralLoading = data.aurralLoading || monitoringInAurral || artistAurralMonitorPending,
+			aurralLoading = data.aurralLoading ||
+				data.aurralProfileLoading ||
+				data.aurralOwnershipLoading ||
+				data.aurralPreviewTracksLoading ||
+				data.aurralSimilarArtistsLoading ||
+				data.aurralRequestsLoading ||
+				monitoringInAurral ||
+				artistAurralMonitorPending,
 			lastFmLoading = data.lastFmLoading
 		)
 	}.orEmpty()
+	val artistProfileState = remember(
+		artistData,
+		preferenceManager.aurralEnabled,
+		monitoringInAurral,
+		artistAurralMonitorPending
+	) {
+		artistData?.let { state ->
+			aurralArtistProfileUiState(
+				state = state,
+				aurralEnabled = preferenceManager.aurralEnabled,
+				monitoringInAurral = monitoringInAurral,
+				monitorPendingInAurral = artistAurralMonitorPending
+			)
+		}
+	}
+	val headingArtwork = rememberAurralFirstArtistArtworkUiState(
+		artistId = artistData?.artist?.id,
+		artistMusicBrainzId = artistData?.artist?.musicBrainzId,
+		artistName = artistProfileState?.displayName ?: artistData?.artist?.name,
+		serverCoverArtId = artistData?.let { state ->
+			state.artist.coverArtId.takeUnless {
+				preferenceManager.aurralEnabled && state.aurralProfileLoading
+			}
+		},
+		externalArtistImageUrl = artistData?.aurralArtistImageUrl ?: artistData?.artist?.artistImageUrl,
+		externalArtistCacheKey = artistData?.aurralArtistImageUrl ?: artistData?.artist?.artistImageUrl
+	)
+	val artistColorScheme = rememberResolvedArtworkColorScheme(playbackArtwork = headingArtwork)
 	val aurralFeedback = artistData?.aurralFeedback
 	val aurralFeedbackMessage = when (aurralFeedback) {
+		AurralArtistActionFeedback.AlbumRequested ->
+			stringResource(Res.string.notice_aurral_album_requested)
 		AurralArtistActionFeedback.MonitoringQueued ->
 			stringResource(Res.string.info_aurral_monitor_waiting)
 		AurralArtistActionFeedback.UnmonitoringQueued ->
@@ -229,10 +278,12 @@ fun ArtistDetailScreen(
 	}
 	LaunchedEffect(aurralFeedback) {
 		val message = aurralFeedbackMessage ?: return@LaunchedEffect
+		snackbarState.currentSnackbarData?.dismiss()
 		snackbarState.showSnackbar(message)
 		viewModel.clearAurralFeedback()
 	}
 
+	NavicTheme(artistColorScheme) {
 	ErrorSnackbar(
 		error = artistData?.aurralError?.let(::Exception),
 		onClearError = { viewModel.clearAurralError() }
@@ -287,30 +338,44 @@ fun ArtistDetailScreen(
 
 					is UiState.Success -> {
 						val state = currentArtistState.data
-					val albumRows = remember(state.albums, state.aurralMissingAlbums) {
-						aurralArtistAlbumRows(
-							localAlbums = state.albums,
-							missingAlbums = state.aurralMissingAlbums
-						).toImmutableList()
+						val aurralProfileState = checkNotNull(artistProfileState)
+					val ownedOrPartialRows = remember(state.aurralOwnedOrPartialAlbums, state.albums) {
+						state.aurralOwnedOrPartialAlbums.ifEmpty {
+							state.albums.map { album ->
+								AurralArtistOwnershipAlbumRow(
+									releaseGroup = null,
+									localAlbum = album,
+									title = album.name,
+									year = album.year?.toString(),
+									coverUrl = null,
+									requestStatus = null,
+									requestable = false,
+									ownershipStatus = AurralOwnershipStatus.Owned,
+									localSongs = album.songs
+								)
+							}
+						}.toImmutableList()
 					}
-					val headingImageUrl = artistDetailHeadingImageUrl(
-						artist = state.artist,
-						verifiedExternalImageUrl = state.aurralArtistImageUrl,
-						artistArtworkPriority = preferenceManager.artistArtworkPriority,
-						externalArtworkEnabled = preferenceManager.aurralEnabled
-					)
-					val headingImageRequestHeaders = if (
-						headingImageUrl != null &&
-						headingImageUrl == state.aurralArtistImageUrl?.trim()
+					val missingReleaseGroupRows = remember(state.aurralMissingReleaseGroups) {
+						state.aurralMissingReleaseGroups.toImmutableList()
+					}
+					val previewTrackOwnershipStatuses = remember(
+						state.aurralPreviewTracks,
+						ownedOrPartialRows,
+						missingReleaseGroupRows
 					) {
-						aurralRequestHeadersForUrl(
-							baseUrl = preferenceManager.aurralBaseUrl,
-							imageUrl = headingImageUrl,
-							requestHeaders = preferenceManager.aurralRequestHeadersMap()
-						)
-					} else {
-						emptyMap()
+						state.aurralPreviewTracks.associate { track ->
+							track.id to aurralPreviewTrackOwnershipStatus(
+								track = track,
+								fallbackAlbumStatus = aurralPreviewTrackAlbumOwnershipStatus(
+									track = track,
+									rows = ownedOrPartialRows + missingReleaseGroupRows
+								)
+							)
+						}.toImmutableMap()
 					}
+					val displayArtistName = aurralProfileState.displayName
+					val displayBiography = aurralProfileState.displayBio
 					BulkDownloadDialog(
 						title = stringResource(Res.string.title_bulk_download),
 						message = stringResource(Res.string.info_bulk_download_warning, state.artist.name),
@@ -332,18 +397,22 @@ fun ArtistDetailScreen(
 						horizontalAlignment = Alignment.CenterHorizontally
 					) {
 						ArtistDetailScreenHeading(
-							artistName = state.artist.name,
-							coverArtId = artistDetailHeadingCoverArtId(
-								artist = state.artist,
-								externalArtworkEnabled = preferenceManager.aurralEnabled
-							),
-							imageUrl = headingImageUrl,
-							imageRequestHeaders = headingImageRequestHeaders,
+							artistName = displayArtistName,
+							coverArtId = headingArtwork.coverArtId,
+							imageUrl = headingArtwork.imageUrl,
+							imageRequestHeaders = headingArtwork.imageRequestHeaders,
 							imageDiagnosticLabel = "artist-detail-${state.artist.id}",
-							subtitle = state.artist.biography,
+							subtitle = displayBiography,
 							innerPadding = contentPadding,
 							scrolled = scrolled,
-							artworkResolving = state.aurralLoading
+							artworkResolving = state.aurralProfileLoading
+						)
+						AurralArtistProfileMetadata(
+							genres = state.aurralArtistGenres,
+							externalLinks = state.aurralArtistExternalLinks,
+							modifier = Modifier
+								.fillMaxWidth()
+								.padding(horizontal = 20.dp)
 						)
 						ArtistActionButtons(
 							onPlay = { viewModel.playArtistAlbums(player) },
@@ -363,22 +432,20 @@ fun ArtistDetailScreen(
 							},
 							downloadStatus = downloadStatus,
 							playEnabled = state.albums.isNotEmpty(),
-							onMonitorInAurral = if (preferenceManager.aurralEnabled &&
-								!(state.aurralArtistMbid ?: state.artist.musicBrainzId).isNullOrBlank()
+							onMonitorInAurral = if (
+								shouldShowAurralMonitorAction(aurralProfileState)
 							) {
 								{
 									when (state.aurralMonitored) {
 										true -> stopMonitoringDialogShown = true
 										false -> viewModel.monitorArtistInAurral()
-										null -> Unit
+										null -> viewModel.monitorArtistInAurral()
 									}
 								}
 							} else {
 								null
 							},
-							monitorInAurralEnabled = isAurralMonitorActionVerified(
-								aurralMonitorActionState(state.aurralMonitored)
-							),
+							monitorInAurralEnabled = isAurralMonitorActionEnabled(aurralProfileState),
 							monitoringInAurral = monitoringInAurral,
 							monitorPendingInAurral = artistAurralMonitorPending,
 							monitoredInAurral = state.aurralMonitored,
@@ -445,6 +512,8 @@ fun ArtistDetailScreen(
 											SongRow(
 												modifier = Modifier.weight(1f),
 												song = song,
+												isCurrentTrack = playerState.currentSong?.id == song.id,
+												isPlaying = !playerState.isPaused,
 												selected = selection == song,
 												onClick = {
 													if (playerState.currentSong?.id != song.id) {
@@ -507,6 +576,8 @@ fun ArtistDetailScreen(
 											SongRow(
 												modifier = Modifier.weight(1f),
 												song = song,
+												isCurrentTrack = playerState.currentSong?.id == song.id,
+												isPlaying = !playerState.isPaused,
 												selected = selection == song,
 												onClick = {
 													if (playerState.currentSong?.id != song.id) {
@@ -555,115 +626,171 @@ fun ArtistDetailScreen(
 									}
 								)
 							}
+							if (aurralProfileState.ownership == AurralArtistSectionUiState.Loading &&
+								ownedOrPartialRows.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_aurral_owned_partial_albums)
+								)
+							}
 							ArtCarousel(
-								stringResource(Res.string.title_albums),
-								albumRows
+								stringResource(Res.string.title_aurral_owned_partial_albums),
+								ownedOrPartialRows
 							) { row ->
-								when (row) {
-									is AurralArtistAlbumRow.Local -> {
-										val album = row.album
-										val albumDownloadStatus by downloadManager
-											.getCollectionDownloadStatus(album.songs.map { it.id })
-											.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
-										ArtCarouselItem(
-											coverArtId = album.coverArtId,
-											title = album.name,
-											subtitle = album.year?.toString(),
-											acquisitionProgress = aurralAlbumAcquisitionProgress(
+								val album = row.localAlbum
+								if (album != null) {
+									val albumDownloadStatus = remember(album.songs, allDownloads) {
+										collectionDownloadStatus(
+											songIds = album.songs.map { it.id },
+											downloads = allDownloads
+										)
+									}
+									val coverUrl = row.coverUrl
+									val imageRequestHeaders = aurralRequestHeadersForUrl(
+										baseUrl = preferenceManager.aurralBaseUrl,
+										imageUrl = coverUrl,
+										requestHeaders = preferenceManager.aurralRequestHeadersMap()
+									)
+									ArtCarouselItem(
+										coverArtId = album.coverArtId,
+										imageUrl = coverUrl,
+										imageCacheKey = row.releaseGroup?.id?.let { "aurral-release-group-$it" },
+										imageRequestHeaders = imageRequestHeaders,
+										title = row.title,
+										subtitle = row.year ?: album.year?.toString(),
+										acquisitionProgress = row.acquisitionProgress
+											?: aurralAlbumAcquisitionProgress(
 												album = album,
 												requests = state.aurralAlbumRequests
 											),
-											ownershipStatus = AurralOwnershipStatus.Owned,
-											contentDescription = null,
-											onSelect = { viewModel.selectAlbum(album) },
-											onClick = dropUnlessResumed {
-												backStack.add(Screen.CollectionDetail(album.id, "artist"))
-											}
-										)
-										if (selectedAlbum == album) {
-											CollectionSheet(
-												onDismissRequest = { viewModel.clearAlbumSelection() },
-												collection = album,
-												starred = selectedAlbumIsStarred,
-												onShare = { shareId = album.id },
-												onPlayNext = { player.playNext(album) },
-												onAddToQueue = { player.addToQueue(album) },
-												onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
-												onAddAllToPlaylist = { playlistDialogShown = true },
-												downloadStatus = albumDownloadStatus,
-												onDownloadAll = {
-													scope.launch {
-														downloadManager.downloadCollection(album)
-													}
-												},
-												onCancelDownloadAll = {
-													scope.launch {
-														downloadManager.cancelCollectionDownload(album)
-													}
-												},
-												onDeleteDownloadAll = {
-													scope.launch {
-														downloadManager.deleteDownloadedCollection(album)
-													}
-												},
-												rating = selectedAlbumRating,
-												onSetRating = { viewModel.rateSelectedAlbum(it) }
-											)
+										ownershipStatus = row.ownershipStatus,
+										contentDescription = null,
+										onSelect = { viewModel.selectAlbum(album) },
+										onClick = dropUnlessResumed {
+											backStack.add(Screen.CollectionDetail(album.id, "artist"))
 										}
-									}
-
-									is AurralArtistAlbumRow.Missing -> {
-										val missingAlbum = row.album
-										val coverUrl = missingAlbum.coverUrl
-										val imageRequestHeaders = aurralRequestHeadersForUrl(
-											baseUrl = preferenceManager.aurralBaseUrl,
-											imageUrl = coverUrl,
-											requestHeaders = preferenceManager.aurralRequestHeadersMap()
+									)
+									if (selectedAlbum == album) {
+										CollectionSheet(
+											onDismissRequest = { viewModel.clearAlbumSelection() },
+											collection = album,
+											starred = selectedAlbumIsStarred,
+											onShare = { shareId = album.id },
+											onPlayNext = { player.playNext(album) },
+											onAddToQueue = { player.addToQueue(album) },
+											onSetStarred = { viewModel.starAlbum(!selectedAlbumIsStarred) },
+											onAddAllToPlaylist = { playlistDialogShown = true },
+											downloadStatus = albumDownloadStatus,
+											onDownloadAll = {
+												scope.launch {
+													downloadManager.downloadCollection(album)
+												}
+											},
+											onCancelDownloadAll = {
+												scope.launch {
+													downloadManager.cancelCollectionDownload(album)
+												}
+											},
+											onDeleteDownloadAll = {
+												scope.launch {
+													downloadManager.deleteDownloadedCollection(album)
+												}
+											},
+											rating = selectedAlbumRating,
+											onSetRating = { viewModel.rateSelectedAlbum(it) }
 										)
-										AurralMissingAlbumItem(
-											row = missingAlbum,
-											coverUrl = coverUrl,
-											imageRequestHeaders = imageRequestHeaders,
-											grayscale = true,
-											onClick = {
+									}
+								} else {
+									AurralOwnershipAlbumItem(
+										row = row,
+										imageRequestHeaders = aurralRequestHeadersForUrl(
+											baseUrl = preferenceManager.aurralBaseUrl,
+											imageUrl = row.coverUrl,
+											requestHeaders = preferenceManager.aurralRequestHeadersMap()
+										),
+										grayscale = row.ownershipStatus == AurralOwnershipStatus.Missing ||
+											row.ownershipStatus == AurralOwnershipStatus.Failed,
+										onClick = {
+											row.releaseGroup?.let { releaseGroup ->
 												backStack.add(
 													Screen.AurralMissingAlbum(
 														artistId = state.artist.id,
-														artistName = state.artist.name,
-														artistMbid = state.artist.musicBrainzId.orEmpty(),
-														releaseGroupId = missingAlbum.releaseGroup.id,
-														title = missingAlbum.title,
-														year = missingAlbum.year,
-														primaryType = missingAlbum.releaseGroup.primaryType,
-														coverUrl = coverUrl,
-														requestStatus = missingAlbum.requestStatus
+														artistName = displayArtistName,
+														artistMbid = state.aurralArtistMbid
+															?: state.artist.musicBrainzId.orEmpty(),
+														releaseGroupId = releaseGroup.id,
+														title = row.title,
+														year = row.year,
+														primaryType = releaseGroup.primaryType,
+														coverUrl = row.coverUrl,
+														requestStatus = row.requestStatus
 													)
 												)
 											}
-										)
+										}
+									)
 									}
-								}
 							}
-							if (state.aurralLoading) {
-								Text(
-									text = stringResource(Res.string.info_aurral_loading_catalog),
-									style = MaterialTheme.typography.bodySmall,
-									color = MaterialTheme.colorScheme.onSurfaceVariant,
-									modifier = Modifier
-										.fillMaxWidth()
-										.padding(horizontal = 16.dp)
+							if (aurralProfileState.requests == AurralArtistSectionUiState.Loading &&
+								missingReleaseGroupRows.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_aurral_missing_albums)
 								)
 							}
+							ArtCarousel(
+								stringResource(Res.string.title_aurral_missing_albums),
+								missingReleaseGroupRows
+							) { row ->
+								AurralOwnershipAlbumItem(
+									row = row,
+									imageRequestHeaders = aurralRequestHeadersForUrl(
+										baseUrl = preferenceManager.aurralBaseUrl,
+										imageUrl = row.coverUrl,
+										requestHeaders = preferenceManager.aurralRequestHeadersMap()
+									),
+									grayscale = row.ownershipStatus == AurralOwnershipStatus.Missing ||
+										row.ownershipStatus == AurralOwnershipStatus.Failed,
+									onClick = {
+										row.releaseGroup?.let { releaseGroup ->
+											backStack.add(
+												Screen.AurralMissingAlbum(
+													artistId = state.artist.id,
+													artistName = displayArtistName,
+													artistMbid = state.aurralArtistMbid
+														?: state.artist.musicBrainzId.orEmpty(),
+													releaseGroupId = releaseGroup.id,
+													title = row.title,
+													year = row.year,
+													primaryType = releaseGroup.primaryType,
+													coverUrl = row.coverUrl,
+													requestStatus = row.requestStatus
+												)
+											)
+										}
+									}
+								)
+							}
+							if (aurralProfileState.previewTracks == AurralArtistSectionUiState.Loading &&
+								state.aurralPreviewTracks.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_aurral_preview_tracks)
+								)
+							}
+							AurralPreviewTracks(
+								title = stringResource(Res.string.title_aurral_preview_tracks),
+								tracks = state.aurralPreviewTracks.toImmutableList(),
+								modifier = Modifier.fillMaxWidth(),
+								ownershipStatuses = previewTrackOwnershipStatuses
+							)
 							val similarRows = state.aurralSimilarArtists.ifEmpty {
 								state.similarArtists.map { artist ->
 									AurralSimilarArtistRow(
 										artist = AurralSimilarArtist(
 											id = artist.musicBrainzId ?: artist.id,
 											name = artist.name,
-											imageUrl = artistImageUrlForExternalArtworkPolicy(
-												artist = artist,
-												externalArtworkEnabled = preferenceManager.aurralEnabled
-											)
+											imageUrl = null
 										),
 										localArtistId = artist.id,
 										localCoverArtId = artist.coverArtId,
@@ -672,17 +799,19 @@ fun ArtistDetailScreen(
 									)
 								}
 							}
+							if (aurralProfileState.similarArtists == AurralArtistSectionUiState.Loading &&
+								similarRows.isEmpty()
+							) {
+								AurralSectionLoadingPlaceholder(
+									title = stringResource(Res.string.title_similar_artists)
+								)
+							}
 							ArtCarousel(
 								stringResource(Res.string.title_similar_artists),
 								similarRows.toImmutableList()
 							) { row ->
 								AurralSimilarArtistItem(
 									row = row,
-									imageRequestHeaders = aurralRequestHeadersForUrl(
-										baseUrl = preferenceManager.aurralBaseUrl,
-										imageUrl = row.artist.imageUrl,
-										requestHeaders = preferenceManager.aurralRequestHeadersMap()
-									),
 									onClickLocalArtist = { localArtistId ->
 										backStack.add(Screen.ArtistDetail(localArtistId))
 									},
@@ -715,7 +844,10 @@ fun ArtistDetailScreen(
 	}
 
 	if (stopMonitoringDialogShown) {
-		val artistName = (artistState as? UiState.Success)?.data?.artist?.name.orEmpty()
+		val artistName = (artistState as? UiState.Success)?.data?.aurralArtistName
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?: (artistState as? UiState.Success)?.data?.artist?.name.orEmpty()
 		FormDialog(
 			onDismissRequest = { stopMonitoringDialogShown = false },
 			icon = {
@@ -766,13 +898,47 @@ fun ArtistDetailScreen(
 			onDismissRequest = { playlistDialogShown = false }
 		)
 	}
+	}
+}
+
+@Composable
+private fun AurralSectionLoadingPlaceholder(
+	title: String,
+	modifier: Modifier = Modifier
+) {
+	Column(
+		modifier = modifier
+			.fillMaxWidth()
+			.padding(horizontal = 16.dp),
+		verticalArrangement = Arrangement.spacedBy(8.dp)
+	) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.heightIn(min = 32.dp)
+				.padding(top = 8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.SpaceBetween
+		) {
+			Text(
+				text = title,
+				style = MaterialTheme.typography.titleMediumEmphasized,
+				fontWeight = FontWeight(600)
+			)
+			ContainedLoadingIndicator(Modifier.size(24.dp))
+		}
+		Text(
+			text = stringResource(Res.string.info_aurral_loading_catalog),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant
+		)
+	}
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CarouselItemScope.AurralMissingAlbumItem(
-	row: AurralMissingAlbumRow,
-	coverUrl: String?,
+private fun CarouselItemScope.AurralOwnershipAlbumItem(
+	row: AurralArtistOwnershipAlbumRow,
 	imageRequestHeaders: Map<String, String>,
 	grayscale: Boolean = false,
 	onClick: () -> Unit
@@ -795,12 +961,12 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 				.maskClip(MaterialTheme.shapes.large)
 		) {
 			CoverArt(
-				coverArtId = null,
-				imageUrl = coverUrl,
-				imageCacheKey = "aurral-release-group-${row.releaseGroup.id}",
+				coverArtId = row.localAlbum?.coverArtId,
+				imageUrl = row.coverUrl,
+				imageCacheKey = row.releaseGroup?.id?.let { "aurral-release-group-$it" },
 				imageRequestHeaders = imageRequestHeaders,
 				contentDescription = row.title,
-				fallbackKind = row.releaseGroup.primaryType ?: "Album",
+				fallbackKind = row.releaseGroup?.primaryType ?: "Album",
 				modifier = Modifier.fillMaxWidth(),
 				shape = RectangleShape,
 				colorFilter = colorFilter,
@@ -816,7 +982,7 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 				)
 			}
 			AurralOwnershipStatusDot(
-				status = aurralMissingAlbumOwnershipStatus(row),
+				status = row.ownershipStatus,
 				modifier = Modifier
 					.align(Alignment.TopStart)
 					.padding(8.dp)
@@ -842,17 +1008,143 @@ private fun CarouselItemScope.AurralMissingAlbumItem(
 	}
 }
 
+@Composable
+private fun AurralArtistProfileMetadata(
+	genres: List<String>,
+	externalLinks: List<AurralArtistExternalLink>,
+	modifier: Modifier = Modifier
+) {
+	val uriHandler = LocalUriHandler.current
+	val visibleGenres = remember(genres) { artistHeaderGenreLabels(genres) }
+	val allLinks = remember(externalLinks) {
+		artistHeaderExternalLinks(externalLinks, limit = Int.MAX_VALUE)
+	}
+	val linksKey = remember(allLinks) { allLinks.joinToString("|") { link -> link.url } }
+	var linksExpanded by rememberSaveable(linksKey) { mutableStateOf(false) }
+	val visibleLinks = remember(allLinks, linksExpanded) {
+		if (linksExpanded) allLinks else allLinks.take(4)
+	}
+	val showLinkToggle = allLinks.size > visibleLinks.size || linksExpanded
+	if (visibleGenres.isEmpty() && allLinks.isEmpty()) return
+
+	Column(
+		modifier = modifier,
+		verticalArrangement = Arrangement.spacedBy(8.dp)
+	) {
+		if (visibleGenres.isNotEmpty()) {
+			FlowRow(
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalArrangement = Arrangement.spacedBy(6.dp)
+			) {
+				visibleGenres.forEach { genre ->
+					ArtistHeaderMetadataChip(
+						label = genre,
+						onClick = null
+					)
+				}
+			}
+		}
+		if (visibleLinks.isNotEmpty()) {
+			FlowRow(
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+				verticalArrangement = Arrangement.spacedBy(6.dp)
+			) {
+				visibleLinks.forEach { link ->
+					ArtistHeaderMetadataChip(
+						label = link.label,
+						primary = true,
+						onClick = { uriHandler.openUri(link.url) }
+					)
+				}
+				if (showLinkToggle) {
+					ArtistHeaderMetadataChip(
+						label = if (linksExpanded) "Less" else "More",
+						primary = true,
+						onClick = { linksExpanded = !linksExpanded }
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun ArtistHeaderMetadataChip(
+	label: String,
+	primary: Boolean = false,
+	onClick: (() -> Unit)?
+) {
+	val clickableModifier = if (onClick != null) {
+		Modifier.clickable(onClick = onClick)
+	} else {
+		Modifier
+	}
+	Surface(
+		modifier = Modifier
+			.heightIn(min = 30.dp)
+			.then(clickableModifier),
+		shape = MaterialTheme.shapes.small,
+		color = if (primary) {
+			MaterialTheme.colorScheme.primaryContainer
+		} else {
+			MaterialTheme.colorScheme.surfaceVariant
+		}
+	) {
+		Text(
+			text = label,
+			style = MaterialTheme.typography.labelLarge,
+			fontWeight = FontWeight.Medium,
+			color = if (primary) {
+				MaterialTheme.colorScheme.onPrimaryContainer
+			} else {
+				MaterialTheme.colorScheme.onSurfaceVariant
+			},
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+		)
+	}
+}
+
+private fun aurralPreviewTrackAlbumOwnershipStatus(
+	track: AurralPreviewTrack,
+	rows: List<AurralArtistOwnershipAlbumRow>
+): AurralOwnershipStatus? {
+	val albumKey = track.album.normalizedAurralAlbumUiKey() ?: return null
+	return rows.firstOrNull { row ->
+		row.title.normalizedAurralAlbumUiKey() == albumKey ||
+			row.localAlbum?.name.normalizedAurralAlbumUiKey() == albumKey ||
+			row.releaseGroup?.title.normalizedAurralAlbumUiKey() == albumKey
+	}?.ownershipStatus
+}
+
+private fun String?.normalizedAurralAlbumUiKey(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.replace(Regex("""\s*[\(\[].*?[\)\]]"""), " ")
+		?.replace(Regex("""[^a-z0-9]+"""), " ")
+		?.trim()
+		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CarouselItemScope.AurralSimilarArtistItem(
 	row: AurralSimilarArtistRow,
-	imageRequestHeaders: Map<String, String>,
 	onClickLocalArtist: (String) -> Unit,
 	onClickAurralArtist: () -> Unit
 ) {
-	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
 	val localArtistId = row.localArtistId
+	val artistArtwork = rememberAurralFirstArtistArtworkUiState(
+		artistId = localArtistId,
+		artistMusicBrainzId = row.artist.id,
+		artistName = row.artist.name,
+		serverCoverArtId = row.localCoverArtId,
+		externalArtistImageUrl = row.artist.imageUrl,
+		externalArtistCacheKey = "aurral-similar-artist-${row.artist.id}"
+	)
 	val subtitle = row.matchPercent?.let {
 		stringResource(Res.string.info_aurral_match_percent, it)
 	} ?: if (row.inLibrary) null else stringResource(Res.string.info_aurral_external_artist)
@@ -863,10 +1155,10 @@ private fun CarouselItemScope.AurralSimilarArtistItem(
 			.alpha(if (row.inLibrary) 1f else .62f)
 	) {
 		CoverArt(
-			coverArtId = row.localCoverArtId?.takeUnless { preferenceManager.aurralEnabled },
-			imageUrl = row.artist.imageUrl,
-			imageCacheKey = "aurral-similar-artist-${row.artist.id}",
-			imageRequestHeaders = imageRequestHeaders,
+			coverArtId = artistArtwork.coverArtId,
+			imageUrl = artistArtwork.imageUrl,
+			imageCacheKey = artistArtwork.imageCacheKey,
+			imageRequestHeaders = artistArtwork.imageRequestHeaders,
 			contentDescription = row.artist.name,
 			fallbackKind = "Artist",
 			modifier = Modifier

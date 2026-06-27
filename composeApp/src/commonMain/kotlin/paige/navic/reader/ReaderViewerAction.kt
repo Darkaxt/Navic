@@ -19,6 +19,10 @@ sealed interface ReaderViewerAction {
 		val direction: ReaderViewportScrollDirection
 	) : ReaderViewerAction
 
+	data class NavigateTo(
+		val locator: ReaderLocator
+	) : ReaderViewerAction
+
 	data class ContentLongPressAt(
 		val x: Double,
 		val y: Double,

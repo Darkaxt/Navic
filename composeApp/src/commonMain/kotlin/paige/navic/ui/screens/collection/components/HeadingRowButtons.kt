@@ -54,9 +54,12 @@ import paige.navic.ui.theme.defaultFont
 
 fun aurralAlbumActionIconOverlay(status: AurralOwnershipStatus): AurralActionIconOverlay =
 	when (status) {
-		AurralOwnershipStatus.Missing -> AurralActionIconOverlay.Crossed
-		AurralOwnershipStatus.Partial -> AurralActionIconOverlay.Progress
 		AurralOwnershipStatus.Owned -> AurralActionIconOverlay.None
+		AurralOwnershipStatus.Partial -> AurralActionIconOverlay.Progress
+		AurralOwnershipStatus.Requested -> AurralActionIconOverlay.None
+		AurralOwnershipStatus.Processing -> AurralActionIconOverlay.Progress
+		AurralOwnershipStatus.Failed,
+		AurralOwnershipStatus.Missing -> AurralActionIconOverlay.Crossed
 	}
 
 @Composable
@@ -130,7 +133,8 @@ fun CollectionDetailScreenHeadingRowButtons(
 			)
 		}
 		if (aurralAlbumActionStatus != null) {
-			val acquireButtonIsActionable = aurralAlbumActionStatus == AurralOwnershipStatus.Missing &&
+			val acquireButtonIsActionable = (aurralAlbumActionStatus == AurralOwnershipStatus.Missing ||
+				aurralAlbumActionStatus == AurralOwnershipStatus.Failed) &&
 				onAcquireAurralAlbum != null
 			OutlinedButton(
 				modifier = Modifier.size(width = 52.dp, height = buttonHeight),
@@ -145,7 +149,9 @@ fun CollectionDetailScreenHeadingRowButtons(
 				enabled = true
 			) {
 				when (aurralAlbumActionStatus) {
-					AurralOwnershipStatus.Partial -> {
+					AurralOwnershipStatus.Partial,
+					AurralOwnershipStatus.Requested,
+					AurralOwnershipStatus.Processing -> {
 						AurralActionIcon(
 							overlay = aurralAlbumActionIconOverlay(aurralAlbumActionStatus),
 							contentDescription = stringResource(Res.string.action_acquire_album),
@@ -160,6 +166,7 @@ fun CollectionDetailScreenHeadingRowButtons(
 							tint = MaterialTheme.colorScheme.onSurface
 						)
 					}
+					AurralOwnershipStatus.Failed,
 					AurralOwnershipStatus.Missing -> {
 						AurralActionIcon(
 							overlay = aurralAlbumActionIconOverlay(aurralAlbumActionStatus),

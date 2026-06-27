@@ -922,6 +922,10 @@ if (mode === 'font-css-smoke') {
                 .publisher-fixed-paragraph { font-size: 10px; }
                 .publisher-wrapper-text { font-size: 10px; }
                 .publisher-table-text td { font-size: 9px; }
+                .publisher-important-wrapper p,
+                .publisher-important-wrapper span {
+                  font-size: 10px !important;
+                }
               </style>
             </head>
             <body>
@@ -937,6 +941,11 @@ if (mode === 'font-css-smoke') {
               <p class="publisher-fixed-paragraph" data-probe="fixed-paragraph">
                 <span>Publisher fixed-size paragraph text.</span>
               </p>
+              <section class="publisher-important-wrapper">
+                <p data-probe="important-class-body">
+                  <span>Publisher class-important body text.</span>
+                </p>
+              </section>
               <table class="publisher-table-text">
                 <tr>
                   <td data-probe="table-body">Publisher table-cell body text.</td>
@@ -962,6 +971,7 @@ if (mode === 'font-css-smoke') {
         const bodyBlockStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="body-block"]'))
         const nestedWrapperBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="nested-wrapper-body"]'))
         const fixedParagraphStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="fixed-paragraph"] span'))
+        const importantClassBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="important-class-body"] span'))
         const tableBodyStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="table-body"]'))
         const headingStyle = frame.contentWindow.getComputedStyle(doc.querySelector('[data-probe="heading"]'))
         const result = {
@@ -977,6 +987,8 @@ if (mode === 'font-css-smoke') {
           nestedWrapperBodyFontSizeValue: Number.parseFloat(nestedWrapperBodyStyle.fontSize || '0'),
           fixedParagraphFontSize: fixedParagraphStyle.fontSize,
           fixedParagraphFontSizeValue: Number.parseFloat(fixedParagraphStyle.fontSize || '0'),
+          importantClassBodyFontSize: importantClassBodyStyle.fontSize,
+          importantClassBodyFontSizeValue: Number.parseFloat(importantClassBodyStyle.fontSize || '0'),
           tableBodyFontSize: tableBodyStyle.fontSize,
           tableBodyFontSizeValue: Number.parseFloat(tableBodyStyle.fontSize || '0'),
           headingFontSize: headingStyle.fontSize,
@@ -1003,6 +1015,8 @@ if (mode === 'font-css-smoke') {
         publisherNestedWrapperBodyDelta:
           publisherSpanAt140.nestedWrapperBodyFontSizeValue - publisherSpanAt100.nestedWrapperBodyFontSizeValue,
         publisherFixedParagraphDelta: publisherSpanAt140.fixedParagraphFontSizeValue - publisherSpanAt100.fixedParagraphFontSizeValue,
+        publisherImportantClassBodyDelta:
+          publisherSpanAt140.importantClassBodyFontSizeValue - publisherSpanAt100.importantClassBodyFontSizeValue,
         publisherTableBodyDelta: publisherSpanAt140.tableBodyFontSizeValue - publisherSpanAt100.tableBodyFontSizeValue,
         publisherSpanHeadingDelta: publisherSpanAt140.headingFontSizeValue - publisherSpanAt100.headingFontSizeValue,
       }
@@ -1057,6 +1071,12 @@ if (mode === 'font-css-smoke') {
       throw new Error(
         `Expected font-size control to scale publisher fixed-size paragraph text; ` +
         `observed ${result.publisherSpanAt100?.fixedParagraphFontSize || 'unset'} -> ${result.publisherSpanAt140?.fixedParagraphFontSize || 'unset'}`
+      )
+    }
+    if (!Number.isFinite(result.publisherImportantClassBodyDelta) || result.publisherImportantClassBodyDelta <= 1) {
+      throw new Error(
+        `Expected font-size control to scale publisher class-important body text; ` +
+        `observed ${result.publisherSpanAt100?.importantClassBodyFontSize || 'unset'} -> ${result.publisherSpanAt140?.importantClassBodyFontSize || 'unset'}`
       )
     }
     if (!Number.isFinite(result.publisherTableBodyDelta) || result.publisherTableBodyDelta <= 1) {

@@ -15,6 +15,7 @@ internal fun String?.ebookFormatQualityRank(): Int =
 		"AZW3" -> 35
 		"MOBI" -> 30
 		"CBZ" -> 25
+		"FB2" -> 20
 		"TXT" -> 10
 		else -> 0
 	}
@@ -88,6 +89,10 @@ internal fun String?.isEbookMediaType(): Boolean =
 			"pdf" in mediaType.lowercase() ||
 			"azw3" in mediaType.lowercase() ||
 			"mobi" in mediaType.lowercase() ||
+			"cbz" in mediaType.lowercase() ||
+			"comicbook" in mediaType.lowercase() ||
+			"fb2" in mediaType.lowercase() ||
+			"fictionbook" in mediaType.lowercase() ||
 			"ebook" in mediaType.lowercase()
 	} == true
 
@@ -98,6 +103,8 @@ internal fun String?.toReadableBookFormat(): String? {
 		"pdf" in normalized -> "PDF"
 		"azw3" in normalized -> "AZW3"
 		"mobi" in normalized -> "MOBI"
+		"comicbook" in normalized || "cbz" in normalized -> "CBZ"
+		"fictionbook" in normalized || "fb2" in normalized -> "FB2"
 		"audiobook" in normalized -> "Audiobook"
 		"mpeg" in normalized -> "MP3"
 		"mp4" in normalized -> "M4A"

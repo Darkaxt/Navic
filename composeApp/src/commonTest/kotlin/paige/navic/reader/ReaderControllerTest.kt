@@ -1148,6 +1148,23 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun viewerMoveToPageActionIsForwardedAsEngineNavigationCapability() {
+		val locator = ReaderLocator(
+			href = "EPUB/Text/chapter-02.xhtml",
+			cfi = "epubcfi(/6/8!/4/2:16)",
+			progress = 0.34
+		)
+
+		val step = ReaderController().onViewerAction(ReaderViewerAction.NavigateTo(locator))
+
+		assertEquals(
+			listOf(ReaderEngineCommand.NavigateTo(locator)),
+			step.engineCommands,
+			"ReaderController must translate Komikku viewer movement into engine navigation without giving the engine shell ownership."
+		)
+	}
+
+	@Test
 	fun chapterNavigatorArrowsNavigateAdjacentTocEntriesInsteadOfTurningPages() {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(

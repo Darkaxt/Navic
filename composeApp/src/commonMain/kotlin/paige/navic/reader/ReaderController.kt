@@ -1008,6 +1008,7 @@ data class ReaderController(
 			is ReaderViewerAction.TurnPage -> controller.turnPage(action.direction)
 			is ReaderViewerAction.PreviewPageDrag -> controller.previewPageDrag(action)
 			is ReaderViewerAction.ScrollViewport -> controller.scrollViewport(action.direction)
+			is ReaderViewerAction.NavigateTo -> controller.navigateTo(action.locator)
 			is ReaderViewerAction.ContentLongPressAt -> controller.contentLongPressAt(action)
 		}
 	}

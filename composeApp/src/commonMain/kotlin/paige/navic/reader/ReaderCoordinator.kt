@@ -12,7 +12,11 @@ data class ReaderCoordinator(
 	val controller: ReaderController = ReaderController(),
 	val engineAdapters: Map<ReaderPublicationFormat, ReaderEngine> = mapOf(
 		ReaderPublicationFormat.Epub to FoliateEpubEngineAdapter(),
-		ReaderPublicationFormat.Pdf to FoliatePdfEngineAdapter()
+		ReaderPublicationFormat.Pdf to FoliatePdfEngineAdapter(),
+		ReaderPublicationFormat.Azw3 to FoliatePublicationEngineAdapter(ReaderPublicationFormat.Azw3),
+		ReaderPublicationFormat.Mobi to FoliatePublicationEngineAdapter(ReaderPublicationFormat.Mobi),
+		ReaderPublicationFormat.Cbz to FoliatePublicationEngineAdapter(ReaderPublicationFormat.Cbz),
+		ReaderPublicationFormat.Fb2 to FoliatePublicationEngineAdapter(ReaderPublicationFormat.Fb2)
 	),
 	val viewState: ReaderEngineViewState = ReaderEngineViewState.Empty
 ) {

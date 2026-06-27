@@ -79,6 +79,21 @@ For Flow media URLs, prefer bearer-token query URLs: `/api/weekly-flow/stream/{j
 
 Add an Aurral hub reachable from the Library screen and from the Integrations settings row. The Library entry should be visible when Aurral is enabled and configured; settings remains the place for credentials and diagnostics.
 
+### Artwork Authority
+
+When Aurral is enabled and configured, Aurral artwork is authoritative over Navidrome artwork for every user-facing music surface that can resolve both. Navidrome/Subsonic cover art remains the fallback and playback/library identity source, but it must not be rendered directly from song or artist rows when an Aurral artist image is known or can be resolved from the shared artist-photo cache.
+
+Required pipeline:
+
+1. Resolve cached Aurral artist photos first, using Aurral request headers for protected image URLs.
+2. Fall back to Navidrome cover art only when no Aurral artist image is available or Aurral is disabled.
+3. Keep direct Aurral screens on their native Aurral image URLs.
+4. Treat new direct `song.coverArtId` or `artist.coverArtId` UI rendering as a regression unless it is only an input to an Aurral-first resolver.
+
+Guard: `AurralFirstArtworkSourceTest` must include any new song or artist artwork surface. It should fail when a user-facing surface renders raw `song.coverArtId`, raw `artist.coverArtId`, or stale `artist.artistImageUrl` instead of going through the shared Aurral-first artwork resolver.
+
+Hydration is part of the same contract. When Aurral is enabled, background artist-photo hydration must still run even if the stored artwork preference is `NativeOnly` or `NativeFirst`; those preferences only matter again after Aurral is disabled. `MostPlayedShortcutArtworkPolicyTest` guards this so Navidrome cannot block a later Aurral photo from replacing an initial server image.
+
 The hub should have three native sections:
 
 - Discover: Aurral recommendations and tag/related discovery, with artist/album cards.

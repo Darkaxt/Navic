@@ -2,6 +2,7 @@ package paige.navic.di
 
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
+import paige.navic.domain.manager.ArtworkColorManager
 import paige.navic.domain.manager.AudioPlaybackArbitrator
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.DownloadQueueNotificationCoordinator
@@ -33,5 +34,6 @@ val managerModule = module {
 	singleOf(::SessionManager)
 	singleOf(::PreferenceManager)
 	singleOf(::SnackBarManager)
+	singleOf(::ArtworkColorManager)
 	single(createdAtStart = true) { AppLogManager(get()) }
 }

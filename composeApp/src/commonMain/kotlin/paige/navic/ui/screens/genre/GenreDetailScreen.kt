@@ -49,7 +49,6 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
@@ -58,14 +57,13 @@ import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.rememberArtistArtworkUiState
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
-import paige.navic.ui.screens.artist.artistCoverArtIdForExternalArtworkPolicy
-import paige.navic.ui.screens.artist.artistImageUrlForExternalArtworkPolicy
 import paige.navic.ui.screens.genre.viewmodels.GenreDetailState
 import paige.navic.ui.screens.genre.viewmodels.GenreDetailViewModel
 import paige.navic.util.ui.withoutTop
@@ -147,7 +145,6 @@ private fun GenreDetailContent(
 ) {
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
-	val preferenceManager = koinInject<PreferenceManager>()
 	val durationLabel = queueTotalDurationLabel(state.totalDuration.inWholeSeconds)
 
 	LazyColumn(
@@ -232,27 +229,17 @@ private fun GenreDetailContent(
 					contentPadding = PaddingValues(horizontal = 16.dp)
 				) {
 					items(state.artists, key = { it.id }) { artist ->
-						val artistImageUrl = artistImageUrlForExternalArtworkPolicy(
-							artist = artist,
-							externalArtworkEnabled = preferenceManager.aurralEnabled
-						)
-						val artistImageRequestHeaders = aurralRequestHeadersForUrl(
-							baseUrl = preferenceManager.aurralBaseUrl,
-							imageUrl = artistImageUrl,
-							requestHeaders = preferenceManager.aurralRequestHeadersMap()
-						)
+						val artistArtwork = rememberArtistArtworkUiState(artist)
 						ArtGridItem(
 							modifier = Modifier.width(150.dp),
 							onClick = dropUnlessResumed {
 								platformContext.clickSound()
 								backStack.add(Screen.ArtistDetail(artist.id))
 							},
-							coverArtId = artistCoverArtIdForExternalArtworkPolicy(
-								artist = artist,
-								externalArtworkEnabled = preferenceManager.aurralEnabled
-							),
-							imageUrl = artistImageUrl,
-							imageRequestHeaders = artistImageRequestHeaders,
+							coverArtId = artistArtwork.coverArtId,
+							imageUrl = artistArtwork.imageUrl,
+							imageCacheKey = artistArtwork.imageCacheKey,
+							imageRequestHeaders = artistArtwork.imageRequestHeaders,
 							title = artist.name,
 							subtitle = pluralStringResource(
 								Res.plurals.count_albums,

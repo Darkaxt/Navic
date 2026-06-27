@@ -2,7 +2,6 @@ package paige.navic.domain.repositories
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.accept
@@ -22,7 +21,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
+import paige.navic.domain.models.AurralPreviewTrack
+import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.util.core.Logger
 
 private const val TAG = "AurralApiClient"
@@ -79,6 +81,47 @@ interface AurralApiClient {
 		artistMbid: String,
 		artistName: String
 	): AurralArtistEnrichment
+
+	suspend fun fetchArtistCoreEnrichment(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): AurralArtistEnrichment = fetchArtistEnrichment(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		artistMbid = artistMbid,
+		artistName = artistName
+	)
+
+	suspend fun fetchArtistPreviewTracks(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralPreviewTrack> = fetchArtistEnrichment(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		artistMbid = artistMbid,
+		artistName = artistName
+	).previewTracks
+
+	suspend fun fetchArtistSimilarArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralSimilarArtist> = fetchArtistEnrichment(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		artistMbid = artistMbid,
+		artistName = artistName
+	).similarArtists
+
+	suspend fun fetchAlbumRequests(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralAlbumRequest> = emptyList()
 
 	suspend fun fetchLibraryArtistMonitoring(
 		baseUrl: String,
@@ -155,11 +198,6 @@ interface AurralApiClient {
 
 internal class KtorAurralApiClient : AurralApiClient {
 	private val client = HttpClient {
-		install(HttpTimeout) {
-			requestTimeoutMillis = 30000
-			connectTimeoutMillis = 30000
-			socketTimeoutMillis = 30000
-		}
 		install(ContentNegotiation) {
 			json(AURRAL_JSON)
 		}
@@ -435,6 +473,64 @@ internal class KtorAurralApiClient : AurralApiClient {
 		)
 	}
 
+	override suspend fun fetchArtistCoreEnrichment(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): AurralArtistEnrichment {
+		val details = fetchArtistDetails(
+			baseUrl = baseUrl,
+			requestHeaders = requestHeaders,
+			artistMbid = artistMbid,
+			artistName = artistName
+		)
+		return aurralArtistEnrichment(
+			baseUrl = baseUrl,
+			details = details,
+			preview = AurralArtistPreviewDto(),
+			similar = AurralSimilarArtistsDto(),
+			requests = emptyList()
+		)
+	}
+
+	override suspend fun fetchArtistPreviewTracks(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralPreviewTrack> =
+		aurralPreviewTracks(
+			fetchArtistPreview(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		)
+
+	override suspend fun fetchArtistSimilarArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		artistMbid: String,
+		artistName: String
+	): List<AurralSimilarArtist> =
+		aurralSimilarArtists(
+			baseUrl = baseUrl,
+			similar = fetchSimilarArtists(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = artistMbid,
+				artistName = artistName
+			)
+		)
+
+	override suspend fun fetchAlbumRequests(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralAlbumRequest> =
+		aurralAlbumRequests(fetchRequests(baseUrl, requestHeaders))
+
 	override suspend fun fetchLibraryArtistMonitoring(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -448,8 +544,6 @@ internal class KtorAurralApiClient : AurralApiClient {
 		return when {
 			response.status.isSuccess() -> response.body<AurralLibraryArtistDto>().monitored ?: false
 			response.status == HttpStatusCode.NotFound -> false
-			response.status == HttpStatusCode.Unauthorized -> null
-			response.status == HttpStatusCode.Forbidden -> null
 			else -> error(aurralHttpErrorMessage("Aurral library artist lookup", response.status))
 		}
 	}
@@ -465,7 +559,6 @@ internal class KtorAurralApiClient : AurralApiClient {
 		) {
 			aurralJsonRequest(requestHeaders)
 			parameter("artistName", artistName)
-			parameter("mode", "core")
 		}
 		if (!response.status.isSuccess()) {
 			error(aurralHttpErrorMessage("Aurral artist details", response.status))
@@ -487,9 +580,7 @@ internal class KtorAurralApiClient : AurralApiClient {
 		}
 		return when {
 			response.status.isSuccess() -> response.body()
-			response.status == HttpStatusCode.Unauthorized -> AurralArtistPreviewDto()
-			response.status == HttpStatusCode.Forbidden -> AurralArtistPreviewDto()
-			else -> AurralArtistPreviewDto()
+			else -> error(aurralHttpErrorMessage("Aurral artist preview", response.status))
 		}
 	}
 
@@ -508,9 +599,7 @@ internal class KtorAurralApiClient : AurralApiClient {
 		}
 		return when {
 			response.status.isSuccess() -> response.body()
-			response.status == HttpStatusCode.Unauthorized -> AurralSimilarArtistsDto()
-			response.status == HttpStatusCode.Forbidden -> AurralSimilarArtistsDto()
-			else -> AurralSimilarArtistsDto()
+			else -> error(aurralHttpErrorMessage("Aurral similar artists", response.status))
 		}
 	}
 

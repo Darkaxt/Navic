@@ -2,6 +2,7 @@ package paige.navic.domain.repositories
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import paige.navic.domain.models.AurralAlbumRequest
 
 sealed interface AurralConnectionResult {
 	data object Connected : AurralConnectionResult
@@ -202,6 +203,14 @@ data class AurralAcquisitionQueueItem(
 	val status: String,
 	val requestedAt: String?,
 	val inQueue: Boolean
+)
+
+fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(
+	albumMbid = albumMbid,
+	albumName = albumName,
+	artistMbid = artistMbid,
+	artistName = artistName,
+	status = status
 )
 
 @Serializable

@@ -19,15 +19,23 @@ class SessionManager(
 	val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
 	var api: SubsonicClient = createClient(
-		instanceUrl = settings.getString("instanceUrl", ""),
+		instanceUrl = storedInstanceUrl(),
 		username = settings.getString("username", ""),
 		password = settings.getString("password", ""),
 	)
 		private set
 
 	init {
+		val storedInstanceUrl = settings.getString("instanceUrl", "")
+		val normalizedInstanceUrl = normalizeSubsonicInstanceUrl(storedInstanceUrl)
+		if (storedInstanceUrl.isNotBlank() && storedInstanceUrl != normalizedInstanceUrl) {
+			settings["instanceUrl"] = normalizedInstanceUrl
+		}
 		_isLoggedIn.value = settings.getStringOrNull("username") != null
 	}
+
+	private fun storedInstanceUrl(): String =
+		normalizeSubsonicInstanceUrl(settings.getString("instanceUrl", ""))
 
 	private fun createClient(
 		instanceUrl: String,
@@ -59,7 +67,8 @@ class SessionManager(
 		username: String,
 		password: String
 	) {
-		val client = createClient(instanceUrl, username, password)
+		val normalizedInstanceUrl = normalizeSubsonicInstanceUrl(instanceUrl)
+		val client = createClient(normalizedInstanceUrl, username, password)
 
 		try {
 			client.ping()
@@ -70,7 +79,7 @@ class SessionManager(
 			)
 		}
 
-		settings["instanceUrl"] = instanceUrl
+		settings["instanceUrl"] = normalizedInstanceUrl
 		settings["username"] = username
 		settings["password"] = password
 
@@ -86,7 +95,7 @@ class SessionManager(
 
 	fun refreshClient() {
 		api = createClient(
-			instanceUrl = settings.getString("instanceUrl", ""),
+			instanceUrl = storedInstanceUrl(),
 			username = settings.getString("username", ""),
 			password = settings.getString("password", ""),
 		)

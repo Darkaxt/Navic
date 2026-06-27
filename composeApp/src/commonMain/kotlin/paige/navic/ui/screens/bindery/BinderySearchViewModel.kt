@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
@@ -51,14 +53,18 @@ class BinderySearchViewModel(
 					if (query.isBlank()) {
 						_searchState.value = UiState.Success(emptyList())
 					} else {
-						val cachedResults = searchCachedBindery(query)
+						val cachedResults = withContext(Dispatchers.IO) {
+							searchCachedBindery(query)
+						}
 						if (cachedResults.isNotEmpty()) {
 							_searchState.value = UiState.Success(cachedResults)
 						} else {
 							_searchState.value = UiState.Loading()
 						}
 						try {
-							val liveResults = searchBindery(query)
+							val liveResults = withContext(Dispatchers.IO) {
+								searchBindery(query)
+							}
 							val currentState = _searchState.value
 							if (currentState !is UiState.Success || currentState.data != liveResults) {
 								_searchState.value = UiState.Success(liveResults)
@@ -122,13 +128,17 @@ class BinderySearchViewModel(
 		if (actionPath in _actionInFlight.value) return
 		viewModelScope.launch {
 			_actionInFlight.value = _actionInFlight.value + actionPath
-			repository.performAction(actionPath).fold(
+			withContext(Dispatchers.IO) {
+				repository.performAction(actionPath)
+			}.fold(
 				onSuccess = {
 					_actionInFlight.value = _actionInFlight.value - actionPath
 					val query = searchQuery.text.toString()
 					if (query.isNotBlank()) {
 						_searchState.value = UiState.Loading(_searchState.value.data)
-						runCatching { searchBindery(query) }.fold(
+						withContext(Dispatchers.IO) {
+							runCatching { searchBindery(query) }
+						}.fold(
 							onSuccess = { results -> _searchState.value = UiState.Success(results) },
 							onFailure = { error ->
 								_searchState.value = UiState.Error(

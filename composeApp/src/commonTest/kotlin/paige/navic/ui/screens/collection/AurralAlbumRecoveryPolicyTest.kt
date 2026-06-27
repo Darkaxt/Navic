@@ -216,6 +216,16 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun artistCreditPartsSplitBulletCreditsAndRemoveDuplicates() {
+		assertEquals(
+			listOf("Eric Buchholz", "Braxton Burks"),
+			aurralAlbumArtistCreditParts(
+				"Eric Buchholz & Braxton Burks, Eric Buchholz • Eric Buchholz & Braxton Burks"
+			)
+		)
+	}
+
+	@Test
 	fun recoveryRowsMatchOwnedTrackByRecordingMbidEvenWhenTitlesDiffer() {
 		val localSong = song(
 			title = "Paradigm Shift",
@@ -614,12 +624,32 @@ class AurralAlbumRecoveryPolicyTest {
 						trackNumber = 1
 					),
 					localSong = null,
-					ownershipStatus = AurralOwnershipStatus.Partial
+					ownershipStatus = AurralOwnershipStatus.Requested
 				)
 			)
 		)
 
-		assertEquals(AurralOwnershipStatus.Partial, status)
+		assertEquals(AurralOwnershipStatus.Requested, status)
+	}
+
+	@Test
+	fun headerActionKeepsFailedStateWhenRowsFailedButNoneAreMissing() {
+		val status = aurralAlbumHeaderActionStatus(
+			matchStatus = AurralOwnershipStatus.Partial,
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-1",
+						title = "Failed",
+						trackNumber = 1
+					),
+					localSong = null,
+					ownershipStatus = AurralOwnershipStatus.Failed
+				)
+			)
+		)
+
+		assertEquals(AurralOwnershipStatus.Failed, status)
 	}
 
 	@Test

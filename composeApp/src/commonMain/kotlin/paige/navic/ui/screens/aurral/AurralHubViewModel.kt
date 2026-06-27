@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import paige.navic.domain.repositories.AurralArtistSearchResult
 import paige.navic.domain.repositories.AurralAlbumSearchResult
 import paige.navic.domain.repositories.AurralDiscoverArtist
@@ -36,6 +37,11 @@ class AurralHubViewModel(
 
 	private val _discovery = MutableStateFlow<UiState<AurralDiscoverySummary?>>(UiState.Success(null))
 	val discovery = _discovery.asStateFlow()
+	private var discoveryConfigurationKey: String? = null
+
+	private val _libraryCollectionRows =
+		MutableStateFlow<UiState<List<AurralDiscoveryCollectionRow>>>(UiState.Success(emptyList()))
+	val libraryCollectionRows = _libraryCollectionRows.asStateFlow()
 
 	private val _artistSearchQuery = MutableStateFlow("")
 	val artistSearchQuery = _artistSearchQuery.asStateFlow()
@@ -64,6 +70,8 @@ class AurralHubViewModel(
 	fun clearServiceStatus() {
 		_serviceStatus.value = UiState.Success(null)
 		_discovery.value = UiState.Success(null)
+		discoveryConfigurationKey = null
+		_libraryCollectionRows.value = UiState.Success(emptyList())
 		_artistSearchQuery.value = ""
 		_artistSearch.value = UiState.Success(null)
 		_albumSearch.value = UiState.Success(null)
@@ -82,12 +90,28 @@ class AurralHubViewModel(
 		}
 	}
 
-	fun refreshDiscovery(hydrateMissingImages: Boolean = true) {
+	fun refreshDiscovery(
+		hydrateMissingImages: Boolean = true,
+		forceRefresh: Boolean = false
+	) {
 		if (_discovery.value is UiState.Loading) return
+		val nextConfigurationKey = repository.discoveryConfigurationKey(hydrateMissingImages)
+		if (!forceRefresh &&
+			nextConfigurationKey != null &&
+			nextConfigurationKey == discoveryConfigurationKey &&
+			_discovery.value.data != null
+		) {
+			return
+		}
 
 		viewModelScope.launch(Dispatchers.IO) {
-			loadDiscovery(hydrateMissingImages)
+			loadDiscovery(hydrateMissingImages, nextConfigurationKey)
+			loadServiceStatus(refreshDiscovery = false)
 		}
+	}
+
+	fun rememberLibraryCollectionRows(state: UiState<List<AurralDiscoveryCollectionRow>>) {
+		_libraryCollectionRows.value = state
 	}
 
 	fun updateArtistSearchQuery(query: String) {
@@ -172,7 +196,9 @@ class AurralHubViewModel(
 			_activeFlowActionId.value = flowId
 			_flowActionState.value = UiState.Loading(_flowActionState.value.data)
 			try {
-				val playableStation = playlistRepository.getPlaylistForPlayback(station)
+				val playableStation = withContext(Dispatchers.IO) {
+					playlistRepository.getPlaylistForPlayback(station)
+				}
 				updateStationPlaylist(playableStation)
 				if (playableStation.songs.isEmpty()) {
 					throw IllegalStateException("Station has no songs yet")
@@ -200,7 +226,9 @@ class AurralHubViewModel(
 			_activeFlowActionId.value = flow.id
 			_flowActionState.value = UiState.Loading(_flowActionState.value.data)
 			try {
-				val songs = repository.getFlowPlayableSongs(flow.id).getOrThrow()
+				val songs = withContext(Dispatchers.IO) {
+					repository.getFlowPlayableSongs(flow.id).getOrThrow()
+				}
 				if (songs.isEmpty()) {
 					throw IllegalStateException("Flow has no ready tracks yet")
 				}
@@ -268,18 +296,25 @@ class AurralHubViewModel(
 		}
 	}
 
-	private suspend fun loadServiceStatus() {
+	private suspend fun loadServiceStatus(
+		refreshDiscovery: Boolean = true
+	) {
 		_serviceStatus.value = UiState.Loading(_serviceStatus.value.data)
 		val result = repository.getServiceStatus()
 		_serviceStatus.value = result.fold(
 			onSuccess = { UiState.Success(it) },
 			onFailure = { UiState.Error(Exception(it), _serviceStatus.value.data) }
 		)
-		loadDiscovery()
+		if (refreshDiscovery) {
+			loadDiscovery()
+		}
 		loadStationPlaylists()
 	}
 
-	private suspend fun loadDiscovery(hydrateMissingImages: Boolean = true) {
+	private suspend fun loadDiscovery(
+		hydrateMissingImages: Boolean = true,
+		configurationKey: String? = repository.discoveryConfigurationKey(hydrateMissingImages)
+	) {
 		_discovery.value = UiState.Loading(_discovery.value.data)
 		val result = if (hydrateMissingImages) {
 			repository.getDiscovery()
@@ -287,7 +322,10 @@ class AurralHubViewModel(
 			repository.getLibraryDiscovery()
 		}
 		_discovery.value = result.fold(
-			onSuccess = { UiState.Success(it) },
+			onSuccess = {
+				discoveryConfigurationKey = configurationKey
+				UiState.Success(it)
+			},
 			onFailure = { UiState.Error(Exception(it), _discovery.value.data) }
 		)
 	}

@@ -5,7 +5,11 @@ import androidx.compose.ui.graphics.asSkiaBitmap
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
+import platform.Foundation.NSCachesDirectory
 import platform.Foundation.NSData
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSUserDomainMask
+import platform.Foundation.NSURL
 import platform.Foundation.dataWithBytes
 import platform.UIKit.UIActivityViewController
 import platform.UIKit.UIApplication
@@ -66,5 +70,32 @@ actual class ShareManager {
 		share(image)
 	}
 
+	actual suspend fun shareFile(fileName: String, mimeType: String, bytes: ByteArray) {
+		val data = bytes.usePinned { pinned ->
+			NSData.dataWithBytes(pinned.addressOf(0), bytes.size.toULong())
+		}
+		val fileUrl = sharedFileUrl(fileName.sanitizedSharedFileName()) ?: return
+		val filePath = fileUrl.path ?: return
+		data.writeToFile(filePath, true)
+		share(fileUrl)
+	}
+
 	actual suspend fun shareString(string: String) = share(string)
+
+	private fun sharedFileUrl(fileName: String): NSURL? {
+		val cacheRoot = NSFileManager.defaultManager.URLsForDirectory(NSCachesDirectory, NSUserDomainMask)
+			.firstOrNull() as? NSURL ?: return null
+		val folder = cacheRoot.URLByAppendingPathComponent("shared_files", true) ?: return null
+		NSFileManager.defaultManager.createDirectoryAtURL(folder, true, null, null)
+		return folder.URLByAppendingPathComponent(fileName, false)
+	}
 }
+
+private fun String.sanitizedSharedFileName(): String =
+	trim()
+		.takeIf { it.isNotEmpty() }
+		?.replace(Regex("""[\\/:*?"<>|]+"""), " ")
+		?.replace(Regex("\\s+"), " ")
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: "navic-file"

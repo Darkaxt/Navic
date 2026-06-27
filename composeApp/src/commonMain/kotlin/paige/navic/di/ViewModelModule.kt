@@ -113,7 +113,8 @@ val viewModelModule = module {
 	viewModel { params ->
 		BinderyBookViewModel(
 			bookId = params.get(),
-			repository = get()
+			repository = get(),
+			shareManager = get()
 		)
 	}
 	viewModel { params ->

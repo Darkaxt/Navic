@@ -62,7 +62,7 @@ class NavBackPolicyTest {
 	}
 
 	@Test
-	fun bottomTabSelectionPreservesPreviousWindowInsteadOfClearingHistory() {
+	fun bottomTabSelectionReplacesRootHistoryWithSelectedRoot() {
 		val stack = listOf(
 			Screen.BinderyBooks,
 			Screen.BinderyBook("3809", "The Hobbit"),
@@ -76,7 +76,7 @@ class NavBackPolicyTest {
 		)
 
 		assertEquals(
-			stack + Screen.BinderyCollections,
+			listOf(Screen.BinderyCollections),
 			navBackStackAfterTabSelection(stack, Screen.BinderyCollections)
 		)
 	}
@@ -88,6 +88,34 @@ class NavBackPolicyTest {
 		assertEquals(
 			stack,
 			navBackStackAfterTabSelection(stack, Screen.BinderyBooks)
+		)
+	}
+
+	@Test
+	fun bottomTabSelectionDoesNotAccumulateWhenBouncingBetweenRootTabs() {
+		var stack = listOf<Screen>(Screen.Library())
+
+		stack = navBackStackAfterTabSelection(stack, Screen.AlbumList()).map { it as Screen }
+		stack = navBackStackAfterTabSelection(stack, Screen.Library()).map { it as Screen }
+		stack = navBackStackAfterTabSelection(stack, Screen.AlbumList()).map { it as Screen }
+
+		assertEquals(
+			listOf(Screen.AlbumList()),
+			stack
+		)
+	}
+
+	@Test
+	fun bottomTabSelectionReusesExistingDestinationInsteadOfGrowingDuplicateRoots() {
+		val stack = listOf(
+			Screen.Library(),
+			Screen.AlbumList(),
+			Screen.ArtistList()
+		)
+
+		assertEquals(
+			listOf(Screen.AlbumList()),
+			navBackStackAfterTabSelection(stack, Screen.AlbumList())
 		)
 	}
 }

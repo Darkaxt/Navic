@@ -191,22 +191,18 @@ fun CoverArt(
 	colorFilter: ColorFilter? = null,
 	artworkResolving: Boolean = false,
 	normalization: CoverArtNormalization = CoverArtNormalization.None,
-	contentScale: ContentScale = ContentScale.Crop
+	contentScale: ContentScale = ContentScale.Crop,
+	onImageSizeResolved: ((width: Int, height: Int) -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = shape ?: preferenceManager.coverArtShape.shape
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val sessionManager = koinInject<SessionManager>()
-	val resolvedImageUrl = visibleImageUrlForAurralPolicy(
-		imageUrl = imageUrl,
-		aurralEnabled = preferenceManager.aurralEnabled
-	)
-	val visibleCoverArtId = visibleCoverArtIdForAurralPolicy(
-		coverArtId = coverArtId,
-		imageUrl = resolvedImageUrl,
-		aurralEnabled = preferenceManager.aurralEnabled
-	)
+	// Pure renderer: the caller is responsible for source selection (see resolveStaticArtwork /
+	// resolvedPlaybackArtwork). CoverArt no longer applies any Aurral/Navidrome policy itself.
+	val resolvedImageUrl = imageUrl
+	val visibleCoverArtId = coverArtId
 	val usesServerCoverArt = resolvedImageUrl == null && visibleCoverArtId != null
 	val resolvedRequestHeaders = if (usesServerCoverArt) serverRequestHeaders else imageRequestHeaders
 	val resolvedImageCacheKey = normalizedCoverArtCacheKey(
@@ -288,6 +284,10 @@ fun CoverArt(
 		modifier = commonModifier,
 		contentScale = contentScale,
 		colorFilter = colorFilter,
+		onSuccess = { state ->
+			val image = state.result.image
+			onImageSizeResolved?.invoke(image.width, image.height)
+		},
 		loading = {
 			CoverArtFallback(
 				fallbackContent = fallbackContent,
@@ -299,18 +299,18 @@ fun CoverArt(
 		},
 		error = {
 			LaunchedEffect(it.result.throwable) {
-				Logger.w(
-					"CoverArt",
-					"Failed to load cover art, falling back to placeholder" +
-						(imageDiagnosticLabel?.let { label ->
-							" [$label] usesServer=$usesServerCoverArt " +
-								"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
-								"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
-								"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
-								"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}"
-						} ?: ""),
-					it.result.throwable
-				)
+				if (imageDiagnosticLabel != null) {
+					Logger.w(
+						"CoverArt",
+						"Failed to load cover art, falling back to placeholder" +
+							" [$imageDiagnosticLabel] usesServer=$usesServerCoverArt " +
+							"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
+							"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
+							"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
+							"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}",
+						it.result.throwable
+					)
+				}
 				if (usesServerCoverArt) {
 					onServerCoverLoadFailed?.invoke()
 				}

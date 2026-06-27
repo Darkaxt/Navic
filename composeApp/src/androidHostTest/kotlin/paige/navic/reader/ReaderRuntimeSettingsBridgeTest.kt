@@ -400,6 +400,15 @@ class ReaderRuntimeSettingsBridgeTest {
 			"style.getPropertyPriority('font-size')",
 			message = "The inline typography normalizer must specifically detect important publisher font-size declarations that stylesheet selectors cannot override."
 		)
+		assertFalse(
+			bridgeText.contains("if (!readerElementHasInlineFontSize(element)) continue"),
+			"Typography normalization must not be limited to inline font-size declarations; high-specificity publisher CSS classes can pin body text while headings scale."
+		)
+		assertContains(
+			bridgeText,
+			"element.dataset.navicHadInlineFontSize",
+			message = "The normalizer should still record whether a rewritten prose element originally had an inline font-size for diagnostics."
+		)
 		assertContains(
 			applyDocumentTheme,
 			"normalizeReaderInlineTypography(doc, settings)",

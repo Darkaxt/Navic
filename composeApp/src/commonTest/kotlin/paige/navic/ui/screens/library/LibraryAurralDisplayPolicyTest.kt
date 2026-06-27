@@ -244,6 +244,42 @@ class LibraryAurralDisplayPolicyTest {
 	}
 
 	@Test
+	fun libraryAurralCollectionRowsKeepDiscoveryPreviewBounded() {
+		val discovery = AurralDiscoverySummary(
+			topGenres = (1..12).map { index -> "Genre $index" },
+			topTags = (1..40).map { index -> "tag-$index" },
+			recommendations = (1..12).map { index ->
+				AurralDiscoverArtist(
+					id = "artist-$index",
+					name = "Artist $index",
+					imageUrl = "https://aurral.example.com/artist-$index.jpg",
+					matchedTags = listOf("Genre $index")
+				)
+			}
+		)
+
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery,
+			limit = 8
+		)
+		val genreRows = rows.filterIsInstance<AurralDiscoveryCollectionRow.Artists>()
+			.filter { row -> row.kind == AurralDiscoveryCollectionKind.GenreArtists }
+		val tagRow = rows.filterIsInstance<AurralDiscoveryCollectionRow.Tags>().single()
+
+		assertEquals(
+			3,
+			genreRows.size,
+			"Library should preview only a few Aurral genre rows instead of injecting every backend row at once."
+		)
+		assertEquals(
+			(1..24).map { index -> "tag-$index" },
+			tagRow.tags,
+			"Library tag wall should stay bounded; the full tag set belongs in the Aurral hub."
+		)
+	}
+
+	@Test
 	fun libraryAurralCollectionRowsKeepFallbackArtworkOutOfLibraryRows() {
 		val discovery = AurralDiscoverySummary(
 			recentlyAdded = listOf(
@@ -384,27 +420,70 @@ class LibraryAurralDisplayPolicyTest {
 	}
 
 	@Test
-	fun libraryShowsAurralLoadingPlaceholderOnlyWithoutCachedRows() {
+	fun libraryAurralCollectionRowsStateTreatsConfiguredMissingDiscoveryAsLoading() {
+		val emptyLoadingRows = libraryAurralCollectionRowsState(
+			aurralConfigured = true,
+			discoveryState = UiState.Success(null)
+		)
+
 		assertEquals(
-			true,
-			libraryAurralLoadingPlaceholderVisible(UiState.Loading(emptyList()))
+			UiState.Loading(emptyList()),
+			emptyLoadingRows
 		)
 		assertEquals(
-			false,
-			libraryAurralLoadingPlaceholderVisible(
-				UiState.Loading(
-					listOf(
-						AurralDiscoveryCollectionRow.Artists(
-							kind = AurralDiscoveryCollectionKind.RecommendedArtists,
-							artists = listOf(AurralDiscoverArtist(id = "artist", name = "Artist"))
-						)
+			true,
+			libraryAurralLoadingPlaceholderVisible(emptyLoadingRows)
+		)
+	}
+
+	@Test
+	fun libraryAurralRowsStateWithCacheKeepsResolvedRowsDuringReentryRefresh() {
+		val cachedRows = listOf(
+			AurralDiscoveryCollectionRow.Artists(
+				kind = AurralDiscoveryCollectionKind.RecentlyAddedArtists,
+				artists = listOf(
+					AurralDiscoverArtist(
+						id = "cached",
+						name = "Cached",
+						imageUrl = "https://aurral.example.com/cached.jpg"
 					)
 				)
 			)
 		)
+
+		val state = libraryAurralRowsStateWithCache(
+			cachedState = UiState.Success(cachedRows),
+			nextState = UiState.Loading(emptyList())
+		)
+
+		assertEquals(UiState.Loading(cachedRows), state)
+		assertEquals(false, libraryAurralLoadingPlaceholderVisible(state))
+	}
+
+	@Test
+	fun libraryAurralCollectionRowsStateKeepsCachedRowsWhileLoading() {
+		val discovery = AurralDiscoverySummary(
+			recommendations = listOf(
+				AurralDiscoverArtist(
+					id = "artist",
+					name = "Artist",
+					imageUrl = "https://aurral.example.com/artist.jpg"
+				)
+			)
+		)
+		val rows = libraryAurralCollectionRows(
+			aurralConfigured = true,
+			discovery = discovery
+		)
+		val loadingRows = libraryAurralCollectionRowsState(
+			aurralConfigured = true,
+			discoveryState = UiState.Loading(discovery)
+		)
+
+		assertEquals(UiState.Loading(rows), loadingRows)
 		assertEquals(
 			false,
-			libraryAurralLoadingPlaceholderVisible(UiState.Success(emptyList()))
+			libraryAurralLoadingPlaceholderVisible(loadingRows)
 		)
 	}
 

@@ -2,6 +2,7 @@ package paige.navic.ui.screens.bindery
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +31,7 @@ class BinderyAudiobookPlayerViewModel(
 
 	fun refreshManifest(fullRefresh: Boolean = false) {
 		manifestJob?.cancel()
-		manifestJob = viewModelScope.launch {
+		manifestJob = viewModelScope.launch(Dispatchers.IO) {
 			val currentData = _manifestState.value.data
 			val cachedManifest = if (!fullRefresh && currentData == null) {
 				repository.getCachedAudiobookManifest(audiobookId).getOrNull()

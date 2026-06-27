@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +64,8 @@ import paige.navic.util.core.InlineExplicitIcon
 fun SongRow(
 	modifier: Modifier = Modifier,
 	song: DomainSong,
+	isCurrentTrack: Boolean,
+	isPlaying: Boolean,
 	selected: Boolean = false,
 	onClick: (() -> Unit),
 	onLongClick: (() -> Unit),
@@ -85,7 +88,6 @@ fun SongRow(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
-	val playerState by player.uiState.collectAsStateWithLifecycle()
 
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
@@ -106,7 +108,6 @@ fun SongRow(
 	}
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
-	val isCurrentTrack = playerState.currentSong?.id == song.id
 	val showNowPlayingIndicator = shouldShowNowPlayingIndicator(
 		userEnabled = preferenceManager.showNowPlayingIndicator,
 		isCurrentSong = isCurrentTrack
@@ -139,15 +140,18 @@ fun SongRow(
 			)
 		},
 		supportingContent = {
-			MarqueeText(
-				text = buildString {
-					append(song.albumTitle ?: stringResource(Res.string.info_unknown_album))
+			val unknownAlbum = stringResource(Res.string.info_unknown_album)
+			val unknownYear = stringResource(Res.string.info_unknown_year)
+			val subtitle = remember(song.albumTitle, song.artistName, song.year, unknownAlbum, unknownYear) {
+				buildString {
+					append(song.albumTitle ?: unknownAlbum)
 					append(" • ")
 					append(song.artistName)
 					append(" • ")
-					append(song.year ?: stringResource(Res.string.info_unknown_year))
+					append(song.year ?: unknownYear)
 				}
-			)
+			}
+			MarqueeText(text = subtitle)
 		},
 		leadingContent = {
 			PlaybackSongCoverArt(
@@ -228,7 +232,7 @@ fun SongRow(
 				if (showNowPlayingIndicator) {
 					Waveform(
 						modifier = Modifier.padding(end = 12.dp),
-						isPlaying = !playerState.isPaused
+						isPlaying = isPlaying
 					)
 				}
 			}

@@ -1,11 +1,17 @@
 package paige.navic.ui.screens.reader
 
+// Ported from Komikku viewer lifecycle sources:
+// - tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt updateViewer()
+//   creates the reading-mode viewer, destroys the previous viewer, clears viewerContainer, and mounts newViewer.getView().
+// - tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/Viewer.kt
+//   defines getView(), destroy(), setChapters(), moveToPage(), and input-handler responsibilities.
 import paige.navic.reader.ReaderEngineRenderer
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.ReaderDirectionDefault
+import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderNavBarTypeBottom
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderSettings
@@ -42,6 +48,8 @@ interface ReaderViewer {
 	val shellCoverTitle: String?
 	fun withViewState(viewState: ReaderEngineViewState): ReaderViewer
 	fun viewerActionFor(region: KomikkuNavigationRegion): ReaderViewerAction
+	fun moveToPage(locator: ReaderLocator): ReaderViewerAction =
+		ReaderViewerAction.NavigateTo(locator)
 	fun destroy()
 }
 

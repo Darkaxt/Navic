@@ -1,0 +1,186 @@
+package paige.navic.ui.screens.library
+
+import java.io.File
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class LibraryStartupAsyncSourceHostTest {
+	@Test
+	fun libraryAurralRowsAreDerivedOffTheUiDispatcher() {
+		val source = commonMain(
+			"paige/navic/ui/screens/library/LibraryScreen.kt"
+		)
+
+		assertTrue(
+			"produceState<UiState<List<AurralDiscoveryCollectionRow>>>" in source,
+			"Library Aurral row projection should be derived in a produced state instead of directly during composition."
+		)
+		assertTrue(
+			"withContext(Dispatchers.Default)" in source,
+			"Library Aurral row projection walks discovery and cached artist-photo data; that CPU work must run off the UI dispatcher."
+		)
+		val backgroundBoundary = source.indexOf("withContext(Dispatchers.Default)")
+		val cacheProjection = source.indexOf("val artistPhotoCacheEntries = cachedArtistPhotos.map")
+		val rowProjection = source.indexOf("libraryAurralCollectionRowsState(")
+		assertTrue(
+			cacheProjection > backgroundBoundary,
+			"LibraryScreen must map the full artist-photo cache after the background dispatcher boundary."
+		)
+		assertTrue(
+			rowProjection > backgroundBoundary,
+			"LibraryScreen must build Aurral collection rows after the background dispatcher boundary."
+		)
+	}
+
+	@Test
+	fun libraryAurralDiscoveryDoesNotBlockOnImageHydration() {
+		val source = commonMain(
+			"paige/navic/ui/screens/library/LibraryScreen.kt"
+		)
+
+		assertTrue(
+			"aurralViewModel.refreshDiscovery(hydrateMissingImages = false)" in source,
+			"Library should render base/cached Aurral discovery first; missing image hydration belongs on a background path."
+		)
+		assertFalse(
+			"aurralViewModel.refreshDiscovery(hydrateMissingImages = true)" in source,
+			"Library startup and pull-refresh should not wait for serial Aurral image hydration lookups."
+		)
+	}
+
+	@Test
+	fun aurralDetailLocalCatalogLookupsRunOffTheUiDispatcher() {
+		val artistSource = commonMain(
+			"paige/navic/ui/screens/aurral/AurralArtistScreen.kt"
+		)
+		val missingAlbumSource = commonMain(
+			"paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt"
+		)
+
+		listOf(artistSource, missingAlbumSource).forEach { source ->
+			assertTrue(
+				"withContext(Dispatchers.IO)" in source,
+				"Aurral detail screens read local artist/album tables during load; those DAO reads must run off the UI dispatcher."
+			)
+		}
+	}
+
+	@Test
+	fun binderyRepositoryJobsRunOffTheUiDispatcher() {
+		val binderyViewModels = listOf(
+			"paige/navic/ui/screens/bindery/BinderyAudiobookDetailViewModel.kt",
+			"paige/navic/ui/screens/bindery/BinderyAudiobookPlayerViewModel.kt",
+			"paige/navic/ui/screens/bindery/BinderyBookViewModel.kt",
+			"paige/navic/ui/screens/bindery/BinderyCatalogViewModel.kt",
+			"paige/navic/ui/screens/bindery/BinderyHubViewModel.kt"
+		)
+
+		binderyViewModels.forEach { path ->
+			val source = commonMain(path)
+			assertTrue(
+				"viewModelScope.launch(Dispatchers.IO)" in source,
+				"$path should run cache/network repository work on IO."
+			)
+			assertFalse(
+				"viewModelScope.launch {" in source,
+				"$path still has a plain ViewModel launch that can run repository work on the UI dispatcher."
+			)
+		}
+
+		val searchSource = commonMain("paige/navic/ui/screens/bindery/BinderySearchViewModel.kt")
+		assertTrue(
+			"withContext(Dispatchers.IO)" in searchSource,
+			"Bindery search keeps a snapshotFlow collector, but cache/network search work must cross an IO boundary."
+		)
+		assertTrue(
+			"searchCachedBindery(query)" in searchSource && "searchBindery(query)" in searchSource,
+			"Bindery search must keep both cached-first and live search behavior."
+		)
+	}
+
+	@Test
+	fun settingsSearchStorageMetricsRunOffTheUiDispatcher() {
+		val source = commonMain("paige/navic/ui/screens/settings/SettingsSearchRegistry.kt")
+
+		assertTrue(
+			"produceState" in source && "withContext(Dispatchers.IO)" in source,
+			"Settings search should load storage/cache metrics asynchronously instead of reading the filesystem during composition."
+		)
+		assertFalse(
+			"remember { storageManager.listLidaClipOfflineFiles() }" in source,
+			"Lida clip offline file listing is filesystem work and must not run inside remember."
+		)
+		assertFalse(
+			"remember { storageManager.readerPublicationCacheSizeBytes() }" in source,
+			"Reader publication cache sizing is filesystem work and must not run inside remember."
+		)
+	}
+
+	@Test
+	fun playbackArtworkCacheProjectionRunsOffTheUiDispatcher() {
+		val source = commonMain("paige/navic/ui/components/common/PlaybackArtworkState.kt")
+
+		assertTrue(
+			"produceState<List<PlaybackArtistPhotoCacheEntry>>" in source,
+			"Playback artwork should produce projected artist-photo cache entries asynchronously."
+		)
+		assertTrue(
+			"withContext(Dispatchers.Default)" in source,
+			"Playback artwork cache projection is CPU work and should run off the UI dispatcher."
+		)
+		assertFalse(
+			"remember(cachedArtistPhotos, aurralBaseUrl) {" in source,
+			"Playback artwork must not map the full artist-photo cache directly in composition."
+		)
+	}
+
+	@Test
+	fun aurralFlowPlaybackRepositoryLoadsRunOffTheUiDispatcher() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralHubViewModel.kt")
+
+		assertTrue(
+			"withContext(Dispatchers.IO)" in source,
+			"Aurral flow playback actions should keep repository loads off the UI dispatcher."
+		)
+		assertTrue(
+			"playlistRepository.getPlaylistForPlayback(station)" in source,
+			"Station playback must keep resolving the playable station before queueing it."
+		)
+		assertTrue(
+			"repository.getFlowPlayableSongs(flow.id).getOrThrow()" in source,
+			"Direct flow playback must keep resolving playable songs before queueing them."
+		)
+	}
+
+	@Test
+	fun collectionDetailStartupDataDoesNotBlockTheConstructor() {
+		val source = commonMain("paige/navic/ui/screens/collection/viewmodels/CollectionDetailViewModel.kt")
+
+		assertFalse(
+			"runBlocking" in source,
+			"Collection detail must not synchronously read cached collection data while constructing the ViewModel."
+		)
+		assertTrue(
+			"viewModelScope.launch(Dispatchers.IO)" in source,
+			"Collection detail cache/API work should run on IO."
+		)
+		assertTrue(
+			"repository.getLocalData(collectionId)" in source,
+			"Collection detail should still hydrate stale local data before the live refresh completes."
+		)
+		assertTrue(
+			".flatMapLatest { album ->" in source &&
+				"repository.getOtherAlbums(album.artistId, album.id)" in source,
+			"Other-albums rows must be derived from loaded collection state instead of the constructor-time snapshot."
+		)
+	}
+
+	private fun commonMain(path: String): String =
+		listOf(
+			File("../composeApp/src/commonMain/kotlin/$path"),
+			File("composeApp/src/commonMain/kotlin/$path"),
+			File("src/commonMain/kotlin/$path")
+		).firstOrNull { it.isFile }?.readText()
+			?: error("Could not locate commonMain source $path")
+}

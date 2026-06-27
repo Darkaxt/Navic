@@ -412,6 +412,9 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueL
 			columns = bookGridColumns,
 			availableWidthDp = availableWidth.value.roundToInt()
 		).dp
+		var coverAspectRatio by remember(item.key, item.imageHref) {
+			mutableStateOf(binderyContinueListeningCoverAspectRatio(width = null, height = null))
+		}
 		ArtGridItem(
 			modifier = Modifier.animateItem().width(cardWidth),
 			onClick = { onOpen(item) },
@@ -420,9 +423,15 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueL
 			imageRequestHeaders = imageRequestHeaders,
 			title = item.title,
 			subtitle = item.subtitle,
-			coverAspectRatio = 2f / 3f,
-			coverContentScale = ContentScale.Fit,
+			coverAspectRatio = coverAspectRatio,
+			coverContentScale = if (coverAspectRatio >= 1f) ContentScale.Crop else ContentScale.Fit,
 			fallbackKind = "Audiobook",
+			onImageSizeResolved = { width, height ->
+				val resolved = binderyContinueListeningCoverAspectRatio(width, height)
+				if (coverAspectRatio != resolved) {
+					coverAspectRatio = resolved
+				}
+			},
 			id = item.key,
 			tab = "bindery-continue-listening"
 		)

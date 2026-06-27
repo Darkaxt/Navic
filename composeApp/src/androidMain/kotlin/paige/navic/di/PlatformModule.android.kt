@@ -68,6 +68,7 @@ actual val platformModule = module {
 			sessionManager = get(),
 			platformContext = get(),
 			songRepository = get(),
+			artistPhotoCacheDao = get(),
 			musicBrainzArtworkRepository = get(),
 			playbackOriginRepository = get(),
 			audioPlaybackArbitrator = get(),

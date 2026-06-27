@@ -44,7 +44,6 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralRepository
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralArtistMonitorBadge
@@ -53,6 +52,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberArtistArtworkUiState
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -89,6 +89,7 @@ fun ArtistListScreen(
 	val artistsState by viewModel.artistsState.collectAsStateWithLifecycle()
 	val selectedArtist by viewModel.selectedArtist.collectAsStateWithLifecycle()
 	val selectedArtistAlbums by viewModel.selectedArtistAlbums.collectAsStateWithLifecycle()
+	val aurralMonitorStates by viewModel.aurralMonitorStates.collectAsStateWithLifecycle()
 	val starred by viewModel.starred.collectAsStateWithLifecycle()
 	val selectedSorting by viewModel.listType.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
@@ -175,6 +176,7 @@ fun ArtistListScreen(
 					starred = starred,
 					selectedArtist = selectedArtist,
 					selectedArtistAlbums = selectedArtistAlbums,
+					aurralMonitorStates = aurralMonitorStates,
 					gridState = viewModel.gridState,
 					scrollBehavior = scrollBehavior,
 					innerPadding = innerPadding,
@@ -244,35 +246,24 @@ fun ArtistsScreenItem(
 	onAddToQueue: () -> Unit,
 	onSetStarred: (starred: Boolean) -> Unit
 ) {
-	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val uriHandler = LocalUriHandler.current
-	val artistImageUrl = artistImageUrlForExternalArtworkPolicy(
-		artist = artist,
-		externalArtworkEnabled = preferenceManager.aurralEnabled
-	)
-	val artistImageRequestHeaders = aurralRequestHeadersForUrl(
-		baseUrl = preferenceManager.aurralBaseUrl,
-		imageUrl = artistImageUrl,
-		requestHeaders = preferenceManager.aurralRequestHeadersMap()
-	)
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	val artistArtwork = rememberArtistArtworkUiState(artist)
 
 	Box(modifier) {
 		ArtGridItem(
 			onClick = dropUnlessResumed {
 				platformContext.clickSound()
-				backStack.add(Screen.ArtistDetail(artist.id))
+				backStack.add(artistListDestination(artist))
 			},
 			onLongClick = onSelect,
-			coverArtId = artistCoverArtIdForExternalArtworkPolicy(
-				artist = artist,
-				externalArtworkEnabled = preferenceManager.aurralEnabled
-			),
-			imageUrl = artistImageUrl,
-			imageRequestHeaders = artistImageRequestHeaders,
+			coverArtId = artistArtwork.coverArtId,
+			imageUrl = artistArtwork.imageUrl,
+			imageCacheKey = artistArtwork.imageCacheKey,
+			imageRequestHeaders = artistArtwork.imageRequestHeaders,
 			imageDiagnosticLabel = "artist-list-${artist.id}",
 			title = artist.name,
 			subtitle = pluralStringResource(

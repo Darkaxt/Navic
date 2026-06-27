@@ -239,6 +239,24 @@ class ReaderViewerTest {
 	}
 
 	@Test
+	fun readerViewerMoveToPageReturnsControllerNavigationActionLikeKomikkuViewerContract() {
+		val locator = ReaderLocator(
+			href = "EPUB/Text/chapter-02.xhtml",
+			cfi = "epubcfi(/6/8!/4/2:16)",
+			progress = 0.34
+		)
+		val viewer = readerViewerFor(
+			webViewPublication(flowMode = ReaderFlowPaged, paged = true)
+		)
+
+		assertEquals(
+			ReaderViewerAction.NavigateTo(locator),
+			viewer.moveToPage(locator),
+			"Komikku Viewer.moveToPage(page) maps to Navic's locator navigation action; the engine should not own this UI decision."
+		)
+	}
+
+	@Test
 	fun pagedViewerMapsPhysicalRegionsThroughReaderDirectionLikeKomikkuPagerVariants() {
 		val viewer = readerViewerFor(
 			webViewPublication(flowMode = ReaderFlowPaged, paged = true).copy(

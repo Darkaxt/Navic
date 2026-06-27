@@ -11,6 +11,9 @@ import paige.navic.ui.screens.aurral.aurralHubDiscoverArtists
 import paige.navic.ui.screens.artist.ArtistHeaderImageCacheEntry
 import paige.navic.ui.core.UiState
 
+private const val LibraryAurralGenreRowPreviewLimit = 3
+private const val LibraryAurralTagPreviewLimit = 24
+
 fun libraryAlbumAurralRequests(
 	showAurralHub: Boolean,
 	requests: List<AurralAlbumRequest>
@@ -49,6 +52,8 @@ fun libraryAurralCollectionRows(
 		aurralDiscoveryCollectionRows(
 			discovery = discovery,
 			limit = limit,
+			genreRowLimit = LibraryAurralGenreRowPreviewLimit,
+			tagLimit = LibraryAurralTagPreviewLimit,
 			artistPhotoCacheEntries = artistPhotoCacheEntries,
 			artistArtworkPriority = artistArtworkPriority,
 			externalArtworkEnabled = externalArtworkEnabled
@@ -65,6 +70,9 @@ fun libraryAurralCollectionRowsState(
 	artistArtworkPriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	externalArtworkEnabled: Boolean = true
 ): UiState<List<AurralDiscoveryCollectionRow>> {
+	if (aurralConfigured && discoveryState.data == null && discoveryState is UiState.Success) {
+		return UiState.Loading(emptyList())
+	}
 	val rows = libraryAurralCollectionRows(
 		aurralConfigured = aurralConfigured,
 		discovery = discoveryState.data,
@@ -73,7 +81,7 @@ fun libraryAurralCollectionRowsState(
 		externalArtworkEnabled = externalArtworkEnabled
 	)
 	return when (discoveryState) {
-		is UiState.Loading -> UiState.Loading(rows)
+		is UiState.Loading -> if (aurralConfigured) UiState.Loading(rows) else UiState.Success(rows)
 		is UiState.Success -> UiState.Success(rows)
 		is UiState.Error -> UiState.Success(rows)
 	}
@@ -88,6 +96,21 @@ fun libraryAurralLoadingPlaceholderVisible(
 	state: UiState<List<AurralDiscoveryCollectionRow>>
 ): Boolean =
 	state is UiState.Loading && state.data.orEmpty().isEmpty()
+
+fun libraryAurralRowsStateWithCache(
+	cachedState: UiState<List<AurralDiscoveryCollectionRow>>,
+	nextState: UiState<List<AurralDiscoveryCollectionRow>>
+): UiState<List<AurralDiscoveryCollectionRow>> {
+	val cachedRows = cachedState.data.orEmpty()
+	return if (nextState is UiState.Loading &&
+		nextState.data.orEmpty().isEmpty() &&
+		cachedRows.isNotEmpty()
+	) {
+		UiState.Loading(cachedRows)
+	} else {
+		nextState
+	}
+}
 
 private fun withoutFallbackArtworkCards(
 	row: AurralDiscoveryCollectionRow

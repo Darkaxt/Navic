@@ -57,6 +57,40 @@ class AurralArtistNavigationPolicyTest {
 	}
 
 	@Test
+	fun artistListDestinationUsesAurralRouteForSyntheticCreditRows() {
+		assertEquals(
+			Screen.AurralArtist(
+				artistMbid = "name:lisa",
+				artistName = "LISA",
+				imageUrl = "https://aurral.example.com/lisa.jpg"
+			),
+			artistListDestination(
+				DomainArtist(
+					id = "name:lisa",
+					name = "LISA",
+					albumCount = 0,
+					artistImageUrl = "https://aurral.example.com/lisa.jpg"
+				)
+			)
+		)
+	}
+
+	@Test
+	fun artistListDestinationKeepsLocalArtistsOnLocalDetailRoute() {
+		assertEquals(
+			Screen.ArtistDetail("local-artist-id"),
+			artistListDestination(
+				DomainArtist(
+					id = "local-artist-id",
+					name = "Local Artist",
+					albumCount = 2,
+					artistImageUrl = "https://aurral.example.com/local.jpg"
+				)
+			)
+		)
+	}
+
+	@Test
 	fun contributorArtistRouteSkipsMissingLocalArtistWhenAurralDisabled() {
 		assertNull(
 			artistCreditRoute(

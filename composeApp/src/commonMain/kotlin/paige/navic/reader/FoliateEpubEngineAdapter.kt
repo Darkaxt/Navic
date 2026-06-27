@@ -42,6 +42,25 @@ data class FoliatePdfEngineAdapter(
 		)
 }
 
+data class FoliatePublicationEngineAdapter(
+	private val publicationFormat: ReaderPublicationFormat,
+	private val currentViewState: ReaderEngineViewState.WebViewPublication? = null,
+	private val currentCommandKey: Long = 0L
+) : FoliateWebViewEngineAdapter(
+	format = publicationFormat,
+	currentViewState = currentViewState,
+	currentCommandKey = currentCommandKey
+) {
+	override fun copyEngine(
+		currentViewState: ReaderEngineViewState.WebViewPublication?,
+		currentCommandKey: Long
+	): FoliateWebViewEngineAdapter =
+		copy(
+			currentViewState = currentViewState,
+			currentCommandKey = currentCommandKey
+		)
+}
+
 sealed class FoliateWebViewEngineAdapter(
 	override val format: ReaderPublicationFormat,
 	private val currentViewState: ReaderEngineViewState.WebViewPublication? = null,

@@ -57,12 +57,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.effectiveAurralArtworkPriority
-import paige.navic.domain.models.externalFallbackArtworkCacheKey
-import paige.navic.domain.models.externalFallbackArtworkUrl
 import paige.navic.domain.models.settings.ToolbarPosition
-import paige.navic.domain.models.visiblePlaybackCoverArtId
-import paige.navic.domain.models.visiblePlaybackImageUrl
 import paige.navic.domain.repositories.MusicBrainzMetadataDisplayField
 import paige.navic.domain.repositories.MusicBrainzMetadataField
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
@@ -71,11 +66,12 @@ import paige.navic.icons.outlined.Info
 import paige.navic.icons.outlined.KeyboardArrowDown
 import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicBrainzIntegrationServices
-import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetToolbar
@@ -97,35 +93,12 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 	val metadata = song?.id?.let(musicBrainzMetadataBySongId::get)
 	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
-	val musicBrainzArtworkUrl = externalFallbackArtworkUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtwork?.imageUrl,
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val musicBrainzArtworkCacheKey = externalFallbackArtworkCacheKey(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
-		serverCoverLoadFailed = serverCoverLoadFailed
-	)
-	val effectiveArtworkPriority = effectiveAurralArtworkPriority(
-		aurralEnabled = preferenceManager.aurralEnabled,
-		configuredPriority = preferenceManager.coverArtworkPriority
-	)
-	val selectedPlaybackCoverArtId = visiblePlaybackCoverArtId(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtworkUrl,
-		priority = effectiveArtworkPriority
-	)
-	val selectedPlaybackImageUrl = visiblePlaybackImageUrl(
-		serverCoverArtId = song?.coverArtId,
-		externalArtworkUrl = musicBrainzArtworkUrl,
-		priority = effectiveArtworkPriority
-	)
-	val selectedPlaybackImageCacheKey = if (selectedPlaybackImageUrl == null) {
-		null
-	} else {
-		musicBrainzArtworkCacheKey
-	}
 	val trackRows = remember(song, preferenceManager.replayGainMode) {
 		song?.let { musicBrainzInfoTrackRows(it, preferenceManager.replayGainMode) }.orEmpty()
 	}
@@ -179,9 +152,10 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 	) { contentPadding ->
 		Box(Modifier.fillMaxSize()) {
 			BlendBackground(
-				coverArtId = selectedPlaybackCoverArtId,
-				imageUrl = selectedPlaybackImageUrl,
-				imageCacheKey = selectedPlaybackImageCacheKey,
+				coverArtId = playbackArtwork.coverArtId,
+				imageUrl = playbackArtwork.imageUrl,
+				imageCacheKey = playbackArtwork.imageCacheKey,
+				imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 				isPaused = false,
 				modifier = Modifier.fillMaxSize()
 			)
@@ -223,9 +197,16 @@ fun MusicBrainzInfoScreen(song: DomainSong?) {
 							.padding(top = 24.dp, bottom = 38.dp),
 						contentAlignment = Alignment.Center
 					) {
-						PlaybackSongCoverArt(
-							song = song,
+						CoverArt(
+							coverArtId = playbackArtwork.coverArtId,
+							imageUrl = playbackArtwork.imageUrl,
+							imageCacheKey = playbackArtwork.imageCacheKey,
+							imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 							contentDescription = song.title,
+							onServerCoverLoadFailed = {
+								musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
+								musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
+							},
 							modifier = Modifier.size(180.dp),
 							shadowElevation = 6.dp
 						)

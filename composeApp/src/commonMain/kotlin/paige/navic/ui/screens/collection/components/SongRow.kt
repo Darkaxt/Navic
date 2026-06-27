@@ -76,6 +76,8 @@ import paige.navic.util.core.toHoursMinutesSeconds
 @Composable
 fun CollectionDetailScreenSongRow(
 	song: DomainSong,
+	isCurrentTrack: Boolean,
+	isPlaying: Boolean,
 	index: Int,
 	count: Int,
 	isPlaylist: Boolean = false,
@@ -90,8 +92,6 @@ fun CollectionDetailScreenSongRow(
 	ownershipStatus: AurralOwnershipStatus? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
-	val player = koinInject<MediaPlayerViewModel>()
-	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val startToEndSwipeAction = songSwipeActionForDirection(
 		enabled = preferenceManager.songSwipeActionsEnabled,
 		startToEndAction = preferenceManager.songSwipeStartToEndAction,
@@ -106,7 +106,6 @@ fun CollectionDetailScreenSongRow(
 	)
 
 	val isDownloaded = download?.status == DownloadStatus.DOWNLOADED
-	val isCurrentTrack = playerState.currentSong?.id == song.id
 	val showNowPlayingIndicator = shouldShowNowPlayingIndicator(
 		userEnabled = preferenceManager.showNowPlayingIndicator,
 		isCurrentSong = isCurrentTrack
@@ -201,13 +200,13 @@ fun CollectionDetailScreenSongRow(
 				containerColor = MaterialTheme.colorScheme.surfaceContainer
 			),
 			leadingContent = {
-				if (isPlaylist) 
-						PlaybackSongCoverArt(
-							modifier = Modifier.size(48.dp),
-							song = song,
-							shape = MaterialTheme.shapes.small
-						)
-				else
+				if (isPlaylist) {
+					PlaybackSongCoverArt(
+						song = song,
+						modifier = Modifier.size(48.dp),
+						shape = MaterialTheme.shapes.small
+					)
+				} else {
 					Column(
 						modifier = Modifier.width(collectionDetailAlbumTrackLeadingWidth()),
 						horizontalAlignment = Alignment.CenterHorizontally
@@ -229,6 +228,7 @@ fun CollectionDetailScreenSongRow(
 							autoSize = TextAutoSize.StepBased(6.sp, 13.sp)
 						)
 					}
+				}
 			},
 			content = {
 				Column {
@@ -321,7 +321,7 @@ fun CollectionDetailScreenSongRow(
 					if (showNowPlayingIndicator) {
 						Waveform(
 							modifier = Modifier.padding(end = 12.dp),
-							isPlaying = !playerState.isPaused
+							isPlaying = isPlaying
 						)
 					}
 					song.duration.toHoursMinutesSeconds().let {

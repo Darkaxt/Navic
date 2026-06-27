@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -50,12 +51,12 @@ import navic.composeapp.generated.resources.title_songs
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.LocalPlatformContext
 import paige.navic.LocalNavStack
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
-import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
@@ -65,15 +66,13 @@ import paige.navic.domain.models.DomainSongListType
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.PlaylistRemove
 import paige.navic.domain.manager.DownloadManager
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.SongRow
+import paige.navic.ui.components.common.rememberArtistArtworkUiState
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.sheets.ArtistSheet
 import paige.navic.ui.components.sheets.CollectionSheet
-import paige.navic.ui.screens.artist.artistCoverArtIdForExternalArtworkPolicy
-import paige.navic.ui.screens.artist.artistImageUrlForExternalArtworkPolicy
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.core.UiState
 
@@ -132,7 +131,8 @@ fun StarredScreenContent(
 	val songs = songsState.data.orEmpty()
 	val artists = artistsState.data.orEmpty()
 	val downloadManager = koinInject<DownloadManager>()
-	val preferenceManager = koinInject<PreferenceManager>()
+	val player = koinInject<MediaPlayerViewModel>()
+	val playerState by player.uiState.collectAsStateWithLifecycle()
 	val uriHandler = LocalUriHandler.current
 
 	val scope = rememberCoroutineScope()
@@ -229,6 +229,8 @@ fun StarredScreenContent(
 						SongRow(
 							modifier = Modifier.weight(1f),
 							song = song,
+						isCurrentTrack = playerState.currentSong?.id == song.id,
+						isPlaying = !playerState.isPaused,
 							selected = selectedSong == song,
 							onClick = { onPlaySong(index) },
 							onLongClick = { onSelectSong(song) },
@@ -308,22 +310,12 @@ fun StarredScreenContent(
 				artists.toImmutableList(),
 				Screen.ArtistList(true, DomainArtistListType.Starred)
 			) { artist ->
-				val artistImageUrl = artistImageUrlForExternalArtworkPolicy(
-					artist = artist,
-					externalArtworkEnabled = preferenceManager.aurralEnabled
-				)
-				val artistImageRequestHeaders = aurralRequestHeadersForUrl(
-					baseUrl = preferenceManager.aurralBaseUrl,
-					imageUrl = artistImageUrl,
-					requestHeaders = preferenceManager.aurralRequestHeadersMap()
-				)
+				val artistArtwork = rememberArtistArtworkUiState(artist)
 				ArtCarouselItem(
-					coverArtId = artistCoverArtIdForExternalArtworkPolicy(
-						artist = artist,
-						externalArtworkEnabled = preferenceManager.aurralEnabled
-					),
-					imageUrl = artistImageUrl,
-					imageRequestHeaders = artistImageRequestHeaders,
+					coverArtId = artistArtwork.coverArtId,
+					imageUrl = artistArtwork.imageUrl,
+					imageCacheKey = artistArtwork.imageCacheKey,
+					imageRequestHeaders = artistArtwork.imageRequestHeaders,
 					title = artist.name, 
 					subtitle = pluralStringResource(
 						Res.plurals.count_albums,

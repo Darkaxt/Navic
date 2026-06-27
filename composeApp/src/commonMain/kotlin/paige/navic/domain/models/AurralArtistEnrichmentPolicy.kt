@@ -8,11 +8,22 @@ import kotlinx.serialization.Serializable
 data class AurralArtistEnrichment(
 	val artistMbid: String,
 	val artistName: String,
+	val imageUrl: String? = null,
+	val bio: String? = null,
+	val genres: List<String> = emptyList(),
+	val externalLinks: List<AurralArtistExternalLink> = emptyList(),
 	val releaseGroups: List<AurralReleaseGroup> = emptyList(),
 	val previewTracks: List<AurralPreviewTrack> = emptyList(),
 	val similarArtists: List<AurralSimilarArtist> = emptyList(),
 	val requests: List<AurralAlbumRequest> = emptyList(),
 	val monitored: Boolean? = null
+)
+
+@Immutable
+@Serializable
+data class AurralArtistExternalLink(
+	val type: String,
+	val url: String
 )
 
 @Immutable
@@ -68,7 +79,8 @@ data class AurralMissingAlbumRow(
 	val coverUrl: String?,
 	val requestStatus: String?,
 	val requestable: Boolean,
-	val acquisitionProgress: AurralAcquisitionProgress? = null
+	val acquisitionProgress: AurralAcquisitionProgress? = null,
+	val ownershipStatus: AurralOwnershipStatus = aurralOwnershipStatusForProgress(acquisitionProgress)
 )
 
 @Immutable
@@ -114,7 +126,137 @@ data class AurralAcquisitionProgress(
 enum class AurralOwnershipStatus {
 	Owned,
 	Partial,
+	Requested,
+	Processing,
+	Failed,
 	Missing
+}
+
+@Immutable
+data class AurralArtistOwnershipAlbumRows(
+	val ownedOrPartial: List<AurralArtistOwnershipAlbumRow>,
+	val missing: List<AurralArtistOwnershipAlbumRow>
+)
+
+@Immutable
+data class AurralReleaseGroupTrackEvidence(
+	val title: String,
+	val recordingMbid: String? = null
+)
+
+@Immutable
+data class AurralArtistOwnershipAlbumRow(
+	val releaseGroup: AurralReleaseGroup?,
+	val localAlbum: DomainAlbum?,
+	val title: String,
+	val year: String?,
+	val coverUrl: String?,
+	val requestStatus: String?,
+	val requestable: Boolean,
+	val acquisitionProgress: AurralAcquisitionProgress? = null,
+	val ownershipStatus: AurralOwnershipStatus,
+	val localSongs: List<DomainSong> = emptyList()
+)
+
+fun aurralArtistOwnershipAlbumRows(
+	enrichment: AurralArtistEnrichment,
+	localAlbums: List<DomainAlbum>,
+	releaseGroupTrackEvidence: Map<String, List<AurralReleaseGroupTrackEvidence>> = emptyMap()
+): AurralArtistOwnershipAlbumRows {
+	val requestsByMusicBrainzId = enrichment.requests
+		.mapNotNull { request ->
+			request.albumMbid.normalizedAurralIdOrNull()?.let { it to request }
+		}
+		.toMap()
+	val requestsByTitle = enrichment.requests
+		.mapNotNull { request ->
+			request.albumName.normalizedAurralNameOrNull()?.let { it to request }
+		}
+		.toMap()
+	val matchedReleaseGroupIds = mutableSetOf<String>()
+	val ownedOrPartial = localAlbums.map { album ->
+		val match = enrichment.releaseGroups
+			.mapNotNull { releaseGroup ->
+				val directScore = localAlbumReleaseGroupMatchScore(album, releaseGroup)
+				val releaseGroupTracks = releaseGroup.id.normalizedAurralIdOrNull()
+					?.let(releaseGroupTrackEvidence::get)
+					.orEmpty()
+				val trackEvidenceScore = localAlbumReleaseGroupTrackEvidenceMatchScore(
+					album = album,
+					releaseGroup = releaseGroup,
+					tracks = releaseGroupTracks
+				)
+				listOfNotNull(directScore, trackEvidenceScore).maxOrNull()?.let { score -> score to releaseGroup }
+			}
+			.maxWithOrNull(
+				compareBy<Pair<Int, AurralReleaseGroup>> { it.first }
+					.thenByDescending { it.second.firstReleaseDate.toAurralYearOrNull() ?: Int.MIN_VALUE }
+			)
+			?.second
+		match?.id?.normalizedAurralIdOrNull()?.let(matchedReleaseGroupIds::add)
+		val request = match?.let { releaseGroup ->
+			releaseGroup.id.normalizedAurralIdOrNull()?.let(requestsByMusicBrainzId::get)
+				?: releaseGroup.title.normalizedAurralNameOrNull()?.let(requestsByTitle::get)
+		}
+		val progress = request?.status?.trim()?.takeIf { it.isNotEmpty() }?.let(::aurralAcquisitionProgress)
+		val hasMultipleDistinctLocalTracks = album.hasMultipleDistinctAurralTracks()
+		val ownershipStatus = when {
+			progress != null -> aurralOwnershipStatusForProgress(progress)
+			match == null -> if (hasMultipleDistinctLocalTracks) {
+				AurralOwnershipStatus.Owned
+			} else {
+				AurralOwnershipStatus.Partial
+			}
+			localAlbumReleaseGroupMatchScore(album, match).isExactAurralAlbumMatchScore() &&
+				hasMultipleDistinctLocalTracks -> AurralOwnershipStatus.Owned
+			else -> AurralOwnershipStatus.Partial
+		}
+		AurralArtistOwnershipAlbumRow(
+			releaseGroup = match,
+			localAlbum = album,
+			title = match?.title ?: album.name,
+			year = match?.firstReleaseDate?.take(4)?.takeIf { value ->
+				value.length == 4 && value.all { it.isDigit() }
+			} ?: album.year?.toString(),
+			coverUrl = match?.coverUrl,
+			requestStatus = request?.status,
+			requestable = false,
+			acquisitionProgress = progress,
+			ownershipStatus = ownershipStatus,
+			localSongs = album.songs
+		)
+	}.sortedWith(aurralArtistOwnershipRowComparator())
+
+	val missing = enrichment.releaseGroups
+		.filter { releaseGroup ->
+			releaseGroup.id.normalizedAurralIdOrNull()?.let { it !in matchedReleaseGroupIds } != false
+		}
+		.map { releaseGroup ->
+			val request = releaseGroup.id.normalizedAurralIdOrNull()?.let(requestsByMusicBrainzId::get)
+				?: releaseGroup.title.normalizedAurralNameOrNull()?.let(requestsByTitle::get)
+			val status = request?.status?.trim()?.takeIf { it.isNotEmpty() }
+			val progress = status?.let(::aurralAcquisitionProgress)
+			AurralArtistOwnershipAlbumRow(
+				releaseGroup = releaseGroup,
+				localAlbum = null,
+				title = releaseGroup.title,
+				year = releaseGroup.firstReleaseDate?.take(4)?.takeIf { value ->
+					value.length == 4 && value.all { it.isDigit() }
+				},
+				coverUrl = releaseGroup.coverUrl,
+				requestStatus = status,
+				requestable = status == null,
+				acquisitionProgress = progress,
+				ownershipStatus = aurralOwnershipStatusForProgress(progress),
+				localSongs = emptyList()
+			)
+		}
+		.sortedWith(aurralArtistOwnershipRowComparator())
+
+	return AurralArtistOwnershipAlbumRows(
+		ownedOrPartial = ownedOrPartial,
+		missing = missing
+	)
 }
 
 fun aurralMissingAlbumRows(
@@ -158,7 +300,8 @@ fun aurralMissingAlbumRows(
 				coverUrl = releaseGroup.coverUrl,
 				requestStatus = status,
 				requestable = status == null,
-				acquisitionProgress = status?.let(::aurralAcquisitionProgress)
+				acquisitionProgress = status?.let(::aurralAcquisitionProgress),
+				ownershipStatus = aurralOwnershipStatusForStatus(status)
 			)
 		}
 		.sortedWith(
@@ -206,7 +349,13 @@ fun aurralArtistAlbumRows(
 fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
 	val normalized = status.trim().lowercase()
 	val failed = normalized == "failed" || normalized.contains("fail") || normalized.contains("error")
-	val completed = normalized == "available" || normalized == "added" || normalized == "completed"
+	val completed = normalized == "available" ||
+		normalized == "added" ||
+		normalized == "completed" ||
+		normalized == "downloaded" ||
+		normalized == "owned" ||
+		normalized == "in_library" ||
+		normalized == "in library"
 	val active = !failed && !completed
 	return AurralAcquisitionProgress(
 		status = status,
@@ -217,16 +366,14 @@ fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
 }
 
 fun aurralOwnershipStatusForProgress(progress: AurralAcquisitionProgress?): AurralOwnershipStatus =
-	when {
-		progress?.completed == true -> AurralOwnershipStatus.Owned
-		progress?.active == true -> AurralOwnershipStatus.Partial
-		else -> AurralOwnershipStatus.Missing
-	}
+	progress?.status?.let(::aurralOwnershipStatusForStatus) ?: AurralOwnershipStatus.Missing
 
 fun aurralOwnershipStatusForStatus(status: String?): AurralOwnershipStatus {
 	val normalized = status?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
 		?: return AurralOwnershipStatus.Missing
 	return when {
+		normalized.contains("fail") ||
+			normalized.contains("error") -> AurralOwnershipStatus.Failed
 		normalized == "available" ||
 			normalized == "added" ||
 			normalized == "completed" ||
@@ -236,13 +383,13 @@ fun aurralOwnershipStatusForStatus(status: String?): AurralOwnershipStatus {
 			normalized == "in library" -> AurralOwnershipStatus.Owned
 		normalized == "partial" ||
 			normalized == "partially_owned" ||
-			normalized == "partially owned" ||
-			normalized == "requested" ||
+			normalized == "partially owned" -> AurralOwnershipStatus.Partial
+		normalized == "requested" ||
 			normalized == "queued" ||
-			normalized == "pending" ||
-			normalized == "processing" ||
+			normalized == "pending" -> AurralOwnershipStatus.Requested
+		normalized == "processing" ||
 			normalized == "downloading" ||
-			normalized == "searching" -> AurralOwnershipStatus.Partial
+			normalized == "searching" -> AurralOwnershipStatus.Processing
 		else -> AurralOwnershipStatus.Missing
 	}
 }
@@ -253,7 +400,7 @@ fun aurralPreviewTrackOwnershipStatus(
 ): AurralOwnershipStatus =
 	when {
 		track.owned == true || track.inLibrary == true -> AurralOwnershipStatus.Owned
-		track.requested == true -> AurralOwnershipStatus.Partial
+		track.requested == true -> AurralOwnershipStatus.Requested
 		track.status != null -> aurralOwnershipStatusForStatus(track.status)
 		fallbackAlbumStatus != null -> fallbackAlbumStatus
 		else -> AurralOwnershipStatus.Missing
@@ -439,15 +586,6 @@ private fun String?.externalAurralArtworkUrlOrNull(): String? {
 	return url.takeUnless { it.isNavidromeArtworkUrl() }
 }
 
-private fun String.isNavidromeArtworkUrl(): Boolean {
-	val normalized = lowercase()
-	return "navidrome" in normalized ||
-		"/rest/getcoverart" in normalized ||
-		"/rest/getartistimage" in normalized ||
-		"/getcoverart" in normalized ||
-		"/getartistimage" in normalized
-}
-
 private fun String?.normalizedAurralAlbumTitleOrNull(): String? =
 	normalizedAurralNameOrNull()
 		?.replace(Regex("""\s*[\(\[](deluxe|expanded|bonus|remaster|anniversary|edition).*$"""), "")
@@ -468,3 +606,157 @@ private fun String?.toAurralYearOrNull(): Int? =
 		?.take(4)
 		?.takeIf { value -> value.length == 4 && value.all { it.isDigit() } }
 		?.toIntOrNull()
+
+private const val ExactMbidMatchScore = 1000
+private const val ExactTitleMatchScore = 900
+
+private fun Int?.isExactAurralAlbumMatchScore(): Boolean =
+	this != null && this >= ExactTitleMatchScore
+
+private fun DomainAlbum.hasMultipleDistinctAurralTracks(): Boolean {
+	val distinctLocalTrackTitles = songs
+		.mapNotNull { song -> song.title.normalizedAurralTrackTitleOrNull() }
+		.toSet()
+	return if (distinctLocalTrackTitles.isNotEmpty()) {
+		distinctLocalTrackTitles.size > 1
+	} else {
+		songCount > 1
+	}
+}
+
+private fun localAlbumReleaseGroupMatchScore(
+	album: DomainAlbum,
+	releaseGroup: AurralReleaseGroup
+): Int? {
+	val localMbid = album.musicBrainzId.normalizedAurralIdOrNull()
+	val releaseMbid = releaseGroup.id.normalizedAurralIdOrNull()
+	if (localMbid != null && localMbid == releaseMbid) return ExactMbidMatchScore
+
+	val localTitle = album.name.normalizedAurralAlbumTitleOrNull() ?: return null
+	val releaseTitle = releaseGroup.title.normalizedAurralAlbumTitleOrNull() ?: return null
+	val yearBonus = if (album.year != null && album.year == releaseGroup.firstReleaseDate.toAurralYearOrNull()) 50 else 0
+	if (localTitle == releaseTitle) return ExactTitleMatchScore + yearBonus
+	val localCompact = localTitle.filter { it.isLetterOrDigit() }
+	val releaseCompact = releaseTitle.filter { it.isLetterOrDigit() }
+	if (localCompact.isNotEmpty() && releaseCompact.isNotEmpty()) {
+		if (localCompact == releaseCompact) return ExactTitleMatchScore - 10 + yearBonus
+		if (localCompact.contains(releaseCompact) || releaseCompact.contains(localCompact)) return 800 + yearBonus
+	}
+
+	val localTokens = localTitle.normalizedAurralAlbumMatchTokens()
+	val releaseTokens = releaseTitle.normalizedAurralAlbumMatchTokens()
+	val common = localTokens.intersect(releaseTokens)
+	val commonSignificantLength = common.sumOf(String::length)
+	return when {
+		common.size >= 4 && commonSignificantLength >= 16 -> 700 + commonSignificantLength + yearBonus
+		common.size >= 3 && yearBonus > 0 -> 650 + commonSignificantLength + yearBonus
+		else -> null
+	}
+}
+
+private fun localAlbumReleaseGroupTrackEvidenceMatchScore(
+	album: DomainAlbum,
+	releaseGroup: AurralReleaseGroup,
+	tracks: List<AurralReleaseGroupTrackEvidence>
+): Int? {
+	if (tracks.isEmpty() || !localAlbumLooksLikeReleaseGroupEdition(album, releaseGroup)) return null
+	val localTrackTitles = album.songs
+		.mapNotNull { song -> song.title.normalizedAurralTrackTitleOrNull() }
+		.toSet()
+	if (localTrackTitles.isEmpty()) return null
+	val releaseTrackTitles = tracks
+		.mapNotNull { track -> track.title.normalizedAurralTrackTitleOrNull() }
+		.toSet()
+	val matchedTitles = localTrackTitles.intersect(releaseTrackTitles)
+	if (matchedTitles.isEmpty()) return null
+	val yearBonus = if (album.year != null && album.year == releaseGroup.firstReleaseDate.toAurralYearOrNull()) 50 else 0
+	val soundtrackBonus = if (releaseGroup.isSoundtrackReleaseGroup()) 40 else 0
+	val evidenceStrength = matchedTitles.sumOf { title -> title.length.coerceAtMost(30) }
+	return 580 + evidenceStrength + yearBonus + soundtrackBonus
+}
+
+private fun localAlbumLooksLikeReleaseGroupEdition(
+	album: DomainAlbum,
+	releaseGroup: AurralReleaseGroup
+): Boolean {
+	val localTitle = album.name.normalizedAurralAlbumTitleOrNull() ?: return false
+	val releaseTitle = releaseGroup.title.normalizedAurralAlbumTitleOrNull() ?: return false
+	val localTokens = localTitle.normalizedAurralAlbumMatchTokens()
+	val releaseTokens = releaseTitle.normalizedAurralAlbumMatchTokens()
+	if (localTokens.intersect(releaseTokens).isNotEmpty()) return true
+
+	val localEditionTokens = localTitle.normalizedAurralAlbumEditionTokens()
+	return localEditionTokens.isNotEmpty() && releaseGroup.isSoundtrackReleaseGroup()
+}
+
+private fun String.normalizedAurralAlbumMatchTokens(): Set<String> =
+	split(Regex("""[^a-z0-9]+"""))
+		.mapNotNull { token ->
+			token.trim()
+				.takeIf { it.length >= 3 }
+				?.takeUnless { it in AurralAlbumMatchStopWords }
+		}
+		.toSet()
+
+private fun String.normalizedAurralAlbumEditionTokens(): Set<String> =
+	normalizedAurralCueTokens()
+		.filter { it in AurralAlbumEditionEvidenceWords }
+		.toSet()
+
+private fun String?.normalizedAurralTrackTitleOrNull(): String? =
+	normalizedAurralNameOrNull()
+		?.replace(Regex("""\s*[\(\[](feat\.?|ft\.?|with|live|remaster|remastered).*$"""), "")
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+
+private fun AurralReleaseGroup.isSoundtrackReleaseGroup(): Boolean {
+	val releaseTypeTokens = (listOfNotNull(primaryType) + secondaryTypes)
+		.flatMap { type -> type.normalizedAurralCueTokens() }
+		.toSet()
+	val releaseTitleTokens = title.normalizedAurralCueTokens()
+	return "soundtrack" in releaseTypeTokens ||
+		"score" in releaseTypeTokens ||
+		"soundtrack" in releaseTitleTokens ||
+		"score" in releaseTitleTokens ||
+		("motion" in releaseTitleTokens && "picture" in releaseTitleTokens)
+}
+
+private fun String.normalizedAurralCueTokens(): Set<String> =
+	split(Regex("""[^a-z0-9]+"""))
+		.mapNotNull { token ->
+			token.trim().takeIf { it.length >= 3 }
+		}
+		.toSet()
+
+private val AurralAlbumMatchStopWords = setOf(
+	"the",
+	"and",
+	"for",
+	"from",
+	"with",
+	"music",
+	"motion",
+	"picture",
+	"original",
+	"score",
+	"soundtrack",
+	"consideration",
+	"album"
+)
+
+private val AurralAlbumEditionEvidenceWords = setOf(
+	"consideration",
+	"score",
+	"soundtrack",
+	"ost",
+	"edition",
+	"complete",
+	"expanded",
+	"disc",
+	"bonus"
+)
+
+private fun aurralArtistOwnershipRowComparator(): Comparator<AurralArtistOwnershipAlbumRow> =
+	compareBy<AurralArtistOwnershipAlbumRow> { it.year.toAurralYearOrNull() == null }
+		.thenByDescending { it.year.toAurralYearOrNull() ?: Int.MIN_VALUE }
+		.thenBy { it.title.lowercase() }

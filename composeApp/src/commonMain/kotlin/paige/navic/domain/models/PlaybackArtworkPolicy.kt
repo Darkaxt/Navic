@@ -1,6 +1,38 @@
 package paige.navic.domain.models
 
+import androidx.compose.runtime.Immutable
 import paige.navic.domain.models.settings.ArtworkSourcePriority
+
+@Immutable
+data class PlaybackArtworkResolution(
+	val coverArtId: String?,
+	val imageUrl: String?,
+	val imageCacheKey: String?,
+	val source: PlaybackArtworkSource
+) {
+	val hasArtwork: Boolean
+		get() = !coverArtId.isNullOrBlank() || !imageUrl.isNullOrBlank()
+}
+
+enum class PlaybackArtworkSource {
+	AurralArtist,
+	NativeCover,
+	MusicBrainz,
+	External,
+	None
+}
+
+@Immutable
+data class PlaybackArtistPhotoCacheEntry(
+	val cacheKey: String,
+	val artistId: String?,
+	val sourceArtistId: String?,
+	val name: String,
+	val normalizedName: String,
+	val imageUrl: String,
+	val source: String = "Aurral",
+	val updatedAtMillis: Long = 0L
+)
 
 fun activeArtworkUrl(
 	serverArtworkUrl: String?,
@@ -30,6 +62,142 @@ fun externalFallbackArtworkCacheKey(
 ): String? =
 	externalArtworkCacheKey.nonBlankOrNull()
 
+fun resolvedPlaybackArtwork(
+	serverCoverArtId: String?,
+	aurralArtistImageUrl: String?,
+	aurralArtistCacheKey: String?,
+	musicBrainzArtworkUrl: String?,
+	musicBrainzArtworkCacheKey: String?,
+	artworkSourcePriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+	aurralArtworkEnabled: Boolean = true,
+	musicBrainzArtworkEnabled: Boolean = true,
+	serverCoverLoadFailed: Boolean = false
+): PlaybackArtworkResolution {
+	val nativeCover = serverCoverArtId.nonBlankOrNull()
+		?.takeUnless { serverCoverLoadFailed }
+	val aurralImage = aurralArtistImageUrl.nonBlankOrNull()
+		?.takeIf { aurralArtworkEnabled }
+	val musicBrainzImage = musicBrainzArtworkUrl.nonBlankOrNull()
+		?.takeIf { musicBrainzArtworkEnabled }
+
+	fun aurralResolution(): PlaybackArtworkResolution? =
+		aurralImage?.let { image ->
+			PlaybackArtworkResolution(
+				coverArtId = null,
+				imageUrl = image,
+				imageCacheKey = externalImageCacheKey(
+					prefix = "aurral-artist",
+					cacheKey = aurralArtistCacheKey,
+					imageUrl = image
+				),
+				source = PlaybackArtworkSource.AurralArtist
+			)
+		}
+
+	fun nativeResolution(): PlaybackArtworkResolution? =
+		nativeCover?.let { coverArtId ->
+			PlaybackArtworkResolution(
+				coverArtId = coverArtId,
+				imageUrl = null,
+				imageCacheKey = null,
+				source = PlaybackArtworkSource.NativeCover
+			)
+		}
+
+	fun musicBrainzResolution(): PlaybackArtworkResolution? =
+		musicBrainzImage?.let { image ->
+			PlaybackArtworkResolution(
+				coverArtId = null,
+				imageUrl = image,
+				imageCacheKey = externalImageCacheKey(
+					prefix = "musicbrainz",
+					cacheKey = musicBrainzArtworkCacheKey,
+					imageUrl = image
+				),
+				source = PlaybackArtworkSource.MusicBrainz
+			)
+		}
+
+	return when (artworkSourcePriority) {
+		ArtworkSourcePriority.AurralFirst ->
+			musicBrainzResolution()
+				?: nativeResolution()
+				?: aurralResolution()
+
+		ArtworkSourcePriority.NativeFirst ->
+			nativeResolution()
+				?: musicBrainzResolution()
+				?: aurralResolution()
+
+		ArtworkSourcePriority.NativeOnly ->
+			nativeResolution()
+	} ?: PlaybackArtworkResolution(
+		coverArtId = null,
+		imageUrl = null,
+		imageCacheKey = null,
+		source = PlaybackArtworkSource.None
+	)
+}
+
+/**
+ * Single source of truth for non-playback (static) artwork: decides whether a native server
+ * cover id or an external image URL should be rendered, applying the Aurral/Navidrome
+ * suppression rules. Renderers ([CoverArt], [BlendBackground], …) must consume this instead
+ * of re-deciding — this is the only place static cover/URL selection policy lives.
+ *
+ * Reproduces the former `visibleCoverArtIdForAurralPolicy` + `visibleImageUrlForAurralPolicy`
+ * pair exactly, so behaviour is unchanged for existing call sites.
+ */
+fun resolveStaticArtwork(
+	serverCoverArtId: String?,
+	externalArtworkUrl: String?,
+	externalArtworkCacheKey: String?,
+	aurralEnabled: Boolean
+): PlaybackArtworkResolution {
+	val nativeCover = serverCoverArtId.nonBlankOrNull()
+	val externalUrl = externalArtworkUrl.nonBlankOrNull()?.let { url ->
+		// Suppress Navidrome-pattern URLs when a native cover fallback exists, so the native
+		// cover wins instead of a redundant server artwork URL. External (e.g. Aurral) URLs
+		// are always kept.
+		url.takeUnless { aurralEnabled && nativeCover != null && url.isNavidromeArtworkUrl() }
+	}
+	val visibleCoverArtId = when {
+		!aurralEnabled -> nativeCover
+		externalUrl != null -> null
+		else -> nativeCover
+	}
+	return PlaybackArtworkResolution(
+		coverArtId = visibleCoverArtId,
+		imageUrl = externalUrl,
+		imageCacheKey = externalArtworkCacheKey.nonBlankOrNull(),
+		source = when {
+			externalUrl != null -> PlaybackArtworkSource.External
+			visibleCoverArtId != null -> PlaybackArtworkSource.NativeCover
+			else -> PlaybackArtworkSource.None
+		}
+	)
+}
+
+fun resolvedPlaybackArtistPhoto(
+	artistId: String?,
+	artistName: String?,
+	entries: List<PlaybackArtistPhotoCacheEntry>
+): PlaybackArtistPhotoCacheEntry? =
+	entries
+		.asSequence()
+		.filter { entry -> entry.imageUrl.isAbsoluteHttpUrl() }
+		.mapNotNull { entry ->
+			entry.matchScore(artistId = artistId, artistName = artistName)
+				?.let { score -> score to entry }
+		}
+		.sortedWith(
+			compareBy<Pair<PlaybackArtistPhotoMatchScore, PlaybackArtistPhotoCacheEntry>> { it.first.matchRank }
+				.thenBy { it.first.sourceRank }
+				.thenByDescending { it.second.updatedAtMillis }
+		)
+		.firstOrNull()
+		?.second
+
 fun shouldSendServerArtworkHeaders(
 	serverArtworkUrl: String?,
 	externalArtworkUrl: String?
@@ -37,43 +205,75 @@ fun shouldSendServerArtworkHeaders(
 	externalArtworkUrl.nonBlankOrNull() == null &&
 		(serverArtworkUrl.nonBlankOrNull() != null || externalArtworkUrl.isNullOrBlank())
 
-fun effectiveAurralArtworkPriority(
-	aurralEnabled: Boolean,
-	configuredPriority: ArtworkSourcePriority
-): ArtworkSourcePriority =
-	if (aurralEnabled) {
-		ArtworkSourcePriority.AurralFirst
-	} else {
-		configuredPriority
-	}
+private data class PlaybackArtistPhotoMatchScore(
+	val matchRank: Int,
+	val sourceRank: Int
+)
 
-@Suppress("UNUSED_PARAMETER")
-fun visiblePlaybackCoverArtId(
-	serverCoverArtId: String?,
-	externalArtworkUrl: String?,
-	priority: ArtworkSourcePriority
-): String? =
-	when (priority) {
-		ArtworkSourcePriority.AurralFirst -> null
-		ArtworkSourcePriority.NativeFirst,
-		ArtworkSourcePriority.NativeOnly -> serverCoverArtId.nonBlankOrNull()
-	}
+private fun PlaybackArtistPhotoCacheEntry.matchScore(
+	artistId: String?,
+	artistName: String?
+): PlaybackArtistPhotoMatchScore? {
+	val normalizedArtistId = artistId.normalizedPlaybackArtworkId()
+	val normalizedArtistName = artistName.normalizedPlaybackArtworkName()
+	val matchRank = when {
+		this.artistId.normalizedPlaybackArtworkId()?.let { it == normalizedArtistId } == true -> 0
+		sourceArtistId.normalizedPlaybackArtworkId()?.let { it == normalizedArtistId } == true -> 1
+		normalizedName.normalizedPlaybackArtworkName()?.let { it == normalizedArtistName } == true -> 2
+		name.normalizedPlaybackArtworkName()?.let { it == normalizedArtistName } == true -> 3
+		else -> null
+	} ?: return null
+	return PlaybackArtistPhotoMatchScore(
+		matchRank = matchRank,
+		sourceRank = source.playbackArtistPhotoSourceRank()
+	)
+}
 
-fun visiblePlaybackImageUrl(
-	serverCoverArtId: String?,
-	externalArtworkUrl: String?,
-	priority: ArtworkSourcePriority
+private fun externalImageCacheKey(
+	prefix: String,
+	cacheKey: String?,
+	imageUrl: String
 ): String? {
-	val external = externalArtworkUrl.nonBlankOrNull()
-	return when (priority) {
-		ArtworkSourcePriority.AurralFirst -> external
-		ArtworkSourcePriority.NativeFirst -> if (serverCoverArtId.nonBlankOrNull() == null) external else null
-		ArtworkSourcePriority.NativeOnly -> null
+	val rawKey = cacheKey.nonBlankOrNull() ?: imageUrl.nonBlankOrNull()
+	return rawKey?.let { key ->
+		if (key.startsWith("$prefix:", ignoreCase = true)) key else "$prefix:$key"
 	}
 }
 
 private fun String?.nonBlankOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
+
+internal fun String.isNavidromeArtworkUrl(): Boolean {
+	val normalized = lowercase()
+	return "navidrome" in normalized ||
+		"/rest/getcoverart" in normalized ||
+		"/rest/getartistimage" in normalized ||
+		"/getcoverart" in normalized ||
+		"/getartistimage" in normalized
+}
+
+private fun String?.normalizedPlaybackArtworkId(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.takeIf { it.isNotEmpty() }
+
+private fun String?.normalizedPlaybackArtworkName(): String? =
+	this
+		?.trim()
+		?.lowercase()
+		?.replace(Regex("""\s+"""), " ")
+		?.takeIf { it.isNotEmpty() }
+
+private fun String.playbackArtistPhotoSourceRank(): Int =
+	when (trim().lowercase()) {
+		"aurral" -> 0
+		"lastfm", "last.fm" -> 1
+		else -> 2
+	}
+
+private fun String.isAbsoluteHttpUrl(): Boolean =
+	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
 
 private fun String.withQueryParameter(key: String, value: String): String {
 	val separator = when {

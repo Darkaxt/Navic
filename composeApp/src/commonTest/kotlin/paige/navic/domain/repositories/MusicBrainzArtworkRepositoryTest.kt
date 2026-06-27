@@ -368,8 +368,8 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
-	fun artworkLookupIgnoresHealthyServerCoverWhenAurralIsEnabledEvenWithNativePriority() {
-		assertTrue(
+	fun artworkLookupRespectsNativeOnlyWhenAurralIsEnabled() {
+		assertFalse(
 			shouldResolveMusicBrainzArtworkOnPlayback(
 				enabled = true,
 				isOnline = true,
@@ -386,8 +386,8 @@ class MusicBrainzArtworkRepositoryTest {
 	}
 
 	@Test
-	fun aurralEnabledMakesExternalPlaybackArtworkVisibleEvenWhenMusicBrainzFallbackIsDisabled() {
-		assertTrue(
+	fun aurralEnabledDoesNotBypassNativeOnlyPlaybackArtworkPreference() {
+		assertFalse(
 			shouldResolveMusicBrainzArtworkOnPlayback(
 				enabled = false,
 				isOnline = true,

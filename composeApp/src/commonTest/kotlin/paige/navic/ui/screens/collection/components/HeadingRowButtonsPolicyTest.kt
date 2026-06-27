@@ -21,4 +21,28 @@ class HeadingRowButtonsPolicyTest {
 			aurralAlbumActionIconOverlay(AurralOwnershipStatus.Partial)
 		)
 	}
+
+	@Test
+	fun requestedAurralAlbumUsesNormalActionIconAfterAcceptedClick() {
+		assertEquals(
+			AurralActionIconOverlay.None,
+			aurralAlbumActionIconOverlay(AurralOwnershipStatus.Requested)
+		)
+	}
+
+	@Test
+	fun processingAurralAlbumUsesProgressActionIcon() {
+		assertEquals(
+			AurralActionIconOverlay.Progress,
+			aurralAlbumActionIconOverlay(AurralOwnershipStatus.Processing)
+		)
+	}
+
+	@Test
+	fun failedAurralAlbumUsesCrossedActionIcon() {
+		assertEquals(
+			AurralActionIconOverlay.Crossed,
+			aurralAlbumActionIconOverlay(AurralOwnershipStatus.Failed)
+		)
+	}
 }

@@ -53,6 +53,15 @@ internal fun settingsSearchAppearanceRows(context: SettingsSearchContext): List<
 			selection = preferenceManager.theme,
 			onSelect = { preferenceManager.theme = it }
 		))
+		add(switchRow(
+			id = "appearance.dynamic-themes",
+			path = path(appearance),
+			title = stringResource(Res.string.option_dynamic_themes),
+			subtitle = stringResource(Res.string.subtitle_dynamic_themes),
+			keywords = listOf("artwork", "cover", "palette", "colour", "color"),
+			value = preferenceManager.dynamicThemes,
+			onSetValue = { preferenceManager.dynamicThemes = it }
+		))
 		add(selectionRow(
 			id = "appearance.artwork-shape",
 			path = path(appearance, layout),
@@ -81,15 +90,6 @@ internal fun settingsSearchAppearanceRows(context: SettingsSearchContext): List<
 			onValueChange = { preferenceManager.artGridItemSize = it },
 			valueRange = 50f..500f,
 			steps = 8
-		))
-		add(switchRow(
-			id = "appearance.quick-picks",
-			path = path(appearance, library),
-			title = stringResource(Res.string.option_show_quick_picks),
-			subtitle = stringResource(Res.string.subtitle_show_quick_picks),
-			keywords = listOf("discover", "home", "library"),
-			value = preferenceManager.quickPicksEnabled,
-			onSetValue = { preferenceManager.quickPicksEnabled = it }
 		))
 		add(selectionRow(
 			id = "appearance.quick-picks-size",

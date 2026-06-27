@@ -16,7 +16,8 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.hasStableNavidromeSongId
-import paige.navic.ui.components.layouts.PlaybackSongArtGridItem
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
+import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
@@ -47,15 +48,26 @@ fun QuickPickSongCard(
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = null,
+		musicBrainzArtworkCacheKey = null,
+		serverCoverLoadFailed = false
+	)
 
 	Box(modifier) {
-		PlaybackSongArtGridItem(
+		ArtGridItem(
 			onClick = dropUnlessResumed {
 				platformContext.clickSound()
 				onClick()
 			},
 			onLongClick = onSelect,
-			song = song,
+			coverArtId = playbackArtwork.coverArtId,
+			imageUrl = playbackArtwork.imageUrl,
+			imageCacheKey = playbackArtwork.imageCacheKey,
+			imageRequestHeaders = playbackArtwork.imageRequestHeaders,
+			title = song.title,
+			subtitle = song.artistName,
 			ownershipStatus = ownershipStatus,
 			id = song.id,
 			tab = "quick-picks"

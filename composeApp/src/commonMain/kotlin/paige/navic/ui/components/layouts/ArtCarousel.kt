@@ -109,6 +109,7 @@ fun <T> ArtCarousel(
 fun CarouselItemScope.ArtCarouselItem(
 	coverArtId: String?,
 	imageUrl: String? = null,
+	imageCacheKey: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	title: String,
 	subtitle: String? = null,
@@ -129,6 +130,7 @@ fun CarouselItemScope.ArtCarouselItem(
 			CoverArt(
 				coverArtId = coverArtId,
 				imageUrl = imageUrl,
+				imageCacheKey = imageCacheKey,
 				imageRequestHeaders = imageRequestHeaders,
 				contentDescription = contentDescription,
 				modifier = Modifier

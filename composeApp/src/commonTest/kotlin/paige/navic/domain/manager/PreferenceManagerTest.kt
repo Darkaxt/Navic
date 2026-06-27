@@ -19,12 +19,31 @@ import paige.navic.domain.models.settings.NowPlayingProgressWidth
 import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
+import paige.navic.ui.screens.library.LibraryRowId
+import paige.navic.ui.screens.library.libraryRowHiddenPreference
+import paige.navic.ui.screens.library.libraryRowOrderPreference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PreferenceManagerTest {
+	@Test
+	fun libraryRowPreferencesDefaultToCurrentBehavior() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals("", manager.libraryRowOrder)
+		assertEquals("", manager.libraryHiddenRows)
+
+		manager.libraryRowOrder = libraryRowOrderPreference(
+			listOf(LibraryRowId.Artists, LibraryRowId.QuickPicks)
+		)
+		manager.libraryHiddenRows = libraryRowHiddenPreference(setOf(LibraryRowId.QuickPicks))
+
+		assertEquals("artists|quick_picks", manager.libraryRowOrder)
+		assertEquals("quick_picks", manager.libraryHiddenRows)
+	}
+
 	@Test
 	fun serverRequestHeadersMapKeepsCustomHeadersWhenBasicAuthIsDisabled() {
 		val manager = PreferenceManager(MapSettings())

@@ -25,11 +25,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,9 +41,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_play
 import navic.composeapp.generated.resources.info_no_songs
+import navic.composeapp.generated.resources.notice_aurral_album_requested
+import navic.composeapp.generated.resources.notice_aurral_album_request_failed
 import navic.composeapp.generated.resources.title_disc_number
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -49,6 +54,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
 import paige.navic.LocalBottomBarScrollManager
+import paige.navic.LocalSnackbarState
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralOwnershipStatus
@@ -73,6 +79,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberResolvedArtworkColorScheme
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -88,6 +95,7 @@ import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreBy
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.aurral.aurralSearchAlbumOwnershipStatus
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.theme.NavicTheme
 import paige.navic.util.ui.segmentedShapes
 import paige.navic.util.ui.withoutTop
 import kotlin.time.Duration
@@ -101,6 +109,10 @@ fun CollectionDetailScreen(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
+	val snackbarState = LocalSnackbarState.current
+	val albumRequestedMessage = stringResource(Res.string.notice_aurral_album_requested)
+	val albumRequestFailedMessage = stringResource(Res.string.notice_aurral_album_request_failed)
+	val scope = rememberCoroutineScope()
 
 	val viewModel = koinViewModel<CollectionDetailViewModel>(
 		key = collectionId,
@@ -156,6 +168,13 @@ fun CollectionDetailScreen(
 	val rating by viewModel.rating.collectAsStateWithLifecycle()
 	BackToTopScrollHandler(viewModel.listState)
 
+	LaunchedEffect(viewModel, albumRequestFailedMessage) {
+		viewModel.aurralAlbumRequestFailures.collect {
+			snackbarState.currentSnackbarData?.dismiss()
+			snackbarState.showSnackbar(albumRequestFailedMessage)
+		}
+	}
+
 	val titleAlpha by remember {
 		derivedStateOf {
 			if (viewModel.listState.firstVisibleItemIndex >= 1) return@derivedStateOf 1f
@@ -169,6 +188,11 @@ fun CollectionDetailScreen(
 		}
 	}
 
+	val collectionColorScheme = rememberResolvedArtworkColorScheme(
+		coverArtId = displayedCollection?.coverArtId
+	)
+
+	NavicTheme(collectionColorScheme) {
 	Scaffold(
 		topBar = {
 			CollectionDetailScreenTopBar(
@@ -244,8 +268,16 @@ fun CollectionDetailScreen(
 						CollectionDetailScreenHeadingRowButtons(
 							collection = contentCollection,
 							aurralAlbumActionStatus = aurralAlbumActionStatus,
-							onAcquireAurralAlbum = if (aurralAlbumActionStatus == AurralOwnershipStatus.Missing) {
-								{ viewModel.requestAurralRecoveryAlbum() }
+							onAcquireAurralAlbum = if (aurralAlbumActionStatus == AurralOwnershipStatus.Missing ||
+								aurralAlbumActionStatus == AurralOwnershipStatus.Failed
+							) {
+								{
+									scope.launch {
+										snackbarState.currentSnackbarData?.dismiss()
+										snackbarState.showSnackbar(albumRequestedMessage)
+									}
+									viewModel.requestAurralRecoveryAlbum()
+								}
 							} else {
 								null
 							}
@@ -315,6 +347,8 @@ fun CollectionDetailScreen(
 								Box {
 									CollectionDetailScreenSongRow(
 										song = song,
+										isCurrentTrack = playerState.currentSong?.id == song.id,
+										isPlaying = !playerState.isPaused,
 										index = index,
 										count = group.value.count(),
 										isPlaylist = false,
@@ -369,6 +403,8 @@ fun CollectionDetailScreen(
 							Box {
 								CollectionDetailScreenSongRow(
 									song = song,
+									isCurrentTrack = playerState.currentSong?.id == song.id,
+									isPlaying = !playerState.isPaused,
 									index = index,
 									count = contentCollection.songs.count(),
 									isPlaylist = true,
@@ -490,6 +526,7 @@ fun CollectionDetailScreen(
 			}
 		}
 	)
+	}
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -569,7 +606,10 @@ private fun AurralAlbumDisplayRow.displaySubtitleText(): String? =
 	artistName?.takeIf { it.isNotBlank() }
 		?: when (ownershipStatus) {
 			AurralOwnershipStatus.Owned -> localSong?.let { "Owned locally" } ?: "Owned"
-			AurralOwnershipStatus.Partial -> track?.status?.takeIf { it.isNotBlank() } ?: "Requested"
+			AurralOwnershipStatus.Partial -> track?.status?.takeIf { it.isNotBlank() } ?: "Partial"
+			AurralOwnershipStatus.Requested -> track?.status?.takeIf { it.isNotBlank() } ?: "Requested"
+			AurralOwnershipStatus.Processing -> track?.status?.takeIf { it.isNotBlank() } ?: "Processing"
+			AurralOwnershipStatus.Failed -> track?.status?.takeIf { it.isNotBlank() } ?: "Failed"
 			AurralOwnershipStatus.Missing,
 			null -> null
 		}

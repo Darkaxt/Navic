@@ -16,16 +16,17 @@ import navic.composeapp.generated.resources.title_more_by_artist
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
-import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
+import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.sheets.CollectionSheet
+import paige.navic.ui.screens.album.albumDownloadOwnershipStatus
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 
@@ -53,14 +54,14 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 		var albumToAddToPlaylist by remember { mutableStateOf<DomainAlbum?>(null) }
 
 		val downloadManager = koinInject<DownloadManager>()
+		val allDownloads by downloadManager.allDownloads.collectAsState(initial = emptyList())
 
 		ArtCarousel(
 			title = stringResource(Res.string.title_more_by_artist, artistName),
 			items = artistAlbums.sortedByAlbumYearDescending().toImmutableList()
 		) { album ->
-			val downloadStatus by downloadManager
-				.getCollectionDownloadStatus(album.songs.map { it.id })
-				.collectAsState(initial = DownloadStatus.NOT_DOWNLOADED)
+			val songIds = album.songs.map { it.id }
+			val downloadStatus = collectionDownloadStatus(songIds, allDownloads)
 			ArtCarouselItem(
 				coverArtId = album.coverArtId,
 				title = album.name,
@@ -69,6 +70,7 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 					album = album,
 					requests = aurralAlbumRequests
 				),
+				ownershipStatus = albumDownloadOwnershipStatus(songIds, allDownloads),
 				onSelect = { onSelect(album) },
 				onClick = dropUnlessResumed {
 					backStack.add(Screen.CollectionDetail(album.id, tab))

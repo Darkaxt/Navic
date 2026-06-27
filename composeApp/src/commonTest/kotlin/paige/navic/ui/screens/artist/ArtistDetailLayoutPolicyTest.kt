@@ -1,15 +1,102 @@
 package paige.navic.ui.screens.artist
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
+import paige.navic.domain.models.AurralArtistExternalLink
+import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainContributor
+import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralDiscoverArtist
 
 class ArtistDetailLayoutPolicyTest {
+	@Test
+	fun artistHeaderGenreLabelsAreTrimmedDedupedAndLimited() {
+		assertEquals(
+			listOf("Soundtrack", "Film Score"),
+			artistHeaderGenreLabels(
+				listOf(" Soundtrack ", "", "Soundtrack", "Film Score", "Ambient"),
+				limit = 2
+			)
+		)
+	}
+
+	@Test
+	fun artistHeaderExternalLinksKeepOnlyDistinctHttpLinks() {
+		assertEquals(
+			listOf(
+				ArtistHeaderExternalLink("musicbrainz", "https://musicbrainz.org/artist/id"),
+				ArtistHeaderExternalLink("Aurral", "https://aurral.example/artist/id")
+			),
+			artistHeaderExternalLinks(
+				listOf(
+					AurralArtistExternalLink("musicbrainz", "https://musicbrainz.org/artist/id"),
+					AurralArtistExternalLink("musicbrainz", "https://musicbrainz.org/artist/id"),
+					AurralArtistExternalLink("", "ftp://invalid.example"),
+					AurralArtistExternalLink("Aurral", "https://aurral.example/artist/id"),
+					AurralArtistExternalLink("lastfm", "https://last.fm/music/artist")
+				),
+				limit = 2
+			)
+		)
+	}
+
+	@Test
+	fun localCatalogAddsSongCreditAlbumsAsPartialEvidence() {
+		val artist = DomainArtist(
+			id = "john-powell",
+			name = "John Powell",
+			musicBrainzId = "52bb713d-b0c9-4bf6-9f58-392388d5cc11"
+		)
+		val testDrive = song(
+			id = "test-drive",
+			title = "Test Drive",
+			artistId = "john-powell",
+			artistName = "John Powell",
+			albumId = "httyd-fyc",
+			albumTitle = "How to Train Your Dragon - For Your Consideration Best Original Score [2 CD]",
+			playCount = 9
+		)
+		val unrelated = song(
+			id = "unrelated",
+			title = "Unrelated Cue",
+			artistId = "other",
+			artistName = "Other",
+			albumId = "httyd-fyc",
+			albumTitle = "How to Train Your Dragon - For Your Consideration Best Original Score [2 CD]"
+		)
+		val candidateAlbum = album(
+			id = "httyd-fyc",
+			name = "How to Train Your Dragon - For Your Consideration Best Original Score [2 CD]",
+			songs = listOf(testDrive, unrelated)
+		)
+
+		val creditAlbumIds = artistDetailSongCreditAlbumIds(
+			artist = artist,
+			allSongs = listOf(testDrive, unrelated)
+		)
+		val catalog = artistDetailLocalCatalog(
+			artist = artist,
+			directAlbums = emptyList(),
+			allSongs = listOf(testDrive, unrelated),
+			creditCandidateAlbums = listOf(candidateAlbum)
+		)
+
+		assertEquals(listOf("httyd-fyc"), creditAlbumIds)
+		assertEquals(listOf("httyd-fyc"), catalog.albums.map { it.id })
+		assertEquals(listOf("Test Drive"), catalog.albums.single().songs.map { it.title })
+		assertEquals(1, catalog.albums.single().songCount)
+		assertEquals(listOf("Test Drive"), catalog.songs.map { it.title })
+	}
+
 	@Test
 	fun frequentSongsGridHeightOnlyReservesVisibleRows() {
 		assertEquals(0, artistTopSongsGridHeightDp(songCount = 0))
@@ -56,8 +143,7 @@ class ArtistDetailLayoutPolicyTest {
 				artistArtworkPriority = ArtworkSourcePriority.AurralFirst
 			)
 		)
-		assertEquals(
-			"https://aurral.example.com/bond.webp",
+		assertNull(
 			artistDetailHeadingImageUrl(
 				artist = DomainArtist(
 					id = "bond",
@@ -67,23 +153,6 @@ class ArtistDetailLayoutPolicyTest {
 				),
 				verifiedExternalImageUrl = "https://aurral.example.com/bond.webp",
 				artistArtworkPriority = ArtworkSourcePriority.NativeFirst
-			)
-		)
-	}
-
-	@Test
-	fun headingUsesAurralImageBeforeNativeWhenAurralIsEnabledEvenIfConfiguredNativeFirst() {
-		assertEquals(
-			"https://aurral.example.com/jason-ross.webp",
-			artistDetailHeadingImageUrl(
-				artist = DomainArtist(
-					id = "jason-ross",
-					name = "Jason Ross",
-					coverArtId = "navidrome-artist-cover"
-				),
-				verifiedExternalImageUrl = "https://aurral.example.com/jason-ross.webp",
-				artistArtworkPriority = ArtworkSourcePriority.NativeFirst,
-				externalArtworkEnabled = true
 			)
 		)
 	}
@@ -105,6 +174,22 @@ class ArtistDetailLayoutPolicyTest {
 		assertNull(
 			artistCoverArtIdForExternalArtworkPolicy(
 				artist = artist,
+				externalArtworkEnabled = true
+			)
+		)
+		assertEquals(
+			"navidrome-artist-cover",
+			artistDetailHeadingCoverArtId(
+				artist = artist,
+				artistArtworkPriority = ArtworkSourcePriority.NativeFirst,
+				externalArtworkEnabled = true
+			)
+		)
+		assertEquals(
+			"navidrome-artist-cover",
+			artistCoverArtIdForExternalArtworkPolicy(
+				artist = artist,
+				artistArtworkPriority = ArtworkSourcePriority.NativeFirst,
 				externalArtworkEnabled = true
 			)
 		)
@@ -201,6 +286,54 @@ class ArtistDetailLayoutPolicyTest {
 					)
 				)
 			)
+		)
+	}
+
+	@Test
+	fun headingCanUsePersistentArtistPhotoCacheFromPrecomputedIndex() {
+		val index = artistHeaderImageCacheIndex(
+			listOf(
+				ArtistHeaderImageCacheEntry(
+					artistId = "other-local-id",
+					sourceArtistId = "other-source-id",
+					name = "Other Artist",
+					normalizedName = "other artist",
+					imageUrl = "https://aurral.example.com/other.webp"
+				),
+				ArtistHeaderImageCacheEntry(
+					artistId = "local-john-powell",
+					sourceArtistId = "52bb713d-b0c9-4bf6-9f58-392388d5cc11",
+					name = "John Powell",
+					normalizedName = "john powell",
+					imageUrl = "https://aurral.example.com/john-powell.webp"
+				)
+			)
+		)
+
+		assertEquals(
+			"https://aurral.example.com/john-powell.webp",
+			artistDetailCachedImageUrl(
+				artist = DomainArtist(
+					id = "local-john-powell",
+					name = "John   Powell",
+					musicBrainzId = "52bb713d-b0c9-4bf6-9f58-392388d5cc11"
+				),
+				index = index
+			)
+		)
+	}
+
+	@Test
+	fun artistPhotoCacheLookupDoesNotUseRegexInHotNormalizationPath() {
+		val source = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistDetailLayoutPolicy.kt"
+		).readText()
+		val normalizer = source.substringAfter("private fun String?.normalizedArtistHeaderImageName()")
+			.substringBefore("private fun String.isAbsoluteHttpUrl()")
+
+		assertFalse(
+			normalizer.contains("Regex("),
+			"Artist photo cache matching runs while artist grids scroll; the name normalizer must not allocate Regex/ICU matchers in that hot path."
 		)
 	}
 
@@ -324,9 +457,8 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
-	fun headingUsesPersistentArtistPhotoCacheBeforeNativeWhenAurralIsEnabledEvenIfConfiguredNativeFirst() {
-		assertEquals(
-			"https://aurral.example.com/iu.webp",
+	fun headingKeepsNativeCoverBeforePersistentArtistPhotoCacheWhenNativeIsFirst() {
+		assertNull(
 			artistDetailCachedImageUrl(
 				artist = DomainArtist(
 					id = "local-iu",
@@ -435,28 +567,6 @@ class ArtistDetailLayoutPolicyTest {
 
 		assertEquals(listOf("jason-ross|jason ross"), targets.map { it.lookupKey })
 		assertEquals("Jason Ross", targets.single().artist.name)
-	}
-
-	@Test
-	fun artistListHydrationQueuesEveryUnresolvedArtistByDefaultWhenAurralIsEnabled() {
-		val artists = (1..10).map { index ->
-			DomainArtist(
-				id = "artist-$index",
-				name = "Artist $index",
-				coverArtId = "navidrome-artist-$index"
-			)
-		}
-
-		val targets = artistListAurralPhotoHydrationTargets(
-			artists = artists,
-			attemptedLookupKeys = emptySet(),
-			externalArtworkEnabled = true
-		)
-
-		assertEquals(
-			artists.map { artist -> "${artist.id}|${artist.name.lowercase()}" },
-			targets.map { it.lookupKey }
-		)
 	}
 
 	@Test
@@ -646,4 +756,75 @@ class ArtistDetailLayoutPolicyTest {
 			artistBiographyScrollFades(scrollValue = 100, maxScrollValue = 100)
 		)
 	}
+
+	private fun album(
+		id: String,
+		name: String,
+		songs: List<DomainSong>
+	) = DomainAlbum(
+		id = id,
+		name = name,
+		artistName = "Soundtrack",
+		artistId = "soundtrack",
+		year = 2010,
+		coverArtId = "cover",
+		genre = "Soundtrack",
+		genres = listOf("Soundtrack"),
+		songCount = songs.size,
+		duration = songs.fold(0.seconds) { total, song -> total + song.duration },
+		createdAt = Instant.fromEpochMilliseconds(0),
+		starredAt = null,
+		lastPlayedAt = null,
+		playCount = 0,
+		userRating = null,
+		version = null,
+		musicBrainzId = null,
+		songs = songs
+	)
+
+	private fun song(
+		id: String,
+		title: String,
+		artistId: String,
+		artistName: String,
+		albumId: String,
+		albumTitle: String,
+		playCount: Int = 0,
+		contributors: List<DomainContributor> = emptyList()
+	) = DomainSong(
+		id = id,
+		title = title,
+		artistName = artistName,
+		artistId = artistId,
+		albumTitle = albumTitle,
+		albumId = albumId,
+		parentId = null,
+		comment = null,
+		trackNumber = null,
+		discNumber = null,
+		isrc = emptyList(),
+		year = 2010,
+		genre = "Soundtrack",
+		genres = listOf("Soundtrack"),
+		moods = emptyList(),
+		duration = 164.seconds,
+		bpm = null,
+		contributors = contributors,
+		playCount = playCount,
+		userRating = null,
+		averageRating = null,
+		bitRate = null,
+		bitDepth = null,
+		sampleRate = null,
+		audioChannelCount = null,
+		replayGain = null,
+		fileSize = 0,
+		fileExtension = "flac",
+		mimeType = "audio/flac",
+		filePath = null,
+		starredAt = null,
+		coverArtId = "cover",
+		musicBrainzId = null,
+		explicitStatus = DomainExplicitStatus.Unknown
+	)
 }

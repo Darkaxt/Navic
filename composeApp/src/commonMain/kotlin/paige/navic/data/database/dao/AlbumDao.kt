@@ -9,6 +9,7 @@ import androidx.room3.RoomRawQuery
 import androidx.room3.Transaction
 import kotlinx.coroutines.flow.Flow
 import paige.navic.data.database.entities.AlbumEntity
+import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.relations.AlbumWithSongs
 import paige.navic.util.core.Logger
 
@@ -36,6 +37,9 @@ interface AlbumDao {
 
 	@RawQuery
 	suspend fun getAlbumsByQuery(query: RoomRawQuery): List<AlbumWithSongs>
+
+	@RawQuery(observedEntities = [AlbumEntity::class, SongEntity::class])
+	fun getAlbumsByQueryFlow(query: RoomRawQuery): Flow<List<AlbumWithSongs>>
 
 	@Transaction
 	@Query("SELECT COUNT(albumId) FROM AlbumEntity")

@@ -597,6 +597,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "'font-size-publisher-styles': runPublisherStyleFontSizeProbe")
 		assertContains(publisherProbe, "publisherStyles: true")
 		assertContains(publisherProbe, "font-size: 12px")
+		assertContains(publisherProbe, "publisher-important-wrapper")
+		assertContains(publisherProbe, "publisherClassImportantDelta")
 		assertContains(publisherProbe, "publisherParagraphDelta")
 		assertContains(publisherProbe, "probe.remove()")
 		assertContains(publisherProbe, "publisherStyles: originalPublisherStyles")
@@ -610,12 +612,19 @@ class ReaderRuntimeAssetsTest {
 			.substringBefore("if (mode === 'epub-frontmatter') {")
 
 		assertContains(fontCssSmoke, "inline-important-body")
+		assertContains(fontCssSmoke, "important-class-body")
 		assertContains(fontCssSmoke, "normalizeReaderInlineTypography(doc, { fontSizePercent })")
 		assertContains(fontCssSmoke, "publisherInlineImportantBodyDelta")
+		assertContains(fontCssSmoke, "publisherImportantClassBodyDelta")
 		assertContains(
 			fontCssSmoke,
 			"Expected font-size control to scale publisher inline-important body text",
 			message = "The browser harness must keep reproducing inline-important publisher prose, because CSS selectors alone cannot override that cascade case."
+		)
+		assertContains(
+			fontCssSmoke,
+			"Expected font-size control to scale publisher class-important body text",
+			message = "The browser harness must keep reproducing class-important publisher prose, because high-specificity EPUB CSS can pin body text while headings continue to scale."
 		)
 	}
 

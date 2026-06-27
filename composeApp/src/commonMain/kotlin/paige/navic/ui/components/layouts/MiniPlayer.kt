@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -42,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,6 +72,7 @@ import paige.navic.domain.models.shouldShowMiniPlayerQueueAction
 import paige.navic.domain.models.settings.MiniPlayerProgressStyle
 import paige.navic.domain.models.settings.MiniPlayerStyle
 import paige.navic.domain.models.settings.NavbarConfig
+import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
 import paige.navic.icons.filled.Pause
@@ -83,9 +86,7 @@ import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.applyCoverArtNormalization
 import paige.navic.ui.components.common.normalizedCoverArtCacheKey
 import paige.navic.ui.components.common.playPauseIconPainter
-import paige.navic.ui.components.common.rememberPlaybackSongArtworkState
-import paige.navic.ui.components.common.visibleCoverArtIdForAurralPolicy
-import paige.navic.ui.components.common.visibleImageUrlForAurralPolicy
+import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.settings.viewmodels.NavtabsViewModel
@@ -112,41 +113,56 @@ fun MiniPlayer(
 		with(LocalDensity.current) { WindowInsets.navigationBars.getBottom(this).toDp() }
 	else 0.dp
 
-	val playerState by player.uiState.collectAsState()
-	val song = playerState.currentSong
-	val playbackDownloadProgress = playerState.playbackDownloadProgress?.coerceIn(0f, 1f)
+	val currentSong by player.currentSongFlow.collectAsState(null)
+	val isPaused by player.isPausedFlow.collectAsState(false)
+	val isLoading by player.isLoadingFlow.collectAsState(false)
+	val playbackDownloadProgressRaw by player.playbackDownloadProgressFlow.collectAsState(null)
+	val song = currentSong
+	val playbackDownloadProgress = playbackDownloadProgressRaw?.coerceIn(0f, 1f)
 	val scope = rememberCoroutineScope()
 
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val sessionManager = koinInject<SessionManager>()
-	val artwork = song?.let { rememberPlaybackSongArtworkState(it) }
-	val miniPlayerImageUrl = visibleImageUrlForAurralPolicy(
-		imageUrl = artwork?.imageUrl,
-		aurralEnabled = preferenceManager.aurralEnabled
+	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
+	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
+	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsState()
+	val musicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
+	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
+	val playbackArtwork = rememberPlaybackArtworkUiState(
+		song = song,
+		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
+		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
+		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val miniPlayerVisibleCoverArtId = visibleCoverArtIdForAurralPolicy(
-		coverArtId = artwork?.coverArtId,
-		imageUrl = miniPlayerImageUrl,
-		aurralEnabled = preferenceManager.aurralEnabled
-	)
-	val hasArtwork = !miniPlayerVisibleCoverArtId.isNullOrEmpty() || !miniPlayerImageUrl.isNullOrBlank()
+	val hasArtwork = playbackArtwork.hasArtwork
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val model = remember(artwork?.imageCacheKey, miniPlayerImageUrl, miniPlayerVisibleCoverArtId, serverRequestHeaders) {
-		val usesServerCoverArt = miniPlayerImageUrl == null && miniPlayerVisibleCoverArtId != null
+	val model = remember(
+		playbackArtwork.coverArtId,
+		playbackArtwork.imageUrl,
+		playbackArtwork.imageCacheKey,
+		playbackArtwork.imageRequestHeaders,
+		serverRequestHeaders
+	) {
+		val usesServerCoverArt = playbackArtwork.imageUrl.isNullOrBlank()
 		val imageCacheKey = normalizedCoverArtCacheKey(
-			cacheKey = artwork?.imageCacheKey ?: miniPlayerVisibleCoverArtId,
+			cacheKey = playbackArtwork.imageCacheKey ?: playbackArtwork.coverArtId,
 			normalization = CoverArtNormalization.TrimWhitespace
 		)
 		ImageRequest.Builder(coilPlatformContext)
-			.data(miniPlayerImageUrl ?: miniPlayerVisibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.data(playbackArtwork.imageUrl ?: playbackArtwork.coverArtId?.let { sessionManager.getCoverArtUrl(it) })
 			.memoryCacheKey(imageCacheKey)
 			.diskCacheKey(imageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
 			.memoryCachePolicy(CachePolicy.ENABLED)
 			.applyCoverArtNormalization(CoverArtNormalization.TrimWhitespace)
 			.apply {
-				if (usesServerCoverArt) {
-					httpHeaders(serverRequestHeaders.toNetworkHeaders())
+				val requestHeaders = if (usesServerCoverArt) {
+					serverRequestHeaders
+				} else {
+					playbackArtwork.imageRequestHeaders
+				}
+				if (requestHeaders.isNotEmpty()) {
+					httpHeaders(requestHeaders.toNetworkHeaders())
 				}
 			}
 			.build()
@@ -156,7 +172,7 @@ fun MiniPlayer(
 
 	val outerPadding = if (detached) 12.dp else 0.dp
 	val coverRounding by animateDpAsState(
-		if (playerState.isLoading)
+		if (isLoading)
 			46.dp
 		else 8.dp
 	)
@@ -264,15 +280,18 @@ fun MiniPlayer(
 							contentDescription = null,
 							contentScale = ContentScale.Crop,
 							onError = {
-								if (artwork?.imageUrl.isNullOrBlank()) {
-									scope.launch {
-										artwork?.onServerCoverLoadFailed?.invoke()
+								if (playbackArtwork.imageUrl.isNullOrBlank()) {
+									song?.let { failedSong ->
+										musicBrainzArtworkRepository.reportServerCoverLoadFailed(failedSong.id)
+										scope.launch {
+											musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(failedSong)
+										}
 									}
 								}
 							},
 							modifier = Modifier
 								.size(if (detached) 48.dp else 50.dp)
-								.padding(if (playerState.isLoading) 8.dp else 0.dp)
+								.padding(if (isLoading) 8.dp else 0.dp)
 								.clip(
 									ContinuousRoundedRectangle(coverRounding)
 								)
@@ -286,7 +305,7 @@ fun MiniPlayer(
 							)
 						}
 						AnimatedVisibility(
-							playerState.isLoading,
+							isLoading,
 							modifier = Modifier.matchParentSize(),
 							enter = scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec())
 								+ fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
@@ -333,7 +352,7 @@ fun MiniPlayer(
 						IconButton(
 							onClick = {
 								platformContext.clickSound()
-								if (playerState.isPaused) {
+								if (isPaused) {
 									player.resume()
 								} else {
 									player.pause()
@@ -342,7 +361,7 @@ fun MiniPlayer(
 							enabled = isInteractive,
 							colors = colors
 						) {
-							val painter = playPauseIconPainter(playerState.isPaused)
+							val painter = playPauseIconPainter(isPaused)
 							if (painter != null) {
 								Icon(
 									painter = painter,
@@ -351,7 +370,7 @@ fun MiniPlayer(
 								)
 							} else {
 								Icon(
-									imageVector = if (playerState.isPaused)
+									imageVector = if (isPaused)
 										Icons.Filled.Play
 									else Icons.Filled.Pause,
 									contentDescription = null,
@@ -389,72 +408,86 @@ fun MiniPlayer(
 				},
 				enabled = enabled
 			)
-			if (preferenceManager.miniPlayerProgressStyle == MiniPlayerProgressStyle.Visible
-				|| preferenceManager.miniPlayerProgressStyle == MiniPlayerProgressStyle.Seekable
-			) {
-				var dragging by remember { mutableStateOf(false) }
-				val alpha by animateFloatAsState(
-					if (dragging) 1f else .7f
-				)
-				val progress by animateFloatAsState(
-					playerState.progress.coerceIn(0f, 1f)
-				)
-				val alignment = if (detached) Alignment.BottomStart else Alignment.TopStart
+			MiniPlayerProgressOverlay(
+				player = player,
+				hasSong = song != null,
+				detached = detached,
+				shape = shape,
+				isInteractive = isInteractive,
+				progressStyle = preferenceManager.miniPlayerProgressStyle
+			)
+		}
+	}
+}
+
+@Composable
+private fun BoxScope.MiniPlayerProgressOverlay(
+	player: MediaPlayerViewModel,
+	hasSong: Boolean,
+	detached: Boolean,
+	shape: Shape,
+	isInteractive: Boolean,
+	progressStyle: MiniPlayerProgressStyle
+) {
+	val haptics = LocalHapticFeedback.current
+	if (progressStyle == MiniPlayerProgressStyle.Visible
+		|| progressStyle == MiniPlayerProgressStyle.Seekable
+	) {
+		var dragging by remember { mutableStateOf(false) }
+		val alpha by animateFloatAsState(if (dragging) 1f else .7f)
+		val progressValue by player.progressFlow.collectAsState(0f)
+		val progress by animateFloatAsState(progressValue.coerceIn(0f, 1f))
+		val alignment = if (detached) Alignment.BottomStart else Alignment.TopStart
+		Box(
+			modifier = Modifier
+				.matchParentSize()
+				.clip(shape)
+				.align(alignment),
+			contentAlignment = alignment
+		) {
+			if (!detached) {
 				Box(
-					modifier = Modifier
-						.matchParentSize()
-						.clip(shape)
-						.align(alignment),
-					contentAlignment = alignment
-				) {
-					if (!detached) {
-						Box(
-							Modifier
-								.background(MaterialTheme.colorScheme.surfaceBright)
-								.fillMaxWidth()
-								.height(3.dp)
-						)
-					}
-					Box(
-						Modifier
-							.background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-							.fillMaxWidth(if (song != null) progress else 0f)
-							.height(3.dp)
-					)
-					Box(
-						Modifier
-							.fillMaxWidth()
-							.height(14.dp)
-							.then(
-								if (song != null
-									&& preferenceManager.miniPlayerProgressStyle == MiniPlayerProgressStyle.Seekable
-									&& isInteractive
-								)
-									Modifier.pointerInput(Unit) {
-										detectDragGestures(
-											onDragStart = {
-												dragging = true
-												haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
-											},
-											onDragEnd = {
-												dragging = false
-												haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
-											}
-										) { change, _ ->
-											player.seek(
-												(change.position.x / size.width.toFloat()).coerceIn(
-													0f,
-													1f
-												)
-											)
-											change.consume()
-										}
-									}
-								else Modifier
-							)
-					)
-				}
+					Modifier
+						.background(MaterialTheme.colorScheme.surfaceBright)
+						.fillMaxWidth()
+						.height(3.dp)
+				)
 			}
+			Box(
+				Modifier
+					.background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
+					.fillMaxWidth(if (hasSong) progress else 0f)
+					.height(3.dp)
+			)
+			Box(
+				Modifier
+					.fillMaxWidth()
+					.height(14.dp)
+					.then(
+						if (hasSong
+							&& progressStyle == MiniPlayerProgressStyle.Seekable
+							&& isInteractive
+						)
+							Modifier.pointerInput(Unit) {
+								detectDragGestures(
+									onDragStart = {
+										dragging = true
+										haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+									},
+									onDragEnd = {
+										dragging = false
+										haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
+									}
+								) { change, _ ->
+									player.seek(
+										(change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+									)
+									change.consume()
+								}
+							}
+						else Modifier
+					)
+			)
 		}
 	}
 }

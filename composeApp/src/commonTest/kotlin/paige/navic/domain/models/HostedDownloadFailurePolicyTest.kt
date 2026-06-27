@@ -17,6 +17,11 @@ class HostedDownloadFailurePolicyTest {
 		assertTrue(shouldFailHostedDownload(IllegalStateException("Stream request failed: HTTP 503 Service Unavailable")))
 		assertTrue(shouldFailHostedDownload(IllegalStateException("status 524")))
 	}
+
+	@Test
+	fun nonAudioDownloadResponsesAreTerminalForCurrentQueuePass() {
+		assertTrue(shouldFailHostedDownload(IllegalStateException("Stream request returned non-audio content: text/html")))
+	}
 }
 
 private class ConnectTimeoutException(message: String) : Exception(message)

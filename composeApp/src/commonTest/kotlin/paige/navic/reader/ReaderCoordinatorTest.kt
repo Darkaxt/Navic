@@ -555,6 +555,38 @@ class ReaderCoordinatorTest {
 	}
 
 	@Test
+	fun foliateSupportedEbookFormatsRouteThroughDefaultWebViewEngineAdapters() {
+		val formats = listOf(
+			ReaderPublicationFormat.Azw3 to "azw3",
+			ReaderPublicationFormat.Mobi to "mobi",
+			ReaderPublicationFormat.Cbz to "cbz",
+			ReaderPublicationFormat.Fb2 to "fb2"
+		)
+
+		formats.forEach { (format, extension) ->
+			val request = hobbitOpenRequest().let { request ->
+				request.copy(
+					publication = request.publication.copy(
+						resourceHref = "publication.$extension",
+						format = format
+					),
+					url = "https://appassets.androidplatform.net/reader-cache/book-1/publication.$extension"
+				)
+			}
+
+			val opened = ReaderCoordinator().open(request).coordinator
+			val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(opened.viewState)
+			val next = opened.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)).coordinator
+			val nextViewState = assertIs<ReaderEngineViewState.WebViewPublication>(next.viewState)
+
+			assertEquals(format, opened.controller.state.activeEngine)
+			assertEquals(format, opened.engineAdapters[format]?.format)
+			assertEquals(request.url, viewState.publicationUrl)
+			assertEquals(ReaderBridgeCommand.NextPage, nextViewState.bridgeCommand())
+		}
+	}
+
+	@Test
 	fun nextFromControllerOwnedShellCoverOnlyDismissesCover() {
 		val opened = ReaderCoordinator().open(
 			hobbitOpenRequest().copy(

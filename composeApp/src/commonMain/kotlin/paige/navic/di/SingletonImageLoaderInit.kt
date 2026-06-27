@@ -11,10 +11,11 @@ import coil3.PlatformContext as CoilPlatformContext
 
 private var sharedMemoryCache: MemoryCache? = null
 private var sharedDiskCache: DiskCache? = null
+private const val SHARED_IMAGE_MEMORY_CACHE_PERCENT = 0.08
 
 private fun getMemoryCache(context: CoilPlatformContext): MemoryCache {
 	return sharedMemoryCache ?: MemoryCache.Builder()
-		.maxSizePercent(context, 0.25)
+		.maxSizePercent(context, SHARED_IMAGE_MEMORY_CACHE_PERCENT)
 		.build().also { sharedMemoryCache = it }
 }
 

@@ -7095,98 +7095,151 @@ Results:
 - GREEN/WHITESPACE: `git diff --check` passed for the launcher and contract-test changes.
 - GREEN/COMBINED-GUARD: the focused rerun covering both `ComposeVectorResourceSourceTest.composeVectorDrawablesUseLiteralTransparentColors` and `ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored` passed together (`BUILD SUCCESSFUL in 4m 7s`).
 
-## Merged Local Validation Sections After eta80
-
-## 2026-06-22 Scrolled-Edge Pull-Up Harness Route Check
+## 2026-06-22 Publisher Important Font-Size Ownership
 
 Scope:
-- Re-check whether the remaining scrolled-edge pull-up validation gap can be closed through the WebView DevTools helper instead of native ADB gestures.
-- Avoid keeping a false-positive harness path for Foliate inner-document touch behavior.
+- Address the reported reader Font size behavior where headings/titles can react while body text appears pinned.
+- Keep the fix in the Foliate document normalization path, not in Komikku shell UI.
+
+Diagnosis:
+- CONFIRMED: the existing isolated font CSS smoke handled simple publisher classes and inline font-size cases.
+- CONFIRMED: the old normalizer only rewrote elements with inline `font-size` / `font` declarations or `<font size>`.
+- ROOT CAUSE: EPUB publisher CSS with higher specificity and `!important` can beat the reader `p { font-size: 1rem !important }` stylesheet, pinning body prose while root/headings still scale.
 
 Commands:
 
 ```powershell
-.\gradlew.bat --no-daemon --no-configuration-cache '-Pkotlin.compiler.execution.strategy=in-process' :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeScrolledEdgePullUpThroughRealTouchPath
+node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node --check tools\reader-harness\src\run-reader-harness.mjs
 node --check tools\reader-harness\src\adb-webview-eval.mjs
-node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe scrolled-edge-pullup
-.\scripts\adb-reader-smoke.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-eta79 -ReaderDevtoolsProbe scrolled-edge-pullup -CaptureReaderDiagnostics -NoLaunch -ArtifactDir tmp\readerdev-scrolled-edge-pullup-20260622-a
-```
-
-Results:
-- RED/HOST-FIRST: a temporary guard correctly failed while the DevTools helper had no non-diagnostic scrolled-edge pull-up probe.
-- RED/DEVTOOLS-SYNTHETIC: synthetic `touchstart`/`touchmove`/`touchend` events dispatched through `Runtime.evaluate` did not reach Foliate's inner content document on Android WebView; the probe captured `eventCaptures=[]` and no bridge payload.
-- RED/DEVTOOLS-CDP: CDP `Input.dispatchTouchEvent` also did not enter Foliate's inner content document on the current readerdev surface; diagnostics captured `contentTouchCaptures=[]` and no `pullUp` payload even while the runtime listener flag was attached.
-- DECISION: do not add or keep `-ReaderDevtoolsProbe scrolled-edge-pullup`. It would be a misleading route because DevTools input is not equivalent to native reader-surface touch dispatch for this Foliate embedded-document path.
-- CLEANUP: the temporary DevTools probe, smoke-script option, and host guard were removed; `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed after cleanup.
-- VALIDATION ROUTE: real scrolled-edge validation should continue to use native ADB gestures and bridge-log assertions, for example `-SwipeFraction @('0.50,0.90,0.50,0.10,450,1400') -RequireReaderBridgeEvent 'pullUp(source=scrolled-edge-swipe)'`, as recorded in the 2026-06-20 scrolled-edge source validation.
-- Remaining: no product behavior changed in this slice. The open validation item is still release/physical-device confirmation of the native scrolled-edge path, not a DevTools helper task.
-
-
-## 2026-06-22 Reader Host Guard Refresh
-
-Scope:
-- Re-align stale source-inspection guards after moving reader diagnostics out of the reader settings dialog and into Developer Options.
-- Re-check the modular settings-search split without weakening the Komikku/Anx reader contract.
-
-Commands:
-
-```powershell
-.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderKomikkuBackboneResetTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest"
-.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest
 git diff --check
 ```
 
 Results:
-- RED/HOST-FIRST: focused Android host guards failed because two tests still expected `Show tap zones` inside `ReaderSettingsDialog.kt`, and one flow-mode guard expected shared option declarations inside `EbooksScreen.kt`.
-- GREEN/HOST-FOCUSED: the same three focused reader guard classes passed after updating the assertions to require `Show tap zones` only in Developer Options, keep `Smaller tap zones` in the reader dialog, and verify flow modes through `EbookReaderSettingOptions.kt` plus settings-search rows.
-- GREEN/HOST-BROAD: `:composeApp:testAndroidHostTest` passed.
+- RED/BROWSER-HARNESS: after adding a high-specificity `.publisher-important-wrapper ... { font-size: 10px !important; }` case, `font-css-smoke` failed as expected with `observed 10px -> 10px`.
+- FIXED: `normalizeReaderInlineTypography` now gives prose elements relative inline ownership (`1rem` for block prose, `1em` for inline prose), not only elements that already had inline font-size declarations.
+- FIXED: the normalizer records `data-navic-had-inline-font-size` for diagnostics, so rewritten class-based prose can still be distinguished from original inline-font prose.
+- GUARD: the browser harness now covers class-important body prose, and the ADB WebView `font-size-publisher-styles` probe now checks the same failure mode on a live reader WebView.
+- GREEN/BROWSER-HARNESS: `font-css-smoke` passed after the runtime change.
+- GREEN/JS: all touched JS files passed `node --check`.
+- GREEN/HOST-GUARD: `ReaderRuntimeAssetsTest` plus `ReaderRuntimeSettingsBridgeTest` passed (`BUILD SUCCESSFUL in 34s`).
 - GREEN/WHITESPACE: `git diff --check` passed.
-- Remaining: no Android device behavior was validated in this host-only guard refresh.
+- NOTE: emulator probe before this source change showed current simple body prose scaling correctly (`16px -> 22.4px`), so this fix targets the stronger publisher cascade case. It still needs a rebuilt readerdev APK before the new ADB class-important probe can validate on device.
 
-
-## 2026-06-22 PushState History Capsule Guard
+## 2026-06-22 Komikku Multi-Page Rail Visibility
 
 Scope:
-- Align Anx `PushState` parity with the controller-owned Komikku history capsule. The previous guard allowed the controller to store `canGoBack/canGoForward` while forcing the native capsule hidden.
+- Align Navic's chapter progress rail visibility with Komikku's `ChapterNavigator`: show the slider for any section with more than one page.
+- Keep this as a narrow source-level parity fix; do not refactor the custom vertical rail input mapper in this slice.
+
+Diagnosis:
+- CONFIRMED: the Komikku reference uses `totalPages > 1` for both horizontal and vertical chapter sliders.
+- CONFIRMED: Navic had drifted to `totalPages > 2`, hiding the chapter progress slider for 2-page sections.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile
+git diff --check
+```
+
+Results:
+- RED/HOST-GUARD: `ReaderChapterNavigatorMappingTest.chapterProgressSliderFollowsKomikkuVisibilityRule` failed before the production change because `totalPages = 2` returned false.
+- FIXED: `readerShouldShowChapterProgressSlider(totalPages)` now returns true for `totalPages > 1`.
+- GUARD: `ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile` now locks the Komikku threshold in the dedicated reader navigator source file.
+- GREEN/HOST-GUARD: the focused mapping test plus Android source guard passed (`BUILD SUCCESSFUL in 5m 51s`).
+- GREEN/WHITESPACE: `git diff --check` passed.
+- NOTE: this was not device/emulator validated because the behavior is a source-level rail visibility threshold. The separate custom vertical rail input mapper still needs a dedicated Komikku parity pass.
+
+## 2026-06-22 Komikku Vertical Rail Input Ownership
+
+Scope:
+- Remove Navic's custom vertical rail pointer/tap/drag mapper and return rail input ownership to the shared slider primitive.
+- Keep this as a Komikku-parity correction; do not change chapter/page math in this slice.
+
+Diagnosis:
+- CONFIRMED: the vertical rail still had custom `pointerInput`, `detectTapGestures`, `detectDragGestures`, and canvas hit-mapping code after the Komikku split.
+- ROOT CAUSE: the rail looked closer to Komikku visually, but the input path was still Navic-specific and could diverge from the reference behavior.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.reader.ReaderChapterNavigatorMappingTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderChapterNavigatorLivesInDedicatedKomikkuComponentFile
+git diff --check
+```
+
+Artifacts:
+- `tmp\reader-vertical-rail-green.out.log`
+
+Results:
+- FIXED: the vertical rail no longer owns custom pointer input; it uses the rotated shared slider path instead.
+- GUARD: source checks now reject `pointerInput`, `detectTapGestures`, `detectDragGestures`, custom rail offset mapping, and canvas rail rendering in the vertical rail component.
+- GREEN/HOST-GUARD: the focused rail mapping/source guard passed (`BUILD SUCCESSFUL in 6m 1s`).
+- GREEN/WHITESPACE: `git diff --check` passed after the later Aurral slice.
+- Remaining: physical release validation is still required for rail feel on the user's devices.
+
+## 2026-06-22 Aurral-First Artwork Authority
+
+Scope:
+- Enforce the user's current artwork rule: when Aurral is enabled, Aurral has priority everywhere and Navidrome is fallback only.
+- Close the regression where artist surfaces could briefly or permanently keep Navidrome artwork even after Aurral cache data arrived.
+
+Diagnosis:
+- CONFIRMED: existing policy paths still honored `NativeFirst`/`NativeOnly` even when Aurral was enabled.
+- CONFIRMED: Android now-playing and Media3 metadata paths were using Navidrome-first helpers or raw `coverArtId` data instead of the shared resolved playback artwork.
+- ROOT CAUSE: Aurral fallback policy was split across UI, playback, Android notification/broadcast, and shortcut paths; not every path passed through the same resolver.
 
 Commands:
 
 ```powershell
 .\gradlew.bat --no-daemon :composeApp:testAndroid
 git diff --check
+rg "activeArtworkUrl\(|externalFallbackArtworkUrl\(" composeApp\src\androidMain\kotlin composeApp\src\commonMain\kotlin -g "*.kt"
 ```
 
+Artifacts:
+- RED: `tmp\aurral-first-red.out.log`
+- GREEN: `tmp\aurral-first-green.out.log`
+
 Results:
-- RED/HOST-FIRST: updated `ReaderControllerTest` and `FoliateAnxParityTest` first failed because `ReaderController` still set `ReaderEngineNavigationState.visible = false`.
-- GREEN/HOST: `ReaderController` now sets `visible = event.canGoBack || event.canGoForward`, so `PushState` surfaces `KomikkuReaderHistoryCapsule` when history navigation is available and still allows controller dismissal.
-- GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 3m 36s`.
+- RED/HOST-GUARD: `PlaybackArtworkPolicyTest.resolvedPlaybackArtworkForcesAurralFirstWhenAurralIsEnabled`, `ArtistDetailLayoutPolicyTest.headingOnlyUsesVerifiedExternalImageUrl`, `ArtistDetailLayoutPolicyTest.headingUsesPersistentArtistPhotoCacheWhenAurralIsEnabledEvenIfNativeIsFirst`, and `MostPlayedShortcutArtworkPolicyTest.artistShortcutsPreferAurralWhenAurralIsEnabledEvenIfNativeIsFirst` failed before implementation.
+- FIXED: `effectiveArtworkSourcePriority(...)` now normalizes any selected artwork priority to `AurralFirst` whenever Aurral is enabled.
+- FIXED: playback artwork, artist detail heading/cache, and most-played shortcuts use that effective priority, so Navidrome cover art cannot beat Aurral while Aurral is enabled.
+- FIXED: Android Media3 metadata and now-playing broadcast now resolve through `AndroidPlaybackArtworkResolver`, so notification/system artwork follows the same Aurral-first policy.
+- FIXED: the Android playback resolver observes the persistent artist photo cache and forces a now-playing refresh when late Aurral cache entries arrive, addressing the stale Jason Ross/IU-style path.
+- GREEN/BROAD: `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed (`BUILD SUCCESSFUL in 5m 40s`).
 - GREEN/WHITESPACE: `git diff --check` passed.
-- Remaining: host parity only. No emulator/device visual validation was needed for this controller-state guard.
+- GREEN/SOURCE: `rg "activeArtworkUrl\(|externalFallbackArtworkUrl\(" composeApp\src\androidMain\kotlin composeApp\src\commonMain\kotlin -g "*.kt"` now finds only the helper definitions in `PlaybackArtworkPolicy.kt`, not Android/UI usage.
+- Remaining: emulator/phone validation should still confirm the visible now-playing, artist, shortcut, Android notification, and lock-screen artwork all switch to Aurral after cache refresh.
 
-
-## 2026-06-22 Anx Font Size Body-Prose Guard
+## 2026-06-22 Komikku Viewer Lifecycle Source Authority
 
 Scope:
-- Fix the reported tablet behavior where the reader font-size control could resize headings/chapter titles while ebook body text stayed effectively pinned.
-- Align the Anx `BookStyle.fontSize` capability with the Navic Foliate renderer boundary: the controller owns the setting, and the engine stylesheet must apply it to body prose, table/preformatted prose, and publisher inline-important text.
+- Lock the Navic `ReaderViewer` lifecycle boundary to explicit Komikku source files instead of undocumented local invention.
+- This is a source-authority guard only; it does not change runtime viewer behavior.
+
+Diagnosis:
+- CONFIRMED: `ReaderViewer.kt` already had a retained viewer slot and renderer descriptor boundary, but it did not cite Komikku's `ReaderActivity.updateViewer()` or `Viewer.kt` lifecycle contract.
+- RISK: without source citations, future work could keep the shape while drifting away from Komikku's create/destroy/mount contract.
 
 Commands:
 
 ```powershell
-.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderFontSizeControlOverridesPublisherAbsoluteTextSizes --tests paige.navic.reader.FoliateAnxParityTest.phase6StyleDimensionsMatchAnxBookStyleContract
-node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
-.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest --tests paige.navic.reader.FoliateAnxParityTest --tests paige.navic.reader.ReaderRuntimeAssetsTest
-.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readerViewerLifecycleCitesKomikkuUpdateViewerAndViewerContract
 git diff --check
 ```
 
+Artifacts:
+- RED: `tmp\reader-viewer-citation-red2.out.log`
+- GREEN: `tmp\reader-viewer-citation-green.out.log`
+
 Results:
-- RED/HOST-FIRST: the focused guards failed while `navic-reader-typography.js` still pinned body/prose selectors to `font-size: 1rem !important`.
-- GREEN/RENDERER: body and prose normalization now inherit from `--reader-content-font-size` through `1em`; inline publisher font-size normalization also rewrites prose to `1em` so body text follows the reader setting instead of only headings reacting.
-- GREEN/BODY-CANDIDATE: `BODY` is treated as a prose block in the inline typography normalizer, matching the existing `doc.body` candidate path and preventing body-level important font-size styles from bypassing the reader setting.
-- GREEN/SYNTAX: `node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js` passed.
-- GREEN/HOST-FOCUSED: `ReaderRuntimeSettingsBridgeTest`, `FoliateAnxParityTest`, and `ReaderRuntimeAssetsTest` passed.
-- GREEN/FULL-ANDROID-HOST: `:composeApp:testAndroid` passed with `BUILD SUCCESSFUL in 35s`.
+- RED/HOST-GUARD: `ReaderKomikkuBackboneResetTest.readerViewerLifecycleCitesKomikkuUpdateViewerAndViewerContract` failed before the production citation because `ReaderViewer.kt` did not cite Komikku's viewer lifecycle sources.
+- FIXED: `ReaderViewer.kt` now cites `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt updateViewer()` and `tmp/references/komikku/app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/Viewer.kt`.
+- GREEN/HOST-GUARD: the focused citation guard passed (`BUILD SUCCESSFUL in 5m 3s`).
 - GREEN/WHITESPACE: `git diff --check` passed.
 - Remaining: host/source validation only. Tablet visual validation should confirm perceived body text scaling across normal text pages and generated/typewriter-style pages before a release claim.
 
@@ -7319,3 +7372,4 @@ Results:
 - GREEN/VISUAL: capture `captures\reader-dev\reader-dev-20260622-215859.png` and matrix `baseline-native-cover\screen.png` show the native cover still visible after pagination profiling.
 - GREEN/MATRIX: cover-inclusive matrix artifact `tmp\readerdev-matrix-eta81-cover-20260622-220105` passed `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` with no matrix failures.
 - Remaining: this validates emulator readerdev behavior, not a public release APK on the user's phone.
+- Remaining: this does not prove runtime gesture or page-swap fidelity; those still require emulator/device validation against the Komikku viewer behavior.

@@ -2,8 +2,11 @@ package paige.navic.ui.screens.settings
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_lyrics
 import navic.composeapp.generated.resources.title_actions
@@ -94,11 +97,25 @@ internal fun searchableSettingsRows(): List<SearchableSettingsRow> {
 	val storageManager = koinInject<paige.navic.domain.manager.StorageManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val musicBrainzCacheStats by musicBrainzArtworkRepository.cacheStats.collectAsStateWithLifecycle()
-	val lidaClipOfflineFiles = remember { storageManager.listLidaClipOfflineFiles() }
+	val lidaClipOfflineFiles by produceState<List<LidaClipCacheFileInfo>>(
+		initialValue = emptyList(),
+		storageManager
+	) {
+		value = withContext(Dispatchers.IO) {
+			storageManager.listLidaClipOfflineFiles()
+		}
+	}
 	val lidaClipOfflineSize = remember(lidaClipOfflineFiles) {
 		lidaClipOfflineFiles.sumOf { it.sizeBytes.coerceAtLeast(0L) }
 	}
-	val readerPublicationCacheSize = remember { storageManager.readerPublicationCacheSizeBytes() }
+	val readerPublicationCacheSize by produceState(
+		initialValue = 0L,
+		storageManager
+	) {
+		value = withContext(Dispatchers.IO) {
+			storageManager.readerPublicationCacheSizeBytes()
+		}
+	}
 	val platformContext = LocalPlatformContext.current
 	val readerSettings = preferenceManager.readerDefaultSettings()
 	val context = SettingsSearchContext(

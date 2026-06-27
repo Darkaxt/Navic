@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -24,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_library
 import org.jetbrains.compose.resources.stringResource
@@ -59,6 +62,7 @@ import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.screens.album.viewmodels.AlbumListViewModel
 import paige.navic.ui.screens.artist.viewmodels.ArtistListViewModel
+import paige.navic.ui.screens.aurral.AurralDiscoveryCollectionRow
 import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
 import paige.navic.ui.screens.aurral.aurralArtistRecommendationRoute
@@ -148,21 +152,41 @@ fun LibraryScreen() {
 	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
 	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
 		.collectAsStateWithLifecycle(emptyList())
-	val artistPhotoCacheEntries = cachedArtistPhotos.map { entry ->
-		entry.toArtistHeaderImageCacheEntry()
-	}
+	val cachedAurralCollectionRowsState by aurralViewModel.libraryCollectionRows
+		.collectAsStateWithLifecycle()
 	val quickPicksEnabled = preferenceManager.quickPicksEnabled
 	val quickPicksLimit = preferenceManager.quickPicksLimit
 	val quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
+	val libraryRows = visibleLibraryRows(
+		savedOrder = preferenceManager.libraryRowOrder,
+		hiddenRows = preferenceManager.libraryHiddenRows
+	)
+	val quickPicksRowVisible = LibraryRowId.QuickPicks in libraryRows
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
-	val aurralCollectionRowsState = libraryAurralCollectionRowsState(
-		aurralConfigured = aurralConfigured,
-		discoveryState = aurralDiscovery,
-		artistPhotoCacheEntries = artistPhotoCacheEntries,
-		artistArtworkPriority = preferenceManager.artistArtworkPriority,
-		externalArtworkEnabled = preferenceManager.aurralEnabled
-	)
+	val aurralCollectionRowsState by produceState<UiState<List<AurralDiscoveryCollectionRow>>>(
+		initialValue = cachedAurralCollectionRowsState,
+		aurralConfigured,
+		aurralDiscovery,
+		cachedArtistPhotos,
+		preferenceManager.artistArtworkPriority,
+		preferenceManager.aurralEnabled
+	) {
+		val nextState = withContext(Dispatchers.Default) {
+			val artistPhotoCacheEntries = cachedArtistPhotos.map { entry ->
+				entry.toArtistHeaderImageCacheEntry()
+			}
+			libraryAurralCollectionRowsState(
+				aurralConfigured = aurralConfigured,
+				discoveryState = aurralDiscovery,
+				artistPhotoCacheEntries = artistPhotoCacheEntries,
+				artistArtworkPriority = preferenceManager.artistArtworkPriority,
+				externalArtworkEnabled = preferenceManager.aurralEnabled
+			)
+		}
+		value = libraryAurralRowsStateWithCache(value, nextState)
+		aurralViewModel.rememberLibraryCollectionRows(value)
+	}
 	val libraryIntegrationIndicators = integrationLoadingIndicators(
 		aurralLoading = aurralConfigured && aurralDiscovery is UiState.Loading,
 		binderyLoading = false
@@ -197,18 +221,41 @@ fun LibraryScreen() {
 		}
 	}
 
-	LaunchedEffect(isLoggedIn, quickPicksEnabled, quickPicksLimit, quickPicksMinDurationSeconds) {
+	LaunchedEffect(
+		isLoggedIn,
+		quickPicksEnabled,
+		quickPicksRowVisible,
+		quickPicksLimit,
+		quickPicksMinDurationSeconds
+	) {
 		if (!isLoggedIn) return@LaunchedEffect
 
-		if (quickPicksEnabled) {
+		if (quickPicksEnabled && quickPicksRowVisible) {
 			quickPicksViewModel.refreshSongs(false)
 		}
-		albumsViewModel.refreshAlbums(false)
-		newestAlbumsViewModel.refreshAlbums(false)
-		starredAlbumsViewModel.refreshAlbums(false)
-		playlistsViewModel.refreshPlaylists(false)
-		artistsViewModel.refreshArtists(false)
-		genresViewModel.refreshGenres(false)
+		// Re-entry guard: these ViewModels survive navigation (Activity-scoped) and load once
+		// in their own init. Only refresh a section if it hasn't loaded yet, so returning to
+		// the Library tab serves the cached data instead of re-querying Room + re-mapping
+		// every section on every visit. Quick Picks reloads only while its managed row is
+		// visible because its limit/min-duration come from preferences.
+		if (albumsViewModel.albumsState.value !is UiState.Success) {
+			albumsViewModel.refreshAlbums(false)
+		}
+		if (newestAlbumsViewModel.albumsState.value !is UiState.Success) {
+			newestAlbumsViewModel.refreshAlbums(false)
+		}
+		if (starredAlbumsViewModel.albumsState.value !is UiState.Success) {
+			starredAlbumsViewModel.refreshAlbums(false)
+		}
+		if (playlistsViewModel.playlistsState.value !is UiState.Success) {
+			playlistsViewModel.refreshPlaylists(false)
+		}
+		if (artistsViewModel.artistsState.value !is UiState.Success) {
+			artistsViewModel.refreshArtists(false)
+		}
+		if (genresViewModel.genresState.value !is UiState.Success) {
+			genresViewModel.refreshGenres(false)
+		}
 	}
 
 	LaunchedEffect(
@@ -219,7 +266,7 @@ fun LibraryScreen() {
 		preferenceManager.aurralPassword
 	) {
 		if (isLoggedIn && aurralConfigured) {
-			aurralViewModel.refreshDiscovery(hydrateMissingImages = true)
+			aurralViewModel.refreshDiscovery(hydrateMissingImages = false)
 		} else {
 			aurralViewModel.clearServiceStatus()
 		}
@@ -240,14 +287,14 @@ fun LibraryScreen() {
 				finished = albumsState !is UiState.Loading &&
 					newestAlbumsState !is UiState.Loading &&
 					starredAlbumsState !is UiState.Loading &&
-					(!quickPicksEnabled || quickPicksState !is UiState.Loading) &&
+					(!quickPicksEnabled || !quickPicksRowVisible || quickPicksState !is UiState.Loading) &&
 					playlistsState !is UiState.Loading &&
 					artistsState !is UiState.Loading &&
 					genresState !is UiState.Loading &&
 					mostPlayedShortcutsState !is UiState.Loading &&
 					(!aurralConfigured || aurralDiscovery !is UiState.Loading),
 				onRefresh = {
-					if (quickPicksEnabled) {
+					if (quickPicksEnabled && quickPicksRowVisible) {
 						quickPicksViewModel.refreshSongs(true)
 					}
 					albumsViewModel.refreshAlbums(true)
@@ -257,7 +304,10 @@ fun LibraryScreen() {
 					artistsViewModel.refreshArtists(true)
 					genresViewModel.refreshGenres(true)
 					if (aurralConfigured) {
-						aurralViewModel.refreshDiscovery(hydrateMissingImages = true)
+						aurralViewModel.refreshDiscovery(
+							hydrateMissingImages = false,
+							forceRefresh = true
+						)
 					}
 				},
 				key = listOf(
@@ -276,6 +326,7 @@ fun LibraryScreen() {
 				scrollBehavior = scrollBehavior,
 				innerPadding = innerPadding,
 				onSetShareId = { shareId = it },
+				libraryRows = libraryRows,
 
 				quickPicksEnabled = quickPicksEnabled,
 				quickPicksState = quickPicksState,

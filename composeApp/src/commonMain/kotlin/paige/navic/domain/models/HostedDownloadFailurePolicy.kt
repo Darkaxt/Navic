@@ -4,6 +4,7 @@ fun shouldFailHostedDownload(error: Throwable): Boolean =
 	throwableChain(error).any { throwable ->
 		val message = throwable.message.orEmpty().lowercase()
 		hasServiceDownHttpStatus(message) ||
+			"non-audio content" in message ||
 			serviceDownMessageTokens.any { token -> token in message }
 	}
 

@@ -63,7 +63,9 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.snackbars.NavicSnackbar
+import paige.navic.ui.components.common.LocalArtistPhotoEntries
 import paige.navic.ui.components.common.ShakeToSkipEffect
+import paige.navic.ui.components.common.rememberArtistPhotoEntriesSnapshot
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.components.sheets.shouldRunUpdateCheck
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
@@ -117,6 +119,7 @@ import paige.navic.ui.screens.settings.SettingsDeveloperScreen
 import paige.navic.ui.screens.settings.SettingsEbooksScreen
 import paige.navic.ui.screens.settings.SettingsIntegrationsScreen
 import paige.navic.ui.screens.settings.SettingsLastFmScreen
+import paige.navic.ui.screens.settings.SettingsLibraryRowsScreen
 import paige.navic.ui.screens.settings.SettingsLogsScreen
 import paige.navic.ui.screens.settings.SettingsLidaClipsScreen
 import paige.navic.ui.screens.settings.SettingsNowPlayingScreen
@@ -183,6 +186,7 @@ fun App(initialScreenOverride: Screen? = null) {
 	val scrollManager = remember {
 		BottomBarScrollManager(with(density) { 50.dp.toPx() })
 	}
+	val artistPhotoEntries = rememberArtistPhotoEntriesSnapshot()
 
 	SharedTransitionLayout {
 		CompositionLocalProvider(
@@ -191,7 +195,8 @@ fun App(initialScreenOverride: Screen? = null) {
 			LocalSnackbarState provides snackbarState,
 			LocalUpdateCheckRequester provides { forceUpdateCheckRequests += 1 },
 			LocalSharedTransitionScope provides this@SharedTransitionLayout,
-			LocalBottomBarScrollManager provides scrollManager
+			LocalBottomBarScrollManager provides scrollManager,
+			LocalArtistPhotoEntries provides artistPhotoEntries
 		) {
 			NavicTheme {
 				if (isLoggedIn) {
@@ -230,7 +235,7 @@ fun App(initialScreenOverride: Screen? = null) {
 								backStack.performNavicBack()
 							}
 						},
-						entryProvider = entryProvider(backStack),
+						entryProvider = remember(backStack.size) { entryProvider(backStack) },
 						transitionSpec = {
 							Material3Transitions.SharedXAxisEnterTransition(
 								density
@@ -460,6 +465,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.Appearance>(metadata = detailPane("settings")) {
 			SettingsAppearanceScreen()
+		}
+		entry<Screen.Settings.LibraryRows>(metadata = detailPane("settings")) {
+			SettingsLibraryRowsScreen()
 		}
 		entry<Screen.Settings.BottomAppBar>(metadata = detailPane("settings")) {
 			BottomBarScreen()

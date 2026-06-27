@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,7 +49,7 @@ class BinderyCatalogViewModel(
 		if (fullRefresh) {
 			collectionArtworkResolver.clear()
 		}
-		catalogJob = viewModelScope.launch {
+		catalogJob = viewModelScope.launch(Dispatchers.IO) {
 			val requestedPath = binderyAvailabilityFilteredCatalogPath(
 				path = binderyInitialCatalogPath(path),
 				languageFilter = languageFilter,
@@ -109,7 +110,7 @@ class BinderyCatalogViewModel(
 		if (_isLoadingNextPage.value) return
 		val requestedPath = nextPagePath ?: return
 		_isLoadingNextPage.value = true
-		nextPageJob = viewModelScope.launch {
+		nextPageJob = viewModelScope.launch(Dispatchers.IO) {
 			val currentData = _catalogState.value.data
 			repository.getCatalog(requestedPath).fold(
 				onSuccess = { nextPage ->
@@ -150,7 +151,7 @@ class BinderyCatalogViewModel(
 			return
 		}
 		relatedCatalogJob?.cancel()
-		relatedCatalogJob = viewModelScope.launch {
+		relatedCatalogJob = viewModelScope.launch(Dispatchers.IO) {
 			val filteredPath = binderyAvailabilityFilteredCatalogPath(
 				path = requestedPath,
 				languageFilter = languageFilter,
@@ -202,7 +203,7 @@ class BinderyCatalogViewModel(
 	) {
 		val actionPath = link.href.trim().takeIf { it.isNotEmpty() } ?: return
 		if (actionPath in _actionInFlight.value) return
-		viewModelScope.launch {
+		viewModelScope.launch(Dispatchers.IO) {
 			_actionInFlight.value = _actionInFlight.value + actionPath
 			repository.performAction(actionPath).fold(
 				onSuccess = {
