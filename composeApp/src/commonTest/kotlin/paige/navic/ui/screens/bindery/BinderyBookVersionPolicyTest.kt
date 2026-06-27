@@ -269,6 +269,17 @@ class BinderyBookVersionPolicyTest {
 		assertTrue(ebook.whispersyncAudiobookLaunchMatches().isEmpty())
 	}
 
+	@Test
+	fun readyWhispersyncPairsWithoutArtifactHrefDoNotCreateLaunchCandidates() {
+		val rows = hobbitVersionRowsWithWhispersync(status = "ready", artifactHref = null)
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+		val audiobook = rows.first { row -> row.kind == BinderyBookVersionKind.Audiobook }
+
+		assertEquals(BinderyWhispersyncAudiobookLaunchAction.None, ebook.whispersyncAudiobookLaunchAction())
+		assertTrue(ebook.syncMatches.isEmpty())
+		assertTrue(audiobook.syncMatches.isEmpty())
+	}
+
 
 	@Test
 	fun bookVersionRowsAggregateAudioAndListEbooks() {
@@ -1323,6 +1334,7 @@ class BinderyBookVersionPolicyTest {
 
 	private fun hobbitVersionRowsWithWhispersync(
 		status: String,
+		artifactHref: String? = "/opds/books/3816/sync/3",
 		extraReadyAudiobook: Boolean = false
 	): List<BinderyBookVersionRow> =
 		binderyBookVersionRows(
@@ -1377,7 +1389,7 @@ class BinderyBookVersionPolicyTest {
 						whispersync = BinderyWhispersyncArtifact(
 							status = status,
 							artifactId = 3,
-							artifactHref = "/opds/books/3816/sync/3",
+							artifactHref = artifactHref,
 							score = .989,
 							coverage = .96
 						)

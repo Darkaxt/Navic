@@ -405,7 +405,8 @@ private fun List<BinderyBookVersionRow>.withWhispersyncMatches(
 
 private fun BinderySyncPair.hasReadyWhispersync(): Boolean =
 	whispersync?.status?.trim()?.equals("ready", ignoreCase = true) == true &&
-	whispersync.artifactId != null
+	whispersync.artifactId != null &&
+	!whispersync.artifactHref.isNullOrBlank()
 
 private fun BinderySyncPair.toWhispersyncMatch(
 	oppositeRow: BinderyBookVersionRow?,
@@ -422,8 +423,7 @@ private fun BinderySyncPair.toWhispersyncMatch(
 			},
 		oppositeKind = oppositeKind,
 		artifactId = artifactId,
-		sidecarHref = artifact.artifactHref?.trim()?.takeIf { it.isNotEmpty() }
-			?: "/opds/books/${bookId ?: ""}/sync/$artifactId",
+		sidecarHref = artifact.artifactHref?.trim()?.takeIf { it.isNotEmpty() } ?: return null,
 		coveragePercent = artifact.coverage.toPercent(),
 		scorePercent = artifact.score.toPercent(),
 		oppositeAudiobookId = if (oppositeKind == BinderyBookVersionKind.Audiobook) {

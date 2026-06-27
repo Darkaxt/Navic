@@ -7373,3 +7373,31 @@ Results:
 - GREEN/MATRIX: cover-inclusive matrix artifact `tmp\readerdev-matrix-eta81-cover-20260622-220105` passed `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` with no matrix failures.
 - Remaining: this validates emulator readerdev behavior, not a public release APK on the user's phone.
 - Remaining: this does not prove runtime gesture or page-swap fidelity; those still require emulator/device validation against the Komikku viewer behavior.
+
+
+## 2026-06-27 Master Sync and Bindery OPDS Whispersync Schema Guard
+
+Scope:
+- Merge the current optimized `fork/master` baseline into `codex/komikku-reader-backbone-eta64`.
+- Check `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\github-export\bindery\docs\navic-opds-api-schema.md` against Navic's Bindery/Whispersync launch policy.
+
+Schema finding:
+- The schema states that Whispersync UI/launch affordances must be based on exact ready pairs, not book-level inference: `whispersync.status == "ready"` and a nonblank `artifactHref` are required for the exact `ebookBookFileId` + `audiobookBookFileId` pair.
+- RED: `BinderyBookVersionPolicy` previously accepted `ready` + `artifactId` and generated a fallback `/opds/books/{bookId}/sync/{artifactId}` sidecar path when `artifactHref` was missing.
+
+Commands:
+
+```powershell
+git merge --no-edit fork/master
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.readyWhispersyncPairsWithoutArtifactHrefDoNotCreateLaunchCandidates
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.domain.repositories.BinderyBookSyncJsonTest --tests paige.navic.ui.screens.reader.ReaderWhispersyncLaunchPolicyTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest
+```
+
+Results:
+- GREEN/MERGE: merged `fork/master` after resolving the validation-log append conflict by preserving both branches' evidence notes.
+- RED/HOST-FIRST: the new artifact-href guard failed before implementation because a ready pair without `artifactHref` still produced ebook/audiobook sync matches.
+- GREEN/POLICY: `BinderySyncPair.hasReadyWhispersync()` now requires ready status, `artifactId`, and nonblank `artifactHref`; `toWhispersyncMatch()` no longer invents a fallback sidecar path.
+- GREEN/HOST-FOCUSED: full `BinderyBookVersionPolicyTest` passed.
+- GREEN/HOST-ADJACENT: `BinderyBookSyncJsonTest`, `ReaderWhispersyncLaunchPolicyTest`, and `BinderyContinueShelfPolicyTest` passed.
+- Remaining: the top-left cover headset badge remains design-proposed pending explicit user confirmation; it should use the same exact-pair readiness rule.
