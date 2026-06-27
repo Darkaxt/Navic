@@ -53,6 +53,15 @@ internal fun settingsSearchAppearanceRows(context: SettingsSearchContext): List<
 			selection = preferenceManager.theme,
 			onSelect = { preferenceManager.theme = it }
 		))
+		add(switchRow(
+			id = "appearance.dynamic-themes",
+			path = path(appearance),
+			title = stringResource(Res.string.option_dynamic_themes),
+			subtitle = stringResource(Res.string.subtitle_dynamic_themes),
+			keywords = listOf("artwork", "cover", "palette", "colour", "color"),
+			value = preferenceManager.dynamicThemes,
+			onSetValue = { preferenceManager.dynamicThemes = it }
+		))
 		add(selectionRow(
 			id = "appearance.artwork-shape",
 			path = path(appearance, layout),

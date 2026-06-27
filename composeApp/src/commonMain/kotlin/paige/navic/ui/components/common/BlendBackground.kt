@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -68,6 +69,11 @@ fun BlendBackground(
 	val preferenceManager = koinInject<PreferenceManager>()
 	val blurDp = nowPlayingBackgroundBlurDp(preferenceManager.nowPlayingBackgroundBlurDp)
 	val dimAlpha = nowPlayingBackgroundDimAlpha(preferenceManager.nowPlayingBackgroundDimPercent)
+	val dimColor = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) {
+		Color.White
+	} else {
+		Color.Black
+	}
 	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
 	val staticArtwork = resolveStaticArtwork(
 		serverCoverArtId = coverArtId,
@@ -177,7 +183,7 @@ fun BlendBackground(
 				.fillMaxSize()
 				.drawWithContent {
 					drawContent()
-					drawRect(color = Color.Black.copy(alpha = dimAlpha))
+					drawRect(color = dimColor.copy(alpha = dimAlpha))
 				}
 		)
 		if (showBottomGradient) {

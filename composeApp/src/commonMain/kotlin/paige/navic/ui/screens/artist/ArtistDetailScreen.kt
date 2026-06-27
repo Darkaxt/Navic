@@ -127,6 +127,7 @@ import paige.navic.ui.components.common.SongRow
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.common.rememberAurralFirstArtistArtworkUiState
+import paige.navic.ui.components.common.rememberResolvedArtworkColorScheme
 import paige.navic.ui.components.dialogs.BulkDownloadDialog
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.dialogs.FormDialog
@@ -147,6 +148,7 @@ import paige.navic.ui.screens.artist.viewmodels.AurralArtistActionFeedback
 import paige.navic.ui.screens.artist.viewmodels.ArtistDetailViewModel
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.theme.NavicTheme
 import paige.navic.icons.Icons
 import kotlin.time.Duration
 
@@ -232,6 +234,34 @@ fun ArtistDetailScreen(
 			lastFmLoading = data.lastFmLoading
 		)
 	}.orEmpty()
+	val artistProfileState = remember(
+		artistData,
+		preferenceManager.aurralEnabled,
+		monitoringInAurral,
+		artistAurralMonitorPending
+	) {
+		artistData?.let { state ->
+			aurralArtistProfileUiState(
+				state = state,
+				aurralEnabled = preferenceManager.aurralEnabled,
+				monitoringInAurral = monitoringInAurral,
+				monitorPendingInAurral = artistAurralMonitorPending
+			)
+		}
+	}
+	val headingArtwork = rememberAurralFirstArtistArtworkUiState(
+		artistId = artistData?.artist?.id,
+		artistMusicBrainzId = artistData?.artist?.musicBrainzId,
+		artistName = artistProfileState?.displayName ?: artistData?.artist?.name,
+		serverCoverArtId = artistData?.let { state ->
+			state.artist.coverArtId.takeUnless {
+				preferenceManager.aurralEnabled && state.aurralProfileLoading
+			}
+		},
+		externalArtistImageUrl = artistData?.aurralArtistImageUrl ?: artistData?.artist?.artistImageUrl,
+		externalArtistCacheKey = artistData?.aurralArtistImageUrl ?: artistData?.artist?.artistImageUrl
+	)
+	val artistColorScheme = rememberResolvedArtworkColorScheme(playbackArtwork = headingArtwork)
 	val aurralFeedback = artistData?.aurralFeedback
 	val aurralFeedbackMessage = when (aurralFeedback) {
 		AurralArtistActionFeedback.AlbumRequested ->
@@ -253,6 +283,7 @@ fun ArtistDetailScreen(
 		viewModel.clearAurralFeedback()
 	}
 
+	NavicTheme(artistColorScheme) {
 	ErrorSnackbar(
 		error = artistData?.aurralError?.let(::Exception),
 		onClearError = { viewModel.clearAurralError() }
@@ -307,19 +338,7 @@ fun ArtistDetailScreen(
 
 					is UiState.Success -> {
 						val state = currentArtistState.data
-						val aurralProfileState = remember(
-							state,
-							preferenceManager.aurralEnabled,
-							monitoringInAurral,
-							artistAurralMonitorPending
-						) {
-							aurralArtistProfileUiState(
-								state = state,
-								aurralEnabled = preferenceManager.aurralEnabled,
-								monitoringInAurral = monitoringInAurral,
-								monitorPendingInAurral = artistAurralMonitorPending
-							)
-						}
+						val aurralProfileState = checkNotNull(artistProfileState)
 					val ownedOrPartialRows = remember(state.aurralOwnedOrPartialAlbums, state.albums) {
 						state.aurralOwnedOrPartialAlbums.ifEmpty {
 							state.albums.map { album ->
@@ -357,15 +376,6 @@ fun ArtistDetailScreen(
 					}
 					val displayArtistName = aurralProfileState.displayName
 					val displayBiography = aurralProfileState.displayBio
-					val headingArtwork = rememberAurralFirstArtistArtworkUiState(
-						artistId = state.artist.id,
-						artistMusicBrainzId = state.artist.musicBrainzId,
-						artistName = displayArtistName,
-						serverCoverArtId = state.artist.coverArtId
-							.takeUnless { preferenceManager.aurralEnabled && state.aurralProfileLoading },
-						externalArtistImageUrl = state.aurralArtistImageUrl ?: state.artist.artistImageUrl,
-						externalArtistCacheKey = state.aurralArtistImageUrl ?: state.artist.artistImageUrl
-					)
 					BulkDownloadDialog(
 						title = stringResource(Res.string.title_bulk_download),
 						message = stringResource(Res.string.info_bulk_download_warning, state.artist.name),
@@ -887,6 +897,7 @@ fun ArtistDetailScreen(
 			songs = selectedAlbum?.songs.orEmpty().toPersistentList(),
 			onDismissRequest = { playlistDialogShown = false }
 		)
+	}
 	}
 }
 

@@ -131,6 +131,7 @@
 	<string name="title_select_lyrics">Select Lyrics</string>
 	<string name="title_advanced">Advanced Transcoding</string>
 	<string name="subtitle_appearance">Themes, colours, layout</string>
+	<string name="subtitle_dynamic_themes">Tint supported player and detail screens from the resolved artwork color</string>
 	<string name="subtitle_library_row_order">Reorder and hide Library rows</string>
 	<string name="subtitle_now_playing">Customise the fullscreen now playing and lyrics views</string>
 	<string name="subtitle_bottom_app_bar">Customise the bottom bar &amp; mini player</string>
@@ -421,6 +422,7 @@
 	<string name="option_enable_scrobbling">Enable scrobbling</string>
 	<string name="option_pause_listening_history">Pause listening history</string>
 	<string name="option_choose_theme">Application theme</string>
+	<string name="option_dynamic_themes">Artwork dynamic themes</string>
 	<string name="option_replay_gain">ReplayGain</string>
 	<string name="option_gapless_playback">Gapless playback</string>
 	<string name="option_respect_audio_focus">Respect audio focus</string>

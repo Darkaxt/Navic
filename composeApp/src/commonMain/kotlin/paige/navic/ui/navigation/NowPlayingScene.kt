@@ -11,11 +11,8 @@ import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -25,24 +22,11 @@ import androidx.navigation3.scene.OverlayScene
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.scene.SceneStrategyScope
-import com.kmpalette.loader.rememberNetworkLoader
-import com.kmpalette.rememberDominantColorState
-import com.materialkolor.PaletteStyle
-import com.materialkolor.dynamiccolor.ColorSpec
-import com.materialkolor.rememberDynamicColorScheme
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.defaultRequest
-import io.ktor.client.request.header
-import io.ktor.http.Url
 import org.koin.compose.koinInject
-import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.SessionManager
-import paige.navic.domain.models.dominantColorArtworkUrl
-import paige.navic.domain.models.shouldSendServerArtworkHeaders
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
+import paige.navic.ui.components.common.rememberResolvedArtworkColorScheme
 import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.navigation.NowPlayingSceneStrategy.Companion.bottomSheet
 import paige.navic.ui.theme.NavicTheme
@@ -146,10 +130,8 @@ class NowPlayingSceneStrategy<T : Any> : SceneStrategy<T> {
 }
 
 @Composable
-private fun colorSchemeForCurrentSong(): ColorScheme {
+private fun colorSchemeForCurrentSong(): ColorScheme? {
 	val player = koinInject<MediaPlayerViewModel>()
-	val sessionManager = koinInject<SessionManager>()
-	val preferenceManager = koinInject<PreferenceManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val playerState by player.uiState.collectAsState()
 	val musicBrainzArtworkBySongId by musicBrainzArtworkRepository.artworkBySongId.collectAsState()
@@ -163,61 +145,5 @@ private fun colorSchemeForCurrentSong(): ColorScheme {
 		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
 	)
-	val serverCoverUri = remember(playbackArtwork.coverArtId) {
-		playbackArtwork.coverArtId?.let { sessionManager.getCoverArtUrl(it) }
-	}
-	val coverUri = remember(serverCoverUri, playbackArtwork.imageUrl) {
-		playbackArtwork.imageUrl ?: serverCoverUri
-	}
-	val paletteCoverUri = remember(serverCoverUri, playbackArtwork.imageUrl) {
-		dominantColorArtworkUrl(
-			serverArtworkUrl = serverCoverUri,
-			externalArtworkUrl = playbackArtwork.imageUrl
-		)
-	}
-	val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-	val shouldSendServerHeaders = shouldSendServerArtworkHeaders(
-		serverArtworkUrl = serverCoverUri,
-		externalArtworkUrl = playbackArtwork.imageUrl
-	)
-	val imageRequestHeaders = if (shouldSendServerHeaders) {
-		serverRequestHeaders
-	} else {
-		playbackArtwork.imageRequestHeaders
-	}
-	val httpClient = remember(imageRequestHeaders) {
-		HttpClient {
-			install(HttpTimeout) {
-				requestTimeoutMillis = 60_000
-				connectTimeoutMillis = 60_000
-				socketTimeoutMillis = 60_000
-			}
-			if (imageRequestHeaders.isNotEmpty()) {
-				defaultRequest {
-					imageRequestHeaders.forEach { (key, value) -> header(key, value) }
-				}
-			}
-		}
-	}
-	DisposableEffect(httpClient) {
-		onDispose {
-			httpClient.close()
-		}
-	}
-	val networkLoader = rememberNetworkLoader(httpClient)
-	val dominantColorState = rememberDominantColorState(loader = networkLoader)
-	val scheme = rememberDynamicColorScheme(
-		seedColor = dominantColorState.color,
-		isDark = true,
-		style = if (coverUri != null) PaletteStyle.Content else PaletteStyle.Monochrome,
-		specVersion = ColorSpec.SpecVersion.SPEC_2021,
-	)
-
-	LaunchedEffect(paletteCoverUri) {
-		paletteCoverUri?.let {
-			dominantColorState.updateFrom(Url(it))
-		}
-	}
-
-	return scheme
+	return rememberResolvedArtworkColorScheme(playbackArtwork = playbackArtwork)
 }

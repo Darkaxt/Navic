@@ -47,11 +47,13 @@ import navic.composeapp.generated.resources.option_artwork_shape
 import navic.composeapp.generated.resources.option_choose_theme
 import navic.composeapp.generated.resources.option_cover_art_size
 import navic.composeapp.generated.resources.option_grid_items_per_row
+import navic.composeapp.generated.resources.option_dynamic_themes
 import navic.composeapp.generated.resources.option_off
 import navic.composeapp.generated.resources.option_quick_picks_min_duration
 import navic.composeapp.generated.resources.option_quick_picks_size
 import navic.composeapp.generated.resources.option_use_marquee_text
 import navic.composeapp.generated.resources.subtitle_library_row_order
+import navic.composeapp.generated.resources.subtitle_dynamic_themes
 import navic.composeapp.generated.resources.subtitle_quick_picks_min_duration
 import navic.composeapp.generated.resources.subtitle_quick_picks_size
 import navic.composeapp.generated.resources.title_appearance
@@ -143,6 +145,13 @@ fun SettingsAppearanceScreen() {
 					ThemeDialog(
 						presented = showThemeDialog,
 						onDismissRequest = { showThemeDialog = false }
+					)
+
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_dynamic_themes)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_dynamic_themes)) },
+						value = preferenceManager.dynamicThemes,
+						onSetValue = { preferenceManager.dynamicThemes = it }
 					)
 
 					if (preferenceManager.theme == Theme.Seeded) {

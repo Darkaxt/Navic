@@ -19,6 +19,7 @@ val databaseModule = module {
 	single { get<CacheDatabase>().artistPhotoCacheDao() }
 	single { get<CacheDatabase>().aurralMetadataCacheDao() }
 	single { get<CacheDatabase>().binderyMetadataCacheDao() }
+	single { get<CacheDatabase>().artworkColorDao() }
 	single { get<DownloadDatabase>().downloadDao() }
 	single { get<DownloadDatabase>().lidaClipDownloadDao() }
 }

@@ -520,6 +520,88 @@ class LibraryStartupAsyncSourceTest {
 		)
 	}
 
+	@Test
+	fun nowPlayingDynamicThemeUsesResolvedArtworkColorCache() {
+		val source = commonMain("paige/navic/ui/navigation/NowPlayingScene.kt")
+
+		assertTrue(
+			"rememberResolvedArtworkColorScheme(" in source &&
+				"playbackArtwork = playbackArtwork" in source,
+			"Now Playing dynamic theming must use the same resolved Aurral/Navidrome artwork identity as playback rendering."
+		)
+		assertFalse(
+			"HttpTimeout" in source,
+			"Now Playing should not create a timeout-backed palette HTTP client; artwork color extraction must use the shared cached image pipeline."
+		)
+		assertFalse(
+			"rememberNetworkLoader" in source || "rememberDominantColorState" in source,
+			"Now Playing should not maintain a second uncached network palette pipeline."
+		)
+	}
+
+	@Test
+	fun artworkColorCacheIsStoredInCacheDatabase() {
+		val databaseSource = commonMain("paige/navic/data/database/CacheDatabase.kt")
+		val databaseModuleSource = commonMain("paige/navic/di/DatabaseModule.kt")
+		val managerModuleSource = commonMain("paige/navic/di/ManagerModule.kt")
+
+		assertTrue(
+			"version = 20" in databaseSource,
+			"Adding the artwork color cache must bump CacheDatabase from the fork's version 19 to 20."
+		)
+		assertTrue(
+			"ArtworkColorEntity::class" in databaseSource &&
+				"abstract fun artworkColorDao(): ArtworkColorDao" in databaseSource,
+			"CacheDatabase must persist color extraction results by resolved artwork identity."
+		)
+		assertTrue(
+			"single { get<CacheDatabase>().artworkColorDao() }" in databaseModuleSource,
+			"ArtworkColorDao should be available through DI."
+		)
+		assertTrue(
+			"singleOf(::ArtworkColorManager)" in managerModuleSource,
+			"ArtworkColorManager should be shared instead of each composable owning its own cache."
+		)
+	}
+
+	@Test
+	fun artistAndCollectionDynamicThemeDoNotBypassResolvedArtwork() {
+		val artistSource = commonMain("paige/navic/ui/screens/artist/ArtistDetailScreen.kt")
+		val collectionSource = commonMain("paige/navic/ui/screens/collection/CollectionDetailScreen.kt")
+
+		assertTrue(
+			"rememberAurralFirstArtistArtworkUiState(" in artistSource &&
+				"rememberResolvedArtworkColorScheme(" in artistSource &&
+				"playbackArtwork = headingArtwork" in artistSource,
+			"Artist detail must keep the fork's Aurral-first heading artwork resolver as the source for dynamic theming."
+		)
+		assertTrue(
+			"rememberResolvedArtworkColorScheme(" in collectionSource &&
+				"coverArtId = displayedCollection?.coverArtId" in collectionSource,
+			"Collection detail dynamic theming should use the collection artwork identity, not a copied parent-PR screen rewrite."
+		)
+	}
+
+	@Test
+	fun artworkColorSchemeSourceHandlesExternalArtworkAndFailures() {
+		val source = commonMain("paige/navic/ui/components/common/ResolvedArtworkColorScheme.kt")
+
+		assertTrue(
+			"artworkColorCacheKey(" in source &&
+				"imageCacheKey = playbackArtwork.imageCacheKey" in source &&
+				"imageUrl = playbackArtwork.imageUrl" in source,
+			"Dynamic color cache keys must include resolved external artwork identities, not only native coverArtId."
+		)
+		assertTrue(
+			"runCatching" in source,
+			"Palette extraction failures should fall back to the normal theme instead of crashing the screen."
+		)
+		assertFalse(
+			"HttpTimeout" in source,
+			"Resolved artwork color extraction must not implement cancellation timeouts."
+		)
+	}
+
 	private fun commonMain(path: String): String =
 		File("src/commonMain/kotlin/$path").readText()
 }

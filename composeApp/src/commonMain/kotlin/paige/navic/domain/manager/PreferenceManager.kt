@@ -316,6 +316,7 @@ class PreferenceManager(
 	// theme related settings
 	var theme by preference(Theme.Dynamic)
 	var themeMode by preference(ThemeMode.System)
+	var dynamicThemes by preference(true)
 	var accentColourH by preference(0f)
 	var accentColourS by preference(0f)
 	var accentColourV by preference(1f)

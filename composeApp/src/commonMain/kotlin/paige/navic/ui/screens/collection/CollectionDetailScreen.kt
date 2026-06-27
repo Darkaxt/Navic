@@ -79,6 +79,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.rememberResolvedArtworkColorScheme
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
@@ -94,6 +95,7 @@ import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreBy
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
 import paige.navic.ui.screens.aurral.aurralSearchAlbumOwnershipStatus
 import paige.navic.ui.screens.share.dialogs.ShareDialog
+import paige.navic.ui.theme.NavicTheme
 import paige.navic.util.ui.segmentedShapes
 import paige.navic.util.ui.withoutTop
 import kotlin.time.Duration
@@ -186,6 +188,11 @@ fun CollectionDetailScreen(
 		}
 	}
 
+	val collectionColorScheme = rememberResolvedArtworkColorScheme(
+		coverArtId = displayedCollection?.coverArtId
+	)
+
+	NavicTheme(collectionColorScheme) {
 	Scaffold(
 		topBar = {
 			CollectionDetailScreenTopBar(
@@ -519,6 +526,7 @@ fun CollectionDetailScreen(
 			}
 		}
 	)
+	}
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
