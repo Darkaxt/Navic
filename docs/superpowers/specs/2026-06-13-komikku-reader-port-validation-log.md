@@ -7557,3 +7557,34 @@ Results:
 
 Remaining:
 - This proves the current installed readerdev cover/tap/drag/texture baseline on the emulator. It does not replace final physical-device validation for release APK touch feel or visual judgment.
+
+
+## 2026-06-28 Stage 2/6 Font Size Runtime Probe
+
+Scope:
+- Validate the reported font-size behavior against the current readerdev WebView runtime before patching typography.
+- Confirm whether the font-size control scales real loaded EPUB prose, body inheritance, and publisher-important prose, not only headings.
+
+Environment:
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Installed version: `v1.0.11-theta13`, `versionCode=441`.
+- Reader session: prepared `A Memory of Light (epub)` session from the Stage 1 matrix.
+- Artifacts:
+  - `captures/reader-smoke/font-size-probe-20260628-224841`
+  - `captures/reader-smoke/font-size-publisher-probe-20260628-224841`
+
+Commands:
+
+```powershell
+scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactDir captures\reader-smoke\font-size-probe-20260628-224841 -NoLaunch -ReaderDevtoolsProbe font-size -CaptureReaderDiagnostics
+scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactDir captures\reader-smoke\font-size-publisher-probe-20260628-224841 -NoLaunch -ReaderDevtoolsProbe font-size-publisher-styles -CaptureReaderDiagnostics
+```
+
+Results:
+- GREEN/RUNTIME: the `font-size` probe passed and measured real existing EPUB paragraph text changing from `16px` at 100% to `22.4px` at 140%.
+- GREEN/BODY-INHERITANCE: the same probe measured root, body, and probe paragraph deltas of `6.4px`.
+- GREEN/PUBLISHER-STYLES: the publisher-style probe passed; publisher paragraph and class-important prose both changed from `16px` to `22.4px`.
+
+Remaining:
+- Current readerdev does not reproduce the “headings scale but body text does not” issue. Treat future reports as either release-version drift or a specific EPUB/layout case and capture that exact book/page before changing typography.
