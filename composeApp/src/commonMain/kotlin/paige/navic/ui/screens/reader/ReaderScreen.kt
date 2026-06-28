@@ -152,11 +152,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 	var readaloudCommandKey by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		mutableStateOf(0L)
 	}
+	val whispersyncAudiobookIdentity = reader.whispersyncAudiobookId
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: reader.whispersyncAudiobookBookFileId?.trim()?.takeIf { it.isNotEmpty() }
 	var whispersyncPlaybackPlan by remember(
 		reader.bookId,
 		reader.resourceHref,
 		reader.publicationUrl,
-		reader.whispersyncAudiobookId
+		whispersyncAudiobookIdentity
 	) {
 		mutableStateOf<ReadaloudPlaybackPlan?>(null)
 	}
@@ -166,7 +170,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val whispersyncReadaloudPlaybackState = audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(
 		playbackPlan = whispersyncPlaybackPlan,
 		bookId = reader.bookId,
-		versionRowId = reader.whispersyncAudiobookId,
+		versionRowId = whispersyncAudiobookIdentity,
 		syncEnabled = readaloudSyncEnabled
 	)
 	@Suppress("DEPRECATION")
@@ -314,7 +318,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 			reader.whispersyncLaunchAttachment()?.let { attachment ->
 				coroutineScope.launch {
-					withContext(Dispatchers.IO) {
+					val sidecar = withContext(Dispatchers.IO) {
 						binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
 					}.fold(
 						onSuccess = { sidecar ->
@@ -326,6 +330,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 									"segments=${sidecar.timeline.segments.size}"
 							)
 							applyCoordinatorStep(coordinator.loadWhispersyncSidecar(sidecar))
+							sidecar
 						},
 						onFailure = { error ->
 							applyCoordinatorStep(
@@ -340,10 +345,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 									"path=${attachment.sidecarPath}",
 								error
 							)
+							null
 						}
 					)
 					withContext(Dispatchers.IO) {
-						binderyRepository.getAudiobookManifest(attachment.audiobookId)
+						val manifestPath = sidecar?.audiobookManifestHref?.trim()?.takeIf { it.isNotEmpty() }
+						when {
+							manifestPath != null -> binderyRepository.getAudiobookManifestPath(manifestPath)
+							attachment.audiobookId != null -> binderyRepository.getAudiobookManifest(attachment.audiobookId)
+							else -> Result.failure(IllegalStateException("Whispersync sidecar did not expose audiobook manifest href."))
+						}
 					}.fold(
 						onSuccess = { manifest ->
 							val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
@@ -351,12 +362,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 								audiobookProgressJson = preferenceManager.binderyAudiobookProgressJson,
 								companionProgressJson = preferenceManager.binderyWhispersyncCompanionProgressJson,
 								bookId = reader.bookId,
-								versionRowId = attachment.audiobookId,
+								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
 								manifest = manifest
 							)
 							val playbackPlan = binderyAudiobookPlaybackPlan(
 								manifest = manifest,
-								versionRowId = attachment.audiobookId,
+								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
 								opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 								requestHeaders = requestHeaders,
 								resumeProgress = resumeProgress,
@@ -367,7 +378,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 								playbackPlan = playbackPlan,
 								bookId = reader.bookId,
 								bookTitle = attachment.audiobookTitle ?: reader.title,
-								versionRowId = attachment.audiobookId,
+								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
 								coverUrl = null,
 								coverCacheKey = null,
 								imageRequestHeaders = requestHeaders,
@@ -375,7 +386,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 							)
 							Logger.i(
 								ReaderScreenTag,
-								"Whispersync audiobook plan loaded audiobook=${attachment.audiobookId} " +
+								"Whispersync audiobook plan loaded audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId} " +
 									"items=${playbackPlan.mediaItems.size}"
 							)
 						},
@@ -384,12 +395,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 							applyCoordinatorStep(
 								coordinator.reportWhispersyncLoadFailure(
 									label = "Whispersync audio unavailable",
-									detail = "audiobook=${attachment.audiobookId}"
+									detail = "audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId}"
 								)
 							)
 							Logger.w(
 								ReaderScreenTag,
-								"Whispersync audiobook plan load failed audiobook=${attachment.audiobookId}",
+								"Whispersync audiobook plan load failed audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId}",
 								error
 							)
 						}

@@ -27,6 +27,8 @@ data class WhispersyncSidecar(
 	val artifactId: String? = null,
 	val ebookBookFileId: String? = null,
 	val audiobookBookFileId: String? = null,
+	val ebookManifestHref: String? = null,
+	val audiobookManifestHref: String? = null,
 	val documentTextLength: Int? = null,
 	val timeline: WhispersyncTimeline = WhispersyncTimeline(),
 	val droppedSegmentCount: Int = 0,
@@ -131,6 +133,7 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 	val root = WhispersyncJson.parseToJsonElement(json).jsonObject
 	val ebook = root.objectValue("ebook")
 	val audiobook = root.objectValue("audiobook")
+	val resources = root.objectValue("resources")
 	val audioResources = audiobook
 		?.arrayValue("resources")
 		.orEmpty()
@@ -159,6 +162,8 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 		audiobookBookFileId = root.stringValue("audiobookBookFileId")
 			?: audiobook?.stringValue("bookFileId")
 			?: audiobook?.stringValue("id"),
+		ebookManifestHref = resources?.stringValue("ebookManifestHref"),
+		audiobookManifestHref = resources?.stringValue("audiobookManifestHref"),
 		documentTextLength = root.intValue("documentTextLength")
 			?: ebook?.intValue("documentTextLength"),
 		timeline = WhispersyncTimeline(segments = segments),

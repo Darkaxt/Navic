@@ -26,6 +26,23 @@ class ReaderWhispersyncLaunchPolicyTest {
 			).whispersyncLaunchAttachment()
 		)
 
+		assertEquals(
+			ReaderWhispersyncLaunchAttachment(
+				sidecarPath = "https://bindery.local/opds/books/3816/sync/12",
+				artifactId = "12",
+				audiobookId = null,
+				audiobookBookFileId = "694",
+				audiobookTitle = "Audiobook"
+			),
+			readerRoute(
+				whispersyncSidecarUrl = "https://bindery.local/opds/books/3816/sync/12",
+				whispersyncArtifactId = "12",
+				whispersyncAudiobookId = null,
+				whispersyncAudiobookBookFileId = "694",
+				whispersyncAudiobookTitle = " Audiobook "
+			).whispersyncLaunchAttachment()
+		)
+
 		assertNull(
 			readerRoute(
 				whispersyncSidecarUrl = "https://bindery.local/opds/books/3816/sync/3",

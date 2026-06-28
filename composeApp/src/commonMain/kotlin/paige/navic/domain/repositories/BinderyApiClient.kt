@@ -62,6 +62,12 @@ interface BinderyApiClient {
 		audiobookId: String
 	): BinderyManifest
 
+	suspend fun fetchAudiobookManifestPath(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): BinderyManifest
+
 	suspend fun fetchBookSync(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -224,6 +230,23 @@ internal class KtorBinderyApiClient : BinderyApiClient {
 		val safeAudiobookId = audiobookId.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery audiobook id is required.")
 		val response = client.get(binderyEndpoint(baseUrl, "audiobooks/${encodeUrlPathSegment(safeAudiobookId)}")) {
+			binderyJsonRequest(requestHeaders)
+			accept(ContentType("application", "audiobook+json"))
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery audiobook manifest", response.status))
+		}
+		return response.body<BinderyPublicationDto>().toManifest()
+	}
+
+	override suspend fun fetchAudiobookManifestPath(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): BinderyManifest {
+		val safePath = path.trim().takeIf { it.isNotEmpty() }
+			?: throw IllegalStateException("Bindery audiobook manifest path is required.")
+		val response = client.get(binderyEndpoint(baseUrl, safePath)) {
 			binderyJsonRequest(requestHeaders)
 			accept(ContentType("application", "audiobook+json"))
 		}

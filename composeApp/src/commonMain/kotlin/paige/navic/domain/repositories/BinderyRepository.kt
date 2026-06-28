@@ -241,6 +241,15 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
 		)
 
+	suspend fun getAudiobookManifestPath(path: String): Result<BinderyManifest> =
+		withConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.AudiobookManifest,
+			path = path,
+			fetch = { baseUrl, headers -> apiClient.fetchAudiobookManifestPath(baseUrl, headers, path) },
+			encode = { manifest -> BinderyJson.encodeToString(manifest) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
+		)
+
 	suspend fun getCachedAudiobookManifest(audiobookId: String): Result<BinderyManifest?> =
 		getConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.AudiobookManifest,

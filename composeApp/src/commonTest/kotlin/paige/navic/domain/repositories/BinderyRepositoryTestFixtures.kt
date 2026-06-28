@@ -58,6 +58,7 @@ internal class FakeBinderyApiClient(
 	val audiobookManifestBaseUrls = mutableListOf<String>()
 	val audiobookManifestHeaders = mutableListOf<Map<String, String>>()
 	val audiobookManifestIds = mutableListOf<String>()
+	val audiobookManifestPaths = mutableListOf<String>()
 	val bookSyncBaseUrls = mutableListOf<String>()
 	val bookSyncHeaders = mutableListOf<Map<String, String>>()
 	val bookSyncIds = mutableListOf<String>()
@@ -156,6 +157,17 @@ internal class FakeBinderyApiClient(
 		audiobookManifestBaseUrls += baseUrl
 		audiobookManifestHeaders += requestHeaders
 		audiobookManifestIds += audiobookId
+		return audiobookManifest
+	}
+
+	override suspend fun fetchAudiobookManifestPath(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): BinderyManifest {
+		audiobookManifestBaseUrls += baseUrl
+		audiobookManifestHeaders += requestHeaders
+		audiobookManifestPaths += path
 		return audiobookManifest
 	}
 

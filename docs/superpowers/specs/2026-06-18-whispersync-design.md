@@ -86,8 +86,9 @@ Authority: `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\github-expor
 - The `/opds/books/{bookId}/sync` endpoint remains the preferred pair authority when it succeeds. If that request fails, `BinderyBookViewModel` falls back to the manifest's embedded sync pairs rather than discarding actionable pair data.
 - Direct JSON audiobook detail responses now decode `whispersyncAvailable`, `whispersyncReadyCount`, `whispersyncStatus`, and `whispersync[]` for future audiobook-side UI decisions.
 - Direct JSON audiobook detail responses also decode `studio` plus rich provider provenance (`providerKind`, `providerTitle`, `mappingStatus`, `metadataProvider`, `metadataConfidence`, `metadataConfidenceScore`, and `metadataConfidenceReason`). The audiobook detail UI surfaces `studio` alongside publisher metadata; the provenance fields are retained for diagnostics and future source-aware matching.
+- Ready exact pairs remain launchable even when the book/version screen has not preloaded a `/opds/audiobooks/{audiobookVersionId}` row. Navic now keeps the pair alive from `ebookBookFileId + audiobookBookFileId + artifactHref`, derives a route artifact id from `artifactHref` when `artifactId` is omitted, parses sidecar `resources.audiobookManifestHref`, and loads the paired audiobook manifest from that OPDS path before falling back to the older routed audiobook version id.
 - Book catalog/detail/search/hub cover cards now expose a subtle top-left headset badge only when the embedded publication has at least one exact ready pair with `artifactHref`; summary-only `whispersyncStatus` does not show the badge.
-- Regression coverage: `BinderyRepositoryCatalogJsonTest.catalogJsonDecodesEmbeddedWhispersyncPairsFromPublicationProperties`, `BinderyBookVersionPolicyTest.bookVersionRowsUseManifestEmbeddedWhispersyncPairsWhenSyncEndpointIsUnavailable`, `BinderyBookSyncJsonTest.decodesAudiobookDetailWhispersyncSummaryFields`, `BinderyBookSyncJsonTest.decodesAudiobookDetailProviderProvenanceFieldsFromNavicApiSchema`, and `BinderyBookSyncJsonTest.readyWhispersyncPairOnlyRequiresReadyStatusAndArtifactHref`.
+- Regression coverage: `BinderyRepositoryCatalogJsonTest.catalogJsonDecodesEmbeddedWhispersyncPairsFromPublicationProperties`, `BinderyBookVersionPolicyTest.bookVersionRowsUseManifestEmbeddedWhispersyncPairsWhenSyncEndpointIsUnavailable`, `BinderyBookVersionPolicyTest.embeddedReadyPairCanLaunchWithoutPreloadedAudiobookVersionRow`, `ReaderWhispersyncLaunchPolicyTest.readerWhispersyncLaunchAttachmentRequiresSelectedAudiobookContract`, `WhispersyncTimelineParserTest.productionBinderySidecarCuesParseIntoTimelineSegments`, `BinderyBookSyncJsonTest.decodesAudiobookDetailWhispersyncSummaryFields`, `BinderyBookSyncJsonTest.decodesAudiobookDetailProviderProvenanceFieldsFromNavicApiSchema`, and `BinderyBookSyncJsonTest.readyWhispersyncPairOnlyRequiresReadyStatusAndArtifactHref`.
 
 Important correction to older audits:
 
@@ -116,6 +117,7 @@ The parser must be tolerant of Bindery payload variants because the service side
 - artifact identity: `artifactId`
 - ebook identity: `ebookBookFileId`, `ebook.bookFileId`, `ebook.id`
 - audiobook identity: `audiobookBookFileId`, `audiobook.bookFileId`, `audiobook.id`
+- manifest resources: `resources.ebookManifestHref`, `resources.audiobookManifestHref`
 - audio resources: `audioResource`, `audioHref`, `audio.href`, `audiobook.resources[].href`
 - text resources: `textHref`, `textResource`, `href`, `ebook.href`
 - text range: `textStart`, `textEnd`, `documentTextLength`

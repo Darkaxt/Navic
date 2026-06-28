@@ -324,6 +324,73 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun embeddedReadyPairCanLaunchWithoutPreloadedAudiobookVersionRow() {
+		val rows = binderyBookVersionRows(
+			manifest = BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit"),
+			resourceCatalog = BinderyResourceCatalog(
+				title = "Resources",
+				resources = listOf(
+					BinderyBookResource(
+						href = "/opds/books/3816/resources/ebook-435",
+						title = "The Hobbit EPUB",
+						type = "application/epub+zip",
+						kind = "ebook",
+						properties = mapOf(
+							"bookFileId" to "435",
+							"format" to "epub",
+							"language" to "eng"
+						)
+					)
+				)
+			),
+			audiobookVersions = emptyList(),
+			bookSync = BinderyBookSync(
+				bookId = 3816,
+				syncPairs = listOf(
+					BinderySyncPair(
+						bookId = 3816,
+						ebookBookFileId = 435,
+						audiobookBookFileId = 694,
+						whispersync = BinderyWhispersyncArtifact(
+							status = "ready",
+							artifactId = null,
+							artifactHref = "/opds/books/3816/sync/12"
+						)
+					)
+				)
+			)
+		)
+		val ebook = rows.single()
+		val match = ebook.syncMatches.single()
+
+		assertEquals("694", match.oppositeAudiobookBookFileId)
+		assertEquals(BinderyWhispersyncAudiobookLaunchAction.OpenDirectly, ebook.whispersyncAudiobookLaunchAction())
+		assertEquals(
+			Screen.Reader(
+				title = "The Hobbit",
+				publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-435",
+				bookId = "3816",
+				resourceHref = "/opds/books/3816/resources/ebook-435",
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false,
+				whispersyncSidecarUrl = "https://bindery.local/opds/books/3816/sync/12",
+				whispersyncArtifactId = "12",
+				whispersyncAudiobookId = null,
+				whispersyncAudiobookBookFileId = "694",
+				whispersyncAudiobookTitle = "Audiobook"
+			),
+			binderyWhispersyncReaderDestinationForMatch(
+				ebookRow = ebook,
+				match = match,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
 	fun pendingWhispersyncPairsDoNotCreateEbookLaunchCandidates() {
 		val rows = hobbitVersionRowsWithWhispersync(status = "pending")
 		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
