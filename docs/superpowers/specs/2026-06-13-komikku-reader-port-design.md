@@ -17,6 +17,10 @@ Anx/Foliate behavior parity execution belongs in:
 
 - `docs/superpowers/specs/2026-06-17-anx-parity-7-phase-plan.md`
 
+Remaining reader and Whispersync gap closure now executes through staged plans in:
+
+- `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+
 Keep this design file short. It is the operating contract, not a diary.
 
 ## Objective

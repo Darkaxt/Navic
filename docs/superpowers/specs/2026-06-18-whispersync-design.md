@@ -3,6 +3,7 @@
 ## Reference Authority
 
 This spec extends `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`.
+Active staged execution is tracked in `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`.
 
 - Komikku remains authoritative for reader shell, overlays, tap ownership, progress rail behavior, and controller-first UI.
 - Anx Reader/Foliate remains authoritative for EPUB/PDF rendering, visible text range, locators, annotations, highlights, and bridge event semantics.
