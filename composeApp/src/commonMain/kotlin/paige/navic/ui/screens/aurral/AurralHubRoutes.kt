@@ -1,6 +1,11 @@
 package paige.navic.ui.screens.aurral
 
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.AurralArtistAlbumRow
+import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
+import paige.navic.domain.models.AurralMissingAlbumRow
+import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.ui.navigation.Screen
@@ -99,6 +104,93 @@ fun aurralAlbumCollectionDetailRoute(
 		aurralStatus = album.status?.trim()?.takeIf { it.isNotEmpty() }
 	)
 
+fun aurralOwnershipAlbumCollectionDetailRoute(
+	row: AurralArtistOwnershipAlbumRow,
+	tab: String,
+	fallbackArtistMbid: String?,
+	fallbackArtistName: String?
+): Screen.CollectionDetail? {
+	val localAlbum = row.localAlbum ?: return null
+	val releaseGroup = row.releaseGroup ?: return null
+	return aurralAlbumCollectionDetailRoute(
+		album = releaseGroup.toAurralAlbumSearchItem(
+			title = row.title,
+			artistMbid = fallbackArtistMbid,
+			artistName = fallbackArtistName ?: localAlbum.artistName,
+			coverUrl = row.coverUrl,
+			status = row.requestStatus,
+			libraryAlbumId = localAlbum.id
+		),
+		libraryAlbumId = localAlbum.id,
+		tab = tab
+	)
+}
+
+fun aurralArtistLocalAlbumCollectionDetailRoute(
+	row: AurralArtistAlbumRow.Local,
+	tab: String,
+	fallbackArtistMbid: String?,
+	fallbackArtistName: String?
+): Screen.CollectionDetail? {
+	val releaseGroup = row.releaseGroup ?: return null
+	return aurralAlbumCollectionDetailRoute(
+		album = releaseGroup.toAurralAlbumSearchItem(
+			title = row.title,
+			artistMbid = fallbackArtistMbid,
+			artistName = fallbackArtistName ?: row.album.artistName,
+			coverUrl = releaseGroup.coverUrl,
+			status = null,
+			libraryAlbumId = row.album.id
+		),
+		libraryAlbumId = row.album.id,
+		tab = tab
+	)
+}
+
+fun aurralMissingAlbumLocalCollectionDetailRoute(
+	row: AurralMissingAlbumRow,
+	localAlbum: DomainAlbum,
+	tab: String,
+	fallbackArtistMbid: String?,
+	fallbackArtistName: String?
+): Screen.CollectionDetail =
+	aurralAlbumCollectionDetailRoute(
+		album = row.releaseGroup.toAurralAlbumSearchItem(
+			title = row.title,
+			artistMbid = fallbackArtistMbid,
+			artistName = fallbackArtistName ?: localAlbum.artistName,
+			coverUrl = row.coverUrl,
+			status = row.requestStatus,
+			libraryAlbumId = localAlbum.id
+		),
+		libraryAlbumId = localAlbum.id,
+		tab = tab
+	)
+
+fun aurralMissingAlbumLocalCollectionDetailRoute(
+	route: Screen.AurralMissingAlbum,
+	localAlbum: DomainAlbum,
+	tab: String,
+	coverUrl: String? = route.coverUrl,
+	requestStatus: String? = route.requestStatus
+): Screen.CollectionDetail =
+	aurralAlbumCollectionDetailRoute(
+		album = AurralAlbumSearchItem(
+			id = route.releaseGroupId,
+			title = route.title,
+			artistName = route.artistName,
+			artistMbid = route.artistMbid,
+			releaseDate = route.year,
+			primaryType = route.primaryType,
+			coverUrl = coverUrl,
+			inLibrary = true,
+			libraryAlbumId = localAlbum.id,
+			status = requestStatus
+		),
+		libraryAlbumId = localAlbum.id,
+		tab = tab
+	)
+
 fun Screen.CollectionDetail.aurralAlbumSearchItemOrNull(): AurralAlbumSearchItem? {
 	val releaseGroupId = aurralReleaseGroupId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 	val title = aurralTitle?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -118,3 +210,26 @@ fun Screen.CollectionDetail.aurralAlbumSearchItemOrNull(): AurralAlbumSearchItem
 		status = aurralStatus?.trim()?.takeIf { it.isNotEmpty() }
 	)
 }
+
+private fun AurralReleaseGroup.toAurralAlbumSearchItem(
+	title: String,
+	artistMbid: String?,
+	artistName: String?,
+	coverUrl: String?,
+	status: String?,
+	libraryAlbumId: String
+): AurralAlbumSearchItem =
+	AurralAlbumSearchItem(
+		id = id,
+		title = title.trim().takeIf { it.isNotEmpty() } ?: this.title,
+		artistName = artistName?.trim()?.takeIf { it.isNotEmpty() }.orEmpty(),
+		artistMbid = artistMbid?.trim()?.takeIf { it.isNotEmpty() }.orEmpty(),
+		releaseDate = firstReleaseDate?.trim()?.takeIf { it.isNotEmpty() },
+		primaryType = primaryType?.trim()?.takeIf { it.isNotEmpty() },
+		secondaryTypes = secondaryTypes.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		coverUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() }
+			?: this.coverUrl?.trim()?.takeIf { it.isNotEmpty() },
+		inLibrary = true,
+		libraryAlbumId = libraryAlbumId,
+		status = status?.trim()?.takeIf { it.isNotEmpty() }
+	)

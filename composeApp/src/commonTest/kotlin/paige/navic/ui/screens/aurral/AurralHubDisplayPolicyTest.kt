@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.aurral
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -12,7 +13,10 @@ import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
+import paige.navic.domain.models.AurralArtistAlbumRow
+import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
 import paige.navic.domain.models.aurralPreviewTrackOwnershipStatus
+import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainPlaylist
@@ -1030,6 +1034,120 @@ class AurralHubDisplayPolicyTest {
 	}
 
 	@Test
+	fun ownershipAlbumRoutesPreserveAurralReleaseGroupForLocalMatches() {
+		val destination = aurralOwnershipAlbumCollectionDetailRoute(
+			row = ownershipAlbumRow(
+				releaseGroup = AurralReleaseGroup(
+					id = "release-group",
+					title = "Aurral Album",
+					firstReleaseDate = "2010-01-01",
+					primaryType = "Album",
+					secondaryTypes = listOf("Soundtrack"),
+					coverUrl = "https://aurral.example.com/cover.jpg"
+				),
+				localAlbum = domainAlbum(id = "local-album", name = "Navidrome Album"),
+				title = "Aurral Album",
+				year = "2010",
+				coverUrl = "https://aurral.example.com/cover.jpg"
+			),
+			tab = "artist",
+			fallbackArtistMbid = "artist-mbid",
+			fallbackArtistName = "John Powell"
+		)
+
+		assertEquals("local-album", destination?.collectionId)
+		assertEquals("artist", destination?.tab)
+		assertEquals("release-group", destination?.aurralReleaseGroupId)
+		assertEquals("Aurral Album", destination?.aurralTitle)
+		assertEquals("artist-mbid", destination?.aurralArtistMbid)
+		assertEquals("John Powell", destination?.aurralArtistName)
+		assertEquals("https://aurral.example.com/cover.jpg", destination?.aurralCoverUrl)
+	}
+
+	@Test
+	fun aurralArtistLocalAlbumRoutesPreserveMatchedReleaseGroup() {
+		val destination = aurralArtistLocalAlbumCollectionDetailRoute(
+			row = AurralArtistAlbumRow.Local(
+				album = domainAlbum(id = "local-album", name = "Navidrome Album"),
+				releaseGroup = AurralReleaseGroup(
+					id = "release-group",
+					title = "Aurral Album",
+					firstReleaseDate = "2010-01-01",
+					primaryType = "Album",
+					secondaryTypes = listOf("Soundtrack"),
+					coverUrl = "https://aurral.example.com/cover.jpg"
+				)
+			),
+			tab = "artist",
+			fallbackArtistMbid = "artist-mbid",
+			fallbackArtistName = "John Powell"
+		)
+
+		assertEquals("local-album", destination?.collectionId)
+		assertEquals("artist", destination?.tab)
+		assertEquals("release-group", destination?.aurralReleaseGroupId)
+		assertEquals("Navidrome Album", destination?.aurralTitle)
+		assertEquals("artist-mbid", destination?.aurralArtistMbid)
+		assertEquals("John Powell", destination?.aurralArtistName)
+		assertEquals("https://aurral.example.com/cover.jpg", destination?.aurralCoverUrl)
+	}
+
+	@Test
+	fun missingAlbumLocalRoutesPreserveAurralReleaseGroupForLocalMatches() {
+		val destination = aurralMissingAlbumLocalCollectionDetailRoute(
+			row = missingAlbumRow(
+				title = "Aurral Album",
+				releaseGroupId = "release-group",
+				coverUrl = "https://aurral.example.com/cover.jpg"
+			),
+			localAlbum = domainAlbum(id = "local-album", name = "Navidrome Album"),
+			tab = "aurral",
+			fallbackArtistMbid = "artist-mbid",
+			fallbackArtistName = "John Powell"
+		)
+
+		assertEquals("local-album", destination.collectionId)
+		assertEquals("aurral", destination.tab)
+		assertEquals("release-group", destination.aurralReleaseGroupId)
+		assertEquals("Aurral Album", destination.aurralTitle)
+		assertEquals("artist-mbid", destination.aurralArtistMbid)
+		assertEquals("John Powell", destination.aurralArtistName)
+		assertEquals("https://aurral.example.com/cover.jpg", destination.aurralCoverUrl)
+	}
+
+	@Test
+	fun missingAlbumScreenLocalMatchesNavigateWithAurralReleaseGroupIdentity() {
+		val source = sourceFile("ui/screens/aurral/AurralMissingAlbumScreen.kt").readText()
+		val block = source.substringAfter("if (state.moreAlbums.isNotEmpty())")
+			.substringBefore("Spacer(Modifier.height(24.dp))")
+
+		assertTrue(
+			"aurralMissingAlbumLocalCollectionDetailRoute(" in block,
+			"Aurral missing album local matches should preserve release-group metadata when opening local album detail."
+		)
+		assertFalse(
+			"Screen.CollectionDetail(album.id, \"aurral\")" in block,
+			"Aurral missing album local matches must not open a plain local album route."
+		)
+	}
+
+	@Test
+	fun aurralArtistScreenLocalMatchesNavigateWithAurralReleaseGroupIdentity() {
+		val source = sourceFile("ui/screens/aurral/AurralArtistScreen.kt").readText()
+		val block = source.substringAfter("is AurralArtistAlbumRow.Local ->")
+			.substringBefore("is AurralArtistAlbumRow.Missing ->")
+
+		assertTrue(
+			"aurralArtistLocalAlbumCollectionDetailRoute(" in block,
+			"Aurral artist local album rows should preserve release-group metadata when opening album detail."
+		)
+		assertFalse(
+			"onClick = { backStack.add(Screen.CollectionDetail(row.album.id, \"artist\")) }" in block,
+			"Aurral artist local album rows must not discard Aurral identity by directly opening a plain local album route."
+		)
+	}
+
+	@Test
 	fun albumOwnershipStatusMapsOwnedRequestedAndMissingRows() {
 		assertEquals(
 			AurralOwnershipStatus.Owned,
@@ -1368,17 +1486,70 @@ class AurralHubDisplayPolicyTest {
 
 	private fun missingAlbumRow(
 		title: String = "Missing",
-		progress: AurralAcquisitionProgress? = null
+		progress: AurralAcquisitionProgress? = null,
+		releaseGroupId: String = "release-$title",
+		coverUrl: String? = null
 	) = AurralMissingAlbumRow(
 		releaseGroup = AurralReleaseGroup(
-			id = "release-$title",
-			title = title
+			id = releaseGroupId,
+			title = title,
+			coverUrl = coverUrl
 		),
 		title = title,
 		year = null,
-		coverUrl = null,
+		coverUrl = coverUrl,
 		requestStatus = progress?.status,
 		requestable = progress == null,
 		acquisitionProgress = progress
 	)
+
+	private fun ownershipAlbumRow(
+		releaseGroup: AurralReleaseGroup?,
+		localAlbum: DomainAlbum?,
+		title: String,
+		year: String? = null,
+		coverUrl: String? = null
+	) = AurralArtistOwnershipAlbumRow(
+		releaseGroup = releaseGroup,
+		localAlbum = localAlbum,
+		title = title,
+		year = year,
+		coverUrl = coverUrl,
+		requestStatus = null,
+		requestable = localAlbum == null,
+		ownershipStatus = if (localAlbum == null) AurralOwnershipStatus.Missing else AurralOwnershipStatus.Partial,
+		localSongs = localAlbum?.songs.orEmpty()
+	)
+
+	private fun domainAlbum(
+		id: String,
+		name: String,
+		musicBrainzId: String? = null
+	) = DomainAlbum(
+		id = id,
+		name = name,
+		artistName = "John Powell",
+		artistId = "john-powell",
+		year = 2010,
+		coverArtId = "cover",
+		genre = "Soundtrack",
+		genres = listOf("Soundtrack"),
+		songCount = 1,
+		duration = 30.seconds,
+		createdAt = Instant.DISTANT_PAST,
+		starredAt = null,
+		lastPlayedAt = null,
+		playCount = 0,
+		userRating = null,
+		version = null,
+		musicBrainzId = musicBrainzId,
+		songs = listOf(song("owned-track"))
+	)
+
+	private fun sourceFile(path: String): File =
+		listOf(
+			File("src/commonMain/kotlin/paige/navic/$path"),
+			File("composeApp/src/commonMain/kotlin/paige/navic/$path"),
+			File("../composeApp/src/commonMain/kotlin/paige/navic/$path")
+		).first(File::exists)
 }

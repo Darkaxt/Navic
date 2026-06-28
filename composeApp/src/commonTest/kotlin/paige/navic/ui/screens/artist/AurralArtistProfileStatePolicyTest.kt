@@ -50,6 +50,22 @@ class AurralArtistProfileStatePolicyTest {
 	}
 
 	@Test
+	fun artistDetailOwnedAlbumRowsNavigateWithAurralReleaseGroupIdentity() {
+		val source = sourceFile("paige/navic/ui/screens/artist/ArtistDetailScreen.kt").readText()
+		val block = source.substringAfter("ArtCarousel(\n\t\t\t\t\t\t\t\tstringResource(Res.string.title_aurral_owned_partial_albums)")
+			.substringBefore("if (aurralProfileState.requests")
+
+		assertTrue(
+			"aurralOwnershipAlbumCollectionDetailRoute(" in block,
+			"Owned/partial Aurral album rows should preserve release-group identity when opening local album detail."
+		)
+		assertFalse(
+			"backStack.add(Screen.CollectionDetail(album.id, \"artist\"))" in block,
+			"Owned/partial Aurral album rows must not discard Aurral identity by directly opening a plain local album route."
+		)
+	}
+
+	@Test
 	fun artistDetailViewModelUsesSearchFallbackWhenDiscoveryDoesNotCarryAurralImage() {
 		val source = sourceFile(
 			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"

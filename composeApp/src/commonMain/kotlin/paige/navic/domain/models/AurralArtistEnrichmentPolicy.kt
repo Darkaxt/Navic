@@ -90,7 +90,8 @@ sealed interface AurralArtistAlbumRow {
 
 	@Immutable
 	data class Local(
-		val album: DomainAlbum
+		val album: DomainAlbum,
+		val releaseGroup: AurralReleaseGroup? = null
 	) : AurralArtistAlbumRow {
 		override val title: String = album.name
 		override val year: Int? = album.year
@@ -341,14 +342,17 @@ fun aurralArtistAlbumRows(
 		.flatMap { it.name.normalizedAurralAlbumDedupeKeys() }
 		.toSet()
 	val seenMissingKeys = mutableSetOf<String>()
-	val localRows = localAlbums.map(AurralArtistAlbumRow::Local)
+	val localRows = localAlbums.map { album ->
+		AurralArtistAlbumRow.Local(
+			album = album,
+			releaseGroup = missingAlbums.firstOrNull { row -> row.matchesLocalAlbum(album) }?.releaseGroup
+		)
+	}
 	val missingRows = missingAlbums.mapNotNull { row ->
+		if (row.matchesLocalAlbum(localMusicBrainzIds, localTitleKeys)) return@mapNotNull null
+
 		val musicBrainzId = row.releaseGroup.id.normalizedAurralIdOrNull()
 		val titleKeys = row.title.normalizedAurralAlbumDedupeKeys()
-		val matchesLocal = (musicBrainzId != null && musicBrainzId in localMusicBrainzIds) ||
-			titleKeys.any { it in localTitleKeys }
-		if (matchesLocal) return@mapNotNull null
-
 		val rowKeys = listOfNotNull(musicBrainzId?.let { "mbid:$it" }) +
 			titleKeys.map { "title:$it" }
 		if (rowKeys.any { it in seenMissingKeys }) return@mapNotNull null
@@ -363,6 +367,22 @@ fun aurralArtistAlbumRows(
 			.thenBy { it.title.lowercase() }
 			.thenBy { row -> if (row is AurralArtistAlbumRow.Local) 0 else 1 }
 	)
+}
+
+private fun AurralMissingAlbumRow.matchesLocalAlbum(album: DomainAlbum): Boolean =
+	matchesLocalAlbum(
+		localMusicBrainzIds = setOfNotNull(album.musicBrainzId.normalizedAurralIdOrNull()),
+		localTitleKeys = album.name.normalizedAurralAlbumDedupeKeys().toSet()
+	)
+
+private fun AurralMissingAlbumRow.matchesLocalAlbum(
+	localMusicBrainzIds: Set<String>,
+	localTitleKeys: Set<String>
+): Boolean {
+	val musicBrainzId = releaseGroup.id.normalizedAurralIdOrNull()
+	val titleKeys = title.normalizedAurralAlbumDedupeKeys()
+	return (musicBrainzId != null && musicBrainzId in localMusicBrainzIds) ||
+		titleKeys.any { it in localTitleKeys }
 }
 
 fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {

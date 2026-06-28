@@ -2,6 +2,7 @@ package paige.navic.ui.screens.collection
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CollectionAurralAlbumPageSourceTest {
@@ -46,6 +47,22 @@ class CollectionAurralAlbumPageSourceTest {
 		assertTrue("aurralArtistAlbums: List<AurralArtistOwnershipAlbumRow>" in row)
 		assertTrue("row.releaseGroup" in row)
 		assertTrue("row.localAlbum" in row)
+	}
+
+	@Test
+	fun moreByArtistLocalMatchesNavigateWithAurralReleaseGroupIdentity() {
+		val row = sourceFile("ui/screens/collection/components/MoreByArtistRow.kt").readText()
+		val block = row.substringAfter("if (aurralArtistAlbums.isNotEmpty())")
+			.substringBefore("} else {")
+
+		assertTrue(
+			"aurralOwnershipAlbumCollectionDetailRoute(" in block,
+			"Resolved Aurral more-by-artist rows should keep release-group metadata when opening a local album."
+		)
+		assertFalse(
+			"Screen.CollectionDetail(it.id, tab)" in block,
+			"Resolved Aurral more-by-artist rows must not route local matches through a plain CollectionDetail."
+		)
 	}
 
 	private fun sourceFile(path: String): File =

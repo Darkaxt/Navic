@@ -475,7 +475,74 @@ git add composeApp/src/commonMain/kotlin/paige/navic/ui/screens/album `
 git commit -m "feat: project album surfaces through Aurral"
 ```
 
-## Focus Plan 5: Final Audit, Sync, And Release
+## Focus Plan 5: Aurral Route Identity Propagation
+
+**Goal:** Every Aurral-aware album surface that already knows a release group must open album detail with that Aurral identity preserved. Plain `Screen.CollectionDetail(album.id, ...)` is allowed only for genuinely local-only fallback surfaces, playlist/station routes, or song-context routes where no Aurral album identity exists.
+
+**Files:**
+
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistDetailScreen.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralArtistScreen.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/collection/components/MoreByArtistRow.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/domain/models/AurralArtistEnrichmentPolicy.kt`
+- Modify only if needed: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralHubRoutes.kt`
+- Test: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/artist/AurralArtistProfileStatePolicyTest.kt`
+- Test: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/collection/CollectionAurralAlbumPageSourceTest.kt`
+- Test: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/aurral/AurralHubDisplayPolicyTest.kt`
+- Test: `composeApp/src/commonTest/kotlin/paige/navic/domain/models/AlbumSortPolicyTest.kt`
+
+- [x] **Step 1: Add source guards for route identity**
+
+Tests should assert that:
+
+- Artist owned/partial album rows do not route through plain `Screen.CollectionDetail(album.id, "artist")` when the row has a release group.
+- Aurral artist album rows route local matches through `aurralAlbumCollectionDetailRoute(...)`.
+- More-by-artist resolved rows route local matches through the same Aurral-backed route helper.
+- Aurral missing album local-match rows preserve release-group metadata when they open local album detail.
+
+- [x] **Step 2: Implement route helper reuse**
+
+Use the existing `aurralAlbumCollectionDetailRoute(AurralAlbumSearchItem, libraryAlbumId, tab)` helper rather than creating another route encoding path. Add narrow conversion helpers only where the source row is not already an `AurralAlbumSearchItem`.
+
+- [x] **Step 3: Keep navigation work cheap**
+
+Route construction must be pure string/object projection. Do not add Aurral network calls, per-row Flow collectors, or broad cache joins to composables.
+
+- [x] **Step 4: Validate**
+
+Evidence from this pass:
+
+- RED route guards failed first: 4 focused route-identity tests failed on the old direct plain route paths.
+- GREEN route guards and row policy passed:
+  `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.artist.AurralArtistProfileStatePolicyTest.artistDetailOwnedAlbumRowsNavigateWithAurralReleaseGroupIdentity" --tests "paige.navic.ui.screens.collection.CollectionAurralAlbumPageSourceTest.moreByArtistLocalMatchesNavigateWithAurralReleaseGroupIdentity" --tests "paige.navic.ui.screens.aurral.AurralHubDisplayPolicyTest.missingAlbumScreenLocalMatchesNavigateWithAurralReleaseGroupIdentity" --tests "paige.navic.ui.screens.aurral.AurralHubDisplayPolicyTest.aurralArtistScreenLocalMatchesNavigateWithAurralReleaseGroupIdentity" --tests "paige.navic.ui.screens.aurral.AurralHubDisplayPolicyTest.aurralArtistLocalAlbumRoutesPreserveMatchedReleaseGroup" --tests "paige.navic.domain.models.AlbumSortPolicyTest.localAurralArtistAlbumRowsPreserveMatchedReleaseGroup"`
+  passed.
+- Focused Plan 5 suite passed:
+  `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.artist.AurralArtistProfileStatePolicyTest" --tests "paige.navic.ui.screens.collection.CollectionAurralAlbumPageSourceTest" --tests "paige.navic.ui.screens.aurral.AurralHubDisplayPolicyTest" --tests "paige.navic.domain.models.AlbumSortPolicyTest"`
+  passed.
+- Full host audit remains at the known baseline: 1848 tests completed, 36 failed, all in reader reference/parity tests and `AndroidMediaPlayerViewModelSourceTest`.
+
+```powershell
+.\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.artist.AurralArtistProfileStatePolicyTest" --tests "paige.navic.ui.screens.collection.CollectionAurralAlbumPageSourceTest" --tests "paige.navic.ui.screens.aurral.AurralHubDisplayPolicyTest"
+.\gradlew.bat :composeApp:testAndroidHostTest
+```
+
+- [x] **Step 5: Commit Plan 5**
+
+```powershell
+git add composeApp/src/commonMain/kotlin/paige/navic/ui/screens/artist/ArtistDetailScreen.kt `
+	composeApp/src/commonMain/kotlin/paige/navic/ui/screens/aurral `
+	composeApp/src/commonMain/kotlin/paige/navic/ui/screens/collection/components/MoreByArtistRow.kt `
+	composeApp/src/commonMain/kotlin/paige/navic/domain/models/AurralArtistEnrichmentPolicy.kt `
+	composeApp/src/commonTest/kotlin/paige/navic/domain/models/AlbumSortPolicyTest.kt `
+	composeApp/src/commonTest/kotlin/paige/navic/ui/screens/artist/AurralArtistProfileStatePolicyTest.kt `
+	composeApp/src/commonTest/kotlin/paige/navic/ui/screens/collection/CollectionAurralAlbumPageSourceTest.kt `
+	composeApp/src/commonTest/kotlin/paige/navic/ui/screens/aurral/AurralHubDisplayPolicyTest.kt `
+	docs/superpowers/plans/2026-06-28-aurral-first-catalog-ownership-implementation-plan.md
+git commit -m "fix: preserve Aurral identity across album routes"
+```
+
+## Focus Plan 6: Final Audit, Sync, And Release
 
 **Goal:** Prove the full spec is satisfied, sync to GitHub master, and publish a public release.
 

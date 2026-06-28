@@ -28,6 +28,7 @@ import paige.navic.ui.components.layouts.ArtCarousel
 import paige.navic.ui.components.layouts.ArtCarouselItem
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.screens.album.albumDownloadOwnershipStatus
+import paige.navic.ui.screens.aurral.aurralOwnershipAlbumCollectionDetailRoute
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 
@@ -78,7 +79,16 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 					ownershipStatus = row.ownershipStatus,
 					onSelect = { localAlbum?.let(onSelect) },
 					onClick = dropUnlessResumed {
-						localAlbum?.let { backStack.add(Screen.CollectionDetail(it.id, tab)) }
+						localAlbum?.let { album ->
+							backStack.add(
+								aurralOwnershipAlbumCollectionDetailRoute(
+									row = row,
+									tab = tab,
+									fallbackArtistMbid = null,
+									fallbackArtistName = artistName
+								) ?: Screen.CollectionDetail(album.id, tab)
+							)
+						}
 					}
 				)
 				if (selectedAlbum != null && selectedAlbum == localAlbum) {

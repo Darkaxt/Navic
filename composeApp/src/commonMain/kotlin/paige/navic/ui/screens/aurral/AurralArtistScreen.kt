@@ -387,7 +387,16 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 				when (row) {
 					is AurralArtistAlbumRow.Local -> AurralArtistLocalAlbumItem(
 						album = row.album,
-						onClick = { backStack.add(Screen.CollectionDetail(row.album.id, "artist")) }
+						onClick = {
+							backStack.add(
+								aurralArtistLocalAlbumCollectionDetailRoute(
+									row = row,
+									tab = "artist",
+									fallbackArtistMbid = route.artistMbid,
+									fallbackArtistName = state.artist.name
+								) ?: Screen.CollectionDetail(row.album.id, "artist")
+							)
+						}
 					)
 
 					is AurralArtistAlbumRow.Missing -> {
