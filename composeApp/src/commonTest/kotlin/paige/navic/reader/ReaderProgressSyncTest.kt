@@ -188,6 +188,65 @@ class ReaderProgressSyncTest {
 				kind = ReaderPublicationKind.Ebook
 			)
 		)
+		assertEquals(
+			null,
+			progress.toReaderStartLocatorFor(
+				resourceHref = "/opds/books/3693/resources/ebook-2",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
+	fun binderyProgressMatchesCurrentBinderyHrefWhenLegacyResourceHrefIsAbsent() {
+		val progress = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			href = "https://bindery.local/opds/books/3693/resources/ebook-1?download=1#ignored",
+			cfi = "epubcfi(/6/8!/4/1:0)",
+			progressFraction = 0.34
+		)
+
+		assertEquals(
+			ReaderLocator(cfi = "epubcfi(/6/8!/4/1:0)", progress = 0.34),
+			progress.toReaderStartLocatorFor(
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+		assertEquals(
+			null,
+			progress.toReaderStartLocatorFor(
+				resourceHref = "/opds/books/3693/resources/ebook-2",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+	}
+
+	@Test
+	fun binderyProgressMatchesCurrentBinderyResourceKeyWhenHrefIsAbsent() {
+		val progress = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceKey = "ebook-1",
+			cfi = "epubcfi(/6/8!/4/1:0)",
+			progressFraction = 0.34
+		)
+
+		assertEquals(
+			ReaderLocator(cfi = "epubcfi(/6/8!/4/1:0)", progress = 0.34),
+			progress.toReaderStartLocatorFor(
+				resourceHref = "/opds/books/3693/resources/ebook-1",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
+		assertEquals(
+			null,
+			progress.toReaderStartLocatorFor(
+				resourceHref = "/opds/books/3693/resources/ebook-2",
+				kind = ReaderPublicationKind.Ebook
+			)
+		)
 	}
 
 	@Test
@@ -223,6 +282,8 @@ class ReaderProgressSyncTest {
 				bookId = "3693",
 				alias = "darko",
 				kind = BinderyReadingProgressKind.Ebook,
+				resourceKey = "ebook-1",
+				href = "/opds/books/3693/resources/ebook-1",
 				resourceHref = "/opds/books/3693/resources/ebook-1",
 				textHref = "EPUB/Text/chapter-04.xhtml",
 				cfi = "epubcfi(/6/10!/4/3:12)",
@@ -249,6 +310,8 @@ class ReaderProgressSyncTest {
 			BinderyReadingProgress(
 				bookId = "3693",
 				kind = BinderyReadingProgressKind.Readaloud,
+				resourceKey = "readaloud-1",
+				href = "/opds/books/3693/resources/readaloud-1",
 				resourceHref = "/opds/books/3693/resources/readaloud-1",
 				textHref = "chapter-01.xhtml",
 				progressFraction = 1.0

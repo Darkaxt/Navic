@@ -32,7 +32,7 @@ fun BinderyReadingProgress.toReaderStartLocatorFor(
 	kind: ReaderPublicationKind
 ): ReaderLocator? {
 	val safeResourceHref = canonicalReaderResourceHref(resourceHref) ?: return null
-	val progressResourceHref = canonicalReaderResourceHref(this.resourceHref)
+	val progressResourceHref = canonicalReaderResourceHref(this.progressResourceHref())
 	val matchesResource = progressResourceHref == null || progressResourceHref == safeResourceHref
 	val matchesKind = this.kind == kind.toBinderyReadingProgressKind()
 	return if (matchesResource && matchesKind) {
@@ -184,6 +184,8 @@ fun ReaderLocator.toBinderyReadingProgress(
 		bookId = safeBookId,
 		alias = alias?.trim()?.takeIf { it.isNotEmpty() },
 		kind = kind.toBinderyReadingProgressKind(),
+		resourceKey = safeResourceHref.toBinderyResourceKey(),
+		href = safeResourceHref,
 		resourceHref = safeResourceHref,
 		textHref = hrefParts.textHref,
 		cfi = safeCfi,
@@ -236,9 +238,33 @@ private data class ReaderReadingProgressKey(
 private val BinderyReadingProgress.readingProgressKey: ReaderReadingProgressKey?
 	get() = ReaderReadingProgressKey.from(
 		bookId = bookId,
-		resourceHref = resourceHref,
+		resourceHref = progressResourceHref(),
 		kind = kind
 	)
+
+private fun BinderyReadingProgress.progressResourceHref(): String? =
+	resourceHref?.trim()?.takeIf { it.isNotEmpty() }
+		?: href?.trim()?.takeIf { it.isNotEmpty() }
+		?: progressResourceKeyHref()
+
+private fun BinderyReadingProgress.progressResourceKeyHref(): String? {
+	val safeResourceKey = resourceKey?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	if (safeResourceKey.startsWith("/") || safeResourceKey.contains("://")) {
+		return safeResourceKey
+	}
+	val safeBookId = bookId.trim().takeIf { it.isNotEmpty() } ?: return safeResourceKey
+	return "/opds/books/$safeBookId/resources/$safeResourceKey"
+}
+
+private fun String.toBinderyResourceKey(): String? {
+	val resourceTail = substringAfter("/resources/", missingDelimiterValue = "")
+		.trim('/')
+		.takeIf { it.isNotEmpty() }
+	if (resourceTail != null) return resourceTail
+	return substringAfterLast("/")
+		.trim()
+		.takeIf { it.isNotEmpty() }
+}
 
 private fun String?.toReaderHref(fragmentId: String?): String? {
 	val safeTextHref = this?.trim()?.takeIf { it.isNotEmpty() }

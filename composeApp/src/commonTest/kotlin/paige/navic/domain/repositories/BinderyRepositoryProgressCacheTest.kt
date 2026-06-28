@@ -3,7 +3,6 @@ package paige.navic.domain.repositories
 import com.russhwolf.settings.MapSettings
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -104,10 +103,7 @@ class BinderyRepositoryProgressCacheTest {
 
 	@Test
 	fun progressJsonDefaultsMissingKindToEbookForOlderBinderyResponses() {
-		val progress = Json {
-			ignoreUnknownKeys = true
-			isLenient = true
-		}.decodeFromString(
+		val progress = BinderyJson.decodeFromString(
 			BinderyReadingProgress.serializer(),
 			"""
 			{
@@ -123,6 +119,38 @@ class BinderyRepositoryProgressCacheTest {
 		assertEquals(BinderyReadingProgressKind.Ebook, progress.kind)
 		assertEquals("/opds/books/3816/resources/ebook-46bbc0be8508921f8174", progress.resourceHref)
 		assertEquals(0.02, progress.progressFraction)
+	}
+
+	@Test
+	fun progressJsonDecodesCurrentBinderyProgressSchema() {
+		val progress = BinderyJson.decodeFromString(
+			BinderyReadingProgress.serializer(),
+			"""
+			{
+				"bookId": 3816,
+				"alias": "navic-user-42",
+				"resourceKey": "audio-c310a962a70802eb2e65",
+				"href": "/opds/books/3816/resources/audio-c310a962a70802eb2e65",
+				"position": 123.5,
+				"duration": 456.75,
+				"positionMs": 123500,
+				"durationMs": 456750,
+				"completed": false,
+				"updatedAt": "2026-06-27T10:00:00Z"
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("3816", progress.bookId)
+		assertEquals("navic-user-42", progress.alias)
+		assertEquals("audio-c310a962a70802eb2e65", progress.resourceKey)
+		assertEquals("/opds/books/3816/resources/audio-c310a962a70802eb2e65", progress.href)
+		assertEquals(123.5, progress.position)
+		assertEquals(456.75, progress.duration)
+		assertEquals(123500L, progress.positionMs)
+		assertEquals(456750L, progress.durationMs)
+		assertEquals(false, progress.completed)
+		assertEquals("2026-06-27T10:00:00Z", progress.updatedAt)
 	}
 
 	@Test

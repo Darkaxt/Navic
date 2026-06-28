@@ -192,7 +192,7 @@ fun binderyContinueReadingItems(
 		.filter { progress -> (progress.progressFraction ?: 0.0) > 0.0 }
 		.mapIndexedNotNull { index, progress ->
 			val bookId = progress.bookId.trim().takeIf { it.isNotEmpty() } ?: return@mapIndexedNotNull null
-			val resourceHref = canonicalReaderResourceHref(progress.resourceHref) ?: return@mapIndexedNotNull null
+			val resourceHref = progress.readerResourceHref() ?: return@mapIndexedNotNull null
 			val manifest = manifestsByBookId[bookId] ?: return@mapIndexedNotNull null
 			val rows = binderyBookVersionRows(
 				manifest = manifest,
@@ -297,7 +297,7 @@ fun binderyWhispersyncCompanionProgressForReader(
 	audioSeekTarget: WhispersyncAudioSeekTarget? = null
 ): BinderyWhispersyncCompanionProgress? {
 	if (progress.kind != BinderyReadingProgressKind.Ebook) return null
-	val progressResourceHref = canonicalReaderResourceHref(progress.resourceHref) ?: return null
+	val progressResourceHref = progress.readerResourceHref() ?: return null
 	val readerResourceHref = canonicalReaderResourceHref(reader.resourceHref) ?: return null
 	if (progress.bookId.trim() != reader.bookId.trim() || progressResourceHref != readerResourceHref) return null
 	val fraction = progress.progressFraction
@@ -327,6 +327,20 @@ fun binderyWhispersyncCompanionProgressForReader(
 			?.takeIf { it >= 0 },
 		updatedAtMs = updatedAtMs.coerceAtLeast(0L)
 	)
+}
+
+private fun BinderyReadingProgress.readerResourceHref(): String? =
+	canonicalReaderResourceHref(resourceHref)
+		?: canonicalReaderResourceHref(href)
+		?: canonicalReaderResourceHref(resourceKeyHref())
+
+private fun BinderyReadingProgress.resourceKeyHref(): String? {
+	val safeResourceKey = resourceKey?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	if (safeResourceKey.startsWith("/") || safeResourceKey.contains("://")) {
+		return safeResourceKey
+	}
+	val safeBookId = bookId.trim().takeIf { it.isNotEmpty() } ?: return safeResourceKey
+	return "/opds/books/$safeBookId/resources/$safeResourceKey"
 }
 
 private fun decodeBinderyWhispersyncCompanionProgressStore(

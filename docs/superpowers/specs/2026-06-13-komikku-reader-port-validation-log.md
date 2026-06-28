@@ -7473,3 +7473,27 @@ Results:
 - GREEN/JS: `node --check` passed for `navic-reader.js` and `navic-reader-page-turns.js`.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - Remaining: this does not prove physical-device progress rail endpoint behavior; the clean release/device rail validation item remains open.
+
+
+## 2026-06-28 Bindery Progress API Refresh
+
+Scope:
+- Adapt Navic reading-progress decode, resume, save, Continue Reading, and Whispersync companion progress paths to the 2026-06-27 Bindery OPDS progress schema in `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\github-export\bindery\docs\navic-opds-api-schema.md`.
+- Preserve compatibility with legacy local `resourceHref` while accepting current `href`, `resourceKey`, seconds/milliseconds position fields, `completed`, and numeric `bookId`.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.domain.repositories.BinderyRepositoryProgressCacheTest --tests paige.navic.reader.ReaderProgressSyncTest --tests paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest --console=plain
+```
+
+Results:
+- RED/API-MODEL: `progressJsonDecodesCurrentBinderyProgressSchema` first failed because `BinderyReadingProgress` did not expose `resourceKey`, `href`, `position`, `duration`, or `completed`.
+- GREEN/API-MODEL: `BinderyReadingProgress` now decodes numeric `bookId`, `alias`, `resourceKey`, `href`, seconds and millisecond positions, `completed`, and `updatedAt` using the shared Bindery JSON configuration.
+- RED/RESUME: `binderyProgressMatchesCurrentBinderyResourceKeyWhenHrefIsAbsent` first proved that a progress entry with only `resourceKey` could incorrectly match the wrong reader resource.
+- GREEN/RESUME: progress resume identity now prefers legacy `resourceHref`, then current `href`, then `/opds/books/{bookId}/resources/{resourceKey}`.
+- RED/SHELF: Continue Reading and Whispersync companion progress ignored current progress entries that used `href` without legacy `resourceHref`.
+- GREEN/SHELF: shelf and companion progress now resolve current `href` payloads.
+- GREEN/SAVE: reader saves now include current `resourceKey` and `href` while still preserving legacy `resourceHref`.
+- GREEN/HOST-FOCUSED: `BinderyRepositoryProgressCacheTest`, `ReaderProgressSyncTest`, and `BinderyContinueShelfPolicyTest` passed together.
+- Remaining: this validates host/source compatibility with the updated progress schema, not release-device proof of live progress sync.

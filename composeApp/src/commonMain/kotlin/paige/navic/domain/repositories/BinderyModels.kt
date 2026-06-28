@@ -39,13 +39,18 @@ data class BinderyReadingProgress(
 	val bookId: String,
 	val alias: String? = null,
 	val kind: BinderyReadingProgressKind = BinderyReadingProgressKind.Ebook,
+	val resourceKey: String? = null,
+	val href: String? = null,
 	val resourceHref: String? = null,
 	val textHref: String? = null,
 	val cfi: String? = null,
 	val fragmentId: String? = null,
+	val position: Double? = null,
+	val duration: Double? = null,
 	val positionMs: Long? = null,
 	val durationMs: Long? = null,
 	val progressFraction: Double? = null,
+	val completed: Boolean? = null,
 	val updatedAt: String? = null
 )
 

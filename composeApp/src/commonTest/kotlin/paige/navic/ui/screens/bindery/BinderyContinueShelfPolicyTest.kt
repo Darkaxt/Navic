@@ -194,6 +194,44 @@ class BinderyContinueShelfPolicyTest {
 	}
 
 	@Test
+	fun readerProgressCreatesWhispersyncCompanionProgressFromCurrentBinderyHref() {
+		val reader = Screen.Reader(
+			title = "The Hobbit",
+			publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-435",
+			bookId = "3816",
+			resourceHref = "/opds/books/3816/resources/ebook-435",
+			kind = ReaderPublicationKind.Ebook,
+			whispersyncArtifactId = "3",
+			whispersyncAudiobookId = "69",
+			whispersyncAudiobookBookFileId = "694",
+			whispersyncAudiobookTitle = "Andy Serkis"
+		)
+		val progress = BinderyReadingProgress(
+			bookId = "3816",
+			kind = BinderyReadingProgressKind.Ebook,
+			href = "/opds/books/3816/resources/ebook-435",
+			progressFraction = 0.62
+		)
+
+		assertEquals(
+			BinderyWhispersyncCompanionProgress(
+				bookId = "3816",
+				ebookResourceHref = "/opds/books/3816/resources/ebook-435",
+				audiobookId = "69",
+				audiobookBookFileId = "694",
+				artifactId = "3",
+				progressFraction = 0.62,
+				updatedAtMs = 500L
+			),
+			binderyWhispersyncCompanionProgressForReader(
+				reader = reader,
+				progress = progress,
+				updatedAtMs = 500L
+			)
+		)
+	}
+
+	@Test
 	fun readerProgressCreatesWhispersyncCompanionProgressWithExactAudioTarget() {
 		val reader = Screen.Reader(
 			title = "The Hobbit",
@@ -350,6 +388,36 @@ class BinderyContinueShelfPolicyTest {
 			),
 			items.single().ebookDestination
 		)
+	}
+
+	@Test
+	fun continueReadingItemsUseCurrentBinderyProgressHref() {
+		val items = binderyContinueReadingItems(
+			progresses = listOf(
+				BinderyReadingProgress(
+					bookId = "3816",
+					kind = BinderyReadingProgressKind.Ebook,
+					href = "/opds/books/3816/resources/ebook-435",
+					progressFraction = 0.62
+				)
+			),
+			manifestsByBookId = mapOf(
+				"3816" to BinderyManifest(
+					id = "urn:bindery:book:3816",
+					title = "The Hobbit",
+					images = listOf(BinderyLink(href = "/opds/books/3816/cover"))
+				)
+			),
+			resourcesByBookId = mapOf("3816" to hobbitResources()),
+			audiobookVersionsByBookId = mapOf("3816" to listOf(andySerkis())),
+			syncByBookId = mapOf("3816" to hobbitSync()),
+			languageFilter = "eng",
+			opdsBaseUrl = "https://bindery.local/opds"
+		)
+
+		assertEquals(1, items.size)
+		assertEquals("continue-reading:3816:/opds/books/3816/resources/ebook-435", items.single().key)
+		assertEquals("Houghton Mifflin Harcourt / 62%", items.single().subtitle)
 	}
 
 	@Test
