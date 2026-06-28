@@ -197,4 +197,42 @@ class BinderyBookSyncJsonTest {
 
 		assertEquals(true, pair.hasReadyWhispersyncArtifact())
 	}
+
+	@Test
+	fun decodesWhispersyncLastJobStateAndFractionalProgressFromNavicApiSchema() {
+		val sync = decodeBinderyBookSyncJson(
+			"""
+			{
+			  "bookId": 3816,
+			  "whispersyncStatus": "pending",
+			  "syncPairs": [
+			    {
+			      "bookId": 3816,
+			      "ebookBookFileId": 435,
+			      "audiobookBookFileId": 694,
+			      "whispersync": {
+			        "status": "pending",
+			        "artifactHref": "",
+			        "lastJob": {
+			          "id": 21,
+			          "state": "active",
+			          "status": "running",
+			          "phase": "transcribing",
+			          "progressPercent": 23.5,
+			          "message": "Transcribed chunk 13 of 76 for Whispersync",
+			          "updatedAt": "2026-06-27T10:05:00Z"
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val lastJob = sync.syncPairs.single().whispersync?.lastJob
+		assertEquals("active", lastJob?.state)
+		assertEquals("running", lastJob?.status)
+		assertEquals(23.5, lastJob?.progressPercent)
+		assertEquals("2026-06-27T10:05:00Z", lastJob?.updatedAt)
+	}
 }

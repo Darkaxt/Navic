@@ -27,6 +27,10 @@ data class WhispersyncSidecar(
 	val artifactId: String? = null,
 	val ebookBookFileId: String? = null,
 	val audiobookBookFileId: String? = null,
+	val score: Double? = null,
+	val coverage: Double? = null,
+	val audioCoverage: Double? = null,
+	val ebookCoverage: Double? = null,
 	val ebookManifestHref: String? = null,
 	val audiobookManifestHref: String? = null,
 	val documentTextLength: Int? = null,
@@ -162,6 +166,10 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 		audiobookBookFileId = root.stringValue("audiobookBookFileId")
 			?: audiobook?.stringValue("bookFileId")
 			?: audiobook?.stringValue("id"),
+		score = root.doubleValue("score"),
+		coverage = root.doubleValue("coverage"),
+		audioCoverage = root.doubleValue("audioCoverage"),
+		ebookCoverage = root.doubleValue("ebookCoverage"),
 		ebookManifestHref = resources?.stringValue("ebookManifestHref"),
 		audiobookManifestHref = resources?.stringValue("audiobookManifestHref"),
 		documentTextLength = root.intValue("documentTextLength")
@@ -328,6 +336,10 @@ private fun JsonObject.stringValue(key: String): String? =
 private fun JsonObject.intValue(key: String): Int? =
 	(valueFor(key) as? JsonPrimitive)
 		?.intOrNull
+
+private fun JsonObject.doubleValue(key: String): Double? =
+	(valueFor(key) as? JsonPrimitive)
+		?.doubleOrNull
 
 private fun JsonObject.millisecondValue(key: String): Long? =
 	(valueFor(key) as? JsonPrimitive)

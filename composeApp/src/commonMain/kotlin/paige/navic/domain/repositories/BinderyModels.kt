@@ -165,10 +165,12 @@ data class BinderyWhispersyncArtifact(
 @Serializable
 data class BinderyWhispersyncJob(
 	val id: Long? = null,
+	val state: String? = null,
 	val status: String? = null,
 	val phase: String? = null,
-	val progressPercent: Int? = null,
-	val message: String? = null
+	val progressPercent: Double? = null,
+	val message: String? = null,
+	val updatedAt: String? = null
 )
 
 fun BinderySyncPair.hasReadyWhispersyncArtifact(): Boolean {

@@ -20,6 +20,9 @@ class WhispersyncTimelineParserTest {
 			  "audiobookBookFileId": 633,
 			  "language": "en",
 			  "score": 0.995,
+			  "coverage": 0.984,
+			  "audioCoverage": 0.973,
+			  "ebookCoverage": 0.962,
 			  "resources": {
 			    "ebookManifestHref": "/opds/books/3809/manifest",
 			    "audiobookManifestHref": "/opds/audiobooks/44"
@@ -49,6 +52,10 @@ class WhispersyncTimelineParserTest {
 
 		assertEquals("426", sidecar.ebookBookFileId)
 		assertEquals("633", sidecar.audiobookBookFileId)
+		assertEquals(0.995, sidecar.score)
+		assertEquals(0.984, sidecar.coverage)
+		assertEquals(0.973, sidecar.audioCoverage)
+		assertEquals(0.962, sidecar.ebookCoverage)
 		assertEquals("/opds/books/3809/manifest", sidecar.ebookManifestHref)
 		assertEquals("/opds/audiobooks/44", sidecar.audiobookManifestHref)
 		val segment = sidecar.timeline.segments.single()
