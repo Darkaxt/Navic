@@ -160,7 +160,9 @@ class FoliateEpubEngineAdapterTest {
 		assertEquals(
 			ReaderBridgeCommand.GoToChapterProgress(
 				href = "chapter-01.xhtml",
-				progress = 0.375
+				progress = 0.375,
+				chapterPageIndex = 3,
+				chapterPageCount = 9
 			),
 			viewState.bridgeCommand()
 		)

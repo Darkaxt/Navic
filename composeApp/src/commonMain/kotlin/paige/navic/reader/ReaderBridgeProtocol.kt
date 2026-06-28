@@ -222,7 +222,9 @@ sealed interface ReaderBridgeCommand {
 
 	data class GoToChapterProgress(
 		val href: String,
-		val progress: Double
+		val progress: Double,
+		val chapterPageIndex: Int? = null,
+		val chapterPageCount: Int? = null
 	) : ReaderBridgeCommand {
 		override val type: String = "goToChapterProgress"
 
@@ -231,10 +233,18 @@ sealed interface ReaderBridgeCommand {
 				put("type", type)
 				put("href", href)
 				put("progress", normalizedProgress)
+				normalizedChapterPageIndex?.let { put("chapterPageIndex", it) }
+				normalizedChapterPageCount?.let { put("chapterPageCount", it) }
 			}
 
 		private val normalizedProgress: Double
 			get() = progress.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
+
+		private val normalizedChapterPageIndex: Int?
+			get() = chapterPageIndex?.takeIf { it >= 0 }
+
+		private val normalizedChapterPageCount: Int?
+			get() = chapterPageCount?.takeIf { it > 0 }
 	}
 
 	data object NextPage : ReaderBridgeCommand {

@@ -7423,3 +7423,53 @@ Results:
 - GREEN/HOST-FOCUSED: the focused boundary test passed.
 - GREEN/HOST-RELATED: `WhispersyncTimelineParserTest`, `ReaderWhispersyncSyncCoordinatorTest`, and `ReaderWhispersyncPlaybackPolicyTest` passed.
 - Remaining: no emulator/device run was needed because this slice is pure timeline/model behavior; runtime playback UI validation remains separate.
+
+
+## 2026-06-28 Bindery Whispersync API Refresh
+
+Scope:
+- Adapt Navic's Bindery/Whispersync parsing to the updated 2026-06-27 API documentation.
+- Preserve exact-pair Whispersync launch behavior while accepting the newer sidecar/job metadata shape.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.domain.repositories.BinderyBookSyncJsonTest --tests paige.navic.domain.repositories.BinderyRepositoryCatalogJsonTest --tests paige.navic.domain.repositories.BinderyBookVersionPolicyTest --tests paige.navic.reader.ReaderWhispersyncLaunchPolicyTest --console=plain
+git diff --check
+```
+
+Results:
+- GREEN/API-MODEL: `WhispersyncSidecar` accepts top-level `score`, `coverage`, `audioCoverage`, and `ebookCoverage`.
+- GREEN/JOB-MODEL: `BinderyWhispersyncJob` accepts the updated `state`, fractional `progressPercent`, and `updatedAt` fields.
+- GREEN/HOST-FOCUSED: `WhispersyncTimelineParserTest`, `BinderyBookSyncJsonTest`, `BinderyRepositoryCatalogJsonTest`, `BinderyBookVersionPolicyTest`, and `ReaderWhispersyncLaunchPolicyTest` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- Committed and pushed as `6f3812fc fix: preserve updated bindery whispersync schema`.
+- Remaining: this validates parser/launch-policy compatibility with the updated API contract, not end-to-end audiobook playback on device.
+
+
+## 2026-06-28 Chapter Rail Exact Target Bridge
+
+Scope:
+- Fix a host-proven lossy bridge contract where native Komikku chapter rail seeks computed an exact `chapterPageIndex`/`chapterPageCount`, but the Foliate bridge discarded those fields and sent only a fraction to the WebView.
+- Keep this as host evidence only: it closes the bridge payload gap, not the full physical-device rail endpoint bug.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderChapterRailSeekPreservesNativeTargetPageThroughBridge --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.FoliateEpubEngineAdapterTest --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `androidReaderChapterRailSeekPreservesNativeTargetPageThroughBridge` first failed because `navic-reader.js` dispatched `goToChapterProgress(command.href, command.progress)` and `navic-reader-page-turns.js` accepted only `(href, progress)`.
+- GREEN/BRIDGE: `ReaderBridgeCommand.GoToChapterProgress` now serializes `chapterPageIndex` and `chapterPageCount` when the native shell has them.
+- GREEN/ADAPTER: `FoliateEpubEngineAdapter` now preserves `ReaderLocator.chapterPageIndex/chapterPageCount` when translating native rail navigation to a Foliate bridge command.
+- GREEN/RUNTIME: `navic-reader.js` and `navic-reader-page-turns.js` now carry those exact target fields through the WebView boundary and derive the chapter-local target fraction from the page index/count when present.
+- GREEN/HOST-FOCUSED: the new bridge preservation guard passed after implementation.
+- GREEN/HOST-RELATED: `ReaderRuntimeShellProgressTest`, `ReaderBridgeProtocolTest`, and `FoliateEpubEngineAdapterTest` passed.
+- GREEN/JS: `node --check` passed for `navic-reader.js` and `navic-reader-page-turns.js`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- Remaining: this does not prove physical-device progress rail endpoint behavior; the clean release/device rail validation item remains open.

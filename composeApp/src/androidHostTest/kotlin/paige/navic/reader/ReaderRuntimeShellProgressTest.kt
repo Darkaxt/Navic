@@ -87,7 +87,10 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "this.view?.goToFraction")
 		assertContains(bridgeText, "progress-seek")
 		assertContains(bridgeText, "case 'goToChapterProgress'")
-		assertContains(bridgeText, "async function goToChapterProgress(href, progress)")
+		assertContains(
+			bridgeText,
+			"async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null)"
+		)
 		assertContains(bridgeText, "chapter-progress-seek")
 		assertContains(bridgeText, "this.view.renderer.goTo({ index, anchor: targetAnchor })")
 		assertFalse(
@@ -136,7 +139,8 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderChapterRailSeekCommitsWithControlledReasonInsteadOfPassiveClamp() {
 		val bridgeText = readerBridgeText()
-		val chapterProgressSeek = bridgeText.substringAfter("async function goToChapterProgress(href, progress) {")
+		val chapterProgressSeek = bridgeText
+			.substringAfter("async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null) {")
 			.substringBefore("\nfunction nextPage()")
 		val onRelocate = bridgeText.substringAfter("onRelocate(detail) {")
 			.substringBefore("\n  cancelPendingCommittedRelocation")
@@ -169,6 +173,34 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(scheduleCommittedRelocation, "this.pendingRelocateReason = preserveExplicitReason ? previousReason : reason")
 		assertContains(scheduleCommittedRelocation, "readerRelocationReasonIsExplicit(previousReason)")
 		assertContains(scheduleCommittedRelocation, "!readerRelocationReasonIsExplicit(reason)")
+	}
+
+	@Test
+	fun androidReaderChapterRailSeekPreservesNativeTargetPageThroughBridge() {
+		val bridgeText = readerBridgeText()
+		val entrypointDispatch = readerAssetRoot().resolve("navic-reader.js").readText()
+			.substringAfter("case 'goToChapterProgress':")
+			.substringBefore("case 'nextPage':")
+		val chapterProgressSeek = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+			.substringAfter("async function goToChapterProgress(")
+			.substringBefore("\nfunction nextPage()")
+
+		assertContains(
+			entrypointDispatch,
+			"command.chapterPageIndex",
+			message = "Komikku rail seeks must keep the native chapter page target when crossing the bridge."
+		)
+		assertContains(
+			entrypointDispatch,
+			"command.chapterPageCount",
+			message = "Komikku rail seeks must keep the native chapter page count when crossing the bridge."
+		)
+		assertContains(
+			chapterProgressSeek,
+			"targetPageIndex",
+			message = "Runtime chapter seeks must use the exact native rail target, not only a lossy progress fraction."
+		)
+		assertContains(chapterProgressSeek, "targetPageCount")
 	}
 
 	@Test
@@ -893,7 +925,7 @@ class ReaderRuntimeShellProgressTest {
 		val bridgeText = readerBridgeText()
 		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val chapterProgressSeek = pageTurnsText
-			.substringAfter("async function goToChapterProgress(href, progress) {")
+			.substringAfter("async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null) {")
 			.substringBefore("\nfunction nextPage()")
 		val boundaryBody = pageTurnsText
 			.substringAfter("function nativeDragPreviewAtSectionBoundary(renderer, direction) {")
@@ -906,7 +938,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "const rawTextPageCount = this.reflowablePaginatedRawTextPageCount(pages)")
 		assertContains(bridgeText, "const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)")
 		assertContains(bridgeText, "return (visualTextPageCount - 1) / (rawTextPageCount - 1)")
-		assertContains(chapterProgressSeek, "const targetAnchor = this.reflowableChapterProgressAnchor(fraction)")
+		assertContains(chapterProgressSeek, "const targetAnchor = this.reflowableChapterProgressAnchor(targetFraction)")
 		assertContains(chapterProgressSeek, "anchor: targetAnchor")
 		assertFalse(
 			chapterProgressSeek.contains("anchor: fraction"),

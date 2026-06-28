@@ -227,7 +227,9 @@ sealed class FoliateWebViewEngineAdapter(
 			!locator.href.isNullOrBlank() && locator.chapterProgress != null ->
 				ReaderBridgeCommand.GoToChapterProgress(
 					href = locator.href,
-					progress = locator.chapterProgress
+					progress = locator.chapterProgress,
+					chapterPageIndex = locator.chapterPageIndex,
+					chapterPageCount = locator.chapterPageCount
 				)
 			!locator.href.isNullOrBlank() -> ReaderBridgeCommand.GoToHref(locator.href)
 			locator.progress != null -> ReaderBridgeCommand.GoToProgress(locator.progress)

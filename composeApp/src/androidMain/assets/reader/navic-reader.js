@@ -331,7 +331,12 @@ class NavicReaderRuntime {
       case 'diagnosticScrolledEdgePullUp':
         return this.diagnosticScrolledEdgePullUp()
       case 'goToChapterProgress':
-        return this.goToChapterProgress(command.href, command.progress)
+        return this.goToChapterProgress(
+          command.href,
+          command.progress,
+          command.chapterPageIndex,
+          command.chapterPageCount
+        )
       case 'nextPage':
         readerTrace('dispatch:nextPage', {
           hasPromise: Boolean(this.pageTurnPromise),

@@ -281,6 +281,23 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun chapterProgressSeekCommandDispatchesExactNativeRailTarget() {
+		val script = ReaderBridgeCommand.GoToChapterProgress(
+			href = "chapter-01.xhtml",
+			progress = 0.375,
+			chapterPageIndex = 3,
+			chapterPageCount = 9
+		).toJavaScript()
+
+		assertContains(script, "window.NavicReaderBridge.dispatch")
+		assertContains(script, "\"type\":\"goToChapterProgress\"")
+		assertContains(script, "\"href\":\"chapter-01.xhtml\"")
+		assertContains(script, "\"progress\":0.375")
+		assertContains(script, "\"chapterPageIndex\":3")
+		assertContains(script, "\"chapterPageCount\":9")
+	}
+
+	@Test
 	fun applyHighlightsCommandDispatchesPersistedAnnotationBatch() {
 		val script = ReaderBridgeCommand.ApplyHighlights(
 			listOf(

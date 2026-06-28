@@ -234,7 +234,7 @@ async function goToProgress(progress) {
   }
 }
 
-async function goToChapterProgress(href, progress) {
+async function goToChapterProgress(href, progress, chapterPageIndex = null, chapterPageCount = null) {
   if (!this.view) return
   const targetHref = String(href || '').trim()
   if (!targetHref) return
@@ -242,18 +242,33 @@ async function goToChapterProgress(href, progress) {
   const fraction = Number.isFinite(numericProgress)
     ? Math.min(1, Math.max(0, numericProgress))
     : 0
+  const targetPageIndex = Number(chapterPageIndex)
+  const targetPageCount = Number(chapterPageCount)
+  const hasExactTargetPage =
+    Number.isFinite(targetPageIndex) &&
+    Number.isFinite(targetPageCount) &&
+    targetPageIndex >= 0 &&
+    targetPageCount > 1
+  const targetFraction = hasExactTargetPage
+    ? Math.min(1, Math.max(0, targetPageIndex / (targetPageCount - 1)))
+    : fraction
   try {
-    log('chapter-progress-seek:start', targetHref, fraction)
+    log('chapter-progress-seek:start', targetHref, fraction, targetPageIndex, targetPageCount)
     const resolved = await Promise.resolve(
       this.view.resolveNavigation?.(targetHref) ||
       this.view.book?.resolveHref?.(targetHref)
     )
     const index = Number(resolved?.index)
-    const targetAnchor = this.reflowableChapterProgressAnchor(fraction)
+    const targetAnchor = this.reflowableChapterProgressAnchor(targetFraction)
     if (Number.isFinite(index) && this.view.renderer?.goTo) {
       this.beginControlledRelocation('chapter-progress-seek')
       await this.view.renderer.goTo({ index, anchor: targetAnchor })
-      this.view.history?.pushState?.({ href: targetHref, chapterFraction: fraction })
+      this.view.history?.pushState?.({
+        href: targetHref,
+        chapterFraction: targetFraction,
+        chapterPageIndex: hasExactTargetPage ? targetPageIndex : undefined,
+        chapterPageCount: hasExactTargetPage ? targetPageCount : undefined,
+      })
     } else {
       this.beginControlledRelocation('chapter-progress-seek')
       await this.view.goTo(targetHref)
@@ -262,7 +277,7 @@ async function goToChapterProgress(href, progress) {
     this.applyReaderViewportLayout('chapter-progress-seek')
     requestAnimationFrame(() => {
       this.logContentLayout('chapter-progress-seek')
-      log('chapter-progress-seek:done', targetHref, fraction)
+      log('chapter-progress-seek:done', targetHref, targetFraction)
     })
   } catch (error) {
     reportError(error, 'navigation_failed')
