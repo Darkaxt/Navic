@@ -321,6 +321,7 @@ private fun BinderyAudiobookMetadataGrid(detail: BinderyAudiobookVersion) {
 		detail.durationMs?.takeIf { it > 0L }?.let { "Length" to audiobookVersionDurationLabel(it) },
 		detail.audibleAsin?.trim()?.takeIf { it.isNotEmpty() }?.let { "Audible ASIN" to it },
 		detail.publisher?.trim()?.takeIf { it.isNotEmpty() }?.let { "Publisher" to it },
+		detail.studio?.trim()?.takeIf { it.isNotEmpty() }?.let { "Studio" to it },
 		detail.copyright?.trim()?.takeIf { it.isNotEmpty() }?.let { "Copyright" to it }
 	)
 	if (rows.isEmpty()) return

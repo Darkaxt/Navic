@@ -85,8 +85,9 @@ Authority: `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\github-expor
 - Book/audiobook OPDS publication properties may embed `whispersyncStatus`, `syncPairCounts`, and `syncPairs`; Navic now decodes those into `BinderyPublication.sync` / `BinderyManifest.sync` instead of leaving them as generic property-bag data.
 - The `/opds/books/{bookId}/sync` endpoint remains the preferred pair authority when it succeeds. If that request fails, `BinderyBookViewModel` falls back to the manifest's embedded sync pairs rather than discarding actionable pair data.
 - Direct JSON audiobook detail responses now decode `whispersyncAvailable`, `whispersyncReadyCount`, `whispersyncStatus`, and `whispersync[]` for future audiobook-side UI decisions.
+- Direct JSON audiobook detail responses also decode `studio` plus rich provider provenance (`providerKind`, `providerTitle`, `mappingStatus`, `metadataProvider`, `metadataConfidence`, `metadataConfidenceScore`, and `metadataConfidenceReason`). The audiobook detail UI surfaces `studio` alongside publisher metadata; the provenance fields are retained for diagnostics and future source-aware matching.
 - Book catalog/detail/search/hub cover cards now expose a subtle top-left headset badge only when the embedded publication has at least one exact ready pair with `artifactHref`; summary-only `whispersyncStatus` does not show the badge.
-- Regression coverage: `BinderyRepositoryCatalogJsonTest.catalogJsonDecodesEmbeddedWhispersyncPairsFromPublicationProperties`, `BinderyBookVersionPolicyTest.bookVersionRowsUseManifestEmbeddedWhispersyncPairsWhenSyncEndpointIsUnavailable`, and `BinderyBookSyncJsonTest.decodesAudiobookDetailWhispersyncSummaryFields`.
+- Regression coverage: `BinderyRepositoryCatalogJsonTest.catalogJsonDecodesEmbeddedWhispersyncPairsFromPublicationProperties`, `BinderyBookVersionPolicyTest.bookVersionRowsUseManifestEmbeddedWhispersyncPairsWhenSyncEndpointIsUnavailable`, `BinderyBookSyncJsonTest.decodesAudiobookDetailWhispersyncSummaryFields`, and `BinderyBookSyncJsonTest.decodesAudiobookDetailProviderProvenanceFieldsFromNavicApiSchema`.
 
 Important correction to older audits:
 

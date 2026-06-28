@@ -143,4 +143,39 @@ class BinderyBookSyncJsonTest {
 		assertEquals(633, detail.whispersync.single().ebookBookFileId)
 		assertEquals("/opds/books/3809/sync/12", detail.whispersync.single().whispersync?.artifactHref)
 	}
+
+	@Test
+	fun decodesAudiobookDetailProviderProvenanceFieldsFromNavicApiSchema() {
+		val detail = BinderyJson.decodeFromString<BinderyAudiobookVersion>(
+			"""
+			{
+			  "id": 7,
+			  "bookId": 3816,
+			  "bookFileId": 694,
+			  "title": "The Hobbit",
+			  "studio": "Audible Studios",
+			  "provenance": {
+			    "provider": "AudioBook Bay",
+			    "providerKind": "audiobookbay",
+			    "providerTitle": "The Hobbit - J. R. R. Tolkien Audiobook MP3 [Unabridged]",
+			    "providerSourceUrl": "https://audiobookbay.lu/abss/the-hobbit/",
+			    "mappingStatus": "selected",
+			    "metadataProvider": "audible",
+			    "metadataConfidence": "high",
+			    "metadataConfidenceScore": 95,
+			    "metadataConfidenceReason": "title/narrator/duration match"
+			  }
+			}
+			""".trimIndent()
+		)
+
+		assertEquals("Audible Studios", detail.studio)
+		assertEquals("audiobookbay", detail.provenance?.providerKind)
+		assertEquals("The Hobbit - J. R. R. Tolkien Audiobook MP3 [Unabridged]", detail.provenance?.providerTitle)
+		assertEquals("selected", detail.provenance?.mappingStatus)
+		assertEquals("audible", detail.provenance?.metadataProvider)
+		assertEquals("high", detail.provenance?.metadataConfidence)
+		assertEquals(95, detail.provenance?.metadataConfidenceScore)
+		assertEquals("title/narrator/duration match", detail.provenance?.metadataConfidenceReason)
+	}
 }

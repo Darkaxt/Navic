@@ -61,6 +61,7 @@ data class BinderyAudiobookVersion(
 	val language: String? = null,
 	val narrator: String? = null,
 	val publisher: String? = null,
+	val studio: String? = null,
 	val editionType: String? = null,
 	val audibleAsin: String? = null,
 	val audibleSourceUrl: String? = null,
@@ -117,7 +118,15 @@ data class BinderyAudiobookResource(
 data class BinderyAudiobookProvenance(
 	val source: String? = null,
 	val sourceUrl: String? = null,
+	val provider: String? = null,
+	val providerKind: String? = null,
+	val providerTitle: String? = null,
 	val providerSourceUrl: String? = null,
+	val mappingStatus: String? = null,
+	val metadataProvider: String? = null,
+	val metadataConfidence: String? = null,
+	val metadataConfidenceScore: Int? = null,
+	val metadataConfidenceReason: String? = null,
 	val coverHref: String? = null
 )
 
