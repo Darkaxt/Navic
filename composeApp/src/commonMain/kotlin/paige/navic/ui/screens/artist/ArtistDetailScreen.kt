@@ -339,9 +339,18 @@ fun ArtistDetailScreen(
 					is UiState.Success -> {
 						val state = currentArtistState.data
 						val aurralProfileState = checkNotNull(artistProfileState)
-					val ownedOrPartialRows = remember(state.aurralOwnedOrPartialAlbums, state.albums) {
-						state.aurralOwnedOrPartialAlbums.ifEmpty {
-							state.albums.map { album ->
+					val ownedOrPartialRows = remember(
+						state.aurralOwnedOrPartialAlbums,
+						state.aurralMissingReleaseGroups,
+						state.albums,
+						aurralProfileState.enabled
+					) {
+						val hasAurralReleaseGroupRows = state.aurralMissingReleaseGroups.isNotEmpty() ||
+							state.aurralOwnedOrPartialAlbums.any { row -> row.releaseGroup != null }
+						when {
+							state.aurralOwnedOrPartialAlbums.isNotEmpty() -> state.aurralOwnedOrPartialAlbums
+							aurralProfileState.enabled && hasAurralReleaseGroupRows -> emptyList()
+							else -> state.albums.map { album ->
 								AurralArtistOwnershipAlbumRow(
 									releaseGroup = null,
 									localAlbum = album,

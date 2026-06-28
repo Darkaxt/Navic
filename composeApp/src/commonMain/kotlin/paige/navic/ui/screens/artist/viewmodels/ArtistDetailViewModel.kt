@@ -941,15 +941,13 @@ class ArtistDetailViewModel(
 	) {
 		if (albums.none { album -> album.songs.isNotEmpty() } || enrichment.releaseGroups.isEmpty()) return
 		val baselineRows = aurralArtistOwnershipAlbumRows(enrichment, albums)
-		val unmatchedLocalAlbums = baselineRows.ownedOrPartial
-			.mapNotNull { row ->
-				row.localAlbum?.takeIf { album ->
-					row.releaseGroup == null && album.songs.isNotEmpty()
-				}
-			}
-		if (unmatchedLocalAlbums.isEmpty()) return
+		val matchedReleaseGroupKeys = baselineRows.ownedOrPartial
+			.mapNotNull { row -> row.releaseGroup?.id?.normalizedAurralViewModelKey() }
+			.toSet()
 		val candidateReleaseGroups = enrichment.releaseGroups.filter { releaseGroup ->
-			unmatchedLocalAlbums.any { album -> album.isAurralTrackEvidenceCandidateFor(releaseGroup) }
+			val releaseGroupKey = releaseGroup.id.normalizedAurralViewModelKey()
+			releaseGroupKey !in matchedReleaseGroupKeys &&
+				albums.any { album -> album.isAurralTrackEvidenceCandidateFor(releaseGroup) }
 		}
 		if (candidateReleaseGroups.isEmpty()) return
 		val trackEvidenceByReleaseGroup = coroutineScope {

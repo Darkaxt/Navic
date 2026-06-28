@@ -28,6 +28,28 @@ class AurralArtistProfileStatePolicyTest {
 	}
 
 	@Test
+	fun artistDetailViewModelHydratesTrackEvidenceFromLocalAlbumsNotLocalFirstRows() {
+		val source = sourceFile(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		).readText()
+		val body = functionBody(source, "private suspend fun hydrateAurralArtistTrackEvidenceOwnership")
+
+		assertTrue("albums.any { album -> album.isAurralTrackEvidenceCandidateFor(releaseGroup) }" in body)
+		assertFalse("row.releaseGroup == null" in body)
+		assertFalse("unmatchedLocalAlbums" in body)
+	}
+
+	@Test
+	fun artistDetailScreenDoesNotFallbackToLocalOwnedRowsWhenAurralReleaseGroupsExist() {
+		val source = sourceFile("paige/navic/ui/screens/artist/ArtistDetailScreen.kt").readText()
+		val block = source.substringAfter("val ownedOrPartialRows = remember(")
+			.substringBefore("val missingReleaseGroupRows = remember")
+
+		assertTrue("state.aurralMissingReleaseGroups.isNotEmpty()" in block)
+		assertTrue("aurralProfileState.enabled" in block)
+	}
+
+	@Test
 	fun artistDetailViewModelUsesSearchFallbackWhenDiscoveryDoesNotCarryAurralImage() {
 		val source = sourceFile(
 			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
@@ -126,6 +148,29 @@ class AurralArtistProfileStatePolicyTest {
 		assertEquals("John Powell", state.displayName)
 		assertEquals(AurralArtistSectionUiState.Ready, state.profile)
 		assertEquals(AurralArtistSectionUiState.Ready, state.ownership)
+	}
+
+	@Test
+	fun syntheticResolvedAurralArtistWithoutLocalAlbumsShowsProfileMonitorAndMissingReleaseGroups() {
+		val state = aurralArtistProfileUiState(
+			state = artistState(
+				aurralMonitored = false,
+				aurralArtistName = "Resolved Aurral Artist",
+				aurralArtistBio = "Resolved profile.",
+				aurralMissingReleaseGroups = listOf(ownershipRow("Missing Album", AurralOwnershipStatus.Missing))
+			),
+			aurralEnabled = true,
+			monitoringInAurral = false,
+			monitorPendingInAurral = false
+		)
+
+		assertEquals("Resolved Aurral Artist", state.displayName)
+		assertEquals(AurralArtistSectionUiState.Ready, state.profile)
+		assertEquals(AurralArtistSectionUiState.Ready, state.ownership)
+		assertEquals(AurralArtistSectionUiState.Empty, state.localPlayback)
+		assertEquals(AurralArtistMonitorUiState.VerifiedUnmonitored, state.monitor)
+		assertTrue(state.monitorActionVisible)
+		assertTrue(state.monitorActionEnabled)
 	}
 
 	@Test
@@ -268,4 +313,22 @@ class AurralArtistProfileStatePolicyTest {
 			File("composeApp/src/commonMain/kotlin/$path"),
 			File("../composeApp/src/commonMain/kotlin/$path")
 		).first(File::exists)
+
+	private fun functionBody(source: String, signature: String): String {
+		val start = source.indexOf(signature)
+		require(start >= 0) { "Missing signature $signature" }
+		val firstBrace = source.indexOf('{', start)
+		require(firstBrace >= 0) { "Missing body for $signature" }
+		var depth = 0
+		for (index in firstBrace until source.length) {
+			when (source[index]) {
+				'{' -> depth++
+				'}' -> {
+					depth--
+					if (depth == 0) return source.substring(firstBrace, index + 1)
+				}
+			}
+		}
+		error("Unclosed body for $signature")
+	}
 }
