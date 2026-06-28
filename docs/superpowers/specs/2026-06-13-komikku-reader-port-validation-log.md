@@ -7701,3 +7701,40 @@ Results:
 
 Remaining:
 - If progress-save 400s repeat after an OPDS resource launch, treat that as a production progress schema bug. The known readerdev false-positive path is now closed.
+
+
+## 2026-06-29 Whispersync Media-Follow Navigation Ownership Gate
+
+Scope:
+- Keep paired ebook/audiobook playback from hijacking explicit user/probe reader navigation.
+- Preserve direct sidecar launches where Bindery provides `/opds/books/{bookId}/sync/{artifactId}` but the reader route does not carry a separate artifact id.
+- Keep the readerdev page-scoped control probe faithful to Foliate behavior by snapshotting navigation results without waiting on a `goToHref` promise that may not settle.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderDoesNotLetMediaOverlayFollowInterruptUserRelocation --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -ReaderPublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderWhispersyncSidecarUrl "/opds/books/3809/sync/8" -ReaderWhispersyncAudiobookBookFileId 633 -RequireReaderLaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactDir captures\reader-smoke\whispersync-media-follow-defer-20260629-022114 -NoLaunch -ReaderDevtoolsProbe whispersync-page-scoped-control -CaptureReaderDiagnostics
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidReaderDoesNotLetMediaOverlayFollowInterruptUserRelocation` failed before the runtime had a source guard ahead of `await this.goTo(targetHref, 'media-overlay-follow')` (`tmp/codex-validation/20260629-media-follow-red-host.out.log`).
+- GREEN/HOST-FOCUSED: the same guard passed after adding `mediaOverlayFollowShouldDeferForUserRelocation()` and the pre-`goTo` defer path (`tmp/codex-validation/20260629-media-follow-green-host.out.log`).
+- GREEN/LAUNCH-POLICY: `ReaderWhispersyncLaunchPolicyTest.readerWhispersyncLaunchAttachmentDerivesArtifactIdFromSidecarPathWhenMissing` passed after deriving artifact id `8` from `/opds/books/3809/sync/8` when the route omits `whispersyncArtifactId`.
+- GREEN/HARNESS: `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl` passed after the probe stopped awaiting `goToHref` for diagnostic page jumps.
+- GREEN/READERDEV-INSTALL: readerdev installed and launched package `darkaxt.navic.readerdev`, `versionName=v1.0.11-theta13`, `versionCode=441`, `lastUpdateTime=2026-06-29 02:17:50`, and reached `publicationReady`.
+- GREEN/PAGE-TO-AUDIO: `captures\reader-smoke\whispersync-media-follow-defer-20260629-022114\logcat-reader.log` contains one `Whispersync audiobook seek` at `positionMs=263360`, three `overlayFragmentActive` lines, and zero `seek ignored` lines.
+- GREEN/PAGE-SCOPED-CONTROL: `captures\reader-smoke\whispersync-media-follow-defer-20260629-022114\reader-devtools-probe.json` reports the cue page as `OEBPS/xhtml/Authorforeword.xhtml`, then the unsupported probe page as `OEBPS/xhtml/mini_toc.xhtml` with visible range `1-486`. That verifies audio-follow no longer pulls the unsupported page back to the previous cue section.
+- GREEN/CLEAR-OVERLAY: the same log contains `Dispatching reader engine command: clearOverlay`.
+- GREEN/JS: both touched JS files passed `node --check`.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed (`tmp/codex-validation/stage5-testAndroid-20260629-022427.out.log`).
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- Exact companion progress reopen is still a separate Stage 5 validation item.
+- This slice validates emulator readerdev behavior, not a public release APK or real-device audio feel.

@@ -373,6 +373,23 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderDoesNotLetMediaOverlayFollowInterruptUserRelocation() {
+		val bridgeText = readerBridgeText()
+		val applyOverlayFragment = bridgeText
+			.substringAfter("async applyOverlayFragment(fragment) {")
+			.substringBefore("\n  highlightMediaOverlayTextRange")
+
+		assertContains(bridgeText, "mediaOverlayFollowShouldDeferForUserRelocation()")
+		assertContains(applyOverlayFragment, "this.mediaOverlayFollowShouldDeferForUserRelocation()")
+		assertContains(applyOverlayFragment, "media-overlay-follow:deferred")
+		assertTrue(
+			applyOverlayFragment.indexOf("this.mediaOverlayFollowShouldDeferForUserRelocation()") <
+				applyOverlayFragment.indexOf("await this.goTo(targetHref, 'media-overlay-follow')"),
+			"Playback-driven media-overlay follow must not start a second relocation over an active user go-to/page-turn."
+		)
+	}
+
+	@Test
 	fun adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
@@ -391,6 +408,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "expectedLogLabels")
 		assertContains(probe, "Whispersync audiobook seek")
 		assertContains(probe, "Dispatching reader engine command: clearOverlay")
+		assertFalse(
+			probe.contains("await Promise.resolve(readerBridgeDispatch({\n        type: 'goToHref'"),
+			"Page-scoped smoke navigation must not await goToHref; Foliate may emit loadDoc without settling the navigation promise."
+		)
 	}
 
 	@Test

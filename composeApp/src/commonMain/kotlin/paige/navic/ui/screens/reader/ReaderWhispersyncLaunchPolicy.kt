@@ -12,7 +12,9 @@ internal data class ReaderWhispersyncLaunchAttachment(
 
 internal fun Screen.Reader.whispersyncLaunchAttachment(): ReaderWhispersyncLaunchAttachment? {
 	val sidecarPath = whispersyncSidecarUrl.normalizedWhispersyncRouteValue() ?: return null
-	val artifactId = whispersyncArtifactId.normalizedWhispersyncRouteValue() ?: return null
+	val artifactId = whispersyncArtifactId.normalizedWhispersyncRouteValue()
+		?: sidecarPath.derivedWhispersyncArtifactId()
+		?: return null
 	val audiobookId = whispersyncAudiobookId.normalizedWhispersyncRouteValue()
 	val audiobookBookFileId = whispersyncAudiobookBookFileId.normalizedWhispersyncRouteValue() ?: return null
 	return ReaderWhispersyncLaunchAttachment(
@@ -26,3 +28,13 @@ internal fun Screen.Reader.whispersyncLaunchAttachment(): ReaderWhispersyncLaunc
 
 private fun String?.normalizedWhispersyncRouteValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun String.derivedWhispersyncArtifactId(): String? {
+	val path = substringBefore('#')
+		.substringBefore('?')
+		.trim()
+		.trimEnd('/')
+	return path.substringAfterLast('/', missingDelimiterValue = path)
+		.trim()
+		.takeIf { it.isNotEmpty() }
+}

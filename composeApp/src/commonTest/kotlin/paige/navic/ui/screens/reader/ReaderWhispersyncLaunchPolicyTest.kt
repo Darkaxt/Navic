@@ -53,6 +53,25 @@ class ReaderWhispersyncLaunchPolicyTest {
 		)
 	}
 
+	@Test
+	fun readerWhispersyncLaunchAttachmentDerivesArtifactIdFromSidecarPathWhenMissing() {
+		assertEquals(
+			ReaderWhispersyncLaunchAttachment(
+				sidecarPath = "/opds/books/3809/sync/8",
+				artifactId = "8",
+				audiobookId = null,
+				audiobookBookFileId = "633",
+				audiobookTitle = null
+			),
+			readerRoute(
+				whispersyncSidecarUrl = "/opds/books/3809/sync/8",
+				whispersyncArtifactId = null,
+				whispersyncAudiobookId = null,
+				whispersyncAudiobookBookFileId = "633"
+			).whispersyncLaunchAttachment()
+		)
+	}
+
 	private fun readerRoute(
 		whispersyncSidecarUrl: String? = null,
 		whispersyncArtifactId: String? = null,

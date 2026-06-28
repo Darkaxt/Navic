@@ -677,12 +677,25 @@ class NavicReaderRuntime {
     }
   }
 
+  mediaOverlayFollowShouldDeferForUserRelocation() {
+    const reason = String(this.controlledRelocateReason || '').trim()
+    return Boolean(reason) && reason !== 'media-overlay-follow'
+  }
+
   async applyOverlayFragment(fragment) {
     if (!this.view || !fragment) return
     const targetHref = fragment.textHref && fragment.fragmentId
       ? `${fragment.textHref}#${fragment.fragmentId}`
       : fragment.textHref
     if (targetHref) {
+      if (this.mediaOverlayFollowShouldDeferForUserRelocation()) {
+        log('media-overlay-follow:deferred', targetHref, `reason=${this.controlledRelocateReason}`)
+        readerTrace('media-overlay-follow:deferred', {
+          targetHref,
+          reason: this.controlledRelocateReason,
+        })
+        return
+      }
       await this.goTo(targetHref, 'media-overlay-follow')
     }
     this.clearOverlay()

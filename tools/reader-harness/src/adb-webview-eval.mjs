@@ -732,13 +732,34 @@ async function runWhispersyncPageScopedControlProbe(page) {
       }
       return null
     }
+    const fireReaderNavigation = href => {
+      try {
+        const result = readerBridgeDispatch({
+          type: 'goToHref',
+          href,
+        })
+        if (result && typeof result.catch === 'function') {
+          result.catch(error => {
+            originalPostMessage(JSON.stringify({
+              type: 'error',
+              code: 'page_scoped_probe_navigation_failed',
+              message: error?.message || String(error),
+            }))
+          })
+        }
+      } catch (error) {
+        originalPostMessage(JSON.stringify({
+          type: 'error',
+          code: 'page_scoped_probe_navigation_failed',
+          message: error?.message || String(error),
+        }))
+        throw error
+      }
+    }
     const jumpAndSnapshot = async (href, reason) => {
       const startIndex = observedPayloads.length
-      await Promise.resolve(readerBridgeDispatch({
-        type: 'goToHref',
-        href,
-      }))
-      await settleFrames()
+      fireReaderNavigation(href)
+      await settleFrames(8)
       const snapshot = await Promise.resolve(readerBridgeDispatch({
         type: 'diagnosticLocationSnapshot',
         reason,
