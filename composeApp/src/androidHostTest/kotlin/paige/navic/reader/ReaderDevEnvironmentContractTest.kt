@@ -245,6 +245,31 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks() {
+		val matrixScript = root.resolve("scripts/adb-reader-komikku-matrix.ps1").readText()
+
+		assertTrue(
+			matrixScript.contains("[switch] \$PrepareReaderLaunch") &&
+				matrixScript.contains("[string] \$PrepareStartProgress = \"0\""),
+			"The Komikku matrix must expose a controlled launch mode so cover checks do not depend on stale emulator state."
+		)
+		assertTrue(
+			matrixScript.contains("\$installReaderDevScript = Join-Path \$scriptRoot \"install-reader-dev.ps1\"") &&
+				matrixScript.contains("Invoke-ReaderMatrixPrepareLaunch") &&
+				matrixScript.contains("NoBuild = \$true") &&
+				matrixScript.contains("NoInstall = \$true") &&
+				matrixScript.contains("RequireReaderLaunch = \$true"),
+			"The Komikku matrix must reuse the no-console readerdev launcher instead of duplicating manual adb am-start logic."
+		)
+		assertTrue(
+			matrixScript.contains("StartProgress = \$PrepareStartProgress") &&
+				matrixScript.contains("if (\$PrepareReaderLaunch)") &&
+				matrixScript.contains("-NoLaunch"),
+			"Cover validation must launch the reader at the native shell-cover boundary, then run smoke checks without relaunching over that state."
+		)
+	}
+
+	@Test
 	fun komikkuReaderPlanRequiresReferenceParityBeforeReaderWork() {
 		val spec = root.resolve("docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md").readText()
 

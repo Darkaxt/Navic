@@ -29,9 +29,9 @@ Each stage is a complete deliverable:
 - Modify: `docs/superpowers/specs/2026-06-18-whispersync-design.md`
 - Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md` only when an actual validation run occurs.
 
-- [ ] Add references from both specs to this plan.
-- [ ] Run `git diff --check`.
-- [ ] Commit the planning alignment before code stages.
+- [x] Add references from both specs to this plan.
+- [x] Run `git diff --check`.
+- [x] Commit the planning alignment before code stages. Completed in `7442f5c8`.
 
 ## Stage 1: Reader Shell Blocker Gate
 
@@ -70,8 +70,9 @@ Each stage is a complete deliverable:
 - [ ] Run the focused reader host tests listed above.
 - [ ] Run `node --check` for each touched `navic-reader-*.js` module.
 - [ ] Run `.\gradlew.bat --no-daemon :composeApp:testAndroid`.
-- [ ] Run the readerdev emulator gate with `scripts\adb-reader-komikku-matrix.ps1` after every major shell change.
-- [ ] Append one concise result to `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
+- [x] Run the readerdev emulator gate with `scripts\adb-reader-komikku-matrix.ps1` after every major shell change. Baseline run `captures/reader-komikku-matrix/stage1-baseline-20260628-222250` passed normal reader tap, drag, edge tap, and texture direction rows; cover rows were invalid because the run started away from the native cover.
+- [x] Run the prepared-cover readerdev gate. `captures/reader-komikku-matrix/stage1-cover-prepared-20260628-223828` passed all 12 rows after adding `-PrepareReaderLaunch`, including native cover visible, cover tap, cover drag, content tap/drag, edge taps, and texture direction.
+- [x] Append one concise result to `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
 - [ ] Commit the completed blocker slice.
 
 ## Stage 2: Anx Behavior Completion Gate
@@ -134,6 +135,8 @@ Each stage is a complete deliverable:
 ## Stage 4: Whispersync API And Launch Gate
 
 **Purpose:** Keep Navic aligned with the current Bindery schema and ensure ready pairs launch a paired reader session with the correct sidecar and audiobook manifest.
+
+**Current completed slice:** Current Bindery audio resource/source-release fields, audiobook quality ordering, Aurral-first source routing support, and playback error notifier extraction were validated with `.\gradlew.bat --no-daemon :composeApp:testAndroid` and committed in `b1e20000`.
 
 **Main files:**
 - `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyModels.kt`

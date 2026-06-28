@@ -4,6 +4,9 @@ param(
     [string] $ApkPath,
     [string] $ExpectedVersionName,
     [string] $ArtifactRoot,
+    [string] $EnvFile = "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env",
+    [switch] $PrepareReaderLaunch,
+    [string] $PrepareStartProgress = "0",
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
     [switch] $NoLaunch,
@@ -17,8 +20,12 @@ $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $smokeScript = Join-Path $scriptRoot "adb-reader-smoke.ps1"
+$installReaderDevScript = Join-Path $scriptRoot "install-reader-dev.ps1"
 if (-not (Test-Path -LiteralPath $smokeScript -PathType Leaf)) {
     throw "Missing reader smoke script: $smokeScript"
+}
+if ($PrepareReaderLaunch -and -not (Test-Path -LiteralPath $installReaderDevScript -PathType Leaf)) {
+    throw "Missing reader dev install script: $installReaderDevScript"
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -202,6 +209,26 @@ function Invoke-ReaderMatrixStep {
     }
 }
 
+function Invoke-ReaderMatrixPrepareLaunch {
+    $prepareArgs = @{
+        EnvFile = $EnvFile
+        Package = $Package
+        NoBuild = $true
+        NoInstall = $true
+        RequireReaderLaunch = $true
+        StartProgress = $PrepareStartProgress
+    }
+    if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
+        $prepareArgs.DeviceSerial = $DeviceSerial
+    }
+
+    Write-Host "reader-matrix prepare: launching readerdev through install-reader-dev.ps1 at progress $PrepareStartProgress"
+    & $installReaderDevScript @prepareArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "install-reader-dev exited with code $LASTEXITCODE during matrix prepare launch"
+    }
+}
+
 function Invoke-ReaderCoverMatrixSteps {
     if ($IncludeCoverChecks) {
         Invoke-ReaderMatrixStep `
@@ -286,10 +313,17 @@ function Invoke-ReadableContentMatrixSteps {
         -RequireTextureDirection "previous"
 }
 
+if ($PrepareReaderLaunch) {
+    Invoke-ReaderMatrixPrepareLaunch
+    if (-not $NoLaunch) {
+        Write-Host "reader-matrix prepare: prepared launch owns reader state; smoke steps will behave as if -NoLaunch was set"
+    }
+}
+
 Invoke-ReaderMatrixStep `
     -Name "baseline-current-reader" `
-    -Launch:(!$NoLaunch) `
-    -InstallApk:(!$NoLaunch)
+    -Launch:(!$NoLaunch -and !$PrepareReaderLaunch) `
+    -InstallApk:(!$NoLaunch -and !$PrepareReaderLaunch)
 
 if (-not $OnlyPdfChecks) {
     Invoke-ReaderCoverMatrixSteps

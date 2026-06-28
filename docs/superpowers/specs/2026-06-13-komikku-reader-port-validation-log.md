@@ -7497,3 +7497,63 @@ Results:
 - GREEN/SAVE: reader saves now include current `resourceKey` and `href` while still preserving legacy `resourceHref`.
 - GREEN/HOST-FOCUSED: `BinderyRepositoryProgressCacheTest`, `ReaderProgressSyncTest`, and `BinderyContinueShelfPolicyTest` passed together.
 - Remaining: this validates host/source compatibility with the updated progress schema, not release-device proof of live progress sync.
+
+
+## 2026-06-28 Stage 1 Reader Shell Matrix Baseline
+
+Scope:
+- Execute the Stage 1 reader shell blocker gate from `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md` against the currently installed readerdev APK.
+- Validate native tap ownership, drag ownership, edge tap paging, and texture direction before choosing the next blocker to patch.
+
+Environment:
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Installed version: `v1.0.11-theta13`, `versionCode=441`.
+- Matrix artifacts: `captures/reader-komikku-matrix/stage1-baseline-20260628-222250`.
+
+Commands:
+
+```powershell
+scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactRoot captures\reader-komikku-matrix\stage1-baseline-20260628-222250 -NoLaunch -IncludeCoverChecks -ContinueOnFailure
+```
+
+Results:
+- GREEN/MATRIX: `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk` passed.
+- GREEN/IMAGE-TAP-GUARD: `plainImageHitType5Regression=False`, `nativeTapAction=True`, `explicitContentHandler=False`, and `contentTapHandledEvent=False`, so short image taps were not routed through the old WebView/image handler path in this run.
+- GREEN/TEXTURE-DIRECTION-GUARD: the next and previous texture direction samples were classified with `wrongTextureDirection=False`.
+- INVALID/COVER-SETUP: `baseline-native-cover` and `cover-drag-next` failed because the matrix was launched with `-NoLaunch` while the emulator was already inside normal reader pages, not on the native shell cover. This is a test setup failure, not proof of a cover regression.
+
+Remaining:
+- Add or use a deterministic matrix setup path that returns the reader to the native shell cover before cover lifecycle checks.
+- Do not patch cover behavior from this run alone; rerun cover-specific validation only after the start state is controlled.
+
+
+## 2026-06-28 Stage 1 Prepared Cover Matrix Gate
+
+Scope:
+- Add and validate a deterministic readerdev launch path for the Komikku matrix so cover lifecycle checks start from the native shell cover instead of stale emulator state.
+- Prove native cover, cover tap, cover drag, readable tap/drag, edge taps, and texture direction in one prepared run.
+
+Environment:
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Installed version: `v1.0.11-theta13`, `versionCode=441`.
+- Prepared launch target discovered from Bindery: `A Memory of Light (epub)`.
+- Matrix artifacts: `captures/reader-komikku-matrix/stage1-cover-prepared-20260628-223828`.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks --console=plain
+scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactRoot captures\reader-komikku-matrix\stage1-cover-prepared-20260628-223828 -PrepareReaderLaunch -IncludeCoverChecks -ContinueOnFailure
+```
+
+Results:
+- RED/HOST-FIRST: `komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks` first failed because the matrix had no controlled prepare path and relied on the current emulator screen.
+- GREEN/HOST: the focused matrix prepare guard passed after adding `-PrepareReaderLaunch` and `-PrepareStartProgress 0`.
+- GREEN/MATRIX: all 12 matrix rows passed: `baseline-current-reader`, `baseline-native-cover`, `cover-center-tap-toggle`, `cover-drag-next`, `center-tap-toggle`, `native-long-press-center`, `edge-tap-next`, `drag-next`, `texture-next-walk`, `edge-tap-previous`, `drag-previous`, and `texture-previous-walk`.
+- GREEN/COVER-DRAG: `cover-drag-next` captured `Reader shell cover drag candidate`, `Reader shell cover swipe action=Right`, and `Reader shell cover command action=Right`.
+- GREEN/TEXTURE-DIRECTION-GUARD: previous direction samples were classified with `wrongTextureDirection=False`; next direction also passed through the matrix summary.
+
+Remaining:
+- This proves the current installed readerdev cover/tap/drag/texture baseline on the emulator. It does not replace final physical-device validation for release APK touch feel or visual judgment.
