@@ -188,6 +188,49 @@ class WhispersyncTimelineParserTest {
 	}
 
 	@Test
+	fun activeSegmentSnapsTinyAudioBoundaryGapToNearestCue() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "previous-cue",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 1_000,
+					endMs = 2_000,
+					textHref = "Text/chapter1.xhtml"
+				),
+				WhispersyncSegment(
+					id = "next-cue",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 2_003,
+					endMs = 3_000,
+					textHref = "Text/chapter1.xhtml"
+				)
+			)
+		)
+
+		val segment = timeline.activeSegment(
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 2_002
+		)
+
+		assertNotNull(segment)
+		assertEquals("next-cue", segment.id)
+
+		val wideGapTimeline = timeline.copy(
+			segments = listOf(
+				timeline.segments[0],
+				timeline.segments[1].copy(startMs = 2_300)
+			)
+		)
+		assertNull(
+			wideGapTimeline.activeSegment(
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 2_150
+			)
+		)
+	}
+
+	@Test
 	fun visibleTextRangeIgnoresRangeLessSegmentsInsteadOfSeekingBlindly() {
 		val sidecar = decodeWhispersyncSidecar(
 			"""

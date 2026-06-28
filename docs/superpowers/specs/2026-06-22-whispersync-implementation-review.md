@@ -3,7 +3,7 @@
 - **Date:** 2026-06-22
 - **Scope:** Static code review of the Whispersync feature against the design intent.
 - **Reference:** extends `docs/superpowers/specs/2026-06-18-whispersync-design.md`
-- **Status:** eta81 hardening addressed findings 1-4 with focused regression coverage; post-eta81 controller/parser hardening addressed findings 6 and 7; finding 5 remains a lower-priority follow-up/watch item.
+- **Status:** eta81 hardening addressed findings 1-4 with focused regression coverage; post-eta81 controller/parser hardening addressed findings 5, 6, and 7.
 
 ## Method
 
@@ -134,7 +134,7 @@ false resource match pre-empts it.
 treat suffix-only matches as a weaker signal that must be corroborated by track
 index or position.
 
-### 5. Half-open segment boundaries + gaps produce transient mismatches — Medium (feeds #2)
+### 5. Half-open segment boundaries + gaps produce transient mismatches — Medium (feeds #2) — Addressed post-eta81
 
 **Location:** `WhispersyncModels.kt:44-51` (`activeSegment`).
 
@@ -145,6 +145,12 @@ contiguous (`startMs == prev.endMs`).
 **Impact:** any gap or non-contiguous boundary yields no match → `Mismatch`. This is
 the mechanical trigger behind finding #2; narration sidecars are rarely perfectly
 contiguous.
+
+**Resolution:** `activeSegment` still prefers exact in-range containment and still
+returns no match for real unmapped gaps, but it now snaps tiny ASR/JSON rounding
+gaps near a neighboring cue boundary to the nearest matching audio segment. The
+regression guard proves a 1 ms boundary gap resolves to the next cue while a wider
+real gap remains inactive.
 
 ### 6. Pausing playback does not update Whispersync status or clear the overlay — Low — Addressed post-eta81
 

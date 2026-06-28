@@ -20,6 +20,8 @@ private val WhispersyncJson = Json {
 	isLenient = true
 }
 
+private const val WhispersyncBoundarySnapToleranceMs = 50L
+
 @Serializable
 data class WhispersyncSidecar(
 	val artifactId: String? = null,
@@ -42,14 +44,17 @@ data class WhispersyncTimeline(
 	): WhispersyncSegment? {
 		val normalizedAudioCandidates = audioResource.normalizedWhispersyncResourceCandidates()
 		val position = positionMs.coerceAtLeast(0L)
-		return segments.firstOrNull { segment ->
+		val matchingSegments = segments.filter { segment ->
 			segment.matchesAudioResourceOrTrack(
 				normalizedAudioCandidates = normalizedAudioCandidates,
 				audioTrackIndex = audioTrackIndex
-			) &&
-				position >= segment.startMs &&
+			)
+		}
+		return matchingSegments.firstOrNull { segment ->
+			position >= segment.startMs &&
 				position < segment.endMs
 		}
+			?: matchingSegments.nearestBoundarySnap(position)
 	}
 
 	fun seekTargetForVisibleTextRange(
@@ -176,6 +181,43 @@ private data class WhispersyncRangeScore(
 	val overlap: Int,
 	val centerDistance: Double
 )
+
+private data class WhispersyncBoundarySnapCandidate(
+	val segment: WhispersyncSegment,
+	val distanceMs: Long,
+	val priority: Int
+)
+
+private fun List<WhispersyncSegment>.nearestBoundarySnap(positionMs: Long): WhispersyncSegment? =
+	asSequence()
+		.mapNotNull { segment -> segment.boundarySnapCandidate(positionMs) }
+		.sortedWith(
+			compareBy<WhispersyncBoundarySnapCandidate> { candidate -> candidate.distanceMs }
+				.thenBy { candidate -> candidate.priority }
+				.thenBy { candidate -> candidate.segment.startMs }
+		)
+		.firstOrNull()
+		?.segment
+
+private fun WhispersyncSegment.boundarySnapCandidate(positionMs: Long): WhispersyncBoundarySnapCandidate? {
+	val distanceToStart = startMs - positionMs
+	if (distanceToStart in 1..WhispersyncBoundarySnapToleranceMs) {
+		return WhispersyncBoundarySnapCandidate(
+			segment = this,
+			distanceMs = distanceToStart,
+			priority = 0
+		)
+	}
+	val distanceAfterEnd = positionMs - endMs
+	if (distanceAfterEnd in 0..WhispersyncBoundarySnapToleranceMs) {
+		return WhispersyncBoundarySnapCandidate(
+			segment = this,
+			distanceMs = distanceAfterEnd,
+			priority = 1
+		)
+	}
+	return null
+}
 
 private fun WhispersyncSegment.overlapScore(
 	visibleStart: Int,

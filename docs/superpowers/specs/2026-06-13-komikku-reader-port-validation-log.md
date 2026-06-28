@@ -7401,3 +7401,25 @@ Results:
 - GREEN/HOST-FOCUSED: full `BinderyBookVersionPolicyTest` passed.
 - GREEN/HOST-ADJACENT: `BinderyBookSyncJsonTest`, `ReaderWhispersyncLaunchPolicyTest`, and `BinderyContinueShelfPolicyTest` passed.
 - Remaining: the top-left cover headset badge remains design-proposed pending explicit user confirmation; it should use the same exact-pair readiness rule.
+
+
+## 2026-06-28 Whispersync Tiny Boundary Gap Snap
+
+Scope:
+- Address `2026-06-22-whispersync-implementation-review.md` finding 5 without changing real timeline-gap behavior.
+- Stabilize the Anx/Foliate capability layer so tiny ASR/JSON timing gaps do not clear the active cue between adjacent segments.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.WhispersyncTimelineParserTest.activeSegmentSnapsTinyAudioBoundaryGapToNearestCue
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest
+```
+
+Results:
+- RED/HOST-FIRST: `activeSegmentSnapsTinyAudioBoundaryGapToNearestCue` first failed on the synced baseline because `activeSegment()` returned `null` for a 1 ms gap before the next cue.
+- GREEN/MODEL: `WhispersyncTimeline.activeSegment()` now exact-matches first, then snaps only tiny boundary gaps for the same audio resource/track to the nearest cue boundary.
+- GREEN/GAP-GUARD: the regression test also verifies a wider real unmapped gap remains inactive, preserving the existing neutral `NoActiveCue` path.
+- GREEN/HOST-FOCUSED: the focused boundary test passed.
+- GREEN/HOST-RELATED: `WhispersyncTimelineParserTest`, `ReaderWhispersyncSyncCoordinatorTest`, and `ReaderWhispersyncPlaybackPolicyTest` passed.
+- Remaining: no emulator/device run was needed because this slice is pure timeline/model behavior; runtime playback UI validation remains separate.
