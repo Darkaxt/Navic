@@ -613,6 +613,11 @@ async function runWhispersyncAudioFollowProbe(page) {
     }
 
     const observedPayloads = []
+    const settleFrames = async (count = 2) => {
+      for (let index = 0; index < count; index += 1) {
+        await new Promise(resolve => requestAnimationFrame(resolve))
+      }
+    }
     const latestVisibleRange = startIndex => {
       for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {
         const payload = observedPayloads[index]
@@ -631,25 +636,22 @@ async function runWhispersyncAudioFollowProbe(page) {
     }
 
     try {
+      const targetHref = 'OEBPS/xhtml/Authorforeword.xhtml'
+      await Promise.resolve(readerBridgeDispatch({
+        type: 'goToHref',
+        href: targetHref,
+      }))
+      await settleFrames(3)
       const currentSnapshot = await Promise.resolve(readerBridgeDispatch({
         type: 'diagnosticLocationSnapshot',
         reason: 'whispersync-audio-follow-probe-initial',
       }))
       const currentHref = String(currentSnapshot?.message?.href || '').trim()
-      const sections = Array.from(view?.book?.sections || [])
-      const targetSection = sections.find(section => {
-        const href = String(section?.href || section?.id || '').trim()
-        return href && href !== currentHref && !/nav\.x?html|cover|title/i.test(href)
-      }) || sections.find(section => {
-        const href = String(section?.href || section?.id || '').trim()
-        return href && href !== currentHref
-      })
-      const targetHref = String(targetSection?.href || targetSection?.id || currentHref || '').trim()
-      if (!targetHref) {
-        throw new Error(`Could not choose Whispersync audio-follow target; current=${currentHref}`)
+      if (currentHref !== targetHref) {
+        throw new Error(`Expected audio-follow probe to start on ${targetHref}, got ${currentHref}`)
       }
 
-      await Promise.resolve(readerBridgeDispatch({
+      readerBridgeDispatch({
         type: 'applyOverlayFragment',
         fragment: {
           textHref: targetHref,
@@ -658,7 +660,8 @@ async function runWhispersyncAudioFollowProbe(page) {
           clipEndSeconds: 2,
           label: 'Whispersync audio follow probe',
         },
-      }))
+      })
+      await settleFrames()
 
       const snapshotStartIndex = observedPayloads.length
       const followSnapshot = await Promise.resolve(readerBridgeDispatch({
@@ -776,7 +779,7 @@ async function runWhispersyncPageScopedControlProbe(page) {
 
     try {
       const cueCovered = await jumpAndSnapshot(cueHref, 'page-scoped-control-cue-covered')
-      await Promise.resolve(readerBridgeDispatch({
+      readerBridgeDispatch({
         type: 'applyOverlayFragment',
         fragment: {
           textHref: cueHref,
@@ -785,7 +788,7 @@ async function runWhispersyncPageScopedControlProbe(page) {
           clipEndSeconds: 282.92,
           label: 'Whispersync page-scoped control probe',
         },
-      }))
+      })
       await settleFrames()
       const unsupported = await jumpAndSnapshot(unsupportedHref, 'page-scoped-control-unsupported')
 
@@ -896,7 +899,7 @@ async function runWhispersyncCharOffsetOverlayProbe(page) {
       }
 
       const overlayStartIndex = observedPayloads.length
-      await Promise.resolve(readerBridgeDispatch({
+      readerBridgeDispatch({
         type: 'applyOverlayFragment',
         fragment: {
           textHref: visibleRange.textHref,
@@ -907,7 +910,7 @@ async function runWhispersyncCharOffsetOverlayProbe(page) {
           clipEndSeconds: 2,
           label: 'Whispersync character offset overlay probe',
         },
-      }))
+      })
       await settleFrames()
 
       const markerMatches = rangeMarkers()

@@ -1,6 +1,7 @@
 package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyReadingProgress
+import kotlin.math.roundToLong
 
 data class ReaderSearchState(
 	val query: String = "",
@@ -465,14 +466,30 @@ data class ReaderController(
 			ReaderEngineEvent.SelectionCleared -> ReaderControllerStep(
 				copy(state = state.copy(selection = null, selectionNoteDraft = null))
 			)
-			is ReaderEngineEvent.MediaOverlayActive -> ReaderControllerStep(
-				copy(
-					state = state.copy(
-						activeMediaOverlay = event.fragment,
-						audioMetadataLabel = event.fragment.label
-					)
+			is ReaderEngineEvent.MediaOverlayActive -> {
+				val audioSeekTarget = state.whispersync.audioSeekTargetForActiveOverlay(event.fragment)
+				ReaderControllerStep(
+					copy(
+						state = state.copy(
+							whispersync = audioSeekTarget?.let { target ->
+								state.whispersync.copy(
+									audioSeekTarget = target,
+									status = ReaderWhispersyncStatus(
+										kind = ReaderWhispersyncStatusKind.SeekingAudio,
+										label = "Syncing audiobook",
+										detail = target.segment.label,
+										audioResource = target.audioResource,
+										positionMs = target.positionMs
+									)
+								)
+							} ?: state.whispersync,
+							activeMediaOverlay = event.fragment,
+							audioMetadataLabel = event.fragment.label
+						)
+					),
+					whispersyncAudioSeekTarget = audioSeekTarget
 				)
-			)
+			}
 			is ReaderEngineEvent.MediaOverlayInactive -> {
 				val currentFragmentId = state.activeMediaOverlay?.fragmentId
 				val shouldClear = event.fragmentId == null || event.fragmentId == currentFragmentId
@@ -1334,6 +1351,36 @@ private fun readerTocHrefKey(href: String?): String? {
 
 private fun ReaderEngineEvent.VisibleTextRange.isWhispersyncAudioFollowRange(): Boolean =
 	source.equals("media-overlay-follow", ignoreCase = true)
+
+private fun ReaderWhispersyncSessionState.audioSeekTargetForActiveOverlay(
+	fragment: ReaderOverlayFragment
+): WhispersyncAudioSeekTarget? {
+	if (!available || !sync.syncEnabled) return null
+	val clipBeginSeconds = fragment.clipBeginSeconds
+		?.takeIf(Double::isFinite)
+		?: return null
+	val startMs = (clipBeginSeconds * 1000.0).roundToLong().coerceAtLeast(0L)
+	val endMs = fragment.clipEndSeconds
+		?.takeIf(Double::isFinite)
+		?.let { (it * 1000.0).roundToLong().coerceAtLeast(startMs) }
+		?: startMs
+	val segment = WhispersyncSegment(
+		id = fragment.fragmentId,
+		audioResource = fragment.resourceHref,
+		startMs = startMs,
+		endMs = endMs,
+		textHref = fragment.textHref?.trim().orEmpty(),
+		fragmentId = fragment.fragmentId,
+		textStart = fragment.textStart,
+		textEnd = fragment.textEnd,
+		label = fragment.label
+	)
+	return WhispersyncAudioSeekTarget(
+		audioResource = segment.audioResource,
+		positionMs = segment.startMs,
+		segment = segment
+	)
+}
 
 private fun String?.normalizedReaderSelectionValue(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }

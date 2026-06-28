@@ -292,4 +292,45 @@ class BinderyRepositoryTest {
 		)
 	}
 
+	@Test
+	fun whispersyncAudiobookManifestFallsBackToExactBookFilePair() = runBlocking {
+		val apiClient = FakeBinderyApiClient(
+			audiobookVersions = listOf(
+				BinderyAudiobookVersion(
+					id = 33,
+					bookId = 3816,
+					bookFileId = 632,
+					title = "Wrong audio"
+				),
+				BinderyAudiobookVersion(
+					id = 34,
+					bookId = 3809,
+					bookFileId = 633,
+					title = "Bastille vs. the Evil Librarians"
+				)
+			),
+			audiobookManifest = BinderyManifest(
+				id = "urn:bindery:audiobook:34",
+				title = "Bastille vs. the Evil Librarians"
+			)
+		)
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = RecordingBinderyMetadataCache(),
+			currentTimeMillis = { 1_000L }
+		)
+
+		val manifest = repository.getWhispersyncAudiobookManifest(
+			bookId = "3809",
+			audiobookId = null,
+			audiobookBookFileId = "633",
+			audiobookManifestHref = null
+		).getOrThrow()
+
+		assertEquals("Bastille vs. the Evil Librarians", manifest.title)
+		assertEquals(listOf("3809"), apiClient.audiobookVersionBookIds)
+		assertEquals(listOf("34"), apiClient.audiobookManifestIds)
+		assertTrue(apiClient.audiobookManifestPaths.isEmpty())
+	}
+
 }

@@ -349,12 +349,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 						}
 					)
 					withContext(Dispatchers.IO) {
-						val manifestPath = sidecar?.audiobookManifestHref?.trim()?.takeIf { it.isNotEmpty() }
-						when {
-							manifestPath != null -> binderyRepository.getAudiobookManifestPath(manifestPath)
-							attachment.audiobookId != null -> binderyRepository.getAudiobookManifest(attachment.audiobookId)
-							else -> Result.failure(IllegalStateException("Whispersync sidecar did not expose audiobook manifest href."))
-						}
+						binderyRepository.getWhispersyncAudiobookManifest(
+							bookId = reader.bookId,
+							audiobookId = attachment.audiobookId,
+							audiobookBookFileId = attachment.audiobookBookFileId,
+							audiobookManifestHref = sidecar?.audiobookManifestHref
+						)
 					}.fold(
 						onSuccess = { manifest ->
 							val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)

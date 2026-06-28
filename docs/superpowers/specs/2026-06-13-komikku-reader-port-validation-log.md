@@ -7613,3 +7613,59 @@ Results:
 
 Remaining:
 - This is host/model proof. It does not replace the release/device enjoyment pass for a real paired ebook/audiobook session.
+
+
+## 2026-06-29 Stage 5 Whispersync Exact Pair Playback Gate
+
+Scope:
+- Close the live Bindery sidecar playback blocker for book `3809`, where the sidecar exposes `bookId=3809`, `ebookBookFileId=426`, and `audiobookBookFileId=633` but no `resources.audiobookManifestHref`.
+- Validate that exact-pair manifest resolution, page-to-audio seek, audio-to-reader visible-range follow, and char-offset overlay activation work in readerdev before release packaging.
+
+Environment:
+- Device: `emulator-5554`.
+- Package: `darkaxt.navic.readerdev`.
+- Installed version: `v1.0.11-theta13`, `versionCode=441`, `lastUpdateTime=2026-06-29 00:38:01`.
+- Bindery book: `https://bindery.remaxku.eu/book/3809`.
+- Ebook file: `https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426`.
+- Audiobook file: `https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633`.
+- Sidecar artifact: `/opds/books/3809/sync/8`.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.BinderyRepositoryTest.whispersyncAudiobookManifestFallsBackToExactBookFilePair" --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.domain.repositories.BinderyRepositoryTest --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderControllerTest.whispersyncOverlayFragmentActiveFeedsAudioSeekTarget" --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderControllerTest --tests paige.navic.domain.repositories.BinderyRepositoryTest --console=plain
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -PublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -BookId 3809 -Title "Bastille vs. the Evil Librarians" -Kind ebook -Format EPUB -ResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -WhispersyncSidecarHref "/opds/books/3809/sync/8" -WhispersyncAudiobookBookFileId 633 -ExpectedPackage darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-theta13 -WaitForReaderReady
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactDir captures\reader-smoke\whispersync-page-scoped-control-20260629-004034 -NoLaunch -ReaderDevtoolsProbe whispersync-page-scoped-control -CaptureReaderDiagnostics
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactDir captures\reader-smoke\whispersync-audio-follow-20260629-004817 -NoLaunch -ReaderDevtoolsProbe whispersync-audio-follow -CaptureReaderDiagnostics
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta13 -ArtifactDir captures\reader-smoke\whispersync-char-offset-overlay-20260629-005355 -NoLaunch -ReaderDevtoolsProbe whispersync-char-offset-overlay -CaptureReaderDiagnostics
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `whispersyncAudiobookManifestFallsBackToExactBookFilePair` first failed because `BinderyRepository` had no exact-pair manifest fallback.
+- GREEN/API-PAIR: `BinderyRepository.getWhispersyncAudiobookManifest()` now resolves in priority order: explicit sidecar manifest href, explicit audiobook id, then exact `bookId + audiobookBookFileId` through the audiobook versions endpoint.
+- GREEN/HOST-FOCUSED: the exact-pair repository test passed, then full `BinderyRepositoryTest` passed.
+- RED/CONTROLLER-FIRST: `whispersyncOverlayFragmentActiveFeedsAudioSeekTarget` first failed because `MediaOverlayActive` stored the active overlay but did not create a Whispersync audio seek target.
+- GREEN/CONTROLLER: `ReaderController` now converts direct `MediaOverlayActive` fragments with clip timing into `WhispersyncAudioSeekTarget` when sync is available and enabled.
+- GREEN/HOST-RELATED: `ReaderWhispersyncSyncCoordinatorTest`, `ReaderWhispersyncPlaybackPolicyTest`, `WhispersyncTimelineParserTest`, `ReaderControllerTest`, and `BinderyRepositoryTest` passed together after the controller fix.
+- GREEN/READERDEV-INSTALL: readerdev installed and opened the book `3809` session with package version `v1.0.11-theta13`, `versionCode=441`, `lastUpdateTime=2026-06-29 00:38:01`, and `publicationReady`.
+- GREEN/PAGE-TO-AUDIO: `captures\reader-smoke\whispersync-page-scoped-control-20260629-004034\logcat-reader.log` showed `overlayFragmentActive` followed by `Whispersync audiobook seek audio=6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b positionMs=263360`. The older `no playback plan match` message did not appear.
+- GREEN/PAGE-SCOPED-CONTROL: the same page-scoped probe moved to an unsupported page, emitted `page-scoped-control-unsupported`, and dispatched `clearOverlay`.
+- GREEN/AUDIO-FOLLOW: `captures\reader-smoke\whispersync-audio-follow-20260629-004817\reader-devtools-probe.json` reported `currentHref=OEBPS/xhtml/Authorforeword.xhtml`, `reason=media-overlay-follow`, and `visibleStart=3`, `visibleEnd=2442`. The corresponding log contained `Reader bridge event: visibleTextRange(... source=media-overlay-follow)`.
+- GREEN/CHAR-OFFSET-OVERLAY: `captures\reader-smoke\whispersync-char-offset-overlay-20260629-005355\reader-devtools-probe.json` found an exact `navic-active-overlay-fragment` marker for text offsets `27-75`; `logcat-reader.log` showed `overlayFragmentActive` and `Whispersync audiobook seek audio=navic-whispersync-char-offset-overlay-probe positionMs=1000`.
+- GREEN/JS: `node --check tools\reader-harness\src\adb-webview-eval.mjs` exited cleanly.
+- GREEN/HOST-RUNTIME-ASSET: `ReaderRuntimeAssetsTest` passed.
+- GREEN/SUITE: `:composeApp:testAndroid` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Observed warnings:
+- Readerdev probes still logged `Bindery reading progress returned HTTP 400` while saving probe-driven visible ranges. This did not block manifest resolution or Whispersync audio seek, but it should be handled as a separate progress-write compatibility follow-up if it repeats during normal user navigation.
+
+Remaining:
+- This closes the exact-pair playback gate in readerdev. It does not yet replace a final release APK pass on a physical phone/tablet for audio feel, highlighting comfort, resume ownership, or miniplayer coexistence.

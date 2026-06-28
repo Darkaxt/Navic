@@ -250,6 +250,49 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
 		)
 
+	suspend fun getWhispersyncAudiobookManifest(
+		bookId: String?,
+		audiobookId: String?,
+		audiobookBookFileId: String,
+		audiobookManifestHref: String?
+	): Result<BinderyManifest> {
+		val manifestPath = audiobookManifestHref?.trim()?.takeIf { it.isNotEmpty() }
+		if (manifestPath != null) return getAudiobookManifestPath(manifestPath)
+
+		val directAudiobookId = audiobookId?.trim()?.takeIf { it.isNotEmpty() }
+		if (directAudiobookId != null) return getAudiobookManifest(directAudiobookId)
+
+		val normalizedBookId = bookId?.trim()?.takeIf { it.isNotEmpty() }
+		val normalizedBookFileId = audiobookBookFileId.trim().takeIf { it.isNotEmpty() }
+		if (normalizedBookId == null || normalizedBookFileId == null) {
+			return Result.failure(
+				IllegalStateException("Whispersync sidecar did not expose an audiobook manifest identity.")
+			)
+		}
+
+		return getAudiobookVersions(normalizedBookId).fold(
+			onSuccess = { versions ->
+				val version = versions.firstOrNull { candidate ->
+					candidate.bookId?.toString() == normalizedBookId &&
+						candidate.bookFileId?.toString() == normalizedBookFileId
+				} ?: versions.firstOrNull { candidate ->
+					candidate.bookFileId?.toString() == normalizedBookFileId
+				}
+				val versionId = version?.id?.toString()
+				if (versionId == null) {
+					Result.failure(
+						IllegalStateException(
+							"Whispersync audiobook bookFileId=$normalizedBookFileId was not found for book=$normalizedBookId."
+						)
+					)
+				} else {
+					getAudiobookManifest(versionId)
+				}
+			},
+			onFailure = { error -> Result.failure(error) }
+		)
+	}
+
 	suspend fun getCachedAudiobookManifest(audiobookId: String): Result<BinderyManifest?> =
 		getConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.AudiobookManifest,

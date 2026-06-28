@@ -166,7 +166,10 @@ Each stage is a complete deliverable:
 
 **Purpose:** Make the paired ebook/audiobook experience usable: page-to-audio seek, audio-to-text follow, visual cue overlay, exact resume, and playback ownership.
 
-**Current completed slice:** Explicit sidecar track identity now wins over stale or generic audio resource names in both page-to-audio seek command creation and audio-follow active segment matching. The slice was guarded by red-first tests in `ReaderWhispersyncPlaybackPolicyTest` and `WhispersyncTimelineParserTest`, then validated with `:composeApp:testAndroid`.
+**Current completed slices:**
+- Explicit sidecar track identity now wins over stale or generic audio resource names in both page-to-audio seek command creation and audio-follow active segment matching. The slice was guarded by red-first tests in `ReaderWhispersyncPlaybackPolicyTest` and `WhispersyncTimelineParserTest`, then validated with `:composeApp:testAndroid`.
+- Bindery sidecars that expose only the exact audiobook `bookFileId` now resolve the audiobook manifest through the exact book/audiobook file pair before opening playback. The slice was guarded by a red-first `BinderyRepositoryTest` and validated against readerdev on book `3809`.
+- Direct Foliate media-overlay activation now feeds a controller-owned audio seek target instead of waiting for a later visible-range follow event. The slice was guarded by a red-first `ReaderControllerTest` and validated with readerdev page-scoped, audio-follow, and char-offset overlay probes.
 
 **Main files:**
 - `composeApp/src/commonMain/kotlin/paige/navic/reader/WhispersyncModels.kt`
@@ -192,7 +195,7 @@ Each stage is a complete deliverable:
 
 - [x] Add a failing coordinator or progress test for the next concrete playback-sync gap.
 - [x] Implement pure model/coordinator changes before Android playback glue.
-- [ ] Validate page-to-audio and audio-to-reader direction separately in readerdev.
+- [x] Validate page-to-audio and audio-to-reader direction separately in readerdev. Completed for the current book `3809` readerdev session with artifacts `captures/reader-smoke/whispersync-page-scoped-control-20260629-004034`, `captures/reader-smoke/whispersync-audio-follow-20260629-004817`, and `captures/reader-smoke/whispersync-char-offset-overlay-20260629-005355`.
 - [ ] Validate exact companion progress reopen in readerdev.
 - [ ] Commit only after host tests and readerdev evidence pass.
 

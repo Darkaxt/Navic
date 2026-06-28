@@ -1465,6 +1465,28 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun whispersyncOverlayFragmentActiveFeedsAudioSeekTarget() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val fragment = ReaderOverlayFragment(
+			resourceHref = "Audio/chapter01.m4b",
+			textHref = "Text/chapter1.xhtml",
+			clipBeginSeconds = 263.36,
+			clipEndSeconds = 282.92,
+			label = "Injected page cue"
+		)
+
+		val step = controller.onEngineEvent(ReaderEngineEvent.MediaOverlayActive(fragment))
+
+		assertEquals(fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Injected page cue", step.controller.state.audioMetadataLabel)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(263_360L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals("Text/chapter1.xhtml", step.whispersyncAudioSeekTarget?.segment?.textHref)
+	}
+
+	@Test
 	fun loadingWhispersyncSidecarReplaysExistingVisibleTextRange() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
