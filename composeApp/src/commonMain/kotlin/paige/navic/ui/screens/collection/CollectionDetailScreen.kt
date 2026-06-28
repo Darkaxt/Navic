@@ -329,7 +329,10 @@ fun CollectionDetailScreen(
 									}
 								}
 							}
-							itemsIndexed(group.value) { index, row ->
+							itemsIndexed(
+								items = group.value,
+								key = { _, row -> aurralAlbumDisplayRowKey(row) }
+							) { index, row ->
 								val song = row.localSong
 								if (song == null) {
 									CollectionDetailScreenAurralTrackRow(
@@ -398,7 +401,10 @@ fun CollectionDetailScreen(
 							}
 						}
 					} else {
-						itemsIndexed(contentCollection.songs) { index, song ->
+						itemsIndexed(
+							items = contentCollection.songs,
+							key = { _, song -> song.id }
+						) { index, song ->
 							val download = allDownloads.find { it.songId == song.id }
 							Box {
 								CollectionDetailScreenSongRow(

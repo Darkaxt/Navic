@@ -331,7 +331,7 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
-	fun displayRowsKeepLocalOnlySongsWhenAurralHasPartialAlbumData() {
+	fun displayRowsDoNotAppendLocalOnlySongsWhenAurralHasPartialAlbumData() {
 		val ownedSong = song(title = "Owned", trackNumber = 1)
 		val localOnlySong = song(title = "Local Only", trackNumber = 2)
 		val rows = aurralAlbumDisplayRows(
@@ -349,13 +349,53 @@ class AurralAlbumRecoveryPolicyTest {
 			)
 		)
 
-		assertEquals(listOf("Owned", "Local Only"), rows.map { it.title })
-		assertEquals(localOnlySong, rows[1].localSong)
-		assertEquals(AurralOwnershipStatus.Owned, rows[1].ownershipStatus)
+		assertEquals(listOf("Owned"), rows.map { it.title })
+		assertEquals(ownedSong, rows.single().localSong)
+		assertEquals(AurralOwnershipStatus.Owned, rows.single().ownershipStatus)
 	}
 
 	@Test
-	fun displayRowsPlaceLocalOnlySongsIntoAurralTrackNumberGaps() {
+	fun displayRowsDoNotAppendLocalOnlyDuplicatesWhenAurralTracksExist() {
+		val localSong = song(
+			id = "song-test-drive-primary",
+			title = "Test Drive",
+			musicBrainzId = "recording-test-drive",
+			trackNumber = 1,
+			durationSeconds = 164
+		)
+		val duplicateLocalSong = song(
+			id = "song-test-drive-duplicate",
+			title = "Test Drive",
+			musicBrainzId = null,
+			trackNumber = 2,
+			durationSeconds = 164
+		)
+		val rows = aurralAlbumDisplayRows(
+			album = album(
+				name = "How to Train Your Dragon - For Your Consideration Best Original Score [2 CD]",
+				songs = listOf(localSong, duplicateLocalSong)
+			),
+			recoveryRows = listOf(
+				AurralAlbumRecoveryTrackRow(
+					track = AurralAlbumRecoveryTrack(
+						id = "aurral-test-drive",
+						title = "Test Drive",
+						recordingMbid = "recording-test-drive",
+						trackNumber = 1,
+						durationMs = 164_000
+					),
+					localSong = localSong,
+					ownershipStatus = AurralOwnershipStatus.Owned
+				)
+			)
+		)
+
+		assertEquals(listOf("Test Drive"), rows.map { it.title })
+		assertEquals(localSong, rows.single().localSong)
+	}
+
+	@Test
+	fun displayRowsDoNotPlaceLocalOnlySongsIntoAurralTrackNumberGaps() {
 		val localOnlySong = song(
 			title = "Ori, Lost In the Storm (feat. Aeralie Brighton)",
 			trackNumber = 1
@@ -400,16 +440,17 @@ class AurralAlbumRecoveryPolicyTest {
 		assertEquals(
 			listOf(
 				"Main Theme - Definitive Edition",
-				"Ori, Lost In the Storm (feat. Aeralie Brighton)",
 				"Naru, Embracing the Light",
 				"The Blinded Forest"
 			),
 			rows.map { it.title }
 		)
-		assertEquals(listOf(1, 2, 3, 4), rows.map { it.trackNumber })
+		assertEquals(listOf(1, 3, 4), rows.map { it.trackNumber })
 		assertNull(rows[0].localSong)
-		assertEquals(localOnlySong, rows[1].localSong)
-		assertEquals(AurralOwnershipStatus.Owned, rows[1].ownershipStatus)
+		assertNull(rows[1].localSong)
+		assertNull(rows[2].localSong)
+		assertEquals(AurralOwnershipStatus.Missing, rows[0].ownershipStatus)
+		assertEquals(AurralOwnershipStatus.Missing, rows[1].ownershipStatus)
 		assertEquals(AurralOwnershipStatus.Missing, rows[2].ownershipStatus)
 	}
 
@@ -448,8 +489,35 @@ class AurralAlbumRecoveryPolicyTest {
 			)
 		)
 
-		assertEquals(listOf(1, 1, 1), rows.map { aurralAlbumDisplayDiscKey(it) })
+		assertEquals(listOf(1, 1), rows.map { aurralAlbumDisplayDiscKey(it) })
 		assertEquals(1, rows.groupBy(::aurralAlbumDisplayDiscKey).size)
+	}
+
+	@Test
+	fun displayRowKeyPrefersCanonicalAurralIdentityBeforeLocalSong() {
+		val row = AurralAlbumDisplayRow(
+			track = AurralAlbumRecoveryTrack(
+				id = "aurral-track-1",
+				title = "Test Drive",
+				recordingMbid = "recording-1",
+				discNumber = 1,
+				trackNumber = 1
+			),
+			localSong = song(
+				id = "local-duplicate",
+				title = "Test Drive",
+				trackNumber = 1
+			),
+			ownershipStatus = AurralOwnershipStatus.Owned,
+			title = "Test Drive",
+			artistName = "John Powell",
+			discNumber = 1,
+			trackNumber = 1,
+			durationMs = null,
+			previewUrl = null
+		)
+
+		assertEquals("aurral:aurral-track-1", aurralAlbumDisplayRowKey(row))
 	}
 
 	@Test
@@ -720,13 +788,14 @@ class AurralAlbumRecoveryPolicyTest {
 	)
 
 	private fun song(
+		id: String? = null,
 		title: String,
 		musicBrainzId: String? = null,
 		trackNumber: Int? = null,
 		discNumber: Int? = null,
 		durationSeconds: Int = 180
 	) = DomainSong(
-		id = "song-$title",
+		id = id ?: "song-$title",
 		title = title,
 		artistName = "Song Artist",
 		artistId = "song-artist",

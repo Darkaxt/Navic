@@ -119,6 +119,35 @@ class PerformanceAntiRegressionGuardTest {
 	}
 
 	@Test
+	fun aurralAlbumDisplayRowsDoNotAppendLocalOnlyRowsWhenRecoveryRowsExist() {
+		val source = File("src/commonMain/kotlin/paige/navic/ui/screens/collection/AurralAlbumRecoveryPolicy.kt").readText()
+		val body = source
+			.substringAfter("fun aurralAlbumDisplayRows(")
+			.substringBefore("fun aurralAlbumHeaderActionStatus(")
+		assertFalse(
+			"localOnlyRows" in body,
+			"Aurral album display rows must not append local-only Navidrome rows once Aurral recovery rows exist."
+		)
+		assertFalse(
+			"aurralAlbumLocalOnlyDisplayRows" in source,
+			"The old local-only append helper must stay deleted; Aurral owns the canonical album track list."
+		)
+	}
+
+	@Test
+	fun collectionDetailAlbumRowsUseStableKeys() {
+		val source = File("src/commonMain/kotlin/paige/navic/ui/screens/collection/CollectionDetailScreen.kt").readText()
+		assertTrue(
+			"key = { _, row -> aurralAlbumDisplayRowKey(row) }" in source,
+			"Aurral album rows must be keyed by canonical row identity, not lazy-list position."
+		)
+		assertTrue(
+			"key = { _, song -> song.id }" in source,
+			"Plain collection rows must remain keyed by local song id."
+		)
+	}
+
+	@Test
 	fun coverArtArtGridAreMadeSkippableViaStabilityConfig() {
 		val conf = File("stability_config.conf")
 		assertTrue(conf.isFile, "composeApp/stability_config.conf must exist to mark Map stable.")
