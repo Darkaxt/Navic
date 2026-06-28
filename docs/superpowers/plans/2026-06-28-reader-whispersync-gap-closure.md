@@ -174,6 +174,7 @@ Each stage is a complete deliverable:
 - Reader launch now derives the Whispersync artifact id from sidecar paths such as `/opds/books/3809/sync/8` when the route omits the explicit artifact id, guarded by `ReaderWhispersyncLaunchPolicyTest`.
 - The page-scoped Whispersync probe no longer awaits Foliate `goToHref` promises for diagnostic jumps, because Foliate can emit `loadDoc`/relocation state without settling the promise. This keeps the probe from reporting false failures while still snapshotting real visible ranges.
 - Media-overlay audio-follow now refuses to start a second runtime relocation while a user/probe relocation is already active. The slice is guarded by `ReaderRuntimeAssetsTest.androidReaderDoesNotLetMediaOverlayFollowInterruptUserRelocation` and validated by readerdev evidence that unsupported page navigation remains on `OEBPS/xhtml/mini_toc.xhtml` after a prior audio-follow overlay.
+- Whispersync companion progress now derives its artifact id from sidecar paths such as `/opds/books/3809/sync/8` when the reader route omits the explicit artifact id. This aligns progress persistence with reader launch identity and is guarded by `BinderyContinueShelfPolicyTest.readerProgressDerivesWhispersyncCompanionArtifactIdFromSidecarPathWhenMissing`; full exact companion reopen remains a separate readerdev validation gate.
 
 **Main files:**
 - `composeApp/src/commonMain/kotlin/paige/navic/reader/WhispersyncModels.kt`

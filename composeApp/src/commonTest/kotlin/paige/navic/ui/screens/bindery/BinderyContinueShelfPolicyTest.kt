@@ -287,6 +287,45 @@ class BinderyContinueShelfPolicyTest {
 	}
 
 	@Test
+	fun readerProgressDerivesWhispersyncCompanionArtifactIdFromSidecarPathWhenMissing() {
+		val reader = Screen.Reader(
+			title = "Bastille",
+			publicationUrl = "https://bindery.local/opds/books/3809/resources/ebook-426",
+			bookId = "3809",
+			resourceHref = "/opds/books/3809/resources/ebook-426",
+			kind = ReaderPublicationKind.Ebook,
+			whispersyncSidecarUrl = "/opds/books/3809/sync/8",
+			whispersyncArtifactId = null,
+			whispersyncAudiobookId = "34",
+			whispersyncAudiobookBookFileId = "633",
+			whispersyncAudiobookTitle = "Bastille Audio"
+		)
+		val progress = BinderyReadingProgress(
+			bookId = "3809",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3809/resources/ebook-426",
+			progressFraction = 0.12
+		)
+
+		assertEquals(
+			BinderyWhispersyncCompanionProgress(
+				bookId = "3809",
+				ebookResourceHref = "/opds/books/3809/resources/ebook-426",
+				audiobookId = "34",
+				audiobookBookFileId = "633",
+				artifactId = "8",
+				progressFraction = 0.12,
+				updatedAtMs = 900L
+			),
+			binderyWhispersyncCompanionProgressForReader(
+				reader = reader,
+				progress = progress,
+				updatedAtMs = 900L
+			)
+		)
+	}
+
+	@Test
 	fun readerProgressCreatesWhispersyncCompanionProgressWithSidecarTrackIndex() {
 		val reader = Screen.Reader(
 			title = "Bastille",

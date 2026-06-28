@@ -306,7 +306,9 @@ fun binderyWhispersyncCompanionProgressForReader(
 		?: return null
 	val audiobookId = reader.whispersyncAudiobookId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
 	val audiobookBookFileId = reader.whispersyncAudiobookBookFileId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-	val artifactId = reader.whispersyncArtifactId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val artifactId = reader.whispersyncArtifactId?.trim()?.takeIf { it.isNotEmpty() }
+		?: reader.whispersyncSidecarUrl?.derivedWhispersyncArtifactId()
+		?: return null
 	return BinderyWhispersyncCompanionProgress(
 		bookId = reader.bookId.trim(),
 		ebookResourceHref = readerResourceHref,
@@ -341,6 +343,16 @@ private fun BinderyReadingProgress.resourceKeyHref(): String? {
 	}
 	val safeBookId = bookId.trim().takeIf { it.isNotEmpty() } ?: return safeResourceKey
 	return "/opds/books/$safeBookId/resources/$safeResourceKey"
+}
+
+private fun String.derivedWhispersyncArtifactId(): String? {
+	val path = substringBefore('#')
+		.substringBefore('?')
+		.trim()
+		.trimEnd('/')
+	return path.substringAfterLast('/', missingDelimiterValue = path)
+		.trim()
+		.takeIf { it.isNotEmpty() }
 }
 
 private fun decodeBinderyWhispersyncCompanionProgressStore(
