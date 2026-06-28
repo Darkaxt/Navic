@@ -184,6 +184,65 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
+	fun sidecarTrackIndexWinsOverStaleResourceMatch() {
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = ReadaloudPlaybackPlan(
+				sessionId = "repaired-book",
+				title = "Repaired audiobook",
+				kind = ReaderPublicationKind.Readaloud,
+				mediaItems = listOf(
+					ReadaloudMediaItemDescriptor(
+						mediaId = "stale-track",
+						uri = "https://bindery.local/files/old-release/chapter01.m4b",
+						title = "Old release chapter",
+						subtitle = null,
+						artist = "Narrator",
+						albumTitle = "Repaired audiobook",
+						albumArtist = "Author",
+						trackNumber = 1,
+						discNumber = null,
+						requestHeaders = emptyMap(),
+						resourceKey = "old-release/chapter01.m4b"
+					),
+					ReadaloudMediaItemDescriptor(
+						mediaId = "sidecar-track",
+						uri = "https://bindery.local/files/new-release/chapter01.m4b",
+						title = "New release chapter",
+						subtitle = null,
+						artist = "Narrator",
+						albumTitle = "Repaired audiobook",
+						albumArtist = "Author",
+						trackNumber = 2,
+						discNumber = null,
+						requestHeaders = emptyMap(),
+						resourceKey = "new-release/chapter01.m4b"
+					)
+				),
+				startTrackIndex = 0,
+				startPositionMs = 0L,
+				playbackSpeed = 1f
+			),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "old-release/chapter01.m4b",
+				positionMs = 91_000L,
+				segment = WhispersyncSegment(
+					audioTrackIndex = 1,
+					audioResource = "old-release/chapter01.m4b",
+					startMs = 91_000L,
+					endMs = 94_000L,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 40,
+					textEnd = 100
+				)
+			)
+		)
+
+		val seekCommand = assertIs<ReaderReadaloudPlaybackCommand.SeekToTrack>(command)
+		assertEquals(1, seekCommand.trackIndex)
+		assertEquals(91_000L, seekCommand.positionMs)
+	}
+
+	@Test
 	fun whispersyncControlIsHiddenWhenReaderHasNoSyncedAudio() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(),

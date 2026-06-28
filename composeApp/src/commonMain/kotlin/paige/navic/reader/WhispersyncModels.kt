@@ -359,13 +359,14 @@ private fun WhispersyncSegment.matchesAudioResourceOrTrack(
 	normalizedAudioCandidates: List<String>,
 	audioTrackIndex: Int?
 ): Boolean {
+	if (audioTrackIndex != null && this.audioTrackIndex != null) {
+		return this.audioTrackIndex == audioTrackIndex
+	}
 	val resourceMatches = audioResourceCandidates().any { candidate ->
 		candidate in normalizedAudioCandidates
 	}
 	if (resourceMatches) return true
-	return audioTrackIndex != null &&
-		this.audioTrackIndex != null &&
-		this.audioTrackIndex == audioTrackIndex
+	return false
 }
 
 internal fun WhispersyncSegment.audioResourceCandidates(): List<String> =

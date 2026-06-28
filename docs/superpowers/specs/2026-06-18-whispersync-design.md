@@ -55,9 +55,9 @@ Implemented and covered by source/tests:
 - Controller/coordinator propagation of `WhispersyncAudioSeekTarget`.
 - Reader-side audiobook manifest loading for paired Whispersync routes.
 - Visible text range seek targets consumed by `ReaderScreen` through `AudiobookPlaybackManager`.
-- Seek target to audiobook track matching, including relative sidecar resources against absolute Bindery playback URLs.
+- Seek target to audiobook track matching, including relative sidecar resources against absolute Bindery playback URLs. Explicit sidecar `audioTrackIndex` is authoritative over stale resource-name matches when it is present and valid.
 - Audiobook playback state fed back into `ReaderController.onReadaloudPlaybackState(...)` for Whispersync overlay/highlight commands.
-- Playback-position to text overlay matching through `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)`.
+- Playback-position to text overlay matching through `ReaderWhispersyncSyncCoordinator.onAudiobookPlaybackPosition(...)`. When both playback state and sidecar segment provide track identity, track-index disagreement blocks a stale resource match from activating the wrong text segment.
 - Character-offset ASR cues now survive `WhispersyncSegment -> ReaderOverlayFragment -> ReaderBridgeCommand.ApplyOverlayFragment -> overlayFragmentActive` and the Foliate runtime can mark a raw text-node range when a sidecar segment has no EPUB fragment id.
 - Controller-owned Whispersync status state for ready, page-to-audio seek, audiobook playback, paused sync, and mismatch states.
 - Native Komikku overlay route for Whispersync mismatch status so the sync path is not silently failing.

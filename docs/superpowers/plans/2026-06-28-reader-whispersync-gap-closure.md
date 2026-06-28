@@ -166,6 +166,8 @@ Each stage is a complete deliverable:
 
 **Purpose:** Make the paired ebook/audiobook experience usable: page-to-audio seek, audio-to-text follow, visual cue overlay, exact resume, and playback ownership.
 
+**Current completed slice:** Explicit sidecar track identity now wins over stale or generic audio resource names in both page-to-audio seek command creation and audio-follow active segment matching. The slice was guarded by red-first tests in `ReaderWhispersyncPlaybackPolicyTest` and `WhispersyncTimelineParserTest`, then validated with `:composeApp:testAndroid`.
+
 **Main files:**
 - `composeApp/src/commonMain/kotlin/paige/navic/reader/WhispersyncModels.kt`
 - `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderWhispersyncSyncCoordinator.kt`
@@ -188,8 +190,8 @@ Each stage is a complete deliverable:
 - `scripts/adb-reader-komikku-matrix.ps1`
 - Existing DevTools probes under `scripts` or captured probe paths referenced by `docs/superpowers/specs/2026-06-18-whispersync-design.md`.
 
-- [ ] Add a failing coordinator or progress test for the next concrete playback-sync gap.
-- [ ] Implement pure model/coordinator changes before Android playback glue.
+- [x] Add a failing coordinator or progress test for the next concrete playback-sync gap.
+- [x] Implement pure model/coordinator changes before Android playback glue.
 - [ ] Validate page-to-audio and audio-to-reader direction separately in readerdev.
 - [ ] Validate exact companion progress reopen in readerdev.
 - [ ] Commit only after host tests and readerdev evidence pass.

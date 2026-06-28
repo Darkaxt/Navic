@@ -7588,3 +7588,28 @@ Results:
 
 Remaining:
 - Current readerdev does not reproduce the “headings scale but body text does not” issue. Treat future reports as either release-version drift or a specific EPUB/layout case and capture that exact book/page before changing typography.
+
+
+## 2026-06-28 Stage 5 Whispersync Track Identity Contract
+
+Scope:
+- Close the resource/track ambiguity gap from the Whispersync implementation review.
+- Ensure explicit sidecar track identity is not silently overridden by stale or generic resource names.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest.sidecarTrackIndexWinsOverStaleResourceMatch" --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.WhispersyncTimelineParserTest.activeSegmentDoesNotLetStaleResourceOverrideExplicitTrackIndex" --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/GREEN: `sidecarTrackIndexWinsOverStaleResourceMatch` first failed because a stale resource match selected track `0`; after the policy change, sidecar `audioTrackIndex=1` selected track `1`.
+- RED/GREEN: `activeSegmentDoesNotLetStaleResourceOverrideExplicitTrackIndex` first failed because audio-follow accepted a same-resource segment even though playback reported a conflicting track index; after the model change, explicit track disagreement rejects that segment.
+- GREEN/SUITE: `:composeApp:testAndroid` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- This is host/model proof. It does not replace the release/device enjoyment pass for a real paired ebook/audiobook session.

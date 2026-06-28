@@ -58,6 +58,9 @@ fun readerWhispersyncPlaybackCommandForSeekTarget(
 private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
 	seekTarget: WhispersyncAudioSeekTarget
 ): Int? {
+	seekTarget.segment.audioTrackIndex
+		?.takeIf { trackIndex -> trackIndex in mediaItems.indices }
+		?.let { return it }
 	val targetCandidates = (listOf(seekTarget.audioResource) + seekTarget.segment.audioResourceCandidates())
 		.flatMap(String::normalizedWhispersyncResourceCandidates)
 		.toSet()
@@ -71,8 +74,5 @@ private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
 		}
 	}.takeIf { index -> index >= 0 }
 	if (exactIndex != null) return exactIndex
-	seekTarget.segment.audioTrackIndex
-		?.takeIf { trackIndex -> trackIndex in mediaItems.indices }
-		?.let { return it }
 	return 0.takeIf { mediaItems.size == 1 }
 }

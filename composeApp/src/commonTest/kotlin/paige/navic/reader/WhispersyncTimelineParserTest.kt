@@ -380,6 +380,32 @@ class WhispersyncTimelineParserTest {
 	}
 
 	@Test
+	fun activeSegmentDoesNotLetStaleResourceOverrideExplicitTrackIndex() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "sidecar-track",
+					audioTrackIndex = 1,
+					audioResource = "old-release/chapter01.m4b",
+					startMs = 9_000,
+					endMs = 12_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 10,
+					textEnd = 30
+				)
+			)
+		)
+
+		val segment = timeline.activeSegment(
+			audioResource = "old-release/chapter01.m4b",
+			audioTrackIndex = 0,
+			positionMs = 10_500
+		)
+
+		assertNull(segment)
+	}
+
+	@Test
 	fun missingDocumentTextLengthKeepsUsableSegments() {
 		val sidecar = decodeWhispersyncSidecar(
 			"""
