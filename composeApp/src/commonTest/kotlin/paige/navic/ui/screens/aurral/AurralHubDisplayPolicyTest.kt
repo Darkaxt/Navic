@@ -1001,16 +1001,31 @@ class AurralHubDisplayPolicyTest {
 
 	@Test
 	fun albumSearchDestinationRoutesLibraryAlbumsToCollectionDetail() {
-		assertEquals(
-			Screen.CollectionDetail("local-album", "search"),
-			aurralAlbumSearchDestination(
-				albumSearchItem(
-					id = "release",
-					title = "Album",
-					inLibrary = true,
-					libraryAlbumId = " local-album "
-				)
+		val destination = aurralAlbumSearchDestination(
+			AurralAlbumSearchItem(
+				id = "release",
+				title = "Album",
+				artistName = "Artist",
+				artistMbid = "artist-mbid",
+				releaseDate = "2020-01-01",
+				primaryType = "Album",
+				coverUrl = "https://aurral.example.com/album.jpg",
+				status = "available",
+				inLibrary = true,
+				libraryAlbumId = " local-album "
 			)
+		)
+
+		assertTrue(destination is Screen.CollectionDetail)
+		assertEquals("local-album", destination.collectionId)
+		assertEquals("search", destination.tab)
+		val rendered = destination.toString()
+		assertTrue(
+			"aurralReleaseGroupId=release" in rendered &&
+				"aurralTitle=Album" in rendered &&
+				"aurralArtistMbid=artist-mbid" in rendered &&
+				"aurralCoverUrl=https://aurral.example.com/album.jpg" in rendered,
+			"Owned Aurral album routes must preserve known catalog identity instead of returning a plain CollectionDetail route: $rendered"
 		)
 	}
 

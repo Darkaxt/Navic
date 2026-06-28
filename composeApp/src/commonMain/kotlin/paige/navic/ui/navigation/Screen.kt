@@ -226,7 +226,16 @@ sealed interface Screen : NavKey {
 	@Serializable
 	data class CollectionDetail(
 		val collectionId: String,
-		val tab: String
+		val tab: String,
+		val aurralReleaseGroupId: String? = null,
+		val aurralTitle: String? = null,
+		val aurralArtistMbid: String? = null,
+		val aurralArtistName: String? = null,
+		val aurralReleaseDate: String? = null,
+		val aurralPrimaryType: String? = null,
+		val aurralSecondaryTypes: List<String> = emptyList(),
+		val aurralCoverUrl: String? = null,
+		val aurralStatus: String? = null
 	) : Screen
 
 	@Immutable

@@ -94,6 +94,8 @@ import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRo
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenTopBar
 import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreByArtistRow
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.aurral.aurralAlbumSearchItemOrNull
 import paige.navic.ui.screens.aurral.aurralSearchAlbumOwnershipStatus
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
@@ -105,8 +107,22 @@ import kotlin.time.Duration.Companion.milliseconds
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun CollectionDetailScreen(
+	route: Screen.CollectionDetail
+) {
+	val aurralAlbumRouteHint = route.aurralAlbumSearchItemOrNull()
+	CollectionDetailScreen(
+		collectionId = route.collectionId,
+		tab = route.tab,
+		aurralAlbumRouteHint = aurralAlbumRouteHint
+	)
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CollectionDetailScreen(
 	collectionId: String,
-	tab: String
+	tab: String,
+	aurralAlbumRouteHint: paige.navic.domain.repositories.AurralAlbumSearchItem?
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
@@ -119,6 +135,9 @@ fun CollectionDetailScreen(
 		key = collectionId,
 		parameters = { parametersOf(collectionId) }
 	)
+	LaunchedEffect(aurralAlbumRouteHint) {
+		viewModel.applyAurralAlbumRouteHint(aurralAlbumRouteHint)
+	}
 
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsStateWithLifecycle()

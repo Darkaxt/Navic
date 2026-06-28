@@ -75,7 +75,46 @@ fun aurralAlbumSearchRoute(album: AurralAlbumSearchItem): Screen.AurralMissingAl
 fun aurralAlbumSearchDestination(album: AurralAlbumSearchItem): Screen? {
 	val libraryAlbumId = album.libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() }
 	if (album.inLibrary && libraryAlbumId != null) {
-		return Screen.CollectionDetail(libraryAlbumId, "search")
+		return aurralAlbumCollectionDetailRoute(album, libraryAlbumId, tab = "search")
 	}
 	return aurralAlbumSearchRoute(album)
+}
+
+fun aurralAlbumCollectionDetailRoute(
+	album: AurralAlbumSearchItem,
+	libraryAlbumId: String,
+	tab: String
+): Screen.CollectionDetail =
+	Screen.CollectionDetail(
+		collectionId = libraryAlbumId.trim(),
+		tab = tab,
+		aurralReleaseGroupId = album.id.trim().takeIf { it.isNotEmpty() },
+		aurralTitle = album.title.trim().takeIf { it.isNotEmpty() },
+		aurralArtistMbid = album.artistMbid.trim().takeIf { it.isNotEmpty() },
+		aurralArtistName = album.artistName.trim().takeIf { it.isNotEmpty() },
+		aurralReleaseDate = album.releaseDate?.trim()?.takeIf { it.isNotEmpty() },
+		aurralPrimaryType = album.primaryType?.trim()?.takeIf { it.isNotEmpty() },
+		aurralSecondaryTypes = album.secondaryTypes.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		aurralCoverUrl = album.coverUrl?.trim()?.takeIf { it.isNotEmpty() },
+		aurralStatus = album.status?.trim()?.takeIf { it.isNotEmpty() }
+	)
+
+fun Screen.CollectionDetail.aurralAlbumSearchItemOrNull(): AurralAlbumSearchItem? {
+	val releaseGroupId = aurralReleaseGroupId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val title = aurralTitle?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	val artistMbid = aurralArtistMbid?.trim()?.takeIf { it.isNotEmpty() }.orEmpty()
+	val artistName = aurralArtistName?.trim()?.takeIf { it.isNotEmpty() }.orEmpty()
+	return AurralAlbumSearchItem(
+		id = releaseGroupId,
+		title = title,
+		artistName = artistName,
+		artistMbid = artistMbid,
+		releaseDate = aurralReleaseDate?.trim()?.takeIf { it.isNotEmpty() },
+		primaryType = aurralPrimaryType?.trim()?.takeIf { it.isNotEmpty() },
+		secondaryTypes = aurralSecondaryTypes.mapNotNull { it.trim().takeIf(String::isNotEmpty) },
+		coverUrl = aurralCoverUrl?.trim()?.takeIf { it.isNotEmpty() },
+		inLibrary = true,
+		libraryAlbumId = collectionId,
+		status = aurralStatus?.trim()?.takeIf { it.isNotEmpty() }
+	)
 }

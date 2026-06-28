@@ -203,6 +203,24 @@ class CollectionDetailViewModel(
 	}
 
 	private var refreshCollectionJob: Job? = null
+	private var aurralAlbumRouteHint: AurralAlbumSearchItem? = null
+
+	fun applyAurralAlbumRouteHint(hint: AurralAlbumSearchItem?) {
+		if (hint == null) return
+		val normalizedHintId = hint.id.trim()
+		val currentHint = aurralAlbumRouteHint
+		if (currentHint?.id?.trim() == normalizedHintId &&
+			currentHint.libraryAlbumId?.trim() == hint.libraryAlbumId?.trim()
+		) {
+			return
+		}
+		aurralAlbumRouteHint = hint
+		aurralAlbumRecoveryKey = null
+		val album = _collectionState.value.data as? DomainAlbum ?: return
+		viewModelScope.launch(Dispatchers.IO) {
+			refreshAurralAlbumRecovery(album)
+		}
+	}
 
 	fun refreshCollection(fullRefresh: Boolean) {
 		refreshAurralAcquisitionRequests()
@@ -235,6 +253,10 @@ class CollectionDetailViewModel(
 	}
 
 	private suspend fun refreshAurralAlbumRecovery(album: DomainAlbum) {
+		val routeHint = aurralAlbumRouteHint?.takeIf { hint ->
+			val hintedLibraryAlbumId = hint.libraryAlbumId?.trim()
+			hintedLibraryAlbumId == null || hintedLibraryAlbumId == album.id
+		}
 		val recoveryKey = buildString {
 			append(album.id)
 			append('|')
@@ -245,6 +267,8 @@ class CollectionDetailViewModel(
 			append(album.songs.joinToString("|") { song ->
 				"${song.id}:${song.title}:${song.musicBrainzId}:${song.discNumber}:${song.trackNumber}:${song.duration}"
 			})
+			append("|routeHint:")
+			append(routeHint?.id?.trim().orEmpty())
 		}
 		if (aurralAlbumRecoveryKey == recoveryKey) return
 		aurralAlbumRecoveryKey = recoveryKey
@@ -257,6 +281,15 @@ class CollectionDetailViewModel(
 		if (!preferenceManager.aurralEnabled) return
 		_aurralAlbumRecoveryLoading.value = true
 		updateAurralAlbumPageState()
+		if (routeHint != null) {
+			_aurralAlbumRecoveryMatch.value = routeHint
+			_aurralAlbumRecoveryCandidates.value = emptyList()
+			loadAurralAlbumRecoveryTracks(album, routeHint)
+			loadAurralMoreByArtistRows(album, routeHint)
+			_aurralAlbumRecoveryLoading.value = false
+			updateAurralAlbumPageState()
+			return
+		}
 		val candidates = mutableListOf<AurralAlbumSearchItem>()
 		val candidateIds = mutableSetOf<String>()
 		var match: AurralAlbumSearchItem? = null

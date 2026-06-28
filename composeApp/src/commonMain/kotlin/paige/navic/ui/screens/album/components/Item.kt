@@ -21,9 +21,11 @@ import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
+import paige.navic.ui.screens.aurral.aurralAlbumCollectionDetailRoute
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import navic.composeapp.generated.resources.Res
@@ -36,6 +38,7 @@ fun AlbumListScreenItem(
 	modifier: Modifier = Modifier,
 	tab: String,
 	album: DomainAlbum,
+	aurralAlbumMatch: AurralAlbumSearchItem? = null,
 	aurralAlbumRequests: List<AurralAlbumRequest>,
 	ownershipStatus: AurralOwnershipStatus? = null,
 	selected: Boolean,
@@ -56,19 +59,26 @@ fun AlbumListScreenItem(
 	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 
 	var playlistDialogShown by rememberSaveable { mutableStateOf(false) }
+	val displayedTitle = aurralAlbumMatch?.title?.cleanAlbumCardText() ?: album.name
+	val displayedSubtitle = aurralAlbumCardSubtitle(aurralAlbumMatch, album)
+	val displayedImageUrl = aurralAlbumMatch?.coverUrl?.cleanAlbumCardText()
+	val displayedImageCacheKey = aurralAlbumMatch?.id?.cleanAlbumCardText()?.let { "aurral-album:$it" }
+	val displayedCoverArtId = album.coverArtId.takeIf { displayedImageUrl == null }
 
 	Box(modifier) {
 		ArtGridItem(
 			onClick = dropUnlessResumed {
 				platformContext.clickSound()
 				scope.launch {
-					backStack.add(Screen.CollectionDetail(album.id, tab))
+					backStack.add(aurralAlbumCollectionDetailRoute(album, aurralAlbumMatch, tab))
 				}
 			},
 			onLongClick = onSelect,
-			coverArtId = album.coverArtId,
-			title = album.name,
-			subtitle = album.artistName,
+			coverArtId = displayedCoverArtId,
+			imageUrl = displayedImageUrl,
+			imageCacheKey = displayedImageCacheKey,
+			title = displayedTitle,
+			subtitle = displayedSubtitle,
 			acquisitionProgress = aurralAlbumAcquisitionProgress(
 				album = album,
 				requests = aurralAlbumRequests
@@ -132,3 +142,27 @@ fun AlbumListScreenItem(
 		}
 	}
 }
+
+fun aurralAlbumCollectionDetailRoute(
+	album: DomainAlbum,
+	aurralAlbumMatch: AurralAlbumSearchItem?,
+	tab: String
+): Screen.CollectionDetail =
+	if (aurralAlbumMatch != null) {
+		aurralAlbumCollectionDetailRoute(aurralAlbumMatch, album.id, tab)
+	} else {
+		Screen.CollectionDetail(album.id, tab)
+	}
+
+private fun aurralAlbumCardSubtitle(
+	aurralAlbumMatch: AurralAlbumSearchItem?,
+	album: DomainAlbum
+): String? {
+	val artistName = aurralAlbumMatch?.artistName?.cleanAlbumCardText() ?: album.artistName
+	val year = aurralAlbumMatch?.releaseDate?.cleanAlbumCardText()?.take(4)?.takeIf { value ->
+		value.length == 4 && value.all(Char::isDigit)
+	}
+	return listOfNotNull(artistName, year).distinct().joinToString(" • ").takeIf { it.isNotBlank() }
+}
+
+private fun String.cleanAlbumCardText(): String? = trim().takeIf { it.isNotEmpty() }
