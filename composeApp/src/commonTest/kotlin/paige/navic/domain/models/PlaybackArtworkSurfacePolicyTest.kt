@@ -75,14 +75,17 @@ class PlaybackArtworkSurfacePolicyTest {
 	fun nowPlayingPaletteExtractionUsesVisiblePlaybackArtworkPolicy() {
 		val path = "src/commonMain/kotlin/paige/navic/ui/navigation/NowPlayingScene.kt"
 		val source = File(path).readText()
+		val resolverSource = File(
+			"src/commonMain/kotlin/paige/navic/ui/components/common/ResolvedArtworkColorScheme.kt"
+		).readText()
 
 		assertTrue(
 			"rememberPlaybackArtworkUiState(" in source,
 			"$path must use shared playback artwork state before palette extraction."
 		)
 		assertTrue(
-			"dominantColorArtworkUrl(" in source,
-			"$path must route palette extraction through the shared dominant color artwork policy."
+			"dominantColorArtworkUrl(" in resolverSource,
+			"Palette extraction must route through the shared dominant color artwork policy."
 		)
 		assertFalse(
 			"song?.coverArtId?.let { sessionManager.getCoverArtUrl(it) }" in source,

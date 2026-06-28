@@ -90,6 +90,7 @@ data class BinderyAudiobookVersion(
 	val bitrateBps: Long? = null,
 	val sampleRateHz: Long? = null,
 	val channels: Int? = null,
+	val qualityScore: Double? = null,
 	val whispersyncAvailable: Boolean? = null,
 	val whispersyncReadyCount: Int? = null,
 	val whispersyncStatus: String? = null,
@@ -361,11 +362,14 @@ data class BinderyAudioMetadata(
 @Serializable
 data class BinderySourceReleaseMetadata(
 	val provider: String? = null,
+	val title: String? = null,
 	val sourceUrl: String? = null,
 	val narrator: String? = null,
 	val readBy: String? = null,
 	val edition: String? = null,
+	val editionType: String? = null,
 	val format: String? = null,
+	val bitrate: String? = null,
 	val categories: List<String> = emptyList(),
 	val keywords: List<String> = emptyList()
 )

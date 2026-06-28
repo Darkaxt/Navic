@@ -303,9 +303,11 @@ fun binderyBookVersionRows(
 	val audiobookVersionRows = audiobookVersions
 		.filter { version -> version.matchesLanguage(language) }
 		.sortedWith(
-			compareByDescending<BinderyAudiobookVersion> { version -> version.audioFormatQualityRank() }
-				.thenByDescending { version -> version.audioBytesPerSecond() }
-				.thenByDescending { version -> version.sizeBytes ?: 0L }
+			compareByDescending<BinderyAudiobookVersion> { version -> version.qualityScore ?: 0.0 }
+				.thenByDescending { version -> version.bitrateBps ?: 0L }
+				.thenByDescending { version -> version.sampleRateHz ?: 0L }
+				.thenByDescending { version -> version.durationMs ?: 0L }
+				.thenByDescending { version -> version.audioFormatQualityRank() }
 				.thenBy { version -> version.audiobookTitleLabel().lowercase() }
 		)
 		.map(BinderyAudiobookVersion::toAudiobookVersionRow)
@@ -617,11 +619,6 @@ private fun BinderyAudiobookVersion.displayCodec(): String? =
 
 private fun BinderyAudiobookVersion.audioFormatQualityRank(): Int =
 	displayCodec().audioFormatQualityRank()
-
-private fun BinderyAudiobookVersion.audioBytesPerSecond(): Double {
-	val durationSeconds = durationMs?.takeIf { it > 0L }?.toDouble()?.div(1000.0) ?: return 0.0
-	return (sizeBytes ?: 0L).toDouble() / durationSeconds
-}
 
 private fun audiobookDurationLabel(durationMs: Long): String {
 	val totalSeconds = (durationMs / 1000.0).roundToLong().coerceAtLeast(0L)

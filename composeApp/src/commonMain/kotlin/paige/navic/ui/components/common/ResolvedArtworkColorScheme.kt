@@ -24,6 +24,7 @@ import paige.navic.di.getStaticImageLoader
 import paige.navic.domain.manager.ArtworkColorManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.models.dominantColorArtworkUrl
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.util.color.toComposeImageBitmap
 import paige.navic.util.core.toNetworkHeaders
@@ -61,10 +62,13 @@ fun rememberResolvedArtworkColorScheme(
 		}
 	}
 	val serverCoverUri = remember(coverArtId) {
-		coverArtId?.let { sessionManager.getCoverArtUrl(it).withArtworkColorSize() }
+		coverArtId?.let { sessionManager.getCoverArtUrl(it) }
 	}
 	val sourceUrl = remember(imageUrl, serverCoverUri) {
-		imageUrl.nonBlankOrNull() ?: serverCoverUri.nonBlankOrNull()
+		dominantColorArtworkUrl(
+			serverArtworkUrl = serverCoverUri,
+			externalArtworkUrl = imageUrl
+		)
 	}
 	val artworkKey = remember(coverArtId, imageUrl, imageCacheKey) {
 		artworkColorCacheKey(
@@ -163,11 +167,3 @@ internal fun artworkColorCacheKey(
 
 private fun String?.nonBlankOrNull(): String? =
 	this?.trim()?.takeIf { it.isNotEmpty() }
-
-private fun String.withArtworkColorSize(): String {
-	val separator = when {
-		contains("?") -> if (endsWith("?") || endsWith("&")) "" else "&"
-		else -> "?"
-	}
-	return "$this${separator}size=128"
-}

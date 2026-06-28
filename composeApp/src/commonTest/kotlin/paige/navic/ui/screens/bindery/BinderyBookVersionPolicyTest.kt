@@ -81,6 +81,51 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun audiobookVersionsUseCurrentBinderyQualitySort() {
+		val rows = binderyBookVersionRows(
+			manifest = BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit"),
+			resourceCatalog = null,
+			languageFilter = "eng",
+			audiobookVersions = listOf(
+				BinderyAudiobookVersion(
+					id = 20,
+					bookId = 3816,
+					bookFileId = 607,
+					title = "The Hobbit",
+					language = "eng",
+					narrator = "Low score but large FLAC",
+					codec = "flac",
+					bitrateBps = 320_000,
+					sampleRateHz = 48_000,
+					durationMs = 10_000_000,
+					sizeBytes = 2_000_000_000,
+					qualityScore = 128_044.0
+				),
+				BinderyAudiobookVersion(
+					id = 69,
+					bookId = 3816,
+					bookFileId = 694,
+					title = "The Hobbit",
+					language = "eng",
+					narrator = "Current ready version",
+					codec = "mp3",
+					bitrateBps = 128_000,
+					sampleRateHz = 44_100,
+					durationMs = 9_000_000,
+					sizeBytes = 500_000_000,
+					qualityScore = 128_100.0
+				)
+			)
+		)
+
+		assertEquals(
+			listOf("69", "20"),
+			rows.filter { row -> row.kind == BinderyBookVersionKind.Audiobook }
+				.mapNotNull { row -> row.audiobookId }
+		)
+	}
+
+	@Test
 	fun bookVersionRowsAttachReadyWhispersyncPairsToMatchingOppositeRows() {
 		val resources = BinderyResourceCatalog(
 			title = "The Hobbit Resources",

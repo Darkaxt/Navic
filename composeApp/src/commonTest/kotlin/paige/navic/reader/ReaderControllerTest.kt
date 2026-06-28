@@ -649,6 +649,8 @@ class ReaderControllerTest {
 		val expectedProgress = BinderyReadingProgress(
 			bookId = "book-1",
 			kind = BinderyReadingProgressKind.Ebook,
+			resourceKey = "publication.epub",
+			href = "publication.epub",
 			resourceHref = "publication.epub",
 			textHref = "EPUB/Text/chapter-04.xhtml",
 			cfi = "epubcfi(/6/10!/4/3:12)",

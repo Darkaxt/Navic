@@ -83,6 +83,42 @@ class ReadaloudModelsTest {
 	}
 
 	@Test
+	fun binderyReadingOrderUsesCurrentSourceReleaseEditionTypeForLabels() {
+		val session = readaloudAudioSessionFromBindery(
+			manifest = BinderyManifest(
+				id = "urn:bindery:book:3816",
+				title = "The Hobbit",
+				author = "J.R.R. Tolkien"
+			),
+			readingOrder = listOf(
+				BinderyReadingOrderItem(
+					href = "/opds/books/3816/resources/audio-1",
+					title = "01 - An Unexpected Party.mp3",
+					type = "audio/mpeg",
+					metadata = BinderyResourceMetadata(
+						resourceKey = "audio-c310a962a70802eb2e65",
+						narrator = "Andy Serkis",
+						sourceRelease = BinderySourceReleaseMetadata(
+							provider = "audiobookbay",
+							title = "The Hobbit - J. R. R. Tolkien Audiobook MP3 [Unabridged]",
+							format = "mp3",
+							bitrate = "128 kbps",
+							editionType = "unabridged",
+							narrator = "Andy Serkis"
+						)
+					)
+				)
+			),
+			kind = ReaderPublicationKind.Readaloud
+		)
+
+		val track = session.tracks.single()
+		assertEquals("audiobookbay", track.sourceProviderLabel)
+		assertEquals("unabridged / mp3", track.sourceReleaseLabel)
+		assertEquals("Andy Serkis / audiobookbay", track.subtitleLabel)
+	}
+
+	@Test
 	fun playbackPlanNormalizesSpeedStartPositionAndBuildsReadaloudDescriptors() {
 		val session = ReadaloudAudioSession(
 			id = "urn:bindery:book:3693",

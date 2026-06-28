@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.math.roundToLong
 
 @Serializable
 internal data class BinderyCatalogDto(
@@ -289,8 +290,8 @@ private fun Map<String, JsonElement>.toResourceMetadata(): BinderyResourceMetada
 private fun JsonObject?.toAudioMetadata(fallback: Map<String, JsonElement>): BinderyAudioMetadata? {
 	val audio = BinderyAudioMetadata(
 		codec = this?.stringValue("codec") ?: fallback.stringValue("codec"),
-		bitrateKbps = (this?.intValue("bitrateKbps") ?: fallback.intValue("bitrateKbps"))?.takeIf { it > 0 },
-		sampleRateHz = (this?.longValue("sampleRateHz") ?: fallback.longValue("sampleRateHz"))?.takeIf { it > 0L },
+		bitrateKbps = bitrateKbpsValue(fallback),
+		sampleRateHz = sampleRateHzValue(fallback),
 		channels = (this?.intValue("channels") ?: fallback.intValue("channels"))?.takeIf { it > 0 },
 		qualityLabel = this?.stringValue("qualityLabel") ?: fallback.stringValue("qualityLabel"),
 		qualityScore = this?.doubleValue("qualityScore") ?: fallback.doubleValue("qualityScore")
@@ -298,14 +299,42 @@ private fun JsonObject?.toAudioMetadata(fallback: Map<String, JsonElement>): Bin
 	return audio.takeIf(BinderyAudioMetadata::hasContent)
 }
 
+private fun JsonObject?.bitrateKbpsValue(fallback: Map<String, JsonElement>): Int? {
+	val directKbps = this?.intValue("bitrateKbps") ?: fallback.intValue("bitrateKbps")
+	if (directKbps != null && directKbps > 0) return directKbps
+	val bitrateBps = this?.longValue("bitrate")
+		?: this?.longValue("bitrateBps")
+		?: fallback.longValue("bitrate")
+		?: fallback.longValue("bitrateBps")
+	return bitrateBps
+		?.takeIf { it > 0L }
+		?.let { (it / 1000L).coerceAtLeast(1L).toInt() }
+}
+
+private fun JsonObject?.sampleRateHzValue(fallback: Map<String, JsonElement>): Long? {
+	val directHz = this?.longValue("sampleRateHz")
+		?: this?.longValue("sampleRate")
+		?: fallback.longValue("sampleRateHz")
+		?: fallback.longValue("sampleRate")
+	if (directHz != null && directHz > 0L) return directHz
+	val sampleRateKHz = this?.doubleValue("sampleRateKHz") ?: fallback.doubleValue("sampleRateKHz")
+	return sampleRateKHz
+		?.takeIf { it > 0.0 }
+		?.let { (it * 1000.0).roundToLong() }
+		?.takeIf { it > 0L }
+}
+
 private fun JsonObject.toSourceReleaseMetadata(): BinderySourceReleaseMetadata? {
 	val release = BinderySourceReleaseMetadata(
 		provider = stringValue("provider"),
+		title = stringValue("title"),
 		sourceUrl = stringValue("sourceUrl"),
 		narrator = stringValue("narrator"),
 		readBy = stringValue("readBy"),
 		edition = stringValue("edition"),
+		editionType = stringValue("editionType"),
 		format = stringValue("format"),
+		bitrate = stringValue("bitrate"),
 		categories = stringList("categories"),
 		keywords = stringList("keywords")
 	)
@@ -321,7 +350,7 @@ private fun BinderyAudioMetadata.hasContent(): Boolean =
 		qualityScore != null
 
 private fun BinderySourceReleaseMetadata.hasContent(): Boolean =
-	listOf(provider, sourceUrl, narrator, readBy, edition, format).any { !it.isNullOrBlank() } ||
+	listOf(provider, title, sourceUrl, narrator, readBy, edition, editionType, format, bitrate).any { !it.isNullOrBlank() } ||
 		categories.isNotEmpty() ||
 		keywords.isNotEmpty()
 

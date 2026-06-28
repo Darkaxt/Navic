@@ -381,6 +381,75 @@ class BinderyRepositoryResourceJsonTest {
 	}
 
 	@Test
+	fun resourceJsonDecodesCurrentBinderyAudioMetadataSchema() {
+		val resources = decodeBinderyResourceCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "The Hobbit Resources"},
+			  "resources": [
+			    {
+			      "href": "/opds/books/3816/resources/audio-c310a962a70802eb2e65",
+			      "type": "audio/mpeg",
+			      "title": "01 - An Unexpected Party.mp3",
+			      "duration": 1842.5,
+			      "properties": {
+			        "kind": "audio",
+			        "format": "audiobook",
+			        "artifactType": "source",
+			        "resourceKey": "audio-c310a962a70802eb2e65",
+			        "bookFileId": 694,
+			        "relativePath": "01 - An Unexpected Party.mp3",
+			        "trackNumber": 1,
+			        "discNumber": 0,
+			        "size": 42152780,
+			        "durationMs": 1842500,
+			        "language": "eng",
+			        "version": "Andy Serkis - Unabridged",
+			        "narrator": "Andy Serkis",
+			        "audio": {
+			          "codec": "mp3",
+			          "bitrate": 128000,
+			          "bitrateKbps": 128,
+			          "sampleRate": 44100,
+			          "sampleRateKHz": 44.1,
+			          "channels": 2,
+			          "qualityLabel": "128 kbps / 44.1 kHz / 2 ch",
+			          "qualityScore": 128044
+			        },
+			        "sourceRelease": {
+			          "provider": "audiobookbay",
+			          "title": "The Hobbit - J. R. R. Tolkien Audiobook MP3 [Unabridged]",
+			          "format": "mp3",
+			          "bitrate": "128 kbps",
+			          "editionType": "unabridged",
+			          "narrator": "Andy Serkis"
+			        }
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val metadata = resources.resources.single().metadata
+		assertEquals("audio-c310a962a70802eb2e65", metadata.resourceKey)
+		assertEquals("01 - An Unexpected Party.mp3", metadata.relativePath)
+		assertEquals(1, metadata.trackNumber)
+		assertEquals("mp3", metadata.audio?.codec)
+		assertEquals(128, metadata.audio?.bitrateKbps)
+		assertEquals(44100L, metadata.audio?.sampleRateHz)
+		assertEquals(2, metadata.audio?.channels)
+		assertEquals("128 kbps / 44.1 kHz / 2 ch", metadata.audio?.qualityLabel)
+		assertEquals(128044.0, metadata.audio?.qualityScore)
+		assertEquals("audiobookbay", metadata.sourceRelease?.provider)
+		assertEquals("The Hobbit - J. R. R. Tolkien Audiobook MP3 [Unabridged]", metadata.sourceRelease?.title)
+		assertEquals("128 kbps", metadata.sourceRelease?.bitrate)
+		assertEquals("unabridged", metadata.sourceRelease?.editionType)
+		assertEquals("mp3", metadata.sourceRelease?.format)
+		assertEquals("Andy Serkis", metadata.sourceRelease?.narrator)
+	}
+
+	@Test
 	fun ebookResourceAndFindingJsonKeepEbookButSuppressAudioMetadata() {
 		val resources = decodeBinderyResourceCatalogJson(
 			"""

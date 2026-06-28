@@ -20,7 +20,7 @@ class AurralFirstArtistPageSourceTest {
 
 	@Test
 	fun artistEnrichmentMapsImageFromDetailsBeforeSearchFallback() {
-		val mapping = sourceFile("domain/repositories/AurralDtoMapping.kt").readText()
+		val mapping = sourceFile("domain/repositories/AurralServiceDtoMapping.kt").readText()
 		val model = sourceFile("domain/models/AurralArtistEnrichmentPolicy.kt").readText()
 
 		assertTrue("val imageUrl: String? = null" in model, "AurralArtistEnrichment must carry profile artwork.")

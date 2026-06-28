@@ -345,7 +345,7 @@ private fun BinderyReadingOrderItem.toReadaloudAudioTrack(index: Int): Readaloud
 
 private fun BinderySourceReleaseMetadata?.sourceReleaseLabel(editionSuffix: String?): String? =
 	listOfNotNull(
-		this?.edition.trimLabel() ?: editionSuffix.trimLabel(),
+		this?.edition.trimLabel() ?: this?.editionType.trimLabel() ?: editionSuffix.trimLabel(),
 		this?.format.trimLabel()
 	)
 		.distinct()
