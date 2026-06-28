@@ -170,6 +170,7 @@ Each stage is a complete deliverable:
 - Explicit sidecar track identity now wins over stale or generic audio resource names in both page-to-audio seek command creation and audio-follow active segment matching. The slice was guarded by red-first tests in `ReaderWhispersyncPlaybackPolicyTest` and `WhispersyncTimelineParserTest`, then validated with `:composeApp:testAndroid`.
 - Bindery sidecars that expose only the exact audiobook `bookFileId` now resolve the audiobook manifest through the exact book/audiobook file pair before opening playback. The slice was guarded by a red-first `BinderyRepositoryTest` and validated against readerdev on book `3809`.
 - Direct Foliate media-overlay activation now feeds a controller-owned audio seek target instead of waiting for a later visible-range follow event. The slice was guarded by a red-first `ReaderControllerTest` and validated with readerdev page-scoped, audio-follow, and char-offset overlay probes.
+- Readerdev explicit direct Bindery file launches now canonicalize `/api/v1/book/{bookId}/file?bookFileId=...` to the matching `/opds/books/{bookId}/resources/{resourceKey}` href before launch. This keeps emulator Whispersync/progress probes aligned with production OPDS identity and prevents false `resourceKey=file` progress-save 400s from masking reader behavior.
 
 **Main files:**
 - `composeApp/src/commonMain/kotlin/paige/navic/reader/WhispersyncModels.kt`

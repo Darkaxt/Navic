@@ -201,6 +201,13 @@ class ReaderDevEnvironmentContractTest {
 			"The install script must accept explicit reader target CLI overrides so validation never needs manual am-start commands or env-file edits."
 		)
 		assertTrue(
+			installScriptText.contains("function Resolve-ReaderDevExplicitBinderyResource") &&
+				installScriptText.contains("Get-ReaderDevBookFileIdFromUrl") &&
+				installScriptText.contains("properties.bookFileId") &&
+				installScriptText.contains("Resolved explicit reader target to Bindery OPDS resource"),
+			"The install script must canonicalize explicit direct /api/v1/book/{id}/file?bookFileId=... launches to the matching OPDS resource href so progress saves do not use resourceKey=file."
+		)
+		assertTrue(
 			installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL") &&
 				installScriptText.contains("navic.dev.reader.whispersync_sidecar_url") &&
 				installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_ID") &&

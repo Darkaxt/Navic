@@ -7669,3 +7669,35 @@ Observed warnings:
 
 Remaining:
 - This closes the exact-pair playback gate in readerdev. It does not yet replace a final release APK pass on a physical phone/tablet for audio feel, highlighting comfort, resume ownership, or miniplayer coexistence.
+
+
+## 2026-06-29 Readerdev Bindery Resource Identity Gate
+
+Scope:
+- Investigate the `Bindery reading progress returned HTTP 400` warning seen during readerdev Whispersync probes.
+- Prevent emulator validation from launching direct Bindery file URLs with the invalid progress identity `resourceKey=file`.
+
+Root cause:
+- Readerdev was launched with `publicationUrl/resourceHref=https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426`.
+- Navic canonicalized that direct API URL to `/api/v1/book/3809/file`, then derived `resourceKey=file`.
+- Live Bindery rejects that progress write with `400 {"error":"resource not found"}`.
+- The same book's valid OPDS resource is `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`, which stores progress successfully.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored --console=plain
+.\scripts\install-reader-dev.ps1 -NoBuild -NoInstall -NoLaunch -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -PublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -BookId 3809 -Title "Bastille vs. the Evil Librarians" -Kind ebook -Format EPUB -WhispersyncSidecarUrl "/opds/books/3809/sync/8" -WhispersyncAudiobookBookFileId 633
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `readerDevScriptsAndSecretFilesAreDocumentedAndIgnored` failed before the install script had explicit direct-file canonicalization (`tmp/codex-validation/readerdev-resource-canonical-red-20260629-011417.out.log`).
+- GREEN/HOST-FOCUSED: the same guard passed after adding `Resolve-ReaderDevExplicitBinderyResource`, `Get-ReaderDevBookFileIdFromUrl`, and the `properties.bookFileId` OPDS match path (`tmp/codex-validation/readerdev-resource-canonical-green-20260629-011950.out.log`).
+- GREEN/SCRIPT-PROOF: the no-build/no-install/no-launch command resolved the direct file URL to `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`.
+- GREEN/HOST-CONTRACT: full `ReaderDevEnvironmentContractTest` passed (`tmp/codex-validation/readerdev-contract-green-20260629-012144.out.log`).
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- If progress-save 400s repeat after an OPDS resource launch, treat that as a production progress schema bug. The known readerdev false-positive path is now closed.

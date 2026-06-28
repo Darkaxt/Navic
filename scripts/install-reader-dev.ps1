@@ -465,6 +465,174 @@ function Test-ReaderDevResourceLanguage {
     return $language.Trim().ToLowerInvariant().StartsWith($LanguageFilter.Trim().ToLowerInvariant())
 }
 
+function Get-ReaderDevBookFileIdFromUrl {
+    param([string] $Url)
+
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        return $null
+    }
+
+    $candidate = $Url.Trim()
+    $query = $null
+    try {
+        $uri = [Uri] $candidate
+        $query = $uri.Query
+    } catch {
+        $query = $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($query) -and $candidate.Contains("?")) {
+        $query = $candidate.Substring($candidate.IndexOf("?"))
+    }
+    if ([string]::IsNullOrWhiteSpace($query)) {
+        return $null
+    }
+
+    foreach ($pair in $query.TrimStart("?").Split("&")) {
+        if ([string]::IsNullOrWhiteSpace($pair)) {
+            continue
+        }
+        $name, $value = $pair.Split("=", 2)
+        if ($name.Trim().Equals("bookFileId", [System.StringComparison]::OrdinalIgnoreCase) -and
+            ![string]::IsNullOrWhiteSpace($value)) {
+            return [Uri]::UnescapeDataString($value.Trim())
+        }
+    }
+    return $null
+}
+
+function Get-ReaderDevBookIdFromDirectFileUrl {
+    param([string] $Url)
+
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        return $null
+    }
+    if ($Url.Trim() -match '/api/v1/book/([^/?#]+)/file(?:[?#].*)?$') {
+        return [Uri]::UnescapeDataString($matches[1])
+    }
+    return $null
+}
+
+function Get-ReaderDevResourceBookFileId {
+    param([object] $Resource)
+
+    # Match direct API bookFileId against properties.bookFileId from Bindery OPDS.
+    $properties = Get-ObjectValue -InputObject $Resource -Names @("properties")
+    $metadata = Get-ObjectValue -InputObject $Resource -Names @("metadata")
+    $sourceRelease = Get-ObjectValue -InputObject $metadata -Names @("sourceRelease")
+    return @(
+        (Get-ObjectString -InputObject $Resource -Names @("bookFileId")),
+        (Get-ObjectString -InputObject $properties -Names @("bookFileId")),
+        (Get-ObjectString -InputObject $metadata -Names @("bookFileId")),
+        (Get-ObjectString -InputObject $sourceRelease -Names @("bookFileId"))
+    ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+}
+
+function Get-ReaderDevResourceByBookFileId {
+    param(
+        [object[]] $Resources,
+        [Parameter(Mandatory = $true)]
+        [string] $BookFileId,
+        [string] $LanguageFilter
+    )
+
+    foreach ($resource in @($Resources)) {
+        $resourceBookFileId = Get-ReaderDevResourceBookFileId -Resource $resource
+        if ([string]::IsNullOrWhiteSpace($resourceBookFileId)) {
+            continue
+        }
+        if (!$resourceBookFileId.Trim().Equals($BookFileId.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        if (!(Test-ReaderDevEbookResource -Resource $resource)) {
+            continue
+        }
+        if (!(Test-ReaderDevResourceLanguage -Resource $resource -LanguageFilter $LanguageFilter)) {
+            continue
+        }
+        $href = Get-ObjectString -InputObject $resource -Names @("href")
+        if (![string]::IsNullOrWhiteSpace($href)) {
+            return $resource
+        }
+    }
+    return $null
+}
+
+function Resolve-ReaderDevExplicitBinderyResource {
+    param(
+        [string] $BaseUrl,
+        [string] $ApiKey,
+        [string] $ApiKeyHeader,
+        [string] $BookId,
+        [string] $PublicationUrl,
+        [string] $ResourceHref,
+        [string] $LanguageFilter
+    )
+
+    if ([string]::IsNullOrWhiteSpace($BaseUrl) -or [string]::IsNullOrWhiteSpace($ApiKey)) {
+        return $null
+    }
+
+    $bookFileId = @(
+        (Get-ReaderDevBookFileIdFromUrl -Url $ResourceHref),
+        (Get-ReaderDevBookFileIdFromUrl -Url $PublicationUrl)
+    ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($bookFileId)) {
+        return $null
+    }
+
+    $resolvedBookId = @(
+        $BookId,
+        (Get-ReaderDevBookIdFromDirectFileUrl -Url $ResourceHref),
+        (Get-ReaderDevBookIdFromDirectFileUrl -Url $PublicationUrl)
+    ) | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($resolvedBookId)) {
+        return $null
+    }
+
+    $headerName = if ([string]::IsNullOrWhiteSpace($ApiKeyHeader)) { "X-Api-Key" } else { $ApiKeyHeader.Trim() }
+    $headers = @{ $headerName = $ApiKey }
+    $bookUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path "/opds/books/$resolvedBookId"
+    $publication = Invoke-BinderyJson -Url $bookUrl -Headers $headers
+    if ($null -eq $publication) {
+        return $null
+    }
+
+    $resource = Get-ReaderDevResourceByBookFileId `
+        -Resources @(Get-ObjectValue -InputObject $publication -Names @("links")) `
+        -BookFileId $bookFileId `
+        -LanguageFilter $LanguageFilter
+
+    if ($null -eq $resource) {
+        $resourceCatalogUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path "/opds/books/$resolvedBookId/resources"
+        $resourceCatalog = Invoke-BinderyJson -Url $resourceCatalogUrl -Headers $headers
+        if ($null -eq $resourceCatalog) {
+            return $null
+        }
+        $resource = Get-ReaderDevResourceByBookFileId `
+            -Resources @(Get-ObjectValue -InputObject $resourceCatalog -Names @("resources")) `
+            -BookFileId $bookFileId `
+            -LanguageFilter $LanguageFilter
+    }
+
+    if ($null -eq $resource) {
+        return $null
+    }
+
+    $resourceHref = Get-ObjectString -InputObject $resource -Names @("href")
+    if ([string]::IsNullOrWhiteSpace($resourceHref)) {
+        return $null
+    }
+    $metadata = Get-ObjectValue -InputObject $publication -Names @("metadata")
+    return @{
+        BookId = $resolvedBookId
+        Title = Get-ObjectString -InputObject $metadata -Names @("title")
+        ResourceHref = $resourceHref
+        PublicationUrl = Join-BinderyEndpoint -BaseUrl $BaseUrl -Path $resourceHref
+        Format = Get-ReaderDevResourceFormat -Resource $resource
+    }
+}
+
 function Resolve-ReaderDevPublicationFromBindery {
     param(
         [string] $BaseUrl,
@@ -690,6 +858,23 @@ $whispersyncAudiobookTitle = if (![string]::IsNullOrWhiteSpace($ReaderWhispersyn
     $ReaderWhispersyncAudiobookTitle.Trim()
 } else {
     Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_TITLE")
+}
+
+$explicitBinderyResource = Resolve-ReaderDevExplicitBinderyResource `
+    -BaseUrl $opdsBaseUrl `
+    -ApiKey $apiKey `
+    -ApiKeyHeader $apiKeyHeader `
+    -BookId $bookId `
+    -PublicationUrl $publicationUrl `
+    -ResourceHref $resourceHref `
+    -LanguageFilter $languageFilter
+if ($explicitBinderyResource) {
+    $bookId = if ($bookId) { $bookId } else { $explicitBinderyResource.BookId }
+    $title = if ($title) { $title } else { $explicitBinderyResource.Title }
+    $resourceHref = $explicitBinderyResource.ResourceHref
+    $publicationUrl = $explicitBinderyResource.PublicationUrl
+    $format = if ($format) { $format } else { $explicitBinderyResource.Format }
+    Write-Host ("Resolved explicit reader target to Bindery OPDS resource: {0}" -f $resourceHref)
 }
 
 if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
