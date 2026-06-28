@@ -85,6 +85,7 @@ import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.collection.aurralAlbumHeaderProjection
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenFooterRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRowButtons
@@ -151,11 +152,13 @@ fun CollectionDetailScreen(
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by viewModel.selectedAlbumRating.collectAsStateWithLifecycle()
 	val otherAlbums by viewModel.otherAlbums.collectAsState()
+	val aurralMoreByArtistRows by viewModel.aurralMoreByArtistRows.collectAsStateWithLifecycle()
 	val aurralAlbumRequests by viewModel.aurralAlbumRequests.collectAsState()
 	val aurralAlbumRecoveryMatch by viewModel.aurralAlbumRecoveryMatch.collectAsStateWithLifecycle()
 	val aurralAlbumRecoveryRows by viewModel.aurralAlbumRecoveryRows.collectAsStateWithLifecycle()
 	val aurralAlbumRecoveryLoading by viewModel.aurralAlbumRecoveryLoading.collectAsStateWithLifecycle()
 	val aurralAlbumRecoveryCandidates by viewModel.aurralAlbumRecoveryCandidates.collectAsStateWithLifecycle()
+	val aurralAlbumPageState by viewModel.aurralAlbumPageState.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsState()
 	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
@@ -188,8 +191,17 @@ fun CollectionDetailScreen(
 		}
 	}
 
+	val headerProjection = remember(displayedCollection, aurralAlbumPageState) {
+		(displayedCollection as? DomainAlbum)?.let { album ->
+			aurralAlbumHeaderProjection(
+				album = album,
+				pageState = aurralAlbumPageState
+			)
+		}
+	}
 	val collectionColorScheme = rememberResolvedArtworkColorScheme(
-		coverArtId = displayedCollection?.coverArtId
+		coverArtId = displayedCollection?.coverArtId,
+		imageUrl = headerProjection?.coverUrl
 	)
 
 	NavicTheme(collectionColorScheme) {
@@ -249,7 +261,11 @@ fun CollectionDetailScreen(
 						CollectionDetailScreenHeadingRow(
 							collection = contentCollection,
 							tab = tab,
-							titleAlpha = 1f - titleAlpha
+							titleAlpha = 1f - titleAlpha,
+							displayTitle = headerProjection?.title,
+							displaySubtitle = headerProjection?.artistName,
+							displayDetail = headerProjection?.detail,
+							coverImageUrl = headerProjection?.coverUrl
 						)
 					}
 
@@ -474,6 +490,7 @@ fun CollectionDetailScreen(
 						collectionDetailScreenMoreByArtistRow(
 							artistName = artistName,
 							artistAlbums = otherAlbums,
+							aurralArtistAlbums = aurralMoreByArtistRows,
 							aurralAlbumRequests = aurralAlbumRequests,
 							selectedAlbum = selectedAlbum,
 							onSetShareId = { shareId = it },

@@ -18,6 +18,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.models.collectionDownloadStatus
@@ -33,6 +34,7 @@ import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 	artistName: String,
 	artistAlbums: List<DomainAlbum>,
+	aurralArtistAlbums: List<AurralArtistOwnershipAlbumRow> = emptyList(),
 	aurralAlbumRequests: List<AurralAlbumRequest>,
 	selectedAlbum: DomainAlbum?,
 	onSetShareId: (String) -> Unit,
@@ -56,6 +58,70 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 		val downloadManager = koinInject<DownloadManager>()
 		val allDownloads by downloadManager.allDownloads.collectAsState(initial = emptyList())
 
+		if (aurralArtistAlbums.isNotEmpty()) {
+			ArtCarousel(
+				title = stringResource(Res.string.title_more_by_artist, artistName),
+				items = aurralArtistAlbums.toImmutableList()
+			) { row ->
+				val localAlbum = row.localAlbum
+				val releaseGroup = row.releaseGroup
+				val songIds = localAlbum?.songs.orEmpty().map { it.id }
+				val downloadStatus = collectionDownloadStatus(songIds, allDownloads)
+				ArtCarouselItem(
+					coverArtId = localAlbum?.coverArtId,
+					imageUrl = row.coverUrl,
+					imageCacheKey = row.coverUrl ?: releaseGroup?.id,
+					title = row.title,
+					subtitle = row.year,
+					contentDescription = row.title,
+					acquisitionProgress = row.acquisitionProgress,
+					ownershipStatus = row.ownershipStatus,
+					onSelect = { localAlbum?.let(onSelect) },
+					onClick = dropUnlessResumed {
+						localAlbum?.let { backStack.add(Screen.CollectionDetail(it.id, tab)) }
+					}
+				)
+				if (selectedAlbum != null && selectedAlbum == localAlbum) {
+					CollectionSheet(
+						onDismissRequest = onDeselect,
+						collection = selectedAlbum,
+						onDownloadAll = {
+							scope.launch {
+								downloadManager.downloadCollection(selectedAlbum)
+							}
+						},
+						onCancelDownloadAll = {
+							scope.launch {
+								downloadManager.cancelCollectionDownload(selectedAlbum)
+							}
+						},
+						onDeleteDownloadAll = {
+							scope.launch {
+								downloadManager.deleteDownloadedCollection(selectedAlbum)
+							}
+						},
+						downloadStatus = downloadStatus,
+						onShare = { onSetShareId(selectedAlbum.id) },
+						onPlayNext = onPlayNext,
+						onAddToQueue = onAddToQueue,
+						onAddAllToPlaylist = { albumToAddToPlaylist = selectedAlbum },
+						onViewArtist = dropUnlessResumed {
+							scope.launch {
+								resolveArtistCreditDestination(
+									selectedAlbum.artistId,
+									selectedAlbum.artistName,
+									true
+								)?.let(backStack::add)
+							}
+						},
+						rating = selectedAlbumRating,
+						onSetRating = onSetAlbumRating,
+						starred = selectedAlbumStarred,
+						onSetStarred = { onSetAlbumStarred(!selectedAlbumStarred) }
+					)
+				}
+			}
+		} else {
 		ArtCarousel(
 			title = stringResource(Res.string.title_more_by_artist, artistName),
 			items = artistAlbums.sortedByAlbumYearDescending().toImmutableList()
@@ -115,6 +181,7 @@ fun LazyListScope.collectionDetailScreenMoreByArtistRow(
 					onSetStarred =  { onSetAlbumStarred(!selectedAlbumStarred) }
 				)
 			}
+		}
 		}
 		if (albumToAddToPlaylist != null) {
 			albumToAddToPlaylist?.let {

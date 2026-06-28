@@ -46,16 +46,22 @@ import paige.navic.util.ui.EmphasizedDecelerateEasing
 fun CollectionDetailScreenHeadingRow(
 	collection: DomainSongCollection,
 	tab: String,
-	titleAlpha: Float
+	titleAlpha: Float,
+	displayTitle: String? = null,
+	displaySubtitle: String? = null,
+	displayDetail: String? = null,
+	coverImageUrl: String? = null
 ) {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val scope = rememberCoroutineScope()
 	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
-	val displayName = collection.displayName()
+	val displayName = displayTitle?.takeIf { it.isNotBlank() } ?: collection.displayName()
 	with(LocalSharedTransitionScope.current) {
 		CoverArt(
 			coverArtId = collection.coverArtId,
+			imageUrl = coverImageUrl,
+			imageCacheKey = coverImageUrl,
 			contentDescription = displayName,
 			fallbackKind = when (collection) {
 				is DomainAlbum -> "Album"
@@ -92,7 +98,7 @@ fun CollectionDetailScreenHeadingRow(
 				textAlign = TextAlign.Center,
 				modifier = Modifier
 			)
-			val subtitle = when (collection) {
+			val subtitle = displaySubtitle?.takeIf { it.isNotBlank() } ?: when (collection) {
 				is DomainAlbum -> collection.artistName
 				is DomainGenreCollection -> null
 				is DomainPlaylist -> collection.comment
@@ -142,7 +148,7 @@ fun CollectionDetailScreenHeadingRow(
 				}
 			}
 			Text(
-				when (collection) {
+				displayDetail?.takeIf { it.isNotBlank() } ?: when (collection) {
 					is DomainAlbum -> "${collection.genre ?: stringResource(Res.string.info_unknown_genre)} • ${
 						collection.year ?: stringResource(
 							Res.string.info_unknown_year

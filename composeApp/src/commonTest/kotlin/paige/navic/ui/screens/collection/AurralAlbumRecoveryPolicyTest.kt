@@ -734,6 +734,109 @@ class AurralAlbumRecoveryPolicyTest {
 	}
 
 	@Test
+	fun albumPageStateUsesLocalFallbackWhenAurralIsDisabled() {
+		val state = aurralAlbumPageState(
+			aurralEnabled = false,
+			loading = false,
+			match = null,
+			rows = emptyList(),
+			candidates = emptyList(),
+			lookupFailed = false
+		)
+
+		assertEquals(AurralAlbumPageSource.LocalFallback, state.source)
+		assertTrue(state.candidates.isEmpty())
+	}
+
+	@Test
+	fun albumPageStateMarksResolvedWhenMatchExists() {
+		val match = aurralAlbum(
+			id = "release-group",
+			title = "How to Train Your Dragon",
+			artistName = "John Powell"
+		)
+		val state = aurralAlbumPageState(
+			aurralEnabled = true,
+			loading = false,
+			match = match,
+			rows = emptyList(),
+			candidates = listOf(match),
+			lookupFailed = false
+		)
+
+		assertEquals(AurralAlbumPageSource.AurralResolved, state.source)
+		assertEquals(match, state.match)
+		assertTrue(state.candidates.isEmpty())
+	}
+
+	@Test
+	fun albumPageStateMarksAmbiguousWhenCandidatesExistWithoutConfidentMatch() {
+		val candidate = aurralAlbum(
+			id = "candidate",
+			title = "How to Train Your Dragon",
+			artistName = "John Powell"
+		)
+		val state = aurralAlbumPageState(
+			aurralEnabled = true,
+			loading = false,
+			match = null,
+			rows = emptyList(),
+			candidates = listOf(candidate),
+			lookupFailed = false
+		)
+
+		assertEquals(AurralAlbumPageSource.AurralAmbiguous, state.source)
+		assertEquals(listOf(candidate), state.candidates)
+	}
+
+	@Test
+	fun albumPageStateMarksUnavailableWhenLookupFailsWithoutCache() {
+		val state = aurralAlbumPageState(
+			aurralEnabled = true,
+			loading = false,
+			match = null,
+			rows = emptyList(),
+			candidates = emptyList(),
+			lookupFailed = true
+		)
+
+		assertEquals(AurralAlbumPageSource.AurralUnavailable, state.source)
+	}
+
+	@Test
+	fun albumHeaderProjectionUsesAurralMatchWhenResolved() {
+		val album = album(
+			name = "Local Title",
+			artistName = "Local Artist",
+			year = 2009
+		)
+		val match = aurralAlbum(
+			id = "release-group",
+			title = "How to Train Your Dragon",
+			artistName = "John Powell",
+			releaseDate = "2010-03-23",
+			primaryType = "Album",
+			secondaryTypes = listOf("Soundtrack")
+		).copy(coverUrl = "https://aurral.example/covers/dragon.jpg")
+		val projection = aurralAlbumHeaderProjection(
+			album = album,
+			pageState = aurralAlbumPageState(
+				aurralEnabled = true,
+				loading = false,
+				match = match,
+				rows = emptyList(),
+				candidates = emptyList(),
+				lookupFailed = false
+			)
+		)
+
+		assertEquals("How to Train Your Dragon", projection.title)
+		assertEquals("John Powell", projection.artistName)
+		assertEquals("https://aurral.example/covers/dragon.jpg", projection.coverUrl)
+		assertEquals("Album • Soundtrack • 2010", projection.detail)
+	}
+
+	@Test
 	fun recoveryCandidateSkipsDifferentAlbumTitles() {
 		val album = album(name = "Final Fantasy XIII-2 Original Soundtrack")
 
