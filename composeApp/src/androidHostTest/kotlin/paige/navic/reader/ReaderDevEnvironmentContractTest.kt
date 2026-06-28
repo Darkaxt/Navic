@@ -154,6 +154,9 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(
 			installScriptText.contains("function Invoke-GradleWrapper") &&
 				installScriptText.contains("gradle-wrapper.jar") &&
+				installScriptText.contains("function ConvertTo-ProcessArgument") &&
+				installScriptText.contains("\$startInfo.Arguments =") &&
+				!installScriptText.contains("\$startInfo.ArgumentList.Add") &&
 				!installScriptText.contains("& .\\gradlew.bat") &&
 				!installScriptText.contains("& ./gradlew.bat") &&
 				!installScriptText.contains("& \$gradle") &&

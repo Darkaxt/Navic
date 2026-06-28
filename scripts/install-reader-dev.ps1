@@ -86,6 +86,41 @@ function Invoke-Adb {
     return $output
 }
 
+function ConvertTo-ProcessArgument {
+    param([AllowEmptyString()][string] $Value)
+
+    if ($null -eq $Value -or $Value.Length -eq 0) {
+        return '""'
+    }
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+
+    $builder = [System.Text.StringBuilder]::new()
+    [void] $builder.Append('"')
+    $backslashCount = 0
+    foreach ($character in $Value.ToCharArray()) {
+        if ($character -eq '\') {
+            $backslashCount += 1
+        } elseif ($character -eq '"') {
+            [void] $builder.Append(('\' * (($backslashCount * 2) + 1)))
+            [void] $builder.Append('"')
+            $backslashCount = 0
+        } else {
+            if ($backslashCount -gt 0) {
+                [void] $builder.Append(('\' * $backslashCount))
+                $backslashCount = 0
+            }
+            [void] $builder.Append($character)
+        }
+    }
+    if ($backslashCount -gt 0) {
+        [void] $builder.Append(('\' * ($backslashCount * 2)))
+    }
+    [void] $builder.Append('"')
+    return $builder.ToString()
+}
+
 function Invoke-GradleWrapper {
     param([Parameter(Mandatory = $true)][string[]] $Arguments)
 
@@ -101,11 +136,9 @@ function Invoke-GradleWrapper {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    [void] $startInfo.ArgumentList.Add("-jar")
-    [void] $startInfo.ArgumentList.Add($wrapperJar)
-    foreach ($argument in $Arguments) {
-        [void] $startInfo.ArgumentList.Add($argument)
-    }
+    $startInfo.Arguments = (@("-jar", $wrapperJar) + $Arguments | ForEach-Object {
+        ConvertTo-ProcessArgument -Value $_
+    }) -join " "
 
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
