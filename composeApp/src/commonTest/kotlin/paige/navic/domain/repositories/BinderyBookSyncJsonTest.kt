@@ -178,4 +178,23 @@ class BinderyBookSyncJsonTest {
 		assertEquals(95, detail.provenance?.metadataConfidenceScore)
 		assertEquals("title/narrator/duration match", detail.provenance?.metadataConfidenceReason)
 	}
+
+	@Test
+	fun readyWhispersyncPairOnlyRequiresReadyStatusAndArtifactHref() {
+		val pair = BinderyJson.decodeFromString<BinderySyncPair>(
+			"""
+			{
+			  "bookId": 3816,
+			  "ebookBookFileId": 435,
+			  "audiobookBookFileId": 694,
+			  "whispersync": {
+			    "status": "ready",
+			    "artifactHref": "/opds/books/3816/sync/12"
+			  }
+			}
+			""".trimIndent()
+		)
+
+		assertEquals(true, pair.hasReadyWhispersyncArtifact())
+	}
 }

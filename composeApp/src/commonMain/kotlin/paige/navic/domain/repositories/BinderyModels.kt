@@ -174,7 +174,6 @@ data class BinderyWhispersyncJob(
 fun BinderySyncPair.hasReadyWhispersyncArtifact(): Boolean {
 	val artifact = whispersync ?: return false
 	return artifact.status.equals("ready", ignoreCase = true) &&
-		artifact.artifactId != null &&
 		!artifact.artifactHref.isNullOrBlank()
 }
 
