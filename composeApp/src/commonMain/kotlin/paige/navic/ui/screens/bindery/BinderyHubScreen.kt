@@ -635,6 +635,12 @@ private fun BinderyHubCard(
 				ownershipStatus = card.availabilityStatus(languageFilter),
 				coverAspectRatio = visualPolicy.coverAspectRatio,
 				coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
+				coverOverlay = binderyBookCoverOverlay(
+					hasActionableWhispersync = card.hasActionableWhispersync,
+					action = null,
+					loading = false,
+					onAction = {}
+				),
 				fallbackKind = "Book",
 				id = card.id,
 				tab = "bindery-hub"

@@ -581,20 +581,12 @@ private fun BinderyPublicationGridItem(
 		ownershipStatus = ownershipStatus,
 		coverAspectRatio = 2f / 3f,
 		coverContentScale = ContentScale.Fit,
-		coverOverlay = if (action != null) {
-			{
-				BinderyCardActionButton(
-					action = action,
-					loading = action.link.href in actionInFlight,
-					onAction = onAction,
-					modifier = Modifier
-						.align(Alignment.BottomEnd)
-						.padding(8.dp)
-				)
-			}
-		} else {
-			null
-		},
+		coverOverlay = binderyBookCoverOverlay(
+			hasActionableWhispersync = publication.hasActionableWhispersync(),
+			action = action,
+			loading = action?.link?.href in actionInFlight,
+			onAction = onAction
+		),
 		fallbackKind = "Book",
 		id = publication.id ?: publication.title,
 		tab = "bindery-detail"

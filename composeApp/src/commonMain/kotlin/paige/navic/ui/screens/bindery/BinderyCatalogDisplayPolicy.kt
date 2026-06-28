@@ -15,6 +15,7 @@ import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
+import paige.navic.domain.repositories.hasReadyWhispersyncArtifact
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
@@ -218,7 +219,8 @@ sealed interface BinderyCatalogCard {
 		val imageUrl: String?,
 		val availability: BinderyAvailability? = null,
 		val links: List<BinderyLink> = emptyList(),
-		val readingOrder: List<BinderyReadingOrderItem> = emptyList()
+		val readingOrder: List<BinderyReadingOrderItem> = emptyList(),
+		val hasActionableWhispersync: Boolean = false
 	) : BinderyCatalogCard
 
 	data class Link(
@@ -281,7 +283,8 @@ fun binderyCatalogCards(
 				imageUrl = publication.images.firstOrNull()?.href,
 				availability = publication.availability,
 				links = publication.links,
-				readingOrder = publication.readingOrder
+				readingOrder = publication.readingOrder,
+				hasActionableWhispersync = publication.hasActionableWhispersync()
 			)
 		}
 	}
@@ -507,6 +510,9 @@ fun BinderyPublication.availabilityAlpha(languageFilter: String? = null): Float 
 
 fun BinderyPublication.hasAvailableContent(languageFilter: String? = null): Boolean =
 	availabilityStatus(languageFilter) != AurralOwnershipStatus.Missing
+
+fun BinderyPublication.hasActionableWhispersync(): Boolean =
+	sync?.syncPairs.orEmpty().any { pair -> pair.hasReadyWhispersyncArtifact() }
 
 fun BinderyAvailability?.availabilityAlpha(languageFilter: String? = null): Float =
 	when (toBookOwnershipStatus(languageFilter)) {

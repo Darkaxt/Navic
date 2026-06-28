@@ -225,6 +225,52 @@ class BinderyRepositoryCatalogJsonTest {
 	}
 
 	@Test
+	fun catalogJsonDecodesEmbeddedWhispersyncPairsFromPublicationProperties() {
+		val catalog = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Books"},
+			  "publications": [
+			    {
+			      "metadata": {
+			        "title": "Bastille vs. the Evil Librarians",
+			        "identifier": "urn:bindery:book:3809"
+			      },
+			      "properties": {
+			        "whispersyncStatus": "ready",
+			        "syncPairCounts": {"ready": 1, "pending": 2},
+			        "syncPairs": [
+			          {
+			            "bookId": 3809,
+			            "ebookBookFileId": 633,
+			            "audiobookBookFileId": 426,
+			            "language": "eng",
+			            "whispersync": {
+			              "status": "ready",
+			              "artifactId": 12,
+			              "artifactHref": "/opds/books/3809/sync/12",
+			              "score": 0.98,
+			              "coverage": 0.94
+			            }
+			          }
+			        ]
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val sync = catalog.publications.single().sync ?: error("expected embedded sync pairs")
+		assertEquals(3809, sync.syncPairs.single().bookId)
+		assertEquals("ready", sync.whispersyncStatus)
+		assertEquals(1, sync.syncPairCounts["ready"])
+		assertEquals(633, sync.syncPairs.single().ebookBookFileId)
+		assertEquals(426, sync.syncPairs.single().audiobookBookFileId)
+		assertEquals("/opds/books/3809/sync/12", sync.syncPairs.single().whispersync?.artifactHref)
+	}
+
+	@Test
 	fun catalogJsonPreservesFindingMetadataMappingsAndFiles() {
 		val catalog = decodeBinderyCatalogJson(
 			"""

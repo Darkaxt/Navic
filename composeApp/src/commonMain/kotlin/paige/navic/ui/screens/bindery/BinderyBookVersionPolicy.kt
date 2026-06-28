@@ -18,6 +18,7 @@ import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderySyncPair
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
+import paige.navic.domain.repositories.hasReadyWhispersyncArtifact
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
@@ -336,7 +337,7 @@ fun binderyBookVersionRows(
 
 	return (readaloudRows + audioRows + ebookRows)
 		.collapsedDuplicateVersionRows()
-		.withWhispersyncMatches(bookSync)
+		.withWhispersyncMatches(bookSync ?: manifest?.sync)
 }
 
 private fun List<BinderyBookVersionRow>.collapsedDuplicateVersionRows(): List<BinderyBookVersionRow> {
@@ -355,7 +356,7 @@ private fun List<BinderyBookVersionRow>.withWhispersyncMatches(
 	bookSync: BinderyBookSync?
 ): List<BinderyBookVersionRow> {
 	val readyPairs = bookSync?.syncPairs.orEmpty()
-		.filter(BinderySyncPair::hasReadyWhispersync)
+		.filter(BinderySyncPair::hasReadyWhispersyncArtifact)
 	if (readyPairs.isEmpty()) return this
 
 	val audiobookRowsByBookFileId = filter { row -> row.kind == BinderyBookVersionKind.Audiobook }
@@ -402,11 +403,6 @@ private fun List<BinderyBookVersionRow>.withWhispersyncMatches(
 		if (matches.isEmpty()) row else row.copy(syncMatches = matches)
 	}
 }
-
-private fun BinderySyncPair.hasReadyWhispersync(): Boolean =
-	whispersync?.status?.trim()?.equals("ready", ignoreCase = true) == true &&
-	whispersync.artifactId != null &&
-	!whispersync.artifactHref.isNullOrBlank()
 
 private fun BinderySyncPair.toWhispersyncMatch(
 	oppositeRow: BinderyBookVersionRow?,

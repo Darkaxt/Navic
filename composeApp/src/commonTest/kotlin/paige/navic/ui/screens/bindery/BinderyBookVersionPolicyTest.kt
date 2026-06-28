@@ -165,6 +165,69 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun bookVersionRowsUseManifestEmbeddedWhispersyncPairsWhenSyncEndpointIsUnavailable() {
+		val resources = BinderyResourceCatalog(
+			title = "Bastille Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3809/resources/ebook-633",
+					title = "Bastille EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					properties = mapOf(
+						"bookFileId" to "633",
+						"language" to "eng",
+						"format" to "epub"
+					)
+				)
+			)
+		)
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3809",
+			title = "Bastille vs. the Evil Librarians",
+			sync = BinderyBookSync(
+				bookId = 3809,
+				whispersyncStatus = "ready",
+				syncPairs = listOf(
+					BinderySyncPair(
+						bookId = 3809,
+						ebookBookFileId = 633,
+						audiobookBookFileId = 426,
+						whispersync = BinderyWhispersyncArtifact(
+							status = "ready",
+							artifactId = 12,
+							artifactHref = "/opds/books/3809/sync/12"
+						)
+					)
+				)
+			)
+		)
+
+		val rows = binderyBookVersionRows(
+			manifest = manifest,
+			resourceCatalog = resources,
+			languageFilter = "eng",
+			audiobookVersions = listOf(
+				BinderyAudiobookVersion(
+					id = 44,
+					bookId = 3809,
+					bookFileId = 426,
+					title = "Bastille vs. the Evil Librarians",
+					language = "English",
+					narrator = "Ramon de Ocampo"
+				)
+			),
+			bookSync = null
+		)
+
+		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }
+		val audiobook = rows.first { row -> row.kind == BinderyBookVersionKind.Audiobook }
+		assertEquals(1, ebook.syncMatches.size)
+		assertEquals(1, audiobook.syncMatches.size)
+		assertEquals("Ramon de Ocampo", ebook.syncMatches.single().oppositeTitle)
+	}
+
+	@Test
 	fun ebookWhispersyncLaunchDestinationCarriesSelectedAudiobookContract() {
 		val rows = hobbitVersionRowsWithWhispersync(status = "ready")
 		val ebook = rows.first { row -> row.kind == BinderyBookVersionKind.Ebook }

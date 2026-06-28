@@ -77,6 +77,17 @@ Implemented and covered by source/tests:
 - The dedicated `whispersync-page-scoped-control` DevTools smoke probe now repeats the production book `3809` cue/unsupported-page sequence: `Authorforeword.xhtml` emits `visibleTextRange(... source=page-scoped-control-cue-covered)`, resolves to `positionMs=263360`, activates the overlay, then `mini_toc.xhtml` emits `visibleTextRange(... source=page-scoped-control-unsupported)` and dispatches `clearOverlay`.
 - The dedicated `whispersync-char-offset-overlay` DevTools smoke probe now proves the ASR character-offset highlight fallback in a live Android WebView: readerdev wrapped `OEBPS/Text/Chapter-37.xhtml` characters `32-80` with `navic-active-overlay-fragment navic-media-overlay-range`, posted `overlayFragmentActive`, and cleared the marker through `clearOverlay`.
 
+## Bindery API Compatibility As Of 2026-06-28
+
+Authority: `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\github-export\bindery\docs\navic-opds-api-schema.md`.
+
+- A concrete Whispersync action still requires an exact `syncPairs[]` entry whose `whispersync.status == "ready"` and whose `whispersync.artifactHref` is non-empty. Book-level `whispersyncStatus` is only a summary badge.
+- Book/audiobook OPDS publication properties may embed `whispersyncStatus`, `syncPairCounts`, and `syncPairs`; Navic now decodes those into `BinderyPublication.sync` / `BinderyManifest.sync` instead of leaving them as generic property-bag data.
+- The `/opds/books/{bookId}/sync` endpoint remains the preferred pair authority when it succeeds. If that request fails, `BinderyBookViewModel` falls back to the manifest's embedded sync pairs rather than discarding actionable pair data.
+- Direct JSON audiobook detail responses now decode `whispersyncAvailable`, `whispersyncReadyCount`, `whispersyncStatus`, and `whispersync[]` for future audiobook-side UI decisions.
+- Book catalog/detail/search/hub cover cards now expose a subtle top-left headset badge only when the embedded publication has at least one exact ready pair with `artifactHref`; summary-only `whispersyncStatus` does not show the badge.
+- Regression coverage: `BinderyRepositoryCatalogJsonTest.catalogJsonDecodesEmbeddedWhispersyncPairsFromPublicationProperties`, `BinderyBookVersionPolicyTest.bookVersionRowsUseManifestEmbeddedWhispersyncPairsWhenSyncEndpointIsUnavailable`, and `BinderyBookSyncJsonTest.decodesAudiobookDetailWhispersyncSummaryFields`.
+
 Important correction to older audits:
 
 - Raw sidecar buttons are not an acceptable user-facing path. Both the ebook "open with audiobook" sheet and the generic Whispersync matches sheet must build a `Screen.Reader` with sidecar and audiobook route metadata, and `ReaderScreen` consumes that route to load the sidecar. A visible Whispersync match row must either launch a paired reader session or disable the launch button; it must not expose an inert sidecar action.

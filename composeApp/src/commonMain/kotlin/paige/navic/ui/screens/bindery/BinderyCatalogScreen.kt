@@ -296,20 +296,12 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 					ownershipStatus = card.availabilityStatus(languageFilter),
 					coverAspectRatio = visualPolicy.coverAspectRatio,
 					coverContentScale = if (visualPolicy.imageContentScaleFit) ContentScale.Fit else ContentScale.Crop,
-					coverOverlay = if (action != null) {
-						{
-							BinderyCardActionButton(
-								action = action,
-								loading = action.link.href in actionInFlight,
-								onAction = onAction,
-								modifier = Modifier
-									.align(Alignment.BottomEnd)
-									.padding(8.dp)
-							)
-						}
-					} else {
-						null
-					},
+					coverOverlay = binderyBookCoverOverlay(
+						hasActionableWhispersync = card.hasActionableWhispersync,
+						action = action,
+						loading = action?.link?.href in actionInFlight,
+						onAction = onAction
+					),
 					fallbackKind = "Book",
 					id = card.id,
 					tab = "bindery"

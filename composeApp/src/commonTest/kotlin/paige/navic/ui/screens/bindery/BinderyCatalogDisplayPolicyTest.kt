@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyAvailability
 import paige.navic.domain.repositories.BinderyAvailabilityCombination
+import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyBookResource
 import paige.navic.domain.repositories.BinderyFindingFile
 import paige.navic.domain.repositories.BinderyFindingMapping
@@ -12,6 +13,8 @@ import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderyFindingMetadata
+import paige.navic.domain.repositories.BinderySyncPair
+import paige.navic.domain.repositories.BinderyWhispersyncArtifact
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
@@ -300,6 +303,45 @@ class BinderyCatalogDisplayPolicyTest {
 			Screen.BinderyBook("3913", "The Maps of Middle-Earth"),
 			binderyDestinationForCard(card)
 		)
+	}
+
+	@Test
+	fun bookCardsExposeWhispersyncBadgeOnlyForReadyPairsWithArtifactHref() {
+		val cards = binderyCatalogCards(
+			BinderyCatalog(
+				title = "Books",
+				publications = listOf(
+					BinderyPublication(
+						id = "urn:bindery:book:3809",
+						title = "Bastille vs. the Evil Librarians",
+						sync = BinderyBookSync(
+							whispersyncStatus = "ready",
+							syncPairs = listOf(
+								BinderySyncPair(
+									bookId = 3809,
+									ebookBookFileId = 633,
+									audiobookBookFileId = 426,
+									whispersync = BinderyWhispersyncArtifact(
+										status = "ready",
+										artifactId = 12,
+										artifactHref = "/opds/books/3809/sync/12"
+									)
+								)
+							)
+						)
+					),
+					BinderyPublication(
+						id = "urn:bindery:book:3810",
+						title = "Summary Ready Only",
+						sync = BinderyBookSync(whispersyncStatus = "ready")
+					)
+				)
+			),
+			tab = BinderyCatalogTab.Books
+		).filterIsInstance<BinderyCatalogCard.Book>()
+
+		assertTrue(cards.first { it.id == "urn:bindery:book:3809" }.hasActionableWhispersync)
+		assertFalse(cards.first { it.id == "urn:bindery:book:3810" }.hasActionableWhispersync)
 	}
 
 	@Test

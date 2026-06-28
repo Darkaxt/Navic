@@ -84,6 +84,10 @@ data class BinderyAudiobookVersion(
 	val bitrateBps: Long? = null,
 	val sampleRateHz: Long? = null,
 	val channels: Int? = null,
+	val whispersyncAvailable: Boolean? = null,
+	val whispersyncReadyCount: Int? = null,
+	val whispersyncStatus: String? = null,
+	val whispersync: List<BinderySyncPair> = emptyList(),
 	val resources: List<BinderyAudiobookResource> = emptyList(),
 	val provenance: BinderyAudiobookProvenance? = null,
 	val createdAt: String? = null,
@@ -158,6 +162,13 @@ data class BinderyWhispersyncJob(
 	val message: String? = null
 )
 
+fun BinderySyncPair.hasReadyWhispersyncArtifact(): Boolean {
+	val artifact = whispersync ?: return false
+	return artifact.status.equals("ready", ignoreCase = true) &&
+		artifact.artifactId != null &&
+		!artifact.artifactHref.isNullOrBlank()
+}
+
 @Serializable
 enum class BinderyReadingProgressKind {
 	@SerialName("ebook")
@@ -211,6 +222,7 @@ data class BinderyPublication(
 	val links: List<BinderyLink> = emptyList(),
 	val images: List<BinderyLink> = emptyList(),
 	val readingOrder: List<BinderyReadingOrderItem> = emptyList(),
+	val sync: BinderyBookSync? = null,
 	val finding: BinderyFindingMetadata? = null
 )
 
@@ -287,7 +299,8 @@ data class BinderyManifest(
 	val propertyValues: BinderyPropertyBag = BinderyPropertyBag(),
 	val links: List<BinderyLink> = emptyList(),
 	val images: List<BinderyLink> = emptyList(),
-	val readingOrder: List<BinderyReadingOrderItem> = emptyList()
+	val readingOrder: List<BinderyReadingOrderItem> = emptyList(),
+	val sync: BinderyBookSync? = null
 )
 
 @Serializable

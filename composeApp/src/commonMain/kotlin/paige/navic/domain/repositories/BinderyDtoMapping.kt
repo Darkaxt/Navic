@@ -103,6 +103,7 @@ private fun BinderyPublicationDto.toPublication(): BinderyPublication {
 		links = links.orEmpty().mapNotNull { it.toLink() },
 		images = images.orEmpty().mapNotNull { it.toLink() },
 		readingOrder = readingOrder.orEmpty().mapNotNull { it.toReadingOrderItem() },
+		sync = decodedProperties.toBookSync(),
 		finding = decodedProperties.toFindingMetadata()
 	)
 }
@@ -123,7 +124,8 @@ internal fun BinderyPublicationDto.toManifest(): BinderyManifest {
 		propertyValues = decodedProperties.toPropertyBag(),
 		links = links.orEmpty().mapNotNull { it.toLink() },
 		images = images.orEmpty().mapNotNull { it.toLink() },
-		readingOrder = readingOrder.orEmpty().mapNotNull { it.toReadingOrderItem() }
+		readingOrder = readingOrder.orEmpty().mapNotNull { it.toReadingOrderItem() },
+		sync = decodedProperties.toBookSync()
 	)
 }
 
@@ -157,6 +159,15 @@ internal fun decodeBinderyBookSyncJson(jsonText: String): BinderyBookSync {
 		?.let { values -> BinderyJson.decodeFromJsonElement<BinderyBookSync>(values) }
 	return propertiesSync ?: BinderyJson.decodeFromJsonElement(root)
 }
+
+private fun Map<String, JsonElement>.toBookSync(): BinderyBookSync? =
+	takeIf { values ->
+		values.containsKey("syncPairs") ||
+			values.containsKey("syncPairCounts") ||
+			values.containsKey("whispersyncStatus")
+	}?.let { values ->
+		BinderyJson.decodeFromJsonElement<BinderyBookSync>(JsonObject(values))
+	}
 
 private fun BinderyLinkDto.toReadingOrderItem(): BinderyReadingOrderItem? {
 	val safeHref = href?.trim()?.takeIf { it.isNotEmpty() } ?: return null

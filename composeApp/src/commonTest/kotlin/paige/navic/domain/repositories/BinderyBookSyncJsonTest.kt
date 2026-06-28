@@ -1,5 +1,6 @@
 package paige.navic.domain.repositories
 
+import kotlinx.serialization.decodeFromString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -106,5 +107,40 @@ class BinderyBookSyncJsonTest {
 		assertEquals(633, sync.syncPairs.single().audiobookBookFileId)
 		assertEquals("ready", sync.syncPairs.single().whispersync?.status)
 		assertEquals("/opds/books/3809/sync/3", sync.syncPairs.single().whispersync?.artifactHref)
+	}
+
+	@Test
+	fun decodesAudiobookDetailWhispersyncSummaryFields() {
+		val detail = BinderyJson.decodeFromString<BinderyAudiobookVersion>(
+			"""
+			{
+			  "id": 44,
+			  "bookId": 3809,
+			  "bookFileId": 426,
+			  "title": "Bastille vs. the Evil Librarians",
+			  "whispersyncAvailable": true,
+			  "whispersyncReadyCount": 1,
+			  "whispersyncStatus": "ready",
+			  "whispersync": [
+			    {
+			      "bookId": 3809,
+			      "ebookBookFileId": 633,
+			      "audiobookBookFileId": 426,
+			      "whispersync": {
+			        "status": "ready",
+			        "artifactId": 12,
+			        "artifactHref": "/opds/books/3809/sync/12"
+			      }
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		assertEquals(true, detail.whispersyncAvailable)
+		assertEquals(1, detail.whispersyncReadyCount)
+		assertEquals("ready", detail.whispersyncStatus)
+		assertEquals(633, detail.whispersync.single().ebookBookFileId)
+		assertEquals("/opds/books/3809/sync/12", detail.whispersync.single().whispersync?.artifactHref)
 	}
 }

@@ -60,7 +60,7 @@ class BinderyBookViewModel(
 						BinderyResourceCatalog(title = "Resources")
 					}
 					val sync = repository.getBookSync(bookId).getOrElse {
-						BinderyBookSync(bookId = bookId.toLongOrNull())
+						manifest.sync ?: BinderyBookSync(bookId = bookId.toLongOrNull())
 					}
 					val freshData =
 						BinderyBookData(
@@ -90,6 +90,7 @@ class BinderyBookViewModel(
 		val resources = repository.getCachedBookResources(bookId).getOrNull()
 			?: BinderyResourceCatalog(title = "Resources")
 		val sync = repository.getCachedBookSync(bookId).getOrNull()
+			?: manifest.sync
 			?: BinderyBookSync(bookId = bookId.toLongOrNull())
 		return BinderyBookData(
 			manifest = manifest,
