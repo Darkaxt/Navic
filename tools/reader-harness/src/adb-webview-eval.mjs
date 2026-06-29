@@ -957,38 +957,46 @@ async function runWhispersyncPageScopedControlProbe(page) {
         throw error
       }
     }
-    const jumpAndSnapshot = async (href, reason) => {
+    const waitForTargetVisibleRange = async (href, reason) => {
       const startIndex = observedPayloads.length
       fireReaderNavigation(href)
-      await settleFrames(8)
-      const snapshot = await Promise.resolve(readerBridgeDispatch({
-        type: 'diagnosticLocationSnapshot',
-        reason,
-      }))
-      const visibleRange = latestVisibleRange(startIndex) ||
-        snapshot?.visibleTextRangeResult?.visibleRange ||
-        null
-      if (!visibleRange) {
-        throw new Error(
-          `Expected ${reason} to emit visibleTextRange; result=${JSON.stringify(snapshot)}; observed=${
-            JSON.stringify(observedPayloads.slice(startIndex))
-          }`
-        )
+      let lastSnapshot = null
+      let lastVisibleRange = null
+      for (let snapshotAttempt = 0; snapshotAttempt < 60; snapshotAttempt += 1) {
+        await settleFrames(2)
+        const snapshot = await Promise.resolve(readerBridgeDispatch({
+          type: 'diagnosticLocationSnapshot',
+          reason,
+        }))
+        const observedRange = latestVisibleRange(startIndex)
+        const snapshotRange = snapshot?.visibleTextRangeResult?.visibleRange || null
+        const visibleRange = observedRange?.textHref === href
+          ? observedRange
+          : snapshotRange?.textHref === href
+            ? snapshotRange
+            : observedRange || snapshotRange || null
+        lastSnapshot = snapshot
+        lastVisibleRange = visibleRange
+        if (visibleRange?.textHref === href && visibleRange?.source === reason) {
+          return {
+            href,
+            reason,
+            snapshot,
+            visibleRange,
+            snapshotAttempt,
+            observedPayloads: observedPayloads.slice(startIndex),
+          }
+        }
       }
-      if (visibleRange.textHref !== href) {
-        throw new Error(`Expected ${reason} visibleTextRange for ${href}, got ${JSON.stringify(visibleRange)}`)
-      }
-      if (visibleRange.source !== reason) {
-        throw new Error(`Expected ${reason} visibleTextRange source, got ${JSON.stringify(visibleRange)}`)
-      }
-      return {
-        href,
-        reason,
-        snapshot,
-        visibleRange,
-        observedPayloads: observedPayloads.slice(startIndex),
-      }
+      throw new Error(
+        `Expected ${reason} visibleTextRange for ${href}; last=${
+          JSON.stringify(lastVisibleRange)
+        }; result=${JSON.stringify(lastSnapshot)}; observed=${
+          JSON.stringify(observedPayloads.slice(startIndex))
+        }`
+      )
     }
+    const jumpAndSnapshot = waitForTargetVisibleRange
 
     window.NavicAndroidBridge.postMessage = message => {
       originalPostMessage(message)
@@ -1094,38 +1102,46 @@ async function runWhispersyncCompanionProgressProbe(page) {
         throw error
       }
     }
-    const jumpAndSnapshot = async (href, reason) => {
+    const waitForTargetVisibleRange = async (href, reason) => {
       const startIndex = observedPayloads.length
       fireReaderNavigation(href)
-      await settleFrames(8)
-      const snapshot = await Promise.resolve(readerBridgeDispatch({
-        type: 'diagnosticLocationSnapshot',
-        reason,
-      }))
-      const visibleRange = latestVisibleRange(startIndex) ||
-        snapshot?.visibleTextRangeResult?.visibleRange ||
-        null
-      if (!visibleRange) {
-        throw new Error(
-          `Expected ${reason} to emit visibleTextRange; result=${JSON.stringify(snapshot)}; observed=${
-            JSON.stringify(observedPayloads.slice(startIndex))
-          }`
-        )
+      let lastSnapshot = null
+      let lastVisibleRange = null
+      for (let snapshotAttempt = 0; snapshotAttempt < 60; snapshotAttempt += 1) {
+        await settleFrames(2)
+        const snapshot = await Promise.resolve(readerBridgeDispatch({
+          type: 'diagnosticLocationSnapshot',
+          reason,
+        }))
+        const observedRange = latestVisibleRange(startIndex)
+        const snapshotRange = snapshot?.visibleTextRangeResult?.visibleRange || null
+        const visibleRange = observedRange?.textHref === href
+          ? observedRange
+          : snapshotRange?.textHref === href
+            ? snapshotRange
+            : observedRange || snapshotRange || null
+        lastSnapshot = snapshot
+        lastVisibleRange = visibleRange
+        if (visibleRange?.textHref === href && visibleRange?.source === reason) {
+          return {
+            href,
+            reason,
+            snapshot,
+            visibleRange,
+            snapshotAttempt,
+            observedPayloads: observedPayloads.slice(startIndex),
+          }
+        }
       }
-      if (visibleRange.textHref !== href) {
-        throw new Error(`Expected ${reason} visibleTextRange for ${href}, got ${JSON.stringify(visibleRange)}`)
-      }
-      if (visibleRange.source !== reason) {
-        throw new Error(`Expected ${reason} visibleTextRange source, got ${JSON.stringify(visibleRange)}`)
-      }
-      return {
-        href,
-        reason,
-        snapshot,
-        visibleRange,
-        observedPayloads: observedPayloads.slice(startIndex),
-      }
+      throw new Error(
+        `Expected ${reason} visibleTextRange for ${href}; last=${
+          JSON.stringify(lastVisibleRange)
+        }; result=${JSON.stringify(lastSnapshot)}; observed=${
+          JSON.stringify(observedPayloads.slice(startIndex))
+        }`
+      )
     }
+    const jumpAndSnapshot = waitForTargetVisibleRange
 
     window.NavicAndroidBridge.postMessage = message => {
       originalPostMessage(message)

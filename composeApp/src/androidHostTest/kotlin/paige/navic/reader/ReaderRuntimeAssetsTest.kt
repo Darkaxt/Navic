@@ -456,9 +456,15 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "page-scoped-control-cue-covered")
 		assertContains(probe, "page-scoped-control-unsupported")
 		assertContains(probe, "visibleTextRange")
+		assertContains(probe, "waitForTargetVisibleRange")
+		assertContains(probe, "snapshotAttempt")
 		assertContains(probe, "expectedLogLabels")
 		assertContains(probe, "Whispersync audiobook seek")
 		assertContains(probe, "Dispatching reader engine command: clearOverlay")
+		assertFalse(
+			probe.contains("await settleFrames(8)\n      const snapshot"),
+			"Page-scoped Whispersync smoke navigation must wait for the requested href, not sample stale saved state after a fixed frame count."
+		)
 		assertFalse(
 			probe.contains("await Promise.resolve(readerBridgeDispatch({\n        type: 'goToHref'"),
 			"Page-scoped smoke navigation must not await goToHref; Foliate may emit loadDoc without settling the navigation promise."
@@ -479,9 +485,15 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "OEBPS/xhtml/Authorforeword.xhtml")
 		assertContains(probe, "whispersync-companion-progress-cue")
 		assertContains(probe, "visibleTextRange")
+		assertContains(probe, "waitForTargetVisibleRange")
+		assertContains(probe, "snapshotAttempt")
 		assertContains(probe, "Whispersync audiobook seek")
 		assertContains(probe, "positionMs=263360")
 		assertContains(probe, "overlayFragmentActive")
+		assertFalse(
+			probe.contains("await settleFrames(8)\n      const snapshot"),
+			"Companion progress Whispersync smoke navigation must wait for the requested href, not sample stale saved state after a fixed frame count."
+		)
 		assertFalse(
 			probe.contains("OEBPS/xhtml/mini_toc.xhtml"),
 			"Companion progress persistence must stay on the cue-covered page; jumping to unsupported content can overwrite the exact companion entry."

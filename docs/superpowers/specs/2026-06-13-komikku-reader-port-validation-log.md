@@ -8314,3 +8314,41 @@ Results:
 
 Remaining:
 - Commit and push Stage 5C.1 before returning to release-device Whispersync validation.
+
+
+## 2026-06-29 Stage 5C.2 Whispersync Readerdev Enjoyment Matrix
+
+Scope:
+- Validate the current-source Whispersync flow against the real production Bindery paired route for book `3809`.
+- Fix the brittle Whispersync DevTools probes that sampled stale saved reader state after a fixed animation-frame delay.
+- Keep this explicitly labeled as readerdev implementation/runtime evidence; release-package validation remains credential-bound.
+
+Target:
+- Device/package: `emulator-5554`, `darkaxt.navic.readerdev`
+- Version: `v1.0.11-theta16`, `versionCode=444`, `lastUpdateTime=2026-06-29 18:32:25`
+- Route: book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, audiobook book file `633`
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderWhispersyncSidecarUrl /opds/books/3809/sync/8 -ReaderWhispersyncArtifactId 8 -ReaderWhispersyncAudiobookId 34 -ReaderWhispersyncAudiobookBookFileId 633 -ReaderWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -RequireReaderLaunch -Capture
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCompanionProgressPersistence --console=plain
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-page-scoped-control -ArtifactDir captures\reader-smoke\stage5c2-page-scoped-control-20260629-1841
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-audio-follow -ArtifactDir captures\reader-smoke\stage5c2-audio-follow-20260629-1841
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-char-offset-overlay -ArtifactDir captures\reader-smoke\stage5c2-char-offset-overlay-20260629-1842
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-companion-progress -ArtifactDir captures\reader-smoke\stage5c2-companion-progress-20260629-1842
+```
+
+Results:
+- RED/READERDEV-FIRST: `stage5c2-page-scoped-control-20260629-1833` failed because the probe expected `Authorforeword.xhtml` after a fixed frame delay but sampled the saved reader state at `OEBPS/xhtml/chapter17.xhtml`.
+- GREEN/API-CHECK: live sidecar `/opds/books/3809/sync/8` still has both `Authorforeword.xhtml` and `chapter17.xhtml` cue coverage, so the failure was harness timing, not missing production sidecar data.
+- RED/HOST-FIRST: focused `ReaderRuntimeAssetsTest` guards failed until the page-scoped and companion-progress probes used `waitForTargetVisibleRange` plus diagnostic snapshot attempts.
+- GREEN/HOST-FOCUSED: the focused host guards passed after the harness change.
+- GREEN/PAGE-TO-AUDIO: `captures\reader-smoke\stage5c2-page-scoped-control-20260629-1841` reached `Authorforeword.xhtml`, emitted visible text range, activated overlay, logged `positionMs=263360`, moved unsupported content to `mini_toc.xhtml`, and dispatched `clearOverlay`.
+- GREEN/AUDIO-FOLLOW: `captures\reader-smoke\stage5c2-audio-follow-20260629-1841` emitted `visibleTextRange(... source=media-overlay-follow)`.
+- GREEN/CHAR-OFFSET: `captures\reader-smoke\stage5c2-char-offset-overlay-20260629-1842` marked `textStart=27` / `textEnd=75` with `navic-active-overlay-fragment navic-media-overlay-range` and emitted `overlayFragmentActive`.
+- GREEN/COMPANION-TARGET: `captures\reader-smoke\stage5c2-companion-progress-20260629-1842` resolved the cue-covered page and logged exact target `positionMs=263360` with `overlayFragmentActive`.
+
+Remaining:
+- Commit/push Stage 5C.2. JS syntax, full `:composeApp:testAndroid`, and `git diff --check` passed before commit.
+- Release-package proof still requires real Navic/Navidrome login credentials or a logged-in physical release device.

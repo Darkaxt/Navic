@@ -405,7 +405,7 @@ Required before closure:
 - [x] Run `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain`.
 - [x] Run `git diff --check`.
 - [x] Update `docs/superpowers/specs/2026-06-18-whispersync-design.md` and the validation log only with real evidence.
-- [ ] Commit and push this stage before returning to release-device Whispersync validation.
+- [x] Commit and push this stage before returning to release-device Whispersync validation. Completed in `d9eeee35`.
 
 Results so far:
 - RED/HOST-FIRST: `BinderyWhispersyncSchemaContractTest` failed while the Whispersync spec still named the older `2026-06-28` compatibility section and while the route guard inspected only repository-level symbols instead of the `BinderyApiClient`/`BinderyUrlPolicy` HTTP boundary.
@@ -414,6 +414,57 @@ Results so far:
 - GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after Stage 5C.1 changes.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - GREEN/HOST-FINAL: `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.BinderyWhispersyncSchemaContractTest --console=plain` passed again after final plan/log edits.
+
+### Stage 5C.2: Whispersync Readerdev Enjoyment Matrix
+
+Status: implementation/runtime proof complete for the current production paired route; release-device proof still pending.
+
+Purpose:
+- Verify the current source against the real production Bindery paired ebook route instead of adding isolated UI polish.
+- Keep release-package evidence honest: the public `darkaxt.navic` package still needs Navic/Navidrome login credentials before deep reader/Whispersync validation can run there, so this stage uses `darkaxt.navic.readerdev` as the seeded implementation lab.
+- Fix validation harness brittleness before trusting the matrix: Whispersync probes must wait for the requested visible href rather than sampling stale saved state after a fixed number of animation frames.
+
+Target:
+- Device: `emulator-5554`
+- Package: `darkaxt.navic.readerdev`
+- Version: `v1.0.11-theta16`, `versionCode=444`, `lastUpdateTime=2026-06-29 18:32:25`
+- Book: `3809`
+- Ebook file: `426`, canonicalized to `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`
+- Sidecar: `/opds/books/3809/sync/8`
+- Audiobook: `34`
+- Audiobook book file: `633`
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderWhispersyncSidecarUrl /opds/books/3809/sync/8 -ReaderWhispersyncArtifactId 8 -ReaderWhispersyncAudiobookId 34 -ReaderWhispersyncAudiobookBookFileId 633 -ReaderWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -RequireReaderLaunch -Capture
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncPageScopedControl --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCompanionProgressPersistence --console=plain
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-page-scoped-control -ArtifactDir captures\reader-smoke\stage5c2-page-scoped-control-20260629-1841
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-audio-follow -ArtifactDir captures\reader-smoke\stage5c2-audio-follow-20260629-1841
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-char-offset-overlay -ArtifactDir captures\reader-smoke\stage5c2-char-offset-overlay-20260629-1842
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta16 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-companion-progress -ArtifactDir captures\reader-smoke\stage5c2-companion-progress-20260629-1842
+```
+
+Results:
+- RED/READERDEV-FIRST: the first page-scoped probe failed because it expected `Authorforeword.xhtml` immediately after dispatching `goToHref`, but the visible range was still the saved reader state at `OEBPS/xhtml/chapter17.xhtml`.
+- GREEN/API-CHECK: live Bindery sidecar `/opds/books/3809/sync/8` still exposes both `Authorforeword.xhtml` cues and later `chapter17.xhtml` cues, so the failure was harness sampling, not missing production sidecar coverage.
+- RED/HOST-FIRST: focused `ReaderRuntimeAssetsTest` guards failed until `whispersync-page-scoped-control` and `whispersync-companion-progress` used a condition-based `waitForTargetVisibleRange` diagnostic snapshot loop instead of fixed-frame sampling.
+- GREEN/HOST-FOCUSED: the focused host guards passed after the harness change.
+- GREEN/READERDEV-LAUNCH: `install-reader-dev.ps1` rebuilt, installed, focused, and reached `publicationReady` for the production paired route.
+- GREEN/PAGE-TO-AUDIO: `stage5c2-page-scoped-control-20260629-1841` reached `OEBPS/xhtml/Authorforeword.xhtml`, emitted `visibleTextRange`, activated `overlayFragmentActive`, logged `Whispersync audiobook seek ... positionMs=263360`, navigated to unsupported `OEBPS/xhtml/mini_toc.xhtml`, and dispatched `clearOverlay`.
+- GREEN/AUDIO-TO-READER: `stage5c2-audio-follow-20260629-1841` emitted `visibleTextRange(... source=media-overlay-follow)`, preserving the feedback-loop suppression contract.
+- GREEN/CHAR-OFFSET-OVERLAY: `stage5c2-char-offset-overlay-20260629-1842` marked a text-node range with `navic-active-overlay-fragment navic-media-overlay-range` and emitted `overlayFragmentActive`.
+- GREEN/COMPANION-TARGET: `stage5c2-companion-progress-20260629-1842` resolved the cue-covered page and logged the exact audiobook target `positionMs=263360` with `overlayFragmentActive`.
+
+Required before closure:
+- [x] Run JS syntax check for `tools/reader-harness/src/adb-webview-eval.mjs`.
+- [x] Run `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain`.
+- [x] Run `git diff --check`.
+- [x] Update the validation log.
+- [ ] Commit and push Stage 5C.2.
+
+Remaining:
+- This is current-source readerdev proof for a real production Bindery sidecar/audiobook route. It is not a public release-package proof until `darkaxt.navic` can log in or a logged-in physical device runs the same end-to-end flow.
 
 ## Stage 6: Komikku Visual Parity Gate
 
