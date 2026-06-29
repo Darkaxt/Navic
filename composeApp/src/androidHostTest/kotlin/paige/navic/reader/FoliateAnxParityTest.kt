@@ -984,10 +984,26 @@ class FoliateAnxParityTest {
 		)
 		val adaptivePageBoxBody = navicReaderHelpersText
 			.substringAfter("export const readerAdaptiveFoliatePageBox")
-			.substringBefore("\n}\n\nexport const readerStartLocatorHasPosition")
+			.substringBefore("\n}\n\nexport const readerTypographyCss")
 		assertTrue(
 			!adaptivePageBoxBody.contains(": columnThreshold"),
 			"Auto column mode must not hard-cap the full page inline size to columnThreshold; threshold decides splitting, not tablet page width."
+		)
+		assertTrue(
+			!adaptivePageBoxBody.contains("marginPercent") &&
+				!adaptivePageBoxBody.contains("naturalInlineReserve") &&
+				!adaptivePageBoxBody.contains("naturalBlockReserve"),
+			"readerAdaptiveFoliatePageBox must not apply Navic's legacy marginPercent reserve on top of Anx side/top/bottom margins; the Foliate attributes own page margins."
+		)
+		val paginatorBeforeRender = navicPaginatorText
+			.substringAfter("#beforeRender({")
+			.substringBefore("\n    render()")
+		assertTrue(
+			paginatorBeforeRender.contains("const maxInlineSize = parseFloat(style.getPropertyValue('--_max-inline-size'))") &&
+				paginatorBeforeRender.contains("const columnThreshold = parseFloat(style.getPropertyValue('--_column-threshold')) || maxInlineSize") &&
+				paginatorBeforeRender.contains("Math.ceil(size / columnThreshold)") &&
+				!paginatorBeforeRender.contains("const maxInlineSize = parseFloat(style.getPropertyValue('--_column-threshold'))"),
+			"Foliate paginator must use columnThreshold only to choose spread splitting; max-inline-size must remain the actual adaptive page width on tablet/fold portrait layouts."
 		)
 	}
 

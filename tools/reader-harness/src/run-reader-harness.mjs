@@ -757,10 +757,10 @@ if (mode === 'adaptive-page-box-logic') {
       JSON.stringify(portrait)
     )
   }
-  if (portraitBlock > 1860) {
+  if (portraitInline !== 1232 || portraitBlock !== 1974) {
     throw new Error(
-      'Expected large portrait EPUB surfaces to keep a natural bottom paper reserve instead of filling the page edge, got ' +
-      JSON.stringify(portrait)
+      'Expected adaptive EPUB page box to use the full viewport and leave folio margins to renderer attributes, got ' +
+      JSON.stringify({ portrait, portraitInline, portraitBlock })
     )
   }
   if (portraitInline === 720 || portraitBlock === 1440) {
@@ -781,14 +781,10 @@ if (mode === 'adaptive-page-box-logic') {
       JSON.stringify(tabS9UltraPortrait)
     )
   }
-  const tabS9HorizontalReserve = (1848 - tabS9Inline) / 2
-  const tabS9VerticalReserve = (2960 - tabS9Block) / 2
-  const reserveRatio = Math.max(tabS9HorizontalReserve, tabS9VerticalReserve) /
-    Math.max(1, Math.min(tabS9HorizontalReserve, tabS9VerticalReserve))
-  if (reserveRatio > 1.75) {
+  if (tabS9Inline !== 1848 || tabS9Block !== 2960) {
     throw new Error(
-      'Expected large tablet portrait EPUB reserves to remain optically balanced like a folio page, got ' +
-      JSON.stringify({ tabS9UltraPortrait, tabS9HorizontalReserve, tabS9VerticalReserve, reserveRatio })
+      'Expected tablet EPUB page box to use the full viewport before Anx side/top/bottom margins are applied, got ' +
+      JSON.stringify({ tabS9UltraPortrait, tabS9Inline, tabS9Block })
     )
   }
   const explicitPortraitSpread = helpers.readerAdaptiveFoliatePageBox(
@@ -807,19 +803,20 @@ if (mode === 'adaptive-page-box-logic') {
   }
 
   const userMargin = helpers.readerAdaptiveFoliatePageBox({ width: 1232, height: 1974 }, { marginPercent: 20 })
-  if (parsePx(userMargin.maxInlineSize) >= portraitInline || parsePx(userMargin.maxBlockSize) !== portraitBlock) {
+  if (parsePx(userMargin.maxInlineSize) !== portraitInline || parsePx(userMargin.maxBlockSize) !== portraitBlock) {
     throw new Error(
-      'User margin should reserve natural horizontal paper without reducing vertical text capacity, got ' +
+      'Legacy marginPercent must not shrink the page box; Anx side/top/bottom renderer attributes own folio margins, got ' +
       JSON.stringify({ portrait, userMargin })
     )
   }
 
   const normalPhone = helpers.readerAdaptiveFoliatePageBox({ width: 393, height: 873 }, { marginPercent: 0 })
+  const normalPhoneInline = parsePx(normalPhone.maxInlineSize)
   const normalPhoneBlock = parsePx(normalPhone.maxBlockSize)
-  if (normalPhoneBlock < 800) {
+  if (normalPhoneInline !== 393 || normalPhoneBlock !== 873) {
     throw new Error(
-      'Normal phone-sized EPUB surfaces should not become cramped when reserving bottom paper, got ' +
-      JSON.stringify(normalPhone)
+      'Normal phone EPUB surfaces should use the viewport before renderer margins are applied, got ' +
+      JSON.stringify({ normalPhone, normalPhoneInline, normalPhoneBlock })
     )
   }
 
@@ -827,7 +824,7 @@ if (mode === 'adaptive-page-box-logic') {
   if (landscape.maxColumnCount !== '2') {
     throw new Error(`Expected wide surfaces to enable controlled two-column same-section composition, got ${JSON.stringify(landscape)}`)
   }
-  if (parsePx(landscape.maxInlineSize) < 1200 || parsePx(landscape.maxBlockSize) < 1100) {
+  if (parsePx(landscape.maxInlineSize) !== 1974 || parsePx(landscape.maxBlockSize) !== 1232) {
     throw new Error(`Expected landscape page box to use wide viewport capacity, got ${JSON.stringify(landscape)}`)
   }
 

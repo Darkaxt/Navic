@@ -372,15 +372,6 @@ internal fun KomikkuReaderSettingsDialog(
 							}
 						)
 						SliderItem(
-							label = "Margins",
-							value = settings.marginPercent ?: 0,
-							valueRange = 0..24,
-							valueString = "${settings.marginPercent ?: 0}%",
-							onChange = { marginPercent ->
-								onSettingsChange(settings.copy(marginPercent = marginPercent))
-							}
-						)
-						SliderItem(
 							label = "Font weight",
 							value = (settings.fontWeight ?: 400.0).roundToInt(),
 							valueRange = 100..900,

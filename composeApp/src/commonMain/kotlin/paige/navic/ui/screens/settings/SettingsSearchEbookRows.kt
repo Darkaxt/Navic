@@ -91,17 +91,6 @@ internal fun settingsSearchEbookRows(context: SettingsSearchContext): List<Searc
 			onSelect = { percent -> preferenceManager.readerParagraphSpacingPercent = percent }
 		))
 		add(selectionRow(
-			id = "ebooks.margin",
-			path = path(ebooks),
-			title = stringResource(Res.string.option_ebook_reader_margin),
-			subtitle = stringResource(Res.string.subtitle_ebook_reader_margin),
-			keywords = listOf("reader", "ebook", "EPUB", "layout"),
-			items = readerMarginSearchOptions,
-			label = { percent -> "$percent%" },
-			selection = readerSettings.marginPercent ?: 0,
-			onSelect = { percent -> preferenceManager.readerMarginPercent = percent }
-		))
-		add(selectionRow(
 			id = "ebooks.dim-overlay",
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_dim_overlay),

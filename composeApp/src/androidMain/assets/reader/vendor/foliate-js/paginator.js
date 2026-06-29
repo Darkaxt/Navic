@@ -826,8 +826,8 @@ export class Paginator extends HTMLElement {
         const size = vertical ? height : width
 
         const style = getComputedStyle(this.#top)
-        const maxInlineSize = parseFloat(style.getPropertyValue('--_column-threshold')) ||
-            parseFloat(style.getPropertyValue('--_max-inline-size'))
+        const maxInlineSize = parseFloat(style.getPropertyValue('--_max-inline-size'))
+        const columnThreshold = parseFloat(style.getPropertyValue('--_column-threshold')) || maxInlineSize
         const maxColumnCount = parseInt(style.getPropertyValue('--_max-column-count-spread'))
         const topMargin = parseFloat(style.getPropertyValue('--_top-margin'))
         const bottomMargin = parseFloat(style.getPropertyValue('--_bottom-margin'))
@@ -872,7 +872,7 @@ export class Paginator extends HTMLElement {
         }
 
         const divisor = maxColumnCount === 0
-            ? Math.min(2, Math.ceil(size / maxInlineSize))
+            ? Math.min(2, Math.ceil(size / columnThreshold))
             : maxColumnCount
         const columnWidth = vertical ? (size / divisor - margin) : (size / divisor - gap)
         this.setAttribute('dir', rtl ? 'rtl' : 'ltr')
@@ -883,7 +883,7 @@ export class Paginator extends HTMLElement {
         this.#replaceBackground(background, this.columnCount)
 
         const marginalDivisor = vertical
-            ? Math.min(2, Math.ceil(width / maxInlineSize))
+            ? Math.min(2, Math.ceil(width / columnThreshold))
             : divisor
         const marginalStyle = {
             gridTemplateColumns: `repeat(${marginalDivisor}, 1fr)`,

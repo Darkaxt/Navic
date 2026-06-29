@@ -88,7 +88,6 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "postToc")
 		assertContains(bridgeText, "flattenTocItems")
 		assertContains(bridgeText, "type: 'toc'")
-		assertContains(bridgeText, "margin-inline")
 		assertContains(bridgeText, "[NavicReader]")
 		assertContains(bridgeText, "openPublication:start")
 		assertContains(bridgeText, "reportError")

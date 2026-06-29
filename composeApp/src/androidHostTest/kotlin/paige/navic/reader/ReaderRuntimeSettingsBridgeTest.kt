@@ -479,6 +479,37 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderUsesAnxMarginAttributesInsteadOfLegacyBodyMargins() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
+		val searchRowsText = settingsFile("SettingsSearchEbookRows.kt").readText()
+
+		assertFalse(
+			typographyCss.contains("margin-inline:"),
+			"EPUB body typography must not apply legacy marginPercent on top of Anx renderer sideMargin/topMargin/bottomMargin attributes."
+		)
+		assertFalse(
+			settingsDialogText.contains("label = \"Margins\""),
+			"The reader settings sheet must not expose legacy Margins beside Anx Side margin; that duplicates the same visual authority."
+		)
+		assertFalse(
+			ebooksSettingsText.contains("option_ebook_reader_margin"),
+			"Settings > Ebooks must not expose legacy reader margin when Anx side/top/bottom margin controls own renderer composition."
+		)
+		assertFalse(
+			searchRowsText.contains("option_ebook_reader_margin"),
+			"Settings search must not return the retired legacy reader margin control."
+		)
+		assertContains(settingsDialogText, "label = \"Side margin\"")
+		assertContains(settingsDialogText, "label = \"Top margin\"")
+		assertContains(settingsDialogText, "label = \"Bottom margin\"")
+	}
+
+	@Test
 	fun androidReaderReinjectsCompleteContentCssIntoLoadedPublicationDocuments() {
 		val bridgeText = readerBridgeText()
 		val applyDocumentTheme = bridgeText

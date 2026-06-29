@@ -7773,3 +7773,40 @@ Results:
 
 Remaining:
 - This closes the readerdev exact companion progress reopen gate. Release-device validation is still required before claiming the full paired audiobook/ebook experience is ready for a public APK.
+
+
+## 2026-06-29 Stage 6A EPUB Typography And Viewport Layout Gate
+
+Scope:
+- Replace the old Navic body-margin/page-box shrink behavior with Anx/Foliate-owned renderer margins.
+- Keep large phone, fold, and tablet EPUB page boxes using the full viewport before `gap`, `top-margin`, and `bottom-margin` are applied.
+- Keep `columnThreshold` as the spread-splitting threshold, not the maximum inline page size.
+- Remove the duplicate legacy `Margins` UI/search entry in favor of Side margin, Top margin, and Bottom margin.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.FoliateAnxParityTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderUsesAnxMarginAttributesInsteadOfLegacyBodyMargins --rerun-tasks --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode adaptive-page-box-logic
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `FoliateAnxParityTest.phase8AdaptiveCompositionFieldsMatchAnxBookStyleContract` failed before the runtime/paginator dropped legacy margin shrink math and stopped using `columnThreshold` as max width.
+- RED/HOST-FIRST: `ReaderRuntimeSettingsBridgeTest.androidReaderUsesAnxMarginAttributesInsteadOfLegacyBodyMargins` failed before legacy `Margins` UI/search rows were removed.
+- GREEN/FOCUSED: the focused Android host rerun passed (`tmp/codex-validation/stage6a-focused-rerun.out.log`).
+- GREEN/HARNESS: `adaptive-page-box-logic` passed after the harness was updated to assert full-viewport page boxes and ignored legacy `marginPercent`.
+- GREEN/JS: all touched JS files passed `node --check`.
+- GREEN/SUITE: `:composeApp:testAndroid` passed (`tmp/codex-validation/stage6a-testAndroid.out.log`).
+- GREEN/READERDEV-INSTALL: readerdev installed and launched package `darkaxt.navic.readerdev`, reached `publicationReady`, and loaded book `3809` through the canonical OPDS resource `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`.
+- GREEN/TABLET: Tab S9 Ultra portrait evidence is under `captures\reader-smoke\stage6a-layout-emulator\tab-s9-ultra-portrait`; `page-box.json` reports renderer `1232x1974` CSS px, `maxColumnCount=1`, `topMargin=90px`, `bottomMargin=50px`, and `documentToViewportWidthRatio=0.94`.
+- GREEN/FOLD: Z Fold7 inner evidence is under `captures\reader-smoke\stage6a-layout-emulator\zfold7-inner`; `page-box-text.json` reports renderer `856x950` CSS px, `maxColumnCount=1`, and `documentToViewportWidthRatio=0.94`.
+- GREEN/PHONE: Z Fold7 cover evidence is under `captures\reader-smoke\stage6a-layout-emulator\zfold7-cover`; `page-box-text.json` reports renderer `410x956` CSS px, `maxColumnCount=1`, and `documentToViewportWidthRatio=0.939`.
+- GREEN/WHITESPACE: `git diff --check` passed before documentation updates.
+
+Remaining:
+- Stage 6A is eligible to be part of a later coherent release candidate, but it should not trigger a public release by itself. Remaining visual systems include settings density, progress rail fidelity, texture strength, theme palette, and page-curl/drag preview behavior.

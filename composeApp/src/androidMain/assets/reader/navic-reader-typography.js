@@ -456,14 +456,10 @@ export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), se
   const vertical = flowMode === ReaderFlowPagedVertical
   const inlineViewport = vertical ? height : width
   const blockViewport = vertical ? width : height
-  const userMargin = clampNumber(Number(settings?.marginPercent) || 0, 0, 35) / 100
-  const naturalInlineReserve = Math.max(32, Math.round(inlineViewport * (0.08 + userMargin * 0.35)))
-  const naturalBlockReserve = Math.max(48, Math.round(blockViewport * 0.065))
   const maxColumnCount = readerEffectiveMaxColumnCount({ inlineViewport, blockViewport, settings })
   const columnThreshold = readerColumnThresholdValue(settings)
-  const naturalInline = clampNumber(inlineViewport - naturalInlineReserve, 320, 1600)
-  const maxInline = naturalInline
-  const maxBlock = Math.max(720, blockViewport - naturalBlockReserve)
+  const maxInline = Math.max(320, inlineViewport)
+  const maxBlock = Math.max(320, blockViewport)
   return {
     maxInlineSize: `${Math.round(maxInline)}px`,
     maxBlockSize: `${Math.round(maxBlock)}px`,
@@ -505,7 +501,7 @@ export const readerTypographyCss = settings => {
     ${usePublisherStyles ? '' : `
     word-spacing: ${wordSpacing}px !important;
     `}
-    margin-inline: ${settings.marginPercent || 0}% !important;
+    margin: 0 !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
   main,

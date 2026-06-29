@@ -63,7 +63,6 @@ import navic.composeapp.generated.resources.option_ebook_reader_grayscale
 import navic.composeapp.generated.resources.option_ebook_reader_inverted_colors
 import navic.composeapp.generated.resources.option_ebook_reader_line_height
 import navic.composeapp.generated.resources.option_ebook_reader_keep_screen_on
-import navic.composeapp.generated.resources.option_ebook_reader_margin
 import navic.composeapp.generated.resources.option_ebook_reader_media_overlay
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_bottom
@@ -422,14 +421,6 @@ fun SettingsEbooksScreen() {
 						onSelect = { percent -> preferenceManager.readerParagraphSpacingPercent = percent }
 					)
 					SettingSelectionRow(
-						title = { Text(stringResource(Res.string.option_ebook_reader_margin)) },
-						items = readerMarginOptions.toImmutableList(),
-						label = { percent -> "$percent%" },
-						description = stringResource(Res.string.subtitle_ebook_reader_margin),
-						selection = settings.marginPercent ?: 0,
-						onSelect = { percent -> preferenceManager.readerMarginPercent = percent }
-					)
-					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_dim_overlay)) },
 						items = readerDimOverlayOptions.toImmutableList(),
 						label = { percent -> readerDimOverlayLabel(percent) },
@@ -591,7 +582,6 @@ fun SettingsEbooksScreen() {
 private val readerFontSizeOptions = listOf(90, 100, 112, 125, 140, 160, 180)
 private val readerLineHeightOptions = listOf(120, 135, 155, 170, 180, 190, 220)
 private val readerParagraphSpacingOptions = listOf(0, 25, 50, 75, 100, 150, 200)
-private val readerMarginOptions = listOf(0, 4, 8, 12, 16, 24)
 private val readerColumnThresholdOptions = listOf(400, 520, 640, 720, 840, 960, 1080, 1200)
 private val readerDimOverlayOptions = listOf(0, 10, 20, 30, 40, 50, 60, 70, 80)
 private val readerPdfPageGapOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
