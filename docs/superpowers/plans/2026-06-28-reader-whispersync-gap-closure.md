@@ -24,12 +24,13 @@ Each stage is a complete deliverable:
 
 Work must proceed through coherent gap stages, not through isolated UI or runtime symptoms. If a stage turns out to be already green, record the evidence and move to the next stage; do not manufacture a patch just to show activity.
 
-1. **Stage 2B: User-Driven Anx Interaction Validation** - close release-readiness gaps for selection actions, selection clear, annotation popup, external link prompt, history capsule, pull-up, and reader search through native UI or deterministic ADB/DevTools probes.
-2. **Stage 2C: Short-Tap Content Hit Ownership** - keep Komikku/native short taps authoritative by making ordinary EPUB text invisible to short-tap content hit testing while preserving Anx/Foliate text selection on deliberate long press.
-3. **Stage 5C: Whispersync Enjoyment Release Gate** - validate a real paired Bindery sidecar plus audiobook session end to end on the current release baseline: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, and exact companion resume.
-4. **Stage 6C.2: Settings Overlay Faithfulness** - finish the Komikku settings modal parity pass beyond the first density slice: compact tab readability, scroll gradients, control grouping, usable sliders/chips on phone/fold/tablet, and no duplicate entry points.
-5. **Stage 6D.2: Paper/Texture Visual Strength** - make page texture and border degradation visible enough on release screenshots while keeping deterministic page identity and correct movement direction.
-6. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable. Current-source work has now moved from metric-only curl variables to explicit mockup sheet roles; full captured current/reverse page snapshots remain a later visual-parity slice.
+Closed stages stay documented below but are no longer the active queue. The current queue starts from the first release-worthy milestone after `v1.0.11-theta16`.
+
+1. **Stage 7B: Theta17 Staged Release Candidate** - package the completed post-theta16 gap work as one Android-only release candidate: release-login automation, Bindery schema drift support, current Whispersync enjoyment gate, curl sheet roles, deterministic texture motion follow-ups, and settings overlay hierarchy. This is a release gate, not a place for more UI polish.
+2. **Stage 8D: Theta17 Release Validation Baseline** - install the published `Navic.apk`, prove version/package/foreground state, run non-login deterministic release checks, and then run the credential-backed release route if `navic-release-login.env` or an already logged-in device is available.
+3. **Stage 5C.4: Release-Package Whispersync Enjoyment Validation** - validate the real paired Bindery sidecar plus audiobook session on `darkaxt.navic`: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, exact companion resume, and mismatch surfacing. This stage cannot be closed with readerdev evidence.
+4. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, and whether the result is faithful enough to Komikku instead of a knock-off.
+5. **Stage 6E.4: Captured Page Curl Snapshot Preview** - only after the release candidate is stable, continue the optional curl work by replacing role-only drag sheets with captured current/reverse page snapshots for single and spread modes.
 
 ## Stage 0: Plan And Spec Alignment
 
@@ -899,9 +900,57 @@ Required before closure:
 - [x] Trigger/watch the GitHub Actions Android release path with `scripts\publish-github-release.ps1`.
 - [x] Record the published release URL/assets once GitHub confirms the artifact exists.
 
+### Stage 7B: Theta17 Staged Release Candidate
+
+Status: local validation passed; GitHub publication pending.
+
+Purpose:
+- Publish a coherent Android release candidate for the completed post-theta16 work instead of continuing local microfixes.
+- Keep this stage limited to release identity, validation, documentation, commit/push/tag, and GitHub Actions release publication.
+- Do not add new reader behavior inside this stage. If validation finds a functional bug, stop this release stage and open a new file-scoped implementation stage for that bug.
+
+Scope:
+- Package the completed Stage 8C release-login automation, Stage 4/5C Bindery Whispersync API updates, Stage 5C.3 Whispersync enjoyment orchestrator, Stage 6E.3 curl sheet roles, Stage 6D.3 deterministic texture motion support, and Stage 6C.3 settings overlay hierarchy.
+- Use `v1.0.11-theta17` / `versionCode=445` unless the repository already has a newer release identity by the time this stage executes.
+- Build only the Android release artifact through GitHub Actions. Do not invoke iOS packaging.
+
+Files:
+- Modify: `androidApp/build.gradle.kts`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+- Modify scripts only if the release pipeline itself fails.
+
+Validation commands:
+
+```powershell
+git fetch --all --prune
+git rev-list --left-right --count fork/master...HEAD
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta17
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Publication commands:
+
+```powershell
+git tag v1.0.11-theta17
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-theta17 -Branch codex/komikku-reader-backbone-eta64 -Background
+```
+
+Required before closure:
+- [x] Confirm the branch contains the current `fork/master` before release work. `git rev-list --left-right --count fork/master...HEAD` reported `0 54`.
+- [x] Bump Android release identity to `v1.0.11-theta17` / `versionCode=445`.
+- [x] Verify the Android version identity with `scripts\verify-android-release-version.ps1`.
+- [x] Run the full `:composeApp:testAndroid` gate.
+- [x] Run `git diff --check`.
+- [ ] Commit and push the release identity plus this Stage 7B evidence.
+- [ ] Create and push the `v1.0.11-theta17` tag.
+- [ ] Trigger the Android-only GitHub Actions release path through `scripts\publish-github-release.ps1`.
+- [ ] Record the release URL, workflow run, commit, and asset in the validation log.
+
 ## Current First Focus
 
-Use `v1.0.11-theta16` as the current public release baseline. The release APK has been installed and app-shell checked on the emulator, but the release package is not logged in there, so deep reader and Whispersync release behavior still requires either a logged-in release device/profile or a dedicated release-login automation path. Until that exists, close product gaps through readerdev/browser harnesses and keep the evidence labeled as implementation/runtime proof, not release proof.
+Use `v1.0.11-theta17` as the next public release-candidate target. `v1.0.11-theta16` remains the installed public baseline until Stage 7B is published. Deep reader and Whispersync release behavior still requires either a logged-in release device/profile or the Stage 8C release-login automation path. Until release package state reaches the reader, keep readerdev/browser evidence labeled as implementation/runtime proof, not release proof.
 
 ## Stage 8: Release Validation Baseline Gate
 

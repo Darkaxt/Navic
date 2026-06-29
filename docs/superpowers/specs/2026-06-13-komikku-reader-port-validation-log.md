@@ -8439,3 +8439,32 @@ Results:
 
 Remaining:
 - Full mockup parity still requires a separate guarded stage for real current/reverse page snapshots, especially spread mode after rotation.
+
+
+## 2026-06-29 Stage 7B Theta17 Release Candidate Preflight
+
+Scope:
+- Package the completed post-theta16 gap work as one coherent Android-only release candidate instead of continuing local microfixes.
+- Keep this stage limited to release identity, validation, commit/push/tag, and GitHub release publication.
+- Do not add new reader behavior inside this release gate.
+
+Commands:
+
+```powershell
+git fetch --all --prune
+git rev-list --left-right --count fork/master...HEAD
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta17
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- GREEN/SYNC: branch contains current `fork/master`; `git rev-list --left-right --count fork/master...HEAD` reported `0 54`.
+- GREEN/VERSION: `androidApp/build.gradle.kts` now declares `versionCode=445` and `versionName=v1.0.11-theta17`; `scripts\verify-android-release-version.ps1` passed.
+- GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta17 release identity.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- Commit and push the theta17 release identity and Stage 7B evidence.
+- Create/push tag `v1.0.11-theta17`.
+- Trigger/watch the Android-only GitHub Actions release path and record the release URL/assets.
