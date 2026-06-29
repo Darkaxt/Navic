@@ -31,7 +31,9 @@ Closed stages stay documented below but are no longer the active queue. The curr
 3. **Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh** - rerun the full paired Bindery sidecar plus audiobook session on `darkaxt.navic.readerdev` using `bindery-debug.env`: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, exact companion resume, and mismatch surfacing. This is implementation/runtime proof, not public-release proof, but it is the correct validation path while the release package lacks login state.
 4. **Stage 5C.5: Release-Package Whispersync Enjoyment Validation** - run the same paired flow on `darkaxt.navic` once a logged-in physical release device or real ignored `navic-release-login.env` is available. Only this stage can close release-device Whispersync proof.
 5. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, and whether the result is faithful enough to Komikku instead of a knock-off.
-6. **Stage 6E.4: Captured Page Curl Snapshot Preview** - only after the release candidate is stable, continue the optional curl work by replacing role-only drag sheets with captured current/reverse page snapshots for single and spread modes.
+
+Recently closed:
+- **Stage 6E.4: Captured Page Curl Snapshot Preview** - completed after theta17 as a host/browser-harness-proven curl fidelity slice; physical acceptance remains covered by Stage 6F.
 
 ## Stage 0: Plan And Spec Alignment
 
