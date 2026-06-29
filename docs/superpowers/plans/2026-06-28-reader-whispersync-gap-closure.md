@@ -349,6 +349,38 @@ Required before closure:
 Remaining:
 - This slice reduces one concrete source-backed density divergence. It does not complete settings visual parity; phone/fold/tablet screenshots still need to judge surface palette, row grouping, tab comfort, and scroll feel.
 
+### Stage 6D: Paper/Texture Visual System
+
+Status: source/harness complete for the current slice; release-device visual judgment still pending.
+
+Scope:
+- Keep paper texture and page-border degradation as one top-level reader-window surface, not per-document/pseudo-element stacking.
+- Keep texture identity deterministic per rendered page locator while tolerating chapter-local page numbering.
+- Keep texture movement counter-aligned with renderer movement through scroll, page turns, and the Hobbit frontmatter -> Author's Note boundary.
+- Prevent transient body-less EPUB documents from throwing during Foliate pagination, because those console errors abort the texture page-turn harness and can destabilize real page turns.
+
+Guards and evidence:
+- RED/HARNESS-FIRST: `epub-texture-page-turns` initially failed because the harness still assumed global monotonic `pageIndex`; the current reader reports chapter-local page positions, so boundary page changes can reset to page `0`.
+- RED/HARNESS-FIRST: after the harness waited on `(href, pageIndex, cfi)` identity, `epub-texture-page-turns` exposed a real browser console error: `Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.`
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidPaginatorDoesNotThrowWhenBodyIsTemporarilyUnavailable` failed before `vendor/foliate-js/paginator.js` had a body-safe `documentStyleRoot(doc)` fallback.
+- GREEN/HOST-FOCUSED: `ReaderRuntimeAssetsTest.androidPaginatorDoesNotThrowWhenBodyIsTemporarilyUnavailable` passed after the paginator stopped calling `getComputedStyle(doc.body)` directly.
+- GREEN/HOST-PAPER: `ReaderRuntimePaperSurfaceTest` plus the new paginator guard passed, confirming the existing surface texture, border overlay, per-page texture identity, and texture-direction source guards still hold.
+- GREEN/JS: `node --check` passed for `vendor/foliate-js/paginator.js` and `tools/reader-harness/src/run-reader-harness.mjs`.
+- GREEN/HARNESS: texture offset logic, `epub-texture-scroll`, `epub-texture-page-turns` on production book `3809`, and Hobbit `epub-texture-frontmatter-transition` all passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed from hidden-process output `tmp/codex-validation/stage6d-full-testAndroid.out.log`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Required before closure:
+- [x] Reproduce a concrete Stage 6D failure through the texture harness.
+- [x] Fix the stale validation assumption without changing product pagination semantics back to global page numbers.
+- [x] Add a host/source guard for the runtime crash layer exposed by the harness.
+- [x] Patch the paginator to tolerate body-less transient documents.
+- [x] Run focused host tests, texture harnesses, JS syntax checks, full `:composeApp:testAndroid`, and `git diff --check`.
+
+Remaining:
+- This is source and browser-harness evidence. Physical release validation is still needed for perceived texture strength, edge degradation visibility, and drag feel on the user's phone/tablet.
+- No opacity or asset tuning was made in this slice because the packaged textures and overlays already pass visibility/statistical guards; if a release-device screenshot still looks too subtle, the next slice should start with screenshot-sensitive evidence rather than changing constants blindly.
+
 ## Stage 7: Release Candidate Gate
 
 **Purpose:** Publish only when a coherent milestone is ready for user validation.

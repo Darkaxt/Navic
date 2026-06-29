@@ -7876,3 +7876,40 @@ Results:
 
 Remaining:
 - This is source/host proof for one settings-density divergence. Phone/fold/tablet screenshots still need to judge whether the settings overlay visually feels close enough to Komikku after this and earlier modal fixes.
+
+
+## 2026-06-29 Stage 6D Paper Texture And Boundary Pagination Gate
+
+Scope:
+- Close the next coherent Stage 6D paper/texture gap from `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`.
+- Keep paper texture as a top-level reader-window layer and preserve deterministic per-page texture identity.
+- Validate texture motion through normal scroll, real page turns, and the Hobbit frontmatter -> Author's Note boundary.
+- Fix the Foliate paginator crash exposed by the texture page-turn harness when a transient EPUB document has no `body` element.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-scroll --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\served-input.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidPaginatorDoesNotThrowWhenBodyIsTemporarilyUnavailable --console=plain
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HARNESS-FIRST: `epub-texture-page-turns` failed before the harness stopped waiting for global monotonic `pageIndex`; the reader uses chapter-local page positions, so valid section-boundary movement can reset to page `0`.
+- RED/HARNESS-FIRST: after the harness switched to `(href, pageIndex, cfi)` identity, `epub-texture-page-turns` exposed the runtime browser error `Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.`
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidPaginatorDoesNotThrowWhenBodyIsTemporarilyUnavailable` failed before the Foliate paginator introduced `documentStyleRoot(doc)` and removed direct `getComputedStyle(doc.body)` calls.
+- GREEN/HOST-FOCUSED: the new paginator guard passed after the safe body/documentElement fallback.
+- GREEN/HOST-PAPER: `ReaderRuntimePaperSurfaceTest` plus the new paginator guard passed, preserving the existing paper texture, border overlay, page identity, and movement-direction guards.
+- GREEN/JS: `node --check` passed for `vendor/foliate-js/paginator.js` and `tools/reader-harness/src/run-reader-harness.mjs`.
+- GREEN/HARNESS: texture offset logic, `epub-texture-scroll`, `epub-texture-page-turns` on production book `3809`, and Hobbit `epub-texture-frontmatter-transition` all passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed from hidden-process output `tmp/codex-validation/stage6d-full-testAndroid.out.log`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- This is source/browser-harness proof, not physical release visual judgment. The next texture slice should use screenshot-sensitive evidence if the release-device page still looks too subtle.

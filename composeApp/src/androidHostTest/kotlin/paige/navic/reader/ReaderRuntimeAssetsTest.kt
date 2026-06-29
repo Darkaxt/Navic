@@ -1104,4 +1104,27 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "frameElement")
 	}
 
+	@Test
+	fun androidPaginatorDoesNotThrowWhenBodyIsTemporarilyUnavailable() {
+		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+
+		assertContains(
+			paginatorText,
+			"const documentStyleRoot = doc =>",
+			message = "EPUB page turns can momentarily expose body-less documents; style reads need a safe element fallback."
+		)
+		assertContains(paginatorText, "doc?.body?.nodeType === 1")
+		assertContains(paginatorText, "doc?.documentElement?.nodeType === 1")
+		assertContains(paginatorText, "const body = documentStyleRoot(doc)")
+		assertContains(paginatorText, "const root = doc?.documentElement?.nodeType === 1 ? doc.documentElement : body")
+		assertFalse(
+			paginatorText.contains("defaultView.getComputedStyle(doc.body)"),
+			"Direct getComputedStyle(doc.body) throws when Foliate loads a transient body-less document."
+		)
+		assertFalse(
+			paginatorText.contains("doc.defaultView.getComputedStyle(doc.body)"),
+			"Direct getComputedStyle(doc.body) throws when Foliate loads a transient body-less document."
+		)
+	}
+
 }

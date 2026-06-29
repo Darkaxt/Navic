@@ -166,22 +166,34 @@ const setSelectionTo = (target, collapse) => {
     }
 }
 
+const documentStyleRoot = doc =>
+    doc?.body?.nodeType === 1
+        ? doc.body
+        : doc?.documentElement?.nodeType === 1
+            ? doc.documentElement
+            : null
+
 const getDirection = doc => {
     const { defaultView } = doc
-    const { writingMode, direction } = defaultView.getComputedStyle(doc.body)
+    const body = documentStyleRoot(doc)
+    if (!defaultView || !body) return { vertical: false, rtl: false }
+    const { writingMode, direction } = defaultView.getComputedStyle(body)
     const vertical = writingMode === 'vertical-rl'
         || writingMode === 'vertical-lr'
-    const rtl = doc.body.dir === 'rtl'
+    const rtl = body.dir === 'rtl'
         || direction === 'rtl'
         || doc.documentElement.dir === 'rtl'
     return { vertical, rtl }
 }
 
 const getBackground = doc => {
-    const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
+    const body = documentStyleRoot(doc)
+    const root = doc?.documentElement?.nodeType === 1 ? doc.documentElement : body
+    if (!doc.defaultView || !body) return ''
+    const bodyStyle = doc.defaultView.getComputedStyle(body)
     return bodyStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
         && bodyStyle.backgroundImage === 'none'
-        ? doc.defaultView.getComputedStyle(doc.documentElement).background
+        ? doc.defaultView.getComputedStyle(root).background
         : bodyStyle.background
 }
 
@@ -227,7 +239,9 @@ const roundedRect = rect => rect
     : 'missing'
 
 const firstTextLayout = doc => {
-    const walker = doc.createTreeWalker(doc.body, SHOW_TEXT, {
+    const body = documentStyleRoot(doc)
+    if (!body) return null
+    const walker = doc.createTreeWalker(body, SHOW_TEXT, {
         acceptNode: node => node.nodeValue?.trim() ? FILTER_ACCEPT : FILTER_SKIP,
     })
     const node = walker.nextNode()
@@ -253,13 +267,19 @@ const logPaginatorContentLayout = (index, view, container, flow) => {
     }
     const frame = doc.defaultView?.frameElement
     const frameRect = frame?.getBoundingClientRect?.()
-    const bodyRect = doc.body?.getBoundingClientRect?.()
-    const rootRect = doc.documentElement?.getBoundingClientRect?.()
+    const body = documentStyleRoot(doc)
+    const root = doc?.documentElement?.nodeType === 1 ? doc.documentElement : body
+    if (!body || !root) {
+        console.warn(`[FoliatePaginator] content-layout index=${index} body=missing`)
+        return
+    }
+    const bodyRect = body.getBoundingClientRect?.()
+    const rootRect = root.getBoundingClientRect?.()
     const containerRect = container?.getBoundingClientRect?.()
-    const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
-    const rootStyle = doc.defaultView.getComputedStyle(doc.documentElement)
+    const bodyStyle = doc.defaultView.getComputedStyle(body)
+    const rootStyle = doc.defaultView.getComputedStyle(root)
     const firstText = firstTextLayout(doc)
-    const textLength = doc.body?.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
+    const textLength = body.textContent?.replace(/\s+/g, ' ').trim().length ?? 0
     console.info(
         `[FoliatePaginator] content-layout index=${index} flow=${flow} ` +
         `container=${roundedRect(containerRect)} iframe=${roundedRect(frameRect)} ` +

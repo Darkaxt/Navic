@@ -2559,6 +2559,44 @@ if (mode === 'epub-texture-page-turns') {
       }
     }, label)
 
+    const locationIdentity = location => ({
+      href: location?.href || '',
+      pageIndex: Number.isFinite(location?.pageIndex) ? location.pageIndex : null,
+      cfi: location?.cfi || location?.rangeCfi || '',
+    })
+
+    const waitForReaderLocationChange = async (beforeLocation, label) => {
+      const before = locationIdentity(beforeLocation)
+      try {
+        await page.waitForFunction(previous => {
+          const messages = (window.__navicReaderPostedMessages || [])
+            .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+          const current = messages.at(-1)
+          return current && (
+            (current.href || '') !== previous.href ||
+            current.pageIndex !== previous.pageIndex ||
+            (current.cfi || current.rangeCfi || '') !== previous.cfi
+          )
+        }, before, { timeout: 8000 })
+      } catch (error) {
+        const latest = await collectState(`wait-failed-${label}`)
+        const recentLocations = await page.evaluate(() => (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged')
+          .slice(-5)
+          .map(message => ({
+            href: message?.href || '',
+            pageIndex: message?.pageIndex,
+            pageCount: message?.pageCount,
+            cfi: message?.cfi || message?.rangeCfi || '',
+          })))
+        throw new Error(
+          `Timed out waiting for reader location change at ${label}; ` +
+          `before=${JSON.stringify(before)} latest=${JSON.stringify(locationIdentity(latest.location))} ` +
+          `recent=${JSON.stringify(recentLocations)} cause=${error?.message || String(error)}`
+        )
+      }
+    }
+
     const dragProbe = await page.evaluate(async delta => {
       const sample = label => {
         const view = document.querySelector('foliate-view')
@@ -2625,22 +2663,12 @@ if (mode === 'epub-texture-page-turns') {
         document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
         await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
       })
-      await page.waitForFunction(beforePageIndex => {
-        const messages = (window.__navicReaderPostedMessages || [])
-          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
-        const current = messages.at(-1)
-        return current && current.pageIndex > beforePageIndex
-      }, previous.pageIndex, { timeout: 8000 })
+      await waitForReaderLocationChange(previous.location, `boundary-search-${index}`)
       const current = await collectState(`boundary-search-${index}`)
       if (current.href && previous.href && current.href !== previous.href) {
         boundarySamples.push(previous, current)
         await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'previousPage' }))
-        await page.waitForFunction(afterPageIndex => {
-          const messages = (window.__navicReaderPostedMessages || [])
-            .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
-          const currentLocation = messages.at(-1)
-          return currentLocation && currentLocation.pageIndex < afterPageIndex
-        }, current.pageIndex, { timeout: 8000 })
+        await waitForReaderLocationChange(current.location, 'boundary-return')
         boundarySamples.push(await collectState('boundary-returned-before'))
         bridgeBoundaryProbe = await bridgeProbe('bridge-next-boundary-animated')
         break
