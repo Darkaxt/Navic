@@ -574,6 +574,8 @@ Current evidence:
 - GREEN/DEBUG-CREDENTIALS: Stage 5C.4 already ran `scripts\adb-whispersync-enjoyment.ps1` with `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env`.
 - GREEN/PAIRED-ROUTE: the debug launcher resolved book `3809` to `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`, loaded sidecar `/opds/books/3809/sync/8`, and prepared audiobook `34` / book file `633`.
 - GREEN/MATRIX: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` passed in `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-212815`.
+- GREEN/RERUN: after the validation-boundary correction, `.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment` passed again on current source. Artifacts: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-235005\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+- GREEN/RERUN-PROBES: the rerun passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` against `darkaxt.navic.readerdev` on `emulator-5554`.
 
 Remaining:
 - Re-run this stage after any Whispersync runtime, reader launcher, or audiobook playback change.

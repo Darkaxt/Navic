@@ -8551,6 +8551,29 @@ Next:
 - After any Whispersync runtime change, repeat `scripts\adb-whispersync-enjoyment.ps1` with `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env`.
 - Keep signed-release evidence separate: public APK validation still needs logged-in `darkaxt.navic` state, but that cannot be used as an excuse to skip debug validation.
 
+## 2026-06-29 Stage 5C.5 Current Debug Credential Rerun
+
+Scope:
+- Prove the corrected validation boundary with the actual debug credential path, not just documentation.
+- Launch current-source `darkaxt.navic.readerdev` directly into production book `3809` with sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
+- Run the full Whispersync enjoyment probe matrix after the boundary correction.
+
+Command:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment
+```
+
+Results:
+- GREEN/READERDEV-BUILD-INSTALL: the gate built or reused `androidApp:assembleReaderDev`, installed `darkaxt.navic.readerdev`, and granted notification permission.
+- GREEN/LAUNCH: the debug launcher passed secrets through ADB extras without printing them, focused `darkaxt.navic.readerdev`, and reached `publicationReady`.
+- GREEN/MATRIX: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` all passed.
+- ARTIFACTS: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-235005\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+
+Next:
+- Continue using this debug credential gate after Whispersync runtime changes.
+- Keep signed-release proof separate; do not treat missing public-release login as an implementation blocker.
+
 ## 2026-06-29 Stage 6E.4 Captured Page Curl Snapshot Preview
 
 Scope:
