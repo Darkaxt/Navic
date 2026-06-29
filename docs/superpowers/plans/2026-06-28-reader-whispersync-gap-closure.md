@@ -20,6 +20,17 @@ Each stage is a complete deliverable:
 - It is committed after the stage passes.
 - A public release is published only after a stage fixes a major user-visible blocker or after the final release-candidate gate.
 
+## Remaining Gap Queue
+
+Work must proceed through coherent gap stages, not through isolated UI or runtime symptoms. If a stage turns out to be already green, record the evidence and move to the next stage; do not manufacture a patch just to show activity.
+
+1. **Stage 6B: Komikku Rail Fidelity** - prove or fix chapter-local progress rail behavior from the actual native UI layer, including first/last page endpoints and previous/next chapter buttons. Do not alter rail proportions unless a Komikku source comparison or screenshot-sensitive gate proves a divergence.
+2. **Stage 3A: PDF And Fixed-Layout Interaction** - bring PDF/fixed-layout navigation, centering, page count, and drag/tap behavior under the same ReaderEngine and Komikku shell path as EPUB.
+3. **Stage 5B: Whispersync Enjoyment Candidate** - validate a real paired Bindery sidecar plus audiobook session end to end: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, and exact companion resume.
+4. **Stage 6C: Settings Overlay Density And Scroll Treatment** - redesign the settings overlay as a faithful Komikku modal surface, including compact labels, scroll affordances, and usable controls on phone/fold/tablet.
+5. **Stage 6D: Paper/Texture Visual System** - make page texture and border degradation visible, stable, and tied to page identity without fighting page movement.
+6. **Stage 6E: Page Drag Preview And Curl** - evaluate and, if viable, port the page-curl mockup behavior for drag gestures only, after normal tap ownership remains stable.
+
 ## Stage 0: Plan And Spec Alignment
 
 **Purpose:** Make this staged plan the active execution artifact so context compaction does not collapse work back into microfixes.
@@ -257,6 +268,35 @@ Guards and evidence:
 
 Remaining:
 - Do not publish a public release for Stage 6A until a coherent next release candidate is worth real-device visual judgment. Stage 6A closes the page-box/margin model, not the remaining settings-density, texture-strength, progress-rail, or page-curl gaps.
+
+### Stage 6B: Komikku Rail Fidelity
+
+Status: complete; automation-green, no production rail code changed.
+
+Scope:
+- Keep the rail structurally faithful to Komikku's `ChapterNavigator`: filled previous/next chapter buttons, weighted chapter-local slider capsule, current/total page labels, haptics while dragging, rotated vertical mode, and no custom rail touch layer.
+- Prove the rail's behavior from the actual native UI layer, not only through bridge/source assertions.
+- Verify first and last page endpoints, current-chapter endpoint mapping, previous/next chapter buttons at chapter boundaries, and slider interaction on the visible native `Chapter page slider`.
+- Treat a passing endpoint probe as evidence, not as a reason to change rail proportions. Rail height or width changes require source-backed Komikku divergence evidence.
+
+Guards and evidence:
+- GREEN/SOURCE-COMPARISON: `ReaderChapterNavigator.kt` currently matches the Komikku reference shape in `tmp/references/komikku/app/src/main/java/eu/kanade/presentation/reader/components/ChapterNavigator.kt`: weighted slider capsule, `FilledIconButton` previous/next controls, rotated vertical slider, page labels, and haptic drag feedback.
+- GREEN/EMULATOR-CURRENT-ENDPOINTS: `node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe chapter-progress-current-endpoints` produced `captures\reader-smoke\stage6b-rail-emulator\current-endpoints.json`; current chapter `OEBPS/xhtml/chapter17.xhtml` started at `25 / 38`, progress `0` reported `chapterPageIndex=0`, and progress `1` reported `chapterPageIndex=37` with `chapterPageCount=38`.
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeLocationSnapshotWithoutNavigation` failed before the DevTools helper exposed a non-mutating `location-snapshot` probe. The red log is `tmp/codex-validation/stage6b-location-snapshot-red-full.out.log`.
+- GREEN/HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after adding `location-snapshot`, post-action probe support, and smoke-summary strict-mode fixes. The green log is `tmp/codex-validation/stage6b-location-snapshot-green.out.log`.
+- GREEN/JS: `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed after adding `runLocationSnapshotProbe`.
+- GREEN/EMULATOR-NATIVE-RAIL: `scripts\adb-reader-smoke.ps1` ran against `darkaxt.navic.readerdev` on `emulator-5554` with `-ReaderDevtoolsProbe location-snapshot`, `-PostProbeAction 'tapDescFraction:Chapter page slider,0.75,0.5,1500'`, and `-PostActionReaderDevtoolsProbe location-snapshot`. Artifacts are under `captures\reader-smoke\stage6b-rail-emulator\ui-rail-snapshot-gate`; the pre-action snapshot was `chapterPageIndex=9` / `chapterPageCount=38`, and the post-action snapshot was `chapterPageIndex=29` / `chapterPageCount=38`.
+- GREEN/SMOKE-SUMMARY: `captures\reader-smoke\stage6b-rail-emulator\ui-rail-snapshot-gate\reader-diagnostics-summary.txt` records `bridgeEvent:locationChanged=True`; `logcat-reader.log` records `Dispatching reader engine command: goToChapterProgress(OEBPS/xhtml/chapter17.xhtml, 0.7567567567567568)` and `location-page-model reason=chapter-progress-seek ... chapter=29/38`.
+- GREEN/UI-EVIDENCE: `captures\reader-smoke\stage6b-rail-emulator\ui-rail-snapshot-gate\window.xml` contains the native `Chapter page slider`, `Previous chapter`, and `Next chapter` controls, confirming the probe exercised the Komikku-style native rail rather than a hidden bridge-only path.
+- GREEN/FINAL-SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed from hidden process output `tmp/codex-validation/stage6b-final-testAndroid.out.log`.
+- GREEN/FINAL-DIFF: `git diff --check` passed before final suite execution and must pass again immediately before commit.
+
+Required before closure:
+- [x] Add or reuse an emulator/UI gate that taps the visible `Chapter page slider` and previous/next chapter buttons, then captures a post-action location snapshot proving the native UI path reaches the intended chapter-local page.
+- [x] Run the UI gate against `darkaxt.navic.readerdev` on `emulator-5554`.
+- [x] If the UI gate fails, add a failing host/source guard for the exact cause before changing production code. The UI gate passed, so no production rail patch was made.
+- [x] If the UI gate passes, record Stage 6B as automation-green and move to Stage 3A PDF/fixed-layout without changing production rail code.
+- [x] Run final `git diff --check` and commit the Stage 6B evidence or fix.
 
 ## Stage 7: Release Candidate Gate
 

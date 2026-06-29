@@ -301,11 +301,13 @@ class ReaderRuntimeAssetsTest {
 		)
 		assertContains(scriptText, "expectedLogLabels")
 		assertContains(scriptText, "ConvertFrom-Json")
-		assertContains(scriptText, "Reader DevTools probe '\$ReaderDevtoolsProbe' expected log label")
+		assertContains(scriptText, "Reader DevTools probe '\$ProbeName' expected log label")
 		assertContains(scriptText, "readerContentTapHandled")
 		assertContains(scriptText, "reader-diagnostics-summary.txt")
 		assertContains(scriptText, "reader-texture-diagnostics.log")
 		assertContains(scriptText, "reader-touch-diagnostics.log")
+		assertContains(scriptText, "textureScrollLines=$((@(Select-String")
+		assertContains(scriptText, "textureUpdateLines=$((@(Select-String")
 		assertContains(scriptText, "[string] \$DeviceSerial")
 		assertContains(scriptText, "\$env:ANDROID_SERIAL = \$DeviceSerial")
 		assertContains(scriptText, "\$previousErrorActionPreference = \$ErrorActionPreference")
@@ -738,6 +740,26 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperCanProbeLocationSnapshotWithoutNavigation() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val locationSnapshotProbe = helperText
+			.substringAfter("async function runLocationSnapshotProbe(page)")
+			.substringBefore("async function runCurrentChapterProgressEndpointsProbe(page)")
+
+		assertContains(scriptText, "location-snapshot")
+		assertContains(helperText, "'location-snapshot': runLocationSnapshotProbe")
+		assertContains(locationSnapshotProbe, "probe: 'location-snapshot'")
+		assertContains(locationSnapshotProbe, "type: 'diagnosticLocationSnapshot'")
+		assertContains(locationSnapshotProbe, "location-snapshot")
+		assertContains(locationSnapshotProbe, "Reader bridge event: locationChanged")
+		assertFalse(
+			locationSnapshotProbe.contains("goToChapterProgress"),
+			"Location snapshot probing must not navigate; Stage 6B native rail gates need a non-mutating before/after reader location."
+		)
+	}
+
+	@Test
 	fun adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val postProbeGestureBlock = scriptText
@@ -771,6 +793,26 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
 		assertContains(scriptText, "required reader log '\$requiredReaderLog' was not captured")
 		assertContains(scriptText, "Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs.")
+	}
+
+	@Test
+	fun adbReaderSmokeCanRunSecondDevtoolsProbeAfterNativePostActions() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val postActionProbeBlock = scriptText
+			.substringAfter("foreach (\$postProbeActionEntry in \$PostProbeAction)")
+			.substringBefore("Invoke-AdbExecOutToFile")
+		val logValidationBlock = scriptText
+			.substringAfter("\$readerLogText = Get-TextFileRaw -Path (Join-Path \$ArtifactDir \"logcat-reader.log\")")
+			.substringBefore("foreach (\$requiredEngineCommand in \$RequireReaderEngineCommand)")
+
+		assertContains(scriptText, "[string] \$PostActionReaderDevtoolsProbe = \"\"")
+		assertContains(scriptText, "function Invoke-ReaderDevtoolsProbe")
+		assertContains(scriptText, "reader-devtools-post-action-probe.json")
+		assertContains(postActionProbeBlock, "\$PostActionReaderDevtoolsProbe")
+		assertContains(postActionProbeBlock, "Invoke-ReaderDevtoolsProbe")
+		assertContains(logValidationBlock, "\$ReaderDevtoolsProbe")
+		assertContains(logValidationBlock, "\$PostActionReaderDevtoolsProbe")
+		assertContains(logValidationBlock, "reader-devtools-post-action-probe.json")
 	}
 
 	@Test

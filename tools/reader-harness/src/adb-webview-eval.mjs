@@ -1289,6 +1289,64 @@ async function runChapterProgressEndpointsProbe(page) {
   }})(); window.__navicChapterProgressProbePromise`)
 }
 
+async function runLocationSnapshotProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
+    if (!readerBridgeDispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const originalPostMessage = window.NavicAndroidBridge?.postMessage?.bind(window.NavicAndroidBridge)
+    if (!originalPostMessage) {
+      throw new Error('Missing NavicAndroidBridge.postMessage')
+    }
+    const observedPayloads = []
+    const latestLocation = startIndex => {
+      for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {
+        const payload = observedPayloads[index]
+        if (payload?.type === 'locationChanged') return payload
+      }
+      return null
+    }
+
+    window.NavicAndroidBridge.postMessage = message => {
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
+      }
+    }
+
+    try {
+      const startIndex = observedPayloads.length
+      const result = await Promise.resolve(readerBridgeDispatch({
+        type: 'diagnosticLocationSnapshot',
+        reason: 'location-snapshot',
+      }))
+      const returnedLocation = result?.message?.type === 'locationChanged'
+        ? result.message
+        : null
+      const location = latestLocation(startIndex) || returnedLocation
+      if (!location) {
+        throw new Error(`Expected location-snapshot to emit locationChanged; result=${JSON.stringify(result)}`)
+      }
+      return {
+        probe: 'location-snapshot',
+        location,
+        result,
+        observedLocationCount: observedPayloads.filter(payload => payload?.type === 'locationChanged').length,
+        expectedLogLabels: [
+          'Reader bridge event: locationChanged',
+        ],
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    } finally {
+      window.NavicAndroidBridge.postMessage = originalPostMessage
+    }
+  }})()`)
+}
+
 async function runCurrentChapterProgressEndpointsProbe(page) {
   return evaluateOnPage(page, `window.__navicCurrentChapterProgressProbePromise = (${async () => {
     const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
@@ -2010,6 +2068,7 @@ async function main() {
       'whispersync-page-scoped-control': runWhispersyncPageScopedControlProbe,
       'whispersync-companion-progress': runWhispersyncCompanionProgressProbe,
       'whispersync-char-offset-overlay': runWhispersyncCharOffsetOverlayProbe,
+      'location-snapshot': runLocationSnapshotProbe,
       'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,

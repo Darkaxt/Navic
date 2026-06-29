@@ -28,8 +28,10 @@ param(
     [string[]] $RequireReaderBridgeEvent = @(),
     [string[]] $RequireReaderEngineCommand = @(),
     [string[]] $RequireReaderLog = @(),
-    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "font-size", "font-size-publisher-styles", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
     [string] $ReaderDevtoolsProbe = "",
+    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+    [string] $PostActionReaderDevtoolsProbe = "",
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
     [switch] $RequirePdfDiagnostics,
@@ -453,14 +455,25 @@ Invoke-Adb @("shell", "cat", "/proc/net/unix") -PassThru |
     ForEach-Object { $_.Line.Trim() } |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "webview-devtools-sockets.txt")
 
-if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
+function Invoke-ReaderDevtoolsProbe {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ProbeName,
+        [Parameter(Mandatory = $true)]
+        [string] $OutputFileName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProbeName)) {
+        return
+    }
+
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
     $probeScript = Join-Path $repoRoot "tools\reader-harness\src\adb-webview-eval.mjs"
     if (-not (Test-Path -LiteralPath $probeScript -PathType Leaf)) {
         throw "Reader DevTools probe helper was not found: $probeScript"
     }
 
-    $probeArguments = @($probeScript, "--package", $Package, "--probe", $ReaderDevtoolsProbe)
+    $probeArguments = @($probeScript, "--package", $Package, "--probe", $ProbeName)
     if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
         $probeArguments += @("--device", $DeviceSerial)
     }
@@ -473,11 +486,13 @@ if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
-    $probeOutput | Out-File -Encoding utf8 (Join-Path $ArtifactDir "reader-devtools-probe.json")
+    $probeOutput | Out-File -Encoding utf8 (Join-Path $ArtifactDir $OutputFileName)
     if ($probeExitCode -ne 0) {
-        throw "Reader DevTools probe '$ReaderDevtoolsProbe' failed with exit code $probeExitCode. See $ArtifactDir\reader-devtools-probe.json"
+        throw "Reader DevTools probe '$ProbeName' failed with exit code $probeExitCode. See $ArtifactDir\$OutputFileName"
     }
 }
+
+Invoke-ReaderDevtoolsProbe -ProbeName $ReaderDevtoolsProbe -OutputFileName "reader-devtools-probe.json"
 
 foreach ($tapSpec in $PostProbeTap) {
     if ($tapSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$') {
@@ -755,6 +770,8 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
     throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapText:, tapDesc:, tapDescFraction:, text:, or keyevent:."
 }
 
+Invoke-ReaderDevtoolsProbe -ProbeName $PostActionReaderDevtoolsProbe -OutputFileName "reader-devtools-post-action-probe.json"
+
 Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $ArtifactDir "screen.png")
 
 Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru |
@@ -781,13 +798,24 @@ Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
 
 $readerLogText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-reader.log")
 
-if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
-    $probeJsonPath = Join-Path $ArtifactDir "reader-devtools-probe.json"
+function Assert-ReaderDevtoolsProbeLogLabels {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ProbeName,
+        [Parameter(Mandatory = $true)]
+        [string] $OutputFileName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProbeName)) {
+        return
+    }
+
+    $probeJsonPath = Join-Path $ArtifactDir $OutputFileName
     $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
     try {
         $probeJson = $probeJsonText | ConvertFrom-Json
     } catch {
-        throw "Reader DevTools probe '$ReaderDevtoolsProbe' did not return parseable JSON. See $probeJsonPath"
+        throw "Reader DevTools probe '$ProbeName' did not return parseable JSON. See $probeJsonPath"
     }
     $expectedLogLabels = @($probeJson.result.expectedLogLabels)
     foreach ($expectedLogLabel in $expectedLogLabels) {
@@ -795,10 +823,13 @@ if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
             continue
         }
         if (-not (Test-TextMatches -Text $readerLogText -Pattern ([regex]::Escape($expectedLogLabel)))) {
-            throw "Reader DevTools probe '$ReaderDevtoolsProbe' expected log label '$expectedLogLabel' was not captured. See $ArtifactDir\logcat-reader.log"
+            throw "Reader DevTools probe '$ProbeName' expected log label '$expectedLogLabel' was not captured. See $ArtifactDir\logcat-reader.log"
         }
     }
 }
+
+Assert-ReaderDevtoolsProbeLogLabels -ProbeName $ReaderDevtoolsProbe -OutputFileName "reader-devtools-probe.json"
+Assert-ReaderDevtoolsProbeLogLabels -ProbeName $PostActionReaderDevtoolsProbe -OutputFileName "reader-devtools-post-action-probe.json"
 
 foreach ($requiredEngineCommand in $RequireReaderEngineCommand) {
     if (-not (Test-TextMatches -Text $readerLogText -Pattern ([regex]::Escape("Dispatching reader engine command: $requiredEngineCommand")))) {
@@ -860,8 +891,8 @@ if ($CaptureReaderDiagnostics) {
         }) | Out-File -Encoding utf8 $directionValidationPath
     }
     $summaryLines = @(
-        "textureScrollLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-scroll' -CaseSensitive:$false).Count)",
-        "textureUpdateLines=$((Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-update' -CaseSensitive:$false).Count)",
+        "textureScrollLines=$((@(Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-scroll' -CaseSensitive:$false)).Count)",
+        "textureUpdateLines=$((@(Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-update' -CaseSensitive:$false)).Count)",
         "readerSurfaceTouchDown=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface touch down')",
         "readerSurfaceTapAction=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface tap action=')",
         "readerNativeTapAction=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native tap action=')",
