@@ -7975,3 +7975,36 @@ Results:
 
 Remaining:
 - This is the first safe curl slice, not full mockup parity. The real snapshot-sheet animation remains pending and should be attempted only behind a separate guard that protects center tap, menu show/hide, cover, and adjacent-page loading behavior.
+
+
+## 2026-06-29 Stage 7A Theta15 Release Candidate Gate
+
+Scope:
+- Package the completed reader, PDF/fixed-layout, Komikku shell, paper-surface, drag-preview, and Whispersync slices as a single Android release candidate.
+- Use `v1.0.11-theta15` / `versionCode=443`, because `v1.0.11-theta14` already points at an older commit.
+- Build only the Android release artifact; iOS packaging remains out of scope.
+
+Commands:
+
+```powershell
+git fetch --all --prune
+git rev-list --left-right --count fork/master...HEAD
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta15
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --tests paige.navic.reader.ReaderRuntimeAssetsTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest --tests paige.navic.reader.FoliateAnxParityTest --tests paige.navic.reader.FoliatePdfAnxParityTest --tests paige.navic.reader.ReaderFontSourceAnxParityTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicySourceTest --console=plain
+git diff --check
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-theta15 -Branch codex/komikku-reader-backbone-eta64 -Background
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-theta15 -Branch codex/komikku-reader-backbone-eta64 -SkipPush -RunId 28363555884 -Background
+```
+
+Results:
+- GREEN/SYNC: after fetch, `git rev-list --left-right --count fork/master...HEAD` reported `0 36`.
+- RED/VERSION-FIRST: the release-version verifier failed while `androidApp/build.gradle.kts` still declared `v1.0.11-theta14`.
+- GREEN/VERSION: after bumping to `versionCode=443` and `versionName=v1.0.11-theta15`, `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta15` passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta15 release identity.
+- GREEN/HOST-FOCUSED: the reader shell/runtime/Anx/PDF/font/Bindery source guard batch passed.
+- RED/LOCAL-RELEASE-BUILD: local `:androidApp:assembleRelease` stopped at the repository signing gate because signing secrets are not configured locally; the public artifact was therefore produced by GitHub Actions.
+- GREEN/GITHUB-RELEASE: tag `v1.0.11-theta15` points to commit `772522f1f60651c02ffb3d2fee11c0199591a19d`; GitHub Actions run `28363555884` completed successfully, `Build Android APK` succeeded, iOS jobs were skipped, and the release published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta15` with asset `Navic.apk`.
+
+Remaining:
+- `v1.0.11-theta15` is now the device-validation baseline. Next implementation work should be selected from release feedback or the remaining staged queue, not from isolated microfixes.

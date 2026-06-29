@@ -457,7 +457,7 @@ Remaining:
 
 ### Stage 7A: Theta15 Staged Release Candidate
 
-Status: in progress.
+Status: complete; GitHub release published.
 
 Scope:
 - Package the completed Stage 3A, Stage 4, Stage 5, Stage 6A, Stage 6B, Stage 6C, Stage 6D, and Stage 6E slices as one coherent release candidate instead of publishing isolated microfixes.
@@ -471,14 +471,15 @@ Preflight evidence:
 - GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta15 release identity.
 - GREEN/HOST-FOCUSED: `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests ... --console=plain` passed for the reader shell, runtime assets, paper surface, navigation flow, Komikku reset, Anx parity, PDF parity, font-source parity, and Bindery source-policy guards.
 - RED/LOCAL-RELEASE-BUILD: `.\gradlew.bat --no-daemon :androidApp:assembleRelease --console=plain` stopped at the repository signing gate because local `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`, `SIGNING_STORE_PASSWORD`, and `SIGNING_STORE_FILE` are not configured. The release APK must therefore be produced by the GitHub Actions Android release path with its configured signing secrets.
+- GREEN/GITHUB-RELEASE: GitHub Actions run `28363555884` completed successfully for tag `v1.0.11-theta15`; `Build Android APK` succeeded, iOS jobs were skipped, and the release was published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta15` with asset `Navic.apk`.
 
 Required before closure:
-- [ ] Run final `git diff --check`.
-- [ ] Commit the theta15 release identity and Stage 7A evidence.
-- [ ] Create and push the `v1.0.11-theta15` tag after the commit.
-- [ ] Trigger/watch the GitHub Actions Android release path with `scripts\publish-github-release.ps1`.
-- [ ] Record the published release URL/assets once GitHub confirms the artifact exists.
+- [x] Run final `git diff --check`.
+- [x] Commit the theta15 release identity and Stage 7A evidence.
+- [x] Create and push the `v1.0.11-theta15` tag after the commit.
+- [x] Trigger/watch the GitHub Actions Android release path with `scripts\publish-github-release.ps1`.
+- [x] Record the published release URL/assets once GitHub confirms the artifact exists.
 
 ## Current First Focus
 
-Finish Stage 7A before starting another reader or Whispersync implementation slice. The next code stage should be selected only after the theta15 release candidate is available for device validation or the GitHub release pipeline exposes a real blocker.
+Use `v1.0.11-theta15` as the current device-validation baseline. The next implementation stage should be selected from the remaining queue only after theta15 feedback identifies the next highest-impact blocker.
