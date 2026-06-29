@@ -8684,3 +8684,36 @@ Next:
 - Use the plain route for neutral visual/layout decisions.
 - Use the paired Whispersync route only for audio/text overlay, headset, and sync behavior validation.
 - Keep tablet typography density and cover treatment as human visual-judgment items for the coherent release candidate.
+
+## 2026-06-30 Stage 7C Theta22 Release Candidate Prep
+
+Scope:
+- Sync the reader/Whispersync branch with current `fork/master`.
+- Prepare a new Android-only release identity after public `v1.0.11-theta21`.
+- Validate the merged candidate before tagging/publishing.
+
+Commands:
+
+```powershell
+git fetch fork master codex/komikku-reader-backbone-eta64
+git merge fork/master --no-edit
+git rev-list --left-right --count fork/master...HEAD
+git push fork codex/komikku-reader-backbone-eta64
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta22
+$tokens = $null; $parseErrors = $null; $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path .\scripts\adb-whispersync-enjoyment.ps1), [ref]$tokens, [ref]$parseErrors); if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_.Message }; exit 1 } else { 'PowerShell parser OK' }
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- GREEN/SYNC: `fork/master` merged cleanly into `codex/komikku-reader-backbone-eta64`; `git rev-list --left-right --count fork/master...HEAD` reported `0 11`.
+- GREEN/BRANCH-PUSH: pushed `codex/komikku-reader-backbone-eta64` to `fork`.
+- GREEN/VERSION: `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta22` passed with `versionCode=450`.
+- GREEN/SCRIPT-PARSE: `scripts\adb-whispersync-enjoyment.ps1` parsed successfully after updating its default expected version to theta22.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta22 release identity.
+- GREEN/DIFF: `git diff --check` passed.
+
+Next:
+- Commit and push the theta22 release identity and Stage 7C evidence.
+- Tag `v1.0.11-theta22` at the committed candidate.
+- Trigger the Android-only GitHub Actions release path.

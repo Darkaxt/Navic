@@ -2,7 +2,7 @@ param(
     [string] $DeviceSerial,
     [string] $EnvFile = "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env",
     [string] $Package = "darkaxt.navic.readerdev",
-    [string] $ExpectedVersionName = "v1.0.11-theta17",
+    [string] $ExpectedVersionName = "v1.0.11-theta22",
     [string] $ArtifactRoot = "captures\reader-whispersync-enjoyment",
     [switch] $NoBuild,
     [switch] $NoInstall,
