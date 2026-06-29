@@ -1754,6 +1754,48 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderSettingsGeneralTabGroupsAnxControlsIntoKomikkuSections() {
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val komikkuSettingsItemsText = listOf(
+			File("tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt"),
+			File("../tmp/references/komikku/presentation-core/src/main/java/tachiyomi/presentation/core/components/SettingsItems.kt")
+		).firstOrNull { it.isFile }
+			?.readText()
+			?: error("Could not locate Komikku SettingsItems.kt reference")
+		val generalPageBody = settingsDialogText.substringAfter("KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(")
+			.substringBefore("KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(")
+
+		fun indexOfRequired(label: String): Int {
+			val index = generalPageBody.indexOf(label)
+			assertTrue(index >= 0, "General tab must contain $label")
+			return index
+		}
+
+		assertContains(komikkuSettingsItemsText, "fun HeadingItem(text: String)")
+		assertContains(settingsDialogText, "private fun SettingsSection(")
+		val typographyIndex = indexOfRequired("title = \"Typography\"")
+		val spacingIndex = indexOfRequired("title = \"Spacing\"")
+		val pageLayoutIndex = indexOfRequired("title = \"Page layout\"")
+		val themeDeviceIndex = indexOfRequired("title = \"Theme and device\"")
+
+		assertTrue(
+			typographyIndex < spacingIndex &&
+				spacingIndex < pageLayoutIndex &&
+				pageLayoutIndex < themeDeviceIndex,
+			"General controls must be grouped into stable Komikku-style sections instead of one flat Anx control stream."
+		)
+		assertTrue(indexOfRequired("title = \"Font\"") > typographyIndex)
+		assertTrue(indexOfRequired("title = \"Font source\"") > typographyIndex)
+		assertTrue(indexOfRequired("label = \"Font size\"") > typographyIndex)
+		assertTrue(indexOfRequired("label = \"Line height\"") > spacingIndex)
+		assertTrue(indexOfRequired("label = \"Paragraph spacing\"") > spacingIndex)
+		assertTrue(indexOfRequired("label = \"Side margin\"") > pageLayoutIndex)
+		assertTrue(indexOfRequired("label = \"Column threshold\"") > pageLayoutIndex)
+		assertTrue(indexOfRequired("title = \"Theme\"") > themeDeviceIndex)
+		assertTrue(indexOfRequired("title = \"Rotation\"") > themeDeviceIndex)
+	}
+
+	@Test
 	fun commonReaderSettingsDialogUsesKomikkuBoundedScrollableDialogContract() {
 		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
 		val settingsDialogBody = settingsDialogText.substringAfter("internal fun KomikkuReaderSettingsDialog(")

@@ -8073,3 +8073,36 @@ Results:
 - GREEN/ANNOTATION/LINK/HISTORY: native annotation popup, external-link prompt, and history capsule routes were shown and closed with deterministic ADB actions.
 - GREEN/SEARCH-ROUTE: search command and result navigation were proven; delayed logs captured `searchResults(count=28029)` for `the`, and result tapping dispatched `goToCfi` plus `locationChanged`.
 - CAVEAT: search field autofocus and common-query latency remain UX/performance follow-ups. Release-package validation remains blocked by missing logged-in state on the emulator.
+
+
+## 2026-06-29 Stage 6C.2 Settings Overlay Faithfulness
+
+Scope:
+- Continue the settings overlay work as a staged Komikku parity pass rather than a visual microfix.
+- Keep Komikku's modal shell, compact tabs, bounded sheet, and scroll fade behavior intact.
+- Group the Anx-expanded EPUB controls in `General` so the sheet is no longer one flat stream of typography, spacing, layout, theme, and device controls.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsGeneralTabGroupsAnxControlsIntoKomikkuSections --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapFraction:0.90,0.50,1500|tapFraction:0.50,0.50,1200' -ArtifactDir captures\reader-smoke\stage6c2-settings-open-prep-edge
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapDesc:Settings,1200' -ArtifactDir captures\reader-smoke\stage6c2-settings-general-sheet
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ArtifactDir captures\reader-smoke\stage6c2-settings-general-sheet-settled
+```
+
+Results:
+- RED/GUARD-FIRST: `ReaderRuntimeCommonChromeTest.commonReaderSettingsGeneralTabGroupsAnxControlsIntoKomikkuSections` was added before implementation and required a reusable `SettingsSection` primitive plus `Typography`, `Spacing`, `Page layout`, and `Theme and device` sections in the General tab. The first Gradle wrapper attempt hit the shell command budget before producing a persisted red report, so this records guard-first ordering rather than a saved red artifact.
+- GREEN/HOST-FOCUSED: the focused guard passed after `ReaderSettingsDialog.kt` grouped the General tab.
+- GREEN/HOST-CHROME: full `ReaderRuntimeCommonChromeTest` passed.
+- GREEN/SUITE: `:composeApp:testAndroid` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/READERDEV: current-source readerdev installed and launched on `emulator-5554`; the settings sheet capture at `captures\reader-smoke\stage6c2-settings-general-sheet-settled` shows the selected General tab with visible `Typography`, grouped font chips, font source chips, and font sliders.
+
+Remaining:
+- This is current-source readerdev evidence, not a release-package claim. Release package remains login-blocked on this emulator.
+- Visual judgment for palette, slider density, tablet/fold proportions, and deeper scroll ergonomics remains open.

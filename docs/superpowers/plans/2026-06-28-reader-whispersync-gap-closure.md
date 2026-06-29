@@ -406,7 +406,33 @@ Required before closure:
 - [x] Commit the Stage 6C density slice.
 
 Remaining:
-- This slice reduces one concrete source-backed density divergence. It does not complete settings visual parity; phone/fold/tablet screenshots still need to judge surface palette, row grouping, tab comfort, and scroll feel.
+- The first slice reduced one concrete source-backed density divergence. It did not complete settings visual parity; phone/fold/tablet screenshots still need to judge surface palette, tab comfort, and scroll feel.
+
+### Stage 6C.2: Settings Overlay Faithfulness
+
+Status: current-source implementation complete; release-package/manual visual judgment still pending.
+
+Scope:
+- Keep the Komikku modal shell and three-tab structure intact.
+- Stop appending Anx-expanded EPUB style controls as one flat `General` list.
+- Group the `General` controls into stable Komikku-style sections so Typography, Spacing, Page layout, and Theme/device settings can be scanned and tested independently.
+
+Guards and evidence:
+- RED/GUARD-FIRST: `ReaderRuntimeCommonChromeTest.commonReaderSettingsGeneralTabGroupsAnxControlsIntoKomikkuSections` was added before the implementation and required `ReaderSettingsDialog.kt` to expose a reusable `SettingsSection` primitive and section labels. The first Gradle wrapper attempt hit the shell command budget before producing a persisted red report, so this slice records guard-first ordering rather than a saved red artifact.
+- GREEN/HOST-FOCUSED: the same guard passed after grouping the General tab into `Typography`, `Spacing`, `Page layout`, and `Theme and device`.
+- GREEN/HOST-CHROME: full `ReaderRuntimeCommonChromeTest` passed after the grouping change.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/READERDEV: current-source `darkaxt.navic.readerdev` was installed on `emulator-5554`, launched into `A Memory of Light (epub)`, and captured the settings sheet at `captures\reader-smoke\stage6c2-settings-general-sheet-settled`. The screenshot and `window.xml` both show the selected `General` tab with the new `Typography` section and grouped font controls.
+
+Required before closure:
+- [x] Compare against Komikku `SettingsItems.kt` and existing shell guards before changing Navic.
+- [x] Add a failing source guard for the flat General tab.
+- [x] Implement the sectioned General tab without changing runtime, rail, tap, or Whispersync code.
+- [x] Run focused guard, full chrome host class, `:composeApp:testAndroid`, `git diff --check`, and readerdev settings-sheet capture.
+
+Remaining:
+- This does not complete settings visual design. Palette, slider density, tablet/fold proportions, and deeper scroll ergonomics remain visual-review work.
 
 ### Stage 6D: Paper/Texture Visual System
 
