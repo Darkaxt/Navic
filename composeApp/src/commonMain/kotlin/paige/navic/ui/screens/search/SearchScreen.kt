@@ -154,6 +154,7 @@ fun SearchScreen(
 	val albumListStarred by albumListViewModel.starred.collectAsState()
 	val selectedAlbumRating by albumListViewModel.rating.collectAsStateWithLifecycle()
 	val aurralAlbumRequests by albumListViewModel.aurralAlbumRequests.collectAsStateWithLifecycle()
+	val aurralAlbumMatchesByLocalAlbumId by albumListViewModel.aurralAlbumMatchesByLocalAlbumId.collectAsStateWithLifecycle()
 	val aurralConfirmationQueue by aurralRepository.confirmationQueue.collectAsStateWithLifecycle()
 
 	val query = viewModel.searchQuery
@@ -246,6 +247,11 @@ fun SearchScreen(
 						val songs = buckets.songs
 						val aurralArtists = buckets.aurralArtists
 						val aurralAlbums = buckets.aurralAlbums
+						val aurralSearchAlbumMatchesByLocalId = remember(aurralAlbums) {
+							aurralAlbums.mapNotNull { album ->
+								album.libraryAlbumId?.trim()?.takeIf { it.isNotEmpty() }?.let { it to album }
+							}.toMap()
+						}
 
 					if (query.text.isNotBlank() && buckets.isEmpty) {
 						ContentUnavailable(
@@ -413,6 +419,8 @@ fun SearchScreen(
 										.width(150.dp),
 									tab = "search",
 									album = album,
+									aurralAlbumMatch = aurralSearchAlbumMatchesByLocalId[album.id]
+										?: aurralAlbumMatchesByLocalAlbumId[album.id],
 									aurralAlbumRequests = aurralAlbumRequests,
 									selected = album == albumListSelection,
 									starred = albumListStarred,

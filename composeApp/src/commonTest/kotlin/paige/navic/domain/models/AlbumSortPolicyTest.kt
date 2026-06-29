@@ -2,6 +2,7 @@ package paige.navic.domain.models
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -39,6 +40,30 @@ class AlbumSortPolicyTest {
 	}
 
 	@Test
+	fun localAurralArtistAlbumRowsPreserveMatchedReleaseGroup() {
+		val localAlbum = album(
+			id = "local-album",
+			name = "How to Train Your Dragon - For Your Consideration Best Original Score [2 CD]",
+			year = 2010,
+			musicBrainzId = "release-group"
+		)
+		val matchedReleaseGroup = missingAlbum(
+			id = "release-group",
+			title = "How to Train Your Dragon",
+			year = "2010"
+		)
+
+		val row = assertIs<AurralArtistAlbumRow.Local>(
+			aurralArtistAlbumRows(
+				localAlbums = listOf(localAlbum),
+				missingAlbums = listOf(matchedReleaseGroup)
+			).single()
+		)
+
+		assertEquals("release-group", row.releaseGroup?.id)
+	}
+
+	@Test
 	fun aurralMissingAlbumRowsSortByYearFromRecentToOldest() {
 		val enrichment = AurralArtistEnrichment(
 			artistMbid = "artist",
@@ -59,7 +84,8 @@ class AlbumSortPolicyTest {
 	private fun album(
 		id: String,
 		name: String,
-		year: Int?
+		year: Int?,
+		musicBrainzId: String? = null
 	) = DomainAlbum(
 		id = id,
 		name = name,
@@ -77,7 +103,7 @@ class AlbumSortPolicyTest {
 		playCount = 0,
 		userRating = null,
 		version = null,
-		musicBrainzId = null,
+		musicBrainzId = musicBrainzId,
 		songs = emptyList()
 	)
 

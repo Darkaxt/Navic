@@ -62,7 +62,7 @@ fun rememberResolvedArtworkColorScheme(
 		}
 	}
 	val serverCoverUri = remember(coverArtId) {
-		coverArtId?.let { sessionManager.getCoverArtUrl(it) }
+		coverArtId?.let(sessionManager::getCoverArtUrl)
 	}
 	val sourceUrl = remember(imageUrl, serverCoverUri) {
 		dominantColorArtworkUrl(

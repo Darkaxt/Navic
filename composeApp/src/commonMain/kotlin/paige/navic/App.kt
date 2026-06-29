@@ -435,7 +435,7 @@ private fun entryProvider(
 			AurralMissingAlbumScreen(key)
 		}
 		entry<Screen.CollectionDetail>(metadata = detailPane("root")) { key ->
-			CollectionDetailScreen(key.collectionId, key.tab)
+			CollectionDetailScreen(key)
 		}
 		entry<Screen.SongDetail>(metadata = detailPane("root")) { key ->
 			SongDetailScreen(key.songId)

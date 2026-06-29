@@ -97,6 +97,7 @@ fun LibraryScreen() {
 	)
 	val albumsState by albumsViewModel.albumsState.collectAsStateWithLifecycle()
 	val aurralAlbumRequests by albumsViewModel.aurralAlbumRequests.collectAsStateWithLifecycle()
+	val aurralAlbumMatchesByLocalAlbumId by albumsViewModel.aurralAlbumMatchesByLocalAlbumId.collectAsStateWithLifecycle()
 	val selectedAlbum by albumsViewModel.selectedAlbum.collectAsStateWithLifecycle()
 	val selectedAlbumIsStarred by albumsViewModel.starred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by albumsViewModel.rating.collectAsStateWithLifecycle()
@@ -367,6 +368,7 @@ fun LibraryScreen() {
 					showAurralHub = aurralConfigured,
 					requests = aurralAlbumRequests
 				),
+				aurralAlbumMatchesByLocalAlbumId = aurralAlbumMatchesByLocalAlbumId,
 				selectedAlbum = selectedAlbum,
 				selectedAlbumIsStarred = selectedAlbumIsStarred,
 				selectedAlbumRating = selectedAlbumRating,

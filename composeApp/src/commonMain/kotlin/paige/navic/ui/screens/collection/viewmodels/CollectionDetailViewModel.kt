@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.ConnectivityManager
@@ -26,11 +28,14 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.AurralOwnershipStatus
+import paige.navic.domain.models.AurralArtistOwnershipAlbumRow
+import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.aurralArtistOwnershipAlbumRows
 import paige.navic.domain.repositories.AlbumRepository
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralAlbumTrackItem
@@ -40,10 +45,13 @@ import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.domain.repositories.SongRepository
 import paige.navic.util.core.Logger
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.collection.AurralAlbumPageState
+import paige.navic.ui.screens.collection.AurralAlbumPageSource
 import paige.navic.ui.screens.collection.aurralAlbumRecoveryCandidate
 import paige.navic.ui.screens.collection.aurralAlbumRecoveryCandidateChoices
 import paige.navic.ui.screens.collection.aurralAlbumRecoveryQueries
 import paige.navic.ui.screens.collection.aurralAlbumRecoveryRows as buildAurralAlbumRecoveryRows
+import paige.navic.ui.screens.collection.aurralAlbumPageState as buildAurralAlbumPageState
 import paige.navic.ui.screens.collection.AurralAlbumRecoveryTrack
 import paige.navic.ui.screens.collection.AurralAlbumRecoveryTrackRow
 
@@ -136,6 +144,19 @@ class CollectionDetailViewModel(
 	val aurralAlbumRecoveryLoading = _aurralAlbumRecoveryLoading.asStateFlow()
 	private val _aurralAlbumRecoveryCandidates = MutableStateFlow<List<AurralAlbumSearchItem>>(emptyList())
 	val aurralAlbumRecoveryCandidates = _aurralAlbumRecoveryCandidates.asStateFlow()
+	private val _aurralMoreByArtistRows = MutableStateFlow<List<AurralArtistOwnershipAlbumRow>>(emptyList())
+	val aurralMoreByArtistRows = _aurralMoreByArtistRows.asStateFlow()
+	private val _aurralAlbumPageState = MutableStateFlow<AurralAlbumPageState>(
+		buildAurralAlbumPageState(
+			aurralEnabled = preferenceManager.aurralEnabled,
+			loading = false,
+			match = null,
+			rows = emptyList(),
+			candidates = emptyList(),
+			lookupFailed = false
+		)
+	)
+	val aurralAlbumPageState: StateFlow<AurralAlbumPageState> = _aurralAlbumPageState.asStateFlow()
 	private var aurralAlbumRecoveryKey: String? = null
 
 	private val _rating = MutableStateFlow(0)
@@ -153,6 +174,8 @@ class CollectionDetailViewModel(
 				_aurralAlbumRecoveryRows.value = emptyList()
 				_aurralAlbumRecoveryLoading.value = false
 				_aurralAlbumRecoveryCandidates.value = emptyList()
+				_aurralMoreByArtistRows.value = emptyList()
+				updateAurralAlbumPageState()
 				aurralAlbumRecoveryKey = null
 			}
 		}
@@ -180,6 +203,24 @@ class CollectionDetailViewModel(
 	}
 
 	private var refreshCollectionJob: Job? = null
+	private var aurralAlbumRouteHint: AurralAlbumSearchItem? = null
+
+	fun applyAurralAlbumRouteHint(hint: AurralAlbumSearchItem?) {
+		if (hint == null) return
+		val normalizedHintId = hint.id.trim()
+		val currentHint = aurralAlbumRouteHint
+		if (currentHint?.id?.trim() == normalizedHintId &&
+			currentHint.libraryAlbumId?.trim() == hint.libraryAlbumId?.trim()
+		) {
+			return
+		}
+		aurralAlbumRouteHint = hint
+		aurralAlbumRecoveryKey = null
+		val album = _collectionState.value.data as? DomainAlbum ?: return
+		viewModelScope.launch(Dispatchers.IO) {
+			refreshAurralAlbumRecovery(album)
+		}
+	}
 
 	fun refreshCollection(fullRefresh: Boolean) {
 		refreshAurralAcquisitionRequests()
@@ -203,6 +244,8 @@ class CollectionDetailViewModel(
 					_aurralAlbumRecoveryRows.value = emptyList()
 					_aurralAlbumRecoveryLoading.value = false
 					_aurralAlbumRecoveryCandidates.value = emptyList()
+					_aurralMoreByArtistRows.value = emptyList()
+					updateAurralAlbumPageState()
 					aurralAlbumRecoveryKey = null
 				}
 			}
@@ -210,6 +253,10 @@ class CollectionDetailViewModel(
 	}
 
 	private suspend fun refreshAurralAlbumRecovery(album: DomainAlbum) {
+		val routeHint = aurralAlbumRouteHint?.takeIf { hint ->
+			val hintedLibraryAlbumId = hint.libraryAlbumId?.trim()
+			hintedLibraryAlbumId == null || hintedLibraryAlbumId == album.id
+		}
 		val recoveryKey = buildString {
 			append(album.id)
 			append('|')
@@ -220,6 +267,8 @@ class CollectionDetailViewModel(
 			append(album.songs.joinToString("|") { song ->
 				"${song.id}:${song.title}:${song.musicBrainzId}:${song.discNumber}:${song.trackNumber}:${song.duration}"
 			})
+			append("|routeHint:")
+			append(routeHint?.id?.trim().orEmpty())
 		}
 		if (aurralAlbumRecoveryKey == recoveryKey) return
 		aurralAlbumRecoveryKey = recoveryKey
@@ -227,14 +276,28 @@ class CollectionDetailViewModel(
 		_aurralAlbumRecoveryRows.value = emptyList()
 		_aurralAlbumRecoveryLoading.value = false
 		_aurralAlbumRecoveryCandidates.value = emptyList()
+		_aurralMoreByArtistRows.value = emptyList()
+		updateAurralAlbumPageState()
 		if (!preferenceManager.aurralEnabled) return
 		_aurralAlbumRecoveryLoading.value = true
+		updateAurralAlbumPageState()
+		if (routeHint != null) {
+			_aurralAlbumRecoveryMatch.value = routeHint
+			_aurralAlbumRecoveryCandidates.value = emptyList()
+			loadAurralAlbumRecoveryTracks(album, routeHint)
+			loadAurralMoreByArtistRows(album, routeHint)
+			_aurralAlbumRecoveryLoading.value = false
+			updateAurralAlbumPageState()
+			return
+		}
 		val candidates = mutableListOf<AurralAlbumSearchItem>()
 		val candidateIds = mutableSetOf<String>()
 		var match: AurralAlbumSearchItem? = null
+		var lookupFailed = false
 		for (query in aurralAlbumRecoveryQueries(album)) {
 			aurralRepository.searchAlbums(query, limit = 8)
 				.onFailure { error ->
+					lookupFailed = true
 					Logger.w(
 						"CollectionDetailViewModel",
 						"Failed to resolve Aurral recovery album for ${album.name} with query $query",
@@ -258,6 +321,7 @@ class CollectionDetailViewModel(
 		if (match != null) {
 			_aurralAlbumRecoveryCandidates.value = emptyList()
 			loadAurralAlbumRecoveryTracks(album, match)
+			loadAurralMoreByArtistRows(album, match)
 		} else {
 			_aurralAlbumRecoveryCandidates.value = aurralAlbumRecoveryCandidateChoices(
 				album = album,
@@ -267,6 +331,7 @@ class CollectionDetailViewModel(
 				.map { it.album }
 		}
 		_aurralAlbumRecoveryLoading.value = false
+		updateAurralAlbumPageState(lookupFailed = lookupFailed)
 	}
 
 	private suspend fun loadAurralAlbumRecoveryTracks(
@@ -279,12 +344,51 @@ class CollectionDetailViewModel(
 					album = album,
 					tracks = tracks.map(AurralAlbumTrackItem::toRecoveryTrack)
 				)
+				updateAurralAlbumPageState()
 			}
 			.onFailure { error ->
 				_aurralAlbumRecoveryRows.value = emptyList()
+				updateAurralAlbumPageState()
 				Logger.w(
 					"CollectionDetailViewModel",
 					"Failed to load Aurral recovery tracks for ${album.name}",
+					error
+				)
+			}
+	}
+
+	private suspend fun loadAurralMoreByArtistRows(
+		album: DomainAlbum,
+		match: AurralAlbumSearchItem
+	) {
+		val artist = DomainArtist(
+			id = match.artistMbid.takeIf { it.isNotBlank() } ?: album.artistId,
+			name = match.artistName.takeIf { it.isNotBlank() } ?: album.artistName,
+			musicBrainzId = match.artistMbid.takeIf { it.isNotBlank() }
+		)
+		aurralRepository.getArtistCoreEnrichment(artist)
+			.onSuccess { enrichment ->
+				if (enrichment == null) {
+					_aurralMoreByArtistRows.value = emptyList()
+					return@onSuccess
+				}
+				val localAlbums = repository.getOtherAlbums(album.artistId, album.id).first()
+				_aurralMoreByArtistRows.value = withContext(Dispatchers.Default) {
+					val ownershipRows = aurralArtistOwnershipAlbumRows(
+						enrichment = enrichment,
+						localAlbums = localAlbums
+					)
+					(ownershipRows.ownedOrPartial + ownershipRows.missing)
+						.filterNot { row ->
+							row.releaseGroup?.id == match.id || row.localAlbum?.id == album.id
+						}
+				}
+			}
+			.onFailure { error ->
+				_aurralMoreByArtistRows.value = emptyList()
+				Logger.w(
+					"CollectionDetailViewModel",
+					"Failed to load Aurral more-by rows for ${match.artistName}",
 					error
 				)
 			}
@@ -329,8 +433,9 @@ class CollectionDetailViewModel(
 		_aurralAlbumRecoveryMatch.value = album.copy(status = "requested")
 		_aurralAlbumRecoveryRows.value = _aurralAlbumRecoveryRows.value.withAurralRecoveryRequestStatus(
 			status = "requested",
-			ownershipStatus = AurralOwnershipStatus.Requested
-		)
+				ownershipStatus = AurralOwnershipStatus.Requested
+			)
+		updateAurralAlbumPageState()
 		viewModelScope.launch(Dispatchers.IO) {
 			aurralRepository.requestAlbum(album)
 				.onSuccess {
@@ -342,6 +447,7 @@ class CollectionDetailViewModel(
 						status = "failed",
 						ownershipStatus = AurralOwnershipStatus.Failed
 					)
+					updateAurralAlbumPageState()
 					_aurralAlbumRequestFailures.emit(Unit)
 					Logger.w("CollectionDetailViewModel", "Aurral album request failed", error)
 				}
@@ -354,9 +460,13 @@ class CollectionDetailViewModel(
 			_aurralAlbumRecoveryMatch.value = candidate
 			_aurralAlbumRecoveryCandidates.value = emptyList()
 			_aurralAlbumRecoveryRows.value = emptyList()
+			_aurralMoreByArtistRows.value = emptyList()
 			_aurralAlbumRecoveryLoading.value = true
+			updateAurralAlbumPageState()
 			loadAurralAlbumRecoveryTracks(album, candidate)
+			loadAurralMoreByArtistRows(album, candidate)
 			_aurralAlbumRecoveryLoading.value = false
+			updateAurralAlbumPageState()
 		}
 	}
 
@@ -482,6 +592,19 @@ class CollectionDetailViewModel(
 	fun collectionDownloadStatus(): Flow<DownloadStatus> {
 		val songs = _collectionState.value.data?.songs.orEmpty()
 		return downloadManager.getCollectionDownloadStatus(songs.map { it.id })
+	}
+
+	private fun updateAurralAlbumPageState(
+		lookupFailed: Boolean = _aurralAlbumPageState.value.source == AurralAlbumPageSource.AurralUnavailable
+	) {
+		_aurralAlbumPageState.value = buildAurralAlbumPageState(
+			aurralEnabled = preferenceManager.aurralEnabled,
+			loading = _aurralAlbumRecoveryLoading.value,
+			match = _aurralAlbumRecoveryMatch.value,
+			rows = _aurralAlbumRecoveryRows.value,
+			candidates = _aurralAlbumRecoveryCandidates.value,
+			lookupFailed = lookupFailed
+		)
 	}
 }
 

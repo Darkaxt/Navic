@@ -10,6 +10,7 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Album
 import paige.navic.ui.components.common.ContentUnavailable
@@ -19,6 +20,7 @@ import paige.navic.ui.core.UiState
 fun LazyGridScope.albumListScreenContent(
 	state: UiState<List<DomainAlbum>>,
 	aurralAlbumRequests: List<AurralAlbumRequest>,
+	aurralAlbumMatchesByLocalAlbumId: Map<String, AurralAlbumSearchItem> = emptyMap(),
 	albumDownloadOwnershipStatuses: Map<String, AurralOwnershipStatus>,
 	starred: Boolean,
 	selectedAlbum: DomainAlbum?,
@@ -38,6 +40,7 @@ fun LazyGridScope.albumListScreenContent(
 				modifier = Modifier.animateItem(),
 				tab = "albums",
 				album = album,
+				aurralAlbumMatch = aurralAlbumMatchesByLocalAlbumId[album.id],
 				aurralAlbumRequests = aurralAlbumRequests,
 				ownershipStatus = albumDownloadOwnershipStatuses[album.id],
 				selected = album == selectedAlbum,

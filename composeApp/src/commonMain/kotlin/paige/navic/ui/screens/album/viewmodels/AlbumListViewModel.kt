@@ -16,8 +16,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.SessionManager
@@ -26,6 +28,7 @@ import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AlbumRepository
+import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.ui.screens.album.albumDownloadOwnershipStatuses
@@ -70,6 +73,22 @@ open class AlbumListViewModel(
 			.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState.Loading())
 
 	val aurralAlbumRequests = aurralRepository.albumRequests
+
+	val aurralAlbumMatchesByLocalAlbumId: StateFlow<Map<String, AurralAlbumSearchItem>> =
+		albumsState
+			.map { state -> state.data.orEmpty() }
+			.distinctUntilChanged()
+			.mapLatest { albums ->
+				withContext(Dispatchers.Default) {
+					albums.mapNotNull { album -> album.toAurralAlbumMatchOrNull()?.let { album.id to it } }
+						.toMap()
+				}
+			}
+			.stateIn(
+				scope = viewModelScope,
+				started = SharingStarted.WhileSubscribed(5_000),
+				initialValue = emptyMap()
+			)
 
 	val albumDownloadOwnershipStatuses: StateFlow<Map<String, AurralOwnershipStatus>> =
 		combine(
@@ -180,4 +199,18 @@ open class AlbumListViewModel(
 	fun clearError() {
 		_refreshError.value = null
 	}
+}
+
+private fun DomainAlbum.toAurralAlbumMatchOrNull(): AurralAlbumSearchItem? {
+	val releaseGroupId = musicBrainzId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	return AurralAlbumSearchItem(
+		id = releaseGroupId,
+		title = name,
+		artistName = artistName,
+		artistMbid = "",
+		releaseDate = year?.toString(),
+		coverUrl = null,
+		inLibrary = true,
+		libraryAlbumId = id
+	)
 }

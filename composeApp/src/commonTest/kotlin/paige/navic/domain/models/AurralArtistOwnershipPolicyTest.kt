@@ -105,9 +105,45 @@ class AurralArtistOwnershipPolicyTest {
 			)
 		)
 
-		assertEquals(listOf("Workout Mix 150 BPM"), rows.ownedOrPartial.map { it.title })
-		assertEquals(null, rows.ownedOrPartial.single().releaseGroup)
+		assertTrue(rows.ownedOrPartial.isEmpty())
 		assertEquals(listOf("How to Train Your Dragon: Music From the Motion Picture"), rows.missing.map { it.title })
+	}
+
+	@Test
+	fun ownershipRowsUseAurralReleaseGroupsAsPrimaryCatalogAndIgnoreLocalOnlyAlbums() {
+		val knownReleaseGroup = releaseGroup(
+			id = "release-group-mbid",
+			title = "Known Album",
+			firstReleaseDate = "2024-01-01"
+		)
+		val missingReleaseGroup = releaseGroup(
+			id = "missing-release-group",
+			title = "Missing Album",
+			firstReleaseDate = "2023-01-01"
+		)
+		val enrichment = AurralArtistEnrichment(
+			artistMbid = "artist-mbid",
+			artistName = "Artist",
+			releaseGroups = listOf(knownReleaseGroup, missingReleaseGroup)
+		)
+		val localOnlyAlbum = album(
+			name = "Local Bootleg",
+			songs = listOf(song("Unmatched Local Track"))
+		)
+		val matchingAlbum = album(
+			name = "Different local display",
+			musicBrainzId = knownReleaseGroup.id,
+			songs = listOf(song("One"), song("Two"))
+		)
+
+		val rows = aurralArtistOwnershipAlbumRows(enrichment, listOf(localOnlyAlbum, matchingAlbum))
+
+		assertEquals(listOf("Known Album"), rows.ownedOrPartial.map { it.title })
+		assertEquals(matchingAlbum, rows.ownedOrPartial.single().localAlbum)
+		assertEquals(knownReleaseGroup, rows.ownedOrPartial.single().releaseGroup)
+		assertEquals(listOf("Missing Album"), rows.missing.map { it.title })
+		assertTrue(rows.ownedOrPartial.none { it.localAlbum == localOnlyAlbum })
+		assertTrue(rows.missing.none { it.localAlbum == localOnlyAlbum })
 	}
 
 	@Test

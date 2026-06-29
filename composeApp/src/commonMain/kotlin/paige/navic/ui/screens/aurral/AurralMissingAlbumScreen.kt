@@ -364,7 +364,15 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 							ownershipStatus = AurralOwnershipStatus.Owned,
 							contentDescription = album.name,
 							onClick = {
-								backStack.add(Screen.CollectionDetail(album.id, "aurral"))
+								backStack.add(
+									aurralMissingAlbumLocalCollectionDetailRoute(
+										route = route,
+										localAlbum = album,
+										tab = "aurral",
+										coverUrl = state.coverUrl,
+										requestStatus = state.progress?.status ?: route.requestStatus
+									)
+								)
 							}
 						)
 					}

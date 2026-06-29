@@ -44,7 +44,89 @@ data class AurralAlbumRecoveryCandidateChoice(
 	val confidence: Int
 )
 
+enum class AurralAlbumPageSource {
+	LocalFallback,
+	AurralResolved,
+	AurralAmbiguous,
+	AurralUnavailable
+}
+
+data class AurralAlbumPageState(
+	val source: AurralAlbumPageSource,
+	val match: AurralAlbumSearchItem?,
+	val rows: List<AurralAlbumRecoveryTrackRow>,
+	val loading: Boolean,
+	val candidates: List<AurralAlbumSearchItem>
+)
+
+data class AurralAlbumHeaderProjection(
+	val title: String,
+	val artistName: String,
+	val coverUrl: String?,
+	val detail: String
+)
+
+fun aurralAlbumPageState(
+	aurralEnabled: Boolean,
+	loading: Boolean,
+	match: AurralAlbumSearchItem?,
+	rows: List<AurralAlbumRecoveryTrackRow>,
+	candidates: List<AurralAlbumSearchItem>,
+	lookupFailed: Boolean
+): AurralAlbumPageState {
+	val source = when {
+		!aurralEnabled -> AurralAlbumPageSource.LocalFallback
+		match != null -> AurralAlbumPageSource.AurralResolved
+		candidates.isNotEmpty() -> AurralAlbumPageSource.AurralAmbiguous
+		lookupFailed -> AurralAlbumPageSource.AurralUnavailable
+		else -> AurralAlbumPageSource.LocalFallback
+	}
+	return AurralAlbumPageState(
+		source = source,
+		match = match,
+		rows = rows,
+		loading = loading,
+		candidates = if (source == AurralAlbumPageSource.AurralResolved) emptyList() else candidates
+	)
+}
+
+fun aurralAlbumHeaderProjection(
+	album: DomainAlbum,
+	pageState: AurralAlbumPageState
+): AurralAlbumHeaderProjection {
+	val match = pageState.match?.takeIf { pageState.source == AurralAlbumPageSource.AurralResolved }
+	return if (match != null) {
+		AurralAlbumHeaderProjection(
+			title = match.title,
+			artistName = match.artistName,
+			coverUrl = match.coverUrl,
+			detail = aurralAlbumHeaderDetail(
+				releaseDate = match.releaseDate,
+				primaryType = match.primaryType,
+				secondaryTypes = match.secondaryTypes,
+				fallbackYear = album.year
+			)
+		)
+	} else {
+		AurralAlbumHeaderProjection(
+			title = album.name,
+			artistName = album.artistName,
+			coverUrl = null,
+			detail = listOfNotNull(album.genre, album.year?.toString())
+				.takeIf { it.isNotEmpty() }
+				?.joinToString(" • ")
+				.orEmpty()
+		)
+	}
+}
+
 fun aurralAlbumDisplayDiscKey(row: AurralAlbumDisplayRow): Int = row.discNumber ?: 1
+
+fun aurralAlbumDisplayRowKey(row: AurralAlbumDisplayRow): String =
+	row.track?.id?.takeIf { it.isNotBlank() }?.let { "aurral:$it" }
+		?: row.track?.recordingMbid?.takeIf { it.isNotBlank() }?.let { "recording:$it" }
+		?: row.localSong?.id?.takeIf { it.isNotBlank() }?.let { "local:$it" }
+		?: "fallback:${aurralAlbumDisplayDiscKey(row)}:${row.trackNumber ?: Int.MAX_VALUE}:${row.title}"
 
 fun aurralAlbumDisplayTrackNumberLabel(
 	row: AurralAlbumDisplayRow,
@@ -212,31 +294,19 @@ fun aurralAlbumDisplayRows(
 			}
 	}
 
-	val matchedLocalSongIds = recoveryRows.mapNotNull { it.localSong?.id }.toSet()
-	val rows = recoveryRows.map { row ->
+	return recoveryRows.map { row ->
 		AurralAlbumDisplayRow(
 			track = row.track,
 			localSong = row.localSong,
 			ownershipStatus = row.ownershipStatus,
-			title = row.localSong?.title ?: row.track.title,
-			artistName = row.localSong?.artistName ?: row.track.artistName,
+			title = row.track.title,
+			artistName = row.track.artistName ?: row.localSong?.artistName,
 			discNumber = row.track.discNumber ?: row.localSong?.discNumber,
 			trackNumber = row.track.trackNumber ?: row.localSong?.trackNumber,
 			durationMs = row.track.durationMs ?: row.localSong?.duration?.inWholeMilliseconds,
 			previewUrl = row.track.previewUrl
 		)
-	}
-	val localOnlyRows = album.songs
-		.filterNot { it.id in matchedLocalSongIds }
-		.sortedWith(compareBy({ it.discNumber ?: 1 }, { it.trackNumber ?: Int.MAX_VALUE }, { it.title }))
-		.let { localSongs ->
-			aurralAlbumLocalOnlyDisplayRows(
-				localSongs = localSongs,
-				recoveryRows = rows
-			)
-		}
-
-	return (rows + localOnlyRows).sortedWith(
+	}.sortedWith(
 		compareBy<AurralAlbumDisplayRow>(
 			{ aurralAlbumDisplayDiscKey(it) },
 			{ it.trackNumber ?: Int.MAX_VALUE },
@@ -263,52 +333,6 @@ fun aurralAlbumHeaderActionStatus(
 		recoveryRows.isNotEmpty() -> AurralOwnershipStatus.Owned
 		else -> matchStatus
 	}
-
-private fun aurralAlbumLocalOnlyDisplayRows(
-	localSongs: List<DomainSong>,
-	recoveryRows: List<AurralAlbumDisplayRow>
-): List<AurralAlbumDisplayRow> {
-	if (localSongs.isEmpty()) return emptyList()
-	val preferredDisc = recoveryRows
-		.mapNotNull { it.discNumber }
-		.groupingBy { it }
-		.eachCount()
-		.maxByOrNull { it.value }
-		?.key
-		?: 1
-	val usedTrackNumbersByDisc = recoveryRows
-		.groupBy { it.discNumber ?: preferredDisc }
-		.mapValues { (_, rows) -> rows.mapNotNull { it.trackNumber }.toMutableSet() }
-		.toMutableMap()
-
-	return localSongs.map { song ->
-		val discNumber = song.discNumber ?: preferredDisc
-		val usedTrackNumbers = usedTrackNumbersByDisc.getOrPut(discNumber) { mutableSetOf() }
-		val maxTrackNumber = usedTrackNumbers.maxOrNull() ?: 0
-		val trackNumber = firstMissingPositiveTrackNumber(usedTrackNumbers, maxTrackNumber)
-			?: song.trackNumber?.takeIf { it > 0 && it !in usedTrackNumbers }
-			?: (maxTrackNumber + 1)
-		usedTrackNumbers += trackNumber
-
-		AurralAlbumDisplayRow(
-			track = null,
-			localSong = song,
-			ownershipStatus = AurralOwnershipStatus.Owned,
-			title = song.title,
-			artistName = song.artistName,
-			discNumber = discNumber,
-			trackNumber = trackNumber,
-			durationMs = song.duration.inWholeMilliseconds,
-			previewUrl = null
-		)
-	}
-}
-
-private fun firstMissingPositiveTrackNumber(
-	usedTrackNumbers: Set<Int>,
-	maxTrackNumber: Int
-): Int? =
-	(1..maxTrackNumber).firstOrNull { it !in usedTrackNumbers }
 
 private fun bestLocalSongMatch(
 	track: AurralAlbumRecoveryTrack,
@@ -353,3 +377,17 @@ private fun String?.aurralRecoveryYearOrNull(): Int? =
 		?.take(4)
 		?.takeIf { value -> value.length == 4 && value.all(Char::isDigit) }
 		?.toIntOrNull()
+
+private fun aurralAlbumHeaderDetail(
+	releaseDate: String?,
+	primaryType: String?,
+	secondaryTypes: List<String>,
+	fallbackYear: Int?
+): String =
+	(
+		listOfNotNull(primaryType?.trim()?.takeIf { it.isNotEmpty() }) +
+			secondaryTypes.mapNotNull { it.trim().takeIf(String::isNotEmpty) } +
+			listOfNotNull(releaseDate.aurralRecoveryYearOrNull()?.toString() ?: fallbackYear?.toString())
+	)
+		.distinctBy { it.lowercase() }
+		.joinToString(" • ")

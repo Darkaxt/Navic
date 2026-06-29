@@ -90,7 +90,8 @@ sealed interface AurralArtistAlbumRow {
 
 	@Immutable
 	data class Local(
-		val album: DomainAlbum
+		val album: DomainAlbum,
+		val releaseGroup: AurralReleaseGroup? = null
 	) : AurralArtistAlbumRow {
 		override val title: String = album.name
 		override val year: Int? = album.year
@@ -173,90 +174,109 @@ fun aurralArtistOwnershipAlbumRows(
 			request.albumName.normalizedAurralNameOrNull()?.let { it to request }
 		}
 		.toMap()
-	val matchedReleaseGroupIds = mutableSetOf<String>()
-	val ownedOrPartial = localAlbums.map { album ->
-		val match = enrichment.releaseGroups
-			.mapNotNull { releaseGroup ->
-				val directScore = localAlbumReleaseGroupMatchScore(album, releaseGroup)
-				val releaseGroupTracks = releaseGroup.id.normalizedAurralIdOrNull()
-					?.let(releaseGroupTrackEvidence::get)
-					.orEmpty()
-				val trackEvidenceScore = localAlbumReleaseGroupTrackEvidenceMatchScore(
-					album = album,
-					releaseGroup = releaseGroup,
-					tracks = releaseGroupTracks
-				)
-				listOfNotNull(directScore, trackEvidenceScore).maxOrNull()?.let { score -> score to releaseGroup }
-			}
-			.maxWithOrNull(
-				compareBy<Pair<Int, AurralReleaseGroup>> { it.first }
-					.thenByDescending { it.second.firstReleaseDate.toAurralYearOrNull() ?: Int.MIN_VALUE }
-			)
-			?.second
-		match?.id?.normalizedAurralIdOrNull()?.let(matchedReleaseGroupIds::add)
-		val request = match?.let { releaseGroup ->
-			releaseGroup.id.normalizedAurralIdOrNull()?.let(requestsByMusicBrainzId::get)
-				?: releaseGroup.title.normalizedAurralNameOrNull()?.let(requestsByTitle::get)
-		}
-		val progress = request?.status?.trim()?.takeIf { it.isNotEmpty() }?.let(::aurralAcquisitionProgress)
-		val hasMultipleDistinctLocalTracks = album.hasMultipleDistinctAurralTracks()
+	val matchesByReleaseGroupKey = aurralArtistReleaseGroupLocalAlbumMatches(
+		releaseGroups = enrichment.releaseGroups,
+		localAlbums = localAlbums,
+		releaseGroupTrackEvidence = releaseGroupTrackEvidence
+	)
+	val rows = enrichment.releaseGroups.map { releaseGroup ->
+		val match = releaseGroup.aurralReleaseGroupRowKey()?.let(matchesByReleaseGroupKey::get)
+		val album = match?.album
+		val request = releaseGroup.id.normalizedAurralIdOrNull()?.let(requestsByMusicBrainzId::get)
+			?: releaseGroup.title.normalizedAurralNameOrNull()?.let(requestsByTitle::get)
+		val status = request?.status?.trim()?.takeIf { it.isNotEmpty() }
+		val progress = status?.let(::aurralAcquisitionProgress)
+		val hasMultipleDistinctLocalTracks = album?.hasMultipleDistinctAurralTracks() == true
 		val ownershipStatus = when {
 			progress != null -> aurralOwnershipStatusForProgress(progress)
-			match == null -> if (hasMultipleDistinctLocalTracks) {
-				AurralOwnershipStatus.Owned
-			} else {
-				AurralOwnershipStatus.Partial
-			}
-			localAlbumReleaseGroupMatchScore(album, match).isExactAurralAlbumMatchScore() &&
-				hasMultipleDistinctLocalTracks -> AurralOwnershipStatus.Owned
+			album == null -> AurralOwnershipStatus.Missing
+			match.score.isExactAurralAlbumMatchScore() && hasMultipleDistinctLocalTracks -> AurralOwnershipStatus.Owned
 			else -> AurralOwnershipStatus.Partial
 		}
 		AurralArtistOwnershipAlbumRow(
-			releaseGroup = match,
+			releaseGroup = releaseGroup,
 			localAlbum = album,
-			title = match?.title ?: album.name,
-			year = match?.firstReleaseDate?.take(4)?.takeIf { value ->
+			title = releaseGroup.title,
+			year = releaseGroup.firstReleaseDate?.take(4)?.takeIf { value ->
 				value.length == 4 && value.all { it.isDigit() }
-			} ?: album.year?.toString(),
-			coverUrl = match?.coverUrl,
-			requestStatus = request?.status,
-			requestable = false,
+			} ?: album?.year?.toString(),
+			coverUrl = releaseGroup.coverUrl,
+			requestStatus = status,
+			requestable = album == null && status == null,
 			acquisitionProgress = progress,
 			ownershipStatus = ownershipStatus,
-			localSongs = album.songs
+			localSongs = album?.songs.orEmpty()
 		)
-	}.sortedWith(aurralArtistOwnershipRowComparator())
-
-	val missing = enrichment.releaseGroups
-		.filter { releaseGroup ->
-			releaseGroup.id.normalizedAurralIdOrNull()?.let { it !in matchedReleaseGroupIds } != false
-		}
-		.map { releaseGroup ->
-			val request = releaseGroup.id.normalizedAurralIdOrNull()?.let(requestsByMusicBrainzId::get)
-				?: releaseGroup.title.normalizedAurralNameOrNull()?.let(requestsByTitle::get)
-			val status = request?.status?.trim()?.takeIf { it.isNotEmpty() }
-			val progress = status?.let(::aurralAcquisitionProgress)
-			AurralArtistOwnershipAlbumRow(
-				releaseGroup = releaseGroup,
-				localAlbum = null,
-				title = releaseGroup.title,
-				year = releaseGroup.firstReleaseDate?.take(4)?.takeIf { value ->
-					value.length == 4 && value.all { it.isDigit() }
-				},
-				coverUrl = releaseGroup.coverUrl,
-				requestStatus = status,
-				requestable = status == null,
-				acquisitionProgress = progress,
-				ownershipStatus = aurralOwnershipStatusForProgress(progress),
-				localSongs = emptyList()
-			)
-		}
+	}
+	val ownedOrPartial = rows
+		.filter { it.localAlbum != null }
+		.sortedWith(aurralArtistOwnershipRowComparator())
+	val missing = rows
+		.filter { it.localAlbum == null }
 		.sortedWith(aurralArtistOwnershipRowComparator())
 
 	return AurralArtistOwnershipAlbumRows(
 		ownedOrPartial = ownedOrPartial,
 		missing = missing
 	)
+}
+
+private data class AurralReleaseGroupLocalAlbumMatch(
+	val releaseGroupKey: String,
+	val localAlbumKey: String,
+	val releaseGroup: AurralReleaseGroup,
+	val album: DomainAlbum,
+	val score: Int
+)
+
+private fun aurralArtistReleaseGroupLocalAlbumMatches(
+	releaseGroups: List<AurralReleaseGroup>,
+	localAlbums: List<DomainAlbum>,
+	releaseGroupTrackEvidence: Map<String, List<AurralReleaseGroupTrackEvidence>>
+): Map<String, AurralReleaseGroupLocalAlbumMatch> {
+	val candidates = releaseGroups.flatMap { releaseGroup ->
+		val releaseGroupKey = releaseGroup.aurralReleaseGroupRowKey() ?: return@flatMap emptyList()
+		val releaseGroupTracks = releaseGroup.id.normalizedAurralIdOrNull()
+			?.let(releaseGroupTrackEvidence::get)
+			.orEmpty()
+		localAlbums.mapNotNull { album ->
+			val directScore = localAlbumReleaseGroupMatchScore(album, releaseGroup)
+			val trackEvidenceScore = localAlbumReleaseGroupTrackEvidenceMatchScore(
+				album = album,
+				releaseGroup = releaseGroup,
+				tracks = releaseGroupTracks
+			)
+			val score = listOfNotNull(directScore, trackEvidenceScore).maxOrNull()
+				?: return@mapNotNull null
+			AurralReleaseGroupLocalAlbumMatch(
+				releaseGroupKey = releaseGroupKey,
+				localAlbumKey = album.aurralLocalAlbumRowKey(),
+				releaseGroup = releaseGroup,
+				album = album,
+				score = score
+			)
+		}
+	}.sortedWith(
+		compareByDescending<AurralReleaseGroupLocalAlbumMatch> { it.score }
+			.thenBy { it.releaseGroup.firstReleaseDate.toAurralYearOrNull() == null }
+			.thenByDescending { it.releaseGroup.firstReleaseDate.toAurralYearOrNull() ?: Int.MIN_VALUE }
+			.thenBy { it.releaseGroup.title.lowercase() }
+			.thenBy { it.album.name.lowercase() }
+	)
+	val claimedReleaseGroupKeys = mutableSetOf<String>()
+	val claimedLocalAlbumKeys = mutableSetOf<String>()
+	return buildMap {
+		candidates.forEach { candidate ->
+			if (candidate.releaseGroupKey in claimedReleaseGroupKeys ||
+				candidate.localAlbumKey in claimedLocalAlbumKeys
+			) {
+				return@forEach
+			}
+			claimedReleaseGroupKeys += candidate.releaseGroupKey
+			claimedLocalAlbumKeys += candidate.localAlbumKey
+			put(candidate.releaseGroupKey, candidate)
+		}
+	}
 }
 
 fun aurralMissingAlbumRows(
@@ -322,14 +342,17 @@ fun aurralArtistAlbumRows(
 		.flatMap { it.name.normalizedAurralAlbumDedupeKeys() }
 		.toSet()
 	val seenMissingKeys = mutableSetOf<String>()
-	val localRows = localAlbums.map(AurralArtistAlbumRow::Local)
+	val localRows = localAlbums.map { album ->
+		AurralArtistAlbumRow.Local(
+			album = album,
+			releaseGroup = missingAlbums.firstOrNull { row -> row.matchesLocalAlbum(album) }?.releaseGroup
+		)
+	}
 	val missingRows = missingAlbums.mapNotNull { row ->
+		if (row.matchesLocalAlbum(localMusicBrainzIds, localTitleKeys)) return@mapNotNull null
+
 		val musicBrainzId = row.releaseGroup.id.normalizedAurralIdOrNull()
 		val titleKeys = row.title.normalizedAurralAlbumDedupeKeys()
-		val matchesLocal = (musicBrainzId != null && musicBrainzId in localMusicBrainzIds) ||
-			titleKeys.any { it in localTitleKeys }
-		if (matchesLocal) return@mapNotNull null
-
 		val rowKeys = listOfNotNull(musicBrainzId?.let { "mbid:$it" }) +
 			titleKeys.map { "title:$it" }
 		if (rowKeys.any { it in seenMissingKeys }) return@mapNotNull null
@@ -344,6 +367,22 @@ fun aurralArtistAlbumRows(
 			.thenBy { it.title.lowercase() }
 			.thenBy { row -> if (row is AurralArtistAlbumRow.Local) 0 else 1 }
 	)
+}
+
+private fun AurralMissingAlbumRow.matchesLocalAlbum(album: DomainAlbum): Boolean =
+	matchesLocalAlbum(
+		localMusicBrainzIds = setOfNotNull(album.musicBrainzId.normalizedAurralIdOrNull()),
+		localTitleKeys = album.name.normalizedAurralAlbumDedupeKeys().toSet()
+	)
+
+private fun AurralMissingAlbumRow.matchesLocalAlbum(
+	localMusicBrainzIds: Set<String>,
+	localTitleKeys: Set<String>
+): Boolean {
+	val musicBrainzId = releaseGroup.id.normalizedAurralIdOrNull()
+	val titleKeys = title.normalizedAurralAlbumDedupeKeys()
+	return (musicBrainzId != null && musicBrainzId in localMusicBrainzIds) ||
+		titleKeys.any { it in localTitleKeys }
 }
 
 fun aurralAcquisitionProgress(status: String): AurralAcquisitionProgress {
@@ -606,6 +645,16 @@ private fun String?.toAurralYearOrNull(): Int? =
 		?.take(4)
 		?.takeIf { value -> value.length == 4 && value.all { it.isDigit() } }
 		?.toIntOrNull()
+
+private fun AurralReleaseGroup.aurralReleaseGroupRowKey(): String? =
+	id.normalizedAurralIdOrNull()?.let { "mbid:$it" }
+		?: title.normalizedAurralNameOrNull()?.let { "title:$it" }
+
+private fun DomainAlbum.aurralLocalAlbumRowKey(): String =
+	id.trim().takeIf { it.isNotEmpty() }?.let { "id:$it" }
+		?: musicBrainzId.normalizedAurralIdOrNull()?.let { "mbid:$it" }
+		?: name.normalizedAurralNameOrNull()?.let { "title:$it" }
+		?: "identity:${hashCode()}"
 
 private const val ExactMbidMatchScore = 1000
 private const val ExactTitleMatchScore = 900

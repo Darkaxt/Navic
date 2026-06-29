@@ -85,6 +85,7 @@ import paige.navic.ui.components.dialogs.DeletionEndpoint
 import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.screens.collection.aurralAlbumHeaderProjection
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenFooterRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRow
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenHeadingRowButtons
@@ -93,6 +94,8 @@ import paige.navic.ui.screens.collection.components.CollectionDetailScreenSongRo
 import paige.navic.ui.screens.collection.components.CollectionDetailScreenTopBar
 import paige.navic.ui.screens.collection.components.collectionDetailScreenMoreByArtistRow
 import paige.navic.ui.screens.collection.viewmodels.CollectionDetailViewModel
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.aurral.aurralAlbumSearchItemOrNull
 import paige.navic.ui.screens.aurral.aurralSearchAlbumOwnershipStatus
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
@@ -104,8 +107,22 @@ import kotlin.time.Duration.Companion.milliseconds
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun CollectionDetailScreen(
+	route: Screen.CollectionDetail
+) {
+	val aurralAlbumRouteHint = route.aurralAlbumSearchItemOrNull()
+	CollectionDetailScreen(
+		collectionId = route.collectionId,
+		tab = route.tab,
+		aurralAlbumRouteHint = aurralAlbumRouteHint
+	)
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun CollectionDetailScreen(
 	collectionId: String,
-	tab: String
+	tab: String,
+	aurralAlbumRouteHint: paige.navic.domain.repositories.AurralAlbumSearchItem?
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
@@ -118,6 +135,9 @@ fun CollectionDetailScreen(
 		key = collectionId,
 		parameters = { parametersOf(collectionId) }
 	)
+	LaunchedEffect(aurralAlbumRouteHint) {
+		viewModel.applyAurralAlbumRouteHint(aurralAlbumRouteHint)
+	}
 
 	val player = koinInject<MediaPlayerViewModel>()
 	val playerState by player.uiState.collectAsStateWithLifecycle()
@@ -151,11 +171,13 @@ fun CollectionDetailScreen(
 	val selectedAlbumIsStarred by viewModel.selectedAlbumIsStarred.collectAsStateWithLifecycle()
 	val selectedAlbumRating by viewModel.selectedAlbumRating.collectAsStateWithLifecycle()
 	val otherAlbums by viewModel.otherAlbums.collectAsState()
+	val aurralMoreByArtistRows by viewModel.aurralMoreByArtistRows.collectAsStateWithLifecycle()
 	val aurralAlbumRequests by viewModel.aurralAlbumRequests.collectAsState()
 	val aurralAlbumRecoveryMatch by viewModel.aurralAlbumRecoveryMatch.collectAsStateWithLifecycle()
 	val aurralAlbumRecoveryRows by viewModel.aurralAlbumRecoveryRows.collectAsStateWithLifecycle()
 	val aurralAlbumRecoveryLoading by viewModel.aurralAlbumRecoveryLoading.collectAsStateWithLifecycle()
 	val aurralAlbumRecoveryCandidates by viewModel.aurralAlbumRecoveryCandidates.collectAsStateWithLifecycle()
+	val aurralAlbumPageState by viewModel.aurralAlbumPageState.collectAsStateWithLifecycle()
 	val allDownloads by viewModel.allDownloads.collectAsState()
 	val playlistSongIds by viewModel.playlistSongIds.collectAsStateWithLifecycle()
 	val downloadStatus by viewModel.collectionDownloadStatus()
@@ -188,8 +210,17 @@ fun CollectionDetailScreen(
 		}
 	}
 
+	val headerProjection = remember(displayedCollection, aurralAlbumPageState) {
+		(displayedCollection as? DomainAlbum)?.let { album ->
+			aurralAlbumHeaderProjection(
+				album = album,
+				pageState = aurralAlbumPageState
+			)
+		}
+	}
 	val collectionColorScheme = rememberResolvedArtworkColorScheme(
-		coverArtId = displayedCollection?.coverArtId
+		coverArtId = displayedCollection?.coverArtId,
+		imageUrl = headerProjection?.coverUrl
 	)
 
 	NavicTheme(collectionColorScheme) {
@@ -249,7 +280,11 @@ fun CollectionDetailScreen(
 						CollectionDetailScreenHeadingRow(
 							collection = contentCollection,
 							tab = tab,
-							titleAlpha = 1f - titleAlpha
+							titleAlpha = 1f - titleAlpha,
+							displayTitle = headerProjection?.title,
+							displaySubtitle = headerProjection?.artistName,
+							displayDetail = headerProjection?.detail,
+							coverImageUrl = headerProjection?.coverUrl
 						)
 					}
 
@@ -329,7 +364,10 @@ fun CollectionDetailScreen(
 									}
 								}
 							}
-							itemsIndexed(group.value) { index, row ->
+							itemsIndexed(
+								items = group.value,
+								key = { _, row -> aurralAlbumDisplayRowKey(row) }
+							) { index, row ->
 								val song = row.localSong
 								if (song == null) {
 									CollectionDetailScreenAurralTrackRow(
@@ -398,7 +436,10 @@ fun CollectionDetailScreen(
 							}
 						}
 					} else {
-						itemsIndexed(contentCollection.songs) { index, song ->
+						itemsIndexed(
+							items = contentCollection.songs,
+							key = { _, song -> song.id }
+						) { index, song ->
 							val download = allDownloads.find { it.songId == song.id }
 							Box {
 								CollectionDetailScreenSongRow(
@@ -468,6 +509,7 @@ fun CollectionDetailScreen(
 						collectionDetailScreenMoreByArtistRow(
 							artistName = artistName,
 							artistAlbums = otherAlbums,
+							aurralArtistAlbums = aurralMoreByArtistRows,
 							aurralAlbumRequests = aurralAlbumRequests,
 							selectedAlbum = selectedAlbum,
 							onSetShareId = { shareId = it },

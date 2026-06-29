@@ -140,6 +140,7 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.aurral.AurralConfirmationQueueSnackbar
 import paige.navic.ui.screens.aurral.AurralRecommendedAlbumItem
 import paige.navic.ui.screens.aurral.aurralAlbumSearchDestination
+import paige.navic.ui.screens.aurral.aurralOwnershipAlbumCollectionDetailRoute
 import paige.navic.ui.screens.artist.components.ArtistActionButtons
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenHeading
 import paige.navic.ui.screens.artist.components.ArtistDetailScreenTopBar
@@ -339,9 +340,18 @@ fun ArtistDetailScreen(
 					is UiState.Success -> {
 						val state = currentArtistState.data
 						val aurralProfileState = checkNotNull(artistProfileState)
-					val ownedOrPartialRows = remember(state.aurralOwnedOrPartialAlbums, state.albums) {
-						state.aurralOwnedOrPartialAlbums.ifEmpty {
-							state.albums.map { album ->
+					val ownedOrPartialRows = remember(
+						state.aurralOwnedOrPartialAlbums,
+						state.aurralMissingReleaseGroups,
+						state.albums,
+						aurralProfileState.enabled
+					) {
+						val hasAurralReleaseGroupRows = state.aurralMissingReleaseGroups.isNotEmpty() ||
+							state.aurralOwnedOrPartialAlbums.any { row -> row.releaseGroup != null }
+						when {
+							state.aurralOwnedOrPartialAlbums.isNotEmpty() -> state.aurralOwnedOrPartialAlbums
+							aurralProfileState.enabled && hasAurralReleaseGroupRows -> emptyList()
+							else -> state.albums.map { album ->
 								AurralArtistOwnershipAlbumRow(
 									releaseGroup = null,
 									localAlbum = album,
@@ -667,7 +677,14 @@ fun ArtistDetailScreen(
 										contentDescription = null,
 										onSelect = { viewModel.selectAlbum(album) },
 										onClick = dropUnlessResumed {
-											backStack.add(Screen.CollectionDetail(album.id, "artist"))
+											backStack.add(
+												aurralOwnershipAlbumCollectionDetailRoute(
+													row = row,
+													tab = "artist",
+													fallbackArtistMbid = state.aurralArtistMbid,
+													fallbackArtistName = displayArtistName
+												) ?: Screen.CollectionDetail(album.id, "artist")
+											)
 										}
 									)
 									if (selectedAlbum == album) {
