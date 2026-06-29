@@ -2,6 +2,14 @@ package paige.navic.domain.models
 
 private const val StationPlaylistPrefix = "[A] "
 private const val MoodMixSuffix = " Mix"
+private val GenreMixMetadataTokens = setOf(
+	"low",
+	"medium",
+	"high",
+	"danceable",
+	"party",
+	"automatic"
+)
 
 fun DomainPlaylist.isStationPlaylist(): Boolean =
 	name.startsWith(StationPlaylistPrefix)
@@ -25,13 +33,21 @@ fun DomainPlaylist.stationDisplayName(): String {
 fun DomainPlaylist.playlistDisplayName(): String =
 	when {
 		isStationPlaylist() -> stationDisplayName()
-		isGenreMixPlaylist() -> name.split("_")
-			.map { part -> part.trim() }
-			.filter { part -> part.isNotEmpty() }
-			.joinToString(" / ")
-			.ifBlank { name }
+		isGenreMixPlaylist() -> genreMixDisplayName()
 		else -> name
 	}
+
+private fun DomainPlaylist.genreMixDisplayName(): String {
+	val parts = name.split("_")
+		.map { part -> part.trim() }
+		.filter { part -> part.isNotEmpty() }
+	val genreParts = parts.takeWhile { part -> !part.isGenreMixMetadataToken() }
+		.ifEmpty { parts }
+	return genreParts.joinToString(" / ").ifBlank { name }
+}
+
+private fun String.isGenreMixMetadataToken(): Boolean =
+	all { char -> char.isDigit() } || lowercase() in GenreMixMetadataTokens
 
 fun DomainSongCollection.displayName(): String =
 	when (this) {

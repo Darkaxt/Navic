@@ -62,6 +62,18 @@ class PlaylistStationPolicyTest {
 	}
 
 	@Test
+	fun genreMixDisplayNameHidesGeneratorMetadata() {
+		assertEquals(
+			"Electronic / Pop / Rock",
+			playlist(id = "genre", name = "Electronic_Pop_Rock_Medium_Danceable_Party_automatic").playlistDisplayName()
+		)
+		assertEquals(
+			"Electronic / Pop / Indie",
+			playlist(id = "genre", name = "Electronic_Pop_Indie_Medium_Danceable_Party_1_automatic").playlistDisplayName()
+		)
+	}
+
+	@Test
 	fun playlistDeletionFromDetailIsOfferedForRegularPlaylistsOnly() {
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "playlist", name = "Training")))
 		assertFalse(canDeletePlaylistFromDetail(playlist(id = "station", name = "[A] Training")))
