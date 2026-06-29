@@ -1441,7 +1441,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogText, "text = if (useCompactLabels) tab.compactLabel else tab.label")
 		assertContains(settingsDialogText, "MaterialTheme.typography.labelMedium")
 		assertFalse(
-			settingsDialogText.contains("MaterialTheme.typography.labelLarge"),
+			tabRowBody.contains("MaterialTheme.typography.labelLarge"),
 			"Reader settings tabs should use denser Komikku-like tab text instead of larger labels that crowd the dialog."
 		)
 		assertContains(settingsDialogText, "HeadingItem(title)")
@@ -1793,6 +1793,32 @@ class ReaderRuntimeCommonChromeTest {
 		assertTrue(indexOfRequired("label = \"Column threshold\"") > pageLayoutIndex)
 		assertTrue(indexOfRequired("title = \"Theme\"") > themeDeviceIndex)
 		assertTrue(indexOfRequired("title = \"Rotation\"") > themeDeviceIndex)
+	}
+
+	@Test
+	fun commonReaderSettingsExpandedAnxControlsUseSeparateSectionAndSliderDensity() {
+		val settingsDialogText = readerCommonUiFile("ReaderSettingsDialog.kt").readText()
+		val settingsSectionBody = settingsDialogText.substringAfter("private fun SettingsSection(")
+			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuSettingsDialogLine(")
+		val sectionHeadingBody = settingsDialogText.substringAfter("private fun SettingsSectionHeading(")
+			.substringBefore("\n}\n\n@OptIn(ExperimentalLayoutApi::class)")
+		val sliderItemBody = settingsDialogText.substringAfter("private fun SliderItem(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun BaseSliderItem(")
+		val baseSliderItemBody = settingsDialogText.substringAfter("private fun BaseSliderItem(")
+			.substringBefore("\n}\n\n@Composable\nprivate fun Pill(")
+
+		assertContains(settingsDialogText, "val SectionVertical = 6.dp")
+		assertContains(settingsDialogText, "val SliderVertical = 6.dp")
+		assertContains(settingsDialogText, "private fun SettingsSectionHeading(text: String)")
+		assertContains(settingsSectionBody, "SettingsSectionHeading(title)")
+		assertFalse(
+			settingsSectionBody.contains("HeadingItem(title)"),
+			"Expanded Anx groups need a section heading density distinct from the Komikku page heading; reusing HeadingItem makes the modal read like a long settings page."
+		)
+		assertContains(sectionHeadingBody, "MaterialTheme.typography.labelLarge")
+		assertContains(sectionHeadingBody, "MaterialTheme.colorScheme.onSurfaceVariant")
+		assertContains(sliderItemBody, "vertical = SettingsItemsPaddings.SliderVertical")
+		assertContains(baseSliderItemBody, "verticalArrangement = Arrangement.spacedBy(0.dp)")
 	}
 
 	@Test

@@ -656,6 +656,33 @@ Required before closure:
 Remaining:
 - This does not complete settings visual design. Palette, slider density, tablet/fold proportions, and deeper scroll ergonomics remain visual-review work.
 
+### Stage 6C.3: Settings Overlay Hierarchy And Slider Density
+
+Status: complete for source-backed hierarchy/density; release/manual visual judgment pending.
+
+Scope:
+- Keep the Komikku tabbed modal shell, pager, chip rows, and checkbox primitives intact.
+- Adapt the expanded Anx EPUB control set inside that shell by separating page headings, section headings, chip labels, and slider rows into distinct density classes.
+- Reduce slider vertical density so the General tab does not behave like an oversized settings page docked into the reader.
+- Do not change tap ownership, progress rail, texture movement, Whispersync, or runtime bridge behavior in this slice.
+
+Guards and evidence:
+- RED/HOST-FIRST: `ReaderRuntimeCommonChromeTest.commonReaderSettingsExpandedAnxControlsUseSeparateSectionAndSliderDensity` failed while `SettingsSection` reused `HeadingItem(title)` and sliders reused full item vertical padding.
+- GREEN/HOST-FOCUSED: the same focused guard passed after adding `SettingsSectionHeading`, separate `SectionVertical` / `SliderVertical` paddings, and zero extra vertical spacing inside slider rows.
+- GREEN/HOST-CHROME: full `ReaderRuntimeCommonChromeTest` passed after narrowing the older tab-density guard to the actual tab row instead of banning section-heading typography globally.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after the Stage 6C.3 changes.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Required before closure:
+- [x] Compare the concrete settings primitives against Komikku before changing Navic.
+- [x] Add a failing source guard for the overloaded heading/slider density.
+- [x] Implement the hierarchy/density changes without touching runtime, rail, tap, texture, or Whispersync code.
+- [x] Run focused guard and full chrome host class.
+- [x] Run full `:composeApp:testAndroid`, `git diff --check`, update validation log, commit, and push.
+
+Remaining:
+- Palette, tablet/fold screenshot judgment, and deeper visual polish remain separate visual-review work. This slice only closes the source-backed hierarchy/density blocker.
+
 ### Stage 6D: Paper/Texture Visual System
 
 Status: source/harness complete for the movement/crash slice; Stage 6D.2 current-source visual-strength slice complete; release-device visual judgment still pending.

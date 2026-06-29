@@ -8382,6 +8382,34 @@ Remaining:
 - This is repeatable readerdev implementation/runtime proof. Public-release proof still requires a logged-in `darkaxt.navic` package or a logged-in physical device.
 
 
+## 2026-06-29 Stage 6C.3 Settings Overlay Hierarchy And Slider Density
+
+Scope:
+- Keep the Komikku tabbed modal shell and SettingsItems-shaped primitives.
+- Add a source-backed density layer for Navic's expanded Anx EPUB controls so page headings, section headings, chip labels, and sliders no longer share the same visual weight.
+- Avoid touching reader runtime, tap ownership, progress rail, textures, Whispersync, or bridge code in this stage.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsExpandedAnxControlsUseSeparateSectionAndSliderDensity --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimeCommonChromeTest.commonReaderSettingsExpandedAnxControlsUseSeparateSectionAndSliderDensity` failed while `SettingsSection` still reused `HeadingItem(title)`, sliders used `SettingsItemsPaddings.Vertical`, and slider rows added extra vertical spacing.
+- GREEN/HOST-FOCUSED: the focused guard passed after adding `SettingsSectionHeading`, `SectionVertical`, `SliderVertical`, and tighter slider row spacing.
+- GREEN/HOST-CHROME: full `ReaderRuntimeCommonChromeTest` passed after narrowing the older tab-density assertion to the tab-row body; section headings can now use their own typography without letting tab text grow.
+- GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after the Stage 6C.3 changes.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- Commit and push Stage 6C.3 before moving to the next staged gap.
+- Release/manual visual judgment is still required for palette and tablet/fold proportions.
+
+
 ## 2026-06-29 Stage 6E.3 Mockup Curl Sheet Roles
 
 Scope:

@@ -109,6 +109,8 @@ internal val TabbedDialogPaddingsVertical = 8.dp
 private object SettingsItemsPaddings {
 	val Horizontal = 24.dp
 	val Vertical = 10.dp
+	val SectionVertical = 6.dp
+	val SliderVertical = 6.dp
 }
 
 private enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label) {
@@ -753,7 +755,7 @@ private fun SettingsSection(
 	content: @Composable () -> Unit
 ) {
 	Column {
-		HeadingItem(title)
+		SettingsSectionHeading(title)
 		content()
 	}
 }
@@ -879,6 +881,22 @@ private fun HeadingItem(text: String) {
 	)
 }
 
+@Composable
+private fun SettingsSectionHeading(text: String) {
+	Text(
+		text = text,
+		style = MaterialTheme.typography.labelLarge,
+		fontWeight = FontWeight.SemiBold,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(
+				horizontal = SettingsItemsPaddings.Horizontal,
+				vertical = SettingsItemsPaddings.SectionVertical
+			)
+	)
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsChipRow(
@@ -960,7 +978,7 @@ private fun SliderItem(
 		pillColor = MaterialTheme.colorScheme.surfaceContainerHigh,
 		modifier = Modifier.padding(
 			horizontal = SettingsItemsPaddings.Horizontal,
-			vertical = SettingsItemsPaddings.Vertical
+			vertical = SettingsItemsPaddings.SliderVertical
 		)
 	)
 }
@@ -984,7 +1002,7 @@ private fun BaseSliderItem(
 		modifier = Modifier
 			.fillMaxWidth()
 			.then(modifier),
-		verticalArrangement = Arrangement.spacedBy(2.dp)
+		verticalArrangement = Arrangement.spacedBy(0.dp)
 	) {
 		Row(
 			verticalAlignment = Alignment.CenterVertically,
