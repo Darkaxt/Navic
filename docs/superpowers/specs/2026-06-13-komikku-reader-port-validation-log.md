@@ -8718,3 +8718,37 @@ Results:
 Next:
 - Use `v1.0.11-theta22` as the current public release baseline.
 - Keep deep reader/Whispersync release-package validation separate until a logged-in release device/profile or release-login env can reach reader routes.
+
+## 2026-06-30 Stage 8E Theta22 Release Validation Baseline
+
+Scope:
+- Download and install the published `v1.0.11-theta22` APK on `emulator-5554`.
+- Verify release package version and foreground ownership.
+- Diagnose the initial launch ANR before changing code.
+- Correct any validation-harness false negatives separately from app behavior.
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta22 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta22 --clobber
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta22\Navic.apk -ExpectedVersionName v1.0.11-theta22 -ArtifactDir captures\reader-smoke\theta22-release-install -CaptureReaderDiagnostics
+adb -s emulator-5554 shell dumpsys dropbox --print data_app_anr
+adb -s emulator-5554 shell am force-stop darkaxt.navic.readerdev
+adb -s emulator-5554 shell am force-stop darkaxt.navic
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta22\Navic.apk -ExpectedVersionName v1.0.11-theta22 -ArtifactDir captures\reader-smoke\theta22-release-clean-retry -CaptureReaderDiagnostics
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeFailsWhenFocusedWindowDoesNotBelongToRequestedPackage" --console=plain
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta22\Navic.apk -ExpectedVersionName v1.0.11-theta22 -ArtifactDir captures\reader-smoke\theta22-release-clean-retry-fixed-gate -CaptureReaderDiagnostics
+```
+
+Results:
+- GREEN/RELEASE-DOWNLOAD: `releases\v1.0.11-theta22\Navic.apk` exists and is `21052843` bytes.
+- GREEN/RELEASE-INSTALL: first install smoke produced `captures\reader-smoke\theta22-release-install\package-version.txt` with `versionCode=450`, `versionName=v1.0.11-theta22`, and `lastUpdateTime=2026-06-30 01:13:27`.
+- RED/FIRST-LAUNCH-ANR: first smoke run failed with an Android ANR dialog. DropBox `data_app_anr` recorded package `darkaxt.navic v450 (v1.0.11-theta22)`, ErrorId `0b4f04f2-d7a9-44e1-a26b-698e42e83c6a`, and reason `Input dispatching timed out`. The captured main thread was blocked in Android `HardwareRenderer.setStopped()` during first draw; ART JIT/profile work and emulator CPU/IO pressure were high. This was not treated as a reader code fix without stronger app-level evidence.
+- RED/HARNESS-FOCUS: after force-stopping both app packages, the clean retry showed a different failure: `focused-window.txt` had `mCurrentFocus=null` but `mFocusedApp=ActivityRecord{... darkaxt.navic/paige.navic.androidApp.MainActivity ...}`. A later `dumpsys window` confirmed `mCurrentFocus=Window{... darkaxt.navic/paige.navic.androidApp.MainActivity}`.
+- GREEN/HOST-FIRST: `ReaderRuntimeAssetsTest.adbReaderSmokeFailsWhenFocusedWindowDoesNotBelongToRequestedPackage` failed before the smoke script accepted `mFocusedApp`, then passed after `adb-reader-smoke.ps1` matched either `mCurrentFocus` or `mFocusedApp` for the requested package.
+- GREEN/RELEASE-SHELL: `captures\reader-smoke\theta22-release-clean-retry-fixed-gate` passed. `focused-window.txt` confirms the release package owns focus; `logcat-full.log` contains no `ANR`, `FATAL EXCEPTION`, `AndroidRuntime`, `Application Not Responding`, or `Input dispatching timed out`.
+- BLOCKED/RELEASE-READER: `screen.png` shows the Navidrome login screen. `reader-diagnostics-summary.txt` has zero reader, touch, texture, PDF, or Whispersync events. This is only release install/app-shell proof, not release reader proof.
+
+Next:
+- Keep `v1.0.11-theta22` as the current public release baseline.
+- Use `navic-release-login.env` or a logged-in release profile before claiming release-package reader or Whispersync behavior.

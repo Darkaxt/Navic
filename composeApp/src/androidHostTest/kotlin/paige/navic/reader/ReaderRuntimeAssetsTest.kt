@@ -955,6 +955,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "function Assert-FocusedAndroidPackage")
 		assertContains(scriptText, "dumpsys\", \"window")
 		assertContains(scriptText, "focused-window.txt")
+		assertContains(scriptText, "mFocusedApp=.*\$escapedPackage\$packageBoundary")
 		assertContains(scriptText, "Focused Android window does not belong to package")
 		assertContains(scriptText, "Foreground confirmed for \$Package")
 		assertTrue(

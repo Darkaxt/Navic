@@ -1412,3 +1412,41 @@ Closure:
 - [x] Record the result and next implementation stage in the validation log.
 - [ ] Run release-package reader smoke/matrix checks once a release package can reach a reader route.
 - [ ] Run release-package Whispersync enjoyment checks once a paired Whispersync route is reachable.
+
+### Stage 8E: Theta22 Release Validation Baseline
+
+Status: complete for release-package install/app-shell after smoke focus-gate correction; deep reader/Whispersync release validation remains blocked by missing release login/data on the emulator.
+
+Purpose:
+- Convert the published `v1.0.11-theta22` APK into a usable release baseline.
+- Keep first-launch emulator ANR evidence, smoke-script harness behavior, and release-reader login boundaries separate.
+- Avoid claiming release-reader or Whispersync behavior from a login-screen shell smoke.
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta22 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta22 --clobber
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta22\Navic.apk -ExpectedVersionName v1.0.11-theta22 -ArtifactDir captures\reader-smoke\theta22-release-install -CaptureReaderDiagnostics
+adb -s emulator-5554 shell dumpsys dropbox --print data_app_anr
+adb -s emulator-5554 shell am force-stop darkaxt.navic.readerdev
+adb -s emulator-5554 shell am force-stop darkaxt.navic
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta22\Navic.apk -ExpectedVersionName v1.0.11-theta22 -ArtifactDir captures\reader-smoke\theta22-release-clean-retry -CaptureReaderDiagnostics
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeFailsWhenFocusedWindowDoesNotBelongToRequestedPackage" --console=plain
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta22\Navic.apk -ExpectedVersionName v1.0.11-theta22 -ArtifactDir captures\reader-smoke\theta22-release-clean-retry-fixed-gate -CaptureReaderDiagnostics
+```
+
+Results:
+- GREEN/RELEASE-DOWNLOAD: published `Navic.apk` was downloaded to `releases\v1.0.11-theta22\Navic.apk`; size is `21052843` bytes.
+- GREEN/RELEASE-INSTALL: the first theta22 install wrote `package-version.txt` with `versionCode=450`, `versionName=v1.0.11-theta22`, and `lastUpdateTime=2026-06-30 01:13:27`.
+- RED/FIRST-LAUNCH-ANR: initial release smoke hit an emulator ANR while opening `darkaxt.navic/paige.navic.androidApp.MainActivity`. DropBox recorded `Input dispatching timed out` with ErrorId `0b4f04f2-d7a9-44e1-a26b-698e42e83c6a`; the app main thread was in Android `HardwareRenderer.setStopped()` during first draw, while ART JIT/profile work and emulator CPU/IO pressure were high. This was recorded as launch evidence, not an app code fix target.
+- RED/HARNESS-FOCUS: after stopping `darkaxt.navic.readerdev` and `darkaxt.navic`, the clean retry launched the activity but failed the smoke focus guard because `mCurrentFocus=null` while `mFocusedApp` already pointed at `darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- GREEN/HOST-FIRST: `ReaderRuntimeAssetsTest.adbReaderSmokeFailsWhenFocusedWindowDoesNotBelongToRequestedPackage` was made red for the missing `mFocusedApp` acceptance and then green after `adb-reader-smoke.ps1` matched both `mCurrentFocus` and `mFocusedApp`, consistent with `install-reader-dev.ps1`.
+- GREEN/RELEASE-SHELL: `captures\reader-smoke\theta22-release-clean-retry-fixed-gate` passed. `focused-window.txt` confirms `mCurrentFocus=Window{... darkaxt.navic/paige.navic.androidApp.MainActivity}` and `mFocusedApp=ActivityRecord{... darkaxt.navic/paige.navic.androidApp.MainActivity ...}`. Full log scan found no `ANR`, `FATAL EXCEPTION`, `AndroidRuntime`, `Application Not Responding`, or `Input dispatching timed out`.
+- BLOCKED/RELEASE-READER: screenshot `captures\reader-smoke\theta22-release-clean-retry-fixed-gate\screen.png` shows the Navidrome login form (`Log in`, `Instance URL`, `Username`, `Password`). `reader-diagnostics-summary.txt` has zero reader/touch/texture events. No release-package reader, EPUB/PDF, selection, search, style, or Whispersync behavior can be claimed from this emulator state.
+
+Closure:
+- [x] Download and install the published theta22 APK.
+- [x] Prove installed release version and app-shell foreground ownership.
+- [x] Diagnose the initial ANR using DropBox evidence before changing code.
+- [x] Fix the smoke-script false negative with a focused red/green host test.
+- [x] Record that deep release reader/Whispersync checks still require a logged-in release package or `navic-release-login.env`.

@@ -441,9 +441,10 @@ function Assert-FocusedAndroidPackage {
     $escapedPackage = [regex]::Escape($Package)
     $packageBoundary = "(?:/|\s|\}|$)"
     $currentFocusPattern = "mCurrentFocus=.*$escapedPackage$packageBoundary"
+    $focusedAppPattern = "mFocusedApp=.*$escapedPackage$packageBoundary"
     $currentFocusMatches = @(
         $focusLines |
-            Where-Object { $_ -match $currentFocusPattern }
+            Where-Object { $_ -match $currentFocusPattern -or $_ -match $focusedAppPattern }
     )
     if ($currentFocusMatches.Count -le 0) {
         throw "Focused Android window does not belong to package '$Package'. See $ArtifactDir\focused-window.txt"
