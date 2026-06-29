@@ -624,6 +624,81 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderPortsMockupCurlSheetRolesToDragPreviewOnly() {
+		val bridgeText = readerBridgeText()
+		val ensureLayer = bridgeText
+			.substringAfter("function ensurePageDragPreviewLayer() {")
+			.substringBefore("\nfunction removePageDragPreviewLayer")
+		val applySheet = bridgeText
+			.substringAfter("function applyPageDragCurlSheet(")
+			.substringBefore("\nfunction buildPageDragPreviewTargetKey")
+		val previewLayer = bridgeText
+			.substringAfter("function updatePageDragPreviewLayer(")
+			.substringBefore("\nfunction previewPageDrag")
+		val previewPageDrag = bridgeText
+			.substringAfter("previewPageDrag(command) {")
+			.substringBefore("\nasync function scrollViewport")
+		val releaseBranch = previewPageDrag
+			.substringAfter("if (phase === 'release') {")
+			.substringBefore("\n  const deltaX = Number(command?.deltaX)")
+
+		assertContains(
+			ensureLayer,
+			"data-navic-page-curl-sheet",
+			message = "The drag preview must create explicit mockup-derived sheet roles instead of styling the underlay as a single flat panel."
+		)
+		assertContains(
+			ensureLayer,
+			"turning-front",
+			message = "The mockup front face must have its own layer so the current page can behave like the turning sheet."
+		)
+		assertContains(
+			ensureLayer,
+			"turning-back",
+			message = "The mockup back face must have its own layer so spread mode can later render the reverse side instead of an inverted copy."
+		)
+		assertContains(
+			ensureLayer,
+			"underneath",
+			message = "The target page must stay as the underneath layer, matching the Komikku/mockup mental model."
+		)
+		assertContains(
+			applySheet,
+			"dataset.navicPageCurlSheetMode",
+			message = "Harness and ADB probes need an observable single/spread sheet mode, not only angle variables."
+		)
+		assertContains(
+			applySheet,
+			"dataset.navicPageCurlSheetRoles",
+			message = "Harness and ADB probes need to prove the front/back/underneath roles are mounted."
+		)
+		assertContains(
+			applySheet,
+			"--navic-page-curl-front-face-opacity",
+			message = "The drag sheet must port the mockup's front-face fade contract."
+		)
+		assertContains(
+			applySheet,
+			"--navic-page-curl-back-face-opacity",
+			message = "The drag sheet must port the mockup's back-face reveal contract even when single-page mode suppresses it."
+		)
+		assertContains(
+			previewLayer,
+			"this.applyPageDragCurlSheet(layer, {",
+			message = "Curl sheet roles must be applied only from the drag-preview layer update path."
+		)
+		assertContains(
+			releaseBranch,
+			"this.removePageDragPreviewLayer()",
+			message = "Release must remove all curl sheet roles before the actual page turn."
+		)
+		assertFalse(
+			releaseBranch.contains("applyPageDragCurlSheet"),
+			"Release handling must not create curl sheet roles; only active drags may show them."
+		)
+	}
+
+	@Test
 	fun androidReaderRestoresAndClearsNativeDragPreviewOnReleaseBeforePageTurn() {
 		val bridgeText = readerBridgeText()
 		val previewPageDrag = bridgeText

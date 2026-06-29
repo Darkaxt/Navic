@@ -521,13 +521,28 @@ function ensurePageDragPreviewLayer() {
     this.pageDragPreviewLayer = layer
     readerRoot.append(layer)
   }
+  const ensureSheet = role => {
+    let sheet = layer.querySelector(`[data-navic-page-curl-sheet="${role}"]`)
+    if (!sheet) {
+      sheet = document.createElement('div')
+      sheet.dataset.navicPageCurlSheet = role
+      sheet.setAttribute('aria-hidden', 'true')
+      sheet.style.pointerEvents = 'none'
+      layer.append(sheet)
+    }
+    return sheet
+  }
+  const underneath = ensureSheet('underneath')
+  ensureSheet('turning-front')
+  ensureSheet('turning-back')
+  ensureSheet('cast-shadow')
   let frame = this.pageDragPreviewFrame
-  if (!frame || !layer.contains(frame)) {
+  if (!frame || !underneath.contains(frame)) {
     frame = document.createElement('iframe')
     frame.dataset.navicPageDragPreviewFrame = 'true'
     frame.setAttribute('aria-hidden', 'true')
     frame.setAttribute('tabindex', '-1')
-    layer.replaceChildren(frame)
+    underneath.replaceChildren(frame)
     this.pageDragPreviewFrame = frame
     this.pageDragPreviewTargetKey = ''
   }
@@ -590,6 +605,91 @@ function applyPageDragCurlMetrics(layer, { direction, deltaX, deltaY, width, hei
   layer.style.setProperty('--navic-page-curl-origin', origin)
   layer.style.setProperty('--navic-page-curl-transform', transform)
   return metrics
+}
+
+function applyPageDragCurlSheet(layer, { direction, width, height, vertical, palette }) {
+  if (!layer) return null
+  const mode = vertical || width < height * 1.12 ? 'single' : 'spread'
+  const progress = Math.max(0, Math.min(1, Number(layer.style.getPropertyValue('--navic-page-curl-progress')) || 0))
+  const frontFaceOpacity = mode === 'single'
+    ? (progress < 0.78 ? 1 : progress > 0.98 ? 0 : 1 - ((progress - 0.78) / 0.20))
+    : (progress < 0.46 ? 1 : progress > 0.52 ? 0 : 1 - ((progress - 0.46) / 0.06))
+  const backFaceOpacity = mode === 'single'
+    ? 0
+    : (progress < 0.50 ? 0 : progress > 0.56 ? 1 : ((progress - 0.50) / 0.06))
+  const roles = ['underneath', 'turning-front', 'turning-back', 'cast-shadow']
+  const children = Object.fromEntries(roles.map(role => [
+    role,
+    layer.querySelector(`[data-navic-page-curl-sheet="${role}"]`),
+  ]))
+  layer.dataset.navicPageCurlSheetMode = mode
+  layer.dataset.navicPageCurlSheetRoles = roles.filter(role => children[role]).join(',')
+  layer.style.setProperty('--navic-page-curl-front-face-opacity', Math.max(0, Math.min(1, frontFaceOpacity)).toFixed(3))
+  layer.style.setProperty('--navic-page-curl-back-face-opacity', Math.max(0, Math.min(1, backFaceOpacity)).toFixed(3))
+  layer.style.setProperty('--navic-page-curl-sheet-width', `${Math.max(1, Math.round(width || 1))}px`)
+  layer.style.setProperty('--navic-page-curl-sheet-height', `${Math.max(1, Math.round(height || 1))}px`)
+  const axisGradient = vertical
+    ? 'linear-gradient(180deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)'
+    : 'linear-gradient(90deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)'
+  const reverseGradient = vertical
+    ? 'linear-gradient(180deg, rgba(38,20,6,.24) 0, rgba(255,255,255,.18) 24%, transparent 58%, rgba(36,18,5,.16) 100%)'
+    : 'linear-gradient(90deg, rgba(38,20,6,.24) 0, rgba(255,255,255,.18) 24%, transparent 58%, rgba(36,18,5,.16) 100%)'
+  const sheetBase = {
+    position: 'absolute',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    'pointer-events': 'none',
+    'box-sizing': 'border-box',
+  }
+  if (children.underneath) {
+    setStylesImportant(children.underneath, {
+      ...sheetBase,
+      'z-index': '1',
+      background: palette?.background || 'transparent',
+      'background-color': palette?.background || 'transparent',
+    })
+  }
+  if (children['cast-shadow']) {
+    setStylesImportant(children['cast-shadow'], {
+      ...sheetBase,
+      'z-index': '2',
+      opacity: 'var(--navic-page-curl-progress)',
+      background: vertical
+        ? 'linear-gradient(180deg, rgba(0,0,0,var(--navic-page-curl-shadow-alpha)), transparent 72%)'
+        : 'linear-gradient(90deg, rgba(0,0,0,var(--navic-page-curl-shadow-alpha)), transparent 72%)',
+      'mix-blend-mode': 'multiply',
+    })
+  }
+  if (children['turning-front']) {
+    setStylesImportant(children['turning-front'], {
+      ...sheetBase,
+      'z-index': '3',
+      opacity: 'var(--navic-page-curl-front-face-opacity)',
+      background: axisGradient,
+      'box-shadow': '0 0 var(--navic-page-curl-width) rgba(0,0,0,var(--navic-page-curl-shadow-alpha))',
+      transform: 'var(--navic-page-curl-transform)',
+      'transform-origin': 'var(--navic-page-curl-origin)',
+      'backface-visibility': 'hidden',
+      'will-change': 'transform, opacity',
+    })
+  }
+  if (children['turning-back']) {
+    setStylesImportant(children['turning-back'], {
+      ...sheetBase,
+      'z-index': '4',
+      opacity: 'var(--navic-page-curl-back-face-opacity)',
+      background: reverseGradient,
+      transform: vertical
+        ? 'var(--navic-page-curl-transform) rotateX(180deg)'
+        : 'var(--navic-page-curl-transform) rotateY(180deg)',
+      'transform-origin': 'var(--navic-page-curl-origin)',
+      'backface-visibility': 'hidden',
+      'will-change': 'transform, opacity',
+    })
+  }
+  return { mode, roles }
 }
 
 function buildPageDragPreviewTargetKey(targetIndex, direction, width, height) {
@@ -788,6 +888,13 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     height,
     vertical,
   })
+  this.applyPageDragCurlSheet(layer, {
+    direction,
+    width,
+    height,
+    vertical,
+    palette,
+  })
   layer.dataset.navicPageDragPreviewReady = String(ready)
   if (!ready) {
     const fallbackWidth = exposedWidth
@@ -808,13 +915,6 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
       'pointer-events': 'none',
       background: palette.background,
       'background-color': palette.background,
-      'background-image': vertical
-        ? 'linear-gradient(180deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)'
-        : 'linear-gradient(90deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)',
-      'box-shadow': '0 0 var(--navic-page-curl-width) rgba(0,0,0,var(--navic-page-curl-shadow-alpha))',
-      transform: 'var(--navic-page-curl-transform)',
-      'transform-origin': 'var(--navic-page-curl-origin)',
-      'backface-visibility': 'hidden',
       color: palette.foreground,
       'box-sizing': 'border-box',
     })
@@ -849,13 +949,6 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     'pointer-events': 'none',
     background: palette.background,
     'background-color': palette.background,
-    'background-image': vertical
-      ? 'linear-gradient(180deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)'
-      : 'linear-gradient(90deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)',
-    'box-shadow': '0 0 var(--navic-page-curl-width) rgba(0,0,0,var(--navic-page-curl-shadow-alpha))',
-    transform: 'var(--navic-page-curl-transform)',
-    'transform-origin': 'var(--navic-page-curl-origin)',
-    'backface-visibility': 'hidden',
     color: palette.foreground,
     'box-sizing': 'border-box',
   })
@@ -1378,6 +1471,7 @@ export const NavicReaderPageTurnMethods = {
   pageDragPreviewDimensions,
   readerPageDragCurlMetrics,
   applyPageDragCurlMetrics,
+  applyPageDragCurlSheet,
   buildPageDragPreviewTargetKey,
   loadPageDragPreviewFrame,
   ensurePageDragPreviewTarget,

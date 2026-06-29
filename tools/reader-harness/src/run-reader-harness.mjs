@@ -1989,6 +1989,9 @@ if (mode === 'epub-native-drag-preview-underlay') {
       const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
       const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
       const style = layer ? getComputedStyle(layer) : null
+      const curlSheets = Array.from(layer?.querySelectorAll?.('[data-navic-page-curl-sheet]') || [])
+        .map(element => element?.dataset?.navicPageCurlSheet || '')
+        .filter(Boolean)
       const iframeDoc = iframe?.contentDocument || null
       const iframeBodyRect = iframeDoc?.body?.getBoundingClientRect?.()
       const iframeHtmlRect = iframeDoc?.documentElement?.getBoundingClientRect?.()
@@ -2007,6 +2010,11 @@ if (mode === 'epub-native-drag-preview-underlay') {
         curlAngle: style?.getPropertyValue('--navic-page-curl-angle')?.trim() || '',
         curlWidth: style?.getPropertyValue('--navic-page-curl-width')?.trim() || '',
         curlTransform: style?.getPropertyValue('--navic-page-curl-transform')?.trim() || '',
+        curlSheetMode: layer?.dataset.navicPageCurlSheetMode || '',
+        curlSheetRoles: layer?.dataset.navicPageCurlSheetRoles || '',
+        curlSheetRoleCount: curlSheets.length,
+        curlFrontFaceOpacity: Number(style?.getPropertyValue('--navic-page-curl-front-face-opacity')) || 0,
+        curlBackFaceOpacity: Number(style?.getPropertyValue('--navic-page-curl-back-face-opacity')) || 0,
         width: style?.width || '',
         left: style?.left || '',
         right: style?.right || '',
@@ -2107,6 +2115,33 @@ if (mode === 'epub-native-drag-preview-underlay') {
         `Expected drag preview curl CSS vars to include angle, width, and horizontal rotateY transform; ` +
         `angle=${previewState.curlAngle || 'missing'} width=${previewState.curlWidth || 'missing'} ` +
         `transform=${previewState.curlTransform || 'missing'}`
+      )
+    }
+    const requiredSheetRoles = ['underneath', 'turning-front', 'turning-back', 'cast-shadow']
+    const observedSheetRoles = String(previewState.curlSheetRoles || '').split(',').filter(Boolean)
+    const missingSheetRoles = requiredSheetRoles.filter(role => !observedSheetRoles.includes(role))
+    if (missingSheetRoles.length || previewState.curlSheetRoleCount < requiredSheetRoles.length) {
+      throw new Error(
+        `Expected mockup-style curl sheet roles during native drag; ` +
+        `missing=${missingSheetRoles.join(',') || 'none'} state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (!['single', 'spread'].includes(previewState.curlSheetMode)) {
+      throw new Error(
+        `Expected drag preview to expose single/spread sheet mode; ` +
+        `mode=${previewState.curlSheetMode || 'missing'} state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (previewState.curlFrontFaceOpacity <= 0 || previewState.curlFrontFaceOpacity > 1) {
+      throw new Error(
+        `Expected curl front face opacity to be active and normalized; ` +
+        `opacity=${previewState.curlFrontFaceOpacity} state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (previewState.curlBackFaceOpacity < 0 || previewState.curlBackFaceOpacity > 1) {
+      throw new Error(
+        `Expected curl back face opacity to stay normalized; ` +
+        `opacity=${previewState.curlBackFaceOpacity} state=${JSON.stringify(previewState)}`
       )
     }
 

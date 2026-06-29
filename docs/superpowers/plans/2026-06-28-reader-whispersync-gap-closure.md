@@ -29,7 +29,7 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 3. **Stage 5C: Whispersync Enjoyment Release Gate** - validate a real paired Bindery sidecar plus audiobook session end to end on the current release baseline: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, and exact companion resume.
 4. **Stage 6C.2: Settings Overlay Faithfulness** - finish the Komikku settings modal parity pass beyond the first density slice: compact tab readability, scroll gradients, control grouping, usable sliders/chips on phone/fold/tablet, and no duplicate entry points.
 5. **Stage 6D.2: Paper/Texture Visual Strength** - make page texture and border degradation visible enough on release screenshots while keeping deterministic page identity and correct movement direction.
-6. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable.
+6. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable. Current-source work has now moved from metric-only curl variables to explicit mockup sheet roles; full captured current/reverse page snapshots remain a later visual-parity slice.
 
 ## Stage 0: Plan And Spec Alignment
 
@@ -461,7 +461,7 @@ Required before closure:
 - [x] Run `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain`.
 - [x] Run `git diff --check`.
 - [x] Update the validation log.
-- [ ] Commit and push Stage 5C.2.
+- [x] Commit and push Stage 5C.2. Completed in `0bc15bcd`.
 
 Remaining:
 - This is current-source readerdev proof for a real production Bindery sidecar/audiobook route. It is not a public release-package proof until `darkaxt.navic` can log in or a logged-in physical device runs the same end-to-end flow.
@@ -710,6 +710,31 @@ Required before closure:
 
 Remaining:
 - This is not yet the full mockup's dual/single-page snapshot animation. It gives the drag preview a curl-derived transform/shadow while preserving current page ownership. A later slice should only attempt true snapshot sheet animation after a guard proves no regression to center taps, menu toggles, cover behavior, or adjacent-page loading.
+
+#### Stage 6E.3: Mockup Curl Sheet Roles
+
+Scope:
+- Port the next safe subset of `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`: explicit turning-front, turning-back, underneath, and cast-shadow roles.
+- Keep the roles mounted inside the existing native drag-preview layer so no new touch owner is introduced.
+- Keep the adjacent target iframe as the underneath page and keep release/cancel cleanup authoritative.
+
+Guards and evidence:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderPortsMockupCurlSheetRolesToDragPreviewOnly` failed while the runtime only applied curl variables to one flat preview panel.
+- GREEN/HOST-FOCUSED: the same guard passed after `ensurePageDragPreviewLayer()` created `data-navic-page-curl-sheet` children and `applyPageDragCurlSheet(...)` exposed `single`/`spread` mode plus front/back face opacity variables.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` passed against `tmp\reader-live\book-3809-file-426.epub` and observed `curlSheetRoles=underneath,turning-front,turning-back,cast-shadow`, `curlSheetMode=single`, `curlFrontFaceOpacity=1`, and `curlBackFaceOpacity=0` during a real EPUB boundary drag.
+- GREEN/HOST-SUITE: `ReaderRuntimePaperSurfaceTest` passed after the sheet-role changes.
+- GREEN/JS: `node --check` passed for `navic-reader-page-turns.js` and `tools/reader-harness/src/run-reader-harness.mjs`.
+
+Required before closure:
+- [x] Add a failing source guard for mockup sheet roles and drag-only cleanup.
+- [x] Implement sheet roles inside the existing preview layer without changing tap ownership or release handling.
+- [x] Extend the browser harness to verify sheet roles during an actual EPUB drag.
+- [x] Run focused host test, full paper host class, JS syntax checks, and EPUB drag-preview harness.
+- [x] Run full `:composeApp:testAndroid`.
+- [x] Run `git diff --check`, commit, and push.
+
+Remaining:
+- This still does not capture and render the current page front face or reverse page content as real snapshots. That must be a separate Stage 6E.4 slice, guarded by center-tap/menu/long-press non-regression and spread-mode evidence.
 
 ### Stage 6D.3: Deterministic Texture Motion
 

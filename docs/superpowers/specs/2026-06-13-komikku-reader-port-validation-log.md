@@ -8350,5 +8350,36 @@ Results:
 - GREEN/COMPANION-TARGET: `captures\reader-smoke\stage5c2-companion-progress-20260629-1842` resolved the cue-covered page and logged exact target `positionMs=263360` with `overlayFragmentActive`.
 
 Remaining:
-- Commit/push Stage 5C.2. JS syntax, full `:composeApp:testAndroid`, and `git diff --check` passed before commit.
+- Stage 5C.2 was committed and pushed in `0bc15bcd` after JS syntax, full `:composeApp:testAndroid`, and `git diff --check`.
 - Release-package proof still requires real Navic/Navidrome login credentials or a logged-in physical release device.
+
+
+## 2026-06-29 Stage 6E.3 Mockup Curl Sheet Roles
+
+Scope:
+- Move the drag curl implementation beyond metric-only CSS variables by porting the page-curl mockup's explicit sheet roles: underneath target page, turning front face, turning back face, and cast shadow.
+- Keep the implementation inside the existing native drag-preview layer so it cannot become a competing touch owner.
+- Keep this separate from full current/reverse page snapshot animation, which remains a later visual-parity slice.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderPortsMockupCurlSheetRolesToDragPreviewOnly --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --console=plain
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderPortsMockupCurlSheetRolesToDragPreviewOnly` failed while `ensurePageDragPreviewLayer()` had no `data-navic-page-curl-sheet` roles and the runtime only styled one flat preview panel.
+- GREEN/HOST-FOCUSED: the focused guard passed after adding `underneath`, `turning-front`, `turning-back`, and `cast-shadow` children, observable `navicPageCurlSheetMode`, `navicPageCurlSheetRoles`, and front/back face opacity variables.
+- RED/HARNESS-FIRST: the first browser harness run failed with `this.applyPageDragCurlSheet is not a function`, proving the helper had not been attached to the runtime method table.
+- GREEN/HARNESS: after exporting the helper, `epub-native-drag-preview-underlay` passed against production fixture `book-3809-file-426.epub` and observed `curlSheetRoles=underneath,turning-front,turning-back,cast-shadow`, `curlSheetMode=single`, `curlFrontFaceOpacity=1`, `curlBackFaceOpacity=0`, `curlProgress=0.359`, and a rendered adjacent iframe.
+- GREEN/HOST-SUITE: full `ReaderRuntimePaperSurfaceTest` passed after the sheet-role changes.
+- GREEN/JS: `node --check` passed for both edited JS files.
+- GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after the Stage 6E.3 changes.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- Full mockup parity still requires a separate guarded stage for real current/reverse page snapshots, especially spread mode after rotation.
