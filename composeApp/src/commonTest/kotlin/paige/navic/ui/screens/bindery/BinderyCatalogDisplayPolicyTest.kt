@@ -334,6 +334,42 @@ class BinderyCatalogDisplayPolicyTest {
 						id = "urn:bindery:book:3810",
 						title = "Summary Ready Only",
 						sync = BinderyBookSync(whispersyncStatus = "ready")
+					),
+					BinderyPublication(
+						id = "urn:bindery:book:3811",
+						title = "Pending Pair",
+						sync = BinderyBookSync(
+							whispersyncStatus = "pending",
+							syncPairs = listOf(
+								BinderySyncPair(
+									bookId = 3811,
+									ebookBookFileId = 700,
+									audiobookBookFileId = 701,
+									whispersync = BinderyWhispersyncArtifact(
+										status = "pending",
+										artifactHref = "/opds/books/3811/sync/2"
+									)
+								)
+							)
+						)
+					),
+					BinderyPublication(
+						id = "urn:bindery:book:3812",
+						title = "Ready Pair Missing Artifact",
+						sync = BinderyBookSync(
+							whispersyncStatus = "ready",
+							syncPairs = listOf(
+								BinderySyncPair(
+									bookId = 3812,
+									ebookBookFileId = 800,
+									audiobookBookFileId = 801,
+									whispersync = BinderyWhispersyncArtifact(
+										status = "ready",
+										artifactHref = null
+									)
+								)
+							)
+						)
 					)
 				)
 			),
@@ -342,6 +378,8 @@ class BinderyCatalogDisplayPolicyTest {
 
 		assertTrue(cards.first { it.id == "urn:bindery:book:3809" }.hasActionableWhispersync)
 		assertFalse(cards.first { it.id == "urn:bindery:book:3810" }.hasActionableWhispersync)
+		assertFalse(cards.first { it.id == "urn:bindery:book:3811" }.hasActionableWhispersync)
+		assertFalse(cards.first { it.id == "urn:bindery:book:3812" }.hasActionableWhispersync)
 	}
 
 	@Test

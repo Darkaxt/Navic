@@ -175,6 +175,7 @@ Required before closure:
 **Current completed slices:**
 - Current Bindery audio resource/source-release fields, audiobook quality ordering, Aurral-first source routing support, and playback error notifier extraction were validated with `.\gradlew.bat --no-daemon :composeApp:testAndroid` and committed in `b1e20000`.
 - Current Bindery resource-link provenance fields now survive OPDS/resource JSON parsing and propagate into readaloud track descriptors/extras: `kind`, `format`, `artifactType`, `bookFileId`, `size`, `deliveryPolicy`, `origin`, `version`, `sourceUrl`, `findingId`, and `findingHref`. The slice was guarded red-first in `BinderyRepositoryResourceJsonTest` and `ReadaloudModelsTest`, then validated with focused parser/readaloud tests, the Stage 4/Whispersync host batch, `:composeApp:testAndroid`, and `git diff --check`.
+- Exact ready-pair launch and cover-badge gating are current-green against embedded sync pairs, `/sync` endpoint rows, missing audiobook rows, pending pairs, summary-only ready status, and ready pairs without `artifactHref`. The badge false-positive cases were added to `BinderyCatalogDisplayPolicyTest`, and the Stage 4 launch/badge batch passed with `BinderyBookVersionPolicyTest`, `BinderyCatalogDisplayPolicyTest.bookCardsExposeWhispersyncBadgeOnlyForReadyPairsWithArtifactHref`, and `ReaderWhispersyncLaunchPolicyTest`.
 
 **Main files:**
 - `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyModels.kt`
@@ -195,10 +196,10 @@ Required before closure:
 - `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/bindery/BinderyBookVersionPolicySourceTest.kt`
 
 - [x] Add fixture coverage from the current Bindery schema before changing parser code.
-- [ ] Keep exact ready pairs launchable from embedded sync pairs and `/sync` endpoint responses.
-- [ ] Keep book cover headset badges gated by exact ready pairs with artifact href.
+- [x] Keep exact ready pairs launchable from embedded sync pairs and `/sync` endpoint responses.
+- [x] Keep book cover headset badges gated by exact ready pairs with artifact href.
 - [x] Run focused Bindery tests and `:composeApp:testAndroid`.
-- [ ] Commit API alignment only after all parser/launch tests pass.
+- [x] Commit API alignment only after all parser/launch tests pass.
 
 ## Stage 5: Whispersync Enjoyment Gate
 
