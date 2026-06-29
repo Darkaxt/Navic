@@ -38,6 +38,25 @@ fun DomainPlaylist.playlistDisplayName(): String =
 		else -> name
 	}
 
+fun DomainPlaylist.playlistArtworkLabel(): String =
+	when {
+		isGenreMixPlaylist() -> genreMixDisplayName()
+			.split(" / ")
+			.map { it.trim() }
+			.filter { it.isNotEmpty() }
+			.take(3)
+			.joinToString("\n")
+			.ifBlank { playlistDisplayName() }
+		else -> playlistDisplayName()
+	}
+
+fun DomainPlaylist.playlistFallbackKind(): String =
+	when {
+		isGeneratedMixPlaylist() -> "Mix"
+		isStationPlaylist() -> "Flow"
+		else -> "Playlist"
+	}
+
 private fun DomainPlaylist.moodMixDisplayName(): String =
 	name.removeSuffix(MoodMixSuffix)
 		.trimEnd()

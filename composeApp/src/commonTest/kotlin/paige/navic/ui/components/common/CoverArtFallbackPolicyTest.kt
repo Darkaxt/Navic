@@ -45,4 +45,11 @@ class CoverArtFallbackPolicyTest {
 		assertNull(content.initials)
 		assertNull(content.seedSource)
 	}
+
+	@Test
+	fun fallbackKindLabelRendersAsReadableWord() {
+		assertEquals("MIX", coverArtFallbackKindLabel("Mix"))
+		assertEquals("FLOW", coverArtFallbackKindLabel(" Flow "))
+		assertNull(coverArtFallbackKindLabel(" "))
+	}
 }

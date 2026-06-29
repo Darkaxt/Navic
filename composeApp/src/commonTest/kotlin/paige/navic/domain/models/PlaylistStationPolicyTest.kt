@@ -95,6 +95,34 @@ class PlaylistStationPolicyTest {
 	}
 
 	@Test
+	fun playlistFallbackKindMatchesGeneratedArtworkType() {
+		assertEquals("Mix", playlist(id = "mood", name = "Chill Mix").playlistFallbackKind())
+		assertEquals("Mix", playlist(id = "genre", name = "Electronic_Pop_Indie").playlistFallbackKind())
+		assertEquals("Flow", playlist(id = "station", name = "[A] Discover").playlistFallbackKind())
+		assertEquals("Playlist", playlist(id = "manual", name = "Training Plan").playlistFallbackKind())
+	}
+
+	@Test
+	fun generatedMixArtworkLabelKeepsWholeTermsOnSeparateLines() {
+		assertEquals(
+			"Electronic\nPop\nRock",
+			playlist(id = "genre", name = "Electronic_Pop_Rock_Medium_Danceable_Party_automatic").playlistArtworkLabel()
+		)
+		assertEquals(
+			"Workout",
+			playlist(id = "mood", name = "Workout Mix").playlistArtworkLabel()
+		)
+		assertEquals(
+			"Discover",
+			playlist(id = "station", name = "[A] Discover").playlistArtworkLabel()
+		)
+		assertEquals(
+			"Training Plan",
+			playlist(id = "manual", name = "Training Plan").playlistArtworkLabel()
+		)
+	}
+
+	@Test
 	fun playlistDeletionFromDetailIsOfferedForRegularPlaylistsOnly() {
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "playlist", name = "Training")))
 		assertFalse(canDeletePlaylistFromDetail(playlist(id = "station", name = "[A] Training")))

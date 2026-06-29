@@ -102,6 +102,7 @@ fun ArtGridItem(
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	imageDiagnosticLabel: String? = null,
 	title: String,
+	coverContentDescription: String = title,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
 	ownershipStatus: AurralOwnershipStatus? = null,
@@ -137,7 +138,7 @@ fun ArtGridItem(
 					imageCacheKey = imageCacheKey,
 					imageRequestHeaders = imageRequestHeaders,
 					imageDiagnosticLabel = imageDiagnosticLabel,
-					contentDescription = title,
+					contentDescription = coverContentDescription,
 					fallbackKind = fallbackKind,
 					onServerCoverLoadFailed = onServerCoverLoadFailed,
 					modifier = Modifier
