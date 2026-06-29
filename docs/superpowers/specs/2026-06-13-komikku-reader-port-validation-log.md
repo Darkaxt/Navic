@@ -7943,3 +7943,35 @@ Results:
 
 Remaining:
 - This does not implement the page-curl visual port. Curl work remains a separate Stage 6E slice and must prove drag-only activation before adding visual transforms.
+
+
+## 2026-06-29 Stage 6E.2 Drag-Only Curl Metrics Gate
+
+Scope:
+- Port the first safe page-curl behavior from `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
+- Use non-linear drag progress, sinusoidal curl width/shadow, and a direction-aware angle on the existing preview underlay.
+- Keep curl visuals attached only to the native drag-preview path, with release/cancel clearing the layer.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderPortsCurlMetricsToDragPreviewLayerOnly --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderPortsCurlMetricsToDragPreviewLayerOnly` failed before the runtime exposed curl metrics and layer CSS variables (`tmp/codex-validation/stage6e-curl-red.out.log`, exit `1`).
+- GREEN/HOST-FOCUSED: the same guard passed after adding `readerPageDragCurlMetrics(...)` and `applyPageDragCurlMetrics(...)` (`tmp/codex-validation/stage6e-curl-focused-green2.out.log`, exit `0`).
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` passed after adding runtime curl assertions (`tmp/codex-validation/stage6e-curl-harness2.out.log`, exit `0`).
+- GREEN/HARNESS-EVIDENCE: `tools\reader-harness\output\epub-native-drag-preview-underlay.json` records `curl=true`, `curlProgress=0.359`, `curlDirection=next`, `curlAngle=-22.66deg`, `curlWidth=48.5px`, and `curlTransform=perspective(1800px) rotateY(-22.66deg)`.
+- GREEN/HOST-SUITE: `ReaderRuntimePaperSurfaceTest` and `ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack` passed (`tmp/codex-validation/stage6e-curl-focused-suite.out.log`, exit `0`).
+- GREEN/JS: `node --check` passed for `navic-reader-page-turns.js` and `run-reader-harness.mjs`.
+- GREEN/FULL-SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed (`tmp/codex-validation/stage6e-curl-full-testAndroid.out.log`, exit `0`).
+
+Remaining:
+- This is the first safe curl slice, not full mockup parity. The real snapshot-sheet animation remains pending and should be attempted only behind a separate guard that protects center tap, menu show/hide, cover, and adjacent-page loading behavior.

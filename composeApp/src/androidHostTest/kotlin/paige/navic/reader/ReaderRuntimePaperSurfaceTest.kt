@@ -556,6 +556,66 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderPortsCurlMetricsToDragPreviewLayerOnly() {
+		val bridgeText = readerBridgeText()
+		val curlMetrics = bridgeText
+			.substringAfter("function readerPageDragCurlMetrics(")
+			.substringBefore("\nfunction applyPageDragCurlMetrics")
+		val applyCurlMetrics = bridgeText
+			.substringAfter("function applyPageDragCurlMetrics(")
+			.substringBefore("\nfunction buildPageDragPreviewTargetKey")
+		val previewLayer = bridgeText
+			.substringAfter("function updatePageDragPreviewLayer(")
+			.substringBefore("\nfunction previewPageDrag")
+		val previewPageDrag = bridgeText
+			.substringAfter("previewPageDrag(command) {")
+			.substringBefore("\nasync function scrollViewport")
+		val releaseBranch = previewPageDrag
+			.substringAfter("if (phase === 'release') {")
+			.substringBefore("\n  if (this.readerIsFixedLayoutPublication())")
+
+		assertContains(
+			curlMetrics,
+			"progress < 0.5",
+			message = "The drag curl should port the mockup's non-linear easing instead of using linear slide opacity."
+		)
+		assertContains(
+			curlMetrics,
+			"Math.sin(Math.PI * progress)",
+			message = "Curl width and shadow should follow the mockup's sinusoidal peak during the drag."
+		)
+		assertContains(
+			previewLayer,
+			"this.applyPageDragCurlMetrics(layer, {",
+			message = "The clipped adjacent-page underlay must receive curl metrics during drag preview updates."
+		)
+		assertContains(
+			applyCurlMetrics,
+			"dataset.navicPageDragPreviewCurl = 'true'",
+			message = "Harness and ADB probes need a concrete dataset flag proving curl is active only on the drag preview layer."
+		)
+		assertContains(
+			applyCurlMetrics,
+			"--navic-page-curl-progress",
+			message = "The layer must expose curl progress as CSS state so browser probes can verify the effect."
+		)
+		assertContains(
+			applyCurlMetrics,
+			"--navic-page-curl-angle",
+			message = "The layer must expose the mockup-derived curl angle for drag-only visual transforms."
+		)
+		assertContains(
+			releaseBranch,
+			"this.removePageDragPreviewLayer()",
+			message = "Curl visuals must be removed on release instead of remaining after a tap/menu action."
+		)
+		assertFalse(
+			releaseBranch.contains("applyPageDragCurlMetrics"),
+			"Release handling must not create curl visuals; only drag-preview updates are allowed to apply them."
+		)
+	}
+
+	@Test
 	fun androidReaderRestoresAndClearsNativeDragPreviewOnReleaseBeforePageTurn() {
 		val bridgeText = readerBridgeText()
 		val previewPageDrag = bridgeText

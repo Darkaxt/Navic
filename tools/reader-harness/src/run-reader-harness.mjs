@@ -2001,6 +2001,12 @@ if (mode === 'epub-native-drag-preview-underlay') {
         targetIndex: Number(layer?.dataset.navicPageDragPreviewTargetIndex),
         direction: layer?.dataset.navicPageDragPreviewDirection || '',
         side: layer?.dataset.navicPageDragPreviewSide || '',
+        curl: layer?.dataset.navicPageDragPreviewCurl === 'true',
+        curlProgress: Number(layer?.dataset.navicPageDragPreviewCurlProgress),
+        curlDirection: layer?.dataset.navicPageDragPreviewCurlDirection || '',
+        curlAngle: style?.getPropertyValue('--navic-page-curl-angle')?.trim() || '',
+        curlWidth: style?.getPropertyValue('--navic-page-curl-width')?.trim() || '',
+        curlTransform: style?.getPropertyValue('--navic-page-curl-transform')?.trim() || '',
         width: style?.width || '',
         left: style?.left || '',
         right: style?.right || '',
@@ -2058,9 +2064,9 @@ if (mode === 'epub-native-drag-preview-underlay') {
       )
     }
     if (!previewState.ready) {
-      if (previewState.opacity !== '0' || previewState.width !== '1px' || previewState.left !== '-1px') {
+      if (previewState.opacity === '0' || previewState.width === '1px' || previewState.left === '-1px') {
         throw new Error(
-          `Expected not-ready boundary preview to stay hidden until the adjacent page is rendered; ` +
+          `Expected not-ready boundary preview to expose the paper fallback while the adjacent page renders; ` +
           `state=${JSON.stringify(previewState)}`
         )
       }
@@ -2081,6 +2087,26 @@ if (mode === 'epub-native-drag-preview-underlay') {
         `Expected boundary drag preview to expose a rendered adjacent page, not a blank loading underlay; ` +
         `ready=${previewState.ready} textLength=${previewState.iframeTextLength} ` +
         `bodyHeight=${previewState.iframeBodyHeight} state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (!previewState.curl || previewState.curlDirection !== 'next') {
+      throw new Error(
+        `Expected drag preview to expose curl state on the preview layer; ` +
+        `curl=${previewState.curl} curlDirection=${previewState.curlDirection || 'missing'} ` +
+        `state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (!Number.isFinite(previewState.curlProgress) || previewState.curlProgress <= 0 || previewState.curlProgress >= 1) {
+      throw new Error(
+        `Expected drag preview curl progress to be a non-terminal drag fraction; ` +
+        `progress=${previewState.curlProgress} state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (!previewState.curlAngle.includes('deg') || !previewState.curlWidth.includes('px') || !previewState.curlTransform.includes('rotateY')) {
+      throw new Error(
+        `Expected drag preview curl CSS vars to include angle, width, and horizontal rotateY transform; ` +
+        `angle=${previewState.curlAngle || 'missing'} width=${previewState.curlWidth || 'missing'} ` +
+        `transform=${previewState.curlTransform || 'missing'}`
       )
     }
 

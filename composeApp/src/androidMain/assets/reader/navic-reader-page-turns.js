@@ -551,6 +551,47 @@ function pageDragPreviewDimensions(viewWidth = null, viewHeight = null) {
   }
 }
 
+function readerPageDragCurlMetrics({ direction, deltaX, deltaY, width, height, vertical }) {
+  const axisDistance = Math.abs(Number(vertical ? deltaY : deltaX) || 0)
+  const axisSize = Math.max(1, Number(vertical ? height : width) || 1)
+  const progress = Math.max(0, Math.min(1, axisDistance / axisSize))
+  const eased = progress < 0.5
+    ? 2 * progress * progress
+    : 1 - Math.pow(-2 * progress + 2, 2) / 2
+  const sign = direction === 'previous' ? 1 : -1
+  const angleLimit = vertical ? 72 : 88
+  const angle = sign * angleLimit * eased
+  const frontShadow = 0.10 + Math.sin(Math.PI * progress) * 0.30
+  const spineShadow = 0.04 + progress * 0.08
+  const shadowAlpha = Math.min(0.34, 0.08 + Math.sin(Math.PI * progress) * 0.22)
+  const curlWidth = 16 + Math.sin(Math.PI * progress) * 36
+  return { progress, eased, angle, frontShadow, spineShadow, shadowAlpha, curlWidth }
+}
+
+function applyPageDragCurlMetrics(layer, { direction, deltaX, deltaY, width, height, vertical }) {
+  if (!layer) return null
+  const metrics = readerPageDragCurlMetrics({ direction, deltaX, deltaY, width, height, vertical })
+  layer.dataset.navicPageDragPreviewCurl = 'true'
+  layer.dataset.navicPageDragPreviewCurlProgress = metrics.progress.toFixed(3)
+  layer.dataset.navicPageDragPreviewCurlDirection = direction || ''
+  const origin = vertical
+    ? (direction === 'next' ? 'center bottom' : 'center top')
+    : (direction === 'next' ? 'left center' : 'right center')
+  const transform = vertical
+    ? `perspective(1800px) rotateX(${metrics.angle.toFixed(2)}deg)`
+    : `perspective(1800px) rotateY(${metrics.angle.toFixed(2)}deg)`
+  layer.style.setProperty('--navic-page-curl-progress', metrics.progress.toFixed(3))
+  layer.style.setProperty('--navic-page-curl-eased', metrics.eased.toFixed(3))
+  layer.style.setProperty('--navic-page-curl-angle', `${metrics.angle.toFixed(2)}deg`)
+  layer.style.setProperty('--navic-page-curl-width', `${metrics.curlWidth.toFixed(1)}px`)
+  layer.style.setProperty('--navic-page-curl-front-shadow', metrics.frontShadow.toFixed(3))
+  layer.style.setProperty('--navic-page-curl-spine-shadow', metrics.spineShadow.toFixed(3))
+  layer.style.setProperty('--navic-page-curl-shadow-alpha', metrics.shadowAlpha.toFixed(3))
+  layer.style.setProperty('--navic-page-curl-origin', origin)
+  layer.style.setProperty('--navic-page-curl-transform', transform)
+  return metrics
+}
+
 function buildPageDragPreviewTargetKey(targetIndex, direction, width, height) {
   return `${targetIndex}:${direction}:${width}x${height}`
 }
@@ -739,6 +780,14 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
   const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
   const left = vertical || side !== 'right' ? 0 : width - exposedWidth
   const top = vertical && direction === 'next' ? height - exposedHeight : 0
+  this.applyPageDragCurlMetrics(layer, {
+    direction,
+    deltaX,
+    deltaY,
+    width,
+    height,
+    vertical,
+  })
   layer.dataset.navicPageDragPreviewReady = String(ready)
   if (!ready) {
     const fallbackWidth = exposedWidth
@@ -759,6 +808,13 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
       'pointer-events': 'none',
       background: palette.background,
       'background-color': palette.background,
+      'background-image': vertical
+        ? 'linear-gradient(180deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)'
+        : 'linear-gradient(90deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)',
+      'box-shadow': '0 0 var(--navic-page-curl-width) rgba(0,0,0,var(--navic-page-curl-shadow-alpha))',
+      transform: 'var(--navic-page-curl-transform)',
+      'transform-origin': 'var(--navic-page-curl-origin)',
+      'backface-visibility': 'hidden',
       color: palette.foreground,
       'box-sizing': 'border-box',
     })
@@ -793,6 +849,13 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     'pointer-events': 'none',
     background: palette.background,
     'background-color': palette.background,
+    'background-image': vertical
+      ? 'linear-gradient(180deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)'
+      : 'linear-gradient(90deg, rgba(20,11,3,var(--navic-page-curl-spine-shadow)) 0, transparent 18%, transparent 70%, rgba(255,255,255,.30) 82%, rgba(30,15,4,var(--navic-page-curl-front-shadow)) 100%)',
+    'box-shadow': '0 0 var(--navic-page-curl-width) rgba(0,0,0,var(--navic-page-curl-shadow-alpha))',
+    transform: 'var(--navic-page-curl-transform)',
+    'transform-origin': 'var(--navic-page-curl-origin)',
+    'backface-visibility': 'hidden',
     color: palette.foreground,
     'box-sizing': 'border-box',
   })
@@ -1313,6 +1376,8 @@ export const NavicReaderPageTurnMethods = {
   ensurePageDragPreviewLayer,
   removePageDragPreviewLayer,
   pageDragPreviewDimensions,
+  readerPageDragCurlMetrics,
+  applyPageDragCurlMetrics,
   buildPageDragPreviewTargetKey,
   loadPageDragPreviewFrame,
   ensurePageDragPreviewTarget,

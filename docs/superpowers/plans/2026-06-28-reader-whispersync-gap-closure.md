@@ -383,7 +383,7 @@ Remaining:
 
 ### Stage 6E: Page Drag Preview And Curl
 
-Status: first drag-preview stability slice complete; curl visual port still pending.
+Status: first drag-preview stability slice complete; first curl-metrics slice complete; full curl visual parity still pending.
 
 Scope:
 - Stabilize the existing native drag preview before adding curl visuals from `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
@@ -407,6 +407,30 @@ Required before closure:
 
 Remaining:
 - This slice only fixes the adjacent-page underlay disappearing during boundary drag. The page-curl mockup port remains pending and must start with a failing guard proving curl visuals are drag-only and do not run on taps, releases without drag, or native menu toggles.
+
+#### Stage 6E.2: Drag-Only Curl Metrics
+
+Scope:
+- Port the first safe subset of `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`: non-linear progress, sinusoidal curl width/shadow, and drag-direction angle.
+- Attach curl state to the existing clipped adjacent-page underlay instead of adding another touch/overlay owner.
+- Keep release/cancel behavior clearing the preview layer so curl state cannot leak into taps or menu toggles.
+
+Guards and evidence:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderPortsCurlMetricsToDragPreviewLayerOnly` failed before the runtime exposed mockup-style curl metrics or CSS variables.
+- GREEN/HOST-FOCUSED: the same guard passed after adding `readerPageDragCurlMetrics(...)` and `applyPageDragCurlMetrics(...)`.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` now asserts real runtime curl state during an EPUB drag: `curl=true`, `curlProgress=0.359`, `curlAngle=-22.66deg`, `curlWidth=48.5px`, and `curlTransform=perspective(1800px) rotateY(-22.66deg)`.
+- GREEN/HOST-SUITE: `ReaderRuntimePaperSurfaceTest` and `ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack` passed.
+- GREEN/JS: `node --check` passed for `navic-reader-page-turns.js` and `tools/reader-harness/src/run-reader-harness.mjs`.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed from hidden-process output `tmp/codex-validation/stage6e-curl-full-testAndroid.out.log`.
+
+Required before closure:
+- [x] Add a failing host/source guard for drag-only curl state.
+- [x] Implement mockup-derived curl metrics on the existing underlay path.
+- [x] Extend the browser harness to verify real curl state during an EPUB drag.
+- [x] Run focused host tests, JS syntax checks, browser harness, full `:composeApp:testAndroid`, and `git diff --check`.
+
+Remaining:
+- This is not yet the full mockup's dual/single-page snapshot animation. It gives the drag preview a curl-derived transform/shadow while preserving current page ownership. A later slice should only attempt true snapshot sheet animation after a guard proves no regression to center taps, menu toggles, cover behavior, or adjacent-page loading.
 
 ## Stage 7: Release Candidate Gate
 
