@@ -8354,6 +8354,34 @@ Remaining:
 - Release-package proof still requires real Navic/Navidrome login credentials or a logged-in physical release device.
 
 
+## 2026-06-29 Stage 5C.3 Whispersync Enjoyment Gate Orchestrator
+
+Scope:
+- Replace the scattered Stage 5C.2 manual probe sequence with one executable acceptance gate.
+- Launch the production paired route for book `3809`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
+- Run the full readerdev Whispersync enjoyment matrix in one pass and write one summary artifact.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateRunsTheWholePairedReaderdevMatrix --console=plain
+$errors=$null; $tokens=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts\adb-whispersync-enjoyment.ps1), [ref]$tokens, [ref]$errors)
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall
+```
+
+Results:
+- RED/GUARD-FIRST: the focused source guard was added before `scripts\adb-whispersync-enjoyment.ps1` existed, proving the missing staged gate.
+- GREEN/HOST-FOCUSED: `ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateRunsTheWholePairedReaderdevMatrix` passed after adding the orchestrator and Stage 5C.3 plan entry.
+- GREEN/PARSER: `scripts\adb-whispersync-enjoyment.ps1` parsed cleanly with the PowerShell parser.
+- GREEN/EMULATOR-GATE: `.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall` passed against existing readerdev on `emulator-5554`.
+- GREEN/MATRIX: the orchestrated run passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress`.
+- GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after the Stage 5C.3 changes.
+- ARTIFACTS: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-194317\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+
+Remaining:
+- This is repeatable readerdev implementation/runtime proof. Public-release proof still requires a logged-in `darkaxt.navic` package or a logged-in physical device.
+
+
 ## 2026-06-29 Stage 6E.3 Mockup Curl Sheet Roles
 
 Scope:

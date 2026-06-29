@@ -326,6 +326,60 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun whispersyncEnjoymentGateRunsTheWholePairedReaderdevMatrix() {
+		val gateScript = root.resolve("scripts/adb-whispersync-enjoyment.ps1")
+		val plan = root
+			.resolve("docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md")
+			.readText()
+
+		assertTrue(
+			gateScript.exists(),
+			"Stage 5C must have one executable Whispersync enjoyment gate instead of relying on scattered manual probe commands."
+		)
+		assertTrue(
+			plan.contains("Stage 5C.3: Whispersync Enjoyment Gate Orchestrator") &&
+				plan.contains("adb-whispersync-enjoyment.ps1"),
+			"The gap plan must record the orchestrated Whispersync gate as the active Stage 5C closure path."
+		)
+
+		val scriptText = gateScript.readText()
+		assertTrue(
+			scriptText.contains("install-reader-dev.ps1") &&
+				scriptText.contains("adb-reader-smoke.ps1") &&
+				scriptText.contains("Invoke-WhispersyncProbe"),
+			"The enjoyment gate must launch the paired readerdev route and then run focused smoke probes by name."
+		)
+		assertTrue(
+			scriptText.contains("https://bindery.remaxku.eu/book/3809") &&
+				scriptText.contains("https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426") &&
+				scriptText.contains("/opds/books/3809/sync/8") &&
+				scriptText.contains("[string] \$ReaderWhispersyncAudiobookId = \"34\"") &&
+				scriptText.contains("[string] \$ReaderWhispersyncAudiobookBookFileId = \"633\""),
+			"The enjoyment gate must default to the real production paired book 3809 route used by the Whispersync acceptance evidence."
+		)
+		assertTrue(
+			scriptText.contains("whispersync-page-scoped-control") &&
+				scriptText.contains("whispersync-audio-follow") &&
+				scriptText.contains("whispersync-char-offset-overlay") &&
+				scriptText.contains("whispersync-companion-progress"),
+			"The enjoyment gate must cover page-to-audio, audio-follow, char-offset highlight, and exact companion progress in one run."
+		)
+		assertTrue(
+			scriptText.contains("stage5c3-whispersync-enjoyment-summary.txt") &&
+				scriptText.contains("probe-results.jsonl") &&
+				scriptText.contains("Result=PASS"),
+			"The enjoyment gate must write a compact machine-readable probe summary and a human-readable stage summary."
+		)
+		assertTrue(
+			scriptText.contains("Secrets are passed through the existing readerdev launcher and are not printed here") &&
+				!scriptText.contains("Write-Host \$apiKey") &&
+				!scriptText.contains("Write-Host \$envValues") &&
+				!scriptText.contains("Get-Content \$EnvFile"),
+			"The enjoyment gate must not print Bindery credentials or raw env-file contents."
+		)
+	}
+
+	@Test
 	fun komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks() {
 		val matrixScript = root.resolve("scripts/adb-reader-komikku-matrix.ps1").readText()
 

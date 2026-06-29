@@ -466,6 +466,62 @@ Required before closure:
 Remaining:
 - This is current-source readerdev proof for a real production Bindery sidecar/audiobook route. It is not a public release-package proof until `darkaxt.navic` can log in or a logged-in physical device runs the same end-to-end flow.
 
+### Stage 5C.3: Whispersync Enjoyment Gate Orchestrator
+
+Status: complete for readerdev implementation/runtime proof; release-package proof still requires a logged-in release package or physical device.
+
+Purpose:
+- Replace scattered manual Whispersync probe commands with one executable gate that launches the paired production readerdev route and runs the full current enjoyment matrix.
+- Keep this as implementation/runtime proof until a logged-in release package or physical device runs the same flow.
+- Make the gate useful for future stage work: one pass/fail summary, per-probe artifacts, and no printed credentials.
+
+Files:
+- Add: `scripts/adb-whispersync-enjoyment.ps1`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+
+Default target:
+- Book: `3809`
+- Ebook route: `https://bindery.remaxku.eu/book/3809`
+- Ebook file: `https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426`
+- Sidecar: `/opds/books/3809/sync/8`
+- Audiobook: `34`
+- Audiobook book file: `633`
+
+Gate command:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554
+```
+
+Acceptance:
+- The gate must launch `darkaxt.navic.readerdev` through `scripts\install-reader-dev.ps1`.
+- The gate must run `scripts\adb-reader-smoke.ps1` for:
+  - `whispersync-page-scoped-control`
+  - `whispersync-audio-follow`
+  - `whispersync-char-offset-overlay`
+  - `whispersync-companion-progress`
+- The gate must write `stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+- The gate must not print Bindery credential values or raw env-file contents.
+
+TDD steps:
+- [x] Add a failing source guard requiring `scripts/adb-whispersync-enjoyment.ps1`, production book defaults, all four probes, and summary artifacts.
+- [x] Implement the orchestrator script with existing readerdev/smoke runners.
+- [x] Run the focused source guard.
+- [x] Run PowerShell parser validation for the new script.
+- [x] Run the gate on emulator or record a concrete environment blocker.
+- [x] Run `git diff --check`, update validation evidence, commit, and push.
+
+Results:
+- GREEN/HOST-FOCUSED: `ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateRunsTheWholePairedReaderdevMatrix` passed after adding the orchestrator and Stage 5C.3 plan entry.
+- GREEN/PARSER: PowerShell parser validation passed for `scripts\adb-whispersync-enjoyment.ps1`.
+- GREEN/EMULATOR-GATE: `.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall` passed against the existing `darkaxt.navic.readerdev` install and wrote artifacts under `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-194317`.
+- GREEN/MATRIX: the single gate passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress`; see `stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+- GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after Stage 5C.3 changes.
+
+Remaining:
+- This closes the repeatable readerdev enjoyment gate. It is not a public-release claim until the same route is run against `darkaxt.navic` with real login/data or a logged-in physical device.
+
 ## Stage 6: Komikku Visual Parity Gate
 
 **Purpose:** Improve layout fidelity only after blocker behavior is stable.

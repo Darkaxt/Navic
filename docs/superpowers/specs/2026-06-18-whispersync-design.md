@@ -77,6 +77,7 @@ Implemented and covered by source/tests:
 - The dedicated `whispersync-audio-follow` DevTools smoke probe now forces a non-duplicate audio-follow relocation and captures `visibleTextRange(... source=media-overlay-follow)` in Android logcat without a follow-on reader-to-audio seek, closing the previous host-only validation gap for feedback-loop suppression.
 - The dedicated `whispersync-page-scoped-control` DevTools smoke probe now repeats the production book `3809` cue/unsupported-page sequence: `Authorforeword.xhtml` emits `visibleTextRange(... source=page-scoped-control-cue-covered)`, resolves to `positionMs=263360`, activates the overlay, then `mini_toc.xhtml` emits `visibleTextRange(... source=page-scoped-control-unsupported)` and dispatches `clearOverlay`.
 - The dedicated `whispersync-char-offset-overlay` DevTools smoke probe now proves the ASR character-offset highlight fallback in a live Android WebView: readerdev wrapped `OEBPS/Text/Chapter-37.xhtml` characters `32-80` with `navic-active-overlay-fragment navic-media-overlay-range`, posted `overlayFragmentActive`, and cleared the marker through `clearOverlay`.
+- Stage 5C.3 now provides a repeatable `scripts/adb-whispersync-enjoyment.ps1` gate for the production paired route. The 2026-06-29 readerdev run `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-194317` passed page-scoped control, audio-follow suppression, character-offset overlay, and exact companion-progress probes in one command.
 
 ## Bindery API Compatibility As Of 2026-06-29
 
@@ -104,7 +105,7 @@ Important correction to older audits:
 Still missing:
 
 - No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together on a real paired Bindery sidecar/audiobook session.
-- Exact companion progress persistence and paired readerdev route reopen are emulator-proven for production book `3809`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`; the reopen gate loaded `startPositionMs=263360` and preserved the same saved companion audio position after `media-overlay-follow`. Release-device validation still needs to prove the same behavior on the installed release APK.
+- Exact companion progress persistence and paired readerdev route reopen are emulator-proven for production book `3809`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`; the reopen gate loaded `startPositionMs=263360` and preserved the same saved companion audio position after `media-overlay-follow`. The Stage 5C.3 orchestrator now repeats the full readerdev enjoyment matrix in one command. Release-device validation still needs to prove the same behavior on the installed release APK.
 - Source-aware audio-follow visible range suppression is now host-tested and readerdev-emulator-proven with a non-duplicate `visibleTextRange(source=media-overlay-follow)` bridge event. Release-device validation is still required before calling the full paired flow release-ready.
 - Character-offset ASR overlay highlighting is readerdev-emulator-proven with a direct WebView probe. Release-device validation still needs to confirm the same visual sentence highlight on the installed APK during real paired playback.
 
