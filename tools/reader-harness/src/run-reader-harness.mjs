@@ -1992,10 +1992,27 @@ if (mode === 'epub-native-drag-preview-underlay') {
       const curlSheets = Array.from(layer?.querySelectorAll?.('[data-navic-page-curl-sheet]') || [])
         .map(element => element?.dataset?.navicPageCurlSheet || '')
         .filter(Boolean)
+      const snapshotState = role => {
+        const snapshot = layer?.querySelector?.(`[data-navic-page-curl-snapshot="${role}"]`)
+        const snapshotDoc = snapshot?.contentDocument || null
+        const snapshotBodyRect = snapshotDoc?.body?.getBoundingClientRect?.()
+        const snapshotHtmlRect = snapshotDoc?.documentElement?.getBoundingClientRect?.()
+        const snapshotText = snapshotDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+        return {
+          present: Boolean(snapshot),
+          ready: snapshot?.dataset.navicPageCurlSnapshotReady === 'true',
+          textLength: snapshotText.length,
+          datasetTextLength: Number(snapshot?.dataset.navicPageCurlSnapshotTextLength) || 0,
+          bodyHeight: Number(snapshotBodyRect?.height) || 0,
+          htmlHeight: Number(snapshotHtmlRect?.height) || 0,
+        }
+      }
       const iframeDoc = iframe?.contentDocument || null
       const iframeBodyRect = iframeDoc?.body?.getBoundingClientRect?.()
       const iframeHtmlRect = iframeDoc?.documentElement?.getBoundingClientRect?.()
       const iframeText = iframeDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+      const frontSnapshot = snapshotState('front')
+      const backSnapshot = snapshotState('back')
       return {
         before: beforeState,
         layerPresent: Boolean(layer),
@@ -2015,6 +2032,11 @@ if (mode === 'epub-native-drag-preview-underlay') {
         curlSheetRoleCount: curlSheets.length,
         curlFrontFaceOpacity: Number(style?.getPropertyValue('--navic-page-curl-front-face-opacity')) || 0,
         curlBackFaceOpacity: Number(style?.getPropertyValue('--navic-page-curl-back-face-opacity')) || 0,
+        curlSnapshots: layer?.dataset.navicPageCurlSnapshots || '',
+        curlSnapshotFront: layer?.dataset.navicPageCurlSnapshotFront === 'true',
+        curlSnapshotBack: layer?.dataset.navicPageCurlSnapshotBack === 'true',
+        frontSnapshot,
+        backSnapshot,
         width: style?.width || '',
         left: style?.left || '',
         right: style?.right || '',
@@ -2082,11 +2104,14 @@ if (mode === 'epub-native-drag-preview-underlay') {
         const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
         const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
         const style = layer ? getComputedStyle(layer) : null
+        const frontSnapshot = layer?.querySelector?.('[data-navic-page-curl-snapshot="front"]')
         const textLength = iframe?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
+        const frontTextLength = frontSnapshot?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
         return layer?.dataset.navicPageDragPreviewReady === 'true' &&
           style?.opacity !== '0' &&
           style?.width !== '1px' &&
-          textLength > 0
+          textLength > 0 &&
+          frontTextLength > 0
       })
       previewState = await readPreviewState(before)
     }
@@ -2096,6 +2121,17 @@ if (mode === 'epub-native-drag-preview-underlay') {
         `ready=${previewState.ready} textLength=${previewState.iframeTextLength} ` +
         `bodyHeight=${previewState.iframeBodyHeight} state=${JSON.stringify(previewState)}`
       )
+    }
+    if (!previewState.frontSnapshot.present || !previewState.curlSnapshotFront || previewState.frontSnapshot.textLength <= 0) {
+      await page.waitForFunction(() => {
+        const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+        const frontSnapshot = layer?.querySelector?.('[data-navic-page-curl-snapshot="front"]')
+        const textLength = frontSnapshot?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
+        return layer?.dataset.navicPageCurlSnapshotFront === 'true' &&
+          frontSnapshot?.dataset.navicPageCurlSnapshotReady === 'true' &&
+          textLength > 0
+      })
+      previewState = await readPreviewState(before)
     }
     if (!previewState.curl || previewState.curlDirection !== 'next') {
       throw new Error(
@@ -2144,6 +2180,37 @@ if (mode === 'epub-native-drag-preview-underlay') {
         `opacity=${previewState.curlBackFaceOpacity} state=${JSON.stringify(previewState)}`
       )
     }
+    if (!previewState.frontSnapshot.present || !previewState.curlSnapshotFront) {
+      throw new Error(
+        `Expected native drag curl to capture a current-page front snapshot; ` +
+        `front=${JSON.stringify(previewState.frontSnapshot)} state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (previewState.frontSnapshot.textLength <= 0 || previewState.frontSnapshot.bodyHeight <= 0) {
+      throw new Error(
+        `Expected current-page front snapshot to contain visible cloned content; ` +
+        `front=${JSON.stringify(previewState.frontSnapshot)} state=${JSON.stringify(previewState)}`
+      )
+    }
+    if (previewState.curlSheetMode === 'spread') {
+      if (!previewState.backSnapshot.present || !previewState.curlSnapshotBack) {
+        throw new Error(
+          `Expected spread-mode curl to capture a reverse page snapshot; ` +
+          `back=${JSON.stringify(previewState.backSnapshot)} state=${JSON.stringify(previewState)}`
+        )
+      }
+      if (previewState.backSnapshot.textLength <= 0 || previewState.backSnapshot.bodyHeight <= 0) {
+        throw new Error(
+          `Expected spread-mode back snapshot to contain adjacent page content; ` +
+          `back=${JSON.stringify(previewState.backSnapshot)} state=${JSON.stringify(previewState)}`
+        )
+      }
+    } else if (previewState.curlSnapshotBack) {
+      throw new Error(
+        `Expected single-page curl mode to suppress reverse snapshot capture; ` +
+        `mode=${previewState.curlSheetMode} back=${JSON.stringify(previewState.backSnapshot)}`
+      )
+    }
 
     await page.evaluate(async () => {
       await window.NavicReaderBridge.dispatch({
@@ -2153,6 +2220,12 @@ if (mode === 'epub-native-drag-preview-underlay') {
       })
     })
     await page.waitForFunction(() => !document.querySelector('[data-navic-page-drag-preview-layer="true"]'))
+    const snapshotsAfterCancel = await page.evaluate(() =>
+      document.querySelectorAll('[data-navic-page-curl-snapshot]').length
+    )
+    if (snapshotsAfterCancel !== 0) {
+      throw new Error(`Expected cancel to remove curl snapshots with the preview layer; remaining=${snapshotsAfterCancel}`)
+    }
     assertNoConsoleErrors(errors)
     const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
     fs.mkdirSync(outputDir, { recursive: true })

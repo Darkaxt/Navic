@@ -847,6 +847,50 @@ Required before closure:
 Remaining:
 - This still does not capture and render the current page front face or reverse page content as real snapshots. That must be a separate Stage 6E.4 slice, guarded by center-tap/menu/long-press non-regression and spread-mode evidence.
 
+#### Stage 6E.4: Captured Page Curl Snapshot Preview
+
+Status: complete for host/source and browser-harness proof; physical drag-feel acceptance remains part of Stage 6F.
+
+Scope:
+- Replace the current gradient-only `turning-front` and `turning-back` curl sheets with cloned page snapshots during active native drag preview.
+- Keep the existing `underneath` iframe as the adjacent target page; the snapshot sheets must sit inside the same drag-preview layer and must not introduce a new touch owner.
+- Capture the current page front face from the visible Foliate content document and, when spread mode is active and adjacent content is ready, capture the reverse face from the adjacent preview iframe.
+- Keep release/cancel cleanup authoritative. Snapshot capture must run only from `updatePageDragPreviewLayer(...)`, never from tap handling, menu toggles, release, or cancel.
+
+Files:
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+- Test: `tools/reader-harness/src/run-reader-harness.mjs`
+- Validate: `node --check composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- Validate: `node --check tools/reader-harness/src/run-reader-harness.mjs`
+- Validate: focused `ReaderRuntimePaperSurfaceTest`
+- Validate: `epub-native-drag-preview-underlay` browser harness against the production EPUB fixture
+
+Acceptance:
+- During an EPUB boundary drag, `[data-navic-page-curl-snapshot="front"]` exists inside the `turning-front` sheet and contains visible cloned current-page content.
+- In `spread` mode, `[data-navic-page-curl-snapshot="back"]` exists inside the `turning-back` sheet when the adjacent preview iframe is ready; in `single` mode, back-face absence is allowed but must be explicitly reported by the harness.
+- Snapshot DOM must be clipped and pointer-transparent, preserving current page ownership and the native tap-zone overlay.
+- Cancel and release remove the preview layer and all snapshots before dispatching the real page turn.
+- Center tap/menu, long-press selection, image/link interaction routing, and shell cover behavior remain out of scope for this slice except as non-regression gates.
+
+TDD steps:
+1. [x] Add a failing host/source guard that requires a dedicated snapshot helper, observable `data-navic-page-curl-snapshot` markers, a call from `updatePageDragPreviewLayer(...)`, and no snapshot capture in release/cancel branches.
+2. [x] Extend `epub-native-drag-preview-underlay` to inspect front/back snapshot presence, text length, dimensions, and cleanup after cancel.
+3. [x] Implement snapshot cloning inside the existing drag-preview layer using cloned document/body content rather than moving or resizing the real Foliate renderer.
+4. [x] Run focused host/source tests, JS syntax checks, the browser harness, and `git diff --check`.
+5. [x] If those pass, run the full reader host suite or `:composeApp:testAndroid` before commit.
+
+Guards and evidence:
+- RED/HOST-FIRST: `:composeApp:testAndroid` failed only on `ReaderRuntimePaperSurfaceTest.androidReaderPortsCurlSnapshotsToDragPreviewOnly` before the runtime exposed page-curl snapshot markers; log `tmp/codex-validation/stage6e4-curl-snapshot-red-full-20260629-214854.err.log`.
+- GREEN/HOST-SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after implementation; log `tmp/codex-validation/stage6e4-curl-snapshot-green-full-20260629-221041.out.log`.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` and `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` passed against `tmp\reader-live\book-3809-file-426.epub`; output `tools\reader-harness\output\epub-native-drag-preview-underlay.json` recorded `curlSnapshots=front`, `curlSnapshotFront=true`, a live front snapshot with `textLength=14`, and single-page mode suppressing the reverse snapshot.
+- OBSERVED/FIXED: an intermediate harness run exposed stale layer-level snapshot readiness after `srcdoc` loaded; the runtime now refreshes layer dataset state from both iframe `onload` and a next-frame content probe.
+
+Remaining:
+- This host/browser proof shows the snapshot layer exists and is clipped/cleaned correctly. Physical-device acceptance still needs Stage 6F to judge whether the curl snapshot looks and feels faithful during touch drag on the phone/tablet.
+
 ### Stage 6D.3: Deterministic Texture Motion
 
 **Purpose:** Close the remaining paper/edge texture transition weirdness as a renderer-owned movement contract, not another visual opacity tweak.

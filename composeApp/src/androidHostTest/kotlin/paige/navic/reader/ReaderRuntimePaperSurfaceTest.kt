@@ -699,6 +699,63 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderPortsCurlSnapshotsToDragPreviewOnly() {
+		val bridgeText = readerBridgeText()
+		val ensureLayer = bridgeText
+			.substringAfter("function ensurePageDragPreviewLayer() {")
+			.substringBefore("\nfunction removePageDragPreviewLayer")
+		val snapshotHelper = bridgeText
+			.substringAfter("function syncPageDragCurlSnapshots(")
+			.substringBefore("\nfunction buildPageDragPreviewTargetKey")
+		val previewLayer = bridgeText
+			.substringAfter("function updatePageDragPreviewLayer(")
+			.substringBefore("\nfunction previewPageDrag")
+		val previewPageDrag = bridgeText
+			.substringAfter("previewPageDrag(command) {")
+			.substringBefore("\nasync function scrollViewport")
+		val releaseBranch = previewPageDrag
+			.substringAfter("if (phase === 'release') {")
+			.substringBefore("\n  const deltaX = Number(command?.deltaX)")
+		val cancelBranch = previewPageDrag
+			.substringAfter("if (phase === 'cancel') {")
+			.substringBefore("\n  if (phase === 'release') {")
+
+		assertContains(
+			ensureLayer,
+			"data-navic-page-curl-snapshot",
+			message = "The mockup curl sheets must reserve observable snapshot surfaces for current/reverse page content."
+		)
+		assertContains(
+			snapshotHelper,
+			"data-navic-page-curl-snapshot",
+			message = "Snapshot capture needs concrete markers so harness and ADB probes can prove rendered page content is present."
+		)
+		assertContains(
+			snapshotHelper,
+			"front",
+			message = "The active turning sheet must clone the current page front face instead of remaining a gradient-only layer."
+		)
+		assertContains(
+			snapshotHelper,
+			"back",
+			message = "Spread mode must have a reverse-face capture path for the adjacent page."
+		)
+		assertContains(
+			previewLayer,
+			"this.syncPageDragCurlSnapshots(layer, {",
+			message = "Snapshot capture must run only from the active drag-preview update path."
+		)
+		assertFalse(
+			releaseBranch.contains("syncPageDragCurlSnapshots"),
+			"Release handling must not capture snapshots; it must remove the preview layer before the actual page turn."
+		)
+		assertFalse(
+			cancelBranch.contains("syncPageDragCurlSnapshots"),
+			"Cancel handling must not capture snapshots; it must only restore and clear preview state."
+		)
+	}
+
+	@Test
 	fun androidReaderRestoresAndClearsNativeDragPreviewOnReleaseBeforePageTurn() {
 		val bridgeText = readerBridgeText()
 		val previewPageDrag = bridgeText

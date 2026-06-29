@@ -8534,3 +8534,29 @@ Results:
 Next:
 - Do not use the missing release login state as a reason to stop readerdev Whispersync validation.
 - Stage 5C.5 remains the release-package proof gate for `darkaxt.navic` once login/data is available.
+
+## 2026-06-29 Stage 6E.4 Captured Page Curl Snapshot Preview
+
+Scope:
+- Replace gradient-only curl sheet faces with captured current-page/reverse-page snapshot surfaces during active native drag preview.
+- Keep snapshots inside the existing drag-preview layer so no new tap owner is introduced.
+- Preserve release/cancel cleanup and keep physical touch-feel judgment for Stage 6F.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `:composeApp:testAndroid` failed only on `ReaderRuntimePaperSurfaceTest.androidReaderPortsCurlSnapshotsToDragPreviewOnly` before the runtime exposed `data-navic-page-curl-snapshot` markers.
+- GREEN/HOST-SUITE: `:composeApp:testAndroid` passed after implementation; final log `tmp\codex-validation\stage6e4-curl-snapshot-green-full-20260629-221041.out.log`.
+- GREEN/JS: both `navic-reader-page-turns.js` and `run-reader-harness.mjs` passed `node --check`.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` passed against the production EPUB fixture and wrote `tools\reader-harness\output\epub-native-drag-preview-underlay.json`.
+- HARNESS-EVIDENCE: output recorded `curlSheetMode=single`, `curlSnapshots=front`, `curlSnapshotFront=true`, `frontSnapshot.textLength=14`, `frontSnapshot.bodyHeight=579.203125`, and `curlSnapshotBack=false`, proving single-page mode suppresses the reverse face while the active front face is captured.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- OBSERVED/NON-BLOCKING: this is still host/browser proof. Stage 6F must validate physical drag feel and visual fidelity on phone/tablet before claiming the curl effect is user-accepted.

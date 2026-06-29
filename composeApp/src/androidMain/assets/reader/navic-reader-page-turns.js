@@ -533,9 +533,24 @@ function ensurePageDragPreviewLayer() {
     return sheet
   }
   const underneath = ensureSheet('underneath')
-  ensureSheet('turning-front')
-  ensureSheet('turning-back')
+  const turningFront = ensureSheet('turning-front')
+  const turningBack = ensureSheet('turning-back')
   ensureSheet('cast-shadow')
+  const ensureSnapshot = (sheet, role) => {
+    let snapshot = sheet.querySelector(`[data-navic-page-curl-snapshot="${role}"]`)
+    if (!snapshot) {
+      snapshot = document.createElement('iframe')
+      snapshot.dataset.navicPageCurlSnapshot = role
+      snapshot.dataset.navicPageCurlSnapshotReady = 'false'
+      snapshot.setAttribute('aria-hidden', 'true')
+      snapshot.setAttribute('tabindex', '-1')
+      snapshot.style.pointerEvents = 'none'
+      sheet.append(snapshot)
+    }
+    return snapshot
+  }
+  ensureSnapshot(turningFront, 'front')
+  ensureSnapshot(turningBack, 'back')
   let frame = this.pageDragPreviewFrame
   if (!frame || !underneath.contains(frame)) {
     frame = document.createElement('iframe')
@@ -690,6 +705,165 @@ function applyPageDragCurlSheet(layer, { direction, width, height, vertical, pal
     })
   }
   return { mode, roles }
+}
+
+function pageDragCurlSnapshotScroll(doc) {
+  const win = doc?.defaultView
+  const root = doc?.documentElement
+  const body = doc?.body
+  return {
+    x: Math.max(0, Math.round(Number(win?.scrollX ?? root?.scrollLeft ?? body?.scrollLeft) || 0)),
+    y: Math.max(0, Math.round(Number(win?.scrollY ?? root?.scrollTop ?? body?.scrollTop) || 0)),
+  }
+}
+
+function pageDragCurlSnapshotHtml(doc) {
+  const sourceRoot = doc?.documentElement
+  if (!sourceRoot) return ''
+  const clone = sourceRoot.cloneNode(true)
+  for (const script of Array.from(clone.querySelectorAll?.('script') || [])) {
+    script.remove()
+  }
+  let head = clone.querySelector?.('head')
+  if (!head) {
+    head = doc.createElement('head')
+    clone.insertBefore(head, clone.firstChild)
+  }
+  const style = doc.createElement('style')
+  style.setAttribute('data-navic-page-curl-snapshot-style', 'true')
+  style.textContent = [
+    'html,body{',
+    'margin:0!important;',
+    'padding:0!important;',
+    'box-sizing:border-box!important;',
+    'background:transparent!important;',
+    'pointer-events:none!important;',
+    '}',
+    '*,*::before,*::after{pointer-events:none!important;}',
+    'img,svg,canvas,video{max-width:100%;}',
+  ].join('')
+  head.append(style)
+  return `<!doctype html>\n${clone.outerHTML}`
+}
+
+function pageDragCurlSnapshotKey({ role, direction, width, height, content, doc, renderer }) {
+  return [
+    role,
+    direction || '',
+    Number(content?.index),
+    String(doc?.URL || doc?.baseURI || ''),
+    Number(renderer?.page),
+    Number(renderer?.start),
+    Number(renderer?.end),
+    `${Math.round(Number(width) || 0)}x${Math.round(Number(height) || 0)}`,
+  ].join('|')
+}
+
+function syncPageDragCurlSnapshotFrame(snapshot, doc, { role, direction, width, height, key, palette, onReady }) {
+  if (!snapshot || !doc?.documentElement) {
+    if (snapshot) {
+      snapshot.dataset.navicPageCurlSnapshotReady = 'false'
+      snapshot.dataset.navicPageCurlSnapshotTextLength = '0'
+    }
+    onReady?.()
+    return false
+  }
+  const scroll = pageDragCurlSnapshotScroll(doc)
+  setStylesImportant(snapshot, {
+    position: 'absolute',
+    top: '0px',
+    left: '0px',
+    width: `${Math.max(1, Math.round(Number(width) || 1))}px`,
+    height: `${Math.max(1, Math.round(Number(height) || 1))}px`,
+    border: '0',
+    margin: '0',
+    padding: '0',
+    overflow: 'hidden',
+    background: palette?.background || 'transparent',
+    'background-color': palette?.background || 'transparent',
+    color: palette?.foreground || 'inherit',
+    'pointer-events': 'none',
+  })
+  snapshot.dataset.navicPageCurlSnapshotRole = role
+  snapshot.dataset.navicPageCurlSnapshotDirection = direction || ''
+  snapshot.dataset.navicPageCurlSnapshotScrollX = String(scroll.x)
+  snapshot.dataset.navicPageCurlSnapshotScrollY = String(scroll.y)
+  const markSnapshotReady = () => {
+    try {
+      const snapshotDoc = snapshot.contentDocument
+      const text = snapshotDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+      snapshot.contentWindow?.scrollTo?.(scroll.x, scroll.y)
+      snapshot.dataset.navicPageCurlSnapshotReady = snapshotDoc?.body ? 'true' : 'false'
+      snapshot.dataset.navicPageCurlSnapshotTextLength = String(text.length)
+    } catch {
+      snapshot.dataset.navicPageCurlSnapshotReady = 'false'
+      snapshot.dataset.navicPageCurlSnapshotTextLength = '0'
+    }
+    onReady?.()
+    return snapshot.dataset.navicPageCurlSnapshotReady === 'true'
+  }
+  if (snapshot.dataset.navicPageCurlSnapshotKey !== key) {
+    snapshot.dataset.navicPageCurlSnapshotKey = key
+    snapshot.dataset.navicPageCurlSnapshotReady = 'false'
+    snapshot.dataset.navicPageCurlSnapshotTextLength = '0'
+    snapshot.onload = () => { markSnapshotReady() }
+    snapshot.removeAttribute('src')
+    snapshot.srcdoc = pageDragCurlSnapshotHtml(doc)
+    requestAnimationFrame(() => { markSnapshotReady() })
+  } else if (snapshot.contentDocument?.body) {
+    markSnapshotReady()
+  }
+  return snapshot.dataset.navicPageCurlSnapshotReady === 'true'
+}
+
+function syncPageDragCurlSnapshots(layer, { renderer, frame, ready, mode, direction, width, height, palette }) {
+  if (!layer) return null
+  const frontSnapshot = layer.querySelector('[data-navic-page-curl-sheet="turning-front"] [data-navic-page-curl-snapshot="front"]')
+  const backSnapshot = layer.querySelector('[data-navic-page-curl-sheet="turning-back"] [data-navic-page-curl-snapshot="back"]')
+  const recordSnapshotState = () => {
+    const frontReady = frontSnapshot?.dataset.navicPageCurlSnapshotReady === 'true'
+    const backReady = backSnapshot?.dataset.navicPageCurlSnapshotReady === 'true'
+    layer.dataset.navicPageCurlSnapshots = [
+      frontReady ? 'front' : '',
+      backReady ? 'back' : '',
+    ].filter(Boolean).join(',')
+    layer.dataset.navicPageCurlSnapshotFront = String(frontReady)
+    layer.dataset.navicPageCurlSnapshotBack = String(backReady)
+  }
+  const contents = typeof renderer?.getContents === 'function' ? (renderer.getContents() || []) : []
+  const frontContent = contents.find(content => content?.doc)
+  const frontDoc = frontContent?.doc
+  const frontReady = this.syncPageDragCurlSnapshotFrame(frontSnapshot, frontDoc, {
+    role: 'front',
+    direction,
+    width,
+    height,
+    key: pageDragCurlSnapshotKey({ role: 'front', direction, width, height, content: frontContent, doc: frontDoc, renderer }),
+    palette,
+    onReady: recordSnapshotState,
+  })
+  let backReady = false
+  if (mode === 'spread' && ready && frame?.contentDocument?.documentElement) {
+    const backDoc = frame.contentDocument
+    backReady = this.syncPageDragCurlSnapshotFrame(backSnapshot, backDoc, {
+      role: 'back',
+      direction,
+      width,
+      height,
+      key: pageDragCurlSnapshotKey({ role: 'back', direction, width, height, content: { index: Number(layer.dataset.navicPageDragPreviewTargetIndex) }, doc: backDoc, renderer }),
+      palette,
+      onReady: recordSnapshotState,
+    })
+  } else if (backSnapshot) {
+    backSnapshot.dataset.navicPageCurlSnapshotReady = 'false'
+    backSnapshot.dataset.navicPageCurlSnapshotTextLength = '0'
+    setStylesImportant(backSnapshot, {
+      opacity: '0',
+      'pointer-events': 'none',
+    })
+  }
+  recordSnapshotState()
+  return { frontReady, backReady }
 }
 
 function buildPageDragPreviewTargetKey(targetIndex, direction, width, height) {
@@ -896,6 +1070,16 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     palette,
   })
   layer.dataset.navicPageDragPreviewReady = String(ready)
+  this.syncPageDragCurlSnapshots(layer, {
+    renderer,
+    frame,
+    ready,
+    mode: layer.dataset.navicPageCurlSheetMode,
+    direction,
+    width,
+    height,
+    palette,
+  })
   if (!ready) {
     const fallbackWidth = exposedWidth
     const fallbackHeight = exposedHeight
@@ -1472,6 +1656,11 @@ export const NavicReaderPageTurnMethods = {
   readerPageDragCurlMetrics,
   applyPageDragCurlMetrics,
   applyPageDragCurlSheet,
+  pageDragCurlSnapshotScroll,
+  pageDragCurlSnapshotHtml,
+  pageDragCurlSnapshotKey,
+  syncPageDragCurlSnapshotFrame,
+  syncPageDragCurlSnapshots,
   buildPageDragPreviewTargetKey,
   loadPageDragPreviewFrame,
   ensurePageDragPreviewTarget,
