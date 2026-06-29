@@ -959,9 +959,6 @@ function previewPageDrag(command) {
       })
     }
   }
-  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
-    renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
-  }
   this.updatePageDragPreviewLayer({
     direction: textureDirection,
     deltaX: currentDeltaX,
@@ -970,6 +967,9 @@ function previewPageDrag(command) {
     viewHeight: command?.viewHeight,
     renderer,
   })
+  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
+    renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
+  }
   this.nativePageDragPreview = phase === 'release'
     ? null
     : { deltaX: currentDeltaX, deltaY: currentDeltaY, renderer }

@@ -7913,3 +7913,33 @@ Results:
 
 Remaining:
 - This is source/browser-harness proof, not physical release visual judgment. The next texture slice should use screenshot-sensitive evidence if the release-device page still looks too subtle.
+
+
+## 2026-06-29 Stage 6E Page Drag Preview Underlay Gate
+
+Scope:
+- Stabilize the existing native drag preview before adding the page-curl mockup behavior.
+- Keep the adjacent-page underlay alive during boundary drags.
+- Avoid changing tap ownership or menu behavior in this slice.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.readableDragPreviewIsDrivenThroughRendererInsteadOfSlidingWebViewOverBlack --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HARNESS-FIRST: `epub-native-drag-preview-underlay` failed with `layer=false iframe=false`; the trace showed `page-drag-preview:underlay-waiting` and `boundary-preview-loading`.
+- ROOT CAUSE: `previewPageDrag(command)` moved the renderer before mounting/updating the underlay. After the renderer moved, the boundary probe could go false and `updatePageDragPreviewLayer(...)` removed the layer.
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderKeepsCurrentPageMovingWhileBoundaryPreviewLoads` failed until the source guard required `updatePageDragPreviewLayer(...)` before `renderer.scrollBy(...)`.
+- GREEN/HOST-FOCUSED: the focused host guard passed after reordering the preview update.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` passed.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` passed against `tmp\reader-live\book-3809-file-426.epub` and wrote `tools\reader-harness\output\epub-native-drag-preview-underlay.json`.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed from hidden-process output `tmp/codex-validation/stage6e-full-testAndroid.out.log`.
+
+Remaining:
+- This does not implement the page-curl visual port. Curl work remains a separate Stage 6E slice and must prove drag-only activation before adding visual transforms.

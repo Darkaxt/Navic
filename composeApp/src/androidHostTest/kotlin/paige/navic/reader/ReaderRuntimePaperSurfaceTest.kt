@@ -501,6 +501,11 @@ class ReaderRuntimePaperSurfaceTest {
 				previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
 			"The boundary-preview loading branch must reach current-page movement instead of stopping before it."
 		)
+		assertTrue(
+			previewPageDrag.indexOf("this.updatePageDragPreviewLayer({") <
+				previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
+			"Boundary drag preview must mount/update the underlay before moving the renderer; after the scroll the boundary probe can go false and remove the layer."
+		)
 	}
 
 	@Test

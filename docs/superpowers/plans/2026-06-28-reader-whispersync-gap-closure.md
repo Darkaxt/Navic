@@ -381,6 +381,33 @@ Remaining:
 - This is source and browser-harness evidence. Physical release validation is still needed for perceived texture strength, edge degradation visibility, and drag feel on the user's phone/tablet.
 - No opacity or asset tuning was made in this slice because the packaged textures and overlays already pass visibility/statistical guards; if a release-device screenshot still looks too subtle, the next slice should start with screenshot-sensitive evidence rather than changing constants blindly.
 
+### Stage 6E: Page Drag Preview And Curl
+
+Status: first drag-preview stability slice complete; curl visual port still pending.
+
+Scope:
+- Stabilize the existing native drag preview before adding curl visuals from `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
+- Keep normal tap ownership unchanged; this slice touches drag preview ordering only.
+- Ensure the adjacent-page underlay is mounted before the renderer is moved during a boundary drag, because moving first can make the boundary probe go false and remove the preview layer.
+
+Guards and evidence:
+- RED/HARNESS-FIRST: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub` failed with `layer=false iframe=false` and trace entries `page-drag-preview:underlay-waiting` / `boundary-preview-loading`.
+- ROOT CAUSE: `previewPageDrag(command)` moved the current renderer with `renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)` before calling `updatePageDragPreviewLayer(...)`; after that movement, the boundary test could stop matching and remove the layer.
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderKeepsCurrentPageMovingWhileBoundaryPreviewLoads` failed before the source guard required `updatePageDragPreviewLayer(...)` to appear before the renderer scroll.
+- GREEN/HOST-FOCUSED: the same guard passed after reordering the preview update before renderer movement.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` passed.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` passed against the production book `3809` fixture and wrote `tools/reader-harness/output/epub-native-drag-preview-underlay.json`.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed from hidden-process output `tmp/codex-validation/stage6e-full-testAndroid.out.log`.
+
+Required before closure:
+- [x] Reproduce the boundary drag preview underlay failure with the browser harness.
+- [x] Add a failing host/source guard for the exact ordering bug.
+- [x] Reorder drag preview mounting ahead of renderer movement without changing tap handling.
+- [x] Run focused host tests, JS syntax check, EPUB drag-preview harness, full `:composeApp:testAndroid`, and `git diff --check`.
+
+Remaining:
+- This slice only fixes the adjacent-page underlay disappearing during boundary drag. The page-curl mockup port remains pending and must start with a failing guard proving curl visuals are drag-only and do not run on taps, releases without drag, or native menu toggles.
+
 ## Stage 7: Release Candidate Gate
 
 **Purpose:** Publish only when a coherent milestone is ready for user validation.
