@@ -577,8 +577,8 @@ class LibraryStartupAsyncSourceTest {
 		)
 		assertTrue(
 			"rememberResolvedArtworkColorScheme(" in collectionSource &&
-				"coverArtId = displayedCollection?.coverArtId" in collectionSource,
-			"Collection detail dynamic theming should use the collection artwork identity, not a copied parent-PR screen rewrite."
+				"coverArtId = displayedCollection?.visibleCollectionCoverArtId()" in collectionSource,
+			"Collection detail dynamic theming should use the visible collection artwork identity, not hidden generated mix collage art or a copied parent-PR screen rewrite."
 		)
 	}
 

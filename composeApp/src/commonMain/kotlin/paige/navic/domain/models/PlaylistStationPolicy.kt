@@ -33,9 +33,15 @@ fun DomainPlaylist.stationDisplayName(): String {
 fun DomainPlaylist.playlistDisplayName(): String =
 	when {
 		isStationPlaylist() -> stationDisplayName()
+		isMoodMixPlaylist() -> moodMixDisplayName()
 		isGenreMixPlaylist() -> genreMixDisplayName()
 		else -> name
 	}
+
+private fun DomainPlaylist.moodMixDisplayName(): String =
+	name.removeSuffix(MoodMixSuffix)
+		.trimEnd()
+		.ifBlank { name }
 
 private fun DomainPlaylist.genreMixDisplayName(): String {
 	val parts = name.split("_")
@@ -53,6 +59,15 @@ fun DomainSongCollection.displayName(): String =
 	when (this) {
 		is DomainPlaylist -> playlistDisplayName()
 		else -> name
+	}
+
+fun DomainPlaylist.visiblePlaylistCoverArtId(): String? =
+	coverArtId.takeUnless { isGeneratedMixPlaylist() }
+
+fun DomainSongCollection.visibleCollectionCoverArtId(): String? =
+	when (this) {
+		is DomainPlaylist -> visiblePlaylistCoverArtId()
+		else -> coverArtId
 	}
 
 fun List<DomainPlaylist>.stationPlaylists(): List<DomainPlaylist> =

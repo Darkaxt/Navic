@@ -51,6 +51,7 @@ class PlaylistStationPolicyTest {
 	@Test
 	fun playlistDisplayNameKeepsStationsCleanAndPrettifiesGenreMixes() {
 		assertEquals("Discover", playlist(id = "station", name = "[A] Discover").playlistDisplayName())
+		assertEquals("Chill", playlist(id = "mood", name = "Chill Mix").playlistDisplayName())
 		assertEquals(
 			"Electronic / Pop / Indie",
 			playlist(
@@ -74,6 +75,26 @@ class PlaylistStationPolicyTest {
 	}
 
 	@Test
+	fun generatedMixPlaylistCoversUseFallbackArtwork() {
+		assertEquals(
+			null,
+			playlist(id = "mood", name = "Chill Mix", coverArtId = "generated-collage").visiblePlaylistCoverArtId()
+		)
+		assertEquals(
+			null,
+			playlist(id = "genre", name = "Electronic_Pop_Indie", coverArtId = "generated-collage").visiblePlaylistCoverArtId()
+		)
+		assertEquals(
+			"manual-cover",
+			playlist(id = "manual", name = "Road Trip", coverArtId = "manual-cover").visiblePlaylistCoverArtId()
+		)
+		assertEquals(
+			"station-cover",
+			playlist(id = "station", name = "[A] Discover", coverArtId = "station-cover").visiblePlaylistCoverArtId()
+		)
+	}
+
+	@Test
 	fun playlistDeletionFromDetailIsOfferedForRegularPlaylistsOnly() {
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "playlist", name = "Training")))
 		assertFalse(canDeletePlaylistFromDetail(playlist(id = "station", name = "[A] Training")))
@@ -85,13 +106,14 @@ class PlaylistStationPolicyTest {
 	private fun playlist(
 		id: String,
 		name: String,
-		comment: String? = null
+		comment: String? = null,
+		coverArtId: String? = null
 	) = DomainPlaylist(
 		id = id,
 		name = name,
 		owner = "owner",
 		comment = comment,
-		coverArtId = null,
+		coverArtId = coverArtId,
 		songCount = 0,
 		duration = 0.seconds,
 		createdAt = Instant.DISTANT_PAST,
