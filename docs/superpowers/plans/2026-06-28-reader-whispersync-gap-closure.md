@@ -25,10 +25,11 @@ Each stage is a complete deliverable:
 Work must proceed through coherent gap stages, not through isolated UI or runtime symptoms. If a stage turns out to be already green, record the evidence and move to the next stage; do not manufacture a patch just to show activity.
 
 1. **Stage 2B: User-Driven Anx Interaction Validation** - close release-readiness gaps for selection actions, selection clear, annotation popup, external link prompt, history capsule, pull-up, and reader search through native UI or deterministic ADB/DevTools probes.
-2. **Stage 5C: Whispersync Enjoyment Release Gate** - validate a real paired Bindery sidecar plus audiobook session end to end on the current release baseline: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, and exact companion resume.
-3. **Stage 6C.2: Settings Overlay Faithfulness** - finish the Komikku settings modal parity pass beyond the first density slice: compact tab readability, scroll gradients, control grouping, usable sliders/chips on phone/fold/tablet, and no duplicate entry points.
-4. **Stage 6D.2: Paper/Texture Visual Strength** - make page texture and border degradation visible enough on release screenshots while keeping deterministic page identity and correct movement direction.
-5. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable.
+2. **Stage 2C: Short-Tap Content Hit Ownership** - keep Komikku/native short taps authoritative by making ordinary EPUB text invisible to short-tap content hit testing while preserving Anx/Foliate text selection on deliberate long press.
+3. **Stage 5C: Whispersync Enjoyment Release Gate** - validate a real paired Bindery sidecar plus audiobook session end to end on the current release baseline: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, and exact companion resume.
+4. **Stage 6C.2: Settings Overlay Faithfulness** - finish the Komikku settings modal parity pass beyond the first density slice: compact tab readability, scroll gradients, control grouping, usable sliders/chips on phone/fold/tablet, and no duplicate entry points.
+5. **Stage 6D.2: Paper/Texture Visual Strength** - make page texture and border degradation visible enough on release screenshots while keeping deterministic page identity and correct movement direction.
+6. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable.
 
 ## Stage 0: Plan And Spec Alignment
 
@@ -171,6 +172,42 @@ Closure:
 - [x] Annotation and external-link prompts proven through native UI.
 - [x] Search dialog/result navigation proven through native UI, with UX/performance caveat recorded.
 - [x] Validation log updated and focused/full Gradle checks run for any code changes.
+
+### Stage 2C: Short-Tap Content Hit Ownership
+
+Status: complete.
+
+Scope:
+- Fix the native paragraph hit-test failure surfaced by the CSS smoke harness after Stage 6D.2.
+- Preserve Komikku shell ownership for short taps: center taps and ordinary text taps belong to the native reader frame/menu/tap-zone model.
+- Preserve Anx/Foliate behavior for deliberate text selection: long press can still resolve ordinary text through content hit testing and route into selection actions.
+- Keep image/link/media content interactive for short-tap diagnostics and fallback paths; only ordinary text is excluded from short-tap content hit testing.
+
+Main files:
+- `composeApp/src/androidMain/assets/reader/navic-reader-content-interactions.js`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeImageLinkTest.kt`
+- `tools/reader-harness/src/reader-trace-assertions.mjs`
+
+Executed commands and evidence:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\book-3809-file-426.epub
+```
+
+Results:
+- RED/HARNESS-FIRST: after Stage 6D.2, `css-smoke` failed with `Expected native center hit-test not to suppress ordinary paragraph text`; the trace showed ordinary EPUB text was still treated as a short-tap content hit.
+- RED/HOST-FIRST: `ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress` was tightened to require `readerContentActionAtRootPoint` to skip `hit.kind === 'text'`.
+- GREEN/HOST-FOCUSED: the focused guard passed after `readerContentActionAtRootPoint` continued past ordinary text hits while leaving long-press `readerContentActionInDocumentAtPoint` unchanged.
+- GREEN/JS: touched reader-content JS and the already-involved paginator JS passed syntax checks.
+- GREEN/HARNESS: `css-smoke` passed against `tmp\reader-live\book-3809-file-426.epub`; the trace now reports `paragraphNativeCenterContentHit=false`, `paragraphNativeScaledContentHit=false`, and retained Stage 6D.2 texture evidence (`surfaceTextureOpacity=0.66` with triple border-overlay backgrounds).
+
+Closure:
+- [x] Short-tap content hit testing no longer classifies ordinary EPUB text as interactive.
+- [x] Deliberate long-press text selection remains on the content hit-test path.
+- [x] Browser harness confirms the native short-tap paragraph path is no longer suppressed.
 
 ## Stage 3: PDF And Fixed-Layout Gate
 

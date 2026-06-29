@@ -687,6 +687,7 @@ function readerContentActionAtRootPoint(rootX, rootY, viewWidth = null, viewHeig
   for (const entry of this.contentEntries()) {
     const hit = this.readerContentActionInDocumentAtPoint(entry.doc, rootPoint.x, rootPoint.y, entry.index)
     if (!hit?.handled) continue
+    if (hit.kind === 'text') continue
     readerTrace('content-hit-test', {
       kind: hit.kind,
       href: hit.href || '',

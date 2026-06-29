@@ -8141,3 +8141,29 @@ Results:
 Remaining:
 - Release-phone/tablet visual judgment is still required before calling the texture strength final.
 - The CSS-smoke native paragraph hit-test failure should be handled as its own input/interaction stage, not hidden inside the paper texture slice.
+
+
+## 2026-06-29 Stage 2C Short-Tap Content Hit Ownership
+
+Scope:
+- Close the native paragraph hit-test failure surfaced by the browser CSS smoke harness after Stage 6D.2.
+- Keep Komikku/native short taps authoritative for menu and tap-zone behavior.
+- Keep Anx/Foliate text selection available through deliberate long press.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsShortTapMenuNativeAndLeavesContentHitTestingForLongPress --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\book-3809-file-426.epub
+```
+
+Results:
+- RED/HARNESS-FIRST: `css-smoke` previously failed with `Expected native center hit-test not to suppress ordinary paragraph text`.
+- RED/HOST-FIRST: the focused source guard was added before runtime changes and required `readerContentActionAtRootPoint` to skip `hit.kind === 'text'`.
+- GREEN/HOST-FOCUSED: the focused guard passed after short-tap root hit testing ignored ordinary text while long-press document hit testing remained unchanged.
+- GREEN/HARNESS: `css-smoke` passed against `tmp\reader-live\book-3809-file-426.epub`; the trace reports `paragraphNativeCenterContentHit=false`, `paragraphNativeScaledContentHit=false`, `surfaceTextureOpacity=0.66`, and triple page-border background layers.
+
+Remaining:
+- This is a browser-harness and host/source proof. Release-phone feel for center taps, image taps, and long-press selection should still be checked in the next meaningful release candidate.

@@ -1002,6 +1002,11 @@ class ReaderRuntimeImageLinkTest {
 			message = "The runtime keeps coordinate content hit testing for diagnostics and non-native fallback paths."
 		)
 		assertContains(
+			bridgeText,
+			"if (hit.kind === 'text') continue",
+			message = "Short-tap content hit testing must not classify ordinary EPUB text as interactive; text selection belongs to deliberate long press."
+		)
+		assertContains(
 			exportedBridge,
 			"readerContentActionAtPoint",
 			message = "The bridge can expose content hit testing without making the Android WebView host the tap owner."
