@@ -22,7 +22,10 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.canDeletePlaylistFromDetail
+import paige.navic.domain.models.playlistArtworkLabel
 import paige.navic.domain.models.playlistDisplayName
+import paige.navic.domain.models.playlistFallbackKind
+import paige.navic.domain.models.visiblePlaylistCoverArtId
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
@@ -64,8 +67,9 @@ fun PlaylistListScreenItem(
 				}
 			},
 			onLongClick = onSelect,
-			coverArtId = playlist.coverArtId,
+			coverArtId = playlist.visiblePlaylistCoverArtId(),
 			title = playlist.playlistDisplayName(),
+			coverContentDescription = playlist.playlistArtworkLabel(),
 			subtitle = buildString {
 				append(
 					pluralStringResource(
@@ -78,7 +82,7 @@ fun PlaylistListScreenItem(
 					append("\n${playlist.comment}\n")
 				}
 			},
-			fallbackKind = "Playlist",
+			fallbackKind = playlist.playlistFallbackKind(),
 			id = playlist.id,
 			tab = tab
 		)

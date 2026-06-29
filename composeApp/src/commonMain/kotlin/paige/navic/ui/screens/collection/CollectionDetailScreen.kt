@@ -65,6 +65,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.canDeletePlaylistFromDetail
 import paige.navic.domain.models.sortedForPlaylistDetail
 import paige.navic.domain.models.toPlaybackOrigin
+import paige.navic.domain.models.visibleCollectionCoverArtId
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
@@ -219,7 +220,7 @@ private fun CollectionDetailScreen(
 		}
 	}
 	val collectionColorScheme = rememberResolvedArtworkColorScheme(
-		coverArtId = displayedCollection?.coverArtId,
+		coverArtId = displayedCollection?.visibleCollectionCoverArtId(),
 		imageUrl = headerProjection?.coverUrl
 	)
 

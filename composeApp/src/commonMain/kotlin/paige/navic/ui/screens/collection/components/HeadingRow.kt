@@ -36,6 +36,7 @@ import paige.navic.domain.models.DomainGenreCollection
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.displayName
+import paige.navic.domain.models.visibleCollectionCoverArtId
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.screens.collection.aurralAlbumArtistCreditParts
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
@@ -59,7 +60,7 @@ fun CollectionDetailScreenHeadingRow(
 	val displayName = displayTitle?.takeIf { it.isNotBlank() } ?: collection.displayName()
 	with(LocalSharedTransitionScope.current) {
 		CoverArt(
-			coverArtId = collection.coverArtId,
+			coverArtId = collection.visibleCollectionCoverArtId(),
 			imageUrl = coverImageUrl,
 			imageCacheKey = coverImageUrl,
 			contentDescription = displayName,

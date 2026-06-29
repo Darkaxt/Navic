@@ -1,19 +1,27 @@
 package paige.navic.domain.models
 
 private const val StationPlaylistPrefix = "[A] "
-private const val GeneratedPlaylistCommentPrefix = "Last generated:"
+private const val MoodMixSuffix = " Mix"
+private val GenreMixMetadataTokens = setOf(
+	"low",
+	"medium",
+	"high",
+	"danceable",
+	"party",
+	"automatic"
+)
 
 fun DomainPlaylist.isStationPlaylist(): Boolean =
 	name.startsWith(StationPlaylistPrefix)
 
 fun DomainPlaylist.isGeneratedMixPlaylist(): Boolean =
-	comment?.startsWith(GeneratedPlaylistCommentPrefix, ignoreCase = true) == true
+	isMoodMixPlaylist() || isGenreMixPlaylist()
 
 fun DomainPlaylist.isGenreMixPlaylist(): Boolean =
-	isGeneratedMixPlaylist() && name.contains("_")
+	!isStationPlaylist() && name.contains("_")
 
 fun DomainPlaylist.isMoodMixPlaylist(): Boolean =
-	isGeneratedMixPlaylist() && !isGenreMixPlaylist()
+	!isStationPlaylist() && !isGenreMixPlaylist() && name.endsWith(MoodMixSuffix)
 
 fun DomainPlaylist.stationDisplayName(): String {
 	if (!isStationPlaylist()) return name
@@ -25,18 +33,60 @@ fun DomainPlaylist.stationDisplayName(): String {
 fun DomainPlaylist.playlistDisplayName(): String =
 	when {
 		isStationPlaylist() -> stationDisplayName()
-		isGenreMixPlaylist() -> name.split("_")
-			.map { part -> part.trim() }
-			.filter { part -> part.isNotEmpty() }
-			.joinToString(" / ")
-			.ifBlank { name }
+		isMoodMixPlaylist() -> moodMixDisplayName()
+		isGenreMixPlaylist() -> genreMixDisplayName()
 		else -> name
 	}
+
+fun DomainPlaylist.playlistArtworkLabel(): String =
+	when {
+		isGenreMixPlaylist() -> genreMixDisplayName()
+			.split(" / ")
+			.map { it.trim() }
+			.filter { it.isNotEmpty() }
+			.take(3)
+			.joinToString("\n")
+			.ifBlank { playlistDisplayName() }
+		else -> playlistDisplayName()
+	}
+
+fun DomainPlaylist.playlistFallbackKind(): String =
+	when {
+		isGeneratedMixPlaylist() -> "Mix"
+		isStationPlaylist() -> "Flow"
+		else -> "Playlist"
+	}
+
+private fun DomainPlaylist.moodMixDisplayName(): String =
+	name.removeSuffix(MoodMixSuffix)
+		.trimEnd()
+		.ifBlank { name }
+
+private fun DomainPlaylist.genreMixDisplayName(): String {
+	val parts = name.split("_")
+		.map { part -> part.trim() }
+		.filter { part -> part.isNotEmpty() }
+	val genreParts = parts.takeWhile { part -> !part.isGenreMixMetadataToken() }
+		.ifEmpty { parts }
+	return genreParts.joinToString(" / ").ifBlank { name }
+}
+
+private fun String.isGenreMixMetadataToken(): Boolean =
+	all { char -> char.isDigit() } || lowercase() in GenreMixMetadataTokens
 
 fun DomainSongCollection.displayName(): String =
 	when (this) {
 		is DomainPlaylist -> playlistDisplayName()
 		else -> name
+	}
+
+fun DomainPlaylist.visiblePlaylistCoverArtId(): String? =
+	coverArtId.takeUnless { isGeneratedMixPlaylist() }
+
+fun DomainSongCollection.visibleCollectionCoverArtId(): String? =
+	when (this) {
+		is DomainPlaylist -> visiblePlaylistCoverArtId()
+		else -> coverArtId
 	}
 
 fun List<DomainPlaylist>.stationPlaylists(): List<DomainPlaylist> =

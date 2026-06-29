@@ -101,6 +101,13 @@ internal fun coverArtFallbackArcText(label: String?, maxChars: Int = 28): String
 	}
 }
 
+internal fun coverArtFallbackKindLabel(fallbackKind: String?): String? =
+	fallbackKind
+		?.trim()
+		?.replace(Regex("\\s+"), " ")
+		?.takeIf { it.isNotEmpty() }
+		?.uppercase()
+
 private val CoverArtFallbackSeedColors = listOf(
 	Color(0xFF845336),
 	Color(0xFF57553C),
@@ -352,12 +359,7 @@ private fun CoverArtFallback(
 ) {
 	val seed = stablePositiveHash(fallbackContent.seedSource)
 	val palette = coverArtFallbackPalette(fallbackContent.seedSource)
-	val kind = fallbackKind
-		?.trim()
-		?.takeIf { it.isNotEmpty() }
-		?.uppercase()
-		?.toList()
-		?.joinToString(separator = " ")
+	val kind = coverArtFallbackKindLabel(fallbackKind)
 	Box(
 		modifier = modifier,
 		contentAlignment = Alignment.Center
