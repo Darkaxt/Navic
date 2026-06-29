@@ -8535,6 +8535,22 @@ Next:
 - Do not use the missing release login state as a reason to stop readerdev Whispersync validation.
 - Stage 5C.5 remains the release-package proof gate for `darkaxt.navic` once login/data is available.
 
+## 2026-06-29 Stage 5C.5 Validation Boundary Correction
+
+Scope:
+- Correct the validation boundary after review: `bindery-debug.env` and a debuggable APK are sufficient for Whispersync implementation validation.
+- Stop treating the emulator public-release login state as a blocker for development proof.
+- Preserve signed-release validation as the final packaging/state gate.
+
+Results:
+- CORRECTED/PLAN: `2026-06-28-reader-whispersync-gap-closure.md` now splits the old release-package gate into Stage 5C.5 credential-bootstrapped debug validation and Stage 5C.6 signed release packaging validation.
+- CORRECTED/SPEC: `2026-06-18-whispersync-design.md` now says missing public-release login is not an implementation blocker; readerdev/debug validation must use ignored credentials and direct route metadata.
+- EXISTING/GREEN: Stage 5C.4 already proves the debug credential path for production book `3809`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook file `633`.
+
+Next:
+- After any Whispersync runtime change, repeat `scripts\adb-whispersync-enjoyment.ps1` with `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env`.
+- Keep signed-release evidence separate: public APK validation still needs logged-in `darkaxt.navic` state, but that cannot be used as an excuse to skip debug validation.
+
 ## 2026-06-29 Stage 6E.4 Captured Page Curl Snapshot Preview
 
 Scope:
@@ -8560,3 +8576,32 @@ Results:
 - HARNESS-EVIDENCE: output recorded `curlSheetMode=single`, `curlSnapshots=front`, `curlSnapshotFront=true`, `frontSnapshot.textLength=14`, `frontSnapshot.bodyHeight=579.203125`, and `curlSnapshotBack=false`, proving single-page mode suppresses the reverse face while the active front face is captured.
 - GREEN/WHITESPACE: `git diff --check` passed.
 - OBSERVED/NON-BLOCKING: this is still host/browser proof. Stage 6F must validate physical drag feel and visual fidelity on phone/tablet before claiming the curl effect is user-accepted.
+
+## 2026-06-29 Stage 6F.1 Automated Visual Acceptance Prep Matrix
+
+Scope:
+- Use the emulator as a visual-prep gate before asking for physical/human acceptance.
+- Launch the current-source debuggable reader directly to the production Bindery book `3809` route with ignored credentials and route metadata.
+- Capture screenshots, focused-window state, logs, package identity, and `page-box` probes for Fold inner, Fold cover, and Tab S9 Ultra portrait profiles.
+
+Commands:
+
+```powershell
+.\scripts\set-reader-dev-viewport.ps1 -DeviceSerial emulator-5554 -Profile zfold7-inner
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderWhispersyncSidecarUrl /opds/books/3809/sync/8 -ReaderWhispersyncArtifactId 8 -ReaderWhispersyncAudiobookId 34 -ReaderWhispersyncAudiobookBookFileId 633 -ReaderWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -RequireReaderLaunch -Capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta17 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-box -ArtifactDir captures\reader-smoke\stage6f-visual-prep\<profile>
+```
+
+Results:
+- GREEN/READERDEV-BUILD: `androidApp:assembleReaderDev` passed.
+- GREEN/ZFOLD-INNER: `captures\reader-smoke\stage6f-visual-prep\zfold7-inner` captured `versionName=v1.0.11-theta17`, focused `darkaxt.navic.readerdev`, screenshot, window hierarchy, logs, and `page-box`.
+- GREEN/ZFOLD-COVER: `captures\reader-smoke\stage6f-visual-prep\zfold7-cover` captured the same evidence for the cover-display profile.
+- GREEN/TAB-S9-ULTRA: `captures\reader-smoke\stage6f-visual-prep\tab-s9-ultra-portrait` captured the same evidence for the tablet profile.
+- GREEN/VIEWPORT-RESET: the runner reset the emulator viewport after the captures.
+- FOUND/LAYOUT: the matrix is not visual-acceptance green. Fold cover shows an oversized, heavy text layout and reports `6 / 481`; Fold inner reports `6 / 294`; Tab S9 Ultra reports `6 / 124`. The same paired book route should not produce this level of profile-dependent visual/pagination drift unless the policy is deliberately adaptive and documented.
+- FOUND/COMPOSITION: `page-box` proves the reader viewport itself fills the window, but the document body is still columnized wider than the visible document: `bodyToDocumentWidthRatio=9.936` on Fold cover, `5.936` on Fold inner, and `2.936` on Tab S9 Ultra.
+- FOUND/OVERLAY: the Tab S9 Ultra capture still shows the bottom history/selection capsule over the page, so overlay cleanup remains open.
+
+Next:
+- Fix the profile-dependent typography/page-composition policy before a public release candidate.
+- Keep physical Stage 6F for final feel judgment, not for finding these deterministic emulator-visible faults.

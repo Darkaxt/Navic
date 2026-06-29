@@ -26,8 +26,9 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 
 Closed stages stay documented below but are no longer the active queue. The current queue starts from the first release-worthy milestone after `v1.0.11-theta16`.
 
-1. **Stage 5C.5: Release-Package Whispersync Enjoyment Validation** - run the paired flow on `darkaxt.navic` once a logged-in physical release device or real ignored `navic-release-login.env` is available. Only this stage can close release-device Whispersync proof.
-2. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
+1. **Stage 5C.5: Credential-Bootstrapped Whispersync Enjoyment Validation** - use `bindery-debug.env` and a debuggable APK (`darkaxt.navic.readerdev` or another explicitly debug-routable package) to launch the paired book/audiobook route directly. Lack of public-release login is not a reason to stop implementation validation.
+2. **Stage 5C.6: Signed Release Whispersync Packaging Validation** - run the same paired flow on `darkaxt.navic` only when a logged-in physical release device or real ignored `navic-release-login.env` is available. This is the public release packaging proof, not the normal development blocker.
+3. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
 
 Recently closed:
 - **Stage 7B: Theta17 Staged Release Candidate** - packaged the completed post-theta16 gap work as the Android-only theta17 release candidate.
@@ -528,7 +529,7 @@ Remaining:
 
 ### Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh
 
-Status: complete for theta17 readerdev implementation/runtime proof; release-package proof remains Stage 5C.5.
+Status: complete for theta17 readerdev implementation/runtime proof; signed-release packaging proof remains Stage 5C.6.
 
 Purpose:
 - Correct the theta17 validation process after Stage 8D exposed that the public release package is not logged in on the emulator.
@@ -550,7 +551,47 @@ Results:
 - OBSERVED/NON-BLOCKING: logcat showed one early `Whispersync audiobook seek ignored; no playback plan match` before the playback plan loaded, then the plan loaded and all four probes passed. Track this only if it becomes user-visible during manual playback startup.
 
 Remaining:
-- Stage 5C.5 must run the same enjoyment flow against `darkaxt.navic` on a logged-in release package before claiming release-device Whispersync proof.
+- Stage 5C.5 formalizes the credential-bootstrapped debuggable APK path as the required development validation route.
+- Stage 5C.6 must run the same enjoyment flow against `darkaxt.navic` on a logged-in release package before claiming signed-release Whispersync proof.
+
+### Stage 5C.5: Credential-Bootstrapped Whispersync Enjoyment Validation
+
+Status: complete for current debug/readerdev validation policy; repeat after any Whispersync runtime change.
+
+Purpose:
+- Treat `bindery-debug.env` as the correct development validation authority for paired Bindery reader routes.
+- Permit the debug APK to be purpose-built for validation: it may bypass the normal library/login journey by receiving the exact EPUB resource, Whispersync sidecar, artifact id, audiobook id, audiobook file id, and audiobook title through safe launcher extras.
+- Prevent future work from using "release package is not logged in" as a reason to stop Whispersync implementation validation.
+- Keep the boundary honest: credential-bootstrapped debug proof validates product behavior from current source; Stage 5C.6 validates signed public packaging and real user state.
+
+Acceptance:
+- The validation command uses an ignored env file and does not print credential values.
+- The debuggable package launches the paired production Bindery route directly and reaches `publicationReady`.
+- The enjoyment matrix proves page-scoped control, audio-follow suppression, character-offset overlay, and exact companion progress.
+- A release-package login boundary cannot be recorded as an implementation blocker unless the same scenario also fails through the debug route.
+
+Current evidence:
+- GREEN/DEBUG-CREDENTIALS: Stage 5C.4 already ran `scripts\adb-whispersync-enjoyment.ps1` with `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env`.
+- GREEN/PAIRED-ROUTE: the debug launcher resolved book `3809` to `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`, loaded sidecar `/opds/books/3809/sync/8`, and prepared audiobook `34` / book file `633`.
+- GREEN/MATRIX: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` passed in `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-212815`.
+
+Remaining:
+- Re-run this stage after any Whispersync runtime, reader launcher, or audiobook playback change.
+- Do not publish a public release solely because this debug validation is green; use it to justify moving toward a coherent release candidate.
+
+### Stage 5C.6: Signed Release Whispersync Packaging Validation
+
+Status: planned; final public-package proof only.
+
+Purpose:
+- Validate that the published `darkaxt.navic` APK can reach the same paired Whispersync behavior with real login/data.
+- Keep this separate from implementation validation so missing release login state does not block debug/emulator progress.
+
+Acceptance:
+- Install the signed public APK and verify package version/build identity.
+- Confirm the release package is logged in or submit credentials from an ignored `navic-release-login.env`.
+- Run the paired Whispersync enjoyment flow on `darkaxt.navic` without substituting `darkaxt.navic.readerdev` evidence.
+- Record any release-only failures as packaging/state issues unless the debug gate also fails.
 
 ## Stage 6: Komikku Visual Parity Gate
 
@@ -576,6 +617,49 @@ Remaining:
 - [ ] Implement one visual system at a time: rail proportions, settings density, textures, margins, or theme palette.
 - [ ] Validate on emulator phone/fold/tablet dimensions before asking for human visual judgment.
 - [ ] Commit each completed visual system.
+
+### Stage 6F.1: Automated Visual Acceptance Prep Matrix
+
+Status: complete as an automation prep pass; it found layout issues, so Stage 6F is not ready for human acceptance.
+
+Scope:
+- Generate fresh current-source readerdev evidence for the post-theta17 reader shell before asking for physical/human visual acceptance.
+- Use emulator viewport profiles that approximate Fold inner, Fold cover, and Tab S9 Ultra displays.
+- Capture screenshots, window hierarchy, logcat diagnostics, and `page-box` DevTools probes for the same direct Bindery EPUB route.
+- Do not claim physical acceptance from this stage. It is an automation prep gate for Stage 6F.
+
+Files:
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+- Use: `scripts/set-reader-dev-viewport.ps1`
+- Use: `scripts/install-reader-dev.ps1`
+- Use: `scripts/adb-reader-smoke.ps1`
+
+Acceptance:
+- `darkaxt.navic.readerdev` is built/installed from current source and launches the production Bindery EPUB route.
+- Each viewport profile writes a screenshot and `page-box` probe under `captures/reader-smoke/stage6f-visual-prep/<profile>`.
+- The captured package/version/logs prove the artifacts come from `darkaxt.navic.readerdev`, not the stale public package.
+- Plan and validation log record what automation can and cannot prove.
+
+TDD / validation steps:
+1. [x] Set the emulator to `zfold7-inner`, launch readerdev directly to the paired EPUB route, and capture `page-box`.
+2. [x] Repeat for `zfold7-cover`.
+3. [x] Repeat for `tab-s9-ultra-portrait`.
+4. [x] Reset emulator viewport after captures.
+5. [x] Record artifacts and any failures before deciding whether Stage 6F needs implementation work or human visual review.
+
+Results:
+- GREEN/READERDEV-BUILD: `androidApp:assembleReaderDev` built the current-source debuggable package.
+- GREEN/READERDEV-LAUNCH: all three profiles launched `darkaxt.navic.readerdev` to the production Bindery book `3809` route and reached `publicationReady`.
+- GREEN/ARTIFACTS: artifacts were written under `captures\reader-smoke\stage6f-visual-prep\zfold7-inner`, `captures\reader-smoke\stage6f-visual-prep\zfold7-cover`, and `captures\reader-smoke\stage6f-visual-prep\tab-s9-ultra-portrait`.
+- GREEN/RESET: the matrix reset the emulator viewport after the final capture.
+- FOUND/LAYOUT: screenshots and `page-box` probes show the reader is not visually acceptance-ready. The Fold cover profile renders an oversized, heavy heading/body layout and reports `6 / 481`; Fold inner reports `6 / 294`; Tab S9 Ultra reports `6 / 124`. The same book route should not look or paginate that inconsistently unless the profile-specific typography/page composition policy is intentionally different.
+- FOUND/COMPOSITION: the renderer viewport fills each profile, but the content body is still columnized wider than the visible document (`bodyToDocumentWidthRatio` is about `9.936` on Fold cover, `5.936` on Fold inner, and `2.936` on Tab). This keeps the tablet/fold margin and pagination complaints active.
+- FOUND/OVERLAY: the Tab S9 Ultra screenshot captured the history/selection capsule over the page bottom, so overlay cleanup remains part of the Komikku shell pass.
+
+Remaining:
+- Fix the profile-dependent typography/page-composition behavior before Stage 6F human acceptance.
+- Keep the Whispersync headset icon page-scoped, but make it visually paper-native instead of a UI badge during the same visual pass.
 
 ### Stage 6A: EPUB Typography And Viewport Layout
 
