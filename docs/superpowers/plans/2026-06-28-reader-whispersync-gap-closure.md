@@ -26,13 +26,13 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 
 Closed stages stay documented below but are no longer the active queue. The current queue starts from the first release-worthy milestone after `v1.0.11-theta16`.
 
-1. **Stage 7B: Theta17 Staged Release Candidate** - package the completed post-theta16 gap work as one Android-only release candidate: release-login automation, Bindery schema drift support, current Whispersync enjoyment gate, curl sheet roles, deterministic texture motion follow-ups, and settings overlay hierarchy. This is a release gate, not a place for more UI polish.
-2. **Stage 8D: Theta17 Release Validation Baseline** - install the published `Navic.apk`, prove version/package/foreground state, run non-login deterministic release checks, and then run the credential-backed release route if `navic-release-login.env` or an already logged-in device is available. This release login boundary must not block readerdev Whispersync development validation.
-3. **Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh** - rerun the full paired Bindery sidecar plus audiobook session on `darkaxt.navic.readerdev` using `bindery-debug.env`: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, exact companion resume, and mismatch surfacing. This is implementation/runtime proof, not public-release proof, but it is the correct validation path while the release package lacks login state.
-4. **Stage 5C.5: Release-Package Whispersync Enjoyment Validation** - run the same paired flow on `darkaxt.navic` once a logged-in physical release device or real ignored `navic-release-login.env` is available. Only this stage can close release-device Whispersync proof.
-5. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, and whether the result is faithful enough to Komikku instead of a knock-off.
+1. **Stage 5C.5: Release-Package Whispersync Enjoyment Validation** - run the paired flow on `darkaxt.navic` once a logged-in physical release device or real ignored `navic-release-login.env` is available. Only this stage can close release-device Whispersync proof.
+2. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
 
 Recently closed:
+- **Stage 7B: Theta17 Staged Release Candidate** - packaged the completed post-theta16 gap work as the Android-only theta17 release candidate.
+- **Stage 8D: Theta17 Release Validation Baseline** - installed and validated the published release package until the release-login boundary.
+- **Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh** - passed the paired Bindery sidecar plus audiobook matrix on `darkaxt.navic.readerdev` using `bindery-debug.env`.
 - **Stage 6E.4: Captured Page Curl Snapshot Preview** - completed after theta17 as a host/browser-harness-proven curl fidelity slice; physical acceptance remains covered by Stage 6F.
 
 ## Stage 0: Plan And Spec Alignment
