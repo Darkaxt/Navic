@@ -105,12 +105,20 @@ class ReaderRuntimePaperSurfaceTest {
 		val textureOpacity = helperText
 			.substringAfter("export const readerSurfacePaperTextureOpacity = settings =>")
 			.substringBefore("\n\nexport const readerSurfacePageBorderOverlayOpacity")
+		val borderBackgroundImage = helperText
+			.substringAfter("export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVariant =>")
+			.substringBefore("\n\nexport const readerPageNumberPageCount")
 		val borderUpdater = helperText
 			.substringAfter("export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlayVariant, settings, scrollOffset = null) =>")
 			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
 
 		assertContains(textureOpacity, "case ReaderThemeSepia:")
-		assertContains(textureOpacity, "return '0.54'")
+		assertContains(textureOpacity, "return '0.66'")
+		assertContains(
+			textureOpacity,
+			"return '0.24'",
+			message = "Light-theme paper pores must stay visible enough for release screenshots instead of only passing an asset-presence check."
+		)
 		assertFalse(
 			textureOpacity.contains("return '0.14'"),
 			"Sepia paper pores were too subtle at 0.14 and looked absent on-device."
@@ -126,13 +134,13 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "readerSurfacePageBorderOverlayBackgroundImage")
 		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant)")
 		assertContains(
-			helperText,
-			"[textureUrl, textureUrl].join(', ')",
-			message = "The edge degradation source PNGs have intentionally subtle alpha; compositing twice keeps one surface layer while making the borders visible."
+			borderBackgroundImage,
+			"[textureUrl, textureUrl, textureUrl].join(', ')",
+			message = "The edge degradation source PNGs have intentionally subtle alpha; compositing three times keeps one surface layer while making the borders visible."
 		)
 		assertContains(borderUpdater, "filter: readerSurfacePageBorderOverlayFilter(settings)")
 		assertContains(helperText, "export const readerSurfacePageBorderOverlayFilter = settings =>")
-		assertContains(helperText, "contrast(1.35) saturate(1.08)")
+		assertContains(helperText, "contrast(1.55) saturate(1.12)")
 	}
 
 	@Test
@@ -349,8 +357,8 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			surfaceLayerUpdater,
-			"'background-position': [texturePosition, texturePosition].join(', ')",
-			message = "Both shadow overlay layers must move with the page texture instead of staying fixed during vertical page motion."
+			"'background-position': [texturePosition, texturePosition, texturePosition].join(', ')",
+			message = "Every composited shadow overlay layer must move with the page texture instead of staying fixed during vertical page motion."
 		)
 	}
 

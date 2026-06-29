@@ -436,7 +436,7 @@ Remaining:
 
 ### Stage 6D: Paper/Texture Visual System
 
-Status: source/harness complete for the current slice; release-device visual judgment still pending.
+Status: source/harness complete for the movement/crash slice; Stage 6D.2 current-source visual-strength slice complete; release-device visual judgment still pending.
 
 Scope:
 - Keep paper texture and page-border degradation as one top-level reader-window surface, not per-document/pseudo-element stacking.
@@ -464,7 +464,35 @@ Required before closure:
 
 Remaining:
 - This is source and browser-harness evidence. Physical release validation is still needed for perceived texture strength, edge degradation visibility, and drag feel on the user's phone/tablet.
-- No opacity or asset tuning was made in this slice because the packaged textures and overlays already pass visibility/statistical guards; if a release-device screenshot still looks too subtle, the next slice should start with screenshot-sensitive evidence rather than changing constants blindly.
+
+#### Stage 6D.2: Paper/Texture Visual Strength
+
+Status: current-source implementation complete; release-device visual judgment still pending.
+
+Scope:
+- Make the top-level paper texture and page-edge degradation visibly present on Android readerdev screenshots instead of merely passing asset-presence/statistical guards.
+- Keep the texture architecture faithful to the existing Stage 6D contract: one fixed reader-window paper layer and one fixed reader-window border layer, never per-document pseudo-elements or per-EPUB-element stacking.
+- Do not change texture identity, page numbering, tap ownership, drag preview, or Whispersync behavior in this slice.
+
+Guards and evidence:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme` failed while sepia texture opacity was still `0.54` and border overlay compositing used two background layers.
+- GREEN/HOST-FOCUSED: the same guard passed after sepia texture opacity was raised to `0.66`, light-theme texture opacity to `0.24`, sepia border filtering to `contrast(1.55) saturate(1.12)`, and border compositing to three backgrounds on the same fixed layer.
+- GREEN/HOST-PAPER: full `ReaderRuntimePaperSurfaceTest` passed after updating the movement guard to require all three border-overlay backgrounds to share the same texture position.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed.
+- GREEN/JS: `node --check` passed for `navic-reader-helpers.js` and `reader-trace-assertions.mjs`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- PARTIAL/HARNESS: `css-smoke` produced `surfaceTextureOpacity=0.66` and a three-layer `page-border-overlay` background image, but the full harness still exits later on an unrelated native paragraph hit-test assertion.
+- GREEN/READERDEV: current-source `darkaxt.navic.readerdev` installed and launched on `emulator-5554`; `captures\reader-smoke\stage6d2-paper-strength-readable\screen.png` shows the paper surface and edge degradation visibly present on a readable EPUB page.
+
+Required before closure:
+- [x] Add and verify a failing source guard for paper/border visibility strength.
+- [x] Implement the minimal helper change without changing texture placement or input ownership.
+- [x] Run focused host guard, full paper host class, `:composeApp:testAndroid`, JS syntax checks, and `git diff --check`.
+- [x] Capture current-source readerdev visual evidence on the emulator.
+
+Remaining:
+- Release-device visual judgment is still required before claiming final texture strength. The current-source screenshot proves the layer is no longer absent/subtle on readerdev, but the user's phone/tablet may still need tuning.
+- `css-smoke` has an open unrelated native paragraph hit-test failure that should be routed into its own staged interaction/input slice, not hidden inside paper texture work.
 
 ### Stage 6E: Page Drag Preview And Curl
 

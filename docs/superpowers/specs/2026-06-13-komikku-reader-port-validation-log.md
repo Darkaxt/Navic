@@ -8106,3 +8106,38 @@ Results:
 Remaining:
 - This is current-source readerdev evidence, not a release-package claim. Release package remains login-blocked on this emulator.
 - Visual judgment for palette, slider density, tablet/fold proportions, and deeper scroll ergonomics remains open.
+
+
+## 2026-06-29 Stage 6D.2 Paper/Texture Visual Strength
+
+Scope:
+- Close the paper texture "almost nonexistent" complaint as a staged visual-strength slice, not as another isolated opacity tweak.
+- Keep texture and page-edge degradation on the existing top-level reader-window layers.
+- Avoid changing pagination, tap ownership, drag preview, settings, or Whispersync behavior.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme --console=plain
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\book-3809-file-426.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapFraction:0.90,0.50,1800' -ArtifactDir captures\reader-smoke\stage6d2-paper-strength-readable
+```
+
+Results:
+- RED/HOST-FIRST: the focused paper-strength guard failed before runtime edits because sepia still returned `0.54` and border overlays were composited twice.
+- GREEN/HOST-FOCUSED: the guard passed after raising sepia texture opacity to `0.66`, light texture opacity to `0.24`, sepia border filter to `contrast(1.55) saturate(1.12)`, and border compositing to three backgrounds on the same fixed layer.
+- GREEN/HOST-PAPER: full `ReaderRuntimePaperSurfaceTest` passed after updating the movement guard to require all three border overlay backgrounds to share texture position.
+- GREEN/SUITE: `:composeApp:testAndroid` passed.
+- GREEN/JS/WHITESPACE: `node --check` passed for touched JS files, and `git diff --check` passed.
+- PARTIAL/HARNESS: `css-smoke.trace.json` showed `surfaceTextureOpacity=0.66` and three `page-border-overlay` background layers. The full CSS-smoke command still exits later on an unrelated native paragraph hit-test assertion (`Expected native center hit-test not to suppress ordinary paragraph text`).
+- GREEN/READERDEV: current-source readerdev installed on `emulator-5554` with `versionName=v1.0.11-theta15`, `versionCode=443`, `lastUpdateTime=2026-06-29 15:56:18`, launched to `publicationReady`, and captured readable-page evidence at `captures\reader-smoke\stage6d2-paper-strength-readable\screen.png`.
+
+Remaining:
+- Release-phone/tablet visual judgment is still required before calling the texture strength final.
+- The CSS-smoke native paragraph hit-test failure should be handled as its own input/interaction stage, not hidden inside the paper texture slice.

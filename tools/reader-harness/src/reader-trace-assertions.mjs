@@ -821,8 +821,8 @@ export const assertRendererCssSmoke = result => {
   }
   const textureOpacity = numericCss(result.surfaceTextureOpacity)
   const borderOpacity = numericCss(result.surfaceBorderOpacity)
-  if (textureOpacity == null || textureOpacity <= 0) {
-    throw new Error(`Expected visible paper texture opacity; observed ${result.surfaceTextureOpacity || 'unset'}`)
+  if (textureOpacity == null || textureOpacity < 0.6) {
+    throw new Error(`Expected release-visible sepia paper texture opacity; observed ${result.surfaceTextureOpacity || 'unset'}`)
   }
   if (borderOpacity == null || borderOpacity <= 0) {
     throw new Error(`Expected visible border overlay opacity; observed ${result.surfaceBorderOpacity || 'unset'}`)

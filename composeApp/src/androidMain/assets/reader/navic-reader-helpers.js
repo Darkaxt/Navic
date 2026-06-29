@@ -257,12 +257,12 @@ export const readerSurfacePaperTextureOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.54'
+      return '0.66'
     case 'dark':
     case 'dusk':
-      return '0.12'
-    default:
       return '0.16'
+    default:
+      return '0.24'
   }
 }
 
@@ -283,19 +283,19 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
     case 'black':
       return 'none'
     case ReaderThemeSepia:
-      return 'contrast(1.35) saturate(1.08)'
+      return 'contrast(1.55) saturate(1.12)'
     case 'dark':
     case 'dusk':
-      return 'contrast(1.2) saturate(1.05)'
+      return 'contrast(1.35) saturate(1.08)'
     default:
-      return 'contrast(1.18) saturate(1.04)'
+      return 'contrast(1.3) saturate(1.06)'
   }
 }
 
 export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVariant => {
   if (!borderOverlayVariant?.asset) return 'none'
   const textureUrl = `url("${readerAssetUrl(borderOverlayVariant.asset)}")`
-  return [textureUrl, textureUrl].join(', ')
+  return [textureUrl, textureUrl, textureUrl].join(', ')
 }
 
 export const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
@@ -489,9 +489,9 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlayVarian
     'z-index': '2147483646',
     'pointer-events': 'none',
     'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant),
-    'background-size': 'cover, cover',
-    'background-position': [texturePosition, texturePosition].join(', '),
-    'background-repeat': 'no-repeat, no-repeat',
+    'background-size': 'cover, cover, cover',
+    'background-position': [texturePosition, texturePosition, texturePosition].join(', '),
+    'background-repeat': 'no-repeat, no-repeat, no-repeat',
     'background-color': 'transparent',
     opacity: readerSurfacePageBorderOverlayOpacity(settings),
     filter: readerSurfacePageBorderOverlayFilter(settings),
