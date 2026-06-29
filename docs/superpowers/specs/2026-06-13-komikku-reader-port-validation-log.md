@@ -8712,8 +8712,9 @@ Results:
 - GREEN/SCRIPT-PARSE: `scripts\adb-whispersync-enjoyment.ps1` parsed successfully after updating its default expected version to theta22.
 - GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta22 release identity.
 - GREEN/DIFF: `git diff --check` passed.
+- GREEN/GITHUB-RELEASE: tag `v1.0.11-theta22` points at commit `1c990b57`; GitHub Actions run `28405398651` completed successfully. `Build Android APK` passed, signing verification passed, `Create GitHub Release` passed, `Build iOS IPA` and `Attach iOS IPA` were skipped.
+- GREEN/ASSET: release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta22` published `Navic.apk` (`sha256:045c82d2e5f0fb92cd1f3a2cb33ff94f5f74ea2bb60b410dec94d614a734177c`, size `21052843` bytes).
 
 Next:
-- Commit and push the theta22 release identity and Stage 7C evidence.
-- Tag `v1.0.11-theta22` at the committed candidate.
-- Trigger the Android-only GitHub Actions release path.
+- Use `v1.0.11-theta22` as the current public release baseline.
+- Keep deep reader/Whispersync release-package validation separate until a logged-in release device/profile or release-login env can reach reader routes.

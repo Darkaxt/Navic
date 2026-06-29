@@ -1180,7 +1180,7 @@ Required before closure:
 
 ### Stage 7C: Theta22 Staged Release Candidate
 
-Status: local release-candidate gate passed; GitHub publication pending.
+Status: complete; GitHub release published.
 
 Purpose:
 - Package the synced reader/Whispersync branch after merging current `fork/master` through `v1.0.11-theta21`.
@@ -1218,6 +1218,7 @@ Results:
 - GREEN/SCRIPT-PARSE: `scripts\adb-whispersync-enjoyment.ps1` parsed successfully after updating the default expected version.
 - GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta22 release identity.
 - GREEN/DIFF: `git diff --check` passed.
+- GREEN/GITHUB-RELEASE: GitHub Actions run `28405398651` completed successfully for tag `v1.0.11-theta22`; Android APK succeeded, iOS jobs were skipped, and the release was published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta22` with asset `Navic.apk` (`sha256:045c82d2e5f0fb92cd1f3a2cb33ff94f5f74ea2bb60b410dec94d614a734177c`).
 
 Required before closure:
 - [x] Confirm the branch contains the current `fork/master` before release work.
@@ -1225,14 +1226,14 @@ Required before closure:
 - [x] Verify the Android version identity with `scripts\verify-android-release-version.ps1`.
 - [x] Run the full `:composeApp:testAndroid` gate.
 - [x] Run `git diff --check`.
-- [ ] Commit and push the theta22 release identity plus this Stage 7C evidence.
-- [ ] Create and push the `v1.0.11-theta22` tag.
-- [ ] Trigger the Android-only GitHub Actions release path.
-- [ ] Record the release URL, workflow run, commit, and asset in the validation log.
+- [x] Commit and push the theta22 release identity plus this Stage 7C evidence. Commit `1c990b57`.
+- [x] Create and push the `v1.0.11-theta22` tag.
+- [x] Trigger the Android-only GitHub Actions release path. Run `28405398651` completed successfully; Android APK succeeded and iOS jobs were skipped.
+- [x] Record the release URL, workflow run, commit, and asset in the validation log.
 
 ## Current First Focus
 
-Use `v1.0.11-theta21` as the current public release baseline until Stage 7C publishes `v1.0.11-theta22`. Deep reader and Whispersync release-package behavior still requires either a logged-in release device/profile or the Stage 8C release-login automation path with real Navic/Navidrome credentials. That boundary does not block development validation: `bindery-debug.env` and `darkaxt.navic.readerdev` are the required path for seeded Bindery/Whispersync implementation runs. Keep readerdev/browser evidence labeled as implementation/runtime proof, not release proof.
+Use `v1.0.11-theta22` as the current public release baseline. Deep reader and Whispersync release-package behavior still requires either a logged-in release device/profile or the Stage 8C release-login automation path with real Navic/Navidrome credentials. That boundary does not block development validation: `bindery-debug.env` and `darkaxt.navic.readerdev` are the required path for seeded Bindery/Whispersync implementation runs. Keep readerdev/browser evidence labeled as implementation/runtime proof, not release proof.
 
 ## Stage 8: Release Validation Baseline Gate
 
