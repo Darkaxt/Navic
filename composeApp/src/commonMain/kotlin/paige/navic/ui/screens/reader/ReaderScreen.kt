@@ -203,7 +203,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					reader = reader,
 					progress = localProgress,
 					updatedAtMs = updatedAtMs,
-					audioSeekTarget = coordinator.controller.state.whispersync.audioSeekTarget
+					audioSeekTarget = step.whispersyncAudioSeekTarget ?: coordinator.controller.state.whispersync.audioSeekTarget
 				)?.let { companionProgress ->
 					preferenceManager.binderyWhispersyncCompanionProgressJson =
 						binderyWhispersyncCompanionProgressJsonWithUpdate(

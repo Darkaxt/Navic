@@ -12,8 +12,8 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 
 		assertContains(
 			readerScreen,
-			"audioSeekTarget = coordinator.controller.state.whispersync.audioSeekTarget",
-			message = "ReaderScreen must persist companion progress with the latest controller-owned Whispersync audio target, not only the ebook fraction."
+			"audioSeekTarget = step.whispersyncAudioSeekTarget ?: coordinator.controller.state.whispersync.audioSeekTarget",
+			message = "ReaderScreen must persist companion progress with the exact seek target carried by the current coordinator step before falling back to controller state."
 		)
 	}
 

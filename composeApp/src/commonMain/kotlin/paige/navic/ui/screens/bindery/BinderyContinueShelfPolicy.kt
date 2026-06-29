@@ -275,14 +275,27 @@ fun binderyWhispersyncCompanionProgressJsonWithUpdate(
 	) {
 		return json
 	}
-	val entries = decodeBinderyWhispersyncCompanionProgressStore(json)
-		.entries
+	val existingEntries = decodeBinderyWhispersyncCompanionProgressStore(json).entries
+	val matchingExisting = existingEntries.firstOrNull { entry ->
+		entry.bookId == normalized.bookId &&
+			entry.ebookResourceHref == normalized.ebookResourceHref &&
+			entry.audiobookId == normalized.audiobookId
+	}
+	val nextProgress = if (
+		normalized.audioPositionMs == null &&
+		matchingExisting?.audioPositionMs != null
+	) {
+		matchingExisting
+	} else {
+		normalized
+	}
+	val entries = existingEntries
 		.filterNot { entry ->
 			entry.bookId == normalized.bookId &&
 				entry.ebookResourceHref == normalized.ebookResourceHref &&
 				entry.audiobookId == normalized.audiobookId
 		}
-		.plus(normalized)
+		.plus(nextProgress)
 		.sortedByDescending(BinderyWhispersyncCompanionProgress::updatedAtMs)
 		.take(maxEntries.coerceAtLeast(1))
 	return BinderyWhispersyncCompanionProgressJson.encodeToString(
@@ -316,15 +329,11 @@ fun binderyWhispersyncCompanionProgressForReader(
 		audiobookBookFileId = audiobookBookFileId,
 		artifactId = artifactId,
 		progressFraction = fraction,
-		audioResource = audioSeekTarget
-			?.audioResource
+		audioResource = audioSeekTarget?.audioResource
 			?.trim()
 			?.takeIf { it.isNotEmpty() },
-		audioPositionMs = audioSeekTarget
-			?.positionMs
-			?.coerceAtLeast(0L),
-		audioTrackIndex = audioSeekTarget
-			?.segment
+		audioPositionMs = audioSeekTarget?.positionMs?.coerceAtLeast(0L),
+		audioTrackIndex = audioSeekTarget?.segment
 			?.audioTrackIndex
 			?.takeIf { it >= 0 },
 		updatedAtMs = updatedAtMs.coerceAtLeast(0L)

@@ -415,6 +415,29 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperCanProbeWhispersyncCompanionProgressPersistence() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val probe = helperText
+			.substringAfter("async function runWhispersyncCompanionProgressProbe(page)")
+			.substringBefore("async function runWhispersyncCharOffsetOverlayProbe(page)")
+
+		assertContains(scriptText, "whispersync-companion-progress")
+		assertContains(helperText, "'whispersync-companion-progress': runWhispersyncCompanionProgressProbe")
+		assertContains(probe, "probe: 'whispersync-companion-progress'")
+		assertContains(probe, "OEBPS/xhtml/Authorforeword.xhtml")
+		assertContains(probe, "whispersync-companion-progress-cue")
+		assertContains(probe, "visibleTextRange")
+		assertContains(probe, "Whispersync audiobook seek")
+		assertContains(probe, "positionMs=263360")
+		assertContains(probe, "overlayFragmentActive")
+		assertFalse(
+			probe.contains("OEBPS/xhtml/mini_toc.xhtml"),
+			"Companion progress persistence must stay on the cue-covered page; jumping to unsupported content can overwrite the exact companion entry."
+		)
+	}
+
+	@Test
 	fun adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()

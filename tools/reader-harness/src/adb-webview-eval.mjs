@@ -839,6 +839,138 @@ async function runWhispersyncPageScopedControlProbe(page) {
   }})()`)
 }
 
+async function runWhispersyncCompanionProgressProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+
+    const originalPostMessage = window.NavicAndroidBridge?.postMessage?.bind(window.NavicAndroidBridge)
+    if (!originalPostMessage) {
+      throw new Error('Missing NavicAndroidBridge.postMessage')
+    }
+    const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
+    if (!readerBridgeDispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+
+    const cueHref = 'OEBPS/xhtml/Authorforeword.xhtml'
+    const observedPayloads = []
+    const settleFrames = async (count = 3) => {
+      for (let index = 0; index < count; index += 1) {
+        await new Promise(resolve => requestAnimationFrame(resolve))
+      }
+    }
+    const latestVisibleRange = startIndex => {
+      for (let index = observedPayloads.length - 1; index >= startIndex; index -= 1) {
+        const payload = observedPayloads[index]
+        if (payload?.type === 'visibleTextRange') return payload
+      }
+      return null
+    }
+    const fireReaderNavigation = href => {
+      try {
+        const result = readerBridgeDispatch({
+          type: 'goToHref',
+          href,
+        })
+        if (result && typeof result.catch === 'function') {
+          result.catch(error => {
+            originalPostMessage(JSON.stringify({
+              type: 'error',
+              code: 'companion_progress_probe_navigation_failed',
+              message: error?.message || String(error),
+            }))
+          })
+        }
+      } catch (error) {
+        originalPostMessage(JSON.stringify({
+          type: 'error',
+          code: 'companion_progress_probe_navigation_failed',
+          message: error?.message || String(error),
+        }))
+        throw error
+      }
+    }
+    const jumpAndSnapshot = async (href, reason) => {
+      const startIndex = observedPayloads.length
+      fireReaderNavigation(href)
+      await settleFrames(8)
+      const snapshot = await Promise.resolve(readerBridgeDispatch({
+        type: 'diagnosticLocationSnapshot',
+        reason,
+      }))
+      const visibleRange = latestVisibleRange(startIndex) ||
+        snapshot?.visibleTextRangeResult?.visibleRange ||
+        null
+      if (!visibleRange) {
+        throw new Error(
+          `Expected ${reason} to emit visibleTextRange; result=${JSON.stringify(snapshot)}; observed=${
+            JSON.stringify(observedPayloads.slice(startIndex))
+          }`
+        )
+      }
+      if (visibleRange.textHref !== href) {
+        throw new Error(`Expected ${reason} visibleTextRange for ${href}, got ${JSON.stringify(visibleRange)}`)
+      }
+      if (visibleRange.source !== reason) {
+        throw new Error(`Expected ${reason} visibleTextRange source, got ${JSON.stringify(visibleRange)}`)
+      }
+      return {
+        href,
+        reason,
+        snapshot,
+        visibleRange,
+        observedPayloads: observedPayloads.slice(startIndex),
+      }
+    }
+
+    window.NavicAndroidBridge.postMessage = message => {
+      originalPostMessage(message)
+      try {
+        observedPayloads.push(JSON.parse(message))
+      } catch {
+        // Keep forwarding malformed messages to Android; they are not this probe's target.
+      }
+    }
+
+    try {
+      const cueCovered = await jumpAndSnapshot(cueHref, 'whispersync-companion-progress-cue')
+      readerBridgeDispatch({
+        type: 'applyOverlayFragment',
+        fragment: {
+          textHref: cueHref,
+          resourceHref: '6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b',
+          clipBeginSeconds: 263.36,
+          clipEndSeconds: 282.92,
+          label: 'Whispersync companion progress probe',
+        },
+      })
+      await settleFrames()
+
+      return {
+        probe: 'whispersync-companion-progress',
+        cueHref,
+        cueCovered,
+        observedVisibleRanges: observedPayloads.filter(payload => payload?.type === 'visibleTextRange'),
+        observedOverlayFragments: observedPayloads.filter(payload => payload?.type === 'overlayFragmentActive'),
+        expectedLogLabels: [
+          'Reader bridge event: visibleTextRange',
+          'whispersync-companion-progress-cue',
+          'Whispersync audiobook seek',
+          'positionMs=263360',
+          'overlayFragmentActive',
+        ],
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    } finally {
+      window.NavicAndroidBridge.postMessage = originalPostMessage
+    }
+  }})()`)
+}
+
 async function runWhispersyncCharOffsetOverlayProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     const view = document.querySelector('foliate-view')
@@ -1876,6 +2008,7 @@ async function main() {
       'visible-range': runVisibleRangeProbe,
       'whispersync-audio-follow': runWhispersyncAudioFollowProbe,
       'whispersync-page-scoped-control': runWhispersyncPageScopedControlProbe,
+      'whispersync-companion-progress': runWhispersyncCompanionProgressProbe,
       'whispersync-char-offset-overlay': runWhispersyncCharOffsetOverlayProbe,
       'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,

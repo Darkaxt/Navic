@@ -7738,3 +7738,38 @@ Results:
 Remaining:
 - Exact companion progress reopen is still a separate Stage 5 validation item.
 - This slice validates emulator readerdev behavior, not a public release APK or real-device audio feel.
+
+
+## 2026-06-29 Whispersync Exact Companion Progress Reopen Gate
+
+Scope:
+- Preserve exact paired audiobook position when an ebook page is opened from Whispersync companion progress.
+- Prevent an initial fraction-only reader progress save or later `media-overlay-follow` relocation from downgrading the companion progress entry.
+- Validate reopen on production book `3809`, sidecar `/opds/books/3809/sync/8`, paired audiobook `34`, audiobook book file `633`.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --console=plain
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -PublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -BookId 3809 -Title "Bastille vs. the Evil Librarians" -Kind Ebook -WhispersyncSidecarUrl "/opds/books/3809/sync/8" -WhispersyncAudiobookId 34 -WhispersyncAudiobookBookFileId 633 -WhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -RequireReaderLaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-companion-progress -ArtifactDir captures\reader-smoke\whispersync-companion-progress-after-step-target-save-20260629-current -RequireReaderLog @("Whispersync audiobook seek","positionMs=263360")
+.\scripts\install-reader-dev.ps1 -NoBuild -NoInstall -RequireReaderLaunch -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -PublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -BookId 3809 -Title "Bastille vs. the Evil Librarians" -Kind Ebook -WhispersyncSidecarUrl "/opds/books/3809/sync/8" -WhispersyncAudiobookId 34 -WhispersyncAudiobookBookFileId 633 -WhispersyncAudiobookTitle "Bastille vs. the Evil Librarians"
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderWhispersyncCompanionProgressSourceTest.readerScreenPersistsCompanionProgressWithLatestWhispersyncAudioTarget` failed before `ReaderScreen` persisted companion progress with `step.whispersyncAudioSeekTarget` (`tmp/codex-validation/stage5-reader-screen-step-target-red-20260629-current.out.log`).
+- GREEN/HOST-FOCUSED: the same guard passed after `ReaderScreen` started using `step.whispersyncAudioSeekTarget ?: coordinator.controller.state.whispersync.audioSeekTarget` (`tmp/codex-validation/stage5-reader-screen-step-target-green-20260629-current.out.log`).
+- GREEN/READERDEV-INSTALL: readerdev installed and launched package `darkaxt.navic.readerdev`, `versionName=v1.0.11-theta13`, `versionCode=441`, `lastUpdateTime=2026-06-29 05:13:38`, and reached `publicationReady`.
+- GREEN/EXACT-PROBE: `captures\reader-smoke\whispersync-companion-progress-after-step-target-save-20260629-current\logcat-reader.log` contains `Whispersync audiobook seek ... positionMs=263360`.
+- GREEN/PERSISTENCE: the emulator preference entry for book `3809`, artifact `8`, OPDS resource `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe` persisted `audioPositionMs=263360` after the probe.
+- GREEN/REOPEN: the no-build/no-install relaunch reached `publicationReady`; clean logcat shows `Loaded readaloud playback plan ... startPositionMs=263360` (`tmp/codex-validation/stage5-companion-relaunch-after-step-target-save-20260629-current.out.log` plus emulator logcat).
+- GREEN/NO-DOWNGRADE: after reopen and `media-overlay-follow`, the same companion preference entry remained `audioPositionMs=263360`.
+- GREEN/JS: `node --check tools\reader-harness\src\adb-webview-eval.mjs` exited cleanly.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed (`tmp/codex-validation/stage5-full-testandroid-after-step-target-save-20260629-current.out.log`).
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- This closes the readerdev exact companion progress reopen gate. Release-device validation is still required before claiming the full paired audiobook/ebook experience is ready for a public APK.

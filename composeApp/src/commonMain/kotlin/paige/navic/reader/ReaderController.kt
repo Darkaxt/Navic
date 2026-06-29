@@ -279,7 +279,11 @@ data class ReaderController(
 					locator = event.locator,
 					tocTitle = event.tocTitle
 				)
-				val decision = progressSaveGate.onEngineEvent(event)
+				val decision = if (event.locator.isWhispersyncAudioFollowRelocation()) {
+					ReaderProgressSaveDecision(state = progressSaveGate)
+				} else {
+					progressSaveGate.onEngineEvent(event)
+				}
 				val progress = state.publication?.let { publication ->
 					decision.locatorToSave?.toBinderyReadingProgress(
 						bookId = publication.bookId,
@@ -467,6 +471,16 @@ data class ReaderController(
 				copy(state = state.copy(selection = null, selectionNoteDraft = null))
 			)
 			is ReaderEngineEvent.MediaOverlayActive -> {
+				if (state.activeMediaOverlay == event.fragment) {
+					return ReaderControllerStep(
+						copy(
+							state = state.copy(
+								activeMediaOverlay = event.fragment,
+								audioMetadataLabel = event.fragment.label
+							)
+						)
+					)
+				}
 				val audioSeekTarget = state.whispersync.audioSeekTargetForActiveOverlay(event.fragment)
 				ReaderControllerStep(
 					copy(
@@ -796,6 +810,15 @@ data class ReaderController(
 			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		val progress = syncStep.audioSeekTarget?.let {
+			state.publication?.let { publication ->
+				state.chrome.currentLocator?.toBinderyReadingProgress(
+					bookId = publication.bookId,
+					resourceHref = publication.resourceHref,
+					kind = publication.kind
+				)
+			}
+		}
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
@@ -817,6 +840,7 @@ data class ReaderController(
 				)
 			),
 			engineCommands = listOfNotNull(command),
+			progressToSave = progress,
 			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
 		)
 	}
@@ -851,6 +875,15 @@ data class ReaderController(
 			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		val progress = syncStep.audioSeekTarget?.let {
+			state.publication?.let { publication ->
+				state.chrome.currentLocator?.toBinderyReadingProgress(
+					bookId = publication.bookId,
+					resourceHref = publication.resourceHref,
+					kind = publication.kind
+				)
+			}
+		}
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
@@ -873,6 +906,7 @@ data class ReaderController(
 				)
 			),
 			engineCommands = listOfNotNull(command),
+			progressToSave = progress,
 			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
 		)
 	}
@@ -1351,6 +1385,9 @@ private fun readerTocHrefKey(href: String?): String? {
 
 private fun ReaderEngineEvent.VisibleTextRange.isWhispersyncAudioFollowRange(): Boolean =
 	source.equals("media-overlay-follow", ignoreCase = true)
+
+private fun ReaderLocator.isWhispersyncAudioFollowRelocation(): Boolean =
+	reason.equals("media-overlay-follow", ignoreCase = true)
 
 private fun ReaderWhispersyncSessionState.audioSeekTargetForActiveOverlay(
 	fragment: ReaderOverlayFragment

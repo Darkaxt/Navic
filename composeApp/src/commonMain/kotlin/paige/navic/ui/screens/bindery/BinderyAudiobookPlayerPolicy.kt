@@ -345,6 +345,7 @@ private fun binderyAudiobookExactProgressFromWhispersyncCompanion(
 		}
 		?: progress.audioTrackIndex
 			?.takeIf { it in audioItems.indices }
+		?: 0.takeIf { audioItems.size == 1 }
 		?: return null
 	val durationMs = audioItems[index].durationMs()?.takeIf { it > 0L }
 	return BinderyAudiobookPlaybackProgress(

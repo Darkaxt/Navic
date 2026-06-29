@@ -383,6 +383,40 @@ class BinderyContinueShelfPolicyTest {
 	}
 
 	@Test
+	fun fractionOnlyCompanionProgressDoesNotReplaceStoredExactAudioProgress() {
+		val exact = BinderyWhispersyncCompanionProgress(
+			bookId = "3809",
+			ebookResourceHref = "/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe",
+			audiobookId = "34",
+			audiobookBookFileId = "633",
+			artifactId = "8",
+			progressFraction = 0.02905747731254876,
+			audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+			audioPositionMs = 263_360L,
+			updatedAtMs = 700L
+		)
+		val fractionOnly = exact.copy(
+			audioResource = null,
+			audioPositionMs = null,
+			audioTrackIndex = null,
+			updatedAtMs = 900L
+		)
+
+		val json = binderyWhispersyncCompanionProgressJsonWithUpdate(
+			json = binderyWhispersyncCompanionProgressJsonWithUpdate(
+				json = "",
+				progress = exact
+			),
+			progress = fractionOnly
+		)
+
+		assertEquals(
+			listOf(exact),
+			binderyWhispersyncCompanionProgressEntries(json)
+		)
+	}
+
+	@Test
 	fun continueReadingItemsUseCachedBookVersionRowsAndReaderRoute() {
 		val progressJson = encodeReaderReadingProgress(
 			listOf(

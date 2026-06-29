@@ -103,7 +103,7 @@ Important correction to older audits:
 Still missing:
 
 - No release APK claim should be made for end-to-end Whispersync playback until the reader-to-audio seek path and audio-to-reader highlight path are device-validated together on a real paired Bindery sidecar/audiobook session.
-- Exact companion progress persistence and paired readerdev route reopen are emulator-proven for production book `3809`, but release-device validation still needs to prove the same behavior on the installed release APK.
+- Exact companion progress persistence and paired readerdev route reopen are emulator-proven for production book `3809`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`; the reopen gate loaded `startPositionMs=263360` and preserved the same saved companion audio position after `media-overlay-follow`. Release-device validation still needs to prove the same behavior on the installed release APK.
 - Source-aware audio-follow visible range suppression is now host-tested and readerdev-emulator-proven with a non-duplicate `visibleTextRange(source=media-overlay-follow)` bridge event. Release-device validation is still required before calling the full paired flow release-ready.
 - Character-offset ASR overlay highlighting is readerdev-emulator-proven with a direct WebView probe. Release-device validation still needs to confirm the same visual sentence highlight on the installed APK during real paired playback.
 

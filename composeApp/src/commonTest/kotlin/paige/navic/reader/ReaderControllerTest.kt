@@ -1793,6 +1793,34 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun playbackDrivenOverlayConfirmationDoesNotSeekAudiobookAgain() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val playbackStep = controller.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			playbackStep.engineCommands.single()
+		).fragment
+
+		val confirmed = playbackStep.controller.onEngineEvent(ReaderEngineEvent.MediaOverlayActive(overlay))
+
+		assertEquals(emptyList(), confirmed.engineCommands)
+		assertNull(confirmed.whispersyncAudioSeekTarget)
+		assertEquals(overlay, confirmed.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", confirmed.controller.state.audioMetadataLabel)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, confirmed.controller.state.whispersync.status.kind)
+	}
+
+	@Test
 	fun pausingAudiobookPlaybackClearsPlaybackDrivenOverlayAndStatus() {
 		val playing = ReaderController()
 			.open(hobbitOpenRequest()).controller
@@ -1875,6 +1903,101 @@ class ReaderControllerTest {
 			step.controller.state.whispersync.visibleTextRange
 		)
 		assertEquals(ReaderWhispersyncStatusKind.Playing, step.controller.state.whispersync.status.kind)
+	}
+
+	@Test
+	fun audioFollowRelocationDoesNotOverwriteReaderOwnedProgress() {
+		val opened = ReaderController().open(hobbitOpenRequest()).controller
+		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
+		val synced = ready
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onReadaloudPlaybackState(
+				ReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					isPlaying = true,
+					trackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 5_500L,
+					durationMs = 8_000L
+				)
+			).controller
+		val saved = synced.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "Text/chapter1.xhtml#reader",
+					progress = 0.42,
+					reason = "relocate-committed"
+				),
+				tocTitle = "Chapter 1"
+			)
+		)
+
+		val audioFollow = saved.controller.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(
+					href = "Text/chapter1.xhtml#seg-2",
+					progress = 0.09,
+					reason = "media-overlay-follow"
+				),
+				tocTitle = "Chapter 1"
+			)
+		)
+
+		assertEquals(0.42, saved.progressToSave?.progressFraction)
+		assertNull(audioFollow.progressToSave)
+		assertEquals(
+			saved.controller.state.readingProgress,
+			audioFollow.controller.state.readingProgress
+		)
+		assertEquals(
+			saved.controller.state.whispersync.audioSeekTarget,
+			audioFollow.controller.state.whispersync.audioSeekTarget
+		)
+	}
+
+	@Test
+	fun visibleTextRangeWithWhispersyncCueExportsCurrentLocatorForExactCompanionSave() {
+		val opened = ReaderController().open(hobbitOpenRequest()).controller
+		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
+		val located = ready
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "Text/chapter1.xhtml#reader",
+						cfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+						progress = 0.42,
+						reason = "whispersync-companion-progress-cue"
+					),
+					tocTitle = "Chapter 1"
+				)
+			).controller
+
+		val step = located.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140,
+				source = "whispersync-companion-progress-cue"
+			)
+		)
+
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(
+			BinderyReadingProgress(
+				bookId = "book-1",
+				kind = BinderyReadingProgressKind.Ebook,
+				resourceKey = "publication.epub",
+				href = "publication.epub",
+				resourceHref = "publication.epub",
+				textHref = "Text/chapter1.xhtml",
+				cfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
+				fragmentId = "reader",
+				progressFraction = 0.42
+			),
+			step.progressToSave
+		)
 	}
 
 	@Test

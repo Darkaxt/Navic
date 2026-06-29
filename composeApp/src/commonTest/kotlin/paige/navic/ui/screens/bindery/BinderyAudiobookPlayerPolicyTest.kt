@@ -268,6 +268,52 @@ class BinderyAudiobookPlayerPolicyTest {
 	}
 
 	@Test
+	fun companionProgressUsesExactAudioPositionForSingleTrackManifestWhenResourceDiffers() {
+		val manifest = BinderyManifest(
+			id = "audiobook-34",
+			title = "Bastille",
+			readingOrder = listOf(
+				audioItem(
+					href = "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+					title = "Bastille",
+					bookFileId = "633",
+					durationSeconds = 900.0
+				)
+			)
+		)
+		val companion = BinderyWhispersyncCompanionProgress(
+			bookId = "3809",
+			ebookResourceHref = "/opds/books/3809/resources/ebook-426",
+			audiobookId = "34",
+			audiobookBookFileId = "633",
+			artifactId = "8",
+			progressFraction = 0.02905747731254876,
+			audioResource = "6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b",
+			audioPositionMs = 263_360L,
+			updatedAtMs = 700L
+		)
+
+		val progress = binderyAudiobookProgressFromWhispersyncCompanion(
+			progress = companion,
+			manifest = manifest,
+			versionRowId = "34"
+		)
+
+		assertEquals(
+			BinderyAudiobookPlaybackProgress(
+				bookId = "3809",
+				versionRowId = "34",
+				trackIndex = 0,
+				mediaId = "readaloud:https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=633",
+				positionMs = 263_360L,
+				durationMs = 900_000L,
+				updatedAtMs = 700L
+			),
+			progress
+		)
+	}
+
+	@Test
 	fun resumeProgressUsesNewestDirectOrWhispersyncCompanionProgress() {
 		val direct = BinderyAudiobookPlaybackProgress(
 			bookId = "book-1",
@@ -701,13 +747,14 @@ class BinderyAudiobookPlayerPolicyTest {
 	private fun audioItem(
 		href: String,
 		title: String,
-		bookFileId: String
+		bookFileId: String,
+		durationSeconds: Double = 60.0
 	): BinderyReadingOrderItem =
 		BinderyReadingOrderItem(
 			href = href,
 			title = title,
 			type = "audio/mpeg",
-			durationSeconds = 60.0,
+			durationSeconds = durationSeconds,
 			properties = mapOf("bookFileId" to bookFileId),
 			metadata = BinderyResourceMetadata(resourceKey = href)
 		)
