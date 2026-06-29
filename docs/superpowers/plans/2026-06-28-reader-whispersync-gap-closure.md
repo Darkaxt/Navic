@@ -455,6 +455,30 @@ Remaining:
 - [ ] Publish the GitHub release only after the release artifact exists and the milestone is worth device validation.
 - [ ] Record the release tag and exact commit in the relevant spec validation log.
 
+### Stage 7A: Theta15 Staged Release Candidate
+
+Status: in progress.
+
+Scope:
+- Package the completed Stage 3A, Stage 4, Stage 5, Stage 6A, Stage 6B, Stage 6C, Stage 6D, and Stage 6E slices as one coherent release candidate instead of publishing isolated microfixes.
+- Use `v1.0.11-theta15` / `versionCode=443`, because `v1.0.11-theta14` already points at an older commit.
+- Build only the Android release artifact. Do not invoke iOS packaging.
+
+Preflight evidence:
+- GREEN/SYNC: after `git fetch --all --prune`, `git rev-list --left-right --count fork/master...HEAD` reported `0 36`, so this branch contains the current `fork/master` before release work.
+- RED/VERSION-FIRST: `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta15` failed while `androidApp/build.gradle.kts` still declared `v1.0.11-theta14`.
+- GREEN/VERSION: after the release identity bump, `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta15` passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta15 release identity.
+- GREEN/HOST-FOCUSED: `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests ... --console=plain` passed for the reader shell, runtime assets, paper surface, navigation flow, Komikku reset, Anx parity, PDF parity, font-source parity, and Bindery source-policy guards.
+- RED/LOCAL-RELEASE-BUILD: `.\gradlew.bat --no-daemon :androidApp:assembleRelease --console=plain` stopped at the repository signing gate because local `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`, `SIGNING_STORE_PASSWORD`, and `SIGNING_STORE_FILE` are not configured. The release APK must therefore be produced by the GitHub Actions Android release path with its configured signing secrets.
+
+Required before closure:
+- [ ] Run final `git diff --check`.
+- [ ] Commit the theta15 release identity and Stage 7A evidence.
+- [ ] Create and push the `v1.0.11-theta15` tag after the commit.
+- [ ] Trigger/watch the GitHub Actions Android release path with `scripts\publish-github-release.ps1`.
+- [ ] Record the published release URL/assets once GitHub confirms the artifact exists.
+
 ## Current First Focus
 
-Start with Stage 0, then Stage 1. Stage 5 Whispersync work can continue only where it is pure model/coordinator work or where Stage 1 shell behavior has already been validated by host and readerdev evidence. Stage 6 visual polish waits until Stage 1 and the directly dependent Whispersync gate are not actively broken.
+Finish Stage 7A before starting another reader or Whispersync implementation slice. The next code stage should be selected only after the theta15 release candidate is available for device validation or the GitHub release pipeline exposes a real blocker.
