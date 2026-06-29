@@ -724,7 +724,7 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun readerHarnessTextureFrontmatterTransitionTargetsVisibleAuthorNoteBoundary() {
+	fun readerHarnessTextureFrontmatterTransitionDiscoversFixtureBoundary() {
 		val harnessFile = listOf(
 			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
 			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
@@ -736,11 +736,15 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\nif (mode === 'pdf-smoke')")
 
 		assertContains(frontmatterMode, "visibleText")
-		assertContains(frontmatterMode, "AUTHOR")
-		assertContains(frontmatterMode, "author-note-boundary")
+		assertContains(frontmatterMode, "findTextureTransitionBoundary")
+		assertContains(frontmatterMode, "transition-boundary-entry")
 		assertFalse(
 			frontmatterMode.contains("while (Number(currentLocation?.pageIndex) < 4)"),
-			"Texture frontmatter coverage must seek the real visible Author's Note boundary, not hard-code a shallow page index."
+			"Texture transition coverage must seek a real visible fixture boundary, not hard-code a shallow page index."
+		)
+		assertFalse(
+			frontmatterMode.contains("Author's Note") || frontmatterMode.contains("AUTHOR'S NOTE"),
+			"Texture transition coverage must not be hard-coded to the Hobbit Author's Note heading."
 		)
 	}
 
@@ -762,18 +766,18 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			frontmatterMode,
-			"drag-author-note-boundary",
-			message = "The maps/frontmatter -> Author's Note texture inversion must have a named drag probe for phone-equivalent behavior."
+			"drag-transition-entry-boundary",
+			message = "The fixture-discovered texture transition must have a named drag probe for phone-equivalent behavior."
 		)
 		assertContains(
 			frontmatterMode,
-			"drag-post-author-note-boundary",
-			message = "The texture harness must prove texture direction remains correct after the frontmatter boundary, not just while entering it."
+			"drag-post-transition-boundary",
+			message = "The texture harness must prove texture direction remains correct after the discovered boundary, not just while entering it."
 		)
 		assertContains(
 			frontmatterMode,
-			"drag-reverse-author-note-boundary",
-			message = "The texture harness must reproduce the phone-side reverse transition from chapter content back into Author's Note."
+			"drag-reverse-transition-boundary",
+			message = "The texture harness must reproduce the phone-side reverse transition across the discovered boundary."
 		)
 		assertContains(
 			frontmatterMode,
@@ -847,7 +851,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(
 			frontmatterMode,
 			"assertTextureTracePayloadsTrackTurnDirection(result.trace)",
-			message = "The Author's Note boundary harness must fail if texture:scroll payloads invert after the boundary."
+			message = "The texture boundary harness must fail if texture:scroll payloads invert after the discovered boundary."
 		)
 	}
 

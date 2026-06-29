@@ -8199,3 +8199,59 @@ Results:
 
 Remaining:
 - Release-package reader/Whispersync behavior still needs installation validation on a logged-in device or equivalent emulator state.
+
+
+## 2026-06-29 Theta16 Release-Package Install/App-Shell Validation
+
+Scope:
+- Validate the published theta16 Android APK as a release package, without confusing release evidence with readerdev evidence.
+- Run only checks that are meaningful while the release emulator profile is not logged in.
+
+Commands:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta16\Navic.apk -ExpectedVersionName v1.0.11-theta16 -ArtifactDir captures\reader-smoke\theta16-release-install -CaptureReaderDiagnostics
+```
+
+Results:
+- GREEN/RELEASE-INSTALL: `darkaxt.navic` installed with `versionCode=444`, `versionName=v1.0.11-theta16`, and `lastUpdateTime=2026-06-29 16:55:20`.
+- GREEN/FOREGROUND: `focused-window.txt` confirms `darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- GREEN/WEBVIEW-SOCKET: the smoke runner found a WebView DevTools socket for the installed package.
+- BLOCKED/RELEASE-READER: the emulator release profile lands on the Navidrome login screen. `reader-diagnostics-summary.txt` contains zero reader/touch/texture events, so no reader or Whispersync release behavior can be claimed from this run.
+
+Remaining:
+- Release-package reader and Whispersync validation still requires a logged-in release device/profile or a dedicated release-login automation path.
+- Continue closing product gaps through browser harnesses and `darkaxt.navic.readerdev`, but label that as implementation/runtime evidence until the release package reaches a real reader route.
+
+
+## 2026-06-29 Stage 6D.3 Deterministic Texture Motion Harness Repair
+
+Scope:
+- Replace the stale Hobbit-specific texture transition probe with a fixture-discovered visible section-boundary probe.
+- Re-run texture movement validation against the current production EPUB fixture.
+- Fix only runtime defects exposed by the now-honest harness.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionDiscoversFixtureBoundary --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidPaginatorDoesNotThrowWhenDocumentElementIsTemporarilyUnavailable --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidPaginatorStyleHelperSkipsTransientNonElements --console=plain
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-scroll --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\book-3809-file-426.epub
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionDiscoversFixtureBoundary` failed while the harness still searched for the Hobbit `Author's Note` heading.
+- RED/HARNESS-FIRST: once the stale boundary was removed, `epub-texture-page-turns` exposed a real paginator console error: `Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.`
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidPaginatorDoesNotThrowWhenDocumentElementIsTemporarilyUnavailable` and `ReaderRuntimeAssetsTest.androidPaginatorStyleHelperSkipsTransientNonElements` failed before the paginator used a safe style root and skipped transient null/non-element style targets.
+- GREEN/HOST-FOCUSED: the three focused host guards passed after the harness and paginator changes.
+- GREEN/JS: `node --check` passed for `vendor\foliate-js\paginator.js` and `tools\reader-harness\src\run-reader-harness.mjs`.
+- GREEN/HARNESS: `texture-offset-logic`, `epub-texture-scroll`, `epub-texture-page-turns`, and `epub-texture-frontmatter-transition` all passed against `tmp\reader-live\book-3809-file-426.epub`.
+
+Remaining:
+- This validates deterministic texture motion in browser/harness conditions for the current EPUB fixture. It does not replace physical/release visual judgment for texture strength, edge degradation visibility, or drag feel.

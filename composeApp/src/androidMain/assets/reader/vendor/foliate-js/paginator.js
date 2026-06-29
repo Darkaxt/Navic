@@ -206,7 +206,8 @@ const makeMarginals = (length, part) => Array.from({ length }, () => {
 })
 
 const setStylesImportant = (el, styles) => {
-    const { style } = el
+    if (!el?.style) return
+    const style = el.style
     for (const [k, v] of Object.entries(styles)) style.setProperty(k, v, 'important')
 }
 
@@ -802,7 +803,9 @@ export class Paginator extends HTMLElement {
     #replaceBackground(background, columnCount) {
         const doc = this.#view?.document
         if (!doc) return
-        const htmlStyle = doc.defaultView.getComputedStyle(doc.documentElement)
+        const root = doc?.documentElement?.nodeType === 1 ? doc.documentElement : documentStyleRoot(doc)
+        if (!root || !doc.defaultView) return
+        const htmlStyle = doc.defaultView.getComputedStyle(root)
         const themeBgColor = htmlStyle.getPropertyValue('--theme-bg-color')
         if (background && themeBgColor) {
             const parsedBackground = background.split(/\s(?=(?:url|rgb|hsl|#[0-9a-fA-F]{3,6}))/)

@@ -1217,4 +1217,45 @@ class ReaderRuntimeAssetsTest {
 		)
 	}
 
+	@Test
+	fun androidPaginatorDoesNotThrowWhenDocumentElementIsTemporarilyUnavailable() {
+		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val replaceBackground = paginatorText
+			.substringAfter("#replaceBackground(background, columnCount) {")
+			.substringBefore("\n    #applyVisibleViewport()")
+
+		assertContains(
+			replaceBackground,
+			"const root = doc?.documentElement?.nodeType === 1 ? doc.documentElement : documentStyleRoot(doc)",
+			message = "EPUB page turns can momentarily expose a non-element documentElement; background replacement must choose a safe style element."
+		)
+		assertContains(
+			replaceBackground,
+			"if (!root || !doc.defaultView) return",
+			message = "Paginator background replacement must skip transient documents instead of passing non-elements to getComputedStyle."
+		)
+		assertFalse(
+			replaceBackground.contains("getComputedStyle(doc.documentElement)"),
+			"Direct getComputedStyle(doc.documentElement) throws when Foliate exposes a transient non-element root during page turns."
+		)
+	}
+
+	@Test
+	fun androidPaginatorStyleHelperSkipsTransientNonElements() {
+		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val styleHelper = paginatorText
+			.substringAfter("const setStylesImportant = (el, styles) => {")
+			.substringBefore("\nconst normalizeFrameSize =")
+
+		assertContains(
+			styleHelper,
+			"if (!el?.style) return",
+			message = "Paginator style writes must tolerate transient null/non-element targets during iframe page-turn lifecycle."
+		)
+		assertFalse(
+			styleHelper.contains("const { style } = el"),
+			"Destructuring style from a transient null target throws and aborts texture/page-turn harnesses."
+		)
+	}
+
 }

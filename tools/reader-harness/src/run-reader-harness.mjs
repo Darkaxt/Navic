@@ -2868,48 +2868,65 @@ if (mode === 'epub-texture-frontmatter-transition') {
       }
     }, label)
 
-    const firstState = await collectState('author-search-start')
-    const authorSearch = await page.evaluate(async () => {
-      const query = "Author's Note"
-      const before = (window.__navicReaderPostedMessages || []).length
-      await window.NavicReaderBridge.dispatch({ type: 'search', query })
-      const messages = window.__navicReaderPostedMessages || []
-      return messages.slice(before).find(message => message?.type === 'searchResults' && message.query === query) || null
-    })
-    const authorSearchResult =
-      authorSearch?.results?.find(result =>
-        (result?.cfi || result?.href) &&
-        /Author's Note/i.test(result?.excerpt || '') &&
-        !/AUTHOR’S NOTE/.test(result?.excerpt || '')
-      ) ||
-      authorSearch?.results?.find(result => result?.cfi || result?.href)
-    if (!authorSearchResult) {
-      throw new Error(`Expected search to locate the visible AUTHOR'S NOTE heading; observed ${JSON.stringify(authorSearch)}`)
-    }
-    await page.evaluate(async result => {
-      document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
-      if (result.cfi) {
-        await window.NavicReaderBridge.dispatch({ type: 'goToCfi', cfi: result.cfi })
-      } else {
-        await window.NavicReaderBridge.dispatch({ type: 'goToHref', href: result.href })
+    const firstState = await collectState('transition-scan-start')
+    const findTextureTransitionBoundary = async () => {
+      let previous = firstState
+      for (let turn = 0; turn < 80; turn += 1) {
+        await page.evaluate(async () => {
+          document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
+          await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+        })
+        await page.waitForTimeout(360)
+        const current = await collectState(`transition-scan-${turn + 1}`)
+        const previousPage = Number(previous?.pageIndex)
+        const currentPage = Number(current?.pageIndex)
+        const previousHref = String(previous?.href || previous?.visibleDocuments?.[0]?.href || '')
+        const currentHref = String(current?.href || current?.visibleDocuments?.[0]?.href || '')
+        const previousVisibleIndex = Number(previous?.visibleDocuments?.find(document => document?.visibleText)?.index)
+        const currentVisibleIndex = Number(current?.visibleDocuments?.find(document => document?.visibleText)?.index)
+        const changedSection =
+          (previousHref && currentHref && previousHref !== currentHref) ||
+          (Number.isFinite(previousVisibleIndex) &&
+            Number.isFinite(currentVisibleIndex) &&
+            previousVisibleIndex !== currentVisibleIndex)
+        const previousHasVisibleText = String(previous?.visibleText || '').replace(/\s+/g, ' ').trim().length > 80
+        const currentHasVisibleText = String(current?.visibleText || '').replace(/\s+/g, ' ').trim().length > 80
+        if (
+          Number.isFinite(previousPage) &&
+          Number.isFinite(currentPage) &&
+          previousPage > 1 &&
+          currentPage > previousPage &&
+          changedSection &&
+          previousHasVisibleText &&
+          currentHasVisibleText
+        ) {
+          return {
+            turns: turn + 1,
+            before: previous,
+            entry: current,
+          }
+        }
+        previous = current
       }
-    }, authorSearchResult)
-    await page.waitForTimeout(500)
-    const authorNoteState = await collectState('author-note-search-hit')
-    if (!Number.isFinite(Number(authorNoteState?.pageIndex))) {
-      throw new Error(`Expected AUTHOR'S NOTE search locator to produce a page location; observed ${JSON.stringify(authorNoteState)}`)
+      throw new Error(`Expected texture transition probe to discover a visible section boundary; last=${JSON.stringify(previous)}`)
+    }
+
+    const transitionBoundary = await findTextureTransitionBoundary()
+    const transitionEntryState = await collectState('transition-boundary-entry')
+    if (!Number.isFinite(Number(transitionEntryState?.pageIndex))) {
+      throw new Error(`Expected discovered texture transition to produce a page location; observed ${JSON.stringify(transitionEntryState)}`)
     }
     await page.evaluate(async () => {
       document.querySelector('foliate-view')?.renderer?.removeAttribute?.('animated')
       await window.NavicReaderBridge.dispatch({ type: 'previousPage' })
     })
     await page.waitForTimeout(420)
-    const beforeAuthorNoteState = await collectState('author-note-boundary-before')
-    if (Number(beforeAuthorNoteState?.pageIndex) >= Number(authorNoteState?.pageIndex)) {
+    const beforeTransitionState = await collectState('transition-boundary-before')
+    if (Number(beforeTransitionState?.pageIndex) >= Number(transitionEntryState?.pageIndex)) {
       throw new Error(
-        `Expected previousPage to return before AUTHOR'S NOTE before probing; ` +
-        `before=${beforeAuthorNoteState?.pageIndex}/${beforeAuthorNoteState?.pageCount} ` +
-        `author=${authorNoteState?.pageIndex}/${authorNoteState?.pageCount}`
+        `Expected previousPage to return before the discovered texture boundary; ` +
+        `before=${beforeTransitionState?.pageIndex}/${beforeTransitionState?.pageCount} ` +
+        `entry=${transitionEntryState?.pageIndex}/${transitionEntryState?.pageCount}`
       )
     }
 
@@ -2960,45 +2977,45 @@ if (mode === 'epub-texture-frontmatter-transition') {
       return { name, direction, samples, trace }
     }
 
-    const dragAuthorEntryProbe = await dragProbe('drag-author-note-boundary')
-    if (Number(dragAuthorEntryProbe.samples.at(-1)?.pageIndex) < Number(authorNoteState?.pageIndex)) {
+    const dragTransitionEntryProbe = await dragProbe('drag-transition-entry-boundary')
+    if (Number(dragTransitionEntryProbe.samples.at(-1)?.pageIndex) < Number(transitionEntryState?.pageIndex)) {
       throw new Error(
-        `Expected drag-author-note-boundary probe to settle on the visible AUTHOR'S NOTE page; ` +
-        `settled=${dragAuthorEntryProbe.samples.at(-1)?.pageIndex}/${dragAuthorEntryProbe.samples.at(-1)?.pageCount} ` +
-        `author=${authorNoteState?.pageIndex}/${authorNoteState?.pageCount}`
+        `Expected drag-transition-entry-boundary probe to settle on the discovered transition page; ` +
+        `settled=${dragTransitionEntryProbe.samples.at(-1)?.pageIndex}/${dragTransitionEntryProbe.samples.at(-1)?.pageCount} ` +
+        `entry=${transitionEntryState?.pageIndex}/${transitionEntryState?.pageCount}`
       )
     }
-    const dragPostAuthorBoundaryProbe = await dragProbe('drag-post-author-note-boundary')
-    const dragAuthorEntryPage = Number(dragAuthorEntryProbe.samples.at(-1)?.pageIndex)
-    const dragPostAuthorPage = Number(dragPostAuthorBoundaryProbe.samples.at(-1)?.pageIndex)
-    if (!Number.isFinite(dragPostAuthorPage) || dragPostAuthorPage <= dragAuthorEntryPage) {
+    const dragPostTransitionBoundaryProbe = await dragProbe('drag-post-transition-boundary')
+    const dragTransitionEntryPage = Number(dragTransitionEntryProbe.samples.at(-1)?.pageIndex)
+    const dragPostTransitionPage = Number(dragPostTransitionBoundaryProbe.samples.at(-1)?.pageIndex)
+    if (!Number.isFinite(dragPostTransitionPage) || dragPostTransitionPage <= dragTransitionEntryPage) {
       throw new Error(
-        `Expected drag-post-author-note-boundary probe to advance after the AUTHOR'S NOTE page; ` +
-        `before=${dragAuthorEntryPage}/${dragAuthorEntryProbe.samples.at(-1)?.pageCount} ` +
-        `settled=${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageIndex}/${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageCount}`
+        `Expected drag-post-transition-boundary probe to advance after the discovered boundary page; ` +
+        `before=${dragTransitionEntryPage}/${dragTransitionEntryProbe.samples.at(-1)?.pageCount} ` +
+        `settled=${dragPostTransitionBoundaryProbe.samples.at(-1)?.pageIndex}/${dragPostTransitionBoundaryProbe.samples.at(-1)?.pageCount}`
       )
     }
-    const dragReverseAuthorBoundaryProbe = await dragProbe('drag-reverse-author-note-boundary', 'backward')
-    const dragReverseAuthorPage = Number(dragReverseAuthorBoundaryProbe.samples.at(-1)?.pageIndex)
-    if (!Number.isFinite(dragReverseAuthorPage) || dragReverseAuthorPage >= dragPostAuthorPage) {
+    const dragReverseTransitionBoundaryProbe = await dragProbe('drag-reverse-transition-boundary', 'backward')
+    const dragReverseTransitionPage = Number(dragReverseTransitionBoundaryProbe.samples.at(-1)?.pageIndex)
+    if (!Number.isFinite(dragReverseTransitionPage) || dragReverseTransitionPage >= dragPostTransitionPage) {
       throw new Error(
-        `Expected drag-reverse-author-note-boundary probe to move back across the AUTHOR'S NOTE boundary; ` +
-        `before=${dragPostAuthorPage}/${dragPostAuthorBoundaryProbe.samples.at(-1)?.pageCount} ` +
-        `settled=${dragReverseAuthorBoundaryProbe.samples.at(-1)?.pageIndex}/${dragReverseAuthorBoundaryProbe.samples.at(-1)?.pageCount}`
+        `Expected drag-reverse-transition-boundary probe to move back across the discovered boundary; ` +
+        `before=${dragPostTransitionPage}/${dragPostTransitionBoundaryProbe.samples.at(-1)?.pageCount} ` +
+        `settled=${dragReverseTransitionBoundaryProbe.samples.at(-1)?.pageIndex}/${dragReverseTransitionBoundaryProbe.samples.at(-1)?.pageCount}`
       )
     }
-    const postAuthorProbe = await bridgeProbe('frontmatter-post-author-note')
+    const postTransitionProbe = await bridgeProbe('frontmatter-post-transition')
     const result = {
-      probes: [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe, dragReverseAuthorBoundaryProbe, postAuthorProbe],
-      authorBoundarySearch: {
+      probes: [dragTransitionEntryProbe, dragPostTransitionBoundaryProbe, dragReverseTransitionBoundaryProbe, postTransitionProbe],
+      transitionBoundarySearch: {
         first: firstState,
-        searchResult: authorSearchResult,
-        before: beforeAuthorNoteState,
-        author: authorNoteState,
+        boundary: transitionBoundary,
+        before: beforeTransitionState,
+        entry: transitionEntryState,
       },
       trace: await page.evaluate(() => window.__navicReaderTrace || []),
     }
-    const dragProbeMissingDirection = [dragAuthorEntryProbe, dragPostAuthorBoundaryProbe, dragReverseAuthorBoundaryProbe]
+    const dragProbeMissingDirection = [dragTransitionEntryProbe, dragPostTransitionBoundaryProbe, dragReverseTransitionBoundaryProbe]
       .find(probe => !probe.trace?.some(event => event?.type === 'texture:drag-direction'))
     if (dragProbeMissingDirection) {
       throw new Error(`Expected ${dragProbeMissingDirection.name} to emit texture:drag-direction before checking texture movement`)

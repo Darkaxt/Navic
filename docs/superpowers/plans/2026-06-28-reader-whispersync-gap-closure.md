@@ -613,6 +613,42 @@ Required before closure:
 Remaining:
 - This is not yet the full mockup's dual/single-page snapshot animation. It gives the drag preview a curl-derived transform/shadow while preserving current page ownership. A later slice should only attempt true snapshot sheet animation after a guard proves no regression to center taps, menu toggles, cover behavior, or adjacent-page loading.
 
+### Stage 6D.3: Deterministic Texture Motion
+
+**Purpose:** Close the remaining paper/edge texture transition weirdness as a renderer-owned movement contract, not another visual opacity tweak.
+
+**Files:**
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-appearance.js`
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-motion.js`
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-helpers.js` only if CSS position serialization changes.
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js` only if drag progress no longer exposes enough direction/progress state.
+- Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+- Test: `tools/reader-harness/src/run-reader-harness.mjs`
+- Validate: `tools/reader-harness/src/reader-trace-assertions.mjs`
+
+**Acceptance:**
+- Texture and border texture movement must be a deterministic function of logical page identity plus drag/turn direction.
+- During a same-direction next/previous walk, texture position must not invert sign when Foliate crosses section boundaries.
+- During drag preview, texture movement must follow the visual page movement axis, not relocation event order.
+- Texture reset is allowed only after a committed page identity changes; relocation noise during animation must not create a visible opposite-direction pulse.
+- Opacity, asset selection, and paper visual strength are explicitly out of this stage unless a guard proves they are part of the movement bug.
+
+**TDD steps:**
+- [x] Add failing source/host guards for the stale hard-coded boundary probe and the transient paginator document/style failures that aborted texture page-turn validation.
+- [x] Extend the browser harness probe so it discovers a real visible section boundary from the active EPUB fixture and asserts drag/turn texture deltas keep the commanded direction.
+- [x] Implement the smallest runtime change needed for the now-honest harness: harden the bundled paginator against transient non-element `documentElement`/style targets during page-turn preloading.
+- [x] Run focused host tests, JS syntax checks, and the texture harness probes.
+- [x] Run full `:composeApp:testAndroid`, `git diff --check`, and append compact validation results to `2026-06-13-komikku-reader-port-validation-log.md`.
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.readerHarnessTextureFrontmatterTransitionDiscoversFixtureBoundary` failed while `epub-texture-frontmatter-transition` still searched for the Hobbit `Author's Note` text.
+- RED/HARNESS-FIRST: after removing the stale search, `epub-texture-page-turns` exposed `Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.`
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidPaginatorDoesNotThrowWhenDocumentElementIsTemporarilyUnavailable` and `ReaderRuntimeAssetsTest.androidPaginatorStyleHelperSkipsTransientNonElements` failed before the paginator resolved a safe style root and tolerated null/non-element style targets.
+- GREEN/HARNESS: `texture-offset-logic`, `epub-texture-scroll`, `epub-texture-page-turns`, and `epub-texture-frontmatter-transition` passed against `tmp\reader-live\book-3809-file-426.epub`.
+
+Remaining:
+- This is browser/host proof for deterministic texture movement on the current production EPUB fixture. Release-device visual judgment is still required for perceived texture strength, edge degradation visibility, and drag feel.
+
 ## Stage 7: Release Candidate Gate
 
 **Purpose:** Publish only when a coherent milestone is ready for user validation.
@@ -659,7 +695,7 @@ Required before closure:
 
 ## Current First Focus
 
-Use `v1.0.11-theta15` as the current device-validation baseline. The next implementation stage should be selected from the remaining queue only after theta15 feedback identifies the next highest-impact blocker.
+Use `v1.0.11-theta16` as the current public release baseline. The release APK has been installed and app-shell checked on the emulator, but the release package is not logged in there, so deep reader and Whispersync release behavior still requires either a logged-in release device/profile or a dedicated release-login automation path. Until that exists, close product gaps through readerdev/browser harnesses and keep the evidence labeled as implementation/runtime proof, not release proof.
 
 ## Stage 8: Release Validation Baseline Gate
 
@@ -717,3 +753,32 @@ Closure:
 - [x] Record that deep release reader/Whispersync checks require release login/data; keep readerdev implementation evidence separate.
 - [x] Append concise validation evidence and open gaps to the validation log.
 - [x] Commit the Stage 8A plan/evidence when the stage is complete.
+
+### Stage 8B: Theta16 Release Validation Baseline
+
+Status: complete for release-package install/app-shell; deep reader/Whispersync release validation remains blocked by missing release login/data on the emulator.
+
+Scope:
+- Reuse the published `v1.0.11-theta16` `Navic.apk` from GitHub release assets.
+- Install it on the connected emulator as `darkaxt.navic`.
+- Verify `versionName=v1.0.11-theta16`, `versionCode=444`, foreground launch, screenshot capture, and WebView debug socket availability.
+- Run only deterministic checks that are meaningful while the release package is not logged in.
+- Record the release login boundary explicitly so the next product stages do not claim release reader behavior from readerdev evidence.
+
+Commands:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta16\Navic.apk -ExpectedVersionName v1.0.11-theta16 -ArtifactDir captures\reader-smoke\theta16-release-install -CaptureReaderDiagnostics
+```
+
+Results:
+- GREEN/RELEASE-INSTALL: published `v1.0.11-theta16` `Navic.apk` installed on `emulator-5554` as `darkaxt.navic`; `package-version.txt` reports `versionCode=444`, `versionName=v1.0.11-theta16`, and `lastUpdateTime=2026-06-29 16:55:20`.
+- GREEN/RELEASE-SHELL: `focused-window.txt` confirms `darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- GREEN/WEBVIEW-SOCKET: the smoke runner found a WebView DevTools socket (`@webview_devtools_remote_28774`), so the package is debuggable enough for browser-side probes once a reader route is reachable.
+- BLOCKED/RELEASE-READER: the release package on the emulator lands on the Navidrome login form. `reader-diagnostics-summary.txt` has zero reader/touch/texture events, which is correct for that state and cannot be used as reader evidence.
+
+Closure:
+- [x] Install the published theta16 APK and prove the installed release version.
+- [x] Capture launch/shell evidence for `darkaxt.navic`.
+- [x] Record that theta16 release-package reader/Whispersync validation still requires release login/data.
+- [ ] Add a release-login automation path or validate on a logged-in physical device before claiming release-level reader/Whispersync usability.
