@@ -22,8 +22,8 @@ class PlaylistStationPolicyTest {
 	@Test
 	fun playlistsSplitIntoStationsAndRegularPlaylists() {
 		val station = playlist(id = "station", name = "[A] Training")
-		val moodMix = playlist(id = "mood", name = "Sleep Mix", comment = "Last generated: 28 Jun, 03:00")
-		val genreMix = playlist(id = "genre", name = "Electronic_Pop_Indie", comment = "Last generated: 28 Jun, 03:00")
+		val moodMix = playlist(id = "mood", name = "Sleep Mix")
+		val genreMix = playlist(id = "genre", name = "Electronic_Pop_Indie")
 		val regular = playlist(id = "playlist", name = "Training")
 
 		val playlists = listOf(station, moodMix, genreMix, regular)
@@ -36,9 +36,9 @@ class PlaylistStationPolicyTest {
 
 	@Test
 	fun generatedPlaylistsSplitIntoMoodAndGenreMixes() {
-		val moodMix = playlist(id = "mood", name = "Road Trip Mix", comment = "Last generated: 28 Jun, 03:00")
-		val genreMix = playlist(id = "genre", name = "Electronic_Pop_Indie", comment = "Last generated: 28 Jun, 03:00")
-		val imported = playlist(id = "imported", name = "Electronic_Pop_Indie", comment = "Auto-imported from 'Electronic_Pop_Indie.m3u'")
+		val moodMix = playlist(id = "mood", name = "Road Trip Mix")
+		val genreMix = playlist(id = "genre", name = "Electronic_Pop_Indie")
+		val imported = playlist(id = "imported", name = "Workout Motivation 2017 (Unmixed Workout Music Ideal for Gym)")
 
 		assertTrue(moodMix.isMoodMixPlaylist())
 		assertFalse(moodMix.isGenreMixPlaylist())
@@ -55,19 +55,18 @@ class PlaylistStationPolicyTest {
 			"Electronic / Pop / Indie",
 			playlist(
 				id = "genre",
-				name = "Electronic_Pop_Indie",
-				comment = "Last generated: 28 Jun, 03:00"
+				name = "Electronic_Pop_Indie"
 			).playlistDisplayName()
 		)
-		assertEquals("Electronic_Pop_Indie", playlist(id = "manual", name = "Electronic_Pop_Indie").playlistDisplayName())
+		assertEquals("Training Plan", playlist(id = "manual", name = "Training Plan").playlistDisplayName())
 	}
 
 	@Test
 	fun playlistDeletionFromDetailIsOfferedForRegularPlaylistsOnly() {
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "playlist", name = "Training")))
 		assertFalse(canDeletePlaylistFromDetail(playlist(id = "station", name = "[A] Training")))
-		assertFalse(canDeletePlaylistFromDetail(playlist(id = "mood", name = "Sleep Mix", comment = "Last generated: 28 Jun, 03:00")))
-		assertFalse(canDeletePlaylistFromDetail(playlist(id = "genre", name = "Electronic_Pop_Indie", comment = "Last generated: 28 Jun, 03:00")))
+		assertFalse(canDeletePlaylistFromDetail(playlist(id = "mood", name = "Sleep Mix")))
+		assertFalse(canDeletePlaylistFromDetail(playlist(id = "genre", name = "Electronic_Pop_Indie")))
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "readonly", name = "Training").copy(readOnly = true)))
 	}
 

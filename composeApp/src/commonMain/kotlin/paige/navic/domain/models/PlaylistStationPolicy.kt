@@ -1,19 +1,19 @@
 package paige.navic.domain.models
 
 private const val StationPlaylistPrefix = "[A] "
-private const val GeneratedPlaylistCommentPrefix = "Last generated:"
+private const val MoodMixSuffix = " Mix"
 
 fun DomainPlaylist.isStationPlaylist(): Boolean =
 	name.startsWith(StationPlaylistPrefix)
 
 fun DomainPlaylist.isGeneratedMixPlaylist(): Boolean =
-	comment?.startsWith(GeneratedPlaylistCommentPrefix, ignoreCase = true) == true
+	isMoodMixPlaylist() || isGenreMixPlaylist()
 
 fun DomainPlaylist.isGenreMixPlaylist(): Boolean =
-	isGeneratedMixPlaylist() && name.contains("_")
+	!isStationPlaylist() && name.contains("_")
 
 fun DomainPlaylist.isMoodMixPlaylist(): Boolean =
-	isGeneratedMixPlaylist() && !isGenreMixPlaylist()
+	!isStationPlaylist() && !isGenreMixPlaylist() && name.endsWith(MoodMixSuffix)
 
 fun DomainPlaylist.stationDisplayName(): String {
 	if (!isStationPlaylist()) return name
