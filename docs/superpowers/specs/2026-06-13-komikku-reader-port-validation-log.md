@@ -8039,3 +8039,37 @@ Results:
 Remaining:
 - The emulator release package has no logged-in app state, so EPUB/PDF reader shell, Anx interaction UI, settings controls, and Whispersync cannot be claimed as release-package evidence from this run.
 - Readerdev remains valid for deterministic implementation probes, but future logs must label readerdev evidence separately from `darkaxt.navic` release evidence.
+
+
+## 2026-06-29 Stage 2B Current-Source Anx Interaction Gate
+
+Scope:
+- Validate current-source `darkaxt.navic.readerdev` interaction routes before continuing into larger Whispersync work.
+- Keep release evidence separate from readerdev evidence because the published `darkaxt.navic` theta15 package is still login-blocked on this emulator.
+- Prove Anx/Foliate bridge events at the native controller/UI boundary: selection actions, selection clear, annotation popup, external link prompt, history controls, pull-up, and search navigation.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -RequireReaderLaunch -Capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -TapFraction '0.90,0.50,900' -ArtifactDir captures\reader-bridge-probes\stage2b-enter-readable-after-relaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe phase3-events -RequireReaderBridgeEvent externalLink,annotationClick,annotationDrawn,overlayCreated,loadDoc,pushState,footnoteClose,pullUp -ArtifactDir captures\reader-bridge-probes\stage2b-phase3-events-final-current-source
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-payload -PostProbeAction 'tapText:Highlight,1200' -RequireReaderEngineCommand 'applyHighlights' -RequireReaderBridgeEvent annotationDrawn -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-highlight-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-payload -PostProbeAction 'tapText:Copy,1200' -RequireReaderLog 'Reader selection copied length=' -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-copy-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-payload -PostProbeAction 'tapText:Note,700|tapText:Annotation,500|text:Stage2B_visible_note,500|tapText:Save,1800' -RequireReaderLog 'Reader selection note save length=' -RequireReaderBridgeEvent annotationDrawn -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-note-save-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-clear -RequireReaderBridgeEvent selectionCleared -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-clear-clean-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe annotation-roundtrip -PostProbeAction 'tapText:Close,900' -RequireReaderBridgeEvent annotationDrawn,annotationClick -ArtifactDir captures\reader-bridge-probes\stage2b-annotation-popup-close-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe external-link-prompt -PostProbeAction 'tapText:Close,900' -RequireReaderBridgeEvent externalLink -ArtifactDir captures\reader-bridge-probes\stage2b-external-link-prompt-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe history-controls -PostProbeAction 'tapDesc:Close history controls,900' -ArtifactDir captures\reader-bridge-probes\stage2b-history-controls-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tap:540,1190,400|text:the,600|tapDesc:Search,2500' -RequireReaderEngineCommand search -ArtifactDir captures\reader-bridge-probes\stage2b-search-dialog-query-focused-field
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tap:540,650,2500' -RequireReaderEngineCommand goToCfi -RequireReaderBridgeEvent locationChanged -ArtifactDir captures\reader-bridge-probes\stage2b-search-result-navigation-readable
+```
+
+Results:
+- GREEN/LAUNCH: `install-reader-dev.ps1` reopened `A Memory of Light (epub)` directly in `darkaxt.navic.readerdev`; `publicationReady` fired under PID `27436`.
+- GREEN/PHASE3: `stage2b-phase3-events-final-current-source` captured `externalLink`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and `pullUp`.
+- GREEN/SELECTION: Highlight, Copy, and Note were proven through visible EPUB selection and native UI actions; Highlight/Note emitted `annotationDrawn`, Copy logged `Reader selection copied length=`.
+- GREEN/SELECTION-CLEAR: a new red-first `visible-selection-clear` probe selected visible EPUB text, removed the ranges from the same loaded document, and captured `selectionCleared`.
+- GREEN/ANNOTATION/LINK/HISTORY: native annotation popup, external-link prompt, and history capsule routes were shown and closed with deterministic ADB actions.
+- GREEN/SEARCH-ROUTE: search command and result navigation were proven; delayed logs captured `searchResults(count=28029)` for `the`, and result tapping dispatched `goToCfi` plus `locationChanged`.
+- CAVEAT: search field autofocus and common-query latency remain UX/performance follow-ups. Release-package validation remains blocked by missing logged-in state on the emulator.

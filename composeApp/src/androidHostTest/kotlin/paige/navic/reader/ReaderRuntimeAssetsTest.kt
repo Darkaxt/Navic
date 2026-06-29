@@ -274,6 +274,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "reader-devtools-probe.json")
 		assertContains(scriptText, "internal-link-native")
 		assertContains(scriptText, "phase3-events")
+		assertContains(scriptText, "external-link-prompt")
+		assertContains(scriptText, "history-controls")
 		assertContains(scriptText, "selection-payload")
 		assertContains(scriptText, "relocation-payload")
 		assertContains(scriptText, "page-box")
@@ -329,6 +331,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "adb forward")
 		assertContains(helperText, "internal-link-native")
 		assertContains(helperText, "phase3-events")
+		assertContains(helperText, "external-link-prompt")
+		assertContains(helperText, "history-controls")
 		assertContains(helperText, "selection-payload")
 		assertContains(helperText, "relocation-payload")
 		assertContains(helperText, "visible-range")
@@ -353,6 +357,28 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "source=media-overlay-follow")
 		assertContains(helperText, "defaultPrevented")
 		assertContains(helperText, "native-short-tap")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanProbeExternalLinkPromptWithoutPhase3SideEffects() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val externalPromptProbe = helperText
+			.substringAfter("async function runExternalLinkPromptProbe(page)")
+			.substringBefore("async function runAnnotationRoundTripProbe(page)")
+
+		assertContains(helperText, "'external-link-prompt': runExternalLinkPromptProbe")
+		assertContains(externalPromptProbe, "probe: 'external-link-prompt'")
+		assertContains(externalPromptProbe, "https://example.test/navic-external-prompt")
+		assertContains(externalPromptProbe, "new CustomEvent('external-link'")
+		assertContains(externalPromptProbe, "Reader bridge event: externalLink")
+		assertFalse(
+			externalPromptProbe.contains("new CustomEvent('show-annotation'"),
+			"The external-link prompt probe must not leave the native UI on the annotation popup."
+		)
+		assertFalse(
+			externalPromptProbe.contains("diagnosticScrolledEdgePullUp"),
+			"The external-link prompt probe must not toggle pull-up/menu state while proving the link dialog."
+		)
 	}
 
 	@Test
@@ -817,6 +843,54 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
 		assertContains(scriptText, "required reader log '\$requiredReaderLog' was not captured")
 		assertContains(scriptText, "Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs.")
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanCreateVisibleSelectionPayloadForNativeActions() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val visibleSelectionProbe = helperText
+			.substringAfter("async function runVisibleSelectionPayloadProbe(page)")
+			.substringBefore("async function runRelocationPayloadProbe(page)")
+
+		assertContains(scriptText, "visible-selection-payload")
+		assertContains(helperText, "'visible-selection-payload': runVisibleSelectionPayloadProbe")
+		assertContains(visibleSelectionProbe, "probe: 'visible-selection-payload'")
+		assertContains(visibleSelectionProbe, "findVisibleSelectionCandidate")
+		assertContains(visibleSelectionProbe, "NodeFilter.SHOW_TEXT")
+		assertContains(visibleSelectionProbe, "adjustedRect")
+		assertContains(visibleSelectionProbe, "viewportIntersectionRatio")
+		assertContains(visibleSelectionProbe, "getBoundingClientRect")
+		assertContains(visibleSelectionProbe, "getClientRects")
+		assertContains(visibleSelectionProbe, "selectionchange")
+		assertContains(visibleSelectionProbe, "Reader bridge event: selectionChanged(footnote=false")
+		assertContains(visibleSelectionProbe, "Could not create visible selection")
+		assertFalse(
+			visibleSelectionProbe.contains("doc.body.appendChild(paragraph)"),
+			"Visible selection validation must not rely on appending an offscreen synthetic paragraph."
+		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperCanClearVisibleSelectionThroughTheRealDocument() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val clearSelectionProbe = helperText
+			.substringAfter("async function runVisibleSelectionClearProbe(page)")
+			.substringBefore("async function runRelocationPayloadProbe(page)")
+
+		assertContains(scriptText, "visible-selection-clear")
+		assertContains(helperText, "'visible-selection-clear': runVisibleSelectionClearProbe")
+		assertContains(clearSelectionProbe, "probe: 'visible-selection-clear'")
+		assertContains(clearSelectionProbe, "runVisibleSelectionPayloadProbe(page)")
+		assertContains(clearSelectionProbe, "removeAllRanges()")
+		assertContains(clearSelectionProbe, "selectionchange")
+		assertContains(clearSelectionProbe, "selectionCleared")
+		assertContains(clearSelectionProbe, "Reader bridge event: selectionCleared")
+		assertFalse(
+			clearSelectionProbe.contains("doc.body.appendChild"),
+			"Selection clear validation must clear the currently loaded EPUB document, not a synthetic offscreen document."
+		)
 	}
 
 	@Test

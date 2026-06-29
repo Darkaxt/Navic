@@ -274,6 +274,43 @@ async function runPhase3EventsProbe(page) {
   }})()`)
 }
 
+async function runExternalLinkPromptProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const href = 'https://example.test/navic-external-prompt'
+    const externalAnchor = document.createElement('a')
+    externalAnchor.setAttribute('href', href)
+    const externalLink = new CustomEvent('external-link', {
+      bubbles: true,
+      cancelable: true,
+      detail: {
+        href,
+        a: externalAnchor,
+      },
+    })
+    const dispatched = view.dispatchEvent(externalLink)
+
+    return {
+      probe: 'external-link-prompt',
+      href,
+      dispatched,
+      defaultPrevented: externalLink.defaultPrevented,
+      expectedNativeControls: ['External link', 'Close', 'Open'],
+      expectedLogLabels: [
+        'Reader bridge event: externalLink',
+      ],
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function runAnnotationRoundTripProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     if (!window.NavicReaderBridge?.dispatch) {
@@ -447,6 +484,170 @@ async function runSelectionPayloadProbe(page) {
       pageUrl: window.location.href,
     }
   }})()`)
+}
+
+async function runVisibleSelectionPayloadProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const roundRect = rect => ({
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      top: Math.round(rect.top),
+      right: Math.round(rect.right),
+      bottom: Math.round(rect.bottom),
+      left: Math.round(rect.left),
+    })
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+    const viewport = {
+      width: Math.round(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
+      height: Math.round(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const renderer = view.renderer
+    if (!renderer) {
+      throw new Error('Missing foliate renderer')
+    }
+    const horizontalOffset = Number(renderer.containerPosition)
+    const offsetX = Number.isFinite(horizontalOffset) ? horizontalOffset : 0
+    const adjustedRectFor = rect => ({
+      x: rect.x - offsetX,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      top: rect.top,
+      right: rect.right - offsetX,
+      bottom: rect.bottom,
+      left: rect.left - offsetX,
+    })
+    const intersectionRatio = rect => {
+      const adjustedRect = adjustedRectFor(rect)
+      const intersectionWidth = clamp(Math.min(adjustedRect.right, viewport.width) - Math.max(adjustedRect.left, 0), 0, viewport.width)
+      const intersectionHeight = clamp(Math.min(adjustedRect.bottom, viewport.height) - Math.max(adjustedRect.top, 0), 0, viewport.height)
+      return Number(((intersectionWidth * intersectionHeight) / Math.max(1, rect.width * rect.height)).toFixed(4))
+    }
+    const selectableTextNode = (doc, element) => {
+      const NodeFilter = doc.defaultView?.NodeFilter || { SHOW_TEXT: 4 }
+      const walker = doc.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+      let node = walker.nextNode()
+      while (node) {
+        const text = String(node.textContent || '')
+        if (text.replace(/\\s+/g, ' ').trim().length >= 8) return node
+        node = walker.nextNode()
+      }
+      return null
+    }
+    const firstVisibleRangeRect = range => {
+      for (const rect of Array.from(range.getClientRects?.() || [])) {
+        if (!rect || rect.width <= 0 || rect.height <= 0) continue
+        if (intersectionRatio(rect) > 0.35) return rect
+      }
+      const rect = range.getBoundingClientRect?.()
+      return rect && rect.width > 0 && rect.height > 0 && intersectionRatio(rect) > 0.35 ? rect : null
+    }
+    const findVisibleSelectionCandidate = () => {
+      for (const [contentIndex, entry] of Array.from(renderer.getContents?.() || []).entries()) {
+        const doc = entry?.doc
+        const win = doc?.defaultView
+        if (!doc?.body || !win) continue
+        const elements = Array.from(doc.body.querySelectorAll('p, li, blockquote, dd, h1, h2, h3, h4, h5, h6, div, span, font'))
+        for (const element of elements) {
+          const text = String(element.textContent || '').replace(/\\s+/g, ' ').trim()
+          if (text.length < 12) continue
+          const style = win.getComputedStyle(element)
+          if (style.display === 'none' || style.visibility === 'hidden') continue
+          const elementRect = element.getBoundingClientRect?.()
+          if (!elementRect || elementRect.width <= 0 || elementRect.height <= 0 || intersectionRatio(elementRect) <= 0.35) continue
+          const node = selectableTextNode(doc, element)
+          if (!node) continue
+          const range = doc.createRange()
+          range.selectNodeContents(element)
+          const rangeRect = firstVisibleRangeRect(range)
+          if (!rangeRect) {
+            range.detach?.()
+            continue
+          }
+          const adjustedRect = adjustedRectFor(rangeRect)
+          return {
+            contentIndex,
+            entryIndex: Number.isFinite(entry?.index) ? entry.index : null,
+            doc,
+            range,
+            tagName: element.tagName,
+            textSample: text.slice(0, 120),
+            rawRect: roundRect(rangeRect),
+            adjustedRect: roundRect(adjustedRect),
+            viewportIntersectionRatio: intersectionRatio(rangeRect),
+          }
+        }
+      }
+      return null
+    }
+
+    const candidate = findVisibleSelectionCandidate()
+    if (!candidate) {
+      throw new Error('Could not create visible selection')
+    }
+    const selection = candidate.doc.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(candidate.range)
+    candidate.doc.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+    await new Promise(resolve => requestAnimationFrame(resolve))
+
+    return {
+      probe: 'visible-selection-payload',
+      selectedText: selection.toString(),
+      contentIndex: candidate.contentIndex,
+      entryIndex: candidate.entryIndex,
+      tagName: candidate.tagName,
+      textSample: candidate.textSample,
+      rawRect: candidate.rawRect,
+      adjustedRect: candidate.adjustedRect,
+      viewportIntersectionRatio: candidate.viewportIntersectionRatio,
+      expectedNativeActions: ['Highlight', 'Copy', 'Note'],
+      expectedLogLabels: [
+        'Reader bridge event: selectionChanged(footnote=false',
+      ],
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
+async function runVisibleSelectionClearProbe(page) {
+  const selected = await runVisibleSelectionPayloadProbe(page)
+  return evaluateOnPage(page, `(${async selected => {
+    const view = document.querySelector('foliate-view')
+    if (!view?.renderer?.getContents) {
+      throw new Error('Missing foliate renderer contents for selection clear')
+    }
+
+    for (const [contentIndex, entry] of Array.from(view.renderer.getContents()).entries()) {
+      const doc = entry?.doc
+      const selection = doc?.getSelection?.()
+      if (!selection || selection.rangeCount <= 0) continue
+      selection.removeAllRanges()
+      doc.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      return {
+        probe: 'visible-selection-clear',
+        selectedTextBeforeClear: selected?.selectedText || '',
+        clearedContentIndex: contentIndex,
+        selectedContentIndex: selected?.contentIndex ?? null,
+        expectedLogLabels: [
+          'Reader bridge event: selectionChanged(footnote=false',
+          'Reader bridge event: selectionCleared',
+        ],
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+      }
+    }
+
+    throw new Error('Could not find an active visible selection to clear')
+  }})(${JSON.stringify(selected)})`)
 }
 
 async function runRelocationPayloadProbe(page) {
@@ -2138,9 +2339,12 @@ async function main() {
     const probeHandlers = {
       'internal-link-native': runInternalLinkNativeProbe,
       'phase3-events': runPhase3EventsProbe,
+      'external-link-prompt': runExternalLinkPromptProbe,
       'annotation-roundtrip': runAnnotationRoundTripProbe,
       'history-controls': runHistoryControlsProbe,
       'selection-payload': runSelectionPayloadProbe,
+      'visible-selection-payload': runVisibleSelectionPayloadProbe,
+      'visible-selection-clear': runVisibleSelectionClearProbe,
       'relocation-payload': runRelocationPayloadProbe,
       'visible-range': runVisibleRangeProbe,
       'whispersync-audio-follow': runWhispersyncAudioFollowProbe,

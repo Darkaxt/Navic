@@ -116,6 +116,62 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 - [ ] Run focused tests, `:composeApp:testAndroid`, and JS syntax checks for touched modules.
 - [ ] Commit each completed behavior route.
 
+### Stage 2B: User-Driven Anx Interaction Validation
+
+Status: complete.
+
+Scope:
+- Reinstall/launch current-source readerdev before collecting evidence; installed `darkaxt.navic.readerdev` theta14 is stale and cannot be used as current theta15 behavior proof.
+- Validate the Anx-owned interaction routes that already have controller/UI implementations: selection actions, selection clear, annotation popup, external link prompt, history state, pull-up, and reader search.
+- Treat this as a behavior gate. If a route is only type/source-green or a probe cannot exercise native UI deterministically, add the harness/UI guard in this stage rather than claiming success.
+- Keep release package evidence separate: `darkaxt.navic` theta15 is login-blocked on emulator, so Stage 2B uses `darkaxt.navic.readerdev` for current-source implementation proof.
+
+Main files and scripts:
+- `scripts/install-reader-dev.ps1` - current-source readerdev install/launch.
+- `scripts/adb-reader-smoke.ps1` - focused package ownership, post-probe native actions, and bridge/log assertions.
+- `tools/reader-harness/src/adb-webview-eval.mjs` - deterministic WebView event probes.
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt` and `ReaderCoordinator.kt` - interaction state ownership.
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt`, `ReaderSelectionActions.kt`, `ReaderAnnotationDialog.kt`, `ReaderExternalLinkDialog.kt`, `ReaderSearchDialog.kt`, `ReaderHistoryCapsule.kt` - native Komikku UI routes.
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md` - concise Stage 2B results.
+
+Executed commands and evidence:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -RequireReaderLaunch -Capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -TapFraction '0.90,0.50,900' -ArtifactDir captures\reader-bridge-probes\stage2b-enter-readable-after-relaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe phase3-events -RequireReaderBridgeEvent externalLink,annotationClick,annotationDrawn,overlayCreated,loadDoc,pushState,footnoteClose,pullUp -ArtifactDir captures\reader-bridge-probes\stage2b-phase3-events-final-current-source
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-payload -PostProbeAction 'tapText:Highlight,1200' -RequireReaderEngineCommand 'applyHighlights' -RequireReaderBridgeEvent annotationDrawn -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-highlight-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-payload -PostProbeAction 'tapText:Copy,1200' -RequireReaderLog 'Reader selection copied length=' -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-copy-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-payload -PostProbeAction 'tapText:Note,700|tapText:Annotation,500|text:Stage2B_visible_note,500|tapText:Save,1800' -RequireReaderLog 'Reader selection note save length=' -RequireReaderBridgeEvent annotationDrawn -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-note-save-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe visible-selection-clear -RequireReaderBridgeEvent selectionCleared -ArtifactDir captures\reader-bridge-probes\stage2b-visible-selection-clear-clean-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe annotation-roundtrip -PostProbeAction 'tapText:Close,900' -RequireReaderBridgeEvent annotationDrawn,annotationClick -ArtifactDir captures\reader-bridge-probes\stage2b-annotation-popup-close-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe external-link-prompt -PostProbeAction 'tapText:Close,900' -RequireReaderBridgeEvent externalLink -ArtifactDir captures\reader-bridge-probes\stage2b-external-link-prompt-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe history-controls -PostProbeAction 'tapDesc:Close history controls,900' -ArtifactDir captures\reader-bridge-probes\stage2b-history-controls-readable
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tap:540,1190,400|text:the,600|tapDesc:Search,2500' -RequireReaderEngineCommand search -ArtifactDir captures\reader-bridge-probes\stage2b-search-dialog-query-focused-field
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tap:540,650,2500' -RequireReaderEngineCommand goToCfi -RequireReaderBridgeEvent locationChanged -ArtifactDir captures\reader-bridge-probes\stage2b-search-result-navigation-readable
+```
+
+Results:
+- GREEN/READERDEV-LAUNCH: `scripts\install-reader-dev.ps1 -NoBuild -NoInstall -RequireReaderLaunch -Capture` reopened `darkaxt.navic.readerdev` directly into the discovered Bindery EPUB target `A Memory of Light (epub)` and captured `publicationReady` under PID `27436`.
+- GREEN/PHASE3-BRIDGE: `stage2b-phase3-events-final-current-source` captured `externalLink`, `annotationClick`, `annotationDrawn`, `overlayCreated`, `loadDoc`, `pushState`, `footnoteClose`, and `pullUp` from the current-source readerdev runtime.
+- GREEN/SELECTION-ACTIONS: `stage2b-visible-selection-highlight-readable`, `stage2b-visible-selection-copy-readable`, and `stage2b-visible-selection-note-save-readable` proved visible EPUB selection through native Highlight, Copy, and Note UI actions. Highlight/Note produced `annotationDrawn`; Copy logged `Reader selection copied length=`.
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanClearVisibleSelectionThroughTheRealDocument` failed before `visible-selection-clear` was added to `adb-webview-eval.mjs` and `adb-reader-smoke.ps1`.
+- GREEN/SELECTION-CLEAR: `stage2b-visible-selection-clear-clean-readable` creates a visible real EPUB selection, clears that same content document, and logs `selectionCleared` without relying on a synthetic offscreen DOM node.
+- GREEN/ANNOTATION-AND-LINKS: `stage2b-annotation-popup-close-readable` verified the native annotation popup and close route; `stage2b-external-link-prompt-readable` verified the native external-link prompt and close route.
+- GREEN/HISTORY: `stage2b-history-controls-readable` verified PushState/native history capsule display and close behavior.
+- GREEN/SEARCH-ROUTE: `stage2b-search-dialog-query-focused-field` dispatched the native search command, and delayed logs captured `searchResults(count=28029)` for the query `the`; `stage2b-search-result-navigation-readable` verified result navigation through `goToCfi` and `locationChanged`.
+- CAVEAT/SEARCH-UX: the search field did not auto-focus, so the deterministic script had to tap into the input before typing. The broad query `the` took roughly 78 seconds to return 28,029 results, which is a performance/UX follow-up rather than a Stage 2B route failure.
+- CAVEAT/RELEASE-PACKAGE: `darkaxt.navic` theta15 remains login-blocked on the emulator. These are current-source readerdev proofs, not release-package interaction proofs.
+
+Closure:
+- [x] Current-source readerdev installed and focused.
+- [x] Phase 3 event bridge path proven with current-source readerdev.
+- [x] Selection Highlight/Copy/Note routes proven through native UI.
+- [x] Selection clear proven through a real visible EPUB document probe.
+- [x] Annotation and external-link prompts proven through native UI.
+- [x] Search dialog/result navigation proven through native UI, with UX/performance caveat recorded.
+- [x] Validation log updated and focused/full Gradle checks run for any code changes.
+
 ## Stage 3: PDF And Fixed-Layout Gate
 
 **Purpose:** Bring PDF/image behavior under the same Komikku shell and Anx/Foliate engine boundary as EPUB.
