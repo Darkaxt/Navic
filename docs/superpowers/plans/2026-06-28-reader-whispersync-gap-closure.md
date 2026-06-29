@@ -782,3 +782,46 @@ Closure:
 - [x] Capture launch/shell evidence for `darkaxt.navic`.
 - [x] Record that theta16 release-package reader/Whispersync validation still requires release login/data.
 - [ ] Add a release-login automation path or validate on a logged-in physical device before claiming release-level reader/Whispersync usability.
+
+### Stage 8C: Release Login And Reader Route Automation
+
+Status: complete for automation/detection; real release-reader validation still requires real credentials in the ignored env file.
+
+Purpose:
+- Close the release-validation blocker where the public package `darkaxt.navic` can be installed and inspected but cannot reach the reader/Whispersync routes on the emulator because it lands on the Navidrome login page.
+- Keep readerdev and release evidence separate: readerdev remains the seeded implementation lab, while release validation must either log in to the public package or fail with an explicit credential-boundary message.
+- Do not expose credentials in logs, command output, screenshots, committed files, or validation docs.
+
+Files:
+- Add: `scripts/adb-release-login.ps1`
+- Add: `navic-release-login.env.example`
+- Modify: `.gitignore`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md` only after a real run.
+
+Credential contract:
+- Local real credentials live in an ignored env file, defaulting to `navic-release-login.env`.
+- Accepted URL keys: `NAVIC_INSTANCE_URL`, `NAVIDROME_BASE_URL`, or `NAVIDROME_URL`.
+- Accepted username keys: `NAVIC_USERNAME` or `NAVIDROME_USERNAME`.
+- Accepted password keys: `NAVIC_PASSWORD` or `NAVIDROME_PASSWORD`.
+- The script may print key names and artifact paths, but it must never print credential values.
+
+TDD steps:
+- [x] Add a failing source guard for the release-login script, ignored env file, example env file, and no-secret-print contract.
+- [x] Implement `scripts/adb-release-login.ps1` with selected-device ADB routing, UIAutomator login-screen detection, field filling, and artifact capture.
+- [x] Make the script fail loudly when required key groups are missing, listing the missing key names without printing values.
+- [x] Run the focused host guard, PowerShell parser validation, `git diff --check`, and then a real emulator dry run that proves either login-screen detection or missing-credential reporting.
+- [x] Record Stage 8C evidence in the validation log.
+- [x] Commit and push Stage 8C before returning to reader/Whispersync behavior work.
+
+Results:
+- RED/HOST-FIRST: `ReaderDevEnvironmentContractTest.releasePackageReaderValidationHasCredentialSafeLoginAutomation` failed before the release-login script and env example existed.
+- RED/HOST-FIRST: the same guard failed again until the script exposed detection-only mode so login-screen detection could run without submitting placeholder credentials.
+- GREEN/HOST: the focused source guard passed after adding `scripts/adb-release-login.ps1`, `navic-release-login.env.example`, ignored `navic-release-login.env`, selected-serial routing, no-secret logging, and UIAutomator login-screen detection.
+- GREEN/PARSER: PowerShell parser validation passed for `scripts\adb-release-login.ps1`.
+- GREEN/ENV: `-ValidateEnvOnly` prints only redacted credential state for complete env files and fails with key names when required key groups are missing.
+- GREEN/MULTIDEVICE: with both `RFCY80551LT` and `emulator-5554` connected, the script now fails before UI actions and tells the operator to pass `-DeviceSerial`.
+- GREEN/EMULATOR-DETECT: `-DeviceSerial emulator-5554 -NoLaunch -DetectOnly` detected the public package login screen and wrote `captures\release-login\stage8c-detect-only\navic-release-login-window.xml`.
+
+Remaining:
+- To convert this from detection-ready to deep release-reader validation, provide an ignored `navic-release-login.env` or another env file with real Navic/Navidrome credentials, then run release login and the reader/Whispersync smoke probes against `darkaxt.navic`.

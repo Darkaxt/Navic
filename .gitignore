@@ -26,5 +26,6 @@ prepare/
 aurral-debug.env
 bindery-debug.env
 navic-reader-dev.env
+navic-release-login.env
 tools/reader-harness/fixtures/local/
 tools/reader-harness/output/

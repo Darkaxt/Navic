@@ -252,6 +252,80 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun releasePackageReaderValidationHasCredentialSafeLoginAutomation() {
+		val gitignore = root.resolve(".gitignore").readText()
+		val releaseLoginScript = root.resolve("scripts/adb-release-login.ps1")
+		val envExample = root.resolve("navic-release-login.env.example")
+		val plan = root
+			.resolve("docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md")
+			.readText()
+
+		assertTrue(
+			releaseLoginScript.exists(),
+			"The public release validation loop must have an adb release-login script so reader/Whispersync checks do not stay readerdev-only."
+		)
+		assertTrue(
+			envExample.exists(),
+			"Release login credentials must be documented in an example env file, never committed as real secrets."
+		)
+		assertTrue(
+			gitignore.contains("navic-release-login.env"),
+			"Local release login credentials must be ignored."
+		)
+		assertTrue(
+			plan.contains("Stage 8C: Release Login And Reader Route Automation") &&
+				plan.contains("darkaxt.navic") &&
+				plan.contains("readerdev remains the seeded implementation lab"),
+			"The gap plan must keep release-package login validation separate from readerdev implementation evidence."
+		)
+
+		val scriptText = releaseLoginScript.readText()
+		assertTrue(
+			scriptText.contains("[string] \$Package = \"darkaxt.navic\"") &&
+				scriptText.contains("[string] \$DeviceSerial") &&
+				scriptText.contains("[switch] \$DetectOnly") &&
+				scriptText.contains("function Assert-SingleAdbDeviceOrSelectedSerial") &&
+				scriptText.contains("Pass -DeviceSerial") &&
+				scriptText.contains("function Invoke-Adb") &&
+				scriptText.contains("\$env:ANDROID_SERIAL = \$DeviceSerial"),
+			"The release-login script must target the public package by default and route every adb command to the selected serial."
+		)
+		assertTrue(
+			scriptText.contains("NAVIC_INSTANCE_URL") &&
+				scriptText.contains("NAVIDROME_BASE_URL") &&
+				scriptText.contains("NAVIC_USERNAME") &&
+				scriptText.contains("NAVIDROME_USERNAME") &&
+				scriptText.contains("NAVIC_PASSWORD") &&
+				scriptText.contains("NAVIDROME_PASSWORD"),
+			"The release-login script must accept the documented Navic/Navidrome credential aliases."
+		)
+		assertTrue(
+			scriptText.contains("Missing release login env keys") &&
+				scriptText.contains("Write-RedactedCredentialSummary") &&
+				scriptText.contains("value: <redacted>") &&
+				!scriptText.contains("Write-Host \$instanceUrl") &&
+				!scriptText.contains("Write-Host \$username") &&
+				!scriptText.contains("Write-Host \$password"),
+			"The release-login script must list missing key names but never print credential values."
+		)
+		assertTrue(
+			scriptText.contains("uiautomator") &&
+				scriptText.contains("Log in") &&
+				scriptText.contains("Instance URL") &&
+				scriptText.contains("Username") &&
+				scriptText.contains("Password") &&
+				scriptText.contains("Invoke-ReleaseLoginDetection") &&
+				scriptText.contains("detectOnly=true"),
+			"The release-login script must detect the actual Navic login screen without requiring credential submission."
+		)
+		assertTrue(
+			scriptText.contains("navic-release-login-window.xml") &&
+				scriptText.contains("release-login-summary.txt"),
+			"The release-login script must write artifacts for later validation-log evidence."
+		)
+	}
+
+	@Test
 	fun komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks() {
 		val matrixScript = root.resolve("scripts/adb-reader-komikku-matrix.ps1").readText()
 

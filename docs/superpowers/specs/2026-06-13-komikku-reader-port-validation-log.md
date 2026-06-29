@@ -8255,3 +8255,34 @@ Results:
 
 Remaining:
 - This validates deterministic texture motion in browser/harness conditions for the current EPUB fixture. It does not replace physical/release visual judgment for texture strength, edge degradation visibility, or drag feel.
+
+
+## 2026-06-29 Stage 8C Release Login Automation
+
+Scope:
+- Replace the vague theta16 release-reader validation blocker with a concrete release-login automation route for the public package `darkaxt.navic`.
+- Keep release-package evidence separate from `darkaxt.navic.readerdev` evidence.
+- Verify the automation does not print credential values and can detect the current emulator login screen without submitting placeholder credentials.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.releasePackageReaderValidationHasCredentialSafeLoginAutomation --console=plain
+$errors=$null; $tokens=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts\adb-release-login.ps1), [ref]$tokens, [ref]$errors)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-release-login.ps1 -EnvFile navic-release-login.env.example -ValidateEnvOnly -ArtifactDir tmp\stage8c-release-login-env-check
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-release-login.ps1 -EnvFile navic-release-login.env.example -NoLaunch -ArtifactDir captures\release-login\stage8c-multidevice-dry-run
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-release-login.ps1 -DeviceSerial emulator-5554 -NoLaunch -DetectOnly -ArtifactDir captures\release-login\stage8c-detect-only
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-release-login.ps1 -EnvFile tmp\missing-release-login.env -ValidateEnvOnly -ArtifactDir captures\release-login\stage8c-missing-env
+```
+
+Results:
+- RED/HOST-FIRST: the focused guard failed while the release-login script/env example were missing.
+- RED/HOST-FIRST: the same guard failed again until the script supported `-DetectOnly`, so login-screen detection can run without credential submission.
+- GREEN/HOST: the focused guard passed after adding `scripts\adb-release-login.ps1`, `navic-release-login.env.example`, `.gitignore` protection for `navic-release-login.env`, and Stage 8C plan text.
+- GREEN/PARSER: PowerShell parser validation passed for `scripts\adb-release-login.ps1`.
+- GREEN/SECRET-SAFETY: `-ValidateEnvOnly` with the example env printed `value: <redacted>` only. Missing env failure listed required key groups without values.
+- GREEN/MULTIDEVICE: with `RFCY80551LT` and `emulator-5554` connected, the script failed before UI actions and asked for `-DeviceSerial`.
+- GREEN/EMULATOR-DETECT: `captures\release-login\stage8c-detect-only\release-login-summary.txt` recorded `package=darkaxt.navic`, `loginScreen=True`, `detectOnly=true`, and the UIAutomator XML artifact path.
+
+Remaining:
+- Deep release-package reader and Whispersync validation still requires a real ignored `navic-release-login.env` or equivalent env file with Navic/Navidrome credentials. Until then, release validation can prove app-shell/login reachability, while reader/Whispersync behavior remains readerdev/browser-harness evidence.
