@@ -368,6 +368,53 @@ Required before closure:
 - [x] Validate exact companion progress reopen in readerdev. Completed with `captures/reader-smoke/whispersync-companion-progress-after-step-target-save-20260629-current`, `tmp/codex-validation/stage5-companion-relaunch-after-step-target-save-20260629-current.out.log`, and preference evidence showing `audioPositionMs=263360`.
 - [x] Commit only after host tests and readerdev evidence pass. Completed after red/green `ReaderWhispersyncCompanionProgressSourceTest`, `:composeApp:testAndroid`, `node --check tools/reader-harness/src/adb-webview-eval.mjs`, `git diff --check`, and the readerdev reopen gate.
 
+### Stage 5C.1: Bindery Whispersync Schema Drift Guard
+
+**Purpose:** Make the updated Bindery Whispersync API contract executable in Navic before adding more reader/player behavior. This stage prevents the client from drifting behind `navic-opds-api-schema.md` again, especially around exact pair readiness, sidecar cue identity, audiobook detail fields, progress identity, and route selection.
+
+**Authority:**
+- `C:/Users/darka/Documents/Projects/Stremio Add-on Tester/github-export/bindery/docs/navic-opds-api-schema.md` (last updated 2026-06-29)
+- `docs/superpowers/specs/2026-06-18-whispersync-design.md`
+
+**Main files:**
+- `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyModels.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyDtoMapping.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyRepository.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/WhispersyncModels.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderProgressSync.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyBookVersionPolicy.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyAudiobookPlayerPolicy.kt`
+
+**Tests:**
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/BinderyWhispersyncSchemaContractTest.kt`
+- Existing focused tests under `composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/Bindery*Test.kt`
+- `composeApp/src/commonTest/kotlin/paige/navic/reader/WhispersyncTimelineParserTest.kt`
+- `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderProgressSyncTest.kt`
+
+**Acceptance:**
+- A failing host guard must prove that the current server contract date, required OPDS routes, exact ready-pair rule, sidecar cue fields, current resource audio fields, JSON audiobook detail fields, and current progress fields are all represented in either parser tests or production models.
+- Ready Whispersync remains pair-scoped: book-level `whispersyncStatus` alone must never create an actionable route or cover badge.
+- Sidecar cues must preserve `audioResourceId`, `audioTrackIndex`, `audioHref`, second-based `audioStart`/`audioEnd`, `ebookHref`, `spineIndex`, and local `ebookStart`/`ebookEnd`.
+- Progress read/save must prefer current `resourceKey`/`href` identity and millisecond positions while remaining tolerant of legacy `resourceHref`.
+- The stage must not add UI polish or release automation. It is a schema/model/route correctness gate.
+
+**TDD steps:**
+- [x] Add a failing schema contract test that reads the repo Whispersync spec and source files, then asserts coverage for the 2026-06-29 Bindery contract fields and routes.
+- [x] If the guard exposes missing production representation, add the smallest parser/model/route change and a behavior test for that exact field. The RED guard exposed stale spec authority text and a guard that needed to inspect the API-client route boundary; no production parser change was required.
+- [x] Run focused schema/parser/progress tests. Completed with the focused `BinderyWhispersyncSchemaContractTest` host guard plus the full `:composeApp:testAndroid` aggregate; this Gradle project does not accept `--tests` on the aggregate task.
+- [x] Run `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain`.
+- [x] Run `git diff --check`.
+- [x] Update `docs/superpowers/specs/2026-06-18-whispersync-design.md` and the validation log only with real evidence.
+- [ ] Commit and push this stage before returning to release-device Whispersync validation.
+
+Results so far:
+- RED/HOST-FIRST: `BinderyWhispersyncSchemaContractTest` failed while the Whispersync spec still named the older `2026-06-28` compatibility section and while the route guard inspected only repository-level symbols instead of the `BinderyApiClient`/`BinderyUrlPolicy` HTTP boundary.
+- GREEN/HOST-FOCUSED: the focused guard passed after updating the spec to `Bindery API Compatibility As Of 2026-06-29`, adding `Last updated: 2026-06-29`, and tightening the guard to inspect the actual API-client route boundary.
+- NOTE/GRADLE-SHAPE: `:composeApp:testAndroid --tests ...` is invalid in this project because `testAndroid` is an aggregate task. Use `:composeApp:testAndroidHostTest --tests ...` for source-reading host guards and full `:composeApp:testAndroid` for common/parser/progress coverage.
+- GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after Stage 5C.1 changes.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/HOST-FINAL: `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.BinderyWhispersyncSchemaContractTest --console=plain` passed again after final plan/log edits.
+
 ## Stage 6: Komikku Visual Parity Gate
 
 **Purpose:** Improve layout fidelity only after blocker behavior is stable.

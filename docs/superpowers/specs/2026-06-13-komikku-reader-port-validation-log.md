@@ -8286,3 +8286,31 @@ Results:
 
 Remaining:
 - Deep release-package reader and Whispersync validation still requires a real ignored `navic-release-login.env` or equivalent env file with Navic/Navidrome credentials. Until then, release validation can prove app-shell/login reachability, while reader/Whispersync behavior remains readerdev/browser-harness evidence.
+
+
+## 2026-06-29 Stage 5C.1 Bindery Whispersync Schema Drift Guard
+
+Scope:
+- Convert the updated Bindery Whispersync API schema into an executable Navic guard before adding more reader/player behavior.
+- Verify the current schema authority date, required OPDS routes, exact ready-pair rule, sidecar cue identity fields, current audio quality fields, JSON audiobook detail fields, and progress identity fields are represented in source or parser tests.
+- Do not change reader UI, release automation, or playback behavior in this stage unless the schema guard exposes a real production gap.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.BinderyWhispersyncSchemaContractTest --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `BinderyWhispersyncSchemaContractTest.whispersyncSpecAndPlanTrackCurrentBinderySchemaAuthority` failed while `2026-06-18-whispersync-design.md` still named `Bindery API Compatibility As Of 2026-06-28`.
+- RED/HOST-FIRST: `BinderyWhispersyncSchemaContractTest.binderyWhispersyncRoutesUseClientFacingOpdsContract` failed while the new guard inspected only repository-level symbols instead of the actual `BinderyApiClient` and `BinderyUrlPolicy` HTTP route boundary.
+- GREEN/HOST-FOCUSED: the focused guard passed after updating the spec authority to `2026-06-29` and tightening the route guard to inspect the API-client boundary.
+- NOTE/GRADLE-SHAPE: `:composeApp:testAndroid --tests ...` is invalid for this repo because `testAndroid` is an aggregate task. Focused source guards should use `:composeApp:testAndroidHostTest --tests ...`; common/parser/progress coverage should use full `:composeApp:testAndroid`.
+- GREEN/FULL-ANDROID: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after Stage 5C.1 changes.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/HOST-FINAL: the focused `BinderyWhispersyncSchemaContractTest` guard passed again after final plan/log edits.
+
+Remaining:
+- Commit and push Stage 5C.1 before returning to release-device Whispersync validation.
