@@ -172,7 +172,9 @@ Required before closure:
 
 **Purpose:** Keep Navic aligned with the current Bindery schema and ensure ready pairs launch a paired reader session with the correct sidecar and audiobook manifest.
 
-**Current completed slice:** Current Bindery audio resource/source-release fields, audiobook quality ordering, Aurral-first source routing support, and playback error notifier extraction were validated with `.\gradlew.bat --no-daemon :composeApp:testAndroid` and committed in `b1e20000`.
+**Current completed slices:**
+- Current Bindery audio resource/source-release fields, audiobook quality ordering, Aurral-first source routing support, and playback error notifier extraction were validated with `.\gradlew.bat --no-daemon :composeApp:testAndroid` and committed in `b1e20000`.
+- Current Bindery resource-link provenance fields now survive OPDS/resource JSON parsing and propagate into readaloud track descriptors/extras: `kind`, `format`, `artifactType`, `bookFileId`, `size`, `deliveryPolicy`, `origin`, `version`, `sourceUrl`, `findingId`, and `findingHref`. The slice was guarded red-first in `BinderyRepositoryResourceJsonTest` and `ReadaloudModelsTest`, then validated with focused parser/readaloud tests, the Stage 4/Whispersync host batch, `:composeApp:testAndroid`, and `git diff --check`.
 
 **Main files:**
 - `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyModels.kt`
@@ -192,10 +194,10 @@ Required before closure:
 - `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/bindery/BinderyBookVersionPolicyTest.kt`
 - `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/bindery/BinderyBookVersionPolicySourceTest.kt`
 
-- [ ] Add fixture coverage from the current Bindery schema before changing parser code.
+- [x] Add fixture coverage from the current Bindery schema before changing parser code.
 - [ ] Keep exact ready pairs launchable from embedded sync pairs and `/sync` endpoint responses.
 - [ ] Keep book cover headset badges gated by exact ready pairs with artifact href.
-- [ ] Run focused Bindery tests and `:composeApp:testAndroid`.
+- [x] Run focused Bindery tests and `:composeApp:testAndroid`.
 - [ ] Commit API alignment only after all parser/launch tests pass.
 
 ## Stage 5: Whispersync Enjoyment Gate

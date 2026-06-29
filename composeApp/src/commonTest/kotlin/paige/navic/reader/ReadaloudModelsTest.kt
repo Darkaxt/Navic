@@ -25,10 +25,17 @@ class ReadaloudModelsTest {
 					type = "audio/mpeg",
 					durationSeconds = 3763.592,
 					metadata = BinderyResourceMetadata(
+						kind = "audio",
+						format = "audiobook",
+						artifactType = "source",
 						resourceKey = "audio-001",
+						bookFileId = "file-694",
 						relativePath = "Audio/Part 01.mp3",
 						durationMs = 3763592,
+						deliveryPolicy = "proxy",
+						origin = "local",
 						language = "eng",
+						version = "Macmillan Audio - Unabridged",
 						chapterLabel = "Chapter 1",
 						sectionLabel = "Opening",
 						trackNumber = 1,
@@ -36,6 +43,8 @@ class ReadaloudModelsTest {
 						narrator = "Michael Kramer",
 						author = "Brandon Sanderson",
 						sourceProvider = "audible",
+						findingId = "87",
+						findingHref = "/opds/findings/87",
 						audio = BinderyAudioMetadata(
 							codec = "mp3",
 							bitrateKbps = 128,
@@ -65,8 +74,14 @@ class ReadaloudModelsTest {
 
 		val track = session.tracks.single()
 		assertEquals("audio-001", track.resourceKey)
+		assertEquals("file-694", track.bookFileId)
 		assertEquals("/opds/books/3693/resources/audio-1", track.href)
 		assertEquals("Chapter 1", track.displayTitle)
+		assertEquals("audiobook", track.format)
+		assertEquals("source", track.artifactType)
+		assertEquals("proxy", track.deliveryPolicy)
+		assertEquals("local", track.origin)
+		assertEquals("Macmillan Audio - Unabridged", track.version)
 		assertEquals("Opening", track.sectionLabel)
 		assertEquals(1, track.trackNumber)
 		assertEquals(1, track.discNumber)
@@ -79,7 +94,23 @@ class ReadaloudModelsTest {
 		assertEquals("Audible", track.sourceProviderLabel)
 		assertEquals("Unabridged / MP3", track.sourceReleaseLabel)
 		assertEquals("https://example.com/audible/alcatraz", track.sourceUrl)
+		assertEquals("87", track.findingId)
+		assertEquals("/opds/findings/87", track.findingHref)
 		assertEquals("Michael Kramer / High / Audible", track.subtitleLabel)
+
+		val descriptor = track.toReadaloudMediaItemDescriptor(
+			sessionTitle = session.title,
+			sessionAuthor = session.author,
+			sessionNarrator = session.narrator
+		)
+		assertEquals("file-694", descriptor.bookFileId)
+		assertEquals("proxy", descriptor.deliveryPolicy)
+		assertEquals("local", descriptor.origin)
+		assertEquals("Macmillan Audio - Unabridged", descriptor.version)
+		assertEquals("87", descriptor.findingId)
+		val extras = descriptor.toReadaloudMediaExtras()
+		assertEquals("file-694", extras.bookFileId)
+		assertEquals("/opds/findings/87", extras.findingHref)
 	}
 
 	@Test

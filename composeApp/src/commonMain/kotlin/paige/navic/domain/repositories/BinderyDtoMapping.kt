@@ -270,10 +270,18 @@ private fun Map<String, JsonElement>.toResourceMetadata(): BinderyResourceMetada
 	val audioObject = jsonObject("audio")
 	val sourceReleaseObject = jsonObject("sourceRelease")
 	return BinderyResourceMetadata(
+		kind = stringValue("kind"),
+		format = stringValue("format"),
+		artifactType = stringValue("artifactType"),
 		resourceKey = stringValue("resourceKey"),
+		bookFileId = stringValue("bookFileId")?.takeUnless { it == "0" },
 		relativePath = stringValue("relativePath"),
 		durationMs = longValue("durationMs") ?: longValue("duration_ms"),
+		sizeBytes = longValue("sizeBytes") ?: longValue("size"),
+		deliveryPolicy = stringValue("deliveryPolicy"),
+		origin = stringValue("origin"),
 		language = stringValue("language"),
+		version = stringValue("version"),
 		chapterLabel = stringValue("chapterLabel"),
 		sectionLabel = stringValue("sectionLabel"),
 		trackNumber = intValue("trackNumber"),
@@ -282,6 +290,9 @@ private fun Map<String, JsonElement>.toResourceMetadata(): BinderyResourceMetada
 		author = stringValue("author"),
 		editionSuffix = stringValue("editionSuffix"),
 		sourceProvider = stringValue("sourceProvider") ?: stringValue("provider"),
+		sourceUrl = stringValue("sourceUrl"),
+		findingId = stringValue("findingId"),
+		findingHref = stringValue("findingHref"),
 		audio = audioObject.toAudioMetadata(this),
 		sourceRelease = sourceReleaseObject?.toSourceReleaseMetadata()
 	)

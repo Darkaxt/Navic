@@ -19,9 +19,15 @@ data class ReadaloudAudioSession(
 data class ReadaloudAudioTrack(
 	val id: String,
 	val resourceKey: String? = null,
+	val bookFileId: String? = null,
 	val href: String,
 	val title: String,
 	val displayTitle: String,
+	val format: String? = null,
+	val artifactType: String? = null,
+	val deliveryPolicy: String? = null,
+	val origin: String? = null,
+	val version: String? = null,
 	val sectionLabel: String? = null,
 	val trackNumber: Int? = null,
 	val discNumber: Int? = null,
@@ -35,7 +41,9 @@ data class ReadaloudAudioTrack(
 	val qualityLabel: String? = null,
 	val sourceProviderLabel: String? = null,
 	val sourceReleaseLabel: String? = null,
-	val sourceUrl: String? = null
+	val sourceUrl: String? = null,
+	val findingId: String? = null,
+	val findingHref: String? = null
 ) {
 	val subtitleLabel: String?
 		get() = listOfNotNull(
@@ -57,10 +65,18 @@ data class ReadaloudMediaItemDescriptor(
 	val discNumber: Int?,
 	val requestHeaders: Map<String, String>,
 	val resourceKey: String? = null,
+	val bookFileId: String? = null,
 	val qualityLabel: String? = null,
 	val sourceProviderLabel: String? = null,
 	val sourceReleaseLabel: String? = null,
 	val sourceUrl: String? = null,
+	val format: String? = null,
+	val artifactType: String? = null,
+	val deliveryPolicy: String? = null,
+	val origin: String? = null,
+	val version: String? = null,
+	val findingId: String? = null,
+	val findingHref: String? = null,
 	val codec: String? = null,
 	val bitrateKbps: Int? = null,
 	val sampleRateHz: Long? = null,
@@ -70,10 +86,16 @@ data class ReadaloudMediaItemDescriptor(
 
 data class ReadaloudMediaExtras(
 	val resourceKey: String?,
+	val bookFileId: String?,
 	val href: String,
 	val title: String,
 	val chapterLabel: String?,
 	val sectionLabel: String?,
+	val format: String?,
+	val artifactType: String?,
+	val deliveryPolicy: String?,
+	val origin: String?,
+	val version: String?,
 	val narrator: String?,
 	val author: String?,
 	val trackNumber: Int?,
@@ -86,7 +108,9 @@ data class ReadaloudMediaExtras(
 	val qualityLabel: String?,
 	val sourceProvider: String?,
 	val sourceRelease: String?,
-	val sourceUrl: String?
+	val sourceUrl: String?,
+	val findingId: String?,
+	val findingHref: String?
 )
 
 data class ReadaloudPlaybackMetadataLabels(
@@ -138,10 +162,18 @@ fun ReadaloudAudioTrack.toReadaloudMediaItemDescriptor(
 		discNumber = discNumber,
 		requestHeaders = requestHeaders,
 		resourceKey = resourceKey ?: id,
+		bookFileId = bookFileId,
 		qualityLabel = qualityLabel,
 		sourceProviderLabel = sourceProviderLabel,
 		sourceReleaseLabel = sourceReleaseLabel,
 		sourceUrl = sourceUrl,
+		format = format,
+		artifactType = artifactType,
+		deliveryPolicy = deliveryPolicy,
+		origin = origin,
+		version = version,
+		findingId = findingId,
+		findingHref = findingHref,
 		codec = codec,
 		bitrateKbps = bitrateKbps,
 		sampleRateHz = sampleRateHz,
@@ -152,10 +184,16 @@ fun ReadaloudAudioTrack.toReadaloudMediaItemDescriptor(
 fun ReadaloudMediaItemDescriptor.toReadaloudMediaExtras(): ReadaloudMediaExtras =
 	ReadaloudMediaExtras(
 		resourceKey = resourceKey,
+		bookFileId = bookFileId,
 		href = uri,
 		title = title,
 		chapterLabel = title,
 		sectionLabel = subtitle,
+		format = format,
+		artifactType = artifactType,
+		deliveryPolicy = deliveryPolicy,
+		origin = origin,
+		version = version,
 		narrator = artist,
 		author = albumArtist,
 		trackNumber = trackNumber,
@@ -168,7 +206,9 @@ fun ReadaloudMediaItemDescriptor.toReadaloudMediaExtras(): ReadaloudMediaExtras 
 		qualityLabel = qualityLabel,
 		sourceProvider = sourceProviderLabel,
 		sourceRelease = sourceReleaseLabel,
-		sourceUrl = sourceUrl
+		sourceUrl = sourceUrl,
+		findingId = findingId,
+		findingHref = findingHref
 	)
 
 fun ReadaloudAudioSession.toReadaloudPlaybackPlan(
@@ -280,6 +320,7 @@ fun ReadaloudPlaybackPlan.toReadaloudPlaybackLoadedEvent(): LoggerEvent {
 			firstItem?.let { item ->
 				append(" firstMediaId=").append(item.mediaId)
 				item.resourceKey?.let { append(" firstResource=").append(it) }
+				item.bookFileId?.let { append(" bookFileId=").append(it) }
 				item.sourceProviderLabel?.let { append(" provider=").append(it) }
 				item.sourceReleaseLabel?.let { append(" release=").append(it) }
 				item.sourceUrl?.let { append(" sourceUrl=").append(it) }
@@ -323,9 +364,15 @@ private fun BinderyReadingOrderItem.toReadaloudAudioTrack(index: Int): Readaloud
 	return ReadaloudAudioTrack(
 		id = resourceKey ?: href.ifBlank { "track-$index" },
 		resourceKey = resourceKey,
+		bookFileId = metadata.bookFileId,
 		href = href,
 		title = title,
 		displayTitle = displayTitle,
+		format = metadata.format,
+		artifactType = metadata.artifactType,
+		deliveryPolicy = metadata.deliveryPolicy,
+		origin = metadata.origin,
+		version = metadata.version,
 		sectionLabel = metadata.sectionLabel,
 		trackNumber = metadata.trackNumber,
 		discNumber = metadata.discNumber,
@@ -338,8 +385,10 @@ private fun BinderyReadingOrderItem.toReadaloudAudioTrack(index: Int): Readaloud
 		channels = audio?.channels,
 		qualityLabel = audio?.qualityLabel,
 		sourceProviderLabel = sourceRelease?.provider ?: metadata.sourceProvider,
-		sourceReleaseLabel = sourceRelease.sourceReleaseLabel(metadata.editionSuffix),
-		sourceUrl = sourceRelease?.sourceUrl
+		sourceReleaseLabel = sourceRelease.sourceReleaseLabel(metadata.editionSuffix ?: metadata.version),
+		sourceUrl = sourceRelease?.sourceUrl ?: metadata.sourceUrl,
+		findingId = metadata.findingId,
+		findingHref = metadata.findingHref
 	)
 }
 

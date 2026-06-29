@@ -177,7 +177,11 @@ class BinderyRepositoryResourceJsonTest {
 						"trackNumber" to BinderyPropertyValue.NumberValue(1.0, "1")
 					)
 				),
-				metadata = BinderyResourceMetadata(trackNumber = 1)
+				metadata = BinderyResourceMetadata(
+					kind = "audio",
+					sizeBytes = 120973860,
+					trackNumber = 1
+				)
 			),
 			manifest.readingOrder.single()
 		)
@@ -237,7 +241,11 @@ class BinderyRepositoryResourceJsonTest {
 						"trackNumber" to BinderyPropertyValue.NumberValue(1.0, "1")
 					)
 				),
-				metadata = BinderyResourceMetadata(trackNumber = 1)
+				metadata = BinderyResourceMetadata(
+					kind = "ebook",
+					sizeBytes = 431666,
+					trackNumber = 1
+				)
 			),
 			catalog.resources.first()
 		)
@@ -343,6 +351,7 @@ class BinderyRepositoryResourceJsonTest {
 			""".trimIndent()
 		)
 		val expectedMetadata = BinderyResourceMetadata(
+			kind = "audio",
 			resourceKey = "audio-001",
 			relativePath = "Audio/Part 01.mp3",
 			durationMs = 3763592,
@@ -403,9 +412,14 @@ class BinderyRepositoryResourceJsonTest {
 			        "discNumber": 0,
 			        "size": 42152780,
 			        "durationMs": 1842500,
+			        "deliveryPolicy": "proxy",
+			        "origin": "local",
 			        "language": "eng",
 			        "version": "Andy Serkis - Unabridged",
 			        "narrator": "Andy Serkis",
+			        "sourceUrl": "https://audiobookbay.lu/abss/the-hobbit/",
+			        "findingId": 87,
+			        "findingHref": "/opds/findings/87",
 			        "audio": {
 			          "codec": "mp3",
 			          "bitrate": 128000,
@@ -432,8 +446,19 @@ class BinderyRepositoryResourceJsonTest {
 		)
 
 		val metadata = resources.resources.single().metadata
+		assertEquals("audio", metadata.kind)
+		assertEquals("audiobook", metadata.format)
+		assertEquals("source", metadata.artifactType)
 		assertEquals("audio-c310a962a70802eb2e65", metadata.resourceKey)
+		assertEquals("694", metadata.bookFileId)
 		assertEquals("01 - An Unexpected Party.mp3", metadata.relativePath)
+		assertEquals(42152780, metadata.sizeBytes)
+		assertEquals("proxy", metadata.deliveryPolicy)
+		assertEquals("local", metadata.origin)
+		assertEquals("Andy Serkis - Unabridged", metadata.version)
+		assertEquals("https://audiobookbay.lu/abss/the-hobbit/", metadata.sourceUrl)
+		assertEquals("87", metadata.findingId)
+		assertEquals("/opds/findings/87", metadata.findingHref)
 		assertEquals(1, metadata.trackNumber)
 		assertEquals("mp3", metadata.audio?.codec)
 		assertEquals(128, metadata.audio?.bitrateKbps)

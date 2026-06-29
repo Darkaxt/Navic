@@ -333,10 +333,18 @@ data class BinderyReadingOrderItem(
 
 @Serializable
 data class BinderyResourceMetadata(
+	val kind: String? = null,
+	val format: String? = null,
+	val artifactType: String? = null,
 	val resourceKey: String? = null,
+	val bookFileId: String? = null,
 	val relativePath: String? = null,
 	val durationMs: Long? = null,
+	val sizeBytes: Long? = null,
+	val deliveryPolicy: String? = null,
+	val origin: String? = null,
 	val language: String? = null,
+	val version: String? = null,
 	val chapterLabel: String? = null,
 	val sectionLabel: String? = null,
 	val trackNumber: Int? = null,
@@ -345,6 +353,9 @@ data class BinderyResourceMetadata(
 	val author: String? = null,
 	val editionSuffix: String? = null,
 	val sourceProvider: String? = null,
+	val sourceUrl: String? = null,
+	val findingId: String? = null,
+	val findingHref: String? = null,
 	val audio: BinderyAudioMetadata? = null,
 	val sourceRelease: BinderySourceReleaseMetadata? = null
 )
