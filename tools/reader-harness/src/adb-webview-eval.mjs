@@ -1688,6 +1688,85 @@ async function runVisiblePageContentProbe(page) {
   }})()`)
 }
 
+async function runPdfVisiblePageProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const roundRect = rect => ({
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      top: Math.round(rect.top),
+      right: Math.round(rect.right),
+      bottom: Math.round(rect.bottom),
+      left: Math.round(rect.left),
+    })
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const renderer = view.renderer || document.querySelector('foliate-fxl')
+    if (!renderer) {
+      throw new Error('Missing fixed-layout renderer')
+    }
+    const sections = Array.from(view?.book?.sections || [])
+    const rendererRect = renderer.getBoundingClientRect()
+    const fixedLayout = view?.isFixedLayout === true ||
+      renderer.localName === 'foliate-fxl' ||
+      view?.book?.rendition?.layout === 'pre-paginated'
+    const pdfSectionShape = sections.length > 0 &&
+      sections.every(section =>
+        Number.isInteger(section?.id) &&
+        !section?.href &&
+        Number(section?.size) === 1000
+      )
+    const rendererIndex = Number(renderer.index)
+    const visiblePdfVisualCount =
+      fixedLayout &&
+      pdfSectionShape &&
+      Number.isFinite(rendererIndex) &&
+      rendererIndex >= 0 &&
+      rendererRect.width > 0 &&
+      rendererRect.height > 0
+        ? 1
+        : 0
+
+    if (!fixedLayout) {
+      throw new Error('Expected fixed-layout PDF renderer')
+    }
+    if (!pdfSectionShape) {
+      throw new Error(`Expected PDF section shape; sections=${sections.length}`)
+    }
+    if (visiblePdfVisualCount <= 0) {
+      throw new Error(`Expected visible PDF renderer; index=${rendererIndex} rect=${rendererRect.width}x${rendererRect.height}`)
+    }
+
+    return {
+      probe: 'pdf-visible-page',
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+      viewport: {
+        width: Math.round(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0),
+        height: Math.round(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0),
+        innerWidth: Math.round(window.innerWidth || 0),
+        innerHeight: Math.round(window.innerHeight || 0),
+        devicePixelRatio: window.devicePixelRatio || 1,
+      },
+      fixedLayout,
+      pdfSectionShape,
+      visiblePdfVisualCount,
+      rendererLocalName: renderer.localName,
+      rendererIndex,
+      sectionCount: sections.length,
+      rendererRect: roundRect(rendererRect),
+      rendererAttributes: {
+        pdfFitMode: renderer.getAttribute('data-navic-pdf-fit-mode') || '',
+        pdfCropBorders: renderer.getAttribute('data-navic-pdf-crop-borders') || '',
+        pdfPageGapPercent: renderer.getAttribute('data-navic-pdf-page-gap-percent') || '',
+      },
+    }
+  }})()`)
+}
+
 async function runFontSizeProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     if (!window.NavicReaderBridge?.dispatch) {
@@ -2073,6 +2152,7 @@ async function main() {
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,
       'visible-page-content': runVisiblePageContentProbe,
+      'pdf-visible-page': runPdfVisiblePageProbe,
       'font-size': runFontSizeProbe,
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
       'runtime-state': runRuntimeStateProbe,

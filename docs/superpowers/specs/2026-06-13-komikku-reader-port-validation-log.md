@@ -7810,3 +7810,42 @@ Results:
 
 Remaining:
 - Stage 6A is eligible to be part of a later coherent release candidate, but it should not trigger a public release by itself. Remaining visual systems include settings density, progress rail fidelity, texture strength, theme palette, and page-curl/drag preview behavior.
+
+
+## 2026-06-29 Stage 3A PDF And Fixed-Layout Interaction Gate
+
+Scope:
+- Make local/readerdev PDF launches use the resolver cache path instead of direct WebView loopback fetches.
+- Make PDF/fixed-layout page turns use Foliate resolved index targets.
+- Prevent EPUB-style synthetic shell-cover injection for fixed-layout/PDF publications.
+- Add a DevTools `pdf-visible-page` probe and require concrete renderer-index movement in the PDF matrix.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+[scriptblock]::Create((Get-Content -Raw scripts\adb-reader-smoke.ps1)) | Out-Null
+[scriptblock]::Create((Get-Content -Raw scripts\adb-reader-komikku-matrix.ps1)) | Out-Null
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbPdfMatrixValidatesVisiblePdfThroughDevtoolsProbe --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidFixedLayoutPageTurnsUseFoliateResolvedIndexTarget --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidFixedLayoutPublicationsDoNotCreateSyntheticShellCoverOverlay --rerun-tasks --console=plain
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -OnlyPdfChecks -ArtifactRoot captures\reader-komikku-matrix\stage3a-pdf-local-index-asserted
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidFixedLayoutPageTurnsUseFoliateResolvedIndexTarget` failed while fixed-layout page turns still passed a raw number to `this.view.goTo` (`tmp/codex-validation/stage3a-fixed-layout-goTo-red2.out.log`).
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidFixedLayoutPublicationsDoNotCreateSyntheticShellCoverOverlay` failed before shell-cover creation was blocked for fixed-layout publications (`tmp/codex-validation/stage3a-fixed-layout-shell-cover-red.out.log`).
+- GREEN/FOCUSED: the focused Android host guards passed with hidden-process exit `0` (`tmp/codex-validation/stage3a-pdf-focused-green3-hidden.out.log`).
+- GREEN/JS/SCRIPT: touched JS files passed `node --check`; the smoke and matrix PowerShell scripts parsed cleanly.
+- GREEN/MATRIX: PDF-only matrix passed all rows under `captures\reader-komikku-matrix\stage3a-pdf-local-index-asserted`.
+- GREEN/BASELINE: `pdf-baseline\reader-devtools-probe.json` reports fixed-layout `foliate-fxl`, PDF section shape, `sectionCount=5`, renderer rect `412x915`, and renderer index `0`.
+- GREEN/NEXT: `pdf-edge-tap-next` and `pdf-drag-next` post-action probes both report renderer index `1`; summaries show native tap and native drag paths.
+- GREEN/PREVIOUS: `pdf-edge-tap-previous` and `pdf-drag-previous` post-action probes both report renderer index `0`.
+- GREEN/STALE-GUARD-RERUN: the five stale source-inspection guards that failed the first full suite pass were updated and passed with hidden-process exit `0` (`tmp/codex-validation/stage3a-stale-guards-focused.out.log`, `tmp/codex-validation/stage3a-stale-guards-focused.exit.txt`).
+- GREEN/FULL-SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed with hidden-process exit `0` after the stale guard updates (`tmp/codex-validation/stage3a-final-testAndroid-after-stale-guards.out.log`, `tmp/codex-validation/stage3a-final-testAndroid-after-stale-guards.exit.txt`).
+- GREEN/FINAL-CHECKS: `node --check` passed for `navic-reader.js`, `navic-reader-page-turns.js`, and `adb-webview-eval.mjs`; the touched PowerShell scripts parsed cleanly; `git diff --check` passed.
+
+Remaining:
+- This validates readerdev emulator behavior, not a public release APK or physical-device PDF feel.

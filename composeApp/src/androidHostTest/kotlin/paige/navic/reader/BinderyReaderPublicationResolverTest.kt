@@ -100,6 +100,33 @@ class BinderyReaderPublicationResolverTest {
 	}
 
 	@Test
+	fun resolvesReaderDevLocalSourceToPdfCacheFileWithoutBinderyResourceFetch() = runBlocking {
+		val sourceFile = kotlin.io.path.createTempFile("navic-readerdev-source", ".pdf").toFile()
+		sourceFile.writeText("%PDF-1.7-LOCAL")
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { path -> error("Bindery fetch should not run for readerdev source: $path") },
+			cacheRoot = createTempDirectory("navic-readerdev-pdf-publications").toFile()
+		)
+		val request = ReaderPublicationResourceRequest(
+			bookId = "reader-dev",
+			title = "PDF Navigation Fixture",
+			resourceHref = "/fixtures/local/input.pdf",
+			sourceUrl = sourceFile.toURI().toURL().toExternalForm(),
+			kind = ReaderPublicationKind.Ebook,
+			format = ReaderPublicationFormat.Pdf,
+			mediaOverlayEnabled = false
+		)
+
+		val resolved = resolver.resolve(request)
+
+		assertEquals("/fixtures/local/input.pdf", resolved.resourceHref)
+		assertTrue(resolved.publicationUrl.endsWith("/publication.pdf"))
+		assertEquals("%PDF-1.7-LOCAL", resolved.publicationFile.readText())
+		assertEquals(false, resolved.fromCache)
+		assertNull(resolved.shellCoverUrl)
+	}
+
+	@Test
 	fun resolvesFoliateFormatsToMatchingCacheFileExtensions() = runBlocking {
 		val resolver = BinderyReaderPublicationResolver(
 			fetchResourceBytes = { path -> "BYTES:$path".encodeToByteArray() },

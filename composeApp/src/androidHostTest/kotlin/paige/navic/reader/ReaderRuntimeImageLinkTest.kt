@@ -65,9 +65,14 @@ class ReaderRuntimeImageLinkTest {
 
 		assertContains(bridgeText, "startLocatorTargetsShellCover")
 		assertContains(
+			openPublication,
+			"const shellCoverAllowed = this.view?.isFixedLayout !== true",
+			message = "PDF/fixed-layout publications must not be wrapped in an EPUB-style shell cover."
+		)
+		assertContains(
 			bridgeText,
-			"const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()",
-			message = "Every EPUB open should try to show the program-level cover before revealing reader content."
+			"const shellCoverUrl = this.externalShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null",
+			message = "Reflowable EPUB opens should try to show the program-level cover, while fixed-layout/PDF opens must skip it."
 		)
 		assertContains(
 			openPublication,
@@ -124,14 +129,15 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			bridgeText,
-			"const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()",
-			message = "Native cover mode must not create a second WebView shell-cover layer underneath the Compose cover surface."
+			"const shellCoverUrl = this.externalShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null",
+			message = "Native cover mode and fixed-layout/PDF mode must not create a second WebView shell-cover layer underneath the Compose cover surface."
 		)
+		assertContains(bridgeText, "const shellCoverAllowed = this.view?.isFixedLayout !== true")
 		assertContains(bridgeText, "const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)")
 		assertContains(bridgeText, "} else if (hasShellCoverSurface) {")
 		assertContains(
 			bridgeText,
-			"if (shellCoverUrl) this.showShellCover()",
+			"if (shellCoverAllowed && shellCoverUrl) this.showShellCover()",
 			message = "Only the JS fallback cover layer should be shown by the WebView runtime."
 		)
 	}

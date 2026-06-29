@@ -50,6 +50,18 @@ class ReaderRuntimeNavigationFlowTest {
 	}
 
 	@Test
+	fun androidReaderDevLoopbackPublicationsUseResolverCacheInsteadOfDirectWebViewFetch() {
+		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+
+		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
+		assertContains(runtimeHostText, "sourceUrl = reader.publicationUrl")
+		assertFalse(
+			runtimeHostText.contains("isReaderDevLoopbackPublicationUrl"),
+			"Readerdev loopback HTTP sources must be materialized by the native resolver cache; WebView fetches can fail under the appassets HTTPS origin."
+		)
+	}
+
+	@Test
 	fun androidReaderResolvesTocHrefNavigationBeforeCommittingLocation() {
 		val bridgeText = readerBridgeText()
 		val goTo = bridgeText
@@ -101,7 +113,7 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(bridgeText, "fixedLayoutCurrentPageIndex()")
 		assertContains(turnPage, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
 		assertContains(turnPage, "if (directFixedLayoutPageTarget != null)")
-		assertContains(turnPage, "await this.view.goTo(directFixedLayoutPageTarget)")
+		assertContains(turnPage, "await this.view.goTo({ index: directFixedLayoutPageTarget })")
 		assertContains(turnPage, "page-turn:fixed-direct")
 		assertFalse(
 			turnPage.contains("page-turn:fixed-fallback"),
@@ -141,7 +153,7 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(startPageTurn, "this.pageTurnPromise = null")
 		assertContains(bridgeText, "startNextQueuedPageTurn()")
 		assertContains(performPageTurn, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
-		assertContains(performPageTurn, "await this.view.goTo(directFixedLayoutPageTarget)")
+		assertContains(performPageTurn, "await this.view.goTo({ index: directFixedLayoutPageTarget })")
 		assertTrue(
 			startPageTurn.indexOf("this.pageTurnPromise = completionPromise") <
 				startPageTurn.indexOf("return completionPromise"),
@@ -265,9 +277,9 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(performPageTurn, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
 		assertContains(performPageTurn, "if (directFixedLayoutPageTarget != null)")
 		assertContains(performPageTurn, "page-turn:fixed-direct")
-		assertContains(performPageTurn, "await this.view.goTo(directFixedLayoutPageTarget)")
+		assertContains(performPageTurn, "await this.view.goTo({ index: directFixedLayoutPageTarget })")
 		assertTrue(
-			performPageTurn.indexOf("await this.view.goTo(directFixedLayoutPageTarget)") <
+			performPageTurn.indexOf("await this.view.goTo({ index: directFixedLayoutPageTarget })") <
 				performPageTurn.indexOf("this.issueReflowablePageTurn(direction)"),
 			"Fixed-layout/PDF tap navigation should go directly to the indexed adjacent page before the reflowable command path."
 		)

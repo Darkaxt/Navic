@@ -115,6 +115,11 @@ function Invoke-ReaderMatrixStep {
         [switch] $RequireNoReaderCenterDispatch,
         [switch] $RequireTextureDiagnostics,
         [switch] $RequirePdfDiagnostics,
+        [int] $RequirePdfRendererIndex = -1,
+        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+        [string] $ReaderDevtoolsProbe = "",
+        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+        [string] $PostActionReaderDevtoolsProbe = "",
         [ValidateSet("", "next", "previous")]
         [string] $RequireTextureDirection = "",
         [switch] $Launch,
@@ -178,6 +183,15 @@ function Invoke-ReaderMatrixStep {
     }
     if ($RequirePdfDiagnostics) {
         $smokeArgs.RequirePdfDiagnostics = $true
+    }
+    if ($RequirePdfRendererIndex -ge 0) {
+        $smokeArgs.RequirePdfRendererIndex = $RequirePdfRendererIndex
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
+        $smokeArgs.ReaderDevtoolsProbe = $ReaderDevtoolsProbe
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PostActionReaderDevtoolsProbe)) {
+        $smokeArgs.PostActionReaderDevtoolsProbe = $PostActionReaderDevtoolsProbe
     }
     $stepTextureDirection = if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
         $RequireTextureDirection
@@ -333,33 +347,43 @@ if (-not $OnlyPdfChecks) {
 if ($IncludePdfChecks -or $OnlyPdfChecks) {
     Invoke-ReaderMatrixStep `
         -Name "pdf-baseline" `
-        -RequirePdfDiagnostics
+        -RequirePdfDiagnostics `
+        -RequirePdfRendererIndex 0 `
+        -ReaderDevtoolsProbe "pdf-visible-page"
 
     Invoke-ReaderMatrixStep `
         -Name "pdf-edge-tap-next" `
         -TapFraction @("0.90,0.50,900") `
         -ValidateReaderTaps `
         -RequireReaderTapAction `
-        -RequirePdfDiagnostics
+        -RequirePdfDiagnostics `
+        -RequirePdfRendererIndex 1 `
+        -PostActionReaderDevtoolsProbe "pdf-visible-page"
 
     Invoke-ReaderMatrixStep `
         -Name "pdf-edge-tap-previous" `
         -TapFraction @("0.10,0.50,900") `
         -ValidateReaderTaps `
         -RequireReaderTapAction `
-        -RequirePdfDiagnostics
+        -RequirePdfDiagnostics `
+        -RequirePdfRendererIndex 0 `
+        -PostActionReaderDevtoolsProbe "pdf-visible-page"
 
     Invoke-ReaderMatrixStep `
         -Name "pdf-drag-next" `
         -SwipeFraction @("0.82,0.52,0.18,0.52,420,1000") `
         -RequireNativeSwipeAction `
-        -RequirePdfDiagnostics
+        -RequirePdfDiagnostics `
+        -RequirePdfRendererIndex 1 `
+        -PostActionReaderDevtoolsProbe "pdf-visible-page"
 
     Invoke-ReaderMatrixStep `
         -Name "pdf-drag-previous" `
         -SwipeFraction @("0.18,0.52,0.82,0.52,420,1000") `
         -RequireNativeSwipeAction `
-        -RequirePdfDiagnostics
+        -RequirePdfDiagnostics `
+        -RequirePdfRendererIndex 0 `
+        -PostActionReaderDevtoolsProbe "pdf-visible-page"
 }
 
 Write-Host "Komikku reader matrix artifacts: $ArtifactRoot"

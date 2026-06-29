@@ -411,7 +411,8 @@ class NavicReaderRuntime {
       this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
-      const shellCoverUrl = this.externalShellCover ? null : await this.loadShellCover()
+      const shellCoverAllowed = this.view?.isFixedLayout !== true
+      const shellCoverUrl = this.externalShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null
       const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)
       const shouldStartAtShellCover = hasShellCoverSurface && this.startLocatorTargetsShellCover(startLocator)
       this.postToc()
@@ -431,7 +432,7 @@ class NavicReaderRuntime {
       await this.ensureCompletePaginationProfile(url, this.readerSettings)
       this.attachSurfaceTapGesture(this.view)
       this.attachReaderTapZoneGesture(this.view)
-      if (shellCoverUrl) this.showShellCover()
+      if (shellCoverAllowed && shellCoverUrl) this.showShellCover()
       log('openPublication:ready', describeUrl(url))
       this.applyReaderViewportLayout('ready')
       this.logContentLayout('ready')

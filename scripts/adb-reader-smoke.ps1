@@ -28,13 +28,14 @@ param(
     [string[]] $RequireReaderBridgeEvent = @(),
     [string[]] $RequireReaderEngineCommand = @(),
     [string[]] $RequireReaderLog = @(),
-    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
     [string] $ReaderDevtoolsProbe = "",
-    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+    [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
     [string] $PostActionReaderDevtoolsProbe = "",
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
     [switch] $RequirePdfDiagnostics,
+    [int] $RequirePdfRendererIndex = -1,
     [switch] $RequireNativeShellCover,
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
@@ -457,7 +458,6 @@ Invoke-Adb @("shell", "cat", "/proc/net/unix") -PassThru |
 
 function Invoke-ReaderDevtoolsProbe {
     param(
-        [Parameter(Mandatory = $true)]
         [string] $ProbeName,
         [Parameter(Mandatory = $true)]
         [string] $OutputFileName
@@ -800,7 +800,6 @@ $readerLogText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-reader.lo
 
 function Assert-ReaderDevtoolsProbeLogLabels {
     param(
-        [Parameter(Mandatory = $true)]
         [string] $ProbeName,
         [Parameter(Mandatory = $true)]
         [string] $OutputFileName
@@ -830,6 +829,45 @@ function Assert-ReaderDevtoolsProbeLogLabels {
 
 Assert-ReaderDevtoolsProbeLogLabels -ProbeName $ReaderDevtoolsProbe -OutputFileName "reader-devtools-probe.json"
 Assert-ReaderDevtoolsProbeLogLabels -ProbeName $PostActionReaderDevtoolsProbe -OutputFileName "reader-devtools-post-action-probe.json"
+
+function Get-ReaderDevtoolsPdfVisibleResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $OutputFileName
+    )
+
+    $probeJsonPath = Join-Path $ArtifactDir $OutputFileName
+    if (-not (Test-Path -LiteralPath $probeJsonPath -PathType Leaf)) {
+        return $null
+    }
+    $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
+    if ([string]::IsNullOrWhiteSpace($probeJsonText)) {
+        return $null
+    }
+    try {
+        $probeJson = $probeJsonText | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+    $probeResult = $probeJson.result
+    if (
+        $probeResult.probe -eq "pdf-visible-page" -and
+        $probeResult.fixedLayout -eq $true -and
+        $probeResult.visiblePdfVisualCount -gt 0
+    ) {
+        return $probeResult
+    }
+    return $null
+}
+
+function Test-ReaderDevtoolsPdfVisible {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $OutputFileName
+    )
+
+    return $null -ne (Get-ReaderDevtoolsPdfVisibleResult -OutputFileName $OutputFileName)
+}
 
 foreach ($requiredEngineCommand in $RequireReaderEngineCommand) {
     if (-not (Test-TextMatches -Text $readerLogText -Pattern ([regex]::Escape("Dispatching reader engine command: $requiredEngineCommand")))) {
@@ -872,7 +910,14 @@ if ($CaptureReaderDiagnostics) {
     $touchDiagnosticsText = Get-TextFileRaw -Path $touchDiagnosticsPath
     $bridgeDiagnosticsText = Get-TextFileRaw -Path $bridgeDiagnosticsPath
     $logcatFullText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-full.log")
-    $pdfRuntimeDiagnostics = Test-TextMatches -Text $logcatFullText -Pattern '\[FoliatePDF\]|makePDF|pdfjs|PDF\.js|publication\.pdf|format=Pdf'
+    $pdfProbeResult = Get-ReaderDevtoolsPdfVisibleResult -OutputFileName "reader-devtools-post-action-probe.json"
+    if ($null -eq $pdfProbeResult) {
+        $pdfProbeResult = Get-ReaderDevtoolsPdfVisibleResult -OutputFileName "reader-devtools-probe.json"
+    }
+    $pdfProbeVisible = $null -ne $pdfProbeResult
+    $pdfRendererIndex = if ($null -ne $pdfProbeResult) { [int] $pdfProbeResult.rendererIndex } else { -1 }
+    $pdfRuntimeDiagnostics = (Test-TextMatches -Text $logcatFullText -Pattern '\[FoliatePDF\]|makePDF|pdfjs|PDF\.js|publication\.pdf|format=Pdf') -or
+        $pdfProbeVisible
     $textureLines = @(Get-Content -LiteralPath $textureDiagnosticsPath)
     $textureDirectionSamples = @()
     $wrongTextureDirection = $false
@@ -905,6 +950,8 @@ if ($CaptureReaderDiagnostics) {
         "requiredReaderLogs=$($RequireReaderLog -join ',')",
         "imageSepiaOverlay=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'image:sepia-overlay')",
         "linkNavigate=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'link:navigate')",
+        "pdfProbeVisible=$pdfProbeVisible",
+        "pdfRendererIndex=$pdfRendererIndex",
         "pdfRuntimeDiagnostics=$pdfRuntimeDiagnostics",
         "shellCoverDragCandidate=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover drag candidate')",
         "shellCoverSwipe=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover swipe')",
@@ -951,6 +998,14 @@ if ($CaptureReaderDiagnostics) {
     }
     if ($RequirePdfDiagnostics -and -not $pdfRuntimeDiagnostics) {
         throw "Reader diagnostics validation failed: no PDF runtime diagnostics were captured. See $ArtifactDir"
+    }
+    if ($RequirePdfRendererIndex -ge 0) {
+        if ($null -eq $pdfProbeResult) {
+            throw "Reader diagnostics validation failed: PDF renderer index required but no pdf-visible-page probe result was captured. See $ArtifactDir"
+        }
+        if ($pdfRendererIndex -ne $RequirePdfRendererIndex) {
+            throw "Reader diagnostics validation failed: PDF renderer index $pdfRendererIndex did not match expected $RequirePdfRendererIndex. See $ArtifactDir"
+        }
     }
     if ($RequireTextureDiagnostics) {
         foreach ($requiredTextureField in @('pos=', 'base=', 'delta=', 'dir=', 'page=', 'href=')) {

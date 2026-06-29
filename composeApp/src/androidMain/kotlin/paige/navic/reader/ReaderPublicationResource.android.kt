@@ -3,12 +3,15 @@ package paige.navic.reader
 import android.content.Context
 import java.io.File
 import java.io.InputStream
+import java.net.URL
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 
@@ -58,7 +61,11 @@ class BinderyReaderPublicationResolver(
 				publicationExtension = publicationExtension
 			)
 		}
-		val bytes = fetchResourceBytes(resourceHref)
+		val bytes = if (request.shouldFetchReaderDevSourceUrl(resourceHref)) {
+			request.fetchReaderDevSourceBytes()
+		} else {
+			fetchResourceBytes(resourceHref)
+		}
 		publicationFile.parentFile?.mkdirs()
 		publicationFile.writeBytes(bytes)
 		return request.resolvedPublicationResource(
@@ -70,6 +77,34 @@ class BinderyReaderPublicationResolver(
 		)
 	}
 }
+
+private fun ReaderPublicationResourceRequest.shouldFetchReaderDevSourceUrl(resourceHref: String): Boolean =
+	!resourceHref.readerLooksLikeBinderyResourceHref() &&
+		sourceUrl.readerLooksLikeReaderDevSourceUrl()
+
+private fun String.readerLooksLikeBinderyResourceHref(): Boolean {
+	val path = canonicalReaderResourceHref(this) ?: return false
+	return path.startsWith("/opds/", ignoreCase = true) ||
+		path.startsWith("/api/", ignoreCase = true)
+}
+
+private fun String.readerLooksLikeReaderDevSourceUrl(): Boolean {
+	val safeUrl = trim()
+	return safeUrl.startsWith("file:", ignoreCase = true) ||
+		safeUrl.readerLooksLikeLoopbackHttpSource("127.0.0.1") ||
+		safeUrl.readerLooksLikeLoopbackHttpSource("localhost") ||
+		safeUrl.readerLooksLikeLoopbackHttpSource("10.0.2.2")
+}
+
+private fun String.readerLooksLikeLoopbackHttpSource(host: String): Boolean =
+	equals("http://$host", ignoreCase = true) ||
+	startsWith("http://$host/", ignoreCase = true) ||
+	startsWith("http://$host:", ignoreCase = true)
+
+private suspend fun ReaderPublicationResourceRequest.fetchReaderDevSourceBytes(): ByteArray =
+	withContext(Dispatchers.IO) {
+		URL(sourceUrl).openStream().use(InputStream::readBytes)
+	}
 
 internal fun readerPublicationCacheRoot(context: Context): File =
 	File(context.cacheDir, ReaderPublicationCacheDirectoryName)

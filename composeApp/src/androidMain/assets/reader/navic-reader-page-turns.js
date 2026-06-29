@@ -1135,7 +1135,7 @@ async function performPageTurn(direction) {
       })
       this.fixedLayoutNavigationPageIndex = directFixedLayoutPageTarget
       this.fixedLayoutNavigationDirection = direction
-      await this.view.goTo(directFixedLayoutPageTarget)
+      await this.view.goTo({ index: directFixedLayoutPageTarget })
     } else if (direction === 'next') {
       this.beginControlledRelocation(`page-turn:${direction}`)
       pageTurnIssued = this.issueReflowablePageTurn(direction)

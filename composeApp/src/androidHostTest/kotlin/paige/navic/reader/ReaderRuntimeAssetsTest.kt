@@ -356,6 +356,30 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeAllowsEmptyDevtoolsProbeNames() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val probeFunction = scriptText
+			.substringAfter("function Invoke-ReaderDevtoolsProbe")
+			.substringBefore("\nInvoke-ReaderDevtoolsProbe -ProbeName")
+		val assertFunction = scriptText
+			.substringAfter("function Assert-ReaderDevtoolsProbeLogLabels")
+			.substringBefore("\nAssert-ReaderDevtoolsProbeLogLabels -ProbeName")
+
+		assertContains(probeFunction, "if ([string]::IsNullOrWhiteSpace(${'$'}ProbeName))")
+		assertFalse(
+			probeFunction.contains("[Parameter(Mandatory = ${'$'}true)]\r\n        [string] ${'$'}ProbeName") ||
+				probeFunction.contains("[Parameter(Mandatory = ${'$'}true)]\n        [string] ${'$'}ProbeName"),
+			"Reader smoke steps without DevTools probes must not fail before Invoke-ReaderDevtoolsProbe can skip an empty ProbeName."
+		)
+		assertContains(assertFunction, "if ([string]::IsNullOrWhiteSpace(${'$'}ProbeName))")
+		assertFalse(
+			assertFunction.contains("[Parameter(Mandatory = ${'$'}true)]\r\n        [string] ${'$'}ProbeName") ||
+				assertFunction.contains("[Parameter(Mandatory = ${'$'}true)]\n        [string] ${'$'}ProbeName"),
+			"Reader smoke steps without DevTools probes must not fail before Assert-ReaderDevtoolsProbeLogLabels can skip an empty ProbeName."
+		)
+	}
+
+	@Test
 	fun adbWebViewEvalHelperCanProbeWhispersyncAudioFollowVisibleRangeSource() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
@@ -884,6 +908,61 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "no native reader long tap was captured")
 		assertContains(scriptText, "no PDF runtime diagnostics were captured")
 		assertContains(scriptText, "reader center dispatch was captured")
+	}
+
+	@Test
+	fun adbPdfMatrixValidatesVisiblePdfThroughDevtoolsProbe() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val smokeText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val matrixText = repoScriptFile("adb-reader-komikku-matrix.ps1").readText()
+		val pdfChecksBlock = matrixText
+			.substringAfter("if (\$IncludePdfChecks -or \$OnlyPdfChecks)")
+			.substringBefore("Write-Host \"Komikku reader matrix artifacts")
+
+		assertContains(helperText, "async function runPdfVisiblePageProbe(page)")
+		assertContains(helperText, "'pdf-visible-page': runPdfVisiblePageProbe")
+		assertContains(helperText, "probe: 'pdf-visible-page'")
+		assertContains(helperText, "fixedLayout")
+		assertContains(helperText, "visiblePdfVisualCount")
+		assertContains(smokeText, "\"pdf-visible-page\"")
+		assertContains(smokeText, "[int] \$RequirePdfRendererIndex = -1")
+		assertContains(smokeText, "PDF renderer index")
+		assertContains(matrixText, "[string] \$ReaderDevtoolsProbe = \"\"")
+		assertContains(matrixText, "\$smokeArgs.ReaderDevtoolsProbe = \$ReaderDevtoolsProbe")
+		assertContains(matrixText, "[int] \$RequirePdfRendererIndex = -1")
+		assertContains(matrixText, "\$smokeArgs.RequirePdfRendererIndex = \$RequirePdfRendererIndex")
+		assertContains(pdfChecksBlock, "-ReaderDevtoolsProbe \"pdf-visible-page\"")
+		assertContains(pdfChecksBlock, "-RequirePdfRendererIndex 1")
+	}
+
+	@Test
+	fun androidFixedLayoutPageTurnsUseFoliateResolvedIndexTarget() {
+		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val fixedDirectBlock = pageTurnsText
+			.substringAfter("if (directFixedLayoutPageTarget != null)")
+			.substringBefore("} else if (direction === 'next')")
+
+		assertContains(
+			fixedDirectBlock,
+			"this.view.goTo({ index: directFixedLayoutPageTarget })",
+			message = "Foliate fixed-layout goTo expects a resolved target object. Passing a raw page number makes PDF tap/drag turns no-op."
+		)
+		assertFalse(
+			fixedDirectBlock.contains("this.view.goTo(directFixedLayoutPageTarget)"),
+			"PDF/fixed-layout navigation must not pass a raw number to Foliate goTo."
+		)
+	}
+
+	@Test
+	fun androidFixedLayoutPublicationsDoNotCreateSyntheticShellCoverOverlay() {
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val openPublicationBlock = runtimeText
+			.substringAfter("async openPublication")
+			.substringBefore("  onInternalLink(event)")
+
+		assertContains(openPublicationBlock, "const shellCoverAllowed = this.view?.isFixedLayout !== true")
+		assertContains(openPublicationBlock, "shellCoverAllowed ? await this.loadShellCover() : null")
+		assertContains(openPublicationBlock, "if (shellCoverAllowed && shellCoverUrl) this.showShellCover()")
 	}
 
 	@Test

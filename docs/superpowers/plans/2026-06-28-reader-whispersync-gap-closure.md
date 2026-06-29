@@ -138,10 +138,35 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeNavigationFlowTest.kt`
 - `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderChromeStateTest.kt`
 
-- [ ] Add a failing guard for the next PDF/fixed-layout behavior gap before touching runtime code.
-- [ ] Implement the adapter/runtime behavior behind `ReaderEngine`.
-- [ ] Validate with focused host tests, JS syntax checks, and emulator PDF matrix coverage.
-- [ ] Commit the completed PDF slice.
+### Stage 3A: PDF And Fixed-Layout Interaction
+
+Status: host and readerdev emulator pass complete; release-device/manual PDF feel still pending.
+
+Scope:
+- Make readerdev/local PDF launches use the same resolver/cache-backed publication resource path as remote OPDS resources, instead of asking the Android WebView to fetch local loopback PDFs directly.
+- Prove PDF rendering through a DevTools `pdf-visible-page` probe that validates fixed-layout mode, PDF section shape, visible renderer dimensions, renderer index, and PDF renderer attributes.
+- Make fixed-layout/PDF page turns call Foliate with a resolved object target (`goTo({ index })`) instead of a raw number that Foliate treats as an unresolved no-op.
+- Suppress the synthetic shell-cover overlay for fixed-layout/PDF publications so page 1 is not consumed as a fake EPUB-style cover before the first real PDF turn.
+- Tighten the PDF matrix so tap/drag next must land on renderer index `1`, and tap/drag previous must return to renderer index `0`.
+
+Guards and evidence:
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidFixedLayoutPageTurnsUseFoliateResolvedIndexTarget` failed while `navic-reader-page-turns.js` still called `this.view.goTo(directFixedLayoutPageTarget)` (`tmp/codex-validation/stage3a-fixed-layout-goTo-red2.out.log`).
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.androidFixedLayoutPublicationsDoNotCreateSyntheticShellCoverOverlay` failed before `navic-reader.js` gated shell-cover creation with `shellCoverAllowed` for fixed-layout publications (`tmp/codex-validation/stage3a-fixed-layout-shell-cover-red.out.log`).
+- GREEN/FOCUSED: the three focused `ReaderRuntimeAssetsTest` guards passed through the hidden no-console Gradle run, exit `0` (`tmp/codex-validation/stage3a-pdf-focused-green3-hidden.out.log`, `tmp/codex-validation/stage3a-pdf-focused-green3-hidden.exit.txt`).
+- GREEN/JS: `node --check` passed for `navic-reader.js`, `navic-reader-page-turns.js`, and `tools/reader-harness/src/adb-webview-eval.mjs`.
+- GREEN/SCRIPT-PARSE: `adb-reader-smoke.ps1` and `adb-reader-komikku-matrix.ps1` parsed cleanly after adding `pdf-visible-page` and `RequirePdfRendererIndex`.
+- GREEN/READERDEV-PDF-MATRIX: `scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -OnlyPdfChecks -ArtifactRoot captures\reader-komikku-matrix\stage3a-pdf-local-index-asserted` passed all six rows.
+- GREEN/PDF-BASELINE: `captures\reader-komikku-matrix\stage3a-pdf-local-index-asserted\pdf-baseline\reader-devtools-probe.json` reports fixed-layout `foliate-fxl`, `sectionCount=5`, renderer index `0`, and renderer rect `412x915`.
+- GREEN/PDF-NEXT: `pdf-edge-tap-next` and `pdf-drag-next` post-action probes both report renderer index `1`; summaries show native tap and native drag paths respectively.
+- GREEN/PDF-PREVIOUS: `pdf-edge-tap-previous` and `pdf-drag-previous` post-action probes both report renderer index `0`.
+- GREEN/FULL-SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed after updating stale source-inspection guards (`tmp/codex-validation/stage3a-final-testAndroid-after-stale-guards.out.log`, exit `0`).
+- GREEN/FINAL-CHECKS: touched JS files passed `node --check`; touched PowerShell smoke/matrix scripts parsed cleanly; `git diff --check` passed.
+
+Required before closure:
+- [x] Add a failing guard for the next PDF/fixed-layout behavior gap before touching runtime code.
+- [x] Implement the adapter/runtime behavior behind `ReaderEngine`.
+- [x] Validate with focused host tests, JS syntax checks, and emulator PDF matrix coverage.
+- [x] Run final `:composeApp:testAndroid`, `git diff --check`, and commit the completed PDF slice.
 
 ## Stage 4: Whispersync API And Launch Gate
 
