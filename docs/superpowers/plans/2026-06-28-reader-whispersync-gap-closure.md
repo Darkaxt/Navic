@@ -209,6 +209,37 @@ Closure:
 - [x] Deliberate long-press text selection remains on the content hit-test path.
 - [x] Browser harness confirms the native short-tap paragraph path is no longer suppressed.
 
+### Stage RC16: Theta16 Release Candidate
+
+Status: public Android release published.
+
+Scope:
+- Package the completed staged reader fixes after `v1.0.11-theta15`: Komikku settings grouping, stronger paper/edge texture visibility, and Stage 2C native short-tap text ownership.
+- Do not add new feature edits into the release candidate.
+- Build the signed Android artifact through GitHub Actions; local release signing remains intentionally unavailable.
+
+Commands and evidence:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta16
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+git tag v1.0.11-theta16 fd7dc3ea
+git push fork v1.0.11-theta16
+gh run view 28376083603 --repo Darkaxt/Navic --json status,conclusion,url,jobs
+gh release view v1.0.11-theta16 --repo Darkaxt/Navic --json tagName,url,publishedAt,assets
+```
+
+Results:
+- GREEN/VERSION: Android release identity is `versionCode=444`, `versionName=v1.0.11-theta16`.
+- GREEN/SUITE: `:composeApp:testAndroid` passed on the theta16 identity.
+- GREEN/GITHUB-ACTIONS: run `28376083603` completed successfully; `Build Android APK` succeeded, `Verify release APK signing` succeeded, and iOS jobs were skipped.
+- GREEN/RELEASE: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta16` was published with asset `Navic.apk` (`sha256:397cf69f18f242b03506b6913f2d4dbfad32b0d48274c105ca8000947b304eb0`).
+- CAVEAT/RELEASE-SCRIPT: the background release watcher expects an existing local tag. The first run exited at tag lookup; the corrected flow created/pushed the tag, then monitored run `28376083603` directly.
+
+Next gate:
+- Install theta16 on a logged-in device or emulator state and run the release-package reader/Whispersync validation matrix before claiming release-level usability.
+
 ## Stage 3: PDF And Fixed-Layout Gate
 
 **Purpose:** Bring PDF/image behavior under the same Komikku shell and Anx/Foliate engine boundary as EPUB.

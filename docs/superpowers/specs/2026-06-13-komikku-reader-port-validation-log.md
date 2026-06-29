@@ -8167,3 +8167,35 @@ Results:
 
 Remaining:
 - This is a browser-harness and host/source proof. Release-phone feel for center taps, image taps, and long-press selection should still be checked in the next meaningful release candidate.
+
+
+## 2026-06-29 Theta16 Public Android Release
+
+Scope:
+- Publish the accumulated staged reader fixes after theta15:
+  - Stage 6C.2 settings grouping.
+  - Stage 6D.2 paper/edge texture visibility.
+  - Stage 2C native short-tap text ownership.
+- Keep release packaging Android-only; iOS build remains out of scope.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta16
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+git tag v1.0.11-theta16 fd7dc3ea
+git push fork v1.0.11-theta16
+gh run view 28376083603 --repo Darkaxt/Navic --json status,conclusion,url,jobs
+gh release view v1.0.11-theta16 --repo Darkaxt/Navic --json tagName,url,publishedAt,assets
+```
+
+Results:
+- GREEN/VERSION: Android release identity is `versionCode=444`, `versionName=v1.0.11-theta16`.
+- GREEN/SUITE: `:composeApp:testAndroid` passed before tagging.
+- GREEN/ACTIONS: GitHub Actions run `28376083603` completed successfully; `Build Android APK` and signing verification passed, debug build was skipped, and iOS jobs were skipped.
+- GREEN/PUBLIC-RELEASE: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta16` is published with `Navic.apk`.
+- GREEN/ASSET: release asset digest is `sha256:397cf69f18f242b03506b6913f2d4dbfad32b0d48274c105ca8000947b304eb0`.
+
+Remaining:
+- Release-package reader/Whispersync behavior still needs installation validation on a logged-in device or equivalent emulator state.
