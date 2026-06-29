@@ -8468,3 +8468,43 @@ Remaining:
 - Commit and push the theta17 release identity and Stage 7B evidence.
 - Create/push tag `v1.0.11-theta17`.
 - Trigger/watch the Android-only GitHub Actions release path and record the release URL/assets.
+
+Publication:
+- GREEN/BRANCH-PUSH: commit `a37cfcd4` (`Prepare theta17 Android release`) pushed to `fork/codex/komikku-reader-backbone-eta64`.
+- GREEN/TAG-PUSH: tag `v1.0.11-theta17` pushed to `fork`.
+- GREEN/GITHUB-ACTIONS: run `28390623899` completed successfully for tag `v1.0.11-theta17`.
+- GREEN/ANDROID-ONLY: `Build Android APK` and APK signing verification succeeded; `Build iOS IPA` and `Attach iOS IPA to GitHub Release` were skipped for the suffix tag.
+- GREEN/RELEASE: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta17` published at `2026-06-29T17:36:19Z`.
+- GREEN/ASSET: release contains `Navic.apk`, size `21051395`, SHA-256 `31dffd130b0ef694912d0b48e725a20aad7a31fd50d44ccf42259e4aeae1986e`.
+
+Next:
+- Start Stage 8D against the published `v1.0.11-theta17` APK: install/version/shell validation first, then credential-backed reader/Whispersync checks only if release login state is available.
+
+
+## 2026-06-29 Stage 8D Theta17 Release Validation Baseline
+
+Scope:
+- Validate the published theta17 APK as a release package, not readerdev.
+- Keep release install/app-shell evidence separate from deep reader/Whispersync evidence.
+- Stop at the login/data boundary instead of substituting readerdev results.
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta17 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta17 --clobber
+.\scripts\adb-release-login.ps1 -ValidateEnvOnly -EnvFile navic-release-login.env
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta17\Navic.apk -ExpectedVersionName v1.0.11-theta17 -ArtifactDir captures\reader-smoke\theta17-release-install -CaptureReaderDiagnostics
+.\scripts\adb-release-login.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic -NoLaunch -DetectOnly -ArtifactDir captures\release-login\theta17-release-detect-only
+```
+
+Results:
+- GREEN/RELEASE-DOWNLOAD: published `Navic.apk` downloaded to `releases\v1.0.11-theta17\Navic.apk`.
+- GREEN/CREDENTIAL-SAFE-BOUNDARY: `adb-release-login.ps1 -ValidateEnvOnly` failed as expected because `navic-release-login.env` is absent, printing only missing key names.
+- GREEN/RELEASE-INSTALL: `adb-reader-smoke.ps1` installed and foregrounded `darkaxt.navic`; `package-version.txt` reports `versionCode=445`, `versionName=v1.0.11-theta17`, and `lastUpdateTime=2026-06-29 20:41:25`.
+- GREEN/WEBVIEW-SOCKET: release package exposed WebView DevTools sockets: `@webview_devtools_remote_1736` and `@webview_devtools_remote_16753`.
+- GREEN/LOGIN-DETECT: release login detection confirmed the Navidrome login form and wrote `captures\release-login\theta17-release-detect-only\navic-release-login-window.xml`.
+- BLOCKED/RELEASE-READER: the emulator release package is not logged in and lands on `Log in`, `Instance URL`, `Username`, and `Password`. Reader shell, EPUB/PDF, selection, search, style, and Whispersync behavior cannot be claimed as release evidence from this emulator state.
+
+Next:
+- Stage 5C.4 release-package Whispersync enjoyment validation requires either a logged-in physical `darkaxt.navic` device or a real ignored `navic-release-login.env`.
+- Until then, readerdev/browser evidence remains implementation/runtime proof only.

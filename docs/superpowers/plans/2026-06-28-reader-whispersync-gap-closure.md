@@ -902,7 +902,7 @@ Required before closure:
 
 ### Stage 7B: Theta17 Staged Release Candidate
 
-Status: local validation passed; GitHub publication pending.
+Status: complete; GitHub release published.
 
 Purpose:
 - Publish a coherent Android release candidate for the completed post-theta16 work instead of continuing local microfixes.
@@ -943,14 +943,14 @@ Required before closure:
 - [x] Verify the Android version identity with `scripts\verify-android-release-version.ps1`.
 - [x] Run the full `:composeApp:testAndroid` gate.
 - [x] Run `git diff --check`.
-- [ ] Commit and push the release identity plus this Stage 7B evidence.
-- [ ] Create and push the `v1.0.11-theta17` tag.
-- [ ] Trigger the Android-only GitHub Actions release path through `scripts\publish-github-release.ps1`.
-- [ ] Record the release URL, workflow run, commit, and asset in the validation log.
+- [x] Commit and push the release identity plus this Stage 7B evidence. Commit `a37cfcd4`.
+- [x] Create and push the `v1.0.11-theta17` tag.
+- [x] Trigger the Android-only GitHub Actions release path. Run `28390623899` completed successfully; Android APK succeeded and iOS jobs were skipped.
+- [x] Record the release URL, workflow run, commit, and asset in the validation log.
 
 ## Current First Focus
 
-Use `v1.0.11-theta17` as the next public release-candidate target. `v1.0.11-theta16` remains the installed public baseline until Stage 7B is published. Deep reader and Whispersync release behavior still requires either a logged-in release device/profile or the Stage 8C release-login automation path. Until release package state reaches the reader, keep readerdev/browser evidence labeled as implementation/runtime proof, not release proof.
+Use `v1.0.11-theta17` as the current public release baseline. The APK is published and release-package install/app-shell validation passed on the emulator, but deep reader and Whispersync release behavior still requires either a logged-in release device/profile or the Stage 8C release-login automation path with real credentials. Until release package state reaches the reader, keep readerdev/browser evidence labeled as implementation/runtime proof, not release proof.
 
 ## Stage 8: Release Validation Baseline Gate
 
@@ -1080,3 +1080,50 @@ Results:
 
 Remaining:
 - To convert this from detection-ready to deep release-reader validation, provide an ignored `navic-release-login.env` or another env file with real Navic/Navidrome credentials, then run release login and the reader/Whispersync smoke probes against `darkaxt.navic`.
+
+### Stage 8D: Theta17 Release Validation Baseline
+
+Status: complete for release-package install/app-shell; deep reader/Whispersync release validation remains blocked by missing release login/data on the emulator.
+
+Purpose:
+- Convert the published `v1.0.11-theta17` release from "available" into a validated baseline.
+- Keep release-package evidence separate from readerdev implementation evidence.
+- Use this stage to decide whether the next implementation work is release-login routing, release reader launch, Whispersync behavior, or physical visual acceptance.
+
+Files and scripts:
+- Use: `releases\v1.0.11-theta17\Navic.apk`
+- Use: `scripts\adb-reader-smoke.ps1`
+- Use: `scripts\adb-release-login.ps1`
+- Use: `scripts\adb-whispersync-enjoyment.ps1` only after `darkaxt.navic` can reach a paired reader route.
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+- Modify: `docs/superpowers/specs/2026-06-18-whispersync-design.md` only if release evidence changes the Whispersync status.
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta17 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta17 --clobber
+adb devices
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial <serial> -ApkPath releases\v1.0.11-theta17\Navic.apk -ExpectedVersionName v1.0.11-theta17 -ArtifactDir captures\reader-smoke\theta17-release-install -CaptureReaderDiagnostics
+.\scripts\adb-release-login.ps1 -DeviceSerial <serial> -Package darkaxt.navic -EnvFile navic-release-login.env -ArtifactDir captures\release-login\theta17-release-login
+```
+
+Credential boundary:
+- If `navic-release-login.env` is absent, run `adb-release-login.ps1 -ValidateEnvOnly` and record the missing credential boundary.
+- If the release package is already logged in on a physical device, skip credential submission and run smoke/Whispersync probes against that device.
+- Do not claim release-level reader or Whispersync success from `darkaxt.navic.readerdev`.
+
+Results:
+- GREEN/RELEASE-DOWNLOAD: published `Navic.apk` was downloaded to `releases\v1.0.11-theta17\Navic.apk`.
+- GREEN/RELEASE-INSTALL: `adb-reader-smoke.ps1` installed and foregrounded `darkaxt.navic` on `emulator-5554`; `package-version.txt` reports `versionCode=445`, `versionName=v1.0.11-theta17`, and `lastUpdateTime=2026-06-29 20:41:25`.
+- GREEN/WEBVIEW-SOCKET: the release package exposed WebView DevTools sockets, so browser-side release probes are possible after a reader route is reachable.
+- GREEN/LOGIN-DETECT: `adb-release-login.ps1 -DetectOnly` detected the Navidrome login screen and wrote `captures\release-login\theta17-release-detect-only\navic-release-login-window.xml`.
+- BLOCKED/RELEASE-READER: the emulator release package is not logged in and remains on the login form. Reader shell, EPUB/PDF, selection, search, style, and Whispersync behavior cannot be claimed as release-package evidence from this emulator state.
+
+Closure:
+- [x] Download or reuse the published theta17 APK.
+- [x] Install and prove `versionName=v1.0.11-theta17`, `versionCode=445`, foreground package, screenshot capture, and WebView debug socket availability.
+- [x] Run release-login detection.
+- [x] Record that deep release reader/Whispersync checks require login data or a logged-in physical device.
+- [x] Record the result and next implementation stage in the validation log.
+- [ ] Run release-package reader smoke/matrix checks once a release package can reach a reader route.
+- [ ] Run release-package Whispersync enjoyment checks once a paired Whispersync route is reachable.
