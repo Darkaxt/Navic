@@ -8008,3 +8008,34 @@ Results:
 
 Remaining:
 - `v1.0.11-theta15` is now the device-validation baseline. Next implementation work should be selected from release feedback or the remaining staged queue, not from isolated microfixes.
+
+
+## 2026-06-29 Stage 8A Theta15 Release Package Baseline
+
+Scope:
+- Convert the published theta15 APK from "released" into a trustworthy validation baseline.
+- Prove the installed release package identity and foreground window ownership.
+- Record what cannot be tested on the release package without release login/data, without confusing that with readerdev evidence.
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta15 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta15 --clobber
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta15\Navic.apk -ExpectedVersionName v1.0.11-theta15 -ArtifactDir captures\reader-smoke\theta15-release-install -CaptureReaderDiagnostics
+adb -s emulator-5554 shell pm grant darkaxt.navic android.permission.POST_NOTIFICATIONS
+adb -s emulator-5554 shell input keyevent BACK
+adb -s emulator-5554 shell monkey -p darkaxt.navic 1
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -ArtifactDir captures\reader-smoke\theta15-release-focused-after-focus-guard -CaptureReaderDiagnostics -NoLaunch
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeFailsWhenFocusedWindowDoesNotBelongToRequestedPackage --console=plain
+```
+
+Results:
+- GREEN/RELEASE-INSTALL: the published `Navic.apk` installed on `emulator-5554` as `darkaxt.navic`; `package-version.txt` reports `versionCode=443`, `versionName=v1.0.11-theta15`, and `lastUpdateTime=2026-06-29 13:12:28`.
+- RED/HARNESS-FIRST: the new `ReaderRuntimeAssetsTest.adbReaderSmokeFailsWhenFocusedWindowDoesNotBelongToRequestedPackage` guard failed while `adb-reader-smoke.ps1` did not assert foreground ownership before capture.
+- GREEN/HARNESS: `adb-reader-smoke.ps1` now writes `focused-window.txt` and fails before screenshot/probe capture when `mCurrentFocus` does not belong to the requested package. This prevents false release evidence where `darkaxt.navic` is version-checked while `darkaxt.navic.readerdev` is foreground.
+- GREEN/RELEASE-FOCUS: corrected artifacts under `captures\reader-smoke\theta15-release-focused-after-focus-guard` confirm `mCurrentFocus=... darkaxt.navic/paige.navic.androidApp.MainActivity` and `mFocusedApp=... darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- GREEN/RELEASE-SHELL: the focused release screenshot/window hierarchy shows the Navidrome login screen (`Log in`, `Instance URL`, `Username`, `Password`) under package `darkaxt.navic`.
+
+Remaining:
+- The emulator release package has no logged-in app state, so EPUB/PDF reader shell, Anx interaction UI, settings controls, and Whispersync cannot be claimed as release-package evidence from this run.
+- Readerdev remains valid for deterministic implementation probes, but future logs must label readerdev evidence separately from `darkaxt.navic` release evidence.

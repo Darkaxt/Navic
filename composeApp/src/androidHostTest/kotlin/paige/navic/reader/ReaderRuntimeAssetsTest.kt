@@ -859,6 +859,22 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeFailsWhenFocusedWindowDoesNotBelongToRequestedPackage() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+
+		assertContains(scriptText, "function Assert-FocusedAndroidPackage")
+		assertContains(scriptText, "dumpsys\", \"window")
+		assertContains(scriptText, "focused-window.txt")
+		assertContains(scriptText, "Focused Android window does not belong to package")
+		assertContains(scriptText, "Foreground confirmed for \$Package")
+		assertTrue(
+			scriptText.indexOf("Assert-FocusedAndroidPackage -Package \$Package") <
+				scriptText.indexOf("Invoke-AdbExecOutToFile -Arguments @(\"exec-out\", \"screencap\", \"-p\")"),
+			"Smoke capture must prove the requested package owns the focused window before screenshot/window/log artifacts are captured."
+		)
+	}
+
+	@Test
 	fun adbReaderSmokeUsesEffectiveOverrideDisplaySizeForFractionGestures() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val screenSizeFunction = scriptText

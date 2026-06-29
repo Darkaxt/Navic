@@ -24,12 +24,11 @@ Each stage is a complete deliverable:
 
 Work must proceed through coherent gap stages, not through isolated UI or runtime symptoms. If a stage turns out to be already green, record the evidence and move to the next stage; do not manufacture a patch just to show activity.
 
-1. **Stage 8A: Theta15 Release Validation Baseline** - install or launch the published `v1.0.11-theta15` Android APK on emulator/release package paths and prove which release gates are still open: reader shell tap/drag, cover chrome, rail endpoints, selection actions, search, style controls, PDF/fixed-layout, and Whispersync probes where release credentials/data allow it.
-2. **Stage 2B: User-Driven Anx Interaction Validation** - close release-readiness gaps for selection actions, selection clear, annotation popup, external link prompt, history capsule, pull-up, and reader search through native UI or deterministic ADB/DevTools probes.
-3. **Stage 5C: Whispersync Enjoyment Release Gate** - validate a real paired Bindery sidecar plus audiobook session end to end on the current release baseline: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, and exact companion resume.
-4. **Stage 6C.2: Settings Overlay Faithfulness** - finish the Komikku settings modal parity pass beyond the first density slice: compact tab readability, scroll gradients, control grouping, usable sliders/chips on phone/fold/tablet, and no duplicate entry points.
-5. **Stage 6D.2: Paper/Texture Visual Strength** - make page texture and border degradation visible enough on release screenshots while keeping deterministic page identity and correct movement direction.
-6. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable.
+1. **Stage 2B: User-Driven Anx Interaction Validation** - close release-readiness gaps for selection actions, selection clear, annotation popup, external link prompt, history capsule, pull-up, and reader search through native UI or deterministic ADB/DevTools probes.
+2. **Stage 5C: Whispersync Enjoyment Release Gate** - validate a real paired Bindery sidecar plus audiobook session end to end on the current release baseline: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, and exact companion resume.
+3. **Stage 6C.2: Settings Overlay Faithfulness** - finish the Komikku settings modal parity pass beyond the first density slice: compact tab readability, scroll gradients, control grouping, usable sliders/chips on phone/fold/tablet, and no duplicate entry points.
+4. **Stage 6D.2: Paper/Texture Visual Strength** - make page texture and border degradation visible enough on release screenshots while keeping deterministic page identity and correct movement direction.
+5. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable.
 
 ## Stage 0: Plan And Spec Alignment
 
@@ -504,7 +503,7 @@ Use `v1.0.11-theta15` as the current device-validation baseline. The next implem
 
 ### Stage 8A: Theta15 Release Validation Baseline
 
-Status: in progress.
+Status: complete for release-package baseline; deep reader/Whispersync release validation remains blocked by missing release login/data on the emulator.
 
 Scope:
 - Download or reuse the published `v1.0.11-theta15` `Navic.apk` from GitHub release assets.
@@ -520,13 +519,23 @@ Commands:
 gh release download v1.0.11-theta15 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta15 --clobber
 adb devices
 .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta15\Navic.apk -ExpectedVersionName v1.0.11-theta15 -ArtifactDir captures\reader-smoke\theta15-release-install -CaptureReaderDiagnostics
+adb -s emulator-5554 shell pm grant darkaxt.navic android.permission.POST_NOTIFICATIONS
+adb -s emulator-5554 shell input keyevent BACK
+adb -s emulator-5554 shell monkey -p darkaxt.navic 1
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -ArtifactDir captures\reader-smoke\theta15-release-focused-after-focus-guard -CaptureReaderDiagnostics -NoLaunch
 .\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -ArtifactRoot captures\reader-komikku-matrix\theta15-release-baseline -NoLaunch -ContinueOnFailure
 ```
 
-Required before closure:
-- [ ] Install the published `Navic.apk` and prove the installed release version.
-- [ ] Capture launch/shell evidence for `darkaxt.navic`.
-- [ ] Run deterministic release-package checks that do not require login/data.
-- [ ] Run readerdev seeded-reader checks only for behavior that cannot be reached in the release package.
-- [ ] Append concise validation evidence and open gaps to the validation log.
-- [ ] Commit the Stage 8A plan/evidence when the stage is complete.
+Results:
+- GREEN/RELEASE-INSTALL: published `v1.0.11-theta15` `Navic.apk` installed on `emulator-5554` as `darkaxt.navic`; `package-version.txt` reports `versionCode=443`, `versionName=v1.0.11-theta15`, and `lastUpdateTime=2026-06-29 13:12:28`.
+- GREEN/FOCUS-GUARD: `adb-reader-smoke.ps1` now fails before screenshot/probe capture if `mCurrentFocus` does not belong to the requested package. This prevents the previously observed false release evidence where `darkaxt.navic` was version-checked but `darkaxt.navic.readerdev` was foreground.
+- GREEN/RELEASE-SHELL: corrected release smoke artifacts are under `captures\reader-smoke\theta15-release-focused-after-focus-guard`; `focused-window.txt` confirms `darkaxt.navic/paige.navic.androidApp.MainActivity`.
+- BLOCKED/RELEASE-READER: the release package on the emulator is not logged in and lands on the Navidrome login form (`Log in`, `Instance URL`, `Username`, `Password`). Reader shell, EPUB/PDF, selection, search, style, and Whispersync behavior cannot be claimed as release evidence from this emulator state.
+
+Closure:
+- [x] Install the published `Navic.apk` and prove the installed release version.
+- [x] Capture launch/shell evidence for `darkaxt.navic`.
+- [x] Run deterministic release-package checks that do not require login/data.
+- [x] Record that deep release reader/Whispersync checks require release login/data; keep readerdev implementation evidence separate.
+- [x] Append concise validation evidence and open gaps to the validation log.
+- [x] Commit the Stage 8A plan/evidence when the stage is complete.

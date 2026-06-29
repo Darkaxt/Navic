@@ -318,6 +318,35 @@ function Test-TextMatches {
     return ([string] $Text) -match $Pattern
 }
 
+function Assert-FocusedAndroidPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Package,
+        [Parameter(Mandatory = $true)]
+        [string] $ArtifactDir
+    )
+
+    $focusLines = @(
+        Invoke-Adb @("shell", "dumpsys", "window") -PassThru |
+            Select-String -Pattern "mCurrentFocus|mFocusedApp" |
+            ForEach-Object { $_.Line.Trim() }
+    )
+    $focusLines | Out-File -Encoding utf8 (Join-Path $ArtifactDir "focused-window.txt")
+
+    $escapedPackage = [regex]::Escape($Package)
+    $packageBoundary = "(?:/|\s|\}|$)"
+    $currentFocusPattern = "mCurrentFocus=.*$escapedPackage$packageBoundary"
+    $currentFocusMatches = @(
+        $focusLines |
+            Where-Object { $_ -match $currentFocusPattern }
+    )
+    if ($currentFocusMatches.Count -le 0) {
+        throw "Focused Android window does not belong to package '$Package'. See $ArtifactDir\focused-window.txt"
+    }
+
+    Write-Host "Foreground confirmed for $Package"
+}
+
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
     throw "adb was not found on PATH"
 }
@@ -450,6 +479,8 @@ if (-not [string]::IsNullOrWhiteSpace($ExpectedVersionName)) {
         throw "Installed $Package version did not contain expected versionName '$ExpectedVersionName'. Captured version: $packageVersionText"
     }
 }
+
+Assert-FocusedAndroidPackage -Package $Package -ArtifactDir $ArtifactDir
 
 Invoke-Adb @("shell", "cat", "/proc/net/unix") -PassThru |
     Select-String -Pattern "webview_devtools|chrome_devtools" -CaseSensitive:$false |
