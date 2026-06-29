@@ -8507,7 +8507,7 @@ Results:
 
 Next:
 - Stage 5C.4 current-source Whispersync enjoyment validation must continue through `darkaxt.navic.readerdev` with `bindery-debug.env`. That env has the Bindery-side credentials and route identity needed to bypass the login/library path for development validation.
-- Stage 5C.5 release-package Whispersync enjoyment validation requires either a logged-in physical `darkaxt.navic` device or a real ignored `navic-release-login.env`.
+- Stage 5C.6 release-package Whispersync packaging validation requires either a logged-in physical `darkaxt.navic` device or a real ignored `navic-release-login.env`.
 - The theta17 release login boundary blocks only release-package proof. It does not block readerdev Whispersync implementation validation.
 
 ## 2026-06-29 Stage 5C.4 Current-Source Whispersync Enjoyment Validation Refresh
@@ -8533,7 +8533,7 @@ Results:
 
 Next:
 - Do not use the missing release login state as a reason to stop readerdev Whispersync validation.
-- Stage 5C.5 remains the release-package proof gate for `darkaxt.navic` once login/data is available.
+- Stage 5C.6 remains the release-package proof gate for `darkaxt.navic` once login/data is available.
 
 ## 2026-06-29 Stage 5C.5 Validation Boundary Correction
 

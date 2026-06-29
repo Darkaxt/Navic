@@ -331,6 +331,9 @@ class ReaderDevEnvironmentContractTest {
 		val plan = root
 			.resolve("docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md")
 			.readText()
+		val validationLog = root
+			.resolve("docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md")
+			.readText()
 
 		assertTrue(
 			gateScript.exists(),
@@ -376,6 +379,13 @@ class ReaderDevEnvironmentContractTest {
 				!scriptText.contains("Write-Host \$envValues") &&
 				!scriptText.contains("Get-Content \$EnvFile"),
 			"The enjoyment gate must not print Bindery credentials or raw env-file contents."
+		)
+		assertTrue(
+			plan.contains("Stage 5C.5: Credential-Bootstrapped Whispersync Enjoyment Validation") &&
+				plan.contains("Stage 5C.6: Signed Release Whispersync Packaging Validation") &&
+				!Regex("""Stage 5C\.5\s+release-package""").containsMatchIn(validationLog) &&
+				!validationLog.contains("Stage 5C.5 remains the release-package proof gate"),
+			"Stage 5C.5 is the credential-bootstrapped readerdev proof path; signed public APK proof belongs to Stage 5C.6."
 		)
 	}
 
