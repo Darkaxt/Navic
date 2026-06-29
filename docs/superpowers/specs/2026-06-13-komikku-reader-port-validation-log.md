@@ -8506,5 +8506,31 @@ Results:
 - BLOCKED/RELEASE-READER: the emulator release package is not logged in and lands on `Log in`, `Instance URL`, `Username`, and `Password`. Reader shell, EPUB/PDF, selection, search, style, and Whispersync behavior cannot be claimed as release evidence from this emulator state.
 
 Next:
-- Stage 5C.4 release-package Whispersync enjoyment validation requires either a logged-in physical `darkaxt.navic` device or a real ignored `navic-release-login.env`.
-- Until then, readerdev/browser evidence remains implementation/runtime proof only.
+- Stage 5C.4 current-source Whispersync enjoyment validation must continue through `darkaxt.navic.readerdev` with `bindery-debug.env`. That env has the Bindery-side credentials and route identity needed to bypass the login/library path for development validation.
+- Stage 5C.5 release-package Whispersync enjoyment validation requires either a logged-in physical `darkaxt.navic` device or a real ignored `navic-release-login.env`.
+- The theta17 release login boundary blocks only release-package proof. It does not block readerdev Whispersync implementation validation.
+
+## 2026-06-29 Stage 5C.4 Current-Source Whispersync Enjoyment Validation Refresh
+
+Scope:
+- Correct the theta17 validation split: release package login state blocks only release-package proof, not readerdev Whispersync implementation validation.
+- Run the full paired production book `3809` Whispersync matrix through `darkaxt.navic.readerdev` using `bindery-debug.env`.
+- Keep credentials out of logs and docs.
+
+Commands:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment
+```
+
+Results:
+- GREEN/READERDEV-BUILD: `androidApp:assembleReaderDev` passed.
+- GREEN/READERDEV-INSTALL: `darkaxt.navic.readerdev` installed with `versionCode=445`, `versionName=v1.0.11-theta17`, and `lastUpdateTime=2026-06-29 21:31:15`.
+- GREEN/LAUNCH: the direct Bindery file URL canonicalized to `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`; `publicationReady` fired; readaloud plan loaded for audiobook `34`, book file `633`.
+- GREEN/MATRIX: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` all passed.
+- ARTIFACTS: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-212815\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+- OBSERVED/NON-BLOCKING: one early seek warning appeared before the playback plan loaded; the plan loaded immediately after and the full matrix passed.
+
+Next:
+- Do not use the missing release login state as a reason to stop readerdev Whispersync validation.
+- Stage 5C.5 remains the release-package proof gate for `darkaxt.navic` once login/data is available.

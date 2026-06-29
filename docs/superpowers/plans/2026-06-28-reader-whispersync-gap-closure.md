@@ -27,10 +27,11 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 Closed stages stay documented below but are no longer the active queue. The current queue starts from the first release-worthy milestone after `v1.0.11-theta16`.
 
 1. **Stage 7B: Theta17 Staged Release Candidate** - package the completed post-theta16 gap work as one Android-only release candidate: release-login automation, Bindery schema drift support, current Whispersync enjoyment gate, curl sheet roles, deterministic texture motion follow-ups, and settings overlay hierarchy. This is a release gate, not a place for more UI polish.
-2. **Stage 8D: Theta17 Release Validation Baseline** - install the published `Navic.apk`, prove version/package/foreground state, run non-login deterministic release checks, and then run the credential-backed release route if `navic-release-login.env` or an already logged-in device is available.
-3. **Stage 5C.4: Release-Package Whispersync Enjoyment Validation** - validate the real paired Bindery sidecar plus audiobook session on `darkaxt.navic`: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, exact companion resume, and mismatch surfacing. This stage cannot be closed with readerdev evidence.
-4. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, and whether the result is faithful enough to Komikku instead of a knock-off.
-5. **Stage 6E.4: Captured Page Curl Snapshot Preview** - only after the release candidate is stable, continue the optional curl work by replacing role-only drag sheets with captured current/reverse page snapshots for single and spread modes.
+2. **Stage 8D: Theta17 Release Validation Baseline** - install the published `Navic.apk`, prove version/package/foreground state, run non-login deterministic release checks, and then run the credential-backed release route if `navic-release-login.env` or an already logged-in device is available. This release login boundary must not block readerdev Whispersync development validation.
+3. **Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh** - rerun the full paired Bindery sidecar plus audiobook session on `darkaxt.navic.readerdev` using `bindery-debug.env`: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, exact companion resume, and mismatch surfacing. This is implementation/runtime proof, not public-release proof, but it is the correct validation path while the release package lacks login state.
+4. **Stage 5C.5: Release-Package Whispersync Enjoyment Validation** - run the same paired flow on `darkaxt.navic` once a logged-in physical release device or real ignored `navic-release-login.env` is available. Only this stage can close release-device Whispersync proof.
+5. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, and whether the result is faithful enough to Komikku instead of a knock-off.
+6. **Stage 6E.4: Captured Page Curl Snapshot Preview** - only after the release candidate is stable, continue the optional curl work by replacing role-only drag sheets with captured current/reverse page snapshots for single and spread modes.
 
 ## Stage 0: Plan And Spec Alignment
 
@@ -523,6 +524,32 @@ Results:
 Remaining:
 - This closes the repeatable readerdev enjoyment gate. It is not a public-release claim until the same route is run against `darkaxt.navic` with real login/data or a logged-in physical device.
 
+### Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh
+
+Status: complete for theta17 readerdev implementation/runtime proof; release-package proof remains Stage 5C.5.
+
+Purpose:
+- Correct the theta17 validation process after Stage 8D exposed that the public release package is not logged in on the emulator.
+- Use the available Bindery-side env credentials correctly: `bindery-debug.env` is enough for `darkaxt.navic.readerdev` because the debug launcher injects the EPUB resource and Whispersync sidecar route directly.
+- Keep the evidence boundary honest: this validates the actual current-source Whispersync runtime, not the public package's logged-in user journey.
+
+Commands:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment
+```
+
+Results:
+- GREEN/READERDEV-BUILD: `androidApp:assembleReaderDev` succeeded after the theta17 source changes.
+- GREEN/READERDEV-INSTALL: the runner installed and launched `darkaxt.navic.readerdev`; `package-version.txt` reports `versionCode=445`, `versionName=v1.0.11-theta17`, and `lastUpdateTime=2026-06-29 21:31:15`.
+- GREEN/LAUNCH: the debug launcher resolved the direct file URL to `/opds/books/3809/resources/ebook-28501fd8c0cb40a558fe`, reached `publicationReady`, and loaded the readaloud plan for audiobook `34` / book file `633`.
+- GREEN/MATRIX: the single gate passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress`.
+- ARTIFACTS: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260629-212815\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+- OBSERVED/NON-BLOCKING: logcat showed one early `Whispersync audiobook seek ignored; no playback plan match` before the playback plan loaded, then the plan loaded and all four probes passed. Track this only if it becomes user-visible during manual playback startup.
+
+Remaining:
+- Stage 5C.5 must run the same enjoyment flow against `darkaxt.navic` on a logged-in release package before claiming release-device Whispersync proof.
+
 ## Stage 6: Komikku Visual Parity Gate
 
 **Purpose:** Improve layout fidelity only after blocker behavior is stable.
@@ -950,7 +977,7 @@ Required before closure:
 
 ## Current First Focus
 
-Use `v1.0.11-theta17` as the current public release baseline. The APK is published and release-package install/app-shell validation passed on the emulator, but deep reader and Whispersync release behavior still requires either a logged-in release device/profile or the Stage 8C release-login automation path with real credentials. Until release package state reaches the reader, keep readerdev/browser evidence labeled as implementation/runtime proof, not release proof.
+Use `v1.0.11-theta17` as the current public release baseline. The APK is published and release-package install/app-shell validation passed on the emulator. Deep reader and Whispersync release-package behavior still requires either a logged-in release device/profile or the Stage 8C release-login automation path with real Navic/Navidrome credentials. That boundary does not block development validation: `bindery-debug.env` and `darkaxt.navic.readerdev` are the required path for seeded Bindery/Whispersync implementation runs. Keep readerdev/browser evidence labeled as implementation/runtime proof, not release proof.
 
 ## Stage 8: Release Validation Baseline Gate
 
@@ -968,6 +995,8 @@ Use `v1.0.11-theta17` as the current public release baseline. The APK is publish
 **Validation target split:**
 - The release package is `darkaxt.navic` and proves published APK install/version/app-shell behavior.
 - The readerdev package is `darkaxt.navic.readerdev` and remains the correct path for deterministic seeded Bindery reader sessions when the release package lacks login/data.
+- `bindery-debug.env` is sufficient for readerdev Whispersync validation because the debug launcher bypasses the library/login route and injects the Bindery resource/sidecar route directly.
+- `navic-release-login.env` is only required for public `darkaxt.navic` release-package validation on a fresh emulator profile.
 - A release result must not be claimed for a deep reader/Whispersync behavior unless the probe actually ran against `darkaxt.navic`; readerdev evidence may only prove implementation/runtime behavior.
 
 ### Stage 8A: Theta15 Release Validation Baseline
