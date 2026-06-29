@@ -8598,10 +8598,37 @@ Results:
 - GREEN/ZFOLD-COVER: `captures\reader-smoke\stage6f-visual-prep\zfold7-cover` captured the same evidence for the cover-display profile.
 - GREEN/TAB-S9-ULTRA: `captures\reader-smoke\stage6f-visual-prep\tab-s9-ultra-portrait` captured the same evidence for the tablet profile.
 - GREEN/VIEWPORT-RESET: the runner reset the emulator viewport after the captures.
-- FOUND/LAYOUT: the matrix is not visual-acceptance green. Fold cover shows an oversized, heavy text layout and reports `6 / 481`; Fold inner reports `6 / 294`; Tab S9 Ultra reports `6 / 124`. The same paired book route should not produce this level of profile-dependent visual/pagination drift unless the policy is deliberately adaptive and documented.
-- FOUND/COMPOSITION: `page-box` proves the reader viewport itself fills the window, but the document body is still columnized wider than the visible document: `bodyToDocumentWidthRatio=9.936` on Fold cover, `5.936` on Fold inner, and `2.936` on Tab S9 Ultra.
-- FOUND/OVERLAY: the Tab S9 Ultra capture still shows the bottom history/selection capsule over the page, so overlay cleanup remains open.
+- INVALID/VISUAL-STATE: at least one capture was polluted by transient reader chrome/history/selection state, so Stage 6F.1 is not usable as visual-acceptance evidence.
+- OBSERVED/PAGINATION: Fold cover reported `6 / 481`, Fold inner reported `6 / 294`, and Tab S9 Ultra reported `6 / 124`. This remains useful for adaptive page-composition review, but needs a neutral-state rerun before being treated as a defect.
+- CORRECTED/COMPOSITION: `bodyToDocumentWidthRatio` is Foliate paginated-strip evidence, not standalone visible-layout evidence. Future visual judgments must combine clean screenshots with renderer/document viewport metrics and profile policy.
 
 Next:
-- Fix the profile-dependent typography/page-composition policy before a public release candidate.
-- Keep physical Stage 6F for final feel judgment, not for finding these deterministic emulator-visible faults.
+- Rerun Stage 6F captures with a neutral-state guard before diagnosing profile typography/page-composition, texture strength, or headset-icon styling.
+- Keep physical Stage 6F for final feel judgment after the automated capture state is clean.
+
+## 2026-06-29 Stage 6F.2 Neutral Visual Capture Guard
+
+Scope:
+- Make visual acceptance captures fail when they contain transient native reader chrome, selection actions, active WebView overlay markers, media-overlay markers, or selected text.
+- Prevent a polluted readerdev screenshot from being mistaken for Komikku parity evidence.
+- Keep the Whispersync validation boundary explicit: `bindery-debug.env` plus `darkaxt.navic.readerdev` is enough for implementation validation; logged-in signed release proof is packaging validation only.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanReadRendererPageBoxWithoutMutatingContent --tests paige.navic.reader.ReaderDevEnvironmentContractTest.readerDevScriptsAndSecretFilesAreDocumentedAndIgnored --console=plain
+$errors=$null; [System.Management.Automation.PSParser]::Tokenize((Get-Content -Raw scripts\adb-reader-smoke.ps1), [ref] $errors) > $null; if ($errors -and $errors.Count -gt 0) { $errors | Format-List *; exit 1 } else { 'PS_PARSE_OK' }
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -ReaderDevtoolsProbe page-box -RequireNeutralReaderVisualState -ArtifactDir tmp\reader-neutral-visual-gate-check
+```
+
+Results:
+- RED/HOST-FIRST: focused host tests failed before `page-box` exposed transient state and `adb-reader-smoke.ps1` exposed `-RequireNeutralReaderVisualState`.
+- GREEN/FOCUSED: the same focused host tests passed after implementation.
+- GREEN/SCRIPT-PARSE: PowerShell parser validation returned `PS_PARSE_OK`.
+- GREEN/JS: `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- EXPECTED-FAIL/READERDEV: the live readerdev neutral-state check failed correctly on a polluted capture with native `History back`/`Close history controls` plus WebView active overlay/media overlay markers. Evidence was written to `tmp\reader-neutral-visual-gate-check\reader-neutral-visual-state.txt`.
+
+Next:
+- Use `-ReaderDevtoolsProbe page-box -RequireNeutralReaderVisualState` for the next Fold/Tab visual capture round.
+- Do not publish a release for Stage 6F.2 alone; this is validation infrastructure.

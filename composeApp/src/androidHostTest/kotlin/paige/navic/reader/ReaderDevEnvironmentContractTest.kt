@@ -214,6 +214,16 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("NAVIC_READER_DEV_WHISPERSYNC_AUDIOBOOK_BOOK_FILE_ID"),
 			"The install script must pass paired Whispersync route metadata so emulator validation can open a real sidecar/audiobook reader session directly."
 		)
+		val smokeScriptText = root.resolve("scripts/adb-reader-smoke.ps1").readText()
+		assertTrue(
+			smokeScriptText.contains("[switch] \$RequireNeutralReaderVisualState") &&
+				smokeScriptText.contains("function Assert-NeutralReaderVisualState") &&
+				smokeScriptText.contains("History back") &&
+				smokeScriptText.contains("Close history controls") &&
+				smokeScriptText.contains("activeOverlayMarkerCount") &&
+				smokeScriptText.contains("activeMediaOverlayMarkerCount"),
+			"Visual acceptance captures must be able to fail on transient native/WebView overlays instead of recording polluted Komikku parity screenshots."
+		)
 		val viewportScriptText = viewportScript.readText()
 		assertTrue(
 			viewportScriptText.contains("zfold7-inner") &&

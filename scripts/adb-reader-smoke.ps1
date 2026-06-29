@@ -37,6 +37,7 @@ param(
     [switch] $RequirePdfDiagnostics,
     [int] $RequirePdfRendererIndex = -1,
     [switch] $RequireNativeShellCover,
+    [switch] $RequireNeutralReaderVisualState,
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
     [switch] $CaptureReaderDiagnostics,
@@ -316,6 +317,110 @@ function Test-TextMatches {
     )
 
     return ([string] $Text) -match $Pattern
+}
+
+function Test-AdbUiExactTextOrDescription {
+    param(
+        [AllowNull()]
+        [object] $WindowXmlText,
+        [Parameter(Mandatory = $true)]
+        [string] $Value
+    )
+
+    $escapedValue = [regex]::Escape([System.Net.WebUtility]::HtmlEncode($Value))
+    return ([string] $WindowXmlText) -match "\b(?:text|content-desc)=""$escapedValue"""
+}
+
+function Get-ReaderDevtoolsProbeResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $OutputFileName
+    )
+
+    $probeJsonPath = Join-Path $ArtifactDir $OutputFileName
+    if (-not (Test-Path -LiteralPath $probeJsonPath -PathType Leaf)) {
+        return $null
+    }
+    $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
+    if ([string]::IsNullOrWhiteSpace($probeJsonText)) {
+        return $null
+    }
+    try {
+        return ($probeJsonText | ConvertFrom-Json).result
+    } catch {
+        throw "Reader DevTools probe '$OutputFileName' did not return parseable JSON. See $probeJsonPath"
+    }
+}
+
+function Assert-NeutralReaderVisualState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $WindowXmlText
+    )
+
+    $nativeOverlayLabels = @(
+        "History back",
+        "History forward",
+        "Close history controls",
+        "Highlight",
+        "Copy",
+        "Note",
+        "Close selection actions"
+    )
+    $nativeOverlayHits = @()
+    foreach ($label in $nativeOverlayLabels) {
+        if (Test-AdbUiExactTextOrDescription -WindowXmlText $WindowXmlText -Value $label) {
+            $nativeOverlayHits += $label
+        }
+    }
+
+    $pageBoxResultCount = 0
+    $activeOverlayMarkerCount = 0
+    $activeMediaOverlayMarkerCount = 0
+    $selectedTextLength = 0
+    $probeResults = @()
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-probe.json"
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-post-action-probe.json"
+    foreach ($result in $probeResults) {
+        if ($null -eq $result -or $result.probe -ne "page-box") {
+            continue
+        }
+        $pageBoxResultCount += 1
+        foreach ($contentRect in @($result.contentRects)) {
+            $transientState = $contentRect.transientState
+            if ($null -eq $transientState) {
+                continue
+            }
+            if ($null -ne $transientState.activeOverlayMarkerCount) {
+                $activeOverlayMarkerCount += [int] $transientState.activeOverlayMarkerCount
+            }
+            if ($null -ne $transientState.activeMediaOverlayMarkerCount) {
+                $activeMediaOverlayMarkerCount += [int] $transientState.activeMediaOverlayMarkerCount
+            }
+            if ($null -ne $transientState.selectedTextLength) {
+                $selectedTextLength += [int] $transientState.selectedTextLength
+            }
+        }
+    }
+
+    $summaryPath = Join-Path $ArtifactDir "reader-neutral-visual-state.txt"
+    @(
+        "pageBoxProbeResults=$pageBoxResultCount",
+        "nativeOverlayHits=$($nativeOverlayHits -join ',')",
+        "activeOverlayMarkerCount=$activeOverlayMarkerCount",
+        "activeMediaOverlayMarkerCount=$activeMediaOverlayMarkerCount",
+        "selectedTextLength=$selectedTextLength"
+    ) | Out-File -Encoding utf8 $summaryPath
+
+    if ($nativeOverlayHits.Count -gt 0) {
+        throw "Reader visual-state validation failed: native transient overlay controls were visible ($($nativeOverlayHits -join ', ')). See $summaryPath"
+    }
+    if ($pageBoxResultCount -le 0) {
+        throw "Reader visual-state validation failed: -RequireNeutralReaderVisualState requires a page-box DevTools probe. See $ArtifactDir"
+    }
+    if ($activeOverlayMarkerCount -gt 0 -or $activeMediaOverlayMarkerCount -gt 0 -or $selectedTextLength -gt 0) {
+        throw "Reader visual-state validation failed: WebView transient state was active (activeOverlayMarkerCount=$activeOverlayMarkerCount, activeMediaOverlayMarkerCount=$activeMediaOverlayMarkerCount, selectedTextLength=$selectedTextLength). See $summaryPath"
+    }
 }
 
 function Assert-FocusedAndroidPackage {
@@ -817,6 +922,10 @@ $nativeShellCoverVisible = Get-ReaderNativeShellCoverVisible -WindowXmlText $win
 
 if ($RequireNativeShellCover -and -not $nativeShellCoverVisible) {
     throw "Reader diagnostics validation failed: native shell cover was not visible. See $ArtifactDir"
+}
+
+if ($RequireNeutralReaderVisualState) {
+    Assert-NeutralReaderVisualState -WindowXmlText $windowXmlText
 }
 
 Invoke-Adb @("logcat", "-d", "--pid=$processId", "-v", "time") -PassThru |

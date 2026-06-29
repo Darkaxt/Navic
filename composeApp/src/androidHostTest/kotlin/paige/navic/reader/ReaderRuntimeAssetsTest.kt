@@ -589,6 +589,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(pageBoxProbe, "fontSize")
 		assertContains(pageBoxProbe, "maxWidth")
 		assertContains(pageBoxProbe, "contentDocument")
+		assertContains(pageBoxProbe, "transientState")
+		assertContains(pageBoxProbe, "activeOverlayMarkerCount")
+		assertContains(pageBoxProbe, "activeMediaOverlayMarkerCount")
+		assertContains(pageBoxProbe, "selectedTextLength")
 		assertFalse(
 			pageBoxProbe.contains("NavicReaderBridge.dispatch"),
 			"Page-box probing must be read-only and must not trigger reader commands."

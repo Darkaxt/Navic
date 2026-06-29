@@ -620,7 +620,7 @@ Acceptance:
 
 ### Stage 6F.1: Automated Visual Acceptance Prep Matrix
 
-Status: complete as an automation prep pass; it found layout issues, so Stage 6F is not ready for human acceptance.
+Status: complete as an automation prep pass; the captured artifacts are not valid for visual acceptance until Stage 6F.2 proves a neutral reader state.
 
 Scope:
 - Generate fresh current-source readerdev evidence for the post-theta17 reader shell before asking for physical/human visual acceptance.
@@ -653,13 +653,53 @@ Results:
 - GREEN/READERDEV-LAUNCH: all three profiles launched `darkaxt.navic.readerdev` to the production Bindery book `3809` route and reached `publicationReady`.
 - GREEN/ARTIFACTS: artifacts were written under `captures\reader-smoke\stage6f-visual-prep\zfold7-inner`, `captures\reader-smoke\stage6f-visual-prep\zfold7-cover`, and `captures\reader-smoke\stage6f-visual-prep\tab-s9-ultra-portrait`.
 - GREEN/RESET: the matrix reset the emulator viewport after the final capture.
-- FOUND/LAYOUT: screenshots and `page-box` probes show the reader is not visually acceptance-ready. The Fold cover profile renders an oversized, heavy heading/body layout and reports `6 / 481`; Fold inner reports `6 / 294`; Tab S9 Ultra reports `6 / 124`. The same book route should not look or paginate that inconsistently unless the profile-specific typography/page composition policy is intentionally different.
-- FOUND/COMPOSITION: the renderer viewport fills each profile, but the content body is still columnized wider than the visible document (`bodyToDocumentWidthRatio` is about `9.936` on Fold cover, `5.936` on Fold inner, and `2.936` on Tab). This keeps the tablet/fold margin and pagination complaints active.
-- FOUND/OVERLAY: the Tab S9 Ultra screenshot captured the history/selection capsule over the page bottom, so overlay cleanup remains part of the Komikku shell pass.
+- INVALID/VISUAL-STATE: at least one Stage 6F.1 screenshot was polluted by transient reader chrome/history/selection state. These captures can document the automation path, but they cannot be used as Komikku visual-acceptance evidence.
+- OBSERVED/PAGINATION: the profiles reported different page totals (`6 / 481`, `6 / 294`, `6 / 124`). That remains useful evidence for adaptive page-composition review, but it is not enough by itself to prove a bug until the capture is neutral and the profile policy is documented.
+- CORRECTED/COMPOSITION: `bodyToDocumentWidthRatio` reflects Foliate's paginated strip width and is not standalone proof that visible layout is broken. Future visual judgments must use renderer/document viewport metrics plus clean screenshots, not raw body strip width alone.
 
 Remaining:
-- Fix the profile-dependent typography/page-composition behavior before Stage 6F human acceptance.
+- Rerun Fold/Tab visual captures with Stage 6F.2 neutral-state validation before claiming profile-dependent typography/page-composition defects.
 - Keep the Whispersync headset icon page-scoped, but make it visually paper-native instead of a UI badge during the same visual pass.
+
+### Stage 6F.2: Neutral Visual Capture Guard
+
+Status: complete as a validation guard; not release-worthy by itself.
+
+Scope:
+- Prevent visual acceptance captures from being accepted while native transient overlays or WebView media-overlay markers are visible.
+- Make the ADB smoke script fail explicitly when a screenshot contains history controls, selection actions, active overlay fragments, media-overlay ranges, or selected text.
+- Preserve the corrected Whispersync validation boundary: `bindery-debug.env` plus `darkaxt.navic.readerdev` is the required implementation validation path; signed release login is only the packaging proof gate.
+
+Files:
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: `tools/reader-harness/src/adb-webview-eval.mjs`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+Acceptance:
+- `adb-reader-smoke.ps1 -RequireNeutralReaderVisualState` requires a `page-box` DevTools probe and writes `reader-neutral-visual-state.txt`.
+- The guard fails if exact native controls such as `History back`, `Close history controls`, `Highlight`, `Copy`, `Note`, or `Close selection actions` are visible.
+- The guard fails if WebView `transientState.activeOverlayMarkerCount`, `activeMediaOverlayMarkerCount`, or `selectedTextLength` is nonzero.
+- Host tests prevent the guard from disappearing from the readerdev contract.
+
+TDD / validation steps:
+1. [x] Add red host assertions for transient-state fields and the smoke-script neutral-state switch.
+2. [x] Implement the read-only `page-box.transientState` probe.
+3. [x] Implement exact native overlay detection in `adb-reader-smoke.ps1`.
+4. [x] Prove the guard fails against a polluted live readerdev capture instead of recording it as visual evidence.
+
+Results:
+- RED/HOST-FIRST: focused `ReaderRuntimeAssetsTest` and `ReaderDevEnvironmentContractTest` failed before the transient-state probe and smoke-script guard existed.
+- GREEN/FOCUSED: the same focused Gradle host tests passed after implementation.
+- GREEN/SCRIPT-PARSE: PowerShell parser validation passed for `scripts\adb-reader-smoke.ps1`.
+- GREEN/JS: `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- EXPECTED-FAIL/READERDEV: `adb-reader-smoke.ps1 -ReaderDevtoolsProbe page-box -RequireNeutralReaderVisualState` failed on a live polluted readerdev state with `History back`, `Close history controls`, `activeOverlayMarkerCount=1`, and `activeMediaOverlayMarkerCount=1`, writing evidence under `tmp\reader-neutral-visual-gate-check`.
+
+Remaining:
+- Dismiss history/selection/media overlay state, rerun Stage 6F visual captures, and only then decide whether profile-specific typography, page composition, texture strength, or headset-icon styling needs another implementation slice.
+- Do not publish a release for Stage 6F.2 alone; it is validation infrastructure, not a user-visible fix.
 
 ### Stage 6A: EPUB Typography And Viewport Layout
 

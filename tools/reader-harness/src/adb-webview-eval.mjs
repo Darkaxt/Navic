@@ -1708,6 +1708,16 @@ async function runPageBoxProbe(page) {
       const contentDocument = Boolean(doc)
       const body = doc?.body || null
       const documentElement = doc?.documentElement || null
+      const activeOverlayMarkers = Array.from(doc?.querySelectorAll?.('.navic-active-overlay-fragment') || [])
+      const activeMediaOverlayMarkers = activeOverlayMarkers.filter(marker =>
+        marker?.classList?.contains?.('navic-media-overlay-range') ||
+        marker?.getAttribute?.('data-navic-media-overlay-range') === 'true'
+      )
+      const selectedText = String(
+        doc?.getSelection?.()?.toString?.() ||
+        doc?.defaultView?.getSelection?.()?.toString?.() ||
+        ''
+      )
       const bodyRect = body?.getBoundingClientRect?.()
       const elementRect = documentElement?.getBoundingClientRect?.()
       const visibleElement = element => {
@@ -1748,6 +1758,11 @@ async function runPageBoxProbe(page) {
         documentElementRect: elementRect ? roundRect(elementRect) : null,
         documentToViewportWidthRatio: elementRect ? ratio(elementRect.width, window.visualViewport?.width || window.innerWidth || 0) : null,
         bodyToDocumentWidthRatio: bodyRect && elementRect ? ratio(bodyRect.width, elementRect.width) : null,
+        transientState: {
+          activeOverlayMarkerCount: activeOverlayMarkers.length,
+          activeMediaOverlayMarkerCount: activeMediaOverlayMarkers.length,
+          selectedTextLength: selectedText.trim().length,
+        },
         firstProse: firstProseElement ? {
           tagName: firstProseElement.tagName,
           textLength: String(firstProseElement.textContent || '').replace(/\s+/g, ' ').trim().length,
