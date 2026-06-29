@@ -7,6 +7,8 @@
 	<string name="title_starred">Starred</string>
 	<string name="title_playlists">Playlists</string>
 	<string name="title_stations">Stations</string>
+	<string name="title_mood_mixes">Mood Mixes</string>
+	<string name="title_genre_mixes">Genre Mixes</string>
 	<string name="title_most_played">Most played</string>
 	<string name="title_settings">Settings</string>
 	<string name="title_search">Search</string>

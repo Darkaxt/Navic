@@ -31,7 +31,8 @@ sealed interface Screen : NavKey {
 	@Serializable
 	data class PlaylistList(
 		val nested: Boolean = false,
-		val stationsOnly: Boolean = false
+		val stationsOnly: Boolean = false,
+		val kind: PlaylistListKind = PlaylistListKind.User
 	) : Screen
 
 	@Immutable
@@ -327,4 +328,12 @@ sealed interface Screen : NavKey {
 enum class SearchScope {
 	Music,
 	Audiobooks
+}
+
+@Serializable
+enum class PlaylistListKind {
+	User,
+	Stations,
+	MoodMixes,
+	GenreMixes
 }
