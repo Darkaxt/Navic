@@ -24,12 +24,12 @@ Each stage is a complete deliverable:
 
 Work must proceed through coherent gap stages, not through isolated UI or runtime symptoms. If a stage turns out to be already green, record the evidence and move to the next stage; do not manufacture a patch just to show activity.
 
-1. **Stage 6B: Komikku Rail Fidelity** - prove or fix chapter-local progress rail behavior from the actual native UI layer, including first/last page endpoints and previous/next chapter buttons. Do not alter rail proportions unless a Komikku source comparison or screenshot-sensitive gate proves a divergence.
-2. **Stage 3A: PDF And Fixed-Layout Interaction** - bring PDF/fixed-layout navigation, centering, page count, and drag/tap behavior under the same ReaderEngine and Komikku shell path as EPUB.
-3. **Stage 5B: Whispersync Enjoyment Candidate** - validate a real paired Bindery sidecar plus audiobook session end to end: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, and exact companion resume.
-4. **Stage 6C: Settings Overlay Density And Scroll Treatment** - redesign the settings overlay as a faithful Komikku modal surface, including compact labels, scroll affordances, and usable controls on phone/fold/tablet.
-5. **Stage 6D: Paper/Texture Visual System** - make page texture and border degradation visible, stable, and tied to page identity without fighting page movement.
-6. **Stage 6E: Page Drag Preview And Curl** - evaluate and, if viable, port the page-curl mockup behavior for drag gestures only, after normal tap ownership remains stable.
+1. **Stage 8A: Theta15 Release Validation Baseline** - install or launch the published `v1.0.11-theta15` Android APK on emulator/release package paths and prove which release gates are still open: reader shell tap/drag, cover chrome, rail endpoints, selection actions, search, style controls, PDF/fixed-layout, and Whispersync probes where release credentials/data allow it.
+2. **Stage 2B: User-Driven Anx Interaction Validation** - close release-readiness gaps for selection actions, selection clear, annotation popup, external link prompt, history capsule, pull-up, and reader search through native UI or deterministic ADB/DevTools probes.
+3. **Stage 5C: Whispersync Enjoyment Release Gate** - validate a real paired Bindery sidecar plus audiobook session end to end on the current release baseline: headset affordance, playback start/stop, page-to-audio seek, audio-to-text follow, char-offset highlight, and exact companion resume.
+4. **Stage 6C.2: Settings Overlay Faithfulness** - finish the Komikku settings modal parity pass beyond the first density slice: compact tab readability, scroll gradients, control grouping, usable sliders/chips on phone/fold/tablet, and no duplicate entry points.
+5. **Stage 6D.2: Paper/Texture Visual Strength** - make page texture and border degradation visible enough on release screenshots while keeping deterministic page identity and correct movement direction.
+6. **Stage 6E.3: True Drag Curl Preview** - evaluate and, if viable, port the page-curl mockup's single/spread snapshot behavior for drag gestures only, after center taps and long-press content actions stay stable.
 
 ## Stage 0: Plan And Spec Alignment
 
@@ -483,3 +483,50 @@ Required before closure:
 ## Current First Focus
 
 Use `v1.0.11-theta15` as the current device-validation baseline. The next implementation stage should be selected from the remaining queue only after theta15 feedback identifies the next highest-impact blocker.
+
+## Stage 8: Release Validation Baseline Gate
+
+**Purpose:** Convert the published release from "available" into an actionable validation baseline, then route any failure into the next file-scoped implementation plan.
+
+**Files and scripts:**
+- `scripts/adb-reader-smoke.ps1` - release package smoke runner, screenshots, logs, DevTools probes, and APK install support.
+- `scripts/adb-reader-komikku-matrix.ps1` - matrix runner for reader shell, cover, drag, texture, PDF, and release-package checks.
+- `scripts/install-reader-dev.ps1` - readerdev-only launcher for deep Bindery route setup; do not confuse this with release APK validation.
+- `tools/reader-harness/src/adb-webview-eval.mjs` - deterministic DevTools probes for runtime state, page boxes, location snapshots, PDF visibility, and Whispersync checks.
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md` - compact validation results.
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md` - update only when release evidence changes the operating contract.
+- `docs/superpowers/specs/2026-06-18-whispersync-design.md` - update only when release evidence changes Whispersync status.
+
+**Validation target split:**
+- The release package is `darkaxt.navic` and proves published APK install/version/app-shell behavior.
+- The readerdev package is `darkaxt.navic.readerdev` and remains the correct path for deterministic seeded Bindery reader sessions when the release package lacks login/data.
+- A release result must not be claimed for a deep reader/Whispersync behavior unless the probe actually ran against `darkaxt.navic`; readerdev evidence may only prove implementation/runtime behavior.
+
+### Stage 8A: Theta15 Release Validation Baseline
+
+Status: in progress.
+
+Scope:
+- Download or reuse the published `v1.0.11-theta15` `Navic.apk` from GitHub release assets.
+- Install it on the connected emulator as `darkaxt.navic`.
+- Verify `versionName=v1.0.11-theta15`, `versionCode=443`, foreground launch, and screenshot capture.
+- Run the release package through every deterministic gate that does not require pre-existing user login/data.
+- Run readerdev probes for any seeded-reader behavior that release package state cannot reach, and label those results as readerdev implementation evidence rather than release evidence.
+- Record open gaps as the next Stage 2B/5C/6C.2/6D.2/6E.3 plan input.
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta15 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta15 --clobber
+adb devices
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta15\Navic.apk -ExpectedVersionName v1.0.11-theta15 -ArtifactDir captures\reader-smoke\theta15-release-install -CaptureReaderDiagnostics
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta15 -ArtifactRoot captures\reader-komikku-matrix\theta15-release-baseline -NoLaunch -ContinueOnFailure
+```
+
+Required before closure:
+- [ ] Install the published `Navic.apk` and prove the installed release version.
+- [ ] Capture launch/shell evidence for `darkaxt.navic`.
+- [ ] Run deterministic release-package checks that do not require login/data.
+- [ ] Run readerdev seeded-reader checks only for behavior that cannot be reached in the release package.
+- [ ] Append concise validation evidence and open gaps to the validation log.
+- [ ] Commit the Stage 8A plan/evidence when the stage is complete.
