@@ -44,8 +44,10 @@ import navic.composeapp.generated.resources.title_aurral_global_top
 import navic.composeapp.generated.resources.title_aurral_recently_added
 import navic.composeapp.generated.resources.title_aurral_recent_releases
 import navic.composeapp.generated.resources.title_aurral_recommended_for_you
+import navic.composeapp.generated.resources.title_genre_mixes
 import navic.composeapp.generated.resources.title_genres
 import navic.composeapp.generated.resources.title_library_row_order
+import navic.composeapp.generated.resources.title_mood_mixes
 import navic.composeapp.generated.resources.title_most_played
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
@@ -191,6 +193,8 @@ private fun LibraryRowId.titleResource(): StringResource =
 		LibraryRowId.RecentAlbums -> Res.string.option_sort_recent
 		LibraryRowId.Stations -> Res.string.title_stations
 		LibraryRowId.Playlists -> Res.string.title_playlists
+		LibraryRowId.MoodMixes -> Res.string.title_mood_mixes
+		LibraryRowId.GenreMixes -> Res.string.title_genre_mixes
 		LibraryRowId.Artists -> Res.string.title_artists
 		LibraryRowId.Genres -> Res.string.title_genres
 		LibraryRowId.AurralRecentlyAdded -> Res.string.title_aurral_recently_added

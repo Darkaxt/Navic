@@ -102,6 +102,7 @@ import paige.navic.ui.screens.musicBrainz.MusicBrainzInfoScreen
 import paige.navic.ui.screens.nowPlaying.NowPlayingScreen
 import paige.navic.ui.screens.nowPlaying.PlaybackSpeedScreen
 import paige.navic.ui.screens.playlist.PlaylistListScreen
+import paige.navic.ui.navigation.PlaylistListKind
 import paige.navic.ui.screens.queue.QueueScreen
 import paige.navic.ui.screens.radio.RadioListScreen
 import paige.navic.ui.screens.reader.ReaderScreen
@@ -299,7 +300,10 @@ private fun entryProvider(
 			AlbumListScreen(key.nested, key.listType)
 		}
 		entry<Screen.PlaylistList>(metadata = navtabMetadata) { key ->
-			PlaylistListScreen(key.nested, key.stationsOnly)
+			PlaylistListScreen(
+				nested = key.nested,
+				kind = if (key.stationsOnly) PlaylistListKind.Stations else key.kind
+			)
 		}
 		entry<Screen.ArtistList>(metadata = navtabMetadata) { key ->
 			ArtistListScreen(key.nested, key.listType)

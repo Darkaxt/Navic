@@ -22,7 +22,7 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.canDeletePlaylistFromDetail
-import paige.navic.domain.models.stationDisplayName
+import paige.navic.domain.models.playlistDisplayName
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
@@ -65,7 +65,7 @@ fun PlaylistListScreenItem(
 			},
 			onLongClick = onSelect,
 			coverArtId = playlist.coverArtId,
-			title = playlist.stationDisplayName(),
+			title = playlist.playlistDisplayName(),
 			subtitle = buildString {
 				append(
 					pluralStringResource(

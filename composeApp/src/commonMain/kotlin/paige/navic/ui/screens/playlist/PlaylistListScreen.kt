@@ -43,6 +43,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.title_aurral_create_flow
 import navic.composeapp.generated.resources.title_create_playlist
+import navic.composeapp.generated.resources.title_genre_mixes
+import navic.composeapp.generated.resources.title_mood_mixes
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
 import org.jetbrains.compose.resources.stringResource
@@ -52,6 +54,8 @@ import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.genreMixPlaylists
+import paige.navic.domain.models.moodMixPlaylists
 import paige.navic.domain.models.regularPlaylists
 import paige.navic.domain.models.settings.BottomBarCollapseMode
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
@@ -73,6 +77,7 @@ import paige.navic.ui.components.layouts.PullToRefreshBox
 import paige.navic.ui.components.layouts.RootBottomBar
 import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.core.UiState
+import paige.navic.ui.navigation.PlaylistListKind
 import paige.navic.ui.screens.aurral.AurralCreateFlowDialog
 import paige.navic.ui.screens.aurral.AurralHubViewModel
 import paige.navic.ui.screens.aurral.nextAurralFlowName
@@ -88,17 +93,18 @@ import kotlin.time.Duration
 @Composable
 fun PlaylistListScreen(
 	nested: Boolean = false,
-	stationsOnly: Boolean = false
+	kind: PlaylistListKind = PlaylistListKind.User
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 
 	val viewModel = koinViewModel<PlaylistListViewModel>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val playlistsState by viewModel.playlistsState.collectAsState()
-	val displayedPlaylistsState = playlistsState.filterByStationMode(stationsOnly)
+	val displayedPlaylistsState = playlistsState.filterByKind(kind)
 	val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
 	val selectedSorting by viewModel.selectedSorting.collectAsStateWithLifecycle()
 	val selectedReversed by viewModel.selectedReversed.collectAsStateWithLifecycle()
+	val stationsOnly = kind == PlaylistListKind.Stations
 	val aurralConfigured = preferenceManager.aurralEnabled &&
 		configuredAurralBaseUrl(preferenceManager.aurralBaseUrl) != null
 	val aurralViewModel = koinViewModel<AurralHubViewModel>(key = "stationListAurral")
@@ -126,8 +132,18 @@ fun PlaylistListScreen(
 	var createDialogShown by rememberSaveable { mutableStateOf(false) }
 
 	val gridState = rememberLazyGridState()
-	val title = if (stationsOnly) Res.string.title_stations else Res.string.title_playlists
-	val tab = if (stationsOnly) "stations" else "playlists"
+	val title = when (kind) {
+		PlaylistListKind.User -> Res.string.title_playlists
+		PlaylistListKind.Stations -> Res.string.title_stations
+		PlaylistListKind.MoodMixes -> Res.string.title_mood_mixes
+		PlaylistListKind.GenreMixes -> Res.string.title_genre_mixes
+	}
+	val tab = when (kind) {
+		PlaylistListKind.User -> "playlists"
+		PlaylistListKind.Stations -> "stations"
+		PlaylistListKind.MoodMixes -> "mood_mixes"
+		PlaylistListKind.GenreMixes -> "genre_mixes"
+	}
 
 	LaunchedEffect(
 		stationsOnly,
@@ -175,7 +191,7 @@ fun PlaylistListScreen(
 			}
 		},
 		floatingActionButton = {
-			if (!stationsOnly || aurralConfigured) {
+			if (kind == PlaylistListKind.User || (stationsOnly && aurralConfigured)) {
 				AnimatedContent(
 					!scrollManager.isTriggered
 						|| preferenceManager.bottomBarCollapseMode == BottomBarCollapseMode.Never,
@@ -316,11 +332,16 @@ fun PlaylistListScreen(
 	}
 }
 
-private fun UiState<List<DomainPlaylist>>.filterByStationMode(
-	stationsOnly: Boolean
+private fun UiState<List<DomainPlaylist>>.filterByKind(
+	kind: PlaylistListKind
 ): UiState<List<DomainPlaylist>> {
 	fun List<DomainPlaylist>.filtered() =
-		if (stationsOnly) stationPlaylists() else regularPlaylists()
+		when (kind) {
+			PlaylistListKind.User -> regularPlaylists()
+			PlaylistListKind.Stations -> stationPlaylists()
+			PlaylistListKind.MoodMixes -> moodMixPlaylists()
+			PlaylistListKind.GenreMixes -> genreMixPlaylists()
+		}
 
 	return when (this) {
 		is UiState.Error -> UiState.Error(error, data?.filtered())

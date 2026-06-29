@@ -38,7 +38,9 @@ import navic.composeapp.generated.resources.title_aurral_global_top
 import navic.composeapp.generated.resources.title_aurral_recently_added
 import navic.composeapp.generated.resources.title_aurral_recent_releases
 import navic.composeapp.generated.resources.title_aurral_recommended_for_you
+import navic.composeapp.generated.resources.title_genre_mixes
 import navic.composeapp.generated.resources.title_genres
+import navic.composeapp.generated.resources.title_mood_mixes
 import navic.composeapp.generated.resources.title_most_played
 import navic.composeapp.generated.resources.title_playlists
 import navic.composeapp.generated.resources.title_stations
@@ -63,6 +65,8 @@ import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.PlaybackOriginType
+import paige.navic.domain.models.genreMixPlaylists
+import paige.navic.domain.models.moodMixPlaylists
 import paige.navic.domain.models.regularPlaylists
 import paige.navic.domain.models.stationPlaylists
 import paige.navic.icons.Icons
@@ -87,6 +91,7 @@ import paige.navic.ui.screens.library.libraryRowIdForAurralKind
 import paige.navic.ui.screens.library.libraryAurralLoadingPlaceholderVisible
 import paige.navic.ui.screens.library.libraryLocalOwnershipStatus
 import paige.navic.ui.screens.library.mostPlayedShortcutDestination
+import paige.navic.ui.navigation.PlaylistListKind
 import paige.navic.ui.screens.playlist.components.PlaylistListScreenItem
 import paige.navic.ui.core.UiState
 import paige.navic.util.ui.withoutTop
@@ -185,6 +190,8 @@ fun LibraryScreenContent(
 		}
 	val stationPlaylistsState = playlistsState.filterPlaylists(stationsOnly = true)
 	val regularPlaylistsState = playlistsState.filterPlaylists(stationsOnly = false)
+	val moodMixPlaylistsState = playlistsState.filterPlaylistKind(PlaylistListKind.MoodMixes)
+	val genreMixPlaylistsState = playlistsState.filterPlaylistKind(PlaylistListKind.GenreMixes)
 
 	fun LazyGridScope.quickPicksRow() {
 		if (!quickPicksEnabled) return
@@ -316,6 +323,54 @@ fun LibraryScreenContent(
 			PlaylistListScreenItem(
 				modifier = Modifier.animateItem().width(150.dp),
 				tab = "library",
+				playlist = playlist,
+				selected = playlist == selectedPlaylist,
+				onSelect = { onSelectPlaylist(playlist) },
+				onDeselect = { onClearPlaylistSelection() },
+				onSetDeletionId = { onDeletePlaylist(it) },
+				onSetShareId = { onSetShareId(it) },
+				onPlayNext = onPlayPlaylistNext,
+				onAddToQueue = onAddPlaylistToQueue
+			)
+		}
+	}
+
+	fun LazyGridScope.moodMixesRow() {
+		if (moodMixPlaylistsState.data.orEmpty().isEmpty()) return
+		horizontalSection(
+			title = Res.string.title_mood_mixes,
+			destination = Screen.PlaylistList(nested = true, kind = PlaylistListKind.MoodMixes),
+			state = moodMixPlaylistsState,
+			key = { it.id },
+			seeAll = true
+		) { playlist ->
+			PlaylistListScreenItem(
+				modifier = Modifier.animateItem().width(150.dp),
+				tab = "mood_mixes",
+				playlist = playlist,
+				selected = playlist == selectedPlaylist,
+				onSelect = { onSelectPlaylist(playlist) },
+				onDeselect = { onClearPlaylistSelection() },
+				onSetDeletionId = { onDeletePlaylist(it) },
+				onSetShareId = { onSetShareId(it) },
+				onPlayNext = onPlayPlaylistNext,
+				onAddToQueue = onAddPlaylistToQueue
+			)
+		}
+	}
+
+	fun LazyGridScope.genreMixesRow() {
+		if (genreMixPlaylistsState.data.orEmpty().isEmpty()) return
+		horizontalSection(
+			title = Res.string.title_genre_mixes,
+			destination = Screen.PlaylistList(nested = true, kind = PlaylistListKind.GenreMixes),
+			state = genreMixPlaylistsState,
+			key = { it.id },
+			seeAll = true
+		) { playlist ->
+			PlaylistListScreenItem(
+				modifier = Modifier.animateItem().width(150.dp),
+				tab = "genre_mixes",
 				playlist = playlist,
 				selected = playlist == selectedPlaylist,
 				onSelect = { onSelectPlaylist(playlist) },
@@ -499,6 +554,8 @@ fun LibraryScreenContent(
 				)
 				LibraryRowId.Stations -> stationsRow()
 				LibraryRowId.Playlists -> playlistsRow()
+				LibraryRowId.MoodMixes -> moodMixesRow()
+				LibraryRowId.GenreMixes -> genreMixesRow()
 				LibraryRowId.Artists -> artistsRow()
 				LibraryRowId.Genres -> genresRow()
 				LibraryRowId.AurralRecentlyAdded -> {
@@ -553,6 +610,24 @@ private fun UiState<ImmutableList<DomainPlaylist>>.filterPlaylists(
 ): UiState<List<DomainPlaylist>> {
 	fun List<DomainPlaylist>.filtered() =
 		if (stationsOnly) stationPlaylists() else regularPlaylists()
+
+	return when (this) {
+		is UiState.Error -> UiState.Error(error, data?.filtered())
+		is UiState.Loading -> UiState.Loading(data?.filtered())
+		is UiState.Success -> UiState.Success(data.filtered())
+	}
+}
+
+private fun UiState<ImmutableList<DomainPlaylist>>.filterPlaylistKind(
+	kind: PlaylistListKind
+): UiState<List<DomainPlaylist>> {
+	fun List<DomainPlaylist>.filtered() =
+		when (kind) {
+			PlaylistListKind.User -> regularPlaylists()
+			PlaylistListKind.Stations -> stationPlaylists()
+			PlaylistListKind.MoodMixes -> moodMixPlaylists()
+			PlaylistListKind.GenreMixes -> genreMixPlaylists()
+		}
 
 	return when (this) {
 		is UiState.Error -> UiState.Error(error, data?.filtered())

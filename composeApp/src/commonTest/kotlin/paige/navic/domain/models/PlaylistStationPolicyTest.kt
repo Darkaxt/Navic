@@ -22,24 +22,64 @@ class PlaylistStationPolicyTest {
 	@Test
 	fun playlistsSplitIntoStationsAndRegularPlaylists() {
 		val station = playlist(id = "station", name = "[A] Training")
+		val moodMix = playlist(id = "mood", name = "Sleep Mix", comment = "Last generated: 28 Jun, 03:00")
+		val genreMix = playlist(id = "genre", name = "Electronic_Pop_Indie", comment = "Last generated: 28 Jun, 03:00")
 		val regular = playlist(id = "playlist", name = "Training")
 
-		assertEquals(listOf(station), listOf(station, regular).stationPlaylists())
-		assertEquals(listOf(regular), listOf(station, regular).regularPlaylists())
+		val playlists = listOf(station, moodMix, genreMix, regular)
+
+		assertEquals(listOf(station), playlists.stationPlaylists())
+		assertEquals(listOf(moodMix), playlists.moodMixPlaylists())
+		assertEquals(listOf(genreMix), playlists.genreMixPlaylists())
+		assertEquals(listOf(regular), playlists.userPlaylists())
+	}
+
+	@Test
+	fun generatedPlaylistsSplitIntoMoodAndGenreMixes() {
+		val moodMix = playlist(id = "mood", name = "Road Trip Mix", comment = "Last generated: 28 Jun, 03:00")
+		val genreMix = playlist(id = "genre", name = "Electronic_Pop_Indie", comment = "Last generated: 28 Jun, 03:00")
+		val imported = playlist(id = "imported", name = "Electronic_Pop_Indie", comment = "Auto-imported from 'Electronic_Pop_Indie.m3u'")
+
+		assertTrue(moodMix.isMoodMixPlaylist())
+		assertFalse(moodMix.isGenreMixPlaylist())
+		assertTrue(genreMix.isGenreMixPlaylist())
+		assertFalse(genreMix.isMoodMixPlaylist())
+		assertFalse(imported.isMoodMixPlaylist())
+		assertFalse(imported.isGenreMixPlaylist())
+	}
+
+	@Test
+	fun playlistDisplayNameKeepsStationsCleanAndPrettifiesGenreMixes() {
+		assertEquals("Discover", playlist(id = "station", name = "[A] Discover").playlistDisplayName())
+		assertEquals(
+			"Electronic / Pop / Indie",
+			playlist(
+				id = "genre",
+				name = "Electronic_Pop_Indie",
+				comment = "Last generated: 28 Jun, 03:00"
+			).playlistDisplayName()
+		)
+		assertEquals("Electronic_Pop_Indie", playlist(id = "manual", name = "Electronic_Pop_Indie").playlistDisplayName())
 	}
 
 	@Test
 	fun playlistDeletionFromDetailIsOfferedForRegularPlaylistsOnly() {
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "playlist", name = "Training")))
 		assertFalse(canDeletePlaylistFromDetail(playlist(id = "station", name = "[A] Training")))
+		assertFalse(canDeletePlaylistFromDetail(playlist(id = "mood", name = "Sleep Mix", comment = "Last generated: 28 Jun, 03:00")))
+		assertFalse(canDeletePlaylistFromDetail(playlist(id = "genre", name = "Electronic_Pop_Indie", comment = "Last generated: 28 Jun, 03:00")))
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "readonly", name = "Training").copy(readOnly = true)))
 	}
 
-	private fun playlist(id: String, name: String) = DomainPlaylist(
+	private fun playlist(
+		id: String,
+		name: String,
+		comment: String? = null
+	) = DomainPlaylist(
 		id = id,
 		name = name,
 		owner = "owner",
-		comment = null,
+		comment = comment,
 		coverArtId = null,
 		songCount = 0,
 		duration = 0.seconds,

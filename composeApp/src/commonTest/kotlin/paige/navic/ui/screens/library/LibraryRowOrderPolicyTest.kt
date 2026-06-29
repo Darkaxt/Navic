@@ -18,6 +18,8 @@ class LibraryRowOrderPolicyTest {
 				LibraryRowId.RecentAlbums,
 				LibraryRowId.Stations,
 				LibraryRowId.Playlists,
+				LibraryRowId.MoodMixes,
+				LibraryRowId.GenreMixes,
 				LibraryRowId.Artists,
 				LibraryRowId.Genres,
 				LibraryRowId.AurralRecentlyAdded,
