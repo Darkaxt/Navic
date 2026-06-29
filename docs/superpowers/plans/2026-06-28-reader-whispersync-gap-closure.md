@@ -341,6 +341,7 @@ Guards and evidence:
 - GREEN/HOST-CHROME: full `ReaderRuntimeCommonChromeTest` passed (`tmp/codex-validation/stage6c-reader-runtime-common-chrome-green.out.log`, exit `0`).
 - GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed (`tmp/codex-validation/stage6c-final-testAndroid.out.log`, exit `0`).
 - GREEN/WHITESPACE: `git diff --check` passed after the Stage 6C edits.
+- GREEN/EMULATOR-BASELINE: installed readerdev `v1.0.11-theta14` passed the prepared Komikku matrix on `emulator-5554` at `captures\reader-komikku-matrix\theta14-stage-gate-20260629-122023`; `reader-matrix-failures.txt` reported `No matrix failures.` The matrix covered native cover, cover tap/drag, normal center tap, native long press, edge next/previous, drag next/previous, and texture next/previous walks. This is base input evidence, not visual parity closure.
 
 Required before closure:
 - [x] Compare the concrete setting primitive against Komikku before changing Navic.
