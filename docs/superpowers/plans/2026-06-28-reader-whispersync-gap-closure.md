@@ -703,6 +703,37 @@ Remaining:
 - Dismiss history/selection/media overlay state, rerun Stage 6F visual captures, and only then decide whether profile-specific typography, page composition, texture strength, or headset-icon styling needs another implementation slice.
 - Do not publish a release for Stage 6F.2 alone; it is validation infrastructure, not a user-visible fix.
 
+### Stage 6F.3: Neutral Visual Capture Rerun
+
+Status: complete for automated neutral visual evidence; human visual acceptance remains pending.
+
+Scope:
+- Rerun Fold/tablet visual captures with `-RequireNeutralReaderVisualState`.
+- Separate visual layout captures from paired Whispersync behavior captures. A paired route may correctly show active `navic-media-overlay-range` markers; that is not a neutral visual state.
+- Use the plain production EPUB route for typography, margin, texture, cover-surface, and page-box evidence.
+
+Commands:
+
+```powershell
+.\scripts\set-reader-dev-viewport.ps1 -DeviceSerial emulator-5554 -Profile zfold7-inner
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderTitle "Bastille vs. the Evil Librarians" -ReaderKind Ebook -ReaderFormat epub -RequireReaderLaunch -Capture -NoBuild -NoInstall
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta17 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-box -RequireNeutralReaderVisualState -ArtifactDir captures\reader-smoke\stage6f-neutral-visual\<profile>
+```
+
+Results:
+- EXPECTED-FAIL/PAIRED-ROUTE: `captures\reader-smoke\stage6f-neutral-visual\zfold7-inner` failed neutrality with `activeOverlayMarkerCount=1` and `activeMediaOverlayMarkerCount=1`; the first visible span was `navic-active-overlay-fragment navic-media-overlay-range`. Root cause: the paired Whispersync route actively highlights the cue-covered page by design.
+- GREEN/FOLD-INNER-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\zfold7-inner-plain` passed with zero native overlay hits, zero active overlay markers, zero media-overlay markers, and zero selected text.
+- GREEN/FOLD-COVER-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\zfold7-cover-plain` passed the same neutral-state guard.
+- GREEN/TAB-COVER-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\tab-s9-ultra-portrait-plain` passed the same neutral-state guard and captured the native cover surface.
+- GREEN/TAB-TEXT-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\tab-s9-ultra-portrait-text-plain` passed the same neutral-state guard after a right-zone tap advanced from cover to readable text.
+- METRICS: clean page-box probes report stable `documentToViewportWidthRatio=0.94` on Fold inner, Fold cover, and Tab S9 Ultra; `bodyToDocumentWidthRatio` remains Foliate strip-width evidence, not a visual defect by itself.
+- RESET: the emulator viewport was reset after the capture sequence.
+
+Remaining:
+- Use plain-route neutral captures for layout/texture/typography decisions.
+- Use paired-route captures for Whispersync status/headset/audio-text overlay behavior.
+- Stage 6F still needs human/device visual judgment for whether the current typography density, paper texture strength, and cover treatment feel faithful enough.
+
 ### Stage 6A: EPUB Typography And Viewport Layout
 
 Status: host/harness and dirty-readerdev emulator pass complete; release-device visual judgment still pending.

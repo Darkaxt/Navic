@@ -261,6 +261,7 @@ Priority 2:
 
 - Redesign the settings overlay density and scroll treatment around Komikku behavior.
 - Improve paper texture/border texture visibility and asset strategy.
+- Add Bindery-backed extended cover support once Bindery exposes a derived cover asset. The desired contract is one cached outpainted cover canvas per `bookId + coverHash + styleVersion`, with the original cover preserved in the center and only the surrounding area generated. Navic should consume this as an optional fullscreen cover-surface URL, not call an AI service at runtime.
 - Host-closed on 2026-06-22: developer-only reader options, including WebView debugging and tap-zone visibility, live under Developer Options and Settings search routes them there instead of bloating the reader sheet.
 - Keep page-curl animation sample as low-priority follow-up: `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
 
@@ -308,6 +309,7 @@ The Komikku reader backbone is acceptable only when:
 - Native shell owns reader-wide short taps and drag preview over cover, EPUB text, EPUB images, links, and PDF pages.
 - Interactive content is not hijacked by normal center taps; content actions are long-press or explicitly delegated.
 - Cover can be shown, dismissed, returned to, and navigated from without bottom-menu overlap.
+- If Bindery provides an extended cover asset, the native cover surface uses it as the fullscreen background while preserving the original cover content; otherwise the current native cover fallback remains valid.
 - Progress rail is chapter-local, reaches first and last pages, and its buttons navigate adjacent chapters from page 1 and endpoints.
 - Page numbering is deterministic for a given viewport/pagination profile and does not count suppressed cover or Foliate sentinel columns.
 - Reading progress persists after committed relocation and survives app interruption/reopen.

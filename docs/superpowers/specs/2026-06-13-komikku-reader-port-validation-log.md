@@ -8655,3 +8655,32 @@ Results:
 Next:
 - Use `-ReaderDevtoolsProbe page-box -RequireNeutralReaderVisualState` for the next Fold/Tab visual capture round.
 - Do not publish a release for Stage 6F.2 alone; this is validation infrastructure.
+
+## 2026-06-30 Stage 6F.3 Neutral Visual Capture Rerun
+
+Scope:
+- Rerun visual capture evidence after adding the neutral-state guard.
+- Prove whether the paired Whispersync route or the visual harness caused active overlay pollution.
+- Capture plain-route Fold/tablet evidence suitable for typography, margin, texture, and cover-surface review.
+
+Commands:
+
+```powershell
+.\scripts\set-reader-dev-viewport.ps1 -DeviceSerial emulator-5554 -Profile zfold7-inner
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderTitle "Bastille vs. the Evil Librarians" -ReaderKind Ebook -ReaderFormat epub -RequireReaderLaunch -Capture -NoBuild -NoInstall
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta17 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-box -RequireNeutralReaderVisualState -ArtifactDir captures\reader-smoke\stage6f-neutral-visual\<profile>
+```
+
+Results:
+- EXPECTED-FAIL/PAIRED-ROUTE: `captures\reader-smoke\stage6f-neutral-visual\zfold7-inner` failed with `activeOverlayMarkerCount=1` and `activeMediaOverlayMarkerCount=1`. The probe showed the first visible span as `navic-active-overlay-fragment navic-media-overlay-range`, so the paired Whispersync route is correctly non-neutral.
+- GREEN/FOLD-INNER-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\zfold7-inner-plain` passed neutral visual state.
+- GREEN/FOLD-COVER-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\zfold7-cover-plain` passed neutral visual state.
+- GREEN/TAB-COVER-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\tab-s9-ultra-portrait-plain` passed neutral visual state and captured the native cover.
+- GREEN/TAB-TEXT-PLAIN: `captures\reader-smoke\stage6f-neutral-visual\tab-s9-ultra-portrait-text-plain` passed neutral visual state after a right-zone tap entered readable text.
+- METRICS: clean plain-route captures report `documentToViewportWidthRatio=0.94` on Fold inner, Fold cover, and Tab S9 Ultra. `bodyToDocumentWidthRatio` remains expected Foliate paginated-strip width evidence, not a visible layout defect by itself.
+- GREEN/RESET: `set-reader-dev-viewport.ps1 -Profile reset` restored the emulator viewport.
+
+Next:
+- Use the plain route for neutral visual/layout decisions.
+- Use the paired Whispersync route only for audio/text overlay, headset, and sync behavior validation.
+- Keep tablet typography density and cover treatment as human visual-judgment items for the coherent release candidate.
