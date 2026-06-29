@@ -323,6 +323,32 @@ Required before closure:
 - [x] If the UI gate passes, record Stage 6B as automation-green and move to Stage 3A PDF/fixed-layout without changing production rail code.
 - [x] Run final `git diff --check` and commit the Stage 6B evidence or fix.
 
+### Stage 6C: Settings Overlay Density And Scroll Treatment
+
+Status: first source-backed density slice complete; emulator/physical visual judgment still pending.
+
+Scope:
+- Keep the reader settings overlay faithful to Komikku's `ReaderSettingsDialog` / `SettingsItems` primitives.
+- Remove Navic-only density that makes wrapped chip rows taller than the reference and easier to clip in the bounded modal.
+- Preserve the existing bounded overlay, compact tabs, edge-fade scroll treatment, and no-footer dialog behavior.
+
+Guards and evidence:
+- RED/HOST-FIRST: `ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndReferenceTabLabels` failed while Navic's `SettingsChipRow` still added `verticalArrangement = Arrangement.spacedBy(6.dp)` between wrapped chips (`tmp/codex-validation/stage6c-settings-chip-gap-red.out.log`, exit `1`).
+- GREEN/HOST-FOCUSED: the same guard passed after removing the extra chip-row vertical spacing (`tmp/codex-validation/stage6c-settings-chip-gap-green.out.log`, exit `0`).
+- GREEN/HOST-CHROME: full `ReaderRuntimeCommonChromeTest` passed (`tmp/codex-validation/stage6c-reader-runtime-common-chrome-green.out.log`, exit `0`).
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed (`tmp/codex-validation/stage6c-final-testAndroid.out.log`, exit `0`).
+- GREEN/WHITESPACE: `git diff --check` passed after the Stage 6C edits.
+
+Required before closure:
+- [x] Compare the concrete setting primitive against Komikku before changing Navic.
+- [x] Add a failing source guard for the non-faithful density behavior.
+- [x] Implement the smallest settings primitive change.
+- [x] Run focused guard, full chrome host class, `:composeApp:testAndroid`, and `git diff --check`.
+- [x] Commit the Stage 6C density slice.
+
+Remaining:
+- This slice reduces one concrete source-backed density divergence. It does not complete settings visual parity; phone/fold/tablet screenshots still need to judge surface palette, row grouping, tab comfort, and scroll feel.
+
 ## Stage 7: Release Candidate Gate
 
 **Purpose:** Publish only when a coherent milestone is ready for user validation.

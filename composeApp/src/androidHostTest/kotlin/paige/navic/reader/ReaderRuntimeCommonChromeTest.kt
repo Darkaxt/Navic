@@ -1447,6 +1447,10 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogText, "HeadingItem(title)")
 		assertContains(settingsDialogText, "HeadingItem(label)")
 		assertContains(settingsDialogText, "horizontalArrangement = Arrangement.spacedBy(6.dp)")
+		assertFalse(
+			chipRowBody.contains("verticalArrangement = Arrangement.spacedBy"),
+			"Komikku SettingsChipRow does not add an extra explicit vertical gap between wrapped chips; the added Navic gap makes dense rows taller and easier to clip."
+		)
 		assertContains(settingsDialogText, "bottom = SettingsItemsPaddings.Vertical")
 		assertContains(settingsDialogText, "MaterialTheme.typography.bodyMedium")
 		assertContains(settingsDialogText, "Pill(")

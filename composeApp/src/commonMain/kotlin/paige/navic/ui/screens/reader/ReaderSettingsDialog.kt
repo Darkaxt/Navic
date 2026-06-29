@@ -876,7 +876,6 @@ private fun SettingsChipRow(
 				bottom = SettingsItemsPaddings.Vertical
 			),
 			horizontalArrangement = Arrangement.spacedBy(6.dp),
-			verticalArrangement = Arrangement.spacedBy(6.dp),
 			content = content
 		)
 	}

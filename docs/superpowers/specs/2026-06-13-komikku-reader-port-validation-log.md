@@ -7849,3 +7849,30 @@ Results:
 
 Remaining:
 - This validates readerdev emulator behavior, not a public release APK or physical-device PDF feel.
+
+
+## 2026-06-29 Stage 6C Settings Overlay Density Gate
+
+Scope:
+- Compare Navic's reader settings chip-row primitive against Komikku's `SettingsChipRow`.
+- Remove the Navic-only explicit vertical chip gap that made wrapped settings rows taller inside the bounded modal.
+- Preserve the already-ported bounded dialog, compact tabs, scroll edge fade, custom-filter dim behavior, and no-footer dismissal contract.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndReferenceTabLabels --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimeCommonChromeTest.commonReaderSettingsDialogUsesDenseKomikkuDialogSpacingAndReferenceTabLabels` failed while `SettingsChipRow` still contained `verticalArrangement = Arrangement.spacedBy(6.dp)` (`tmp/codex-validation/stage6c-settings-chip-gap-red.out.log`, exit `1`).
+- GREEN/HOST-FOCUSED: the same guard passed after removing the extra vertical chip gap (`tmp/codex-validation/stage6c-settings-chip-gap-green.out.log`, exit `0`).
+- GREEN/HOST-CHROME: full `ReaderRuntimeCommonChromeTest` passed (`tmp/codex-validation/stage6c-reader-runtime-common-chrome-green.out.log`, exit `0`).
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed (`tmp/codex-validation/stage6c-final-testAndroid.out.log`, exit `0`).
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Remaining:
+- This is source/host proof for one settings-density divergence. Phone/fold/tablet screenshots still need to judge whether the settings overlay visually feels close enough to Komikku after this and earlier modal fixes.
