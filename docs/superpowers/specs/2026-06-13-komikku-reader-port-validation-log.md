@@ -9213,3 +9213,32 @@ Results:
 Next:
 - Treat native search result tapping and active search dismissal as readerdev/emulator-proven.
 - Keep signed public-package proof separate from this implementation evidence.
+
+## 2026-06-30 Stage 8W Native Font-Size Slider Route Validation
+
+Scope:
+- Re-check the report that Font size affected headings but not ordinary EPUB text.
+- Prove the native Komikku settings route can drive the actual reader font-size setting and that visible EPUB prose changes.
+- Keep this as readerdev/emulator implementation evidence, not signed release-package proof.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanReadCurrentAppliedFontSizeWithoutMutatingSettings
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe --tests paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSettingsExpandedAnxControlsUseSeparateSectionAndSliderDensity
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -BookId 3809 -StartHref OEBPS/xhtml/chapter1.xhtml -SkipNativeShellCover -RequireReaderLaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta25 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe font-size-current -PostProbeAction 'keyevent:4,1000|tapFractionUntilDescPresent:Settings,0.50,0.50,4,900|tapDesc:Settings,1000|tapTextWhenPresent:General,30,300|waitDesc:Reader setting slider Font size,30,300|swipeDescFraction:Reader setting slider Font size,0.20,0.50,0.95,0.50,700,2200' -PostActionReaderDevtoolsProbe font-size-current -RequireReaderEngineCommand applySettings -RequireNoReaderConsoleErrors -ArtifactDir captures\reader-bridge-probes\stage8w-font-size-ui-full-route-text-wait-theta25-20260630
+```
+
+Results:
+- GREEN/HOST-GUARD: the non-mutating `font-size-current` DevTools probe guard passed after `adb-webview-eval.mjs`, `adb-reader-smoke.ps1`, and `adb-reader-komikku-matrix.ps1` accepted the probe.
+- GREEN/HOST-GUARD: post-probe native action guards passed after adding `waitDesc:` and `tapTextWhenPresent:` to the smoke script.
+- GREEN/HOST-GUARD: settings overlay guard passed after the `Reader setting slider <title>` semantics moved from the surrounding row to the actual `KomikkuIntegerSlider`.
+- GREEN/READERDEV-INSTALL: current-source `darkaxt.navic.readerdev` was rebuilt, installed, and launched on `emulator-5554`; package evidence reported `versionName=v1.0.11-theta25`, `versionCode=453`, and `lastUpdateTime=2026-06-30 22:29:03`.
+- GREEN/BASELINE-PROBE: `captures\reader-bridge-probes\stage8w-font-size-ui-relaunch-baseline-theta25-20260630` saw the real text page and reported visible prose at `27.36px` / `171%`.
+- GREEN/NATIVE-ROUTE: `captures\reader-bridge-probes\stage8w-font-size-ui-full-route-text-wait-theta25-20260630` passed the full native route and captured `applySettings`.
+- GREEN/PROSE-METRICS: the same visible paragraph changed from `19.84px` / `124%` to `26.4px` / `165%`; root and body font sizes changed by the same amount.
+
+Next:
+- Treat Font size propagation to EPUB body prose as readerdev/emulator-proven for current source.
+- Keep tablet/fold visual typography, margins, and settings density in Stage 6F physical/human acceptance; this run proves function, not final visual preference.

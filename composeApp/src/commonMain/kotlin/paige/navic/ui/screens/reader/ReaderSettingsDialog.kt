@@ -44,6 +44,8 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -1037,11 +1039,16 @@ private fun BaseSliderItem(
 				onChange(it)
 				haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 			},
+			modifier = Modifier.semantics {
+				contentDescription = settingSliderContentDescription(title)
+			},
 			valueRange = valueRange,
 			steps = steps
 		)
 	}
 }
+
+private fun settingSliderContentDescription(title: String): String = "Reader setting slider $title"
 
 @Composable
 private fun Pill(

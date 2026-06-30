@@ -699,6 +699,28 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalHelperCanReadCurrentAppliedFontSizeWithoutMutatingSettings() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val currentFontSizeProbe = helperText
+			.substringAfter("async function runCurrentFontSizeProbe(page)")
+			.substringBefore("async function runFontSizeProbe(page)")
+		val smokeScript = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val matrixScript = repoScriptFile("adb-reader-komikku-matrix.ps1").readText()
+
+		assertContains(helperText, "'font-size-current': runCurrentFontSizeProbe")
+		assertContains(smokeScript, "\"font-size-current\"")
+		assertContains(matrixScript, "\"font-size-current\"")
+		assertContains(currentFontSizeProbe, "probe: 'font-size-current'")
+		assertContains(currentFontSizeProbe, "currentFontSizePercent")
+		assertContains(currentFontSizeProbe, "existingProseMetrics")
+		assertContains(currentFontSizeProbe, "contentFontSizeVariable")
+		assertFalse(
+			currentFontSizeProbe.contains("type: 'applySettings'"),
+			"The current-font probe must measure the native UI result; it must not mutate settings itself."
+		)
+	}
+
+	@Test
 	fun adbWebViewEvalHelperCanProbePublisherStyleFontSizeOverride() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val publisherProbe = helperText
@@ -846,16 +868,21 @@ class ReaderRuntimeAssetsTest {
 		assertContains(postProbeGestureBlock, "foreach (\$postProbeActionEntry in \$PostProbeAction)")
 		assertContains(postProbeGestureBlock, "tapFraction:")
 		assertContains(postProbeGestureBlock, "tapFractionUntilDescPresent:")
+		assertContains(postProbeGestureBlock, "tapTextWhenPresent:")
 		assertContains(postProbeGestureBlock, "tapDescWhenPresent:")
+		assertContains(postProbeGestureBlock, "waitDesc:")
 		assertContains(postProbeGestureBlock, "tapText:")
 		assertContains(postProbeGestureBlock, "tapDesc:")
 		assertContains(postProbeGestureBlock, "tapDescIfPresent:")
 		assertContains(postProbeGestureBlock, "tapDescFraction:")
+		assertContains(postProbeGestureBlock, "swipeDescFraction:")
 		assertContains(postProbeGestureBlock, "Get-AdbUiNodeCenter")
 		assertContains(postProbeGestureBlock, "Get-AdbUiNodeFractionPoint")
+		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeFractionSwipe")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeAction")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeActionIfPresent")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeActionWhenPresent")
+		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeWaitUntilPresent")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeFractionAction")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeTapFractionUntilDescPresent")
 		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"text\", \$text)")
@@ -865,7 +892,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
 		assertContains(scriptText, "required reader log '\$requiredReaderLog' was not captured")
 		assertContains(scriptText, "Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs.")
+		assertContains(scriptText, "Use swipeDescFraction:value,x1Fraction,y1Fraction,x2Fraction,y2Fraction or swipeDescFraction:value,x1Fraction,y1Fraction,x2Fraction,y2Fraction,durationMs,waitMs.")
+		assertContains(scriptText, "Use tapTextWhenPresent:value,maxAttempts,waitMs.")
 		assertContains(scriptText, "Use tapDescWhenPresent:value,maxAttempts,waitMs.")
+		assertContains(scriptText, "Use waitDesc:value,maxAttempts,waitMs.")
 	}
 
 	@Test

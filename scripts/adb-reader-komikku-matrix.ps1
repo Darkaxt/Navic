@@ -132,9 +132,9 @@ function Invoke-ReaderMatrixStep {
         [switch] $RequirePdfDiagnostics,
         [int] $RequirePdfRendererIndex = -1,
         [string[]] $PostProbeAction = @(),
-        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
         [string] $ReaderDevtoolsProbe = "",
-        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
         [string] $PostActionReaderDevtoolsProbe = "",
         [ValidateSet("", "start", "end")]
         [string] $RequirePostActionChapterPageEndpoint = "",

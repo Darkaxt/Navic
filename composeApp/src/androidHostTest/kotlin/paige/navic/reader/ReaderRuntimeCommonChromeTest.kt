@@ -1819,7 +1819,10 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(settingsDialogText, "val SectionVertical = 6.dp")
 		assertContains(settingsDialogText, "val SliderVertical = 6.dp")
+		assertContains(settingsDialogText, "import androidx.compose.ui.semantics.contentDescription")
+		assertContains(settingsDialogText, "import androidx.compose.ui.semantics.semantics")
 		assertContains(settingsDialogText, "private fun SettingsSectionHeading(text: String)")
+		assertContains(settingsDialogText, "private fun settingSliderContentDescription(title: String): String = \"Reader setting slider ${'$'}title\"")
 		assertContains(settingsSectionBody, "SettingsSectionHeading(title)")
 		assertFalse(
 			settingsSectionBody.contains("HeadingItem(title)"),
@@ -1829,6 +1832,12 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(sectionHeadingBody, "MaterialTheme.colorScheme.onSurfaceVariant")
 		assertContains(sliderItemBody, "vertical = SettingsItemsPaddings.SliderVertical")
 		assertContains(baseSliderItemBody, "verticalArrangement = Arrangement.spacedBy(0.dp)")
+		assertContains(baseSliderItemBody, "modifier = Modifier.semantics {")
+		assertContains(baseSliderItemBody, "contentDescription = settingSliderContentDescription(title)")
+		assertTrue(
+			baseSliderItemBody.indexOf("KomikkuIntegerSlider(") < baseSliderItemBody.indexOf("contentDescription = settingSliderContentDescription(title)"),
+			"Reader setting slider semantics must be attached to the actual slider control, not the surrounding row."
+		)
 	}
 
 	@Test

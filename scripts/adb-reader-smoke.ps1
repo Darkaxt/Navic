@@ -29,9 +29,9 @@ param(
     [string[]] $RequireReaderEngineCommand = @(),
     [string[]] $RequireReaderLog = @(),
     [switch] $RequireNoReaderConsoleErrors,
-    [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+    [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
     [string] $ReaderDevtoolsProbe = "",
-    [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+    [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
     [string] $PostActionReaderDevtoolsProbe = "",
     [ValidateSet("", "start", "end")]
     [string] $RequirePostActionChapterPageEndpoint = "",
@@ -882,7 +882,7 @@ function Invoke-PostProbeUiNodeActionWhenPresent {
 
     $nodeSpecMatch = [regex]::Match($NodeSpec, '^(.*?),\s*(\d+)\s*,\s*(\d+)$')
     if (-not $nodeSpecMatch.Success -or [string]::IsNullOrWhiteSpace($nodeSpecMatch.Groups[1].Value)) {
-        throw "Invalid post-probe action '$ActionLabel'. Use tapDescWhenPresent:value,maxAttempts,waitMs."
+        throw "Invalid post-probe action '$ActionLabel'. Use tapTextWhenPresent:value,maxAttempts,waitMs. Use tapDescWhenPresent:value,maxAttempts,waitMs."
     }
     $expectedValue = $nodeSpecMatch.Groups[1].Value.Trim()
     $maxAttempts = [int] $nodeSpecMatch.Groups[2].Value
@@ -898,6 +898,41 @@ function Invoke-PostProbeUiNodeActionWhenPresent {
             $y = [int] (($bounds.Top + $bounds.Bottom) / 2)
             Invoke-Adb @("shell", "input", "tap", ([string] $x), ([string] $y))
             Start-Sleep -Milliseconds $waitMs
+            return
+        }
+
+        Start-Sleep -Milliseconds $waitMs
+    }
+
+    throw "Post-probe action '$ActionLabel' did not find UI node by $MatcherKind '$expectedValue' after $maxAttempts attempt(s)."
+}
+
+function Invoke-PostProbeUiNodeWaitUntilPresent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ActionLabel,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $NodeSpec
+    )
+
+    $nodeSpecMatch = [regex]::Match($NodeSpec, '^(.*?),\s*(\d+)\s*,\s*(\d+)$')
+    if (-not $nodeSpecMatch.Success -or [string]::IsNullOrWhiteSpace($nodeSpecMatch.Groups[1].Value)) {
+        throw "Invalid post-probe action '$ActionLabel'. Use waitDesc:value,maxAttempts,waitMs."
+    }
+    $expectedValue = $nodeSpecMatch.Groups[1].Value.Trim()
+    $maxAttempts = [int] $nodeSpecMatch.Groups[2].Value
+    $waitMs = [int] $nodeSpecMatch.Groups[3].Value
+    if ($maxAttempts -lt 1) {
+        throw "Invalid post-probe action '$ActionLabel'. maxAttempts must be at least 1."
+    }
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $bounds = Find-AdbUiNodeBounds -MatcherKind $MatcherKind -ExpectedValue $expectedValue
+        if ($null -ne $bounds) {
+            Write-Host "post-probe action '$ActionLabel' found UI node by $MatcherKind '$expectedValue' on attempt $attempt."
             return
         }
 
@@ -981,6 +1016,42 @@ function Invoke-PostProbeUiNodeFractionAction {
     Start-Sleep -Milliseconds $waitMs
 }
 
+function Invoke-PostProbeUiNodeFractionSwipe {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ActionLabel,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $NodeSpec
+    )
+
+    $nodeSpecMatch = [regex]::Match($NodeSpec, '^(.*?),\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d+))?(?:\s*,\s*(\d+))?$')
+    if (-not $nodeSpecMatch.Success -or [string]::IsNullOrWhiteSpace($nodeSpecMatch.Groups[1].Value)) {
+        throw "Invalid post-probe action '$ActionLabel'. Use swipeDescFraction:value,x1Fraction,y1Fraction,x2Fraction,y2Fraction or swipeDescFraction:value,x1Fraction,y1Fraction,x2Fraction,y2Fraction,durationMs,waitMs."
+    }
+    $expectedValue = $nodeSpecMatch.Groups[1].Value.Trim()
+    $x1Fraction = [double]::Parse($nodeSpecMatch.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $y1Fraction = [double]::Parse($nodeSpecMatch.Groups[3].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $x2Fraction = [double]::Parse($nodeSpecMatch.Groups[4].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $y2Fraction = [double]::Parse($nodeSpecMatch.Groups[5].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    $durationMs = if ($nodeSpecMatch.Groups[6].Success) { [int] $nodeSpecMatch.Groups[6].Value } else { 300 }
+    $waitMs = if ($nodeSpecMatch.Groups[7].Success) { [int] $nodeSpecMatch.Groups[7].Value } else { 1000 }
+    $startPoint = Get-AdbUiNodeFractionPoint `
+        -MatcherKind $MatcherKind `
+        -ExpectedValue $expectedValue `
+        -XFraction $x1Fraction `
+        -YFraction $y1Fraction
+    $endPoint = Get-AdbUiNodeFractionPoint `
+        -MatcherKind $MatcherKind `
+        -ExpectedValue $expectedValue `
+        -XFraction $x2Fraction `
+        -YFraction $y2Fraction
+    Invoke-Adb @("shell", "input", "swipe", ([string] $startPoint.X), ([string] $startPoint.Y), ([string] $endPoint.X), ([string] $endPoint.Y), ([string] $durationMs))
+    Start-Sleep -Milliseconds $waitMs
+}
+
 foreach ($postProbeActionEntry in $PostProbeAction) {
     $postProbeAction = [string] $postProbeActionEntry
     $postProbeAction = $postProbeAction.Trim()
@@ -1010,6 +1081,12 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         continue
     }
 
+    if ($postProbeAction.StartsWith("tapTextWhenPresent:")) {
+        $nodeSpec = $postProbeAction.Substring("tapTextWhenPresent:".Length)
+        Invoke-PostProbeUiNodeActionWhenPresent -ActionLabel ([string] $postProbeAction) -MatcherKind "text" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
     if ($postProbeAction.StartsWith("tapDesc:")) {
         $nodeSpec = $postProbeAction.Substring("tapDesc:".Length)
         Invoke-PostProbeUiNodeAction -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
@@ -1028,9 +1105,21 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         continue
     }
 
+    if ($postProbeAction.StartsWith("waitDesc:")) {
+        $nodeSpec = $postProbeAction.Substring("waitDesc:".Length)
+        Invoke-PostProbeUiNodeWaitUntilPresent -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
     if ($postProbeAction.StartsWith("tapDescFraction:")) {
         $nodeSpec = $postProbeAction.Substring("tapDescFraction:".Length)
         Invoke-PostProbeUiNodeFractionAction -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
+    if ($postProbeAction.StartsWith("swipeDescFraction:")) {
+        $nodeSpec = $postProbeAction.Substring("swipeDescFraction:".Length)
+        Invoke-PostProbeUiNodeFractionSwipe -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
         continue
     }
 
@@ -1054,7 +1143,7 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         continue
     }
 
-    throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapFractionUntilDescPresent:, tapText:, tapDesc:, tapDescIfPresent:, tapDescWhenPresent:, tapDescFraction:, text:, or keyevent:."
+    throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapFractionUntilDescPresent:, tapText:, tapTextWhenPresent:, tapDesc:, tapDescIfPresent:, tapDescWhenPresent:, waitDesc:, tapDescFraction:, swipeDescFraction:, text:, or keyevent:."
 }
 
 Invoke-ReaderDevtoolsProbe -ProbeName $PostActionReaderDevtoolsProbe -OutputFileName "reader-devtools-post-action-probe.json"

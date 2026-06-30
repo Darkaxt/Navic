@@ -1999,6 +1999,67 @@ async function runPdfVisiblePageProbe(page) {
   }})()`)
 }
 
+async function runCurrentFontSizeProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const content = view.renderer?.getContents?.()?.find?.(entry => entry?.doc?.body)
+    const doc = content?.doc
+    if (!doc?.body) {
+      throw new Error('Missing loaded content document')
+    }
+    const win = doc.defaultView
+    const htmlStyle = win.getComputedStyle(doc.documentElement)
+    const bodyStyle = win.getComputedStyle(doc.body)
+    const contentFontSizeVariable = htmlStyle.getPropertyValue('--reader-content-font-size').trim()
+    const currentFontSizePercent = Number.parseFloat(contentFontSizeVariable || '0')
+    const visibleTextElements = Array.from(doc.body.querySelectorAll('p, span, font, div, li, blockquote'))
+      .filter(element => {
+        const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+        if (text.length < 24) return false
+        const rect = element.getBoundingClientRect()
+        if (!rect || rect.width <= 0 || rect.height <= 0) return false
+        const style = win.getComputedStyle(element)
+        return style.display !== 'none' && style.visibility !== 'hidden'
+      })
+      .slice(0, 12)
+    const existingProseMetrics = visibleTextElements.map((element, index) => {
+      const style = win.getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+      return {
+        index,
+        tagName: element.tagName,
+        id: element.id || '',
+        className: String(element.className || ''),
+        fontSize: style.fontSize,
+        fontSizeValue: Number.parseFloat(style.fontSize || '0'),
+        lineHeight: style.lineHeight,
+        rect: {
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+        text: text.slice(0, 96),
+      }
+    })
+
+    return {
+      probe: 'font-size-current',
+      currentFontSizePercent,
+      contentFontSizeVariable,
+      rootFontSize: htmlStyle.fontSize,
+      rootFontSizeValue: Number.parseFloat(htmlStyle.fontSize || '0'),
+      bodyFontSize: bodyStyle.fontSize,
+      bodyFontSizeValue: Number.parseFloat(bodyStyle.fontSize || '0'),
+      existingProseMetrics,
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function runFontSizeProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     if (!window.NavicReaderBridge?.dispatch) {
@@ -2389,6 +2450,7 @@ async function main() {
       'visible-page-content': runVisiblePageContentProbe,
       'pdf-visible-page': runPdfVisiblePageProbe,
       'font-size': runFontSizeProbe,
+      'font-size-current': runCurrentFontSizeProbe,
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
       'runtime-state': runRuntimeStateProbe,
       'image-hit-targets': runImageHitTargetsProbe,

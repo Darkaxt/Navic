@@ -2135,3 +2135,38 @@ Closure:
 - [x] Prove native close dispatches `clearSearch`.
 - [x] Prove the bridge returns empty search results after dismissal.
 - [x] Keep the evidence scoped as readerdev/emulator proof, not signed release-package proof.
+
+### Stage 8W: Native Font-Size Slider Route Validation
+
+Status: complete for readerdev/emulator Font size control proof; no public release.
+
+Purpose:
+- Re-check the user report that the Font size control appeared to resize headings but not ordinary EPUB body text.
+- Keep the claim evidence-based: first prove the WebView/runtime already scales prose, then prove the native Komikku settings route can drive the same setting.
+- Avoid another typography workaround unless the current readerdev build reproduces the body-text failure.
+
+Scope:
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt`
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: `scripts/adb-reader-komikku-matrix.ps1`
+- Modify: `tools/reader-harness/src/adb-webview-eval.mjs`
+- Modify: focused host/source guards and validation docs.
+
+Results:
+- GREEN/RUNTIME-BRIDGE: earlier Stage 8W probes showed root, body, visible paragraph, and publisher-important prose all scale when `fontSizePercent` changes through the reader bridge.
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanReadCurrentAppliedFontSizeWithoutMutatingSettings` failed before a non-mutating `font-size-current` DevTools probe existed.
+- FIXED/HARNESS: `adb-webview-eval.mjs`, `adb-reader-smoke.ps1`, and `adb-reader-komikku-matrix.ps1` now support `font-size-current`, which reads the currently applied CSS and visible prose metrics without dispatching `applySettings`.
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe` failed before `waitDesc:` and `tapTextWhenPresent:` existed for condition-based settings-dialog automation.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` now supports `waitDesc:value,maxAttempts,waitMs` and `tapTextWhenPresent:value,maxAttempts,waitMs`, so native settings actions can wait for Compose nodes instead of racing dialog creation.
+- FIXED/UI-AUTOMATION: `ReaderSettingsDialog` now puts `Reader setting slider <title>` semantics on the actual `KomikkuIntegerSlider` control, not the surrounding row. This prevents ADB swipes from being interpreted as tab/dialog horizontal movement.
+- GREEN/HOST-GUARD: focused host guards passed for the current-font probe, post-probe native actions, and slider semantic placement.
+- GREEN/READERDEV-EMULATOR: after rebuilding/installing current-source `darkaxt.navic.readerdev` `v1.0.11-theta25`, `captures\reader-bridge-probes\stage8w-font-size-ui-full-route-text-wait-theta25-20260630` passed the complete native route: center/menu reveal, Settings, General tab, actual Font size slider, `applySettings`, and post-action prose measurement.
+- GREEN/PROSE-METRICS: the same visible paragraph changed from `19.84px` at `124%` to `26.4px` at `165%`; root and body font sizes changed by the same amount.
+
+Closure:
+- [x] Prove current bridge/runtime font-size application scales body prose.
+- [x] Add a non-mutating current-font probe for native UI validation.
+- [x] Add condition-based native settings actions to the ADB smoke harness.
+- [x] Move slider semantics to the actual slider control.
+- [x] Validate the complete native Settings route on readerdev/emulator with a real EPUB paragraph.
+- [x] Keep tablet visual typography and margin acceptance in Stage 6F; this stage closes the functional Font size propagation suspicion, not final tablet layout feel.
