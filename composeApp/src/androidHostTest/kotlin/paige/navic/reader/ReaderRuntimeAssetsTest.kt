@@ -930,6 +930,33 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val matrixText = repoScriptFile("adb-reader-komikku-matrix.ps1").readText()
+		val endpointValidationBlock = scriptText
+			.substringAfter("function Assert-ReaderDevtoolsLocationEndpoint")
+			.substringBefore("function Get-ReaderDevtoolsPdfVisibleResult")
+
+		assertContains(scriptText, "[ValidateSet(\"\", \"start\", \"end\")]")
+		assertContains(scriptText, "[string] \$RequirePostActionChapterPageEndpoint = \"\"")
+		assertContains(endpointValidationBlock, "reader-devtools-post-action-probe.json")
+		assertContains(endpointValidationBlock, "chapterPageIndex")
+		assertContains(endpointValidationBlock, "chapterPageCount")
+		assertContains(endpointValidationBlock, "Expected first chapter page")
+		assertContains(endpointValidationBlock, "Expected last chapter page")
+		assertContains(matrixText, "[switch] \$IncludeRailEndpointChecks")
+		assertContains(matrixText, "[string[]] \$PostProbeAction = @()")
+		assertContains(matrixText, "chapter-rail-native-start")
+		assertContains(matrixText, "chapter-rail-native-end")
+		assertContains(matrixText, "tapDescFraction:Chapter page slider,0.0,0.5")
+		assertContains(matrixText, "tapDescFraction:Chapter page slider,1.0,0.5")
+		assertContains(matrixText, "PostProbeAction = \$PostProbeAction")
+		assertContains(matrixText, "RequirePostActionChapterPageEndpoint = \$RequirePostActionChapterPageEndpoint")
+		assertContains(matrixText, "-RequirePostActionChapterPageEndpoint \"start\"")
+		assertContains(matrixText, "-RequirePostActionChapterPageEndpoint \"end\"")
+	}
+
+	@Test
 	fun adbReaderSmokeUsesSerialAwareAdbHelperForCaptureAndDiagnostics() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val bodyAfterHelper = scriptText

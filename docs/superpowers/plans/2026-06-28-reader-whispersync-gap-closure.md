@@ -1645,3 +1645,35 @@ Closure:
 - [x] Commit and push the theta24 release identity.
 - [x] Create and push the `v1.0.11-theta24` tag.
 - [x] Verify GitHub Actions release publication.
+
+### Stage 8L: Native Chapter Rail Endpoint Gate
+
+Status: host guard complete; use `-IncludeRailEndpointChecks` in the next emulator/device matrix pass.
+
+Purpose:
+- Close the remaining chapter-local progress-rail validation gap from the Komikku reader spec: the visible native `Chapter page slider` must be able to reach the first and last pages of the current chapter.
+- Keep this as a harness/evidence improvement. No reader UI, controller, texture, tap, or Whispersync runtime behavior changes are part of this slice.
+- Preserve the Stage 6B boundary: source/DevTools endpoint checks are useful, but the real gate must exercise the native rail control that the user touches.
+
+Scope:
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: `scripts/adb-reader-komikku-matrix.ps1`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe` failed while the smoke script had no post-action chapter endpoint assertion and the matrix had no native rail endpoint rows.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` now accepts `-RequirePostActionChapterPageEndpoint start|end`, reads the post-action `location-snapshot`, requires numeric `chapterPageIndex` and `chapterPageCount`, and fails if the native rail tap did not land on the requested endpoint.
+- FIXED/MATRIX: `adb-reader-komikku-matrix.ps1` now exposes `-IncludeRailEndpointChecks` and adds `chapter-rail-native-start` / `chapter-rail-native-end` rows that tap the visible `Chapter page slider` at `0.0` and `1.0`, then assert the post-action location endpoint.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe" --console=plain` passed after the harness wiring.
+- GREEN/BROADER-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest" --console=plain` passed after the plan edit.
+- GREEN/SCRIPT-SYNTAX: both edited PowerShell scripts parsed cleanly through `System.Management.Automation.Language.Parser`.
+- GREEN/DIFF: `git diff --check` passed.
+
+Closure:
+- [x] Add a failing source guard for native rail endpoint matrix support.
+- [x] Add smoke-script endpoint assertions against real post-action location snapshots.
+- [x] Add opt-in matrix rows for native rail start/end endpoint checks.
+- [x] Run the focused host guard.
+- [x] Run a broader reader assets host guard and whitespace check before committing.
+- [ ] Run `adb-reader-komikku-matrix.ps1 -IncludeRailEndpointChecks` on emulator/device when the next runtime validation batch is needed.

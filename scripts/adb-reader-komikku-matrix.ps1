@@ -25,6 +25,7 @@ param(
     [switch] $NoLaunch,
     [switch] $IncludeCoverChecks,
     [switch] $IncludePdfChecks,
+    [switch] $IncludeRailEndpointChecks,
     [switch] $OnlyPdfChecks,
     [switch] $ContinueOnFailure
 )
@@ -129,10 +130,13 @@ function Invoke-ReaderMatrixStep {
         [switch] $RequireTextureDiagnostics,
         [switch] $RequirePdfDiagnostics,
         [int] $RequirePdfRendererIndex = -1,
+        [string[]] $PostProbeAction = @(),
         [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
         [string] $ReaderDevtoolsProbe = "",
         [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
         [string] $PostActionReaderDevtoolsProbe = "",
+        [ValidateSet("", "start", "end")]
+        [string] $RequirePostActionChapterPageEndpoint = "",
         [ValidateSet("", "next", "previous")]
         [string] $RequireTextureDirection = "",
         [switch] $Launch,
@@ -200,11 +204,17 @@ function Invoke-ReaderMatrixStep {
     if ($RequirePdfRendererIndex -ge 0) {
         $smokeArgs.RequirePdfRendererIndex = $RequirePdfRendererIndex
     }
+    if ($PostProbeAction.Count -gt 0) {
+        $smokeArgs.PostProbeAction = $PostProbeAction
+    }
     if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbe)) {
         $smokeArgs.ReaderDevtoolsProbe = $ReaderDevtoolsProbe
     }
     if (-not [string]::IsNullOrWhiteSpace($PostActionReaderDevtoolsProbe)) {
         $smokeArgs.PostActionReaderDevtoolsProbe = $PostActionReaderDevtoolsProbe
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RequirePostActionChapterPageEndpoint)) {
+        $smokeArgs.RequirePostActionChapterPageEndpoint = $RequirePostActionChapterPageEndpoint
     }
     $stepTextureDirection = if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
         $RequireTextureDirection
@@ -379,6 +389,27 @@ function Invoke-ReadableContentMatrixSteps {
         -RequireTextureDirection "previous"
 }
 
+function Invoke-ReaderRailEndpointMatrixSteps {
+    if (-not $IncludeRailEndpointChecks) {
+        return
+    }
+
+    Invoke-ReaderMatrixStep `
+        -Name "chapter-rail-native-start" `
+        -TapFraction @("0.50,0.50,700") `
+        -ReaderDevtoolsProbe "location-snapshot" `
+        -PostProbeAction @("tapDescFraction:Chapter page slider,0.0,0.5,1500") `
+        -PostActionReaderDevtoolsProbe "location-snapshot" `
+        -RequirePostActionChapterPageEndpoint "start"
+
+    Invoke-ReaderMatrixStep `
+        -Name "chapter-rail-native-end" `
+        -ReaderDevtoolsProbe "location-snapshot" `
+        -PostProbeAction @("tapDescFraction:Chapter page slider,1.0,0.5,1500") `
+        -PostActionReaderDevtoolsProbe "location-snapshot" `
+        -RequirePostActionChapterPageEndpoint "end"
+}
+
 if ($PrepareReaderLaunch) {
     Invoke-ReaderMatrixPrepareLaunch
     if (-not $NoLaunch) {
@@ -394,6 +425,7 @@ Invoke-ReaderMatrixStep `
 if (-not $OnlyPdfChecks) {
     Invoke-ReaderCoverMatrixSteps
     Invoke-ReadableContentMatrixSteps
+    Invoke-ReaderRailEndpointMatrixSteps
 }
 
 if ($IncludePdfChecks -or $OnlyPdfChecks) {

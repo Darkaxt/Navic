@@ -32,6 +32,8 @@ param(
     [string] $ReaderDevtoolsProbe = "",
     [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
     [string] $PostActionReaderDevtoolsProbe = "",
+    [ValidateSet("", "start", "end")]
+    [string] $RequirePostActionChapterPageEndpoint = "",
     [switch] $RequireNoReaderCenterDispatch,
     [switch] $RequireTextureDiagnostics,
     [switch] $RequirePdfDiagnostics,
@@ -970,6 +972,63 @@ function Assert-ReaderDevtoolsProbeLogLabels {
 
 Assert-ReaderDevtoolsProbeLogLabels -ProbeName $ReaderDevtoolsProbe -OutputFileName "reader-devtools-probe.json"
 Assert-ReaderDevtoolsProbeLogLabels -ProbeName $PostActionReaderDevtoolsProbe -OutputFileName "reader-devtools-post-action-probe.json"
+
+function Assert-ReaderDevtoolsLocationEndpoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $OutputFileName,
+        [ValidateSet("", "start", "end")]
+        [string] $ExpectedEndpoint = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExpectedEndpoint)) {
+        return
+    }
+
+    function Convert-ReaderRequiredInt {
+        param(
+            [object] $Value,
+            [Parameter(Mandatory = $true)]
+            [string] $Name,
+            [Parameter(Mandatory = $true)]
+            [string] $SourceFileName
+        )
+
+        $valueText = [string] $Value
+        $parsedValue = 0
+        if (-not [int]::TryParse($valueText, [ref] $parsedValue)) {
+            throw "Reader DevTools location endpoint validation expected numeric $Name, got '$valueText'. See $ArtifactDir\$SourceFileName"
+        }
+        return $parsedValue
+    }
+
+    $probeResult = Get-ReaderDevtoolsProbeResult -OutputFileName $OutputFileName
+    if ($null -eq $probeResult) {
+        throw "Reader DevTools location endpoint validation expected '$OutputFileName'. See $ArtifactDir"
+    }
+    if ($probeResult.probe -ne "location-snapshot") {
+        throw "Reader DevTools location endpoint validation expected a location-snapshot probe, got '$($probeResult.probe)'. See $ArtifactDir\$OutputFileName"
+    }
+
+    $location = $probeResult.location
+    if ($null -eq $location) {
+        throw "Reader DevTools location endpoint validation expected a location payload. See $ArtifactDir\$OutputFileName"
+    }
+    $chapterPageIndex = Convert-ReaderRequiredInt -Value $location.chapterPageIndex -Name "chapterPageIndex" -SourceFileName $OutputFileName
+    $chapterPageCount = Convert-ReaderRequiredInt -Value $location.chapterPageCount -Name "chapterPageCount" -SourceFileName $OutputFileName
+    if ($chapterPageCount -lt 1) {
+        throw "Reader DevTools location endpoint validation expected a usable chapterPageCount, got '$($location.chapterPageCount)'. See $ArtifactDir\$OutputFileName"
+    }
+
+    if ($ExpectedEndpoint -eq "start" -and $chapterPageIndex -ne 0) {
+        throw "Expected first chapter page after native rail endpoint tap, got chapterPageIndex=$chapterPageIndex chapterPageCount=$chapterPageCount. See $ArtifactDir\$OutputFileName"
+    }
+    if ($ExpectedEndpoint -eq "end" -and $chapterPageIndex -ne ($chapterPageCount - 1)) {
+        throw "Expected last chapter page after native rail endpoint tap, got chapterPageIndex=$chapterPageIndex chapterPageCount=$chapterPageCount. See $ArtifactDir\$OutputFileName"
+    }
+}
+
+Assert-ReaderDevtoolsLocationEndpoint -OutputFileName "reader-devtools-post-action-probe.json" -ExpectedEndpoint $RequirePostActionChapterPageEndpoint
 
 function Get-ReaderDevtoolsPdfVisibleResult {
     param(
