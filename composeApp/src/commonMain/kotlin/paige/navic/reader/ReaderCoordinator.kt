@@ -8,6 +8,11 @@ data class ReaderCoordinatorStep(
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
 )
 
+data class ReaderCoordinatorBackStep(
+	val coordinator: ReaderCoordinator,
+	val handled: Boolean
+)
+
 data class ReaderCoordinator(
 	val controller: ReaderController = ReaderController(),
 	val engineAdapters: Map<ReaderPublicationFormat, ReaderEngine> = mapOf(
@@ -25,6 +30,9 @@ data class ReaderCoordinator(
 
 	fun onViewerAction(action: ReaderViewerAction): ReaderCoordinatorStep =
 		applyControllerStep(controller.onViewerAction(action))
+
+	fun onBack(): ReaderCoordinatorBackStep =
+		applyControllerBackStep(controller.onBack())
 
 	fun onEngineEvent(event: ReaderEngineEvent): ReaderCoordinatorStep =
 		applyControllerStep(controller.onEngineEvent(event))
@@ -161,6 +169,17 @@ data class ReaderCoordinator(
 			coordinator = next,
 			progressToSave = step.progressToSave,
 			whispersyncAudioSeekTarget = step.whispersyncAudioSeekTarget
+		)
+	}
+
+	private fun applyControllerBackStep(step: ReaderControllerBackStep): ReaderCoordinatorBackStep {
+		var next = copy(controller = step.controller)
+		step.engineCommands.forEach { command ->
+			next = next.applyEngineCommand(command)
+		}
+		return ReaderCoordinatorBackStep(
+			coordinator = next,
+			handled = step.handled
 		)
 	}
 

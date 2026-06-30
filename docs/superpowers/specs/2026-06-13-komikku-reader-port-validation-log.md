@@ -7279,6 +7279,10 @@ Commands:
 .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest --tests paige.navic.reader.ReaderRuntimeSettingsBridgeTest
 .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
 git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -BookId 3809 -StartHref OEBPS/xhtml/chapter1.xhtml -RequireReaderLaunch -Capture
+adb -s emulator-5554 shell input swipe 1040 980 180 980 450
+adb -s emulator-5554 shell input keyevent BACK
+adb -s emulator-5554 shell input keyevent BACK
 ```
 
 Results:
@@ -9276,3 +9280,94 @@ Results:
 Next:
 - Treat duplicate paper texture ownership and the page-number runtime crash as readerdev/emulator-closed for current source.
 - Keep physical/release-device visual judgment open: texture strength and perceived transition feel still need the final human/device pass.
+
+## 2026-07-01 Stage 8Y Theta26 Public Release Candidate
+
+Scope:
+- Publish the single-owner paper texture fix as a public Android release candidate so it can be checked on the physical phone/tablet.
+- Keep the release tied to the same commit validated in Stage 8X.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta26
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+git commit -m "Stabilize reader texture surface"
+git tag v1.0.11-theta26
+git push fork codex/komikku-reader-backbone-eta64
+git push fork v1.0.11-theta26
+gh run view 28481177363 --repo Darkaxt/Navic --json status,conclusion,jobs
+gh release view v1.0.11-theta26 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease
+```
+
+Results:
+- GREEN/VERSION: `androidApp/build.gradle.kts` now reports `versionName = "v1.0.11-theta26"` and `versionCode = 454`; release version verification passed.
+- GREEN/LOCAL-GATES: JS syntax checks, `:composeApp:testAndroid`, and `git diff --check` passed before release.
+- GREEN/GIT: committed `199653ff Stabilize reader texture surface` and tagged `v1.0.11-theta26`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28481177363` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` all succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA` and `Attach iOS IPA to GitHub Release` were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta26` contains `Navic.apk` (`33,589,003` bytes, `sha256:0bd1e56c9f81b718d8c3f3feb4be08bcef7ce966966ad81c592b0490cc7c7625`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta26` and specifically check whether paper texture is no longer double-applied, whether the texture covers the whole reader surface, and whether page-turn transitions no longer show the prior opacity/stacking issue.
+
+## 2026-07-01 Stage 8Z Theta26 Physical Feedback
+
+Source:
+- Physical-device tester feedback from `v1.0.11-theta26`, with screenshot `D:\Downloads\Screenshot_20260701_020852_Navic.jpg`.
+
+Observed:
+- PARTIAL/SEPIA: sepia layout is applied, but user preference is for slightly stronger intensity.
+- FAIL/PAGE-NUMBER-FONT: organic EPUB page number still does not use the active ebook font (`Dys`).
+- FAIL/BORDER-GRADIENTS: gradient/border textures are not visibly applied over the paper texture.
+- FAIL/TEXTURE-TRANSITION: paper texture is now a background, but it does not move with the text during page transition; it swaps after the text loads.
+- FAIL/LANDSCAPE-SPREAD: portrait-to-landscape does not enter a double-page/spread layout. It reflows into a narrow centered column with broken word wrapping.
+- FAIL/SYSTEM-BACK: Android/system back from the ebook goes to Android home instead of returning first to the native cover and then to book selection/detail.
+
+Next:
+- Treat system-back behavior as the immediate P0 navigation fix.
+- Treat landscape spread as the next major layout P0 after navigation; it should follow Komikku spread behavior, not a single centered column.
+- Keep page-number font, visible border gradients, and moving texture transition as follow-up visual/immersion fixes for the reader shell.
+
+## 2026-07-01 Stage 9A Reader System Back Ownership
+
+Scope:
+- Fix Android/system back inside the reader so it does not fall through to Android home.
+- Expected stack: readable page -> native cover -> app book/detail/selection route.
+- Keep top-left reader back and Android/system back on the same Navic back policy where possible.
+
+Root cause:
+- `Screen.Reader` already had app-level fallback routing in `NavBackPolicy`, but `ReaderScreen` did not own system back before the outer `NavDisplay` route.
+- `ReaderController` also had no explicit reader-back command, so only previous-page gestures could restore the native cover. Android/system back had no way to perform the reader-local cover step first.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED: added controller tests first; `:composeApp:testAndroid` failed because `ReaderController.onBack()` was missing.
+- GREEN/HOST-GUARD: added `ReaderController.onBack()` and `ReaderCoordinator.onBack()`.
+- GREEN/HOST-GUARD: `readerBackFromReadablePageReturnsToNativeCoverBeforeLeavingReader` verifies a readable page restores native cover without WebView page commands.
+- GREEN/HOST-GUARD: `readerBackFromNativeCoverFallsThroughToAppNavigation` verifies native cover does not consume back, allowing `performNavicBack()` to route to the book/detail stack.
+- GREEN/SCREEN: `ReaderScreen` now installs a `NavigationBackHandler` that applies reader-local back first and falls through to `backStack.performNavicBack()` only when the reader does not consume it.
+- GREEN/TESTS: `:composeApp:testAndroid` passed. Gradle emitted a Kotlin daemon cache-delete warning, then compiled without the daemon and completed successfully.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/READERDEV-EMULATOR: installed current-source `darkaxt.navic.readerdev`, launched book `3809`, swiped from native cover into EPUB content, and verified first Android back restored the native cover.
+- GREEN/READERDEV-EMULATOR: second Android back from the native cover stayed inside Navic and loaded the Bindery book detail route for book `3809`; focus remained on `darkaxt.navic.readerdev/paige.navic.androidApp.MainActivity`.
+- GREEN/LOGS: emulator logs showed `Reader viewer action=TurnPage(direction=Next) ... shellCover=true->false`, then `Reader chrome overlay visible=false menu=false shellCover=true dialog=null`, then Bindery metadata fetch and `Bindery book loaded bookId=3809`.
+- GREEN/SCREENSHOT: evidence captures are `tmp\back-fix\navic-back-current.png` for the restored native cover and `tmp\back-fix\navic-back-after-second.png` for the Bindery book detail route.
+
+Next:
+- Treat readerdev/emulator validation as closed for the Android/system back regression.
+- Publish a clean release candidate and repeat the same two-step back sequence on the physical install.

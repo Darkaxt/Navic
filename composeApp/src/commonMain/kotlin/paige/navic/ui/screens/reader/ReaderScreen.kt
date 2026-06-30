@@ -21,6 +21,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,6 +36,7 @@ import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderCoordinator
+import paige.navic.reader.ReaderCoordinatorBackStep
 import paige.navic.reader.ReaderCoordinatorStep
 import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineEvent
@@ -235,6 +239,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 					"Whispersync audiobook seek ignored; no playback plan match for audio=${target.audioResource}"
 				)
 			}
+		}
+	}
+
+	fun applyReaderBackStep(step: ReaderCoordinatorBackStep) {
+		if (step.handled) {
+			coordinator = step.coordinator
+		} else {
+			backStack.performNavicBack()
 		}
 	}
 
@@ -461,6 +473,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 	ReaderSystemBarsEffect(
 		fullscreen = settings.fullscreen != false,
 		systemBarsVisible = controllerState.menuVisible || settings.fullscreen == false
+	)
+	NavigationBackHandler(
+		state = rememberNavigationEventState(NavigationEventInfo.None),
+		isBackEnabled = true,
+		onBackCompleted = {
+			applyReaderBackStep(coordinator.onBack())
+		}
 	)
 
 	KomikkuReaderRoot(

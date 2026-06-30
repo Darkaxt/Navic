@@ -229,6 +229,12 @@ data class ReaderControllerStep(
 	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
 )
 
+data class ReaderControllerBackStep(
+	val controller: ReaderController,
+	val engineCommands: List<ReaderEngineCommand> = emptyList(),
+	val handled: Boolean = true
+)
+
 data class ReaderController(
 	val state: ReaderControllerState = ReaderControllerState(),
 	private val progressSaveGate: ReaderProgressSaveGate = ReaderProgressSaveGate()
@@ -1072,6 +1078,44 @@ data class ReaderController(
 		}
 	}
 
+	fun onBack(): ReaderControllerBackStep {
+		val closeOverlay = when {
+			state.dialog == ReaderControllerDialog.Search -> closeSearchDialog()
+			state.dialog != null -> closeDialog()
+			state.selectionNoteDraft != null -> dismissSelectionNote()
+			state.selectionActions.visible -> dismissSelectionActions()
+			state.annotationPopup?.visible == true -> dismissAnnotationPopup()
+			state.footnotePopup?.visible == true -> dismissFootnotePopup()
+			state.externalLinkPrompt != null -> dismissExternalLinkPrompt()
+			state.engineNavigation.visible -> dismissHistoryNavigation()
+			state.menuVisible -> hideMenus()
+			else -> null
+		}
+		if (closeOverlay != null) return closeOverlay.asBackStep(handled = true)
+
+		if (
+			!state.shellCoverVisible &&
+			state.canReturnToShellCover &&
+			!state.nativeShellCoverUrl.isNullOrBlank()
+		) {
+			return ReaderControllerBackStep(
+				controller = copy(
+					state = state.copy(
+						shellCoverVisible = true,
+						menuVisible = false,
+						dialog = null
+					)
+				),
+				handled = true
+			)
+		}
+
+		return ReaderControllerBackStep(
+			controller = this,
+			handled = false
+		)
+	}
+
 	fun applySettings(settings: ReaderSettings): ReaderControllerStep {
 		val normalized = settings.normalizedReaderSettings()
 		return ReaderControllerStep(
@@ -1303,6 +1347,13 @@ private fun readerExplicitReadableRelocationDismissesNativeShellCover(
 	val href = locator.href?.trim().orEmpty()
 	return href.isBlank() || !readerHrefLooksLikeNativeShellCoverBoundary(href)
 }
+
+private fun ReaderControllerStep.asBackStep(handled: Boolean): ReaderControllerBackStep =
+	ReaderControllerBackStep(
+		controller = controller,
+		engineCommands = engineCommands,
+		handled = handled
+	)
 
 private fun ReaderChapterProgressState.updatedFrom(
 	locator: ReaderLocator,
