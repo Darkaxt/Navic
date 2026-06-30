@@ -56,7 +56,11 @@ import paige.navic.icons.outlined.Genre
 import paige.navic.icons.outlined.PlaylistAdd
 import paige.navic.icons.outlined.Shuffle
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.ui.components.common.ArtworkRenderSpec
 import paige.navic.ui.components.common.ContentUnavailable
+import paige.navic.ui.components.common.GeneratedArtworkVariant
+import paige.navic.ui.components.common.collectionArtworkRenderSpec
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.components.common.rememberArtistArtworkUiState
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -230,23 +234,33 @@ private fun GenreDetailContent(
 				) {
 					items(state.artists, key = { it.id }) { artist ->
 						val artistArtwork = rememberArtistArtworkUiState(artist)
+						val artworkSpec = ArtworkRenderSpec(
+							coverArtId = artistArtwork.coverArtId,
+							imageUrl = artistArtwork.imageUrl,
+							imageCacheKey = artistArtwork.imageCacheKey,
+							imageRequestHeaders = artistArtwork.imageRequestHeaders,
+							contentDescription = artist.name,
+							generatedArtwork = generatedArtworkSpec(
+								kindLabel = "Artist",
+								primaryLabel = artist.name,
+								seed = artist.id,
+								variant = GeneratedArtworkVariant.GridCard
+							)
+						)
 						ArtGridItem(
 							modifier = Modifier.width(150.dp),
 							onClick = dropUnlessResumed {
 								platformContext.clickSound()
 								backStack.add(Screen.ArtistDetail(artist.id))
 							},
-							coverArtId = artistArtwork.coverArtId,
-							imageUrl = artistArtwork.imageUrl,
-							imageCacheKey = artistArtwork.imageCacheKey,
-							imageRequestHeaders = artistArtwork.imageRequestHeaders,
+							coverArtId = null,
+							artworkSpec = artworkSpec,
 							title = artist.name,
 							subtitle = pluralStringResource(
 								Res.plurals.count_albums,
 								artist.albumCount,
 								artist.albumCount
 							),
-							fallbackKind = "Artist",
 							id = artist.id,
 							tab = "genre-${state.genre.name}"
 						)
@@ -265,16 +279,19 @@ private fun GenreDetailContent(
 					contentPadding = PaddingValues(horizontal = 16.dp)
 				) {
 					items(state.albums, key = { it.id }) { album ->
+						val artworkSpec = album.collectionArtworkRenderSpec(
+							variant = GeneratedArtworkVariant.GridCard
+						)
 						ArtGridItem(
 							modifier = Modifier.width(150.dp),
 							onClick = dropUnlessResumed {
 								platformContext.clickSound()
 								backStack.add(Screen.CollectionDetail(album.id, "Genre"))
 							},
-							coverArtId = album.coverArtId,
+							coverArtId = null,
+							artworkSpec = artworkSpec,
 							title = album.name,
 							subtitle = album.artistName,
-							fallbackKind = "Album",
 							id = album.id,
 							tab = "genre-${state.genre.name}"
 						)

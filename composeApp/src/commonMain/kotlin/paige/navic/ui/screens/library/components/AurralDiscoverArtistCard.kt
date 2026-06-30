@@ -23,6 +23,8 @@ import paige.navic.domain.repositories.aurralRequestHeadersForUrl
 import paige.navic.domain.repositories.configuredAurralBaseUrl
 import paige.navic.ui.components.common.AurralArtistMonitorBadge
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.GeneratedArtworkVariant
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.screens.aurral.aurralDiscoverArtistDetail
 import paige.navic.ui.screens.aurral.aurralDiscoverArtistMonitorActionState
 
@@ -43,6 +45,12 @@ fun AurralDiscoverArtistCard(
 		emptyMap()
 	}
 	val monitorState = aurralDiscoverArtistMonitorActionState(artist, confirmationQueue)
+	val generatedArtwork = generatedArtworkSpec(
+		kindLabel = "Artist",
+		primaryLabel = artist.name,
+		seed = artist.id,
+		variant = GeneratedArtworkVariant.GridCard
+	)
 
 	Column(
 		modifier = modifier.clickable(
@@ -58,7 +66,7 @@ fun AurralDiscoverArtistCard(
 				imageUrl = artist.imageUrl,
 				imageRequestHeaders = imageRequestHeaders,
 				contentDescription = artist.name,
-				fallbackKind = "Artist",
+				generatedArtwork = generatedArtwork,
 				modifier = Modifier.fillMaxWidth()
 			)
 			AurralArtistMonitorBadge(

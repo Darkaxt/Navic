@@ -242,7 +242,6 @@ fun PlaybackSongCoverArt(
 	song: DomainSong,
 	modifier: Modifier = Modifier,
 	contentDescription: String? = song.title,
-	fallbackKind: String? = "Track",
 	fallbackLabelStyle: NowPlayingFallbackLabelStyle = NowPlayingFallbackLabelStyle.Center,
 	imageDiagnosticLabel: String? = null,
 	shape: Shape? = null,
@@ -269,7 +268,12 @@ fun PlaybackSongCoverArt(
 		imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 		imageDiagnosticLabel = imageDiagnosticLabel,
 		contentDescription = contentDescription,
-		fallbackKind = fallbackKind,
+		generatedArtwork = generatedArtworkSpec(
+			kindLabel = "Track",
+			primaryLabel = song.title,
+			seed = song.id,
+			variant = GeneratedArtworkVariant.GridCard
+		),
 		fallbackLabelStyle = fallbackLabelStyle,
 		onClick = onClick,
 		onLongClick = onLongClick,
@@ -288,7 +292,6 @@ fun AurralFirstArtistCoverArt(
 	artist: DomainArtist,
 	modifier: Modifier = Modifier,
 	contentDescription: String? = artist.name,
-	fallbackKind: String? = "Artist",
 	fallbackLabelStyle: NowPlayingFallbackLabelStyle = NowPlayingFallbackLabelStyle.Center,
 	imageDiagnosticLabel: String? = null,
 	shape: Shape? = null,
@@ -310,7 +313,12 @@ fun AurralFirstArtistCoverArt(
 		imageRequestHeaders = artistArtwork.imageRequestHeaders,
 		imageDiagnosticLabel = imageDiagnosticLabel,
 		contentDescription = contentDescription,
-		fallbackKind = fallbackKind,
+		generatedArtwork = generatedArtworkSpec(
+			kindLabel = "Artist",
+			primaryLabel = artist.name,
+			seed = artist.id,
+			variant = GeneratedArtworkVariant.GridCard
+		),
 		fallbackLabelStyle = fallbackLabelStyle,
 		onClick = onClick,
 		onLongClick = onLongClick,

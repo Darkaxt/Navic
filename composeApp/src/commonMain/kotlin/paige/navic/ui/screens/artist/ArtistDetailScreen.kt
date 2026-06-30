@@ -121,9 +121,12 @@ import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.SongRow
+import paige.navic.ui.components.common.aurralAlbumArtworkRenderSpec
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.common.rememberAurralFirstArtistArtworkUiState
@@ -968,6 +971,17 @@ private fun CarouselItemScope.AurralOwnershipAlbumItem(
 			null
 		}
 	}
+	val baseArtworkSpec = aurralAlbumArtworkRenderSpec(
+		id = row.releaseGroup?.id,
+		title = row.title,
+		coverUrl = row.coverUrl,
+		primaryType = row.releaseGroup?.primaryType,
+		imageRequestHeaders = imageRequestHeaders,
+		variant = GeneratedArtworkVariant.CarouselCard
+	)
+	val artworkSpec = baseArtworkSpec.copy(
+		coverArtId = if (baseArtworkSpec.imageUrl == null) row.localAlbum?.coverArtId else null
+	)
 
 	Column(
 		modifier = Modifier.fillMaxWidth()
@@ -978,12 +992,12 @@ private fun CarouselItemScope.AurralOwnershipAlbumItem(
 				.maskClip(MaterialTheme.shapes.large)
 		) {
 			CoverArt(
-				coverArtId = row.localAlbum?.coverArtId,
-				imageUrl = row.coverUrl,
-				imageCacheKey = row.releaseGroup?.id?.let { "aurral-release-group-$it" },
-				imageRequestHeaders = imageRequestHeaders,
-				contentDescription = row.title,
-				fallbackKind = row.releaseGroup?.primaryType ?: "Album",
+				coverArtId = artworkSpec.coverArtId,
+				imageUrl = artworkSpec.imageUrl,
+				imageCacheKey = artworkSpec.imageCacheKey,
+				imageRequestHeaders = artworkSpec.imageRequestHeaders,
+				contentDescription = artworkSpec.contentDescription,
+				generatedArtwork = artworkSpec.generatedArtwork,
 				modifier = Modifier.fillMaxWidth(),
 				shape = RectangleShape,
 				colorFilter = colorFilter,
@@ -1177,7 +1191,12 @@ private fun CarouselItemScope.AurralSimilarArtistItem(
 			imageCacheKey = artistArtwork.imageCacheKey,
 			imageRequestHeaders = artistArtwork.imageRequestHeaders,
 			contentDescription = row.artist.name,
-			fallbackKind = "Artist",
+			generatedArtwork = generatedArtworkSpec(
+				kindLabel = "Artist",
+				primaryLabel = row.artist.name,
+				seed = row.artist.id,
+				variant = GeneratedArtworkVariant.CarouselCard
+			),
 			modifier = Modifier
 				.fillMaxWidth()
 				.maskClip(MaterialTheme.shapes.large),

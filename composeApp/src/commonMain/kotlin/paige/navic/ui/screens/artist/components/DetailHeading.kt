@@ -43,7 +43,9 @@ import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.MarqueeText
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.screens.artist.ArtistBiographyScrollFades
 import paige.navic.ui.screens.artist.artistBiographyScrollFades
 import paige.navic.ui.screens.artist.artistBiographyDisplayText
@@ -85,6 +87,13 @@ fun ArtistDetailScreenHeading(
 					imageUrl = imageUrl,
 					imageRequestHeaders = imageRequestHeaders,
 					imageDiagnosticLabel = imageDiagnosticLabel,
+					contentDescription = artistName,
+					generatedArtwork = generatedArtworkSpec(
+						kindLabel = "Artist",
+						primaryLabel = artistName,
+						seed = artistName,
+						variant = GeneratedArtworkVariant.DetailHero
+					),
 					modifier = Modifier.fillMaxSize(),
 					shape = RectangleShape,
 					square = false,

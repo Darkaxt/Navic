@@ -101,8 +101,11 @@ import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.AurralIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.aurralAlbumArtworkRenderSpec
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtCarousel
@@ -514,7 +517,12 @@ private fun AurralArtistHero(
 			imageCacheKey = imageUrl?.let { "aurral-artist-${artist.musicBrainzId.orEmpty()}" },
 			imageRequestHeaders = imageRequestHeaders,
 			contentDescription = artist.name,
-			fallbackKind = "Artist",
+			generatedArtwork = generatedArtworkSpec(
+				kindLabel = "Artist",
+				primaryLabel = artist.name,
+				seed = artist.musicBrainzId ?: artist.id,
+				variant = GeneratedArtworkVariant.DetailHero
+			),
 			modifier = Modifier
 				.widthIn(max = 340.dp)
 				.padding(horizontal = 76.dp)
@@ -632,16 +640,24 @@ private fun CarouselItemScope.AurralArtistMissingAlbumItem(
 	val colorFilter = remember {
 		ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 	}
+	val artworkSpec = aurralAlbumArtworkRenderSpec(
+		id = row.releaseGroup.id,
+		title = row.title,
+		coverUrl = coverUrl,
+		primaryType = row.releaseGroup.primaryType,
+		imageRequestHeaders = imageRequestHeaders,
+		variant = GeneratedArtworkVariant.CarouselCard
+	)
 
 	Column(Modifier.fillMaxWidth()) {
 		Box(Modifier.fillMaxWidth()) {
 			CoverArt(
-				coverArtId = null,
-				imageUrl = coverUrl,
-				imageCacheKey = "aurral-release-group-${row.releaseGroup.id}",
-				imageRequestHeaders = imageRequestHeaders,
-				contentDescription = row.title,
-				fallbackKind = row.releaseGroup.primaryType ?: "Album",
+				coverArtId = artworkSpec.coverArtId,
+				imageUrl = artworkSpec.imageUrl,
+				imageCacheKey = artworkSpec.imageCacheKey,
+				imageRequestHeaders = artworkSpec.imageRequestHeaders,
+				contentDescription = artworkSpec.contentDescription,
+				generatedArtwork = artworkSpec.generatedArtwork,
 				modifier = Modifier.fillMaxWidth(),
 				shape = RectangleShape,
 				colorFilter = colorFilter,
@@ -709,7 +725,12 @@ private fun CarouselItemScope.AurralArtistSimilarArtistItem(
 			imageCacheKey = "aurral-similar-artist-${row.artist.id}",
 			imageRequestHeaders = imageRequestHeaders,
 			contentDescription = row.artist.name,
-			fallbackKind = "Artist",
+			generatedArtwork = generatedArtworkSpec(
+				kindLabel = "Artist",
+				primaryLabel = row.artist.name,
+				seed = row.artist.id,
+				variant = GeneratedArtworkVariant.CarouselCard
+			),
 			modifier = Modifier.fillMaxWidth(),
 			shape = RectangleShape,
 			onClick = {

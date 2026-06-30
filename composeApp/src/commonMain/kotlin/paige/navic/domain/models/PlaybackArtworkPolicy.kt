@@ -120,9 +120,9 @@ fun resolvedPlaybackArtwork(
 
 	return when (artworkSourcePriority) {
 		ArtworkSourcePriority.AurralFirst ->
-			musicBrainzResolution()
+			aurralResolution()
 				?: nativeResolution()
-				?: aurralResolution()
+				?: musicBrainzResolution()
 
 		ArtworkSourcePriority.NativeFirst ->
 			nativeResolution()

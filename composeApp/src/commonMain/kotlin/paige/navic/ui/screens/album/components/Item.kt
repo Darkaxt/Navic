@@ -23,6 +23,8 @@ import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.aurralAlbumAcquisitionProgress
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.ui.components.common.GeneratedArtworkVariant
+import paige.navic.ui.components.common.collectionArtworkRenderSpec
 import paige.navic.ui.components.layouts.ArtGridItem
 import paige.navic.ui.components.sheets.CollectionSheet
 import paige.navic.ui.screens.aurral.aurralAlbumCollectionDetailRoute
@@ -63,7 +65,14 @@ fun AlbumListScreenItem(
 	val displayedSubtitle = aurralAlbumCardSubtitle(aurralAlbumMatch, album)
 	val displayedImageUrl = aurralAlbumMatch?.coverUrl?.cleanAlbumCardText()
 	val displayedImageCacheKey = aurralAlbumMatch?.id?.cleanAlbumCardText()?.let { "aurral-album:$it" }
-	val displayedCoverArtId = album.coverArtId.takeIf { displayedImageUrl == null }
+	val baseArtworkSpec = album.collectionArtworkRenderSpec(
+		displayTitle = displayedTitle,
+		externalImageUrl = displayedImageUrl,
+		variant = GeneratedArtworkVariant.GridCard
+	)
+	val artworkSpec = baseArtworkSpec.copy(
+		imageCacheKey = displayedImageCacheKey ?: baseArtworkSpec.imageCacheKey
+	)
 
 	Box(modifier) {
 		ArtGridItem(
@@ -74,9 +83,8 @@ fun AlbumListScreenItem(
 				}
 			},
 			onLongClick = onSelect,
-			coverArtId = displayedCoverArtId,
-			imageUrl = displayedImageUrl,
-			imageCacheKey = displayedImageCacheKey,
+			coverArtId = null,
+			artworkSpec = artworkSpec,
 			title = displayedTitle,
 			subtitle = displayedSubtitle,
 			acquisitionProgress = aurralAlbumAcquisitionProgress(
@@ -84,7 +92,6 @@ fun AlbumListScreenItem(
 				requests = aurralAlbumRequests
 			),
 			ownershipStatus = ownershipStatus,
-			fallbackKind = "Album",
 			id = album.id,
 			tab = tab
 		)

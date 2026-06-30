@@ -47,6 +47,8 @@ import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.CoverArtNormalization
+import paige.navic.ui.components.common.GeneratedArtworkVariant
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import kotlin.math.min
 
@@ -70,6 +72,12 @@ fun NowPlayingArtwork(
 		musicBrainzArtworkUrl = musicBrainzArtwork?.imageUrl,
 		musicBrainzArtworkCacheKey = musicBrainzArtwork?.sourceMbid?.let { "musicbrainz:$it" },
 		serverCoverLoadFailed = serverCoverLoadFailed
+	)
+	val generatedArtwork = generatedArtworkSpec(
+		kindLabel = "Track",
+		primaryLabel = song.title,
+		seed = song.id,
+		variant = GeneratedArtworkVariant.NowPlayingDisc
 	)
 	val hasArtwork = playbackArtwork.hasArtwork
 
@@ -120,7 +128,7 @@ fun NowPlayingArtwork(
 				imageCacheKey = playbackArtwork.imageCacheKey,
 				imageRequestHeaders = playbackArtwork.imageRequestHeaders,
 				contentDescription = song.title,
-				fallbackKind = "Track",
+				generatedArtwork = generatedArtwork,
 				fallbackLabelStyle = nowPlayingFallbackLabelStyle(isRotatingArtwork),
 				onServerCoverLoadFailed = {
 					musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)

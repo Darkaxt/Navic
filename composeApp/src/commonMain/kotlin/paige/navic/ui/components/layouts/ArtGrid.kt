@@ -47,9 +47,12 @@ import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
+import paige.navic.ui.components.common.ArtworkRenderSpec
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorBox
+import paige.navic.ui.components.common.GeneratedArtworkVariant
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
 import paige.navic.ui.core.UiState
 import paige.navic.util.ui.EmphasizedDecelerateEasing
@@ -101,6 +104,7 @@ fun ArtGridItem(
 	imageCacheKey: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	imageDiagnosticLabel: String? = null,
+	artworkSpec: ArtworkRenderSpec? = null,
 	title: String,
 	coverContentDescription: String = title,
 	subtitle: String? = null,
@@ -132,13 +136,19 @@ fun ArtGridItem(
 				.then(modifier)
 		) {
 			Box(Modifier.fillMaxWidth()) {
+				val resolvedCoverArtId = artworkSpec?.coverArtId ?: coverArtId
+				val resolvedImageUrl = artworkSpec?.imageUrl ?: imageUrl
+				val resolvedImageCacheKey = artworkSpec?.imageCacheKey ?: imageCacheKey
+				val resolvedImageRequestHeaders = artworkSpec?.imageRequestHeaders ?: imageRequestHeaders
+				val resolvedContentDescription = artworkSpec?.contentDescription ?: coverContentDescription
 				CoverArt(
-					coverArtId = coverArtId,
-					imageUrl = imageUrl,
-					imageCacheKey = imageCacheKey,
-					imageRequestHeaders = imageRequestHeaders,
+					coverArtId = resolvedCoverArtId,
+					imageUrl = resolvedImageUrl,
+					imageCacheKey = resolvedImageCacheKey,
+					imageRequestHeaders = resolvedImageRequestHeaders,
 					imageDiagnosticLabel = imageDiagnosticLabel,
-					contentDescription = coverContentDescription,
+					contentDescription = resolvedContentDescription,
+					generatedArtwork = artworkSpec?.generatedArtwork,
 					fallbackKind = fallbackKind,
 					onServerCoverLoadFailed = onServerCoverLoadFailed,
 					modifier = Modifier
@@ -215,20 +225,30 @@ fun PlaybackSongArtGridItem(
 		musicBrainzArtworkCacheKey = null,
 		serverCoverLoadFailed = false
 	)
-	ArtGridItem(
-		modifier = modifier,
-		onClick = onClick,
-		onLongClick = onLongClick,
+	val artworkSpec = ArtworkRenderSpec(
 		coverArtId = artwork.coverArtId,
 		imageUrl = artwork.imageUrl,
 		imageCacheKey = artwork.imageCacheKey,
 		imageRequestHeaders = artwork.imageRequestHeaders,
+		contentDescription = song.title,
+		generatedArtwork = generatedArtworkSpec(
+			kindLabel = "Track",
+			primaryLabel = song.title,
+			seed = song.id,
+			variant = GeneratedArtworkVariant.GridCard
+		)
+	)
+	ArtGridItem(
+		modifier = modifier,
+		onClick = onClick,
+		onLongClick = onLongClick,
+		coverArtId = null,
+		artworkSpec = artworkSpec,
 		title = song.title,
 		subtitle = subtitle,
 		acquisitionProgress = acquisitionProgress,
 		ownershipStatus = ownershipStatus,
 		coverOverlay = coverOverlay,
-		fallbackKind = "Track",
 		id = id,
 		tab = tab
 	)

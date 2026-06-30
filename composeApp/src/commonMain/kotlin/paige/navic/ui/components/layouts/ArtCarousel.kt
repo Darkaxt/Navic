@@ -37,6 +37,7 @@ import paige.navic.domain.models.AurralAcquisitionProgress
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
+import paige.navic.ui.components.common.ArtworkRenderSpec
 import paige.navic.ui.components.common.CoverArt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -111,6 +112,7 @@ fun CarouselItemScope.ArtCarouselItem(
 	imageUrl: String? = null,
 	imageCacheKey: String? = null,
 	imageRequestHeaders: Map<String, String> = emptyMap(),
+	artworkSpec: ArtworkRenderSpec? = null,
 	title: String,
 	subtitle: String? = null,
 	acquisitionProgress: AurralAcquisitionProgress? = null,
@@ -127,12 +129,18 @@ fun CarouselItemScope.ArtCarouselItem(
 			.fillMaxWidth()
 	) {
 		Box(Modifier.fillMaxWidth()) {
+			val resolvedCoverArtId = artworkSpec?.coverArtId ?: coverArtId
+			val resolvedImageUrl = artworkSpec?.imageUrl ?: imageUrl
+			val resolvedImageCacheKey = artworkSpec?.imageCacheKey ?: imageCacheKey
+			val resolvedImageRequestHeaders = artworkSpec?.imageRequestHeaders ?: imageRequestHeaders
+			val resolvedContentDescription = artworkSpec?.contentDescription ?: contentDescription
 			CoverArt(
-				coverArtId = coverArtId,
-				imageUrl = imageUrl,
-				imageCacheKey = imageCacheKey,
-				imageRequestHeaders = imageRequestHeaders,
-				contentDescription = contentDescription,
+				coverArtId = resolvedCoverArtId,
+				imageUrl = resolvedImageUrl,
+				imageCacheKey = resolvedImageCacheKey,
+				imageRequestHeaders = resolvedImageRequestHeaders,
+				contentDescription = resolvedContentDescription,
+				generatedArtwork = artworkSpec?.generatedArtwork,
 				modifier = Modifier
 					.fillMaxWidth()
 					.maskClip(MaterialTheme.shapes.large),
