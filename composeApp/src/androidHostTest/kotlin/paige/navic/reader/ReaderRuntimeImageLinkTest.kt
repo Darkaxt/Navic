@@ -233,8 +233,28 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			runtimeHostText,
-			"val shellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() } ?: resolved.shellCoverUrl",
-			message = "The server-provided fullscreen cover must be preferred over EPUB-extracted fallback covers."
+			"val externalShellCoverHref = preferredShellCoverUrl?.takeUnless { it.isLocalReaderPublicationUrl() }",
+			message = "Authenticated server-provided fullscreen covers must be routed through the publication resolver before native cover rendering."
+		)
+		assertContains(
+			runtimeHostText,
+			"externalShellCoverHref = externalShellCoverHref",
+			message = "The resolver must receive remote fullscreen cover URLs so it can fetch them with the same Bindery resource headers."
+		)
+		assertContains(
+			runtimeHostText,
+			"val shellCoverUrl = if (externalShellCoverHref == null) {",
+			message = "Local fullscreen cover URLs can be passed through directly, while remote generated covers must use the resolver output."
+		)
+		assertContains(
+			runtimeHostText,
+			"preferredShellCoverUrl ?: resolved.shellCoverUrl",
+			message = "Local fullscreen covers remain preferred over EPUB-extracted fallback covers."
+		)
+		assertContains(
+			runtimeHostText,
+			"resolved.shellCoverUrl",
+			message = "Remote generated fullscreen covers must reach common UI as cached reader asset URLs, not raw authenticated URLs."
 		)
 		assertContains(
 			runtimeHostText,

@@ -26,7 +26,8 @@ data class ReaderPublicationResourceRequest(
 	val sourceUrl: String,
 	val kind: ReaderPublicationKind,
 	val format: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
-	val mediaOverlayEnabled: Boolean
+	val mediaOverlayEnabled: Boolean,
+	val externalShellCoverHref: String? = null
 )
 
 data class ReaderResolvedPublicationResource(
@@ -59,7 +60,7 @@ class BinderyReaderPublicationResolver(
 				cacheKey = cacheKey,
 				fromCache = true,
 				publicationExtension = publicationExtension
-			)
+			).withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
 		}
 		val bytes = if (request.shouldFetchReaderDevSourceUrl(resourceHref)) {
 			request.fetchReaderDevSourceBytes()
@@ -74,7 +75,7 @@ class BinderyReaderPublicationResolver(
 			cacheKey = cacheKey,
 			fromCache = false,
 			publicationExtension = publicationExtension
-		)
+		).withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
 	}
 }
 
@@ -168,6 +169,43 @@ private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
 		requestHeaders = emptyMap()
 	)
 }
+
+private suspend fun ReaderResolvedPublicationResource.withExternalShellCover(
+	externalShellCoverHref: String?,
+	fetchResourceBytes: suspend (String) -> ByteArray
+): ReaderResolvedPublicationResource {
+	val shellCoverHref = externalShellCoverHref
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?: return this
+	val publicationDirectory = publicationFile.parentFile ?: return this
+	val cachedCover = publicationDirectory.findCachedExternalShellCover(shellCoverHref)
+	if (cachedCover != null) return copy(shellCoverUrl = cachedCover.toReaderShellCoverAssetUrl(cacheKey))
+	return runCatching {
+		val coverBytes = fetchResourceBytes(shellCoverHref)
+		if (coverBytes.isEmpty()) return@runCatching this
+		val coverFile = publicationDirectory.resolveExternalShellCoverFile(shellCoverHref, coverBytes)
+		coverFile.parentFile?.mkdirs()
+		coverFile.writeBytes(coverBytes)
+		copy(shellCoverUrl = coverFile.toReaderShellCoverAssetUrl(cacheKey))
+	}.getOrElse { this }
+}
+
+private fun File.findCachedExternalShellCover(shellCoverHref: String): File? {
+	val filePrefix = shellCoverHref.externalShellCoverFilePrefix()
+	return (ReaderImageExtensions + "img")
+		.map { extension -> resolve("$filePrefix.$extension") }
+		.firstOrNull { file -> file.isFile && file.length() > 0L }
+}
+
+private fun File.resolveExternalShellCoverFile(shellCoverHref: String, bytes: ByteArray): File =
+	resolve("${shellCoverHref.externalShellCoverFilePrefix()}.${bytes.readerImageExtensionFromMagic() ?: shellCoverHref.readerShellCoverImageExtension()}")
+
+private fun File.toReaderShellCoverAssetUrl(cacheKey: String): String =
+	readerPublicationAssetUrl("$ReaderPublicationCachePublicationDirectory/$cacheKey/$name")
+
+private fun String.externalShellCoverFilePrefix(): String =
+	"shell-cover-${sha256Hex().take(24)}"
 
 private data class ReaderOpfManifestItem(
 	val id: String,
@@ -383,6 +421,46 @@ private fun String.readerLooksLikeImageHref(): Boolean =
 		.substringBefore('?')
 		.substringAfterLast('.', missingDelimiterValue = "")
 		.lowercase() in ReaderImageExtensions
+
+private fun String.readerShellCoverImageExtension(): String =
+	substringBefore('#')
+		.substringBefore('?')
+		.substringAfterLast('/', missingDelimiterValue = "")
+		.substringAfterLast('.', missingDelimiterValue = "")
+		.lowercase()
+		.takeIf { it in ReaderImageExtensions }
+		?: "img"
+
+private fun ByteArray.readerImageExtensionFromMagic(): String? =
+	when {
+		size >= 8 &&
+			this[0] == 0x89.toByte() &&
+			this[1] == 0x50.toByte() &&
+			this[2] == 0x4e.toByte() &&
+			this[3] == 0x47.toByte() &&
+			this[4] == 0x0d.toByte() &&
+			this[5] == 0x0a.toByte() &&
+			this[6] == 0x1a.toByte() &&
+			this[7] == 0x0a.toByte() -> "png"
+		size >= 3 &&
+			this[0] == 0xff.toByte() &&
+			this[1] == 0xd8.toByte() &&
+			this[2] == 0xff.toByte() -> "jpg"
+		size >= 12 &&
+			this[0] == 'R'.code.toByte() &&
+			this[1] == 'I'.code.toByte() &&
+			this[2] == 'F'.code.toByte() &&
+			this[3] == 'F'.code.toByte() &&
+			this[8] == 'W'.code.toByte() &&
+			this[9] == 'E'.code.toByte() &&
+			this[10] == 'B'.code.toByte() &&
+			this[11] == 'P'.code.toByte() -> "webp"
+		size >= 6 &&
+			this[0] == 'G'.code.toByte() &&
+			this[1] == 'I'.code.toByte() &&
+			this[2] == 'F'.code.toByte() -> "gif"
+		else -> null
+	}
 
 private val ReaderImageExtensions = setOf("png", "jpg", "jpeg", "webp", "gif", "svg")
 private val ReaderRootfileRegex = Regex(

@@ -44,6 +44,7 @@ actual fun ReaderPublicationRuntimeHost(
 	) {
 		val savedProgress = repository.savedReaderProgressFor(reader)
 		val preferredShellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() }
+		val externalShellCoverHref = preferredShellCoverUrl?.takeUnless { it.isLocalReaderPublicationUrl() }
 		val directUrl = reader.publicationUrl.takeIf {
 			reader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
 		}
@@ -92,7 +93,8 @@ actual fun ReaderPublicationRuntimeHost(
 					sourceUrl = reader.publicationUrl,
 					kind = reader.kind,
 					format = reader.publicationFormat,
-					mediaOverlayEnabled = reader.mediaOverlayEnabled
+					mediaOverlayEnabled = reader.mediaOverlayEnabled,
+					externalShellCoverHref = externalShellCoverHref
 				)
 			)
 			Logger.i(
@@ -106,7 +108,11 @@ actual fun ReaderPublicationRuntimeHost(
 			resolved
 		}.fold(
 			onSuccess = { resolved ->
-				val shellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() } ?: resolved.shellCoverUrl
+				val shellCoverUrl = if (externalShellCoverHref == null) {
+					preferredShellCoverUrl ?: resolved.shellCoverUrl
+				} else {
+					resolved.shellCoverUrl
+				}
 				currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, savedProgress)
 			},
 			onFailure = { error ->

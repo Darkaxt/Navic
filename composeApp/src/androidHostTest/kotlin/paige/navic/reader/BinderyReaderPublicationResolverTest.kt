@@ -216,6 +216,56 @@ class BinderyReaderPublicationResolverTest {
 	}
 
 	@Test
+	fun cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface() = runBlocking {
+		val epubCoverBytes = byteArrayOf(0x45, 0x50, 0x55, 0x42)
+		val externalCoverBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+		val fetchedPaths = mutableListOf<String>()
+		val resolver = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { path ->
+				fetchedPaths += path
+				when (path) {
+					"/opds/books/3816/resources/ebook-epub" -> minimalEpubWithCover(epubCoverBytes)
+					"/api/v1/books/3816/generated/fullscreen-cover?aspect=0.72" -> externalCoverBytes
+					else -> error("Unexpected resource fetch: $path")
+				}
+			},
+			cacheRoot = createTempDirectory("navic-reader-external-shell-cover").toFile()
+		)
+		val request = ReaderPublicationResourceRequest(
+			bookId = "3816",
+			title = "The Hobbit",
+			resourceHref = "/opds/books/3816/resources/ebook-epub",
+			sourceUrl = "https://bindery.local/opds/books/3816/resources/ebook-epub",
+			kind = ReaderPublicationKind.Ebook,
+			format = ReaderPublicationFormat.Epub,
+			mediaOverlayEnabled = false,
+			externalShellCoverHref = "/api/v1/books/3816/generated/fullscreen-cover?aspect=0.72"
+		)
+
+		val resolved = resolver.resolve(request)
+
+		assertEquals(
+			listOf(
+				"/opds/books/3816/resources/ebook-epub",
+				"/api/v1/books/3816/generated/fullscreen-cover?aspect=0.72"
+			),
+			fetchedPaths
+		)
+		assertTrue(
+			resolved.shellCoverUrl.orEmpty().startsWith(
+				"https://appassets.androidplatform.net/reader-cache/reader-publications/${resolved.cacheKey}/shell-cover-"
+			)
+		)
+		assertTrue(resolved.shellCoverUrl.orEmpty().endsWith(".png"))
+		val shellCoverFile = resolved.publicationFile.parentFile!!
+			.listFiles()
+			.orEmpty()
+			.single { file -> file.name.startsWith("shell-cover-") }
+		assertEquals(externalCoverBytes.toList(), shellCoverFile.readBytes().toList())
+		assertEquals(epubCoverBytes.toList(), resolved.publicationFile.parentFile!!.resolve("cover.png").readBytes().toList())
+	}
+
+	@Test
 	fun localCacheContractIsStableAcrossBinderyBaseUrlChanges() = runBlocking {
 		val cacheRoot = createTempDirectory("navic-reader-publications").toFile()
 		val resolver = BinderyReaderPublicationResolver(

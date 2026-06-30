@@ -8910,3 +8910,36 @@ Results:
 Next:
 - Commit and push the master-sync/fix stage.
 - Do not publish a public release for this stage alone; it is branch hygiene plus Aurral-artwork guard reconciliation, not a new release-worthy reader milestone.
+
+## 2026-06-30 Stage 8N Authenticated Generated Cover Cache Handoff
+
+Scope:
+- Prepare Navic for Bindery-provided generated/fullscreen cover variants without making Navic call AI generation directly.
+- Ensure remote/generated cover URLs that require Bindery API-key headers are fetched through the authenticated resource path, cached beside the publication, and surfaced to the native Komikku cover surface as local reader asset-loader URLs.
+- Preserve EPUB-extracted cover fallback when the generated cover is absent or fails to fetch.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest.cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidPublicationRuntimePrefersBinderyFullscreenCoverOverExtractedEpubCover"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `BinderyReaderPublicationResolverTest.cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface` first failed with `No parameter with name 'externalShellCoverHref' found`, proving the resolver did not accept generated shell-cover URLs yet.
+- FIXED/RESOLVER: `ReaderPublicationResourceRequest.externalShellCoverHref` was added, and the resolver now stores remote shell-cover bytes as `shell-cover-<hash>.<ext>` files under the publication cache directory.
+- GREEN/FOCUSED-HOST: the new generated-cover cache test passed.
+- GREEN/RESOLVER-HOST: the full `BinderyReaderPublicationResolverTest` class passed.
+- RED/AGGREGATE-FIRST: `:composeApp:testAndroid` exposed one stale source guard still expecting the old raw `reader.fullscreenCoverUrl ?: resolved.shellCoverUrl` handoff.
+- FIXED/RUNTIME-GUARD: the source guard now asserts the new contract: local fullscreen covers may pass through directly, while remote generated covers are routed as `externalShellCoverHref` and delivered to common UI as the resolver's cached asset URL.
+- GREEN/FOCUSED-HOST: `ReaderRuntimeImageLinkTest.androidPublicationRuntimePrefersBinderyFullscreenCoverOverExtractedEpubCover` passed after the guard update.
+- GREEN/AGGREGATE: `:composeApp:testAndroid` passed.
+- GREEN/DIFF: `git diff --check` passed.
+
+Next:
+- Wait for Bindery to expose real generated/fullscreen cover variants in OPDS/API metadata, then run an end-to-end readerdev or release-device validation against a live generated cover.
+- Keep this as a client compatibility slice; do not publish a public release for this alone unless it is bundled with the next substantial reader/Whispersync milestone.

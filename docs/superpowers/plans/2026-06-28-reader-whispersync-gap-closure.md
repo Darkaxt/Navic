@@ -1772,7 +1772,7 @@ Closure:
 
 ### Stage 8N: Bindery Generated Fullscreen Cover Variants
 
-Status: book-detail and continue-reading production launch aspect wiring complete; waiting for Bindery to expose real generated variant assets and for release/device validation.
+Status: book-detail and continue-reading production launch aspect wiring complete; authenticated generated-cover cache handoff complete; waiting for Bindery to expose real generated variant assets and for release/device validation.
 
 Purpose:
 - Prepare Navic for Bindery-owned fullscreen/generated cover assets that may be emitted as multiple aspect-specific variants instead of a single `fullscreenCoverUrl`.
@@ -1801,6 +1801,9 @@ Results:
 - GREEN/AGGREGATE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed after the fullscreen-cover helper/policy split.
 - GREEN/CONTINUE-READING: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid --rerun-tasks` passed after the continue-reading aspect propagation slice.
 - GREEN/DIFF: `git diff --check` passed.
+- RED/HOST-FIRST: `BinderyReaderPublicationResolverTest.cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface` first failed because `ReaderPublicationResourceRequest` could not carry an external shell-cover href.
+- FIXED/AUTHENTICATED-CACHE: `ReaderPublicationResourceRequest.externalShellCoverHref` now lets `BinderyReaderPublicationResolver` fetch the Bindery-generated cover through the same authenticated resource fetcher as EPUB/PDF resources, cache it beside the publication as `shell-cover-*`, and return an asset-loader URL for the native cover renderer. `ReaderPublicationRuntimeHost.android.kt` passes remote `fullscreenCoverUrl` values into that resolver path and no longer asks `KomikkuReaderNativeShellCoverView` to decode remote authenticated URLs directly.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest.cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface"` passed.
 
 Closure:
 - [x] Add a failing host guard for generated fullscreen cover variants.
@@ -1809,6 +1812,7 @@ Closure:
 - [x] Support closest-variant selection when the route layer knows the target aspect ratio.
 - [x] Wire an actual layout-derived target aspect into production reader launches when the book screen launch surface can provide it.
 - [x] Wire an actual layout-derived target aspect into continue-reading ebook and Whispersync reader launches when the hub surface can provide it.
+- [x] Cache remote Bindery generated/fullscreen cover URLs into reader-local asset-loader files before handing them to the native shell-cover renderer, preserving authenticated fetch semantics and the existing native bitmap surface.
 - [ ] End-to-end release/device validation once Bindery exposes real generated fullscreen cover variants for a book.
 
 ### Stage 8O: Master Generated Artwork Pipeline Sync
