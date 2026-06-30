@@ -9086,3 +9086,28 @@ Results:
 
 Next:
 - Keep physical-device/human visual judgment open for headset subtlety, paper texture strength, drag feel, and tablet/Fold layout. This matrix proves the current source did not regress the automated Komikku interaction rows.
+
+## 2026-06-30 Stage 8L Current-Chapter Rail Endpoint Harness Stabilization
+
+Scope:
+- Stabilize the native chapter rail endpoint gate after the theta25 matrix hung on the whole-spine endpoint probe and then failed behind transient native/WebView state.
+- Keep this as validation harness work only: no reader UI/runtime, Whispersync, texture, cover, or controller behavior was changed.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe" --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe" --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks"
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta25 -PrepareReaderLaunch -OnlyRailEndpointChecks -ContinueOnFailure -PreparePublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -PrepareBookId 3809 -PrepareTitle "Bastille vs. the Evil Librarians" -PrepareKind Ebook -PrepareFormat EPUB -PrepareStartHref "OEBPS/xhtml/chapter17.xhtml" -PrepareWhispersyncSidecarUrl "/opds/books/3809/sync/8" -PrepareWhispersyncAudiobookId 34 -PrepareWhispersyncAudiobookBookFileId 633 -PrepareWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -ArtifactRoot captures\reader-komikku-matrix\stage8l-rail-endpoints-theta25-current-bounded-revealguard-20260630
+```
+
+Results:
+- RED/RUNTIME-FIRST: `stage8l-rail-endpoints-theta25-current-bounded-20260630` proved the old whole-spine `chapter-progress-endpoints` probe could hang on a large EPUB.
+- RED/RUNTIME-FIRST: `stage8l-rail-endpoints-theta25-current-bounded-fixed-20260630` proved explicit start hrefs were bypassed when the matrix also sent default `StartProgress=0`.
+- RED/RUNTIME-FIRST: `stage8l-rail-endpoints-theta25-current-bounded-historyfixed-20260630` proved the bounded probe could leave the native rail hidden while the WebView settled; a later manual center tap exposed `Chapter page slider`.
+- GREEN/HOST-GUARD: focused host guards now require the current-chapter endpoint probe, explicit href/CFI prepared launches without default zero progress, optional history-control dismissal, and condition-based center tapping until `Chapter page slider` exists.
+- GREEN/MATRIX: `captures\reader-komikku-matrix\stage8l-rail-endpoints-theta25-current-bounded-revealguard-20260630` passed the isolated rail matrix on `darkaxt.navic.readerdev` `v1.0.11-theta25`.
+- GREEN/ENDPOINTS: `chapter-rail-native-start` ended at `OEBPS/xhtml/chapter17.xhtml`, `chapterPageIndex=0`, `chapterPageCount=8`; `chapter-rail-native-end` ended at the same href, `chapterPageIndex=7`, `chapterPageCount=8`.
+
+Next:
+- Keep this as the current automated proof that the native chapter rail can reach first and last pages of a multi-page chapter through the real UI control.
+- Physical-device/human checks remain reserved for final feel and release-candidate validation.

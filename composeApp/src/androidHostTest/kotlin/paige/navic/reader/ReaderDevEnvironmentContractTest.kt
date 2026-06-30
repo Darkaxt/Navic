@@ -454,6 +454,11 @@ class ReaderDevEnvironmentContractTest {
 				matrixScript.contains("-NoLaunch"),
 			"Cover validation must launch the reader at the native shell-cover boundary, then run smoke checks without relaunching over that state."
 		)
+		assertTrue(
+			matrixScript.contains("if ([string]::IsNullOrWhiteSpace(\$PrepareStartHref) -and [string]::IsNullOrWhiteSpace(\$PrepareStartCfi))") &&
+				matrixScript.contains("StartProgress = \$PrepareStartProgress"),
+			"Prepared launches with an explicit href/CFI must not also send the default zero progress extra, or the href target is bypassed."
+		)
 	}
 
 	@Test

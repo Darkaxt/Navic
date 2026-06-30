@@ -1982,3 +1982,34 @@ Closure:
 - [x] Run focused Gradle source/plan guard after recording the evidence.
 - [ ] Run release-package reader smoke/matrix checks once `darkaxt.navic` can reach a reader route.
 - [ ] Run release-package Whispersync enjoyment checks once a paired Whispersync route is reachable.
+
+### Stage 8R: Current-Chapter Rail Endpoint Harness Stabilization
+
+Status: complete for readerdev/emulator rail endpoint proof; no public release.
+
+Purpose:
+- Repair the Stage 8L rail endpoint validation path after the theta25 branch exposed three harness problems: the whole-spine probe could hang, explicit href starts were overridden by default zero progress, and native chrome could be hidden while the WebView settled after DevTools navigation.
+- Keep the proof aligned with Komikku ownership: the final endpoint assertion must still use the native `Chapter page slider`, not a direct DevTools-only relocation.
+- Avoid turning this into a reader runtime microfix. This stage changes only host guards and ADB harness scripts.
+
+Scope:
+- Modify: `scripts/adb-reader-komikku-matrix.ps1`
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+Results:
+- RED/HOST-FIRST: focused source guards failed before the matrix avoided the whole-spine probe, before explicit href/CFI launches suppressed the default zero-progress extra, and before post-probe native actions could conditionally reveal a target UI node.
+- FIXED/HARNESS: `adb-reader-komikku-matrix.ps1` now uses `chapter-progress-current-endpoints` for isolated rail rows and does not send `StartProgress=0` when `PrepareStartHref` or `PrepareStartCfi` is present.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` now supports `tapDescIfPresent:` for transient native overlays and `tapFractionUntilDescPresent:` for condition-based center taps that stop once the expected native control exists.
+- GREEN/HOST-GUARD: focused host guards passed for the smoke/matrix harness contracts.
+- GREEN/READERDEV-EMULATOR: `captures\reader-komikku-matrix\stage8l-rail-endpoints-theta25-current-bounded-revealguard-20260630` passed on `darkaxt.navic.readerdev` `v1.0.11-theta25`; start row reached `chapterPageIndex=0/8`, end row reached `chapterPageIndex=7/8`, both in `OEBPS/xhtml/chapter17.xhtml`.
+
+Closure:
+- [x] Diagnose the whole-spine probe hang as a bounded-probe problem, not a reader proof.
+- [x] Add failing host guards for current-chapter rail endpoint probing and explicit href/CFI launch ownership.
+- [x] Add failing host guards for transient native overlay dismissal and condition-based rail reveal.
+- [x] Patch the ADB harness only.
+- [x] Rerun focused host guards.
+- [x] Rerun the isolated readerdev rail endpoint matrix against book `3809`, ebook file `426`, start href `OEBPS/xhtml/chapter17.xhtml`.

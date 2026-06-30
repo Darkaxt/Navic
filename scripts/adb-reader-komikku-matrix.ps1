@@ -254,7 +254,9 @@ function Invoke-ReaderMatrixPrepareLaunch {
         NoBuild = $true
         NoInstall = $true
         RequireReaderLaunch = $true
-        StartProgress = $PrepareStartProgress
+    }
+    if ([string]::IsNullOrWhiteSpace($PrepareStartHref) -and [string]::IsNullOrWhiteSpace($PrepareStartCfi)) {
+        $prepareArgs.StartProgress = $PrepareStartProgress
     }
     if (-not [string]::IsNullOrWhiteSpace($PreparePublicationUrl)) {
         $prepareArgs.PublicationUrl = $PreparePublicationUrl
@@ -398,16 +400,16 @@ function Invoke-ReaderRailEndpointMatrixSteps {
     Invoke-ReaderMatrixStep `
         -Name "chapter-rail-native-start" `
         -TapFraction @("0.50,0.50,700") `
-        -ReaderDevtoolsProbe "chapter-progress-endpoints" `
-        -PostProbeAction @("tapFraction:0.50,0.50,700", "tapDescFraction:Chapter page slider,0.0,0.5,1500") `
+        -ReaderDevtoolsProbe "chapter-progress-current-endpoints" `
+        -PostProbeAction @("tapDescIfPresent:Close history controls,700", "tapFractionUntilDescPresent:Chapter page slider,0.50,0.50,2,1000", "tapDescFraction:Chapter page slider,0.0,0.5,1500") `
         -PostActionReaderDevtoolsProbe "location-snapshot" `
         -RequirePostActionChapterPageEndpoint "start"
 
     Invoke-ReaderMatrixStep `
         -Name "chapter-rail-native-end" `
         -TapFraction @("0.50,0.50,700") `
-        -ReaderDevtoolsProbe "chapter-progress-endpoints" `
-        -PostProbeAction @("tapFraction:0.50,0.50,700", "tapDescFraction:Chapter page slider,1.0,0.5,1500") `
+        -ReaderDevtoolsProbe "chapter-progress-current-endpoints" `
+        -PostProbeAction @("tapDescIfPresent:Close history controls,700", "tapFractionUntilDescPresent:Chapter page slider,0.50,0.50,2,1000", "tapDescFraction:Chapter page slider,1.0,0.5,1500") `
         -PostActionReaderDevtoolsProbe "location-snapshot" `
         -RequirePostActionChapterPageEndpoint "end"
 }
