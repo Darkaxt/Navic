@@ -2028,7 +2028,9 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(readerRootText, "KomikkuWhispersyncPlaybackControl(")
 		assertContains(readerRootText, ".align(Alignment.TopStart)")
-		assertContains(playbackControlBody, "MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)")
+		assertContains(playbackControlBody, "MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)")
+		assertContains(playbackControlBody, "Modifier.size(48.dp)")
+		assertContains(playbackControlBody, "Modifier.size(22.dp)")
 		assertContains(playbackControlBody, "Icons.Outlined.Headset")
 		assertContains(playbackControlBody, "drawLine(")
 		assertFalse(

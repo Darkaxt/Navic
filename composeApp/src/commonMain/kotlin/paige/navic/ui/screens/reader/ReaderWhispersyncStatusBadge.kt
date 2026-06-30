@@ -61,7 +61,7 @@ internal fun KomikkuWhispersyncPlaybackControl(
 			)
 		}
 	) {
-		val glyphColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
+		val glyphColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
 		Box(
 			modifier = Modifier.size(48.dp),
 			contentAlignment = Alignment.Center
@@ -70,7 +70,7 @@ internal fun KomikkuWhispersyncPlaybackControl(
 				imageVector = Icons.Outlined.Headset,
 				contentDescription = control.contentDescription,
 				tint = glyphColor,
-				modifier = Modifier.size(25.dp)
+				modifier = Modifier.size(22.dp)
 			)
 			if (control.crossed) {
 				Canvas(

@@ -808,6 +808,23 @@ Remaining:
 - Use paired-route captures for Whispersync status/headset/audio-text overlay behavior.
 - Stage 6F still needs human/device visual judgment for whether the current typography density, paper texture strength, and cover treatment feel faithful enough.
 
+### Stage 6F.4: Page-Native Whispersync Headset
+
+Status: current-source implementation complete; physical visual judgment still pending.
+
+Scope:
+- Make the paired-route Whispersync headset read as part of the paper surface, not as a Material badge or floating player button.
+- Preserve the transparent 48dp tap target so the control remains usable, but reduce the visible glyph to a smaller, dimmer page-native mark.
+- Do not change page-scoped control policy, playback commands, sidecar matching, media overlays, menu/tap ownership, or audiobook resume behavior in this visual slice.
+
+Guards and evidence:
+- RED/HOST-FIRST: `ReaderRuntimeCommonChromeTest.commonWhispersyncPlaybackControlBlendsIntoPageInsteadOfRenderingChromePill` failed while the control still used `MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)` and a `25.dp` visible icon.
+- GREEN/HOST-FOCUSED: the same guard passed after changing the visible headset to `22.dp` and `0.42f` alpha while preserving the transparent `48.dp` tap target and retaining the existing no-`Surface`, no-`IconButton`, no-pill, no-progress-ring assertions.
+- GREEN/HOST-ROUTING: `ReaderViewerTest.whispersyncPlayerSurfaceIsKomikkuOwnedReaderChrome` passed with the same focused `testAndroidHost` run, proving the control remains Komikku-owned reader chrome routed through the controller.
+
+Remaining:
+- This is source/host proof only. Paired-route screenshots still need human/device judgment for whether the top-left headset is subtle enough on phone, Fold, and tablet surfaces.
+
 ### Stage 6A: EPUB Typography And Viewport Layout
 
 Status: host/harness and dirty-readerdev emulator pass complete; release-device visual judgment still pending.
