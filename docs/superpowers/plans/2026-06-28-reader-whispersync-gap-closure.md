@@ -26,6 +26,14 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 
 Closed stages stay documented below but are no longer the active queue. The current queue starts from the first release-worthy milestone after `v1.0.11-theta16`.
 
+Current continuation boundary as of 2026-06-30:
+
+- Branch sync was rechecked after fetching `fork/master`: `fork/master...HEAD` reported `0 40`, so the reader branch contains the current default-branch work plus the reader/Whispersync commits.
+- The working tree had no tracked edits; only the existing untracked `releases/` and `tmp/` directories were present.
+- `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\github-export\bindery\docs\navic-opds-api-schema.md` still documents Whispersync readiness/jobs/resources but does not yet document generated reader-shell cover fields such as `readerShellCover`, `shell-cover`, `fullscreen-cover`, aspect metadata, source cover hash, or generator version.
+- `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env` contains Bindery/API keys only. It is enough for readerdev Bindery route validation, but not for public `darkaxt.navic` Navidrome login. `navic-release-login.env` was absent in this worktree.
+- Therefore the next meaningful implementation slice is blocked on either new Bindery generated-cover metadata to adapt against, or a real release-login state/env to run Stage 5C.6. Do not reopen closed reader-shell microfixes merely because the historical stage templates below still contain unchecked generic checklist rows.
+
 1. **Stage 5C.6: Signed Release Whispersync Packaging Validation** - run the same paired flow on `darkaxt.navic` only when a logged-in physical release device or real ignored `navic-release-login.env` is available. This is the public release packaging proof, not the normal development blocker.
 2. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
 3. **Stage 8N: Bindery Generated Fullscreen Cover Variants** - keep Navic ready for Bindery-owned generated fullscreen cover variants; end-to-end closure waits on Bindery exposing real generated assets.
