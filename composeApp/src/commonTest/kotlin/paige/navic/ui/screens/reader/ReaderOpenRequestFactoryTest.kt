@@ -101,6 +101,26 @@ class ReaderOpenRequestFactoryTest {
 		assertEquals(ReaderLocator(progress = 0.37), request.startLocator)
 	}
 
+	@Test
+	fun openRequestKeepsExplicitRouteStartProgressAtZeroOverLocalResume() {
+		val localStartLocator = ReaderLocator(
+			href = "EPUB/Text/chapter-04.xhtml",
+			cfi = "epubcfi(/6/10!/4/3:12)",
+			progress = 0.42
+		)
+
+		val request = hobbitReader(
+			startProgress = 0.0
+		).toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/3693/cover.jpg",
+			settings = defaultReaderSettings(),
+			localStartLocator = localStartLocator
+		)
+
+		assertEquals(ReaderLocator(progress = 0.0), request.startLocator)
+	}
+
 	private fun hobbitReader(
 		startHref: String? = null,
 		startCfi: String? = null,

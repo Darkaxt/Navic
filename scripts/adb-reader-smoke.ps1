@@ -921,14 +921,6 @@ $nativeShellCoverVisible = Get-ReaderNativeShellCoverVisible -WindowXmlText $win
     "marker=full-window-clickable-naf-view"
 ) | Out-File -Encoding utf8 (Join-Path $ArtifactDir "reader-native-cover-validation.txt")
 
-if ($RequireNativeShellCover -and -not $nativeShellCoverVisible) {
-    throw "Reader diagnostics validation failed: native shell cover was not visible. See $ArtifactDir"
-}
-
-if ($RequireNeutralReaderVisualState) {
-    Assert-NeutralReaderVisualState -WindowXmlText $windowXmlText
-}
-
 Invoke-Adb @("logcat", "-d", "--pid=$processId", "-v", "time") -PassThru |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-full.log")
 
@@ -938,6 +930,14 @@ Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
     Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-reader.log")
 
 $readerLogText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-reader.log")
+
+if ($RequireNativeShellCover -and -not $nativeShellCoverVisible) {
+    throw "Reader diagnostics validation failed: native shell cover was not visible. See $ArtifactDir"
+}
+
+if ($RequireNeutralReaderVisualState) {
+    Assert-NeutralReaderVisualState -WindowXmlText $windowXmlText
+}
 
 function Assert-ReaderDevtoolsProbeLogLabels {
     param(

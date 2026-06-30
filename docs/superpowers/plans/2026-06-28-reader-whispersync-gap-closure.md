@@ -1450,3 +1450,38 @@ Closure:
 - [x] Diagnose the initial ANR using DropBox evidence before changing code.
 - [x] Fix the smoke-script false negative with a focused red/green host test.
 - [x] Record that deep release reader/Whispersync checks still require a logged-in release package or `navic-release-login.env`.
+
+### Stage 8F: Explicit Start Native Cover And Prepared Matrix Route
+
+Status: complete for readerdev implementation/runtime validation.
+
+Purpose:
+- Prevent explicit readerdev route starts, especially `StartProgress=0`, from being overridden by stale local resume state.
+- Make failed native-cover smokes useful by capturing logcat before hard assertions throw.
+- Let `adb-reader-komikku-matrix.ps1 -PrepareReaderLaunch` prepare a concrete production EPUB/Whispersync route instead of relying on whichever book/page the emulator currently has open.
+
+Files:
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderOpenRequest.kt`
+- Modify: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/reader/ReaderOpenRequestFactoryTest.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: `scripts/adb-reader-komikku-matrix.ps1`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+Results:
+- RED/HOST-FIRST: `ReaderOpenRequestFactoryTest.openRequestKeepsExplicitRouteStartProgressAtZeroOverLocalResume` failed because `bestReaderStartLocator(...)` let a later local resume locator override explicit route `startProgress=0`.
+- FIXED: explicit route locators are authoritative in `Screen.Reader.toReaderEngineOpenRequest()`; fallback saved/local merging remains unchanged when the route does not provide start state.
+- GREEN/HOST: focused `ReaderOpenRequestFactoryTest` passed.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` now writes full and reader-filtered logcat before native-cover/neutral-state assertion failures.
+- RED/HOST-FIRST: `ReaderDevEnvironmentContractTest.komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks` failed until the matrix script exposed concrete prepared route fields.
+- FIXED/HARNESS: `adb-reader-komikku-matrix.ps1` now passes publication URL, resource href, book id, title, kind, format, start href/CFI, and Whispersync sidecar/audiobook fields into `install-reader-dev.ps1`.
+- GREEN/EMULATOR: `captures\reader-smoke\stage8f-explicit-start0-native-cover-fixed-20260630` proved `nativeShellCoverVisible=True` after launching book `3809` with `StartProgress=0`.
+- GREEN/MATRIX: `captures\reader-komikku-matrix\stage8f-prepared-bastille-start0-fixed-20260630` passed all 12 prepared readerdev matrix rows with `No matrix failures.`
+
+Closure:
+- [x] Reproduce the stale-progress native-cover failure from an explicit route start.
+- [x] Add and pass a route-start host regression test.
+- [x] Add and pass a prepared-matrix contract guard.
+- [x] Run a real readerdev native-cover smoke against the paired Bindery route.
+- [x] Run the prepared Komikku matrix against the same concrete route.
+- [x] Record Stage 8F evidence in the validation log.

@@ -409,6 +409,12 @@ class ReaderDevEnvironmentContractTest {
 			"The Komikku matrix must expose a controlled launch mode so cover checks do not depend on stale emulator state."
 		)
 		assertTrue(
+			matrixScript.contains("[string] \$PreparePublicationUrl") &&
+				matrixScript.contains("[string] \$PrepareBookId") &&
+				matrixScript.contains("[string] \$PrepareWhispersyncSidecarUrl"),
+			"The Komikku matrix must let prepared launches target a concrete production EPUB/Whispersync route."
+		)
+		assertTrue(
 			matrixScript.contains("\$installReaderDevScript = Join-Path \$scriptRoot \"install-reader-dev.ps1\"") &&
 				matrixScript.contains("Invoke-ReaderMatrixPrepareLaunch") &&
 				matrixScript.contains("NoBuild = \$true") &&
@@ -418,6 +424,8 @@ class ReaderDevEnvironmentContractTest {
 		)
 		assertTrue(
 			matrixScript.contains("StartProgress = \$PrepareStartProgress") &&
+				matrixScript.contains("PublicationUrl = \$PreparePublicationUrl") &&
+				matrixScript.contains("WhispersyncSidecarUrl = \$PrepareWhispersyncSidecarUrl") &&
 				matrixScript.contains("if (\$PrepareReaderLaunch)") &&
 				matrixScript.contains("-NoLaunch"),
 			"Cover validation must launch the reader at the native shell-cover boundary, then run smoke checks without relaunching over that state."

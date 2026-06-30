@@ -42,10 +42,7 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 		url = publicationUrl,
 		mediaOverlayEnabled = mediaOverlayEnabled,
 		externalShellCover = hasShellCover,
-		startLocator = bestReaderStartLocator(
-			remoteStartLocator = routeStartLocator,
-			localStartLocator = fallbackStartLocator
-		),
+		startLocator = routeStartLocator ?: fallbackStartLocator,
 		settings = settings,
 		nativeShellCoverUrl = shellCoverUrl,
 		canReturnToShellCover = hasShellCover

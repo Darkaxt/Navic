@@ -7,6 +7,19 @@ param(
     [string] $EnvFile = "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env",
     [switch] $PrepareReaderLaunch,
     [string] $PrepareStartProgress = "0",
+    [string] $PreparePublicationUrl,
+    [string] $PrepareResourceHref,
+    [string] $PrepareBookId,
+    [string] $PrepareTitle,
+    [string] $PrepareKind,
+    [string] $PrepareFormat,
+    [string] $PrepareStartHref,
+    [string] $PrepareStartCfi,
+    [string] $PrepareWhispersyncSidecarUrl,
+    [string] $PrepareWhispersyncArtifactId,
+    [string] $PrepareWhispersyncAudiobookId,
+    [string] $PrepareWhispersyncAudiobookBookFileId,
+    [string] $PrepareWhispersyncAudiobookTitle,
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
     [switch] $NoLaunch,
@@ -231,6 +244,45 @@ function Invoke-ReaderMatrixPrepareLaunch {
         NoInstall = $true
         RequireReaderLaunch = $true
         StartProgress = $PrepareStartProgress
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PreparePublicationUrl)) {
+        $prepareArgs.PublicationUrl = $PreparePublicationUrl
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareResourceHref)) {
+        $prepareArgs.ResourceHref = $PrepareResourceHref
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareBookId)) {
+        $prepareArgs.BookId = $PrepareBookId
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareTitle)) {
+        $prepareArgs.Title = $PrepareTitle
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareKind)) {
+        $prepareArgs.Kind = $PrepareKind
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareFormat)) {
+        $prepareArgs.Format = $PrepareFormat
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareStartHref)) {
+        $prepareArgs.StartHref = $PrepareStartHref
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareStartCfi)) {
+        $prepareArgs.StartCfi = $PrepareStartCfi
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncSidecarUrl)) {
+        $prepareArgs.WhispersyncSidecarUrl = $PrepareWhispersyncSidecarUrl
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncArtifactId)) {
+        $prepareArgs.WhispersyncArtifactId = $PrepareWhispersyncArtifactId
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookId)) {
+        $prepareArgs.WhispersyncAudiobookId = $PrepareWhispersyncAudiobookId
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookBookFileId)) {
+        $prepareArgs.WhispersyncAudiobookBookFileId = $PrepareWhispersyncAudiobookBookFileId
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookTitle)) {
+        $prepareArgs.WhispersyncAudiobookTitle = $PrepareWhispersyncAudiobookTitle
     }
     if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
         $prepareArgs.DeviceSerial = $DeviceSerial

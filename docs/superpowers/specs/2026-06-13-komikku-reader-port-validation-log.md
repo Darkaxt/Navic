@@ -8752,3 +8752,36 @@ Results:
 Next:
 - Keep `v1.0.11-theta22` as the current public release baseline.
 - Use `navic-release-login.env` or a logged-in release profile before claiming release-package reader or Whispersync behavior.
+
+## 2026-06-30 Stage 8F Explicit Start Native Cover Validation
+
+Scope:
+- Fix readerdev explicit `StartProgress=0` launches so stale local progress cannot override an intentional cover-boundary route.
+- Ensure failed native-cover smokes still write logcat artifacts before throwing.
+- Extend the Komikku matrix prepared-launch path so cover checks can target a concrete production EPUB and Whispersync sidecar, not only the current emulator state.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.reader.ReaderOpenRequestFactoryTest" --console=plain
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks" --console=plain
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -PublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -BookId 3809 -Title "Bastille vs. the Evil Librarians" -Kind Ebook -Format EPUB -WhispersyncSidecarUrl "/opds/books/3809/sync/8" -WhispersyncAudiobookId 34 -WhispersyncAudiobookBookFileId 633 -WhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -StartProgress 0 -RequireReaderLaunch -Capture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-theta22 -NoLaunch -CaptureReaderDiagnostics -RequireNativeShellCover -ArtifactDir captures\reader-smoke\stage8f-explicit-start0-native-cover-fixed-20260630
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-komikku-matrix.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-theta22 -PrepareReaderLaunch -IncludeCoverChecks -PreparePublicationUrl "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -PrepareBookId 3809 -PrepareTitle "Bastille vs. the Evil Librarians" -PrepareKind Ebook -PrepareFormat EPUB -PrepareWhispersyncSidecarUrl "/opds/books/3809/sync/8" -PrepareWhispersyncAudiobookId 34 -PrepareWhispersyncAudiobookBookFileId 633 -PrepareWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -ArtifactRoot captures\reader-komikku-matrix\stage8f-prepared-bastille-start0-fixed-20260630 -ContinueOnFailure
+```
+
+Results:
+- RED/EMULATOR: before the fix, `install-reader-dev.ps1 -StartProgress 0` briefly reached `publicationReady`, but the immediate smoke captured stale readable content at Chapter 4 / `24 / 124`; `captures\reader-smoke\stage8f-explicit-start0-native-cover-logs-20260630\reader-native-cover-validation.txt` reported `nativeShellCoverVisible=False`.
+- ROOT CAUSE: `Screen.Reader.toReaderEngineOpenRequest()` merged explicit route start state through `bestReaderStartLocator(...)`; a local resume locator later in the book could override `startProgress=0`.
+- RED/HOST-FIRST: `ReaderOpenRequestFactoryTest.openRequestKeepsExplicitRouteStartProgressAtZeroOverLocalResume` failed before implementation.
+- FIXED: explicit route locators are now authoritative (`routeStartLocator ?: fallbackStartLocator`); saved/local fallback merging still uses `bestReaderStartLocator(...)` when there is no explicit route start.
+- GREEN/HOST: `ReaderOpenRequestFactoryTest` passed after the route-start fix.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` now writes `logcat-full.log` and `logcat-reader.log` before hard native-cover/neutral-state assertions throw.
+- RED/HOST-FIRST: `ReaderDevEnvironmentContractTest.komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks` failed until the matrix script exposed concrete preparation fields for publication URL, book id, and Whispersync sidecar.
+- FIXED/HARNESS: `adb-reader-komikku-matrix.ps1` now passes prepared publication/resource/book/start/Whispersync fields through to `install-reader-dev.ps1`.
+- GREEN/EMULATOR-SMOKE: `captures\reader-smoke\stage8f-explicit-start0-native-cover-fixed-20260630\reader-native-cover-validation.txt` reported `nativeShellCoverVisible=True` with marker `full-window-clickable-naf-view`.
+- GREEN/EMULATOR-MATRIX: `captures\reader-komikku-matrix\stage8f-prepared-bastille-start0-fixed-20260630\reader-matrix-summary.csv` passed all 12 rows, including `baseline-current-reader`, `baseline-native-cover`, cover tap/drag, normal center tap, native long press, edge tap next/previous, drag next/previous, and texture next/previous walks. `reader-matrix-failures.txt` reported `No matrix failures.`
+
+Next:
+- Treat prepared-matrix launches as the required path for cover-boundary validations; do not use `-NoLaunch` from unknown emulator state for cover lifecycle claims.
+- Keep release-package reader/Whispersync proof separate until `darkaxt.navic` can reach a logged-in reader route.
