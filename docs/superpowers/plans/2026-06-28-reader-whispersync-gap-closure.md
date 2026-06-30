@@ -2078,7 +2078,7 @@ Closure:
 - [x] Patch the minimum runtime search annotation failure path.
 - [x] Validate on a real EPUB in readerdev/emulator.
 - [x] Add a follow-up search-result-tap probe.
-- [ ] Add a follow-up dismiss/clear-highlight probe.
+- [x] Add a follow-up dismiss/clear-highlight probe.
 
 ### Stage 8U: Search Result Tap Probe Stabilization
 
