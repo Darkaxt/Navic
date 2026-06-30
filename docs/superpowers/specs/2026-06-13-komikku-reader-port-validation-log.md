@@ -8943,3 +8943,27 @@ Results:
 Next:
 - Wait for Bindery to expose real generated/fullscreen cover variants in OPDS/API metadata, then run an end-to-end readerdev or release-device validation against a live generated cover.
 - Keep this as a client compatibility slice; do not publish a public release for this alone unless it is bundled with the next substantial reader/Whispersync milestone.
+
+## 2026-06-30 Stage 8P Theta25 Reader / Whispersync Release Candidate
+
+Scope:
+- Publish a single public Android candidate for the post-theta24 reader/Whispersync work.
+- Bundle native rail endpoint validation infrastructure, Whispersync validation identity guards, streamed reader search progress, Bindery generated/fullscreen cover variant parsing, authenticated generated-cover cache handoff, and the generated-artwork pipeline sync.
+- Keep Bindery generated-cover end-to-end proof open until live generated-cover metadata/assets exist.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/VERSION-FIRST: `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25` failed while the Android app still declared `versionName=v1.0.11-theta24`.
+- GREEN/VERSION: after bumping Android metadata to `versionCode=453`, `versionName=v1.0.11-theta25`, `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25` passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed on the theta25 identity.
+- GREEN/DIFF: `git diff --check` passed before commit.
+
+Next:
+- Commit, push, tag, and verify the public GitHub release artifact.

@@ -1849,3 +1849,41 @@ Closure:
 - [x] Run reader JS syntax checks.
 - [x] Run aggregate Android tests.
 - [x] Commit and push the sync/fix stage. Completed in `5e44f261` and current branch rechecked against `fork/master` on 2026-06-30.
+
+### Stage 8P: Theta25 Reader / Whispersync Release Candidate
+
+Status: in progress.
+
+Purpose:
+- Publish one coherent Android release candidate for the post-theta24 reader and Whispersync validation work instead of shipping isolated microfixes.
+- Bundle the native chapter rail endpoint gate, Whispersync validation release-identity guard, streamed reader search progress, `fork/master` generated-artwork pipeline sync, Bindery generated/fullscreen cover variant parsing, and authenticated generated-cover cache handoff.
+- Keep release evidence honest: this candidate is worth device validation for the current Komikku reader shell and Whispersync foundation, but real generated fullscreen cover end-to-end proof still waits for Bindery to expose live generated-cover metadata/assets.
+
+Scope:
+- Modify: `androidApp/build.gradle.kts`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+Required checks:
+- Run `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25` red before the bump and green after the bump.
+- Run `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid`.
+- Run `git diff --check`.
+- Commit and push the theta25 source commit.
+- Create and push tag `v1.0.11-theta25`.
+- Verify the GitHub Actions Android release publishes `Navic.apk`.
+
+Results:
+- RED/VERSION-FIRST: `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25` failed while `androidApp/build.gradle.kts` still declared `v1.0.11-theta24`.
+- GREEN/VERSION: after the release identity bump, `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25` passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed on the theta25 identity.
+- GREEN/DIFF: `git diff --check` passed before commit.
+
+Closure:
+- [x] Confirm theta25 was not already tagged or released before this slice.
+- [x] Add a failing release-identity check before changing Android metadata.
+- [x] Bump Android release identity to `v1.0.11-theta25` / `versionCode=453`.
+- [x] Verify the Android version identity.
+- [x] Run the required Gradle and diff checks.
+- [ ] Commit and push the theta25 release identity.
+- [ ] Create and push the `v1.0.11-theta25` tag.
+- [ ] Verify GitHub Actions release publication.
