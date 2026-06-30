@@ -9065,3 +9065,24 @@ Results:
 
 Next:
 - Keep end-to-end generated-cover validation open until Bindery emits live generated reader-shell cover metadata/assets for a book.
+
+## 2026-06-30 Stage 6F Current-Source Komikku Matrix Rerun After Texture And Headset Slices
+
+Scope:
+- Verify the installed current-source `readerdev` package after the paper texture strength and page-native Whispersync headset visual changes.
+- Treat this as readerdev/emulator implementation evidence, not release-device visual acceptance.
+
+Command:
+
+```powershell
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta25 -PrepareReaderLaunch -IncludeCoverChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\stage6f-current-source-theta25-20260630
+```
+
+Results:
+- GREEN/PACKAGE: installed package `darkaxt.navic.readerdev` reported `versionCode=453`, `versionName=v1.0.11-theta25`, and `lastUpdateTime=2026-06-30 14:44:25`.
+- GREEN/PREPARE: the matrix prepared a deterministic reader route and reached `publicationReady` before running cover checks.
+- GREEN/MATRIX: `captures\reader-komikku-matrix\stage6f-current-source-theta25-20260630\reader-matrix-summary.csv` passed all 12 rows: baseline current reader, baseline native cover, cover center-tap toggle, cover drag next, center-tap toggle, native long press, edge tap next, drag next, texture next walk, edge tap previous, drag previous, and texture previous walk.
+- GREEN/FAILURES: `captures\reader-komikku-matrix\stage6f-current-source-theta25-20260630\reader-matrix-failures.txt` reports `No matrix failures.`
+
+Next:
+- Keep physical-device/human visual judgment open for headset subtlety, paper texture strength, drag feel, and tablet/Fold layout. This matrix proves the current source did not regress the automated Komikku interaction rows.
