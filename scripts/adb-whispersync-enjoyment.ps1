@@ -2,7 +2,7 @@ param(
     [string] $DeviceSerial,
     [string] $EnvFile = "C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env",
     [string] $Package = "darkaxt.navic.readerdev",
-    [string] $ExpectedVersionName = "v1.0.11-theta24",
+    [string] $ExpectedVersionName = "",
     [string] $ArtifactRoot = "captures\reader-whispersync-enjoyment",
     [switch] $NoBuild,
     [switch] $NoInstall,
@@ -36,6 +36,24 @@ if (-not (Test-Path -LiteralPath $smokeScript -PathType Leaf)) {
 
 if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
     $env:ANDROID_SERIAL = $DeviceSerial
+}
+
+function Get-AndroidReleaseVersionName {
+    $buildFile = Join-Path $repoRoot "androidApp\build.gradle.kts"
+    if (-not (Test-Path -LiteralPath $buildFile -PathType Leaf)) {
+        throw "Android build file not found: $buildFile"
+    }
+
+    $content = Get-Content -LiteralPath $buildFile -Raw
+    $versionNameMatch = [regex]::Match($content, 'versionName\s*=\s*"([^"]+)"')
+    if (-not $versionNameMatch.Success) {
+        throw "Could not find androidApp versionName in $buildFile"
+    }
+    return $versionNameMatch.Groups[1].Value
+}
+
+if ([string]::IsNullOrWhiteSpace($ExpectedVersionName)) {
+    $ExpectedVersionName = Get-AndroidReleaseVersionName
 }
 
 function Resolve-StagePath {

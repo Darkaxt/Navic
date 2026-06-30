@@ -408,19 +408,18 @@ class ReaderDevEnvironmentContractTest {
 			?.groupValues
 			?.get(1)
 			.orEmpty()
-		val defaultExpectedVersion = Regex("""\[string\]\s+\${'$'}ExpectedVersionName\s*=\s*"([^"]+)"""")
-			.find(gateScript)
-			?.groupValues
-			?.get(1)
-			.orEmpty()
 
 		assertTrue(
 			androidVersion.isNotBlank(),
 			"The Android app must declare a release versionName."
 		)
 		assertTrue(
-			defaultExpectedVersion == androidVersion,
-			"The Whispersync enjoyment gate default ExpectedVersionName must track the current Android release identity so validation cannot silently target an older APK."
+			gateScript.contains("""[string] ${'$'}ExpectedVersionName = """"") &&
+				gateScript.contains("function Get-AndroidReleaseVersionName") &&
+				gateScript.contains("versionName\\s*=\\s*\"([^\"]+)\"") &&
+				gateScript.contains("if ([string]::IsNullOrWhiteSpace(${ '$' }ExpectedVersionName))") &&
+				gateScript.contains("${ '$' }ExpectedVersionName = Get-AndroidReleaseVersionName"),
+			"The Whispersync enjoyment gate must derive its default ExpectedVersionName from androidApp/build.gradle.kts instead of hardcoding a release tag like $androidVersion."
 		)
 	}
 

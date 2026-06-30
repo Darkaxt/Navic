@@ -1693,19 +1693,20 @@ Status: complete; validation-infrastructure guard only, no public release.
 
 Purpose:
 - Prevent the Stage 5C Whispersync enjoyment runner from silently validating against an older installed APK after a reader release bump.
-- Keep `scripts\adb-whispersync-enjoyment.ps1` default `ExpectedVersionName` tied to `androidApp/build.gradle.kts` so readerdev/release validation fails for stale package state instead of producing misleading probe evidence.
+- Keep `scripts\adb-whispersync-enjoyment.ps1` default `ExpectedVersionName` derived from `androidApp/build.gradle.kts` so readerdev/release validation fails for stale package state instead of producing misleading probe evidence.
 
 Scope:
 - Modify: `scripts/adb-whispersync-enjoyment.ps1`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
 
 Results:
-- RED/HOST-FIRST: `ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateDefaultExpectedVersionTracksAndroidReleaseIdentity` failed while the Android app declared `v1.0.11-theta24` and the Whispersync enjoyment gate still defaulted to `v1.0.11-theta23`.
-- FIXED/HARNESS: `adb-whispersync-enjoyment.ps1` now defaults `ExpectedVersionName` to `v1.0.11-theta24`.
+- RED/HOST-FIRST: `ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateDefaultExpectedVersionTracksAndroidReleaseIdentity` first failed while the Android app declared `v1.0.11-theta24` and the Whispersync enjoyment gate still defaulted to `v1.0.11-theta23`.
+- RED/HOST-FIRST: the same guard then failed when the script merely hardcoded `v1.0.11-theta24`, proving the next release would drift again.
+- FIXED/HARNESS: `adb-whispersync-enjoyment.ps1` now leaves `ExpectedVersionName` blank by default, derives it from `androidApp/build.gradle.kts`, and still lets callers override it explicitly.
 - GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateDefaultExpectedVersionTracksAndroidReleaseIdentity" --console=plain` passed.
 
 Closure:
 - [x] Add a failing source guard for stale Whispersync enjoyment gate package identity.
-- [x] Update the runner default to the current Android release identity.
+- [x] Update the runner to derive the default package identity from the Android release identity.
 - [x] Run the focused host guard.
 - [x] Run the broader contract host guard, PowerShell parser check, and `git diff --check` before committing.
