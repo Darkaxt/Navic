@@ -516,7 +516,9 @@ sealed interface ReaderBridgeEvent {
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
 	data class SearchResults(
 		val query: String,
-		val results: List<ReaderSearchResult>
+		val results: List<ReaderSearchResult>,
+		val progress: Double? = null,
+		val complete: Boolean = false
 	) : ReaderBridgeEvent
 	data class Toc(val items: List<ReaderTocItem>) : ReaderBridgeEvent
 	data class Error(val message: String, val code: String? = null) : ReaderBridgeEvent
@@ -628,7 +630,11 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"searchResults" -> ReaderBridgeEvent.SearchResults(
 				query = json.stringValue("query").orEmpty(),
 				results = (json["results"] as? JsonArray).orEmpty()
-					.mapNotNull { (it as? JsonObject)?.toSearchResult() }
+					.mapNotNull { (it as? JsonObject)?.toSearchResult() },
+				progress = json.doubleValue("progress") ?: json.doubleValue("process"),
+				complete = json.booleanValue("complete")
+					?: json.booleanValue("done")
+					?: (json.doubleValue("process") == 1.0)
 			)
 			"toc" -> ReaderBridgeEvent.Toc(
 				items = (json["items"] as? JsonArray).orEmpty()

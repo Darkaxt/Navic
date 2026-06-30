@@ -6,8 +6,13 @@ import kotlin.math.roundToLong
 data class ReaderSearchState(
 	val query: String = "",
 	val results: List<ReaderSearchResult> = emptyList(),
-	val active: Boolean = false
-)
+	val active: Boolean = false,
+	val progress: Double? = null,
+	val complete: Boolean = false
+) {
+	val searching: Boolean
+		get() = active && !complete
+}
 
 data class ReaderSelection(
 	val text: String? = null,
@@ -442,7 +447,9 @@ data class ReaderController(
 						search = ReaderSearchState(
 							query = event.query,
 							results = event.results,
-							active = event.query.isNotBlank()
+							active = event.query.isNotBlank(),
+							progress = event.progress,
+							complete = event.complete
 						)
 					)
 				)
@@ -541,7 +548,8 @@ data class ReaderController(
 					search = ReaderSearchState(
 						query = normalized,
 						results = emptyList(),
-						active = normalized.isNotBlank()
+						active = normalized.isNotBlank(),
+						progress = 0.0
 					)
 				)
 			),

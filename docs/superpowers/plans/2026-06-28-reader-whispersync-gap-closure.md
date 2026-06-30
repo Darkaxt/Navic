@@ -31,6 +31,7 @@ Closed stages stay documented below but are no longer the active queue. The curr
 3. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
 
 Recently closed:
+- **Stage 2B.2: Anx-Style Streaming Search Progress** - closed the remaining Stage 2B search UX/performance caveat by streaming search progress and partial result batches through the reader bridge.
 - **Stage 7B: Theta17 Staged Release Candidate** - packaged the completed post-theta16 gap work as the Android-only theta17 release candidate.
 - **Stage 8D: Theta17 Release Validation Baseline** - installed and validated the published release package until the release-login boundary.
 - **Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh** - passed the paired Bindery sidecar plus audiobook matrix on `darkaxt.navic.readerdev` using `bindery-debug.env`.
@@ -167,7 +168,7 @@ Results:
 - GREEN/ANNOTATION-AND-LINKS: `stage2b-annotation-popup-close-readable` verified the native annotation popup and close route; `stage2b-external-link-prompt-readable` verified the native external-link prompt and close route.
 - GREEN/HISTORY: `stage2b-history-controls-readable` verified PushState/native history capsule display and close behavior.
 - GREEN/SEARCH-ROUTE: `stage2b-search-dialog-query-focused-field` dispatched the native search command, and delayed logs captured `searchResults(count=28029)` for the query `the`; `stage2b-search-result-navigation-readable` verified result navigation through `goToCfi` and `locationChanged`.
-- CAVEAT/SEARCH-UX: the search field did not auto-focus, so the deterministic script had to tap into the input before typing. Stage 2B.1 closes the focus/keyboard-submit half of this caveat; the broad query `the` still took roughly 78 seconds to return 28,029 results, which remains a performance/UX follow-up rather than a Stage 2B route failure.
+- CAVEAT/SEARCH-UX: the search field did not auto-focus, so the deterministic script had to tap into the input before typing. Stage 2B.1 closes the focus/keyboard-submit half of this caveat; Stage 2B.2 closes the buffered-result half by streaming Anx-style progress and partial result updates instead of waiting for the whole book search to finish.
 - CAVEAT/RELEASE-PACKAGE: `darkaxt.navic` theta15 remains login-blocked on the emulator. These are current-source readerdev proofs, not release-package interaction proofs.
 
 Closure:
@@ -199,6 +200,41 @@ Closure:
 - [x] Search overlay owns initial text-field focus.
 - [x] Keyboard Search action routes through the same reader search command as the visible search button.
 - [x] Source guard prevents the overlay from regressing to a tap-before-type flow.
+
+### Stage 2B.2: Anx-Style Streaming Search Progress
+
+Status: complete.
+
+Scope:
+- Close the Stage 2B search UX/performance caveat where broad EPUB queries looked frozen until Foliate finished scanning the whole book.
+- Preserve full-result behavior; do not silently cap or truncate matches.
+- Align with Anx `book.js` search behavior by surfacing progress and partial results during the `for await` search loop.
+
+Main files:
+- `composeApp/src/androidMain/assets/reader/navic-reader.js`
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/FoliateEpubEngineAdapter.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderEngine.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSearchDialog.kt`
+- `composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt`
+
+Results:
+- RED/HOST-FIRST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest.searchResultsStreamProgressAndPartialResultsLikeAnx"` failed at `FoliateAnxParityTest.kt:551` while `navic-reader.js` still buffered all search hits and posted only once.
+- FIXED/RUNTIME: `NavicReaderRuntime.search()` now posts an initial `searchResults` update, progress-only updates, partial accumulated result batches, and a final `complete=true` update.
+- FIXED/BRIDGE: `ReaderBridgeEvent.SearchResults` and `ReaderEngineEvent.SearchResults` now preserve `progress` and `complete`; the decoder accepts both Navic `progress` and Anx-style `process`.
+- FIXED/UI: `ReaderSearchState` now exposes `searching`, and `KomikkuReaderSearchDialog` shows `Searching...`/progress while a query is active instead of claiming `No matches` before Foliate completes.
+- FIXED/ADB: `ReaderEngineWebViewHost` logs search result count, progress, and completion state for future device traces.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest.searchResultsStreamProgressAndPartialResultsLikeAnx"` passed.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.streamedSearchProgressUpdatesControllerWithoutWaitingForCompletion"` passed.
+- GREEN/FOCUSED-HOST: bridge protocol, adapter, and search dialog source guards passed through focused `:composeApp:testAndroidHost` runs.
+- GREEN/AGGREGATE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed.
+
+Closure:
+- [x] Search emits bridge-visible progress before completion.
+- [x] Search emits partial result batches before completion.
+- [x] Search dialog has a searching state distinct from completed empty results.
+- [x] Existing full-result behavior is preserved without hidden caps.
 
 ### Stage 2C: Short-Tap Content Hit Ownership
 

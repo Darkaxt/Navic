@@ -41,6 +41,10 @@ class FoliateAnxParityTest {
 		anxReferenceFile("assets/foliate-js/src/footnotes.js").readText()
 	}
 
+	private val anxBookText: String by lazy {
+		anxReferenceFile("assets/foliate-js/src/book.js").readText()
+	}
+
 	private val navicViewText: String by lazy {
 		readerAssetRoot().resolve("vendor/foliate-js/view.js").readText()
 	}
@@ -530,6 +534,30 @@ class FoliateAnxParityTest {
 			readerEngineWebViewHostText.contains("ReaderBridgeEvent.InternalLinkRequested") &&
 				readerEngineWebViewHostText.contains("internalLink("),
 			"ReaderEngineWebViewHost must expose an ADB-visible debug label for internalLink."
+		)
+	}
+
+	@Test
+	fun searchResultsStreamProgressAndPartialResultsLikeAnx() {
+		assertTrue(
+			anxBookText.contains("for await (const result of reader.view.search") &&
+				anxBookText.contains("callFlutter('onSearch', { process: result.progress })") &&
+				anxBookText.contains("callFlutter('onSearch', result)"),
+			"Anx streams search progress and each result instead of buffering the entire book search before notifying Flutter."
+		)
+		val searchBody = navicReaderMainText
+			.substringAfter("async search(query)")
+			.substringBefore("clearSearch()")
+		assertTrue(
+			searchBody.contains("postSearchResults(") &&
+				searchBody.contains("progress") &&
+				searchBody.contains("complete: false") &&
+				searchBody.contains("complete: true"),
+			"Navic reader search must post bridge-visible progress and partial result updates while Foliate search is still running."
+		)
+		assertTrue(
+			searchBody.indexOf("postSearchResults(") < searchBody.indexOf("complete: true"),
+			"Navic search must emit at least one partial bridge update before the final complete=true update."
 		)
 	}
 

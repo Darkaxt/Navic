@@ -101,7 +101,9 @@ sealed interface ReaderEngineEvent {
 	) : ReaderEngineEvent
 	data class SearchResults(
 		val query: String,
-		val results: List<ReaderSearchResult>
+		val results: List<ReaderSearchResult>,
+		val progress: Double? = null,
+		val complete: Boolean = false
 	) : ReaderEngineEvent
 
 	data class Toc(val items: List<ReaderTocItem>) : ReaderEngineEvent

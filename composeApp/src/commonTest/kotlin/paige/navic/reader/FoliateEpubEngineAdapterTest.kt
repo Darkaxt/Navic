@@ -400,12 +400,16 @@ class FoliateEpubEngineAdapterTest {
 		assertEquals(
 			ReaderEngineEvent.SearchResults(
 				query = "party",
-				results = listOf(ReaderSearchResult(id = "result-1", href = "chapter-01.xhtml"))
+				results = listOf(ReaderSearchResult(id = "result-1", href = "chapter-01.xhtml")),
+				progress = 0.75,
+				complete = true
 			),
 			adapter.onBridgeHostEvent(
 				ReaderBridgeEvent.SearchResults(
 					query = "party",
-					results = listOf(ReaderSearchResult(id = "result-1", href = "chapter-01.xhtml"))
+					results = listOf(ReaderSearchResult(id = "result-1", href = "chapter-01.xhtml")),
+					progress = 0.75,
+					complete = true
 				)
 			)
 		)

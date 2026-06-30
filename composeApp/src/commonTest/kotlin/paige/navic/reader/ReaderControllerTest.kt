@@ -1026,7 +1026,8 @@ class ReaderControllerTest {
 			ReaderSearchState(
 				query = "unexpected party",
 				results = emptyList(),
-				active = true
+				active = true,
+				progress = 0.0
 			),
 			step.controller.state.search
 		)
@@ -1045,10 +1046,49 @@ class ReaderControllerTest {
 		val cleared = controller.closeSearchDialog()
 
 		assertEquals(ReaderControllerDialog.Search, controller.state.dialog)
-		assertEquals(ReaderSearchState(query = "unexpected party", active = true), controller.state.search)
+		assertEquals(ReaderSearchState(query = "unexpected party", active = true, progress = 0.0), controller.state.search)
 		assertNull(cleared.controller.state.dialog)
 		assertEquals(ReaderSearchState(), cleared.controller.state.search)
 		assertEquals(listOf(ReaderEngineCommand.ClearSearch), cleared.engineCommands)
+	}
+
+	@Test
+	fun streamedSearchProgressUpdatesControllerWithoutWaitingForCompletion() {
+		val partialResults = listOf(
+			ReaderSearchResult(
+				id = "result-1",
+				href = "chapter-01.xhtml",
+				excerpt = "unexpected party"
+			)
+		)
+
+		val searching = ReaderController().search("unexpected").controller
+		val partial = searching.onEngineEvent(
+			ReaderEngineEvent.SearchResults(
+				query = "unexpected",
+				results = partialResults,
+				progress = 0.42,
+				complete = false
+			)
+		).controller
+		val complete = partial.onEngineEvent(
+			ReaderEngineEvent.SearchResults(
+				query = "unexpected",
+				results = partialResults,
+				progress = 1.0,
+				complete = true
+			)
+		).controller
+
+		assertEquals(ReaderSearchState(query = "unexpected", active = true, progress = 0.0), searching.state.search)
+		assertEquals(
+			ReaderSearchState("unexpected", partialResults, active = true, progress = 0.42, complete = false),
+			partial.state.search
+		)
+		assertEquals(
+			ReaderSearchState("unexpected", partialResults, active = true, progress = 1.0, complete = true),
+			complete.state.search
+		)
 	}
 
 	@Test

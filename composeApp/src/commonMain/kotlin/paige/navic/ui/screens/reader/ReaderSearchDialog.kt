@@ -105,7 +105,8 @@ internal fun KomikkuReaderSearchDialog(
 				)
 				when {
 					!search.active && queryText.isBlank() -> KomikkuSettingsDialogLine("Start typing to search")
-					search.active && search.results.isEmpty() -> KomikkuSettingsDialogLine("No matches")
+					search.searching && search.results.isEmpty() -> KomikkuSettingsDialogLine(searchProgressLabel(search))
+					search.complete && search.results.isEmpty() -> KomikkuSettingsDialogLine("No matches")
 					else -> LazyColumn(
 						state = listState,
 						modifier = Modifier.heightIn(min = 160.dp, max = 360.dp),
@@ -137,6 +138,14 @@ internal fun KomikkuReaderSearchDialog(
 			}
 		}
 	}
+}
+
+private fun searchProgressLabel(search: ReaderSearchState): String {
+	val percent = search.progress
+		?.takeIf { it.isFinite() }
+		?.coerceIn(0.0, 1.0)
+		?.let { (it * 100).toInt() }
+	return percent?.let { "Searching... $it%" } ?: "Searching..."
 }
 
 @Composable

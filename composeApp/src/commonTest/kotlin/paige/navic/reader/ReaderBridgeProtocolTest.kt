@@ -463,6 +463,8 @@ class ReaderBridgeProtocolTest {
 			{
 			  "type": "searchResults",
 			  "query": "alcatraz",
+			  "progress": 0.5,
+			  "complete": false,
 			  "results": [
 			    {
 			      "id": "search-0",
@@ -478,6 +480,8 @@ class ReaderBridgeProtocolTest {
 
 		val results = assertIs<ReaderBridgeEvent.SearchResults>(event)
 		assertEquals("alcatraz", results.query)
+		assertEquals(0.5, results.progress)
+		assertEquals(false, results.complete)
 		assertEquals(
 			ReaderSearchResult(
 				id = "search-0",
@@ -488,6 +492,26 @@ class ReaderBridgeProtocolTest {
 			),
 			results.results.single()
 		)
+	}
+
+	@Test
+	fun bridgeEventsDecodeAnxSearchProcessAsProgressAndCompletion() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "searchResults",
+			  "query": "alcatraz",
+			  "process": 1.0,
+			  "results": []
+			}
+			""".trimIndent()
+		)
+
+		val results = assertIs<ReaderBridgeEvent.SearchResults>(event)
+		assertEquals("alcatraz", results.query)
+		assertEquals(1.0, results.progress)
+		assertEquals(true, results.complete)
+		assertEquals(emptyList(), results.results)
 	}
 
 	@Test

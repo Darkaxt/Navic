@@ -780,14 +780,40 @@ class NavicReaderRuntime {
     if (removedAny) post({ type: 'footnoteClose' })
   }
 
+  postSearchResults({ query, results, progress = null, complete = false }) {
+    const normalizedProgress = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : null
+    post({
+      type: 'searchResults',
+      query,
+      results,
+      progress: normalizedProgress,
+      complete: Boolean(complete),
+    })
+  }
+
   async search(query) {
     if (!this.view || !query) return
     try {
       const results = []
+      let progress = 0
+      let completed = false
+      this.postSearchResults({ query, results, progress, complete: false })
       for await (const result of this.view.search?.({ query }) || []) {
-        results.push(...normalizeSearchResult(result, results.length, this.view))
+        if (result === 'done') {
+          completed = true
+          this.postSearchResults({ query, results, progress: 1, complete: true })
+        } else if (result?.progress != null) {
+          progress = Number(result.progress)
+          this.postSearchResults({ query, results, progress, complete: false })
+        } else {
+          const nextResults = normalizeSearchResult(result, results.length, this.view)
+          if (nextResults.length > 0) {
+            results.push(...nextResults)
+            this.postSearchResults({ query, results, progress, complete: false })
+          }
+        }
       }
-      post({ type: 'searchResults', query, results })
+      if (!completed) this.postSearchResults({ query, results, progress: 1, complete: true })
     } catch (error) {
       reportError(error, 'search_failed')
     }
@@ -796,7 +822,7 @@ class NavicReaderRuntime {
   clearSearch() {
     try {
       this.view?.clearSearch?.()
-      post({ type: 'searchResults', query: '', results: [] })
+      this.postSearchResults({ query: '', results: [], progress: null, complete: true })
     } catch (error) {
       reportError(error, 'clear_search_failed')
     }

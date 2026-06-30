@@ -350,7 +350,8 @@ private fun ReaderBridgeEvent.engineDebugLabel(): String =
 			"visibleTextRange(${textHref.engineUrlLabel()}, $visibleStart-$visibleEnd, source=${source.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive(${fragment.fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive(${fragmentId.orEmpty()})"
-		is ReaderBridgeEvent.SearchResults -> "searchResults(count=${results.size})"
+		is ReaderBridgeEvent.SearchResults ->
+			"searchResults(count=${results.size}, progress=${progress ?: ""}, complete=$complete)"
 		is ReaderBridgeEvent.Toc -> "toc(count=${items.size})"
 		is ReaderBridgeEvent.Error -> "error(code=${code.orEmpty()}, message=${message.take(120)})"
 	}

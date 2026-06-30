@@ -87,7 +87,10 @@ class ReaderCoordinatorTest {
 		val step = opened.search("  hobbit-hole  ")
 		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
 
-		assertEquals(ReaderSearchState(query = "hobbit-hole", active = true), step.coordinator.controller.state.search)
+		assertEquals(
+			ReaderSearchState(query = "hobbit-hole", active = true, progress = 0.0),
+			step.coordinator.controller.state.search
+		)
 		assertEquals(ReaderBridgeCommand.Search("hobbit-hole"), viewState.bridgeCommand())
 		assertEquals(1L, viewState.commandKey)
 	}
@@ -692,11 +695,11 @@ class ReaderCoordinatorTest {
 		)
 
 		val searched = opened.onFoliateHostEvent(
-			ReaderBridgeEvent.SearchResults(query = "hobbit", results = searchResults)
+			ReaderBridgeEvent.SearchResults(query = "hobbit", results = searchResults, progress = 0.5)
 		).coordinator
 		val overlay = searched.onFoliateHostEvent(ReaderBridgeEvent.OverlayFragmentActive(fragment)).coordinator
 
-		assertEquals(ReaderSearchState("hobbit", searchResults, active = true), searched.controller.state.search)
+		assertEquals(ReaderSearchState("hobbit", searchResults, active = true, progress = 0.5), searched.controller.state.search)
 		assertEquals(fragment, overlay.controller.state.activeMediaOverlay)
 		assertEquals("Chapter 1", overlay.controller.state.audioMetadataLabel)
 	}

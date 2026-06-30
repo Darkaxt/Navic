@@ -140,7 +140,9 @@ sealed class FoliateWebViewEngineAdapter(
 				ReaderEngineEvent.PaginationProfileStatusChanged(event.profile)
 			is ReaderBridgeEvent.SearchResults -> ReaderEngineEvent.SearchResults(
 				query = event.query,
-				results = event.results
+				results = event.results,
+				progress = event.progress,
+				complete = event.complete
 			)
 			is ReaderBridgeEvent.Toc -> ReaderEngineEvent.Toc(event.items)
 			is ReaderBridgeEvent.SelectionChanged -> ReaderEngineEvent.SelectionChanged(
