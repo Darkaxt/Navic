@@ -35,6 +35,7 @@ Recently closed:
 - **Stage 8D: Theta17 Release Validation Baseline** - installed and validated the published release package until the release-login boundary.
 - **Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh** - passed the paired Bindery sidecar plus audiobook matrix on `darkaxt.navic.readerdev` using `bindery-debug.env`.
 - **Stage 6E.4: Captured Page Curl Snapshot Preview** - completed after theta17 as a host/browser-harness-proven curl fidelity slice; physical acceptance remains covered by Stage 6F.
+- **Stage 8M: Whispersync Gate Release Identity Guard** - keeps the enjoyment validation script aligned with the current Android release identity.
 
 ## Stage 0: Plan And Spec Alignment
 
@@ -1685,3 +1686,26 @@ Closure:
 - [x] Run the focused host guard.
 - [x] Run a broader reader assets host guard and whitespace check before committing.
 - [x] Run `adb-reader-komikku-matrix.ps1 -OnlyRailEndpointChecks` on emulator/device when the next runtime validation batch is needed.
+
+### Stage 8M: Whispersync Gate Release Identity Guard
+
+Status: complete; validation-infrastructure guard only, no public release.
+
+Purpose:
+- Prevent the Stage 5C Whispersync enjoyment runner from silently validating against an older installed APK after a reader release bump.
+- Keep `scripts\adb-whispersync-enjoyment.ps1` default `ExpectedVersionName` tied to `androidApp/build.gradle.kts` so readerdev/release validation fails for stale package state instead of producing misleading probe evidence.
+
+Scope:
+- Modify: `scripts/adb-whispersync-enjoyment.ps1`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
+
+Results:
+- RED/HOST-FIRST: `ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateDefaultExpectedVersionTracksAndroidReleaseIdentity` failed while the Android app declared `v1.0.11-theta24` and the Whispersync enjoyment gate still defaulted to `v1.0.11-theta23`.
+- FIXED/HARNESS: `adb-whispersync-enjoyment.ps1` now defaults `ExpectedVersionName` to `v1.0.11-theta24`.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateDefaultExpectedVersionTracksAndroidReleaseIdentity" --console=plain` passed.
+
+Closure:
+- [x] Add a failing source guard for stale Whispersync enjoyment gate package identity.
+- [x] Update the runner default to the current Android release identity.
+- [x] Run the focused host guard.
+- [x] Run the broader contract host guard, PowerShell parser check, and `git diff --check` before committing.

@@ -400,6 +400,31 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun whispersyncEnjoymentGateDefaultExpectedVersionTracksAndroidReleaseIdentity() {
+		val androidBuild = root.resolve("androidApp/build.gradle.kts").readText()
+		val gateScript = root.resolve("scripts/adb-whispersync-enjoyment.ps1").readText()
+		val androidVersion = Regex("""versionName\s*=\s*"([^"]+)"""")
+			.find(androidBuild)
+			?.groupValues
+			?.get(1)
+			.orEmpty()
+		val defaultExpectedVersion = Regex("""\[string\]\s+\${'$'}ExpectedVersionName\s*=\s*"([^"]+)"""")
+			.find(gateScript)
+			?.groupValues
+			?.get(1)
+			.orEmpty()
+
+		assertTrue(
+			androidVersion.isNotBlank(),
+			"The Android app must declare a release versionName."
+		)
+		assertTrue(
+			defaultExpectedVersion == androidVersion,
+			"The Whispersync enjoyment gate default ExpectedVersionName must track the current Android release identity so validation cannot silently target an older APK."
+		)
+	}
+
+	@Test
 	fun komikkuMatrixCanPrepareNativeCoverStartStateBeforeCoverChecks() {
 		val matrixScript = root.resolve("scripts/adb-reader-komikku-matrix.ps1").readText()
 
