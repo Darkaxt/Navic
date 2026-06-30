@@ -8998,3 +8998,24 @@ Results:
 Next:
 - Run release-package reader and Whispersync checks only after `darkaxt.navic` is logged in on a physical device/emulator or an ignored `navic-release-login.env` is available.
 - Keep readerdev Whispersync enjoyment evidence labeled as current-source implementation proof, not public-package proof.
+
+## 2026-06-30 Stage 5C.5 Theta25 Current-Source Whispersync Enjoyment Rerun
+
+Scope:
+- Re-run the paired production Bindery book `3809` Whispersync enjoyment matrix after theta25 release packaging and generated-cover/artwork branch changes.
+- Keep this as `readerdev` current-source proof, not signed public-package proof.
+
+Command:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment
+```
+
+Results:
+- GREEN/READERDEV-BUILD: `androidApp:assembleReaderDev` completed successfully and installed `darkaxt.navic.readerdev` on `emulator-5554`.
+- GREEN/PAIRED-ROUTE: the launcher reached `publicationReady` for book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
+- GREEN/PROBES: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-120106\probe-results.jsonl` reports PASS for `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress`.
+
+Next:
+- Keep this as the current theta25 source-level Whispersync evidence.
+- Signed public-package Whispersync proof still requires `darkaxt.navic` to be logged in or an ignored `navic-release-login.env`.
