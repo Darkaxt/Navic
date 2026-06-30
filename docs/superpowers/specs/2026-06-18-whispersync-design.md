@@ -9,6 +9,7 @@ Active staged execution is tracked in `docs/superpowers/plans/2026-06-28-reader-
 - Anx Reader/Foliate remains authoritative for EPUB/PDF rendering, visible text range, locators, annotations, highlights, and bridge event semantics.
 - Bindery remains authoritative for Whispersync artifact discovery, sidecar URLs, audiobook identities, coverage, score, ASR alignment payloads, and optional generated fullscreen cover assets exposed through OPDS/API metadata.
 - Bindery-generated fullscreen cover URLs may require the same API-key headers as resource, sidecar, progress, and image proxy calls. Navic must therefore fetch those generated cover assets through the authenticated Bindery resource path and cache them into the reader-local asset-loader surface before passing them to the native Komikku cover renderer.
+- Generated reader-shell covers are a Bindery server concern, not a Navic runtime generation concern. Navic expects explicit generated cover assets or variants with stable source-cover hash / generator-version identity, chooses the closest aspect for the reader surface, and falls back to the EPUB/native cover when no generated asset is present.
 
 Whispersync must not replace the Komikku shell or bypass the Anx/Foliate behavior boundary. It consumes Bindery sidecars and feeds tested timeline state into the existing reader/audio controller path.
 
