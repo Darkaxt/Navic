@@ -164,7 +164,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 		val openPublication = runtimeText
-			.substringAfter("async openPublication({ url, mediaOverlayEnabled = false, externalShellCover = false, startLocator = null, settings = null }) {")
+			.substringAfter("async openPublication({")
 			.substringBefore("\n  close()")
 		val tapHandler = runtimeText
 			.substringAfter("attachReaderTapZoneGesture(target) {")
@@ -359,7 +359,7 @@ class ReaderRuntimeSettingsBridgeTest {
 			.substringBefore("const readerParagraphSpacingCss = settings =>")
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\n  applyReaderDirection")
+			.substringBefore("\nfunction currentRendererContainerPosition")
 		val inlineTypographyBlockTags = bridgeText
 			.substringAfter("const readerInlineTypographyBlockTags = new Set([")
 			.substringBefore("])")
@@ -514,7 +514,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		val bridgeText = readerBridgeText()
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\n  applyReaderDirection")
+			.substringBefore("\nfunction currentRendererContainerPosition")
 
 		assertContains(applyDocumentTheme, "themeStyle.textContent = readerContentCss(settings)")
 		assertFalse(
@@ -523,11 +523,16 @@ class ReaderRuntimeSettingsBridgeTest {
 		)
 		assertFalse(
 			applyDocumentTheme.contains("ensurePaperTextureLayer(doc)"),
-			"Paper texture must be a single reader-window layer, not injected into each publication document."
+			"Paper texture must not be injected as extra publication-document layer elements."
 		)
 		assertFalse(
 			applyDocumentTheme.contains("updatePaperTextureLayer"),
-			"Paper texture must not be applied to rendered EPUB elements."
+			"Paper texture must not use the old per-element/per-layer updater."
+		)
+		assertFalse(
+			applyDocumentTheme.contains("applyDocumentPaperTexture") ||
+				applyDocumentTheme.contains("updateReaderDocumentPaperTexture"),
+			"Loaded documents must not receive a second paper texture owner after theme normalization."
 		)
 	}
 
@@ -558,7 +563,7 @@ class ReaderRuntimeSettingsBridgeTest {
 		val bridgeText = readerBridgeText()
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\n  applyReaderDirection")
+			.substringBefore("\nfunction currentRendererContainerPosition")
 
 		assertContains(bridgeText, "readerNormalizeChapterOpeningMargins")
 		assertContains(bridgeText, "data-navic-chapter-opening-margin-capped")

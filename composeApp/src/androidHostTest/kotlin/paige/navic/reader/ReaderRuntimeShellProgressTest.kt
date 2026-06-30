@@ -914,6 +914,14 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(bridgeText, "this.updateReaderPageNumberLayer(pagePosition)")
 		assertContains(bridgeText, "font-family': 'var(--reader-page-number-font-family")
+		assertContains(bridgeText, "function readerPageNumberVisibleContentFontFamily()")
+		assertContains(bridgeText, "const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)")
+		assertFalse(
+			bridgeText.contains("this.readerPageNumberVisibleContentFontFamily()"),
+			"Page-number font probing must not call a module-local helper as a runtime method; that crashes the WebView before EPUB render."
+		)
+		assertContains(bridgeText, "if (visibleContentFont) return visibleContentFont")
+		assertContains(bridgeText, "doc.defaultView?.getComputedStyle?.(element)")
 		assertFalse(
 			readerScreenText.contains("ReaderPageNumberOverlay("),
 			"Page numbers must be drawn in the reader surface, not as a native Material overlay."

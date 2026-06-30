@@ -4274,6 +4274,9 @@ if (mode === 'css-smoke') {
         surfaceBorderOpacity: surfaceBorderStyle?.opacity || '',
         surfaceTextureAsset: document.body.dataset.navicSurfacePaperTextureAsset || '',
         surfaceBorderAsset: document.body.dataset.navicSurfaceBorderOverlayAsset || '',
+        documentTextureBackgroundImage: htmlStyle.backgroundImage || '',
+        documentTextureAsset: doc.documentElement.dataset.navicDocumentPaperTextureAsset || '',
+        documentBorderAsset: doc.documentElement.dataset.navicDocumentPaperBorderAsset || '',
       }
     })
     const trace = await page.evaluate(() => window.__navicReaderTrace || [])

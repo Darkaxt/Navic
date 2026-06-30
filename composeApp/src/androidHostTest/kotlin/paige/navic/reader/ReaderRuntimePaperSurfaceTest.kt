@@ -21,10 +21,10 @@ class ReaderRuntimePaperSurfaceTest {
 		textures.forEachIndexed { index, texture ->
 			val label = index + 1
 			assertTrue(texture.isFile, "Reader paper texture $label must be packaged")
-			assertTrue(texture.length() > 250_000, "Reader paper texture $label should be a real reader-sized image")
+			assertTrue(texture.length() > 1_500_000, "Reader paper texture $label should be a real 4K-class image")
 			val stats = texture.sampledLuminanceStats()
-			assertTrue(stats.width >= 1440, "Reader paper texture $label should preserve realistic pore scale")
-			assertTrue(stats.height >= 2000, "Reader paper texture $label should preserve realistic pore scale")
+			assertTrue(stats.width >= 2700, "Reader paper texture $label should preserve realistic pore scale on tablet screens")
+			assertTrue(stats.height >= 3800, "Reader paper texture $label should preserve realistic pore scale on tablet screens")
 			assertTrue(stats.average in 205.0..240.0, "Reader paper texture $label should stay neutral/light for theme tinting")
 			assertTrue(stats.standardDeviation >= 2.5, "Reader paper texture $label must contain visible paper fibers/pores")
 		}
@@ -113,28 +113,22 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
 
 		assertContains(textureOpacity, "case ReaderThemeSepia:")
-		assertContains(textureOpacity, "return '0.66'")
+		assertContains(textureOpacity, "return '0.18'")
 		assertContains(
 			textureOpacity,
-			"return '0.38'",
-			message = "Light-theme paper pores must stay visible enough for release screenshots instead of only passing an asset-presence check."
+			"return '0.12'",
+			message = "The root surface texture is the single full-window paper owner and must stay subtle."
 		)
 		assertFalse(
-			textureOpacity.contains("return '0.24'"),
-			"Default/light paper pores were too subtle at 0.24 and looked almost absent on-device."
+			textureOpacity.contains("return '0.66'"),
+			"The old high-opacity root overlay caused visible transition artifacts because it was animated independently from Foliate pages."
 		)
 		assertFalse(
-			textureOpacity.contains("return '0.14'"),
-			"Sepia paper pores were too subtle at 0.14 and looked absent on-device."
+			textureOpacity.contains("return '0.38'"),
+			"The old root overlay was too strong for a single full-window texture owner."
 		)
-		assertFalse(
-			textureOpacity.contains("return '0.42'"),
-			"Sepia paper pores were still too subtle at 0.42 with the old generated overlays."
-		)
-		assertFalse(
-			textureOpacity.contains("case ReaderThemeSepia:\n      return '0.24'"),
-			"Sepia paper pores were still too subtle at 0.24 on-device."
-		)
+		assertFalse(helperText.contains("readerDocumentPaperTextureBackground"))
+		assertFalse(helperText.contains("updateReaderDocumentPaperTexture"))
 		assertContains(helperText, "readerSurfacePageBorderOverlayBackgroundImage")
 		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant)")
 		assertContains(
@@ -158,7 +152,7 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\n\nconst isThemeBackgroundMediaElement")
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\n  applyReaderDirection")
+			.substringBefore("\nfunction currentRendererContainerPosition")
 
 		assertContains(paragraphSpacing, "const spacing = readerParagraphSpacingEm(settings)")
 		assertContains(paragraphSpacing, "doc?.querySelectorAll?.('p,[data-navic-paragraph-block=\"true\"]')")
@@ -178,9 +172,10 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderMirrorsPaperTextureOnTopLevelSurface() {
+	fun androidReaderUsesSingleFullSurfacePaperTextureOwner() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val indexText = readerAssetRoot().resolve("index.html").readText()
 		val surfaceTextureUpdater = bridgeText
 			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
 			.substringBefore("\n  applyReaderDirection")
@@ -205,14 +200,36 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "readerSurfacePaperTextureOpacity")
 		assertContains(bridgeText, "this.updateSurfacePaperTexture")
 		assertFalse(
+			bridgeText.contains("applySurfacePaperTextureToDocuments") ||
+				bridgeText.contains("this.applyDocumentPaperTexture(doc)") ||
+				bridgeText.contains("updateReaderDocumentPaperTexture"),
+			"Paper texture must have one owner. Injecting it into loaded EPUB documents duplicates opacity and desynchronizes transitions."
+		)
+		assertFalse(
 			surfaceTextureUpdater.contains("if (this.view?.isFixedLayout !== true)"),
 			"The paper texture must cover the reader window for EPUB and fixed-layout content."
 		)
 		assertContains(surfaceTextureUpdater, "readerRoot.dataset.navicSurfacePaperTextureAsset")
-		assertFalse(
-			surfaceLayerUpdater.contains("readerPaperTextureBackgroundImage(textureVariant, settings)"),
-			"The top-level surface texture must stay subtle and must not reuse the stacked document texture overlay."
+		assertContains(
+			surfaceLayerUpdater,
+			"readerPaperTextureBackgroundImage(textureVariant)",
+			message = "The top-level surface is the only paper texture owner and must cover the full reader viewport."
 		)
+		assertContains(indexText, "body > foliate-view")
+		assertContains(indexText, "z-index: 1;")
+		assertContains(indexText, "background: transparent;")
+		assertContains(
+			surfaceLayerUpdater,
+			"'z-index': '2147483630'",
+			message = "The single paper texture surface must sit above Foliate content but below chrome, so it covers the whole viewport without intercepting touches."
+		)
+		assertFalse(
+			surfaceLayerUpdater.contains("'z-index': '0'") ||
+				surfaceLayerUpdater.contains("'z-index': '2147483645'") ||
+				surfaceLayerUpdater.contains("'z-index': '2147483646'"),
+			"Paper texture must not be hidden behind the EPUB iframe or placed above reader chrome."
+		)
+		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
 		assertContains(applySettings, "this.renderSurfacePaperTextureLayers()")
 		assertContains(onLoad, "this.updateReaderPageNumberLayer()")
 		assertContains(
@@ -225,7 +242,7 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderKeepsPaperTextureAtReaderWindowSurfaceOnly() {
+	fun androidReaderKeepsPaperTextureSingleSurfaceWithoutDocumentStacking() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val documentThemeCss = bridgeText
@@ -233,23 +250,24 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("const readerContentCss = settings =>")
 		val applyDocumentTheme = bridgeText
 			.substringAfter("applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {")
-			.substringBefore("\n  applyReaderDirection")
+			.substringBefore("\nfunction currentRendererContainerPosition")
 		val surfaceTextureUpdater = bridgeText
 			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
 			.substringBefore("\n  applyReaderDirection")
 		val surfaceLayerUpdater = helperText
 			.substringAfter("export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) =>")
 			.substringBefore("\n\nexport const updateReaderSurfaceBorderOverlayLayer")
-
 		assertFalse(documentThemeCss.contains("html::before"), "Document pseudo-elements must not carry paper texture.")
 		assertFalse(documentThemeCss.contains("body::before"), "Document pseudo-elements must not carry paper texture.")
 		assertFalse(
 			documentThemeCss.contains("[data-navic-paper-texture-layer=\"true\"]"),
-			"Texture must not be injected into individual EPUB documents."
+			"Texture must not be injected as extra per-document layer elements."
 		)
 		assertFalse(
-			documentThemeCss.contains("background-image: var(--reader-paper-texture-image)"),
-			"Document backgrounds should stay solid theme colors; texture belongs to the reader window."
+			helperText.contains("updateReaderDocumentPaperTexture") ||
+				bridgeText.contains("applyDocumentPaperTexture") ||
+				bridgeText.contains("applySurfacePaperTextureToDocuments"),
+			"Loaded EPUB documents must not receive their own paper texture. One full-surface texture layer prevents double opacity and reinjection churn."
 		)
 		assertFalse(
 			bridgeText.contains("readerPaperTextureLayerCount(settings)"),
@@ -261,7 +279,9 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertFalse(applyDocumentTheme.contains("ensurePaperTextureLayer(doc)"))
 		assertFalse(applyDocumentTheme.contains("updatePaperTextureLayer"))
-		assertFalse(applyDocumentTheme.contains("'background-image': readerPaperTextureBackgroundImage"))
+		assertFalse(applyDocumentTheme.contains("PaperTextureLayer"))
+		assertFalse(applyDocumentTheme.contains("querySelectorAll('p"))
+		assertFalse(applyDocumentTheme.contains("querySelectorAll(\"p"))
 		assertContains(surfaceTextureUpdater, "ensureReaderSurfaceTextureLayer()")
 		assertContains(surfaceLayerUpdater, "position: 'fixed'")
 		assertContains(surfaceLayerUpdater, "const { width, height } = readerViewportSize()")
@@ -272,7 +292,7 @@ class ReaderRuntimePaperSurfaceTest {
 			surfaceLayerUpdater.contains("height: '100vh'"),
 			"Android WebView resolved 100vh to a zero-height fixed texture layer in the reader."
 		)
-		assertContains(surfaceLayerUpdater, "'background-image': textureUrl")
+		assertContains(surfaceLayerUpdater, "'background-image': readerPaperTextureBackgroundImage(textureVariant)")
 		assertContains(surfaceLayerUpdater, "opacity: readerSurfacePaperTextureOpacity(settings)")
 		assertContains(surfaceLayerUpdater, "'pointer-events': 'none'")
 	}
@@ -305,11 +325,17 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderSyncsSurfaceTextureWithPaginatorScrollDrags() {
+	fun androidReaderKeepsSingleRootTextureAboveContentWithoutDocumentMovement() {
 		val bridgeText = readerBridgeText()
 		val surfaceLayerUpdater = bridgeText
 			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings")
 			.substringBefore("\n\nconst isParagraphCandidate")
+		val renderSurfacePaperTextureLayers = bridgeText
+			.substringAfter("renderSurfacePaperTextureLayers() {")
+			.substringBefore("\nfunction surfacePaperTextureIndex")
+		val pageTurnSnapshot = bridgeText
+			.substringAfter("function pageDragCurlSnapshotHtml(doc) {")
+			.substringBefore("\n\nfunction pageDragCurlSnapshotKey")
 		val runtimeFields = bridgeText
 			.substringAfter("class NavicReaderRuntime {")
 			.substringBefore("\n  constructor()")
@@ -317,6 +343,10 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(bridgeText, "attachSurfacePaperTextureScrollSync")
 		assertContains(bridgeText, "syncSurfacePaperTextureScrollOffset")
 		assertContains(bridgeText, "surfacePaperTextureScrollOffset")
+		assertFalse(bridgeText.contains("applySurfacePaperTextureToDocuments"))
+		assertFalse(bridgeText.contains("applyDocumentPaperTexture"))
+		assertFalse(bridgeText.contains("updateReaderDocumentPaperTexture"))
+		assertFalse(bridgeText.contains("readerDocumentPaperTextureBackground"))
 		assertContains(bridgeText, "renderer.containerPosition")
 		assertContains(bridgeText, "renderer.addEventListener('scroll'")
 		assertContains(runtimeFields, "surfacePaperTextureBaseOffset")
@@ -336,33 +366,24 @@ class ReaderRuntimePaperSurfaceTest {
 			"const effectiveDirection = explicitDirection || (directionlessBoundaryLikeDelta ? fallbackDirection : null)",
 			message = "Texture movement needs the recent logical page-turn direction when renderer coordinates wrap at section boundaries."
 		)
-		assertContains(
-			bridgeText,
-			"const expectedDirectionSign = effectiveDirection === 'next' ? 1 : -1",
-			message = "Texture movement needs the effective logical turn sign for normal in-flight movement."
-		)
-		assertContains(bridgeText, "hasKnownDirection &&")
-		assertContains(
-			bridgeText,
-			"? expectedDirectionSign * Math.min(maxOffset, Math.abs(delta))",
-			message = "Known next/previous turns must still dominate normal in-flight renderer movement."
-		)
+		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
+		assertContains(renderSurfacePaperTextureLayers, "updateReaderSurfaceTextureLayer(")
+		assertContains(renderSurfacePaperTextureLayers, "null")
+		assertContains(pageTurnSnapshot, "background-color:var(--reader-background, transparent)!important;")
 		assertFalse(
-			bridgeText.contains("knownDirectionBoundaryWrap"),
-			"Known next/previous turns must keep the texture moving in the logical page-turn direction; Foliate coordinate wraps must not invert it."
-		)
-		assertContains(bridgeText, "? { x: 0, y: -signedOffset }")
-		assertContains(bridgeText, ": { x: -signedOffset, y: 0 }")
-		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(scrollOffset)")
-		assertContains(
-			surfaceLayerUpdater,
-			"const texturePosition = readerPaperTextureBackgroundPosition(scrollOffset)",
-			message = "The border/shadow overlay must use the same scroll offset as the paper texture in horizontal and vertical paging."
+			pageTurnSnapshot.contains("readerDocumentPaperTextureBackground") ||
+				pageTurnSnapshot.contains("navicDocumentPaperTexture"),
+			"Page curl snapshots must not clone a second texture owner into preview documents."
 		)
 		assertContains(
 			surfaceLayerUpdater,
-			"'background-position': [texturePosition, texturePosition, texturePosition].join(', ')",
-			message = "Every composited shadow overlay layer must move with the page texture instead of staying fixed during vertical page motion."
+			"const texturePosition = readerPaperTextureBackgroundPosition(null)",
+			message = "The single root surface texture must use one viewport-sized background position."
+		)
+		assertContains(
+			surfaceLayerUpdater,
+			"'z-index': '2147483630'",
+			message = "The paper texture must cover Foliate content without sitting above reader chrome."
 		)
 	}
 

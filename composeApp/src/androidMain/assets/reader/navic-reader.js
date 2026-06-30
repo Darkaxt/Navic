@@ -263,6 +263,7 @@ class NavicReaderRuntime {
   shellCoverBlobUrl = null
   shellCoverVisible = false
   externalShellCover = false
+  suppressWebShellCover = false
   shellCoverHideTimer = null
   pageNumberRefreshScheduled = false
   currentPagePosition = null
@@ -378,7 +379,14 @@ class NavicReaderRuntime {
     }
   }
 
-  async openPublication({ url, mediaOverlayEnabled = false, externalShellCover = false, startLocator = null, settings = null }) {
+  async openPublication({
+    url,
+    mediaOverlayEnabled = false,
+    externalShellCover = false,
+    suppressWebShellCover = false,
+    startLocator = null,
+    settings = null
+  }) {
     if (!url) {
       logError('openPublication:missing-url')
       post({ type: 'error', code: 'missing_url', message: 'Reader publication URL is required.' })
@@ -389,6 +397,7 @@ class NavicReaderRuntime {
     try {
       this.close()
       this.externalShellCover = Boolean(externalShellCover)
+      this.suppressWebShellCover = Boolean(suppressWebShellCover)
       this.publicationUrl = url
       this.lastRelocateDetail = null
       if (settings) this.readerSettings = settings
@@ -412,7 +421,7 @@ class NavicReaderRuntime {
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
       const shellCoverAllowed = this.view?.isFixedLayout !== true
-      const shellCoverUrl = this.externalShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null
+      const shellCoverUrl = this.externalShellCover || this.suppressWebShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null
       const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)
       const shouldStartAtShellCover = hasShellCoverSurface && this.startLocatorTargetsShellCover(startLocator)
       this.postToc()
@@ -560,6 +569,7 @@ class NavicReaderRuntime {
     this.originalBookDir = null
     this.publicationUrl = ''
     this.externalShellCover = false
+    this.suppressWebShellCover = false
     this.pageTurnPromise = null
     this.pageTurnQueue = []
     this.pageTurnInProgress = false

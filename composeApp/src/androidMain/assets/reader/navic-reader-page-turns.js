@@ -736,7 +736,7 @@ function pageDragCurlSnapshotHtml(doc) {
     'margin:0!important;',
     'padding:0!important;',
     'box-sizing:border-box!important;',
-    'background:transparent!important;',
+    'background-color:var(--reader-background, transparent)!important;',
     'pointer-events:none!important;',
     '}',
     '*,*::before,*::after{pointer-events:none!important;}',

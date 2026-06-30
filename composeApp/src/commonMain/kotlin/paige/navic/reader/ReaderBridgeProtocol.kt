@@ -171,6 +171,7 @@ sealed interface ReaderBridgeCommand {
 		val url: String,
 		val mediaOverlayEnabled: Boolean = false,
 		val externalShellCover: Boolean = false,
+		val suppressWebShellCover: Boolean = false,
 		val startLocator: ReaderLocator? = null,
 		val settings: ReaderSettings? = null
 	) : ReaderBridgeCommand {
@@ -182,6 +183,7 @@ sealed interface ReaderBridgeCommand {
 				put("url", url)
 				put("mediaOverlayEnabled", mediaOverlayEnabled)
 				put("externalShellCover", externalShellCover)
+				put("suppressWebShellCover", suppressWebShellCover)
 				startLocator?.let { put("startLocator", it.toJsonObject()) }
 				settings?.let { put("settings", it.toJsonObject()) }
 			}

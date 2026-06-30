@@ -19,7 +19,7 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 	val hasShellCover = !skipNativeShellCover && !shellCoverUrl.isNullOrBlank()
 	val routeStartLocator = ReaderLocator(
 		cfi = startCfi,
-		href = startHref,
+		href = startHref.normalizedReaderStartHref(),
 		progress = startProgress?.takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)
 	).takeIf { locator -> locator.cfi != null || locator.href != null || locator.progress != null }
 	val savedStartLocator = savedProgress?.toReaderStartLocatorForReader(
@@ -30,7 +30,7 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 	val fallbackStartLocator = bestReaderStartLocator(
 		remoteStartLocator = savedStartLocator,
 		localStartLocator = localStartLocator
-	)
+	)?.normalizedReaderStartLocator()
 	return ReaderEngineOpenRequest(
 		publication = ReaderPublicationIdentity(
 			bookId = bookId,
@@ -42,9 +42,19 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 		url = publicationUrl,
 		mediaOverlayEnabled = mediaOverlayEnabled,
 		externalShellCover = hasShellCover,
+		suppressWebShellCover = skipNativeShellCover,
 		startLocator = routeStartLocator ?: fallbackStartLocator,
 		settings = settings,
 		nativeShellCoverUrl = shellCoverUrl.takeIf { hasShellCover },
 		canReturnToShellCover = hasShellCover
 	)
 }
+
+private fun ReaderLocator.normalizedReaderStartLocator(): ReaderLocator =
+	copy(href = href.normalizedReaderStartHref())
+
+private fun String?.normalizedReaderStartHref(): String? =
+	this
+		?.trim()
+		?.replace('\\', '/')
+		?.takeIf { it.isNotEmpty() }

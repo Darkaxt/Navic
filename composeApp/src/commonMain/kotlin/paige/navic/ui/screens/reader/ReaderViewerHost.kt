@@ -83,6 +83,7 @@ private fun ReaderEngineContent(
 			kind = engineRenderer.kind,
 			mediaOverlayEnabled = engineRenderer.mediaOverlayEnabled,
 			externalShellCover = engineRenderer.externalShellCover,
+			suppressWebShellCover = engineRenderer.suppressWebShellCover,
 			settings = engineRenderer.settings,
 			startCfi = engineRenderer.startLocator?.cfi,
 			startHref = engineRenderer.startLocator?.href,

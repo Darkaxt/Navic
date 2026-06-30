@@ -60,7 +60,7 @@ class ReaderRuntimeImageLinkTest {
 	fun androidReaderShowsShellCoverBeforeSavedResumeLocationWithoutLoadingEpubCoverBehindIt() {
 		val bridgeText = readerBridgeText()
 		val openPublication = bridgeText
-			.substringAfter("async openPublication({ url, mediaOverlayEnabled = false, externalShellCover = false, startLocator = null, settings = null }) {")
+			.substringAfter("async openPublication({")
 			.substringBefore("\n  close()")
 
 		assertContains(bridgeText, "startLocatorTargetsShellCover")
@@ -71,7 +71,7 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			bridgeText,
-			"const shellCoverUrl = this.externalShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null",
+			"const shellCoverUrl = this.externalShellCover || this.suppressWebShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null",
 			message = "Reflowable EPUB opens should try to show the program-level cover, while fixed-layout/PDF opens must skip it."
 		)
 		assertContains(
@@ -90,7 +90,7 @@ class ReaderRuntimeImageLinkTest {
 		assertTrue(
 			openPublication.indexOf("const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)") <
 				openPublication.indexOf("const shouldStartAtShellCover = hasShellCoverSurface && this.startLocatorTargetsShellCover(startLocator)"),
-			"The cover-start decision must know whether a native or JS shell cover exists before suppressing EPUB cover navigation."
+			"The cover-start decision must know whether an actual JS shell cover exists before suppressing EPUB cover navigation."
 		)
 		assertTrue(
 			openPublication.indexOf("if (shouldStartAtShellCover)") <
@@ -121,19 +121,26 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 
 		assertContains(bridgeText, "externalShellCover = false")
+		assertContains(bridgeText, "suppressWebShellCover = false")
 		assertContains(bridgeText, "this.externalShellCover = Boolean(externalShellCover)")
+		assertContains(bridgeText, "this.suppressWebShellCover = Boolean(suppressWebShellCover)")
 		assertContains(
 			bridgeText,
-			"this.close()\n      this.externalShellCover = Boolean(externalShellCover)",
-			message = "The external shell-cover flag must be applied after close() resets runtime state."
+			"this.close()\n      this.externalShellCover = Boolean(externalShellCover)\n      this.suppressWebShellCover = Boolean(suppressWebShellCover)",
+			message = "The cover flags must be applied after close() resets runtime state."
 		)
 		assertContains(
 			bridgeText,
-			"const shellCoverUrl = this.externalShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null",
-			message = "Native cover mode and fixed-layout/PDF mode must not create a second WebView shell-cover layer underneath the Compose cover surface."
+			"const shellCoverUrl = this.externalShellCover || this.suppressWebShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null",
+			message = "Native cover mode, direct no-cover validation, and fixed-layout/PDF mode must not create a second WebView shell-cover layer."
 		)
 		assertContains(bridgeText, "const shellCoverAllowed = this.view?.isFixedLayout !== true")
 		assertContains(bridgeText, "const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)")
+		assertFalse(
+			bridgeText.contains("externalShellCover = hasShellCover || skipNativeShellCover") ||
+				bridgeText.contains("externalShellCover = suppressWebViewShellCover"),
+			"Readerdev direct validation must suppress the WebView shell cover without pretending a native cover exists."
+		)
 		assertContains(bridgeText, "} else if (hasShellCoverSurface) {")
 		assertContains(
 			bridgeText,

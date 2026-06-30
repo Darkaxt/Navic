@@ -124,7 +124,7 @@ class ReaderOpenRequestFactoryTest {
 	@Test
 	fun openRequestCanSkipNativeShellCoverForDirectReaderDevValidation() {
 		val request = hobbitReader(
-			startHref = "OEBPS/xhtml/Authorforeword.xhtml",
+			startHref = "OEBPS\\xhtml\\Authorforeword.xhtml",
 			skipNativeShellCover = true
 		).toReaderEngineOpenRequest(
 			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
@@ -134,6 +134,7 @@ class ReaderOpenRequestFactoryTest {
 
 		assertEquals(null, request.nativeShellCoverUrl)
 		assertEquals(false, request.externalShellCover)
+		assertEquals(true, request.suppressWebShellCover)
 		assertEquals(false, request.canReturnToShellCover)
 		assertEquals(ReaderLocator(href = "OEBPS/xhtml/Authorforeword.xhtml"), request.startLocator)
 	}

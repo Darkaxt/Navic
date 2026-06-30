@@ -819,10 +819,16 @@ export const assertRendererCssSmoke = result => {
   if (!String(result.surfaceBorderBackgroundImage || '').includes('page-border-overlay')) {
     throw new Error(`Expected surface border overlay background image; observed ${result.surfaceBorderBackgroundImage || 'unset'}`)
   }
+  if (String(result.documentTextureBackgroundImage || '').includes('paper-texture')) {
+    throw new Error(`Expected no document-owned paper texture background image; observed ${result.documentTextureBackgroundImage || 'unset'}`)
+  }
+  if (String(result.documentTextureAsset || '').includes('paper-texture')) {
+    throw new Error(`Expected no document paper texture asset dataset; observed ${result.documentTextureAsset || 'unset'}`)
+  }
   const textureOpacity = numericCss(result.surfaceTextureOpacity)
   const borderOpacity = numericCss(result.surfaceBorderOpacity)
-  if (textureOpacity == null || textureOpacity < 0.6) {
-    throw new Error(`Expected release-visible sepia paper texture opacity; observed ${result.surfaceTextureOpacity || 'unset'}`)
+  if (textureOpacity == null || textureOpacity <= 0 || textureOpacity > 0.3) {
+    throw new Error(`Expected subtle root margin texture opacity; observed ${result.surfaceTextureOpacity || 'unset'}`)
   }
   if (borderOpacity == null || borderOpacity <= 0) {
     throw new Error(`Expected visible border overlay opacity; observed ${result.surfaceBorderOpacity || 'unset'}`)

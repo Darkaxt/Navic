@@ -45,6 +45,7 @@ actual fun ReaderEngineWebViewHost(
 	kind: ReaderPublicationKind,
 	mediaOverlayEnabled: Boolean,
 	externalShellCover: Boolean,
+	suppressWebShellCover: Boolean,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
@@ -69,21 +70,40 @@ actual fun ReaderEngineWebViewHost(
 			.build()
 	}
 	val currentOnEvent by rememberUpdatedState(onEvent)
-	val publicationKey = remember(publicationUrl, mediaOverlayEnabled, externalShellCover, startCfi, startHref, startProgress) {
+	val publicationKey = remember(
+		publicationUrl,
+		mediaOverlayEnabled,
+		externalShellCover,
+		suppressWebShellCover,
+		startCfi,
+		startHref,
+		startProgress
+	) {
 		listOf(
 			publicationUrl,
 			mediaOverlayEnabled.toString(),
 			externalShellCover.toString(),
+			suppressWebShellCover.toString(),
 			startCfi.orEmpty(),
 			startHref.orEmpty(),
 			startProgress?.toString().orEmpty()
 		).joinToString("|")
 	}
-	val openCommand = remember(publicationUrl, mediaOverlayEnabled, externalShellCover, settings, startCfi, startHref, startProgress) {
+	val openCommand = remember(
+		publicationUrl,
+		mediaOverlayEnabled,
+		externalShellCover,
+		suppressWebShellCover,
+		settings,
+		startCfi,
+		startHref,
+		startProgress
+	) {
 		ReaderBridgeCommand.OpenPublication(
 			url = publicationUrl,
 			mediaOverlayEnabled = mediaOverlayEnabled,
 			externalShellCover = externalShellCover,
+			suppressWebShellCover = suppressWebShellCover,
 			startLocator = ReaderLocator(
 				cfi = startCfi,
 				href = startHref,

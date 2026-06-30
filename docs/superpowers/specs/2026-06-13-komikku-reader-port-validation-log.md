@@ -9242,3 +9242,37 @@ Results:
 Next:
 - Treat Font size propagation to EPUB body prose as readerdev/emulator-proven for current source.
 - Keep tablet/fold visual typography, margins, and settings density in Stage 6F physical/human acceptance; this run proves function, not final visual preference.
+
+## 2026-07-01 Stage 8X Single Paper Texture Owner
+
+Scope:
+- Fix the paper texture model after the double-application regression: one full-viewport root paper surface, no EPUB-document reinjection, no page-drag fallback copy.
+- Keep texture above Foliate content and below reader chrome/tap overlays.
+- Verify the prior page-number runtime crash stays fixed.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderUsesSingleFullSurfacePaperTextureOwner" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureSingleSurfaceWithoutDocumentStacking" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsSingleRootTextureAboveContentWithoutDocumentMovement" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest.androidReaderReinjectsCompleteContentCssIntoLoadedPublicationDocuments" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderUsesStableLocationTotalsForReflowablePageNumbers"
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -BookId 3809 -StartHref OEBPS/xhtml/Authorforeword.xhtml -SkipNativeShellCover -RequireReaderLaunch -Capture
+adb -s emulator-5554 shell input swipe 1040 980 180 980 450
+adb -s emulator-5554 shell input swipe 180 980 1040 980 450
+```
+
+Results:
+- GREEN/JS: syntax checks passed for changed runtime modules and reader harness modules.
+- GREEN/HOST-GUARD: focused single-owner paper texture, settings reinjection, and page-number crash guards passed.
+- GREEN/READERDEV-EMULATOR: current-source `darkaxt.navic.readerdev` rebuilt, installed, launched, and emitted `publicationReady`.
+- GREEN/SCREENSHOT: `captures\reader-dev\reader-dev-20260701-012924.png`, `tmp\texture-debug\single-owner-after-next.png`, and `tmp\texture-debug\single-owner-after-back.png` show readable pages with texture over the full reader surface.
+- GREEN/LOGS: `content-layout` now reports only root surface fields: `surfaceTextureLayer=present`, `surfaceTextureImage=set`, `surfaceTextureAsset=paper-textures/paper-texture-09.jpg`, and `surfaceBorderOverlayAsset=paper-textures/page-border-overlay-4.png`; no `documentTexture*` logs are emitted.
+- GREEN/PAGING: emulator swipes moved Author's Foreword page `6 / 151` to `7 / 151` and back to `6 / 151`; no `open_failed`, `TypeError`, or `ReferenceError` was captured.
+
+Next:
+- Treat duplicate paper texture ownership and the page-number runtime crash as readerdev/emulator-closed for current source.
+- Keep physical/release-device visual judgment open: texture strength and perceived transition feel still need the final human/device pass.

@@ -1015,6 +1015,8 @@ function passiveCommittedRelocationPosition(pagePosition, detail, reason) {
 }
 
 function readerPageNumberFontFamily(settings = this.readerSettings) {
+  const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)
+  if (visibleContentFont) return visibleContentFont
   const configured = readerEffectiveFontFamily(settings)
   if (configured) return configured
   for (const doc of this.contentDocuments()) {
@@ -1022,6 +1024,34 @@ function readerPageNumberFontFamily(settings = this.readerSettings) {
     if (fontFamily && fontFamily !== 'initial') return fontFamily
   }
   return 'Georgia, serif'
+}
+
+function readerPageNumberVisibleContentFontFamily() {
+  const selectors = [
+    'p',
+    'blockquote',
+    'li',
+    '[data-navic-paragraph-block="true"]',
+    'article',
+    'section',
+    'div',
+    'span',
+  ]
+  for (const doc of this.contentDocuments()) {
+    for (const selector of selectors) {
+      const elements = Array.from(doc?.body?.querySelectorAll?.(selector) || []).slice(0, 240)
+      for (const element of elements) {
+        const text = String(element?.textContent || '').replace(/\s+/g, ' ').trim()
+        if (text.length < 2) continue
+        const rect = element.getBoundingClientRect?.()
+        if (!rect || rect.width <= 0 || rect.height <= 0) continue
+        const style = doc.defaultView?.getComputedStyle?.(element)
+        const fontFamily = style?.fontFamily
+        if (fontFamily && fontFamily !== 'initial' && fontFamily !== 'inherit') return fontFamily
+      }
+    }
+  }
+  return ''
 }
 
 function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {

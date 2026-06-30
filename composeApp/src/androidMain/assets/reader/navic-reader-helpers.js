@@ -257,12 +257,12 @@ export const readerSurfacePaperTextureOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.66'
+      return '0.18'
     case 'dark':
     case 'dusk':
-      return '0.16'
+      return '0.08'
     default:
-      return '0.38'
+      return '0.12'
   }
 }
 
@@ -272,9 +272,9 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
       return '0'
     case 'dark':
     case 'dusk':
-      return '0.55'
+      return '0.16'
     default:
-      return '1'
+      return '0.22'
   }
 }
 
@@ -297,6 +297,9 @@ export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVarian
   const textureUrl = `url("${readerAssetUrl(borderOverlayVariant.asset)}")`
   return [textureUrl, textureUrl, textureUrl].join(', ')
 }
+
+export const readerPaperTextureBackgroundImage = textureVariant =>
+  textureVariant?.asset ? `url("${readerAssetUrl(textureVariant.asset)}")` : 'none'
 
 export const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
   const pageCount = pagePosition?.pageCount
@@ -451,7 +454,7 @@ export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings,
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const textureUrl = `url("${readerAssetUrl(textureVariant.asset)}")`
+  const texturePosition = readerPaperTextureBackgroundPosition(null)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -459,11 +462,11 @@ export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings,
     'min-width': widthPx,
     height: heightPx,
     'min-height': heightPx,
-    'z-index': '2147483645',
+    'z-index': '2147483630',
     'pointer-events': 'none',
-    'background-image': textureUrl,
+    'background-image': readerPaperTextureBackgroundImage(textureVariant),
     'background-size': 'cover',
-    'background-position': readerPaperTextureBackgroundPosition(scrollOffset),
+    'background-position': texturePosition,
     'background-repeat': 'no-repeat',
     'background-color': 'transparent',
     opacity: readerSurfacePaperTextureOpacity(settings),
@@ -478,7 +481,7 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlayVarian
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const texturePosition = readerPaperTextureBackgroundPosition(scrollOffset)
+  const texturePosition = readerPaperTextureBackgroundPosition(null)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -486,7 +489,7 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlayVarian
     'min-width': widthPx,
     height: heightPx,
     'min-height': heightPx,
-    'z-index': '2147483646',
+    'z-index': '2147483631',
     'pointer-events': 'none',
     'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant),
     'background-size': 'cover, cover, cover',

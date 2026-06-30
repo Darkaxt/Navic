@@ -19,6 +19,7 @@ class FoliateEpubEngineAdapterTest {
 		assertEquals(ReaderPublicationKind.Ebook, viewState.kind)
 		assertEquals(false, viewState.mediaOverlayEnabled)
 		assertEquals(true, viewState.externalShellCover)
+		assertEquals(false, viewState.suppressWebShellCover)
 		assertEquals("https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg", viewState.nativeShellCoverUrl)
 		assertEquals(true, viewState.canReturnToShellCover)
 		assertEquals(request.startLocator, viewState.startLocator)

@@ -426,7 +426,6 @@ function syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
 
 function renderSurfacePaperTextureLayers() {
   if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return
-  const scrollOffset = this.surfacePaperTextureScrollOffset()
   if (this.surfaceTextureVariant) {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
@@ -435,7 +434,7 @@ function renderSurfacePaperTextureLayers() {
       this.surfaceTextureLayer,
       this.surfaceTextureVariant,
       this.readerSettings,
-      scrollOffset
+      null
     )
   }
   if (this.surfaceBorderOverlayVariant) {
@@ -446,7 +445,7 @@ function renderSurfacePaperTextureLayers() {
       this.surfaceBorderOverlayLayer,
       this.surfaceBorderOverlayVariant,
       this.readerSettings,
-      scrollOffset
+      null
     )
   }
 }
@@ -462,14 +461,6 @@ function surfacePaperTextureIndex(detail = {}) {
 }
 
 function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
-  if (this.nativePageDragPreview) {
-    readerTrace('page-drag-preview:reset-on-texture-update', {
-      deltaX: Number(this.nativePageDragPreview?.deltaX) || 0,
-      deltaY: Number(this.nativePageDragPreview?.deltaY) || 0,
-    })
-    this.nativePageDragPreview = null
-    this.removePageDragPreviewLayer?.()
-  }
   const index = this.surfacePaperTextureIndex(detail)
   const section = this.view?.book?.sections?.[index]
   const textureDetail = pagePosition
