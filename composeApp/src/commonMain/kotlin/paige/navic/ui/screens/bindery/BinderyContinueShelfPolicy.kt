@@ -231,18 +231,53 @@ fun binderyContinueReadingItems(
 		.take(maxItems.coerceAtLeast(1))
 
 fun binderyContinueReadingLaunchDecision(
-	item: BinderyContinueReadingItem
+	item: BinderyContinueReadingItem,
+	opdsBaseUrl: String? = null,
+	fullscreenCoverTargetAspectRatio: Double? = null
 ): BinderyContinueReadingLaunchDecision {
 	val matches = item.row.whispersyncAudiobookLaunchMatches()
+	val ebookDestination = item.aspectAwareEbookDestination(
+		opdsBaseUrl = opdsBaseUrl,
+		fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
+	)
 	return if (matches.isEmpty()) {
-		BinderyContinueReadingLaunchDecision.OpenEbook(item.ebookDestination)
+		BinderyContinueReadingLaunchDecision.OpenEbook(ebookDestination)
 	} else {
 		BinderyContinueReadingLaunchDecision.AskWhispersync(
-			ebookDestination = item.ebookDestination,
+			ebookDestination = ebookDestination,
 			ebookRow = item.row,
 			matches = matches
 		)
 	}
+}
+
+fun binderyContinueReadingWhispersyncDestination(
+	decision: BinderyContinueReadingLaunchDecision.AskWhispersync,
+	match: BinderyWhispersyncMatch,
+	opdsBaseUrl: String,
+	fullscreenCoverTargetAspectRatio: Double? = null
+): Screen.Reader? =
+	binderyWhispersyncReaderDestinationForMatch(
+		ebookRow = decision.ebookRow,
+		match = match,
+		bookId = decision.ebookDestination.bookId,
+		bookTitle = decision.ebookDestination.title,
+		opdsBaseUrl = opdsBaseUrl,
+		fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
+	)
+
+private fun BinderyContinueReadingItem.aspectAwareEbookDestination(
+	opdsBaseUrl: String?,
+	fullscreenCoverTargetAspectRatio: Double?
+): Screen.Reader {
+	val baseUrl = opdsBaseUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return ebookDestination
+	return binderyReaderDestinationForVersionRow(
+		row = row,
+		bookId = bookId,
+		bookTitle = title,
+		opdsBaseUrl = baseUrl,
+		fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
+	) ?: ebookDestination
 }
 
 fun binderyWhispersyncCompanionProgressEntries(json: String): List<BinderyWhispersyncCompanionProgress> =

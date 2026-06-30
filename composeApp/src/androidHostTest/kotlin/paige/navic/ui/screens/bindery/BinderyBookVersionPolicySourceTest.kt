@@ -76,6 +76,40 @@ class BinderyBookVersionPolicySourceTest {
 		)
 	}
 
+	@Test
+	fun binderyHubContinueReadingPassesLayoutAspectToFullscreenCoverRoutes() {
+		val screen = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyHubScreen.kt")
+			.readText()
+
+		assertContains(
+			screen,
+			"BoxWithConstraints(",
+			message = "Continue-reading launches must derive fullscreen cover variants from the hub's visible reader surface."
+		)
+		assertContains(
+			screen,
+			"readerLaunchTargetAspectRatio",
+			message = "BinderyHubScreen must keep one layout-derived aspect value for continue-reading reader launches."
+		)
+		assertContains(
+			screen,
+			"binderyContinueReadingLaunchDecision(",
+			message = "The continue-reading click path must rebuild the reader destination with the current surface aspect."
+		)
+		assertContains(
+			screen,
+			"binderyContinueReadingWhispersyncDestination(",
+			message = "The continue-reading Whispersync sheet must use the same aspect-aware route policy as ebook-only launches."
+		)
+		assertEquals(
+			3,
+			Regex("fullscreenCoverTargetAspectRatio\\s*=\\s*readerLaunchTargetAspectRatio")
+				.findAll(screen)
+				.count(),
+			"Every Hub continue-reading launch path must pass the layout aspect into fullscreen cover variant selection."
+		)
+	}
+
 	private fun sourceFile(path: String): File =
 		listOf(
 			File("../$path"),

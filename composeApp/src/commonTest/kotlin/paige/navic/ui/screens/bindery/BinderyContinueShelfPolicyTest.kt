@@ -8,6 +8,8 @@ import paige.navic.domain.repositories.BinderyBookResource
 import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
+import paige.navic.domain.repositories.BinderyPropertyBag
+import paige.navic.domain.repositories.BinderyPropertyValue
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyReadingProgressKind
 import paige.navic.domain.repositories.BinderyResourceCatalog
@@ -526,7 +528,52 @@ class BinderyContinueShelfPolicyTest {
 		assertEquals(listOf("Andy Serkis", "Rob Inglis"), decision.matches.map { it.oppositeTitle })
 	}
 
-	private fun continueReadingItem(sync: BinderyBookSync): BinderyContinueReadingItem =
+	@Test
+	fun continueReadingLaunchRebuildsPlainEbookWithReaderSurfaceCoverAspect() {
+		val item = continueReadingItem(sync = BinderyBookSync(bookId = 3816), withFullscreenCoverVariants = true)
+
+		val decision = assertIs<BinderyContinueReadingLaunchDecision.OpenEbook>(
+			binderyContinueReadingLaunchDecision(
+				item = item,
+				opdsBaseUrl = "https://bindery.local/opds",
+				fullscreenCoverTargetAspectRatio = 1600.0 / 2560.0
+			)
+		)
+
+		assertEquals(
+			"https://bindery.local/opds/books/3816/covers/tablet.webp",
+			decision.destination.fullscreenCoverUrl
+		)
+	}
+
+	@Test
+	fun continueReadingWhispersyncDestinationUsesReaderSurfaceCoverAspect() {
+		val item = continueReadingItem(sync = hobbitSync(), withFullscreenCoverVariants = true)
+		val decision = assertIs<BinderyContinueReadingLaunchDecision.AskWhispersync>(
+			binderyContinueReadingLaunchDecision(
+				item = item,
+				opdsBaseUrl = "https://bindery.local/opds",
+				fullscreenCoverTargetAspectRatio = 1600.0 / 2560.0
+			)
+		)
+
+		val destination = binderyContinueReadingWhispersyncDestination(
+			decision = decision,
+			match = decision.matches.single(),
+			opdsBaseUrl = "https://bindery.local/opds",
+			fullscreenCoverTargetAspectRatio = 1600.0 / 2560.0
+		)
+
+		assertEquals(
+			"https://bindery.local/opds/books/3816/covers/tablet.webp",
+			destination?.fullscreenCoverUrl
+		)
+	}
+
+	private fun continueReadingItem(
+		sync: BinderyBookSync,
+		withFullscreenCoverVariants: Boolean = false
+	): BinderyContinueReadingItem =
 		binderyContinueReadingItems(
 			progresses = listOf(
 				BinderyReadingProgress(
@@ -537,7 +584,7 @@ class BinderyContinueShelfPolicyTest {
 				)
 			),
 			manifestsByBookId = mapOf(
-				"3816" to BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit")
+				"3816" to hobbitManifest(withFullscreenCoverVariants)
 			),
 			resourcesByBookId = mapOf("3816" to hobbitResources()),
 			audiobookVersionsByBookId = mapOf(
@@ -554,6 +601,38 @@ class BinderyContinueShelfPolicyTest {
 			languageFilter = "eng",
 			opdsBaseUrl = "https://bindery.local/opds"
 		).single()
+
+	private fun hobbitManifest(withFullscreenCoverVariants: Boolean = false): BinderyManifest =
+		if (!withFullscreenCoverVariants) {
+			BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit")
+		} else {
+			BinderyManifest(
+				id = "urn:bindery:book:3816",
+				title = "The Hobbit",
+				propertyValues = BinderyPropertyBag(
+					mapOf(
+						"fullscreenCoverVariants" to BinderyPropertyValue.ArrayValue(
+							listOf(
+								BinderyPropertyValue.ObjectValue(
+									mapOf(
+										"href" to BinderyPropertyValue.StringValue("/opds/books/3816/covers/phone.webp"),
+										"width" to BinderyPropertyValue.NumberValue(1080.0, "1080"),
+										"height" to BinderyPropertyValue.NumberValue(1920.0, "1920")
+									)
+								),
+								BinderyPropertyValue.ObjectValue(
+									mapOf(
+										"href" to BinderyPropertyValue.StringValue("/opds/books/3816/covers/tablet.webp"),
+										"width" to BinderyPropertyValue.NumberValue(1600.0, "1600"),
+										"height" to BinderyPropertyValue.NumberValue(2560.0, "2560")
+									)
+								)
+							)
+						)
+					)
+				)
+			)
+		}
 
 	private fun hobbitResources(): BinderyResourceCatalog =
 		BinderyResourceCatalog(

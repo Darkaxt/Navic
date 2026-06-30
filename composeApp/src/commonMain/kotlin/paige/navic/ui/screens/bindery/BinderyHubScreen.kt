@@ -2,7 +2,7 @@ package paige.navic.ui.screens.bindery
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -112,6 +112,9 @@ fun BinderyHubScreen() {
 	var continueWhispersyncPrompt by remember {
 		mutableStateOf<BinderyContinueReadingLaunchDecision.AskWhispersync?>(null)
 	}
+	var continueWhispersyncTargetAspectRatio by remember {
+		mutableStateOf<Double?>(null)
+	}
 	BackToTopScrollHandler(viewModel.gridState)
 
 	LaunchedEffect(
@@ -139,7 +142,11 @@ fun BinderyHubScreen() {
 			RootBottomBar(scrolled = scrollManager.isTriggered)
 		}
 	) { innerPadding ->
-		Box(Modifier.fillMaxSize()) {
+		BoxWithConstraints(Modifier.fillMaxSize()) {
+			val readerLaunchTargetAspectRatio = binderyFullscreenCoverTargetAspectRatio(
+				widthDp = maxWidth.value,
+				heightDp = maxHeight.value
+			)
 			PullToRefreshBox(
 				modifier = Modifier
 					.padding(top = innerPadding.calculateTopPadding())
@@ -210,11 +217,19 @@ fun BinderyHubScreen() {
 										},
 										onOpenReading = { item ->
 											platformContext.clickSound()
-											when (val decision = binderyContinueReadingLaunchDecision(item)) {
+											when (
+												val decision = binderyContinueReadingLaunchDecision(
+													item = item,
+													opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+													fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
+												)
+											) {
 												is BinderyContinueReadingLaunchDecision.OpenEbook ->
 													backStack.add(decision.destination)
-												is BinderyContinueReadingLaunchDecision.AskWhispersync ->
+												is BinderyContinueReadingLaunchDecision.AskWhispersync -> {
+													continueWhispersyncTargetAspectRatio = readerLaunchTargetAspectRatio
 													continueWhispersyncPrompt = decision
+												}
 											}
 										}
 									)
@@ -258,11 +273,19 @@ fun BinderyHubScreen() {
 										},
 										onOpenReading = { item ->
 											platformContext.clickSound()
-											when (val decision = binderyContinueReadingLaunchDecision(item)) {
+											when (
+												val decision = binderyContinueReadingLaunchDecision(
+													item = item,
+													opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+													fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
+												)
+											) {
 												is BinderyContinueReadingLaunchDecision.OpenEbook ->
 													backStack.add(decision.destination)
-												is BinderyContinueReadingLaunchDecision.AskWhispersync ->
+												is BinderyContinueReadingLaunchDecision.AskWhispersync -> {
+													continueWhispersyncTargetAspectRatio = readerLaunchTargetAspectRatio
 													continueWhispersyncPrompt = decision
+												}
 											}
 										}
 									)
@@ -302,11 +325,19 @@ fun BinderyHubScreen() {
 									},
 									onOpenReading = { item ->
 										platformContext.clickSound()
-										when (val decision = binderyContinueReadingLaunchDecision(item)) {
+										when (
+											val decision = binderyContinueReadingLaunchDecision(
+												item = item,
+												opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+												fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
+											)
+										) {
 											is BinderyContinueReadingLaunchDecision.OpenEbook ->
 												backStack.add(decision.destination)
-											is BinderyContinueReadingLaunchDecision.AskWhispersync ->
+											is BinderyContinueReadingLaunchDecision.AskWhispersync -> {
+												continueWhispersyncTargetAspectRatio = readerLaunchTargetAspectRatio
 												continueWhispersyncPrompt = decision
+											}
 										}
 									}
 								)
@@ -359,8 +390,13 @@ fun BinderyHubScreen() {
 		BinderyContinueWhispersyncSheet(
 			decision = prompt,
 			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-			onDismissRequest = { continueWhispersyncPrompt = null },
+			fullscreenCoverTargetAspectRatio = continueWhispersyncTargetAspectRatio,
+			onDismissRequest = {
+				continueWhispersyncTargetAspectRatio = null
+				continueWhispersyncPrompt = null
+			},
 			onOpenReader = { destination ->
+				continueWhispersyncTargetAspectRatio = null
 				continueWhispersyncPrompt = null
 				backStack.add(destination)
 			}
@@ -479,6 +515,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueR
 private fun BinderyContinueWhispersyncSheet(
 	decision: BinderyContinueReadingLaunchDecision.AskWhispersync,
 	opdsBaseUrl: String,
+	fullscreenCoverTargetAspectRatio: Double?,
 	onDismissRequest: () -> Unit,
 	onOpenReader: (Screen.Reader) -> Unit
 ) {
@@ -508,12 +545,11 @@ private fun BinderyContinueWhispersyncSheet(
 				Text("Ebook only")
 			}
 			decision.matches.forEach { match ->
-				val destination = binderyWhispersyncReaderDestinationForMatch(
-					ebookRow = decision.ebookRow,
+				val destination = binderyContinueReadingWhispersyncDestination(
+					decision = decision,
 					match = match,
-					bookId = decision.ebookDestination.bookId,
-					bookTitle = decision.ebookDestination.title,
-					opdsBaseUrl = opdsBaseUrl
+					opdsBaseUrl = opdsBaseUrl,
+					fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
 				)
 				Surface(
 					modifier = Modifier.fillMaxWidth(),

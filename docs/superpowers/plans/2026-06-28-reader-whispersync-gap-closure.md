@@ -1713,7 +1713,7 @@ Closure:
 
 ### Stage 8N: Bindery Generated Fullscreen Cover Variants
 
-Status: book-detail production launch aspect wiring complete; waiting for Bindery to expose real generated variant assets and for release/device validation.
+Status: book-detail and continue-reading production launch aspect wiring complete; waiting for Bindery to expose real generated variant assets and for release/device validation.
 
 Purpose:
 - Prepare Navic for Bindery-owned fullscreen/generated cover assets that may be emitted as multiple aspect-specific variants instead of a single `fullscreenCoverUrl`.
@@ -1731,11 +1731,16 @@ Results:
 - FIXED/COMPATIBILITY: normal ebook, readaloud, and Whispersync reader routes all use the same cover selection path; existing callers keep the current default behavior.
 - RED/HOST-FIRST: `BinderyBookVersionPolicySourceTest.binderyBookScreenPassesLayoutAspectToFullscreenCoverRoutes` first failed because `BinderyBookScreen.kt` did not derive any layout aspect from the actual screen surface and did not pass one to reader route builders.
 - FIXED/PRODUCTION: `BinderyBookScreen.kt` now derives `readerLaunchTargetAspectRatio` from `BoxWithConstraints`, passes it to every book-screen reader launch path, and keeps the parsing/selection policy isolated in `BinderyFullscreenCoverPolicy.kt` instead of bloating `BinderyBookVersionPolicy.kt`.
+- RED/HOST-FIRST: `BinderyContinueShelfPolicyTest.continueReadingLaunchRebuildsPlainEbookWithReaderSurfaceCoverAspect` first failed because continue-reading launch decisions had no `opdsBaseUrl` / `fullscreenCoverTargetAspectRatio` parameters.
+- RED/HOST-FIRST: `BinderyContinueShelfPolicyTest.continueReadingWhispersyncDestinationUsesReaderSurfaceCoverAspect` first failed because the continue-reading Whispersync sheet had no reusable aspect-aware route helper.
+- FIXED/CONTINUE-READING: `BinderyHubScreen.kt` now derives `readerLaunchTargetAspectRatio` from its own `BoxWithConstraints`, rebuilds continue-reading ebook launch decisions with that aspect, and carries the same aspect into the Whispersync choice sheet.
+- FIXED/POLICY: `binderyContinueReadingWhispersyncDestination(...)` now routes continue-reading paired launches through the same fullscreen-cover variant selection policy as ebook-only launches.
 - GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.ebookVersionRowsChooseClosestGeneratedFullscreenCoverVariantForReaderAspect"` passed.
 - GREEN/REGRESSION-HOST: the generated-variant test plus `ebookVersionRowsCarryBinderyFullscreenCoverRenditionToReaderRoutes` and `regularCoverImagesDoNotBecomeFullscreenShellCoverRoutes` passed.
 - GREEN/BROADER-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest"` passed.
 - GREEN/PRODUCTION-WIRING: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicySourceTest.binderyBookScreenPassesLayoutAspectToFullscreenCoverRoutes"` passed.
 - GREEN/AGGREGATE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed after the fullscreen-cover helper/policy split.
+- GREEN/CONTINUE-READING: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid --rerun-tasks` passed after the continue-reading aspect propagation slice.
 - GREEN/DIFF: `git diff --check` passed.
 
 Closure:
@@ -1744,4 +1749,5 @@ Closure:
 - [x] Reject ordinary cover images as fullscreen shell covers.
 - [x] Support closest-variant selection when the route layer knows the target aspect ratio.
 - [x] Wire an actual layout-derived target aspect into production reader launches when the book screen launch surface can provide it.
+- [x] Wire an actual layout-derived target aspect into continue-reading ebook and Whispersync reader launches when the hub surface can provide it.
 - [ ] End-to-end release/device validation once Bindery exposes real generated fullscreen cover variants for a book.
