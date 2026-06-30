@@ -8964,6 +8964,11 @@ Results:
 - GREEN/VERSION: after bumping Android metadata to `versionCode=453`, `versionName=v1.0.11-theta25`, `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25` passed.
 - GREEN/SUITE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed on the theta25 identity.
 - GREEN/DIFF: `git diff --check` passed before commit.
+- GREEN/PUSH: commit `574b733c` was pushed to `fork/codex/komikku-reader-backbone-eta64`.
+- GREEN/TAG: tag `v1.0.11-theta25` points to `574b733c5fdc3de722c7d114bd61a4c27e27be54`.
+- GREEN/GITHUB-ACTIONS: workflow run `28431144287` succeeded. Android APK build and GitHub release creation passed; iOS IPA jobs were skipped.
+- GREEN/ASSET: release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta25` published `Navic.apk` (`sha256:d45d660d0d0c671aa8cd79cc88aca712e70d3439902f6e26abb617a9f01b6289`, size `21069347` bytes).
 
 Next:
-- Commit, push, tag, and verify the public GitHub release artifact.
+- Use `v1.0.11-theta25` as the current public release baseline for device validation.
+- Keep Bindery generated-cover end-to-end validation open until production exposes generated/fullscreen cover metadata and assets.

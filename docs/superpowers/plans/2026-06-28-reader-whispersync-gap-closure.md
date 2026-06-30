@@ -1852,7 +1852,7 @@ Closure:
 
 ### Stage 8P: Theta25 Reader / Whispersync Release Candidate
 
-Status: in progress.
+Status: complete.
 
 Purpose:
 - Publish one coherent Android release candidate for the post-theta24 reader and Whispersync validation work instead of shipping isolated microfixes.
@@ -1877,6 +1877,10 @@ Results:
 - GREEN/VERSION: after the release identity bump, `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta25` passed.
 - GREEN/SUITE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed on the theta25 identity.
 - GREEN/DIFF: `git diff --check` passed before commit.
+- GREEN/PUSH: source commit `574b733c` was pushed to `fork/codex/komikku-reader-backbone-eta64`.
+- GREEN/TAG: tag `v1.0.11-theta25` points at `574b733c5fdc3de722c7d114bd61a4c27e27be54` locally and on `fork`.
+- GREEN/GITHUB-ACTIONS: tag push run `28431144287` completed successfully. `Build Android APK` passed, `Create GitHub Release` passed, and iOS IPA jobs were skipped.
+- GREEN/PUBLIC-RELEASE: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta25` published `Navic.apk` with `sha256:d45d660d0d0c671aa8cd79cc88aca712e70d3439902f6e26abb617a9f01b6289`.
 
 Closure:
 - [x] Confirm theta25 was not already tagged or released before this slice.
@@ -1884,6 +1888,6 @@ Closure:
 - [x] Bump Android release identity to `v1.0.11-theta25` / `versionCode=453`.
 - [x] Verify the Android version identity.
 - [x] Run the required Gradle and diff checks.
-- [ ] Commit and push the theta25 release identity.
-- [ ] Create and push the `v1.0.11-theta25` tag.
-- [ ] Verify GitHub Actions release publication.
+- [x] Commit and push the theta25 release identity.
+- [x] Create and push the `v1.0.11-theta25` tag.
+- [x] Verify GitHub Actions release publication.
