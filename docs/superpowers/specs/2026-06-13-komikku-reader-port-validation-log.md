@@ -9190,3 +9190,26 @@ Results:
 
 Next:
 - Add an explicit dismiss/clear-highlight probe. Stage 8U proves result tapping and `goToCfi`, not the `clearSearch` path after result navigation.
+
+## 2026-06-30 Stage 8V Search Clear / Highlight Dismiss Probe
+
+Scope:
+- Close the readerdev/emulator half of the remaining native search clear/highlight-dismiss gap from Stage 8T and Stage 8U.
+- Keep the stage as validation only. No reader runtime, UI, harness, Whispersync, texture, cover, or release packaging code changed.
+
+Command:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta25 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapDesc:Search,700|tapDescWhenPresent:Close,10,500|tapDesc:Search,700|text:alcatraz,600|tapDesc:Search,3500|tapDescWhenPresent:Close,10,500' -RequireReaderEngineCommand search,clearSearch -RequireNoReaderConsoleErrors -ArtifactDir captures\reader-bridge-probes\stage8v-search-clear-active-theta25-20260630
+```
+
+Results:
+- GREEN/READERDEV-EMULATOR: `captures\reader-bridge-probes\stage8v-search-clear-active-theta25-20260630` ran against installed `darkaxt.navic.readerdev` `v1.0.11-theta25`.
+- GREEN/SEARCH-ACTIVE: the run first cleared stale native search text, then searched `alcatraz`; the bridge emitted non-empty streamed results and completed at `searchResults(count=684, progress=1.0, complete=true)`.
+- GREEN/CLEAR: closing the native search dialog dispatched `clearSearch` and emitted empty `searchResults(count=0, progress=, complete=true)`.
+- GREEN/CONSOLE: `-RequireNoReaderConsoleErrors` passed; no `Reader console ERROR`, `IndexSizeError`, or `Could not render search annotation` warning was captured.
+- GREEN/COVER-STATE: `reader-native-cover-validation.txt` reports `nativeShellCoverVisible=False`, so the evidence is from a text-page reader route.
+
+Next:
+- Treat native search result tapping and active search dismissal as readerdev/emulator-proven.
+- Keep signed public-package proof separate from this implementation evidence.

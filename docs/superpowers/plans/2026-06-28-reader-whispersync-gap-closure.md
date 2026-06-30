@@ -2107,4 +2107,31 @@ Closure:
 - [x] Implement condition-based native-node tapping.
 - [x] Prove native search result rows expose stable ADB-visible semantics.
 - [x] Run readerdev/emulator result-tap validation on production book `3809`.
-- [ ] Add an explicit clear-search/highlight-dismiss validation probe.
+- [x] Add an explicit clear-search/highlight-dismiss validation probe.
+
+### Stage 8V: Search Clear / Highlight Dismiss Probe
+
+Status: complete for readerdev/emulator active-result dismissal proof; no public release.
+
+Purpose:
+- Close the remaining Stage 8T/8U native search validation gap by proving that dismissing the native search dialog clears the Foliate/WebView search state after a non-empty search result set exists.
+- Keep this as evidence only. No reader runtime, UI, Whispersync, cover, texture, or release packaging behavior changed in this stage.
+
+Command:
+
+```powershell
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta25 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapDesc:Search,700|tapDescWhenPresent:Close,10,500|tapDesc:Search,700|text:alcatraz,600|tapDesc:Search,3500|tapDescWhenPresent:Close,10,500' -RequireReaderEngineCommand search,clearSearch -RequireNoReaderConsoleErrors -ArtifactDir captures\reader-bridge-probes\stage8v-search-clear-active-theta25-20260630
+```
+
+Results:
+- GREEN/READERDEV-EMULATOR: `captures\reader-bridge-probes\stage8v-search-clear-active-theta25-20260630` ran against installed `darkaxt.navic.readerdev` `v1.0.11-theta25`.
+- GREEN/SEARCH-ACTIVE: after an initial stale-query cleanup, the native `alcatraz` search emitted streamed non-empty results and completed at `searchResults(count=684, progress=1.0, complete=true)`.
+- GREEN/CLEAR: closing the native search dialog dispatched `clearSearch` and emitted `searchResults(count=0, progress=, complete=true)`.
+- GREEN/CONSOLE: `-RequireNoReaderConsoleErrors` passed; no `Reader console ERROR`, `IndexSizeError`, or search-annotation warning was captured.
+- GREEN/COVER-STATE: `reader-native-cover-validation.txt` reports `nativeShellCoverVisible=False`, so this was text-page validation and not a shell-cover false positive.
+
+Closure:
+- [x] Prove active native search results exist before dismissing search.
+- [x] Prove native close dispatches `clearSearch`.
+- [x] Prove the bridge returns empty search results after dismissal.
+- [x] Keep the evidence scoped as readerdev/emulator proof, not signed release-package proof.

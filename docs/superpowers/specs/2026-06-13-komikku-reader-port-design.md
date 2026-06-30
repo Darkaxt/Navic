@@ -224,7 +224,7 @@ Reader search is host-verified:
 - `KomikkuReaderSearchDialog` is a dedicated overlay component routed from `ReaderRoot`, with result taps navigating through controller/coordinator commands.
 - Android/emulator validation now proves the readerdev direct-text route can bypass the native shell cover for validation only, open the native search UI, dispatch a real Foliate search for `alcatraz`, and receive complete search results without `Reader console ERROR` or the Foliate `IndexSizeError` from stale search-annotation CFI resolution.
 - Android/emulator validation also proves a native search-result row exposes stable accessibility semantics, can be tapped deterministically, and dispatches `goToCfi`; the final captured hierarchy shows the first result passage. This is result-tap evidence, not a broader history/location bridge claim.
-- Android/emulator validation is still required before treating search as release-ready: explicitly dismiss search after result navigation and confirm Foliate highlights clear.
+- Android/emulator validation also proves the explicit dismiss path: a stale-query cleanup followed by native `alcatraz` search produced non-empty streamed results, then closing the search dialog dispatched `clearSearch` and emitted empty `searchResults`. This closes readerdev/emulator search result tapping and active-result dismissal; signed release-device proof remains separate from this implementation evidence.
 
 Phase 6 is host-verified:
 
