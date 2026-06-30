@@ -1603,3 +1603,42 @@ Closure:
 - [x] Navic falls back to the existing EPUB cover extraction when the fullscreen asset is absent.
 - [x] Ordinary OPDS cover images are not promoted into fullscreen shell-cover routes.
 - [ ] End-to-end release/device validation once Bindery exposes a real generated fullscreen cover for a book.
+
+### Stage 8K: Theta24 Reader Release Candidate
+
+Status: source validation complete; GitHub release publication in progress.
+
+Purpose:
+- Publish a coherent Android release candidate for the completed post-theta23 reader work instead of holding the tablet composition and fullscreen-cover contract behind local-only commits.
+- Include Stage 8I Anx auto-column composition parity and Stage 8J Bindery fullscreen-cover route support.
+- Keep release evidence honest: this release is worth device validation for tablet page composition and future Bindery fullscreen-cover assets, but it does not by itself close the still-open release-device Whispersync enjoyment gate.
+
+Scope:
+- Modify: `androidApp/build.gradle.kts`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+
+Required checks:
+- Verify `fork/master` has no missing commits before the release bump.
+- Run `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta24` red before the bump and green after the bump.
+- Run `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain`.
+- Run focused host tests for the changed reader domains.
+- Run `git diff --check`.
+- Commit and push the theta24 source commit.
+- Create and push tag `v1.0.11-theta24`.
+- Verify the GitHub Actions Android release publishes `Navic.apk`.
+
+Results:
+- RED/VERSION-FIRST: `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta24` failed while `androidApp/build.gradle.kts` still declared `v1.0.11-theta23`.
+- GREEN/SYNC: `fork/master` had no missing commits; `git rev-list --left-right --count fork/master...HEAD` reported `0 18`.
+- GREEN/VERSION: after the release identity bump, `scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta24` passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta24 identity.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest.everyAnxStyleDimensionIsDocumentedInKnownGaps" --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --console=plain` passed.
+- GREEN/DIFF: `git diff --check` passed.
+
+Closure:
+- [x] Bump Android release identity to `v1.0.11-theta24` / `versionCode=452`.
+- [x] Verify the Android version identity.
+- [x] Run the required Gradle and diff checks.
+- [ ] Commit and push the theta24 release identity.
+- [ ] Create and push the `v1.0.11-theta24` tag.
+- [ ] Verify GitHub Actions release publication.
