@@ -29,6 +29,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BinderyBookVersionPolicyTest {
@@ -1416,6 +1417,13 @@ class BinderyBookVersionPolicyTest {
 				fullscreenCoverTargetAspectRatio = 1600.0 / 2560.0
 			)
 		)
+	}
+
+	@Test
+	fun fullscreenCoverTargetAspectRatioUsesPositiveReaderSurfaceDimensionsOnly() {
+		assertEquals(0.625, binderyFullscreenCoverTargetAspectRatio(widthDp = 1000f, heightDp = 1600f))
+		assertNull(binderyFullscreenCoverTargetAspectRatio(widthDp = 0f, heightDp = 1600f))
+		assertNull(binderyFullscreenCoverTargetAspectRatio(widthDp = 1000f, heightDp = 0f))
 	}
 
 	@Test

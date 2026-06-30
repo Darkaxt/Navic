@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BinderyBookVersionPolicySourceTest {
@@ -48,6 +49,30 @@ class BinderyBookVersionPolicySourceTest {
 		assertTrue(
 			!screen.contains("Text(\"Sidecar\")"),
 			"The match sheet action should be a reader launch action, not a raw sidecar placeholder."
+		)
+	}
+
+	@Test
+	fun binderyBookScreenPassesLayoutAspectToFullscreenCoverRoutes() {
+		val screen = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyBookScreen.kt")
+			.readText()
+
+		assertContains(
+			screen,
+			"BoxWithConstraints(",
+			message = "Bindery reader launches must derive the target cover aspect from the actual screen surface."
+		)
+		assertContains(
+			screen,
+			"readerLaunchTargetAspectRatio",
+			message = "BinderyBookScreen must keep one layout-derived aspect value for all reader launch paths."
+		)
+		assertEquals(
+			4,
+			Regex("fullscreenCoverTargetAspectRatio\\s*=\\s*readerLaunchTargetAspectRatio")
+				.findAll(screen)
+				.count(),
+			"Every BookScreen reader launch path must pass the layout aspect into fullscreen cover variant selection."
 		)
 	}
 

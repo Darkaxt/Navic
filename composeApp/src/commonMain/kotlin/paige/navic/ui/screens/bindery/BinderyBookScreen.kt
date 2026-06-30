@@ -3,6 +3,7 @@ package paige.navic.ui.screens.bindery
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -176,6 +177,12 @@ fun BinderyBookScreen(
 		)
 	}
 
+	BoxWithConstraints(Modifier.fillMaxSize()) {
+		val readerLaunchTargetAspectRatio = binderyFullscreenCoverTargetAspectRatio(
+			widthDp = maxWidth.value,
+			heightDp = maxHeight.value
+		)
+
 	Scaffold(
 		topBar = {
 			RootTopBar(
@@ -268,6 +275,7 @@ fun BinderyBookScreen(
 										bookTitle = data.manifest.title,
 										opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 										readaloudMediaOverlayEnabled = preferenceManager.readerMediaOverlayEnabled,
+										readerLaunchTargetAspectRatio = readerLaunchTargetAspectRatio,
 										onOpenReader = { destination ->
 											platformContext.clickSound()
 											backStack.add(destination)
@@ -310,6 +318,7 @@ fun BinderyBookScreen(
 										bookTitle = data.manifest.title,
 										opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 										readaloudMediaOverlayEnabled = preferenceManager.readerMediaOverlayEnabled,
+										readerLaunchTargetAspectRatio = readerLaunchTargetAspectRatio,
 										onOpenReader = { destination ->
 											platformContext.clickSound()
 											backStack.add(destination)
@@ -370,6 +379,7 @@ fun BinderyBookScreen(
 			bookId = bookId,
 			bookTitle = titleText,
 			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+			readerLaunchTargetAspectRatio = readerLaunchTargetAspectRatio,
 			onDismissRequest = { syncSheetRow = null },
 			onOpenReader = { destination ->
 				platformContext.clickSound()
@@ -385,6 +395,7 @@ fun BinderyBookScreen(
 			bookId = bookId,
 			bookTitle = titleText,
 			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+			readerLaunchTargetAspectRatio = readerLaunchTargetAspectRatio,
 			onDismissRequest = { syncLaunchSheetRow = null },
 			onOpenReader = { destination ->
 				platformContext.clickSound()
@@ -392,6 +403,7 @@ fun BinderyBookScreen(
 				backStack.add(destination)
 			}
 		)
+	}
 	}
 }
 
@@ -539,6 +551,7 @@ private fun BinderyBookVersionListItem(
 	bookTitle: String,
 	opdsBaseUrl: String,
 	readaloudMediaOverlayEnabled: Boolean,
+	readerLaunchTargetAspectRatio: Double?,
 	onOpenReader: (Screen.Reader) -> Unit,
 	onOpenAudiobook: (Screen.BinderyAudiobookPlayer) -> Unit,
 	onOpenAudiobookDetail: (Screen.BinderyAudiobookDetail) -> Unit,
@@ -553,7 +566,8 @@ private fun BinderyBookVersionListItem(
 		bookId = bookId,
 		bookTitle = bookTitle,
 		opdsBaseUrl = opdsBaseUrl,
-		readaloudMediaOverlayEnabled = readaloudMediaOverlayEnabled
+		readaloudMediaOverlayEnabled = readaloudMediaOverlayEnabled,
+		fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
 	)
 	val audiobookDestination = if (routingAction == BinderyBookVersionRoutingAction.OpenAudiobook) {
 		row.audiobookId?.let { audiobookId ->
@@ -660,7 +674,8 @@ private fun BinderyBookVersionListItem(
 										match = match,
 										bookId = bookId,
 										bookTitle = bookTitle,
-										opdsBaseUrl = opdsBaseUrl
+										opdsBaseUrl = opdsBaseUrl,
+										fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
 									)?.let(onOpenReader)
 								}
 							}
@@ -703,6 +718,7 @@ private fun BinderyWhispersyncMatchesSheet(
 	bookId: String,
 	bookTitle: String,
 	opdsBaseUrl: String,
+	readerLaunchTargetAspectRatio: Double?,
 	onDismissRequest: () -> Unit,
 	onOpenReader: (Screen.Reader) -> Unit
 ) {
@@ -731,7 +747,8 @@ private fun BinderyWhispersyncMatchesSheet(
 					match = match,
 					bookId = bookId,
 					bookTitle = bookTitle,
-					opdsBaseUrl = opdsBaseUrl
+					opdsBaseUrl = opdsBaseUrl,
+					fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
 				)
 				Surface(
 					modifier = Modifier.fillMaxWidth(),
@@ -791,6 +808,7 @@ private fun BinderyWhispersyncLaunchSheet(
 	bookId: String,
 	bookTitle: String,
 	opdsBaseUrl: String,
+	readerLaunchTargetAspectRatio: Double?,
 	onDismissRequest: () -> Unit,
 	onOpenReader: (Screen.Reader) -> Unit
 ) {
@@ -820,7 +838,8 @@ private fun BinderyWhispersyncLaunchSheet(
 					match = match,
 					bookId = bookId,
 					bookTitle = bookTitle,
-					opdsBaseUrl = opdsBaseUrl
+					opdsBaseUrl = opdsBaseUrl,
+					fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
 				)
 				Surface(
 					modifier = Modifier.fillMaxWidth(),
