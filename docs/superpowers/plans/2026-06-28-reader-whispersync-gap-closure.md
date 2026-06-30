@@ -167,7 +167,7 @@ Results:
 - GREEN/ANNOTATION-AND-LINKS: `stage2b-annotation-popup-close-readable` verified the native annotation popup and close route; `stage2b-external-link-prompt-readable` verified the native external-link prompt and close route.
 - GREEN/HISTORY: `stage2b-history-controls-readable` verified PushState/native history capsule display and close behavior.
 - GREEN/SEARCH-ROUTE: `stage2b-search-dialog-query-focused-field` dispatched the native search command, and delayed logs captured `searchResults(count=28029)` for the query `the`; `stage2b-search-result-navigation-readable` verified result navigation through `goToCfi` and `locationChanged`.
-- CAVEAT/SEARCH-UX: the search field did not auto-focus, so the deterministic script had to tap into the input before typing. The broad query `the` took roughly 78 seconds to return 28,029 results, which is a performance/UX follow-up rather than a Stage 2B route failure.
+- CAVEAT/SEARCH-UX: the search field did not auto-focus, so the deterministic script had to tap into the input before typing. Stage 2B.1 closes the focus/keyboard-submit half of this caveat; the broad query `the` still took roughly 78 seconds to return 28,029 results, which remains a performance/UX follow-up rather than a Stage 2B route failure.
 - CAVEAT/RELEASE-PACKAGE: `darkaxt.navic` theta15 remains login-blocked on the emulator. These are current-source readerdev proofs, not release-package interaction proofs.
 
 Closure:
@@ -178,6 +178,27 @@ Closure:
 - [x] Annotation and external-link prompts proven through native UI.
 - [x] Search dialog/result navigation proven through native UI, with UX/performance caveat recorded.
 - [x] Validation log updated and focused/full Gradle checks run for any code changes.
+
+### Stage 2B.1: Search Dialog Focus Ownership
+
+Status: complete.
+
+Scope:
+- Close the Stage 2B search UX caveat where deterministic automation had to tap into the search input before typing.
+- Keep the Komikku search overlay native and keyboard-ready when opened.
+- Map the keyboard Search action to the same `onSearchQuery(queryText)` command used by the icon and bottom action.
+
+Results:
+- RED/HOST-FIRST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSearchIsKomikkuOverlayAndControllerRouted"` failed at `ReaderRuntimeCommonChromeTest.kt:1084` until `ReaderSearchDialog.kt` exposed `FocusRequester`, `focusRequester(...)`, `requestFocus()`, `KeyboardActions(...)`, and `ImeAction.Search`.
+- FIXED/UI: `KomikkuReaderSearchDialog` now requests focus for the query `TextField` on open and submits the current query through the keyboard Search action without requiring a separate tap.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSearchIsKomikkuOverlayAndControllerRouted" --rerun-tasks` passed.
+- GREEN/AGGREGATE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed.
+- GREEN/DIFF: `git diff --check` passed.
+
+Closure:
+- [x] Search overlay owns initial text-field focus.
+- [x] Keyboard Search action routes through the same reader search command as the visible search button.
+- [x] Source guard prevents the overlay from regressing to a tap-before-type flow.
 
 ### Stage 2C: Short-Tap Content Hit Ownership
 

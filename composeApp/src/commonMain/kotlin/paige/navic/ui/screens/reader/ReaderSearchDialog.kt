@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -23,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,7 +33,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import paige.navic.icons.Icons
@@ -49,6 +55,11 @@ internal fun KomikkuReaderSearchDialog(
 ) {
 	var queryText by remember(search.query) { mutableStateOf(search.query) }
 	val listState = rememberLazyListState()
+	val searchFocusRequester = remember { FocusRequester() }
+
+	LaunchedEffect(Unit) {
+		searchFocusRequester.requestFocus()
+	}
 
 	BasicAlertDialog(onDismissRequest = onDismissSearch) {
 		Surface(
@@ -81,12 +92,16 @@ internal fun KomikkuReaderSearchDialog(
 					value = queryText,
 					onValueChange = { queryText = it },
 					singleLine = true,
+					keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+					keyboardActions = KeyboardActions(onSearch = { onSearchQuery(queryText) }),
 					trailingIcon = {
 						IconButton(onClick = { onSearchQuery(queryText) }) {
 							Icon(Icons.Outlined.Search, contentDescription = "Search")
 						}
 					},
-					modifier = Modifier.fillMaxWidth()
+					modifier = Modifier
+						.fillMaxWidth()
+						.focusRequester(searchFocusRequester)
 				)
 				when {
 					!search.active && queryText.isBlank() -> KomikkuSettingsDialogLine("Start typing to search")
