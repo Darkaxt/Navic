@@ -8785,3 +8785,33 @@ Results:
 Next:
 - Treat prepared-matrix launches as the required path for cover-boundary validations; do not use `-NoLaunch` from unknown emulator state for cover lifecycle claims.
 - Keep release-package reader/Whispersync proof separate until `darkaxt.navic` can reach a logged-in reader route.
+
+## 2026-06-30 Stage 8G Theta23 Release Publication
+
+Scope:
+- Publish the Stage 8F explicit-start/native-cover fix as a new public Android APK.
+- Keep the public release tag tied to the validated source commit.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta23
+.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain
+git tag v1.0.11-theta23 cb43a0b9
+git push fork codex/komikku-reader-backbone-eta64
+git push fork v1.0.11-theta23
+gh run watch 28411168672 --repo Darkaxt/Navic --exit-status
+gh release view v1.0.11-theta23 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt
+```
+
+Results:
+- GREEN/VERSION: Android metadata now reports `versionCode=451`, `versionName=v1.0.11-theta23`; `verify-android-release-version.ps1` passed.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta23 release identity.
+- GREEN/BRANCH-PUSH: commit `cb43a0b9` was pushed to `fork/codex/komikku-reader-backbone-eta64`.
+- GREEN/TAG: tag `v1.0.11-theta23` points at `cb43a0b9`.
+- GREEN/GITHUB-ACTIONS: run `28411168672` completed successfully. `Build Android APK` passed, `Verify release APK signing` passed, `Create GitHub Release` passed, and iOS IPA jobs were skipped.
+- GREEN/ASSET: release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta23` published `Navic.apk` (`sha256:7d37003372e0eac35ad5d56249b803420e8dbaff3cd670ae557c7998a520e515`, size `21052843` bytes).
+
+Next:
+- Use `v1.0.11-theta23` as the current public release baseline.
+- Deep release-package reader/Whispersync behavior still requires a logged-in release package or `navic-release-login.env`; readerdev remains the implementation validation path.

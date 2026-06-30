@@ -1485,3 +1485,22 @@ Closure:
 - [x] Run a real readerdev native-cover smoke against the paired Bindery route.
 - [x] Run the prepared Komikku matrix against the same concrete route.
 - [x] Record Stage 8F evidence in the validation log.
+
+### Stage 8G: Theta23 Public Release
+
+Status: complete.
+
+Purpose:
+- Publish Stage 8F as a public Android APK so device testing can validate the explicit-start/native-cover fix from a signed release.
+
+Results:
+- GREEN/VERSION: Android release identity is `v1.0.11-theta23` / `versionCode=451`.
+- GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta23 identity.
+- GREEN/GITHUB-ACTIONS: tag push run `28411168672` succeeded. Android release build and signing passed; iOS jobs were skipped.
+- GREEN/PUBLIC-RELEASE: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta23` published `Navic.apk` with `sha256:7d37003372e0eac35ad5d56249b803420e8dbaff3cd670ae557c7998a520e515`.
+
+Closure:
+- [x] Bump release identity from theta22 to theta23.
+- [x] Commit and push validated source commit `cb43a0b9`.
+- [x] Push tag `v1.0.11-theta23`.
+- [x] Verify GitHub Actions release publication.
