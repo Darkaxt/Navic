@@ -1606,7 +1606,7 @@ Closure:
 
 ### Stage 8K: Theta24 Reader Release Candidate
 
-Status: source validation complete; GitHub release publication in progress.
+Status: complete.
 
 Purpose:
 - Publish a coherent Android release candidate for the completed post-theta23 reader work instead of holding the tablet composition and fullscreen-cover contract behind local-only commits.
@@ -1634,11 +1634,14 @@ Results:
 - GREEN/SUITE: `.\gradlew.bat --no-daemon :composeApp:testAndroid --console=plain` passed on the theta24 identity.
 - GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest.everyAnxStyleDimensionIsDocumentedInKnownGaps" --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest" --console=plain` passed.
 - GREEN/DIFF: `git diff --check` passed.
+- GREEN/PUSH: source commit `3a0fe11f` was pushed to `fork/codex/komikku-reader-backbone-eta64`.
+- GREEN/GITHUB-ACTIONS: tag push run `28415104206` succeeded. Android release build and signing passed; iOS jobs were skipped.
+- GREEN/PUBLIC-RELEASE: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta24` published `Navic.apk` with `sha256:eb2c4e32d7da39e69cfb1bbaf622bc34bf57d111d0121e8f527c25f3d4bcdd9f`.
 
 Closure:
 - [x] Bump Android release identity to `v1.0.11-theta24` / `versionCode=452`.
 - [x] Verify the Android version identity.
 - [x] Run the required Gradle and diff checks.
-- [ ] Commit and push the theta24 release identity.
-- [ ] Create and push the `v1.0.11-theta24` tag.
-- [ ] Verify GitHub Actions release publication.
+- [x] Commit and push the theta24 release identity.
+- [x] Create and push the `v1.0.11-theta24` tag.
+- [x] Verify GitHub Actions release publication.
