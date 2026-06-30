@@ -12,6 +12,7 @@ import paige.navic.domain.repositories.BinderyFindingMapping
 import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
+import paige.navic.domain.repositories.BinderyPropertyBag
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
@@ -60,6 +61,32 @@ enum class BinderyWhispersyncAudiobookLaunchAction {
 	ChooseAudiobook
 }
 
+private val BinderyFullscreenCoverPropertyKeys = arrayOf(
+	"fullscreenCoverUrl",
+	"fullscreenCoverHref",
+	"fullscreenCover",
+	"extendedCoverUrl",
+	"extendedCoverHref",
+	"extendedCover",
+	"expandedCoverUrl",
+	"expandedCoverHref",
+	"expandedCover",
+	"shellCoverUrl",
+	"shellCoverHref",
+	"shellCover"
+)
+
+private val BinderyFullscreenCoverRelTokens = setOf(
+	"fullscreen-cover",
+	"cover-fullscreen",
+	"extended-cover",
+	"cover-extended",
+	"expanded-cover",
+	"cover-expanded",
+	"shell-cover",
+	"cover-shell"
+)
+
 internal fun binderyUiStableKey(
 	prefix: String,
 	index: Int,
@@ -86,6 +113,7 @@ data class BinderyBookVersionRow(
 	val audiobookId: String? = null,
 	val audiobookBookFileId: String? = null,
 	val ebookBookFileId: String? = null,
+	val fullscreenCoverHref: String? = null,
 	val syncMatches: List<BinderyWhispersyncMatch> = emptyList()
 )
 
@@ -155,7 +183,8 @@ fun binderyReaderDestinationForVersionRow(
 			resourceHref = row.id,
 			kind = ReaderPublicationKind.Readaloud,
 			publicationFormat = ReaderPublicationFormat.Epub,
-			mediaOverlayEnabled = readaloudMediaOverlayEnabled
+			mediaOverlayEnabled = readaloudMediaOverlayEnabled,
+			fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl)
 		)
 		BinderyBookVersionRoutingAction.OpenEbook -> Screen.Reader(
 			title = bookTitle,
@@ -164,7 +193,8 @@ fun binderyReaderDestinationForVersionRow(
 			resourceHref = row.id,
 			kind = ReaderPublicationKind.Ebook,
 			publicationFormat = row.format,
-			mediaOverlayEnabled = false
+			mediaOverlayEnabled = false,
+			fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl)
 		)
 		BinderyBookVersionRoutingAction.OpenAudiobook,
 		BinderyBookVersionRoutingAction.DownloadEbook -> null
@@ -211,6 +241,7 @@ fun binderyWhispersyncReaderDestinationForMatch(
 		kind = ReaderPublicationKind.Ebook,
 		publicationFormat = ebookRow.format,
 		mediaOverlayEnabled = false,
+		fullscreenCoverUrl = ebookRow.fullscreenCoverUrl(opdsBaseUrl),
 		whispersyncSidecarUrl = binderyEndpoint(opdsBaseUrl, sidecarHref),
 		whispersyncArtifactId = match.artifactId,
 		whispersyncAudiobookId = audiobookId,
@@ -249,6 +280,7 @@ fun binderyWhispersyncReaderDestinationForRowMatch(
 				kind = ReaderPublicationKind.Ebook,
 				publicationFormat = match.oppositeEbookFormat ?: ReaderPublicationFormat.Epub,
 				mediaOverlayEnabled = false,
+				fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl),
 				whispersyncSidecarUrl = binderyEndpoint(opdsBaseUrl, sidecarHref),
 				whispersyncArtifactId = match.artifactId,
 				whispersyncAudiobookId = audiobookId,
@@ -269,6 +301,7 @@ fun binderyBookVersionRows(
 	bookSync: BinderyBookSync? = null
 ): List<BinderyBookVersionRow> {
 	val language = normalizedBinderyAvailabilityLanguageFilter(languageFilter)
+	val fullscreenCoverHref = manifest?.fullscreenCoverHref()
 	val findingByBookFileId = findingsCatalog.findingCardsByBookFileId(
 		currentBookId = bookId ?: manifest?.id,
 		language = language
@@ -338,8 +371,49 @@ fun binderyBookVersionRows(
 
 	return (readaloudRows + audioRows + ebookRows)
 		.collapsedDuplicateVersionRows()
+		.withFullscreenCoverHref(fullscreenCoverHref)
 		.withWhispersyncMatches(bookSync ?: manifest?.sync)
 }
+
+private fun List<BinderyBookVersionRow>.withFullscreenCoverHref(
+	fullscreenCoverHref: String?
+): List<BinderyBookVersionRow> {
+	val href = fullscreenCoverHref?.trim()?.takeIf { it.isNotEmpty() } ?: return this
+	return map { row ->
+		if (row.fullscreenCoverHref.isNullOrBlank()) {
+			row.copy(fullscreenCoverHref = href)
+		} else {
+			row
+		}
+	}
+}
+
+private fun BinderyBookVersionRow.fullscreenCoverUrl(opdsBaseUrl: String): String? =
+	fullscreenCoverHref
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?.let { href -> binderyEndpoint(opdsBaseUrl, href) }
+
+private fun BinderyManifest.fullscreenCoverHref(): String? =
+	properties.firstNonBlankValue(*BinderyFullscreenCoverPropertyKeys) ?:
+		propertyValues.firstNonBlankString(*BinderyFullscreenCoverPropertyKeys) ?:
+		(images + links).firstNotNullOfOrNull(BinderyLink::fullscreenCoverHref)
+
+private fun BinderyLink.fullscreenCoverHref(): String? =
+	if (rel.any(String::isBinderyFullscreenCoverRel)) {
+		href.trim().takeIf { it.isNotEmpty() }
+	} else {
+		properties.firstNonBlankValue(*BinderyFullscreenCoverPropertyKeys)
+			?: propertyValues.firstNonBlankString(*BinderyFullscreenCoverPropertyKeys)
+	}
+
+private fun String.isBinderyFullscreenCoverRel(): Boolean {
+	val normalized = trim().lowercase().substringAfterLast('/')
+	return normalized in BinderyFullscreenCoverRelTokens
+}
+
+private fun BinderyPropertyBag.firstNonBlankString(vararg keys: String): String? =
+	keys.firstNotNullOfOrNull { key -> string(key)?.trim()?.takeIf { it.isNotEmpty() } }
 
 private fun List<BinderyBookVersionRow>.collapsedDuplicateVersionRows(): List<BinderyBookVersionRow> {
 	val rowsByVisibleIdentity = linkedMapOf<String, BinderyBookVersionRow>()

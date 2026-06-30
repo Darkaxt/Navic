@@ -155,7 +155,7 @@ As of the 2026-06-18 Anx parity guard check:
 - Phase 7 PDF and font-source parity guards are host-verified. `FoliatePdfAnxParityTest` guards the Anx/Foliate `makePDF(file)` contract, and `ReaderFontSourceAnxParityTest` guards local import, remote manifest, WebView-safe font URLs, deletion, and remote download progress/pause/resume/cancel routes.
 - Phase 8 adds the remaining Anx `BookStyle` adaptive composition dimensions: `maxColumnCount` and `columnThreshold`.
 - Phase 8 carries those fields through defaults, preference persistence, book overrides, bridge serialization, pagination profile metadata, Foliate paginator attributes, runtime layout, global Ebook settings, and the Komikku settings dialog.
-- Phase 8 preserves Anx settings semantics, but the Komikku shell resolves `maxColumnCount=0` before mounting Foliate: portrait phone/fold/tablet viewports remain a single folio page, while landscape/wide spread viewports can use two columns based on `columnThreshold`.
+- Phase 8I corrected the adaptive composition contract: Navic preserves Anx `maxColumnCount=0` as automatic mode and lets Foliate resolve columns from page size plus `columnThreshold`, instead of pre-collapsing portrait phone/fold/tablet viewports to a forced single column.
 - The focused Phase 4 host test passed on 2026-06-18 for bridge decode, engine mapping, and Anx source parity.
 - The reader host suite passed on 2026-06-18 after Phase 4.
 - The focused Phase 5 host test passed on 2026-06-18 for bridge decode, engine mapping, controller state, and Anx source parity.
@@ -234,7 +234,7 @@ Phase 8 is host- and emulator-verified:
 
 - The remaining Anx `BookStyle` adaptive composition fields now exist: `maxColumnCount` and `columnThreshold`.
 - Anx defaults are preserved: `maxColumnCount=0`, `columnThreshold=720`.
-- `maxColumnCount=0` is stored as Anx automatic mode, then resolved by the Komikku shell: portrait uses one column, and landscape/wide spread uses two columns when the viewport exceeds the configured threshold.
+- `maxColumnCount=0` is stored and forwarded as Anx automatic mode. Foliate remains responsible for resolving actual column count from the available page box and `columnThreshold`; Navic must not reintroduce a shell-side `readerEffectiveMaxColumnCount(...)` collapse.
 - The current dirty emulator matrix passed after rebuilding and installing the Phase 8 source, but visual/manual validation of the settings controls remains required before treating it as release-ready.
 
 ## Active Bugs And Open Risks
@@ -261,7 +261,7 @@ Priority 2:
 
 - Redesign the settings overlay density and scroll treatment around Komikku behavior.
 - Improve paper texture/border texture visibility and asset strategy.
-- Add Bindery-backed extended cover support once Bindery exposes a derived cover asset. The desired contract is one cached outpainted cover canvas per `bookId + coverHash + styleVersion`, with the original cover preserved in the center and only the surrounding area generated. Navic should consume this as an optional fullscreen cover-surface URL, not call an AI service at runtime.
+- Host-guarded on 2026-06-30: Navic can consume an optional Bindery-provided fullscreen cover-surface URL from manifest properties or image rels such as `fullscreen-cover`, prefer it for the native shell cover, and fall back to the EPUB-extracted cover when absent. Bindery still owns generating/caching the derived cover asset, ideally one cached outpainted cover canvas per `bookId + coverHash + styleVersion`, with the original cover preserved in the center and only the surrounding area generated. Navic must not call an AI service at runtime.
 - Host-closed on 2026-06-22: developer-only reader options, including WebView debugging and tap-zone visibility, live under Developer Options and Settings search routes them there instead of bloating the reader sheet.
 - Keep page-curl animation sample as low-priority follow-up: `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
 

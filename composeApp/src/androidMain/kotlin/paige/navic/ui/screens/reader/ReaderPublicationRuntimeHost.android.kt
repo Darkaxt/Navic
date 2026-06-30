@@ -34,19 +34,32 @@ actual fun ReaderPublicationRuntimeHost(
 	val currentOnPublicationReady by rememberUpdatedState(onPublicationReady)
 	val currentOnError by rememberUpdatedState(onError)
 
-	LaunchedEffect(reader.bookId, reader.resourceHref, reader.publicationUrl, reader.kind, reader.mediaOverlayEnabled) {
+	LaunchedEffect(
+		reader.bookId,
+		reader.resourceHref,
+		reader.publicationUrl,
+		reader.kind,
+		reader.mediaOverlayEnabled,
+		reader.fullscreenCoverUrl
+	) {
 		val savedProgress = repository.savedReaderProgressFor(reader)
+		val preferredShellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() }
 		val directUrl = reader.publicationUrl.takeIf {
 			reader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
 		}
 		if (directUrl != null) {
+			val directShellCoverLog = if (preferredShellCoverUrl == null) {
+				"shellCover=unavailable"
+			} else {
+				"shellCover=external"
+			}
 			Logger.i(
 				ReaderPublicationRuntimeLogTag,
 				"Reader publication uses direct url kind=${reader.kind} " +
 					"url=${readerPublicationResourceLogLabel(directUrl)} " +
-					"shellCover=unavailable"
+					directShellCoverLog
 			)
-			currentOnPublicationReady(directUrl, null, savedProgress)
+			currentOnPublicationReady(directUrl, preferredShellCoverUrl, savedProgress)
 			return@LaunchedEffect
 		}
 		Logger.i(
@@ -93,7 +106,8 @@ actual fun ReaderPublicationRuntimeHost(
 			resolved
 		}.fold(
 			onSuccess = { resolved ->
-				currentOnPublicationReady(resolved.publicationUrl, resolved.shellCoverUrl, savedProgress)
+				val shellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() } ?: resolved.shellCoverUrl
+				currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, savedProgress)
 			},
 			onFailure = { error ->
 				Logger.e(

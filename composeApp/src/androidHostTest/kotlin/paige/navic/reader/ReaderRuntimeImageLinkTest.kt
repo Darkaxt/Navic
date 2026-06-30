@@ -223,6 +223,27 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
+	fun androidPublicationRuntimePrefersBinderyFullscreenCoverOverExtractedEpubCover() {
+		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+
+		assertContains(
+			runtimeHostText,
+			"reader.fullscreenCoverUrl",
+			message = "Bindery's optional generated fullscreen cover URL must reach Android publication preparation."
+		)
+		assertContains(
+			runtimeHostText,
+			"val shellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() } ?: resolved.shellCoverUrl",
+			message = "The server-provided fullscreen cover must be preferred over EPUB-extracted fallback covers."
+		)
+		assertContains(
+			runtimeHostText,
+			"currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, savedProgress)",
+			message = "The preferred cover URL must be the one passed into the common reader open request."
+		)
+	}
+
+	@Test
 	fun androidReaderShellCoverUsesFullscreenBlackSurface() {
 		val bridgeText = readerBridgeText()
 		val shellCoverLayer = bridgeText

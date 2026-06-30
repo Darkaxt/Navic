@@ -7,7 +7,7 @@ Active staged execution is tracked in `docs/superpowers/plans/2026-06-28-reader-
 
 - Komikku remains authoritative for reader shell, overlays, tap ownership, progress rail behavior, and controller-first UI.
 - Anx Reader/Foliate remains authoritative for EPUB/PDF rendering, visible text range, locators, annotations, highlights, and bridge event semantics.
-- Bindery remains authoritative for Whispersync artifact discovery, sidecar URLs, audiobook identities, coverage, score, and ASR alignment payloads.
+- Bindery remains authoritative for Whispersync artifact discovery, sidecar URLs, audiobook identities, coverage, score, ASR alignment payloads, and optional generated fullscreen cover assets exposed through OPDS/API metadata.
 
 Whispersync must not replace the Komikku shell or bypass the Anx/Foliate behavior boundary. It consumes Bindery sidecars and feeds tested timeline state into the existing reader/audio controller path.
 

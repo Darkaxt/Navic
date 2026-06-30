@@ -1303,6 +1303,103 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun ebookVersionRowsCarryBinderyFullscreenCoverRenditionToReaderRoutes() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3816",
+			title = "The Hobbit",
+			images = listOf(
+				BinderyLink(
+					href = "/opds/books/3816/covers/fullscreen.webp",
+					type = "image/webp",
+					rel = listOf("cover", "fullscreen-cover")
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3816/resources/ebook-epub",
+					title = "The Hobbit EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					properties = mapOf("format" to "epub")
+				)
+			)
+		)
+
+		val row = binderyBookVersionRows(manifest, resources).single()
+
+		assertEquals("/opds/books/3816/covers/fullscreen.webp", row.fullscreenCoverHref)
+		assertEquals(
+			Screen.Reader(
+				title = "The Hobbit",
+				publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-epub",
+				bookId = "3816",
+				resourceHref = "/opds/books/3816/resources/ebook-epub",
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false,
+				fullscreenCoverUrl = "https://bindery.local/opds/books/3816/covers/fullscreen.webp"
+			),
+			binderyReaderDestinationForVersionRow(
+				row = row,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
+	fun regularCoverImagesDoNotBecomeFullscreenShellCoverRoutes() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3816",
+			title = "The Hobbit",
+			images = listOf(
+				BinderyLink(
+					href = "/opds/books/3816/cover.jpg",
+					type = "image/jpeg",
+					rel = listOf("cover")
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3816/resources/ebook-epub",
+					title = "The Hobbit EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					properties = mapOf("format" to "epub")
+				)
+			)
+		)
+
+		val row = binderyBookVersionRows(manifest, resources).single()
+
+		assertEquals(null, row.fullscreenCoverHref)
+		assertEquals(
+			Screen.Reader(
+				title = "The Hobbit",
+				publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-epub",
+				bookId = "3816",
+				resourceHref = "/opds/books/3816/resources/ebook-epub",
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false
+			),
+			binderyReaderDestinationForVersionRow(
+				row = row,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
 	fun unsupportedEbookRowsRouteToDownloadInsteadOfReader() {
 		val row = BinderyBookVersionRow(
 			id = "/opds/books/3816/resources/ebook-docx",

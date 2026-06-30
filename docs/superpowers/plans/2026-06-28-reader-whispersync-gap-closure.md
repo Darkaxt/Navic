@@ -1572,3 +1572,34 @@ Closure:
 - [x] Add a source guard that rejects reintroducing `readerEffectiveMaxColumnCount(...)`.
 - [x] Update the harness expectations so phone, tablet, and landscape auto mode remain delegated to Foliate.
 - [x] Validate the patched runtime in readerdev with WebView page-box evidence.
+
+### Stage 8J: Bindery Fullscreen Cover Contract
+
+Status: host validation complete; waiting on Bindery to expose real derived cover assets for end-to-end validation.
+
+Purpose:
+- Prepare Navic for Bindery-owned AI/outpainted fullscreen covers without moving generation, caching, or provider calls into the Android client.
+- Keep the existing native shell-cover reader surface as the only cover renderer: prefer an optional Bindery fullscreen cover URL when the manifest exposes one, otherwise keep the EPUB-extracted fallback.
+
+Contract:
+- Bindery may expose the derived cover through manifest properties such as `fullscreenCoverUrl`, `extendedCoverUrl`, `expandedCoverUrl`, or `shellCoverUrl`.
+- Bindery may also expose the derived cover as an OPDS image/link with rel tokens such as `fullscreen-cover`, `extended-cover`, `expanded-cover`, or `shell-cover`.
+- Regular `rel=cover` images remain ordinary covers and must not be treated as fullscreen shell covers.
+- Navic does not call an AI service at runtime.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.ebookVersionRowsCarryBinderyFullscreenCoverRenditionToReaderRoutes" --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.regularCoverImagesDoNotBecomeFullscreenShellCoverRoutes" --tests "paige.navic.reader.ReaderRuntimeImageLinkTest.androidPublicationRuntimePrefersBinderyFullscreenCoverOverExtractedEpubCover"
+```
+
+Results:
+- RED/HOST-FIRST: the focused route/runtime tests first failed because `BinderyBookVersionRow.fullscreenCoverHref` and `Screen.Reader.fullscreenCoverUrl` did not exist.
+- GREEN/HOST: the same focused test set passed after adding route propagation and Android runtime preference.
+- IMPLEMENTED: `binderyBookVersionRows(...)` now attaches the manifest fullscreen cover href to ebook/readaloud/audiobook rows, reader destinations carry the absolute `fullscreenCoverUrl`, and `ReaderPublicationRuntimeHost.android.kt` prefers that URL over `resolved.shellCoverUrl`.
+
+Closure:
+- [x] Navic can consume a Bindery-provided fullscreen shell-cover URL.
+- [x] Navic falls back to the existing EPUB cover extraction when the fullscreen asset is absent.
+- [x] Ordinary OPDS cover images are not promoted into fullscreen shell-cover routes.
+- [ ] End-to-end release/device validation once Bindery exposes a real generated fullscreen cover for a book.
