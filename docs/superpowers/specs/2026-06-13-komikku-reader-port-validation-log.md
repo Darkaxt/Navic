@@ -9371,3 +9371,36 @@ Results:
 Next:
 - Treat readerdev/emulator validation as closed for the Android/system back regression.
 - Publish a clean release candidate and repeat the same two-step back sequence on the physical install.
+
+## 2026-07-01 Stage 9B Theta27 Public Release Candidate
+
+Scope:
+- Publish the Android/system back ownership fix as a public Android release candidate.
+- Keep this release focused on the navigation regression: content page -> native cover -> Bindery book detail route, instead of Android home.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta27
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+git commit -m "Fix reader system back ownership"
+git tag v1.0.11-theta27
+git push fork codex/komikku-reader-backbone-eta64
+git push fork v1.0.11-theta27
+gh run view 28482884279 --repo Darkaxt/Navic --json status,conclusion,jobs
+gh release view v1.0.11-theta27 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease
+```
+
+Results:
+- GREEN/VERSION: `androidApp/build.gradle.kts` now reports `versionName = "v1.0.11-theta27"` and `versionCode = 455`; release version verification passed.
+- GREEN/LOCAL-GATES: `:composeApp:testAndroid` and `git diff --check` passed before release.
+- GREEN/GIT: committed `e7ed772d Fix reader system back ownership` and tagged `v1.0.11-theta27`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28482884279` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` all succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA` and `Attach iOS IPA to GitHub Release` were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta27` contains `Navic.apk` (`33,589,003` bytes, `sha256:92ae15ff18f802bd5b4c8a7fe610b17c60babda808b1dc49e6af718d972c3097`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta27` and verify Android/system back from an EPUB content page returns first to the native cover, then to the Bindery book/detail or book selection route.
+- Keep the currently reported visual/layout failures open: page-number font mismatch, invisible border gradients, texture transition swapping, and landscape spread/narrow-column layout.
