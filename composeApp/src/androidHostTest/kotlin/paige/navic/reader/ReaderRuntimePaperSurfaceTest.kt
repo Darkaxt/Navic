@@ -116,8 +116,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(textureOpacity, "return '0.66'")
 		assertContains(
 			textureOpacity,
-			"return '0.24'",
+			"return '0.38'",
 			message = "Light-theme paper pores must stay visible enough for release screenshots instead of only passing an asset-presence check."
+		)
+		assertFalse(
+			textureOpacity.contains("return '0.24'"),
+			"Default/light paper pores were too subtle at 0.24 and looked almost absent on-device."
 		)
 		assertFalse(
 			textureOpacity.contains("return '0.14'"),

@@ -993,6 +993,11 @@ Guards and evidence:
 - GREEN/WHITESPACE: `git diff --check` passed.
 - PARTIAL/HARNESS: `css-smoke` produced `surfaceTextureOpacity=0.66` and a three-layer `page-border-overlay` background image, but the full harness still exits later on an unrelated native paragraph hit-test assertion.
 - GREEN/READERDEV: current-source `darkaxt.navic.readerdev` installed and launched on `emulator-5554`; `captures\reader-smoke\stage6d2-paper-strength-readable\screen.png` shows the paper surface and edge degradation visibly present on a readable EPUB page.
+- RED/HOST-FIRST-FOLLOWUP: on 2026-06-30 the same guard was tightened because light/default theme still returned `0.24`, which matched the user's "almost non existent" paper texture report for non-sepia pages.
+- GREEN/HOST-FOLLOWUP: `ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme` passed after raising default/light paper texture opacity to `0.38` while leaving sepia `0.66`, black `0`, dark/dusk `0.16`, texture identity, page numbering, tap ownership, drag preview, and Whispersync behavior untouched.
+- GREEN/HOST-PAPER-FOLLOWUP: full `ReaderRuntimePaperSurfaceTest` passed.
+- GREEN/HARNESS-FOLLOWUP: `node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic` passed, confirming the opacity-only change did not alter the texture motion contract.
+- GREEN/JS-FOLLOWUP: `node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js` passed.
 
 Required before closure:
 - [x] Add and verify a failing source guard for paper/border visibility strength.

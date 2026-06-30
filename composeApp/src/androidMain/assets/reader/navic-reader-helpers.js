@@ -262,7 +262,7 @@ export const readerSurfacePaperTextureOpacity = settings => {
     case 'dusk':
       return '0.16'
     default:
-      return '0.24'
+      return '0.38'
   }
 }
 
