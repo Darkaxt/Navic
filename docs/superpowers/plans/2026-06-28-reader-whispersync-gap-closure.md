@@ -2077,4 +2077,34 @@ Closure:
 - [x] Add a failing open-request guard for validation-only shell-cover skipping.
 - [x] Patch the minimum runtime search annotation failure path.
 - [x] Validate on a real EPUB in readerdev/emulator.
-- [ ] Add a follow-up search-result-tap and dismiss/clear-highlight probe.
+- [x] Add a follow-up search-result-tap probe.
+- [ ] Add a follow-up dismiss/clear-highlight probe.
+
+### Stage 8U: Search Result Tap Probe Stabilization
+
+Status: complete for readerdev/emulator result-tap proof; no public release.
+
+Purpose:
+- Close the Stage 8T result-tap validation gap without treating search as release-ready.
+- Make native search result rows deterministic for ADB automation by assigning stable `Search result N` semantics.
+- Add a condition-based ADB action for native nodes that are produced asynchronously after a reader command.
+
+Scope:
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSearchDialog.kt`
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: focused host/source guards and validation docs.
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe` failed before `tapDescWhenPresent:` existed in `adb-reader-smoke.ps1`.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` now supports `tapDescWhenPresent:value,maxAttempts,waitMs`, polling the native hierarchy for a node before tapping it.
+- FIXED/UI-AUTOMATION: `KomikkuReaderSearchDialog` now renders result rows with `itemsIndexed` and stable `Search result N` content descriptions.
+- GREEN/HOST-GUARD: focused smoke-harness and search-dialog host guards passed.
+- GREEN/READERDEV-EMULATOR: `captures\reader-bridge-probes\stage8u-search-result-tap-current-theta25-20260630b` dispatched `search` and `goToCfi` on `darkaxt.navic.readerdev` `v1.0.11-theta25`, and ended on the first result passage.
+- GREEN/CONSOLE: the same smoke run passed `-RequireNoReaderConsoleErrors`.
+
+Closure:
+- [x] Prove the missing harness action with a red host guard.
+- [x] Implement condition-based native-node tapping.
+- [x] Prove native search result rows expose stable ADB-visible semantics.
+- [x] Run readerdev/emulator result-tap validation on production book `3809`.
+- [ ] Add an explicit clear-search/highlight-dismiss validation probe.

@@ -846,6 +846,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(postProbeGestureBlock, "foreach (\$postProbeActionEntry in \$PostProbeAction)")
 		assertContains(postProbeGestureBlock, "tapFraction:")
 		assertContains(postProbeGestureBlock, "tapFractionUntilDescPresent:")
+		assertContains(postProbeGestureBlock, "tapDescWhenPresent:")
 		assertContains(postProbeGestureBlock, "tapText:")
 		assertContains(postProbeGestureBlock, "tapDesc:")
 		assertContains(postProbeGestureBlock, "tapDescIfPresent:")
@@ -854,6 +855,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(postProbeGestureBlock, "Get-AdbUiNodeFractionPoint")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeAction")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeActionIfPresent")
+		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeActionWhenPresent")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeFractionAction")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeTapFractionUntilDescPresent")
 		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"text\", \$text)")
@@ -863,6 +865,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
 		assertContains(scriptText, "required reader log '\$requiredReaderLog' was not captured")
 		assertContains(scriptText, "Use tapDescFraction:value,xFraction,yFraction or tapDescFraction:value,xFraction,yFraction,waitMs.")
+		assertContains(scriptText, "Use tapDescWhenPresent:value,maxAttempts,waitMs.")
 	}
 
 	@Test

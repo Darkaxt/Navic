@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -38,6 +38,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Close
@@ -113,12 +115,13 @@ internal fun KomikkuReaderSearchDialog(
 						contentPadding = PaddingValues(vertical = 10.dp),
 						verticalArrangement = Arrangement.spacedBy(4.dp)
 					) {
-						items(
+						itemsIndexed(
 							items = search.results,
-							key = { result -> result.id }
-						) { result ->
+							key = { _, result -> result.id }
+						) { index, result ->
 							KomikkuReaderSearchResultRow(
 								result = result,
+								contentDescription = searchResultContentDescription(index),
 								onClick = { onNavigateToSearchResult(result) }
 							)
 						}
@@ -148,15 +151,22 @@ private fun searchProgressLabel(search: ReaderSearchState): String {
 	return percent?.let { "Searching... $it%" } ?: "Searching..."
 }
 
+private fun searchResultContentDescription(index: Int): String =
+	"Search result ${index + 1}"
+
 @Composable
 private fun KomikkuReaderSearchResultRow(
 	result: ReaderSearchResult,
+	contentDescription: String,
 	onClick: () -> Unit
 ) {
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
 			.clip(RoundedCornerShape(14.dp))
+			.semantics {
+				this.contentDescription = contentDescription
+			}
 			.clickable(onClick = onClick)
 			.padding(horizontal = 12.dp, vertical = 10.dp),
 		verticalArrangement = Arrangement.spacedBy(4.dp)

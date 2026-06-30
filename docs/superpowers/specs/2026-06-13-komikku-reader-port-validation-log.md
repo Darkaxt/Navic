@@ -9162,3 +9162,31 @@ Results:
 Next:
 - Keep result-tap navigation and dismiss/clear-highlight verification open as the remaining search release-readiness slice.
 - Use `-RequireNoReaderConsoleErrors` for future reader smoke probes where WebView console health matters.
+
+## 2026-06-30 Stage 8U Search Result Tap Probe Stabilization
+
+Scope:
+- Close the readerdev/emulator half of the remaining native search result-tap gap from Stage 8T.
+- Keep the fix in the native search dialog and ADB harness only; no reader runtime, cover, texture, Whispersync, or release packaging behavior changed.
+- Avoid arbitrary command sleeps by making the ADB harness wait for the native result row to exist before tapping it.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderSearchIsKomikkuOverlayAndControllerRouted"
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta25 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapDescIfPresent:Close history controls,500|tapFractionUntilDescPresent:Search,0.50,0.50,5,800|tapDesc:Search,700|text:alcatraz,600|tapDesc:Search,3500|tapDescWhenPresent:Search result 1,10,500' -RequireReaderEngineCommand search goToCfi -RequireNoReaderConsoleErrors -ArtifactDir captures\reader-bridge-probes\stage8u-search-result-tap-current-theta25-20260630b
+```
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbReaderSmokeCanTapNativeSelectionActionsAfterDevtoolsProbe` failed while `adb-reader-smoke.ps1` had no `tapDescWhenPresent:` action.
+- GREEN/HOST-GUARD: the same focused guard passed after adding condition-based native-node tapping.
+- GREEN/HOST-GUARD: `ReaderRuntimeCommonChromeTest.commonReaderSearchIsKomikkuOverlayAndControllerRouted` passed after search result rows switched to indexed rows with stable `Search result N` content descriptions.
+- GREEN/READERDEV-EMULATOR: `captures\reader-bridge-probes\stage8u-search-result-tap-current-theta25-20260630b` ran against installed `darkaxt.navic.readerdev` `v1.0.11-theta25`.
+- GREEN/SEARCH: the run dispatched `search` and later `goToCfi`, with final `searchResults(count=684, progress=1.0, complete=true)`.
+- GREEN/NAVIGATION-EVIDENCE: the final `window.xml` no longer showed the search dialog and included the first result passage, `Alcatraz is an idiot.`
+- GREEN/CONSOLE: `-RequireNoReaderConsoleErrors` passed; no `Reader console ERROR`, `IndexSizeError`, or search-annotation warning was captured.
+- CAVEAT/HARNESS: direct `Start-Process powershell.exe -File ... -PostProbeAction '...'` split arguments containing spaces; the successful run used an encoded PowerShell wrapper with a splatted parameter map. Future long smoke runs should use the wrapper pattern or call the script directly when the tool command ceiling is not relevant.
+
+Next:
+- Add an explicit dismiss/clear-highlight probe. Stage 8U proves result tapping and `goToCfi`, not the `clearSearch` path after result navigation.

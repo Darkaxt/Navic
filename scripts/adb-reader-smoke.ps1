@@ -869,6 +869,44 @@ function Invoke-PostProbeUiNodeActionIfPresent {
     Start-Sleep -Milliseconds $waitMs
 }
 
+function Invoke-PostProbeUiNodeActionWhenPresent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $ActionLabel,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("text", "desc")]
+        [string] $MatcherKind,
+        [Parameter(Mandatory = $true)]
+        [string] $NodeSpec
+    )
+
+    $nodeSpecMatch = [regex]::Match($NodeSpec, '^(.*?),\s*(\d+)\s*,\s*(\d+)$')
+    if (-not $nodeSpecMatch.Success -or [string]::IsNullOrWhiteSpace($nodeSpecMatch.Groups[1].Value)) {
+        throw "Invalid post-probe action '$ActionLabel'. Use tapDescWhenPresent:value,maxAttempts,waitMs."
+    }
+    $expectedValue = $nodeSpecMatch.Groups[1].Value.Trim()
+    $maxAttempts = [int] $nodeSpecMatch.Groups[2].Value
+    $waitMs = [int] $nodeSpecMatch.Groups[3].Value
+    if ($maxAttempts -lt 1) {
+        throw "Invalid post-probe action '$ActionLabel'. maxAttempts must be at least 1."
+    }
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $bounds = Find-AdbUiNodeBounds -MatcherKind $MatcherKind -ExpectedValue $expectedValue
+        if ($null -ne $bounds) {
+            $x = [int] (($bounds.Left + $bounds.Right) / 2)
+            $y = [int] (($bounds.Top + $bounds.Bottom) / 2)
+            Invoke-Adb @("shell", "input", "tap", ([string] $x), ([string] $y))
+            Start-Sleep -Milliseconds $waitMs
+            return
+        }
+
+        Start-Sleep -Milliseconds $waitMs
+    }
+
+    throw "Post-probe action '$ActionLabel' did not find UI node by $MatcherKind '$expectedValue' after $maxAttempts attempt(s)."
+}
+
 function Invoke-PostProbeTapFractionUntilDescPresent {
     param(
         [Parameter(Mandatory = $true)]
@@ -984,6 +1022,12 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         continue
     }
 
+    if ($postProbeAction.StartsWith("tapDescWhenPresent:")) {
+        $nodeSpec = $postProbeAction.Substring("tapDescWhenPresent:".Length)
+        Invoke-PostProbeUiNodeActionWhenPresent -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
+        continue
+    }
+
     if ($postProbeAction.StartsWith("tapDescFraction:")) {
         $nodeSpec = $postProbeAction.Substring("tapDescFraction:".Length)
         Invoke-PostProbeUiNodeFractionAction -ActionLabel ([string] $postProbeAction) -MatcherKind "desc" -NodeSpec ([string] $nodeSpec)
@@ -1010,7 +1054,7 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         continue
     }
 
-    throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapFractionUntilDescPresent:, tapText:, tapDesc:, tapDescIfPresent:, tapDescFraction:, text:, or keyevent:."
+    throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapFractionUntilDescPresent:, tapText:, tapDesc:, tapDescIfPresent:, tapDescWhenPresent:, tapDescFraction:, text:, or keyevent:."
 }
 
 Invoke-ReaderDevtoolsProbe -ProbeName $PostActionReaderDevtoolsProbe -OutputFileName "reader-devtools-post-action-probe.json"
