@@ -28,6 +28,7 @@ param(
     [string] $ReaderStartHref,
     [Alias("StartCfi")]
     [string] $ReaderStartCfi,
+    [switch] $SkipNativeShellCover,
     [Alias("WhispersyncSidecarUrl")]
     [string] $ReaderWhispersyncSidecarUrl,
     [Alias("WhispersyncArtifactId")]
@@ -218,6 +219,15 @@ function Get-EnvValue {
         }
     }
     return $null
+}
+
+function Test-TruthyEnvValue {
+    param([string] $Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+    return @("1", "true", "yes", "y", "on").Contains($Value.Trim().ToLowerInvariant())
 }
 
 function Join-BinderyEndpoint {
@@ -834,6 +844,7 @@ $startProgress = if (![string]::IsNullOrWhiteSpace($StartProgress)) {
 } else {
     Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_PROGRESS")
 }
+$skipNativeShellCoverEnabled = $SkipNativeShellCover -or (Test-TruthyEnvValue -Value (Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_SKIP_NATIVE_SHELL_COVER")))
 $whispersyncSidecarUrl = if (![string]::IsNullOrWhiteSpace($ReaderWhispersyncSidecarUrl)) {
     $ReaderWhispersyncSidecarUrl.Trim()
 } else {
@@ -943,6 +954,11 @@ if (!$NoLaunch) {
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_href" -Value $startHref
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_cfi" -Value $startCfi
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.start_progress" -Value $startProgress
+    if ($skipNativeShellCoverEnabled) {
+        $launchArgs.Add("--ez")
+        $launchArgs.Add("navic.dev.reader.skip_native_shell_cover")
+        $launchArgs.Add("true")
+    }
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_sidecar_url" -Value $whispersyncSidecarUrl
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_artifact_id" -Value $whispersyncArtifactId
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_audiobook_id" -Value $whispersyncAudiobookId

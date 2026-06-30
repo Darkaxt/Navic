@@ -101,6 +101,7 @@ class ReaderDevEnvironmentContractTest {
 		val viewportScript = root.resolve("scripts/set-reader-dev-viewport.ps1")
 		val envExample = root.resolve("navic-reader-dev.env.example")
 		val spec = root.resolve("docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md").readText()
+		val mainActivity = root.resolve("androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt").readText()
 		val installScriptText = installScript.readText()
 
 		assertTrue(setupScript.exists(), "The local Android reader lab must have an SDK/AVD setup script.")
@@ -190,6 +191,13 @@ class ReaderDevEnvironmentContractTest {
 			installScriptText.contains("NAVIC_READER_DEV_START_PROGRESS") &&
 				installScriptText.contains("navic.dev.reader.start_progress"),
 			"The install script must pass explicit progress-fraction reader starts for resume/persistence validation."
+		)
+		assertTrue(
+			installScriptText.contains("[switch] \$SkipNativeShellCover") &&
+				installScriptText.contains("navic.dev.reader.skip_native_shell_cover") &&
+				mainActivity.contains("ReaderDevExtraSkipNativeShellCover") &&
+				mainActivity.contains("skipNativeShellCover ="),
+			"The readerdev launcher must be able to open directly on readable content without the native cover hiding text-page validation targets."
 		)
 		assertTrue(
 			installScriptText.contains("[Alias(\"PublicationUrl\")]") &&

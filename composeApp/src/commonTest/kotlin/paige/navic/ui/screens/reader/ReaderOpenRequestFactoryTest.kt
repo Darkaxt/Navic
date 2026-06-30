@@ -121,10 +121,28 @@ class ReaderOpenRequestFactoryTest {
 		assertEquals(ReaderLocator(progress = 0.0), request.startLocator)
 	}
 
+	@Test
+	fun openRequestCanSkipNativeShellCoverForDirectReaderDevValidation() {
+		val request = hobbitReader(
+			startHref = "OEBPS/xhtml/Authorforeword.xhtml",
+			skipNativeShellCover = true
+		).toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/3693/cover.jpg",
+			settings = defaultReaderSettings()
+		)
+
+		assertEquals(null, request.nativeShellCoverUrl)
+		assertEquals(false, request.externalShellCover)
+		assertEquals(false, request.canReturnToShellCover)
+		assertEquals(ReaderLocator(href = "OEBPS/xhtml/Authorforeword.xhtml"), request.startLocator)
+	}
+
 	private fun hobbitReader(
 		startHref: String? = null,
 		startCfi: String? = null,
-		startProgress: Double? = null
+		startProgress: Double? = null,
+		skipNativeShellCover: Boolean = false
 	): Screen.Reader =
 		Screen.Reader(
 			title = "The Hobbit",
@@ -136,6 +154,7 @@ class ReaderOpenRequestFactoryTest {
 			mediaOverlayEnabled = false,
 			startHref = startHref,
 			startCfi = startCfi,
-			startProgress = startProgress
+			startProgress = startProgress,
+			skipNativeShellCover = skipNativeShellCover
 		)
 }

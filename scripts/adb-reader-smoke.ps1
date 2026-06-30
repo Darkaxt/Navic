@@ -28,6 +28,7 @@ param(
     [string[]] $RequireReaderBridgeEvent = @(),
     [string[]] $RequireReaderEngineCommand = @(),
     [string[]] $RequireReaderLog = @(),
+    [switch] $RequireNoReaderConsoleErrors,
     [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
     [string] $ReaderDevtoolsProbe = "",
     [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
@@ -1170,6 +1171,10 @@ function Test-ReaderDevtoolsPdfVisible {
     )
 
     return $null -ne (Get-ReaderDevtoolsPdfVisibleResult -OutputFileName $OutputFileName)
+}
+
+if ($RequireNoReaderConsoleErrors -and (Test-TextMatches -Text $readerLogText -Pattern "Reader console ERROR:")) {
+    throw "Reader smoke validation failed: required no reader console errors, but at least one Reader console ERROR was captured. See $ArtifactDir\logcat-reader.log"
 }
 
 foreach ($requiredEngineCommand in $RequireReaderEngineCommand) {

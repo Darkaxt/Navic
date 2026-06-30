@@ -9134,3 +9134,31 @@ Results:
 Next:
 - Treat this as current readerdev implementation evidence after branch sync.
 - Continue product work through Bindery-scoped readerdev validation. Signed public-package proof remains a separate packaging/state gate, not an ebook/audiobook implementation blocker.
+
+## 2026-06-30 Stage 8T Reader Search CFI Guard And Direct Text-Route Validation
+
+Scope:
+- Harden the native search validation path after a real readerdev search surfaced a Foliate/WebView console failure: `Uncaught (in promise) IndexSizeError: Failed to execute 'setStart' on 'Range'`.
+- Preserve normal product cover-first behavior, but let readerdev open directly on a requested text section when the validation target is text/search rather than the native shell cover.
+- Convert hidden WebView console failures into explicit smoke-test failures.
+
+Commands:
+
+```powershell
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -BookId 3809 -StartHref OEBPS/xhtml/Authorforeword.xhtml -SkipNativeShellCover -RequireReaderLaunch
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -BookId 3809 -StartHref OEBPS/xhtml/Authorforeword.xhtml -SkipNativeShellCover -NoBuild -NoInstall -RequireReaderLaunch
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta25 -NoLaunch -CaptureReaderDiagnostics -PostProbeAction 'tapDescIfPresent:Close history controls,500|tapFractionUntilDescPresent:Search,0.50,0.50,5,800|tapDesc:Search,700|text:alcatraz,600|tapDesc:Search,3500' -RequireReaderEngineCommand search -RequireNoReaderConsoleErrors -ArtifactDir captures\reader-bridge-probes\stage8t-search-dialog-current-theta25-search-cfi-guard-lowercase-20260630
+```
+
+Results:
+- RED/RUNTIME-FIRST: the initial search validation exposed a real Foliate/WebView console error from search annotation rendering, even though search results were still flowing.
+- FIXED/RUNTIME: `vendor/foliate-js/view.js` now catches failures only in the `SEARCH_PREFIX` annotation path, logs `Could not render search annotation ...` as a warning, and avoids an unhandled promise rejection when stale generated CFIs cannot be resolved into the currently rendered document.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` now supports `-RequireNoReaderConsoleErrors`, so future reader smoke runs can fail explicitly on `Reader console ERROR:` instead of silently accepting hidden WebView crashes.
+- FIXED/READERDEV: `install-reader-dev.ps1` and the readerdev intent path now support `-SkipNativeShellCover` / `NAVIC_READER_DEV_SKIP_NATIVE_SHELL_COVER`, letting direct text-section validation bypass the native shell cover without changing normal product cover-first behavior.
+- GREEN/READERDEV: `captures\reader-bridge-probes\stage8t-search-dialog-current-theta25-search-cfi-guard-lowercase-20260630\reader-native-cover-validation.txt` reports `nativeShellCoverVisible=False`.
+- GREEN/SEARCH: the lowercase `alcatraz` native search run dispatched the `search` reader engine command and reached `searchResults(count=167, progress=1.0, complete=true)`.
+- GREEN/CONSOLE: the same run captured no `Reader console ERROR`, no `IndexSizeError`, and no `Could not render search annotation` warning.
+
+Next:
+- Keep result-tap navigation and dismiss/clear-highlight verification open as the remaining search release-readiness slice.
+- Use `-RequireNoReaderConsoleErrors` for future reader smoke probes where WebView console health matters.

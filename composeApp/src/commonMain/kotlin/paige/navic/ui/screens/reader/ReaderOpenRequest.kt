@@ -16,7 +16,7 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 	savedProgress: BinderyReadingProgress? = null,
 	localStartLocator: ReaderLocator? = null
 ): ReaderEngineOpenRequest {
-	val hasShellCover = !shellCoverUrl.isNullOrBlank()
+	val hasShellCover = !skipNativeShellCover && !shellCoverUrl.isNullOrBlank()
 	val routeStartLocator = ReaderLocator(
 		cfi = startCfi,
 		href = startHref,
@@ -44,7 +44,7 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 		externalShellCover = hasShellCover,
 		startLocator = routeStartLocator ?: fallbackStartLocator,
 		settings = settings,
-		nativeShellCoverUrl = shellCoverUrl,
+		nativeShellCoverUrl = shellCoverUrl.takeIf { hasShellCover },
 		canReturnToShellCover = hasShellCover
 	)
 }

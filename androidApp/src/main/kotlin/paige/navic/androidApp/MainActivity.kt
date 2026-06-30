@@ -155,6 +155,7 @@ private const val ReaderDevExtraFormat = "navic.dev.reader.format"
 private const val ReaderDevExtraStartHref = "navic.dev.reader.start_href"
 private const val ReaderDevExtraStartCfi = "navic.dev.reader.start_cfi"
 private const val ReaderDevExtraStartProgress = "navic.dev.reader.start_progress"
+private const val ReaderDevExtraSkipNativeShellCover = "navic.dev.reader.skip_native_shell_cover"
 private const val ReaderDevExtraWhispersyncSidecarUrl = "navic.dev.reader.whispersync_sidecar_url"
 private const val ReaderDevExtraWhispersyncArtifactId = "navic.dev.reader.whispersync_artifact_id"
 private const val ReaderDevExtraWhispersyncAudiobookId = "navic.dev.reader.whispersync_audiobook_id"
@@ -202,6 +203,7 @@ private fun Intent.toReaderDevInitialScreen(): Screen.Reader? {
 			?.toDoubleOrNull()
 			?.takeIf(Double::isFinite)
 			?.coerceIn(0.0, 1.0),
+		skipNativeShellCover = getBooleanExtra(ReaderDevExtraSkipNativeShellCover, false),
 		whispersyncSidecarUrl = stringExtra(
 			ReaderDevExtraWhispersyncSidecarUrl,
 			"NAVIC_READER_DEV_WHISPERSYNC_SIDECAR_URL"

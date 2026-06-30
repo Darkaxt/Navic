@@ -2045,3 +2045,36 @@ Closure:
 - [x] Verify installed readerdev package identity.
 - [x] Run the no-build/no-install paired Whispersync enjoyment matrix.
 - [x] Record this as current readerdev implementation proof, not signed public-package proof.
+
+### Stage 8T: Reader Search CFI Guard And Direct Text-Route Validation
+
+Status: complete for readerdev/emulator query/results proof; no public release.
+
+Purpose:
+- Turn the real search-dialog validation failure into a durable guard instead of treating search as host-only.
+- Let readerdev target readable EPUB text directly when validating search, without disturbing normal product cover-first behavior.
+- Make WebView console crashes visible to the ADB smoke harness.
+
+Scope:
+- Modify: `composeApp/src/androidMain/assets/reader/vendor/foliate-js/view.js`
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: `scripts/install-reader-dev.ps1`
+- Modify: `androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/navigation/Screen.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderOpenRequest.kt`
+- Modify: focused host/source guards and validation docs.
+
+Results:
+- RED/RUNTIME-FIRST: a native search run produced a Foliate `IndexSizeError` from the search annotation path.
+- FIXED/RUNTIME: the vendored Foliate search-annotation branch now catches stale-CFI range resolution failures without rejecting the search operation.
+- FIXED/HARNESS: `adb-reader-smoke.ps1` can now require zero `Reader console ERROR:` lines.
+- FIXED/READERDEV: readerdev supports explicit `SkipNativeShellCover` routing for text-page validation.
+- GREEN/HOST-GUARD: `:composeApp:testAndroid` passed with 1945 tests, 0 failures, 0 errors, 0 skipped.
+- GREEN/READERDEV-EMULATOR: `captures\reader-bridge-probes\stage8t-search-dialog-current-theta25-search-cfi-guard-lowercase-20260630` reached `searchResults(count=167, progress=1.0, complete=true)` with no reader console errors.
+
+Closure:
+- [x] Add a failing harness/source guard for console-error rejection.
+- [x] Add a failing open-request guard for validation-only shell-cover skipping.
+- [x] Patch the minimum runtime search annotation failure path.
+- [x] Validate on a real EPUB in readerdev/emulator.
+- [ ] Add a follow-up search-result-tap and dismiss/clear-highlight probe.

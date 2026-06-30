@@ -163,6 +163,7 @@ sealed interface Screen : NavKey {
 		val whispersyncAudiobookId: String? = null,
 		val whispersyncAudiobookBookFileId: String? = null,
 		val whispersyncAudiobookTitle: String? = null,
+		val skipNativeShellCover: Boolean = false,
 		val fullscreenCoverUrl: String? = null
 	) : Screen
 

@@ -1832,7 +1832,7 @@ class ReaderKomikkuBackboneResetTest {
 			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
 		assertTrue(
 			playbackControlBody.contains("copy(alpha =") &&
-				playbackControlBody.contains("0.60f"),
+				playbackControlBody.contains("0.42f"),
 			"The page-level Whispersync headset must be a low-opacity paper-layer glyph, not high-contrast chrome."
 		)
 		assertTrue(

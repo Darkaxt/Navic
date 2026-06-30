@@ -934,6 +934,33 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeCanRejectReaderConsoleErrors() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val logValidationBlock = scriptText
+			.substringAfter("\$readerLogText = Get-TextFileRaw -Path (Join-Path \$ArtifactDir \"logcat-reader.log\")")
+			.substringBefore("foreach (\$requiredEngineCommand in \$RequireReaderEngineCommand)")
+
+		assertContains(scriptText, "[switch] \$RequireNoReaderConsoleErrors")
+		assertContains(logValidationBlock, "\$RequireNoReaderConsoleErrors")
+		assertContains(logValidationBlock, "Reader console ERROR:")
+		assertContains(logValidationBlock, "required no reader console errors")
+	}
+
+	@Test
+	fun foliateSearchAnnotationsDoNotRejectOnInvalidCfiResolution() {
+		val viewText = repoFile("composeApp/src/androidMain/assets/reader/vendor/foliate-js/view.js").readText()
+		val searchAnnotationBlock = viewText
+			.substringAfter("if (value.startsWith(SEARCH_PREFIX))")
+			.substringBefore("const { index, anchor } = await this.resolveNavigation(value)")
+
+		assertContains(searchAnnotationBlock, "try {")
+		assertContains(searchAnnotationBlock, "const range = doc ? anchor(doc) : anchor")
+		assertContains(searchAnnotationBlock, "Could not render search annotation")
+		assertContains(searchAnnotationBlock, "} catch")
+		assertContains(searchAnnotationBlock, "return")
+	}
+
+	@Test
 	fun adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe() {
 		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
 		val matrixText = repoScriptFile("adb-reader-komikku-matrix.ps1").readText()

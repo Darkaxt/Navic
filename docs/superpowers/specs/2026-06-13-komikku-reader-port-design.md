@@ -222,7 +222,8 @@ Reader search is host-verified:
 - `ReaderController` owns the search dialog lifecycle, clear-search command, active result state, and search-result navigation by CFI/HREF.
 - `ReaderCoordinator`, `FoliateWebViewEngineAdapter`, `ReaderBridgeCommand.ClearSearch`, and `navic-reader.js` now clear WebView search highlights when the native search dialog is dismissed.
 - `KomikkuReaderSearchDialog` is a dedicated overlay component routed from `ReaderRoot`, with result taps navigating through controller/coordinator commands.
-- Android/emulator validation is still required before treating this behavior as release-ready: open search from the bottom reader chrome, search a real EPUB term, verify results render, tap a result, verify navigation lands on the right passage, dismiss search, and confirm highlights clear.
+- Android/emulator validation now proves the readerdev direct-text route can bypass the native shell cover for validation only, open the native search UI, dispatch a real Foliate search for `alcatraz`, and receive `searchResults(count=167, progress=1.0, complete=true)` without `Reader console ERROR` or the Foliate `IndexSizeError` from stale search-annotation CFI resolution.
+- Android/emulator validation is still required before treating this behavior as release-ready: tap a search result, verify navigation lands on the right passage, dismiss search, and confirm highlights clear.
 
 Phase 6 is host-verified:
 

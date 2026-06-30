@@ -368,17 +368,21 @@ export class View extends HTMLElement {
     async addAnnotation(annotation, remove) {
         const { value } = annotation
         if (value.startsWith(SEARCH_PREFIX)) {
-            const cfi = value.replace(SEARCH_PREFIX, '')
-            const { index, anchor } = await this.resolveNavigation(cfi)
-            const obj = this.#getOverlayer(index)
-            if (obj) {
-                const { overlayer, doc } = obj
-                if (remove) {
-                    overlayer.remove(value)
-                    return
+            try {
+                const cfi = value.replace(SEARCH_PREFIX, '')
+                const { index, anchor } = await this.resolveNavigation(cfi)
+                const obj = this.#getOverlayer(index)
+                if (obj) {
+                    const { overlayer, doc } = obj
+                    if (remove) {
+                        overlayer.remove(value)
+                        return
+                    }
+                    const range = doc ? anchor(doc) : anchor
+                    overlayer.add(value, range, Overlayer.outline)
                 }
-                const range = doc ? anchor(doc) : anchor
-                overlayer.add(value, range, Overlayer.outline)
+            } catch (e) {
+                console.warn(`Could not render search annotation ${value}`, e)
             }
             return
         }
