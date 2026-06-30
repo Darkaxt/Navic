@@ -936,6 +936,9 @@ class ReaderRuntimeAssetsTest {
 		val endpointValidationBlock = scriptText
 			.substringAfter("function Assert-ReaderDevtoolsLocationEndpoint")
 			.substringBefore("function Get-ReaderDevtoolsPdfVisibleResult")
+		val railEndpointBlock = matrixText
+			.substringAfter("function Invoke-ReaderRailEndpointMatrixSteps")
+			.substringBefore("if (\$PrepareReaderLaunch)")
 
 		assertContains(scriptText, "[ValidateSet(\"\", \"start\", \"end\")]")
 		assertContains(scriptText, "[string] \$RequirePostActionChapterPageEndpoint = \"\"")
@@ -945,9 +948,14 @@ class ReaderRuntimeAssetsTest {
 		assertContains(endpointValidationBlock, "Expected first chapter page")
 		assertContains(endpointValidationBlock, "Expected last chapter page")
 		assertContains(matrixText, "[switch] \$IncludeRailEndpointChecks")
+		assertContains(matrixText, "[switch] \$OnlyRailEndpointChecks")
 		assertContains(matrixText, "[string[]] \$PostProbeAction = @()")
 		assertContains(matrixText, "chapter-rail-native-start")
 		assertContains(matrixText, "chapter-rail-native-end")
+		assertContains(matrixText, "if (\$OnlyRailEndpointChecks)")
+		assertContains(matrixText, "-ReaderDevtoolsProbe \"chapter-progress-endpoints\"")
+		assertContains(railEndpointBlock, "-TapFraction @(\"0.50,0.50,700\")")
+		assertContains(matrixText, "tapFraction:0.50,0.50,700")
 		assertContains(matrixText, "tapDescFraction:Chapter page slider,0.0,0.5")
 		assertContains(matrixText, "tapDescFraction:Chapter page slider,1.0,0.5")
 		assertContains(matrixText, "PostProbeAction = \$PostProbeAction")

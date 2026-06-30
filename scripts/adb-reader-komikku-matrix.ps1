@@ -26,6 +26,7 @@ param(
     [switch] $IncludeCoverChecks,
     [switch] $IncludePdfChecks,
     [switch] $IncludeRailEndpointChecks,
+    [switch] $OnlyRailEndpointChecks,
     [switch] $OnlyPdfChecks,
     [switch] $ContinueOnFailure
 )
@@ -390,22 +391,23 @@ function Invoke-ReadableContentMatrixSteps {
 }
 
 function Invoke-ReaderRailEndpointMatrixSteps {
-    if (-not $IncludeRailEndpointChecks) {
+    if (-not ($IncludeRailEndpointChecks -or $OnlyRailEndpointChecks)) {
         return
     }
 
     Invoke-ReaderMatrixStep `
         -Name "chapter-rail-native-start" `
         -TapFraction @("0.50,0.50,700") `
-        -ReaderDevtoolsProbe "location-snapshot" `
-        -PostProbeAction @("tapDescFraction:Chapter page slider,0.0,0.5,1500") `
+        -ReaderDevtoolsProbe "chapter-progress-endpoints" `
+        -PostProbeAction @("tapFraction:0.50,0.50,700", "tapDescFraction:Chapter page slider,0.0,0.5,1500") `
         -PostActionReaderDevtoolsProbe "location-snapshot" `
         -RequirePostActionChapterPageEndpoint "start"
 
     Invoke-ReaderMatrixStep `
         -Name "chapter-rail-native-end" `
-        -ReaderDevtoolsProbe "location-snapshot" `
-        -PostProbeAction @("tapDescFraction:Chapter page slider,1.0,0.5,1500") `
+        -TapFraction @("0.50,0.50,700") `
+        -ReaderDevtoolsProbe "chapter-progress-endpoints" `
+        -PostProbeAction @("tapFraction:0.50,0.50,700", "tapDescFraction:Chapter page slider,1.0,0.5,1500") `
         -PostActionReaderDevtoolsProbe "location-snapshot" `
         -RequirePostActionChapterPageEndpoint "end"
 }
@@ -422,13 +424,15 @@ Invoke-ReaderMatrixStep `
     -Launch:(!$NoLaunch -and !$PrepareReaderLaunch) `
     -InstallApk:(!$NoLaunch -and !$PrepareReaderLaunch)
 
-if (-not $OnlyPdfChecks) {
+if ($OnlyRailEndpointChecks) {
+    Invoke-ReaderRailEndpointMatrixSteps
+} elseif (-not $OnlyPdfChecks) {
     Invoke-ReaderCoverMatrixSteps
     Invoke-ReadableContentMatrixSteps
     Invoke-ReaderRailEndpointMatrixSteps
 }
 
-if ($IncludePdfChecks -or $OnlyPdfChecks) {
+if (-not $OnlyRailEndpointChecks -and ($IncludePdfChecks -or $OnlyPdfChecks)) {
     Invoke-ReaderMatrixStep `
         -Name "pdf-baseline" `
         -RequirePdfDiagnostics `

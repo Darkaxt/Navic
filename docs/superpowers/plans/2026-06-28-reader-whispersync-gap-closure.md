@@ -1648,7 +1648,7 @@ Closure:
 
 ### Stage 8L: Native Chapter Rail Endpoint Gate
 
-Status: host guard complete; use `-IncludeRailEndpointChecks` in the next emulator/device matrix pass.
+Status: host guard and isolated readerdev emulator gate complete; keep `-OnlyRailEndpointChecks` as the required rail endpoint runtime proof path.
 
 Purpose:
 - Close the remaining chapter-local progress-rail validation gap from the Komikku reader spec: the visible native `Chapter page slider` must be able to reach the first and last pages of the current chapter.
@@ -1665,15 +1665,23 @@ Results:
 - RED/HOST-FIRST: `ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe` failed while the smoke script had no post-action chapter endpoint assertion and the matrix had no native rail endpoint rows.
 - FIXED/HARNESS: `adb-reader-smoke.ps1` now accepts `-RequirePostActionChapterPageEndpoint start|end`, reads the post-action `location-snapshot`, requires numeric `chapterPageIndex` and `chapterPageCount`, and fails if the native rail tap did not land on the requested endpoint.
 - FIXED/MATRIX: `adb-reader-komikku-matrix.ps1` now exposes `-IncludeRailEndpointChecks` and adds `chapter-rail-native-start` / `chapter-rail-native-end` rows that tap the visible `Chapter page slider` at `0.0` and `1.0`, then assert the post-action location endpoint.
+- RED/RUNTIME: the first full-matrix attempt with `-IncludeRailEndpointChecks` failed because the current EPUB state was a one-page copyright section with no visible `Chapter page slider`.
+- RED/RUNTIME: the second full-matrix attempt failed after earlier tap/texture rows navigated the WebView into an external EPUB link (`Free Download Books https://oceanofpdf.com/`), proving rail endpoint validation must be isolated from the general tap walk.
+- RED/RUNTIME: the first isolated prepared run reached the native shell cover, but the rail row's pre-probe swipe did not mount Foliate; `chapter-progress-endpoints` failed with `Missing foliate-view`.
+- FIXED/MATRIX: `adb-reader-komikku-matrix.ps1` now exposes `-OnlyRailEndpointChecks`, runs only the baseline plus native rail endpoint rows, forces `chapter-progress-endpoints` before rail taps to select a multi-page chapter, and uses a pre-probe center tap to enter the Foliate content surface from the native cover.
 - GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe" --console=plain` passed after the harness wiring.
 - GREEN/BROADER-HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeAssetsTest" --console=plain` passed after the plan edit.
 - GREEN/SCRIPT-SYNTAX: both edited PowerShell scripts parsed cleanly through `System.Management.Automation.Language.Parser`.
 - GREEN/DIFF: `git diff --check` passed.
+- GREEN/READERDEV-EMULATOR: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -PrepareReaderLaunch -OnlyRailEndpointChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\stage8l-rail-endpoints-only-current-retry3-20260630` passed on installed readerdev `v1.0.11-theta23`.
+- GREEN/READERDEV-EVIDENCE: post-action probes landed on `OEBPS/Text/Chapter-37.xhtml` with `chapterPageIndex=0, chapterPageCount=81` for start and `chapterPageIndex=80, chapterPageCount=81` for end.
 
 Closure:
 - [x] Add a failing source guard for native rail endpoint matrix support.
 - [x] Add smoke-script endpoint assertions against real post-action location snapshots.
 - [x] Add opt-in matrix rows for native rail start/end endpoint checks.
+- [x] Add isolated `-OnlyRailEndpointChecks` so endpoint validation cannot be polluted by external links or one-page sections.
+- [x] Run the prepared readerdev emulator endpoint matrix from the native cover state.
 - [x] Run the focused host guard.
 - [x] Run a broader reader assets host guard and whitespace check before committing.
-- [ ] Run `adb-reader-komikku-matrix.ps1 -IncludeRailEndpointChecks` on emulator/device when the next runtime validation batch is needed.
+- [x] Run `adb-reader-komikku-matrix.ps1 -OnlyRailEndpointChecks` on emulator/device when the next runtime validation batch is needed.
