@@ -11,6 +11,8 @@ import paige.navic.domain.repositories.BinderyFindingMapping
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
+import paige.navic.domain.repositories.BinderyPropertyBag
+import paige.navic.domain.repositories.BinderyPropertyValue
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderyFindingMetadata
@@ -1347,6 +1349,71 @@ class BinderyBookVersionPolicyTest {
 				bookId = "3816",
 				bookTitle = "The Hobbit",
 				opdsBaseUrl = "https://bindery.local/opds"
+			)
+		)
+	}
+
+	@Test
+	fun ebookVersionRowsChooseClosestGeneratedFullscreenCoverVariantForReaderAspect() {
+		val manifest = BinderyManifest(
+			id = "urn:bindery:book:3816",
+			title = "The Hobbit",
+			propertyValues = BinderyPropertyBag(
+				mapOf(
+					"fullscreenCoverVariants" to BinderyPropertyValue.ArrayValue(
+						listOf(
+							BinderyPropertyValue.ObjectValue(
+								mapOf(
+									"href" to BinderyPropertyValue.StringValue("/opds/books/3816/covers/phone.webp"),
+									"width" to BinderyPropertyValue.NumberValue(1080.0, "1080"),
+									"height" to BinderyPropertyValue.NumberValue(1920.0, "1920")
+								)
+							),
+							BinderyPropertyValue.ObjectValue(
+								mapOf(
+									"href" to BinderyPropertyValue.StringValue("/opds/books/3816/covers/tablet.webp"),
+									"width" to BinderyPropertyValue.NumberValue(1600.0, "1600"),
+									"height" to BinderyPropertyValue.NumberValue(2560.0, "2560")
+								)
+							)
+						)
+					)
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3816/resources/ebook-epub",
+					title = "The Hobbit EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					properties = mapOf("format" to "epub")
+				)
+			)
+		)
+
+		val row = binderyBookVersionRows(manifest, resources).single()
+
+		assertEquals("/opds/books/3816/covers/phone.webp", row.fullscreenCoverHref)
+		assertEquals(
+			Screen.Reader(
+				title = "The Hobbit",
+				publicationUrl = "https://bindery.local/opds/books/3816/resources/ebook-epub",
+				bookId = "3816",
+				resourceHref = "/opds/books/3816/resources/ebook-epub",
+				kind = ReaderPublicationKind.Ebook,
+				publicationFormat = ReaderPublicationFormat.Epub,
+				mediaOverlayEnabled = false,
+				fullscreenCoverUrl = "https://bindery.local/opds/books/3816/covers/tablet.webp"
+			),
+			binderyReaderDestinationForVersionRow(
+				row = row,
+				bookId = "3816",
+				bookTitle = "The Hobbit",
+				opdsBaseUrl = "https://bindery.local/opds",
+				fullscreenCoverTargetAspectRatio = 1600.0 / 2560.0
 			)
 		)
 	}

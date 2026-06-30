@@ -1710,3 +1710,34 @@ Closure:
 - [x] Update the runner to derive the default package identity from the Android release identity.
 - [x] Run the focused host guard.
 - [x] Run the broader contract host guard, PowerShell parser check, and `git diff --check` before committing.
+
+### Stage 8N: Bindery Generated Fullscreen Cover Variants
+
+Status: host guard complete; waiting for Bindery to expose real generated variant assets.
+
+Purpose:
+- Prepare Navic for Bindery-owned fullscreen/generated cover assets that may be emitted as multiple aspect-specific variants instead of a single `fullscreenCoverUrl`.
+- Keep all AI/outpainting/generation/cache/provider work in Bindery. Navic only parses the OPDS/API metadata, chooses the closest generated cover for the target reader aspect when provided, and falls back to the current single fullscreen-cover URL or EPUB-extracted cover path.
+- Preserve Stage 8J behavior: ordinary `rel=cover` images must not become native shell-cover routes.
+
+Accepted metadata shape:
+- Manifest `propertyValues.fullscreenCoverVariants`, `extendedCoverVariants`, `expandedCoverVariants`, or `shellCoverVariants` may contain string hrefs or objects.
+- Object variants may expose `href`/`url` plus optional `width`/`widthPx`/`pixelWidth`, `height`/`heightPx`/`pixelHeight`, or direct `aspectRatio`.
+- Existing manifest properties (`fullscreenCoverUrl`, `extendedCoverUrl`, `expandedCoverUrl`, `shellCoverUrl`) and image/link rels (`fullscreen-cover`, `extended-cover`, `expanded-cover`, `shell-cover`) remain supported.
+
+Results:
+- RED/HOST-FIRST: `BinderyBookVersionPolicyTest.ebookVersionRowsChooseClosestGeneratedFullscreenCoverVariantForReaderAspect` first failed because the reader destination builder had no `fullscreenCoverTargetAspectRatio` parameter and rows had no variant model.
+- FIXED/POLICY: `BinderyBookVersionRow` now carries `fullscreenCoverVariants`, `binderyBookVersionRows(...)` parses generated variant arrays from manifest `propertyValues`, and row-to-reader route builders can choose the closest variant to an optional target aspect ratio.
+- FIXED/COMPATIBILITY: normal ebook, readaloud, and Whispersync reader routes all use the same cover selection path; existing callers keep the current default behavior.
+- GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.ebookVersionRowsChooseClosestGeneratedFullscreenCoverVariantForReaderAspect"` passed.
+- GREEN/REGRESSION-HOST: the generated-variant test plus `ebookVersionRowsCarryBinderyFullscreenCoverRenditionToReaderRoutes` and `regularCoverImagesDoNotBecomeFullscreenShellCoverRoutes` passed.
+- GREEN/BROADER-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest"` passed.
+- GREEN/DIFF: `git diff --check` passed.
+
+Closure:
+- [x] Add a failing host guard for generated fullscreen cover variants.
+- [x] Preserve single fullscreen-cover URL and rel support.
+- [x] Reject ordinary cover images as fullscreen shell covers.
+- [x] Support closest-variant selection when the route layer knows the target aspect ratio.
+- [ ] Wire an actual layout-derived target aspect into production reader launches if/when the launch surface can provide it.
+- [ ] End-to-end release/device validation once Bindery exposes real generated fullscreen cover variants for a book.
