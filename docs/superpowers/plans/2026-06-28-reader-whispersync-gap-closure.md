@@ -1891,3 +1891,44 @@ Closure:
 - [x] Commit and push the theta25 release identity.
 - [x] Create and push the `v1.0.11-theta25` tag.
 - [x] Verify GitHub Actions release publication.
+
+### Stage 8Q: Theta25 Signed Release App-Shell Validation
+
+Status: complete for signed install/app-shell; deep reader and Whispersync release validation remain blocked by release-package login state.
+
+Purpose:
+- Convert the published theta25 release from "artifact exists" into a signed package baseline installed on the emulator.
+- Keep the proof boundary explicit: app-shell install/version/WebView evidence is public-package evidence; reader/Whispersync behavior is not public-package evidence until `darkaxt.navic` can reach a reader route with real login/data.
+- Avoid substituting `darkaxt.navic.readerdev` proof for the signed package gate.
+
+Scope:
+- Use: `releases\v1.0.11-theta25\Navic.apk`
+- Use: `scripts\adb-reader-smoke.ps1`
+- Use: `scripts\adb-release-login.ps1`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta25 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta25 --clobber
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta25\Navic.apk -ExpectedVersionName v1.0.11-theta25 -ArtifactDir captures\reader-smoke\theta25-release-install -CaptureReaderDiagnostics
+.\scripts\adb-release-login.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic -DetectOnly -ArtifactDir captures\release-login\theta25-release-detect-only
+```
+
+Results:
+- GREEN/RELEASE-DOWNLOAD: `Navic.apk` for `v1.0.11-theta25` was downloaded to `releases\v1.0.11-theta25\Navic.apk`.
+- GREEN/RELEASE-INSTALL: `adb-reader-smoke.ps1` installed and foregrounded `darkaxt.navic` on `emulator-5554`; `captures\reader-smoke\theta25-release-install\package-version.txt` reports `versionCode=453`, `versionName=v1.0.11-theta25`, and `lastUpdateTime=2026-06-30 11:49:59`.
+- GREEN/WEBVIEW-SOCKET: the signed package exposed WebView DevTools sockets, so browser-side release probes are possible after a reader route is reachable.
+- GREEN/LOGIN-DETECT: `adb-release-login.ps1 -DetectOnly` detected the Navidrome login screen and wrote `captures\release-login\theta25-release-detect-only\navic-release-login-window.xml`.
+- BLOCKED/RELEASE-READER: the emulator release package remains on the login form. The available `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env` contains Bindery API keys only, not the Navic/Navidrome login keys required by `adb-release-login.ps1`; reader shell, EPUB/PDF, selection, search, style, and Whispersync behavior cannot be claimed as signed release evidence from this emulator state.
+- GREEN/HOST-GUARD: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderDevEnvironmentContractTest"` passed after recording the signed-release validation boundary.
+
+Closure:
+- [x] Download or reuse the published theta25 APK.
+- [x] Install and prove `versionName=v1.0.11-theta25`, `versionCode=453`, foreground package, screenshot capture, and WebView debug socket availability.
+- [x] Run release-login detection.
+- [x] Record that deep release reader/Whispersync checks require `navic-release-login.env` credentials or a logged-in physical release package.
+- [x] Run focused Gradle source/plan guard after recording the evidence.
+- [ ] Run release-package reader smoke/matrix checks once `darkaxt.navic` can reach a reader route.
+- [ ] Run release-package Whispersync enjoyment checks once a paired Whispersync route is reachable.

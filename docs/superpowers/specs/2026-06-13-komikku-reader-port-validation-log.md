@@ -8972,3 +8972,29 @@ Results:
 Next:
 - Use `v1.0.11-theta25` as the current public release baseline for device validation.
 - Keep Bindery generated-cover end-to-end validation open until production exposes generated/fullscreen cover metadata and assets.
+
+## 2026-06-30 Stage 8Q Theta25 Signed Release App-Shell Validation
+
+Scope:
+- Install and foreground the published theta25 APK on the emulator.
+- Verify signed package version identity and WebView debug socket availability.
+- Detect whether the public release package can reach reader routes or is still blocked at login.
+
+Commands:
+
+```powershell
+gh release download v1.0.11-theta25 --repo Darkaxt/Navic --pattern Navic.apk --dir releases\v1.0.11-theta25 --clobber
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic -DeviceSerial emulator-5554 -ApkPath releases\v1.0.11-theta25\Navic.apk -ExpectedVersionName v1.0.11-theta25 -ArtifactDir captures\reader-smoke\theta25-release-install -CaptureReaderDiagnostics
+.\scripts\adb-release-login.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic -DetectOnly -ArtifactDir captures\release-login\theta25-release-detect-only
+```
+
+Results:
+- GREEN/RELEASE-INSTALL: `captures\reader-smoke\theta25-release-install\package-version.txt` reports `versionCode=453`, `versionName=v1.0.11-theta25`, and `lastUpdateTime=2026-06-30 11:49:59`.
+- GREEN/WEBVIEW-SOCKET: the signed package exposed `@webview_devtools_remote_17609`.
+- GREEN/LOGIN-DETECT: `captures\release-login\theta25-release-detect-only\release-login-summary.txt` reports `package=darkaxt.navic`, `loginScreen=True`, `detectOnly=true`.
+- BLOCKED/RELEASE-READER: the release package is still at the Navidrome login form on the emulator. `bindery-debug.env` has Bindery API credentials but no Navic/Navidrome login keys, so this run cannot prove signed release reader or Whispersync behavior.
+- GREEN/HOST-GUARD: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderDevEnvironmentContractTest"` passed after recording the signed-release validation boundary.
+
+Next:
+- Run release-package reader and Whispersync checks only after `darkaxt.navic` is logged in on a physical device/emulator or an ignored `navic-release-login.env` is available.
+- Keep readerdev Whispersync enjoyment evidence labeled as current-source implementation proof, not public-package proof.
