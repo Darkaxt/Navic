@@ -75,7 +75,7 @@ class PlaylistStationPolicyTest {
 	}
 
 	@Test
-	fun generatedMixPlaylistCoversUseFallbackArtwork() {
+	fun generatedMixAndFlowPlaylistCoversUseFallbackArtwork() {
 		assertEquals(
 			null,
 			playlist(id = "mood", name = "Chill Mix", coverArtId = "generated-collage").visiblePlaylistCoverArtId()
@@ -89,7 +89,7 @@ class PlaylistStationPolicyTest {
 			playlist(id = "manual", name = "Road Trip", coverArtId = "manual-cover").visiblePlaylistCoverArtId()
 		)
 		assertEquals(
-			"station-cover",
+			null,
 			playlist(id = "station", name = "[A] Discover", coverArtId = "station-cover").visiblePlaylistCoverArtId()
 		)
 	}

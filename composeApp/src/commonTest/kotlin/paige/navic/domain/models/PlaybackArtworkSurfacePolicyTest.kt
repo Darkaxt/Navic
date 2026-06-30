@@ -274,6 +274,44 @@ class PlaybackArtworkSurfacePolicyTest {
 	}
 
 	@Test
+	fun playlistFlowAndMixRowsRouteThroughTheSharedGeneratedArtworkItem() {
+		val librarySource = File("src/commonMain/kotlin/paige/navic/ui/screens/library/components/Content.kt").readText()
+		val playlistListSource = File("src/commonMain/kotlin/paige/navic/ui/screens/playlist/PlaylistListScreen.kt").readText()
+		val itemSource = File("src/commonMain/kotlin/paige/navic/ui/screens/playlist/components/Item.kt").readText()
+		val specSource = File("src/commonMain/kotlin/paige/navic/ui/components/common/ArtworkRenderSpec.kt").readText()
+
+		listOf("stationsRow", "playlistsRow", "moodMixesRow", "genreMixesRow").forEach { rowName ->
+			val rowBody = Regex("""fun LazyGridScope\.$rowName\(\)[\s\S]*?\n\t}""")
+				.find(librarySource)
+				?.value
+				.orEmpty()
+			assertTrue(
+				"PlaylistListScreenItem(" in rowBody,
+				"$rowName must render through PlaylistListScreenItem so Flow/Mix/Playlist generated artwork shares one renderer."
+			)
+		}
+		listOf(
+			"PlaylistListKind.Stations -> stationPlaylists()",
+			"PlaylistListKind.MoodMixes -> moodMixPlaylists()",
+			"PlaylistListKind.GenreMixes -> genreMixPlaylists()",
+			"PlaylistListKind.User -> regularPlaylists()"
+		).forEach { expected ->
+			assertTrue(
+				expected in playlistListSource,
+				"Playlist list filtering must keep each playlist type routed through the same item component."
+			)
+		}
+		assertTrue(
+			"playlistArtworkRenderSpec(" in itemSource,
+			"PlaylistListScreenItem must be the only UI component deciding playlist generated artwork specs."
+		)
+		assertTrue(
+			"coverArtId = visiblePlaylistCoverArtId()" in specSource,
+			"Only the shared artwork spec should call visiblePlaylistCoverArtId() for playlist cards."
+		)
+	}
+
+	@Test
 	fun musicGeneratedArtworkSurfacesDoNotHardcodeFallbackKinds() {
 		val guardedPaths = listOf(
 			"src/commonMain/kotlin/paige/navic/ui/screens/playlist/components/Item.kt",

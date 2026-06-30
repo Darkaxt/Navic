@@ -25,14 +25,14 @@ class GeneratedArtworkPolicyTest {
 	}
 
 	@Test
-	fun aurralFlowPlaylistSpecKeepsRealCoverAndUsesFlowFallbackWhenNeeded() {
+	fun aurralFlowPlaylistSpecSuppressesServerCoverAndUsesFlowArtwork() {
 		val spec = playlist(
 			id = "flow",
 			name = "[A] Discover",
 			coverArtId = "flow-cover"
 		).playlistArtworkRenderSpec()
 
-		assertEquals("flow-cover", spec.coverArtId)
+		assertNull(spec.coverArtId)
 		assertNull(spec.imageUrl)
 		assertEquals("Discover", spec.contentDescription)
 		assertEquals("Flow", spec.generatedArtwork.kindLabel)
