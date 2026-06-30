@@ -1804,6 +1804,7 @@ Results:
 - RED/HOST-FIRST: `BinderyReaderPublicationResolverTest.cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface` first failed because `ReaderPublicationResourceRequest` could not carry an external shell-cover href.
 - FIXED/AUTHENTICATED-CACHE: `ReaderPublicationResourceRequest.externalShellCoverHref` now lets `BinderyReaderPublicationResolver` fetch the Bindery-generated cover through the same authenticated resource fetcher as EPUB/PDF resources, cache it beside the publication as `shell-cover-*`, and return an asset-loader URL for the native cover renderer. `ReaderPublicationRuntimeHost.android.kt` passes remote `fullscreenCoverUrl` values into that resolver path and no longer asks `KomikkuReaderNativeShellCoverView` to decode remote authenticated URLs directly.
 - GREEN/FOCUSED-HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.BinderyReaderPublicationResolverTest.cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface"` passed.
+- EXTERNAL-GATE/CURRENT-SCHEMA: the 2026-06-30 re-check of `C:\Users\darka\Documents\Projects\Stremio Add-on Tester\github-export\bindery\docs\navic-opds-api-schema.md` still documents ordinary `images[].rel="cover"` and API-key-protected resource/sidecar/progress/image-proxy calls, but does not yet document generated fullscreen cover variant fields. Keep end-to-end validation pending until Bindery exposes real variant metadata/assets.
 
 Closure:
 - [x] Add a failing host guard for generated fullscreen cover variants.
@@ -1847,4 +1848,4 @@ Closure:
 - [x] Run focused host guards.
 - [x] Run reader JS syntax checks.
 - [x] Run aggregate Android tests.
-- [ ] Commit and push the sync/fix stage.
+- [x] Commit and push the sync/fix stage. Completed in `5e44f261` and current branch rechecked against `fork/master` on 2026-06-30.
