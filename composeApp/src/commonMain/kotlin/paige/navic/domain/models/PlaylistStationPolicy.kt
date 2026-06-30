@@ -81,7 +81,7 @@ fun DomainSongCollection.displayName(): String =
 	}
 
 fun DomainPlaylist.visiblePlaylistCoverArtId(): String? =
-	coverArtId.takeUnless { isGeneratedMixPlaylist() }
+	coverArtId.takeUnless { isStationPlaylist() || isGeneratedMixPlaylist() }
 
 fun DomainSongCollection.visibleCollectionCoverArtId(): String? =
 	when (this) {
