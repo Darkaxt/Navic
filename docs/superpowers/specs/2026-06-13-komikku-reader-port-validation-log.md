@@ -9019,3 +9019,25 @@ Results:
 Next:
 - Keep this as the current theta25 source-level Whispersync evidence.
 - Signed public-package Whispersync proof still requires `darkaxt.navic` to be logged in or an ignored `navic-release-login.env`.
+
+## 2026-06-30 Whispersync Headset And Generated Cover Contract Guard Refresh
+
+Scope:
+- Verify that the top-left Whispersync control remains a low-opacity page glyph, not a circular chrome badge.
+- Verify that Navic remains client-ready for Bindery-owned generated/fullscreen cover variants while Bindery works on exposing live assets.
+- Do not publish a release for this guard refresh alone.
+
+Command:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonWhispersyncPlaybackControlBlendsIntoPageInsteadOfRenderingChromePill" --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.ebookVersionRowsChooseClosestGeneratedFullscreenCoverVariantForReaderAspect" --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.regularCoverImagesDoNotBecomeFullscreenShellCoverRoutes" --tests "paige.navic.reader.BinderyReaderPublicationResolverTest.cachesExternalBinderyShellCoverAsLocalAssetUriForNativeCoverSurface"
+```
+
+Results:
+- GREEN/HOST-GUARD: the focused guard batch passed.
+- GREEN/HEADSET: `ReaderRuntimeCommonChromeTest.commonWhispersyncPlaybackControlBlendsIntoPageInsteadOfRenderingChromePill` confirms the page-scoped Whispersync control uses the headset glyph, `onSurface.copy(alpha = 0.60f)`, no `Surface`, no circular/pill background, and no persistent progress ring.
+- GREEN/GENERATED-COVER-CONTRACT: the focused Bindery tests confirm Navic can choose the closest generated fullscreen cover variant for the reader aspect, refuses to promote ordinary OPDS `rel=cover` images into fullscreen shell covers, and caches remote Bindery shell-cover URLs into reader-local asset-loader files before handing them to the native cover surface.
+
+Next:
+- Wait for Bindery to expose real generated/fullscreen cover variant metadata and assets, then run an end-to-end readerdev or release-device validation against that live contract.
+- Keep signed public-package Whispersync proof separate until a logged-in release package or ignored `navic-release-login.env` can reach a paired reader route.
