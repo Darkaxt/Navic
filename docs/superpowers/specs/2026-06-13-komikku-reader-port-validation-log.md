@@ -9041,3 +9041,27 @@ Results:
 Next:
 - Wait for Bindery to expose real generated/fullscreen cover variant metadata and assets, then run an end-to-end readerdev or release-device validation against that live contract.
 - Keep signed public-package Whispersync proof separate until a logged-in release package or ignored `navic-release-login.env` can reach a paired reader route.
+
+## 2026-06-30 Stage 8N Explicit Reader-Shell Cover Type Contract
+
+Scope:
+- Close the client-side gap between the documented preferred Bindery contract (`type="readerShellCover"`) and Navic's generated/fullscreen cover parser.
+- Preserve the existing safety rule that ordinary `rel="cover"` thumbnails do not become fullscreen shell covers.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.ebookVersionRowsAcceptExplicitReaderShellCoverTypeFromBindery"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --rerun-tasks --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest.ebookVersionRowsAcceptExplicitReaderShellCoverTypeFromBindery"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+```
+
+Results:
+- RED/HOST-FIRST: the new focused test failed while `readerShellCover` type links were ignored.
+- GREEN/FOCUSED-HOST: the forced focused rerun passed after `BinderyFullscreenCoverPolicy.kt` recognized explicit generated/fullscreen/shell-cover type tokens.
+- GREEN/BROADER-HOST: `BinderyBookVersionPolicyTest` passed.
+- GREEN/AGGREGATE: `:composeApp:testAndroid` passed.
+
+Next:
+- Keep end-to-end generated-cover validation open until Bindery emits live generated reader-shell cover metadata/assets for a book.

@@ -74,6 +74,14 @@ private val BinderyFullscreenCoverRelTokens = setOf(
 	"cover-shell"
 )
 
+private val BinderyFullscreenCoverTypeTokens = setOf(
+	"fullscreencover",
+	"extendedcover",
+	"expandedcover",
+	"shellcover",
+	"readershellcover"
+)
+
 internal fun binderyFullscreenCoverTargetAspectRatio(
 	widthDp: Float,
 	heightDp: Float
@@ -133,7 +141,7 @@ internal fun BinderyManifest.fullscreenCoverVariants(): List<BinderyFullscreenCo
 	}.distinctBy { variant -> variant.href }
 
 private fun BinderyLink.fullscreenCoverHref(): String? =
-	if (rel.any(String::isBinderyFullscreenCoverRel)) {
+	if (rel.any(String::isBinderyFullscreenCoverRel) || type?.isBinderyFullscreenCoverType() == true) {
 		href.trim().takeIf { it.isNotEmpty() }
 	} else {
 		properties.firstNonBlankValue(*BinderyFullscreenCoverPropertyKeys)
@@ -156,6 +164,15 @@ private fun BinderyLink.fullscreenCoverVariant(): BinderyFullscreenCoverVariant?
 private fun String.isBinderyFullscreenCoverRel(): Boolean {
 	val normalized = trim().lowercase().substringAfterLast('/')
 	return normalized in BinderyFullscreenCoverRelTokens
+}
+
+private fun String.isBinderyFullscreenCoverType(): Boolean {
+	val canonical = trim()
+		.lowercase()
+		.substringBefore(';')
+		.substringAfterLast('/')
+		.filter(Char::isLetterOrDigit)
+	return BinderyFullscreenCoverTypeTokens.any(canonical::contains)
 }
 
 private fun BinderyPropertyBag.fullscreenCoverVariants(): List<BinderyFullscreenCoverVariant> =
