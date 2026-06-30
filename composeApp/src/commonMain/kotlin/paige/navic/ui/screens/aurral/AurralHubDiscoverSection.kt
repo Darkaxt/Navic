@@ -129,9 +129,12 @@ import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
+import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.AurralIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.aurralAlbumArtworkRenderSpec
+import paige.navic.ui.components.common.generatedArtworkSpec
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -314,6 +317,12 @@ fun AurralHubDiscoverArtistRow(
 	} else {
 		emptyMap()
 	}
+	val generatedArtwork = generatedArtworkSpec(
+		kindLabel = "Artist",
+		primaryLabel = artist.name,
+		seed = artist.id,
+		variant = GeneratedArtworkVariant.SheetThumbnail
+	)
 
 	FormRow(
 		contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
@@ -325,7 +334,7 @@ fun AurralHubDiscoverArtistRow(
 			imageUrl = artist.imageUrl,
 			imageRequestHeaders = imageRequestHeaders,
 			contentDescription = artist.name,
-			fallbackKind = "Artist"
+			generatedArtwork = generatedArtwork
 		)
 		Column(
 			modifier = Modifier
@@ -385,6 +394,14 @@ internal fun AurralHubAlbumSearchRow(
 			null
 		}
 	}
+	val artworkSpec = aurralAlbumArtworkRenderSpec(
+		id = album.id,
+		title = album.title,
+		coverUrl = album.coverUrl,
+		primaryType = album.primaryType,
+		imageRequestHeaders = imageRequestHeaders,
+		variant = GeneratedArtworkVariant.SheetThumbnail
+	)
 
 	FormRow(
 		contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
@@ -393,11 +410,12 @@ internal fun AurralHubAlbumSearchRow(
 		Box {
 			CoverArt(
 				modifier = Modifier.size(56.dp),
-				coverArtId = null,
-				imageUrl = album.coverUrl,
-				imageRequestHeaders = imageRequestHeaders,
-				contentDescription = album.title,
-				fallbackKind = album.primaryType ?: "Album",
+				coverArtId = artworkSpec.coverArtId,
+				imageUrl = artworkSpec.imageUrl,
+				imageCacheKey = artworkSpec.imageCacheKey,
+				imageRequestHeaders = artworkSpec.imageRequestHeaders,
+				contentDescription = artworkSpec.contentDescription,
+				generatedArtwork = artworkSpec.generatedArtwork,
 				colorFilter = colorFilter
 			)
 			AurralOwnershipStatusDot(

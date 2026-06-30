@@ -25,6 +25,8 @@ import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar
 import paige.navic.ui.components.common.AurralOwnershipStatusDot
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.GeneratedArtworkVariant
+import paige.navic.ui.components.common.aurralAlbumArtworkRenderSpec
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,16 +67,24 @@ fun AurralAlbumSearchCard(
 			null
 		}
 	}
+	val artworkSpec = aurralAlbumArtworkRenderSpec(
+		id = album.id,
+		title = album.title,
+		coverUrl = album.coverUrl,
+		primaryType = album.primaryType,
+		imageRequestHeaders = imageRequestHeaders,
+		variant = GeneratedArtworkVariant.CarouselCard
+	)
 
 	Column(modifier.fillMaxWidth()) {
 		Box(Modifier.fillMaxWidth()) {
 			CoverArt(
-				coverArtId = null,
-				imageUrl = album.coverUrl,
-				imageCacheKey = "aurral-recommendation-${album.id}",
-				imageRequestHeaders = imageRequestHeaders,
-				contentDescription = album.title,
-				fallbackKind = album.primaryType ?: "Album",
+				coverArtId = artworkSpec.coverArtId,
+				imageUrl = artworkSpec.imageUrl,
+				imageCacheKey = artworkSpec.imageCacheKey,
+				imageRequestHeaders = artworkSpec.imageRequestHeaders,
+				contentDescription = artworkSpec.contentDescription,
+				generatedArtwork = artworkSpec.generatedArtwork,
 				modifier = Modifier.fillMaxWidth(),
 				shape = RectangleShape,
 				colorFilter = colorFilter,

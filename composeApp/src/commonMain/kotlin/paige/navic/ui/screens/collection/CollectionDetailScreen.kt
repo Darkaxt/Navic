@@ -65,7 +65,6 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.canDeletePlaylistFromDetail
 import paige.navic.domain.models.sortedForPlaylistDetail
 import paige.navic.domain.models.toPlaybackOrigin
-import paige.navic.domain.models.visibleCollectionCoverArtId
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
@@ -80,6 +79,7 @@ import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
+import paige.navic.ui.components.common.collectionArtworkRenderSpec
 import paige.navic.ui.components.common.rememberResolvedArtworkColorScheme
 import paige.navic.ui.components.dialogs.DeletionDialog
 import paige.navic.ui.components.dialogs.DeletionEndpoint
@@ -219,9 +219,13 @@ private fun CollectionDetailScreen(
 			)
 		}
 	}
+	val collectionArtworkSpec = displayedCollection?.collectionArtworkRenderSpec(
+		displayTitle = headerProjection?.title,
+		externalImageUrl = headerProjection?.coverUrl
+	)
 	val collectionColorScheme = rememberResolvedArtworkColorScheme(
-		coverArtId = displayedCollection?.visibleCollectionCoverArtId(),
-		imageUrl = headerProjection?.coverUrl
+		coverArtId = collectionArtworkSpec?.coverArtId,
+		imageUrl = collectionArtworkSpec?.imageUrl
 	)
 
 	NavicTheme(collectionColorScheme) {

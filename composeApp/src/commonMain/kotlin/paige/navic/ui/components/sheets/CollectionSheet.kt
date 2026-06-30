@@ -51,7 +51,6 @@ import paige.navic.domain.models.DomainAlbumInfo
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.displayName
-import paige.navic.domain.models.visibleCollectionCoverArtId
 import paige.navic.icons.Icons
 import paige.navic.icons.brand.Lastfm
 import paige.navic.icons.brand.Musicbrainz
@@ -68,8 +67,10 @@ import paige.navic.icons.outlined.QueuePlayNext
 import paige.navic.icons.outlined.Share
 import paige.navic.icons.outlined.Star
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.MarqueeText
 import paige.navic.ui.components.common.RatingRow
+import paige.navic.ui.components.common.collectionArtworkRenderSpec
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -96,6 +97,9 @@ fun CollectionSheet(
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val platformContext = LocalPlatformContext.current
+	val artworkSpec = collection?.collectionArtworkRenderSpec(
+		variant = GeneratedArtworkVariant.SheetThumbnail
+	)
 	val contentPadding = PaddingValues(horizontal = 16.dp)
 	val colors = ListItemDefaults.colors(
 		containerColor = Color.Transparent,
@@ -115,7 +119,12 @@ fun CollectionSheet(
 		ListItem(
 			leadingContent = {
 				CoverArt(
-					coverArtId = collection?.visibleCollectionCoverArtId(),
+					coverArtId = artworkSpec?.coverArtId,
+					imageUrl = artworkSpec?.imageUrl,
+					imageCacheKey = artworkSpec?.imageCacheKey,
+					imageRequestHeaders = artworkSpec?.imageRequestHeaders ?: emptyMap(),
+					contentDescription = artworkSpec?.contentDescription,
+					generatedArtwork = artworkSpec?.generatedArtwork,
 					modifier = Modifier.size(50.dp),
 					shape = preferenceManager.coverArtShape.decreasedShape
 				)

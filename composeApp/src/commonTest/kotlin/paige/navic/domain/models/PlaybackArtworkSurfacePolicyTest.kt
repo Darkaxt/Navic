@@ -250,4 +250,48 @@ class PlaybackArtworkSurfacePolicyTest {
 			"$sheetPath must not build a server artwork URL from an unsanitized coverArtId."
 		)
 	}
+
+	@Test
+	fun musicGeneratedArtworkSurfacesUseSharedRenderSpecs() {
+		val requiredSpecs = mapOf(
+			"src/commonMain/kotlin/paige/navic/ui/screens/playlist/components/Item.kt" to "playlistArtworkRenderSpec(",
+			"src/commonMain/kotlin/paige/navic/ui/screens/collection/components/HeadingRow.kt" to "collectionArtworkRenderSpec(",
+			"src/commonMain/kotlin/paige/navic/ui/components/sheets/CollectionSheet.kt" to "collectionArtworkRenderSpec(",
+			"src/commonMain/kotlin/paige/navic/ui/components/layouts/ArtCarousel.kt" to "artworkSpec: ArtworkRenderSpec?",
+			"src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralArtistScreen.kt" to "aurralAlbumArtworkRenderSpec(",
+			"src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt" to "aurralAlbumArtworkRenderSpec(",
+			"src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralRecommendedAlbumItem.kt" to "aurralAlbumArtworkRenderSpec(",
+			"src/commonMain/kotlin/paige/navic/ui/screens/library/components/MostPlayedShortcutCard.kt" to "generatedArtwork ="
+		)
+
+		requiredSpecs.forEach { (path, expected) ->
+			val source = File(path).readText()
+			assertTrue(
+				expected in source,
+				"$path must route generated/fallback artwork through ArtworkRenderSpec instead of per-screen fallback decisions."
+			)
+		}
+	}
+
+	@Test
+	fun musicGeneratedArtworkSurfacesDoNotHardcodeFallbackKinds() {
+		val guardedPaths = listOf(
+			"src/commonMain/kotlin/paige/navic/ui/screens/playlist/components/Item.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/collection/components/HeadingRow.kt",
+			"src/commonMain/kotlin/paige/navic/ui/components/sheets/CollectionSheet.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralArtistScreen.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/aurral/AurralRecommendedAlbumItem.kt",
+			"src/commonMain/kotlin/paige/navic/ui/screens/library/components/MostPlayedShortcutCard.kt"
+		)
+		val rawFallbackKind = Regex("""fallbackKind\s*=\s*"[^"]+"""")
+
+		guardedPaths.forEach { path ->
+			val source = File(path).readText()
+			assertFalse(
+				rawFallbackKind.containsMatchIn(source),
+				"$path must not hardcode fallbackKind strings; use GeneratedArtworkSpec via ArtworkRenderSpec."
+			)
+		}
+	}
 }

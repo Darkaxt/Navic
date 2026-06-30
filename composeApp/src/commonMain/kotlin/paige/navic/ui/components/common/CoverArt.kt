@@ -185,6 +185,7 @@ fun CoverArt(
 	imageRequestHeaders: Map<String, String> = emptyMap(),
 	imageDiagnosticLabel: String? = null,
 	contentDescription: String? = null,
+	generatedArtwork: GeneratedArtworkSpec? = null,
 	fallbackKind: String? = null,
 	fallbackLabelStyle: NowPlayingFallbackLabelStyle = NowPlayingFallbackLabelStyle.Center,
 	onClick: (() -> Unit)? = null,
@@ -275,12 +276,23 @@ fun CoverArt(
 			imageUrl = resolvedImageUrl
 		)
 	}
+	val resolvedGeneratedArtwork = remember(generatedArtwork, fallbackKind, fallbackLabelStyle, fallbackContent) {
+		generatedArtwork ?: GeneratedArtworkSpec(
+			kindLabel = fallbackKind,
+			primaryLabel = fallbackContent.label,
+			seed = fallbackContent.seedSource,
+			variant = if (fallbackLabelStyle == NowPlayingFallbackLabelStyle.Arc) {
+				GeneratedArtworkVariant.NowPlayingDisc
+			} else {
+				GeneratedArtworkVariant.GridCard
+			}
+		)
+	}
 
 	if (visibleCoverArtId.isNullOrBlank() && resolvedImageUrl == null) {
 		return CoverArtFallback(
 			fallbackContent = fallbackContent,
-			fallbackKind = fallbackKind,
-			fallbackLabelStyle = fallbackLabelStyle,
+			generatedArtwork = resolvedGeneratedArtwork,
 			modifier = commonModifier,
 			showLoadingIndicator = artworkResolving
 		)
@@ -298,8 +310,7 @@ fun CoverArt(
 		loading = {
 			CoverArtFallback(
 				fallbackContent = fallbackContent,
-				fallbackKind = fallbackKind,
-				fallbackLabelStyle = fallbackLabelStyle,
+				generatedArtwork = resolvedGeneratedArtwork,
 				modifier = Modifier.fillMaxSize(),
 				showLoadingIndicator = true
 			)
@@ -324,8 +335,7 @@ fun CoverArt(
 			}
 			CoverArtFallback(
 				fallbackContent = fallbackContent,
-				fallbackKind = fallbackKind,
-				fallbackLabelStyle = fallbackLabelStyle,
+				generatedArtwork = resolvedGeneratedArtwork,
 				modifier = Modifier.fillMaxSize()
 			)
 		}
@@ -352,14 +362,21 @@ private fun coverArtDiagnosticHeaderKeys(headers: Map<String, String>): String =
 @Composable
 private fun CoverArtFallback(
 	fallbackContent: CoverArtFallbackContent,
-	fallbackKind: String?,
-	fallbackLabelStyle: NowPlayingFallbackLabelStyle,
+	generatedArtwork: GeneratedArtworkSpec,
 	modifier: Modifier = Modifier,
 	showLoadingIndicator: Boolean = false
 ) {
-	val seed = stablePositiveHash(fallbackContent.seedSource)
-	val palette = coverArtFallbackPalette(fallbackContent.seedSource)
-	val kind = coverArtFallbackKindLabel(fallbackKind)
+	val seedSource = generatedArtwork.seed ?: fallbackContent.seedSource
+	val seed = stablePositiveHash(seedSource)
+	val palette = coverArtFallbackPalette(seedSource)
+	val kind = coverArtFallbackKindLabel(generatedArtwork.kindLabel)
+	val label = generatedArtwork.primaryLabel ?: fallbackContent.label
+	val fallbackLabelStyle = if (generatedArtwork.variant == GeneratedArtworkVariant.NowPlayingDisc) {
+		NowPlayingFallbackLabelStyle.Arc
+	} else {
+		NowPlayingFallbackLabelStyle.Center
+	}
+	val metrics = generatedArtwork.variant.metrics()
 	Box(
 		modifier = modifier,
 		contentAlignment = Alignment.Center
@@ -410,29 +427,32 @@ private fun CoverArtFallback(
 				textAlign = TextAlign.Center,
 				modifier = Modifier
 					.align(Alignment.TopCenter)
-					.padding(top = 12.dp)
+					.padding(top = metrics.kindTopPadding)
 					.background(palette.chip, RoundedCornerShape(50))
 					.border(1.dp, palette.chipStroke, RoundedCornerShape(50))
-					.padding(horizontal = 12.dp, vertical = 4.dp)
+					.padding(horizontal = metrics.kindHorizontalPadding, vertical = metrics.kindVerticalPadding)
 			)
 		}
-		fallbackContent.label?.let { label ->
+		label?.let { text ->
 			when (fallbackLabelStyle) {
 				NowPlayingFallbackLabelStyle.Center -> Text(
-					text = label,
+					text = text,
 					color = Color(0xFFF5F2EA),
-					style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black),
-					maxLines = 3,
-					autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 32.sp),
+					style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
+					maxLines = metrics.primaryMaxLines,
+					autoSize = TextAutoSize.StepBased(
+						minFontSize = metrics.primaryMinFontSize,
+						maxFontSize = metrics.primaryMaxFontSize
+					),
 					fontFamily = defaultFont(grade = 90, round = 100f),
 					textAlign = TextAlign.Center,
 					modifier = Modifier
 						.align(Alignment.Center)
-						.padding(horizontal = 16.dp)
+						.padding(horizontal = metrics.primaryHorizontalPadding)
 				)
 
 				NowPlayingFallbackLabelStyle.Arc -> CoverArtFallbackArcLabel(
-					label = label,
+					label = text,
 					modifier = Modifier.matchParentSize()
 				)
 			}
@@ -449,6 +469,57 @@ private fun CoverArtFallback(
 		}
 	}
 }
+
+private data class GeneratedArtworkMetrics(
+	val kindTopPadding: Dp,
+	val kindHorizontalPadding: Dp,
+	val kindVerticalPadding: Dp,
+	val primaryHorizontalPadding: Dp,
+	val primaryMinFontSize: androidx.compose.ui.unit.TextUnit,
+	val primaryMaxFontSize: androidx.compose.ui.unit.TextUnit,
+	val primaryMaxLines: Int
+)
+
+private fun GeneratedArtworkVariant.metrics(): GeneratedArtworkMetrics =
+	when (this) {
+		GeneratedArtworkVariant.SheetThumbnail -> GeneratedArtworkMetrics(
+			kindTopPadding = 4.dp,
+			kindHorizontalPadding = 6.dp,
+			kindVerticalPadding = 2.dp,
+			primaryHorizontalPadding = 7.dp,
+			primaryMinFontSize = 4.sp,
+			primaryMaxFontSize = 11.sp,
+			primaryMaxLines = 2
+		)
+		GeneratedArtworkVariant.DetailHero -> GeneratedArtworkMetrics(
+			kindTopPadding = 14.dp,
+			kindHorizontalPadding = 11.dp,
+			kindVerticalPadding = 4.dp,
+			primaryHorizontalPadding = 26.dp,
+			primaryMinFontSize = 7.sp,
+			primaryMaxFontSize = 24.sp,
+			primaryMaxLines = 4
+		)
+		GeneratedArtworkVariant.NowPlayingDisc -> GeneratedArtworkMetrics(
+			kindTopPadding = 12.dp,
+			kindHorizontalPadding = 12.dp,
+			kindVerticalPadding = 4.dp,
+			primaryHorizontalPadding = 16.dp,
+			primaryMinFontSize = 8.sp,
+			primaryMaxFontSize = 32.sp,
+			primaryMaxLines = 3
+		)
+		GeneratedArtworkVariant.GridCard,
+		GeneratedArtworkVariant.CarouselCard -> GeneratedArtworkMetrics(
+			kindTopPadding = 10.dp,
+			kindHorizontalPadding = 10.dp,
+			kindVerticalPadding = 3.dp,
+			primaryHorizontalPadding = 16.dp,
+			primaryMinFontSize = 6.sp,
+			primaryMaxFontSize = 20.sp,
+			primaryMaxLines = 3
+		)
+	}
 
 @Composable
 private fun CoverArtFallbackArcLabel(

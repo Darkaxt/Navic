@@ -87,8 +87,10 @@ import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
+import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.AurralIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.aurralAlbumArtworkRenderSpec
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtCarousel
@@ -406,6 +408,14 @@ private fun AurralMissingAlbumHero(
 	imageRequestHeaders: Map<String, String>,
 	progress: AurralAcquisitionProgress?
 ) {
+	val artworkSpec = aurralAlbumArtworkRenderSpec(
+		id = route.releaseGroupId,
+		title = route.title,
+		coverUrl = coverUrl,
+		primaryType = route.primaryType,
+		imageRequestHeaders = imageRequestHeaders,
+		variant = GeneratedArtworkVariant.DetailHero
+	)
 	Column(
 		horizontalAlignment = Alignment.CenterHorizontally,
 		modifier = Modifier.fillMaxWidth()
@@ -418,12 +428,12 @@ private fun AurralMissingAlbumHero(
 				.clip(RoundedCornerShape(18.dp))
 		) {
 			CoverArt(
-				coverArtId = null,
-				imageUrl = coverUrl,
-				imageCacheKey = "aurral-release-group-${route.releaseGroupId}",
-				imageRequestHeaders = imageRequestHeaders,
-				contentDescription = route.title,
-				fallbackKind = route.primaryType ?: "Album",
+				coverArtId = artworkSpec.coverArtId,
+				imageUrl = artworkSpec.imageUrl,
+				imageCacheKey = artworkSpec.imageCacheKey,
+				imageRequestHeaders = artworkSpec.imageRequestHeaders,
+				contentDescription = artworkSpec.contentDescription,
+				generatedArtwork = artworkSpec.generatedArtwork,
 				modifier = Modifier.fillMaxSize(),
 				shape = RectangleShape
 			)

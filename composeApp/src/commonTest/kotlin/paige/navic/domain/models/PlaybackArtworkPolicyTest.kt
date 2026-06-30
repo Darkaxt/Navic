@@ -125,7 +125,7 @@ class PlaybackArtworkPolicyTest {
 	}
 
 	@Test
-	fun resolvedPlaybackArtworkPrefersExternalCoverBeforeNativeCoverWhenAurralFirst() {
+	fun resolvedPlaybackArtworkPrefersAurralBeforeNativeAndMusicBrainzWhenAurralFirst() {
 		val resolved = resolvedPlaybackArtwork(
 			serverCoverArtId = "navidrome-cover",
 			aurralArtistImageUrl = " https://aurral.example/api/artists/jason-ross/image.jpg ",
@@ -137,10 +137,10 @@ class PlaybackArtworkPolicyTest {
 			musicBrainzArtworkEnabled = true
 		)
 
-		assertEquals(PlaybackArtworkSource.MusicBrainz, resolved.source)
+		assertEquals(PlaybackArtworkSource.AurralArtist, resolved.source)
 		assertNull(resolved.coverArtId)
-		assertEquals("https://coverartarchive.org/release/front.jpg", resolved.imageUrl)
-		assertEquals("musicbrainz:release-1", resolved.imageCacheKey)
+		assertEquals("https://aurral.example/api/artists/jason-ross/image.jpg", resolved.imageUrl)
+		assertEquals("aurral-artist:artist:jason-ross", resolved.imageCacheKey)
 	}
 
 	@Test
@@ -182,13 +182,13 @@ class PlaybackArtworkPolicyTest {
 	}
 
 	@Test
-	fun resolvedPlaybackArtworkFallsBackToMusicBrainzThenNativeWhenAurralArtistPhotoMissing() {
+	fun resolvedPlaybackArtworkFallsBackToNativeThenMusicBrainzWhenAurralArtistPhotoMissing() {
 		assertEquals(
 			PlaybackArtworkResolution(
-				coverArtId = null,
-				imageUrl = "https://coverartarchive.org/release/front.jpg",
-				imageCacheKey = "musicbrainz:release-1",
-				source = PlaybackArtworkSource.MusicBrainz
+				coverArtId = "navidrome-cover",
+				imageUrl = null,
+				imageCacheKey = null,
+				source = PlaybackArtworkSource.NativeCover
 			),
 			resolvedPlaybackArtwork(
 				serverCoverArtId = " navidrome-cover ",
@@ -203,16 +203,16 @@ class PlaybackArtworkPolicyTest {
 		)
 		assertEquals(
 			PlaybackArtworkResolution(
-				coverArtId = "navidrome-cover",
-				imageUrl = null,
-				imageCacheKey = null,
-				source = PlaybackArtworkSource.NativeCover
+				coverArtId = null,
+				imageUrl = "https://coverartarchive.org/release/front.jpg",
+				imageCacheKey = "musicbrainz:release-1",
+				source = PlaybackArtworkSource.MusicBrainz
 			),
 			resolvedPlaybackArtwork(
-				serverCoverArtId = " navidrome-cover ",
+				serverCoverArtId = null,
 				aurralArtistImageUrl = null,
 				aurralArtistCacheKey = null,
-				musicBrainzArtworkUrl = " ",
+				musicBrainzArtworkUrl = "https://coverartarchive.org/release/front.jpg",
 				musicBrainzArtworkCacheKey = " musicbrainz:release-1 ",
 				artworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 				aurralArtworkEnabled = true,

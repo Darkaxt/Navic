@@ -36,8 +36,9 @@ import paige.navic.domain.models.DomainGenreCollection
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.displayName
-import paige.navic.domain.models.visibleCollectionCoverArtId
+import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.collectionArtworkRenderSpec
 import paige.navic.ui.screens.collection.aurralAlbumArtistCreditParts
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
 import paige.navic.ui.theme.defaultFont
@@ -58,17 +59,19 @@ fun CollectionDetailScreenHeadingRow(
 	val scope = rememberCoroutineScope()
 	val resolveArtistCreditDestination = rememberArtistCreditDestinationResolver()
 	val displayName = displayTitle?.takeIf { it.isNotBlank() } ?: collection.displayName()
+	val artworkSpec = collection.collectionArtworkRenderSpec(
+		displayTitle = displayName,
+		externalImageUrl = coverImageUrl,
+		variant = GeneratedArtworkVariant.DetailHero
+	)
 	with(LocalSharedTransitionScope.current) {
 		CoverArt(
-			coverArtId = collection.visibleCollectionCoverArtId(),
-			imageUrl = coverImageUrl,
-			imageCacheKey = coverImageUrl,
-			contentDescription = displayName,
-			fallbackKind = when (collection) {
-				is DomainAlbum -> "Album"
-				is DomainGenreCollection -> "Genre"
-				is DomainPlaylist -> "Playlist"
-			},
+			coverArtId = artworkSpec.coverArtId,
+			imageUrl = artworkSpec.imageUrl,
+			imageCacheKey = artworkSpec.imageCacheKey,
+			imageRequestHeaders = artworkSpec.imageRequestHeaders,
+			contentDescription = artworkSpec.contentDescription,
+			generatedArtwork = artworkSpec.generatedArtwork,
 			modifier = Modifier
 				.widthIn(0.dp, 420.dp)
 				.padding(horizontal = 64.dp)
