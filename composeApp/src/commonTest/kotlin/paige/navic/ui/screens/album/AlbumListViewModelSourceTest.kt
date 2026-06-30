@@ -98,9 +98,10 @@ class AlbumListViewModelSourceTest {
 			"Matched album cards should display the Aurral artist identity instead of always showing the Navidrome artist name."
 		)
 		assertTrue(
-			"imageUrl = displayedImageUrl" in item &&
-				"aurralAlbumMatch?.coverUrl" in item,
-			"Matched album cards should render Aurral artwork through ArtGridItem's external image path."
+			"externalImageUrl = displayedImageUrl" in item &&
+				"aurralAlbumMatch?.coverUrl" in item &&
+				"artworkSpec = artworkSpec" in item,
+			"Matched album cards should render Aurral artwork through the shared ArtworkRenderSpec external image path."
 		)
 	}
 }

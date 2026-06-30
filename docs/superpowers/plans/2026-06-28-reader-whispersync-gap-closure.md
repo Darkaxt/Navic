@@ -26,14 +26,16 @@ Work must proceed through coherent gap stages, not through isolated UI or runtim
 
 Closed stages stay documented below but are no longer the active queue. The current queue starts from the first release-worthy milestone after `v1.0.11-theta16`.
 
-1. **Stage 5C.5: Credential-Bootstrapped Whispersync Enjoyment Validation** - use `bindery-debug.env` and a debuggable APK (`darkaxt.navic.readerdev` or another explicitly debug-routable package) to launch the paired book/audiobook route directly. Lack of public-release login is not a reason to stop implementation validation.
-2. **Stage 5C.6: Signed Release Whispersync Packaging Validation** - run the same paired flow on `darkaxt.navic` only when a logged-in physical release device or real ignored `navic-release-login.env` is available. This is the public release packaging proof, not the normal development blocker.
-3. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
+1. **Stage 5C.6: Signed Release Whispersync Packaging Validation** - run the same paired flow on `darkaxt.navic` only when a logged-in physical release device or real ignored `navic-release-login.env` is available. This is the public release packaging proof, not the normal development blocker.
+2. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
+3. **Stage 8N: Bindery Generated Fullscreen Cover Variants** - keep Navic ready for Bindery-owned generated fullscreen cover variants; end-to-end closure waits on Bindery exposing real generated assets.
 
 Recently closed:
+- **Stage 8O: Master Generated Artwork Pipeline Sync** - merged `fork/master` generated-artwork routing into the reader branch and reconciled Aurral-first source guards with the shared `ArtworkRenderSpec` path.
 - **Stage 2B.2: Anx-Style Streaming Search Progress** - closed the remaining Stage 2B search UX/performance caveat by streaming search progress and partial result batches through the reader bridge.
 - **Stage 7B: Theta17 Staged Release Candidate** - packaged the completed post-theta16 gap work as the Android-only theta17 release candidate.
 - **Stage 8D: Theta17 Release Validation Baseline** - installed and validated the published release package until the release-login boundary.
+- **Stage 5C.5: Credential-Bootstrapped Whispersync Enjoyment Validation** - use `bindery-debug.env` and a debuggable APK (`darkaxt.navic.readerdev` or another explicitly debug-routable package) to launch the paired book/audiobook route directly; repeat after Whispersync runtime changes.
 - **Stage 5C.4: Current-Source Whispersync Enjoyment Validation Refresh** - passed the paired Bindery sidecar plus audiobook matrix on `darkaxt.navic.readerdev` using `bindery-debug.env`.
 - **Stage 6E.4: Captured Page Curl Snapshot Preview** - completed after theta17 as a host/browser-harness-proven curl fidelity slice; physical acceptance remains covered by Stage 6F.
 - **Stage 8M: Whispersync Gate Release Identity Guard** - keeps the enjoyment validation script aligned with the current Android release identity.
@@ -1808,3 +1810,37 @@ Closure:
 - [x] Wire an actual layout-derived target aspect into production reader launches when the book screen launch surface can provide it.
 - [x] Wire an actual layout-derived target aspect into continue-reading ebook and Whispersync reader launches when the hub surface can provide it.
 - [ ] End-to-end release/device validation once Bindery exposes real generated fullscreen cover variants for a book.
+
+### Stage 8O: Master Generated Artwork Pipeline Sync
+
+Status: complete; branch sync and post-merge guard reconciliation only, no public release.
+
+Purpose:
+- Keep the reader/Whispersync branch current with `fork/master` before continuing Bindery cover or Whispersync work.
+- Preserve the new shared generated-artwork pipeline from `fork/master` while keeping the reader branch's Aurral-first and Bindery fullscreen-cover behavior intact.
+
+Scope:
+- Merge: `62204222 refactor: share generated artwork pipeline`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/collection/CollectionDetailScreen.kt`
+- Modify: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/album/AlbumListViewModelSourceTest.kt`
+- Modify: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/collection/CollectionAurralAlbumPageSourceTest.kt`
+- Modify: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/library/LibraryStartupAsyncSourceTest.kt`
+
+Results:
+- GREEN/SYNC: `git fetch fork master` succeeded, then `git merge --no-edit fork/master` merged cleanly with no textual conflicts.
+- GREEN/FOCUSED-HOST: generated artwork, playback artwork surface, Bindery fullscreen-cover routing, continue-reading routing, streamed search progress, and streamed search controller focused host tests passed after the merge.
+- RED/AGGREGATE-FIRST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` first failed 3 source guards: `AlbumListViewModelSourceTest.albumCardsDisplayAurralMetadataWhenMatched`, `CollectionAurralAlbumPageSourceTest.collectionScreenRendersResolvedAurralHeaderProjection`, and `LibraryStartupAsyncSourceTest.artistAndCollectionDynamicThemeDoNotBypassResolvedArtwork`.
+- ROOT-CAUSE: the production code now routes generated and external artwork through shared `ArtworkRenderSpec`, while the older source guards still expected direct `imageUrl = ...` snippets. Collection dynamic theme also needed to pass the resolved spec's `imageCacheKey` and `imageRequestHeaders`, not only URL and cover id.
+- FIXED: collection dynamic theming now receives the full resolved `ArtworkRenderSpec` identity. Aurral album/collection source guards now assert the shared spec path instead of pre-refactor direct image arguments.
+- GREEN/FOCUSED-HOST: the three formerly failing source guards passed after the fix.
+- GREEN/AGGREGATE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed after the fix.
+- GREEN/SYNTAX: `node --check` passed for `navic-reader.js`, `navic-reader-page-turns.js`, and `navic-reader-typography.js`.
+
+Closure:
+- [x] Merge current `fork/master`.
+- [x] Preserve Aurral-first external artwork routing through the shared generated-artwork pipeline.
+- [x] Preserve Bindery fullscreen-cover route behavior after the merge.
+- [x] Run focused host guards.
+- [x] Run reader JS syntax checks.
+- [x] Run aggregate Android tests.
+- [ ] Commit and push the sync/fix stage.

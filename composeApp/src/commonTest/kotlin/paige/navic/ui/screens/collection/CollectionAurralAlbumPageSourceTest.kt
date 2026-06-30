@@ -29,7 +29,8 @@ class CollectionAurralAlbumPageSourceTest {
 		assertTrue("displaySubtitle =" in screen)
 		assertTrue("displayDetail =" in screen)
 		assertTrue("coverImageUrl =" in screen)
-		assertTrue("imageUrl = coverImageUrl" in heading)
+		assertTrue("externalImageUrl = coverImageUrl" in heading)
+		assertTrue("imageUrl = artworkSpec.imageUrl" in heading)
 	}
 
 	@Test

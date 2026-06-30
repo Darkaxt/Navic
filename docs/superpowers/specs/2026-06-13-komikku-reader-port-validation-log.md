@@ -8877,3 +8877,36 @@ Results:
 Next:
 - Keep the auto-column fix as the current tablet composition baseline.
 - Do not publish a public release for this alone unless it is bundled with a larger reader validation slice.
+
+## 2026-06-30 Stage 8O Master Generated Artwork Pipeline Sync
+
+Scope:
+- Merge current `fork/master` generated-artwork routing into the active reader/Whispersync branch before continuing Bindery cover or Whispersync work.
+- Verify that Aurral-first artwork and Bindery fullscreen-cover behavior survive the merge.
+
+Commands:
+
+```powershell
+git fetch fork master
+git merge --no-edit fork/master
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.components.common.GeneratedArtworkPolicyTest" --tests "paige.navic.domain.models.PlaybackArtworkSurfacePolicyTest" --tests "paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest" --tests "paige.navic.ui.screens.bindery.BinderyContinueShelfPolicyTest" --tests "paige.navic.reader.FoliateAnxParityTest.searchResultsStreamProgressAndPartialResultsLikeAnx" --tests "paige.navic.reader.ReaderControllerTest.streamedSearchProgressUpdatesControllerWithoutWaitingForCompletion"
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.ui.screens.album.AlbumListViewModelSourceTest.albumCardsDisplayAurralMetadataWhenMatched" --tests "paige.navic.ui.screens.collection.CollectionAurralAlbumPageSourceTest.collectionScreenRendersResolvedAurralHeaderProjection" --tests "paige.navic.ui.screens.library.LibraryStartupAsyncSourceTest.artistAndCollectionDynamicThemeDoNotBypassResolvedArtwork"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+```
+
+Results:
+- GREEN/SYNC: `fork/master` was one commit ahead (`62204222 refactor: share generated artwork pipeline`) and merged cleanly.
+- GREEN/FOCUSED-HOST: shared artwork, Bindery fullscreen-cover, continue-reading cover, streamed-search parity, and streamed-search controller focused tests passed after the merge.
+- GREEN/SYNTAX: reader JS syntax checks passed.
+- RED/AGGREGATE-FIRST: the first aggregate gate failed three source guards whose assertions still expected pre-`ArtworkRenderSpec` direct image arguments.
+- FIXED: collection dynamic theming now passes resolved `imageCacheKey` and `imageRequestHeaders`; the stale guards now assert Aurral artwork through shared `ArtworkRenderSpec`.
+- GREEN/FOCUSED-HOST: the three formerly failing source guards passed.
+- GREEN/AGGREGATE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed.
+
+Next:
+- Commit and push the master-sync/fix stage.
+- Do not publish a public release for this stage alone; it is branch hygiene plus Aurral-artwork guard reconciliation, not a new release-worthy reader milestone.

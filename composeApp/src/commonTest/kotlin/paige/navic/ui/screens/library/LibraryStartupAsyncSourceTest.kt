@@ -577,8 +577,13 @@ class LibraryStartupAsyncSourceTest {
 		)
 		assertTrue(
 			"rememberResolvedArtworkColorScheme(" in collectionSource &&
-				"coverArtId = displayedCollection?.visibleCollectionCoverArtId()" in collectionSource,
-			"Collection detail dynamic theming should use the visible collection artwork identity, not hidden generated mix collage art or a copied parent-PR screen rewrite."
+				"displayedCollection?.collectionArtworkRenderSpec(" in collectionSource &&
+				"externalImageUrl = headerProjection?.coverUrl" in collectionSource &&
+				"coverArtId = collectionArtworkSpec?.coverArtId" in collectionSource &&
+				"imageUrl = collectionArtworkSpec?.imageUrl" in collectionSource &&
+				"imageCacheKey = collectionArtworkSpec?.imageCacheKey" in collectionSource &&
+				"imageRequestHeaders = collectionArtworkSpec?.imageRequestHeaders" in collectionSource,
+			"Collection detail dynamic theming should use the resolved shared ArtworkRenderSpec, including Aurral external artwork identity and request metadata."
 		)
 	}
 

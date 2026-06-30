@@ -225,7 +225,9 @@ private fun CollectionDetailScreen(
 	)
 	val collectionColorScheme = rememberResolvedArtworkColorScheme(
 		coverArtId = collectionArtworkSpec?.coverArtId,
-		imageUrl = collectionArtworkSpec?.imageUrl
+		imageUrl = collectionArtworkSpec?.imageUrl,
+		imageCacheKey = collectionArtworkSpec?.imageCacheKey,
+		imageRequestHeaders = collectionArtworkSpec?.imageRequestHeaders ?: emptyMap()
 	)
 
 	NavicTheme(collectionColorScheme) {
