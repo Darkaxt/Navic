@@ -1504,3 +1504,71 @@ Closure:
 - [x] Commit and push validated source commit `cb43a0b9`.
 - [x] Push tag `v1.0.11-theta23`.
 - [x] Verify GitHub Actions release publication.
+
+### Stage 8H: Font Size / Tablet Typography Evidence
+
+Status: evidence-only complete; no production patch made.
+
+Purpose:
+- Re-check the Tab S9 Ultra complaint that the font-size control changed headings but not EPUB body text.
+- Avoid another typography patch unless the current runtime actually reproduces the body-font ownership failure.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+adb devices
+node tools\reader-harness\src\adb-webview-eval.mjs --probe font-size
+node tools\reader-harness\src\adb-webview-eval.mjs --probe font-size-publisher-styles
+```
+
+Results:
+- GREEN/SYNTAX: `navic-reader-typography.js` parses cleanly.
+- GREEN/ADB: `emulator-5554` is connected and readerdev exposes WebView DevTools for PID `13561`.
+- GREEN/FONT-SIZE: the readerdev WebView reported root, body, and paragraph font sizes moving from `16px` at 100% to `22.4px` at 140%.
+- GREEN/EXISTING-EPUB-PROSE: ten existing EPUB paragraph elements, including `P.fut_toc1` and `P.fut_toc`, also moved from `16px` to `22.4px`; `existingProseDelta=6.4`.
+- GREEN/PUBLISHER-STYLES: injected publisher inline and class-important prose both moved from `16px` to `22.4px`; `publisherParagraphDelta=6.4` and `publisherClassImportantDelta=6.4`.
+
+Closure:
+- [x] Do not patch font-size ownership from the old symptom alone; current source and readerdev runtime scale EPUB body prose correctly.
+- [x] Continue with tablet page composition and natural margin diagnostics, since the remaining visual complaint is likely page box, column, or content layout rather than font-size propagation.
+
+### Stage 8I: Anx Auto Column Composition
+
+Status: implementation/runtime validation complete.
+
+Purpose:
+- Fix the tablet page composition regression where large portrait surfaces had enough room for more text, but Navic still forced one-column pagination before Foliate could apply Anx auto-column behavior.
+- Keep Komikku in charge of shell layout, while preserving Anx/Foliate paging semantics for EPUB composition.
+
+Root cause:
+- Anx defaults `maxColumnCount=0` and `columnThreshold=720`; Foliate's paginator interprets `0` as automatic column selection based on available page size.
+- Navic introduced `readerEffectiveMaxColumnCount(...)`, which converted auto mode into an explicit `1` in portrait and `2` in landscape.
+- That pre-collapse blocked the Foliate paginator from combining same-section content on large portrait tablets, causing excessive unused width/height and unstable perceived margins.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs adaptive-page-box-logic
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.FoliateAnxParityTest.everyAnxStyleDimensionIsDocumentedInKnownGaps" --console=plain
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderWhispersyncSidecarUrl /opds/books/3809/sync/8 -ReaderWhispersyncArtifactId 8 -ReaderWhispersyncAudiobookId 34 -ReaderWhispersyncAudiobookBookFileId 633 -ReaderWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -RequireReaderLaunch -Capture
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe visible-page-content
+```
+
+Results:
+- RED/HARNESS-FIRST: before the runtime patch, `adaptive-page-box-logic` failed because portrait auto composition returned `maxColumnCount="1"` for a `1232x1974` viewport instead of preserving Anx auto mode.
+- FIXED/RUNTIME: `readerAdaptiveFoliatePageBox(...)` now passes `readerMaxColumnCountValue(settings)` through directly and removes `readerEffectiveMaxColumnCount(...)`.
+- GREEN/HARNESS: `adaptive-page-box-logic` now expects and receives `maxColumnCount="0"` for phone portrait, Tab S9 Ultra portrait, and landscape auto mode; explicit overrides to `1` or `2` still pass through.
+- GREEN/SYNTAX: `navic-reader-typography.js` passed `node --check`.
+- GREEN/HOST: focused `FoliateAnxParityTest.everyAnxStyleDimensionIsDocumentedInKnownGaps` passed and now rejects reintroducing the pre-collapse helper.
+- GREEN/READERDEV: `install-reader-dev.ps1` built and launched `darkaxt.navic.readerdev` on `emulator-5554`, reached `publicationReady`, and captured `captures\reader-dev\reader-dev-20260630-040407.png`.
+- GREEN/WEBVIEW-PAGE-BOX: `page-box` probe on readerdev reported viewport `1232x1974`, full renderer rect `1232x1974`, `maxInlineSize="1232px"`, `maxBlockSize="1974px"`, `maxColumnCount="0"`, `columnThreshold="720px"`, `topMargin="90px"`, and `bottomMargin="50px"`.
+- INCONCLUSIVE/CONTENT-PROBE: `visible-page-content` returned zero visible text while the current readerdev state was cover/shifted paginator; do not use that probe as evidence for text-page density until it is made route-aware.
+
+Closure:
+- [x] Preserve Anx auto-column semantics instead of resolving them inside Navic.
+- [x] Add a source guard that rejects reintroducing `readerEffectiveMaxColumnCount(...)`.
+- [x] Update the harness expectations so phone, tablet, and landscape auto mode remain delegated to Foliate.
+- [x] Validate the patched runtime in readerdev with WebView page-box evidence.

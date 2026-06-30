@@ -766,8 +766,8 @@ if (mode === 'adaptive-page-box-logic') {
   if (portraitInline === 720 || portraitBlock === 1440) {
     throw new Error('Adaptive page box must not preserve Foliate 720x1440 defaults')
   }
-  if (portrait.maxColumnCount !== '1') {
-    throw new Error(`Expected portrait single-page composition until same-section spread is explicit, got ${JSON.stringify(portrait)}`)
+  if (portrait.maxColumnCount !== '0') {
+    throw new Error(`Expected portrait auto composition to stay delegated to Foliate/Anx maxColumnCount=0, got ${JSON.stringify(portrait)}`)
   }
   const tabS9UltraPortrait = helpers.readerAdaptiveFoliatePageBox(
     { width: 1848, height: 2960 },
@@ -786,6 +786,9 @@ if (mode === 'adaptive-page-box-logic') {
       'Expected tablet EPUB page box to use the full viewport before Anx side/top/bottom margins are applied, got ' +
       JSON.stringify({ tabS9UltraPortrait, tabS9Inline, tabS9Block })
     )
+  }
+  if (tabS9UltraPortrait.maxColumnCount !== '0') {
+    throw new Error(`Expected tablet portrait auto composition to let Foliate combine same-section pages by columnThreshold, got ${JSON.stringify(tabS9UltraPortrait)}`)
   }
   const explicitPortraitSpread = helpers.readerAdaptiveFoliatePageBox(
     { width: 1232, height: 1974 },
@@ -821,8 +824,8 @@ if (mode === 'adaptive-page-box-logic') {
   }
 
   const landscape = helpers.readerAdaptiveFoliatePageBox({ width: 1974, height: 1232 }, { marginPercent: 0 })
-  if (landscape.maxColumnCount !== '2') {
-    throw new Error(`Expected wide surfaces to enable controlled two-column same-section composition, got ${JSON.stringify(landscape)}`)
+  if (landscape.maxColumnCount !== '0') {
+    throw new Error(`Expected wide auto composition to stay delegated to Foliate/Anx maxColumnCount=0, got ${JSON.stringify(landscape)}`)
   }
   if (parsePx(landscape.maxInlineSize) !== 1974 || parsePx(landscape.maxBlockSize) !== 1232) {
     throw new Error(`Expected landscape page box to use wide viewport capacity, got ${JSON.stringify(landscape)}`)

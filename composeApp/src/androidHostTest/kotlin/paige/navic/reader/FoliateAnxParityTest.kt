@@ -974,7 +974,6 @@ class FoliateAnxParityTest {
 		}
 		assertTrue(
 			navicReaderHelpersText.contains("readerMaxColumnCountValue") &&
-				navicReaderHelpersText.contains("readerEffectiveMaxColumnCount") &&
 				navicReaderHelpersText.contains("readerColumnThresholdValue") &&
 				navicReaderHelpersText.contains("columnThreshold: `${'$'}{Math.round(columnThreshold)}px`") &&
 				navicReaderMainText.contains("setAttribute('column-threshold', pageBox.columnThreshold)") &&
@@ -988,6 +987,11 @@ class FoliateAnxParityTest {
 		assertTrue(
 			!adaptivePageBoxBody.contains(": columnThreshold"),
 			"Auto column mode must not hard-cap the full page inline size to columnThreshold; threshold decides splitting, not tablet page width."
+		)
+		assertTrue(
+			adaptivePageBoxBody.contains("readerMaxColumnCountValue(settings)") &&
+				!adaptivePageBoxBody.contains("readerEffectiveMaxColumnCount"),
+			"Auto column mode must pass Anx maxColumnCount=0 through to Foliate; Navic must not pre-collapse auto mode to one portrait column before the paginator can combine same-section pages."
 		)
 		assertTrue(
 			!adaptivePageBoxBody.contains("marginPercent") &&
