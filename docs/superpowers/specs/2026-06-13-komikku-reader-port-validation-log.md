@@ -9111,3 +9111,26 @@ Results:
 Next:
 - Keep this as the current automated proof that the native chapter rail can reach first and last pages of a multi-page chapter through the real UI control.
 - Physical-device/human checks remain reserved for final feel and release-candidate validation.
+
+## 2026-06-30 Stage 8S Post-Master-Sync Whispersync Enjoyment Refresh
+
+Scope:
+- Re-run the paired Bindery book `3809` Whispersync enjoyment gate after merging current `fork/master` into the reader branch.
+- Keep this as readerdev/emulator implementation proof, not signed public-package proof.
+- Confirm that ebook/audiobook integration validation uses `bindery-debug.env` and does not depend on Navidrome login state.
+
+Command:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoBuild -NoInstall
+```
+
+Results:
+- GREEN/PACKAGE: installed `darkaxt.navic.readerdev` reported `versionCode=453`, `versionName=v1.0.11-theta25`, matching `androidApp/build.gradle.kts`.
+- GREEN/GATE: the Whispersync enjoyment gate passed.
+- GREEN/PAIRED-ROUTE: the run targeted production book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
+- GREEN/PROBES: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-161200\probe-results.jsonl` reports PASS for `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress`.
+
+Next:
+- Treat this as current readerdev implementation evidence after branch sync.
+- Continue product work through Bindery-scoped readerdev validation. Signed public-package proof remains a separate packaging/state gate, not an ebook/audiobook implementation blocker.

@@ -37,6 +37,7 @@ Current continuation boundary as of 2026-06-30:
 - The corrected boundary was validated immediately with `scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoBuild -NoInstall`: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-140918` passed page-scoped control, audio-follow suppression, character-offset overlay, and exact companion-progress probes.
 - The current-source readerdev APK was rebuilt, installed, and launched after the paper texture and headset visual slices; `captures\reader-dev\reader-dev-20260630-144505.png` reached `publicationReady` for the production paired route, and `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-144538` passed page-scoped control, audio-follow suppression, character-offset overlay, and exact companion-progress probes.
 - The current-source prepared Komikku matrix was rerun after the same slices: `captures\reader-komikku-matrix\stage6f-current-source-theta25-20260630` passed all 12 rows on `darkaxt.navic.readerdev` `v1.0.11-theta25`, including native cover tap/drag, center tap, edge taps, drag next/previous, and texture next/previous walks.
+- After merging current `fork/master` into the reader branch, the no-build/no-install Whispersync enjoyment gate passed again on the installed `darkaxt.navic.readerdev` `v1.0.11-theta25`: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-161200` passed page-scoped control, audio-follow suppression, character-offset overlay, and exact companion-progress probes against production book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
 - Therefore the next meaningful work must continue through the Bindery-scoped readerdev validation/implementation path and the current source gaps. Do not reopen closed reader-shell microfixes merely because the historical stage templates below still contain unchecked generic checklist rows, and do not stop on missing Navidrome/global app credentials.
 
 1. **Stage 5C.5 Follow-up: Bindery-Scoped Whispersync Enjoyment Validation** - rerun `scripts\adb-whispersync-enjoyment.ps1` after every Whispersync runtime/API change using `bindery-debug.env` and `darkaxt.navic.readerdev`; this is the normal ebook/audiobook integration proof.
@@ -2013,3 +2014,34 @@ Closure:
 - [x] Patch the ADB harness only.
 - [x] Rerun focused host guards.
 - [x] Rerun the isolated readerdev rail endpoint matrix against book `3809`, ebook file `426`, start href `OEBPS/xhtml/chapter17.xhtml`.
+
+### Stage 8S: Post-Master-Sync Whispersync Enjoyment Refresh
+
+Status: complete for readerdev/emulator Whispersync proof; no public release.
+
+Purpose:
+- Reconfirm the Bindery-scoped ebook/audiobook integration gate after merging the current `fork/master` artwork pipeline commits into the reader branch.
+- Prevent the public-package login boundary from being misread as an ebook/audiobook implementation blocker.
+
+Scope:
+- Use: `scripts\adb-whispersync-enjoyment.ps1`
+- Use: `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env`
+- Modify: `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
+- Modify: `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+- Modify: `docs/superpowers/specs/2026-06-18-whispersync-design.md`
+
+Command:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoBuild -NoInstall
+```
+
+Results:
+- GREEN/PACKAGE: installed `darkaxt.navic.readerdev` reported `versionCode=453`, `versionName=v1.0.11-theta25`, matching `androidApp/build.gradle.kts`.
+- GREEN/GATE: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-161200` passed on `emulator-5554`.
+- GREEN/PROBES: the gate passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` for production book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
+
+Closure:
+- [x] Verify installed readerdev package identity.
+- [x] Run the no-build/no-install paired Whispersync enjoyment matrix.
+- [x] Record this as current readerdev implementation proof, not signed public-package proof.
