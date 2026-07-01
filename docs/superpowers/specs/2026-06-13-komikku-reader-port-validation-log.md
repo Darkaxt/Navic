@@ -9561,3 +9561,39 @@ Limitations:
 - The physical tablet still owns final acceptance for texture feel. Emulator diagnostics prove stronger visibility and correct movement sign, but not the subjective "swaps after text" complaint under the exact physical release and settings.
 - The page-number CSS/font path is capable of matching Dys, but the physical report may still indicate a settings propagation or stale installed-release problem.
 - The exact physical landscape narrow-column failure was not reproduced in readerdev after portrait-to-landscape rotation; if it recurs, capture current page-box and page-number probes from the physical WebView before patching layout again.
+
+## 2026-07-01 Stage 9G Theta29 Public Release Candidate
+
+Scope:
+- Publish the Stage 9F paper texture visibility and texture-slot transition validation fixes as a public Android APK.
+- Keep the release scoped to the visual feedback correction: stronger sepia paper texture, visible sepia border overlay, current-slot texture transition harness validation, and preserved landscape/page-number diagnostic probes.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta29
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git diff --check
+git commit -m "Prepare theta29 reader release"
+git tag v1.0.11-theta29
+git push fork codex/komikku-reader-backbone-eta64
+git push fork v1.0.11-theta29
+gh run view 28493076517 --repo Darkaxt/Navic --json status,conclusion,jobs
+gh release view v1.0.11-theta29 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease
+```
+
+Results:
+- GREEN/VERSION: `androidApp/build.gradle.kts` now reports `versionName = "v1.0.11-theta29"` and `versionCode = 457`; release version verification passed.
+- GREEN/LOCAL-GATES: `:composeApp:testAndroid` passed and `git diff --check` passed before tagging.
+- GREEN/GIT: committed `b816241d Prepare theta29 reader release` and tagged `v1.0.11-theta29`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28493076517` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` all succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA` and `Attach iOS IPA to GitHub Release` were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta29` contains `Navic.apk` (`33,590,631` bytes, `sha256:7b8bd8ea9d75b2e2f7a47b138481d4e62168ee2b029c961f18050cfef27f1141`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta29` and specifically check:
+  - sepia intensity and border-gradient visibility are materially stronger than theta28;
+  - page numbers visually follow the active ebook font (`Dys`);
+  - paper texture movement no longer feels like a post-load swap during drag/page turns;
+  - portrait-to-landscape rotation produces a readable spread/double-page surface, not a narrow centered column.
