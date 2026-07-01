@@ -20,6 +20,7 @@ Each stage is a complete deliverable:
 - It is committed after the stage passes.
 - Intermediate validation uses debug/readerdev APKs on the emulator and local ADB/browser harnesses. Do not create public GitHub releases for microfixes, isolated visual tweaks, diagnostics, or unproven animation changes.
 - A public release is published only after a coherent feature or major user-visible fix has been fully deployed in source, locally validated, committed, and is ready for physical-device acceptance. Public version bumps and GitHub release workflows are not part of the normal implementation loop.
+- 2026-07-02 cadence override: iteration artifacts are debug/readerdev APKs only. Final/public APK releases are reserved for fully deployed feature slices or major fixes that have already passed the relevant host, harness, emulator, and source checks; historical completed-stage release notes below are evidence records, not instructions to publish every new patch.
 
 ## Remaining Gap Queue
 
