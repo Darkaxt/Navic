@@ -1016,11 +1016,11 @@ function passiveCommittedRelocationPosition(pagePosition, detail, reason) {
 
 function readerPageNumberFontFamily(settings = this.readerSettings) {
   const configured = readerEffectiveFontFamily(settings)
-  const source = readerFontSource(settings)
-  if (configured && source !== ReaderFontSourcePublisher) return configured
+  const selected = String(settings?.fontFamily || '').trim()
+  if (configured) return configured
+  if (selected && selected !== 'inherit') return selected
   const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)
   if (visibleContentFont) return visibleContentFont
-  if (configured) return configured
   for (const doc of this.contentDocuments()) {
     const fontFamily = doc?.defaultView?.getComputedStyle?.(doc.body)?.fontFamily
     if (fontFamily && fontFamily !== 'initial') return fontFamily

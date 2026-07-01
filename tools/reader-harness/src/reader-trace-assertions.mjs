@@ -630,10 +630,45 @@ const isNativeBlueLinkColor = color =>
   String(color || '').trim().toLowerCase() === 'rgb(0, 0, 238)' ||
   String(color || '').trim().toLowerCase() === '#0000ee'
 
+const assertWideLandscapeContentWidth = result => {
+  const viewportWidth = Number(result?.viewportWidth)
+  const viewportHeight = Number(result?.viewportHeight)
+  if (!Number.isFinite(viewportWidth) ||
+    !Number.isFinite(viewportHeight) ||
+    viewportWidth < 1200 ||
+    viewportWidth <= viewportHeight) {
+    return
+  }
+  const paragraphWidth = Number(result?.paragraphWidthAt100)
+  const bodyWidth = Number(result?.bodyWidthAt100)
+  const htmlWidth = Number(result?.htmlWidthAt100)
+  const minimumParagraphWidth = Math.min(720, viewportWidth * 0.32)
+  const minimumDocumentWidth = Math.min(960, viewportWidth * 0.48)
+  if (!Number.isFinite(htmlWidth) || htmlWidth < minimumDocumentWidth) {
+    throw new Error(
+      `Expected landscape EPUB html box to use tablet width; ` +
+      `observed html=${htmlWidth} viewport=${viewportWidth}x${viewportHeight}`
+    )
+  }
+  if (!Number.isFinite(bodyWidth) || bodyWidth < minimumDocumentWidth) {
+    throw new Error(
+      `Expected landscape EPUB body box to use tablet width; ` +
+      `observed body=${bodyWidth} viewport=${viewportWidth}x${viewportHeight}`
+    )
+  }
+  if (!Number.isFinite(paragraphWidth) || paragraphWidth < minimumParagraphWidth) {
+    throw new Error(
+      `Expected landscape EPUB paragraph to avoid min-content collapse; ` +
+      `observed paragraph=${paragraphWidth} viewport=${viewportWidth}x${viewportHeight}`
+    )
+  }
+}
+
 export const assertRendererCssSmoke = result => {
   if (!result || result.contentDocumentCount < 1) {
     throw new Error('Expected css-smoke to inspect at least one loaded EPUB content document')
   }
+  assertWideLandscapeContentWidth(result)
   if (result.theme !== 'sepia') {
     throw new Error(`Expected content document to use sepia theme; observed ${result.theme || 'unset'}`)
   }
@@ -869,11 +904,32 @@ export const assertRendererCssSmoke = result => {
   if (result.textLinkRecentTouchContentHitAfterRemoval !== true) {
     throw new Error('Expected recent text link touch ownership to suppress native chrome after DOM removal')
   }
-  if (!String(result.surfaceTextureBackgroundImage || '').includes('paper-texture')) {
-    throw new Error(`Expected surface paper texture layer background image; observed ${result.surfaceTextureBackgroundImage || 'unset'}`)
+  if (String(result.surfaceTextureBackgroundImage || '').includes('paper-texture')) {
+    throw new Error(`Expected static paper backing to be color-only; observed ${result.surfaceTextureBackgroundImage || 'unset'}`)
   }
-  if (!String(result.surfaceBorderBackgroundImage || '').includes('page-border-overlay')) {
-    throw new Error(`Expected surface border overlay background image; observed ${result.surfaceBorderBackgroundImage || 'unset'}`)
+  if (result.movingPageTextureLayerPresent !== true) {
+    throw new Error('Expected moving page paper texture layer to be present')
+  }
+  if (result.movingPageBorderLayerPresent !== true) {
+    throw new Error('Expected moving page border overlay layer to be present')
+  }
+  if (result.movingPageTextureSlotPresent !== true) {
+    throw new Error('Expected moving page paper texture current slot to be present')
+  }
+  if (result.movingPageBorderSlotPresent !== true) {
+    throw new Error('Expected moving page border overlay current slot to be present')
+  }
+  if (result.movingPageTextureArtworkPresent !== true) {
+    throw new Error('Expected moving page paper texture artwork to be present')
+  }
+  if (result.movingPageBorderArtworkPresent !== true) {
+    throw new Error('Expected moving page border overlay artwork to be present')
+  }
+  if (!String(result.movingPageTextureArtworkBackgroundImage || '').includes('paper-texture')) {
+    throw new Error(`Expected moving page paper texture artwork background image; observed ${result.movingPageTextureArtworkBackgroundImage || 'unset'}`)
+  }
+  if (!String(result.movingPageBorderArtworkBackgroundImage || '').includes('page-border-overlay')) {
+    throw new Error(`Expected moving page border overlay artwork background image; observed ${result.movingPageBorderArtworkBackgroundImage || 'unset'}`)
   }
   if (String(result.documentTextureBackgroundImage || '').includes('paper-texture')) {
     throw new Error(`Expected no document-owned paper texture background image; observed ${result.documentTextureBackgroundImage || 'unset'}`)
@@ -882,12 +938,16 @@ export const assertRendererCssSmoke = result => {
     throw new Error(`Expected no document paper texture asset dataset; observed ${result.documentTextureAsset || 'unset'}`)
   }
   const textureOpacity = numericCss(result.surfaceTextureOpacity)
-  const borderOpacity = numericCss(result.surfaceBorderOpacity)
-  if (textureOpacity == null || textureOpacity <= 0 || textureOpacity > 0.3) {
-    throw new Error(`Expected subtle root margin texture opacity; observed ${result.surfaceTextureOpacity || 'unset'}`)
+  const movingTextureOpacity = numericCss(result.movingPageTextureOpacity)
+  const borderOpacity = numericCss(result.movingPageBorderOpacity)
+  if (textureOpacity == null || textureOpacity < 0.9) {
+    throw new Error(`Expected opaque root paper backing texture; observed ${result.surfaceTextureOpacity || 'unset'}`)
+  }
+  if (movingTextureOpacity == null || movingTextureOpacity <= 0 || movingTextureOpacity > 0.7) {
+    throw new Error(`Expected subtle moving page texture opacity; observed ${result.movingPageTextureOpacity || 'unset'}`)
   }
   if (borderOpacity == null || borderOpacity <= 0) {
-    throw new Error(`Expected visible border overlay opacity; observed ${result.surfaceBorderOpacity || 'unset'}`)
+    throw new Error(`Expected visible border overlay opacity; observed ${result.movingPageBorderOpacity || 'unset'}`)
   }
   if (!String(result.surfaceTextureAsset || '').includes('paper-texture')) {
     throw new Error(`Expected paper texture asset dataset to be populated; observed ${result.surfaceTextureAsset || 'unset'}`)

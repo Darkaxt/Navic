@@ -159,7 +159,11 @@ export const normalizeReaderLineFragmentParagraphs = doc => {
   return normalized
 }
 
-export const readerFontFaceCss = settings => readerFontSource(settings) === ReaderFontSourceNavic
+const readerNavicFontFacesRequired = settings =>
+  readerFontSource(settings) === ReaderFontSourceNavic ||
+  String(settings?.fontFamily || '').includes('Navic ')
+
+export const readerFontFaceCss = settings => readerNavicFontFacesRequired(settings)
   ? `
   @font-face {
     font-family: 'Navic Literata';
@@ -518,6 +522,25 @@ export const readerTypographyCss = settings => {
   }
   table:not(:has(img)):not(:has(svg)):not(:has(canvas)) {
     width: 100% !important;
+  }
+  p,
+  li,
+  blockquote,
+  dd,
+  main,
+  section,
+  article,
+  center,
+  div:not(:has(*:not(b, a, em, i, strong, u, span))):not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  div:has(> br):not(:has(> img)):not(:has(> svg)):not(:has(> canvas)),
+  body > span:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  body > a:any-link:not(:has(img)):not(:has(svg)):not(:has(canvas)),
+  font,
+  [data-navic-paragraph-block="true"] {
+    min-width: min(32em, 100%) !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    hyphens: manual !important;
   }
   p,
   li,

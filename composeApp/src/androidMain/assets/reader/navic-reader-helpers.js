@@ -9,6 +9,8 @@ import {
   ReaderFlowScrolledGaps,
   ReaderFontSourceCustom,
   ReaderFontSourceNavic,
+  ReaderMovingPageBorderOverlayLayerSelector,
+  ReaderMovingPagePaperTextureLayerSelector,
   ReaderPageBorderOverlayAssets,
   ReaderPageBorderOverlayVariantCount,
   ReaderPageNumberLayerSelector,
@@ -483,6 +485,28 @@ export const ensureReaderSurfaceBorderOverlayLayer = () => {
   return layer
 }
 
+export const ensureReaderMovingPageTextureLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderMovingPagePaperTextureLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicMovingPagePaperTextureLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+export const ensureReaderMovingPageBorderOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderMovingPageBorderOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicMovingPageBorderOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
 export const ensureReaderPageNumberLayer = () => {
   let layer = readerRoot.querySelector?.(ReaderPageNumberLayerSelector)
   if (!layer) {
@@ -566,6 +590,36 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
   })
 }
 
+export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, settings) => {
+  if (!layer || !Array.isArray(textureSlots) || !textureSlots.some(slot => slot?.variant?.asset)) return
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
+  const palette = readerThemePalette(settings?.theme)
+  setStylesImportant(layer, {
+    position: 'fixed',
+    inset: '0px',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    'z-index': '0',
+    'pointer-events': 'none',
+    background: palette.background,
+    'background-color': palette.background,
+    'background-image': 'none',
+    'background-size': 'auto',
+    'background-position': '0px 0px',
+    'background-repeat': 'no-repeat',
+    opacity: '1',
+    'mix-blend-mode': 'normal',
+    overflow: 'hidden',
+    transform: 'none',
+  })
+  layer.dataset.navicStaticPaperBackingAsset = ''
+  layer.dataset.navicStaticPaperBackingOwner = 'margin'
+}
+
 export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(textureSlots) || !textureSlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
@@ -617,6 +671,9 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
     })
   }
 }
+
+export const updateReaderMovingPageTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceTextureLayer(layer, textureSlots, settings, scrollOffset, flowMode, readerDirection)
 
 export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(borderOverlaySlots) || !borderOverlaySlots.some(slot => slot?.variant?.asset)) return
@@ -675,6 +732,9 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
     })
   }
 }
+
+export const updateReaderMovingPageBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceBorderOverlayLayer(layer, borderOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
 
 export const readerTapZoneOverlayLabel = type => {
   switch (type) {

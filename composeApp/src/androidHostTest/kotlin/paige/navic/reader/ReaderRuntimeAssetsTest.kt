@@ -1328,6 +1328,23 @@ class ReaderRuntimeAssetsTest {
 		assertContains(paginatorText, "doc?.documentElement?.nodeType === 1")
 		assertContains(paginatorText, "const body = documentStyleRoot(doc)")
 		assertContains(paginatorText, "const root = doc?.documentElement?.nodeType === 1 ? doc.documentElement : body")
+		val setImageSize = paginatorText
+			.substringAfter("setImageSize() {")
+			.substringBefore("\n    expand()")
+		assertContains(
+			setImageSize,
+			"const body = documentStyleRoot(doc)",
+			message = "Image sizing must also tolerate transient body-less documents during render."
+		)
+		assertContains(
+			setImageSize,
+			"if (!body) return",
+			message = "Image sizing must skip incomplete transient documents instead of throwing."
+		)
+		assertFalse(
+			setImageSize.contains("doc.body.querySelectorAll"),
+			"Direct doc.body image queries throw when Foliate renders a transient body-less document."
+		)
 		assertFalse(
 			paginatorText.contains("defaultView.getComputedStyle(doc.body)"),
 			"Direct getComputedStyle(doc.body) throws when Foliate loads a transient body-less document."

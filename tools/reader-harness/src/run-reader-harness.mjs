@@ -864,7 +864,7 @@ if (mode === 'trace-smoke') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
     })
@@ -893,7 +893,7 @@ if (mode === 'font-css-smoke') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
     const result = await page.evaluate(async helperUrl => {
       const helpers = await import(helperUrl)
@@ -2574,34 +2574,49 @@ if (mode === 'epub-texture-scroll') {
     const result = await page.evaluate(async () => {
       const view = document.querySelector('foliate-view')
       const renderer = view?.renderer
-      const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const staticLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const layer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
       if (!renderer) throw new Error('Missing foliate renderer')
-      if (!layer) throw new Error('Missing surface paper texture layer')
+      if (!staticLayer) throw new Error('Missing static surface paper backing layer')
+      if (!layer) throw new Error('Missing moving page paper texture layer')
       const textureSlot = () => layer.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
       const beforePosition = Number(renderer.containerPosition)
       const beforeSlot = textureSlot()
       const beforeSlotStyle = beforeSlot ? getComputedStyle(beforeSlot) : null
+      const beforeTextureSlotTransform = beforeSlot?.style?.transform || ''
+      const beforeComputedTextureSlotTransform = beforeSlotStyle?.transform || ''
       const delta = Math.min(120, Math.max(48, Math.round(window.innerWidth * 0.25)))
       renderer.containerPosition = beforePosition + delta
       renderer.dispatchEvent(new Event('scroll'))
       await new Promise(resolve => requestAnimationFrame(resolve))
       const afterSlot = textureSlot()
       const afterSlotStyle = afterSlot ? getComputedStyle(afterSlot) : null
+      const trace = window.__navicReaderTrace || []
+      const recentTextureTrace = trace
+        .filter(entry => String(entry?.type || '').startsWith('texture:'))
+        .slice(-8)
       return {
         beforePosition,
         afterPosition: Number(renderer.containerPosition),
         delta,
         flowMode: document.body.dataset.navicReaderFlowMode || '',
-        beforeTextureSlotTransform: beforeSlot?.style?.transform || '',
-        beforeComputedTextureSlotTransform: beforeSlotStyle?.transform || '',
+        beforeTextureSlotTransform,
+        beforeComputedTextureSlotTransform,
         afterTextureSlotTransform: afterSlot?.style?.transform || '',
         afterComputedTextureSlotTransform: afterSlotStyle?.transform || '',
+        staticTextureBackgroundPosition: staticLayer.style.backgroundPosition,
+        computedStaticTextureBackgroundPosition: getComputedStyle(staticLayer).backgroundPosition,
         textureBackgroundPosition: layer.style.backgroundPosition,
         computedTextureBackgroundPosition: getComputedStyle(layer).backgroundPosition,
+        recentTextureTrace,
       }
     })
     assertNoConsoleErrors(errors)
-    assertSurfaceTextureTracksForwardContentMovement(result)
+    try {
+      assertSurfaceTextureTracksForwardContentMovement(result)
+    } catch (error) {
+      throw new Error(`${error?.message || String(error)}; result=${JSON.stringify(result)}`)
+    }
     console.log(`reader harness epub-texture-scroll passed: ${JSON.stringify(result)}`)
   } catch (error) {
     console.error(error?.message || String(error))
@@ -2680,8 +2695,9 @@ if (mode === 'epub-texture-page-turns') {
     const collectState = async label => page.evaluate(sampleLabel => {
       const view = document.querySelector('foliate-view')
       const renderer = view?.renderer
-      const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
-      const borderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+      const staticLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const layer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
+      const borderLayer = document.querySelector('[data-navic-moving-page-border-overlay-layer="true"]')
       const textureSlot = layer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
       const textureSlotStyle = textureSlot ? getComputedStyle(textureSlot) : null
       const borderSlot = borderLayer?.querySelector?.('[data-navic-surface-page-border-overlay-slot="current"]')
@@ -2707,6 +2723,9 @@ if (mode === 'epub-texture-page-turns') {
         computedTextureSlotTransform: textureSlotStyle?.transform || '',
         borderSlotTransform: borderSlot?.style?.transform || '',
         computedBorderSlotTransform: borderSlotStyle?.transform || '',
+        staticTextureLayerPresent: Boolean(staticLayer),
+        staticTextureBackgroundPosition: staticLayer?.style.backgroundPosition || '',
+        computedStaticTextureBackgroundPosition: staticLayer ? getComputedStyle(staticLayer).backgroundPosition : '',
         textureBackgroundPosition: layer?.style.backgroundPosition || '',
         computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
         borderBackgroundPosition: borderLayer?.style.backgroundPosition || '',
@@ -2756,7 +2775,7 @@ if (mode === 'epub-texture-page-turns') {
       const sample = label => {
         const view = document.querySelector('foliate-view')
         const renderer = view?.renderer
-        const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+        const layer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
         const textureSlot = layer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
         const textureSlotStyle = textureSlot ? getComputedStyle(textureSlot) : null
         const messages = (window.__navicReaderPostedMessages || [])
@@ -2928,7 +2947,8 @@ if (mode === 'epub-texture-frontmatter-transition') {
     const collectState = async label => page.evaluate(sampleLabel => {
       const view = document.querySelector('foliate-view')
       const renderer = view?.renderer
-      const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const staticLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const layer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
       const textureSlot = layer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
       const textureSlotStyle = textureSlot ? getComputedStyle(textureSlot) : null
       const messages = (window.__navicReaderPostedMessages || [])
@@ -2998,6 +3018,9 @@ if (mode === 'epub-texture-frontmatter-transition') {
         textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
         textureSlotTransform: textureSlot?.style?.transform || '',
         computedTextureSlotTransform: textureSlotStyle?.transform || '',
+        staticTextureLayerPresent: Boolean(staticLayer),
+        staticTextureBackgroundPosition: staticLayer?.style.backgroundPosition || '',
+        computedStaticTextureBackgroundPosition: staticLayer ? getComputedStyle(staticLayer).backgroundPosition : '',
         textureBackgroundPosition: layer?.style.backgroundPosition || '',
         computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
         visibleText: visibleText.slice(0, 1000),
@@ -3834,7 +3857,7 @@ if (mode === 'css-smoke') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
       window.__navicReaderPostedMessages = []
@@ -3896,6 +3919,9 @@ if (mode === 'css-smoke') {
       const bodyStyle = win.getComputedStyle(doc.body)
       const paragraph = doc.querySelector('[data-navic-css-smoke-paragraph="true"]')
       const paragraphStyle = win.getComputedStyle(paragraph)
+      const paragraphRectAt100 = paragraph.getBoundingClientRect()
+      const bodyRectAt100 = doc.body.getBoundingClientRect()
+      const htmlRectAt100 = doc.documentElement.getBoundingClientRect()
       const paragraphFontSizeAt100 = Number.parseFloat(paragraphStyle.fontSize || '0')
       const bodyFontSizeAt100 = Number.parseFloat(bodyStyle.fontSize || '0')
       const textLink = doc.querySelector('[data-navic-css-smoke-link="true"]')
@@ -4218,11 +4244,26 @@ if (mode === 'css-smoke') {
         .filter(event => event?.type === 'native-tap-zones:content-long-press-at')
         .map(event => event?.payload?.source || '')
       const surfaceTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
-      const surfaceBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+      const movingPageTextureLayer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
+      const movingPageBorderLayer = document.querySelector('[data-navic-moving-page-border-overlay-layer="true"]')
+      const movingPageTextureSlot = movingPageTextureLayer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
+      const movingPageBorderSlot = movingPageBorderLayer?.querySelector?.('[data-navic-surface-page-border-overlay-slot="current"]')
+      const movingPageTextureArtwork = movingPageTextureSlot?.querySelector?.('[data-navic-surface-texture-slot-artwork="true"]')
+      const movingPageBorderArtwork = movingPageBorderSlot?.querySelector?.('[data-navic-surface-texture-slot-artwork="true"]')
       const surfaceTextureStyle = surfaceTextureLayer ? getComputedStyle(surfaceTextureLayer) : null
-      const surfaceBorderStyle = surfaceBorderLayer ? getComputedStyle(surfaceBorderLayer) : null
+      const movingPageTextureStyle = movingPageTextureLayer ? getComputedStyle(movingPageTextureLayer) : null
+      const movingPageBorderStyle = movingPageBorderLayer ? getComputedStyle(movingPageBorderLayer) : null
+      const movingPageTextureSlotStyle = movingPageTextureSlot ? getComputedStyle(movingPageTextureSlot) : null
+      const movingPageBorderSlotStyle = movingPageBorderSlot ? getComputedStyle(movingPageBorderSlot) : null
+      const movingPageTextureArtworkStyle = movingPageTextureArtwork ? getComputedStyle(movingPageTextureArtwork) : null
+      const movingPageBorderArtworkStyle = movingPageBorderArtwork ? getComputedStyle(movingPageBorderArtwork) : null
       return {
         contentDocumentCount: contents.length,
+        viewportWidth: Number(win.parent.visualViewport?.width || win.parent.innerWidth || 0),
+        viewportHeight: Number(win.parent.visualViewport?.height || win.parent.innerHeight || 0),
+        bodyWidthAt100: bodyRectAt100.width,
+        htmlWidthAt100: htmlRectAt100.width,
+        paragraphWidthAt100: paragraphRectAt100.width,
         theme: doc.documentElement.dataset.navicReaderTheme || '',
         htmlBackground: htmlStyle.backgroundColor,
         bodyBackground: bodyStyle.backgroundColor,
@@ -4296,8 +4337,24 @@ if (mode === 'css-smoke') {
         textLinkRecentTouchContentHitAfterRemoval,
         surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
         surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
-        surfaceBorderBackgroundImage: surfaceBorderStyle?.backgroundImage || '',
-        surfaceBorderOpacity: surfaceBorderStyle?.opacity || '',
+        movingPageTextureLayerPresent: Boolean(movingPageTextureLayer),
+        movingPageBorderLayerPresent: Boolean(movingPageBorderLayer),
+        movingPageTextureBackgroundImage: movingPageTextureStyle?.backgroundImage || '',
+        movingPageTextureOpacity: movingPageTextureStyle?.opacity || '',
+        movingPageTextureSlotPresent: Boolean(movingPageTextureSlot),
+        movingPageTextureSlotBackgroundImage: movingPageTextureSlotStyle?.backgroundImage || '',
+        movingPageTextureSlotOpacity: movingPageTextureSlotStyle?.opacity || '',
+        movingPageTextureArtworkPresent: Boolean(movingPageTextureArtwork),
+        movingPageTextureArtworkBackgroundImage: movingPageTextureArtworkStyle?.backgroundImage || '',
+        movingPageTextureArtworkOpacity: movingPageTextureArtworkStyle?.opacity || '',
+        movingPageBorderBackgroundImage: movingPageBorderStyle?.backgroundImage || '',
+        movingPageBorderOpacity: movingPageBorderStyle?.opacity || '',
+        movingPageBorderSlotPresent: Boolean(movingPageBorderSlot),
+        movingPageBorderSlotBackgroundImage: movingPageBorderSlotStyle?.backgroundImage || '',
+        movingPageBorderSlotOpacity: movingPageBorderSlotStyle?.opacity || '',
+        movingPageBorderArtworkPresent: Boolean(movingPageBorderArtwork),
+        movingPageBorderArtworkBackgroundImage: movingPageBorderArtworkStyle?.backgroundImage || '',
+        movingPageBorderArtworkOpacity: movingPageBorderArtworkStyle?.opacity || '',
         surfaceTextureAsset: document.body.dataset.navicSurfacePaperTextureAsset || '',
         surfaceBorderAsset: document.body.dataset.navicSurfaceBorderOverlayAsset || '',
         documentTextureBackgroundImage: htmlStyle.backgroundImage || '',

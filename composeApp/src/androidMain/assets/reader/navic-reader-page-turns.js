@@ -117,6 +117,8 @@ import {
   ensureReaderShellCoverImage,
   ensureTapZoneOverlayLayer,
   updateReaderShellCoverLayer,
+  updateReaderMovingPageBorderOverlayLayer,
+  updateReaderMovingPageTextureLayer,
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
   updateTapZoneOverlayLayer,
@@ -599,6 +601,20 @@ function overridePageDragPreviewTextureLayerBox(layer, zIndex) {
   })
 }
 
+function syncMovingPageTextureSurface(reason = 'page-drag-preview') {
+  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return null
+  this.renderSurfacePaperTextureLayers()
+  const offset = this.surfaceTextureScrollOffset || { x: 0, y: 0 }
+  readerTrace('texture:moving-page-surface', {
+    reason,
+    offset,
+    position: this.currentRendererContainerPosition?.() ?? null,
+    baseOffset: this.surfacePaperTextureBaseOffset,
+    pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || '',
+  })
+  return offset
+}
+
 function syncPageDragPreviewTextureLayers(layer) {
   if (!layer) return null
   const textureSlots = this.surfaceTextureSlots || []
@@ -614,7 +630,7 @@ function syncPageDragPreviewTextureLayers(layer) {
   const scrollOffset = this.surfaceTextureScrollOffset || { x: 0, y: 0 }
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   if (hasPaper && paperLayer) {
-    updateReaderSurfaceTextureLayer(
+    updateReaderMovingPageTextureLayer(
       paperLayer,
       textureSlots,
       this.readerSettings,
@@ -627,7 +643,7 @@ function syncPageDragPreviewTextureLayers(layer) {
     paperLayer?.remove()
   }
   if (hasBorder && borderLayer) {
-    updateReaderSurfaceBorderOverlayLayer(
+    updateReaderMovingPageBorderOverlayLayer(
       borderLayer,
       borderOverlaySlots,
       this.readerSettings,
@@ -1392,7 +1408,7 @@ function previewPageDrag(command) {
   })
   if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
     renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
-    this.syncSurfacePaperTextureScrollOffset('page-drag-preview')
+    this.syncMovingPageTextureSurface('page-drag-preview')
   }
   this.nativePageDragPreview = phase === 'release'
     ? null
@@ -1738,6 +1754,7 @@ export const NavicReaderPageTurnMethods = {
   ensurePageDragPreviewLayerChild,
   ensurePageDragPreviewTextureLayers,
   overridePageDragPreviewTextureLayerBox,
+  syncMovingPageTextureSurface,
   syncPageDragPreviewTextureLayers,
   removePageDragPreviewLayer,
   pageDragPreviewDimensions,

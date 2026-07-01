@@ -9707,3 +9707,67 @@ Next:
   - sepia and edge-gradient texture intensity is materially stronger than theta29;
   - drag-preview/boundary turns no longer expose an untextured flat theme sheet.
 - If paper texture still visually swaps after text movement on the physical tablet, continue Stage 9H with the deeper moving Foliate page-surface texture-owner migration rather than more opacity tuning.
+
+## 2026-07-01 Stage 9H.2 Split Paper Backing And Moving Page Texture
+
+Scope:
+- Respond to physical tablet feedback after `v1.0.11-theta30`: sepia exists but should read stronger, page numbers still did not visually follow `Dys`, edge gradients were not visible, paper texture stayed fixed and swapped after text relocation, and landscape rotation could collapse prose into a narrow centered column.
+- Keep Komikku native shell ownership unchanged. This slice only changes WebView reader typography/font registration, root paper/border texture ownership, and browser harness validation.
+- No public release was created in this slice.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-settings-core.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-settings.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-location.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\vendor\foliate-js\paginator.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check tools\reader-harness\src\reader-trace-assertions.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-scroll --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode adaptive-page-box-logic
+node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeSettingsBridgeTest" --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest" --tests "paige.navic.reader.ReaderRuntimeAssetsTest"
+git diff --check
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch -Capture
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe texture-slots
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-number-font
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe runtime-state
+.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta30 -PrepareReaderLaunch -IncludeCoverChecks -ArtifactRoot captures\reader-komikku-matrix\stage9h2-current-source-20260701
+```
+
+Results:
+- FIXED/RUNTIME: root paper ownership is split into an opaque static full-window color backing for margins/fallback and separate moving page paper/border overlay layers. The static layer no longer paints a paper bitmap; the moving layers are the only paper bitmap owners and use previous/current/next slots. Mirror/rotation stays on child artwork nodes so slot movement can follow the renderer transform.
+- FIXED/RUNTIME: paged renderer scroll events now keep moving texture offsets in paged mode instead of returning `{x:0,y:0}` whenever `renderer.scrolled` is true.
+- FIXED/RUNTIME: native page-drag preview calls the moving texture sync immediately after `renderer.scrollBy(...)`, so preview movement updates the page-local texture surface before relocation completes.
+- FIXED/RUNTIME: the root page-number layer now registers bundled Navic font faces whenever the configured font family references a Navic font, and page-number font resolution prefers the configured reader font before visible publisher content.
+- FIXED/RUNTIME: Western prose blocks now have a min-width/wrapping guard so landscape/tablet layouts cannot collapse to a one-word min-content column.
+- FIXED/RUNTIME: Foliate `setImageSize()` now exits cleanly when a transient document has no style root/body yet. This was caught by `css-smoke` after the moving-texture split and prevents body-less paginator pages from aborting the reader bootstrap.
+- GREEN/HARNESS-LANDSCAPE: tablet-width `css-smoke` passed at `1974x1232` with `htmlWidth=1855.5625`, `bodyWidth=1737.125`, and `paragraphWidth=809.34375`.
+- GREEN/HARNESS-TEXTURE-SCROLL: `epub-texture-scroll` passed; after a 98px renderer/content movement, the current moving texture slot changed from `translate3d(0px, 0px, 0px)` to `translate3d(-98px, 0px, 0px)`, while the static backing remained fixed.
+- GREEN/HARNESS-TEXTURE-TURNS: `epub-texture-page-turns` and `epub-texture-frontmatter-transition` passed against `tmp\reader-live\book-3809-file-426.epub`.
+- GREEN/HARNESS-CSS: normal viewport `css-smoke`, `adaptive-page-box-logic`, and `texture-offset-logic` passed.
+- GREEN/JS: `node --check` passed for all touched reader runtime and harness JS files listed above.
+- GREEN/HOST: focused reader host suite passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/READERDEV-INSTALL: current-source `darkaxt.navic.readerdev` installed on `emulator-5554`, reported `versionName=v1.0.11-theta30`, `versionCode=458`, `lastUpdateTime=2026-07-01 10:11:39`, and reached `publicationReady`. Screenshot: `captures\reader-dev\reader-dev-20260701-101157.png`.
+- GREEN/READERDEV-TEXTURE: live `texture-slots` reported `staticTextureLayerImageSet=false`, `textureSlotCount=3`, `borderSlotCount=3`, moving paper opacity `0.46`, border opacity `1`, and previous/current/next transforms at `-1974/0/1974px`.
+- GREEN/READERDEV-FONT: live `page-number-font` reported page-number, root variable, content, and body font families all using `"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif`; `rootFontFaceHasDys=true`.
+- GREEN/READERDEV-LANDSCAPE: live `page-box` reported a full `1974x1232` renderer, `maxInlineSize=1974px`, `maxBlockSize=1232px`, `maxColumnCount=2`, and content body width `1737px`.
+- GREEN/READERDEV-MATRIX: `captures\reader-komikku-matrix\stage9h2-current-source-20260701` passed all 12 rows: baseline reader, native cover, cover tap, cover drag, center tap, long press, edge next/previous, drag next/previous, and texture next/previous walks. `reader-matrix-failures.txt` contains `No matrix failures.`
+
+Limitations:
+- This is browser/host plus readerdev/emulator current-source proof. It is not a public release APK and has not yet been validated on a physical tablet/phone.
+- The harness and matrix prove controlled renderer movement, Android drag routes, and texture next/previous walks. Final visual acceptance for texture feel, edge-gradient strength, and tablet typography still requires a physical release-device pass.

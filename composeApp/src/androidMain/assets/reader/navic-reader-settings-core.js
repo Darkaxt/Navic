@@ -1,6 +1,8 @@
 export const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
 export const ReaderSurfacePaperTextureLayerSelector = '[data-navic-surface-paper-texture-layer="true"]'
 export const ReaderSurfacePageBorderOverlayLayerSelector = '[data-navic-surface-page-border-overlay-layer="true"]'
+export const ReaderMovingPagePaperTextureLayerSelector = '[data-navic-moving-page-paper-texture-layer="true"]'
+export const ReaderMovingPageBorderOverlayLayerSelector = '[data-navic-moving-page-border-overlay-layer="true"]'
 export const ReaderTapZoneOverlayLayerSelector = '[data-navic-tap-zone-overlay-layer="true"]'
 export const ReaderPageNumberLayerSelector = '[data-navic-page-number-layer="true"]'
 export const ReaderShellCoverLayerSelector = '[data-navic-shell-cover-layer="true"]'

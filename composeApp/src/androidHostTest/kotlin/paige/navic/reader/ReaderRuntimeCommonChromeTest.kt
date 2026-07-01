@@ -43,6 +43,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(bridgeText, "readerFontFaceCss(settings)")
 		assertContains(bridgeText, "readerEffectiveFontFamily(settings)")
 		assertContains(bridgeText, "settings?.fontSource")
+		assertContains(bridgeText, "readerNavicFontFacesRequired(settings)")
+		assertContains(bridgeText, "String(settings?.fontFamily || '').includes('Navic ')")
 		assertContains(settingsDialogText, "Font source")
 		assertContains(settingsDialogText, "ReaderSupportedFontSources")
 		assertContains(ebooksSettingsText, "readerFontSource")

@@ -119,17 +119,17 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("\nfunction readerPageNumberVisibleContentFontFamily")
 
 		assertContains(pageNumberFont, "const configured = readerEffectiveFontFamily(settings)")
-		assertContains(pageNumberFont, "const source = readerFontSource(settings)")
-		assertContains(pageNumberFont, "source !== ReaderFontSourcePublisher")
+		assertContains(pageNumberFont, "const selected = String(settings?.fontFamily || '').trim()")
+		assertContains(pageNumberFont, "selected && selected !== 'inherit'")
 		assertTrue(
-			pageNumberFont.indexOf("if (configured && source !== ReaderFontSourcePublisher)") <
+			pageNumberFont.indexOf("if (configured) return configured") <
 				pageNumberFont.indexOf("const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)"),
-			"When the reader font source is Navic/System/Custom, the organic page number must use the same configured ebook font instead of sampling an arbitrary visible publisher font."
+			"When the reader has a concrete configured ebook font, the organic page number must use it before sampling an arbitrary visible publisher font."
 		)
 		assertTrue(
-			pageNumberFont.indexOf("const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)") <
-				pageNumberFont.indexOf("if (configured) return configured"),
-			"Publisher font mode can still sample the visible EPUB font before falling back to a configured generic family."
+			pageNumberFont.indexOf("if (selected && selected !== 'inherit') return selected") <
+				pageNumberFont.indexOf("const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)"),
+			"Selected Dys/Navic font stacks must still win when readerEffectiveFontFamily returns empty for publisher mode."
 		)
 	}
 

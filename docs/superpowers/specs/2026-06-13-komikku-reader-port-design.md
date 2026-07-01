@@ -107,13 +107,15 @@ This split is intentional. Do not add new listener, pagination, texture, or cont
 
 Latest dirty emulator validation is summarized in `2026-06-13-komikku-reader-port-validation-log.md`.
 
-As of the 2026-07-01 Stage 9H.1 current-source validation:
+As of the 2026-07-01 Stage 9H.2 current-source validation:
 
 - Physical feedback after `v1.0.11-theta29` reported remaining reader visual regressions: weak sepia intensity, page numbers not visually following `Dys`, missing edge-gradient texture strength, texture swapping after text movement, and landscape rotation collapsing Western EPUB text into a narrow vertical column.
-- The current source now removes `writing-mode: vertical-rl` from paged-vertical EPUB typography, keeps paged-vertical as movement semantics, and resolves landscape Foliate page-box math to the real viewport writing axis. Readerdev WebView page-box evidence on `emulator-5554` reported `1974x1232`, `maxInlineSize=1974px`, `maxBlockSize=1232px`, and `maxColumnCount=2`.
-- The organic page-number layer now prefers configured Navic/System/Custom reader fonts before visible publisher content; a live readerdev Dys probe reported page-number, root variable, content, and body font families all as the Dys stack.
-- Sepia paper opacity and edge-overlay visibility were raised without returning to document-scoped texture injection. Native page-drag preview now carries temporary paper and border texture child layers so boundary/fallback preview cannot expose a flat theme sheet.
-- This is not a public release claim. It is current-source readerdev evidence recorded in the validation log. If physical testing still sees paper texture swapping after text movement, continue Stage 9H with the deeper moving Foliate page-surface texture-owner migration in `2026-06-28-reader-whispersync-gap-closure.md`.
+- `v1.0.11-theta30` closed part of that batch, but physical tablet feedback still showed page texture swapping and a landscape collapse case, so Stage 9H.2 moved texture handling away from a single mutable root background.
+- The current source now splits paper ownership into an opaque full-window color backing for margins/fallback and separate moving page paper/border layers with previous/current/next slots. Browser proof showed a 98px renderer movement producing a matching `translate3d(-98px, 0px, 0px)` current texture-slot transform while the static color backing stayed fixed and did not duplicate the paper bitmap.
+- The current source keeps page-number font resolution tied to the configured reader font and registers bundled Navic font faces in the root document whenever the configured family references a Navic font. This targets the root organic page number layer, not only EPUB iframe text.
+- The tablet-width `css-smoke` harness now measures actual rendered layout. Against a 1974x1232 viewport it reported `htmlWidth=1855.5625`, `bodyWidth=1737.125`, and `paragraphWidth=809.34375`, preventing the one-word min-content column from passing as a valid landscape spread.
+- This is not a public release claim. It is current-source browser/host plus readerdev/emulator evidence recorded in the validation log. The current-source readerdev build installed on `emulator-5554`, reached `publicationReady`, passed live texture/font/page-box probes, and passed the 12-row Komikku matrix at `captures\reader-komikku-matrix\stage9h2-current-source-20260701`.
+- Physical release-device validation is still required before claiming final visual acceptance for texture feel, edge-gradient strength, and tablet typography.
 
 As of the 2026-06-18 dirty emulator Phase 6 refactor check:
 

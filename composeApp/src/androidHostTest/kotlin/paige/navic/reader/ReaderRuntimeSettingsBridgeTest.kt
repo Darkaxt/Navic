@@ -479,6 +479,35 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderPreventsLandscapeProseFromCollapsingIntoMinContentColumn() {
+		val bridgeText = readerBridgeText()
+		val typographyCss = bridgeText
+			.substringAfter("const readerTypographyCss = settings =>")
+			.substringBefore("const readerParagraphSpacingCss = settings =>")
+
+		assertContains(
+			typographyCss,
+			"min-width: min(32em, 100%) !important",
+			message = "Wide/tablet landscape prose must keep a readable folio column instead of collapsing to a word-wide min-content strip."
+		)
+		assertContains(
+			typographyCss,
+			"overflow-wrap: normal !important",
+			message = "Publisher/conversion word wrapping must not turn Western EPUB prose into one-word vertical columns in landscape."
+		)
+		assertContains(
+			typographyCss,
+			"word-break: normal !important",
+			message = "Reader typography must neutralize publisher break-all/break-word rules on normal prose."
+		)
+		assertContains(
+			typographyCss,
+			"hyphens: manual !important",
+			message = "Reader typography should not auto-break words while trying to recover a wide folio page."
+		)
+	}
+
+	@Test
 	fun androidReaderUsesAnxMarginAttributesInsteadOfLegacyBodyMargins() {
 		val bridgeText = readerBridgeText()
 		val typographyCss = bridgeText

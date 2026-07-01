@@ -177,7 +177,7 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderUsesSingleFullSurfacePaperTextureOwner() {
+	fun androidReaderUsesStaticBackingAndMovingPagePaperTextureOwners() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val indexText = readerAssetRoot().resolve("index.html").readText()
@@ -199,7 +199,8 @@ class ReaderRuntimePaperSurfaceTest {
 
 		assertContains(bridgeText, "ReaderSurfacePaperTextureLayerSelector")
 		assertContains(bridgeText, "ensureReaderSurfaceTextureLayer")
-		assertContains(bridgeText, "updateReaderSurfaceTextureLayer")
+		assertContains(bridgeText, "updateReaderStaticPaperBackingLayer")
+		assertContains(bridgeText, "updateReaderMovingPageTextureLayer")
 		assertContains(bridgeText, "readerRoot.append(layer)")
 		assertContains(bridgeText, "data-navic-surface-paper-texture-layer")
 		assertContains(bridgeText, "readerSurfacePaperTextureOpacity")
@@ -208,7 +209,7 @@ class ReaderRuntimePaperSurfaceTest {
 			bridgeText.contains("applySurfacePaperTextureToDocuments") ||
 				bridgeText.contains("this.applyDocumentPaperTexture(doc)") ||
 				bridgeText.contains("updateReaderDocumentPaperTexture"),
-			"Paper texture must have one owner. Injecting it into loaded EPUB documents duplicates opacity and desynchronizes transitions."
+			"Paper texture must stay out of EPUB documents. The moving page texture is the root-document paper bitmap owner."
 		)
 		assertFalse(
 			surfaceTextureUpdater.contains("if (this.view?.isFixedLayout !== true)"),
@@ -218,21 +219,20 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(
 			surfaceLayerUpdater,
 			"readerPaperTextureBackgroundImage(slot.variant)",
-			message = "The top-level surface is the only paper texture owner; page-slot children carry current and adjacent page textures."
+			message = "The moving page texture owner carries current and adjacent page slots."
 		)
 		assertContains(indexText, "body > foliate-view")
 		assertContains(indexText, "z-index: 1;")
 		assertContains(indexText, "background: transparent;")
 		assertContains(
-			surfaceLayerUpdater,
+			bridgeText,
 			"'z-index': '2147483630'",
-			message = "The single paper texture surface must sit above Foliate content but below chrome, so it covers the whole viewport without intercepting touches."
+			message = "The moving page texture surface must sit above Foliate content but below chrome, so it travels with page content without intercepting touches."
 		)
-		assertFalse(
-			surfaceLayerUpdater.contains("'z-index': '0'") ||
-				surfaceLayerUpdater.contains("'z-index': '2147483645'") ||
-				surfaceLayerUpdater.contains("'z-index': '2147483646'"),
-			"Paper texture must not be hidden behind the EPUB iframe or placed above reader chrome."
+		assertContains(
+			bridgeText,
+			"'z-index': '0'",
+			message = "The static backing belongs behind Foliate so it covers margins/fallback without duplicating the moving paper texture."
 		)
 		assertContains(surfaceLayerUpdater, "readerSurfaceTextureSlotTransform")
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
@@ -248,6 +248,57 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderSplitsStaticMarginPaperFromMovingPageTextureOwner() {
+		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val settingsText = readerAssetRoot().resolve("navic-reader-settings-core.js").readText()
+
+		assertContains(settingsText, "ReaderMovingPagePaperTextureLayerSelector")
+		assertContains(settingsText, "ReaderMovingPageBorderOverlayLayerSelector")
+		assertContains(helperText, "ensureReaderMovingPageTextureLayer")
+		assertContains(helperText, "ensureReaderMovingPageBorderOverlayLayer")
+		assertContains(helperText, "updateReaderMovingPageTextureLayer")
+		assertContains(helperText, "updateReaderMovingPageBorderOverlayLayer")
+		assertContains(helperText, "dataset.navicMovingPagePaperTextureLayer")
+		assertContains(helperText, "dataset.navicMovingPageBorderOverlayLayer")
+		assertContains(helperText, "'z-index': '2147483630'")
+		assertContains(helperText, "'z-index': '0'")
+		assertContains(
+			helperText,
+			"updateReaderStaticPaperBackingLayer",
+			message = "The full-window backing must remain for margins/fallback while moving page texture is owned separately."
+		)
+		val staticBacking = helperText
+			.substringAfter("export const updateReaderStaticPaperBackingLayer")
+			.substringBefore("\n\nexport const updateReaderSurfaceTextureLayer")
+		assertContains(
+			staticBacking,
+			"'background-image': 'none'",
+			message = "The static backing must be color-only; paper bitmaps belong to the moving page texture slots."
+		)
+		assertFalse(
+			staticBacking.contains("readerPaperTextureBackgroundImage("),
+			"The static backing must not apply the same paper bitmap a second time."
+		)
+		assertContains(
+			appearanceText,
+			"this.movingPageTextureLayer",
+			message = "Appearance updates must render a moving page-paper owner, not only mutate the static root paper backing."
+		)
+		assertContains(appearanceText, "updateReaderMovingPageTextureLayer(")
+		assertContains(appearanceText, "updateReaderStaticPaperBackingLayer(")
+		assertContains(pageTurnText, "syncMovingPageTextureSurface")
+		assertContains(pageTurnText, "this.syncMovingPageTextureSurface")
+		assertFalse(
+			pageTurnText.contains("this.syncSurfacePaperTextureScrollOffset('page-drag-preview')") &&
+				!pageTurnText.contains("this.syncMovingPageTextureSurface('page-drag-preview')"),
+			"Drag previews must move the page texture surface with Foliate, not only update the static/root surface after renderer movement."
+		)
+	}
+
+	@Test
 	fun androidReaderPageDragPreviewCarriesTheSamePaperAndBorderTextureSurface() {
 		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
@@ -260,10 +311,10 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(previewUpdater, "this.syncPageDragPreviewTextureLayers(layer)")
 		assertContains(
 			pageTurnText,
-			"updateReaderSurfaceTextureLayer(",
-			message = "The page-drag preview sits above the root texture layer; it must reuse the same surface texture updater instead of exposing a flat theme background."
+			"updateReaderMovingPageTextureLayer(",
+			message = "The page-drag preview sits above the static backing; it must reuse the moving page texture updater instead of exposing a flat theme background."
 		)
-		assertContains(pageTurnText, "updateReaderSurfaceBorderOverlayLayer(")
+		assertContains(pageTurnText, "updateReaderMovingPageBorderOverlayLayer(")
 		assertContains(pageTurnText, "data-navic-page-drag-preview-paper-layer")
 		assertContains(pageTurnText, "data-navic-page-drag-preview-border-layer")
 		assertTrue(
@@ -409,11 +460,12 @@ class ReaderRuntimePaperSurfaceTest {
 			"readerPaperTextureBackgroundPosition(null)",
 			message = "Each page slot keeps its own texture centered while the slot itself moves with the renderer."
 		)
-		assertContains(renderSurfacePaperTextureLayers, "updateReaderSurfaceTextureLayer(")
+		assertContains(renderSurfacePaperTextureLayers, "updateReaderStaticPaperBackingLayer(")
+		assertContains(renderSurfacePaperTextureLayers, "updateReaderMovingPageTextureLayer(")
 		assertContains(
 			renderSurfacePaperTextureLayers,
 			"const scrollOffset = this.surfacePaperTextureScrollOffset()",
-			message = "The root surface texture render path must feed committed drag/scroll offset into both paper layers."
+			message = "The moving page texture render path must feed committed drag/scroll offset into both paper layers."
 		)
 		assertContains(renderSurfacePaperTextureLayers, "scrollOffset")
 		assertContains(pageTurnSnapshot, "background-color:var(--reader-background, transparent)!important;")
@@ -525,6 +577,40 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderKeepsMovingTextureOffsetForPagedRendererScrollEvents() {
+		val bridgeText = readerBridgeText()
+		val onLoad = bridgeText
+			.substringAfter("onLoad(detail = {}) {")
+			.substringBefore("\n  logContentLayout")
+		val onRelocate = bridgeText
+			.substringAfter("function onRelocate(detail) {")
+			.substringBefore("\n\nfunction cancelPendingCommittedRelocation")
+		val surfaceOffset = bridgeText
+			.substringAfter("surfacePaperTextureScrollOffset() {")
+			.substringBefore("\n  surfacePaperTextureDiagnosticState")
+
+		assertContains(
+			onLoad,
+			"this.attachSurfacePaperTextureScrollSync()",
+			message = "Foliate can install or replace renderer after open; load must bind the moving texture scroll listener to the active renderer."
+		)
+		assertContains(
+			onRelocate,
+			"this.attachSurfacePaperTextureScrollSync()",
+			message = "Relocation can expose a fresh renderer/content set; texture movement must keep the renderer scroll listener attached."
+		)
+		assertFalse(
+			surfaceOffset.contains("renderer.scrolled || !Number.isFinite(position)"),
+			"Paged Foliate renderer scroll events must still move the moving texture slots; suppressing all renderer.scrolled paths makes the grain swap after the text."
+		)
+		assertContains(
+			surfaceOffset,
+			"this.readerFlowModeValue === ReaderFlowScrolled || this.readerFlowModeValue === ReaderFlowScrolledGaps",
+			message = "Only true continuous-scroll modes should pin the paper texture; paged and vertical-paged readers need the container delta."
+		)
+	}
+
+	@Test
 	fun androidReaderSeedsTextureTurnDirectionFromReaderDocumentDrags() {
 		val bridgeText = readerBridgeText()
 		val textureDragDirection = bridgeText
@@ -595,8 +681,8 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertTrue(
 			previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)") <
-				previewPageDrag.indexOf("this.syncSurfacePaperTextureScrollOffset('page-drag-preview')"),
-			"Native readable drag previews must re-sync the root texture slots immediately after moving the Foliate renderer; relying on a delayed scroll event makes the grain swap after the text."
+				previewPageDrag.indexOf("this.syncMovingPageTextureSurface('page-drag-preview')"),
+			"Native readable drag previews must re-sync the moving page texture slots immediately after moving the Foliate renderer; relying on a delayed scroll event makes the grain swap after the text."
 		)
 	}
 
@@ -1138,6 +1224,30 @@ class ReaderRuntimePaperSurfaceTest {
 			textureAssertion,
 			"textureDelta < -1 && !rendererBoundaryWrap",
 			message = "Backward probe failures must explicitly exclude the boundary-wrap case detected from renderer deltas."
+		)
+	}
+
+	@Test
+	fun readerHarnessTextureScrollCapturesBeforeTransformBeforeRendererMutation() {
+		val harnessFile = listOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).firstOrNull { it.isFile }
+			?: error("Could not locate reader harness")
+		val harnessText = harnessFile.readText()
+		val scrollMode = harnessText
+			.substringAfter("if (mode === 'epub-texture-scroll') {")
+			.substringBefore("\nif (mode === 'epub-texture-page-turns') {")
+
+		assertContains(
+			scrollMode,
+			"const beforeTextureSlotTransform = beforeSlot?.style?.transform || ''",
+			message = "The scroll harness must copy the before transform string before mutating renderer.containerPosition; DOM style objects are live."
+		)
+		assertTrue(
+			scrollMode.indexOf("const beforeTextureSlotTransform = beforeSlot?.style?.transform || ''") <
+				scrollMode.indexOf("renderer.containerPosition = beforePosition + delta"),
+			"The before texture transform must be captured before the renderer scroll mutation."
 		)
 	}
 

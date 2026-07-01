@@ -2370,8 +2370,9 @@ async function runTextureSlotsProbe(page) {
       })
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     }
-    const textureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
-    const borderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+    const staticTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+    const textureLayer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
+    const borderLayer = document.querySelector('[data-navic-moving-page-border-overlay-layer="true"]')
     const textureSlots = Array.from(textureLayer?.querySelectorAll?.('[data-navic-surface-paper-texture-slot]') || [])
       .map(slot => {
         const style = getComputedStyle(slot)
@@ -2402,10 +2403,13 @@ async function runTextureSlotsProbe(page) {
       })
     return {
       probe: 'texture-slots',
+      staticTextureLayerPresent: Boolean(staticTextureLayer),
       textureLayerPresent: Boolean(textureLayer),
       borderLayerPresent: Boolean(borderLayer),
       textureSlotCount: textureSlots.length,
       borderSlotCount: borderSlots.length,
+      staticTextureLayerOpacity: staticTextureLayer ? getComputedStyle(staticTextureLayer).opacity : '',
+      staticTextureLayerImageSet: staticTextureLayer ? getComputedStyle(staticTextureLayer).backgroundImage !== 'none' : false,
       textureLayerOpacity: textureLayer ? getComputedStyle(textureLayer).opacity : '',
       borderLayerOpacity: borderLayer ? getComputedStyle(borderLayer).opacity : '',
       textureSlots,

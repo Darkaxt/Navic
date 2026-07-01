@@ -112,6 +112,8 @@ import {
   applyReaderParagraphSpacing,
   normalizeReaderInlineTypography,
   readerNormalizeChapterOpeningMargins,
+  ensureReaderMovingPageBorderOverlayLayer,
+  ensureReaderMovingPageTextureLayer,
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
   ensureReaderPageNumberLayer,
@@ -119,6 +121,9 @@ import {
   ensureReaderShellCoverImage,
   ensureTapZoneOverlayLayer,
   updateReaderShellCoverLayer,
+  updateReaderStaticPaperBackingLayer,
+  updateReaderMovingPageBorderOverlayLayer,
+  updateReaderMovingPageTextureLayer,
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
   updateTapZoneOverlayLayer,
@@ -323,7 +328,9 @@ function surfacePaperTextureScrollOffset() {
     return this.surfaceTextureScrollOffset
   }
   const position = Number(renderer.containerPosition)
-  if (renderer.scrolled || !Number.isFinite(position)) {
+  const continuousTextureFlow =
+    this.readerFlowModeValue === ReaderFlowScrolled || this.readerFlowModeValue === ReaderFlowScrolledGaps
+  if (continuousTextureFlow || !Number.isFinite(position)) {
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     return this.surfaceTextureScrollOffset
   }
@@ -458,8 +465,16 @@ function renderSurfacePaperTextureLayers() {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
       : ensureReaderSurfaceTextureLayer()
-    updateReaderSurfaceTextureLayer(
+    updateReaderStaticPaperBackingLayer(
       this.surfaceTextureLayer,
+      textureSlots,
+      this.readerSettings
+    )
+    this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
+      ? this.movingPageTextureLayer
+      : ensureReaderMovingPageTextureLayer()
+    updateReaderMovingPageTextureLayer(
+      this.movingPageTextureLayer,
       textureSlots,
       this.readerSettings,
       scrollOffset,
@@ -468,11 +483,13 @@ function renderSurfacePaperTextureLayers() {
     )
   }
   if (this.surfaceBorderOverlayVariant) {
-    this.surfaceBorderOverlayLayer = this.surfaceBorderOverlayLayer && readerRoot.contains(this.surfaceBorderOverlayLayer)
-      ? this.surfaceBorderOverlayLayer
-      : ensureReaderSurfaceBorderOverlayLayer()
-    updateReaderSurfaceBorderOverlayLayer(
-      this.surfaceBorderOverlayLayer,
+    this.surfaceBorderOverlayLayer?.remove?.()
+    this.surfaceBorderOverlayLayer = null
+    this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
+      ? this.movingPageBorderOverlayLayer
+      : ensureReaderMovingPageBorderOverlayLayer()
+    updateReaderMovingPageBorderOverlayLayer(
+      this.movingPageBorderOverlayLayer,
       borderOverlaySlots,
       this.readerSettings,
       scrollOffset,
@@ -524,9 +541,14 @@ function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
   this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
     ? this.surfaceTextureLayer
     : ensureReaderSurfaceTextureLayer()
-  this.surfaceBorderOverlayLayer = this.surfaceBorderOverlayLayer && readerRoot.contains(this.surfaceBorderOverlayLayer)
-    ? this.surfaceBorderOverlayLayer
-    : ensureReaderSurfaceBorderOverlayLayer()
+  this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
+    ? this.movingPageTextureLayer
+    : ensureReaderMovingPageTextureLayer()
+  this.surfaceBorderOverlayLayer?.remove?.()
+  this.surfaceBorderOverlayLayer = null
+  this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
+    ? this.movingPageBorderOverlayLayer
+    : ensureReaderMovingPageBorderOverlayLayer()
   this.surfacePaperTextureBaseOffset = this.currentRendererContainerPosition()
   this.surfaceTextureScrollOffset = { x: 0, y: 0 }
   readerRoot.dataset.navicSurfacePaperTextureKey = textureKey

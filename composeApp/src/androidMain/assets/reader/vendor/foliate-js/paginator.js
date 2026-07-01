@@ -452,7 +452,9 @@ class View {
         const { width, height, margin } = this.#layout
         const vertical = this.#vertical
         const doc = this.document
-        for (const el of doc.body.querySelectorAll('img, svg, video')) {
+        const body = documentStyleRoot(doc)
+        if (!body) return
+        for (const el of body.querySelectorAll('img, svg, video')) {
             // preserve max size if they are already set
             const { maxHeight, maxWidth } = doc.defaultView.getComputedStyle(el)
             setStylesImportant(el, {

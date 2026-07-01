@@ -368,6 +368,7 @@ function onRelocate(detail) {
   readerTrace('relocate:raw', detail)
   this.lastRelocateDetail = detail
   this.relocateSequence += 1
+  this.attachSurfacePaperTextureScrollSync()
   if (this.pageTurnInProgress || this.pageTurnPromise) return
   this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason('relocate-committed'))
 }

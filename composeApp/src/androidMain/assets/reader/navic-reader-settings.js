@@ -19,6 +19,8 @@ export {
   ReaderFontSourceSystem,
   ReaderFontSourcePublisher,
   ReaderMediaSyntheticClickSuppressMs,
+  ReaderMovingPageBorderOverlayLayerSelector,
+  ReaderMovingPagePaperTextureLayerSelector,
   ReaderPageBorderOverlayAssets,
   ReaderPageBorderOverlayVariantCount,
   ReaderPageNumberLayerSelector,
