@@ -9404,3 +9404,34 @@ Results:
 Next:
 - Physical-device tester should install `v1.0.11-theta27` and verify Android/system back from an EPUB content page returns first to the native cover, then to the Bindery book/detail or book selection route.
 - Keep the currently reported visual/layout failures open: page-number font mismatch, invisible border gradients, texture transition swapping, and landscape spread/narrow-column layout.
+
+## 2026-07-01 Stage 9C Reader App-Bar Back Ownership
+
+Scope:
+- Fix the visible top-left reader back affordance separately from Android/system back.
+- Expected stack: EPUB content with chrome visible -> native cover -> app book/detail route.
+- Preserve Android/system back behavior that can still close visible menus/overlays before navigating.
+
+Root cause:
+- `ReaderScreen.kt` routed the visible Komikku app-bar back button directly through `backStack.performNavicBack()`, bypassing reader-local cover return.
+- The first current-source correction routed it through `coordinator.onBack()`, which avoided Android home but only hid visible chrome because system back treats `menuVisible` as a closable overlay.
+- The app-bar affordance needs a controller-owned navigation-back path that closes blocking dialogs/selection prompts but does not treat ordinary visible chrome as the destination.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderControllerTest.readerAppBarBackFromVisibleChromeReturnsToNativeCoverBeforeLeavingReader"
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeCommonChromeTest.commonReaderTopBackUsesReaderBackPipelineBeforeLeavingTheRoute"
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch -Capture
+```
+
+Results:
+- RED/HOST-FIRST: the new app-bar controller test failed before implementation because `ReaderController.onNavigateBack()` did not exist.
+- GREEN/HOST-GUARD: `ReaderController.onNavigateBack()` and `ReaderCoordinator.onNavigateBack()` now provide a top-app-bar-specific back path.
+- GREEN/HOST-GUARD: `ReaderRuntimeCommonChromeTest.commonReaderTopBackUsesReaderBackPipelineBeforeLeavingTheRoute` now requires `ReaderScreen.kt` to call `applyReaderBackStep(coordinator.onNavigateBack())` and forbids direct `backStack.performNavicBack()` from the app-bar handler.
+- GREEN/READERDEV-EMULATOR: after installing current-source `darkaxt.navic.readerdev`, the flow native cover -> EPUB content -> reveal chrome -> top-left back returned to the native cover instead of hiding chrome or exiting to Android home.
+- GREEN/READERDEV-EMULATOR: a second Android back from the native cover returned to the Bindery book detail route for `A Memory of Light`, staying inside Navic.
+- GREEN/SCREENSHOT: evidence captures are `captures\reader-dev\back-path-fixed-after-top-left-back.png` for restored native cover and `captures\reader-dev\back-path-fixed-after-cover-back.png` for Bindery book detail.
+
+Next:
+- Include this app-bar back path in the next release candidate if the current visual/layout fixes also pass their focused gates.

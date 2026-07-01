@@ -1093,6 +1093,27 @@ data class ReaderController(
 		}
 		if (closeOverlay != null) return closeOverlay.asBackStep(handled = true)
 
+		return returnToShellCoverBeforeLeaving()
+	}
+
+	fun onNavigateBack(): ReaderControllerBackStep {
+		val closeOverlay = when {
+			state.dialog == ReaderControllerDialog.Search -> closeSearchDialog()
+			state.dialog != null -> closeDialog()
+			state.selectionNoteDraft != null -> dismissSelectionNote()
+			state.selectionActions.visible -> dismissSelectionActions()
+			state.annotationPopup?.visible == true -> dismissAnnotationPopup()
+			state.footnotePopup?.visible == true -> dismissFootnotePopup()
+			state.externalLinkPrompt != null -> dismissExternalLinkPrompt()
+			state.engineNavigation.visible -> dismissHistoryNavigation()
+			else -> null
+		}
+		if (closeOverlay != null) return closeOverlay.asBackStep(handled = true)
+
+		return returnToShellCoverBeforeLeaving()
+	}
+
+	private fun returnToShellCoverBeforeLeaving(): ReaderControllerBackStep {
 		if (
 			!state.shellCoverVisible &&
 			state.canReturnToShellCover &&

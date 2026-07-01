@@ -862,6 +862,43 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun readerAppBarBackFromVisibleChromeReturnsToNativeCoverBeforeLeavingReader() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val readable = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.onEngineEvent(
+				ReaderEngineEvent.Relocated(
+					locator = ReaderLocator(
+						href = "OEBPS/Text/chapter-01.xhtml",
+						progress = 0.12,
+						pageIndex = 166,
+						pageCount = 229,
+						chapterPageIndex = 8,
+						chapterPageCount = 14
+					),
+					tocTitle = "Chapter I: An Unexpected Party"
+				)
+			).controller
+			.onViewerAction(ReaderViewerAction.Menu)
+			.controller
+
+		val back = readable.onNavigateBack()
+
+		assertTrue(back.handled)
+		assertTrue(back.controller.state.shellCoverVisible)
+		assertFalse(back.controller.state.menuVisible)
+		assertNull(back.controller.state.dialog)
+		assertEquals(emptyList(), back.engineCommands)
+	}
+
+	@Test
 	fun readerBackFromNativeCoverFallsThroughToAppNavigation() {
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(

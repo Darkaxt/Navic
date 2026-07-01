@@ -813,6 +813,20 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
+	fun commonReaderTopBackUsesReaderBackPipelineBeforeLeavingTheRoute() {
+		val readerScreenText = readerCommonUiFile("ReaderScreen.kt").readText()
+		val navigateBackHandler = readerScreenText
+			.substringAfter("onNavigateBack = {")
+			.substringBefore("\n\t\t},\n\t\tonSettings")
+
+		assertContains(navigateBackHandler, "applyReaderBackStep(coordinator.onNavigateBack())")
+		assertFalse(
+			navigateBackHandler.contains("backStack.performNavicBack()"),
+			"The reader app-bar back affordance must use the reader controller navigation-back path so cover return and blocking overlays happen before the route can leave."
+		)
+	}
+
+	@Test
 	fun commonReaderAppBarsOwnSharedKomikkuBarBackgroundAtHostLevel() {
 		val appBarsText = readerCommonUiFile("ReaderAppBars.kt").readText()
 		val appBarsBody = appBarsText.substringAfter("internal fun KomikkuReaderAppBars(")

@@ -544,7 +544,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(coordinator.closeSearchDialog())
 		},
 		onNavigateBack = {
-			backStack.performNavicBack()
+			applyReaderBackStep(coordinator.onNavigateBack())
 		},
 		onSettings = {
 			applyCoordinatorStep(coordinator.openSettingsDialog())

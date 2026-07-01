@@ -34,6 +34,9 @@ data class ReaderCoordinator(
 	fun onBack(): ReaderCoordinatorBackStep =
 		applyControllerBackStep(controller.onBack())
 
+	fun onNavigateBack(): ReaderCoordinatorBackStep =
+		applyControllerBackStep(controller.onNavigateBack())
+
 	fun onEngineEvent(event: ReaderEngineEvent): ReaderCoordinatorStep =
 		applyControllerStep(controller.onEngineEvent(event))
 
