@@ -2363,6 +2363,13 @@ async function runRuntimeStateProbe(page) {
 
 async function runTextureSlotsProbe(page) {
   return evaluateOnPage(page, `(${async () => {
+    if (window.NavicReaderBridge?.dispatch) {
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: { theme: 'sepia' },
+      })
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    }
     const textureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
     const borderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
     const textureSlots = Array.from(textureLayer?.querySelectorAll?.('[data-navic-surface-paper-texture-slot]') || [])

@@ -342,12 +342,12 @@ export const readerSurfacePaperTextureOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.22'
+      return '0.38'
     case 'dark':
     case 'dusk':
       return '0.08'
     default:
-      return '0.12'
+      return '0.24'
   }
 }
 
@@ -356,7 +356,7 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.80'
+      return '1'
     case 'dark':
     case 'dusk':
       return '0.42'

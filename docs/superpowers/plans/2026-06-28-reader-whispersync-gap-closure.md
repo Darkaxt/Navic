@@ -2293,3 +2293,39 @@ Release:
 - GitHub Actions run `28490569290` passed Android build/signing/release creation; iOS jobs were skipped.
 - Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta28`.
 - APK: `Navic.apk`, `33,590,631` bytes, `sha256:aebab91299bca162db4f8cd573a073c8decefeb590bfe482925e9a52b1abd375`.
+
+### Stage 9F: Physical Texture Feedback Correction
+
+Status: current-source readerdev/emulator proof complete; no public release published from this slice yet.
+
+Purpose:
+- Correct the post-theta28 physical feedback that paper texture and page-border gradients were too weak to read as part of the page.
+- Make the texture-slot probe validate sepia explicitly so future checks cannot accidentally pass against the light theme.
+- Re-check that the current runtime can render Dys page numbers and a landscape spread before moving to a release candidate.
+
+Scope:
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-helpers.js`
+- Modify: `tools/reader-harness/src/adb-webview-eval.mjs`
+- Modify: focused host guard and validation docs.
+
+Results:
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme` failed while production still returned sepia paper opacity `0.22`, light/default paper opacity `0.12`, and sepia border opacity `0.80`.
+- FIXED/RUNTIME: sepia paper texture opacity now returns `0.38`, light/default paper opacity returns `0.24`, and sepia border overlay opacity returns `1`.
+- FIXED/HARNESS: `texture-slots` dispatches `applySettings` with `theme=sepia` before reading texture and border layers.
+- GREEN/HOST: `:composeApp:testAndroid` and JS syntax checks passed.
+- GREEN/READERDEV-TEXTURE: `stage9f-texture-slots-after` reported texture opacity `0.38`, border opacity `1`, and deterministic previous/current/next paper and border slots.
+- GREEN/READERDEV-FONT: `stage9f-page-number-font-after` reported the organic page number, root variable, content, and body all using the Dys stack after applying the Dys reader setting.
+- GREEN/READERDEV-ROTATE: portrait-to-landscape on the Tab S9 Ultra emulator produced a two-column spread in `stage9f-rotate-landscape-pagebox-after`.
+- GREEN/READERDEV-DRAG-DIRECTION: forward and reverse drag diagnostics reported `wrongTextureDirection=False`.
+
+Closure:
+- [x] Add red-first guard for stronger visible sepia texture and border overlay.
+- [x] Patch texture opacity constants and make the texture harness validate sepia deterministically.
+- [x] Validate host suite, JS syntax, readerdev texture slots, page-number font, landscape rotation, and texture direction.
+- [x] Record exact evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
+- [ ] Decide whether this texture correction is enough for the next public release candidate or whether the texture must move into the Foliate page surface first.
+
+Limitations:
+- Physical tablet acceptance remains required for the subjective texture-motion feel.
+- If the user still sees the paper swap after text transitions, stop opacity tuning and move texture ownership into the moving Foliate page surface.
+- If physical page numbers still mismatch Dys, inspect settings propagation in the physical WebView before changing page-number CSS again.

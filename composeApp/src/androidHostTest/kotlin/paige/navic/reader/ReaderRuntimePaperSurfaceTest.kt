@@ -116,26 +116,22 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
 
 		assertContains(textureOpacity, "case ReaderThemeSepia:")
-		assertContains(textureOpacity, "return '0.22'")
+		assertContains(textureOpacity, "return '0.38'")
 		assertContains(
 			textureOpacity,
-			"return '0.12'",
-			message = "The root surface texture is the single full-window paper owner and must stay subtle."
+			"return '0.24'",
+			message = "The root surface texture is the single full-window paper owner, but it must remain visible enough to show page movement."
 		)
 		assertFalse(
 			textureOpacity.contains("return '0.66'"),
 			"The old high-opacity root overlay caused visible transition artifacts because it was animated independently from Foliate pages."
-		)
-		assertFalse(
-			textureOpacity.contains("return '0.38'"),
-			"The old root overlay was too strong for a single full-window texture owner."
 		)
 		assertFalse(helperText.contains("readerDocumentPaperTextureBackground"))
 		assertFalse(helperText.contains("updateReaderDocumentPaperTexture"))
 		assertContains(helperText, "readerSurfacePageBorderOverlayBackgroundImage")
 		assertContains(
 			borderOpacity,
-			"return '0.80'",
+			"return '1'",
 			message = "Border overlay PNGs have low source alpha, so the single border layer needs enough opacity to be visible over paper texture."
 		)
 		assertContains(borderUpdater, "for (const slot of borderOverlaySlots)")

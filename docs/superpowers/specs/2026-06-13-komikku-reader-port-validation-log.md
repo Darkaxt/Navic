@@ -9519,3 +9519,40 @@ Next:
   - border-gradient texture is visible enough over the paper texture;
   - paper texture moves with drag/turn transitions instead of swapping after text loads;
   - top-left reader back returns to the native cover before leaving the reader route.
+
+## 2026-07-01 Stage 9F Physical Texture Feedback Correction
+
+Scope:
+- Respond to physical tablet feedback on `v1.0.11-theta28`: sepia is present but too weak, organic page numbers appear mismatched to `Dys`, border-gradient overlays are not visible enough, paper texture appears to swap after page text instead of moving with it, and portrait-to-landscape can collapse into a narrow centered column.
+- Keep this slice bounded to evidence-backed visual fidelity checks; do not publish a release from this entry alone.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -RequireReaderLaunch -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderBookId 3816 -ReaderResourceHref /opds/books/3816/resources/ebook-86187906e76ac5241902 -ReaderTitle "The Hobbit" -ReaderKind Ebook -ReaderFormat epub -ReaderStartHref OEBPS/Text/Hobbit_chap-1.html -SkipNativeShellCover -Capture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\stage9f-texture-slots-after
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-number-font -ArtifactDir captures\reader-bridge-probes\stage9f-page-number-font-after
+.\scripts\set-reader-dev-viewport.ps1 -DeviceSerial emulator-5554 -Profile tab-s9-ultra-portrait
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -RequireReaderLaunch -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ReaderBookId 3816 -ReaderResourceHref /opds/books/3816/resources/ebook-86187906e76ac5241902 -ReaderTitle "The Hobbit" -ReaderKind Ebook -ReaderFormat epub -ReaderStartHref OEBPS/Text/Hobbit_chap-1.html -SkipNativeShellCover -Capture
+.\scripts\set-reader-dev-viewport.ps1 -DeviceSerial emulator-5554 -Profile tab-s9-ultra-landscape
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-box -ArtifactDir captures\reader-bridge-probes\stage9f-rotate-landscape-pagebox-after
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.82,0.50,0.18,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection next -ArtifactDir captures\reader-bridge-probes\stage9f-texture-drag-next-after
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.18,0.50,0.82,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection previous -ArtifactDir captures\reader-bridge-probes\stage9f-texture-drag-previous-after
+```
+
+Results:
+- GREEN/HOST: `:composeApp:testAndroid` passed after tightening the sepia texture guard to require stronger visible paper texture and a fully visible sepia border overlay.
+- GREEN/HARNESS: `texture-slots` now explicitly applies the sepia theme before measuring layers, so the probe validates the reported mode instead of whatever theme happened to be active.
+- GREEN/TEXTURE-OPACITY: `stage9f-texture-slots-after` reported `textureLayerOpacity=0.38`, `borderLayerOpacity=1`, three paper slots, and three border slots across the full landscape viewport.
+- GREEN/PAGE-NUMBER-FONT-CAPABILITY: `stage9f-page-number-font-after` forced the Dys stack and reported page-number, root variable, EPUB content, and EPUB body fonts all as `"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif`.
+- GREEN/ROTATE-LANDSCAPE-EMULATOR: portrait-to-landscape on the Tab S9 Ultra emulator rendered a readable two-column spread in `stage9f-rotate-landscape-pagebox-after\screen.png`; renderer metrics reported `maxColumnCount=2`, `maxInlineSize=1974px`, and `maxBlockSize=1232px`.
+- GREEN/TEXTURE-DIRECTION-NEXT: `stage9f-texture-drag-next-after` captured native drag preview and reported `textureDirectionSamples=15`, `wrongTextureDirection=False`.
+- GREEN/TEXTURE-DIRECTION-PREVIOUS: `stage9f-texture-drag-previous-after` captured native drag preview and reported `textureDirectionSamples=24`, `wrongTextureDirection=False`.
+
+Limitations:
+- The physical tablet still owns final acceptance for texture feel. Emulator diagnostics prove stronger visibility and correct movement sign, but not the subjective "swaps after text" complaint under the exact physical release and settings.
+- The page-number CSS/font path is capable of matching Dys, but the physical report may still indicate a settings propagation or stale installed-release problem.
+- The exact physical landscape narrow-column failure was not reproduced in readerdev after portrait-to-landscape rotation; if it recurs, capture current page-box and page-number probes from the physical WebView before patching layout again.
