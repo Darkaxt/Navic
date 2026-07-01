@@ -264,27 +264,14 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
 
 function postCurrentVisibleTextRange(detail = {}, options = {}) {
   const targetHref = this.sectionHrefForDetail(detail) || detail?.href || detail?.tocItem?.href || ''
-  const renderer = this.view?.renderer || {}
-  const contents = renderer.getContents?.() || []
-  const candidates = []
-  for (const content of contents) {
-    const index = Number(content?.index)
-    const section = Number.isFinite(index) ? this.view?.book?.sections?.[Math.floor(index)] : null
-    const textHref = section?.href || content?.href || targetHref
-    if (!content?.doc || !textHref) continue
-    if (targetHref && textHref && !readerHrefMatches(textHref, targetHref)) continue
-    const range = readerVisibleTextRangeForDocument(content.doc)
-    if (!range) continue
-    candidates.push({
-      textHref,
-      visibleStart: range.visibleStart,
-      visibleEnd: range.visibleEnd,
-      rangeCfi: detail?.cfi || null,
-      source: options.source || null,
-    })
-  }
-  const visibleRange = candidates
-    .sort((left, right) => (right.visibleEnd - right.visibleStart) - (left.visibleEnd - left.visibleStart))[0]
+  const currentVisibleRange = this.currentVisibleTextRangeForHref(targetHref)
+  const visibleRange = currentVisibleRange
+    ? {
+        ...currentVisibleRange,
+        rangeCfi: detail?.cfi || null,
+        source: options.source || null,
+      }
+    : null
   if (!visibleRange) {
     log('visible-text-range:missing', targetHref || 'none')
     readerTrace('visible-text-range:missing', { href: targetHref || null })
@@ -316,6 +303,29 @@ function postCurrentVisibleTextRange(detail = {}, options = {}) {
   )
   readerTrace('visible-text-range:posted', visibleRange)
   return { posted: true, visibleRange }
+}
+
+function currentVisibleTextRangeForHref(href = '') {
+  const targetHref = String(href || '').trim()
+  const renderer = this.view?.renderer || {}
+  const contents = renderer.getContents?.() || []
+  const candidates = []
+  for (const content of contents) {
+    const index = Number(content?.index)
+    const section = Number.isFinite(index) ? this.view?.book?.sections?.[Math.floor(index)] : null
+    const textHref = section?.href || content?.href || targetHref
+    if (!content?.doc || !textHref) continue
+    if (targetHref && textHref && !readerHrefMatches(textHref, targetHref)) continue
+    const range = readerVisibleTextRangeForDocument(content.doc)
+    if (!range) continue
+    candidates.push({
+      textHref,
+      visibleStart: range.visibleStart,
+      visibleEnd: range.visibleEnd,
+    })
+  }
+  return candidates
+    .sort((left, right) => (right.visibleEnd - right.visibleStart) - (left.visibleEnd - left.visibleStart))[0]
 }
 
 
@@ -538,4 +548,5 @@ export const NavicReaderLocationMethods = {
   cancelPendingCommittedRelocation,
   scheduleCommittedRelocation,
   postCurrentVisibleTextRange,
+  currentVisibleTextRangeForHref,
 }

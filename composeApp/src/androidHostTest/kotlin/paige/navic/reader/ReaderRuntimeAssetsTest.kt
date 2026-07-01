@@ -458,9 +458,13 @@ class ReaderRuntimeAssetsTest {
 		assertContains(helperText, "'whispersync-audio-follow': runWhispersyncAudioFollowProbe")
 		assertContains(probe, "probe: 'whispersync-audio-follow'")
 		assertContains(probe, "type: 'applyOverlayFragment'")
+		assertContains(probe, "textStart")
+		assertContains(probe, "textEnd")
 		assertContains(probe, "reason: 'media-overlay-follow'")
 		assertContains(probe, "visibleTextRange")
 		assertContains(probe, "visibleRange.source !== 'media-overlay-follow'")
+		assertContains(probe, "media-overlay-follow:already-visible")
+		assertContains(probe, "overlayFragmentActive")
 		assertContains(probe, "source=media-overlay-follow")
 	}
 
@@ -478,6 +482,28 @@ class ReaderRuntimeAssetsTest {
 			applyOverlayFragment.indexOf("this.mediaOverlayFollowShouldDeferForUserRelocation()") <
 				applyOverlayFragment.indexOf("await this.goTo(targetHref, 'media-overlay-follow')"),
 			"Playback-driven media-overlay follow must not start a second relocation over an active user go-to/page-turn."
+		)
+	}
+
+	@Test
+	fun androidReaderDoesNotNavigateForAlreadyVisibleMediaOverlayTextRange() {
+		val bridgeText = readerBridgeText()
+		val applyOverlayFragment = bridgeText
+			.substringAfter("async applyOverlayFragment(fragment) {")
+			.substringBefore("\n  highlightMediaOverlayTextRange")
+		val locationText = readerAssetRoot().resolve("navic-reader-location.js").readText()
+
+		assertContains(locationText, "function currentVisibleTextRangeForHref(href = '')")
+		assertContains(locationText, "readerVisibleTextRangeForDocument(content.doc)")
+		assertContains(locationText, "readerHrefMatches(textHref, targetHref)")
+		assertContains(locationText, "const textHref = section?.href || content?.href || targetHref")
+		assertContains(bridgeText, "mediaOverlayFragmentAlreadyVisible(fragment)")
+		assertContains(applyOverlayFragment, "this.mediaOverlayFragmentAlreadyVisible(fragment)")
+		assertContains(applyOverlayFragment, "media-overlay-follow:already-visible")
+		assertTrue(
+			applyOverlayFragment.indexOf("this.mediaOverlayFragmentAlreadyVisible(fragment)") <
+				applyOverlayFragment.indexOf("await this.goTo(targetHref, 'media-overlay-follow')"),
+			"Character-range media-overlay cues that are already visible must be highlighted in place instead of forcing a section-level media-overlay relocation."
 		)
 	}
 

@@ -10393,3 +10393,48 @@ Results:
 Next:
 - Normal implementation validation remains host/browser/ADB/readerdev/emulator only.
 - Public GitHub releases require an explicit release-worthy candidate and the guarded script parameters.
+
+## 2026-07-02 Stage 5C.7 Already-Visible Media Overlay Follow Suppression
+
+Scope:
+- Prevent Whispersync audio-follow from issuing a redundant WebView relocation after native page turns when the sidecar cue's character range is already visible.
+- Keep the fix inside the Anx/Foliate behavior boundary: the runtime should highlight the visible text range in place and preserve normal user page-turn texture state.
+- Validate on the debug `readerdev` package only; do not create a public APK for this slice.
+
+Root cause:
+- Native page turns can land on a visible range that already contains the current audio cue. The prior `applyOverlayFragment` path treated the cue as section-level navigation and could call `goTo(targetHref, 'media-overlay-follow')` anyway, adding a second relocation after the user-owned page turn.
+
+Changes:
+- `navic-reader-location.js` now exposes `currentVisibleTextRangeForHref(href)` using the same section/content fallback as `postCurrentVisibleTextRange`.
+- `navic-reader.js` now checks `mediaOverlayFragmentAlreadyVisible(fragment)` before `goTo(..., 'media-overlay-follow')`; already-visible cues log `media-overlay-follow:already-visible`, skip the redundant `goTo`, then continue through the existing overlay/highlight path.
+- `adb-webview-eval.mjs` now makes the `whispersync-audio-follow` probe use a cue inside the current visible range and assert `media-overlay-follow:already-visible` plus `overlayFragmentActive` in Android logcat.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-location.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+java -jar gradle\wrapper\gradle-wrapper.jar --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncAudioFollowVisibleRangeSource --tests paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderDoesNotNavigateForAlreadyVisibleMediaOverlayTextRange --console=plain
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoDiscoverPublication -RequireReaderLaunch -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderBookId 3809 -ReaderTitle "Bastille vs. the Evil Librarians" -ReaderKind Ebook -ReaderFormat EPUB -ReaderWhispersyncSidecarUrl /opds/books/3809/sync/8 -ReaderWhispersyncArtifactId 8 -ReaderWhispersyncAudiobookId 34 -ReaderWhispersyncAudiobookBookFileId 633 -ReaderWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -SkipNativeShellCover -Capture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta38 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe whispersync-audio-follow -ArtifactDir captures\reader-bridge-probes\stage9j-visible-media-overlay-follow-debug-20260702d
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta38 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.82,0.50,0.18,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection next -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\stage9j-drag-next-after-visible-follow-debug-20260702
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta38 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.18,0.50,0.82,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection previous -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\stage9j-drag-previous-after-visible-follow-debug-20260702
+git diff --check
+```
+
+Results:
+- RED/HOST: `androidReaderDoesNotNavigateForAlreadyVisibleMediaOverlayTextRange` failed before the runtime guard because `applyOverlayFragment` had no already-visible branch before `goTo(..., 'media-overlay-follow')`.
+- GREEN/JS: all touched JS files passed `node --check`.
+- GREEN/HOST: focused `ReaderRuntimeAssetsTest` guards passed from hidden Gradle log `artifacts\validation\media-follow-host-test-20260702-014542.out.log`.
+- GREEN/READERDEV-INSTALL: `darkaxt.navic.readerdev` rebuilt, installed, launched, and reached `publicationReady` for production book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`. Screenshot: `captures\reader-dev\reader-dev-20260702-014804.png`.
+- GREEN/READERDEV-AUDIO-FOLLOW: `captures\reader-bridge-probes\stage9j-visible-media-overlay-follow-debug-20260702d` captured `media-overlay-follow:already-visible`, raw `overlayFragmentActive` with `textStart=681` and `textEnd=777`, Android-side `Reader bridge event: overlayFragmentActive()`, and `visibleTextRange(... source=media-overlay-follow)`.
+- GREEN/READERDEV-SWIPE: native next swipe after the media-follow path reported `textureDirectionSamples=13` and `wrongTextureDirection=False`. Artifacts: `captures\reader-bridge-probes\stage9j-drag-next-after-visible-follow-debug-20260702`.
+- GREEN/READERDEV-SWIPE: native previous swipe after the media-follow path reported `textureDirectionSamples=16` and `wrongTextureDirection=False`. Artifacts: `captures\reader-bridge-probes\stage9j-drag-previous-after-visible-follow-debug-20260702`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Caveat:
+- The DevTools probe JSON still records `observedOverlayFragments=[]` because that array is collected by the in-page bridge wrapper, but logcat and Android bridge logs capture the real `overlayFragmentActive` event. The smoke gate uses those log labels as the authoritative Android evidence.
+
+Next:
+- Do not publish a public APK for this slice. It removes one Whispersync/texture interference path, but physical release validation should wait for the broader reader visual/layout candidate.

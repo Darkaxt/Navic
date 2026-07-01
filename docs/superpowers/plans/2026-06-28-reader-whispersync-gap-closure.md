@@ -51,6 +51,12 @@ Current continuation boundary as of 2026-07-01:
 - Root-cause inspection found root page-number font parity is incomplete because `readerContentCss(...)` injects `@font-face` rules into EPUB content documents, while the organic page number lives in the root reader document. Fix root font-face registration so `Navic OpenDyslexic` and custom fonts can actually render in the page-number layer.
 - Root-cause inspection confirmed Foliate's paginator already supports two-column landscape layout through `max-column-count` and `column-threshold`; the landscape collapse must be fixed at the Navic page-box/content-style boundary, not by adding a Compose overlay workaround.
 
+Current continuation boundary as of 2026-07-02:
+
+- Public release cadence is now enforced by `scripts/publish-github-release.ps1`: accidental public release attempts fail closed unless `-AllowPublicRelease` and a non-empty readiness note are supplied. Normal validation remains debug/readerdev/emulator.
+- Audio-position media-overlay follow now checks whether the sidecar cue's text character range is already inside the current visible text range before issuing `goTo(..., 'media-overlay-follow')`. Already-visible cues are highlighted in place and log `media-overlay-follow:already-visible`, avoiding a redundant section-level relocation after native page turns.
+- Readerdev evidence for production book `3809` shows the already-visible cue path posting `overlayFragmentActive` with `textStart=681` and `textEnd=777`, followed by a diagnostic `visibleTextRange(... source=media-overlay-follow)`. Native next/previous swipes after that path still report `wrongTextureDirection=False`.
+
 1. **Stage 6G: Landscape Spread And Tablet Page Box** - make landscape and tablet EPUB layout render as a real spread/double-page surface instead of a narrow centered column.
 2. **Stage 6H: Organic Page Number Font Parity** - make the root page-number layer use the same resolved reader font face as the EPUB content, including `Dys` and custom font-source cases.
 3. **Stage 6I: Root Paper Texture Motion And Edge Overlay Fidelity** - keep one full-surface paper owner, but move its background position with the committed drag/scroll offset and make the border overlay visible across the whole reader surface.
@@ -61,6 +67,7 @@ Current continuation boundary as of 2026-07-01:
 Superseded queue note: the older Stage 6F physical acceptance bucket is now split into Stage 6G/6H/6I so layout, font, and texture issues can be fixed and verified independently before the next physical acceptance pass.
 
 Recently closed:
+- **Stage 5C.7: Already-Visible Media Overlay Follow Suppression** - host and readerdev proven for production book `3809`; already-visible audio cues highlight in place instead of forcing another WebView relocation after a user page turn.
 - **Stage 8O: Master Generated Artwork Pipeline Sync** - merged `fork/master` generated-artwork routing into the reader branch and reconciled Aurral-first source guards with the shared `ArtworkRenderSpec` path.
 - **Stage 2B.2: Anx-Style Streaming Search Progress** - closed the remaining Stage 2B search UX/performance caveat by streaming search progress and partial result batches through the reader bridge.
 - **Stage 7B: Theta17 Staged Release Candidate** - packaged the completed post-theta16 gap work as the Android-only theta17 release candidate.

@@ -712,6 +712,15 @@ class NavicReaderRuntime {
     return Boolean(reason) && reason !== 'media-overlay-follow'
   }
 
+  mediaOverlayFragmentAlreadyVisible(fragment) {
+    const textStart = Number(fragment?.textStart)
+    const textEnd = Number(fragment?.textEnd)
+    if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
+    const visibleRange = this.currentVisibleTextRangeForHref?.(fragment?.textHref || '')
+    if (!visibleRange) return false
+    return textStart >= Number(visibleRange.visibleStart) && textEnd <= Number(visibleRange.visibleEnd)
+  }
+
   async applyOverlayFragment(fragment) {
     if (!this.view || !fragment) return
     const targetHref = fragment.textHref && fragment.fragmentId
@@ -726,7 +735,16 @@ class NavicReaderRuntime {
         })
         return
       }
-      await this.goTo(targetHref, 'media-overlay-follow')
+      if (this.mediaOverlayFragmentAlreadyVisible(fragment)) {
+        log('media-overlay-follow:already-visible', targetHref)
+        readerTrace('media-overlay-follow:already-visible', {
+          targetHref,
+          textStart: Number(fragment?.textStart),
+          textEnd: Number(fragment?.textEnd),
+        })
+      } else {
+        await this.goTo(targetHref, 'media-overlay-follow')
+      }
     }
     this.clearOverlay()
     let highlighted = false

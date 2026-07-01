@@ -842,27 +842,45 @@ async function runWhispersyncAudioFollowProbe(page) {
         type: 'goToHref',
         href: targetHref,
       }))
-      await settleFrames(3)
-      const currentSnapshot = await Promise.resolve(readerBridgeDispatch({
-        type: 'diagnosticLocationSnapshot',
-        reason: 'whispersync-audio-follow-probe-initial',
-      }))
-      const currentHref = String(currentSnapshot?.message?.href || '').trim()
+      let currentSnapshot = null
+      let initialVisibleRange = null
+      let currentHref = ''
+      for (let snapshotAttempt = 0; snapshotAttempt < 60; snapshotAttempt += 1) {
+        await settleFrames(2)
+        currentSnapshot = await Promise.resolve(readerBridgeDispatch({
+          type: 'diagnosticLocationSnapshot',
+          reason: 'whispersync-audio-follow-probe-initial',
+        }))
+        currentHref = String(currentSnapshot?.message?.href || '').trim()
+        initialVisibleRange = currentSnapshot?.visibleTextRangeResult?.visibleRange ||
+          latestVisibleRange(0)
+        if (currentHref === targetHref && initialVisibleRange) break
+      }
       if (currentHref !== targetHref) {
         throw new Error(`Expected audio-follow probe to start on ${targetHref}, got ${currentHref}`)
       }
+      const visibleStart = Number(initialVisibleRange?.visibleStart)
+      const visibleEnd = Number(initialVisibleRange?.visibleEnd)
+      if (!Number.isFinite(visibleStart) || !Number.isFinite(visibleEnd) || visibleEnd <= visibleStart + 8) {
+        throw new Error(`Expected audio-follow probe to have a visible text range, got ${JSON.stringify(initialVisibleRange)}`)
+      }
+      const visibleWidth = visibleEnd - visibleStart
+      const textStart = Math.floor(visibleStart + visibleWidth * 0.35)
+      const textEnd = Math.min(visibleEnd, textStart + Math.max(8, Math.min(96, Math.floor(visibleWidth * 0.2))))
 
-      readerBridgeDispatch({
+      await Promise.resolve(readerBridgeDispatch({
         type: 'applyOverlayFragment',
         fragment: {
           textHref: targetHref,
           resourceHref: 'navic-whispersync-audio-follow-probe',
+          textStart,
+          textEnd,
           clipBeginSeconds: 1,
           clipEndSeconds: 2,
           label: 'Whispersync audio follow probe',
         },
-      })
-      await settleFrames()
+      }))
+      await settleFrames(2)
 
       const snapshotStartIndex = observedPayloads.length
       const followSnapshot = await Promise.resolve(readerBridgeDispatch({
@@ -887,9 +905,14 @@ async function runWhispersyncAudioFollowProbe(page) {
         currentHref,
         targetHref,
         followSnapshot,
+        textStart,
+        textEnd,
         visibleRange,
         observedVisibleRanges: observedPayloads.filter(payload => payload?.type === 'visibleTextRange'),
+        observedOverlayFragments: observedPayloads.filter(payload => payload?.type === 'overlayFragmentActive'),
         expectedLogLabels: [
+          'media-overlay-follow:already-visible',
+          'overlayFragmentActive',
           'Reader bridge event: visibleTextRange',
           'source=media-overlay-follow',
         ],
