@@ -1564,6 +1564,40 @@ async function runLocationSnapshotProbe(page) {
   }})()`)
 }
 
+async function runDispatchCommandProbe(page) {
+  const commandText = args.get('command') || '{}'
+  let command
+  try {
+    command = JSON.parse(commandText)
+  } catch (error) {
+    throw new Error(`Invalid --command JSON: ${error?.message || String(error)}`)
+  }
+  const commandLiteral = JSON.stringify(command)
+  return evaluateOnPage(page, `(${async command => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const beforeMessages = Array.from(window.__navicReaderPostedMessages || [])
+      .filter(message => message?.type === 'locationChanged')
+    await window.NavicReaderBridge.dispatch(command)
+    for (let index = 0; index < 8; index += 1) {
+      await new Promise(resolve => requestAnimationFrame(resolve))
+    }
+    const messages = Array.from(window.__navicReaderPostedMessages || [])
+      .filter(message => message?.type === 'locationChanged')
+    const latest = messages.at(-1) || null
+    return {
+      probe: 'dispatch-command',
+      command,
+      beforeLocation: beforeMessages.at(-1) || null,
+      location: latest,
+      locationCountDelta: messages.length - beforeMessages.length,
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})(${commandLiteral})`)
+}
+
 async function runCurrentChapterProgressEndpointsProbe(page) {
   return evaluateOnPage(page, `window.__navicCurrentChapterProgressProbePromise = (${async () => {
     const readerBridgeDispatch = window.NavicReaderBridge?.dispatch?.bind(window.NavicReaderBridge)
@@ -2557,6 +2591,7 @@ async function main() {
       'whispersync-companion-progress': runWhispersyncCompanionProgressProbe,
       'whispersync-char-offset-overlay': runWhispersyncCharOffsetOverlayProbe,
       'location-snapshot': runLocationSnapshotProbe,
+      'dispatch-command': runDispatchCommandProbe,
       'chapter-progress-endpoints': runChapterProgressEndpointsProbe,
       'chapter-progress-current-endpoints': runCurrentChapterProgressEndpointsProbe,
       'page-box': runPageBoxProbe,

@@ -289,12 +289,11 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(appearanceText, "updateReaderMovingPageTextureLayer(")
 		assertContains(appearanceText, "updateReaderStaticPaperBackingLayer(")
-		assertContains(pageTurnText, "syncMovingPageTextureSurface")
-		assertContains(pageTurnText, "this.syncMovingPageTextureSurface")
+		assertContains(pageTurnText, "syncPageDragPreviewTextureLayers")
+		assertContains(pageTurnText, "this.syncPageDragPreviewTextureLayers(layer)")
 		assertFalse(
-			pageTurnText.contains("this.syncSurfacePaperTextureScrollOffset('page-drag-preview')") &&
-				!pageTurnText.contains("this.syncMovingPageTextureSurface('page-drag-preview')"),
-			"Drag previews must move the page texture surface with Foliate, not only update the static/root surface after renderer movement."
+			pageTurnText.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
+			"Drag previews must not move the committed Foliate renderer; texture movement belongs to the visual preview layer."
 		)
 	}
 
@@ -327,6 +326,34 @@ class ReaderRuntimePaperSurfaceTest {
 			"updateReaderSurfaceTextureLayer",
 			message = "Preview texture layers must stay on the same single-surface helper path, not resurrect document-scoped texture injection."
 		)
+	}
+
+	@Test
+	fun androidReaderInteriorDragPreviewUsesFoliatePageStride() {
+		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val strideHelper = pageTurnText
+			.substringAfter("function readerRendererPageStride")
+			.substringBefore("\nfunction pageDragInteriorPreviewScroll")
+		val interiorScroll = pageTurnText
+			.substringAfter("function pageDragInteriorPreviewScroll")
+			.substringBefore("\nfunction syncPageDragInteriorPreviewFrame")
+		val syncInteriorFrame = pageTurnText
+			.substringAfter("function syncPageDragInteriorPreviewFrame")
+			.substringBefore("\nfunction ensureInteriorPageDragPreviewTarget")
+
+		assertContains(strideHelper, "Number(renderer?.size)")
+		assertContains(strideHelper, "Number(renderer?.viewSize)")
+		assertContains(strideHelper, "Number(renderer?.pages)")
+		assertContains(interiorScroll, "renderer")
+		assertContains(interiorScroll, "readerRendererPageStride(renderer")
+		assertFalse(
+			interiorScroll.contains("Number(vertical ? height : width)"),
+			"Interior drag previews must not step by native viewport dimensions; Foliate commits by its renderer page size, so viewport stepping previews the wrong page on tablets/landscape."
+		)
+		assertContains(syncInteriorFrame, "pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical, renderer })")
+		assertContains(syncInteriorFrame, "dataset.navicPageDragPreviewFrameAxisStep")
+		assertContains(syncInteriorFrame, "dataset.navicPageDragPreviewFrameRendererPage")
+		assertContains(syncInteriorFrame, "dataset.navicPageDragPreviewFrameRendererPages")
 	}
 
 	@Test
@@ -676,13 +703,12 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			previewPageDrag,
-			"renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)",
-			message = "The page itself must move on the same axis as the texture during native drag previews."
+			"this.updatePageDragPreviewLayer({",
+			message = "Native readable drag previews must route movement to the visual preview layer."
 		)
-		assertTrue(
-			previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)") <
-				previewPageDrag.indexOf("this.syncMovingPageTextureSurface('page-drag-preview')"),
-			"Native readable drag previews must re-sync the moving page texture slots immediately after moving the Foliate renderer; relying on a delayed scroll event makes the grain swap after the text."
+		assertFalse(
+			previewPageDrag.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
+			"Native readable drag previews must not mutate Foliate renderer position before the release page turn."
 		)
 	}
 
@@ -694,7 +720,7 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\nasync function scrollViewport")
 		val boundaryPreviewBlock = previewPageDrag
 			.substringAfter("if (boundaryDirection) {")
-			.substringBefore("\n  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0)")
+			.substringBefore("\n  this.updatePageDragPreviewLayer({")
 
 		assertContains(
 			previewPageDrag,
@@ -717,13 +743,12 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertTrue(
 			previewPageDrag.indexOf("waitingForBoundaryPreview = true") <
-				previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
-			"The boundary-preview loading branch must reach current-page movement instead of stopping before it."
+				previewPageDrag.indexOf("this.updatePageDragPreviewLayer({"),
+			"The boundary-preview loading branch must still reach the visual preview update instead of stopping before it."
 		)
-		assertTrue(
-			previewPageDrag.indexOf("this.updatePageDragPreviewLayer({") <
-				previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
-			"Boundary drag preview must mount/update the underlay before moving the renderer; after the scroll the boundary probe can go false and remove the layer."
+		assertFalse(
+			previewPageDrag.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
+			"Boundary drag preview must not mutate the committed renderer while the adjacent iframe preview is loading."
 		)
 	}
 
@@ -981,10 +1006,9 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringAfter("if (phase === 'release') {")
 			.substringBefore("\n  const deltaX = Number(command?.deltaX)")
 
-		assertContains(
-			releaseBranch,
-			"renderer.scrollBy(previousDelta.x, previousDelta.y)",
-			message = "Release must restore Foliate's synthetic drag scroll before dispatching the real page turn."
+		assertFalse(
+			releaseBranch.contains("renderer.scrollBy(previousDelta.x, previousDelta.y)"),
+			message = "Release must not restore Foliate synthetic drag scroll because native previews are visual-only."
 		)
 		assertContains(
 			releaseBranch,

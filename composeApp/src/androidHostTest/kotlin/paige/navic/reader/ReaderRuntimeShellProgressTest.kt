@@ -417,17 +417,17 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(nativeFrameHostText, "handleSwipeTouchEvent(event)")
 		assertContains(nativeFrameHostText, "gestureDetector.onTouchEvent(event)")
 		assertContains(nativeFrameHostText, "MotionEvent.ACTION_DOWN")
+		assertContains(nativeFrameHostText, "if (shellCoverView?.visibility != VISIBLE) return true")
 		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
 		assertContains(nativeFrameHostText, "navigator.getAction(")
 		assertContains(nativeFrameHostText, "val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched")
 		assertFalse(
 			nativeFrameHostText.contains("nativeShortTapIntercepted"),
-			"Komikku's Pager does not intercept plain ACTION_UP taps; it lets the child receive the stream, then observes confirmed taps through GestureDetector."
+			"Komikku's Pager does not intercept plain ACTION_UP taps; Navic intercepts readable ACTION_DOWN instead so Foliate cannot receive a partial drag stream."
 		)
-		assertTrue(
-			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
-			"Komikku's pager gives the child/page stream first, then observes confirmed taps without stealing drags."
+		assertFalse(
+			dispatchTouchEvent.contains("event.setAction(") || dispatchTouchEvent.contains("event.action ="),
+			"Native readable ownership must not rewrite MotionEvent actions to fake WebView cancellation."
 		)
 		assertFalse(
 			webViewHostText.contains("event.action =") || webViewHostText.contains("event.setAction("),
@@ -715,6 +715,23 @@ class ReaderRuntimeShellProgressTest {
 			"Shell-cover drag observation and reader tap detection must share the same native surface stream."
 		)
 		assertContains(dispatchTouchEvent, "handled")
+	}
+
+	@Test
+	fun readableSurfaceOwnsTouchStreamFromDownSoFoliateCannotDoubleCommitDrag() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val interceptTouchEvent = nativeFrameHostText
+			.substringAfter("override fun onInterceptTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\t}\n\n\t")
+		val actionDown = interceptTouchEvent
+			.substringAfter("MotionEvent.ACTION_DOWN -> {")
+			.substringBefore("\n\t\t\tMotionEvent.ACTION_MOVE")
+
+		assertContains(
+			actionDown,
+			"if (shellCoverView?.visibility != VISIBLE) return true",
+			message = "Readable EPUB/PDF gestures must be native-owned from ACTION_DOWN; otherwise Foliate can preview/commit one page and the native release can commit a second page."
+		)
 	}
 
 	@Test

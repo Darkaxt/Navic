@@ -9940,3 +9940,48 @@ Next:
   - dragging within a normal chapter now shows a page/texture surface instead of a black void;
   - page 12 / stacked-dwarves image page does not invert or skip during drag;
   - remaining paper texture/border shadow strength and landscape spread issues are still present or improved.
+
+## 2026-07-01 Stage 9J Interior Preview Stride Fix
+
+Scope:
+- Fix the report where dragging from page 5 visually previews page 6, but releasing lands on page 7 as if it were page 6.
+- Preserve the native `ACTION_DOWN` ownership fix from theta32/theta33; do not reintroduce Foliate renderer mutation during drag preview.
+
+Diagnosis:
+- Browser/tablet and ADB logs showed Foliate commits by its paginator stride, not by the Android/native view width.
+- In landscape/tablet layout, native view width was `1974px`, but loaded content columns were `1856px` wide (`content-layout html=0,0,1856x1092`).
+- The interior preview iframe stepped by viewport dimensions, so the underlay could preview the wrong adjacent text even though the native release sent only one `TurnPage(Next)`.
+
+Changes:
+- `pageDragInteriorPreviewScroll` now derives the preview step from Foliate renderer metrics: `renderer.size`, falling back to `renderer.viewSize / renderer.pages`, and only then to viewport dimensions.
+- The preview iframe records `data-navic-page-drag-preview-frame-axis-step`, `...renderer-page`, and `...renderer-pages` for ADB/DevTools inspection.
+- `adb-webview-eval.mjs` gained a reusable `dispatch-command` probe for controlled bridge navigation during emulator validation.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check .\tools\reader-harness\src\run-reader-harness.mjs
+node --check .\tools\reader-harness\src\adb-webview-eval.mjs
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\served-input.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture .\tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -NoDiscoverPublication -RequireReaderLaunch -ReaderAssetServerPort 5188 -PublicationUrl 'http://127.0.0.1:5188/fixtures/local/input.epub' -ResourceHref 'http://127.0.0.1:5188/fixtures/local/input.epub' -Title 'Hobbit local gesture probe' -Kind ebook -Format epub -SkipNativeShellCover -Capture
+node .\tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe dispatch-command --command '{"type":"goToProgress","progress":0.016129032258064516}'
+```
+
+Results:
+- RED/GUARD: new `androidReaderInteriorDragPreviewUsesFoliatePageStride` failed before the runtime patch because interior drag preview used viewport width/height as the axis step.
+- GREEN/HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed after the runtime patch.
+- GREEN/JS: `node --check` passed for `navic-reader-page-turns.js`, `run-reader-harness.mjs`, and `adb-webview-eval.mjs`.
+- GREEN/HARNESS: phone-width `epub-native-drag-single-commit` passed.
+- GREEN/HARNESS-TABLET: tablet/landscape `epub-native-drag-single-commit` passed with `PreviewAxisStep=1856`, `DerivedStride=1856`, `PreviewWidth=829px`, and `PageDelta=1`.
+- GREEN/HARNESS-TEXTURE: tablet/landscape `epub-texture-page-turns` passed.
+- GREEN/READERDEV: readerdev built, installed, launched, and emitted `publicationReady` on `emulator-5554`.
+- GREEN/ADB-LOOP: four emulator swipes on readable content advanced deterministic page indexes `58->59->60->61->62` with `Delta=1` each time.
+- GREEN/ADB-PAGE5: after seeking to `pageIndex=4`, one emulator swipe advanced to `pageIndex=5`, not `6`; the saved artifact is `captures/reader-smoke/page5-to-page6-stride-20260701-134412.json`.
+- NOTE/RAW-FOLIATE: the same page-5 swipe moved raw Foliate location `5->7`. The deterministic pagination model and visible page label advanced by one, so raw Foliate offsets should not be used as proof of a user-facing double skip.
+
+Next:
+- This patch addresses the page-5 to page-7 commit mismatch class. Physical-device validation should still check texture shadow strength and section/image pages because those are visually sensitive and not fully proven by emulator logs.

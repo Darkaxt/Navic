@@ -2103,6 +2103,7 @@ if (mode === 'epub-native-drag-preview-underlay') {
         index: Number(renderer?.getContents?.()?.[0]?.index),
         page: Number(renderer?.page),
         pages: Number(renderer?.pages),
+        size: Number(renderer?.size),
         start: Number(renderer?.start),
         end: Number(renderer?.end),
         viewSize: Number(renderer?.viewSize),
@@ -2445,6 +2446,9 @@ if (mode === 'epub-native-drag-single-commit') {
         framePresent: Boolean(frame),
         frameReady: frame?.dataset.navicPageDragPreviewFrameReady === 'true',
         frameTextLength: Number(frame?.dataset.navicPageDragPreviewFrameTextLength) || 0,
+        frameAxisStep: Number(frame?.dataset.navicPageDragPreviewFrameAxisStep),
+        frameRendererPage: Number(frame?.dataset.navicPageDragPreviewFrameRendererPage),
+        frameRendererPages: Number(frame?.dataset.navicPageDragPreviewFrameRendererPages),
         mode: layer?.dataset.navicPageDragPreviewMode || '',
         fallback: layer?.dataset.navicPageDragPreviewFallback || '',
         ready: layer?.dataset.navicPageDragPreviewReady === 'true',
@@ -2508,6 +2512,26 @@ if (mode === 'epub-native-drag-single-commit') {
         `Expected interior native drag preview to carry paper and border texture layers; ` +
         `observed ${JSON.stringify(previewVisual)}`
       )
+    }
+    if (
+      !Number.isFinite(previewVisual.frameAxisStep) ||
+      Math.abs(previewVisual.frameAxisStep - Math.round(before.size)) > 1
+    ) {
+      throw new Error(
+        `Expected interior native drag preview to use Foliate renderer page stride; ` +
+        `axisStep=${previewVisual.frameAxisStep} rendererSize=${before.size} ` +
+        `viewportWidth=${previewVisual.width} before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)}`
+      )
+    }
+    if (Number.isFinite(before.viewSize) && Number.isFinite(before.pages) && before.pages > 0) {
+      const derivedStride = Math.round(before.viewSize / before.pages)
+      if (Math.abs(previewVisual.frameAxisStep - derivedStride) > 1) {
+        throw new Error(
+          `Expected interior native drag preview stride to match viewSize/pages; ` +
+          `axisStep=${previewVisual.frameAxisStep} derivedStride=${derivedStride} ` +
+          `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)}`
+        )
+      }
     }
 
     await page.evaluate(async () => {

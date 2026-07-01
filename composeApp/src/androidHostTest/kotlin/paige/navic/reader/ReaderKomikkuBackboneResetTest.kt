@@ -757,14 +757,16 @@ class ReaderKomikkuBackboneResetTest {
 				runtimeText.contains("case 'previewPageDrag':") &&
 				runtimeText.contains("previewPageDrag(command)") &&
 				runtimeText.contains("readerRendererReadyForPageDrag(renderer)") &&
-				runtimeText.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)") &&
+				runtimeText.contains("ensureInteriorPageDragPreviewTarget") &&
+				runtimeText.contains("syncPageDragInteriorPreviewFrame") &&
 				runtimeText.contains("preloadPageDragPreviewTargets(") &&
 				runtimeText.indexOf("preloadPageDragPreviewTargets(") < runtimeText.indexOf("updatePageDragPreviewLayer({") &&
 				runtimeText.contains("safeNativeDragPreviewAtSectionBoundary(renderer, direction)") &&
 				runtimeText.contains("updatePageDragPreviewLayer({") &&
+				runtimeText.contains("this.syncPageDragPreviewTextureLayers(layer)") &&
 				runtimeText.contains("dataset.navicPageDragPreviewLayer") &&
 				runtimeText.contains("adjacentReadableSectionIndex(direction)"),
-			"Foliate runtime preview should preload adjacent-section content before drag exposure, scroll same-section columns, and mount a clipped underlay instead of exposing a black native background."
+			"Foliate runtime preview should preload adjacent-section content before drag exposure and mount visual-only clipped underlays instead of moving the committed renderer or exposing a black native background."
 		)
 		assertTrue(
 			runtimeText.contains("function buildPageDragPreviewTargetKey(") &&
@@ -800,7 +802,14 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			viewerContainerBody.contains("override fun onInterceptTouchEvent(event: MotionEvent): Boolean") &&
 				!viewerContainerBody.contains("nativeShortTapIntercepted"),
-			"Short taps must follow Komikku's child-first Pager dispatch and be classified by the native GestureDetector, not by an ACTION_UP intercept workaround."
+			"Short taps must be classified by the native GestureDetector, not by an ACTION_UP intercept workaround."
+		)
+		assertTrue(
+			viewerContainerBody
+				.substringAfter("MotionEvent.ACTION_DOWN -> {")
+				.substringBefore("\n\t\t\tMotionEvent.ACTION_MOVE")
+				.contains("if (shellCoverView?.visibility != VISIBLE) return true"),
+			"Readable EPUB/PDF touch streams must be native-owned from ACTION_DOWN so Foliate cannot also turn pages."
 		)
 		assertTrue(
 			viewerContainerBody.contains("nativeTapLongConfirmed = true") &&

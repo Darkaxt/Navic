@@ -421,6 +421,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				nativeSwipeIntercepted = false
 				swipeStartX = event.x
 				swipeStartY = event.y
+				if (shellCoverView?.visibility != VISIBLE) return true
 				return false
 			}
 			MotionEvent.ACTION_MOVE -> {

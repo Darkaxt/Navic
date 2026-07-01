@@ -1108,13 +1108,31 @@ function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight =
   return { layer, frame, targetIndex, targetKey, side, width, height, palette }
 }
 
-function pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical }) {
+function readerRendererPageStride(renderer, { width, height, vertical } = {}) {
+  const rendererSize = Number(renderer?.size)
+  if (Number.isFinite(rendererSize) && rendererSize > 0) {
+    return Math.max(1, Math.round(rendererSize))
+  }
+  const viewSize = Number(renderer?.viewSize)
+  const pages = Number(renderer?.pages)
+  if (
+    Number.isFinite(viewSize) &&
+    viewSize > 0 &&
+    Number.isFinite(pages) &&
+    pages > 0
+  ) {
+    return Math.max(1, Math.round(viewSize / pages))
+  }
+  return Math.max(1, Math.round(Number(vertical ? height : width) || 1))
+}
+
+function pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical, renderer }) {
   const scroll = pageDragCurlSnapshotScroll(doc)
-  const axisStep = Math.max(1, Math.round(Number(vertical ? height : width) || 1))
+  const axisStep = readerRendererPageStride(renderer, { width, height, vertical })
   const sign = direction === 'previous' ? -1 : 1
   const targetX = vertical ? scroll.x : Math.max(0, scroll.x + (axisStep * sign))
   const targetY = vertical ? Math.max(0, scroll.y + (axisStep * sign)) : scroll.y
-  return { x: targetX, y: targetY }
+  return { x: targetX, y: targetY, axisStep }
 }
 
 function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, height, vertical, palette }) {
@@ -1129,7 +1147,7 @@ function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, h
     }
     return false
   }
-  const targetScroll = pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical })
+  const targetScroll = pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical, renderer })
   const key = [
     pageDragCurlSnapshotKey({ role: 'interior-underneath', direction, width, height, content, doc, renderer }),
     targetScroll.x,
@@ -1154,6 +1172,9 @@ function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, h
   frame.dataset.navicPageDragPreviewFrameDirection = direction || ''
   frame.dataset.navicPageDragPreviewFrameTargetScrollX = String(targetScroll.x)
   frame.dataset.navicPageDragPreviewFrameTargetScrollY = String(targetScroll.y)
+  frame.dataset.navicPageDragPreviewFrameAxisStep = String(targetScroll.axisStep)
+  frame.dataset.navicPageDragPreviewFrameRendererPage = String(Number(renderer?.page) || '')
+  frame.dataset.navicPageDragPreviewFrameRendererPages = String(Number(renderer?.pages) || '')
   const markFrameReady = () => {
     try {
       const frameDoc = frame.contentDocument
