@@ -9771,3 +9771,38 @@ Results:
 Limitations:
 - This is browser/host plus readerdev/emulator current-source proof. It is not a public release APK and has not yet been validated on a physical tablet/phone.
 - The harness and matrix prove controlled renderer movement, Android drag routes, and texture next/previous walks. Final visual acceptance for texture feel, edge-gradient strength, and tablet typography still requires a physical release-device pass.
+
+## 2026-07-01 Stage 9H.2 Theta31 Public Release Candidate
+
+Scope:
+- Publish the Stage 9H.2 split paper backing and moving page texture patch as a public Android APK for physical tablet validation.
+- Keep the release scoped to the major visual/layout blocker reported after theta30: page texture should no longer be duplicated as a static bitmap, moving page texture/border slots should travel with renderer movement, root page numbers should resolve the configured Dys stack, and landscape/tablet page boxes should no longer collapse into a narrow column.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta31
+git diff --check
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git commit -m "Prepare theta31 reader release"
+git tag v1.0.11-theta31
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-theta31 -Repo Darkaxt/Navic -Remote fork -Branch codex/komikku-reader-backbone-eta64 -PollSeconds 30
+gh release view v1.0.11-theta31 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease,targetCommitish
+```
+
+Results:
+- RED/VERSION-FIRST: `verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta31` failed while the app still declared `v1.0.11-theta30`.
+- GREEN/VERSION: after bumping `androidApp/build.gradle.kts` to `versionName=v1.0.11-theta31` and `versionCode=459`, the version verifier passed.
+- GREEN/LOCAL-GATES: `git diff --check` and `:composeApp:testAndroid` passed before tagging.
+- GREEN/GIT: committed `3edea347 Prepare theta31 reader release` and tagged `v1.0.11-theta31`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28500877062` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` all succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA`, `Attach iOS IPA to GitHub Release`, and Discord artifact upload were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta31` contains `Navic.apk` (`33,591,767` bytes, `sha256:bea3b6ea7573a993eb6fa7fb732dc5a28f4f05357503044089d6b343a0d8fe6d`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta31` and specifically check:
+  - page numbers visually follow the active ebook font (`Dys`);
+  - edge-gradient overlays are visible enough on the paper;
+  - paper texture moves with page/text movement instead of swapping only after relocation;
+  - portrait-to-landscape produces a spread/double-page surface instead of a narrow centered column.

@@ -2343,7 +2343,7 @@ Release:
 
 ### Stage 9H: Moving Page Surface Texture Ownership
 
-Status: Stage 9H.2 current-source browser/host/readerdev-emulator proof complete; no public release yet. Stage 9H.1 current-source patch is published as `v1.0.11-theta30`. Physical tablet feedback still reported texture swapping after text movement and landscape collapse, so Stage 9H.2 moved from opacity tuning to a color-only static margin backing plus moving page texture/border slots.
+Status: Stage 9H.2 current-source browser/host/readerdev-emulator proof complete and published as `v1.0.11-theta31`. Stage 9H.1 current-source patch was published as `v1.0.11-theta30`. Physical tablet feedback still reported texture swapping after text movement and landscape collapse, so Stage 9H.2 moved from opacity tuning to a color-only static margin backing plus moving page texture/border slots.
 
 Purpose:
 - Stop treating texture motion as an opacity/diagnostic problem if the physical release still shows a swap.
@@ -2409,4 +2409,10 @@ Closure checklist:
 - [x] Record evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
 - [x] Validate physical/native pointer-drag texture coupling through readerdev/emulator or device before treating Stage 9H.2 as release-ready. Readerdev matrix `captures\reader-komikku-matrix\stage9h2-current-source-20260701` passed cover/content drag and texture next/previous walks.
 - [x] Validate the Stage 9H.2 source patch on readerdev/emulator or a physical device before publishing another public APK. Current-source `darkaxt.navic.readerdev` reached `publicationReady` on `emulator-5554`, and live probes passed texture slots, page-number font, page-box, and runtime-state checks.
-- [ ] Publish a release candidate only if this closes the physical texture-motion bug well enough to justify another public APK.
+- [x] Publish a release candidate only if this closes the physical texture-motion bug well enough to justify another public APK. Published as `v1.0.11-theta31` after the readerdev matrix passed.
+
+Stage 9H.2 release:
+- Published as `v1.0.11-theta31`.
+- GitHub Actions run `28500877062` passed Android build/signing/release creation; iOS jobs were skipped.
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta31`.
+- APK: `Navic.apk`, `33,591,767` bytes, `sha256:bea3b6ea7573a993eb6fa7fb732dc5a28f4f05357503044089d6b343a0d8fe6d`.
