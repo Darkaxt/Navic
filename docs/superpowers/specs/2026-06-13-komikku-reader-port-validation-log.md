@@ -9982,6 +9982,11 @@ Results:
 - GREEN/ADB-LOOP: four emulator swipes on readable content advanced deterministic page indexes `58->59->60->61->62` with `Delta=1` each time.
 - GREEN/ADB-PAGE5: after seeking to `pageIndex=4`, one emulator swipe advanced to `pageIndex=5`, not `6`; the saved artifact is `captures/reader-smoke/page5-to-page6-stride-20260701-134412.json`.
 - NOTE/RAW-FOLIATE: the same page-5 swipe moved raw Foliate location `5->7`. The deterministic pagination model and visible page label advanced by one, so raw Foliate offsets should not be used as proof of a user-facing double skip.
+- GREEN/GIT: committed `87d6872c Fix reader drag preview stride skip`, tagged `v1.0.11-theta34`, pushed branch `codex/komikku-reader-backbone-eta64`, and pushed the tag to `fork`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28512169499` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA`, `Attach iOS IPA to GitHub Release`, and Discord artifact upload were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta34` contains `Navic.apk` (`33,593,535` bytes, `sha256:149017fc8103aa1872cfd2dc0dcec0b45c08d23800ded7a7c9bc78a92846595d`).
 
 Next:
 - This patch addresses the page-5 to page-7 commit mismatch class. Physical-device validation should still check texture shadow strength and section/image pages because those are visually sensitive and not fully proven by emulator logs.
