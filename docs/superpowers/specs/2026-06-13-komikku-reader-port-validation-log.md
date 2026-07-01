@@ -10223,6 +10223,11 @@ Results:
 - GREEN/HARNESS: standard no-curl and opt-in curl underlay probes both pass after the ownership split.
 - GREEN/HOST: focused Gradle guards passed, including the source guard that standard cleanup must preserve `underneath`.
 - GREEN/JS/DIFF: JS syntax and whitespace checks passed.
+- GREEN/GIT: committed `7f577301 Fix standard reader drag preview ownership`, committed `36460254 Prepare theta38 reader drag release`, tagged `v1.0.11-theta38`, and pushed the branch/tag to `fork`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28537038451` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: Android release build, release signing verification, artifact upload, and `Create GitHub Release` succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA` and `Attach iOS IPA to GitHub Release` were skipped.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta38` contains `Navic.apk` (`33,596,995` bytes, `sha256:9080f79b85c51345a378e688750bb029a9ae215aec06c487b729d8e5e6ba5bc7`).
 
 Next:
 - This is now APK-worthy because it changes runtime drag behavior, not just harness coverage. Physical validation should confirm standard dragging previews the page that is actually committed and does not resurrect curl visuals unless `Page turn = Curl`.
