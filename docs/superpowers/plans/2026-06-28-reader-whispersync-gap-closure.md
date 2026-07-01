@@ -18,7 +18,8 @@ Each stage is a complete deliverable:
 - It edits only the files listed for that stage unless the failing evidence proves a dependency.
 - It ends with focused Gradle validation, `node --check` for touched JS, `git diff --check`, and a concise validation-log entry when emulator or ADB was used.
 - It is committed after the stage passes.
-- A public release is published only after a stage fixes a major user-visible blocker or after the final release-candidate gate.
+- Intermediate validation uses debug/readerdev APKs on the emulator and local ADB/browser harnesses. Do not create public GitHub releases for microfixes, isolated visual tweaks, or unproven animation changes.
+- A public release is published only after a coherent feature or major user-visible fix has been implemented, locally validated, committed, and is ready for physical-device acceptance.
 
 ## Remaining Gap Queue
 
