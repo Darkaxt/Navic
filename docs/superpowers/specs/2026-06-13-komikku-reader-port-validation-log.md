@@ -10026,6 +10026,12 @@ Results:
 - GREEN/HARNESS-HOBBIT: the same harness passed on `served-input.epub`.
 - GREEN/JS: all touched reader JS and harness JS syntax checks passed.
 - GREEN/HOST: focused `ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers` passed.
+- GREEN/LOCAL-GATES: `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta35`, `git diff --check`, and `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed before tagging.
+- GREEN/GIT: committed `81df4768 Fix reader page-turn target model`, committed `0f2b2560 Prepare theta35 reader release`, tagged `v1.0.11-theta35`, pushed branch `codex/komikku-reader-backbone-eta64`, and pushed the tag to `fork`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28515499607` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA`, `Attach iOS IPA to GitHub Release`, and Discord artifact upload were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta35` contains `Navic.apk` (`33,593,831` bytes, `sha256:c48a88b542182081753c8a16ceaf242abb23c23809dccf52fdf2b38c5ddbe903`).
 
 Next:
 - This fixes the user-facing global page model freezing on controlled page turns. Physical-device validation should still check whether the visual texture layer and Foliate content movement feel aligned during real finger drags, because that is a separate texture/preview rendering issue.
