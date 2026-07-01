@@ -549,7 +549,7 @@ class ReaderRuntimeAssetsTest {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val runtimeStateProbe = helperText
 			.substringAfter("async function runRuntimeStateProbe(page)")
-			.substringBefore("async function runImageHitTargetsProbe(page)")
+			.substringBefore("async function runTextureSlotsProbe(page)")
 
 		assertContains(runtimeStateProbe, "probe: 'runtime-state'")
 		assertContains(runtimeStateProbe, "document.body.dataset.navicReaderFlowMode")
@@ -725,7 +725,7 @@ class ReaderRuntimeAssetsTest {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val publisherProbe = helperText
 			.substringAfter("async function runPublisherStyleFontSizeProbe(page)")
-			.substringBefore("async function main()")
+			.substringBefore("async function runRuntimeStateProbe(page)")
 
 		assertContains(helperText, "'font-size-publisher-styles': runPublisherStyleFontSizeProbe")
 		assertContains(publisherProbe, "publisherStyles: true")
@@ -769,7 +769,7 @@ class ReaderRuntimeAssetsTest {
 			.substringBefore("async function runPublisherStyleFontSizeProbe(page)")
 		val publisherProbe = helperText
 			.substringAfter("async function runPublisherStyleFontSizeProbe(page)")
-			.substringBefore("async function main()")
+			.substringBefore("async function runRuntimeStateProbe(page)")
 
 		assertFalse(
 			fontSizeProbe.contains("requestAnimationFrame"),
