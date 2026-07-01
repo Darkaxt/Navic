@@ -10231,3 +10231,39 @@ Results:
 
 Next:
 - This is now APK-worthy because it changes runtime drag behavior, not just harness coverage. Physical validation should confirm standard dragging previews the page that is actually committed and does not resurrect curl visuals unless `Page turn = Curl`.
+
+## 2026-07-01 Stage 9N Exact Chapter Progress Probe Fidelity
+
+Scope:
+- Harden the ADB/WebView progress-rail probes so they exercise the same exact chapter-page target shape as the native Komikku rail.
+- Prevent future rail endpoint validation from passing a weaker `href + progress` path while the UI sends `href + progress + chapterPageIndex + chapterPageCount`.
+
+Root cause:
+- The native rail dispatch path already carries exact target metadata through `ReaderController.navigateToChapterPage(...)` and `ReaderBridgeCommand.GoToChapterProgress(...)`.
+- `adb-webview-eval.mjs` only dispatched `goToChapterProgress` with `href` and `progress`, so the probe did not validate the exact native first/last page commands.
+
+Changes:
+- Added a host guard requiring both `chapter-progress-endpoints` and `chapter-progress-current-endpoints` probes to send `chapterPageIndex` and `chapterPageCount`.
+- Updated the strongest-candidate probe to re-run exact first/last endpoint commands after selecting a multi-page chapter.
+- Updated the current-chapter probe to require an initial multi-page chapter and then dispatch exact first/last endpoint commands.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalChapterProgressProbeUsesExactNativeRailTargets" --console=plain
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe chapter-progress-endpoints --local-port 9245
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe chapter-progress-current-endpoints --local-port 9247
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `adbWebViewEvalChapterProgressProbeUsesExactNativeRailTargets` failed before the probe included exact native rail target fields.
+- GREEN/HOST: the focused test XML reported `tests="1" failures="0" errors="0"` after patching the probe.
+- GREEN/JS/DIFF: `node --check` passed for `adb-webview-eval.mjs`; `git diff --check` passed before this documentation append.
+- GREEN/EMULATOR: readerdev `v1.0.11-theta38` on `emulator-5554` passed `chapter-progress-endpoints` against `OEBPS/Text/Chapter-37.xhtml`, selecting a `111` page chapter. Exact start landed at `chapterPageIndex=0`; exact end landed at `chapterPageIndex=110`.
+- GREEN/EMULATOR: `chapter-progress-current-endpoints` passed on the same chapter. Initial position was `110 / 111`; exact start landed at `0 / 111`; exact end returned to `110 / 111`.
+
+Next:
+- This is validation-tooling only and does not justify a public release by itself.
+- Physical/release-device progress rail feel and endpoint interaction remain open, but the automated probe now matches the native command contract.

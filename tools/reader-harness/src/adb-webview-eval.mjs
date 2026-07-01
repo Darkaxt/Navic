@@ -1386,12 +1386,14 @@ async function runChapterProgressEndpointsProbe(page) {
           location: latestLocation(startIndex) || returnedLocation,
         }
       }
-      const endpoint = async (href, progress) => {
+      const endpoint = async (href, progress, chapterPageIndex = null, chapterPageCount = null) => {
         const startIndex = observedPayloads.length
         const commandResult = await Promise.resolve(readerBridgeDispatch({
           type: 'goToChapterProgress',
           href,
           progress,
+          chapterPageIndex,
+          chapterPageCount,
         }))
         await animationSettled()
         const locationSnapshot = await snapshot(`chapter-progress-endpoint-${progress}`)
@@ -1464,8 +1466,8 @@ async function runChapterProgressEndpointsProbe(page) {
       }
 
       const href = bestCandidate.href
-      const start = bestCandidate.startProbe
-      const end = await endpoint(href, 1)
+      const start = await endpoint(href, 0, 0, bestCandidate.chapterPageCount)
+      const end = await endpoint(href, 1, bestCandidate.chapterPageCount - 1, bestCandidate.chapterPageCount)
       const startIndex = numeric(start.location.chapterPageIndex)
       if (startIndex !== 0) {
         throw new Error(`Expected chapter-progress endpoint 0 to report chapterPageIndex 0, got ${start.location.chapterPageIndex}`)
@@ -1645,12 +1647,14 @@ async function runCurrentChapterProgressEndpointsProbe(page) {
           location: latestLocation(startIndex) || returnedLocation,
         }
       }
-      const endpoint = async (href, progress) => {
+      const endpoint = async (href, progress, chapterPageIndex = null, chapterPageCount = null) => {
         const startIndex = observedPayloads.length
         const commandResult = await Promise.resolve(readerBridgeDispatch({
           type: 'goToChapterProgress',
           href,
           progress,
+          chapterPageIndex,
+          chapterPageCount,
         }))
         const locationSnapshot = await snapshot(`chapter-progress-current-endpoint-${progress}`)
         const location = locationSnapshot.location || latestLocation(startIndex)
@@ -1671,9 +1675,15 @@ async function runCurrentChapterProgressEndpointsProbe(page) {
       if (!href) {
         throw new Error(`Expected current chapter-progress probe to find a current href; location=${JSON.stringify(initialLocation)}`)
       }
+      const initialChapterPageCount = numeric(initialLocation.chapterPageCount)
+      if (initialChapterPageCount == null || initialChapterPageCount < 2) {
+        throw new Error(
+          `Expected current chapter-progress probe to start on a multi-page chapter, got ${initialLocation.chapterPageCount}`
+        )
+      }
 
-      const start = await endpoint(href, 0)
-      const end = await endpoint(href, 1)
+      const start = await endpoint(href, 0, 0, initialChapterPageCount)
+      const end = await endpoint(href, 1, initialChapterPageCount - 1, initialChapterPageCount)
       const startIndex = numeric(start.location.chapterPageIndex)
       if (startIndex !== 0) {
         throw new Error(`Expected current chapter-progress endpoint 0 to report chapterPageIndex 0, got ${start.location.chapterPageIndex}`)

@@ -360,6 +360,42 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbWebViewEvalChapterProgressProbeUsesExactNativeRailTargets() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val strongestProbe = helperText
+			.substringAfter("async function runChapterProgressEndpointsProbe(page)")
+			.substringBefore("async function runLocationSnapshotProbe(page)")
+		val currentProbe = helperText
+			.substringAfter("async function runCurrentChapterProgressEndpointsProbe(page)")
+			.substringBefore("async function runPageBoxProbe(page)")
+
+		assertContains(strongestProbe, "chapterPageIndex,")
+		assertContains(strongestProbe, "chapterPageCount,")
+		assertContains(currentProbe, "chapterPageIndex,")
+		assertContains(currentProbe, "chapterPageCount,")
+		assertContains(
+			strongestProbe,
+			"endpoint(href, 0, 0, bestCandidate.chapterPageCount)",
+			message = "The strongest-candidate probe must exercise the same exact first-page rail command as native UI."
+		)
+		assertContains(
+			strongestProbe,
+			"endpoint(href, 1, bestCandidate.chapterPageCount - 1, bestCandidate.chapterPageCount)",
+			message = "The strongest-candidate probe must exercise the same exact last-page rail command as native UI."
+		)
+		assertContains(
+			currentProbe,
+			"endpoint(href, 0, 0, initialChapterPageCount)",
+			message = "The current-chapter probe must exercise the same exact first-page rail command as native UI."
+		)
+		assertContains(
+			currentProbe,
+			"endpoint(href, 1, initialChapterPageCount - 1, initialChapterPageCount)",
+			message = "The current-chapter probe must exercise the same exact last-page rail command as native UI."
+		)
+	}
+
+	@Test
 	fun adbWebViewEvalHelperCanProbeExternalLinkPromptWithoutPhase3SideEffects() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val externalPromptProbe = helperText
