@@ -43,6 +43,7 @@ class CrashActivity : ComponentActivity() {
 		enableEdgeToEdge()
 
 		val stackTrace = intent.getStringExtra("stacktrace") ?: "no stacktrace"
+		val crashReportPath = intent.getStringExtra("crashReportPath")
 
 		setContent {
 			val view = LocalView.current
@@ -75,6 +76,10 @@ class CrashActivity : ComponentActivity() {
 								style = MaterialTheme.typography.headlineMedium
 							)
 							Text("Navic has encountered an unknown error and needs to close.")
+							if (!crashReportPath.isNullOrBlank()) {
+								Spacer(modifier = Modifier.height(8.dp))
+								Text("Crash report saved to $crashReportPath")
+							}
 							Spacer(modifier = Modifier.height(16.dp))
 							SelectionContainer(
 								Modifier

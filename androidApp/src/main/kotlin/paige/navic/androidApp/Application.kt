@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.Log
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import java.io.File
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.dsl.module
@@ -24,9 +25,13 @@ class Application : android.app.Application(), SingletonImageLoader.Factory {
 		}
 
 		Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+			val stackTrace = Log.getStackTraceString(throwable)
+			Log.e("Application", "Uncaught exception", throwable)
+			val crashReportPath = writeCrashReport(stackTrace)
 			try {
 				val intent = Intent(this, CrashActivity::class.java).apply {
-					putExtra("stacktrace", Log.getStackTraceString(throwable))
+					putExtra("stacktrace", stackTrace)
+					putExtra("crashReportPath", crashReportPath)
 					flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
 				}
 				startActivity(intent)
@@ -60,5 +65,33 @@ class Application : android.app.Application(), SingletonImageLoader.Factory {
 			am.runningAppProcesses?.find { it.pid == pid }?.processName
 		}
 		return processName?.endsWith(":crash") == true
+	}
+
+	private fun writeCrashReport(stackTrace: String): String? {
+		val report = buildString {
+			appendLine("Navic crash report")
+			appendLine("timestampMs=${System.currentTimeMillis()}")
+			appendLine()
+			append(stackTrace)
+		}
+
+		val roots = listOfNotNull(
+			getExternalFilesDir(null),
+			filesDir
+		)
+		for (root in roots) {
+			val result = runCatching {
+				val directory = File(root, "crashes").apply { mkdirs() }
+				val file = File(directory, "last-crash.txt")
+				file.writeText(report)
+				file.absolutePath
+			}
+			if (result.isSuccess) {
+				return result.getOrNull()
+			}
+		}
+
+		Log.e("Application", "failed to write crash report")
+		return null
 	}
 }
