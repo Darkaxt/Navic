@@ -666,6 +666,8 @@ Current evidence:
 - GREEN/RERUN-PROBES: the rerun passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` against `darkaxt.navic.readerdev` on `emulator-5554`.
 - GREEN/THETA25-RERUN: after theta25 release packaging and generated-cover/artwork branch changes, `.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment` passed on current source. Artifacts: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-120106\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
 - GREEN/THETA25-PROBES: the theta25 rerun passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` against `darkaxt.navic.readerdev` on `emulator-5554`.
+- GREEN/THETA29-RERUN: after the theta29 reader texture/layout release, `.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment` rebuilt/installed current-source readerdev, reached `publicationReady`, and passed on production book `3809`.
+- GREEN/THETA29-PROBES: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260701-073309` passed `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` against `darkaxt.navic.readerdev` on `emulator-5554`.
 
 Remaining:
 - Re-run this stage after any Whispersync runtime, reader launcher, or audiobook playback change.

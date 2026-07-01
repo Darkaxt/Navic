@@ -9597,3 +9597,26 @@ Next:
   - page numbers visually follow the active ebook font (`Dys`);
   - paper texture movement no longer feels like a post-load swap during drag/page turns;
   - portrait-to-landscape rotation produces a readable spread/double-page surface, not a narrow centered column.
+
+## 2026-07-01 Stage 5C.5 Theta29-Era Whispersync Enjoyment Refresh
+
+Scope:
+- Re-run the Bindery-scoped Whispersync enjoyment gate after the theta29 reader texture/layout release work.
+- Keep this as current-source readerdev evidence for ebook/audiobook integration, not a signed public-package claim.
+
+Command:
+
+```powershell
+.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment
+```
+
+Results:
+- GREEN/READERDEV-BUILD: the gate rebuilt and installed `darkaxt.navic.readerdev`; Gradle `:androidApp:assembleReaderDev` completed successfully.
+- GREEN/PUBLICATION: `launch-readerdev.log` reached `publicationReady` for production book `3809`; screenshot artifact `captures\reader-dev\reader-dev-20260701-073402.png`.
+- GREEN/PAIRED-ROUTE: summary records ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
+- GREEN/PROBES: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` all passed.
+- GREEN/ARTIFACTS: summary and probe results are stored under `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260701-073309`.
+
+Limitations:
+- This closes the theta29 current-source debug validation refresh only. It is not signed-release Whispersync proof for `darkaxt.navic`.
+- Release-package validation still requires a logged-in public package or a credentialed release-login path to reach the same paired reader route.
