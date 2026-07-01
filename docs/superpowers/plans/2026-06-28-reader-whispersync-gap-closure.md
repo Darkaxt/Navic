@@ -2282,8 +2282,14 @@ Closure:
 - [x] Implement the minimal runtime changes in the reader JS modules.
 - [x] Validate with focused JS, harness, Gradle, and readerdev/emulator probes.
 - [x] Record readerdev evidence and limitations in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
-- [ ] Commit, push, and publish the next public release candidate.
+- [x] Commit, push, and publish the next public release candidate.
 
 Limitations:
 - This remains current-source readerdev proof until a signed public release is installed on a physical device.
 - If physical testing still shows paper texture swapping after text movement, the next fix is architectural: embed the moving paper texture slots into Foliate's moving page surface and keep the root texture only for margins/fallback.
+
+Release:
+- Published as `v1.0.11-theta28`.
+- GitHub Actions run `28490569290` passed Android build/signing/release creation; iOS jobs were skipped.
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta28`.
+- APK: `Navic.apk`, `33,590,631` bytes, `sha256:aebab91299bca162db4f8cd573a073c8decefeb590bfe482925e9a52b1abd375`.

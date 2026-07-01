@@ -9482,3 +9482,40 @@ Limitations:
 Next:
 - Commit this candidate with the app-bar back fix.
 - Publish a public release candidate only after version bump, local gates, push, and GitHub release workflow pass.
+
+## 2026-07-01 Stage 9E Theta28 Public Release Candidate
+
+Scope:
+- Publish the app-bar back ownership fix plus the Stage 9D visual/layout candidate as one public Android APK.
+- Keep this release focused on the currently reported reader blockers: top-left back, landscape spread, page-number font parity, visible paper/border texture slots, and drag-coupled texture motion.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta28
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+git diff --check
+git commit -m "Prepare theta28 reader release"
+git tag v1.0.11-theta28
+git push fork codex/komikku-reader-backbone-eta64
+git push fork v1.0.11-theta28
+gh run view 28490569290 --repo Darkaxt/Navic --json status,conclusion,jobs
+gh release view v1.0.11-theta28 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease
+```
+
+Results:
+- GREEN/VERSION: `androidApp/build.gradle.kts` now reports `versionName = "v1.0.11-theta28"` and `versionCode = 456`; release version verification passed.
+- GREEN/LOCAL-GATES: `:composeApp:testAndroid` passed after tightening the source-inspection test boundaries for the new page-number font probe, and `git diff --check` passed.
+- GREEN/GIT: committed `c750ab91 Prepare theta28 reader release` and tagged `v1.0.11-theta28`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28490569290` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` all succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA` and `Attach iOS IPA to GitHub Release` were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta28` contains `Navic.apk` (`33,590,631` bytes, `sha256:aebab91299bca162db4f8cd573a073c8decefeb590bfe482925e9a52b1abd375`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta28` and specifically check:
+  - landscape rotation produces a readable spread/double-page surface, not a narrow centered column;
+  - organic page numbers visually follow the active ebook font (`Dys`);
+  - border-gradient texture is visible enough over the paper texture;
+  - paper texture moves with drag/turn transitions instead of swapping after text loads;
+  - top-left reader back returns to the native cover before leaving the reader route.
