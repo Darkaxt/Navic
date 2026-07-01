@@ -386,6 +386,11 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			singleCommit,
+			"previewCommitOverlap",
+			message = "The standard single-commit guard must prove the previewed text matches the text visible after release, not only the numeric renderer offset."
+		)
+		assertContains(
+			singleCommit,
 			"commitGlobalPageDelta !== 1",
 			message = "The standard single-commit guard must keep proving release commits exactly one global page."
 		)
@@ -527,6 +532,23 @@ class ReaderRuntimePaperSurfaceTest {
 			snapshotSync,
 			"viewSize: Number(renderer?.viewSize)",
 			message = "Curl front snapshots must reproduce Foliate's paged layout width so renderer.start maps to the visible page instead of cloning chapter page 1."
+		)
+		val snapshotHtml = pageTurnText
+			.substringAfter("function pageDragCurlSnapshotHtml")
+			.substringBefore("\n\nfunction pageDragCurlSnapshotKey")
+		assertContains(
+			snapshotHtml,
+			"'html{'",
+			message = "Snapshot clones must apply Foliate's paged column geometry to the document element, matching paginator.js."
+		)
+		assertContains(
+			snapshotHtml,
+			"'body{'",
+			message = "Snapshot clones may reset the body separately, but must not columnize body as a second paged container."
+		)
+		assertFalse(
+			snapshotHtml.contains("'html,body{'"),
+			"Snapshot clones must not apply paged column geometry to both html and body; that shifts preview text away from the committed Foliate page."
 		)
 	}
 

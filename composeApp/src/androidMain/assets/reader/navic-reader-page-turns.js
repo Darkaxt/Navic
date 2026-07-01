@@ -889,9 +889,17 @@ function pageDragCurlSnapshotHtml(doc, layout = null) {
   }
   const style = doc.createElement('style')
   style.setAttribute('data-navic-page-curl-snapshot-style', 'true')
+  const layoutWidth = Math.max(0, Math.round(Number(layout?.width) || 0))
   const layoutViewSize = Math.max(0, Math.round(Number(layout?.viewSize) || 0))
   const layoutAxisStep = Math.max(0, Math.round(Number(layout?.axisStep) || 0))
   const layoutHeight = Math.max(0, Math.round(Number(layout?.height) || 0))
+  const sourceStyle = doc.defaultView?.getComputedStyle?.(sourceRoot) || null
+  const sourceColumnGap = sourceStyle?.columnGap && sourceStyle.columnGap !== 'normal'
+    ? sourceStyle.columnGap
+    : '0px'
+  const sourcePadding = sourceStyle
+    ? `${sourceStyle.paddingTop || '0px'} ${sourceStyle.paddingRight || '0px'} ${sourceStyle.paddingBottom || '0px'} ${sourceStyle.paddingLeft || '0px'}`
+    : '0px'
   const pagedLayoutCss = layoutViewSize > 0 && layoutAxisStep > 0 && layoutHeight > 0
     ? [
         `width:${layoutViewSize}px!important;`,
@@ -900,19 +908,43 @@ function pageDragCurlSnapshotHtml(doc, layout = null) {
         `height:${layoutHeight}px!important;`,
         `min-height:${layoutHeight}px!important;`,
         `column-width:${layoutAxisStep}px!important;`,
-        'column-gap:0!important;',
+        `column-gap:${sourceColumnGap}!important;`,
         'column-fill:auto!important;',
+        `padding:${sourcePadding}!important;`,
+      ].join('')
+    : ''
+  const viewportSizeCss = layoutWidth > 0 && layoutHeight > 0
+    ? [
+        `width:${layoutWidth}px!important;`,
+        `min-width:${layoutWidth}px!important;`,
+        `max-width:${layoutWidth}px!important;`,
+        `height:${layoutHeight}px!important;`,
+        `min-height:${layoutHeight}px!important;`,
+        `max-height:${layoutHeight}px!important;`,
       ].join('')
     : ''
   style.textContent = [
-    'html,body{',
+    'html{',
+    'margin:0!important;',
+    'box-sizing:border-box!important;',
+    'background-color:var(--reader-background, transparent)!important;',
+    'pointer-events:none!important;',
+    'overflow:hidden!important;',
+    viewportSizeCss,
+    '}',
+    'body{',
     'margin:0!important;',
     'padding:0!important;',
     'box-sizing:border-box!important;',
     'background-color:var(--reader-background, transparent)!important;',
     'pointer-events:none!important;',
+    'overflow:hidden!important;',
+    'position:relative!important;',
+    'transform-origin:0 0!important;',
+    'will-change:transform!important;',
     pagedLayoutCss,
     '}',
+    'html::-webkit-scrollbar,body::-webkit-scrollbar{display:none!important;}',
     '*,*::before,*::after{pointer-events:none!important;}',
     'img,svg,canvas,video{max-width:100%;}',
   ].join('')
@@ -1267,13 +1299,14 @@ function pageDragMappedPreviewScroll(frame, doc, targetScroll, { renderer, verti
     : 0
   const root = doc?.documentElement
   const body = doc?.body
+  const flow = doc?.querySelector?.('[data-navic-page-curl-snapshot-flow="true"]') || body
   const frameRect = typeof frame?.getBoundingClientRect === 'function'
     ? frame.getBoundingClientRect()
     : null
   const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
   const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
-  const cloneScrollWidth = Number(root?.scrollWidth || body?.scrollWidth || 0)
-  const cloneScrollHeight = Number(root?.scrollHeight || body?.scrollHeight || 0)
+  const cloneScrollWidth = Number(root?.scrollWidth || flow?.scrollWidth || flow?.offsetWidth || body?.scrollWidth || 0)
+  const cloneScrollHeight = Number(root?.scrollHeight || flow?.scrollHeight || flow?.offsetHeight || body?.scrollHeight || 0)
   const cloneMaxX = Math.max(0, cloneScrollWidth - Math.max(1, frameWidth))
   const cloneMaxY = Math.max(0, cloneScrollHeight - Math.max(1, frameHeight))
   const mapAxis = (value, cloneMax) => {
@@ -1291,21 +1324,33 @@ function pageDragMappedPreviewScroll(frame, doc, targetScroll, { renderer, verti
 }
 
 function applyPageDragPreviewDocumentOffset(frame, doc, mappedScroll) {
+  const root = doc?.documentElement
   const body = doc?.body
-  if (!frame || !body) return false
+  const flow = doc?.querySelector?.('[data-navic-page-curl-snapshot-flow="true"]') || body
+  if (!frame || !root || !body) return false
   const x = Math.max(0, Math.round(Number(mappedScroll?.x) || 0))
   const y = Math.max(0, Math.round(Number(mappedScroll?.y) || 0))
   try {
     frame.contentWindow?.scrollTo?.(0, 0)
   } catch {
-    // The explicit body offset below owns the visual page position when iframe scrolling is unavailable.
+    // The explicit flow transform below owns the visual page position when iframe scrolling is unavailable.
   }
+  setStylesImportant(root, {
+    transform: 'none',
+    'transform-origin': '0 0',
+  })
   setStylesImportant(body, {
-    position: 'relative',
-    left: `${-x}px`,
-    top: `${-y}px`,
+    position: 'static',
+    left: 'auto',
+    top: 'auto',
     transform: 'none',
   })
+  if (flow) {
+    setStylesImportant(flow, {
+      transform: `translate(${-x}px, ${-y}px)`,
+      'transform-origin': '0 0',
+    })
+  }
   return true
 }
 

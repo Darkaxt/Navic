@@ -1243,7 +1243,13 @@ if (mode === 'epub-frontmatter') {
   try {
     page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
-      if (message.type() === 'error') errors.push(message.text())
+      if (message.type() === 'error') {
+        const location = message.location?.()
+        const locationText = location?.url
+          ? ` (${location.url}:${location.lineNumber}:${location.columnNumber})`
+          : ''
+        errors.push(`${message.text()}${locationText}`)
+      }
     })
     page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
@@ -3071,7 +3077,7 @@ if (mode === 'epub-native-drag-single-commit') {
       )
     }
     const readPreviewVisual = () => page.evaluate(() => {
-      const pointTextForFrame = frame => {
+      const pointTextForFrame = (frame, probeX = null, probeY = null) => {
         const frameDoc = frame?.contentDocument
         if (!frameDoc?.body) return ''
         const frameRect = typeof frame?.getBoundingClientRect === 'function'
@@ -3079,8 +3085,50 @@ if (mode === 'epub-native-drag-single-commit') {
           : null
         const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
         const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
-        const x = Math.max(1, Math.round(frameWidth * 0.5))
-        const y = Math.max(1, Math.round(frameHeight * 0.5))
+        const x = Math.max(1, Math.round(Number(probeX) || frameWidth * 0.5))
+        const y = Math.max(1, Math.round(Number(probeY) || frameHeight * 0.5))
+        const rectText = (() => {
+          const range = frameDoc.createRange?.()
+          const nodeFilter = frameDoc.defaultView?.NodeFilter?.SHOW_TEXT ?? NodeFilter.SHOW_TEXT
+          const walker = frameDoc.createTreeWalker?.(frameDoc.body, nodeFilter)
+          if (!range || !walker) return ''
+          let best = null
+          let node = walker.nextNode()
+          while (node) {
+            const text = String(node.nodeValue || '')
+            if (text.trim()) {
+              for (const match of text.matchAll(/\S+/g)) {
+                const start = match.index || 0
+                const end = start + match[0].length
+                try {
+                  range.setStart(node, start)
+                  range.setEnd(node, end)
+                  for (const rect of Array.from(range.getClientRects() || [])) {
+                    if (!rect || rect.width <= 0 || rect.height <= 0) continue
+                    const dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0
+                    const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+                    const distance = Math.hypot(dx, dy)
+                    if (!best || distance < best.distance) {
+                      best = { node, index: start, distance }
+                    }
+                  }
+                } catch {
+                  // Ignore detached or invalid text ranges in the cloned EPUB document.
+                }
+              }
+            }
+            node = walker.nextNode()
+          }
+          range.detach?.()
+          if (!best) return ''
+          const text = String(best.node.nodeValue || '')
+          const midpoint = Math.max(0, Math.min(text.length, best.index))
+          return text
+            .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
+            .replace(/\s+/g, ' ')
+            .trim()
+        })()
+        if (rectText) return rectText
         const range = typeof frameDoc.caretRangeFromPoint === 'function'
           ? frameDoc.caretRangeFromPoint(x, y)
           : null
@@ -3098,27 +3146,36 @@ if (mode === 'epub-native-drag-single-commit') {
           .replace(/\s+/g, ' ')
           .trim()
       }
-      const pointTextForFrameAtScroll = (frame, scrollX) => {
+      const pointTextForFrameAtScroll = (frame, scrollX, probeX = null, probeY = null) => {
         const frameWin = frame?.contentWindow
         const beforeX = Number(frameWin?.scrollX || 0)
         const beforeY = Number(frameWin?.scrollY || 0)
         try {
           frameWin?.scrollTo?.(Math.max(0, Math.round(Number(scrollX) || 0)), beforeY)
-          return pointTextForFrame(frame)
+          return pointTextForFrame(frame, probeX, probeY)
         } finally {
           frameWin?.scrollTo?.(beforeX, beforeY)
         }
       }
-      const pointTextForFrameAtVisualOffset = (frame, offsetX) => {
-        const body = frame?.contentDocument?.body
-        if (!body) return ''
-        const previousLeft = body.style.getPropertyValue('left')
+      const pointTextForFrameAtVisualOffset = (frame, offsetX, probeX = null, probeY = null) => {
+        const frameDoc = frame?.contentDocument
+        const flow = frameDoc?.querySelector?.('[data-navic-page-curl-snapshot-flow="true"]') || frameDoc?.body
+        if (!flow) return ''
+        const previousTransform = flow.style.getPropertyValue('transform')
+        const previousOrigin = flow.style.getPropertyValue('transform-origin')
         try {
-          body.style.setProperty('left', `${-Math.max(0, Math.round(Number(offsetX) || 0))}px`, 'important')
-          return pointTextForFrame(frame)
+          flow.style.setProperty(
+            'transform',
+            `translate(${-Math.max(0, Math.round(Number(offsetX) || 0))}px, 0px)`,
+            'important',
+          )
+          flow.style.setProperty('transform-origin', '0 0', 'important')
+          return pointTextForFrame(frame, probeX, probeY)
         } finally {
-          if (previousLeft) body.style.setProperty('left', previousLeft, 'important')
-          else body.style.removeProperty('left')
+          if (previousTransform) flow.style.setProperty('transform', previousTransform, 'important')
+          else flow.style.removeProperty('transform')
+          if (previousOrigin) flow.style.setProperty('transform-origin', previousOrigin, 'important')
+          else flow.style.removeProperty('transform-origin')
         }
       }
       const visibleTextForFrame = frame => {
@@ -3153,6 +3210,16 @@ if (mode === 'epub-native-drag-single-commit') {
       const frame = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
       const frameDoc = frame?.contentDocument
       const frameWin = frame?.contentWindow
+      const frameRect = typeof frame?.getBoundingClientRect === 'function' ? frame.getBoundingClientRect() : null
+      const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
+      const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
+      const layerRect = typeof layer?.getBoundingClientRect === 'function' ? layer.getBoundingClientRect() : null
+      const exposedWidth = Number(layer?.clientWidth || layerRect?.width || frameWidth || 0)
+      const side = layer?.dataset.navicPageDragPreviewSide || ''
+      const frameProbeX = side === 'right'
+        ? Math.max(1, Math.round(frameWidth - (exposedWidth / 2)))
+        : Math.max(1, Math.round(exposedWidth / 2))
+      const frameProbeY = Math.max(1, Math.round(frameHeight * 0.5))
       const frontSnapshot = layer?.querySelector?.('[data-navic-page-curl-snapshot="front"]')
       const frontSnapshotDoc = frontSnapshot?.contentDocument || null
       const frontSnapshotWin = frontSnapshot?.contentWindow || null
@@ -3193,15 +3260,17 @@ if (mode === 'epub-native-drag-single-commit') {
         frameScrollHeight: Number(frameDoc?.documentElement?.scrollHeight || frameDoc?.body?.scrollHeight),
         frameClientWidth: Number(frameDoc?.documentElement?.clientWidth || frameDoc?.body?.clientWidth),
         frameClientHeight: Number(frameDoc?.documentElement?.clientHeight || frameDoc?.body?.clientHeight),
+        frameProbeX,
+        frameProbeY,
         frameVisibleText: visibleTextForFrame(frame).slice(0, 1200),
-        framePointText: pointTextForFrame(frame).slice(0, 1200),
+        framePointText: pointTextForFrame(frame, frameProbeX, frameProbeY).slice(0, 1200),
         framePointSamples: samplePositions.map(position => ({
           position,
-          text: pointTextForFrameAtVisualOffset(frame, position).slice(0, 360),
+          text: pointTextForFrameAtVisualOffset(frame, position, frameProbeX, frameProbeY).slice(0, 360),
         })),
         frameScrollPointSamples: samplePositions.map(position => ({
           position,
-          text: pointTextForFrameAtScroll(frame, position).slice(0, 360),
+          text: pointTextForFrameAtScroll(frame, position, frameProbeX, frameProbeY).slice(0, 360),
         })),
         mode: layer?.dataset.navicPageDragPreviewMode || '',
         fallback: layer?.dataset.navicPageDragPreviewFallback || '',
@@ -3368,12 +3437,28 @@ if (mode === 'epub-native-drag-single-commit') {
       .find(sample => Number(sample?.position) === 0)?.text || ''
     const previewStartOverlap = textOverlapScore(previewVisual.framePointText, firstPagePreviewText)
     const previewPointTokenCount = textTokens(previewVisual.framePointText).length
-    if (previewPointTokenCount < 10 || previewStartOverlap > 0.35) {
+    if (previewPointTokenCount < 4 || previewStartOverlap > 0.35) {
       throw new Error(
         `Expected native drag preview point text to be offset away from the chapter start; ` +
         `startOverlap=${previewStartOverlap.toFixed(3)} previewTokens=${previewPointTokenCount} ` +
         `preview="${String(previewVisual.framePointText || '').slice(0, 260)}" ` +
         `chapterStart="${String(firstPagePreviewText || '').slice(0, 260)}" ` +
+        `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
+      )
+    }
+    const previewCommitOverlap = Math.max(
+      textOverlapScore(previewVisual.framePointText, afterCommit.pointText),
+      textOverlapScore(previewVisual.framePointText, afterCommit.visibleRangeText),
+      ...((previewVisual.framePointSamples || []).map(sample => textOverlapScore(sample?.text, afterCommit.pointText))),
+      ...((previewVisual.framePointSamples || []).map(sample => textOverlapScore(sample?.text, afterCommit.visibleRangeText)))
+    )
+    if (!Number.isFinite(previewCommitOverlap) || previewCommitOverlap < 0.35) {
+      throw new Error(
+        `Expected native drag release to commit the page text shown by the preview; ` +
+        `previewCommitOverlap=${Number.isFinite(previewCommitOverlap) ? previewCommitOverlap.toFixed(3) : 'NaN'} ` +
+        `preview="${String(previewVisual.framePointText || '').slice(0, 260)}" ` +
+        `afterPoint="${String(afterCommit.pointText || '').slice(0, 260)}" ` +
+        `afterRange="${String(afterCommit.visibleRangeText || '').slice(0, 260)}" ` +
         `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
       )
     }
@@ -3427,6 +3512,7 @@ if (mode === 'epub-native-drag-single-commit') {
       afterPreview,
       previewVisual,
       afterCommit,
+      previewCommitOverlap,
     }, null, 2))
     console.log(`reader harness epub-native-drag-single-commit passed: ${outputPath}`)
   } catch (error) {

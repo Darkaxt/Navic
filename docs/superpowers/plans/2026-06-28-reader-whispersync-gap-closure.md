@@ -2479,3 +2479,19 @@ Results:
 - GREEN/TABLET-HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3` passed and recorded `chapter1.xhtml`, global page 9, chapter page 2 of 4, section page 2 of 6.
 - GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest.readerHarnessProvesStandardDragModeDoesNotRetainCurlState`, focused `ReaderRuntimeAssetsTest.adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools`, JS syntax checks, and `git diff --check` passed.
 - This stage only hardens debug validation. It does not claim the physical texture-transition bug is fixed and must not trigger a public release.
+
+### Stage 9I.2: Body-Owned Drag Preview Snapshot Alignment
+
+Status: current-source browser/harness/Gradle proof complete; no public release.
+
+Purpose:
+- Fix the interior drag preview mismatch where the preview could show text from a different page than the page committed after release.
+- Keep this as a debug/harness candidate only. Do not publish a public APK for this isolated texture/drag slice.
+
+Results:
+- RED/HARNESS: strengthened `epub-native-drag-single-commit` failed because numeric renderer offsets matched while the preview text did not overlap the committed page text.
+- FIXED/RUNTIME: `navic-reader-page-turns.js` now builds the drag preview snapshot with one body-owned paged surface instead of applying pagination to both `html` and `body`; preview movement is applied to that body surface and mapped from the snapshot's painted overflow.
+- FIXED/HARNESS: `epub-native-drag-single-commit` now samples the visible clipped strip with range-rect geometry, avoiding stale `caretRangeFromPoint` results in transformed column clones.
+- GREEN/HARNESS: `epub-native-drag-single-commit` passed on `tmp\reader-live\book-3809-file-426.epub`, moving from `8 / 308` to `9 / 308` with `previewCommitOverlap=0.6176470588235294` and paper/border texture layers present.
+- GREEN/TABLET-HARNESS: `epub-native-drag-standard-no-curl` passed at `1974x1232` DPR 3 after the snapshot change.
+- GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest.androidReaderCurlSnapshotUsesCurrentFoliateRendererPageNotChapterStart`, `ReaderRuntimePaperSurfaceTest.readerHarnessUsesStandardModeForNativeDragSingleCommit`, and `ReaderRuntimePaperSurfaceTest.readerHarnessProvesStandardDragModeDoesNotRetainCurlState` passed.
