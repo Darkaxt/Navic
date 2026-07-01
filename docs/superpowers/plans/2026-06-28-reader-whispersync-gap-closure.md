@@ -2483,7 +2483,7 @@ Results:
 
 ### Stage 9I.2: Body-Owned Drag Preview Snapshot Alignment
 
-Status: current-source browser/harness/Gradle proof complete; no public release.
+Status: current-source browser/harness/Gradle/readerdev proof complete; no public release.
 
 Purpose:
 - Fix the interior drag preview mismatch where the preview could show text from a different page than the page committed after release.
@@ -2496,3 +2496,8 @@ Results:
 - GREEN/HARNESS: `epub-native-drag-single-commit` passed on `tmp\reader-live\book-3809-file-426.epub`, moving from `8 / 308` to `9 / 308` with `previewCommitOverlap=0.6176470588235294` and paper/border texture layers present.
 - GREEN/TABLET-HARNESS: `epub-native-drag-standard-no-curl` passed at `1974x1232` DPR 3 after the snapshot change.
 - GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest.androidReaderCurlSnapshotUsesCurrentFoliateRendererPageNotChapterStart`, `ReaderRuntimePaperSurfaceTest.readerHarnessUsesStandardModeForNativeDragSingleCommit`, and `ReaderRuntimePaperSurfaceTest.readerHarnessProvesStandardDragModeDoesNotRetainCurlState` passed.
+- GREEN/READERDEV-INSTALL: current-source `darkaxt.navic.readerdev` was rebuilt/installed on `emulator-5554` with the production Bindery book `3809`, ebook file `426`, and Whispersync sidecar `/opds/books/3809/sync/8`; launch reached `publicationReady` and screenshot `captures\reader-dev\reader-dev-20260702-005303.png`.
+- GREEN/READERDEV-PROBE: `native-drag-preview-texture` on the installed WebView reported `mode=interior`, `textureSurface=paper,border`, paper and border preview layers present, and matching target-slot transforms.
+- GREEN/READERDEV-SWIPE: native next/previous swipe diagnostics passed texture-direction assertions with no wrong-direction samples: `captures\reader-bridge-probes\stage9i2-current-source-drag-next-debug-20260702` and `captures\reader-bridge-probes\stage9i2-current-source-drag-previous-debug-20260702`.
+- WATCH/WHISPERSYNC-FOLLOW: the previous-swipe run also observed a later `media-overlay-follow` relocation on the same href/page after the page turn. That did not invert texture direction in this debug run, but future audio-enabled drag/turn validation should keep media-overlay follow suppression in scope.
+- TURNJS-DECISION: do not replace the Foliate/Anx EPUB core with Turn.js. Turn.js-style flipbook code can only be considered as optional visual-reference material for the drag preview layer, because the reader core must keep Foliate-owned EPUB/PDF pagination, locators, annotations, text selection, search, and Whispersync visible-range/media-overlay bridges.

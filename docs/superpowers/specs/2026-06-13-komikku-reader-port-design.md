@@ -281,6 +281,7 @@ Priority 2:
 - Host-guarded on 2026-06-30: Navic can consume optional Bindery-provided fullscreen cover-surface URLs from manifest properties, rels such as `fullscreen-cover`, or generated variant arrays, choose the closest variant for the reader surface, fetch remote Bindery cover assets through the authenticated resource path, cache them as reader-local asset-loader files, and fall back to the EPUB-extracted cover when absent or unavailable. Bindery still owns generating/caching the derived cover asset, ideally one cached outpainted cover canvas per `bookId + coverHash + styleVersion`, with the original cover preserved in the center and only the surrounding area generated. Navic must not call an AI service at runtime.
 - Host-closed on 2026-06-22: developer-only reader options, including WebView debugging and tap-zone visibility, live under Developer Options and Settings search routes them there instead of bloating the reader sheet.
 - Keep page-curl animation sample as low-priority follow-up: `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`.
+- Keep Turn.js-style page flip code out of the reader core. Foliate/Anx must continue to own EPUB/PDF layout, locators, annotations, selection, search, visible ranges, and Whispersync media-overlay bridges. If a page-flip library or sample is used later, it is only a visual-reference layer for drag preview animation after the Standard path is stable.
 
 ## Implementation Order
 

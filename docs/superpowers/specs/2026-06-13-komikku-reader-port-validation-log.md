@@ -10325,3 +10325,41 @@ Results:
 
 Guardrail:
 - Intermediate reader fixes, animation experiments, and harness hardening must use debug/readerdev/emulator validation. Public GitHub APK releases are reserved for coherent candidates where a feature or major fix is implemented, locally validated, and ready for physical-device acceptance.
+
+## 2026-07-02 Stage 9I.2 Readerdev Debug Validation Refresh
+
+Scope:
+- Validate the current-source body-owned Standard drag preview fix on the emulator without creating a public release.
+- Check whether the installed Android WebView exposes the same paper/border texture ownership and next/previous texture direction proved by the browser harness.
+- Keep Turn.js/page-flip replacement out of scope for the reader core; page-flip libraries can only be considered as visual references for a later optional drag-preview animation layer.
+
+Commands:
+
+```powershell
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoDiscoverPublication -RequireReaderLaunch -ReaderPublicationUrl https://bindery.remaxku.eu/book/3809 -ReaderResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -ReaderBookId 3809 -ReaderTitle "Bastille vs. the Evil Librarians" -ReaderKind Ebook -ReaderFormat EPUB -ReaderWhispersyncSidecarUrl /opds/books/3809/sync/8 -ReaderWhispersyncArtifactId 8 -ReaderWhispersyncAudiobookId 34 -ReaderWhispersyncAudiobookBookFileId 633 -ReaderWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -SkipNativeShellCover -Capture
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe runtime-state
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe texture-slots
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe native-drag-preview-texture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta38 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.82,0.50,0.18,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection next -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\stage9i2-current-source-drag-next-debug-20260702
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta38 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.18,0.50,0.82,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection previous -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\stage9i2-current-source-drag-previous-debug-20260702
+```
+
+Results:
+- GREEN/HARNESS: `epub-native-drag-single-commit` passed again on `tmp\reader-live\book-3809-file-426.epub`, with Standard mode, `curl=false`, and `previewCommitOverlap=0.6176470588235294`.
+- GREEN/TABLET-HARNESS: `epub-native-drag-standard-no-curl` passed at `1974x1232` DPR 3, proving Standard mode removes stale Curl-only sheets, snapshots, and CSS variables after Curl had been exercised.
+- GREEN/READERDEV-INSTALL: `install-reader-dev.ps1` rebuilt and installed current-source `darkaxt.navic.readerdev`; `publicationReady` was observed for production book `3809`, ebook file `426`, and sidecar `/opds/books/3809/sync/8`. Screenshot: `captures\reader-dev\reader-dev-20260702-005303.png`.
+- GREEN/WEBVIEW: `runtime-state` reported paginated flow at `1974x1232`, `start=1855.333`, `end=3710.896`, and one content frame.
+- GREEN/WEBVIEW: `texture-slots` reported static color backing with no bitmap plus three moving paper slots and three moving border slots; current slot keys were page-specific.
+- GREEN/WEBVIEW: `page-box` reported full renderer size `1974x1232`, `maxColumnCount=2`, `maxInlineSize=1974px`, and content iframe/body widths consistent with a two-column spread.
+- GREEN/WEBVIEW: `native-drag-preview-texture` reported `mode=interior`, `textureSurface=paper,border`, paper and border preview layers present, and matching next-slot transforms.
+- GREEN/READERDEV-SWIPE: native next swipe passed `RequireTextureDirection next` with `13` direction samples and `wrongTextureDirection=False`. Artifacts: `captures\reader-bridge-probes\stage9i2-current-source-drag-next-debug-20260702`.
+- GREEN/READERDEV-SWIPE: native previous swipe passed `RequireTextureDirection previous` with `15` direction samples and `wrongTextureDirection=False`. Artifacts: `captures\reader-bridge-probes\stage9i2-current-source-drag-previous-debug-20260702`.
+- WATCH: the previous-swipe log also showed a later `media-overlay-follow` relocation after the page-turn relocation. It did not invert texture direction in this run, but audio-follow should remain in scope for future manual Whispersync drag/turn validation.
+
+Next:
+- Do not create a public APK for this validation refresh.
+- Physical acceptance still needs manual feel judgment for drag preview, paper/border texture visibility, and Whispersync audio-follow interactions.
