@@ -80,6 +80,46 @@ const readerLineFragmentInlineTags = new Set([
   'VAR',
 ])
 
+const readerLooseTextContainerSelector = 'body, section, article, div, center'
+
+const readerLooseTextMinimumLength = 80
+
+const readerLooseTextBoundaryTags = new Set([
+  'ADDRESS',
+  'ASIDE',
+  'BLOCKQUOTE',
+  'CANVAS',
+  'DD',
+  'DL',
+  'DT',
+  'FIGCAPTION',
+  'FIGURE',
+  'FOOTER',
+  'FORM',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'HEADER',
+  'HR',
+  'IFRAME',
+  'IMG',
+  'LI',
+  'MAIN',
+  'NAV',
+  'OL',
+  'P',
+  'PICTURE',
+  'PRE',
+  'SECTION',
+  'SVG',
+  'TABLE',
+  'UL',
+  'VIDEO',
+])
+
 const readerLineFragmentText = element => String(element?.textContent || '')
 
 const readerLineFragmentTerminalPattern = /[.!?…]["'”’)\]]*$/
@@ -136,10 +176,111 @@ const moveReaderLineFragmentChildren = (target, source) => {
   }
 }
 
+const readerLooseTextNodeText = node => String(node?.textContent || '').replace(/\s+/g, ' ').trim()
+
+const readerLooseTextSegmentText = nodes =>
+  nodes.map(readerLooseTextNodeText).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
+
+const readerLooseTextCanWrapSegment = nodes => {
+  const text = readerLooseTextSegmentText(nodes)
+  if (text.length < readerLooseTextMinimumLength) return false
+  return /[.!?…]["'”’)\]]?(\s|$)/.test(text) || text.split(/\s+/).length >= 14
+}
+
+const readerLooseTextInlineCandidate = node => {
+  if (!node) return false
+  if (node.nodeType === Node.TEXT_NODE) return Boolean(readerLooseTextNodeText(node))
+  if (node.nodeType !== Node.ELEMENT_NODE) return false
+  if (node.matches?.(readerMediaSelector) || node.querySelector?.(readerMediaSelector)) return false
+  const tagName = node.tagName || ''
+  if (tagName === 'BR') return false
+  if (readerLooseTextBoundaryTags.has(tagName)) return false
+  return readerLineFragmentInlineTags.has(tagName)
+}
+
+const readerLooseTextIsBoundary = node => {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false
+  const tagName = node.tagName || ''
+  return tagName !== 'BR' && (
+    readerLooseTextBoundaryTags.has(tagName) ||
+    node.matches?.(readerMediaSelector) ||
+    node.querySelector?.(readerMediaSelector)
+  )
+}
+
+const wrapReaderLooseTextSegment = (parent, segment) => {
+  if (!parent || !segment?.nodes?.length || !readerLooseTextCanWrapSegment(segment.nodes)) return 0
+  const firstNode = segment.nodes.find(node => node?.parentNode === parent)
+  if (!firstNode) return 0
+  const paragraph = parent.ownerDocument.createElement('p')
+  paragraph.dataset.navicLooseTextParagraph = 'true'
+  parent.insertBefore(paragraph, firstNode)
+  for (const node of segment.nodes) {
+    if (node?.parentNode === parent) paragraph.append(node)
+  }
+  for (const node of segment.breaks) {
+    if (node?.parentNode === parent) node.remove()
+  }
+  return 1
+}
+
+const normalizeReaderLooseTextContainer = parent => {
+  if (!parent || parent.dataset?.navicLooseTextNormalized === 'true') return 0
+  const segments = []
+  let nodes = []
+  let breaks = []
+  let consecutiveBreaks = 0
+  const flush = () => {
+    if (nodes.length > 0) segments.push({ nodes, breaks })
+    nodes = []
+    breaks = []
+    consecutiveBreaks = 0
+  }
+  for (const node of Array.from(parent.childNodes || [])) {
+    if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'BR') {
+      if (nodes.length === 0) {
+        breaks = []
+        consecutiveBreaks = 0
+        continue
+      }
+      breaks.push(node)
+      consecutiveBreaks += 1
+      if (consecutiveBreaks >= 2) flush()
+      continue
+    }
+    if (readerLooseTextIsBoundary(node)) {
+      flush()
+      continue
+    }
+    if (readerLooseTextInlineCandidate(node)) {
+      nodes.push(node)
+      consecutiveBreaks = 0
+      continue
+    }
+    if (readerLooseTextNodeText(node)) {
+      flush()
+    }
+  }
+  flush()
+  const normalized = segments.reduce((count, segment) => count + wrapReaderLooseTextSegment(parent, segment), 0)
+  if (parent.dataset && normalized > 0) parent.dataset.navicLooseTextNormalized = 'true'
+  return normalized
+}
+
+export const normalizeReaderLooseTextParagraphs = doc => {
+  if (!doc?.body) return 0
+  let normalized = 0
+  for (const parent of Array.from(doc.querySelectorAll?.(readerLooseTextContainerSelector) || [])) {
+    normalized += normalizeReaderLooseTextContainer(parent)
+  }
+  return normalized
+}
+
 export const normalizeReaderLineFragmentParagraphs = doc => {
   if (!doc?.body) return 0
   if (doc.documentElement?.dataset?.navicLineFragmentsNormalized === 'true') return 0
   let normalized = 0
+  normalized += normalizeReaderLooseTextParagraphs(doc)
   for (const run of readerLineFragmentRuns(doc)) {
     if (readerLineFragmentJoinEvidenceCount(run) < 2) continue
     let current = run[0]

@@ -9806,3 +9806,42 @@ Next:
   - edge-gradient overlays are visible enough on the paper;
   - paper texture moves with page/text movement instead of swapping only after relocation;
   - portrait-to-landscape produces a spread/double-page surface instead of a narrow centered column.
+
+## 2026-07-01 Stage 9H.3 Native Drag Single-Commit Guard
+
+Scope:
+- Investigate post-theta31 physical feedback where dragging from Chapter 1 page 1/global `5/140` showed page 6 during drag but committed page 7 after finger-up.
+- Keep the fix scoped to the native drag preview commit path, while preserving the adjacent-page underlay, texture offset logic, font alias fix, and loose EPUB paragraph normalization.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta32
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\served-input.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture .\tmp\reader-live\served-input.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode line-fragment-prose-smoke
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-settings-core.js
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check .\tools\reader-harness\src\run-reader-harness.mjs
+git diff --check
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED/HARNESS: new `epub-native-drag-single-commit` failed before the runtime patch. `previewPageDrag(update)` kept `renderer.page=2` but moved Foliate `start/end` by `165px`, proving the preview path was mutating the committed renderer window before native release.
+- FIXED/RUNTIME: `previewPageDrag(cancel|release|update)` no longer calls `renderer.scrollBy(...)`; native release page actions are now the only page-commit path.
+- GREEN/HARNESS: `epub-native-drag-single-commit` now passes. On a settled readable page, preview leaves `renderer.page/start/end` stable and release plus `nextPage` advances exactly one renderer page.
+- GREEN/HARNESS: adjacent-section drag underlay still passes via `epub-native-drag-preview-underlay`.
+  One pre-gate run saw a transient stale DOM read after the underlay had rendered in trace; immediate rerun passed. This is recorded as harness flake evidence, not as the product fix.
+- GREEN/HARNESS: `texture-offset-logic`, `font-css-smoke`, and `line-fragment-prose-smoke` passed.
+- GREEN/JS: `node --check` passed for all touched JS modules listed above.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/VERSION: Android `versionName` now matches `v1.0.11-theta32`.
+- GREEN/HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed.
+
+Limitations:
+- This closes the host/browser proof for the page-skip root cause. It is not yet a public release APK or physical-device confirmation.
+- Texture visual feel and shadow/border strength remain active release-device feedback items.

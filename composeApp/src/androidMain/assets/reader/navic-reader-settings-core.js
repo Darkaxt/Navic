@@ -159,8 +159,40 @@ export const readerFontFormat = url => {
   return 'truetype'
 }
 
+const ReaderSansFontFamily = 'system-ui, sans-serif'
+const ReaderSerifFontFamily = 'Georgia, serif'
+const ReaderBookFontFamily = '"Navic Literata", Literata, Bookerly, Georgia, serif'
+const ReaderHumanistFontFamily = '"Navic Atkinson Hyperlegible", "Atkinson Hyperlegible", Lexend, system-ui, sans-serif'
+const ReaderDyslexicFontFamily = '"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif'
+const ReaderTypewriterFontFamily = '"American Typewriter", "Courier Prime", "Courier New", ui-monospace, monospace'
+const ReaderMonoFontFamily = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+
+const readerFontFamilyAliases = new Map([
+  ['sans', ReaderSansFontFamily],
+  ['serif', ReaderSerifFontFamily],
+  ['book', ReaderBookFontFamily],
+  ['human', ReaderHumanistFontFamily],
+  ['humanist', ReaderHumanistFontFamily],
+  ['dys', ReaderDyslexicFontFamily],
+  ['dyslexic', ReaderDyslexicFontFamily],
+  ['dyx', ReaderTypewriterFontFamily],
+  ['typewriter', ReaderTypewriterFontFamily],
+  ['mono', ReaderMonoFontFamily],
+  ['monospace', ReaderMonoFontFamily],
+  ['literata, bookerly, georgia, serif', ReaderBookFontFamily],
+  ['atkinson hyperlegible, lexend, system-ui, sans-serif', ReaderHumanistFontFamily],
+  ['opendyslexic, atkinson hyperlegible, lexend, system-ui, sans-serif', ReaderDyslexicFontFamily],
+])
+
+const readerNormalizedFontFamily = fontFamily => {
+  const raw = String(fontFamily || '').trim()
+  if (!raw) return ReaderSansFontFamily
+  const key = raw.replace(/\s+/g, ' ').replace(/["']/g, '').toLowerCase()
+  return readerFontFamilyAliases.get(key) || raw
+}
+
 export const readerEffectiveFontFamily = settings => {
-  const fontFamily = settings?.fontFamily || 'system-ui, sans-serif'
+  const fontFamily = readerNormalizedFontFamily(settings?.fontFamily || ReaderSansFontFamily)
   if (readerFontSource(settings) === ReaderFontSourcePublisher || fontFamily === 'inherit') return ''
   if (readerFontSource(settings) === ReaderFontSourceCustom) {
     return `${readerCssQuotedString(readerCustomFontFamily(settings))}, system-ui, sans-serif`

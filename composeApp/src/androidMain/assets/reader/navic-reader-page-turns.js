@@ -1279,9 +1279,6 @@ function previewPageDrag(command) {
         y: Number(this.nativePageDragPreview?.deltaY) || 0,
       }
       : { x: 0, y: 0 }
-    if (previousDelta.x !== 0 || previousDelta.y !== 0) {
-      renderer.scrollBy(previousDelta.x, previousDelta.y)
-    }
     readerTrace('page-drag-preview:cancel', {
       deltaX: previousDelta.x,
       deltaY: previousDelta.y,
@@ -1316,9 +1313,6 @@ function previewPageDrag(command) {
         direction: releaseTextureDirection,
         source: 'native-preview-release',
       })
-    }
-    if (previousDelta.x !== 0 || previousDelta.y !== 0) {
-      renderer.scrollBy(previousDelta.x, previousDelta.y)
     }
     readerTrace('page-drag-preview:release', {
       deltaX: previousDelta.x,
@@ -1406,10 +1400,6 @@ function previewPageDrag(command) {
     viewHeight: command?.viewHeight,
     renderer,
   })
-  if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
-    renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
-    this.syncMovingPageTextureSurface('page-drag-preview')
-  }
   this.nativePageDragPreview = phase === 'release'
     ? null
     : { deltaX: currentDeltaX, deltaY: currentDeltaY, renderer }

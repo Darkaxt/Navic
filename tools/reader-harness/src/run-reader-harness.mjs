@@ -149,6 +149,7 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
     { mode: 'epub-link-jump-drag', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
+    { mode: 'epub-native-drag-single-commit', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'epub-native-drag-preview-underlay', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'texture-offset-logic' },
     { mode: 'epub-texture-scroll', fixture: epubFixturePath },
@@ -1002,6 +1003,13 @@ if (mode === 'font-css-smoke') {
       return {
         customSource: helpers.readerFontSource(safeSettings),
         customFamily: helpers.readerEffectiveFontFamily(safeSettings),
+        dysAliasFamily: helpers.readerEffectiveFontFamily({ fontSource: 'navic', fontFamily: 'dys' }),
+        dyxAliasFamily: helpers.readerEffectiveFontFamily({ fontSource: 'navic', fontFamily: 'dyx' }),
+        bookAliasFamily: helpers.readerEffectiveFontFamily({ fontSource: 'navic', fontFamily: 'book' }),
+        legacyDysFamily: helpers.readerEffectiveFontFamily({
+          fontSource: 'navic',
+          fontFamily: 'OpenDyslexic, Atkinson Hyperlegible, Lexend, system-ui, sans-serif',
+        }),
         safeCss: helpers.readerFontFaceCss(safeSettings),
         unsafeCss: helpers.readerFontFaceCss(unsafeSettings),
         navicCss: helpers.readerFontFaceCss({ fontSource: 'navic' }),
@@ -1036,6 +1044,18 @@ if (mode === 'font-css-smoke') {
     }
     if (!String(result.navicCss || '').includes('Navic Literata')) {
       throw new Error('Expected bundled Navic font CSS to remain available')
+    }
+    if (!String(result.dysAliasFamily || '').includes('Navic OpenDyslexic')) {
+      throw new Error(`Expected Dys alias to resolve to bundled OpenDyslexic stack; observed ${result.dysAliasFamily || 'unset'}`)
+    }
+    if (!String(result.dyxAliasFamily || '').includes('American Typewriter')) {
+      throw new Error(`Expected Dyx alias to resolve to typewriter stack; observed ${result.dyxAliasFamily || 'unset'}`)
+    }
+    if (!String(result.bookAliasFamily || '').includes('Navic Literata')) {
+      throw new Error(`Expected Book alias to resolve to bundled Literata stack; observed ${result.bookAliasFamily || 'unset'}`)
+    }
+    if (!String(result.legacyDysFamily || '').includes('Navic OpenDyslexic')) {
+      throw new Error(`Expected legacy dyslexic stack to normalize to bundled OpenDyslexic; observed ${result.legacyDysFamily || 'unset'}`)
     }
     if (!Number.isFinite(result.publisherDirectBodyDelta) || result.publisherDirectBodyDelta <= 1) {
       throw new Error(
@@ -1135,6 +1155,19 @@ if (mode === 'line-fragment-prose-smoke') {
               <p class="TX"> skills and resolve.</p>
               <p class="OTHER">Other block.</p>
             </section>
+            <section data-probe="loose-body-text">
+              Text before loose prose.
+              <br>
+              <br>
+              In a hole in the ground there lived a hobbit. Not a nasty, dirty, wet hole, filled with the ends of worms and an oozy smell.
+              <br>
+              <br>
+              <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' fill='white'/%3E%3C/svg%3E">
+              <br>
+              It had a perfectly round door like a porthole, painted green, with a shiny yellow brass knob in the exact middle.
+              <br>
+              <br>
+            </section>
           </body>
         </html>
       `)
@@ -1143,12 +1176,16 @@ if (mode === 'line-fragment-prose-smoke') {
       const paragraphs = Array.from(doc.querySelectorAll('p'))
         .map(p => ({
           className: p.className,
+          loose: p.dataset.navicLooseTextParagraph === 'true',
           text: p.textContent,
         }))
+      const looseParagraphs = Array.from(doc.querySelectorAll('[data-navic-loose-text-paragraph="true"]'))
+        .map(p => p.textContent.replace(/\s+/g, ' ').trim())
       frame.remove()
       return {
         normalized,
         paragraphs,
+        looseParagraphs,
       }
     }, `${server.origin}/navic-reader-helpers.js`)
     assertNoConsoleErrors(errors)
@@ -1164,6 +1201,12 @@ if (mode === 'line-fragment-prose-smoke') {
     }
     if (!texts.includes('The answer is simple.') || !texts.includes(' I wanted to be Alcatraz.')) {
       throw new Error(`Expected terminal punctuation to preserve paragraph breaks: ${JSON.stringify(texts)}`)
+    }
+    if (!result.looseParagraphs.includes('In a hole in the ground there lived a hobbit. Not a nasty, dirty, wet hole, filled with the ends of worms and an oozy smell.')) {
+      throw new Error(`Expected loose body prose separated by double breaks to become paragraph blocks: ${JSON.stringify(result.looseParagraphs)}`)
+    }
+    if (!result.looseParagraphs.includes('It had a perfectly round door like a porthole, painted green, with a shiny yellow brass knob in the exact middle.')) {
+      throw new Error(`Expected loose body prose after media breaks to become paragraph blocks: ${JSON.stringify(result.looseParagraphs)}`)
     }
     console.log('reader harness line-fragment-prose-smoke passed')
   } catch (error) {
@@ -2240,6 +2283,205 @@ if (mode === 'epub-native-drag-preview-underlay') {
       previewState,
     }, null, 2))
     console.log(`reader harness epub-native-drag-preview-underlay passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
+if (mode === 'epub-native-drag-single-commit') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-native-drag-single-commit mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'default',
+          nativeTapZones: false,
+          fontSource: 'publisher',
+          fontFamily: 'serif',
+          fontSizePercent: 100,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    })
+    if (await page.evaluate(() => document.body.dataset.navicShellCoverVisible === 'true')) {
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true')
+    }
+
+    const readState = async () => page.evaluate(() => {
+      const renderer = document.querySelector('foliate-view')?.renderer
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      return {
+        index: Number(renderer?.getContents?.()?.[0]?.index),
+        page: Number(renderer?.page),
+        pages: Number(renderer?.pages),
+        start: Number(renderer?.start),
+        end: Number(renderer?.end),
+        viewSize: Number(renderer?.viewSize),
+        location: messages.at(-1) || null,
+        trace: (window.__navicReaderTrace || [])
+          .filter(event => String(event?.type || '').startsWith('page-drag-preview') || String(event?.type || '').startsWith('page-turn'))
+          .slice(-12),
+      }
+    })
+
+    const firstReady = await readState()
+    if (!Number.isFinite(firstReady.pages) || firstReady.pages < 3) {
+      throw new Error(`Expected a multi-page readable section for drag commit probe; observed ${JSON.stringify(firstReady)}`)
+    }
+    if (Number(firstReady.page) <= 1) {
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(previousPage => {
+        const renderer = document.querySelector('foliate-view')?.renderer
+        return Number(renderer?.page) > Number(previousPage)
+      }, firstReady.page)
+    }
+    await page.evaluate(async () => {
+      for (let index = 0; index < 6; index += 1) {
+        await new Promise(resolve => requestAnimationFrame(resolve))
+      }
+    })
+    const before = await readState()
+    if (!Number.isFinite(before.page) || !Number.isFinite(before.pages) || before.page >= before.pages - 1) {
+      throw new Error(`Expected an interior page before drag commit probe; observed ${JSON.stringify(before)}`)
+    }
+
+    await page.evaluate(async () => {
+      const width = window.visualViewport?.width || window.innerWidth || 500
+      const height = window.visualViewport?.height || window.innerHeight || 800
+      await window.NavicReaderBridge.dispatch({
+        type: 'previewPageDrag',
+        phase: 'update',
+        deltaX: -Math.round(width * 0.42),
+        deltaY: 0,
+        viewWidth: width,
+        viewHeight: height,
+      })
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    })
+    const afterPreview = await readState()
+    const previewPageDelta = Number(afterPreview.page) - Number(before.page)
+    const previewStartDelta = Number(afterPreview.start) - Number(before.start)
+    const previewEndDelta = Number(afterPreview.end) - Number(before.end)
+    if (
+      Math.abs(previewPageDelta) > 0 ||
+      Math.abs(previewStartDelta) > 1 ||
+      Math.abs(previewEndDelta) > 1
+    ) {
+      throw new Error(
+        `Expected drag preview update to leave committed Foliate page stable before native release; ` +
+        `pageDelta=${previewPageDelta} startDelta=${previewStartDelta} endDelta=${previewEndDelta} ` +
+        `before=${JSON.stringify(before)} afterPreview=${JSON.stringify(afterPreview)}`
+      )
+    }
+
+    await page.evaluate(async () => {
+      const width = window.visualViewport?.width || window.innerWidth || 500
+      const height = window.visualViewport?.height || window.innerHeight || 800
+      const deltaX = -Math.round(width * 0.42)
+      await window.NavicReaderBridge.dispatch({
+        type: 'previewPageDrag',
+        phase: 'release',
+        deltaX,
+        deltaY: 0,
+        viewWidth: width,
+        viewHeight: height,
+      })
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      for (let index = 0; index < 6; index += 1) {
+        await new Promise(resolve => requestAnimationFrame(resolve))
+      }
+    })
+    const afterCommit = await readState()
+    const commitPageDelta = Number(afterCommit.page) - Number(before.page)
+    if (commitPageDelta !== 1) {
+      throw new Error(
+        `Expected native drag release plus page action to commit exactly one page; ` +
+        `observed pageDelta=${commitPageDelta} before=${JSON.stringify(before)} ` +
+        `afterCommit=${JSON.stringify(afterCommit)}`
+      )
+    }
+
+    await page.evaluate(async () => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'previewPageDrag',
+        phase: 'cancel',
+        deltaX: 0,
+        deltaY: 0,
+      })
+    })
+    assertNoConsoleErrors(errors)
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-native-drag-single-commit.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      before,
+      afterPreview,
+      afterCommit,
+    }, null, 2))
+    console.log(`reader harness epub-native-drag-single-commit passed: ${outputPath}`)
   } catch (error) {
     console.error(error?.message || String(error))
     process.exitCode = 1

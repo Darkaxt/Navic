@@ -116,6 +116,7 @@ As of the 2026-07-01 Stage 9H.2 current-source validation:
 - The tablet-width `css-smoke` harness now measures actual rendered layout. Against a 1974x1232 viewport it reported `htmlWidth=1855.5625`, `bodyWidth=1737.125`, and `paragraphWidth=809.34375`, preventing the one-word min-content column from passing as a valid landscape spread.
 - This source slice is now published as `v1.0.11-theta31` for physical validation. The pre-release evidence includes browser/host checks plus current-source readerdev/emulator proof: `darkaxt.navic.readerdev` installed on `emulator-5554`, reached `publicationReady`, passed live texture/font/page-box probes, and passed the 12-row Komikku matrix at `captures\reader-komikku-matrix\stage9h2-current-source-20260701`.
 - Physical release-device validation is still required before claiming final visual acceptance for texture feel, edge-gradient strength, tablet typography, and the `Dys` page-number visual match.
+- Post-theta31 physical feedback found a real drag commit regression: while settled on Chapter 1 page 1/global `5/140`, dragging toward the next page previewed page 6 content but finger-up committed page 7 as the new page 6. The root cause was native drag preview mutating Foliate with `renderer.scrollBy(...)` before Android dispatched the release page action. Stage 9H.3 removes preview-time Foliate mutation and adds `epub-native-drag-single-commit` to guard that preview update is non-committing and release plus page action advances exactly one page.
 
 As of the 2026-06-18 dirty emulator Phase 6 refactor check:
 
