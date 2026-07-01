@@ -10088,3 +10088,38 @@ Results:
 
 Next:
 - This is current-source browser/host proof for the curl/texture/page model split. A public release is justified if treated as a major drag/curl/texture candidate, but the visual feel must still be checked on a physical device after publishing.
+
+## 2026-07-01 Stage 9L Theta36 Public Release Candidate
+
+Scope:
+- Publish the Stage 9L curl/texture current-page stabilization as a public Android APK.
+- Candidate target: physical validation of curl preview using the current page, section-boundary texture direction, and page-turn aftershock filtering after theta35.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta36
+git commit -m "Fix reader curl texture page-turn stabilization"
+git commit -m "Prepare theta36 reader release"
+git tag v1.0.11-theta36
+git push fork codex/komikku-reader-backbone-eta64
+git push fork v1.0.11-theta36
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-theta36 -Repo Darkaxt/Navic -Remote fork -Branch codex/komikku-reader-backbone-eta64 -PollSeconds 30
+gh release view v1.0.11-theta36 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease,targetCommitish
+gh run view 28530342221 --repo Darkaxt/Navic --json databaseId,status,conclusion,url,jobs
+```
+
+Results:
+- GREEN/VERSION: Android `versionName` now matches `v1.0.11-theta36` and `versionCode=464`.
+- GREEN/GIT: committed `953b573b Fix reader curl texture page-turn stabilization`, committed `e0405bc4 Prepare theta36 reader release`, tagged `v1.0.11-theta36`, pushed branch `codex/komikku-reader-backbone-eta64`, and pushed the tag to `fork`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28530342221` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA`, `Attach iOS IPA to GitHub Release`, and Discord artifact upload were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta36` contains `Navic.apk` (`33,596,375` bytes, `sha256:fcbcad2ac5712a873385a78ad150ebba85bd29de33cecba5747f65a9733dc3a9`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta36` and specifically check:
+  - curl/drag animation uses the current visible page, not the first page of the chapter;
+  - section-boundary transitions no longer invert or swap paper/border texture direction;
+  - dragging from a page previews and commits exactly the same next page;
+  - no standard/curl toggle exists yet; if curl still feels visually risky, add an explicit reader setting in a later slice.
