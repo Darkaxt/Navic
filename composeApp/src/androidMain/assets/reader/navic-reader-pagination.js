@@ -170,7 +170,7 @@ function reflowablePaginatedRawTextPageCount(pages) {
 }
 
 function reflowablePaginatedVisualTextPageCount(pages) {
-  return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)
+  return this.reflowablePaginatedRawTextPageCount(pages)
 }
 
 function reflowablePaginatedTextPageCount(pages) {
@@ -182,13 +182,7 @@ function reflowableChapterProgressAnchor(progress, renderer = this.view?.rendere
   const clampedProgress = Number.isFinite(numericProgress)
     ? Math.min(1, Math.max(0, numericProgress))
     : 0
-  if (this.view?.isFixedLayout === true || renderer?.scrolled) return clampedProgress
-  const pages = Number(renderer?.pages)
-  if (!Number.isFinite(pages) || pages <= 3 || clampedProgress < 1) return clampedProgress
-  const rawTextPageCount = this.reflowablePaginatedRawTextPageCount(pages)
-  const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)
-  if (rawTextPageCount <= 1 || visualTextPageCount >= rawTextPageCount) return clampedProgress
-  return (visualTextPageCount - 1) / (rawTextPageCount - 1)
+  return clampedProgress
 }
 
 function reflowableLastVisualRendererPage(renderer = this.view?.renderer) {
@@ -944,12 +938,16 @@ function detailSectionKey(detail) {
   return comparableHref ? `href:${comparableHref}` : ''
 }
 
-function committedPageTurnPosition(pagePosition, reason) {
+function committedPageTurnPosition(pagePosition, detail, reason) {
   if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
   if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
+  const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)
+  const candidateSectionKey = this.detailSectionKey(detail)
+  const sameSection = Boolean(currentSectionKey && currentSectionKey === candidateSectionKey)
   const explicitTargetPageIndex = Number(this.pageTurnTargetPageIndex)
   const explicitTargetPageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
   if (
+    sameSection &&
     Number.isFinite(explicitTargetPageIndex) &&
     Number.isFinite(explicitTargetPageCount) &&
     explicitTargetPageCount > 0
@@ -1144,7 +1142,7 @@ function tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallba
       this.pageTurnTargetPageIndex = null
     }
     const candidatePagePosition = (detail ? this.readerPagePosition(detail) : null) || fallback
-    const committedPagePosition = this.committedPageTurnPosition(candidatePagePosition, reason)
+    const committedPagePosition = this.committedPageTurnPosition(candidatePagePosition, detail, reason)
     const pagePosition = this.passiveCommittedRelocationPosition(committedPagePosition, detail, reason)
     this.updateReaderPageNumberLayer(pagePosition)
     return pagePosition || null

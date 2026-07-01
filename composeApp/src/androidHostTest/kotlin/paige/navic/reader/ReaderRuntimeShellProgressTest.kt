@@ -46,10 +46,21 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun embeddedCoverSuppressionPostsInitialVisibleLocationBeforeFirstPageTurn() {
 		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val suppressionBody = bridgeText
 			.substringAfter("suppressLoadedEmbeddedCoverPage(doc, index) {")
 			.substringBefore("\n  attachContentDocumentBehaviors")
 
+		assertContains(helperText, "readerCoverTokenPattern")
+		assertContains(helperText, "readerEmbeddedCoverImage = (doc, section = null, index = 0)")
+		assertContains(helperText, "readerCoverTokenPattern.test(coverTokenText)")
+		assertContains(
+			helperText,
+			"if (!readerCoverTokenPattern.test(coverTokenText)) return null",
+			message = "Embedded-cover suppression must not hide normal leading illustrations or title-page art without an explicit cover signal."
+		)
+		assertContains(suppressionBody, "const section = this.view?.book?.sections?.[sectionIndex]")
+		assertContains(suppressionBody, "suppressReaderEmbeddedCoverPage(doc, section, sectionIndex)")
 		assertContains(suppressionBody, "cover:embedded-page-suppressed")
 		assertContains(suppressionBody, "this.view.renderer?.render?.()")
 		assertContains(suppressionBody, "this.scheduleReaderPageNumberRefresh('embedded-cover-suppressed')")
@@ -905,13 +916,17 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "reflowable-section-pages:pending")
 		assertContains(bridgeText, "reflowablePaginatedTextPageCount(pages)")
 		assertContains(bridgeText, "reflowablePaginatedRawTextPageCount(pages)")
-		assertContains(bridgeText, "return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)")
+		assertContains(bridgeText, "return this.reflowablePaginatedRawTextPageCount(pages)")
 		val visualTextPageCount = bridgeText
 			.substringAfter("function reflowablePaginatedTextPageCount(pages) {")
 			.substringBefore("\nfunction reflowableChapterProgressAnchor")
 		assertFalse(
 			visualTextPageCount.contains("return Math.max(1, Math.round(pages) - 2)"),
 			"Foliate paginated sections expose a trailing blank visual column at the terminal page. Navic must not count that blank column as readable chapter content."
+		)
+		assertFalse(
+			visualTextPageCount.contains("this.reflowablePaginatedRawTextPageCount(pages) - 1"),
+			"Foliate already maps readable text pages as pages - 2; subtracting one more collapses short chapters and desynchronizes page turns."
 		)
 		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
@@ -984,11 +999,13 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(bridgeText, "reflowablePaginatedRawTextPageCount(pages)")
 		assertContains(bridgeText, "reflowablePaginatedVisualTextPageCount(pages)")
-		assertContains(bridgeText, "return Math.max(1, this.reflowablePaginatedRawTextPageCount(pages) - 1)")
+		assertContains(bridgeText, "return this.reflowablePaginatedRawTextPageCount(pages)")
 		assertContains(bridgeText, "reflowableChapterProgressAnchor(progress, renderer = this.view?.renderer)")
-		assertContains(bridgeText, "const rawTextPageCount = this.reflowablePaginatedRawTextPageCount(pages)")
-		assertContains(bridgeText, "const visualTextPageCount = this.reflowablePaginatedVisualTextPageCount(pages)")
-		assertContains(bridgeText, "return (visualTextPageCount - 1) / (rawTextPageCount - 1)")
+		assertContains(bridgeText, "return clampedProgress")
+		assertFalse(
+			bridgeText.contains("return (visualTextPageCount - 1) / (rawTextPageCount - 1)"),
+			"Chapter endpoint navigation should not be pulled one readable page short now that visual count matches Foliate's text page count."
+		)
 		assertContains(chapterProgressSeek, "const targetAnchor = this.reflowableChapterProgressAnchor(targetFraction)")
 		assertContains(chapterProgressSeek, "anchor: targetAnchor")
 		assertFalse(
@@ -1159,6 +1176,128 @@ class ReaderRuntimeShellProgressTest {
 			bridgeText,
 			"this.scheduleControlledRelocationFallback('progress-seek')",
 			message = "Progress rail navigation must mark the next relocation as a real jump, not as a passive page-turn aftershock."
+		)
+	}
+
+	@Test
+	fun androidReaderRejectsStaleControlledPageTurnRelocationsBeforeConsumingReason() {
+		val bridgeText = readerBridgeText()
+		val onRelocateBody = bridgeText
+			.substringAfter("function onRelocate(detail) {")
+			.substringBefore("\n\nfunction cancelPendingCommittedRelocation")
+		val startPageTurnBody = bridgeText
+			.substringAfter("function startPageTurn(direction) {")
+			.substringBefore("\n\nfunction startNextQueuedPageTurn")
+		val fallbackBody = bridgeText
+			.substringAfter("function scheduleControlledRelocationFallback(reason) {")
+			.substringBefore("\n\nfunction onRelocate")
+		val staleGuardIndex = onRelocateBody.indexOf("this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)")
+		val sequenceIncrementIndex = onRelocateBody.indexOf("this.relocateSequence += 1")
+		val lastRelocateIndex = onRelocateBody.indexOf("this.lastRelocateDetail = detail")
+		val consumeReasonIndex = onRelocateBody.indexOf("this.consumeControlledRelocationReason")
+		val fallbackStaleGuardIndex = fallbackBody.indexOf("this.pageTurnRelocationDetailIsStale(this.lastRelocateDetail, reason)")
+		val fallbackCommitIndex = fallbackBody.indexOf("this.scheduleCommittedRelocation(this.lastRelocateDetail, this.consumeControlledRelocationReason(reason))")
+
+		assertContains(bridgeText, "pageTurnRelocationDetailIsStale(detail, reason)")
+		assertContains(bridgeText, "if (!String(reason || '').startsWith('page-turn:')) return false")
+		assertContains(bridgeText, "const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)")
+		assertContains(bridgeText, "const candidateSectionKey = this.detailSectionKey(detail)")
+		assertContains(bridgeText, "if (!currentSectionKey || currentSectionKey !== candidateSectionKey) return false")
+		assertContains(bridgeText, "const currentLocationCurrent = Number(this.committedRelocateDetail?.location?.current)")
+		assertContains(bridgeText, "const candidateLocationCurrent = Number(detail?.location?.current)")
+		assertContains(bridgeText, "if (direction === 'next' && candidateLocationCurrent > currentLocationCurrent) return false")
+		assertContains(bridgeText, "if (direction === 'previous' && candidateLocationCurrent < currentLocationCurrent) return false")
+		assertContains(bridgeText, "const candidatePagePosition = this.readerPagePosition(detail)")
+		assertContains(bridgeText, "direction === 'next'")
+		assertContains(bridgeText, "candidatePageIndex <= currentPageIndex")
+		assertContains(bridgeText, "candidatePageIndex >= currentPageIndex")
+		assertContains(bridgeText, "relocate:ignored-stale-page-turn")
+		assertContains(bridgeText, "scheduleSettledControlledPageTurnRelocation(direction)")
+		assertContains(bridgeText, "if (this.controlledRelocateReason !== reason) return false")
+		assertContains(bridgeText, "this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason(reason))")
+		assertContains(
+			onRelocateBody,
+			"if (this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)) return",
+			message = "Controlled page turns must reject old-section relocation events before they can consume the explicit page-turn reason."
+		)
+		assertTrue(staleGuardIndex >= 0, "The stale page-turn relocation guard must run from onRelocate.")
+		assertTrue(
+			sequenceIncrementIndex < 0 || staleGuardIndex < sequenceIncrementIndex,
+			"Stale page-turn relocations must not increment relocateSequence before fallback can run."
+		)
+		assertTrue(
+			lastRelocateIndex < 0 || staleGuardIndex < lastRelocateIndex,
+			"Stale page-turn relocations must not overwrite lastRelocateDetail before being rejected."
+		)
+		assertTrue(
+			consumeReasonIndex < 0 || staleGuardIndex < consumeReasonIndex,
+			"Stale page-turn relocations must not consume the controlled page-turn reason before being rejected."
+		)
+		assertContains(
+			startPageTurnBody,
+			"this.scheduleSettledControlledPageTurnRelocation(direction)",
+			message = "Valid target relocations that arrive during the Foliate turn window must be committed when the turn settles."
+		)
+		assertTrue(
+			fallbackStaleGuardIndex >= 0 && fallbackCommitIndex >= 0 && fallbackStaleGuardIndex < fallbackCommitIndex,
+			"Controlled fallback must not fabricate a target-page post from a stale old-section relocation."
+		)
+	}
+
+	@Test
+	fun androidReaderDoesNotApplyExplicitPageTurnTargetAcrossDifferentSections() {
+		val bridgeText = readerBridgeText()
+		val committedPageTurnBody = bridgeText
+			.substringAfter("function committedPageTurnPosition(pagePosition, detail, reason) {")
+			.substringBefore("\n\nfunction passiveCommittedRelocationPosition")
+		val updateBody = bridgeText
+			.substringAfter("function tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallback = this.currentPagePosition, reason = '') {")
+			.substringBefore("\n\nfunction scheduleReaderPageNumberRefresh")
+		val sameSectionIndex = committedPageTurnBody.indexOf("const sameSection = Boolean(currentSectionKey && currentSectionKey === candidateSectionKey)")
+		val explicitTargetIndex = committedPageTurnBody.indexOf("Number.isFinite(explicitTargetPageIndex)")
+
+		assertContains(
+			updateBody,
+			"this.committedPageTurnPosition(candidatePagePosition, detail, reason)",
+			message = "Page-turn commit normalization must receive relocation detail so explicit targets cannot be projected onto a different section."
+		)
+		assertContains(committedPageTurnBody, "const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)")
+		assertContains(committedPageTurnBody, "const candidateSectionKey = this.detailSectionKey(detail)")
+		assertContains(committedPageTurnBody, "const sameSection = Boolean(currentSectionKey && currentSectionKey === candidateSectionKey)")
+		assertContains(
+			committedPageTurnBody,
+			"sameSection &&",
+			message = "Explicit target page clamping is only valid while the relocation detail is still in the committed section."
+		)
+		assertTrue(
+			sameSectionIndex >= 0 && explicitTargetIndex >= 0 && sameSectionIndex < explicitTargetIndex,
+			"The same-section guard must be computed before explicit page-turn target clamping."
+		)
+	}
+
+	@Test
+	fun androidReaderRejectsUnchangedPageTurnLocatorBeforeRendererDerivedPageMath() {
+		val bridgeText = readerBridgeText()
+		val staleGuardBody = bridgeText
+			.substringAfter("function pageTurnRelocationDetailIsStale(detail, reason) {")
+			.substringBefore("\n\nfunction scheduleSettledControlledPageTurnRelocation")
+		val unchangedLocatorIndex = staleGuardBody.indexOf("const unchangedLocator =")
+		val readerPagePositionIndex = staleGuardBody.indexOf("const candidatePagePosition = this.readerPagePosition(detail)")
+
+		assertContains(staleGuardBody, "const currentHref = this.sectionHrefForDetail(this.committedRelocateDetail)")
+		assertContains(staleGuardBody, "const candidateHref = this.sectionHrefForDetail(detail)")
+		assertContains(staleGuardBody, "const currentCfi = String(this.committedRelocateDetail?.cfi || this.committedRelocateDetail?.rangeCfi || '')")
+		assertContains(staleGuardBody, "const candidateCfi = String(detail?.cfi || detail?.rangeCfi || '')")
+		assertContains(staleGuardBody, "const unchangedLocator =")
+		assertContains(staleGuardBody, "if (unchangedLocator) {")
+		assertContains(staleGuardBody, "relocate:ignored-unchanged-page-turn")
+		assertContains(staleGuardBody, "const currentChapterPageIndex = Number(this.currentPagePosition?.chapterPageIndex)")
+		assertContains(staleGuardBody, "const currentChapterPageCount = Number(this.currentPagePosition?.chapterPageCount)")
+		assertContains(staleGuardBody, "const sameSectionBoundaryTurn =")
+		assertContains(staleGuardBody, "relocate:ignored-boundary-page-turn")
+		assertTrue(
+			unchangedLocatorIndex >= 0 && readerPagePositionIndex >= 0 && unchangedLocatorIndex < readerPagePositionIndex,
+			"Unchanged page-turn locators must be rejected before renderer-derived page math can fabricate movement from a stale CFI."
 		)
 	}
 

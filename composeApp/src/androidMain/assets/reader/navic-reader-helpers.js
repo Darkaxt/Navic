@@ -125,11 +125,24 @@ const readerImageAspect = image => {
   return width > 0 ? { width, height, aspect: height / width } : null
 }
 
-export const readerEmbeddedCoverImage = (doc, index = 0) => {
+const readerCoverTokenPattern = /(^|[\s._/-])(cover|cubierta|portada)([\s._/-]|$)|cover-image|coverpage|cover.xhtml|frontcover|cubierta.xhtml|portada.xhtml/
+
+export const readerEmbeddedCoverImage = (doc, section = null, index = 0) => {
   if (!doc?.body || index !== 0 || doc.documentElement?.dataset?.navicEmbeddedCoverSuppressed === 'true') return null
   const first = readerFirstMeaningfulBodyElement(doc)
   if (!first || readerElementText(first).length > 40) return null
   const image = first.matches?.('img') ? first : first.querySelector?.('img')
+  const coverTokenText = [
+    readerSectionTokenText(section),
+    doc.title,
+    doc.documentElement?.getAttribute?.('epub:type'),
+    doc.body?.getAttribute?.('epub:type'),
+    image?.getAttribute?.('src'),
+    image?.getAttribute?.('alt'),
+    image?.getAttribute?.('title'),
+    image?.getAttribute?.('aria-label'),
+  ].filter(Boolean).join(' ').toLowerCase()
+  if (!readerCoverTokenPattern.test(coverTokenText)) return null
   const metrics = readerImageAspect(image)
   if (!image || !metrics || !Number.isFinite(metrics.aspect)) return null
   const largeEnough = metrics.width >= 480 || metrics.height >= 640
@@ -137,8 +150,8 @@ export const readerEmbeddedCoverImage = (doc, index = 0) => {
   return image
 }
 
-export const suppressReaderEmbeddedCoverPage = (doc, index = 0) => {
-  const image = readerEmbeddedCoverImage(doc, index)
+export const suppressReaderEmbeddedCoverPage = (doc, section = null, index = 0) => {
+  const image = readerEmbeddedCoverImage(doc, section, index)
   if (!image) return false
   const body = doc.body
   const parent = image.parentElement

@@ -1131,7 +1131,7 @@ if (mode === 'line-fragment-prose-smoke') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
     const result = await page.evaluate(async helperUrl => {
       const helpers = await import(helperUrl)
@@ -1238,12 +1238,13 @@ if (mode === 'epub-frontmatter') {
   })
   const browser = await chromium.launch()
   const errors = []
+  let page = null
   try {
-    const page = await browser.newPage(readerHarnessViewport)
+    page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
       window.__navicReaderPostedMessages = []
@@ -1315,7 +1316,45 @@ if (mode === 'epub-frontmatter') {
 
     console.log(`reader harness epub-frontmatter passed: ${outputPath}`)
   } catch (error) {
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-texture-frontmatter-transition.failure.json')
+    let state = null
+    try {
+      state = page
+        ? await page.evaluate(() => {
+          const view = document.querySelector('foliate-view')
+          const renderer = view?.renderer
+          const messages = (window.__navicReaderPostedMessages || [])
+            .filter(message => message?.type === 'locationChanged')
+          return {
+            bodyDataset: { ...document.body.dataset },
+            postedMessages: messages.slice(-12),
+            trace: (window.__navicReaderTrace || []).slice(-140),
+            renderer: {
+              index: Number(renderer?.getContents?.()?.[0]?.index),
+              page: Number(renderer?.page),
+              pages: Number(renderer?.pages),
+              start: Number(renderer?.start),
+              end: Number(renderer?.end),
+              viewSize: Number(renderer?.viewSize),
+              containerPosition: Number(renderer?.containerPosition),
+            },
+          }
+        })
+        : null
+    } catch (diagnosticError) {
+      state = { diagnosticError: diagnosticError?.message || String(diagnosticError) }
+    }
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      error: error?.stack || error?.message || String(error),
+      errors,
+      state,
+    }, null, 2))
     console.error(error?.message || String(error))
+    console.error(`reader harness epub-texture-frontmatter-transition failure diagnostics: ${outputPath}`)
     process.exitCode = 1
   } finally {
     await browser.close()
@@ -1343,8 +1382,9 @@ if (mode === 'epub-page-boundary') {
   })
   const browser = await chromium.launch()
   const errors = []
+  let page = null
   try {
-    const page = await browser.newPage(readerHarnessViewport)
+    page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -1418,7 +1458,45 @@ if (mode === 'epub-page-boundary') {
 
     console.log(`reader harness epub-page-boundary passed: ${outputPath}`)
   } catch (error) {
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-texture-frontmatter-transition.failure.json')
+    let state = null
+    try {
+      state = page
+        ? await page.evaluate(() => {
+          const view = document.querySelector('foliate-view')
+          const renderer = view?.renderer
+          const messages = (window.__navicReaderPostedMessages || [])
+            .filter(message => message?.type === 'locationChanged')
+          return {
+            bodyDataset: { ...document.body.dataset },
+            postedMessages: messages.slice(-12),
+            trace: (window.__navicReaderTrace || []).slice(-160),
+            renderer: {
+              index: Number(renderer?.getContents?.()?.[0]?.index),
+              page: Number(renderer?.page),
+              pages: Number(renderer?.pages),
+              start: Number(renderer?.start),
+              end: Number(renderer?.end),
+              viewSize: Number(renderer?.viewSize),
+              containerPosition: Number(renderer?.containerPosition),
+            },
+          }
+        })
+        : null
+    } catch (diagnosticError) {
+      state = { diagnosticError: diagnosticError?.message || String(diagnosticError) }
+    }
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      error: error?.stack || error?.message || String(error),
+      errors,
+      state,
+    }, null, 2))
     console.error(error?.message || String(error))
+    console.error(`reader harness epub-texture-frontmatter-transition failure diagnostics: ${outputPath}`)
     process.exitCode = 1
   } finally {
     await browser.close()
@@ -2369,36 +2447,133 @@ if (mode === 'epub-native-drag-single-commit') {
     }
 
     const readState = async () => page.evaluate(() => {
+      const pointTextForDocument = (doc, x, y) => {
+        if (!doc?.body) return ''
+        const range = typeof doc.caretRangeFromPoint === 'function'
+          ? doc.caretRangeFromPoint(x, y)
+          : null
+        const position = !range && typeof doc.caretPositionFromPoint === 'function'
+          ? doc.caretPositionFromPoint(x, y)
+          : null
+        const node = range?.startContainer || position?.offsetNode || doc.elementFromPoint?.(x, y)
+        const offset = Number(range?.startOffset ?? position?.offset ?? 0)
+        const text = node?.nodeType === Node.TEXT_NODE
+          ? String(node.nodeValue || '')
+          : String(node?.textContent || '')
+        const midpoint = Math.max(0, Math.min(text.length, offset || Math.floor(text.length / 2)))
+        return text
+          .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+      const visibleTextForDocument = (doc, { viewportWidth, viewportHeight } = {}) => {
+        if (!doc?.body) return ''
+        const frameRect = doc.defaultView?.frameElement?.getBoundingClientRect?.()
+        const frameLeft = Number(frameRect?.left) || 0
+        const frameTop = Number(frameRect?.top) || 0
+        const width = Number(viewportWidth || window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0)
+        const height = Number(viewportHeight || window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0)
+        const screenRectFor = rect => ({
+          left: frameLeft + rect.left,
+          top: frameTop + rect.top,
+          right: frameLeft + rect.right,
+          bottom: frameTop + rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        })
+        const intersectionArea = rect => {
+          const left = Math.max(0, rect.left)
+          const right = Math.min(width, rect.right)
+          const top = Math.max(0, rect.top)
+          const bottom = Math.min(height, rect.bottom)
+          return Math.max(0, right - left) * Math.max(0, bottom - top)
+        }
+        return Array.from(doc.body.querySelectorAll('body *'))
+          .filter(element => {
+            const rect = screenRectFor(element.getBoundingClientRect())
+            const area = intersectionArea(rect)
+            const elementArea = Math.max(1, rect.width * rect.height)
+            return area > 48 && area / elementArea > 0.15
+          })
+          .map(element => element.textContent?.replace(/\s+/g, ' ').trim() || '')
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
       const renderer = document.querySelector('foliate-view')?.renderer
       const pageNumberLayer = document.querySelector('[data-navic-page-number-layer="true"]')
+      const viewportWidth = Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0)
+      const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0)
       const messages = (window.__navicReaderPostedMessages || [])
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const visibleDocuments = []
+      for (const content of renderer?.getContents?.() || []) {
+        const text = visibleTextForDocument(content?.doc, { viewportWidth, viewportHeight })
+        const frameRect = content?.doc?.defaultView?.frameElement?.getBoundingClientRect?.()
+        const pointText = pointTextForDocument(
+          content?.doc,
+          Math.max(1, Math.round((viewportWidth - (Number(frameRect?.left) || 0)) * 0.5)),
+          Math.max(1, Math.round((viewportHeight - (Number(frameRect?.top) || 0)) * 0.5))
+        )
+        if (text) {
+          visibleDocuments.push({
+            index: Number(content?.index),
+            href: content?.section?.href || '',
+            visibleText: text.slice(0, 900),
+            pointText: pointText.slice(0, 900),
+          })
+        }
+      }
+      const visibleText = visibleDocuments
+        .map(document => document.visibleText)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
       return {
         index: Number(renderer?.getContents?.()?.[0]?.index),
         page: Number(renderer?.page),
         pages: Number(renderer?.pages),
+        size: Number(renderer?.size),
         start: Number(renderer?.start),
         end: Number(renderer?.end),
         viewSize: Number(renderer?.viewSize),
         location: messages.at(-1) || null,
         locationCount: messages.length,
         pageNumberLabel: String(pageNumberLayer?.textContent || '').trim(),
+        visibleText: visibleText.slice(0, 1200),
+        pointText: visibleDocuments
+          .map(document => document.pointText)
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 1200),
+        visibleDocuments,
         trace: (window.__navicReaderTrace || [])
           .filter(event => String(event?.type || '').startsWith('page-drag-preview') || String(event?.type || '').startsWith('page-turn'))
           .slice(-12),
       }
     })
     const waitForGlobalLocationAdvance = async previousState => {
-      await page.waitForFunction(({ previousLocationCount, previousPageIndex }) => {
+      await page.waitForFunction(({ previousLocationCount, previousPageIndex, previousHref, previousRawCurrent }) => {
         const messages = (window.__navicReaderPostedMessages || [])
           .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
         const latest = messages.at(-1)
+        const rawCurrent = Number(latest?.rawLocationCurrent)
         return messages.length > previousLocationCount &&
           Number.isFinite(latest?.pageIndex) &&
-          (!Number.isFinite(previousPageIndex) || latest.pageIndex !== previousPageIndex)
+          (
+            !Number.isFinite(previousPageIndex) ||
+            latest.pageIndex !== previousPageIndex ||
+            (previousHref && latest?.href && latest.href !== previousHref) ||
+            (Number.isFinite(previousRawCurrent) && Number.isFinite(rawCurrent) && rawCurrent !== previousRawCurrent)
+          )
       }, {
         previousLocationCount: Number(previousState?.locationCount) || 0,
         previousPageIndex: Number(previousState?.location?.pageIndex),
+        previousHref: String(previousState?.location?.href || ''),
+        previousRawCurrent: Number(previousState?.location?.rawLocationCurrent),
       })
     }
 
@@ -2488,12 +2663,95 @@ if (mode === 'epub-native-drag-single-commit') {
       )
     }
     const readPreviewVisual = () => page.evaluate(() => {
+      const pointTextForFrame = frame => {
+        const frameDoc = frame?.contentDocument
+        if (!frameDoc?.body) return ''
+        const frameRect = typeof frame?.getBoundingClientRect === 'function'
+          ? frame.getBoundingClientRect()
+          : null
+        const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
+        const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
+        const x = Math.max(1, Math.round(frameWidth * 0.5))
+        const y = Math.max(1, Math.round(frameHeight * 0.5))
+        const range = typeof frameDoc.caretRangeFromPoint === 'function'
+          ? frameDoc.caretRangeFromPoint(x, y)
+          : null
+        const position = !range && typeof frameDoc.caretPositionFromPoint === 'function'
+          ? frameDoc.caretPositionFromPoint(x, y)
+          : null
+        const node = range?.startContainer || position?.offsetNode || frameDoc.elementFromPoint?.(x, y)
+        const offset = Number(range?.startOffset ?? position?.offset ?? 0)
+        const text = node?.nodeType === Node.TEXT_NODE
+          ? String(node.nodeValue || '')
+          : String(node?.textContent || '')
+        const midpoint = Math.max(0, Math.min(text.length, offset || Math.floor(text.length / 2)))
+        return text
+          .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+      const pointTextForFrameAtScroll = (frame, scrollX) => {
+        const frameWin = frame?.contentWindow
+        const beforeX = Number(frameWin?.scrollX || 0)
+        const beforeY = Number(frameWin?.scrollY || 0)
+        try {
+          frameWin?.scrollTo?.(Math.max(0, Math.round(Number(scrollX) || 0)), beforeY)
+          return pointTextForFrame(frame)
+        } finally {
+          frameWin?.scrollTo?.(beforeX, beforeY)
+        }
+      }
+      const visibleTextForFrame = frame => {
+        const frameDoc = frame?.contentDocument
+        if (!frameDoc?.body) return ''
+        const frameRect = typeof frame?.getBoundingClientRect === 'function'
+          ? frame.getBoundingClientRect()
+          : null
+        const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
+        const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
+        const intersectionArea = rect => {
+          const left = Math.max(0, rect.left)
+          const right = Math.min(frameWidth, rect.right)
+          const top = Math.max(0, rect.top)
+          const bottom = Math.min(frameHeight, rect.bottom)
+          return Math.max(0, right - left) * Math.max(0, bottom - top)
+        }
+        return Array.from(frameDoc.body.querySelectorAll('body *'))
+          .filter(element => {
+            const rect = element.getBoundingClientRect()
+            const area = intersectionArea(rect)
+            const elementArea = Math.max(1, rect.width * rect.height)
+            return area > 48 && area / elementArea > 0.15
+          })
+          .map(element => element.textContent?.replace(/\s+/g, ' ').trim() || '')
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
       const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
       const frame = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+      const frameDoc = frame?.contentDocument
+      const frameWin = frame?.contentWindow
       const frontSnapshot = layer?.querySelector?.('[data-navic-page-curl-snapshot="front"]')
+      const frontSnapshotDoc = frontSnapshot?.contentDocument || null
+      const frontSnapshotWin = frontSnapshot?.contentWindow || null
       const paperLayer = layer?.querySelector?.('[data-navic-page-drag-preview-paper-layer="true"]')
       const borderLayer = layer?.querySelector?.('[data-navic-page-drag-preview-border-layer="true"]')
+      const direction = layer?.dataset.navicPageDragPreviewDirection || ''
+      const targetSlot = direction === 'previous' ? 'previous' : 'next'
+      const paperTargetSlot = paperLayer?.querySelector?.(`[data-navic-surface-paper-texture-slot="${targetSlot}"]`)
+      const borderTargetSlot = borderLayer?.querySelector?.(`[data-navic-surface-page-border-overlay-slot="${targetSlot}"]`)
       const style = layer ? getComputedStyle(layer) : null
+      const paperTargetSlotStyle = paperTargetSlot ? getComputedStyle(paperTargetSlot) : null
+      const borderTargetSlotStyle = borderTargetSlot ? getComputedStyle(borderTargetSlot) : null
+      const mappedX = Number(frame?.dataset.navicPageDragPreviewFrameMappedScrollX)
+      const cloneMaxX = Number(frame?.dataset.navicPageDragPreviewFrameCloneMaxX)
+      const axisStep = Number(frame?.dataset.navicPageDragPreviewFrameAxisStep)
+      const samplePositions = [0, mappedX - axisStep, mappedX, mappedX + axisStep, cloneMaxX]
+        .filter(value => Number.isFinite(value))
+        .map(value => Math.max(0, Math.round(value)))
+        .filter((value, index, array) => array.indexOf(value) === index)
       return {
         layerPresent: Boolean(layer),
         framePresent: Boolean(frame),
@@ -2502,6 +2760,25 @@ if (mode === 'epub-native-drag-single-commit') {
         frameAxisStep: Number(frame?.dataset.navicPageDragPreviewFrameAxisStep),
         frameRendererPage: Number(frame?.dataset.navicPageDragPreviewFrameRendererPage),
         frameRendererPages: Number(frame?.dataset.navicPageDragPreviewFrameRendererPages),
+        frameTargetScrollX: Number(frame?.dataset.navicPageDragPreviewFrameTargetScrollX),
+        frameTargetScrollY: Number(frame?.dataset.navicPageDragPreviewFrameTargetScrollY),
+        frameMappedScrollX: Number(frame?.dataset.navicPageDragPreviewFrameMappedScrollX),
+        frameMappedScrollY: Number(frame?.dataset.navicPageDragPreviewFrameMappedScrollY),
+        frameSourceMax: Number(frame?.dataset.navicPageDragPreviewFrameSourceMax),
+        frameCloneMaxX: Number(frame?.dataset.navicPageDragPreviewFrameCloneMaxX),
+        frameCloneMaxY: Number(frame?.dataset.navicPageDragPreviewFrameCloneMaxY),
+        frameScrollX: Number(frameWin?.scrollX ?? frameDoc?.documentElement?.scrollLeft ?? frameDoc?.body?.scrollLeft),
+        frameScrollY: Number(frameWin?.scrollY ?? frameDoc?.documentElement?.scrollTop ?? frameDoc?.body?.scrollTop),
+        frameScrollWidth: Number(frameDoc?.documentElement?.scrollWidth || frameDoc?.body?.scrollWidth),
+        frameScrollHeight: Number(frameDoc?.documentElement?.scrollHeight || frameDoc?.body?.scrollHeight),
+        frameClientWidth: Number(frameDoc?.documentElement?.clientWidth || frameDoc?.body?.clientWidth),
+        frameClientHeight: Number(frameDoc?.documentElement?.clientHeight || frameDoc?.body?.clientHeight),
+        frameVisibleText: visibleTextForFrame(frame).slice(0, 1200),
+        framePointText: pointTextForFrame(frame).slice(0, 1200),
+        framePointSamples: samplePositions.map(position => ({
+          position,
+          text: pointTextForFrameAtScroll(frame, position).slice(0, 360),
+        })),
         mode: layer?.dataset.navicPageDragPreviewMode || '',
         fallback: layer?.dataset.navicPageDragPreviewFallback || '',
         ready: layer?.dataset.navicPageDragPreviewReady === 'true',
@@ -2512,21 +2789,43 @@ if (mode === 'epub-native-drag-single-commit') {
         frontSnapshotPresent: Boolean(frontSnapshot),
         frontSnapshotReady: frontSnapshot?.dataset.navicPageCurlSnapshotReady === 'true',
         frontSnapshotTextLength: Number(frontSnapshot?.dataset.navicPageCurlSnapshotTextLength) || 0,
+        frontSnapshotScrollX: Number(frontSnapshotWin?.scrollX ?? frontSnapshotDoc?.documentElement?.scrollLeft ?? frontSnapshotDoc?.body?.scrollLeft),
+        frontSnapshotScrollY: Number(frontSnapshotWin?.scrollY ?? frontSnapshotDoc?.documentElement?.scrollTop ?? frontSnapshotDoc?.body?.scrollTop),
+        frontSnapshotMappedScrollX: Number(frontSnapshot?.dataset.navicPageCurlSnapshotMappedScrollX),
+        frontSnapshotMappedScrollY: Number(frontSnapshot?.dataset.navicPageCurlSnapshotMappedScrollY),
+        frontSnapshotSourceScrollX: Number(frontSnapshot?.dataset.navicPageCurlSnapshotScrollX),
+        frontSnapshotSourceScrollY: Number(frontSnapshot?.dataset.navicPageCurlSnapshotScrollY),
         paperLayerPresent: Boolean(paperLayer),
         borderLayerPresent: Boolean(borderLayer),
+        targetTextureSlot: targetSlot,
+        paperTargetSlotTransform: paperTargetSlotStyle?.transform || '',
+        borderTargetSlotTransform: borderTargetSlotStyle?.transform || '',
         textureSurface: layer?.dataset.navicPageDragPreviewTextureSurface || '',
         opacity: style?.opacity || '',
         width: style?.width || '',
       }
     })
     let previewVisual = await readPreviewVisual()
-    if (previewVisual.layerPresent && previewVisual.mode === 'interior' && !previewVisual.frameReady) {
+    if (previewVisual.layerPresent && previewVisual.mode === 'interior' && (!previewVisual.frameReady || !previewVisual.ready)) {
       await page.waitForFunction(() => {
         const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
         const frame = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
         return layer?.dataset.navicPageDragPreviewMode === 'interior' &&
           frame?.dataset.navicPageDragPreviewFrameReady === 'true' &&
           Number(frame?.dataset.navicPageDragPreviewFrameTextLength) > 0
+      })
+      await page.evaluate(async () => {
+        const width = window.visualViewport?.width || window.innerWidth || 500
+        const height = window.visualViewport?.height || window.innerHeight || 800
+        await window.NavicReaderBridge.dispatch({
+          type: 'previewPageDrag',
+          phase: 'update',
+          deltaX: -Math.round(width * 0.42),
+          deltaY: 0,
+          viewWidth: width,
+          viewHeight: height,
+        })
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       })
       previewVisual = await readPreviewVisual()
     }
@@ -2554,6 +2853,22 @@ if (mode === 'epub-native-drag-single-commit') {
         `observed ${JSON.stringify(previewVisual)}`
       )
     }
+    if (
+      Number.isFinite(before.start) &&
+      before.start > 1 &&
+      (
+        !Number.isFinite(previewVisual.frontSnapshotSourceScrollX) ||
+        previewVisual.frontSnapshotSourceScrollX <= 1 ||
+        !Number.isFinite(previewVisual.frontSnapshotMappedScrollX) ||
+        previewVisual.frontSnapshotMappedScrollX <= 1
+      )
+    ) {
+      throw new Error(
+        `Expected curl front snapshot to use the current Foliate renderer page, not the chapter start; ` +
+        `rendererStart=${before.start} sourceScroll=${previewVisual.frontSnapshotSourceScrollX} ` +
+        `mappedScroll=${previewVisual.frontSnapshotMappedScrollX} observed=${JSON.stringify(previewVisual)}`
+      )
+    }
     if (!previewVisual.framePresent || !previewVisual.frameReady || previewVisual.frameTextLength <= 0) {
       throw new Error(
         `Expected interior native drag preview to render the adjacent in-section underlay, not a black void; ` +
@@ -2564,6 +2879,26 @@ if (mode === 'epub-native-drag-single-commit') {
       throw new Error(
         `Expected interior native drag preview to carry paper and border texture layers; ` +
         `observed ${JSON.stringify(previewVisual)}`
+      )
+    }
+    const matrixX = transform => {
+      const match = String(transform || '').match(/matrix\([^,]+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*(-?\d+(?:\.\d+)?)/)
+      return match ? Number(match[1]) : Number.NaN
+    }
+    const paperTargetX = matrixX(previewVisual.paperTargetSlotTransform)
+    const borderTargetX = matrixX(previewVisual.borderTargetSlotTransform)
+    if (!Number.isFinite(paperTargetX) || paperTargetX >= 0) {
+      throw new Error(
+        `Expected next-page preview paper texture slot to enter the clipped drag surface; ` +
+        `target=${previewVisual.targetTextureSlot} x=${paperTargetX} ` +
+        `transform=${previewVisual.paperTargetSlotTransform || 'missing'} observed=${JSON.stringify(previewVisual)}`
+      )
+    }
+    if (!Number.isFinite(borderTargetX) || borderTargetX >= 0) {
+      throw new Error(
+        `Expected next-page preview border texture slot to enter the clipped drag surface; ` +
+        `target=${previewVisual.targetTextureSlot} x=${borderTargetX} ` +
+        `transform=${previewVisual.borderTargetSlotTransform || 'missing'} observed=${JSON.stringify(previewVisual)}`
       )
     }
     if (
@@ -2586,7 +2921,6 @@ if (mode === 'epub-native-drag-single-commit') {
         )
       }
     }
-
     const beforeGlobalPageIndex = Number(before.location?.pageIndex)
     const beforeLocationCount = Number(before.locationCount) || 0
     await page.evaluate(async () => {
@@ -2616,6 +2950,20 @@ if (mode === 'epub-native-drag-single-commit') {
         latest.pageIndex !== beforeGlobalPageIndex
     }, { beforeLocationCount, beforeGlobalPageIndex })
     const afterCommit = await readState()
+    const expectedCommitStart = Number(previewVisual.frameTargetScrollX)
+    const actualCommitStart = Number(afterCommit.start)
+    if (
+      Number.isFinite(expectedCommitStart) &&
+      Number.isFinite(actualCommitStart) &&
+      Math.abs(actualCommitStart - expectedCommitStart) > 2
+    ) {
+      throw new Error(
+        `Expected native drag release to commit the previewed renderer offset; ` +
+        `expectedStart=${expectedCommitStart} actualStart=${actualCommitStart} ` +
+        `stride=${previewVisual.frameAxisStep} ` +
+        `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
+      )
+    }
     const commitGlobalPageDelta = Number(afterCommit.location?.pageIndex) - beforeGlobalPageIndex
     if (commitGlobalPageDelta !== 1) {
       throw new Error(
@@ -3344,8 +3692,9 @@ if (mode === 'epub-texture-frontmatter-transition') {
   })
   const browser = await chromium.launch()
   const errors = []
+  let page = null
   try {
-    const page = await browser.newPage(readerHarnessViewport)
+    page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -3400,6 +3749,15 @@ if (mode === 'epub-texture-frontmatter-transition') {
       const layer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
       const textureSlot = layer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
       const textureSlotStyle = textureSlot ? getComputedStyle(textureSlot) : null
+      const textureSlotTransforms = Array.from(layer?.querySelectorAll?.('[data-navic-surface-paper-texture-slot]') || [])
+        .map(slot => {
+          const style = getComputedStyle(slot)
+          return {
+            slot: slot.getAttribute('data-navic-surface-paper-texture-slot') || '',
+            transform: slot.style.transform || '',
+            computedTransform: style.transform || '',
+          }
+        })
       const messages = (window.__navicReaderPostedMessages || [])
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
       const location = messages.at(-1) || null
@@ -3467,6 +3825,7 @@ if (mode === 'epub-texture-frontmatter-transition') {
         textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
         textureSlotTransform: textureSlot?.style?.transform || '',
         computedTextureSlotTransform: textureSlotStyle?.transform || '',
+        textureSlotTransforms,
         staticTextureLayerPresent: Boolean(staticLayer),
         staticTextureBackgroundPosition: staticLayer?.style.backgroundPosition || '',
         computedStaticTextureBackgroundPosition: staticLayer ? getComputedStyle(staticLayer).backgroundPosition : '',
@@ -3565,16 +3924,34 @@ if (mode === 'epub-texture-frontmatter-transition') {
         const renderer = document.querySelector('foliate-view')?.renderer
         renderer?.setAttribute?.('animated', '')
       })
-      const viewport = page.viewportSize() || readerHarnessViewport.viewport
       const reverse = direction === 'backward'
-      const dragPromise = performReaderTouchDrag(page, {
-        startX: viewport.width * (reverse ? 0.18 : 0.82),
-        startY: viewport.height * 0.52,
-        endX: viewport.width * (reverse ? 0.82 : 0.18),
-        endY: viewport.height * 0.52,
-        durationMs: 520,
-        steps: 10,
-      })
+      const dragPromise = page.evaluate(async ({ reverse }) => {
+        const width = window.visualViewport?.width || window.innerWidth || 500
+        const height = window.visualViewport?.height || window.innerHeight || 800
+        const totalDeltaX = Math.round(width * 0.64) * (reverse ? 1 : -1)
+        for (let step = 1; step <= 10; step += 1) {
+          const deltaX = Math.round(totalDeltaX * (step / 10))
+          await window.NavicReaderBridge.dispatch({
+            type: 'previewPageDrag',
+            phase: 'update',
+            deltaX,
+            deltaY: 0,
+            viewWidth: width,
+            viewHeight: height,
+          })
+          await new Promise(resolve => requestAnimationFrame(resolve))
+        }
+        await window.NavicReaderBridge.dispatch({
+          type: 'previewPageDrag',
+          phase: 'release',
+          deltaX: totalDeltaX,
+          deltaY: 0,
+          viewWidth: width,
+          viewHeight: height,
+        })
+        await new Promise(resolve => requestAnimationFrame(resolve))
+        await window.NavicReaderBridge.dispatch({ type: reverse ? 'previousPage' : 'nextPage' })
+      }, { reverse })
       for (const delay of [40, 80, 120, 180, 260, 360]) {
         await page.waitForTimeout(delay)
         samples.push(await collectState(`t+${delay}`))
@@ -3643,7 +4020,45 @@ if (mode === 'epub-texture-frontmatter-transition') {
     assertTextureTracePayloadsTrackTurnDirection(result.trace)
     console.log(`reader harness epub-texture-frontmatter-transition passed: ${outputPath}`)
   } catch (error) {
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-texture-frontmatter-transition.failure.json')
+    let state = null
+    try {
+      state = page
+        ? await page.evaluate(() => {
+          const view = document.querySelector('foliate-view')
+          const renderer = view?.renderer
+          const messages = (window.__navicReaderPostedMessages || [])
+            .filter(message => message?.type === 'locationChanged')
+          return {
+            bodyDataset: { ...document.body.dataset },
+            postedMessages: messages.slice(-12),
+            trace: (window.__navicReaderTrace || []).slice(-160),
+            renderer: {
+              index: Number(renderer?.getContents?.()?.[0]?.index),
+              page: Number(renderer?.page),
+              pages: Number(renderer?.pages),
+              start: Number(renderer?.start),
+              end: Number(renderer?.end),
+              viewSize: Number(renderer?.viewSize),
+              containerPosition: Number(renderer?.containerPosition),
+            },
+          }
+        })
+        : null
+    } catch (diagnosticError) {
+      state = { diagnosticError: diagnosticError?.message || String(diagnosticError) }
+    }
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      error: error?.stack || error?.message || String(error),
+      errors,
+      state,
+    }, null, 2))
     console.error(error?.message || String(error))
+    console.error(`reader harness epub-texture-frontmatter-transition failure diagnostics: ${outputPath}`)
     process.exitCode = 1
   } finally {
     await browser.close()

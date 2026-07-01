@@ -283,11 +283,11 @@ function suppressLoadedEmbeddedCoverPage(doc, index) {
   const normalizedIndex = Number(index)
   if (!Number.isFinite(normalizedIndex)) return false
   const sectionIndex = Math.floor(normalizedIndex)
-  const suppressed = suppressReaderEmbeddedCoverPage(doc, sectionIndex)
+  const section = this.view?.book?.sections?.[sectionIndex]
+  const suppressed = suppressReaderEmbeddedCoverPage(doc, section, sectionIndex)
   if (!suppressed) return false
   const firstSuppression = !this.embeddedCoverSuppressedSectionIndexes.has(sectionIndex)
   this.embeddedCoverSuppressedSectionIndexes.add(sectionIndex)
-  const section = this.view?.book?.sections?.[sectionIndex]
   readerTrace('cover:embedded-page-suppressed', {
     index: sectionIndex,
     href: section?.href || section?.id || '',

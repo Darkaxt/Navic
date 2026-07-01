@@ -256,7 +256,7 @@ class ReaderRuntimeNavigationFlowTest {
 	fun androidReaderDoesNotClampCommittedFixedLayoutPageTurnsAgainstStaleDisplayState() {
 		val bridgeText = readerBridgeText()
 		val committedPageTurnPosition = bridgeText
-			.substringAfter("committedPageTurnPosition(pagePosition, reason) {")
+			.substringAfter("committedPageTurnPosition(pagePosition, detail, reason) {")
 			.substringBefore("\n  readerPageNumberFontFamily")
 
 		assertContains(committedPageTurnPosition, "if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition")

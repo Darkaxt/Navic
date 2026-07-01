@@ -221,7 +221,7 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     }
     return { posted: false, skipped: 'duplicate', reason }
   }
-  this.updateSurfacePaperTexture(detail, pagePosition)
+  this.updateSurfacePaperTexture(detail, pagePosition, reason)
   this.committedRelocateDetail = detail
   this.lastPostedLocationKey = locationKey
   readerTrace('location:page-model', {
@@ -344,6 +344,112 @@ function consumeControlledRelocationReason(fallback = 'relocate-committed') {
 }
 
 
+function pageTurnRelocationDetailIsStale(detail, reason) {
+  if (!String(reason || '').startsWith('page-turn:')) return false
+  const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)
+  const candidateSectionKey = this.detailSectionKey(detail)
+  if (!currentSectionKey || currentSectionKey !== candidateSectionKey) return false
+  const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
+  const targetPageIndex = Number(this.pageTurnTargetPageIndex)
+  if (!Number.isFinite(currentPageIndex) || !Number.isFinite(targetPageIndex)) return false
+  const direction = String(reason || '').includes(':previous') ? 'previous' : 'next'
+  if (direction === 'next' && targetPageIndex <= currentPageIndex) return false
+  if (direction === 'previous' && targetPageIndex >= currentPageIndex) return false
+  const currentHref = this.sectionHrefForDetail(this.committedRelocateDetail)
+  const candidateHref = this.sectionHrefForDetail(detail)
+  const hrefDidNotMove =
+    (!currentHref && !candidateHref) ||
+    readerHrefMatches(currentHref, candidateHref) ||
+    currentHref === candidateHref
+  const currentCfi = String(this.committedRelocateDetail?.cfi || this.committedRelocateDetail?.rangeCfi || '')
+  const candidateCfi = String(detail?.cfi || detail?.rangeCfi || '')
+  const currentLocationCurrent = Number(this.committedRelocateDetail?.location?.current)
+  const candidateLocationCurrent = Number(detail?.location?.current)
+  const unchangedLocator =
+    hrefDidNotMove &&
+    ((currentCfi && candidateCfi && currentCfi === candidateCfi) ||
+      (
+        Number.isFinite(currentLocationCurrent) &&
+        Number.isFinite(candidateLocationCurrent) &&
+        currentLocationCurrent === candidateLocationCurrent
+      ))
+  if (unchangedLocator) {
+    readerTrace('relocate:ignored-unchanged-page-turn', {
+      reason,
+      direction,
+      currentSectionKey,
+      candidateSectionKey,
+      currentPageIndex,
+      targetPageIndex,
+      currentHref,
+      candidateHref,
+      currentLocationCurrent: Number.isFinite(currentLocationCurrent) ? currentLocationCurrent : null,
+      candidateLocationCurrent: Number.isFinite(candidateLocationCurrent) ? candidateLocationCurrent : null,
+    })
+    return true
+  }
+  const currentChapterPageIndex = Number(this.currentPagePosition?.chapterPageIndex)
+  const currentChapterPageCount = Number(this.currentPagePosition?.chapterPageCount)
+  const sameSectionBoundaryTurn =
+    (direction === 'previous' && Number.isFinite(currentChapterPageIndex) && currentChapterPageIndex <= 0) ||
+    (
+      direction === 'next' &&
+      Number.isFinite(currentChapterPageIndex) &&
+      Number.isFinite(currentChapterPageCount) &&
+      currentChapterPageCount > 0 &&
+      currentChapterPageIndex >= currentChapterPageCount - 1
+    )
+  if (sameSectionBoundaryTurn) {
+    readerTrace('relocate:ignored-boundary-page-turn', {
+      reason,
+      direction,
+      currentSectionKey,
+      candidateSectionKey,
+      currentPageIndex,
+      targetPageIndex,
+      currentChapterPageIndex: Number.isFinite(currentChapterPageIndex) ? currentChapterPageIndex : null,
+      currentChapterPageCount: Number.isFinite(currentChapterPageCount) ? currentChapterPageCount : null,
+      currentHref,
+      candidateHref,
+    })
+    return true
+  }
+  if (Number.isFinite(currentLocationCurrent) && Number.isFinite(candidateLocationCurrent)) {
+    if (direction === 'next' && candidateLocationCurrent > currentLocationCurrent) return false
+    if (direction === 'previous' && candidateLocationCurrent < currentLocationCurrent) return false
+  }
+  const candidatePagePosition = this.readerPagePosition(detail)
+  const candidatePageIndex = Number(candidatePagePosition?.pageIndex)
+  if (!Number.isFinite(candidatePageIndex)) return false
+  const stale = direction === 'next'
+    ? candidatePageIndex <= currentPageIndex
+    : candidatePageIndex >= currentPageIndex
+  if (stale) {
+    readerTrace('relocate:ignored-stale-page-turn', {
+      reason,
+      direction,
+      currentSectionKey,
+      candidateSectionKey,
+      currentPageIndex,
+      candidatePageIndex,
+      targetPageIndex,
+    })
+  }
+  return stale
+}
+
+
+function scheduleSettledControlledPageTurnRelocation(direction) {
+  const reason = `page-turn:${direction}`
+  if (this.controlledRelocateReason !== reason) return false
+  const detail = this.lastRelocateDetail
+  if (!detail) return false
+  if (this.pageTurnRelocationDetailIsStale(detail, reason)) return false
+  this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason(reason))
+  return true
+}
+
+
 function scheduleControlledRelocationFallback(reason) {
   const startSequence = this.controlledRelocateStartSequence
   log('controlled-relocate:fallback-scheduled', reason, `start=${startSequence}`)
@@ -357,6 +463,10 @@ function scheduleControlledRelocationFallback(reason) {
         log('controlled-relocate:fallback-skipped', reason, `seq=${this.relocateSequence}`, `start=${startSequence}`)
         return
       }
+      if (this.pageTurnRelocationDetailIsStale(this.lastRelocateDetail, reason)) {
+        log('controlled-relocate:fallback-skipped', reason, 'stale-last-relocation')
+        return
+      }
       log('controlled-relocate:fallback-commit', reason, `seq=${this.relocateSequence}`, `start=${startSequence}`)
       this.scheduleCommittedRelocation(this.lastRelocateDetail, this.consumeControlledRelocationReason(reason))
     })
@@ -366,9 +476,10 @@ function scheduleControlledRelocationFallback(reason) {
 
 function onRelocate(detail) {
   readerTrace('relocate:raw', detail)
-  this.lastRelocateDetail = detail
-  this.relocateSequence += 1
   this.attachSurfacePaperTextureScrollSync()
+  if (this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)) return
+  this.relocateSequence += 1
+  this.lastRelocateDetail = detail
   if (this.pageTurnInProgress || this.pageTurnPromise) return
   this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason('relocate-committed'))
 }
@@ -420,6 +531,8 @@ export const NavicReaderLocationMethods = {
   postLocationChanged,
   beginControlledRelocation,
   consumeControlledRelocationReason,
+  pageTurnRelocationDetailIsStale,
+  scheduleSettledControlledPageTurnRelocation,
   scheduleControlledRelocationFallback,
   onRelocate,
   cancelPendingCommittedRelocation,

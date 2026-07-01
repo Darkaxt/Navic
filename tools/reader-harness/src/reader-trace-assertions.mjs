@@ -170,6 +170,41 @@ const textureOffsetForSample = sample => {
   return String(sample?.flowMode || '') === 'paged-vertical' ? offsets?.y : offsets?.x
 }
 
+const textureSlotOffsetsForSample = sample => {
+  const flowMode = String(sample?.flowMode || '')
+  const axis = flowMode === 'paged-vertical' ? 'y' : 'x'
+  const entries = []
+  for (const item of Array.isArray(sample?.textureSlotTransforms) ? sample.textureSlotTransforms : []) {
+    const offsets =
+      parseTransformOffsets(item?.transform) ??
+      parseTransformOffsets(item?.computedTransform)
+    const offset = offsets?.[axis]
+    if (Number.isFinite(offset)) {
+      entries.push({
+        slot: String(item?.slot || 'unknown'),
+        offset,
+      })
+    }
+  }
+  if (entries.length > 0) return entries
+  const fallback = textureOffsetForSample(sample)
+  return Number.isFinite(fallback) ? [{ slot: 'current', offset: fallback }] : []
+}
+
+const textureDeltaForSamples = (before, sample) => {
+  const beforeOffsets = new Map(textureSlotOffsetsForSample(before).map(item => [item.slot, item.offset]))
+  const candidates = textureSlotOffsetsForSample(sample)
+    .filter(item => beforeOffsets.has(item.slot))
+    .map(item => ({
+      slot: item.slot,
+      textureDelta: item.offset - beforeOffsets.get(item.slot),
+    }))
+    .filter(item => Number.isFinite(item.textureDelta))
+  if (candidates.length === 0) return Number.NaN
+  candidates.sort((left, right) => Math.abs(right.textureDelta) - Math.abs(left.textureDelta))
+  return candidates[0].textureDelta
+}
+
 const parseBackgroundPositionOffset = value => {
   const offsets = parseBackgroundPositionOffsets(value)
   if (!offsets) return null
@@ -191,7 +226,7 @@ export const assertTextureTracksRealPageTurnSamples = result => {
       .map(sample => ({
         sample,
         positionDelta: Number(sample.position) - Number(before.position),
-        textureDelta: textureOffsetForSample(sample) - textureOffsetForSample(before),
+        textureDelta: textureDeltaForSamples(before, sample),
       }))
       .filter(({ sample, positionDelta, textureDelta }) => {
         const viewportSpan = Math.max(

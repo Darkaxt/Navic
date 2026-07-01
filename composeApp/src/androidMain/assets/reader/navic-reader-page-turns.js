@@ -615,7 +615,7 @@ function syncMovingPageTextureSurface(reason = 'page-drag-preview') {
   return offset
 }
 
-function syncPageDragPreviewTextureLayers(layer) {
+function syncPageDragPreviewTextureLayers(layer, previewScrollOffset = null) {
   if (!layer) return null
   const textureSlots = this.surfaceTextureSlots || []
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
@@ -627,7 +627,7 @@ function syncPageDragPreviewTextureLayers(layer) {
     return null
   }
   const { paperLayer, borderLayer } = this.ensurePageDragPreviewTextureLayers(layer)
-  const scrollOffset = this.surfaceTextureScrollOffset || { x: 0, y: 0 }
+  const scrollOffset = previewScrollOffset || this.surfaceTextureScrollOffset || { x: 0, y: 0 }
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   if (hasPaper && paperLayer) {
     updateReaderMovingPageTextureLayer(
@@ -660,6 +660,29 @@ function syncPageDragPreviewTextureLayers(layer) {
     hasBorder ? 'border' : '',
   ].filter(Boolean).join(',')
   return { hasPaper, hasBorder }
+}
+
+function pageDragPreviewTextureScrollOffset({
+  direction,
+  frameLeft = 0,
+  frameTop = 0,
+  width = 0,
+  height = 0,
+  vertical = false,
+  readerDirection = '',
+} = {}) {
+  const targetSlot = direction === 'previous' ? 'previous' : 'next'
+  const horizontal = !vertical
+  const axisWidth = Math.round(Number(width) || 0)
+  const axisHeight = Math.round(Number(height) || 0)
+  const nextSign = horizontal && readerDirection === ReaderDirectionRtl ? -1 : 1
+  const slotSign = targetSlot === 'next' ? nextSign : -nextSign
+  const slotBaseX = horizontal ? axisWidth * slotSign : 0
+  const slotBaseY = horizontal ? 0 : axisHeight * slotSign
+  return {
+    x: horizontal ? Math.round(Number(frameLeft) || 0) - slotBaseX : 0,
+    y: horizontal ? 0 : Math.round(Number(frameTop) || 0) - slotBaseY,
+  }
 }
 
 function removePageDragPreviewLayer() {
@@ -815,7 +838,7 @@ function pageDragCurlSnapshotScroll(doc) {
   }
 }
 
-function pageDragCurlSnapshotHtml(doc) {
+function pageDragCurlSnapshotHtml(doc, layout = null) {
   const sourceRoot = doc?.documentElement
   if (!sourceRoot) return ''
   const clone = sourceRoot.cloneNode(true)
@@ -829,6 +852,21 @@ function pageDragCurlSnapshotHtml(doc) {
   }
   const style = doc.createElement('style')
   style.setAttribute('data-navic-page-curl-snapshot-style', 'true')
+  const layoutViewSize = Math.max(0, Math.round(Number(layout?.viewSize) || 0))
+  const layoutAxisStep = Math.max(0, Math.round(Number(layout?.axisStep) || 0))
+  const layoutHeight = Math.max(0, Math.round(Number(layout?.height) || 0))
+  const pagedLayoutCss = layoutViewSize > 0 && layoutAxisStep > 0 && layoutHeight > 0
+    ? [
+        `width:${layoutViewSize}px!important;`,
+        `min-width:${layoutViewSize}px!important;`,
+        `max-width:${layoutViewSize}px!important;`,
+        `height:${layoutHeight}px!important;`,
+        `min-height:${layoutHeight}px!important;`,
+        `column-width:${layoutAxisStep}px!important;`,
+        'column-gap:0!important;',
+        'column-fill:auto!important;',
+      ].join('')
+    : ''
   style.textContent = [
     'html,body{',
     'margin:0!important;',
@@ -836,6 +874,7 @@ function pageDragCurlSnapshotHtml(doc) {
     'box-sizing:border-box!important;',
     'background-color:var(--reader-background, transparent)!important;',
     'pointer-events:none!important;',
+    pagedLayoutCss,
     '}',
     '*,*::before,*::after{pointer-events:none!important;}',
     'img,svg,canvas,video{max-width:100%;}',
@@ -857,7 +896,19 @@ function pageDragCurlSnapshotKey({ role, direction, width, height, content, doc,
   ].join('|')
 }
 
-function syncPageDragCurlSnapshotFrame(snapshot, doc, { role, direction, width, height, key, palette, onReady }) {
+function syncPageDragCurlSnapshotFrame(snapshot, doc, {
+  role,
+  direction,
+  width,
+  height,
+  key,
+  palette,
+  onReady,
+  layout = null,
+  targetScroll = null,
+  renderer = null,
+  vertical = false,
+}) {
   if (!snapshot || !doc?.documentElement) {
     if (snapshot) {
       snapshot.dataset.navicPageCurlSnapshotReady = 'false'
@@ -866,7 +917,7 @@ function syncPageDragCurlSnapshotFrame(snapshot, doc, { role, direction, width, 
     onReady?.()
     return false
   }
-  const scroll = pageDragCurlSnapshotScroll(doc)
+  const scroll = targetScroll || pageDragCurlSnapshotScroll(doc)
   setStylesImportant(snapshot, {
     position: 'absolute',
     top: '0px',
@@ -890,7 +941,12 @@ function syncPageDragCurlSnapshotFrame(snapshot, doc, { role, direction, width, 
     try {
       const snapshotDoc = snapshot.contentDocument
       const text = snapshotDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
-      snapshot.contentWindow?.scrollTo?.(scroll.x, scroll.y)
+      const mappedScroll = targetScroll
+        ? pageDragMappedPreviewScroll(snapshot, snapshotDoc, targetScroll, { renderer, vertical })
+        : scroll
+      snapshot.dataset.navicPageCurlSnapshotMappedScrollX = String(mappedScroll.x)
+      snapshot.dataset.navicPageCurlSnapshotMappedScrollY = String(mappedScroll.y)
+      snapshot.contentWindow?.scrollTo?.(mappedScroll.x, mappedScroll.y)
       snapshot.dataset.navicPageCurlSnapshotReady = snapshotDoc?.body ? 'true' : 'false'
       snapshot.dataset.navicPageCurlSnapshotTextLength = String(text.length)
     } catch {
@@ -906,7 +962,7 @@ function syncPageDragCurlSnapshotFrame(snapshot, doc, { role, direction, width, 
     snapshot.dataset.navicPageCurlSnapshotTextLength = '0'
     snapshot.onload = () => { markSnapshotReady() }
     snapshot.removeAttribute('src')
-    snapshot.srcdoc = pageDragCurlSnapshotHtml(doc)
+    snapshot.srcdoc = pageDragCurlSnapshotHtml(doc, layout)
     requestAnimationFrame(() => { markSnapshotReady() })
   } else if (snapshot.contentDocument?.body) {
     markSnapshotReady()
@@ -931,6 +987,15 @@ function syncPageDragCurlSnapshots(layer, { renderer, frame, ready, mode, direct
   const contents = typeof renderer?.getContents === 'function' ? (renderer.getContents() || []) : []
   const frontContent = contents.find(content => content?.doc)
   const frontDoc = frontContent?.doc
+  const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
+  const frontAxisStep = readerRendererPageStride(renderer, { width, height, vertical })
+  const frontLayout = {
+    width,
+    height,
+    axisStep: frontAxisStep,
+    viewSize: Number(renderer?.viewSize),
+  }
+  const frontTargetScroll = pageDragCurrentRendererScroll(frontDoc, { width, height, vertical, renderer })
   const frontReady = this.syncPageDragCurlSnapshotFrame(frontSnapshot, frontDoc, {
     role: 'front',
     direction,
@@ -938,6 +1003,10 @@ function syncPageDragCurlSnapshots(layer, { renderer, frame, ready, mode, direct
     height,
     key: pageDragCurlSnapshotKey({ role: 'front', direction, width, height, content: frontContent, doc: frontDoc, renderer }),
     palette,
+    layout: frontLayout,
+    targetScroll: frontTargetScroll,
+    renderer,
+    vertical,
     onReady: recordSnapshotState,
   })
   let backReady = false
@@ -1129,10 +1198,59 @@ function readerRendererPageStride(renderer, { width, height, vertical } = {}) {
 function pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical, renderer }) {
   const scroll = pageDragCurlSnapshotScroll(doc)
   const axisStep = readerRendererPageStride(renderer, { width, height, vertical })
+  const rendererStart = Number(renderer?.start)
+  const baseAxisScroll = Number.isFinite(rendererStart) && rendererStart >= 0
+    ? Math.round(rendererStart)
+    : (vertical ? scroll.y : scroll.x)
   const sign = direction === 'previous' ? -1 : 1
-  const targetX = vertical ? scroll.x : Math.max(0, scroll.x + (axisStep * sign))
-  const targetY = vertical ? Math.max(0, scroll.y + (axisStep * sign)) : scroll.y
+  const targetX = vertical ? scroll.x : Math.max(0, baseAxisScroll + (axisStep * sign))
+  const targetY = vertical ? Math.max(0, baseAxisScroll + (axisStep * sign)) : scroll.y
   return { x: targetX, y: targetY, axisStep }
+}
+
+function pageDragCurrentRendererScroll(doc, { width, height, vertical, renderer }) {
+  const scroll = pageDragCurlSnapshotScroll(doc)
+  const axisStep = readerRendererPageStride(renderer, { width, height, vertical })
+  const rendererStart = Number(renderer?.start)
+  const baseAxisScroll = Number.isFinite(rendererStart) && rendererStart >= 0
+    ? Math.round(rendererStart)
+    : (vertical ? scroll.y : scroll.x)
+  return {
+    x: vertical ? scroll.x : Math.max(0, baseAxisScroll),
+    y: vertical ? Math.max(0, baseAxisScroll) : scroll.y,
+    axisStep,
+  }
+}
+
+function pageDragMappedPreviewScroll(frame, doc, targetScroll, { renderer, vertical }) {
+  const axisStep = Math.max(1, Math.round(Number(targetScroll?.axisStep) || Number(renderer?.size) || 1))
+  const rendererViewSize = Number(renderer?.viewSize)
+  const sourceMax = Number.isFinite(rendererViewSize) && rendererViewSize > axisStep
+    ? rendererViewSize - axisStep
+    : 0
+  const root = doc?.documentElement
+  const body = doc?.body
+  const frameRect = typeof frame?.getBoundingClientRect === 'function'
+    ? frame.getBoundingClientRect()
+    : null
+  const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
+  const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
+  const cloneScrollWidth = Number(root?.scrollWidth || body?.scrollWidth || 0)
+  const cloneScrollHeight = Number(root?.scrollHeight || body?.scrollHeight || 0)
+  const cloneMaxX = Math.max(0, cloneScrollWidth - Math.max(1, frameWidth))
+  const cloneMaxY = Math.max(0, cloneScrollHeight - Math.max(1, frameHeight))
+  const mapAxis = (value, cloneMax) => {
+    const numeric = Math.max(0, Math.round(Number(value) || 0))
+    if (!sourceMax || !cloneMax) return numeric
+    return Math.max(0, Math.min(cloneMax, Math.round((numeric / sourceMax) * cloneMax)))
+  }
+  return {
+    x: vertical ? Math.max(0, Math.round(Number(targetScroll?.x) || 0)) : mapAxis(targetScroll?.x, cloneMaxX),
+    y: vertical ? mapAxis(targetScroll?.y, cloneMaxY) : Math.max(0, Math.round(Number(targetScroll?.y) || 0)),
+    sourceMax,
+    cloneMaxX,
+    cloneMaxY,
+  }
 }
 
 function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, height, vertical, palette }) {
@@ -1179,7 +1297,13 @@ function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, h
     try {
       const frameDoc = frame.contentDocument
       const text = frameDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
-      frame.contentWindow?.scrollTo?.(targetScroll.x, targetScroll.y)
+      const mappedScroll = pageDragMappedPreviewScroll(frame, frameDoc, targetScroll, { renderer, vertical })
+      frame.dataset.navicPageDragPreviewFrameMappedScrollX = String(mappedScroll.x)
+      frame.dataset.navicPageDragPreviewFrameMappedScrollY = String(mappedScroll.y)
+      frame.dataset.navicPageDragPreviewFrameSourceMax = String(mappedScroll.sourceMax)
+      frame.dataset.navicPageDragPreviewFrameCloneMaxX = String(mappedScroll.cloneMaxX)
+      frame.dataset.navicPageDragPreviewFrameCloneMaxY = String(mappedScroll.cloneMaxY)
+      frame.contentWindow?.scrollTo?.(mappedScroll.x, mappedScroll.y)
       frame.dataset.navicPageDragPreviewFrameReady = frameDoc?.body ? 'true' : 'false'
       frame.dataset.navicPageDragPreviewFrameTextLength = String(text.length)
     } catch {
@@ -1194,7 +1318,12 @@ function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, h
     frame.dataset.navicPageDragPreviewFrameTextLength = '0'
     frame.onload = () => { markFrameReady() }
     frame.removeAttribute('src')
-    frame.srcdoc = pageDragCurlSnapshotHtml(doc)
+    frame.srcdoc = pageDragCurlSnapshotHtml(doc, {
+      width,
+      height,
+      axisStep: targetScroll.axisStep,
+      viewSize: Number(renderer?.viewSize),
+    })
     requestAnimationFrame(() => { markFrameReady() })
   } else if (frame.contentDocument?.body) {
     markFrameReady()
@@ -1299,7 +1428,18 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     height,
     palette,
   })
-  this.syncPageDragPreviewTextureLayers(layer)
+  const frameLeft = vertical || side !== 'right' ? 0 : -(width - exposedWidth)
+  const frameTop = vertical && direction === 'next' ? -(height - exposedHeight) : 0
+  const previewTextureScrollOffset = pageDragPreviewTextureScrollOffset({
+    direction,
+    frameLeft,
+    frameTop,
+    width,
+    height,
+    vertical,
+    readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
+  })
+  this.syncPageDragPreviewTextureLayers(layer, previewTextureScrollOffset)
   if (!ready) {
     const fallbackWidth = exposedWidth
     const fallbackHeight = exposedHeight
@@ -1336,8 +1476,8 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     })
     return false
   }
-  const frameLeft = vertical || side !== 'right' ? '0px' : `-${width - exposedWidth}px`
-  const frameTop = vertical && direction === 'next' ? `-${height - exposedHeight}px` : '0px'
+  const frameLeftPx = `${Math.round(frameLeft)}px`
+  const frameTopPx = `${Math.round(frameTop)}px`
   layer.dataset.navicPageDragPreviewFallback = 'false'
   layer.dataset.navicPageDragPreviewExposedWidth = String(exposedWidth)
   layer.dataset.navicPageDragPreviewExposedHeight = String(exposedHeight)
@@ -1358,8 +1498,8 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
   })
   setStylesImportant(frame, {
     position: 'absolute',
-    top: frameTop,
-    left: frameLeft,
+    top: frameTopPx,
+    left: frameLeftPx,
     width: `${width}px`,
     height: `${height}px`,
     border: '0',
@@ -1628,12 +1768,14 @@ function startPageTurn(direction) {
     : null
   this.surfacePaperTextureTurnDirection = direction
   this.surfacePaperTextureFallbackDirection = direction
+  this.startSurfacePaperTextureMotionSync('page-turn-animation')
   const turnPromise = Promise.resolve().then(() => this.performPageTurn(direction))
   let completionPromise = null
   completionPromise = turnPromise.finally(() => {
     if (this.pageTurnPromise === completionPromise) this.pageTurnPromise = null
     this.pageTurnInProgress = false
     if (this.pageTurnDirection === direction) this.pageTurnDirection = null
+    this.scheduleSettledControlledPageTurnRelocation(direction)
     readerTrace('page-turn:settled', {
       direction,
       navigationIndex: this.fixedLayoutNavigationPageIndex,

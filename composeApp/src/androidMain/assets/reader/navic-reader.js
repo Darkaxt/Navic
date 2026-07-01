@@ -253,8 +253,12 @@ class NavicReaderRuntime {
   surfaceTextureScrollOffset = { x: 0, y: 0 }
   surfacePaperTextureScrollRenderer = null
   surfacePaperTextureScrollListener = null
+  surfacePaperTextureMotionFrame = null
+  surfacePaperTextureMotionSyncActive = false
   surfacePaperTextureTurnDirection = null
   surfacePaperTextureFallbackDirection = null
+  surfacePaperTextureDeferredFrame = null
+  pendingSurfacePaperTextureUpdate = null
   tapZoneOverlayLayer = null
   pageNumberLayer = null
   shellCoverLayer = null
@@ -630,6 +634,9 @@ class NavicReaderRuntime {
     this.surfaceBorderOverlaySlots = []
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
+    this.stopSurfacePaperTextureMotionSync?.('runtime-reset')
+    this.surfacePaperTextureMotionFrame = null
+    this.surfacePaperTextureMotionSyncActive = false
     this.surfacePaperTextureTurnDirection = null
     this.surfacePaperTextureFallbackDirection = null
     this.lastRelocateDetail = null

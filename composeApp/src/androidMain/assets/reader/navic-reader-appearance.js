@@ -450,6 +450,33 @@ function syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
   }
 }
 
+function startSurfacePaperTextureMotionSync(reason = 'page-turn-animation') {
+  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return
+  this.surfacePaperTextureMotionSyncActive = true
+  if (this.surfacePaperTextureMotionFrame != null) {
+    cancelAnimationFrame(this.surfacePaperTextureMotionFrame)
+    this.surfacePaperTextureMotionFrame = null
+  }
+  const tick = () => {
+    if (!this.surfacePaperTextureMotionSyncActive) {
+      this.surfacePaperTextureMotionFrame = null
+      return
+    }
+    this.syncSurfacePaperTextureScrollOffset(reason)
+    this.surfacePaperTextureMotionFrame = requestAnimationFrame(tick)
+  }
+  this.surfacePaperTextureMotionFrame = requestAnimationFrame(tick)
+}
+
+function stopSurfacePaperTextureMotionSync(reason = 'page-turn-settled') {
+  this.surfacePaperTextureMotionSyncActive = false
+  if (this.surfacePaperTextureMotionFrame != null) {
+    cancelAnimationFrame(this.surfacePaperTextureMotionFrame)
+    this.surfacePaperTextureMotionFrame = null
+  }
+  this.syncSurfacePaperTextureScrollOffset(reason)
+}
+
 function renderSurfacePaperTextureLayers() {
   const textureSlots = this.surfaceTextureSlots || []
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
@@ -509,7 +536,7 @@ function surfacePaperTextureIndex(detail = {}) {
   return Number.isFinite(entryIndex) ? Math.floor(entryIndex) : 0
 }
 
-function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
+function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   const index = this.surfacePaperTextureIndex(detail)
   const section = this.view?.book?.sections?.[index]
   const textureDetail = pagePosition
@@ -572,7 +599,65 @@ function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
     borderAsset: borderOverlayVariant.asset,
   })
   this.renderSurfacePaperTextureLayers()
+  this.stopSurfacePaperTextureMotionSync('texture-update')
   this.surfacePaperTextureTurnDirection = null
+}
+
+function shouldDeferSurfacePaperTextureUpdate(reason = '') {
+  if (!String(reason || '').startsWith('page-turn:')) return false
+  if (!this.surfacePaperTextureMotionSyncActive) return false
+  const position = this.currentRendererContainerPosition()
+  const baseOffset = Number(this.surfacePaperTextureBaseOffset)
+  return Number.isFinite(position) &&
+    Number.isFinite(baseOffset) &&
+    Math.abs(position - baseOffset) > 1
+}
+
+function scheduleDeferredSurfacePaperTextureUpdate(reason = 'page-turn') {
+  if (this.surfacePaperTextureDeferredFrame != null) return
+  const tick = (previousPosition = null, stableFrames = 0) => {
+    this.surfacePaperTextureDeferredFrame = requestAnimationFrame(() => {
+      this.surfacePaperTextureDeferredFrame = null
+      const pending = this.pendingSurfacePaperTextureUpdate
+      if (!pending) return
+      const position = this.currentRendererContainerPosition()
+      const stable = Number.isFinite(previousPosition) && Math.abs(position - previousPosition) <= 1
+      const nextStableFrames = stable ? stableFrames + 1 : 0
+      if (nextStableFrames < 2) {
+        tick(position, nextStableFrames)
+        return
+      }
+      this.pendingSurfacePaperTextureUpdate = null
+      readerTrace('texture:update-deferred-applied', {
+        reason,
+        position,
+        baseOffset: this.surfacePaperTextureBaseOffset,
+      })
+      this.applySurfacePaperTextureUpdate(pending.detail, pending.pagePosition)
+    })
+  }
+  tick()
+}
+
+function updateSurfacePaperTexture(detail = {}, pagePosition = null, reason = '') {
+  if (this.shouldDeferSurfacePaperTextureUpdate(reason)) {
+    this.pendingSurfacePaperTextureUpdate = { detail, pagePosition }
+    readerTrace('texture:update-deferred', {
+      reason,
+      position: this.currentRendererContainerPosition(),
+      baseOffset: this.surfacePaperTextureBaseOffset,
+      pageIndex: pagePosition?.pageIndex ?? null,
+      pageCount: pagePosition?.pageCount ?? null,
+    })
+    this.scheduleDeferredSurfacePaperTextureUpdate(reason)
+    return
+  }
+  if (this.surfacePaperTextureDeferredFrame != null) {
+    cancelAnimationFrame(this.surfacePaperTextureDeferredFrame)
+    this.surfacePaperTextureDeferredFrame = null
+  }
+  this.pendingSurfacePaperTextureUpdate = null
+  this.applySurfacePaperTextureUpdate(detail, pagePosition)
 }
 
 function applyReaderDirection(direction, rerender = true) {
@@ -622,8 +707,13 @@ export const NavicReaderAppearanceMethods = {
   attachSurfacePaperTextureScrollSync,
   detachSurfacePaperTextureScrollSync,
   syncSurfacePaperTextureScrollOffset,
+  startSurfacePaperTextureMotionSync,
+  stopSurfacePaperTextureMotionSync,
   renderSurfacePaperTextureLayers,
   surfacePaperTextureIndex,
+  applySurfacePaperTextureUpdate,
+  shouldDeferSurfacePaperTextureUpdate,
+  scheduleDeferredSurfacePaperTextureUpdate,
   updateSurfacePaperTexture,
   applyReaderDirection,
   applyDocumentDirection

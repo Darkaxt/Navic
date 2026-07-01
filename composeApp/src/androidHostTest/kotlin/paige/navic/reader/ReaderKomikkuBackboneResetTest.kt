@@ -763,7 +763,7 @@ class ReaderKomikkuBackboneResetTest {
 				runtimeText.indexOf("preloadPageDragPreviewTargets(") < runtimeText.indexOf("updatePageDragPreviewLayer({") &&
 				runtimeText.contains("safeNativeDragPreviewAtSectionBoundary(renderer, direction)") &&
 				runtimeText.contains("updatePageDragPreviewLayer({") &&
-				runtimeText.contains("this.syncPageDragPreviewTextureLayers(layer)") &&
+				runtimeText.contains("this.syncPageDragPreviewTextureLayers(layer, previewTextureScrollOffset)") &&
 				runtimeText.contains("dataset.navicPageDragPreviewLayer") &&
 				runtimeText.contains("adjacentReadableSectionIndex(direction)"),
 			"Foliate runtime preview should preload adjacent-section content before drag exposure and mount visual-only clipped underlays instead of moving the committed renderer or exposing a black native background."

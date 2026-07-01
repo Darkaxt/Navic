@@ -180,10 +180,11 @@ class ReaderRuntimePaperSurfaceTest {
 	fun androidReaderUsesStaticBackingAndMovingPagePaperTextureOwners() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
 		val indexText = readerAssetRoot().resolve("index.html").readText()
-		val surfaceTextureUpdater = bridgeText
-			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
-			.substringBefore("\n  applyReaderDirection")
+		val surfaceTextureUpdater = appearanceText
+			.substringAfter("function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null)")
+			.substringBefore("\nfunction shouldDeferSurfacePaperTextureUpdate")
 		val surfaceLayerUpdater = helperText
 			.substringAfter("export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) =>")
 			.substringBefore("\n\nexport const updateReaderSurfaceBorderOverlayLayer")
@@ -240,8 +241,8 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(onLoad, "this.updateReaderPageNumberLayer()")
 		assertContains(
 			bridgeText,
-			"this.updateSurfacePaperTexture(detail, pagePosition)",
-			message = "Committed location posts should refresh the surface texture with the same page position used for numbering."
+			"this.updateSurfacePaperTexture(detail, pagePosition, reason)",
+			message = "Committed location posts should refresh the surface texture with the same page position and reason used for numbering."
 		)
 		assertContains(bridgeText, "position: 'fixed'")
 		assertContains(bridgeText, "'pointer-events': 'none'")
@@ -290,7 +291,8 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(appearanceText, "updateReaderMovingPageTextureLayer(")
 		assertContains(appearanceText, "updateReaderStaticPaperBackingLayer(")
 		assertContains(pageTurnText, "syncPageDragPreviewTextureLayers")
-		assertContains(pageTurnText, "this.syncPageDragPreviewTextureLayers(layer)")
+		assertContains(pageTurnText, "pageDragPreviewTextureScrollOffset")
+		assertContains(pageTurnText, "this.syncPageDragPreviewTextureLayers(layer, previewTextureScrollOffset)")
 		assertFalse(
 			pageTurnText.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
 			"Drag previews must not move the committed Foliate renderer; texture movement belongs to the visual preview layer."
@@ -307,7 +309,8 @@ class ReaderRuntimePaperSurfaceTest {
 
 		assertContains(pageTurnText, "ensurePageDragPreviewTextureLayers")
 		assertContains(pageTurnText, "syncPageDragPreviewTextureLayers")
-		assertContains(previewUpdater, "this.syncPageDragPreviewTextureLayers(layer)")
+		assertContains(previewUpdater, "const previewTextureScrollOffset = pageDragPreviewTextureScrollOffset")
+		assertContains(previewUpdater, "this.syncPageDragPreviewTextureLayers(layer, previewTextureScrollOffset)")
 		assertContains(
 			pageTurnText,
 			"updateReaderMovingPageTextureLayer(",
@@ -317,7 +320,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(pageTurnText, "data-navic-page-drag-preview-paper-layer")
 		assertContains(pageTurnText, "data-navic-page-drag-preview-border-layer")
 		assertTrue(
-			previewUpdater.indexOf("this.syncPageDragPreviewTextureLayers(layer)") <
+			previewUpdater.indexOf("this.syncPageDragPreviewTextureLayers(layer, previewTextureScrollOffset)") <
 				previewUpdater.indexOf("if (!ready)"),
 			"Texture surfaces must be attached even during the not-ready preview fallback; otherwise boundary drags reveal an untextured or black void until the adjacent page iframe loads."
 		)
@@ -354,6 +357,33 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(syncInteriorFrame, "dataset.navicPageDragPreviewFrameAxisStep")
 		assertContains(syncInteriorFrame, "dataset.navicPageDragPreviewFrameRendererPage")
 		assertContains(syncInteriorFrame, "dataset.navicPageDragPreviewFrameRendererPages")
+	}
+
+	@Test
+	fun androidReaderCurlSnapshotUsesCurrentFoliateRendererPageNotChapterStart() {
+		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val currentScrollHelper = pageTurnText
+			.substringAfter("function pageDragCurrentRendererScroll")
+			.substringBefore("\nfunction pageDragMappedPreviewScroll")
+		val snapshotFrame = pageTurnText
+			.substringAfter("function syncPageDragCurlSnapshotFrame")
+			.substringBefore("\nfunction syncPageDragCurlSnapshots")
+		val snapshotSync = pageTurnText
+			.substringAfter("function syncPageDragCurlSnapshots")
+			.substringBefore("\nfunction buildPageDragPreviewTargetKey")
+
+		assertContains(currentScrollHelper, "Number(renderer?.start)")
+		assertContains(currentScrollHelper, "readerRendererPageStride(renderer")
+		assertContains(snapshotFrame, "pageDragMappedPreviewScroll(snapshot, snapshotDoc, targetScroll")
+		assertContains(snapshotFrame, "pageDragCurlSnapshotHtml(doc, layout)")
+		assertContains(snapshotSync, "const frontTargetScroll = pageDragCurrentRendererScroll(frontDoc")
+		assertContains(snapshotSync, "targetScroll: frontTargetScroll")
+		assertContains(snapshotSync, "layout: frontLayout")
+		assertContains(
+			snapshotSync,
+			"viewSize: Number(renderer?.viewSize)",
+			message = "Curl front snapshots must reproduce Foliate's paged layout width so renderer.start maps to the visible page instead of cloning chapter page 1."
+		)
 	}
 
 	@Test
@@ -564,6 +594,7 @@ class ReaderRuntimePaperSurfaceTest {
 	@Test
 	fun androidReaderKeepsTextureTurnDirectionUntilCommittedTextureUpdate() {
 		val bridgeText = readerBridgeText()
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
 		val runtimeFields = bridgeText
 			.substringAfter("class NavicReaderRuntime {")
 			.substringBefore("\n  constructor()")
@@ -573,9 +604,9 @@ class ReaderRuntimePaperSurfaceTest {
 		val surfaceOffset = bridgeText
 			.substringAfter("surfacePaperTextureScrollOffset() {")
 			.substringBefore("\n  surfacePaperTextureDiagnosticState")
-		val surfaceTextureUpdate = bridgeText
-			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
-			.substringBefore("\n  applyReaderDirection")
+		val surfaceTextureUpdate = appearanceText
+			.substringAfter("function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null)")
+			.substringBefore("\nfunction shouldDeferSurfacePaperTextureUpdate")
 
 		assertContains(
 			runtimeFields,
@@ -583,14 +614,54 @@ class ReaderRuntimePaperSurfaceTest {
 			message = "Texture motion needs a direction state that can outlive pageTurnPromise settlement at area boundaries."
 		)
 		assertContains(
+			runtimeFields,
+			"surfacePaperTextureMotionFrame = null",
+			message = "Animated page turns need a requestAnimationFrame owner because Foliate can move containerPosition between sparse scroll events."
+		)
+		assertContains(
+			runtimeFields,
+			"surfacePaperTextureMotionSyncActive = false",
+			message = "Texture frame sync needs an explicit active flag so it can stop on committed texture updates without product timeouts."
+		)
+		assertContains(
 			startPageTurn,
 			"this.surfacePaperTextureTurnDirection = direction",
 			message = "Every explicit next/previous action must seed texture movement direction before Foliate emits delayed scroll/relocate events."
 		)
 		assertContains(
+			startPageTurn,
+			"this.startSurfacePaperTextureMotionSync('page-turn-animation')",
+			message = "Texture slots must track renderer movement on animation frames while the page turn is in progress."
+		)
+		assertContains(
 			surfaceOffset,
 			"pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection",
 			message = "Texture offset must prefer the sticky surface direction, not only the transient pageTurnDirection cleared in finally."
+		)
+		assertContains(
+			bridgeText,
+			"startSurfacePaperTextureMotionSync(reason = 'page-turn-animation')",
+			message = "The runtime must expose a named frame-sync owner for animated texture motion."
+		)
+		assertContains(
+			bridgeText,
+			"requestAnimationFrame(tick)",
+			message = "Frame sync should follow renderer motion, not wait for relocation or scroll events that can arrive late."
+		)
+		assertContains(
+			bridgeText,
+			"cancelAnimationFrame(this.surfacePaperTextureMotionFrame)",
+			message = "Frame sync must be explicitly stopped when the committed texture update lands."
+		)
+		assertContains(
+			surfaceTextureUpdate,
+			"this.stopSurfacePaperTextureMotionSync('texture-update')",
+			message = "The page-turn frame sync must stop only when the committed paper texture is updated."
+		)
+		assertTrue(
+			surfaceTextureUpdate.indexOf("this.stopSurfacePaperTextureMotionSync('texture-update')") <
+				surfaceTextureUpdate.indexOf("this.surfacePaperTextureTurnDirection = null"),
+			"Final texture sync must run while the sticky direction is still available."
 		)
 		assertContains(
 			surfaceTextureUpdate,
@@ -1128,8 +1199,8 @@ class ReaderRuntimePaperSurfaceTest {
 
 		assertContains(
 			frontmatterMode,
-			"performReaderTouchDrag",
-			message = "The texture boundary harness must exercise real drag-driven Foliate page turns, not only bridge nextPage commands."
+			"type: 'previewPageDrag'",
+			message = "The texture boundary harness must exercise native-overlay drag preview, not only bridge nextPage commands."
 		)
 		assertContains(
 			frontmatterMode,

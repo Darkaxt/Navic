@@ -10035,3 +10035,56 @@ Results:
 
 Next:
 - This fixes the user-facing global page model freezing on controlled page turns. Physical-device validation should still check whether the visual texture layer and Foliate content movement feel aligned during real finger drags, because that is a separate texture/preview rendering issue.
+
+## 2026-07-01 Stage 9L Curl/Texture Current-Page Stabilization
+
+Scope:
+- Investigate physical feedback that the drag/curl animation was visible and mostly improved, but the animated page surface sometimes showed the first page of the chapter instead of the actual current page.
+- Keep the fix scoped to page-turn/curl/texture state ownership; do not add a user-facing standard/curl toggle in this slice.
+
+Diagnosis:
+- The runtime had three state sources that could diverge during animated page turns: Foliate renderer position, native curl/texture preview state, and committed Navic page/location state.
+- Curl snapshots needed to map Foliate `renderer.start` into the cloned paged document; otherwise the cloned iframe could display chapter page 1 even when the real renderer was on a later page.
+- At section/frontmatter boundaries Foliate can emit unchanged or hybrid relocation aftershocks during a controlled page turn. Projecting an explicit page-turn target onto a different/unchanged section made texture/page-number/curl state disagree.
+- Foliate's readable page count already excludes its trailing terminal columns; Navic was still subtracting one more page in the reflowable paginated text count path.
+
+Changes:
+- Curl front snapshots now use current renderer scroll mapping and paged clone layout data instead of raw chapter scroll position.
+- `committedPageTurnPosition` now receives relocation detail and only applies explicit target clamping when the current and candidate sections match.
+- `pageTurnRelocationDetailIsStale` rejects unchanged same-section locators and same-section boundary aftershocks before `readerPagePosition(detail)` can fabricate page movement from stale CFI/raw location mixes.
+- Reflowable paginated readable text page count now uses Foliate's raw `pages - 2` result directly instead of subtracting again.
+- Runtime and harness frame-rect reads now guard `getBoundingClientRect()` results explicitly; the Bindery fixture exposed a transient null page error during native drag preview diagnostics.
+
+Commands:
+
+```powershell
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-location.js
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check .\tools\reader-harness\src\run-reader-harness.mjs
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture .\tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\served-input.epub --target-global-page-index 4 --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\book-3809-file-426.epub --target-global-page-index 4 --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture .\tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture .\tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderRejectsUnchangedPageTurnLocatorBeforeRendererDerivedPageMath" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderDoesNotApplyExplicitPageTurnTargetAcrossDifferentSections" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderSkipsTrailingBlankFoliateColumnForChapterEndpoints" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderRejectsStaleControlledPageTurnRelocationsBeforeConsumingReason"
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git diff --check
+```
+
+Results:
+- RED/GUARD: `androidReaderDoesNotApplyExplicitPageTurnTargetAcrossDifferentSections` failed before passing relocation detail into `committedPageTurnPosition`.
+- RED/GUARD: `androidReaderRejectsUnchangedPageTurnLocatorBeforeRendererDerivedPageMath` failed before unchanged/boundary relocation guards were added ahead of renderer-derived page math.
+- RED/HARNESS: `epub-texture-page-turns` on the Hobbit fixture previously failed after frontmatter with `Expected probe bridge-next-boundary-animated to observe renderer movement with texture CSS samples`; it now passes.
+- GREEN/HARNESS-HOBBIT: `epub-texture-page-turns`, `epub-native-drag-single-commit`, and `epub-texture-frontmatter-transition` pass on `served-input.epub` at tablet/landscape dimensions.
+- GREEN/HARNESS-BINDERY: `epub-native-drag-single-commit` passed twice on `book-3809-file-426.epub` after the guarded frame-rect fix, and `epub-texture-frontmatter-transition` also passed.
+- GREEN/HOST: the focused page-turn progress tests passed.
+- GREEN/HOST-PAPER: the complete `ReaderRuntimePaperSurfaceTest` class passed after updating source guards to the split `navic-reader-appearance.js` owner.
+- RED/FULL-GRADLE-FIRST: the first full `:composeApp:testAndroid` run failed on two stale source-contract guards: the Komikku backbone guard still expected the old one-argument preview texture call, and the navigation-flow guard still sliced the old `committedPageTurnPosition(pagePosition, reason)` signature.
+- GREEN/FULL-GRADLE: after updating those guards to require `this.syncPageDragPreviewTextureLayers(layer, previewTextureScrollOffset)` and `committedPageTurnPosition(pagePosition, detail, reason)`, `:composeApp:testAndroid` passed.
+- GREEN/JS: syntax checks passed for the touched reader JS and harness JS.
+- GREEN/DIFF: `git diff --check` passed.
+
+Next:
+- This is current-source browser/host proof for the curl/texture/page model split. A public release is justified if treated as a major drag/curl/texture candidate, but the visual feel must still be checked on a physical device after publishing.
