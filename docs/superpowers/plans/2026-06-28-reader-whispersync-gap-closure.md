@@ -2508,3 +2508,21 @@ Results:
 - GREEN/READERDEV-SWIPE: native next/previous swipe diagnostics passed texture-direction assertions with no wrong-direction samples: `captures\reader-bridge-probes\stage9i2-current-source-drag-next-debug-20260702` and `captures\reader-bridge-probes\stage9i2-current-source-drag-previous-debug-20260702`.
 - WATCH/WHISPERSYNC-FOLLOW: the previous-swipe run also observed a later `media-overlay-follow` relocation on the same href/page after the page turn. That did not invert texture direction in this debug run, but future audio-enabled drag/turn validation should keep media-overlay follow suppression in scope.
 - TURNJS-DECISION: do not replace the Foliate/Anx EPUB core with Turn.js. Turn.js-style flipbook code can only be considered as optional visual-reference material for the drag preview layer, because the reader core must keep Foliate-owned EPUB/PDF pagination, locators, annotations, text selection, search, and Whispersync visible-range/media-overlay bridges.
+
+### Stage 9M.6: Organic Page Number Font Parity Refresh
+
+Status: current-source host and readerdev/emulator proof complete; no public release.
+
+Purpose:
+- Address tablet feedback that the organic page number still looked like a separate UI font instead of the configured ebook font.
+- Keep the correction narrow and debug-first; do not burn a public release for this isolated typography slice.
+
+Results:
+- RED/HOST-FIRST: tightened `ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome` rejected the old page-number layer because it only referenced the CSS variable and kept `oldstyle-nums tabular-nums`.
+- FIXED/RUNTIME: `navic-reader-pagination.js` now applies the resolved `fontFamily` directly and uses normal numeric variants.
+- FIXED/HARNESS: `adb-webview-eval.mjs` now reports `pageNumberFontVariantNumeric` for the live WebView `page-number-font` probe.
+- GREEN/HOST: focused host test passed.
+- GREEN/READERDEV: `darkaxt.navic.readerdev` rebuilt/installed/launched on `emulator-5554`; live `page-number-font` reported page-number, root variable, EPUB content, and body all on the Dys/OpenDyslexic stack with `pageNumberFontVariantNumeric=normal`.
+
+Next:
+- Keep this queued for the next coherent reader visual/interaction release candidate. Do not publish a public APK for this slice alone.

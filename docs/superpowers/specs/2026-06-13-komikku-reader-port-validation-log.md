@@ -10438,3 +10438,41 @@ Caveat:
 
 Next:
 - Do not publish a public APK for this slice. It removes one Whispersync/texture interference path, but physical release validation should wait for the broader reader visual/layout candidate.
+
+## 2026-07-02 Stage 9M.6 Organic Page Number Font Parity
+
+Scope:
+- Respond to tablet feedback that the organic EPUB page number still did not visually use the same configured ebook font as the body text.
+- Keep this as a debug/readerdev validation slice only. Do not publish a public APK for this isolated typography correction.
+
+Root cause:
+- The page-number layer resolved the correct reader font family but applied it indirectly through `var(--reader-page-number-font-family, ...)` and forced `font-variant-numeric: oldstyle-nums tabular-nums`.
+- That made the page number read as a separate numeric UI overlay even when the configured Dys/OpenDyslexic family was available to the root document.
+
+Changes:
+- `navic-reader-pagination.js` now applies the resolved `fontFamily` directly to the page-number layer while still keeping the root CSS variable for diagnostics.
+- The page-number layer now uses `font-variant-numeric: normal`, so the digits follow the configured ebook font more closely.
+- `adb-webview-eval.mjs` reports `pageNumberFontVariantNumeric` in the `page-number-font` probe.
+- `ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome` now rejects the old variable-only/oldstyle-numeric page-number styling.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode adaptive-page-box-logic
+java -jar gradle\wrapper\gradle-wrapper.jar --no-daemon :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome --console=plain
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch -Capture
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-number-font
+```
+
+Results:
+- RED/HOST-FIRST: the stricter page-number layer guard failed against the previous runtime because the layer used only the CSS variable and kept the oldstyle numeric variant.
+- GREEN/JS: `navic-reader-pagination.js` and `adb-webview-eval.mjs` passed syntax checks.
+- GREEN/HARNESS: `adaptive-page-box-logic` still passed after the page-number patch.
+- GREEN/HOST: focused `ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome` passed from hidden Gradle log `artifacts\validation\page-number-layer-green-20260702-021028.out.log`.
+- GREEN/READERDEV-INSTALL: `darkaxt.navic.readerdev` rebuilt, installed, launched on `emulator-5554`, reached `publicationReady`, and captured `captures\reader-dev\reader-dev-20260702-021230.png`.
+- GREEN/READERDEV-FONT: live `page-number-font` probe reported page-number, root variable, content, and body font families all using `"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif`; `rootFontFaceHasDys=true`; `pageNumberFontVariantNumeric=normal`.
+
+Next:
+- Do not publish a public APK for this slice. Bundle it into the next coherent reader visual/interaction candidate after texture/drag behavior has a substantial fix.

@@ -2605,6 +2605,7 @@ async function runPageNumberFontProbe(page) {
       requestedFontFamily: dysFontFamily,
       pageNumberText: pageNumberLayer.textContent || '',
       pageNumberFontFamily: pageNumberStyle.fontFamily,
+      pageNumberFontVariantNumeric: pageNumberStyle.fontVariantNumeric,
       rootFontVariable,
       contentFontFamily: contentStyle?.fontFamily || '',
       bodyFontFamily: bodyStyle?.fontFamily || '',

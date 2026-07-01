@@ -967,7 +967,11 @@ class ReaderRuntimeShellProgressTest {
 			"Page number labels must keep the # / # design instead of falling back to a bare current page."
 		)
 		assertContains(bridgeText, "this.updateReaderPageNumberLayer(pagePosition)")
-		assertContains(bridgeText, "font-family': 'var(--reader-page-number-font-family")
+		assertContains(bridgeText, "'font-family': fontFamily")
+		assertFalse(
+			bridgeText.contains("'font-variant-numeric': 'oldstyle-nums tabular-nums'"),
+			"The organic page number should look like ebook text, not a separate numeric UI overlay."
+		)
 		assertContains(bridgeText, "function applyRootReaderFontFaces(settings")
 		assertContains(bridgeText, "navic-reader-root-font-face")
 		assertContains(bridgeText, "readerFontFaceCss(settings)")
