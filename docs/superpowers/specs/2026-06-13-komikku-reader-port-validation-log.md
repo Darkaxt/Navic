@@ -9872,3 +9872,36 @@ Next:
   - dragging from Chapter 1 page 1/global `5/140` previews page 6 and commits page 6, not page 7;
   - page 12 / stacked-dwarves image page does not invert or skip during drag;
   - remaining paper texture/border shadow weakness and landscape spread issues are still present or improved.
+
+## 2026-07-01 Stage 9I Interior Drag Preview Without Renderer Mutation
+
+Scope:
+- Follow up theta32 without reintroducing the double-commit bug: interior in-chapter drag previews should mount a visible page-curl surface with current-page snapshot, adjacent in-section underlay text, and paper/border texture layers while Foliate's committed renderer window remains stable until the native release page action.
+- Keep boundary section previews on the existing adjacent-section iframe path.
+
+Commands:
+
+```powershell
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\served-input.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture .\tmp\reader-live\served-input.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture .\tmp\reader-live\served-input.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture .\tmp\reader-live\book-3809-file-426.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture .\tmp\reader-live\book-3809-file-426.epub
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode css-smoke --fixture .\tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check .\tools\reader-harness\src\run-reader-harness.mjs
+```
+
+Results:
+- RED/HARNESS: strengthened `epub-native-drag-single-commit` failed before the runtime patch because interior preview removed `[data-navic-page-drag-preview-layer="true"]` entirely.
+- FIXED/RUNTIME: interior drags now create an `interior` preview target that clones the current content document into the existing underlay iframe, scrolls it to the adjacent in-section page, and reuses the existing curl snapshot plus paper/border texture layers. Boundary drags still use the adjacent-section underlay path.
+- GREEN/HARNESS: `epub-native-drag-single-commit` now reports `mode=interior`, `frameReady=true`, `frameTextLength=82767`, `frontSnapshotReady=true`, `paperLayerPresent=true`, `borderLayerPresent=true`, and `textureSurface=paper,border`; release plus `nextPage` still advances exactly one renderer page.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay`, `epub-texture-page-turns` on `served-input.epub` and book `3809` file `426`, `epub-texture-frontmatter-transition` on book `3809` file `426`, and tablet-width `css-smoke` passed.
+- NOTE/HARNESS: `epub-texture-frontmatter-transition` on `served-input.epub` did not find a visible section boundary in the scanner window, so the boundary-specific proof uses the production-style `book-3809-file-426.epub` fixture.
+- GREEN/JS: `node --check` passed for touched runtime/harness JS.
+- GREEN/WHITESPACE: `git diff --check` passed.
+- GREEN/HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed.
+
+Next:
+- Commit the Stage 9I slice.
+- Public release is justified if this is treated as a major drag-feel/black-void follow-up candidate after theta32.

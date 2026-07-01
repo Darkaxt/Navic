@@ -2433,6 +2433,82 @@ if (mode === 'epub-native-drag-single-commit') {
         `before=${JSON.stringify(before)} afterPreview=${JSON.stringify(afterPreview)}`
       )
     }
+    const readPreviewVisual = () => page.evaluate(() => {
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      const frame = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+      const frontSnapshot = layer?.querySelector?.('[data-navic-page-curl-snapshot="front"]')
+      const paperLayer = layer?.querySelector?.('[data-navic-page-drag-preview-paper-layer="true"]')
+      const borderLayer = layer?.querySelector?.('[data-navic-page-drag-preview-border-layer="true"]')
+      const style = layer ? getComputedStyle(layer) : null
+      return {
+        layerPresent: Boolean(layer),
+        framePresent: Boolean(frame),
+        frameReady: frame?.dataset.navicPageDragPreviewFrameReady === 'true',
+        frameTextLength: Number(frame?.dataset.navicPageDragPreviewFrameTextLength) || 0,
+        mode: layer?.dataset.navicPageDragPreviewMode || '',
+        fallback: layer?.dataset.navicPageDragPreviewFallback || '',
+        ready: layer?.dataset.navicPageDragPreviewReady === 'true',
+        curl: layer?.dataset.navicPageDragPreviewCurl === 'true',
+        curlDirection: layer?.dataset.navicPageDragPreviewCurlDirection || '',
+        curlProgress: Number(layer?.dataset.navicPageDragPreviewCurlProgress),
+        curlSheetMode: layer?.dataset.navicPageCurlSheetMode || '',
+        frontSnapshotPresent: Boolean(frontSnapshot),
+        frontSnapshotReady: frontSnapshot?.dataset.navicPageCurlSnapshotReady === 'true',
+        frontSnapshotTextLength: Number(frontSnapshot?.dataset.navicPageCurlSnapshotTextLength) || 0,
+        paperLayerPresent: Boolean(paperLayer),
+        borderLayerPresent: Boolean(borderLayer),
+        textureSurface: layer?.dataset.navicPageDragPreviewTextureSurface || '',
+        opacity: style?.opacity || '',
+        width: style?.width || '',
+      }
+    })
+    let previewVisual = await readPreviewVisual()
+    if (previewVisual.layerPresent && previewVisual.mode === 'interior' && !previewVisual.frameReady) {
+      await page.waitForFunction(() => {
+        const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+        const frame = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+        return layer?.dataset.navicPageDragPreviewMode === 'interior' &&
+          frame?.dataset.navicPageDragPreviewFrameReady === 'true' &&
+          Number(frame?.dataset.navicPageDragPreviewFrameTextLength) > 0
+      })
+      previewVisual = await readPreviewVisual()
+    }
+    if (!previewVisual.layerPresent || previewVisual.mode !== 'interior') {
+      throw new Error(
+        `Expected interior native drag preview to mount a non-committing visual layer; ` +
+        `observed ${JSON.stringify(previewVisual)}`
+      )
+    }
+    if (!previewVisual.curl || previewVisual.curlDirection !== 'next') {
+      throw new Error(
+        `Expected interior native drag preview to expose curl state; ` +
+        `observed ${JSON.stringify(previewVisual)}`
+      )
+    }
+    if (!Number.isFinite(previewVisual.curlProgress) || previewVisual.curlProgress <= 0 || previewVisual.curlProgress >= 1) {
+      throw new Error(
+        `Expected interior native drag preview curl progress to reflect the current drag fraction; ` +
+        `observed ${JSON.stringify(previewVisual)}`
+      )
+    }
+    if (!previewVisual.frontSnapshotPresent || !previewVisual.frontSnapshotReady || previewVisual.frontSnapshotTextLength <= 0) {
+      throw new Error(
+        `Expected interior native drag preview to snapshot the current readable page; ` +
+        `observed ${JSON.stringify(previewVisual)}`
+      )
+    }
+    if (!previewVisual.framePresent || !previewVisual.frameReady || previewVisual.frameTextLength <= 0) {
+      throw new Error(
+        `Expected interior native drag preview to render the adjacent in-section underlay, not a black void; ` +
+        `observed ${JSON.stringify(previewVisual)}`
+      )
+    }
+    if (!previewVisual.paperLayerPresent || !previewVisual.borderLayerPresent || !previewVisual.textureSurface.includes('paper')) {
+      throw new Error(
+        `Expected interior native drag preview to carry paper and border texture layers; ` +
+        `observed ${JSON.stringify(previewVisual)}`
+      )
+    }
 
     await page.evaluate(async () => {
       const width = window.visualViewport?.width || window.innerWidth || 500
@@ -2479,6 +2555,7 @@ if (mode === 'epub-native-drag-single-commit') {
       generatedAt: new Date().toISOString(),
       before,
       afterPreview,
+      previewVisual,
       afterCommit,
     }, null, 2))
     console.log(`reader harness epub-native-drag-single-commit passed: ${outputPath}`)

@@ -2416,3 +2416,48 @@ Stage 9H.2 release:
 - GitHub Actions run `28500877062` passed Android build/signing/release creation; iOS jobs were skipped.
 - Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta31`.
 - APK: `Navic.apk`, `33,591,767` bytes, `sha256:bea3b6ea7573a993eb6fa7fb732dc5a28f4f05357503044089d6b343a0d8fe6d`.
+
+### Stage 9H.3: Native Drag Single-Commit Guard
+
+Status: complete and published as `v1.0.11-theta32`.
+
+Purpose:
+- Close the physical regression where dragging from Chapter 1 page 1/global `5/140` previewed the next page but committed one page too far after finger-up.
+- Preserve the Komikku ownership rule: native drag preview may show visual feedback, but it must not mutate Foliate's committed renderer window before the release page action.
+
+Scope:
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- Modify: `tools/reader-harness/src/run-reader-harness.mjs`
+- Modify: reader font/loose paragraph fixes that were bundled into theta32 for the same release.
+
+Results:
+- RED/HARNESS: `epub-native-drag-single-commit` failed while `previewPageDrag(update)` moved `renderer.start/end` by `165px`.
+- FIXED/RUNTIME: `previewPageDrag(cancel|release|update)` no longer calls `renderer.scrollBy(...)`; release plus native page action is the only commit path.
+- GREEN/HARNESS: `epub-native-drag-single-commit`, `epub-native-drag-preview-underlay`, `texture-offset-logic`, `font-css-smoke`, and `line-fragment-prose-smoke` passed.
+- GREEN/HOST: `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed.
+- GREEN/RELEASE: public release `v1.0.11-theta32` was published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta32`.
+
+### Stage 9I: Interior Drag Preview Without Renderer Mutation
+
+Status: current-source browser/harness/Gradle proof complete; release decision pending.
+
+Purpose:
+- Follow up Stage 9H.3 without regressing it: normal in-chapter drags must still show a dragged page surface instead of a black void or post-load texture swap, but preview must remain non-committing.
+- Use the existing page-curl snapshot/texture machinery for interior pages, not Foliate `scrollBy(...)` during preview.
+
+Scope:
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+  - Add an interior preview target that clones the current content document, scrolls the preview frame to the adjacent in-section page, and marks the frame as ready only when text is present.
+  - Keep boundary previews on the existing adjacent-section iframe path.
+  - Keep `previewPageDrag(update|release|cancel)` free of committed renderer movement.
+- Modify: `tools/reader-harness/src/run-reader-harness.mjs`
+  - Strengthen `epub-native-drag-single-commit` so it proves both non-committing preview and visible interior preview ownership: page-curl layer, current-page snapshot, adjacent in-section underlay text, and paper/border texture layers.
+- Validate: `epub-native-drag-single-commit`, `epub-native-drag-preview-underlay`, `epub-texture-page-turns`, `epub-texture-frontmatter-transition` on a boundary-friendly fixture, tablet `css-smoke`, JS syntax, `git diff --check`, and `.\gradlew.bat --no-daemon :composeApp:testAndroid`.
+
+Interim results:
+- RED/HARNESS: strengthened `epub-native-drag-single-commit` failed because interior drag preview removed the visual layer entirely.
+- GREEN/HARNESS: after patching, the same guard reports `mode=interior`, `frameReady=true`, non-empty frame text, non-empty front snapshot text, and `paper,border` texture ownership while release commits exactly one page.
+- GREEN/HARNESS: boundary underlay and normal texture page-turn probes still pass.
+- GREEN/HARNESS: `epub-texture-frontmatter-transition` passes on `tmp\reader-live\book-3809-file-426.epub`; `served-input.epub` does not expose a visible section boundary within the scanner window and is not the right fixture for that boundary-specific gate.
+- GREEN/JS: syntax checks passed for the touched reader runtime and harness modules.
+- GREEN/HOST: `git diff --check` and `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed.

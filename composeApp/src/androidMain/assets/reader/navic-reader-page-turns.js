@@ -1063,6 +1063,7 @@ function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight =
   const { layer, frame } = this.ensurePageDragPreviewLayer()
   const targetKey = this.buildPageDragPreviewTargetKey(targetIndex, direction, width, height)
 
+  layer.dataset.navicPageDragPreviewMode = 'boundary'
   layer.dataset.navicPageDragPreviewDirection = direction
   layer.dataset.navicPageDragPreviewSide = side
   layer.dataset.navicPageDragPreviewTargetIndex = String(targetIndex)
@@ -1107,6 +1108,100 @@ function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight =
   return { layer, frame, targetIndex, targetKey, side, width, height, palette }
 }
 
+function pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical }) {
+  const scroll = pageDragCurlSnapshotScroll(doc)
+  const axisStep = Math.max(1, Math.round(Number(vertical ? height : width) || 1))
+  const sign = direction === 'previous' ? -1 : 1
+  const targetX = vertical ? scroll.x : Math.max(0, scroll.x + (axisStep * sign))
+  const targetY = vertical ? Math.max(0, scroll.y + (axisStep * sign)) : scroll.y
+  return { x: targetX, y: targetY }
+}
+
+function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, height, vertical, palette }) {
+  const contents = typeof renderer?.getContents === 'function' ? (renderer.getContents() || []) : []
+  const content = contents.find(item => item?.doc)
+  const doc = content?.doc
+  if (!frame || !doc?.documentElement) {
+    if (frame) {
+      frame.dataset.navicPageDragPreviewFrameMode = 'interior'
+      frame.dataset.navicPageDragPreviewFrameReady = 'false'
+      frame.dataset.navicPageDragPreviewFrameTextLength = '0'
+    }
+    return false
+  }
+  const targetScroll = pageDragInteriorPreviewScroll(doc, { direction, width, height, vertical })
+  const key = [
+    pageDragCurlSnapshotKey({ role: 'interior-underneath', direction, width, height, content, doc, renderer }),
+    targetScroll.x,
+    targetScroll.y,
+  ].join('|')
+  setStylesImportant(frame, {
+    position: 'absolute',
+    top: '0px',
+    left: '0px',
+    width: `${Math.max(1, Math.round(Number(width) || 1))}px`,
+    height: `${Math.max(1, Math.round(Number(height) || 1))}px`,
+    border: '0',
+    margin: '0',
+    padding: '0',
+    overflow: 'hidden',
+    background: palette?.background || 'transparent',
+    'background-color': palette?.background || 'transparent',
+    color: palette?.foreground || 'inherit',
+    'pointer-events': 'none',
+  })
+  frame.dataset.navicPageDragPreviewFrameMode = 'interior'
+  frame.dataset.navicPageDragPreviewFrameDirection = direction || ''
+  frame.dataset.navicPageDragPreviewFrameTargetScrollX = String(targetScroll.x)
+  frame.dataset.navicPageDragPreviewFrameTargetScrollY = String(targetScroll.y)
+  const markFrameReady = () => {
+    try {
+      const frameDoc = frame.contentDocument
+      const text = frameDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+      frame.contentWindow?.scrollTo?.(targetScroll.x, targetScroll.y)
+      frame.dataset.navicPageDragPreviewFrameReady = frameDoc?.body ? 'true' : 'false'
+      frame.dataset.navicPageDragPreviewFrameTextLength = String(text.length)
+    } catch {
+      frame.dataset.navicPageDragPreviewFrameReady = 'false'
+      frame.dataset.navicPageDragPreviewFrameTextLength = '0'
+    }
+    return frame.dataset.navicPageDragPreviewFrameReady === 'true'
+  }
+  if (frame.dataset.navicPageDragPreviewFrameKey !== key) {
+    frame.dataset.navicPageDragPreviewFrameKey = key
+    frame.dataset.navicPageDragPreviewFrameReady = 'false'
+    frame.dataset.navicPageDragPreviewFrameTextLength = '0'
+    frame.onload = () => { markFrameReady() }
+    frame.removeAttribute('src')
+    frame.srcdoc = pageDragCurlSnapshotHtml(doc)
+    requestAnimationFrame(() => { markFrameReady() })
+  } else if (frame.contentDocument?.body) {
+    markFrameReady()
+  }
+  return frame.dataset.navicPageDragPreviewFrameReady === 'true'
+}
+
+function ensureInteriorPageDragPreviewTarget({ direction, renderer, viewWidth = null, viewHeight = null }) {
+  if (!direction || !this.readerRendererReadyForPageDrag(renderer)) return null
+  const { width, height } = this.pageDragPreviewDimensions(viewWidth, viewHeight)
+  const side = direction === 'previous' ? 'left' : 'right'
+  const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
+  const palette = readerThemePalette(this.readerSettings?.theme)
+  const { layer, frame } = this.ensurePageDragPreviewLayer()
+  const ready = this.syncPageDragInteriorPreviewFrame(frame, renderer, {
+    direction,
+    width,
+    height,
+    vertical,
+    palette,
+  })
+  layer.dataset.navicPageDragPreviewMode = 'interior'
+  layer.dataset.navicPageDragPreviewDirection = direction
+  layer.dataset.navicPageDragPreviewSide = side
+  layer.dataset.navicPageDragPreviewTargetIndex = ''
+  return { layer, frame, targetIndex: null, targetKey: '', side, width, height, palette, ready }
+}
+
 function preloadPageDragPreviewTargets(label = 'unknown') {
   if (!this.view || this.shellCoverVisible) {
     this.removePageDragPreviewLayer()
@@ -1136,17 +1231,22 @@ function preloadPageDragPreviewTargets(label = 'unknown') {
 }
 
 function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, viewHeight, renderer }) {
-  if (!direction || !this.safeNativeDragPreviewAtSectionBoundary(renderer, direction)) {
+  if (!direction) {
     this.removePageDragPreviewLayer()
     return
   }
-  const preview = this.ensurePageDragPreviewTarget({ direction, viewWidth, viewHeight })
+  const atSectionBoundary = this.safeNativeDragPreviewAtSectionBoundary(renderer, direction)
+  const preview = atSectionBoundary
+    ? this.ensurePageDragPreviewTarget({ direction, viewWidth, viewHeight })
+    : this.ensureInteriorPageDragPreviewTarget({ direction, renderer, viewWidth, viewHeight })
   if (!preview) {
     this.removePageDragPreviewLayer()
     return
   }
   const { layer, frame, targetIndex, targetKey, side, width, height, palette } = preview
-  const ready = this.pageDragPreviewReadyKey === targetKey
+  const ready = atSectionBoundary
+    ? this.pageDragPreviewReadyKey === targetKey
+    : preview.ready === true
   const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
   const exposedWidth = vertical ? width : Math.max(1, Math.min(width, Math.round(Math.abs(Number(deltaX) || 0))))
   const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
@@ -1202,10 +1302,10 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
       'box-sizing': 'border-box',
     })
     setStylesImportant(frame, {
-      opacity: '0',
+      opacity: atSectionBoundary ? '0' : '1',
       'pointer-events': 'none',
     })
-    readerTrace('page-drag-preview:underlay-waiting', {
+    readerTrace(atSectionBoundary ? 'page-drag-preview:underlay-waiting' : 'page-drag-preview:interior-waiting', {
       direction,
       side,
       targetIndex,
@@ -1258,6 +1358,7 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     exposedWidth,
     exposedHeight,
     ready,
+    mode: atSectionBoundary ? 'boundary' : 'interior',
     currentIndex: this.currentLoadedSectionIndex(),
   })
   return true
@@ -1759,6 +1860,9 @@ export const NavicReaderPageTurnMethods = {
   buildPageDragPreviewTargetKey,
   loadPageDragPreviewFrame,
   ensurePageDragPreviewTarget,
+  pageDragInteriorPreviewScroll,
+  syncPageDragInteriorPreviewFrame,
+  ensureInteriorPageDragPreviewTarget,
   preloadPageDragPreviewTargets,
   updatePageDragPreviewLayer,
   previewPageDrag,
