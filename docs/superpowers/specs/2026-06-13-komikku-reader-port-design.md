@@ -57,7 +57,7 @@ If a Navic feature works but is not faithful to the reference, treat it as unfin
 
 - Do not revive the old docked settings panel or legacy reader-wide WebView tap ownership.
 - Do not add another workaround until the current reference behavior and root cause are documented.
-- Do not publish a release candidate for minor fixes unless the user explicitly asks or a major reader bug is addressed.
+- Do not publish a public GitHub release for intermediate reader slices, minor fixes, or unproven animation changes. Use debug/readerdev/emulator builds for iteration; public APK releases are only for coherent candidates where a feature or major fix is implemented, locally validated, and ready for physical-device acceptance.
 - Do not build iOS artifacts for this Android reader work.
 - Do not treat host tests, desktop browser harnesses, or manual screenshots as proof of Android input/progress behavior.
 - Do not ask for routine human testing while host tests, emulator probes, or readerdev automation can still answer the question. Human/physical-device validation is the final acceptance gate for coherent candidates, not the normal implementation loop.

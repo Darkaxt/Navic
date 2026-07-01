@@ -10306,7 +10306,22 @@ Results:
 - GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest` guards passed from `tmp\gradle-runs\paper-surface-20260701-220556.out.log` with `BUILD SUCCESSFUL in 17s`.
 
 Next:
-- This is runtime-visible and should be considered for the next public release candidate after whitespace checks and commit.
+- This is runtime-visible, but it should stay on debug/readerdev/emulator builds until the broader drag/texture/page-turn behavior is coherent enough for physical-device acceptance. Do not publish a public APK for this isolated slice.
 - Physical validation should test both settings:
   - `Page turn = Standard`: no curl sheet, preview does not show chapter-start text, release commits one page.
   - `Page turn = Curl`: curl sheet appears only during drag and uses the current page snapshot, not chapter-start content.
+
+## 2026-07-01 Stage 9M.4 Release Cadence Correction
+
+Scope:
+- Correct the release process after the Stage 9M.3 drag-preview slice.
+- Preserve the source fix and branch sync, but prevent another public release from being generated for an isolated animation/preview slice.
+
+Results:
+- CANCELLED/GITHUB-RUN: `v1.0.11-theta39` workflow run `28542368424` was cancelled before publishing a release.
+- GREEN/NO-RELEASE: `gh release view v1.0.11-theta39 --repo Darkaxt/Navic` returned no release.
+- GREEN/TAG-CLEANUP: remote tag `refs/tags/v1.0.11-theta39` was deleted from `fork`; local tag `v1.0.11-theta39` was deleted.
+- FIXED/METADATA: Android release metadata was restored to the last published public version (`versionName=v1.0.11-theta38`, `versionCode=466`) so the branch does not advertise an unpublished theta39 release.
+
+Guardrail:
+- Intermediate reader fixes, animation experiments, and harness hardening must use debug/readerdev/emulator validation. Public GitHub APK releases are reserved for coherent candidates where a feature or major fix is implemented, locally validated, and ready for physical-device acceptance.
