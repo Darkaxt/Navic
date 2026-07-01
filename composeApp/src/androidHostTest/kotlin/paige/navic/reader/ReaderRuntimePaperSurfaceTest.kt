@@ -116,10 +116,10 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
 
 		assertContains(textureOpacity, "case ReaderThemeSepia:")
-		assertContains(textureOpacity, "return '0.38'")
+		assertContains(textureOpacity, "return '0.46'")
 		assertContains(
 			textureOpacity,
-			"return '0.24'",
+			"return '0.28'",
 			message = "The root surface texture is the single full-window paper owner, but it must remain visible enough to show page movement."
 		)
 		assertFalse(
@@ -138,12 +138,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant)")
 		assertContains(
 			borderBackgroundImage,
-			"[textureUrl, textureUrl, textureUrl].join(', ')",
-			message = "The edge degradation source PNGs have intentionally subtle alpha; compositing three times keeps one surface layer while making the borders visible."
+			"[textureUrl, textureUrl, textureUrl, textureUrl].join(', ')",
+			message = "The edge degradation source PNGs have intentionally subtle alpha; compositing four times keeps one surface layer while making the borders visible."
 		)
 		assertContains(borderUpdater, "filter: readerSurfacePageBorderOverlayFilter(settings)")
 		assertContains(helperText, "export const readerSurfacePageBorderOverlayFilter = settings =>")
-		assertContains(helperText, "contrast(1.55) saturate(1.12)")
+		assertContains(helperText, "contrast(1.9) saturate(1.16) brightness(0.94)")
 	}
 
 	@Test
@@ -245,6 +245,37 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(bridgeText, "position: 'fixed'")
 		assertContains(bridgeText, "'pointer-events': 'none'")
+	}
+
+	@Test
+	fun androidReaderPageDragPreviewCarriesTheSamePaperAndBorderTextureSurface() {
+		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val previewUpdater = pageTurnText
+			.substringAfter("function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, viewHeight, renderer }) {")
+			.substringBefore("\nfunction previewPageDrag(command)")
+
+		assertContains(pageTurnText, "ensurePageDragPreviewTextureLayers")
+		assertContains(pageTurnText, "syncPageDragPreviewTextureLayers")
+		assertContains(previewUpdater, "this.syncPageDragPreviewTextureLayers(layer)")
+		assertContains(
+			pageTurnText,
+			"updateReaderSurfaceTextureLayer(",
+			message = "The page-drag preview sits above the root texture layer; it must reuse the same surface texture updater instead of exposing a flat theme background."
+		)
+		assertContains(pageTurnText, "updateReaderSurfaceBorderOverlayLayer(")
+		assertContains(pageTurnText, "data-navic-page-drag-preview-paper-layer")
+		assertContains(pageTurnText, "data-navic-page-drag-preview-border-layer")
+		assertTrue(
+			previewUpdater.indexOf("this.syncPageDragPreviewTextureLayers(layer)") <
+				previewUpdater.indexOf("if (!ready)"),
+			"Texture surfaces must be attached even during the not-ready preview fallback; otherwise boundary drags reveal an untextured or black void until the adjacent page iframe loads."
+		)
+		assertContains(
+			helperText,
+			"updateReaderSurfaceTextureLayer",
+			message = "Preview texture layers must stay on the same single-surface helper path, not resurrect document-scoped texture injection."
+		)
 	}
 
 	@Test

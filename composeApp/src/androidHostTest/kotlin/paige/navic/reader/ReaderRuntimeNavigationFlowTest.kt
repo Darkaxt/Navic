@@ -302,7 +302,11 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(bridgeText, "ReaderFlowScrolledGaps")
 		assertContains(bridgeText, "setAttribute('flow', readerFoliateFlow(flowMode))")
 		assertContains(bridgeText, "--reader-scroll-gap")
-		assertContains(bridgeText, "writing-mode: vertical-rl")
+		assertContains(bridgeText, "readerMotionAxis(flowMode)")
+		assertFalse(
+			bridgeText.contains("writing-mode: vertical-rl"),
+			"Paged vertical is a Komikku-style page movement mode. It must not turn Western EPUB text into vertical writing, especially after rotating to landscape."
+		)
 		assertContains(ebooksSettingsText, "readerFlowMode")
 		assertContains(ebooksSettingsText, "ReaderFlowOption.entries")
 		assertContains(ebooksOptionsText, "PagedVertical(ReaderFlowPagedVertical")
@@ -344,6 +348,10 @@ class ReaderRuntimeNavigationFlowTest {
 			message = "Pagination fingerprints must include adaptive page-box math so cached page counts are per viewport/layout policy."
 		)
 		assertContains(renderMetadata, "readerAdaptiveFoliatePageBox")
+		assertFalse(
+			bridgeText.contains("const vertical = flowMode === ReaderFlowPagedVertical"),
+			"Adaptive Foliate page-box math must use the real writing axis. Otherwise landscape paged-vertical mode shrinks the inline axis to the viewport height and never becomes a two-page spread."
+		)
 	}
 
 	@Test

@@ -112,6 +112,28 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidReaderPageNumberUsesConfiguredReaderFontBeforeVisiblePublisherFont() {
+		val bridgeText = readerBridgeText()
+		val pageNumberFont = bridgeText
+			.substringAfter("function readerPageNumberFontFamily(settings = this.readerSettings) {")
+			.substringBefore("\nfunction readerPageNumberVisibleContentFontFamily")
+
+		assertContains(pageNumberFont, "const configured = readerEffectiveFontFamily(settings)")
+		assertContains(pageNumberFont, "const source = readerFontSource(settings)")
+		assertContains(pageNumberFont, "source !== ReaderFontSourcePublisher")
+		assertTrue(
+			pageNumberFont.indexOf("if (configured && source !== ReaderFontSourcePublisher)") <
+				pageNumberFont.indexOf("const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)"),
+			"When the reader font source is Navic/System/Custom, the organic page number must use the same configured ebook font instead of sampling an arbitrary visible publisher font."
+		)
+		assertTrue(
+			pageNumberFont.indexOf("const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)") <
+				pageNumberFont.indexOf("if (configured) return configured"),
+			"Publisher font mode can still sample the visible EPUB font before falling back to a configured generic family."
+		)
+	}
+
+	@Test
 	fun androidReaderDiagnosticLocationSnapshotBypassesDuplicateSuppression() {
 		val bridgeText = readerBridgeText()
 

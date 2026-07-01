@@ -342,12 +342,12 @@ export const readerSurfacePaperTextureOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.38'
+      return '0.46'
     case 'dark':
     case 'dusk':
       return '0.08'
     default:
-      return '0.24'
+      return '0.28'
   }
 }
 
@@ -370,7 +370,7 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
     case 'black':
       return 'none'
     case ReaderThemeSepia:
-      return 'contrast(1.55) saturate(1.12)'
+      return 'contrast(1.9) saturate(1.16) brightness(0.94)'
     case 'dark':
     case 'dusk':
       return 'contrast(1.35) saturate(1.08)'
@@ -382,7 +382,7 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
 export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVariant => {
   if (!borderOverlayVariant?.asset) return 'none'
   const textureUrl = `url("${readerAssetUrl(borderOverlayVariant.asset)}")`
-  return [textureUrl, textureUrl, textureUrl].join(', ')
+  return [textureUrl, textureUrl, textureUrl, textureUrl].join(', ')
 }
 
 export const readerPaperTextureBackgroundImage = textureVariant =>
@@ -661,13 +661,14 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
       width: widthPx,
       height: heightPx,
       'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant),
-      'background-size': 'cover, cover, cover',
+      'background-size': 'cover, cover, cover, cover',
       'background-position': [
         readerPaperTextureBackgroundPosition(null),
         readerPaperTextureBackgroundPosition(null),
         readerPaperTextureBackgroundPosition(null),
+        readerPaperTextureBackgroundPosition(null),
       ].join(', '),
-      'background-repeat': 'no-repeat, no-repeat, no-repeat',
+      'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
       'background-color': 'transparent',
       transform: readerPaperTextureTransform(slot.variant),
       'transform-origin': 'center',

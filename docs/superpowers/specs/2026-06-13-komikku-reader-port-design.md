@@ -107,6 +107,14 @@ This split is intentional. Do not add new listener, pagination, texture, or cont
 
 Latest dirty emulator validation is summarized in `2026-06-13-komikku-reader-port-validation-log.md`.
 
+As of the 2026-07-01 Stage 9H.1 current-source validation:
+
+- Physical feedback after `v1.0.11-theta29` reported remaining reader visual regressions: weak sepia intensity, page numbers not visually following `Dys`, missing edge-gradient texture strength, texture swapping after text movement, and landscape rotation collapsing Western EPUB text into a narrow vertical column.
+- The current source now removes `writing-mode: vertical-rl` from paged-vertical EPUB typography, keeps paged-vertical as movement semantics, and resolves landscape Foliate page-box math to the real viewport writing axis. Readerdev WebView page-box evidence on `emulator-5554` reported `1974x1232`, `maxInlineSize=1974px`, `maxBlockSize=1232px`, and `maxColumnCount=2`.
+- The organic page-number layer now prefers configured Navic/System/Custom reader fonts before visible publisher content; a live readerdev Dys probe reported page-number, root variable, content, and body font families all as the Dys stack.
+- Sepia paper opacity and edge-overlay visibility were raised without returning to document-scoped texture injection. Native page-drag preview now carries temporary paper and border texture child layers so boundary/fallback preview cannot expose a flat theme sheet.
+- This is not a public release claim. It is current-source readerdev evidence recorded in the validation log. If physical testing still sees paper texture swapping after text movement, continue Stage 9H with the deeper moving Foliate page-surface texture-owner migration in `2026-06-28-reader-whispersync-gap-closure.md`.
+
 As of the 2026-06-18 dirty emulator Phase 6 refactor check:
 
 - The current dirty `readerdev` APK installed on `emulator-5554`, launched, opened a real EPUB, emitted `Reader publication ready`, and computed `Pages ready: 270`.

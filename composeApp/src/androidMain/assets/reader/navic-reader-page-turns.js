@@ -564,6 +564,88 @@ function ensurePageDragPreviewLayer() {
   return { layer, frame }
 }
 
+function ensurePageDragPreviewLayerChild(layer, attributeName) {
+  if (!layer) return null
+  let child = layer.querySelector(`[${attributeName}="true"]`)
+  if (!child) {
+    child = document.createElement('div')
+    child.setAttribute(attributeName, 'true')
+    child.setAttribute('aria-hidden', 'true')
+    child.style.pointerEvents = 'none'
+    layer.append(child)
+  }
+  return child
+}
+
+function ensurePageDragPreviewTextureLayers(layer) {
+  return {
+    paperLayer: ensurePageDragPreviewLayerChild(layer, 'data-navic-page-drag-preview-paper-layer'),
+    borderLayer: ensurePageDragPreviewLayerChild(layer, 'data-navic-page-drag-preview-border-layer'),
+  }
+}
+
+function overridePageDragPreviewTextureLayerBox(layer, zIndex) {
+  if (!layer) return
+  setStylesImportant(layer, {
+    position: 'absolute',
+    inset: '0px',
+    width: '100%',
+    'min-width': '100%',
+    height: '100%',
+    'min-height': '100%',
+    'z-index': String(zIndex),
+    overflow: 'hidden',
+    'pointer-events': 'none',
+  })
+}
+
+function syncPageDragPreviewTextureLayers(layer) {
+  if (!layer) return null
+  const textureSlots = this.surfaceTextureSlots || []
+  const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
+  const hasPaper = textureSlots.some(slot => slot?.variant?.asset)
+  const hasBorder = borderOverlaySlots.some(slot => slot?.variant?.asset)
+  if (!hasPaper && !hasBorder) {
+    layer.querySelector('[data-navic-page-drag-preview-paper-layer="true"]')?.remove()
+    layer.querySelector('[data-navic-page-drag-preview-border-layer="true"]')?.remove()
+    return null
+  }
+  const { paperLayer, borderLayer } = this.ensurePageDragPreviewTextureLayers(layer)
+  const scrollOffset = this.surfaceTextureScrollOffset || { x: 0, y: 0 }
+  const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
+  if (hasPaper && paperLayer) {
+    updateReaderSurfaceTextureLayer(
+      paperLayer,
+      textureSlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
+    this.overridePageDragPreviewTextureLayerBox(paperLayer, 2)
+  } else {
+    paperLayer?.remove()
+  }
+  if (hasBorder && borderLayer) {
+    updateReaderSurfaceBorderOverlayLayer(
+      borderLayer,
+      borderOverlaySlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
+    this.overridePageDragPreviewTextureLayerBox(borderLayer, 3)
+  } else {
+    borderLayer?.remove()
+  }
+  layer.dataset.navicPageDragPreviewTextureSurface = [
+    hasPaper ? 'paper' : '',
+    hasBorder ? 'border' : '',
+  ].filter(Boolean).join(',')
+  return { hasPaper, hasBorder }
+}
+
 function removePageDragPreviewLayer() {
   this.pageDragPreviewLoadToken += 1
   this.pageDragPreviewLayer?.remove?.()
@@ -1080,6 +1162,7 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
     height,
     palette,
   })
+  this.syncPageDragPreviewTextureLayers(layer)
   if (!ready) {
     const fallbackWidth = exposedWidth
     const fallbackHeight = exposedHeight
@@ -1652,6 +1735,10 @@ export const NavicReaderPageTurnMethods = {
   clearDeferredReflowablePageTurn,
   retryDeferredReflowablePageTurn,
   ensurePageDragPreviewLayer,
+  ensurePageDragPreviewLayerChild,
+  ensurePageDragPreviewTextureLayers,
+  overridePageDragPreviewTextureLayerBox,
+  syncPageDragPreviewTextureLayers,
   removePageDragPreviewLayer,
   pageDragPreviewDimensions,
   readerPageDragCurlMetrics,

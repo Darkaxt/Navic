@@ -1,5 +1,4 @@
 import {
-  ReaderFlowPagedVertical,
   ReaderFlowScrolled,
   ReaderFlowScrolledGaps,
   ReaderFontSourceCustom,
@@ -450,9 +449,8 @@ export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), se
   const width = Math.max(1, Math.round(Number(viewport?.width) || 1))
   const height = Math.max(1, Math.round(Number(viewport?.height) || 1))
   const flowMode = readerFlowMode(settings)
-  const vertical = flowMode === ReaderFlowPagedVertical
-  const inlineViewport = vertical ? height : width
-  const blockViewport = vertical ? width : height
+  const inlineViewport = width
+  const blockViewport = height
   const maxColumnCount = readerMaxColumnCountValue(settings)
   const columnThreshold = readerColumnThresholdValue(settings)
   const resolvedMaxColumnCount = readerLandscapeSpreadColumnCount(
@@ -484,11 +482,6 @@ export const readerTypographyCss = settings => {
   const headingFontSize = readerHeadingFontSizeValue(settings)
   const fontSizePercent = readerFontSizePercentValue(settings)
   return `
-  ${readerFlowMode(settings) === ReaderFlowPagedVertical ? `
-  html, body {
-    writing-mode: vertical-rl !important;
-  }
-  ` : ''}
   html {
     font-size: var(--reader-content-font-size, ${fontSizePercent}%) !important;
     ${usePublisherStyles ? '' : `

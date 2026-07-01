@@ -2343,7 +2343,7 @@ Release:
 
 ### Stage 9H: Moving Page Surface Texture Ownership
 
-Status: planned; start only if theta29 physical validation still reports that the paper texture swaps after text movement.
+Status: in progress; Stage 9H.1 current-source patch complete, deeper moving-Foliate-page texture migration still pending if the next physical build reports texture swapping.
 
 Purpose:
 - Stop treating texture motion as an opacity/diagnostic problem if the physical release still shows a swap.
@@ -2374,11 +2374,22 @@ Planned red-first gates:
 - `epub-texture-frontmatter-transition` must fail if section-boundary transitions update texture identity only after text relocation completes.
 - A readerdev ADB probe must capture the same page-surface texture ownership fields on a real WebView before this stage can be called complete.
 
+Stage 9H.1 current-source slice:
+- [x] Add red-first guards for the physical regression batch: Western EPUB landscape must not inject vertical writing, adaptive page-box math must use the real writing axis, organic page numbers must prefer the configured reader font outside publisher mode, sepia texture must be stronger, and drag-preview fallback must carry paper/border texture layers.
+- [x] Remove `writing-mode: vertical-rl` from paged-vertical EPUB typography while keeping paged-vertical as a movement mode.
+- [x] Resolve landscape page-box math to the viewport writing axis so Tab-style landscape requests a two-column spread.
+- [x] Make page-number font selection prefer Navic/System/Custom reader fonts before visible publisher content.
+- [x] Increase sepia paper intensity and border-overlay visibility without document-scoped texture stacking.
+- [x] Attach temporary paper and border texture child layers to the native page-drag preview so boundary/fallback drags do not reveal a flat theme sheet.
+- [x] Validate with focused host red/green, JS syntax, `adaptive-page-box-logic`, `pagination-profile-logic`, readerdev WebView probes (`runtime-state`, `texture-slots`, `page-number-font`, `page-box`), emulator screenshots, full `:composeApp:testAndroidHost`, and `git diff --check`.
+- [x] Record exact evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
+- [ ] Publish a public release only after this patch is bundled with a version bump and normal release gates.
+
 Closure checklist:
-- [ ] Reproduce theta29 texture swap through browser/WebView harness or physical-device diagnostic output before editing runtime code.
-- [ ] Add the failing host/source guard for split root-margin vs moving-page texture ownership.
-- [ ] Add the failing browser harness check comparing content and texture transforms during drag.
-- [ ] Implement the smallest page-surface texture owner that follows the moving Foliate snapshot/page surface.
+- [x] Reproduce theta29 physical feedback as a source contract failure for landscape writing axis, page-number font ownership, and preview texture fallback.
+- [ ] If Stage 9H.1 is still not enough physically, add the failing host/source guard for split root-margin vs moving-page texture ownership.
+- [ ] If Stage 9H.1 is still not enough physically, add the failing browser harness check comparing content and texture transforms during drag.
+- [ ] If Stage 9H.1 is still not enough physically, implement the smallest page-surface texture owner that follows the moving Foliate snapshot/page surface.
 - [ ] Keep the root texture owner only for margins/fallback and verify that the whole window remains paper-covered.
 - [ ] Validate JS syntax, focused host tests, browser page-turn/frontmatter harnesses, readerdev texture probes, and `:composeApp:testAndroid`.
 - [ ] Record evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.

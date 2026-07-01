@@ -9620,3 +9620,53 @@ Results:
 Limitations:
 - This closes the theta29 current-source debug validation refresh only. It is not signed-release Whispersync proof for `darkaxt.navic`.
 - Release-package validation still requires a logged-in public package or a credentialed release-login path to reach the same paired reader route.
+
+## 2026-07-01 Stage 9H.1 Physical Landscape And Texture Regression Patch
+
+Scope:
+- Respond to physical tablet feedback after `v1.0.11-theta29`: landscape rotation could collapse Western EPUB text into a narrow vertical-writing strip; organic page numbers did not visually follow `Dys`; sepia/paper edge texture remained too weak; texture did not visibly travel with the page during drag-preview/boundary turns.
+- Keep this as current-source readerdev validation. No public release was published from this entry.
+
+Commands:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest"
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node tools\reader-harness\src\run-reader-harness.mjs adaptive-page-box-logic
+node tools\reader-harness\src\run-reader-harness.mjs pagination-profile-logic
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -RequireReaderLaunch
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe runtime-state
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe texture-slots
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-number-font
+node tools\reader-harness\src\adb-webview-eval.mjs --package darkaxt.navic.readerdev --device emulator-5554 --probe page-box
+.\gradlew.bat --no-daemon :composeApp:testAndroidHost
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: focused guards failed before the runtime patch for all targeted regressions: old vertical-writing/page-box behavior, old page-number font sampling order, old sepia texture opacity guard, and missing drag-preview texture ownership.
+- FIXED/RUNTIME: `Paged (vertical)` no longer injects `writing-mode: vertical-rl` into EPUB documents. It remains a page movement mode, not a Western text writing-mode override.
+- FIXED/RUNTIME: adaptive Foliate page-box math now uses the real viewport writing axis for reflowable EPUB. Landscape `1974x1232` resolves to `maxInlineSize=1974px`, `maxBlockSize=1232px`, and `maxColumnCount=2`.
+- FIXED/RUNTIME: organic page-number font selection now returns the configured Navic/System/Custom reader font before sampling visible EPUB content. Publisher font mode can still sample visible content first.
+- FIXED/RUNTIME: sepia paper texture opacity increased to `0.46`, light/default paper opacity increased to `0.28`, and sepia border overlay uses a stronger `contrast(1.9) saturate(1.16) brightness(0.94)` filter.
+- FIXED/RUNTIME: page-border overlays now composite the subtle border PNG four times in one border layer, still without reintroducing document-scoped texture stacking.
+- FIXED/RUNTIME: native page-drag preview now carries temporary paper and border texture child layers using the same root surface texture helpers, so the not-ready/boundary fallback cannot expose a flat theme sheet while adjacent content is loading.
+- GREEN/HOST: focused host tests passed after the patch.
+- GREEN/JS: `node --check` passed for `navic-reader-typography.js`, `navic-reader-pagination.js`, `navic-reader-helpers.js`, and `navic-reader-page-turns.js`.
+- GREEN/HARNESS: `adaptive-page-box-logic` and `pagination-profile-logic` passed.
+- GREEN/READERDEV: patched readerdev built, installed, launched on `emulator-5554`, and reached `publicationReady`.
+- GREEN/RUNTIME-STATE: live WebView reported landscape viewport `1974x1232`, `flowMode=paged`, renderer flow `paginated`, and non-scrolled EPUB content.
+- GREEN/TEXTURE-SLOTS: live WebView reported one paper texture layer and one border layer, each with previous/current/next slots; paper opacity was `0.46`, border opacity was `1`, and all slot background images were set.
+- GREEN/PAGE-NUMBER-FONT: live WebView forced the Dys stack and reported page-number, root variable, content, and body font families all as `"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif`; `rootFontFaceHasDys=true`.
+- GREEN/PAGE-BOX: live WebView page-box probe reported full landscape renderer dimensions and `maxColumnCount=2`; first prose width was `809px` rather than a one-word vertical strip.
+- GREEN/VISUAL: emulator screenshots were captured under `artifacts\reader-validation\navic_reader_landscape_after_next.png` and `artifacts\reader-validation\navic_reader_landscape_prose.png`. They no longer show the vertical text column failure and show visibly stronger paper/edge treatment.
+- GREEN/FULL-HOST: `:composeApp:testAndroidHost` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Limitations:
+- This is not a public release APK. It is patched-source readerdev validation.
+- The visual screenshots landed on frontmatter/title pages for the autodiscovered test book, so final visual acceptance for dense text spread and drag feel still belongs to the next physical release/device pass.
+- If physical testing still reports that paper texture swaps after text movement, continue Stage 9H with the deeper architectural migration: split root-margin texture from moving Foliate page-surface texture and compare content transform to texture transform during drag frames.
