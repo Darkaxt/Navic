@@ -2026,8 +2026,9 @@ if (mode === 'epub-native-drag-standard-no-curl') {
   })
   const browser = await chromium.launch()
   const errors = []
+  let page = null
   try {
-    const page = await browser.newPage(readerHarnessViewport)
+    page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -2080,6 +2081,99 @@ if (mode === 'epub-native-drag-standard-no-curl') {
     if (await page.evaluate(() => document.body.dataset.navicShellCoverVisible === 'true')) {
       await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
       await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true')
+    }
+
+    const readHarnessLocationState = async () => page.evaluate(() => {
+      const renderer = document.querySelector('foliate-view')?.renderer
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      return {
+        index: Number(renderer?.getContents?.()?.[0]?.index),
+        page: Number(renderer?.page),
+        pages: Number(renderer?.pages),
+        start: Number(renderer?.start),
+        end: Number(renderer?.end),
+        size: Number(renderer?.size),
+        viewSize: Number(renderer?.viewSize),
+        location: messages.at(-1) || null,
+        locationCount: messages.length,
+      }
+    })
+    const waitForGlobalLocationAdvance = async previousState => {
+      await page.waitForFunction(({ previousLocationCount, previousPageIndex, previousHref, previousRawCurrent }) => {
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        const latest = messages.at(-1)
+        const rawCurrent = Number(latest?.rawLocationCurrent)
+        return messages.length > previousLocationCount &&
+          Number.isFinite(latest?.pageIndex) &&
+          (
+            !Number.isFinite(previousPageIndex) ||
+            latest.pageIndex !== previousPageIndex ||
+            (previousHref && latest?.href && latest.href !== previousHref) ||
+            (Number.isFinite(previousRawCurrent) && Number.isFinite(rawCurrent) && rawCurrent !== previousRawCurrent)
+          )
+      }, {
+        previousLocationCount: Number(previousState?.locationCount) || 0,
+        previousPageIndex: Number(previousState?.location?.pageIndex),
+        previousHref: String(previousState?.location?.href || ''),
+        previousRawCurrent: Number(previousState?.location?.rawLocationCurrent),
+      })
+    }
+    const targetGlobalPageIndex = Math.max(
+      1,
+      Math.floor(Number(argValue('--target-global-page-index')) || 4)
+    )
+    let setupState = await readHarnessLocationState()
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const globalPageIndex = Number(setupState.location?.pageIndex)
+      const chapterPageIndex = Number(setupState.location?.chapterPageIndex)
+      const chapterPageCount = Number(setupState.location?.chapterPageCount)
+      const sectionPage = Number(setupState.page)
+      const sectionPageCount = Number(setupState.pages)
+      if (
+        Number.isFinite(globalPageIndex) &&
+        globalPageIndex >= targetGlobalPageIndex &&
+        Number.isFinite(chapterPageIndex) &&
+        Number.isFinite(chapterPageCount) &&
+        chapterPageCount > 3 &&
+        chapterPageIndex > 0 &&
+        chapterPageIndex < chapterPageCount - 1 &&
+        Number.isFinite(sectionPage) &&
+        Number.isFinite(sectionPageCount) &&
+        sectionPageCount >= 3 &&
+        sectionPage < sectionPageCount - 1
+      ) {
+        break
+      }
+      const previousState = setupState
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await waitForGlobalLocationAdvance(previousState)
+      setupState = await readHarnessLocationState()
+    }
+    await page.evaluate(async () => {
+      for (let index = 0; index < 6; index += 1) {
+        await new Promise(resolve => requestAnimationFrame(resolve))
+      }
+    })
+    setupState = await readHarnessLocationState()
+    if (
+      !Number.isFinite(setupState.location?.pageIndex) ||
+      setupState.location.pageIndex < targetGlobalPageIndex ||
+      !Number.isFinite(setupState.location?.chapterPageIndex) ||
+      !Number.isFinite(setupState.location?.chapterPageCount) ||
+      setupState.location.chapterPageCount <= 3 ||
+      setupState.location.chapterPageIndex <= 0 ||
+      setupState.location.chapterPageIndex >= setupState.location.chapterPageCount - 1 ||
+      !Number.isFinite(setupState.page) ||
+      !Number.isFinite(setupState.pages) ||
+      setupState.pages < 3 ||
+      setupState.page >= setupState.pages - 1
+    ) {
+      throw new Error(
+        `Expected a global page ${targetGlobalPageIndex + 1}+ interior section page before standard drag cleanup probe; ` +
+        `observed ${JSON.stringify(setupState)}`
+      )
     }
 
     const updatePreview = async () => page.evaluate(async () => {
@@ -2218,12 +2312,75 @@ if (mode === 'epub-native-drag-standard-no-curl') {
     fs.writeFileSync(outputPath, JSON.stringify({
       fixture: fixturePath,
       generatedAt: new Date().toISOString(),
+      setupState,
       curlState,
       previewState,
     }, null, 2))
     console.log(`reader harness epub-native-drag-standard-no-curl passed: ${outputPath}`)
   } catch (error) {
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-native-drag-standard-no-curl.failure.json')
+    let state = null
+    try {
+      state = page
+        ? await page.evaluate(() => {
+          const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+          const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+          let curlCssVarCount = 0
+          if (layer?.style) {
+            for (let index = 0; index < layer.style.length; index += 1) {
+              const name = layer.style.item(index)
+              if (String(name || '').startsWith('--navic-page-curl-')) curlCssVarCount += 1
+            }
+          }
+          const renderer = document.querySelector('foliate-view')?.renderer
+          return {
+            bodyDataset: { ...document.body.dataset },
+            rootDataset: { ...document.documentElement.dataset },
+            layer: layer
+              ? {
+                dataset: { ...layer.dataset },
+                curlSheetRoleCount: layer.querySelectorAll?.('[data-navic-page-curl-sheet]')?.length || 0,
+                curlOnlySheetRoleCount: Array.from(layer.querySelectorAll?.('[data-navic-page-curl-sheet]') || [])
+                  .filter(element => element?.dataset?.navicPageCurlSheet !== 'underneath')
+                  .length,
+                curlSnapshotCount: layer.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.length || 0,
+                curlCssVarCount,
+              }
+              : null,
+            iframe: iframe
+              ? {
+                dataset: { ...iframe.dataset },
+                textLength: Number(iframe.dataset.navicPageDragPreviewFrameTextLength) || 0,
+              }
+              : null,
+            renderer: {
+              index: Number(renderer?.getContents?.()?.[0]?.index),
+              page: Number(renderer?.page),
+              pages: Number(renderer?.pages),
+              start: Number(renderer?.start),
+              end: Number(renderer?.end),
+              size: Number(renderer?.size),
+              viewSize: Number(renderer?.viewSize),
+            },
+            postedMessages: (window.__navicReaderPostedMessages || []).slice(-12),
+            trace: (window.__navicReaderTrace || []).slice(-60),
+          }
+        })
+        : null
+    } catch (diagnosticError) {
+      state = { diagnosticError: diagnosticError?.message || String(diagnosticError) }
+    }
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      error: error?.stack || error?.message || String(error),
+      errors,
+      state,
+    }, null, 2))
     console.error(error?.message || String(error))
+    console.error(`reader harness epub-native-drag-standard-no-curl failure diagnostics: ${outputPath}`)
     process.exitCode = 1
   } finally {
     await browser.close()

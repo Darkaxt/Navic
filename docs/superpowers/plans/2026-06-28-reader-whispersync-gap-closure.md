@@ -18,8 +18,8 @@ Each stage is a complete deliverable:
 - It edits only the files listed for that stage unless the failing evidence proves a dependency.
 - It ends with focused Gradle validation, `node --check` for touched JS, `git diff --check`, and a concise validation-log entry when emulator or ADB was used.
 - It is committed after the stage passes.
-- Intermediate validation uses debug/readerdev APKs on the emulator and local ADB/browser harnesses. Do not create public GitHub releases for microfixes, isolated visual tweaks, or unproven animation changes.
-- A public release is published only after a coherent feature or major user-visible fix has been implemented, locally validated, committed, and is ready for physical-device acceptance.
+- Intermediate validation uses debug/readerdev APKs on the emulator and local ADB/browser harnesses. Do not create public GitHub releases for microfixes, isolated visual tweaks, diagnostics, or unproven animation changes.
+- A public release is published only after a coherent feature or major user-visible fix has been fully deployed in source, locally validated, committed, and is ready for physical-device acceptance. Public version bumps and GitHub release workflows are not part of the normal implementation loop.
 
 ## Remaining Gap Queue
 
@@ -2463,3 +2463,19 @@ Interim results:
 - GREEN/JS: syntax checks passed for the touched reader runtime and harness modules.
 - GREEN/HOST: `git diff --check` and `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed.
 - GREEN/RELEASE: public release `v1.0.11-theta33` was published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta33`.
+
+### Stage 9I.1: Debug Harness For Tablet Drag/Texture Diagnostics
+
+Status: current-source debug/harness proof complete; no public release.
+
+Purpose:
+- Stop using frontmatter/title-page boundary noise as evidence for or against tablet drag/texture fixes.
+- Make standard-vs-curl drag cleanup failures inspectable before changing production reader runtime again.
+- Add an ADB/WebView probe that can report whether native drag previews own paper and border texture layers.
+
+Results:
+- RED/HOST: `ReaderRuntimePaperSurfaceTest.readerHarnessProvesStandardDragModeDoesNotRetainCurlState` failed until the standard-vs-curl harness required an interior readable page setup.
+- FIXED/HARNESS: `epub-native-drag-standard-no-curl` now walks to a global page >= 5, with `chapterPageCount > 3`, `chapterPageIndex > 0`, and `sectionPage < sectionPageCount - 1` before asserting stale curl state cleanup.
+- GREEN/TABLET-HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3` passed and recorded `chapter1.xhtml`, global page 9, chapter page 2 of 4, section page 2 of 6.
+- GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest.readerHarnessProvesStandardDragModeDoesNotRetainCurlState`, focused `ReaderRuntimeAssetsTest.adbWebViewEvalHelperInjectsReaderBridgeEventsThroughDevTools`, JS syntax checks, and `git diff --check` passed.
+- This stage only hardens debug validation. It does not claim the physical texture-transition bug is fixed and must not trigger a public release.

@@ -320,6 +320,39 @@ class ReaderRuntimePaperSurfaceTest {
 			"previewState.curlCssVarCount === 0",
 			message = "Standard mode must prove curl CSS variables are cleared, not just hidden."
 		)
+		assertContains(
+			harnessText,
+			"epub-native-drag-standard-no-curl.failure.json",
+			message = "The standard-vs-curl harness must write failure diagnostics; a raw wait timeout gives no root-cause evidence."
+		)
+		assertContains(
+			harnessText,
+			"reader harness epub-native-drag-standard-no-curl failure diagnostics",
+			message = "The standard-vs-curl harness must print the artifact path when it fails so tablet-viewport failures are inspectable."
+		)
+		val standardNoCurl = harnessText
+			.substringAfter("if (mode === 'epub-native-drag-standard-no-curl') {")
+			.substringBefore("\nif (mode === 'epub-native-drag-preview-underlay') {")
+		assertContains(
+			standardNoCurl,
+			"targetGlobalPageIndex",
+			message = "The standard-vs-curl harness must seek an interior readable page before testing drag cleanup; frontmatter boundary pages create false tablet failures."
+		)
+		assertContains(
+			standardNoCurl,
+			"chapterPageCount > 3",
+			message = "The standard-vs-curl harness must avoid one-page frontmatter sections before asserting drag-preview behavior."
+		)
+		assertContains(
+			standardNoCurl,
+			"chapterPageIndex > 0",
+			message = "The standard-vs-curl harness must not prove curl cleanup from the first page of a chapter/section."
+		)
+		assertContains(
+			standardNoCurl,
+			"sectionPage < sectionPageCount - 1",
+			message = "The standard-vs-curl harness must avoid section-boundary transition noise when testing standard preview cleanup."
+		)
 	}
 
 	@Test

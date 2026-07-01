@@ -2470,6 +2470,80 @@ async function runTextureSlotsProbe(page) {
   }})()`)
 }
 
+async function runNativeDragPreviewTextureProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    await window.NavicReaderBridge.dispatch({
+      type: 'applySettings',
+      settings: { theme: 'sepia' },
+    })
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const width = window.visualViewport?.width || window.innerWidth || 1000
+    const height = window.visualViewport?.height || window.innerHeight || 800
+    const deltaX = -Math.round(width * 0.35)
+    await window.NavicReaderBridge.dispatch({
+      type: 'previewPageDrag',
+      phase: 'update',
+      deltaX,
+      deltaY: 0,
+      viewWidth: width,
+      viewHeight: height,
+    })
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
+    const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+    const paperLayer = layer?.querySelector?.('[data-navic-page-drag-preview-paper-layer="true"]')
+    const borderLayer = layer?.querySelector?.('[data-navic-page-drag-preview-border-layer="true"]')
+    const direction = layer?.dataset.navicPageDragPreviewDirection || ''
+    const targetSlot = direction === 'previous' ? 'previous' : 'next'
+    const paperTargetSlot = paperLayer?.querySelector?.(`[data-navic-surface-paper-texture-slot="${targetSlot}"]`)
+    const borderTargetSlot = borderLayer?.querySelector?.(`[data-navic-surface-page-border-overlay-slot="${targetSlot}"]`)
+    const transformX = transform => {
+      const match = String(transform || '').match(/matrix\([^,]+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*(-?\d+(?:\.\d+)?)/)
+      return match ? Number(match[1]) : null
+    }
+    const computedTransform = element => element ? getComputedStyle(element).transform : ''
+    const paperTransform = computedTransform(paperTargetSlot)
+    const borderTransform = computedTransform(borderTargetSlot)
+    const result = {
+      probe: 'native-drag-preview-texture',
+      viewport: { width, height },
+      deltaX,
+      layerPresent: Boolean(layer),
+      mode: layer?.dataset.navicPageDragPreviewMode || '',
+      ready: layer?.dataset.navicPageDragPreviewReady || '',
+      direction,
+      fallback: layer?.dataset.navicPageDragPreviewFallback || '',
+      textureSurface: layer?.getAttribute?.('data-navic-page-drag-preview-texture-surface') ||
+        layer?.dataset.navicPageDragPreviewTextureSurface || '',
+      exposedWidth: Number(layer?.dataset.navicPageDragPreviewExposedWidth) || 0,
+      paperLayerPresent: Boolean(paperLayer),
+      borderLayerPresent: Boolean(borderLayer),
+      targetSlot,
+      paperTargetSlotPresent: Boolean(paperTargetSlot),
+      borderTargetSlotPresent: Boolean(borderTargetSlot),
+      paperTargetSlotTransform: paperTransform,
+      borderTargetSlotTransform: borderTransform,
+      paperTargetSlotX: transformX(paperTransform),
+      borderTargetSlotX: transformX(borderTransform),
+      traceTail: (window.__navicReaderTrace || []).slice(-16),
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+    await window.NavicReaderBridge.dispatch({
+      type: 'previewPageDrag',
+      phase: 'cancel',
+      deltaX: 0,
+      deltaY: 0,
+      viewWidth: width,
+      viewHeight: height,
+    })
+    return result
+  }})()`)
+}
+
 async function runPageNumberFontProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     if (!window.NavicReaderBridge?.dispatch) {
@@ -2612,6 +2686,7 @@ async function main() {
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
       'runtime-state': runRuntimeStateProbe,
       'texture-slots': runTextureSlotsProbe,
+      'native-drag-preview-texture': runNativeDragPreviewTextureProbe,
       'page-number-font': runPageNumberFontProbe,
       'image-hit-targets': runImageHitTargetsProbe,
     }
