@@ -10476,3 +10476,43 @@ Results:
 
 Next:
 - Do not publish a public APK for this slice. Bundle it into the next coherent reader visual/interaction candidate after texture/drag behavior has a substantial fix.
+
+## 2026-07-02 Stage 9M.7 Frontmatter Texture/Page-Turn Boundary Stabilization
+
+Scope:
+- Fix the tablet-visible page-turn texture instability where EPUB section boundaries could show one page/section while the organic page number and texture identity still belonged to another.
+- Keep this as a debug/harness validation slice only. Do not publish a public APK for this isolated boundary correction.
+
+Root cause:
+- `committedPageTurnPosition` clamped pagination-profile relocations across EPUB spine sections to `current +/- 1`. At the `map.xhtml -> dedication.xhtml -> Authorforeword.xhtml` boundary this made two distinct sections share page slot `4`, so the visible section, page number, and texture key could diverge.
+- Stale page-turn relocations were rejected before the existing duplicate-adjacent fallback could run, so a drag/release at the section edge could settle back on `map.xhtml` instead of advancing to `dedication.xhtml`.
+
+Changes:
+- `navic-reader-pagination.js` now trusts pagination-profile page positions when the relocation crosses spine sections, instead of clamping them to the previous display state.
+- `navic-reader-location.js` now lets stale page-turn relocations trigger the existing adjacent-section fallback before dropping the stale event.
+- `run-reader-harness.mjs` was hardened so relevant browser harness modes capture pageerror stacks and the single-commit visual scanner tolerates transient detached elements.
+- Host guards were added/updated in `ReaderRuntimeNavigationFlowTest` and `ReaderRuntimeShellProgressTest`.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-location.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest
+```
+
+Results:
+- RED/HARNESS: `epub-texture-frontmatter-transition` first failed because `Authorforeword.xhtml` was clamped to the same page slot as `dedication.xhtml` (`before=4/90 entry=4/90`).
+- RED/HARNESS: after trusting cross-section profile pages, the same harness exposed the second gap: native drag at the transition edge settled back on `map.xhtml` (`settled=3/90 entry=4/90`) because stale relocations bypassed the adjacent fallback.
+- GREEN/HARNESS: after the stale-relocation fallback patch, `epub-texture-frontmatter-transition` passed on the production-derived fixture.
+- GREEN/HARNESS: `epub-texture-page-turns`, `epub-native-drag-single-commit`, and `epub-native-drag-standard-no-curl` passed at tablet-landscape viewport `1974x1232` DPR 3.
+- GREEN/JS: touched JS files passed syntax checks.
+- GREEN/HOST: focused `ReaderRuntimeNavigationFlowTest` and `ReaderRuntimeShellProgressTest` passed from hidden Gradle log `artifacts\validation\texture-curl-20260702\focused-host-navigation-shellprogress.out.log`.
+
+Next:
+- Do not publish a public APK for this slice. It is a meaningful texture/page-turn boundary fix, but it still needs to be bundled with the broader reader visual/interaction candidate and verified in readerdev/emulator before a public release.

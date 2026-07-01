@@ -1221,8 +1221,13 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason(reason))")
 		assertContains(
 			onRelocateBody,
-			"if (this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)) return",
+			"if (this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)) {",
 			message = "Controlled page turns must reject old-section relocation events before they can consume the explicit page-turn reason."
+		)
+		assertContains(
+			onRelocateBody,
+			"this.handleDuplicatePageTurnRelocation?.(detail, this.controlledRelocateReason)",
+			message = "When Foliate keeps emitting the old locator at a section edge, the existing adjacent-section fallback must run before the stale event is dropped."
 		)
 		assertTrue(staleGuardIndex >= 0, "The stale page-turn relocation guard must run from onRelocate.")
 		assertTrue(

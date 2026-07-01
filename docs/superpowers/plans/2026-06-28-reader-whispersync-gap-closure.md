@@ -2526,3 +2526,24 @@ Results:
 
 Next:
 - Keep this queued for the next coherent reader visual/interaction release candidate. Do not publish a public APK for this slice alone.
+
+### Stage 9M.7: Frontmatter Texture/Page-Turn Boundary Stabilization
+
+Status: current-source browser/harness/host proof complete; no public release.
+
+Purpose:
+- Fix the page/texture identity mismatch at EPUB frontmatter boundaries without replacing the Foliate/Anx reader core.
+- Keep release cadence debug-first/public-last: this is a meaningful fix but still not a standalone public APK candidate.
+
+Results:
+- RED/HARNESS: `epub-texture-frontmatter-transition` reproduced the duplicate page identity bug at `map.xhtml -> dedication.xhtml -> Authorforeword.xhtml`; two distinct sections could share page slot `4/90`.
+- FIXED/RUNTIME: `committedPageTurnPosition` now trusts pagination-profile positions across EPUB spine sections instead of clamping them to `current +/- 1`.
+- RED/HARNESS: the next run exposed a stale-relocation path where native drag/release settled back on `map.xhtml`.
+- FIXED/RUNTIME: `onRelocate` now lets stale page-turn relocations invoke the existing `handleDuplicatePageTurnRelocation` adjacent-section fallback before dropping the stale event.
+- GREEN/HARNESS: `epub-texture-frontmatter-transition`, `epub-texture-page-turns`, `epub-native-drag-single-commit`, and `epub-native-drag-standard-no-curl` passed at tablet-landscape viewport `1974x1232` DPR 3.
+- GREEN/HOST: focused `ReaderRuntimeNavigationFlowTest` and `ReaderRuntimeShellProgressTest` passed.
+- GREEN/JS: touched reader runtime and harness files passed syntax checks.
+
+Next:
+- Bundle Stage 9M.7 into the next coherent reader visual/interaction candidate.
+- Do not publish a public release for this isolated fix.

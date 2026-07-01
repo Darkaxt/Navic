@@ -1536,7 +1536,7 @@ if (mode === 'epub-pagination-profile') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
       window.__navicReaderPostedMessages = []
@@ -1717,7 +1717,7 @@ if (mode === 'epub-native-tap-zone-open') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
       window.__navicReaderPostedMessages = []
@@ -1814,7 +1814,7 @@ if (mode === 'epub-link-jump-drag') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
       window.__navicReaderPostedMessages = []
@@ -2787,7 +2787,7 @@ if (mode === 'epub-native-drag-single-commit') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
       window.__navicReaderPostedMessages = []
@@ -3195,7 +3195,13 @@ if (mode === 'epub-native-drag-single-commit') {
         }
         return Array.from(frameDoc.body.querySelectorAll('body *'))
           .filter(element => {
-            const rect = element.getBoundingClientRect()
+            if (!element || typeof element.getBoundingClientRect !== 'function') return false
+            let rect = null
+            try {
+              rect = element.getBoundingClientRect()
+            } catch {
+              return false
+            }
             const area = intersectionArea(rect)
             const elementArea = Math.max(1, rect.width * rect.height)
             return area > 48 && area / elementArea > 0.15

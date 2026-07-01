@@ -487,7 +487,10 @@ function scheduleControlledRelocationFallback(reason) {
 function onRelocate(detail) {
   readerTrace('relocate:raw', detail)
   this.attachSurfacePaperTextureScrollSync()
-  if (this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)) return
+  if (this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)) {
+    this.handleDuplicatePageTurnRelocation?.(detail, this.controlledRelocateReason)
+    return
+  }
   this.relocateSequence += 1
   this.lastRelocateDetail = detail
   if (this.pageTurnInProgress || this.pageTurnPromise) return

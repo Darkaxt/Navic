@@ -979,6 +979,9 @@ function committedPageTurnPosition(pagePosition, detail, reason) {
   if (!Number.isFinite(currentPageIndex) || !Number.isFinite(candidatePageIndex) || !Number.isFinite(pageCount) || pageCount <= 0) {
     return pagePosition
   }
+  if (pagePosition.pageCountSource === 'pagination-profile' && !sameSection) {
+    return pagePosition
+  }
   if (
     pagePosition.pageCountSource === 'pagination-profile' &&
     this.currentPagePosition?.pageCountSource === 'pagination-profile' &&

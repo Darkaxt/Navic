@@ -268,6 +268,25 @@ class ReaderRuntimeNavigationFlowTest {
 	}
 
 	@Test
+	fun androidReaderDoesNotClampPaginationProfilePageTurnsAcrossSections() {
+		val bridgeText = readerBridgeText()
+		val committedPageTurnPosition = bridgeText
+			.substringAfter("committedPageTurnPosition(pagePosition, detail, reason) {")
+			.substringBefore("\n  readerPageNumberFontFamily")
+
+		assertContains(
+			committedPageTurnPosition,
+			"if (pagePosition.pageCountSource === 'pagination-profile' && !sameSection) {"
+		)
+		assertTrue(
+			committedPageTurnPosition.indexOf("pagePosition.pageCountSource === 'pagination-profile' && !sameSection") <
+				committedPageTurnPosition.indexOf("const direction = String(reason).includes(':previous') ? 'previous' : 'next'"),
+			"Pagination-profile relocations across EPUB spine sections are exact section/page identities. " +
+				"Clamping them to current +/- 1 makes the visible section and organic page/texture identity diverge."
+		)
+	}
+
+	@Test
 	fun androidReaderUsesDirectFixedLayoutTargetsForTapPageTurns() {
 		val bridgeText = readerBridgeText()
 		val performPageTurn = bridgeText
