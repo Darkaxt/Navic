@@ -278,6 +278,46 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun readerHarnessProvesStandardDragModeDoesNotRetainCurlState() {
+		val harnessText = sequenceOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).first { it.isFile }.readText()
+
+		assertContains(harnessText, "mode === 'epub-native-drag-standard-no-curl'")
+		assertContains(
+			harnessText,
+			"dragAnimationMode: 'standard'",
+			message = "The browser harness must exercise the release default, not only the opt-in curl path."
+		)
+		assertContains(
+			harnessText,
+			"dragAnimationMode: 'curl'",
+			message = "The standard-mode probe must first create curl state so it can prove stale sheets are removed when returning to standard."
+		)
+		assertContains(
+			harnessText,
+			"previewState.curl === false",
+			message = "Standard mode must explicitly assert that the preview layer reports curl=false."
+		)
+		assertContains(
+			harnessText,
+			"previewState.curlSheetRoleCount === 0",
+			message = "Standard mode must prove no mockup curl sheets remain on the drag preview layer."
+		)
+		assertContains(
+			harnessText,
+			"previewState.curlSnapshotCount === 0",
+			message = "Standard mode must prove stale first-page curl snapshots are not retained."
+		)
+		assertContains(
+			harnessText,
+			"previewState.curlCssVarCount === 0",
+			message = "Standard mode must prove curl CSS variables are cleared, not just hidden."
+		)
+	}
+
+	@Test
 	fun androidReaderSplitsStaticMarginPaperFromMovingPageTextureOwner() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()

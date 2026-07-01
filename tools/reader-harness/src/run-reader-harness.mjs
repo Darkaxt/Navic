@@ -149,6 +149,7 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
     { mode: 'epub-link-jump-drag', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
+    { mode: 'epub-native-drag-standard-no-curl', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'epub-native-drag-single-commit', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'epub-native-drag-preview-underlay', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'texture-offset-logic' },
@@ -2006,6 +2007,224 @@ if (mode === 'epub-link-jump-drag') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'epub-native-drag-standard-no-curl') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-native-drag-standard-no-curl mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          let parsed = value
+          try {
+            parsed = JSON.parse(value)
+          } catch {
+            parsed = { raw: value }
+          }
+          window.__navicReaderPostedMessages.push(parsed)
+          window.__navicReaderTrace.push({
+            type: 'bridge:post',
+            timestamp: Date.now(),
+            payload: parsed,
+          })
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    const openSettings = {
+      theme: 'sepia',
+      paged: true,
+      flowMode: 'paged',
+      tapZone: 'default',
+      nativeTapZones: false,
+      fontSource: 'publisher',
+      fontFamily: 'serif',
+      fontSizePercent: 100,
+      lineHeight: 1.55,
+      paragraphSpacingPercent: 150,
+      dragAnimationMode: 'curl',
+    }
+    await page.evaluate(async ({ publicationUrl, settings }) => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings,
+      })
+    }, { publicationUrl: `${server.origin}${fixtureRoute}`, settings: openSettings })
+    await page.waitForFunction(() => {
+      const messages = window.__navicReaderPostedMessages || []
+      return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+    })
+    if (await page.evaluate(() => document.body.dataset.navicShellCoverVisible === 'true')) {
+      await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
+      await page.waitForFunction(() => document.body.dataset.navicShellCoverVisible !== 'true')
+    }
+
+    const updatePreview = async () => page.evaluate(async () => {
+      const width = window.visualViewport?.width || window.innerWidth || 500
+      const height = window.visualViewport?.height || window.innerHeight || 800
+      await window.NavicReaderBridge.dispatch({
+        type: 'previewPageDrag',
+        deltaX: -Math.round(width * 0.36),
+        deltaY: 0,
+        viewWidth: width,
+        viewHeight: height,
+        phase: 'update',
+      })
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    })
+    const readPreviewState = async () => page.evaluate(() => {
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      const iframe = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+      let curlCssVarCount = 0
+      if (layer?.style) {
+        for (let index = 0; index < layer.style.length; index += 1) {
+          const name = layer.style.item(index)
+          if (String(name || '').startsWith('--navic-page-curl-')) curlCssVarCount += 1
+        }
+      }
+      return {
+        layerPresent: Boolean(layer),
+        iframePresent: Boolean(iframe),
+        ready: layer?.dataset.navicPageDragPreviewReady === 'true',
+        direction: layer?.dataset.navicPageDragPreviewDirection || '',
+        curl: layer?.dataset.navicPageDragPreviewCurl === 'true',
+        curlSheetRoleCount: layer?.querySelectorAll?.('[data-navic-page-curl-sheet]')?.length || 0,
+        curlSnapshotCount: layer?.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.length || 0,
+        curlCssVarCount,
+        curlSheetRoles: layer?.dataset.navicPageCurlSheetRoles || '',
+        curlSnapshots: layer?.dataset.navicPageCurlSnapshots || '',
+        trace: (window.__navicReaderTrace || [])
+          .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
+          .slice(-8),
+      }
+    })
+    await updatePreview()
+    await page.waitForFunction(() => {
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      let curlCssVarCount = 0
+      if (layer?.style) {
+        for (let index = 0; index < layer.style.length; index += 1) {
+          const name = layer.style.item(index)
+          if (String(name || '').startsWith('--navic-page-curl-')) curlCssVarCount += 1
+        }
+      }
+      return layer?.dataset.navicPageDragPreviewCurl === 'true' &&
+        layer?.querySelectorAll?.('[data-navic-page-curl-sheet]')?.length > 0 &&
+        layer?.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.length > 0 &&
+        curlCssVarCount > 0
+    })
+    const curlState = await readPreviewState()
+
+    await page.evaluate(async settings => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          ...settings,
+          dragAnimationMode: 'standard',
+        },
+      })
+    }, openSettings)
+    await updatePreview()
+    await page.waitForFunction(() => {
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      if (!layer) return false
+      let curlCssVarCount = 0
+      if (layer.style) {
+        for (let index = 0; index < layer.style.length; index += 1) {
+          const name = layer.style.item(index)
+          if (String(name || '').startsWith('--navic-page-curl-')) curlCssVarCount += 1
+        }
+      }
+      return layer.dataset.navicPageDragPreviewCurl === 'false' &&
+        layer.querySelectorAll?.('[data-navic-page-curl-sheet]')?.length === 0 &&
+        layer.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.length === 0 &&
+        curlCssVarCount === 0
+    })
+    const previewState = await readPreviewState()
+    if (!previewState.layerPresent) {
+      throw new Error(
+        `Expected standard native drag to keep a preview layer without curl; ` +
+        `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
+      )
+    }
+    if (!(previewState.curl === false)) {
+      throw new Error(
+        `Expected standard drag preview to report curl=false after curl state existed; ` +
+        `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
+      )
+    }
+    if (!(previewState.curlSheetRoleCount === 0)) {
+      throw new Error(
+        `Expected standard drag preview to remove curl sheet roles; ` +
+        `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
+      )
+    }
+    if (!(previewState.curlSnapshotCount === 0)) {
+      throw new Error(
+        `Expected standard drag preview to remove stale curl snapshots; ` +
+        `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
+      )
+    }
+    if (!(previewState.curlCssVarCount === 0)) {
+      throw new Error(
+        `Expected standard drag preview to clear curl CSS variables; ` +
+        `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
+      )
+    }
+
+    await page.evaluate(async () => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'previewPageDrag',
+        deltaX: 0,
+        deltaY: 0,
+        phase: 'cancel',
+      })
+    })
+    await page.waitForFunction(() => !document.querySelector('[data-navic-page-drag-preview-layer="true"]'))
+    assertNoConsoleErrors(errors)
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-native-drag-standard-no-curl.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      curlState,
+      previewState,
+    }, null, 2))
+    console.log(`reader harness epub-native-drag-standard-no-curl passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode === 'epub-native-drag-preview-underlay') {
   const fixture = argValue('--fixture')
   if (!fixture) {
@@ -2067,6 +2286,7 @@ if (mode === 'epub-native-drag-preview-underlay') {
           fontSizePercent: 100,
           lineHeight: 1.55,
           paragraphSpacingPercent: 150,
+          dragAnimationMode: 'curl',
         },
       })
     }, `${server.origin}${fixtureRoute}`)
@@ -2434,6 +2654,7 @@ if (mode === 'epub-native-drag-single-commit') {
           fontSizePercent: 100,
           lineHeight: 1.55,
           paragraphSpacingPercent: 150,
+          dragAnimationMode: 'curl',
         },
       })
     }, `${server.origin}${fixtureRoute}`)

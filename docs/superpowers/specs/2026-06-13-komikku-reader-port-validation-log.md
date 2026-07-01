@@ -10161,3 +10161,30 @@ Results:
 
 Next:
 - Publish only if this is treated as a major interaction candidate. Physical validation should compare standard mode first, then opt into curl mode only to judge whether the curl effect is good enough to keep expanding.
+
+## 2026-07-01 Stage 9M.1 Standard Drag Curl Isolation Guard
+
+Scope:
+- Harden Stage 9M after theta37 by proving the release-default `standard` page-turn mode cannot retain curl sheets, snapshots, or curl CSS state after a prior curl preview.
+- Keep curl-specific browser probes explicitly opt-in through `dragAnimationMode: 'curl'`, so they do not depend on or mutate the default reader behavior.
+
+Commands:
+
+```powershell
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\book-3809-file-426.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessProvesStandardDragModeDoesNotRetainCurlState" --console=plain
+git diff --check
+```
+
+Results:
+- RED/HOST-FIRST: `readerHarnessProvesStandardDragModeDoesNotRetainCurlState` failed while the harness had no `epub-native-drag-standard-no-curl` mode.
+- GREEN/HARNESS: `epub-native-drag-standard-no-curl` now creates curl state, switches back to `standard`, and verifies `curl=false`, zero curl sheets, zero curl snapshots, and zero curl CSS variables.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` and `epub-native-drag-single-commit` still pass after being made explicit `curl`-mode probes.
+- GREEN/HOST: the focused Gradle guard passed.
+- GREEN/JS/DIFF: `node --check` and `git diff --check` passed.
+
+Next:
+- This is a regression guard and harness hardening slice. It does not justify a new public APK by itself because theta37 already shipped the user-visible mode toggle.
