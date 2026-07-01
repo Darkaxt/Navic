@@ -11,6 +11,7 @@ import {
   ReaderDirectionLtr,
   ReaderDirectionRtl,
   ReaderDocumentThemeStyleId,
+  ReaderDragAnimationCurl,
   ReaderFlowPaged,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
@@ -719,10 +720,43 @@ function readerPageDragCurlMetrics({ direction, deltaX, deltaY, width, height, v
   return { progress, eased, angle, frontShadow, spineShadow, shadowAlpha, curlWidth }
 }
 
+function readerDragAnimationModeAllowsCurl(mode) {
+  return String(mode || '').toLowerCase() === ReaderDragAnimationCurl
+}
+
+function clearPageDragCurlState(layer) {
+  if (!layer) return
+  layer.dataset.navicPageDragPreviewCurl = 'false'
+  layer.setAttribute('data-navic-page-drag-preview-curl', 'false')
+  layer.dataset.navicPageDragPreviewCurlProgress = '0'
+  layer.dataset.navicPageDragPreviewCurlDirection = ''
+  layer.dataset.navicPageCurlSheetMode = ''
+  layer.dataset.navicPageCurlSheetRoles = ''
+  layer.dataset.navicPageCurlSnapshots = ''
+  layer.dataset.navicPageCurlSnapshotFront = 'false'
+  layer.dataset.navicPageCurlSnapshotBack = 'false'
+  layer.style.removeProperty('--navic-page-curl-progress')
+  layer.style.removeProperty('--navic-page-curl-eased')
+  layer.style.removeProperty('--navic-page-curl-angle')
+  layer.style.removeProperty('--navic-page-curl-width')
+  layer.style.removeProperty('--navic-page-curl-front-shadow')
+  layer.style.removeProperty('--navic-page-curl-spine-shadow')
+  layer.style.removeProperty('--navic-page-curl-shadow-alpha')
+  layer.style.removeProperty('--navic-page-curl-origin')
+  layer.style.removeProperty('--navic-page-curl-transform')
+  layer.style.removeProperty('--navic-page-curl-front-face-opacity')
+  layer.style.removeProperty('--navic-page-curl-back-face-opacity')
+  layer.style.removeProperty('--navic-page-curl-sheet-width')
+  layer.style.removeProperty('--navic-page-curl-sheet-height')
+  layer.querySelectorAll?.('[data-navic-page-curl-sheet]')?.forEach(element => element.remove())
+  layer.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.forEach(element => element.remove())
+}
+
 function applyPageDragCurlMetrics(layer, { direction, deltaX, deltaY, width, height, vertical }) {
   if (!layer) return null
   const metrics = readerPageDragCurlMetrics({ direction, deltaX, deltaY, width, height, vertical })
   layer.dataset.navicPageDragPreviewCurl = 'true'
+  layer.setAttribute('data-navic-page-drag-preview-curl', 'true')
   layer.dataset.navicPageDragPreviewCurlProgress = metrics.progress.toFixed(3)
   layer.dataset.navicPageDragPreviewCurlDirection = direction || ''
   const origin = vertical
@@ -1402,32 +1436,39 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
   const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
   const left = vertical || side !== 'right' ? 0 : width - exposedWidth
   const top = vertical && direction === 'next' ? height - exposedHeight : 0
-  this.applyPageDragCurlMetrics(layer, {
-    direction,
-    deltaX,
-    deltaY,
-    width,
-    height,
-    vertical,
-  })
-  this.applyPageDragCurlSheet(layer, {
-    direction,
-    width,
-    height,
-    vertical,
-    palette,
-  })
+  const curlEnabled = readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)
+  if (curlEnabled) {
+    this.applyPageDragCurlMetrics(layer, {
+      direction,
+      deltaX,
+      deltaY,
+      width,
+      height,
+      vertical,
+    })
+    this.applyPageDragCurlSheet(layer, {
+      direction,
+      width,
+      height,
+      vertical,
+      palette,
+    })
+  } else {
+    clearPageDragCurlState(layer)
+  }
   layer.dataset.navicPageDragPreviewReady = String(ready)
-  this.syncPageDragCurlSnapshots(layer, {
-    renderer,
-    frame,
-    ready,
-    mode: layer.dataset.navicPageCurlSheetMode,
-    direction,
-    width,
-    height,
-    palette,
-  })
+  if (curlEnabled) {
+    this.syncPageDragCurlSnapshots(layer, {
+      renderer,
+      frame,
+      ready,
+      mode: layer.dataset.navicPageCurlSheetMode,
+      direction,
+      width,
+      height,
+      palette,
+    })
+  }
   const frameLeft = vertical || side !== 'right' ? 0 : -(width - exposedWidth)
   const frameTop = vertical && direction === 'next' ? -(height - exposedHeight) : 0
   const previewTextureScrollOffset = pageDragPreviewTextureScrollOffset({
@@ -2030,6 +2071,8 @@ export const NavicReaderPageTurnMethods = {
   pageDragInteriorPreviewScroll,
   syncPageDragInteriorPreviewFrame,
   ensureInteriorPageDragPreviewTarget,
+  readerDragAnimationModeAllowsCurl,
+  clearPageDragCurlState,
   preloadPageDragPreviewTargets,
   updatePageDragPreviewLayer,
   previewPageDrag,

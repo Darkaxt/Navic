@@ -68,6 +68,7 @@ import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderSupportedColorFilterModes
 import paige.navic.reader.ReaderSupportedDirections
+import paige.navic.reader.ReaderSupportedDragAnimationModes
 import paige.navic.reader.ReaderSupportedFontFamilies
 import paige.navic.reader.ReaderSupportedFontSources
 import paige.navic.reader.ReaderSupportedNavBarTypes
@@ -87,6 +88,7 @@ import paige.navic.reader.ReaderTapZoneKindle
 import paige.navic.reader.ReaderTapZoneLShaped
 import paige.navic.reader.ReaderTapZoneRightLeft
 import paige.navic.reader.normalizedReaderDirection
+import paige.navic.reader.normalizedReaderDragAnimationMode
 import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.normalizedReaderFontFamily
 import paige.navic.reader.normalizedReaderFontSource
@@ -98,6 +100,7 @@ import paige.navic.reader.normalizedReaderTapZoneInvertMode
 import paige.navic.reader.normalizedReaderTheme
 import paige.navic.reader.readerColorFilterModeShortLabel
 import paige.navic.reader.readerDirectionShortLabel
+import paige.navic.reader.readerDragAnimationModeShortLabel
 import paige.navic.reader.readerFontFamilyShortLabel
 import paige.navic.reader.readerFontSourceShortLabel
 import paige.navic.reader.readerNavBarTypeShortLabel
@@ -296,6 +299,16 @@ internal fun KomikkuReaderSettingsDialog(
 							selectedValue = normalizedReaderNavBarType(settings.navBarType),
 							onSelect = { navBarType ->
 								onSettingsChange(settings.copy(navBarType = navBarType))
+							}
+						)
+						SettingsSelectableChipRow(
+							title = "Page turn",
+							options = ReaderSupportedDragAnimationModes.map { mode ->
+								mode to readerDragAnimationModeShortLabel(mode)
+							},
+							selectedValue = normalizedReaderDragAnimationMode(settings.dragAnimationMode),
+							onSelect = { mode ->
+								onSettingsChange(settings.copy(dragAnimationMode = mode))
 							}
 						)
 						SettingsSelectableChipRow(

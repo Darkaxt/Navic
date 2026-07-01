@@ -308,6 +308,22 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripDragAnimationModePreference() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerDragAnimationMode = ReaderDragAnimationCurl
+
+		assertEquals(ReaderDragAnimationCurl, preferences.readerDefaultSettings().dragAnimationMode)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(dragAnimationMode = ReaderDragAnimationStandard)
+		)
+
+		assertEquals(ReaderDragAnimationStandard, preferences.readerDragAnimationMode)
+		assertEquals(ReaderDragAnimationStandard, preferences.readerDefaultSettings().dragAnimationMode)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripReadingDirectionPreference() {
 		val preferences = PreferenceManager(MapSettings())
 

@@ -30,6 +30,8 @@ export const ReaderFlowPaged = 'paged'
 export const ReaderFlowPagedVertical = 'paged-vertical'
 export const ReaderFlowScrolled = 'scrolled'
 export const ReaderFlowScrolledGaps = 'scrolled-gaps'
+export const ReaderDragAnimationStandard = 'standard'
+export const ReaderDragAnimationCurl = 'curl'
 export const ReaderDirectionDefault = 'default'
 export const ReaderDirectionLtr = 'ltr'
 export const ReaderDirectionRtl = 'rtl'
@@ -108,6 +110,11 @@ export const readerFoliateFlow = flowMode =>
   flowMode === ReaderFlowScrolled || flowMode === ReaderFlowScrolledGaps
     ? 'scrolled'
     : 'paginated'
+
+export const readerDragAnimationMode = settings =>
+  settings?.["dragAnimationMode"] === ReaderDragAnimationCurl
+    ? ReaderDragAnimationCurl
+    : ReaderDragAnimationStandard
 
 export const readerDirectionMode = settings => {
   if (settings?.direction === ReaderDirectionLtr) return ReaderDirectionLtr

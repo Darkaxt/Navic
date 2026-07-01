@@ -249,6 +249,35 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderDragAnimationModeIsExplicitAndDefaultsToStandard() {
+		val root = readerAssetRoot()
+		val bridgeText = readerBridgeText(root)
+		val pageTurnsText = root.resolve("navic-reader-page-turns.js").readText()
+		val appearanceText = root.resolve("navic-reader-appearance.js").readText()
+		val settingsText = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
+		val chromeText = File("src/commonMain/kotlin/paige/navic/reader/ReaderChromeState.kt").readText()
+		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
+
+		assertContains(settingsText, "val dragAnimationMode: String? = null")
+		assertContains(chromeText, "const val ReaderDragAnimationStandard = \"standard\"")
+		assertContains(chromeText, "const val ReaderDragAnimationCurl = \"curl\"")
+		assertContains(chromeText, "normalizedReaderDragAnimationMode")
+		assertContains(chromeText, "dragAnimationMode = ReaderDragAnimationStandard")
+		assertContains(settingsDialogText, "title = \"Page turn\"")
+		assertContains(settingsDialogText, "ReaderSupportedDragAnimationModes")
+		assertContains(bridgeText, "\"dragAnimationMode\"")
+		assertContains(appearanceText, "this.readerDragAnimationModeValue")
+		assertContains(pageTurnsText, "readerDragAnimationModeAllowsCurl")
+		assertContains(pageTurnsText, "data-navic-page-curl-sheet")
+		assertContains(pageTurnsText, "data-navic-page-drag-preview-curl")
+		assertContains(
+			pageTurnsText,
+			"if (curlEnabled)",
+			message = "Curl preview must be gated so standard mode cannot build stale curl snapshots while normal drag remains active."
+		)
+	}
+
+	@Test
 	fun androidReaderSplitsStaticMarginPaperFromMovingPageTextureOwner() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()

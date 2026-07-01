@@ -60,6 +60,7 @@ class ReaderSettingsDefaultsTest {
 				direction = ReaderDirectionDefault,
 				navBarType = ReaderNavBarTypeVerticalRight,
 				flowMode = ReaderFlowScrolled,
+				dragAnimationMode = ReaderDragAnimationStandard,
 				paged = false,
 				tapZone = ReaderTapZoneDefault,
 				tapZoneInvertMode = ReaderTapZoneInvertNone,
@@ -95,6 +96,7 @@ class ReaderSettingsDefaultsTest {
 				orientation = "sideways",
 				theme = "neon",
 				direction = "sideways",
+				dragAnimationMode = "fold",
 				paged = false,
 				tapZone = "maze",
 				smallerTapZone = false,
@@ -140,6 +142,7 @@ class ReaderSettingsDefaultsTest {
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
 				flowMode = ReaderFlowPaged,
+				dragAnimationMode = ReaderDragAnimationCurl,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertBoth,
@@ -178,6 +181,7 @@ class ReaderSettingsDefaultsTest {
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
+				dragAnimationMode = ReaderDragAnimationCurl,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertBoth,
@@ -366,6 +370,31 @@ class ReaderSettingsDefaultsTest {
 		)
 		assertEquals(ReaderFlowPaged, normalizedReaderFlowMode(flowMode = null, paged = true))
 		assertEquals(ReaderFlowScrolled, normalizedReaderFlowMode(flowMode = null, paged = false))
+	}
+
+	@Test
+	fun readerSettingsDefaultsKeepExplicitDragAnimationModes() {
+		assertEquals(
+			listOf(ReaderDragAnimationStandard, ReaderDragAnimationCurl),
+			ReaderSupportedDragAnimationModes
+		)
+		assertEquals(ReaderDragAnimationStandard, defaultReaderSettings().dragAnimationMode)
+		assertEquals(ReaderDragAnimationStandard, normalizedReaderDragAnimationMode("fold"))
+		assertEquals(ReaderDragAnimationCurl, normalizedReaderDragAnimationMode(ReaderDragAnimationCurl))
+		assertEquals("Standard", readerDragAnimationModeShortLabel(ReaderDragAnimationStandard))
+		assertEquals("Curl", readerDragAnimationModeShortLabel(ReaderDragAnimationCurl))
+		assertEquals(
+			ReaderDragAnimationCurl,
+			normalizedReaderSettings(
+				fontFamily = ReaderSansFontFamily,
+				fontSizePercent = 100,
+				lineHeightPercent = 155,
+				marginPercent = 0,
+				theme = "light",
+				paged = true,
+				dragAnimationMode = ReaderDragAnimationCurl
+			).dragAnimationMode
+		)
 	}
 
 	@Test

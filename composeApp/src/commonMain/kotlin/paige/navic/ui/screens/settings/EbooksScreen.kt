@@ -68,6 +68,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_bottom
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_left
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_right
+import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation
 import navic.composeapp.generated.resources.option_ebook_reader_orientation
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_default
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_free
@@ -131,6 +132,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_margin
 import navic.composeapp.generated.resources.subtitle_ebook_reader_media_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_nav_bar_type
 import navic.composeapp.generated.resources.subtitle_ebook_reader_orientation
+import navic.composeapp.generated.resources.subtitle_ebook_reader_page_turn_animation
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paragraph_spacing
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_crop_borders
@@ -229,6 +231,7 @@ fun SettingsEbooksScreen() {
 	val direction = ReaderDirectionOption.forDirection(settings.direction)
 	val navBarType = ReaderNavBarTypeOption.forNavBarType(settings.navBarType)
 	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
+	val dragAnimation = ReaderDragAnimationOption.forDragAnimationMode(settings.dragAnimationMode)
 	val columnMode = ReaderColumnModeOption.forMaxColumnCount(settings.maxColumnCount)
 	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
 	val tapZoneInvertMode = ReaderTapZoneInvertOption.forTapZoneInvertMode(settings.tapZoneInvertMode)
@@ -488,6 +491,14 @@ fun SettingsEbooksScreen() {
 							preferenceManager.readerFlowMode = option.flowMode
 							preferenceManager.readerPaged = option.paged
 						}
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_page_turn_animation)) },
+						items = ReaderDragAnimationOption.entries.toImmutableList(),
+						label = { option -> stringResource(option.title) },
+						description = stringResource(Res.string.subtitle_ebook_reader_page_turn_animation),
+						selection = dragAnimation,
+						onSelect = { option -> preferenceManager.readerDragAnimationMode = option.dragAnimationMode }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_column_mode)) },

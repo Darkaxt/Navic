@@ -39,6 +39,7 @@ import {
   ScrollEdgeTurnSwipeThreshold,
   optionalNumber,
   readerDirectionMode,
+  readerDragAnimationMode,
   readerEffectiveFontFamily,
   readerFlowMode,
   readerFoliateFlow,
@@ -211,6 +212,12 @@ function applySettings(settings) {
   const flowMode = readerFlowMode(settings)
   this.readerFlowModeValue = flowMode
   readerRoot.dataset.navicReaderFlowMode = flowMode
+  const dragAnimationMode = readerDragAnimationMode(settings)
+  if (this.readerDragAnimationModeValue && this.readerDragAnimationModeValue !== dragAnimationMode) {
+    this.removePageDragPreviewLayer?.()
+  }
+  this.readerDragAnimationModeValue = dragAnimationMode
+  readerRoot.dataset.navicReaderDragAnimationMode = dragAnimationMode
   rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
   this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
   this.readerDirectionModeValue = readerDirectionMode(settings)

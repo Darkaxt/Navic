@@ -10123,3 +10123,41 @@ Next:
   - section-boundary transitions no longer invert or swap paper/border texture direction;
   - dragging from a page previews and commits exactly the same next page;
   - no standard/curl toggle exists yet; if curl still feels visually risky, add an explicit reader setting in a later slice.
+
+## 2026-07-01 Stage 9M Explicit Page-Turn Animation Mode
+
+Scope:
+- Answer theta36 physical feedback that the curl effect can still look like it is using a chapter-start page while the reader itself is on a later page.
+- Add an explicit `Page turn` / `Page turn animation` mode so standard dragging is the safe default and the experimental curl preview is opt-in.
+
+Root cause:
+- `navic-reader-page-turns.js` always applied curl metrics, curl sheets, and curl snapshots inside `updatePageDragPreviewLayer`, even when the desired behavior was the normal exposed-page drag preview.
+- That meant the standard drag preview and curl overlay could coexist and fight over preview state.
+
+Changes:
+- `ReaderSettings.dragAnimationMode` now flows through defaults, preference persistence, book overrides, bridge JSON, the in-reader settings sheet, global Ebooks settings, and settings search.
+- Supported modes are `standard` and `curl`; `standard` is the default.
+- JS settings normalize `dragAnimationMode` from bridge JSON and expose it on `readerRoot.dataset.navicReaderDragAnimationMode`.
+- Standard mode clears curl-specific sheet/snapshot state and does not run `applyPageDragCurlMetrics`, `applyPageDragCurlSheet`, or `syncPageDragCurlSnapshots`.
+- Curl mode remains available for deliberate testing.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-settings-core.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-settings.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderDragAnimationModeIsExplicitAndDefaultsToStandard"
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+```
+
+Results:
+- RED/HOST-FIRST: `androidReaderDragAnimationModeIsExplicitAndDefaultsToStandard` failed before the setting/runtime gate existed.
+- GREEN/HOST: the focused drag-animation source guard passed after adding the explicit mode and JS curl gate.
+- GREEN/ANDROID: `:composeApp:testAndroid` passed.
+- GREEN/JS: syntax checks passed for the touched reader JS modules.
+
+Next:
+- Publish only if this is treated as a major interaction candidate. Physical validation should compare standard mode first, then opt into curl mode only to judge whether the curl effect is good enough to keep expanding.

@@ -236,6 +236,7 @@ class NavicReaderRuntime {
   readerSettings = {}
   readerTapZoneMode = ReaderTapZoneDefault
   readerFlowModeValue = ReaderFlowPaged
+  readerDragAnimationModeValue = 'standard'
   readerDirectionModeValue = ReaderDirectionDefault
   smallerTapZone = false
   nativeTapZones = false

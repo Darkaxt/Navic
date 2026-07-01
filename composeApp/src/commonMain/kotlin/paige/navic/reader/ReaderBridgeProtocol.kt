@@ -131,6 +131,7 @@ data class ReaderSettings(
 	val direction: String? = null,
 	val navBarType: String? = null,
 	val flowMode: String? = null,
+	val dragAnimationMode: String? = null,
 	val paged: Boolean? = null,
 	val tapZone: String? = null,
 	val tapZoneInvertMode: String? = null,
@@ -761,6 +762,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		direction?.let { put("direction", it) }
 		navBarType?.let { put("navBarType", it) }
 		flowMode?.let { put("flowMode", it) }
+		dragAnimationMode?.let { put("dragAnimationMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }
 		tapZoneInvertMode?.let { put("tapZoneInvertMode", it) }

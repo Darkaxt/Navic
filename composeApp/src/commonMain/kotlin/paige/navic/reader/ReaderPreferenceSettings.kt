@@ -63,6 +63,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		theme = readerTheme,
 		direction = readerDirection,
 		navBarType = readerNavBarType,
+		dragAnimationMode = readerDragAnimationMode,
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
@@ -113,6 +114,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerTheme = normalized.theme ?: ReaderLightTheme
 	readerDirection = normalized.direction ?: ReaderDirectionDefault
 	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
+	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationStandard
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
@@ -188,6 +190,7 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		theme = override.theme ?: theme,
 		direction = override.direction ?: direction,
 		navBarType = override.navBarType ?: navBarType,
+		dragAnimationMode = override.dragAnimationMode ?: dragAnimationMode,
 		flowMode = override.flowMode ?: flowMode,
 		paged = override.paged ?: paged,
 		tapZone = override.tapZone ?: tapZone,
@@ -238,6 +241,7 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		theme = if (theme != null) normalized.theme else null,
 		direction = if (direction != null) normalized.direction else null,
 		navBarType = if (navBarType != null) normalized.navBarType else null,
+		dragAnimationMode = if (dragAnimationMode != null) normalized.dragAnimationMode else null,
 		flowMode = if (flowMode != null) normalized.flowMode else null,
 		paged = if (paged != null) normalized.paged else null,
 		tapZone = if (tapZone != null) normalized.tapZone else null,
@@ -323,6 +327,7 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		theme = stringValue("theme"),
 		direction = stringValue("direction"),
 		navBarType = stringValue("navBarType"),
+		dragAnimationMode = stringValue("dragAnimationMode"),
 		flowMode = stringValue("flowMode"),
 		paged = booleanValue("paged"),
 		tapZone = stringValue("tapZone"),
@@ -370,6 +375,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }
 		navBarType?.let { put("navBarType", it) }
+		dragAnimationMode?.let { put("dragAnimationMode", it) }
 		flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }

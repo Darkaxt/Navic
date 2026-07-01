@@ -77,6 +77,8 @@ const val ReaderDirectionRtl = "rtl"
 const val ReaderNavBarTypeVerticalRight = "vertical-right"
 const val ReaderNavBarTypeVerticalLeft = "vertical-left"
 const val ReaderNavBarTypeBottom = "bottom"
+const val ReaderDragAnimationStandard = "standard"
+const val ReaderDragAnimationCurl = "curl"
 const val ReaderFlowPaged = "paged"
 const val ReaderFlowPagedVertical = "paged-vertical"
 const val ReaderFlowScrolled = "scrolled"
@@ -129,6 +131,11 @@ val ReaderSupportedFontSources: List<String> = listOf(
 	ReaderFontSourceSystem,
 	ReaderFontSourcePublisher,
 	ReaderFontSourceCustom
+)
+
+val ReaderSupportedDragAnimationModes: List<String> = listOf(
+	ReaderDragAnimationStandard,
+	ReaderDragAnimationCurl
 )
 
 val ReaderSupportedTapZones: List<String> = listOf(
@@ -263,6 +270,10 @@ fun normalizedReaderDirection(direction: String?): String =
 
 fun normalizedReaderNavBarType(navBarType: String?): String =
 	ReaderSupportedNavBarTypes.firstOrNull { supported -> supported == navBarType } ?: ReaderNavBarTypeVerticalRight
+
+fun normalizedReaderDragAnimationMode(dragAnimationMode: String?): String =
+	ReaderSupportedDragAnimationModes.firstOrNull { supported -> supported == dragAnimationMode }
+		?: ReaderDragAnimationStandard
 
 fun normalizedReaderPdfFitMode(pdfFitMode: String?): String =
 	ReaderSupportedPdfFitModes.firstOrNull { supported -> supported == pdfFitMode } ?: ReaderPdfFitWidth
@@ -636,6 +647,12 @@ fun readerNavBarTypeShortLabel(navBarType: String?): String =
 		else -> "Right"
 	}
 
+fun readerDragAnimationModeShortLabel(dragAnimationMode: String?): String =
+	when (normalizedReaderDragAnimationMode(dragAnimationMode)) {
+		ReaderDragAnimationCurl -> "Curl"
+		else -> "Standard"
+	}
+
 fun readerColorFilterModeShortLabel(colorFilterMode: String?): String =
 	when (normalizedReaderColorFilterMode(colorFilterMode)) {
 		ReaderColorFilterModeMultiply -> "Multiply"
@@ -678,6 +695,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		theme = ReaderLightTheme,
 		direction = ReaderDirectionDefault,
 		navBarType = ReaderNavBarTypeVerticalRight,
+		dragAnimationMode = ReaderDragAnimationStandard,
 		flowMode = ReaderFlowPaged,
 		paged = true,
 		tapZone = ReaderTapZoneDefault,
@@ -724,6 +742,7 @@ fun normalizedReaderSettings(
 	theme: String?,
 	direction: String? = ReaderDirectionDefault,
 	navBarType: String? = ReaderNavBarTypeVerticalRight,
+	dragAnimationMode: String? = ReaderDragAnimationStandard,
 	flowMode: String? = null,
 	paged: Boolean,
 	tapZone: String? = ReaderTapZoneDefault,
@@ -807,6 +826,7 @@ fun normalizedReaderSettings(
 		theme = normalizedReaderTheme(theme),
 		direction = normalizedReaderDirection(direction),
 		navBarType = normalizedReaderNavBarType(navBarType),
+		dragAnimationMode = normalizedReaderDragAnimationMode(dragAnimationMode),
 		flowMode = normalizedReaderFlowMode(flowMode, paged),
 		paged = normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolled &&
 			normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolledGaps,
@@ -859,6 +879,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		theme = theme,
 		direction = direction,
 		navBarType = navBarType,
+		dragAnimationMode = dragAnimationMode,
 		flowMode = flowMode,
 		paged = paged ?: true,
 		tapZone = tapZone,
