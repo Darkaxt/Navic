@@ -2361,6 +2361,108 @@ async function runRuntimeStateProbe(page) {
   }})()`)
 }
 
+async function runTextureSlotsProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    const textureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+    const borderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+    const textureSlots = Array.from(textureLayer?.querySelectorAll?.('[data-navic-surface-paper-texture-slot]') || [])
+      .map(slot => {
+        const style = getComputedStyle(slot)
+        const artwork = slot.querySelector('[data-navic-surface-texture-slot-artwork="true"]')
+        const artworkStyle = artwork ? getComputedStyle(artwork) : null
+        return {
+          slot: slot.getAttribute('data-navic-surface-paper-texture-slot') || '',
+          asset: slot.dataset.navicSurfacePaperTextureAsset || '',
+          key: slot.dataset.navicSurfacePaperTextureKey || '',
+          transform: style.transform,
+          artworkTransform: artworkStyle?.transform || '',
+          backgroundImageSet: artworkStyle ? artworkStyle.backgroundImage !== 'none' : style.backgroundImage !== 'none',
+        }
+      })
+    const borderSlots = Array.from(borderLayer?.querySelectorAll?.('[data-navic-surface-page-border-overlay-slot]') || [])
+      .map(slot => {
+        const style = getComputedStyle(slot)
+        const artwork = slot.querySelector('[data-navic-surface-texture-slot-artwork="true"]')
+        const artworkStyle = artwork ? getComputedStyle(artwork) : null
+        return {
+          slot: slot.getAttribute('data-navic-surface-page-border-overlay-slot') || '',
+          asset: slot.dataset.navicSurfacePageBorderOverlayAsset || '',
+          key: slot.dataset.navicSurfacePageBorderOverlayKey || '',
+          transform: style.transform,
+          artworkTransform: artworkStyle?.transform || '',
+          backgroundImageSet: artworkStyle ? artworkStyle.backgroundImage !== 'none' : style.backgroundImage !== 'none',
+        }
+      })
+    return {
+      probe: 'texture-slots',
+      textureLayerPresent: Boolean(textureLayer),
+      borderLayerPresent: Boolean(borderLayer),
+      textureSlotCount: textureSlots.length,
+      borderSlotCount: borderSlots.length,
+      textureLayerOpacity: textureLayer ? getComputedStyle(textureLayer).opacity : '',
+      borderLayerOpacity: borderLayer ? getComputedStyle(borderLayer).opacity : '',
+      textureSlots,
+      borderSlots,
+      surfaceTextureAsset: document.documentElement.dataset.navicSurfacePaperTextureAsset || '',
+      surfaceBorderOverlayAsset: document.documentElement.dataset.navicSurfaceBorderOverlayAsset || '',
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
+async function runPageNumberFontProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    const dysFontFamily =
+      '"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif'
+    await window.NavicReaderBridge.dispatch({
+      type: 'applySettings',
+      settings: {
+        fontSource: 'navic',
+        fontFamily: dysFontFamily,
+      },
+    })
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const pageNumberLayer = document.querySelector('[data-navic-page-number-layer="true"]')
+    if (!pageNumberLayer) {
+      throw new Error('Missing organic page-number layer')
+    }
+    const content = view.renderer?.getContents?.()?.find?.(entry => entry?.doc?.body)
+    const doc = content?.doc
+    const prose = doc?.querySelector?.('p, blockquote, li, section, article, div, span')
+    const contentStyle = prose ? doc.defaultView?.getComputedStyle?.(prose) : null
+    const bodyStyle = doc?.body ? doc.defaultView?.getComputedStyle?.(doc.body) : null
+    const pageNumberStyle = getComputedStyle(pageNumberLayer)
+    const rootFontVariable = document.documentElement.style
+      .getPropertyValue('--reader-page-number-font-family')
+      .trim()
+    const rootFontFace = document.getElementById('navic-reader-root-font-face')?.textContent || ''
+    return {
+      probe: 'page-number-font',
+      requestedFontFamily: dysFontFamily,
+      pageNumberText: pageNumberLayer.textContent || '',
+      pageNumberFontFamily: pageNumberStyle.fontFamily,
+      rootFontVariable,
+      contentFontFamily: contentStyle?.fontFamily || '',
+      bodyFontFamily: bodyStyle?.fontFamily || '',
+      rootFontFaceHasDys: rootFontFace.includes('Navic OpenDyslexic'),
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+  }})()`)
+}
+
 async function runImageHitTargetsProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     const view = document.querySelector('foliate-view')
@@ -2453,6 +2555,8 @@ async function main() {
       'font-size-current': runCurrentFontSizeProbe,
       'font-size-publisher-styles': runPublisherStyleFontSizeProbe,
       'runtime-state': runRuntimeStateProbe,
+      'texture-slots': runTextureSlotsProbe,
+      'page-number-font': runPageNumberFontProbe,
       'image-hit-targets': runImageHitTargetsProbe,
     }
     const handler = probeHandlers[probe]

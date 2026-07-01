@@ -245,6 +245,8 @@ class NavicReaderRuntime {
   surfaceBorderOverlayLayer = null
   surfaceTextureVariant = null
   surfaceBorderOverlayVariant = null
+  surfaceTextureSlots = []
+  surfaceBorderOverlaySlots = []
   surfacePaperTextureBaseOffset = 0
   surfaceTextureScrollOffset = { x: 0, y: 0 }
   surfacePaperTextureScrollRenderer = null
@@ -617,6 +619,8 @@ class NavicReaderRuntime {
     this.reflowableLastLocationProgress = null
     this.surfaceTextureVariant = null
     this.surfaceBorderOverlayVariant = null
+    this.surfaceTextureSlots = []
+    this.surfaceBorderOverlaySlots = []
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     this.surfacePaperTextureTurnDirection = null

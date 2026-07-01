@@ -40,10 +40,23 @@ Current continuation boundary as of 2026-06-30:
 - After merging current `fork/master` into the reader branch, the no-build/no-install Whispersync enjoyment gate passed again on the installed `darkaxt.navic.readerdev` `v1.0.11-theta25`: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260630-161200` passed page-scoped control, audio-follow suppression, character-offset overlay, and exact companion-progress probes against production book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
 - Therefore the next meaningful work must continue through the Bindery-scoped readerdev validation/implementation path and the current source gaps. Do not reopen closed reader-shell microfixes merely because the historical stage templates below still contain unchecked generic checklist rows, and do not stop on missing Navidrome/global app credentials.
 
-1. **Stage 5C.5 Follow-up: Bindery-Scoped Whispersync Enjoyment Validation** - rerun `scripts\adb-whispersync-enjoyment.ps1` after every Whispersync runtime/API change using `bindery-debug.env` and `darkaxt.navic.readerdev`; this is the normal ebook/audiobook integration proof.
-2. **Stage 5C.6: Signed Release Whispersync Packaging Validation** - run the same paired flow on `darkaxt.navic` when a logged-in physical release device/profile or real ignored `navic-release-login.env` is available. This is public release packaging/app-shell proof only, not a development blocker.
-3. **Stage 6F: Physical Layout And Texture Acceptance Pass** - batch human/device visual judgment for phone, Fold, and Tab layouts: typography margins, paper/edge texture strength, settings density, rail feel, drag feel, curl snapshot feel, and whether the result is faithful enough to Komikku instead of a knock-off.
-4. **Stage 8N: Bindery Generated Fullscreen Cover Variants** - keep Navic ready for Bindery-owned generated fullscreen cover variants; only this generated-cover slice waits on Bindery exposing real generated assets.
+Current continuation boundary as of 2026-07-01:
+
+- Public release `v1.0.11-theta27` closed the Android system-back ownership bug: back from EPUB content returns to the native shell cover first, and a second back returns to the previous Navic screen instead of Android home.
+- Post-theta27 top-left reader back regression root cause: `ReaderScreen.kt` routed the visible Komikku app-bar back button directly through `backStack.performNavicBack()`, bypassing reader-local cover return. Current source now routes that affordance through `applyReaderBackStep(coordinator.onNavigateBack())`, so blocking dialogs/selection prompts close first, ordinary visible chrome does not consume the app-bar back action, readable EPUB pages return to the native shell cover, and only an already-cover-visible state can leave the reader route. Readerdev/emulator proof on 2026-07-01 captured content -> top-left back -> native cover -> Android back -> Bindery book detail.
+- Physical tablet feedback after theta27 shows the next release-worthy blocker set is visual/layout fidelity, not Whispersync plumbing: sepia is present but weak, organic page numbers do not visually use the selected `Dys` font, page-border gradient overlays are not visible enough, root paper texture swaps after text relocation instead of travelling with the page content, and portrait-to-landscape collapses EPUB text into a narrow centered column instead of a Komikku-style spread/double-page surface.
+- Root-cause inspection found `navic-reader-helpers.js` and `navic-reader-appearance.js` computed `surfaceTextureScrollOffset` but used one mutable root background. The corrected direction is a single root owner with `previous/current/next` texture slots: the outer slot moves with drag/scroll samples and the inner artwork handles mirror/rotation.
+- Root-cause inspection found root page-number font parity is incomplete because `readerContentCss(...)` injects `@font-face` rules into EPUB content documents, while the organic page number lives in the root reader document. Fix root font-face registration so `Navic OpenDyslexic` and custom fonts can actually render in the page-number layer.
+- Root-cause inspection confirmed Foliate's paginator already supports two-column landscape layout through `max-column-count` and `column-threshold`; the landscape collapse must be fixed at the Navic page-box/content-style boundary, not by adding a Compose overlay workaround.
+
+1. **Stage 6G: Landscape Spread And Tablet Page Box** - make landscape and tablet EPUB layout render as a real spread/double-page surface instead of a narrow centered column.
+2. **Stage 6H: Organic Page Number Font Parity** - make the root page-number layer use the same resolved reader font face as the EPUB content, including `Dys` and custom font-source cases.
+3. **Stage 6I: Root Paper Texture Motion And Edge Overlay Fidelity** - keep one full-surface paper owner, but move its background position with the committed drag/scroll offset and make the border overlay visible across the whole reader surface.
+4. **Stage 5C.5 Follow-up: Bindery-Scoped Whispersync Enjoyment Validation** - rerun `scripts\adb-whispersync-enjoyment.ps1` after Whispersync runtime/API changes using `bindery-debug.env` and `darkaxt.navic.readerdev`; this remains the normal ebook/audiobook integration proof.
+5. **Stage 5C.6: Signed Release Whispersync Packaging Validation** - run the paired flow on `darkaxt.navic` when a release-profile device is needed. This is public packaging/app-shell proof only, not an ebook/audiobook implementation blocker.
+6. **Stage 8N: Bindery Generated Fullscreen Cover Variants** - keep Navic ready for Bindery-owned generated fullscreen cover variants; only this generated-cover slice waits on Bindery exposing real generated assets.
+
+Superseded queue note: the older Stage 6F physical acceptance bucket is now split into Stage 6G/6H/6I so layout, font, and texture issues can be fixed and verified independently before the next physical acceptance pass.
 
 Recently closed:
 - **Stage 8O: Master Generated Artwork Pipeline Sync** - merged `fork/master` generated-artwork routing into the reader branch and reconciled Aurral-first source guards with the shared `ArtworkRenderSpec` path.
@@ -696,6 +709,65 @@ Acceptance:
 - [ ] Implement one visual system at a time: rail proportions, settings density, textures, margins, or theme palette.
 - [ ] Validate on emulator phone/fold/tablet dimensions before asking for human visual judgment.
 - [ ] Commit each completed visual system.
+
+### Stage 6G: Landscape Spread And Tablet Page Box
+
+Status: current-source implementation complete; readerdev emulator validation complete; physical release validation pending.
+
+Scope:
+- Fix theta27 tablet/landscape regression where rotating an EPUB produces a narrow centered column instead of a spread/double-page reading surface.
+- Preserve Anx/Foliate paginator authority. Foliate already supports automatic columns; Navic must stop constraining the page box or content styles into a single-column strip.
+- Validate with harness or emulator metrics that include viewport, renderer page-box attributes, computed column count/width, and a screenshot. A source-only assertion is not enough for this stage.
+
+Acceptance:
+- Landscape/tablet auto mode resolves wide landscape into `max-column-count=2` unless the user explicitly overrides it; portrait/narrow auto mode remains delegated to Foliate.
+- The visible EPUB content uses natural tablet margins; text pages should not collapse into a narrow vertical word column.
+- Landscape mode shows usable double-page/spread composition when the current section has enough text and no explicit publisher break prevents it.
+- The fix must not undo portrait tablet composition improvements or the current rail endpoint behavior.
+
+Validation:
+- `node tools\reader-harness\src\run-reader-harness.mjs --mode adaptive-page-box-logic` passed after asserting 1974x1232 landscape resolves to `maxColumnCount="2"`.
+- Readerdev emulator (`darkaxt.navic.readerdev`, Tab S9 Ultra landscape profile) page-box probe reported viewport `1974x1232`, renderer `1974x1232`, `maxColumnCount="2"`, `columnThreshold="720px"`, and no centered-column collapse. Artifact: `captures\reader-bridge-probes\stage6g6i-landscape-pagebox-border-after-20260701`.
+
+### Stage 6H: Organic Page Number Font Parity
+
+Status: current-source implementation complete; WebView probe complete; physical release validation pending.
+
+Scope:
+- Make the root organic page-number layer load the same font resources as EPUB content.
+- The root page-number layer lives in the reader document, so content-document `@font-face` injection is not enough.
+- Keep page numbers organic in the page surface; do not replace them with a native Compose overlay.
+
+Acceptance:
+- Selecting `Dys` makes page numbers render through `Navic OpenDyslexic`, not a browser fallback.
+- Selecting other Navic/custom font sources keeps the page-number CSS variable and root font-face registration in sync with EPUB content.
+- Source guards must reject a page-number layer that sets a font family without also registering root reader font faces.
+
+Validation:
+- Root page-number font-face registration now injects `navic-reader-root-font-face` into the reader document, not only EPUB content iframes.
+- DevTools validation after applying `fontSource=navic` and `fontFamily="Navic OpenDyslexic", OpenDyslexic, ...` reported page-number computed font family matching the Dys stack and root font-face CSS present.
+
+### Stage 6I: Root Paper Texture Motion And Edge Overlay Fidelity
+
+Status: current-source implementation complete; readerdev emulator validation complete for direction/slot structure; physical visual judgment pending.
+
+Scope:
+- Keep one full-window root paper owner. Do not reintroduce per-document paper layers or duplicate texture owners inside EPUB iframes.
+- Represent paper and edge-gradient as `previous/current/next` slots inside the single root owner, so an adjacent page texture is already present while the text is dragged.
+- Move only the outer slots with renderer drag/scroll offset; keep texture mirror/rotation on nested artwork elements so transform math cannot invert the page movement.
+- Improve edge-gradient visibility only after slot movement is in place; otherwise opacity tweaks hide the real transition bug.
+
+Acceptance:
+- `surfaceTextureScrollOffset` is passed into both the root texture-slot painter and the edge-gradient-slot painter.
+- The root owner contains `previous/current/next` slots; the slot background stays centered while the slot itself moves with the measured drag/scroll offset.
+- Texture and edge overlay cover the whole reader surface and move in the same axis as the page content during drag/turn.
+- Texture identity changes with the committed page identity by updating the slot set, not by swapping one parent background after relocation.
+
+Validation:
+- `ReaderRuntimePaperSurfaceTest` now guards the one-root-owner/three-slot model and rejects the old single mutable parent background.
+- Readerdev DevTools `texture-slots` probe reported 3 paper slots and 3 border slots at 1974x1232. Outer slot transforms were clean translations (`-1974/0/+1974`), while nested `artworkTransform` carried mirroring/rotation.
+- Scripted native next swipe artifact `captures\reader-bridge-probes\stage6i-texture-slots-nested-next-20260701` passed `RequireTextureDirection next`: `textureDirectionSamples=20`, `wrongTextureDirection=False`, with offsets progressing from `x=-77` to `x=-1974`.
+- Edge-gradient visibility was raised after source inspection showed the PNG alpha max was about 27%; sepia border overlay opacity is now `0.72`. Physical tablet judgment is still required for final intensity preference.
 
 ### Stage 6F.1: Automated Visual Acceptance Prep Matrix
 
@@ -2170,3 +2242,48 @@ Closure:
 - [x] Move slider semantics to the actual slider control.
 - [x] Validate the complete native Settings route on readerdev/emulator with a real EPUB paragraph.
 - [x] Keep tablet visual typography and margin acceptance in Stage 6F; this stage closes the functional Font size propagation suspicion, not final tablet layout feel.
+
+### Stage 9D: Landscape Spread, Page-Number Font, And Texture Motion
+
+Status: current-source readerdev/emulator proof complete; physical release acceptance pending.
+
+Purpose:
+- Close the theta26 physical visual feedback batch before publishing another release candidate.
+- Make landscape/tablet EPUB rendering behave like a spread instead of a narrow centered column.
+- Make organic page numbers inherit the same root reader font registration used by EPUB content, including `Dys`.
+- Make root paper/edge texture slots visible and directionally coupled to drag preview, not merely swapped after relocation.
+
+Scope:
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-typography.js`
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-appearance.js`
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-helpers.js`
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- Modify: `tools/reader-harness/src/adb-webview-eval.mjs`
+- Modify: `scripts/adb-reader-smoke.ps1`
+- Modify: focused host guards and validation docs.
+
+Results:
+- RED/HARNESS-FIRST: `adaptive-page-box-logic` exposed that wide landscape could remain stuck with a stale explicit single-column `maxColumnCount=1`.
+- FIXED/RUNTIME: wide landscape now forces a two-column spread when the inline viewport exceeds the block viewport and the two-column threshold, even if a stale single-column setting was persisted.
+- RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderSeedsTextureTurnDirectionFromNativeReadableDragPreview` required texture scroll synchronization immediately after native drag-preview `renderer.scrollBy(...)`.
+- FIXED/RUNTIME: page-drag preview now calls `syncSurfacePaperTextureScrollOffset('page-drag-preview')` after each incremental renderer scroll.
+- RED/HOST-FIRST: sepia texture/border visibility guards were tightened because the physical report still showed weak sepia and missing border gradients.
+- FIXED/RUNTIME: sepia paper opacity and border overlay opacity were raised, while keeping one root texture owner with deterministic previous/current/next texture slots.
+- FIXED/RUNTIME: root reader font faces are injected into the root document, so organic page numbers can use `Navic OpenDyslexic` instead of only EPUB-content documents knowing that font.
+- GREEN/HOST-GUARD: JS syntax checks, `adaptive-page-box-logic`, focused paper surface tests, dynamic page-position chrome guard, and Anx adaptive style parity guard passed.
+- GREEN/READERDEV-EMULATOR: direct Hobbit launch rendered a real landscape spread on the Tab-style emulator; evidence `captures\reader-dev\reader-dev-20260701-054743.png`.
+- GREEN/READERDEV-PAGEBOX: `visual-batch-20260701-hobbit-pagebox` reported `maxColumnCount=2` and full landscape renderer dimensions.
+- GREEN/READERDEV-FONT: `visual-batch-20260701-hobbit-page-font` reported page-number, root, content, and body font families all using the requested Dys stack with `rootFontFaceHasDys=true`.
+- GREEN/READERDEV-TEXTURE: `visual-batch-20260701-hobbit-texture` reported three texture slots and three border slots on one root owner.
+- GREEN/READERDEV-DRAG: `visual-batch-20260701-hobbit-drag-next` and `visual-batch-20260701-hobbit-drag-prev` both reported `wrongTextureDirection=False`.
+
+Closure:
+- [x] Add red-first host/harness guards for landscape spread, drag-preview texture sync, sepia/border visibility, and root page-number font parity.
+- [x] Implement the minimal runtime changes in the reader JS modules.
+- [x] Validate with focused JS, harness, Gradle, and readerdev/emulator probes.
+- [x] Record readerdev evidence and limitations in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
+- [ ] Commit, push, and publish the next public release candidate.
+
+Limitations:
+- This remains current-source readerdev proof until a signed public release is installed on a physical device.
+- If physical testing still shows paper texture swapping after text movement, the next fix is architectural: embed the moving paper texture slots into Foliate's moving page surface and keep the root texture only for margins/fallback.

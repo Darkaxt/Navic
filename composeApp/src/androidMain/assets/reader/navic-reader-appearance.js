@@ -92,6 +92,7 @@ import {
   readerPaperTexturePageLocator,
   readerPaperTextureVariantKey,
   readerSurfaceTextureVariantForPage,
+  readerAdjacentPaperTextureSlots,
   readerPaperTextureVariantForPage,
   readerPageBorderOverlayVariantForPage,
   readerPaperTextureTransform,
@@ -147,6 +148,8 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 
+const ReaderRootFontFaceStyleId = 'navic-reader-root-font-face'
+
 function renderTapZoneOverlayLayer() {
   const settings = this.readerSettings || {}
   if (settings.showTapZones !== true || this.readerTapZoneMode === ReaderTapZoneDisabled) {
@@ -164,6 +167,21 @@ function renderTapZoneOverlayLayer() {
   )
 }
 
+function applyRootReaderFontFaces(settings = this.readerSettings) {
+  const css = readerFontFaceCss(settings).trim()
+  let style = document.getElementById(ReaderRootFontFaceStyleId)
+  if (!css) {
+    style?.remove?.()
+    return
+  }
+  if (!style) {
+    style = document.createElement('style')
+    style.id = ReaderRootFontFaceStyleId
+    ;(document.head || document.documentElement).append(style)
+  }
+  style.textContent = css
+}
+
 function applySettings(settings) {
   settings = { ...this.readerSettings, ...settings }
   this.readerSettings = settings
@@ -177,6 +195,7 @@ function applySettings(settings) {
   this.nativeTapZones = settings.nativeTapZones === true
   if (settings.fontSizePercent) rootStyle.setProperty('--reader-font-size', `${settings.fontSizePercent}%`)
   if (settings.lineHeight) rootStyle.setProperty('--reader-line-height', String(settings.lineHeight))
+  this.applyRootReaderFontFaces(settings)
   rootStyle.setProperty('--reader-page-number-font-family', this.readerPageNumberFontFamily(settings))
   rootStyle.setProperty('--reader-paragraph-spacing', readerParagraphSpacingEm(settings))
   const palette = readerThemePalette(settings.theme)
@@ -425,16 +444,27 @@ function syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
 }
 
 function renderSurfacePaperTextureLayers() {
-  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return
+  const textureSlots = this.surfaceTextureSlots || []
+  const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
+  if (
+    !this.surfaceTextureVariant &&
+    !this.surfaceBorderOverlayVariant &&
+    textureSlots.length === 0 &&
+    borderOverlaySlots.length === 0
+  ) return
+  const scrollOffset = this.surfacePaperTextureScrollOffset()
+  const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   if (this.surfaceTextureVariant) {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
       : ensureReaderSurfaceTextureLayer()
     updateReaderSurfaceTextureLayer(
       this.surfaceTextureLayer,
-      this.surfaceTextureVariant,
+      textureSlots,
       this.readerSettings,
-      null
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
     )
   }
   if (this.surfaceBorderOverlayVariant) {
@@ -443,9 +473,11 @@ function renderSurfacePaperTextureLayers() {
       : ensureReaderSurfaceBorderOverlayLayer()
     updateReaderSurfaceBorderOverlayLayer(
       this.surfaceBorderOverlayLayer,
-      this.surfaceBorderOverlayVariant,
+      borderOverlaySlots,
       this.readerSettings,
-      null
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
     )
   }
 }
@@ -467,8 +499,26 @@ function updateSurfacePaperTexture(detail = {}, pagePosition = null) {
     ? { ...detail, pageIndex: pagePosition.pageIndex, pageCount: pagePosition.pageCount }
     : detail
   const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index, textureDetail)
-  const textureVariant = readerPaperTextureVariantForPage(textureKey)
-  const borderOverlayVariant = readerPageBorderOverlayVariantForPage(textureKey)
+  const textureSlots = readerAdjacentPaperTextureSlots({
+    publicationUrl: this.publicationUrl,
+    sections: this.view?.book?.sections || [],
+    index,
+    detail,
+    pagePosition,
+    resolveVariant: readerPaperTextureVariantForPage,
+  })
+  const borderOverlaySlots = readerAdjacentPaperTextureSlots({
+    publicationUrl: this.publicationUrl,
+    sections: this.view?.book?.sections || [],
+    index,
+    detail,
+    pagePosition,
+    resolveVariant: readerPageBorderOverlayVariantForPage,
+  })
+  const textureVariant = textureSlots.find(slot => slot.slot === 'current')?.variant || readerPaperTextureVariantForPage(textureKey)
+  const borderOverlayVariant = borderOverlaySlots.find(slot => slot.slot === 'current')?.variant || readerPageBorderOverlayVariantForPage(textureKey)
+  this.surfaceTextureSlots = textureSlots
+  this.surfaceBorderOverlaySlots = borderOverlaySlots
   this.surfaceTextureVariant = textureVariant
   this.surfaceBorderOverlayVariant = borderOverlayVariant
   this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
@@ -538,6 +588,7 @@ function applyDocumentDirection(doc, direction) {
 
 export const NavicReaderAppearanceMethods = {
   renderTapZoneOverlayLayer,
+  applyRootReaderFontFaces,
   applySettings,
   applyThemeToLoadedContent,
   applyRendererTheme,

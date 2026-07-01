@@ -3,6 +3,7 @@ import {
   KomikkuNavigationRegionNext,
   KomikkuNavigationRegionPrevious,
   KomikkuNavigationRegionRight,
+  ReaderDirectionRtl,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
   ReaderFlowScrolledGaps,
@@ -225,11 +226,95 @@ export const readerPageBorderOverlayVariantForPage = key =>
     ReaderPageBorderOverlayVariantCount
   )
 
+const readerPaperTextureSlotDetail = (detail = {}, pageIndex = null, pageCount = null, section = null) => {
+  const next = { ...detail }
+  if (section?.href || section?.id) {
+    next.href = section.href || section.id
+  }
+  if (Number.isFinite(pageIndex)) {
+    next.pageIndex = Math.max(0, Math.floor(pageIndex))
+  } else {
+    delete next.pageIndex
+  }
+  if (Number.isFinite(pageCount)) {
+    next.pageCount = Math.max(1, Math.floor(pageCount))
+  } else {
+    delete next.pageCount
+  }
+  return next
+}
+
+export const readerAdjacentPaperTextureSlots = ({
+  publicationUrl,
+  sections = [],
+  index = 0,
+  detail = {},
+  pagePosition = null,
+  resolveVariant = readerPaperTextureVariantForPage,
+} = {}) => {
+  const currentIndex = Number.isFinite(Number(index)) ? Math.max(0, Math.floor(Number(index))) : 0
+  const pageIndex = Number(pagePosition?.pageIndex)
+  const pageCount = Number(pagePosition?.pageCount)
+  const hasPagePosition = Number.isFinite(pageIndex) && Number.isFinite(pageCount) && pageCount > 0
+  const sectionFor = sectionIndex => sections?.[sectionIndex]
+  const slotFor = (slot, sectionIndex, slotPageIndex = null) => {
+    const section = sectionFor(sectionIndex)
+    const slotDetail = hasPagePosition || Number.isFinite(slotPageIndex)
+      ? readerPaperTextureSlotDetail(
+        detail,
+        Number.isFinite(slotPageIndex) ? slotPageIndex : pageIndex,
+        sectionIndex === currentIndex ? pageCount : null,
+        section
+      )
+      : readerPaperTextureSlotDetail(detail, null, null, section)
+    const key = readerPaperTextureVariantKey(publicationUrl, section, sectionIndex, slotDetail)
+    return {
+      slot,
+      key,
+      variant: resolveVariant(key),
+    }
+  }
+  const slots = [slotFor('current', currentIndex, hasPagePosition ? pageIndex : null)]
+  const previousPageIndex = hasPagePosition && pageIndex > 0 ? pageIndex - 1 : null
+  const nextPageIndex = hasPagePosition && pageIndex + 1 < pageCount ? pageIndex + 1 : null
+  if (previousPageIndex != null) {
+    slots.unshift(slotFor('previous', currentIndex, previousPageIndex))
+  } else if (currentIndex > 0) {
+    slots.unshift(slotFor('previous', currentIndex - 1, null))
+  }
+  if (nextPageIndex != null) {
+    slots.push(slotFor('next', currentIndex, nextPageIndex))
+  } else if (currentIndex + 1 < sections.length) {
+    slots.push(slotFor('next', currentIndex + 1, null))
+  }
+  return slots
+}
+
 export const readerPaperTextureTransform = variant => {
   const transforms = []
   if (variant?.mirrored) transforms.push('scaleX(-1)')
   if (variant?.rotate180) transforms.push('rotate(180deg)')
   return transforms.length ? transforms.join(' ') : 'none'
+}
+
+export const readerSurfaceTextureSlotTransform = ({
+  slot = 'current',
+  scrollOffset = null,
+  width = 0,
+  height = 0,
+  flowMode,
+  readerDirection,
+} = {}) => {
+  const x = Number(scrollOffset?.x)
+  const y = Number(scrollOffset?.y)
+  const offsetX = Number.isFinite(x) ? Math.round(x) : 0
+  const offsetY = Number.isFinite(y) ? Math.round(y) : 0
+  const horizontal = flowMode !== ReaderFlowPagedVertical
+  const nextSign = horizontal && readerDirection === ReaderDirectionRtl ? -1 : 1
+  const slotSign = slot === 'next' ? nextSign : slot === 'previous' ? -nextSign : 0
+  const slotX = horizontal ? Math.round(Number(width) || 0) * slotSign : 0
+  const slotY = horizontal ? 0 : Math.round(Number(height) || 0) * slotSign
+  return `translate3d(${offsetX + slotX}px, ${offsetY + slotY}px, 0)`
 }
 
 export const readerPaperTextureCssOffset = value => {
@@ -257,7 +342,7 @@ export const readerSurfacePaperTextureOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.18'
+      return '0.22'
     case 'dark':
     case 'dusk':
       return '0.08'
@@ -270,11 +355,13 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
+    case ReaderThemeSepia:
+      return '0.80'
     case 'dark':
     case 'dusk':
-      return '0.16'
+      return '0.42'
     default:
-      return '0.22'
+      return '0.58'
   }
 }
 
@@ -353,6 +440,36 @@ export const ensureReaderSurfaceTextureLayer = () => {
     readerRoot.append(layer)
   }
   return layer
+}
+
+const ensureReaderSurfaceTextureSlot = (layer, slotName, attributeName) => {
+  const selector = `[${attributeName}="${slotName}"]`
+  let slot = layer?.querySelector?.(selector)
+  if (!slot) {
+    slot = document.createElement('div')
+    slot.setAttribute(attributeName, slotName)
+    slot.setAttribute('aria-hidden', 'true')
+    layer.append(slot)
+  }
+  return slot
+}
+
+const ensureReaderSurfaceTextureSlotArtwork = slot => {
+  let artwork = slot?.querySelector?.('[data-navic-surface-texture-slot-artwork="true"]')
+  if (!artwork) {
+    artwork = document.createElement('div')
+    artwork.dataset.navicSurfaceTextureSlotArtwork = 'true'
+    artwork.setAttribute('aria-hidden', 'true')
+    slot.append(artwork)
+  }
+  return artwork
+}
+
+const pruneReaderSurfaceTextureSlots = (layer, textureSlots, attributeName) => {
+  const active = new Set((textureSlots || []).map(slot => slot?.slot).filter(Boolean))
+  for (const slot of Array.from(layer?.querySelectorAll?.(`[${attributeName}]`) || [])) {
+    if (!active.has(slot.getAttribute(attributeName))) slot.remove()
+  }
 }
 
 export const ensureReaderSurfaceBorderOverlayLayer = () => {
@@ -449,12 +566,11 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
   })
 }
 
-export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings, scrollOffset = null) => {
-  if (!layer || !textureVariant?.asset) return
+export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
+  if (!layer || !Array.isArray(textureSlots) || !textureSlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const texturePosition = readerPaperTextureBackgroundPosition(null)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -464,24 +580,49 @@ export const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings,
     'min-height': heightPx,
     'z-index': '2147483630',
     'pointer-events': 'none',
-    'background-image': readerPaperTextureBackgroundImage(textureVariant),
-    'background-size': 'cover',
-    'background-position': texturePosition,
-    'background-repeat': 'no-repeat',
     'background-color': 'transparent',
     opacity: readerSurfacePaperTextureOpacity(settings),
     'mix-blend-mode': 'multiply',
-    transform: readerPaperTextureTransform(textureVariant),
-    'transform-origin': 'center',
+    overflow: 'hidden',
+    transform: 'none',
   })
+  pruneReaderSurfaceTextureSlots(layer, textureSlots, 'data-navic-surface-paper-texture-slot')
+  for (const slot of textureSlots) {
+    if (!slot?.variant?.asset) continue
+    const slotLayer = ensureReaderSurfaceTextureSlot(layer, slot.slot || 'current', 'data-navic-surface-paper-texture-slot')
+    const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer)
+    slotLayer.dataset.navicSurfacePaperTextureKey = slot.key || ''
+    slotLayer.dataset.navicSurfacePaperTextureAsset = slot.variant.asset || ''
+    setStylesImportant(slotLayer, {
+      position: 'absolute',
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
+      transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection }),
+      'transform-origin': 'center',
+      'will-change': 'transform',
+    })
+    setStylesImportant(artwork, {
+      position: 'absolute',
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
+      'background-image': readerPaperTextureBackgroundImage(slot.variant),
+      'background-size': 'cover',
+      'background-position': readerPaperTextureBackgroundPosition(null),
+      'background-repeat': 'no-repeat',
+      'background-color': 'transparent',
+      transform: readerPaperTextureTransform(slot.variant),
+      'transform-origin': 'center',
+    })
+  }
 }
 
-export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlayVariant, settings, scrollOffset = null) => {
-  if (!layer || !borderOverlayVariant?.asset) return
+export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
+  if (!layer || !Array.isArray(borderOverlaySlots) || !borderOverlaySlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const texturePosition = readerPaperTextureBackgroundPosition(null)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -491,17 +632,47 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlayVarian
     'min-height': heightPx,
     'z-index': '2147483631',
     'pointer-events': 'none',
-    'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant),
-    'background-size': 'cover, cover, cover',
-    'background-position': [texturePosition, texturePosition, texturePosition].join(', '),
-    'background-repeat': 'no-repeat, no-repeat, no-repeat',
     'background-color': 'transparent',
     opacity: readerSurfacePageBorderOverlayOpacity(settings),
     filter: readerSurfacePageBorderOverlayFilter(settings),
     'mix-blend-mode': 'multiply',
-    transform: readerPaperTextureTransform(borderOverlayVariant),
-    'transform-origin': 'center',
+    overflow: 'hidden',
+    transform: 'none',
   })
+  pruneReaderSurfaceTextureSlots(layer, borderOverlaySlots, 'data-navic-surface-page-border-overlay-slot')
+  for (const slot of borderOverlaySlots) {
+    if (!slot?.variant?.asset) continue
+    const slotLayer = ensureReaderSurfaceTextureSlot(layer, slot.slot || 'current', 'data-navic-surface-page-border-overlay-slot')
+    const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer)
+    slotLayer.dataset.navicSurfacePageBorderOverlayKey = slot.key || ''
+    slotLayer.dataset.navicSurfacePageBorderOverlayAsset = slot.variant.asset || ''
+    setStylesImportant(slotLayer, {
+      position: 'absolute',
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
+      transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection }),
+      'transform-origin': 'center',
+      'will-change': 'transform',
+    })
+    setStylesImportant(artwork, {
+      position: 'absolute',
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
+      'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant),
+      'background-size': 'cover, cover, cover',
+      'background-position': [
+        readerPaperTextureBackgroundPosition(null),
+        readerPaperTextureBackgroundPosition(null),
+        readerPaperTextureBackgroundPosition(null),
+      ].join(', '),
+      'background-repeat': 'no-repeat, no-repeat, no-repeat',
+      'background-color': 'transparent',
+      transform: readerPaperTextureTransform(slot.variant),
+      'transform-origin': 'center',
+    })
+  }
 }
 
 export const readerTapZoneOverlayLabel = type => {

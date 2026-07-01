@@ -428,6 +428,11 @@ export const readerMaxColumnCountValue = settings => {
 export const readerColumnThresholdValue = settings =>
   readerStyleNumber(settings, 'columnThreshold', 720, 400, 1200)
 
+const readerLandscapeSpreadColumnCount = (maxColumnCount, inlineViewport, blockViewport, columnThreshold) => {
+  if (inlineViewport > blockViewport && inlineViewport >= columnThreshold * 2) return 2
+  return maxColumnCount
+}
+
 const readerViewportSize = () => {
   const viewport = window.visualViewport
   const width = Math.max(
@@ -450,12 +455,18 @@ export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), se
   const blockViewport = vertical ? width : height
   const maxColumnCount = readerMaxColumnCountValue(settings)
   const columnThreshold = readerColumnThresholdValue(settings)
+  const resolvedMaxColumnCount = readerLandscapeSpreadColumnCount(
+    maxColumnCount,
+    inlineViewport,
+    blockViewport,
+    columnThreshold
+  )
   const maxInline = Math.max(320, inlineViewport)
   const maxBlock = Math.max(320, blockViewport)
   return {
     maxInlineSize: `${Math.round(maxInline)}px`,
     maxBlockSize: `${Math.round(maxBlock)}px`,
-    maxColumnCount: String(maxColumnCount),
+    maxColumnCount: String(resolvedMaxColumnCount),
     columnThreshold: `${Math.round(columnThreshold)}px`,
     viewportWidth: width,
     viewportHeight: height,

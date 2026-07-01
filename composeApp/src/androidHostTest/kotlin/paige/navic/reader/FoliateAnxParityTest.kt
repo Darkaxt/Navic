@@ -1018,8 +1018,9 @@ class FoliateAnxParityTest {
 		)
 		assertTrue(
 			adaptivePageBoxBody.contains("readerMaxColumnCountValue(settings)") &&
+				adaptivePageBoxBody.contains("readerLandscapeSpreadColumnCount") &&
 				!adaptivePageBoxBody.contains("readerEffectiveMaxColumnCount"),
-			"Auto column mode must pass Anx maxColumnCount=0 through to Foliate; Navic must not pre-collapse auto mode to one portrait column before the paginator can combine same-section pages."
+			"Auto column mode must stay Anx-driven for portrait/narrow surfaces, while wide landscape must resolve to a two-page spread instead of a collapsed centered column."
 		)
 		assertTrue(
 			!adaptivePageBoxBody.contains("marginPercent") &&

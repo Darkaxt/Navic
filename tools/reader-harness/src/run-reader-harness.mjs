@@ -801,8 +801,8 @@ if (mode === 'adaptive-page-box-logic') {
     { width: 1974, height: 1232 },
     { marginPercent: 0, maxColumnCount: 1 }
   )
-  if (explicitLandscapeSingle.maxColumnCount !== '1') {
-    throw new Error(`Expected explicit landscape single-column setting to survive adaptive shell resolution, got ${JSON.stringify(explicitLandscapeSingle)}`)
+  if (explicitLandscapeSingle.maxColumnCount !== '2') {
+    throw new Error(`Expected wide landscape to force a two-page spread even when a stale single-column setting is persisted, got ${JSON.stringify(explicitLandscapeSingle)}`)
   }
 
   const userMargin = helpers.readerAdaptiveFoliatePageBox({ width: 1232, height: 1974 }, { marginPercent: 20 })
@@ -824,8 +824,8 @@ if (mode === 'adaptive-page-box-logic') {
   }
 
   const landscape = helpers.readerAdaptiveFoliatePageBox({ width: 1974, height: 1232 }, { marginPercent: 0 })
-  if (landscape.maxColumnCount !== '0') {
-    throw new Error(`Expected wide auto composition to stay delegated to Foliate/Anx maxColumnCount=0, got ${JSON.stringify(landscape)}`)
+  if (landscape.maxColumnCount !== '2') {
+    throw new Error(`Expected wide landscape auto composition to request a two-page spread, got ${JSON.stringify(landscape)}`)
   }
   if (parsePx(landscape.maxInlineSize) !== 1974 || parsePx(landscape.maxBlockSize) !== 1232) {
     throw new Error(`Expected landscape page box to use wide viewport capacity, got ${JSON.stringify(landscape)}`)

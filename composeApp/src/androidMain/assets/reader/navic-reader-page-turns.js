@@ -1309,6 +1309,7 @@ function previewPageDrag(command) {
   })
   if (incrementalDelta.x !== 0 || incrementalDelta.y !== 0) {
     renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)
+    this.syncSurfacePaperTextureScrollOffset('page-drag-preview')
   }
   this.nativePageDragPreview = phase === 'release'
     ? null

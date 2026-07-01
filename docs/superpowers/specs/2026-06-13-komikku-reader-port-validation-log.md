@@ -9435,3 +9435,50 @@ Results:
 
 Next:
 - Include this app-bar back path in the next release candidate if the current visual/layout fixes also pass their focused gates.
+
+## 2026-07-01 Stage 9D Visual Layout And Paper Motion Candidate
+
+Scope:
+- Fix the theta26 physical visual feedback set before publishing another reader APK.
+- Address landscape EPUB layout collapse, organic page-number font mismatch, weak sepia/border texture visibility, and paper texture drag-motion swapping.
+- Keep the texture owner as one root reader-window surface for this candidate; if physical release still shows texture swapping, the next architectural step is to embed moving texture slots into Foliate's moving page surface instead of only the root overlay.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-helpers.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check composeApp\src\androidMain\assets\reader\navic-reader-typography.js
+node --check tools\reader-harness\src\adb-webview-eval.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode adaptive-page-box-logic
+.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest" --tests "paige.navic.reader.ReaderRuntimeShellProgressTest.androidReaderReportsDynamicReflowablePagePositionToChrome" --tests "paige.navic.reader.FoliateAnxParityTest.phase8AdaptiveCompositionFieldsMatchAnxBookStyleContract"
+.\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -NoDiscoverPublication -RequireReaderLaunch -BookId 3816 -ResourceHref "/opds/books/3816/resources/ebook-86187906e76ac5241902" -Title "The Hobbit" -Format epub -StartHref "OEBPS/Text/Hobbit_chap-1.html" -Capture -SkipNativeShellCover
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-box -ArtifactDir captures\reader-bridge-probes\visual-batch-20260701-hobbit-pagebox
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\visual-batch-20260701-hobbit-texture
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-number-font -ArtifactDir captures\reader-bridge-probes\visual-batch-20260701-hobbit-page-font
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -SwipeFraction "0.72,0.50,0.28,0.50,700,1200" -CaptureReaderDiagnostics -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection next -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\visual-batch-20260701-hobbit-drag-next
+.\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -SwipeFraction "0.28,0.50,0.72,0.50,700,1200" -CaptureReaderDiagnostics -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection previous -ReaderDevtoolsProbe texture-slots -ArtifactDir captures\reader-bridge-probes\visual-batch-20260701-hobbit-drag-prev
+git diff --check
+```
+
+Results:
+- GREEN/HOST-FIRST: landscape auto-spread, paper texture motion, sepia/border opacity, organic page-number root font registration, and Anx adaptive style guards passed.
+- GREEN/READERDEV-SPREAD: direct Hobbit launch on the Tab-style landscape emulator rendered real text as a two-column/two-page spread instead of a narrow centered column. Evidence: `captures\reader-dev\reader-dev-20260701-054743.png`.
+- GREEN/PAGE-BOX: `visual-batch-20260701-hobbit-pagebox` reported viewport `1974x1232`, renderer `maxInlineSize=1974px`, `maxBlockSize=1232px`, `maxColumnCount=2`, `columnThreshold=720px`, `topMargin=90px`, and `bottomMargin=50px`.
+- GREEN/PAGE-NUMBER-FONT: `visual-batch-20260701-hobbit-page-font` forced the Dys reader font through the bridge and reported page-number, root variable, content, and body font families all as `"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif`; `rootFontFaceHasDys=true`.
+- GREEN/TEXTURE-SLOTS: `visual-batch-20260701-hobbit-texture` reported one root texture layer and one root border layer, each with three deterministic previous/current/next slots. Current texture and border assets were set on slot children rather than reinjecting document textures.
+- GREEN/DRAG-NEXT: `visual-batch-20260701-hobbit-drag-next\reader-texture-direction-validation.txt` reported `wrongTextureDirection=False`; page-drag-preview samples moved texture offsets in the expected next direction.
+- GREEN/DRAG-PREVIOUS: `visual-batch-20260701-hobbit-drag-prev\reader-texture-direction-validation.txt` reported `wrongTextureDirection=False`; page-drag-preview samples moved texture offsets in the expected previous direction.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Limitations:
+- The readerdev proof is current-source implementation evidence, not physical release acceptance.
+- Sepia intensity was raised by source guards, but the emulator proof did not re-capture a sepia-themed physical-style screenshot.
+- If the next physical release still feels like the paper swaps after text loads, do not keep tuning root overlay opacity; move the texture slots into the moving Foliate page surface and keep the root layer only for margins/fallback.
+- The direct Hobbit validation was used because the autodiscovered readerdev target landed on a blank/cover/frontmatter state; that separate skip-cover/frontmatter route should not be mixed into this visual batch.
+
+Next:
+- Commit this candidate with the app-bar back fix.
+- Publish a public release candidate only after version bump, local gates, push, and GitHub release workflow pass.

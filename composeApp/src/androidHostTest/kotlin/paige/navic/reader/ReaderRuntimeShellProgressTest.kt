@@ -914,6 +914,10 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(bridgeText, "this.updateReaderPageNumberLayer(pagePosition)")
 		assertContains(bridgeText, "font-family': 'var(--reader-page-number-font-family")
+		assertContains(bridgeText, "function applyRootReaderFontFaces(settings")
+		assertContains(bridgeText, "navic-reader-root-font-face")
+		assertContains(bridgeText, "readerFontFaceCss(settings)")
+		assertContains(bridgeText, "this.applyRootReaderFontFaces(settings)")
 		assertContains(bridgeText, "function readerPageNumberVisibleContentFontFamily()")
 		assertContains(bridgeText, "const visibleContentFont = readerPageNumberVisibleContentFontFamily.call(this)")
 		assertFalse(

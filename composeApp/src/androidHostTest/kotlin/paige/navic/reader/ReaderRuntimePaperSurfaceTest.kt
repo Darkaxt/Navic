@@ -105,6 +105,9 @@ class ReaderRuntimePaperSurfaceTest {
 		val textureOpacity = helperText
 			.substringAfter("export const readerSurfacePaperTextureOpacity = settings =>")
 			.substringBefore("\n\nexport const readerSurfacePageBorderOverlayOpacity")
+		val borderOpacity = helperText
+			.substringAfter("export const readerSurfacePageBorderOverlayOpacity = settings =>")
+			.substringBefore("\n\nexport const readerSurfacePageBorderOverlayFilter")
 		val borderBackgroundImage = helperText
 			.substringAfter("export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVariant =>")
 			.substringBefore("\n\nexport const readerPageNumberPageCount")
@@ -113,7 +116,7 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
 
 		assertContains(textureOpacity, "case ReaderThemeSepia:")
-		assertContains(textureOpacity, "return '0.18'")
+		assertContains(textureOpacity, "return '0.22'")
 		assertContains(
 			textureOpacity,
 			"return '0.12'",
@@ -130,7 +133,13 @@ class ReaderRuntimePaperSurfaceTest {
 		assertFalse(helperText.contains("readerDocumentPaperTextureBackground"))
 		assertFalse(helperText.contains("updateReaderDocumentPaperTexture"))
 		assertContains(helperText, "readerSurfacePageBorderOverlayBackgroundImage")
-		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant)")
+		assertContains(
+			borderOpacity,
+			"return '0.80'",
+			message = "Border overlay PNGs have low source alpha, so the single border layer needs enough opacity to be visible over paper texture."
+		)
+		assertContains(borderUpdater, "for (const slot of borderOverlaySlots)")
+		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant)")
 		assertContains(
 			borderBackgroundImage,
 			"[textureUrl, textureUrl, textureUrl].join(', ')",
@@ -212,8 +221,8 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(surfaceTextureUpdater, "readerRoot.dataset.navicSurfacePaperTextureAsset")
 		assertContains(
 			surfaceLayerUpdater,
-			"readerPaperTextureBackgroundImage(textureVariant)",
-			message = "The top-level surface is the only paper texture owner and must cover the full reader viewport."
+			"readerPaperTextureBackgroundImage(slot.variant)",
+			message = "The top-level surface is the only paper texture owner; page-slot children carry current and adjacent page textures."
 		)
 		assertContains(indexText, "body > foliate-view")
 		assertContains(indexText, "z-index: 1;")
@@ -229,6 +238,7 @@ class ReaderRuntimePaperSurfaceTest {
 				surfaceLayerUpdater.contains("'z-index': '2147483646'"),
 			"Paper texture must not be hidden behind the EPUB iframe or placed above reader chrome."
 		)
+		assertContains(surfaceLayerUpdater, "readerSurfaceTextureSlotTransform")
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
 		assertContains(applySettings, "this.renderSurfacePaperTextureLayers()")
 		assertContains(onLoad, "this.updateReaderPageNumberLayer()")
@@ -292,7 +302,7 @@ class ReaderRuntimePaperSurfaceTest {
 			surfaceLayerUpdater.contains("height: '100vh'"),
 			"Android WebView resolved 100vh to a zero-height fixed texture layer in the reader."
 		)
-		assertContains(surfaceLayerUpdater, "'background-image': readerPaperTextureBackgroundImage(textureVariant)")
+		assertContains(surfaceLayerUpdater, "'background-image': readerPaperTextureBackgroundImage(slot.variant)")
 		assertContains(surfaceLayerUpdater, "opacity: readerSurfacePaperTextureOpacity(settings)")
 		assertContains(surfaceLayerUpdater, "'pointer-events': 'none'")
 	}
@@ -366,9 +376,19 @@ class ReaderRuntimePaperSurfaceTest {
 			"const effectiveDirection = explicitDirection || (directionlessBoundaryLikeDelta ? fallbackDirection : null)",
 			message = "Texture movement needs the recent logical page-turn direction when renderer coordinates wrap at section boundaries."
 		)
-		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
+		assertContains(surfaceLayerUpdater, "readerSurfaceTextureSlotTransform")
+		assertContains(
+			surfaceLayerUpdater,
+			"readerPaperTextureBackgroundPosition(null)",
+			message = "Each page slot keeps its own texture centered while the slot itself moves with the renderer."
+		)
 		assertContains(renderSurfacePaperTextureLayers, "updateReaderSurfaceTextureLayer(")
-		assertContains(renderSurfacePaperTextureLayers, "null")
+		assertContains(
+			renderSurfacePaperTextureLayers,
+			"const scrollOffset = this.surfacePaperTextureScrollOffset()",
+			message = "The root surface texture render path must feed committed drag/scroll offset into both paper layers."
+		)
+		assertContains(renderSurfacePaperTextureLayers, "scrollOffset")
 		assertContains(pageTurnSnapshot, "background-color:var(--reader-background, transparent)!important;")
 		assertFalse(
 			pageTurnSnapshot.contains("readerDocumentPaperTextureBackground") ||
@@ -377,13 +397,61 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			surfaceLayerUpdater,
-			"const texturePosition = readerPaperTextureBackgroundPosition(null)",
-			message = "The single root surface texture must use one viewport-sized background position."
+			"readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection })",
+			message = "The single root surface must move page texture slots with the rendered page instead of swapping one parent background."
 		)
+		assertContains(surfaceLayerUpdater, "readerPaperTextureTransform(slot.variant)")
 		assertContains(
 			surfaceLayerUpdater,
 			"'z-index': '2147483630'",
 			message = "The paper texture must cover Foliate content without sitting above reader chrome."
+		)
+	}
+
+	@Test
+	fun androidReaderMovesPageTextureSlotsWithPageDragInsteadOfSwappingOneBackground() {
+		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val surfaceTextureUpdate = bridgeText
+			.substringAfter("updateSurfacePaperTexture(detail = {}, pagePosition = null) {")
+			.substringBefore("\n  applyReaderDirection")
+		val surfaceLayerUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null")
+			.substringBefore("\n\nexport const updateReaderSurfaceBorderOverlayLayer")
+		val borderLayerUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null")
+			.substringBefore("\n\nexport const readerPageNumberLayerStyle")
+
+		assertContains(
+			helperText,
+			"data-navic-surface-paper-texture-slot",
+			message = "The root texture owner must contain page slots so the incoming page texture is visible during drag."
+		)
+		assertContains(helperText, "readerAdjacentPaperTextureSlots")
+		assertContains(helperText, "readerSurfaceTextureSlotTransform")
+		assertContains(helperText, "ensureReaderSurfaceTextureSlotArtwork")
+		assertContains(helperText, "ReaderDirectionRtl")
+		assertContains(surfaceTextureUpdate, "const textureSlots = readerAdjacentPaperTextureSlots")
+		assertContains(surfaceTextureUpdate, "const borderOverlaySlots = readerAdjacentPaperTextureSlots")
+		assertContains(surfaceTextureUpdate, "this.surfaceTextureSlots = textureSlots")
+		assertContains(surfaceTextureUpdate, "this.surfaceBorderOverlaySlots = borderOverlaySlots")
+		assertContains(surfaceLayerUpdater, "for (const slot of textureSlots)")
+		assertContains(surfaceLayerUpdater, "readerSurfaceTextureSlotTransform({")
+		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
+		assertContains(surfaceLayerUpdater, "transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection })")
+		assertContains(surfaceLayerUpdater, "transform: readerPaperTextureTransform(slot.variant)")
+		assertContains(borderLayerUpdater, "for (const slot of borderOverlaySlots)")
+		assertContains(borderLayerUpdater, "readerSurfaceTextureSlotTransform({")
+		assertContains(borderLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
+		assertContains(borderLayerUpdater, "transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection })")
+		assertContains(borderLayerUpdater, "transform: readerPaperTextureTransform(slot.variant)")
+		assertFalse(
+			surfaceLayerUpdater.contains("'background-image': readerPaperTextureBackgroundImage(textureVariant)"),
+			"One mutable root background swaps after relocation; slots let current and adjacent page textures move with the text."
+		)
+		assertFalse(
+			borderLayerUpdater.contains("'background-image': readerSurfacePageBorderOverlayBackgroundImage(borderOverlayVariant)"),
+			"Border degradation must follow the same page slots as the paper texture, not repaint as one static background."
 		)
 	}
 
@@ -497,6 +565,11 @@ class ReaderRuntimePaperSurfaceTest {
 			previewPageDrag,
 			"renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)",
 			message = "The page itself must move on the same axis as the texture during native drag previews."
+		)
+		assertTrue(
+			previewPageDrag.indexOf("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)") <
+				previewPageDrag.indexOf("this.syncSurfacePaperTextureScrollOffset('page-drag-preview')"),
+			"Native readable drag previews must re-sync the root texture slots immediately after moving the Foliate renderer; relying on a delayed scroll event makes the grain swap after the text."
 		)
 	}
 
