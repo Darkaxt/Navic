@@ -251,6 +251,14 @@ class ReaderDevEnvironmentContractTest {
 		val releaseScript = root.resolve("scripts/publish-github-release.ps1").readText()
 
 		assertTrue(
+			releaseScript.contains("[switch] \$AllowPublicRelease") &&
+				releaseScript.contains("[string] \$ReleaseReadinessNote") &&
+				releaseScript.contains("Use debug/readerdev APKs for emulator iteration") &&
+				releaseScript.contains("fully implemented, locally validated, committed") &&
+				releaseScript.contains("ready for physical-device acceptance"),
+			"The public release script must fail closed unless a coherent candidate is explicitly marked release-worthy."
+		)
+		assertTrue(
 			releaseScript.contains("[int] \$PollSeconds") &&
 				releaseScript.contains("Start-Sleep -Seconds \$PollSeconds"),
 			"The release watcher may keep a polling heartbeat while waiting for GitHub Actions and release assets."

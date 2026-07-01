@@ -23,6 +23,10 @@ param(
 
     [switch] $Background,
 
+    [switch] $AllowPublicRelease,
+
+    [string] $ReleaseReadinessNote = "",
+
     [string] $LogFile = ""
 )
 
@@ -35,6 +39,14 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 if ([string]::IsNullOrWhiteSpace($LogFile)) {
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $LogFile = Join-Path $logDir "$Tag-$stamp.log"
+}
+
+if (-not $AllowPublicRelease) {
+    throw "Public release blocked. Use debug/readerdev APKs for emulator iteration. Re-run with -AllowPublicRelease and -ReleaseReadinessNote only after a coherent feature or major fix is fully implemented, locally validated, committed, and ready for physical-device acceptance."
+}
+
+if ([string]::IsNullOrWhiteSpace($ReleaseReadinessNote)) {
+    throw "Public release blocked. -ReleaseReadinessNote is required and must name the completed feature/fix plus the validation evidence that makes this release worth physical-device acceptance."
 }
 
 function Write-ReleaseLog {
@@ -143,6 +155,12 @@ if ($Background) {
     if ($SkipPush) {
         $argsList += "-SkipPush"
     }
+    if ($AllowPublicRelease) {
+        $argsList += "-AllowPublicRelease"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ReleaseReadinessNote)) {
+        $argsList += @("-ReleaseReadinessNote", "`"$ReleaseReadinessNote`"")
+    }
 
     $process = Start-Process `
         -FilePath "powershell.exe" `
@@ -160,6 +178,7 @@ if ($Background) {
 Set-Location -LiteralPath $repoRoot
 Write-ReleaseLog "Release deploy/watch started for $Tag in $Repo."
 Write-ReleaseLog "Log file: $LogFile"
+Write-ReleaseLog "Readiness: $ReleaseReadinessNote"
 
 Invoke-LoggedCommand "gh" @("--version") | Out-Null
 Invoke-LoggedCommand "gh" @("auth", "status") | Out-Null

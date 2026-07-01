@@ -10363,3 +10363,33 @@ Results:
 Next:
 - Do not create a public APK for this validation refresh.
 - Physical acceptance still needs manual feel judgment for drag preview, paper/border texture visibility, and Whispersync audio-follow interactions.
+
+## 2026-07-02 Stage 9M.5 Public Release Guard
+
+Scope:
+- Enforce the debug-first/public-last cadence in tooling instead of relying only on written process notes.
+- Prevent accidental GitHub/public APK releases for microfixes, diagnostics, animation experiments, or unproven reader slices.
+
+Changes:
+- `scripts/publish-github-release.ps1` now fails closed unless the caller passes `-AllowPublicRelease` and a non-empty `-ReleaseReadinessNote`.
+- The readiness note must name the completed feature/fix and the validation evidence that makes the release worth physical-device acceptance.
+- `ReaderDevEnvironmentContractTest.releaseWatcherUsesConditionPollingWithoutTimeoutCancellation` now guards that the release script keeps this explicit public-release boundary.
+
+Commands:
+
+```powershell
+$errors = $null; $text = Get-Content -LiteralPath scripts\publish-github-release.ps1 -Raw; [System.Management.Automation.PSParser]::Tokenize($text, [ref]$errors) | Out-Null; if ($errors -and $errors.Count -gt 0) { $errors | Format-List *; exit 1 }; 'PowerShell parser clean'
+$ErrorActionPreference='Continue'; $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-github-release.ps1 -Tag navic-release-guard-test 2>&1; $code = $LASTEXITCODE; $out | ForEach-Object { [string]$_ }; if ($code -eq 0) { throw 'Release guard did not block missing override.' }; if (($out -join "`n") -notmatch 'Public release blocked') { throw 'Release guard failed without expected message.' }; 'Release guard blocked missing override as expected'
+java -jar gradle\wrapper\gradle-wrapper.jar --no-daemon :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderDevEnvironmentContractTest.releaseWatcherUsesConditionPollingWithoutTimeoutCancellation --console=plain
+git diff --check
+```
+
+Results:
+- GREEN/PARSER: `publish-github-release.ps1` parses cleanly.
+- GREEN/FAIL-CLOSED: invoking the public release script without the override stops immediately with `Public release blocked` before `gh`, `git push`, tags, or workflow polling.
+- GREEN/HOST: focused `ReaderDevEnvironmentContractTest.releaseWatcherUsesConditionPollingWithoutTimeoutCancellation` passed from hidden Gradle log `artifacts\validation\release-guard-host-test-20260702-013911.out.log`.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Next:
+- Normal implementation validation remains host/browser/ADB/readerdev/emulator only.
+- Public GitHub releases require an explicit release-worthy candidate and the guarded script parameters.
