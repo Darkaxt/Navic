@@ -2439,7 +2439,7 @@ Results:
 
 ### Stage 9I: Interior Drag Preview Without Renderer Mutation
 
-Status: current-source browser/harness/Gradle proof complete; release decision pending.
+Status: current-source browser/harness/Gradle proof complete and published as `v1.0.11-theta33`.
 
 Purpose:
 - Follow up Stage 9H.3 without regressing it: normal in-chapter drags must still show a dragged page surface instead of a black void or post-load texture swap, but preview must remain non-committing.
@@ -2461,3 +2461,4 @@ Interim results:
 - GREEN/HARNESS: `epub-texture-frontmatter-transition` passes on `tmp\reader-live\book-3809-file-426.epub`; `served-input.epub` does not expose a visible section boundary within the scanner window and is not the right fixture for that boundary-specific gate.
 - GREEN/JS: syntax checks passed for the touched reader runtime and harness modules.
 - GREEN/HOST: `git diff --check` and `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed.
+- GREEN/RELEASE: public release `v1.0.11-theta33` was published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta33`.

@@ -9905,3 +9905,38 @@ Results:
 Next:
 - Commit the Stage 9I slice.
 - Public release is justified if this is treated as a major drag-feel/black-void follow-up candidate after theta32.
+
+## 2026-07-01 Theta33 Public Release Candidate
+
+Scope:
+- Publish the Stage 9I interior drag preview fix as a public Android APK for physical drag-feel validation.
+- This candidate is specifically for the post-theta32 issue where non-committing drag preview no longer skipped pages but still needed an interior visual page surface instead of a black void or post-load texture swap.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta33
+git diff --check
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git commit -m "Prepare theta33 reader release"
+git tag v1.0.11-theta33
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-theta33 -Repo Darkaxt/Navic -Remote fork -Branch codex/komikku-reader-backbone-eta64 -PollSeconds 30
+gh release view v1.0.11-theta33 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease,targetCommitish
+gh run view 28506989628 --repo Darkaxt/Navic --json databaseId,status,conclusion,url,jobs
+```
+
+Results:
+- GREEN/VERSION: Android `versionName` now matches `v1.0.11-theta33` and `versionCode=461`.
+- GREEN/LOCAL-GATES: `git diff --check` and `.\gradlew.bat --no-daemon :composeApp:testAndroid` passed after the version bump.
+- GREEN/GIT: committed `e431e354 Restore interior reader drag preview`, committed `ae128248 Prepare theta33 reader release`, tagged `v1.0.11-theta33`, pushed branch `codex/komikku-reader-backbone-eta64`, and pushed the tag to `fork`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28506989628` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA`, `Attach iOS IPA to GitHub Release`, and Discord artifact upload were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta33` contains `Navic.apk` (`33,593,399` bytes, `sha256:e5e02fdd220efd04e40aa4365fa209f971b7fa8226242c4c2303fd961ebb19f6`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta33` and specifically check:
+  - dragging from Chapter 1 page 1/global `5/140` still commits page 6, not page 7;
+  - dragging within a normal chapter now shows a page/texture surface instead of a black void;
+  - page 12 / stacked-dwarves image page does not invert or skip during drag;
+  - remaining paper texture/border shadow strength and landscape spread issues are still present or improved.
