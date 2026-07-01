@@ -301,6 +301,7 @@ class NavicReaderRuntime {
   deferredReflowablePageTurn = null
   deferredReflowablePageTurnToken = 0
   recentPageTurnDirection = null
+  pageTurnTargetPageIndex = null
   nativePageDragPreview = null
   fixedLayoutNavigationPageIndex = null
   fixedLayoutNavigationDirection = null

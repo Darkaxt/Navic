@@ -9990,3 +9990,42 @@ Results:
 
 Next:
 - This patch addresses the page-5 to page-7 commit mismatch class. Physical-device validation should still check texture shadow strength and section/image pages because those are visually sensitive and not fully proven by emulator logs.
+
+## 2026-07-01 Stage 9K Page-Turn Target Model Fix
+
+Scope:
+- Fix the refined report where page 5 begins dragging toward page 6, page 6 text appears during the movement, and releasing leaves the reader on the next content position while the UI still labels it as page 6.
+- Do not change native touch ownership, drag thresholds, or Foliate gesture routing in this slice.
+
+Diagnosis:
+- RED/HARNESS: `epub-native-drag-single-commit` against `book-3809-file-426.epub` reproduced a frozen global page model before the drag probe could even start.
+- The diagnostic artifact showed `Authorforeword.xhtml` posting two relocations with raw Foliate location `5 -> 7` while Navic page model stayed at `pageIndex=5`, `chapterPageCount=1`, and `pageItemLabel=6`.
+- The cached complete pagination profile could collapse a live multi-page section to one page, and `committedPageTurnPosition` had a one-page-profile shortcut that preserved the stale page index during controlled page turns.
+
+Changes:
+- Page turns now record a one-step `pageTurnTargetPageIndex` at the start of the controlled turn.
+- Page-number resolution honors that explicit page-turn target before stale one-page profile shortcuts, so multiple relocation details from one turn normalize to the same one-step target instead of retaining a collapsed cached profile.
+- Fresh pagination profiles can supersede a cached profile when any observed section page count increases.
+- The browser harness now targets a real interior global page, waits on global `locationChanged` movement, and verifies the rendered page-number label advances by exactly one page.
+
+Commands:
+
+```powershell
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node .\tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture .\tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-pagination.js
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check .\composeApp\src\androidMain\assets\reader\navic-reader.js
+node --check .\tools\reader-harness\src\run-reader-harness.mjs
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers"
+```
+
+Results:
+- RED/GUARD: the first post-theta34 harness run failed with `page.waitForFunction: Timeout 30000ms exceeded`; artifact `tools/reader-harness/output/epub-native-drag-single-commit.failure.json` showed raw Foliate location `5 -> 7` while user-facing `pageIndex` stayed `5`.
+- GREEN/HARNESS-LIVE: the same `book-3809-file-426.epub` tablet/landscape harness passed after the target-model fix.
+- GREEN/HARNESS-HOBBIT: the same harness passed on `served-input.epub`.
+- GREEN/JS: all touched reader JS and harness JS syntax checks passed.
+- GREEN/HOST: focused `ReaderRuntimeAssetsTest.androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers` passed.
+
+Next:
+- This fixes the user-facing global page model freezing on controlled page turns. Physical-device validation should still check whether the visual texture layer and Foliate content movement feel aligned during real finger drags, because that is a separate texture/preview rendering issue.

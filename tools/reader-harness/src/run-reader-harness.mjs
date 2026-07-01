@@ -2312,9 +2312,10 @@ if (mode === 'epub-native-drag-single-commit') {
     extraFiles: new Map([[fixtureRoute, fixturePath]]),
   })
   const browser = await chromium.launch()
+  let page = null
   const errors = []
   try {
-    const page = await browser.newPage(readerHarnessViewport)
+    page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -2369,6 +2370,7 @@ if (mode === 'epub-native-drag-single-commit') {
 
     const readState = async () => page.evaluate(() => {
       const renderer = document.querySelector('foliate-view')?.renderer
+      const pageNumberLayer = document.querySelector('[data-navic-page-number-layer="true"]')
       const messages = (window.__navicReaderPostedMessages || [])
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
       return {
@@ -2379,31 +2381,82 @@ if (mode === 'epub-native-drag-single-commit') {
         end: Number(renderer?.end),
         viewSize: Number(renderer?.viewSize),
         location: messages.at(-1) || null,
+        locationCount: messages.length,
+        pageNumberLabel: String(pageNumberLayer?.textContent || '').trim(),
         trace: (window.__navicReaderTrace || [])
           .filter(event => String(event?.type || '').startsWith('page-drag-preview') || String(event?.type || '').startsWith('page-turn'))
           .slice(-12),
       }
     })
+    const waitForGlobalLocationAdvance = async previousState => {
+      await page.waitForFunction(({ previousLocationCount, previousPageIndex }) => {
+        const messages = (window.__navicReaderPostedMessages || [])
+          .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+        const latest = messages.at(-1)
+        return messages.length > previousLocationCount &&
+          Number.isFinite(latest?.pageIndex) &&
+          (!Number.isFinite(previousPageIndex) || latest.pageIndex !== previousPageIndex)
+      }, {
+        previousLocationCount: Number(previousState?.locationCount) || 0,
+        previousPageIndex: Number(previousState?.location?.pageIndex),
+      })
+    }
 
     const firstReady = await readState()
-    if (!Number.isFinite(firstReady.pages) || firstReady.pages < 3) {
-      throw new Error(`Expected a multi-page readable section for drag commit probe; observed ${JSON.stringify(firstReady)}`)
-    }
-    if (Number(firstReady.page) <= 1) {
+    const targetGlobalPageIndex = Math.max(
+      1,
+      Math.floor(Number(argValue('--target-global-page-index')) || 4)
+    )
+    let before = firstReady
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const globalPageIndex = Number(before.location?.pageIndex)
+      const chapterPageIndex = Number(before.location?.chapterPageIndex)
+      const chapterPageCount = Number(before.location?.chapterPageCount)
+      const sectionPage = Number(before.page)
+      const sectionPageCount = Number(before.pages)
+      if (
+        Number.isFinite(globalPageIndex) &&
+        globalPageIndex >= targetGlobalPageIndex &&
+        Number.isFinite(chapterPageIndex) &&
+        Number.isFinite(chapterPageCount) &&
+        chapterPageCount > 3 &&
+        chapterPageIndex > 0 &&
+        chapterPageIndex < chapterPageCount - 1 &&
+        Number.isFinite(sectionPage) &&
+        Number.isFinite(sectionPageCount) &&
+        sectionPageCount >= 3 &&
+        sectionPage < sectionPageCount - 1
+      ) {
+        break
+      }
+      const previousState = before
       await page.evaluate(async () => window.NavicReaderBridge.dispatch({ type: 'nextPage' }))
-      await page.waitForFunction(previousPage => {
-        const renderer = document.querySelector('foliate-view')?.renderer
-        return Number(renderer?.page) > Number(previousPage)
-      }, firstReady.page)
+      await waitForGlobalLocationAdvance(previousState)
+      before = await readState()
     }
     await page.evaluate(async () => {
       for (let index = 0; index < 6; index += 1) {
         await new Promise(resolve => requestAnimationFrame(resolve))
       }
     })
-    const before = await readState()
-    if (!Number.isFinite(before.page) || !Number.isFinite(before.pages) || before.page >= before.pages - 1) {
-      throw new Error(`Expected an interior page before drag commit probe; observed ${JSON.stringify(before)}`)
+    before = await readState()
+    if (
+      !Number.isFinite(before.location?.pageIndex) ||
+      before.location.pageIndex < targetGlobalPageIndex ||
+      !Number.isFinite(before.location?.chapterPageIndex) ||
+      !Number.isFinite(before.location?.chapterPageCount) ||
+      before.location.chapterPageCount <= 3 ||
+      before.location.chapterPageIndex <= 0 ||
+      before.location.chapterPageIndex >= before.location.chapterPageCount - 1 ||
+      !Number.isFinite(before.page) ||
+      !Number.isFinite(before.pages) ||
+      before.pages < 3 ||
+      before.page >= before.pages - 1
+    ) {
+      throw new Error(
+        `Expected a global page ${targetGlobalPageIndex + 1}+ interior section page before drag commit probe; ` +
+        `observed ${JSON.stringify(before)}`
+      )
     }
 
     await page.evaluate(async () => {
@@ -2534,6 +2587,8 @@ if (mode === 'epub-native-drag-single-commit') {
       }
     }
 
+    const beforeGlobalPageIndex = Number(before.location?.pageIndex)
+    const beforeLocationCount = Number(before.locationCount) || 0
     await page.evaluate(async () => {
       const width = window.visualViewport?.width || window.innerWidth || 500
       const height = window.visualViewport?.height || window.innerHeight || 800
@@ -2552,12 +2607,28 @@ if (mode === 'epub-native-drag-single-commit') {
         await new Promise(resolve => requestAnimationFrame(resolve))
       }
     })
+    await page.waitForFunction(({ beforeLocationCount, beforeGlobalPageIndex }) => {
+      const messages = (window.__navicReaderPostedMessages || [])
+        .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const latest = messages.at(-1)
+      return messages.length > beforeLocationCount &&
+        Number.isFinite(latest?.pageIndex) &&
+        latest.pageIndex !== beforeGlobalPageIndex
+    }, { beforeLocationCount, beforeGlobalPageIndex })
     const afterCommit = await readState()
-    const commitPageDelta = Number(afterCommit.page) - Number(before.page)
-    if (commitPageDelta !== 1) {
+    const commitGlobalPageDelta = Number(afterCommit.location?.pageIndex) - beforeGlobalPageIndex
+    if (commitGlobalPageDelta !== 1) {
       throw new Error(
-        `Expected native drag release plus page action to commit exactly one page; ` +
-        `observed pageDelta=${commitPageDelta} before=${JSON.stringify(before)} ` +
+        `Expected native drag release plus page action to commit exactly one global page; ` +
+        `observed globalPageDelta=${commitGlobalPageDelta} before=${JSON.stringify(before)} ` +
+        `afterCommit=${JSON.stringify(afterCommit)}`
+      )
+    }
+    const expectedLabelPrefix = `${beforeGlobalPageIndex + 2} /`
+    if (!afterCommit.pageNumberLabel.startsWith(expectedLabelPrefix)) {
+      throw new Error(
+        `Expected page-number label to match committed one-page turn prefix "${expectedLabelPrefix}"; ` +
+        `observed label="${afterCommit.pageNumberLabel}" before=${JSON.stringify(before)} ` +
         `afterCommit=${JSON.stringify(afterCommit)}`
       )
     }
@@ -2584,7 +2655,42 @@ if (mode === 'epub-native-drag-single-commit') {
     }, null, 2))
     console.log(`reader harness epub-native-drag-single-commit passed: ${outputPath}`)
   } catch (error) {
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-native-drag-single-commit.failure.json')
+    let state = null
+    try {
+      state = page
+        ? await page.evaluate(() => ({
+          bodyDataset: { ...document.body.dataset },
+          rootDataset: { ...document.documentElement.dataset },
+          postedMessages: (window.__navicReaderPostedMessages || []).slice(-12),
+          trace: (window.__navicReaderTrace || []).slice(-60),
+          renderer: (() => {
+            const renderer = document.querySelector('foliate-view')?.renderer
+            return {
+              index: Number(renderer?.getContents?.()?.[0]?.index),
+              page: Number(renderer?.page),
+              pages: Number(renderer?.pages),
+              start: Number(renderer?.start),
+              end: Number(renderer?.end),
+              viewSize: Number(renderer?.viewSize),
+            }
+          })(),
+        }))
+        : null
+    } catch (diagnosticError) {
+      state = { diagnosticError: diagnosticError?.message || String(diagnosticError) }
+    }
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      error: error?.stack || error?.message || String(error),
+      errors,
+      state,
+    }, null, 2))
     console.error(error?.message || String(error))
+    console.error(`reader harness epub-native-drag-single-commit failure diagnostics: ${outputPath}`)
     process.exitCode = 1
   } finally {
     await browser.close()

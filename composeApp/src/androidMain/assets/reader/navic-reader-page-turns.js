@@ -1622,6 +1622,10 @@ function startPageTurn(direction) {
   this.cancelPendingCommittedRelocation()
   this.pageTurnInProgress = true
   this.pageTurnDirection = direction
+  const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
+  this.pageTurnTargetPageIndex = Number.isFinite(currentPageIndex)
+    ? Math.max(0, Math.floor(currentPageIndex) + (direction === 'previous' ? -1 : 1))
+    : null
   this.surfacePaperTextureTurnDirection = direction
   this.surfacePaperTextureFallbackDirection = direction
   const turnPromise = Promise.resolve().then(() => this.performPageTurn(direction))

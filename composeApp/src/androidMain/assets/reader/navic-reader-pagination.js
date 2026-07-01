@@ -496,6 +496,19 @@ function paginationProfileObservedSignature(profile) {
     .join('|')
 }
 
+function paginationProfileHasObservedCountIncrease(freshProfile, currentProfile) {
+  const currentCountsByKey = new Map()
+  for (const entry of readerPaginationObservedChapterEntries(currentProfile)) {
+    currentCountsByKey.set(entry.key, Math.max(0, Math.floor(Number(entry.pageCount) || 0)))
+  }
+  for (const entry of readerPaginationObservedChapterEntries(freshProfile)) {
+    const freshCount = Math.max(0, Math.floor(Number(entry.pageCount) || 0))
+    const currentCount = currentCountsByKey.get(entry.key) || 0
+    if (freshCount > currentCount) return true
+  }
+  return false
+}
+
 function postPaginationProfileStatus(status, payload = {}) {
   const message = {
     type: 'paginationProfileStatus',
@@ -647,6 +660,7 @@ function shouldUseFreshPaginationProfile(freshProfile) {
   if (!freshProfile?.chapters?.length) return false
   if (!this.paginationProfile?.chapters?.length) return true
   if (freshProfile.fingerprint !== this.paginationProfile.fingerprint) return true
+  if (this.paginationProfileHasObservedCountIncrease(freshProfile, this.paginationProfile)) return true
   const currentEstimatedCount = Math.max(0, Number(this.paginationProfile.estimatedChapterCount) || 0)
   if (currentEstimatedCount === 0) return false
   const freshObservedCount = Math.max(0, Number(freshProfile.observedChapterCount) || 0)
@@ -933,6 +947,24 @@ function detailSectionKey(detail) {
 function committedPageTurnPosition(pagePosition, reason) {
   if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
   if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
+  const explicitTargetPageIndex = Number(this.pageTurnTargetPageIndex)
+  const explicitTargetPageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
+  if (
+    Number.isFinite(explicitTargetPageIndex) &&
+    Number.isFinite(explicitTargetPageCount) &&
+    explicitTargetPageCount > 0
+  ) {
+    const clampedTargetPageIndex = Math.min(
+      explicitTargetPageCount - 1,
+      Math.max(0, Math.floor(explicitTargetPageIndex))
+    )
+    return {
+      ...pagePosition,
+      pageIndex: clampedTargetPageIndex,
+      pageCount: explicitTargetPageCount,
+      pageCountSource: pagePosition.pageCountSource || 'page-turn',
+    }
+  }
   const chapterPageCount = Number(pagePosition.chapterPageCount)
   const chapterPageIndex = Number(pagePosition.chapterPageIndex)
   if (
@@ -1109,6 +1141,7 @@ function tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallba
   try {
     if (String(reason || '') !== 'relocate-committed' && !String(reason || '').startsWith('page-turn:')) {
       this.recentPageTurnDirection = null
+      this.pageTurnTargetPageIndex = null
     }
     const candidatePagePosition = (detail ? this.readerPagePosition(detail) : null) || fallback
     const committedPagePosition = this.committedPageTurnPosition(candidatePagePosition, reason)
@@ -1158,6 +1191,7 @@ export const NavicReaderPaginationMethods = {
   observedChapterKey,
   hydrateObservedChapterPageCountsFromProfile,
   paginationProfileObservedSignature,
+  paginationProfileHasObservedCountIncrease,
   postPaginationProfileStatus,
   paginationProfileSectionPageCount,
   buildCompletePaginationProfileInProfilerView,
