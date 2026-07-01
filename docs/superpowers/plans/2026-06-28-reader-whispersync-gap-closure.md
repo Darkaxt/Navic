@@ -2343,7 +2343,7 @@ Release:
 
 ### Stage 9H: Moving Page Surface Texture Ownership
 
-Status: in progress; Stage 9H.1 current-source patch complete, deeper moving-Foliate-page texture migration still pending if the next physical build reports texture swapping.
+Status: in progress; Stage 9H.1 current-source patch is published as `v1.0.11-theta30`, and the deeper moving-Foliate-page texture migration remains pending if physical testing still reports texture swapping.
 
 Purpose:
 - Stop treating texture motion as an opacity/diagnostic problem if the physical release still shows a swap.
@@ -2383,7 +2383,13 @@ Stage 9H.1 current-source slice:
 - [x] Attach temporary paper and border texture child layers to the native page-drag preview so boundary/fallback drags do not reveal a flat theme sheet.
 - [x] Validate with focused host red/green, JS syntax, `adaptive-page-box-logic`, `pagination-profile-logic`, readerdev WebView probes (`runtime-state`, `texture-slots`, `page-number-font`, `page-box`), emulator screenshots, full `:composeApp:testAndroidHost`, and `git diff --check`.
 - [x] Record exact evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
-- [ ] Publish a public release only after this patch is bundled with a version bump and normal release gates.
+- [x] Publish a public release only after this patch is bundled with a version bump and normal release gates.
+
+Stage 9H.1 release:
+- Published as `v1.0.11-theta30`.
+- GitHub Actions run `28495274776` passed Android build/signing/release creation; iOS jobs were skipped.
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta30`.
+- APK: `Navic.apk`, `33,591,067` bytes, `sha256:f02ec09150a20ebffb60c889ef736545ecdb0683c41e2c816d3bca8f4cd1441f`.
 
 Closure checklist:
 - [x] Reproduce theta29 physical feedback as a source contract failure for landscape writing axis, page-number font ownership, and preview texture fallback.
@@ -2393,4 +2399,4 @@ Closure checklist:
 - [ ] Keep the root texture owner only for margins/fallback and verify that the whole window remains paper-covered.
 - [ ] Validate JS syntax, focused host tests, browser page-turn/frontmatter harnesses, readerdev texture probes, and `:composeApp:testAndroid`.
 - [ ] Record evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
-- [ ] Publish a release candidate only if this closes the physical texture-motion bug well enough to justify another public APK.
+- [x] Publish a release candidate only if this closes the physical texture-motion bug well enough to justify another public APK.

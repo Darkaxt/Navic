@@ -9625,7 +9625,7 @@ Limitations:
 
 Scope:
 - Respond to physical tablet feedback after `v1.0.11-theta29`: landscape rotation could collapse Western EPUB text into a narrow vertical-writing strip; organic page numbers did not visually follow `Dys`; sepia/paper edge texture remained too weak; texture did not visibly travel with the page during drag-preview/boundary turns.
-- Keep this as current-source readerdev validation. No public release was published from this entry.
+- Keep this as current-source readerdev validation. The same patch was later bundled into public release `v1.0.11-theta30`.
 
 Commands:
 
@@ -9670,3 +9670,40 @@ Limitations:
 - This is not a public release APK. It is patched-source readerdev validation.
 - The visual screenshots landed on frontmatter/title pages for the autodiscovered test book, so final visual acceptance for dense text spread and drag feel still belongs to the next physical release/device pass.
 - If physical testing still reports that paper texture swaps after text movement, continue Stage 9H with the deeper architectural migration: split root-margin texture from moving Foliate page-surface texture and compare content transform to texture transform during drag frames.
+
+## 2026-07-01 Stage 9H.1 Theta30 Public Release Candidate
+
+Scope:
+- Publish the Stage 9H.1 landscape/page-number/sepia/drag-preview texture patch as a public Android APK for physical tablet validation.
+- Keep the release scoped to the major visual/layout blocker reported after theta29: no vertical-writing collapse in landscape, Dys-capable organic page numbers, stronger sepia paper treatment, visible edge overlays, and textured drag-preview fallback.
+
+Commands:
+
+```powershell
+.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta30
+git diff --check
+.\gradlew.bat --no-daemon :composeApp:testAndroid
+git commit -m "Prepare theta30 reader release"
+git tag v1.0.11-theta30
+git push fork codex/komikku-reader-backbone-eta64
+git push fork v1.0.11-theta30
+gh run view 28495274776 --repo Darkaxt/Navic --json status,conclusion,jobs,url,headSha,headBranch,displayTitle,event,createdAt,updatedAt
+gh release view v1.0.11-theta30 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease,targetCommitish
+```
+
+Results:
+- GREEN/VERSION: `androidApp/build.gradle.kts` reports `versionName = "v1.0.11-theta30"` and `versionCode = 458`; release version verification passed.
+- GREEN/LOCAL-GATES: `git diff --check` passed and `:composeApp:testAndroid` passed before tagging.
+- GREEN/GIT: committed `338cb4bf Prepare theta30 reader release` and tagged `v1.0.11-theta30`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28495274776` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK`, release signing verification, artifact upload, and `Create GitHub Release` all succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA`, `Attach iOS IPA to GitHub Release`, and Discord artifact upload were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta30` contains `Navic.apk` (`33,591,067` bytes, `sha256:f02ec09150a20ebffb60c889ef736545ecdb0683c41e2c816d3bca8f4cd1441f`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta30` and specifically check:
+  - landscape rotation no longer collapses Western EPUB text into a one-word vertical strip;
+  - page numbers visually follow the active ebook font (`Dys`);
+  - sepia and edge-gradient texture intensity is materially stronger than theta29;
+  - drag-preview/boundary turns no longer expose an untextured flat theme sheet.
+- If paper texture still visually swaps after text movement on the physical tablet, continue Stage 9H with the deeper moving Foliate page-surface texture-owner migration rather than more opacity tuning.
