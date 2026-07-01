@@ -9845,3 +9845,30 @@ Results:
 Limitations:
 - This closes the host/browser proof for the page-skip root cause. It is not yet a public release APK or physical-device confirmation.
 - Texture visual feel and shadow/border strength remain active release-device feedback items.
+
+## 2026-07-01 Theta32 Public Release Candidate
+
+Scope:
+- Publish the native drag single-commit guard and related reader text/font fixes as a public Android APK.
+- Keep this release focused on the major physical regression where drag preview showed the next page but release committed one page too far.
+
+Commands:
+
+```powershell
+git tag v1.0.11-theta32
+.\scripts\publish-github-release.ps1 -Tag v1.0.11-theta32 -Repo Darkaxt/Navic -Remote fork -Branch codex/komikku-reader-backbone-eta64 -PollSeconds 30
+gh release view v1.0.11-theta32 --repo Darkaxt/Navic --json tagName,url,assets,publishedAt,name,isDraft,isPrerelease,targetCommitish
+```
+
+Results:
+- GREEN/GIT: committed `c6ad6f0f Fix native reader drag double commit`, tagged `v1.0.11-theta32`, pushed branch `codex/komikku-reader-backbone-eta64`, and pushed the tag to `fork`.
+- GREEN/GITHUB-RUN: GitHub Actions run `28504836467` completed successfully for `Build Navic`.
+- GREEN/ANDROID-RELEASE: `Build Android APK` and `Create GitHub Release` succeeded.
+- GREEN/IOS-SKIP: `Build iOS IPA`, `Attach iOS IPA to GitHub Release`, and Discord artifact upload were skipped by the workflow.
+- GREEN/ASSET: public release `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta32` contains `Navic.apk` (`33,592,867` bytes, `sha256:485a02de4723222e70b2437cada3065464566f6c730e44dddf3ffa47b6b5bd0b`).
+
+Next:
+- Physical-device tester should install `v1.0.11-theta32` and specifically check:
+  - dragging from Chapter 1 page 1/global `5/140` previews page 6 and commits page 6, not page 7;
+  - page 12 / stacked-dwarves image page does not invert or skip during drag;
+  - remaining paper texture/border shadow weakness and landscape spread issues are still present or improved.
