@@ -348,6 +348,11 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			singleCommit,
+			"previewStartOverlap",
+			message = "The standard single-commit guard must prove the preview is offset away from chapter-start text before release."
+		)
+		assertContains(
+			singleCommit,
 			"commitGlobalPageDelta !== 1",
 			message = "The standard single-commit guard must keep proving release commits exactly one global page."
 		)
@@ -481,6 +486,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(currentScrollHelper, "readerRendererPageStride(renderer")
 		assertContains(snapshotFrame, "pageDragMappedPreviewScroll(snapshot, snapshotDoc, targetScroll")
 		assertContains(snapshotFrame, "pageDragCurlSnapshotHtml(doc, layout)")
+		assertContains(snapshotFrame, "applyPageDragPreviewDocumentOffset(snapshot, snapshotDoc, mappedScroll)")
 		assertContains(snapshotSync, "const frontTargetScroll = pageDragCurrentRendererScroll(frontDoc")
 		assertContains(snapshotSync, "targetScroll: frontTargetScroll")
 		assertContains(snapshotSync, "layout: frontLayout")

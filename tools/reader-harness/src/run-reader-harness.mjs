@@ -1389,7 +1389,7 @@ if (mode === 'epub-page-boundary') {
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
-    page.on('pageerror', error => errors.push(error?.message || String(error)))
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
     await page.addInitScript(() => {
       window.__navicReaderTrace = []
       window.__navicReaderPostedMessages = []
@@ -2733,16 +2733,37 @@ if (mode === 'epub-native-drag-single-commit') {
       const pageNumberLayer = document.querySelector('[data-navic-page-number-layer="true"]')
       const viewportWidth = Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0)
       const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0)
-      const messages = (window.__navicReaderPostedMessages || [])
+      const allMessages = window.__navicReaderPostedMessages || []
+      const messages = allMessages
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
+      const latestVisibleTextRange = allMessages
+        .filter(message => message?.type === 'visibleTextRange')
+        .at(-1) || null
       const visibleDocuments = []
+      let visibleRangeText = ''
       for (const content of renderer?.getContents?.() || []) {
         const text = visibleTextForDocument(content?.doc, { viewportWidth, viewportHeight })
+        const normalizedDocumentText = content?.doc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+        const visibleStart = Number(latestVisibleTextRange?.visibleStart)
+        const visibleEnd = Number(latestVisibleTextRange?.visibleEnd)
+        if (
+          !visibleRangeText &&
+          Number.isFinite(visibleStart) &&
+          Number.isFinite(visibleEnd) &&
+          visibleEnd > visibleStart
+        ) {
+          visibleRangeText = normalizedDocumentText.slice(
+            Math.max(0, Math.floor(visibleStart)),
+            Math.min(normalizedDocumentText.length, Math.ceil(visibleEnd))
+          )
+        }
         const frameRect = content?.doc?.defaultView?.frameElement?.getBoundingClientRect?.()
+        const frameLeft = Number(frameRect?.left) || 0
+        const frameTop = Number(frameRect?.top) || 0
         const pointText = pointTextForDocument(
           content?.doc,
-          Math.max(1, Math.round((viewportWidth - (Number(frameRect?.left) || 0)) * 0.5)),
-          Math.max(1, Math.round((viewportHeight - (Number(frameRect?.top) || 0)) * 0.5))
+          Math.max(1, Math.round((viewportWidth * 0.5) - frameLeft)),
+          Math.max(1, Math.round((viewportHeight * 0.5) - frameTop))
         )
         if (text) {
           visibleDocuments.push({
@@ -2767,6 +2788,8 @@ if (mode === 'epub-native-drag-single-commit') {
         end: Number(renderer?.end),
         viewSize: Number(renderer?.viewSize),
         location: messages.at(-1) || null,
+        visibleTextRange: latestVisibleTextRange,
+        visibleRangeText: visibleRangeText.slice(0, 1200),
         locationCount: messages.length,
         pageNumberLabel: String(pageNumberLayer?.textContent || '').trim(),
         visibleText: visibleText.slice(0, 1200),
@@ -2929,6 +2952,18 @@ if (mode === 'epub-native-drag-single-commit') {
           frameWin?.scrollTo?.(beforeX, beforeY)
         }
       }
+      const pointTextForFrameAtVisualOffset = (frame, offsetX) => {
+        const body = frame?.contentDocument?.body
+        if (!body) return ''
+        const previousLeft = body.style.getPropertyValue('left')
+        try {
+          body.style.setProperty('left', `${-Math.max(0, Math.round(Number(offsetX) || 0))}px`, 'important')
+          return pointTextForFrame(frame)
+        } finally {
+          if (previousLeft) body.style.setProperty('left', previousLeft, 'important')
+          else body.style.removeProperty('left')
+        }
+      }
       const visibleTextForFrame = frame => {
         const frameDoc = frame?.contentDocument
         if (!frameDoc?.body) return ''
@@ -3004,6 +3039,10 @@ if (mode === 'epub-native-drag-single-commit') {
         frameVisibleText: visibleTextForFrame(frame).slice(0, 1200),
         framePointText: pointTextForFrame(frame).slice(0, 1200),
         framePointSamples: samplePositions.map(position => ({
+          position,
+          text: pointTextForFrameAtVisualOffset(frame, position).slice(0, 360),
+        })),
+        frameScrollPointSamples: samplePositions.map(position => ({
           position,
           text: pointTextForFrameAtScroll(frame, position).slice(0, 360),
         })),
@@ -3156,6 +3195,31 @@ if (mode === 'epub-native-drag-single-commit') {
         latest.pageIndex !== beforeGlobalPageIndex
     }, { beforeLocationCount, beforeGlobalPageIndex })
     const afterCommit = await readState()
+    const textTokens = text => String(text || '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .split(/\s+/)
+      .filter(token => token.length >= 4)
+    const textOverlapScore = (left, right) => {
+      const leftTokens = textTokens(left)
+      const rightTokens = new Set(textTokens(right))
+      if (!leftTokens.length || !rightTokens.size) return 0
+      const matching = leftTokens.filter(token => rightTokens.has(token)).length
+      return matching / leftTokens.length
+    }
+    const firstPagePreviewText = (previewVisual.framePointSamples || [])
+      .find(sample => Number(sample?.position) === 0)?.text || ''
+    const previewStartOverlap = textOverlapScore(previewVisual.framePointText, firstPagePreviewText)
+    const previewPointTokenCount = textTokens(previewVisual.framePointText).length
+    if (previewPointTokenCount < 10 || previewStartOverlap > 0.35) {
+      throw new Error(
+        `Expected native drag preview point text to be offset away from the chapter start; ` +
+        `startOverlap=${previewStartOverlap.toFixed(3)} previewTokens=${previewPointTokenCount} ` +
+        `preview="${String(previewVisual.framePointText || '').slice(0, 260)}" ` +
+        `chapterStart="${String(firstPagePreviewText || '').slice(0, 260)}" ` +
+        `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
+      )
+    }
     const expectedCommitStart = Number(previewVisual.frameTargetScrollX)
     const actualCommitStart = Number(afterCommit.start)
     if (

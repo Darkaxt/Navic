@@ -983,7 +983,7 @@ function syncPageDragCurlSnapshotFrame(snapshot, doc, {
         : scroll
       snapshot.dataset.navicPageCurlSnapshotMappedScrollX = String(mappedScroll.x)
       snapshot.dataset.navicPageCurlSnapshotMappedScrollY = String(mappedScroll.y)
-      snapshot.contentWindow?.scrollTo?.(mappedScroll.x, mappedScroll.y)
+      applyPageDragPreviewDocumentOffset(snapshot, snapshotDoc, mappedScroll)
       snapshot.dataset.navicPageCurlSnapshotReady = snapshotDoc?.body ? 'true' : 'false'
       snapshot.dataset.navicPageCurlSnapshotTextLength = String(text.length)
     } catch {
@@ -1290,6 +1290,25 @@ function pageDragMappedPreviewScroll(frame, doc, targetScroll, { renderer, verti
   }
 }
 
+function applyPageDragPreviewDocumentOffset(frame, doc, mappedScroll) {
+  const body = doc?.body
+  if (!frame || !body) return false
+  const x = Math.max(0, Math.round(Number(mappedScroll?.x) || 0))
+  const y = Math.max(0, Math.round(Number(mappedScroll?.y) || 0))
+  try {
+    frame.contentWindow?.scrollTo?.(0, 0)
+  } catch {
+    // The explicit body offset below owns the visual page position when iframe scrolling is unavailable.
+  }
+  setStylesImportant(body, {
+    position: 'relative',
+    left: `${-x}px`,
+    top: `${-y}px`,
+    transform: 'none',
+  })
+  return true
+}
+
 function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, height, vertical, palette }) {
   const contents = typeof renderer?.getContents === 'function' ? (renderer.getContents() || []) : []
   const content = contents.find(item => item?.doc)
@@ -1340,7 +1359,7 @@ function syncPageDragInteriorPreviewFrame(frame, renderer, { direction, width, h
       frame.dataset.navicPageDragPreviewFrameSourceMax = String(mappedScroll.sourceMax)
       frame.dataset.navicPageDragPreviewFrameCloneMaxX = String(mappedScroll.cloneMaxX)
       frame.dataset.navicPageDragPreviewFrameCloneMaxY = String(mappedScroll.cloneMaxY)
-      frame.contentWindow?.scrollTo?.(mappedScroll.x, mappedScroll.y)
+      applyPageDragPreviewDocumentOffset(frame, frameDoc, mappedScroll)
       frame.dataset.navicPageDragPreviewFrameReady = frameDoc?.body ? 'true' : 'false'
       frame.dataset.navicPageDragPreviewFrameTextLength = String(text.length)
     } catch {

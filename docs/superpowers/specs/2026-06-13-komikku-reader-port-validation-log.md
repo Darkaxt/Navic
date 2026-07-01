@@ -10267,3 +10267,46 @@ Results:
 Next:
 - This is validation-tooling only and does not justify a public release by itself.
 - Physical/release-device progress rail feel and endpoint interaction remain open, but the automated probe now matches the native command contract.
+
+## 2026-07-01 Stage 9M.3 Drag Preview Document Offset
+
+Scope:
+- Investigate physical feedback that the latest reader showed a curl-like drag animation using the first page of the chapter instead of the actual current/next page.
+- Keep the answer grounded in the existing `Page turn = Standard/Curl` toggle while proving Standard does not leak curl state.
+
+Root cause:
+- The explicit Curl path and the Standard interior preview path both clone an EPUB document into a preview iframe.
+- Calling `iframe.contentWindow.scrollTo(mappedScroll.x, mappedScroll.y)` is not reliable for these cloned paged documents because the iframe document is laid out as fixed columns and the scroll position may remain at zero.
+- The preview could therefore render the chapter-start column even when the real Foliate renderer target was a later `renderer.start` value.
+- The existing single-commit harness also sampled the wrong frame coordinate for translated Foliate iframes, so it could verify the page commit without proving the preview text was not stale.
+
+Changes:
+- Added `applyPageDragPreviewDocumentOffset(...)` and routed both Standard interior previews and Curl snapshots through it.
+- The helper resets iframe scroll to zero and offsets the cloned document body by the mapped renderer scroll, so preview ownership is explicit and does not depend on iframe scroll behavior.
+- Hardened `epub-native-drag-single-commit` to assert that the preview point text is offset away from chapter-start text before release.
+- Fixed the harness visible-point formula for translated Foliate iframes from `(viewportWidth - frameLeft) * 0.5` to `(viewportWidth * 0.5) - frameLeft`.
+- Added source guards requiring the Standard single-commit guard to keep the preview/chapter-start assertion and requiring Curl snapshots to use the explicit document offset helper.
+
+Commands:
+
+```powershell
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessUsesStandardModeForNativeDragSingleCommit" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.androidReaderCurlSnapshotUsesCurrentFoliateRendererPageNotChapterStart" --console=plain
+```
+
+Results:
+- RED/HARNESS: before the guard adjustment, the single-commit probe showed the old validation gap: renderer page/start advanced, but the preview text comparison was not checking for chapter-start reuse.
+- GREEN/HARNESS: `epub-native-drag-single-commit` now passes and reports Standard mode with `curl=false`, non-chapter-start preview text, and a one-page commit to the previewed renderer offset.
+- GREEN/HARNESS: `epub-native-drag-standard-no-curl` still passes, proving Standard does not retain stale Curl sheets/snapshots.
+- GREEN/HARNESS: `epub-native-drag-preview-underlay` still passes, proving the explicit Curl path still mounts curl preview surfaces after the shared offset helper change.
+- GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest` guards passed from `tmp\gradle-runs\paper-surface-20260701-220556.out.log` with `BUILD SUCCESSFUL in 17s`.
+
+Next:
+- This is runtime-visible and should be considered for the next public release candidate after whitespace checks and commit.
+- Physical validation should test both settings:
+  - `Page turn = Standard`: no curl sheet, preview does not show chapter-start text, release commits one page.
+  - `Page turn = Curl`: curl sheet appears only during drag and uses the current page snapshot, not chapter-start content.
