@@ -2312,16 +2312,19 @@ Results:
 - RED/HOST-FIRST: `ReaderRuntimePaperSurfaceTest.androidReaderKeepsPaperTextureVisibleEnoughForSepiaTheme` failed while production still returned sepia paper opacity `0.22`, light/default paper opacity `0.12`, and sepia border opacity `0.80`.
 - FIXED/RUNTIME: sepia paper texture opacity now returns `0.38`, light/default paper opacity returns `0.24`, and sepia border overlay opacity returns `1`.
 - FIXED/HARNESS: `texture-slots` dispatches `applySettings` with `theme=sepia` before reading texture and border layers.
+- FIXED/HARNESS: texture page-turn assertions now sample current paper-slot transforms instead of obsolete root-layer `background-position`, matching the current one-root-layer-with-moving-slots architecture.
 - GREEN/HOST: `:composeApp:testAndroid` and JS syntax checks passed.
 - GREEN/READERDEV-TEXTURE: `stage9f-texture-slots-after` reported texture opacity `0.38`, border opacity `1`, and deterministic previous/current/next paper and border slots.
 - GREEN/READERDEV-FONT: `stage9f-page-number-font-after` reported the organic page number, root variable, content, and body all using the Dys stack after applying the Dys reader setting.
 - GREEN/READERDEV-ROTATE: portrait-to-landscape on the Tab S9 Ultra emulator produced a two-column spread in `stage9f-rotate-landscape-pagebox-after`.
 - GREEN/READERDEV-DRAG-DIRECTION: forward and reverse drag diagnostics reported `wrongTextureDirection=False`.
+- GREEN/BROWSER-PAGE-TURNS: `epub-texture-page-turns` passed against `tmp\reader-live\served-input.epub` and `tmp\reader-live\book-3809-file-426.epub`.
+- GREEN/BROWSER-FRONTMATTER: `epub-texture-frontmatter-transition` passed against `tmp\reader-live\book-3809-file-426.epub`.
 
 Closure:
 - [x] Add red-first guard for stronger visible sepia texture and border overlay.
 - [x] Patch texture opacity constants and make the texture harness validate sepia deterministically.
-- [x] Validate host suite, JS syntax, readerdev texture slots, page-number font, landscape rotation, and texture direction.
+- [x] Validate host suite, JS syntax, readerdev texture slots, page-number font, landscape rotation, texture direction, browser page-turns, and frontmatter transitions.
 - [x] Record exact evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
 - [ ] Decide whether this texture correction is enough for the next public release candidate or whether the texture must move into the Foliate page surface first.
 

@@ -87,11 +87,65 @@ export const assertSurfaceTextureTracksForwardContentMovement = result => {
     throw new Error(`Expected a positive renderer movement delta; observed ${result?.delta}`)
   }
   const roundedDelta = Math.round(delta)
+  const beforeSlotOffset = textureOffsetForTransformSample({
+    textureSlotTransform: result?.beforeTextureSlotTransform,
+    computedTextureSlotTransform: result?.beforeComputedTextureSlotTransform,
+    flowMode: result?.flowMode,
+  })
+  const afterSlotOffset = textureOffsetForTransformSample({
+    textureSlotTransform: result?.afterTextureSlotTransform,
+    computedTextureSlotTransform: result?.afterComputedTextureSlotTransform,
+    flowMode: result?.flowMode,
+  })
+  if (Number.isFinite(beforeSlotOffset) && Number.isFinite(afterSlotOffset)) {
+    const textureDelta = afterSlotOffset - beforeSlotOffset
+    if (textureDelta > -1) {
+      throw new Error(
+        `Expected current texture slot to move left with forward content movement ${roundedDelta}px; ` +
+        `observed textureDelta=${textureDelta}`
+      )
+    }
+    return
+  }
   const backgroundPosition = String(result?.textureBackgroundPosition || '')
   const negativeOffsetPattern = new RegExp(`(?:-\\s*${roundedDelta}px|\\+\\s*-${roundedDelta}px)`)
   if (!negativeOffsetPattern.test(backgroundPosition)) {
     throw new Error(`Expected texture background to move left with forward content movement ${roundedDelta}px; observed "${backgroundPosition}"`)
   }
+}
+
+const parseTransformOffsets = value => {
+  const text = String(value || '').trim()
+  if (!text || text === 'none') return null
+  const matrix = text.match(/^matrix\(([^)]+)\)$/i)
+  if (matrix) {
+    const values = matrix[1].split(',').map(part => Number.parseFloat(part.trim()))
+    if (values.length >= 6 && Number.isFinite(values[4]) && Number.isFinite(values[5])) {
+      return { x: values[4], y: values[5] }
+    }
+  }
+  const matrix3d = text.match(/^matrix3d\(([^)]+)\)$/i)
+  if (matrix3d) {
+    const values = matrix3d[1].split(',').map(part => Number.parseFloat(part.trim()))
+    if (values.length >= 16 && Number.isFinite(values[12]) && Number.isFinite(values[13])) {
+      return { x: values[12], y: values[13] }
+    }
+  }
+  const translate3d = text.match(/^translate3d\(\s*(-?\d+(?:\.\d+)?)px\s*,\s*(-?\d+(?:\.\d+)?)px\s*,/i)
+  if (translate3d) return { x: Number.parseFloat(translate3d[1]), y: Number.parseFloat(translate3d[2]) }
+  const translate = text.match(/^translate(?:X|Y)?\(\s*(-?\d+(?:\.\d+)?)px(?:\s*,\s*(-?\d+(?:\.\d+)?)px)?\s*\)$/i)
+  if (translate) {
+    if (/^translateY/i.test(text)) return { x: 0, y: Number.parseFloat(translate[1]) }
+    return { x: Number.parseFloat(translate[1]), y: Number.parseFloat(translate[2] || '0') }
+  }
+  return null
+}
+
+const textureOffsetForTransformSample = sample => {
+  const offsets =
+    parseTransformOffsets(sample?.textureSlotTransform) ??
+    parseTransformOffsets(sample?.computedTextureSlotTransform)
+  return String(sample?.flowMode || '') === 'paged-vertical' ? offsets?.y : offsets?.x
 }
 
 const parseBackgroundPositionOffsets = value => {
@@ -108,6 +162,8 @@ const parseBackgroundPositionOffsets = value => {
 }
 
 const textureOffsetForSample = sample => {
+  const transformOffset = textureOffsetForTransformSample(sample)
+  if (Number.isFinite(transformOffset)) return transformOffset
   const offsets =
     parseBackgroundPositionOffsets(sample?.textureBackgroundPosition) ??
     parseBackgroundPositionOffsets(sample?.computedTextureBackgroundPosition)

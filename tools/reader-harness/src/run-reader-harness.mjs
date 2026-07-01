@@ -2577,15 +2577,25 @@ if (mode === 'epub-texture-scroll') {
       const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       if (!renderer) throw new Error('Missing foliate renderer')
       if (!layer) throw new Error('Missing surface paper texture layer')
+      const textureSlot = () => layer.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
       const beforePosition = Number(renderer.containerPosition)
+      const beforeSlot = textureSlot()
+      const beforeSlotStyle = beforeSlot ? getComputedStyle(beforeSlot) : null
       const delta = Math.min(120, Math.max(48, Math.round(window.innerWidth * 0.25)))
       renderer.containerPosition = beforePosition + delta
       renderer.dispatchEvent(new Event('scroll'))
       await new Promise(resolve => requestAnimationFrame(resolve))
+      const afterSlot = textureSlot()
+      const afterSlotStyle = afterSlot ? getComputedStyle(afterSlot) : null
       return {
         beforePosition,
         afterPosition: Number(renderer.containerPosition),
         delta,
+        flowMode: document.body.dataset.navicReaderFlowMode || '',
+        beforeTextureSlotTransform: beforeSlot?.style?.transform || '',
+        beforeComputedTextureSlotTransform: beforeSlotStyle?.transform || '',
+        afterTextureSlotTransform: afterSlot?.style?.transform || '',
+        afterComputedTextureSlotTransform: afterSlotStyle?.transform || '',
         textureBackgroundPosition: layer.style.backgroundPosition,
         computedTextureBackgroundPosition: getComputedStyle(layer).backgroundPosition,
       }
@@ -2672,6 +2682,10 @@ if (mode === 'epub-texture-page-turns') {
       const renderer = view?.renderer
       const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
       const borderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+      const textureSlot = layer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
+      const textureSlotStyle = textureSlot ? getComputedStyle(textureSlot) : null
+      const borderSlot = borderLayer?.querySelector?.('[data-navic-surface-page-border-overlay-slot="current"]')
+      const borderSlotStyle = borderSlot ? getComputedStyle(borderSlot) : null
       const messages = (window.__navicReaderPostedMessages || [])
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
       const location = messages.at(-1) || null
@@ -2689,6 +2703,10 @@ if (mode === 'epub-texture-page-turns') {
         rendererPage: Number(renderer?.page),
         rendererPages: Number(renderer?.pages),
         textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
+        textureSlotTransform: textureSlot?.style?.transform || '',
+        computedTextureSlotTransform: textureSlotStyle?.transform || '',
+        borderSlotTransform: borderSlot?.style?.transform || '',
+        computedBorderSlotTransform: borderSlotStyle?.transform || '',
         textureBackgroundPosition: layer?.style.backgroundPosition || '',
         computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
         borderBackgroundPosition: borderLayer?.style.backgroundPosition || '',
@@ -2739,6 +2757,8 @@ if (mode === 'epub-texture-page-turns') {
         const view = document.querySelector('foliate-view')
         const renderer = view?.renderer
         const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+        const textureSlot = layer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
+        const textureSlotStyle = textureSlot ? getComputedStyle(textureSlot) : null
         const messages = (window.__navicReaderPostedMessages || [])
           .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
         const location = messages.at(-1) || null
@@ -2754,6 +2774,8 @@ if (mode === 'epub-texture-page-turns') {
           pageCount: location?.pageCount,
           position: Number(renderer?.containerPosition),
           textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
+          textureSlotTransform: textureSlot?.style?.transform || '',
+          computedTextureSlotTransform: textureSlotStyle?.transform || '',
           textureBackgroundPosition: layer?.style.backgroundPosition || '',
           computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
         }
@@ -2907,6 +2929,8 @@ if (mode === 'epub-texture-frontmatter-transition') {
       const view = document.querySelector('foliate-view')
       const renderer = view?.renderer
       const layer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+      const textureSlot = layer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]')
+      const textureSlotStyle = textureSlot ? getComputedStyle(textureSlot) : null
       const messages = (window.__navicReaderPostedMessages || [])
         .filter(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
       const location = messages.at(-1) || null
@@ -2972,6 +2996,8 @@ if (mode === 'epub-texture-frontmatter-transition') {
         rendererPage: Number(renderer?.page),
         rendererPages: Number(renderer?.pages),
         textureKey: document.body.dataset.navicSurfacePaperTextureKey || '',
+        textureSlotTransform: textureSlot?.style?.transform || '',
+        computedTextureSlotTransform: textureSlotStyle?.transform || '',
         textureBackgroundPosition: layer?.style.backgroundPosition || '',
         computedTextureBackgroundPosition: layer ? getComputedStyle(layer).backgroundPosition : '',
         visibleText: visibleText.slice(0, 1000),

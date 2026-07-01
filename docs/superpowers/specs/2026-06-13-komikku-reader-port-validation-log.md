@@ -9541,6 +9541,9 @@ node --check tools\reader-harness\src\adb-webview-eval.mjs
 .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe page-box -ArtifactDir captures\reader-bridge-probes\stage9f-rotate-landscape-pagebox-after
 .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.82,0.50,0.18,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection next -ArtifactDir captures\reader-bridge-probes\stage9f-texture-drag-next-after
 .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta28 -NoLaunch -CaptureReaderDiagnostics -SwipeFraction "0.18,0.50,0.82,0.50,550,1400" -RequireNativeSwipeAction -RequireTextureDiagnostics -RequireTextureDirection previous -ArtifactDir captures\reader-bridge-probes\stage9f-texture-drag-previous-after
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\served-input.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\book-3809-file-426.epub
 ```
 
 Results:
@@ -9551,6 +9554,8 @@ Results:
 - GREEN/ROTATE-LANDSCAPE-EMULATOR: portrait-to-landscape on the Tab S9 Ultra emulator rendered a readable two-column spread in `stage9f-rotate-landscape-pagebox-after\screen.png`; renderer metrics reported `maxColumnCount=2`, `maxInlineSize=1974px`, and `maxBlockSize=1232px`.
 - GREEN/TEXTURE-DIRECTION-NEXT: `stage9f-texture-drag-next-after` captured native drag preview and reported `textureDirectionSamples=15`, `wrongTextureDirection=False`.
 - GREEN/TEXTURE-DIRECTION-PREVIOUS: `stage9f-texture-drag-previous-after` captured native drag preview and reported `textureDirectionSamples=24`, `wrongTextureDirection=False`.
+- GREEN/HARNESS-TEXTURE-PAGE-TURNS: `epub-texture-page-turns` now samples current paper-slot transforms instead of stale root-layer `background-position`, and passed on both cached EPUB fixtures.
+- GREEN/HARNESS-FRONTMATTER-TRANSITION: `epub-texture-frontmatter-transition` passed on `book-3809-file-426.epub`, covering the frontmatter/section-boundary transition path that previously produced visual texture-direction complaints.
 
 Limitations:
 - The physical tablet still owns final acceptance for texture feel. Emulator diagnostics prove stronger visibility and correct movement sign, but not the subjective "swaps after text" complaint under the exact physical release and settings.
