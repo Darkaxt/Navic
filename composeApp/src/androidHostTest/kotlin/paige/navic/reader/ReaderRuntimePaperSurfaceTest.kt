@@ -275,6 +275,11 @@ class ReaderRuntimePaperSurfaceTest {
 			"if (curlEnabled)",
 			message = "Curl preview must be gated so standard mode cannot build stale curl snapshots while normal drag remains active."
 		)
+		assertContains(
+			pageTurnsText,
+			"element?.dataset?.navicPageCurlSheet === 'underneath'",
+			message = "Standard mode must preserve the shared underlay sheet; deleting it removes the standard page preview iframe."
+		)
 	}
 
 	@Test
@@ -302,8 +307,8 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			harnessText,
-			"previewState.curlSheetRoleCount === 0",
-			message = "Standard mode must prove no mockup curl sheets remain on the drag preview layer."
+			"previewState.curlOnlySheetRoleCount === 0",
+			message = "Standard mode must prove no mockup curl-only sheets remain on the drag preview layer while keeping the shared underlay."
 		)
 		assertContains(
 			harnessText,
@@ -314,6 +319,37 @@ class ReaderRuntimePaperSurfaceTest {
 			harnessText,
 			"previewState.curlCssVarCount === 0",
 			message = "Standard mode must prove curl CSS variables are cleared, not just hidden."
+		)
+	}
+
+	@Test
+	fun readerHarnessUsesStandardModeForNativeDragSingleCommit() {
+		val harnessText = sequenceOf(
+			java.io.File("tools/reader-harness/src/run-reader-harness.mjs"),
+			java.io.File("../tools/reader-harness/src/run-reader-harness.mjs")
+		).first { it.isFile }.readText()
+		val singleCommit = harnessText
+			.substringAfter("if (mode === 'epub-native-drag-single-commit') {")
+			.substringBefore("\nif (mode === 'epub-full-traversal') {")
+
+		assertContains(
+			singleCommit,
+			"dragAnimationMode: 'standard'",
+			message = "The release-default native drag commit guard must run standard mode, not the experimental curl path."
+		)
+		assertFalse(
+			singleCommit.contains("dragAnimationMode: 'curl'"),
+			"The standard single-commit guard must not opt into curl; curl remains covered by the curl preview harness."
+		)
+		assertContains(
+			singleCommit,
+			"previewVisual.curl === false",
+			message = "The standard single-commit guard must prove the preview layer is not using curl state."
+		)
+		assertContains(
+			singleCommit,
+			"commitGlobalPageDelta !== 1",
+			message = "The standard single-commit guard must keep proving release commits exactly one global page."
 		)
 	}
 

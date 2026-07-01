@@ -2112,6 +2112,11 @@ if (mode === 'epub-native-drag-standard-no-curl') {
         direction: layer?.dataset.navicPageDragPreviewDirection || '',
         curl: layer?.dataset.navicPageDragPreviewCurl === 'true',
         curlSheetRoleCount: layer?.querySelectorAll?.('[data-navic-page-curl-sheet]')?.length || 0,
+        curlOnlySheetRoleCount: layer
+          ? Array.from(layer.querySelectorAll?.('[data-navic-page-curl-sheet]') || [])
+              .filter(element => element?.dataset?.navicPageCurlSheet !== 'underneath')
+              .length
+          : 0,
         curlSnapshotCount: layer?.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.length || 0,
         curlCssVarCount,
         curlSheetRoles: layer?.dataset.navicPageCurlSheetRoles || '',
@@ -2159,7 +2164,9 @@ if (mode === 'epub-native-drag-standard-no-curl') {
         }
       }
       return layer.dataset.navicPageDragPreviewCurl === 'false' &&
-        layer.querySelectorAll?.('[data-navic-page-curl-sheet]')?.length === 0 &&
+        Array.from(layer.querySelectorAll?.('[data-navic-page-curl-sheet]') || [])
+          .filter(element => element?.dataset?.navicPageCurlSheet !== 'underneath')
+          .length === 0 &&
         layer.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.length === 0 &&
         curlCssVarCount === 0
     })
@@ -2176,9 +2183,9 @@ if (mode === 'epub-native-drag-standard-no-curl') {
         `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
       )
     }
-    if (!(previewState.curlSheetRoleCount === 0)) {
+    if (!(previewState.curlOnlySheetRoleCount === 0)) {
       throw new Error(
-        `Expected standard drag preview to remove curl sheet roles; ` +
+        `Expected standard drag preview to remove curl-only sheet roles; ` +
         `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
       )
     }
@@ -2654,7 +2661,7 @@ if (mode === 'epub-native-drag-single-commit') {
           fontSizePercent: 100,
           lineHeight: 1.55,
           paragraphSpacingPercent: 150,
-          dragAnimationMode: 'curl',
+          dragAnimationMode: 'standard',
         },
       })
     }, `${server.origin}${fixtureRoute}`)
@@ -3056,38 +3063,16 @@ if (mode === 'epub-native-drag-single-commit') {
         `observed ${JSON.stringify(previewVisual)}`
       )
     }
-    if (!previewVisual.curl || previewVisual.curlDirection !== 'next') {
+    if (!(previewVisual.curl === false)) {
       throw new Error(
-        `Expected interior native drag preview to expose curl state; ` +
+        `Expected standard interior native drag preview to avoid curl state; ` +
         `observed ${JSON.stringify(previewVisual)}`
       )
     }
-    if (!Number.isFinite(previewVisual.curlProgress) || previewVisual.curlProgress <= 0 || previewVisual.curlProgress >= 1) {
+    if (previewVisual.frontSnapshotPresent) {
       throw new Error(
-        `Expected interior native drag preview curl progress to reflect the current drag fraction; ` +
+        `Expected standard interior native drag preview to avoid curl snapshots; ` +
         `observed ${JSON.stringify(previewVisual)}`
-      )
-    }
-    if (!previewVisual.frontSnapshotPresent || !previewVisual.frontSnapshotReady || previewVisual.frontSnapshotTextLength <= 0) {
-      throw new Error(
-        `Expected interior native drag preview to snapshot the current readable page; ` +
-        `observed ${JSON.stringify(previewVisual)}`
-      )
-    }
-    if (
-      Number.isFinite(before.start) &&
-      before.start > 1 &&
-      (
-        !Number.isFinite(previewVisual.frontSnapshotSourceScrollX) ||
-        previewVisual.frontSnapshotSourceScrollX <= 1 ||
-        !Number.isFinite(previewVisual.frontSnapshotMappedScrollX) ||
-        previewVisual.frontSnapshotMappedScrollX <= 1
-      )
-    ) {
-      throw new Error(
-        `Expected curl front snapshot to use the current Foliate renderer page, not the chapter start; ` +
-        `rendererStart=${before.start} sourceScroll=${previewVisual.frontSnapshotSourceScrollX} ` +
-        `mappedScroll=${previewVisual.frontSnapshotMappedScrollX} observed=${JSON.stringify(previewVisual)}`
       )
     }
     if (!previewVisual.framePresent || !previewVisual.frameReady || previewVisual.frameTextLength <= 0) {

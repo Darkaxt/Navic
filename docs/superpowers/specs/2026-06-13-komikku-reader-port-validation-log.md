@@ -10181,10 +10181,48 @@ git diff --check
 
 Results:
 - RED/HOST-FIRST: `readerHarnessProvesStandardDragModeDoesNotRetainCurlState` failed while the harness had no `epub-native-drag-standard-no-curl` mode.
-- GREEN/HARNESS: `epub-native-drag-standard-no-curl` now creates curl state, switches back to `standard`, and verifies `curl=false`, zero curl sheets, zero curl snapshots, and zero curl CSS variables.
+- GREEN/HARNESS: `epub-native-drag-standard-no-curl` now creates curl state, switches back to `standard`, and verifies `curl=false`, zero curl-only sheets, zero curl snapshots, and zero curl CSS variables while preserving the shared underlay.
 - GREEN/HARNESS: `epub-native-drag-preview-underlay` and `epub-native-drag-single-commit` still pass after being made explicit `curl`-mode probes.
 - GREEN/HOST: the focused Gradle guard passed.
 - GREEN/JS/DIFF: `node --check` and `git diff --check` passed.
 
 Next:
 - This is a regression guard and harness hardening slice. It does not justify a new public APK by itself because theta37 already shipped the user-visible mode toggle.
+
+## 2026-07-01 Stage 9M.2 Standard Drag Underlay Ownership
+
+Scope:
+- Fix physical feedback that standard dragging could preview one page but commit another, or show unstable/black preview behavior after curl state existed.
+- Keep curl animation opt-in while making the release-default `standard` drag path own a stable adjacent-page underlay.
+
+Root cause:
+- `clearPageDragCurlState()` removed every `data-navic-page-curl-sheet`, including the shared `underneath` sheet that contains the standard preview iframe.
+- In standard mode the reader created the adjacent-page preview frame, then immediately removed its parent while clearing curl state. The harness captured this as `page-drag-preview:interior-waiting` with no ready frame.
+
+Changes:
+- Standard mode now preserves the shared `underneath` sheet while removing curl-only sheets, snapshots, and curl CSS variables.
+- `epub-native-drag-single-commit` now runs in `standard` mode and asserts `curl=false`, no curl snapshots, rendered adjacent underlay, and exactly one global page commit.
+- `epub-native-drag-standard-no-curl` now checks zero curl-only sheets rather than deleting the shared underlay.
+- `epub-native-drag-preview-underlay` remains the explicit opt-in curl probe.
+
+Commands:
+
+```powershell
+node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+node --check tools\reader-harness\src\run-reader-harness.mjs
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\book-3809-file-426.epub
+node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\book-3809-file-426.epub
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessProvesStandardDragModeDoesNotRetainCurlState" --tests "paige.navic.reader.ReaderRuntimePaperSurfaceTest.readerHarnessUsesStandardModeForNativeDragSingleCommit" --console=plain
+git diff --check
+```
+
+Results:
+- RED/HARNESS: after changing single-commit to `standard`, the harness failed with `page-drag-preview:interior-waiting` because the standard preview iframe had been removed by curl cleanup.
+- GREEN/HARNESS: preserving the shared underlay made standard single-commit pass with a rendered adjacent preview and exactly one committed global page.
+- GREEN/HARNESS: standard no-curl and opt-in curl underlay probes both pass after the ownership split.
+- GREEN/HOST: focused Gradle guards passed, including the source guard that standard cleanup must preserve `underneath`.
+- GREEN/JS/DIFF: JS syntax and whitespace checks passed.
+
+Next:
+- This is now APK-worthy because it changes runtime drag behavior, not just harness coverage. Physical validation should confirm standard dragging previews the page that is actually committed and does not resurrect curl visuals unless `Page turn = Curl`.

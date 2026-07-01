@@ -748,7 +748,10 @@ function clearPageDragCurlState(layer) {
   layer.style.removeProperty('--navic-page-curl-back-face-opacity')
   layer.style.removeProperty('--navic-page-curl-sheet-width')
   layer.style.removeProperty('--navic-page-curl-sheet-height')
-  layer.querySelectorAll?.('[data-navic-page-curl-sheet]')?.forEach(element => element.remove())
+  layer.querySelectorAll?.('[data-navic-page-curl-sheet]')?.forEach(element => {
+    if (element?.dataset?.navicPageCurlSheet === 'underneath') return
+    element.remove()
+  })
   layer.querySelectorAll?.('[data-navic-page-curl-snapshot]')?.forEach(element => element.remove())
 }
 
