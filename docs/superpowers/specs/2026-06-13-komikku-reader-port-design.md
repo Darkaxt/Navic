@@ -58,7 +58,9 @@ If a Navic feature works but is not faithful to the reference, treat it as unfin
 - Do not revive the old docked settings panel or legacy reader-wide WebView tap ownership.
 - Do not add another workaround until the current reference behavior and root cause are documented.
 - Release cadence is debug-first and public-last. Intermediate reader slices, minor fixes, diagnostics, and unproven animation changes must use debug/readerdev APKs on the emulator plus local harness/ADB validation only. A public GitHub APK release is allowed only after a coherent feature or major user-visible fix is fully implemented, locally validated, committed, and worth physical-device acceptance testing.
+- A "debug release" means a local debug/readerdev APK built and installed for emulator validation. It does not mean a GitHub tag, GitHub prerelease, public APK upload, or physical-phone candidate.
 - Do not bump public release versions or start GitHub release workflows merely to let the user test a microfix. If the fix is not complete enough to be called the next deployed feature/fix candidate, keep it in debug/readerdev validation.
+- Final/public releases are reserved for completed feature slices or major fixes after their plan gates pass. Do not publish a public APK simply because one isolated test turned green.
 - `scripts/publish-github-release.ps1` must fail closed unless the caller explicitly passes a public-release override and a readiness note naming the completed feature/fix plus validation evidence. Treat missing override as a process error, not as a prompt to publish.
 - Do not build iOS artifacts for this Android reader work.
 - Do not treat host tests, desktop browser harnesses, or manual screenshots as proof of Android input/progress behavior.
