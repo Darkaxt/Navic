@@ -2296,7 +2296,7 @@ Release:
 
 ### Stage 9F: Physical Texture Feedback Correction
 
-Status: current-source readerdev/emulator proof complete; no public release published from this slice yet.
+Status: current-source readerdev/emulator proof complete; public release published as `v1.0.11-theta29`.
 
 Purpose:
 - Correct the post-theta28 physical feedback that paper texture and page-border gradients were too weak to read as part of the page.
@@ -2326,9 +2326,58 @@ Closure:
 - [x] Patch texture opacity constants and make the texture harness validate sepia deterministically.
 - [x] Validate host suite, JS syntax, readerdev texture slots, page-number font, landscape rotation, texture direction, browser page-turns, and frontmatter transitions.
 - [x] Record exact evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
-- [ ] Decide whether this texture correction is enough for the next public release candidate or whether the texture must move into the Foliate page surface first.
+- [x] Publish a release candidate for physical validation before starting the architectural texture migration.
 
 Limitations:
 - Physical tablet acceptance remains required for the subjective texture-motion feel.
 - If the user still sees the paper swap after text transitions, stop opacity tuning and move texture ownership into the moving Foliate page surface.
 - If physical page numbers still mismatch Dys, inspect settings propagation in the physical WebView before changing page-number CSS again.
+
+Release:
+- Published as `v1.0.11-theta29`.
+- GitHub Actions run `28493076517` passed Android build/signing/release creation; iOS jobs were skipped.
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta29`.
+- APK: `Navic.apk`, `33,590,631` bytes, `sha256:7b8bd8ea9d75b2e2f7a47b138481d4e62168ee2b029c961f18050cfef27f1141`.
+
+### Stage 9H: Moving Page Surface Texture Ownership
+
+Status: planned; start only if theta29 physical validation still reports that the paper texture swaps after text movement.
+
+Purpose:
+- Stop treating texture motion as an opacity/diagnostic problem if the physical release still shows a swap.
+- Move the page-paper texture owner into the same visual surface that Foliate moves during page drag/turn animation, while keeping the full-window root paper layer only for margins and fallback.
+- Preserve the Komikku shell rule: native reader chrome and tap/drag ownership stay outside the WebView, but page-local texture must visually travel with the page content.
+
+Scope:
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-helpers.js`
+  - Split root full-window paper/margin helpers from page-surface texture helpers.
+  - Keep deterministic texture variant selection by page identity.
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+  - Attach moving page texture state to the same current/adjacent page snapshots used by native drag preview.
+  - Ensure previous/current/next texture transforms follow the content transform, not a post-relocation layer refresh.
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-appearance.js`
+  - Keep theme color and sepia image tint in the content documents; do not reintroduce per-element texture injection.
+- Modify: `tools/reader-harness/src/run-reader-harness.mjs`
+  - Add a probe that records content page transform and page texture transform during the same drag frames and fails when they diverge.
+- Modify: `tools/reader-harness/src/reader-trace-assertions.mjs`
+  - Compare transform sign and magnitude between the readable page surface and the page texture slot, not only final direction.
+- Modify: `tools/reader-harness/src/adb-webview-eval.mjs`
+  - Add a physical-diagnostic probe for page-surface texture ownership so release feedback can be checked without visual guessing.
+- Modify/Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+  - Add source guards that reject a single mutable root background as the only texture owner once Stage 9H starts.
+
+Planned red-first gates:
+- `ReaderRuntimePaperSurfaceTest` must fail until the runtime exposes separate root-margin and moving-page texture ownership.
+- `epub-texture-page-turns` must fail until the trace can prove the readable page surface and page texture slot move together during drag.
+- `epub-texture-frontmatter-transition` must fail if section-boundary transitions update texture identity only after text relocation completes.
+- A readerdev ADB probe must capture the same page-surface texture ownership fields on a real WebView before this stage can be called complete.
+
+Closure checklist:
+- [ ] Reproduce theta29 texture swap through browser/WebView harness or physical-device diagnostic output before editing runtime code.
+- [ ] Add the failing host/source guard for split root-margin vs moving-page texture ownership.
+- [ ] Add the failing browser harness check comparing content and texture transforms during drag.
+- [ ] Implement the smallest page-surface texture owner that follows the moving Foliate snapshot/page surface.
+- [ ] Keep the root texture owner only for margins/fallback and verify that the whole window remains paper-covered.
+- [ ] Validate JS syntax, focused host tests, browser page-turn/frontmatter harnesses, readerdev texture probes, and `:composeApp:testAndroid`.
+- [ ] Record evidence in `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`.
+- [ ] Publish a release candidate only if this closes the physical texture-motion bug well enough to justify another public APK.
