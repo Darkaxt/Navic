@@ -248,20 +248,21 @@ Plan B status on 2026-07-02:
 - `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncLaunchPolicyTest.kt`
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderWhispersyncCompanionProgressSourceTest.kt`
 
-- [ ] **D1: Add or tighten pure-domain guards**
+- [x] **D1: Add or tighten pure-domain guards**
   - Visible range inside a sidecar segment resolves to expected audio resource, track index, and millisecond position.
   - Audio playback position resolves to one text overlay segment and rejects stale track/resource mismatches.
   - Already-visible media-overlay follow highlights in place and does not issue another reader relocation.
   - Companion progress stores exact resource identity, track index, and millisecond position.
 
-- [ ] **D2: Run focused red check**
+- [x] **D2: Run focused red check**
   - Run:
     ```powershell
-    .\gradlew.bat --no-daemon --console=plain :composeApp:test --tests paige.navic.reader.WhispersyncTimelineParserTest --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest --tests paige.navic.reader.ReaderProgressSyncTest --tests paige.navic.ui.screens.reader.ReaderWhispersyncLaunchPolicyTest
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest
     ```
-  - Expected: new behavior guard fails before production changes, unless already implemented.
+  - Expected: current pure-domain and host source guards pass once the runtime path is already implemented. Add a narrower failing guard first only when a concrete Plan D behavior is missing.
 
-- [ ] **D3: Implement runtime path**
+- [x] **D3: Implement runtime path**
   - Use href, CFI/text range, resource key/href, track index, and millisecond position.
   - Do not use page number alone as Whispersync identity.
   - Page-scoped headset remains hidden when current visible page has no cue.
@@ -269,7 +270,7 @@ Plan B status on 2026-07-02:
   - `media-overlay-follow` visible-range events must not trigger a new page-to-audio seek.
   - Character-offset cues highlight without fragment ids.
 
-- [ ] **D4: Validate readerdev enjoyment gate**
+- [x] **D4: Validate readerdev enjoyment gate**
   - Run:
     ```powershell
     .\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -BookId 3809 -BookFileId 426 -WhispersyncSidecarUrl /opds/books/3809/sync/8 -WhispersyncArtifactId 8 -WhispersyncAudiobookId 34 -WhispersyncAudiobookBookFileId 633 -WhispersyncAudiobookTitle "Bastille vs. the Evil Librarians"
@@ -277,7 +278,9 @@ Plan B status on 2026-07-02:
     ```
   - Expected: page-scoped control, audio-follow suppression, character-offset overlay, and exact companion-progress probes pass.
 
-- [ ] **D5: Commit and audit**
+  2026-07-02 result: `scripts\adb-whispersync-enjoyment.ps1` rebuilt/installed `darkaxt.navic.readerdev` on `emulator-5554` using `bindery-debug.env` and production book `3809`; all four probes passed in `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260702-042528`.
+
+- [x] **D5: Commit and audit**
   - Run D2, `:composeApp:testAndroidHost --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest`, JS syntax for touched JS, and `git diff --check`.
   - Commit message: `Complete readerdev Whispersync enjoyment path`.
   - Audit docs for `Whispersync`, `headset`, `audio-follow`, `companion progress`, `sidecar`, and `visible range`.

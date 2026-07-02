@@ -10575,3 +10575,26 @@ Commands and evidence:
 Result:
 - GREEN/DEBUG: current production mapping already matches the 2026-06-29 Bindery schema for the Plan C scope.
 - NO PUBLIC RELEASE: this remains local schema/debug validation only. Public release is still gated by Plan E after coherent feature/fix completion.
+
+## 2026-07-02 Focused Plan D Whispersync Runtime Validation
+
+Scope:
+- Validate the paired ebook/audiobook runtime path without creating a public release.
+- Cover sidecar visible-range targeting, page-scoped headset control, audio-follow suppression, character-offset overlay fallback, and exact companion-progress persistence.
+
+Commands and evidence:
+- `:composeApp:testAndroid` passed from hidden Gradle log `artifacts\gradle\plan-d-whispersync\test-android-20260702-042147.out.log`; stderr was empty.
+- `:composeApp:testAndroidHost --tests paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest` passed from hidden Gradle log `artifacts\gradle\plan-d-whispersync\companion-host-20260702-042341.out.log`; stderr was empty.
+- JS syntax checks passed for `tools\reader-harness\src\adb-webview-eval.mjs`, `composeApp\src\androidMain\assets\reader\navic-reader.js`, `composeApp\src\androidMain\assets\reader\navic-reader-media.js`, and `composeApp\src\androidMain\assets\reader\navic-reader-location.js`.
+- `scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env` rebuilt and installed `darkaxt.navic.readerdev` on `emulator-5554`, launched production book `3809`, and passed all four probes.
+- Readerdev artifacts: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260702-042528`.
+- Fresh readerdev screenshot: `captures\reader-dev\reader-dev-20260702-042559.png`.
+- Passed probes:
+  - `whispersync-page-scoped-control`
+  - `whispersync-audio-follow`
+  - `whispersync-char-offset-overlay`
+  - `whispersync-companion-progress`
+
+Result:
+- GREEN/DEBUG: Plan D Whispersync runtime enjoyment path is validated in common tests, host source guards, JS syntax, and readerdev emulator for the current source.
+- NO PUBLIC RELEASE: this remains a local debug/readerdev validation slice. Public release is still gated by Plan E after coherent feature/fix completion.
