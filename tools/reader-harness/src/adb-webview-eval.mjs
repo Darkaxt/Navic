@@ -2616,6 +2616,89 @@ async function runPageNumberFontProbe(page) {
   }})()`)
 }
 
+async function runPageNumberSpreadLayoutProbe(page) {
+  return evaluateOnPage(page, `(${async () => {
+    if (!window.NavicReaderBridge?.dispatch) {
+      throw new Error('Missing NavicReaderBridge.dispatch')
+    }
+    const view = document.querySelector('foliate-view')
+    if (!view) {
+      throw new Error('Missing foliate-view')
+    }
+    await window.NavicReaderBridge.dispatch({
+      type: 'applySettings',
+      settings: {
+        paged: true,
+        flowMode: 'paged',
+        tapZone: 'disabled',
+        direction: 'ltr',
+        fontSource: 'navic',
+        fontFamily: '"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif',
+        maxColumnCount: 2,
+        columnThreshold: 720,
+      },
+    })
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    if (document.body.dataset.navicShellCoverVisible === 'true') {
+      await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    }
+    const contents = view.renderer?.getContents?.() || []
+    if (!contents.some(content => content?.doc?.body)) {
+      throw new Error('Missing rendered EPUB body')
+    }
+    const layer = document.querySelector('[data-navic-page-number-layer="true"]')
+    if (!layer) {
+      throw new Error('Missing organic page-number layer')
+    }
+    const slots = Array.from(layer.querySelectorAll('[data-navic-page-number-slot]'))
+    const result = {
+      probe: 'page-number-spread-layout',
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      rendererPage: Number(view.renderer?.page),
+      rendererPages: Number(view.renderer?.pages),
+      rendererFlow: view.renderer?.flow || '',
+      rendererScrolled: Boolean(view.renderer?.scrolled),
+      maxColumnCount: view.renderer?.getAttribute?.('max-column-count') || '',
+      columnThreshold: view.renderer?.getAttribute?.('column-threshold') || '',
+      layerText: layer.textContent || '',
+      slotCount: slots.length,
+      slots: slots.map(slot => {
+        const rect = slot.getBoundingClientRect()
+        return {
+          slot: slot.getAttribute('data-navic-page-number-slot') || '',
+          text: slot.textContent || '',
+          centerX: rect.left + rect.width / 2,
+        }
+      }),
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+    }
+    if (result.viewportWidth <= result.viewportHeight) {
+      throw new Error(`Expected landscape viewport for spread page-number test, got ${result.viewportWidth}x${result.viewportHeight}: ${JSON.stringify(result)}`)
+    }
+    if (result.slotCount !== 2) {
+      throw new Error(`Expected dual-page mode to render two page-number slots, got ${result.slotCount}: ${JSON.stringify(result)}`)
+    }
+    const left = result.slots.find(slot => slot.slot === 'left')
+    const right = result.slots.find(slot => slot.slot === 'right')
+    if (!left || !right) {
+      throw new Error(`Expected left and right page-number slots, got ${JSON.stringify(result)}`)
+    }
+    if (left.centerX > result.viewportWidth * 0.4 || right.centerX < result.viewportWidth * 0.6) {
+      throw new Error(`Expected page-number slots to sit under their own pages, got ${JSON.stringify(result)}`)
+    }
+    if (!/^\d+\s*\/\s*\d+$/.test(left.text.trim()) || !/^\d+\s*\/\s*\d+$/.test(right.text.trim())) {
+      throw new Error(`Expected each page-number slot to keep "# / #" labels, got ${JSON.stringify(result)}`)
+    }
+    if (left.text.trim() === right.text.trim()) {
+      throw new Error(`Expected spread page-number slots to identify different visible pages, got ${JSON.stringify(result)}`)
+    }
+    return result
+  }})()`)
+}
+
 async function runImageHitTargetsProbe(page) {
   return evaluateOnPage(page, `(${async () => {
     const view = document.querySelector('foliate-view')
@@ -2712,6 +2795,7 @@ async function main() {
       'texture-slots': runTextureSlotsProbe,
       'native-drag-preview-texture': runNativeDragPreviewTextureProbe,
       'page-number-font': runPageNumberFontProbe,
+      'page-number-spread-layout': runPageNumberSpreadLayoutProbe,
       'image-hit-targets': runImageHitTargetsProbe,
     }
     const handler = probeHandlers[probe]
