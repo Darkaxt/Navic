@@ -583,3 +583,30 @@ Plan B status on 2026-07-02:
   - Extend the harness state capture to include texture slot keys, assets, transforms, and recent texture trace events.
   - Assert that current and next paper/border slots move by the scaled full-surface amount during live preview, and that release snap reaches one full surface before the committed texture update.
   - 2026-07-02 result: Hobbit target page 11 at `1536x2048` passed with live current texture `x=-686`, next texture `x=850`, and release snap `x=-1536` before the texture update. Production Bindery book `3809` file `426` at `1974x1232` also passed the same debug gate.
+
+## Focused Plan L: Debug-Only Organic Page-Number Typography Parity
+
+**Purpose:** Address the physical feedback that organic EPUB page numbers still do not visually follow the selected ebook font, especially with the `Dys` font. The goal is not to turn the page number into a Material overlay or change its size, but to make its typography dimensions come from the same reader setting path as visible EPUB prose.
+
+**Release rule:** Plan L is debug/browser/host evidence only. Do not create a GitHub tag, public prerelease, public APK asset, or release workflow.
+
+**Main files:**
+- `composeApp/src/androidMain/assets/reader/navic-reader-pagination.js`
+- `tools/reader-harness/src/run-reader-harness.mjs`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+- [x] **L1: Add a computed-style guard**
+  - Open a real EPUB with Navic `Dys`, non-default font weight, letter spacing, and word spacing.
+  - Compare the organic root page-number layer against the first visible EPUB prose element, not against source strings or the document body container.
+  - 2026-07-02 result: the new `epub-page-number-font-parity` harness first failed red because the page number reported `letter-spacing=normal` while EPUB prose reported `2px`.
+
+- [x] **L2: Reuse reader typography dimensions**
+  - Keep the organic root page number and `# / #` label.
+  - Keep the page-number size intentionally small.
+  - Apply the selected reader font weight, letter spacing, and word spacing to the page-number layer beside the existing font-family resolution.
+  - 2026-07-02 result: `navic-reader-pagination.js` now styles the page-number layer with `readerFontWeightValue`, `readerLetterSpacingValue`, and `readerWordSpacingValue`.
+
+- [x] **L3: Validate**
+  - Run JS syntax, the new page-number parity row on Hobbit and production Bindery fixtures, the existing font CSS smoke row, and the focused reader shell progress host test.
+  - 2026-07-02 result: Hobbit at `1536x2048` and production Bindery book `3809` file `426` at `1974x1232` both passed with page number and EPUB prose sharing the Dys stack, `font-weight=500`, `letter-spacing=2px`, and `word-spacing=6px`.

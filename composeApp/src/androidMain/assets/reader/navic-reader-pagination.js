@@ -136,6 +136,9 @@ import {
   readerParagraphSpacingCss,
   readerMaxColumnCountValue,
   readerColumnThresholdValue,
+  readerFontWeightValue,
+  readerLetterSpacingValue,
+  readerWordSpacingValue,
   isThemeBackgroundMediaElement,
   readerDocumentThemeCss,
   readerContentCss,
@@ -1110,6 +1113,9 @@ function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
     ? this.pageNumberLayer
     : ensureReaderPageNumberLayer()
   const fontFamily = this.readerPageNumberFontFamily()
+  const fontWeight = readerFontWeightValue(this.readerSettings)
+  const letterSpacing = readerLetterSpacingValue(this.readerSettings)
+  const wordSpacing = readerWordSpacingValue(this.readerSettings)
   document.documentElement.style.setProperty('--reader-page-number-font-family', fontFamily)
   this.pageNumberLayer.textContent = label
   this.pageNumberLayer.dataset.navicPageNumberTotal = String(pageNumberPosition.pageCount || '')
@@ -1127,10 +1133,11 @@ function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
     'font-family': fontFamily,
     'font-size': '0.82rem',
     'font-style': 'normal',
-    'font-weight': '400',
+    'font-weight': String(fontWeight),
     'font-variant-numeric': 'normal',
     'line-height': '1',
-    'letter-spacing': '0',
+    'letter-spacing': `${letterSpacing}px`,
+    'word-spacing': `${wordSpacing}px`,
     background: 'transparent',
     border: '0',
     padding: '0',

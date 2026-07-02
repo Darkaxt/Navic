@@ -1136,6 +1136,140 @@ if (mode === 'font-css-smoke') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'epub-page-number-font-parity') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-page-number-font-parity mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          try {
+            window.__navicReaderPostedMessages.push(JSON.parse(value))
+          } catch {
+            window.__navicReaderPostedMessages.push({ raw: value })
+          }
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'disabled',
+          fontSource: 'navic',
+          fontFamily: '"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif',
+          fontSizePercent: 150,
+          lineHeight: 1.7,
+          fontWeight: 500,
+          letterSpacing: 2,
+          wordSpacing: 6,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const contents = document.querySelector('foliate-view')?.renderer?.getContents?.() || []
+      return contents.some(content => content?.doc?.body)
+    })
+    await page.evaluate(async () => {
+      if (document.body.dataset.navicShellCoverVisible === 'true') {
+        await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      }
+    })
+    await page.waitForFunction(() => {
+      const layer = document.querySelector('[data-navic-page-number-layer="true"]')
+      const contents = document.querySelector('foliate-view')?.renderer?.getContents?.() || []
+      return Boolean(layer?.textContent?.trim?.()) && contents.some(content => content?.doc?.body)
+    })
+    const result = await page.evaluate(() => {
+      const renderer = document.querySelector('foliate-view')?.renderer
+      const contents = renderer?.getContents?.() || []
+      const content = contents.find(entry => entry?.doc?.body)
+      const doc = content?.doc
+      const pageNumberLayer = document.querySelector('[data-navic-page-number-layer="true"]')
+      if (!doc?.body || !pageNumberLayer) throw new Error('Missing rendered body or page-number layer')
+      const proseElement = Array.from(doc.querySelectorAll('p,li,blockquote,[data-navic-paragraph-block="true"]'))
+        .find(element => {
+          const text = String(element?.textContent || '').replace(/\s+/g, ' ').trim()
+          const rect = element?.getBoundingClientRect?.()
+          return text.length > 8 && rect && rect.width > 0 && rect.height > 0
+        }) || doc.body
+      const proseStyle = doc.defaultView.getComputedStyle(proseElement)
+      const pageNumberStyle = getComputedStyle(pageNumberLayer)
+      return {
+        pageNumberText: pageNumberLayer.textContent || '',
+        proseTagName: proseElement.tagName || '',
+        proseFontFamily: proseStyle.fontFamily,
+        pageNumberFontFamily: pageNumberStyle.fontFamily,
+        proseFontWeight: proseStyle.fontWeight,
+        pageNumberFontWeight: pageNumberStyle.fontWeight,
+        proseLetterSpacing: proseStyle.letterSpacing,
+        pageNumberLetterSpacing: pageNumberStyle.letterSpacing,
+        proseWordSpacing: proseStyle.wordSpacing,
+        pageNumberWordSpacing: pageNumberStyle.wordSpacing,
+      }
+    })
+    assertNoConsoleErrors(errors)
+    if (!String(result.pageNumberFontFamily || '').includes('Navic OpenDyslexic')) {
+      throw new Error(`Expected organic page number to use Dys font family; observed ${result.pageNumberFontFamily || 'unset'}`)
+    }
+    if (result.pageNumberFontWeight !== result.proseFontWeight) {
+      throw new Error(
+        `Expected organic page number weight to match EPUB prose; prose=${result.proseFontWeight} ` +
+        `pageNumber=${result.pageNumberFontWeight} label="${result.pageNumberText}"`
+      )
+    }
+    if (result.pageNumberLetterSpacing !== result.proseLetterSpacing) {
+      throw new Error(
+        `Expected organic page number letter spacing to match EPUB prose; prose=${result.proseLetterSpacing} ` +
+        `pageNumber=${result.pageNumberLetterSpacing} label="${result.pageNumberText}"`
+      )
+    }
+    if (result.pageNumberWordSpacing !== result.proseWordSpacing) {
+      throw new Error(
+        `Expected organic page number word spacing to match EPUB prose; prose=${result.proseWordSpacing} ` +
+        `pageNumber=${result.pageNumberWordSpacing} label="${result.pageNumberText}"`
+      )
+    }
+    console.log(JSON.stringify(result, null, 2))
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode === 'line-fragment-prose-smoke') {
   const server = await startReaderAssetServer({ repoRoot })
   const browser = await chromium.launch()

@@ -10772,3 +10772,24 @@ Result:
 - GREEN/DEBUG: the renderer-stride/full-surface mismatch is closed in browser/host evidence.
 - PENDING: physical-device texture feel, edge/border shadow visibility, and section-boundary perception are still release-candidate acceptance items.
 - NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this debug slice.
+
+## 2026-07-02 Focused Plan L Organic Page-Number Typography Parity
+
+Scope:
+- Address the physical feedback that the organic EPUB page number did not visually follow the selected ebook font, especially `Dys`.
+- Keep the page number inside the reader surface and keep the `# / #` design.
+- Do not change page-number sizing into a mobile UI overlay.
+
+Commands and evidence:
+- RED/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-page-number-font-parity --fixture tmp\reader-live\served-input.epub --viewport-width 1536 --viewport-height 2048 --device-scale-factor 3` first failed with `Expected organic page number letter spacing to match EPUB body; body=2px pageNumber=normal label="1 / 217"`. The body/prose probe was then corrected to compare against visible EPUB prose instead of the document container.
+- DIAGNOSIS: the root page-number layer already resolved the Dys font-family stack, but hard-coded `font-weight: 400`, `letter-spacing: 0`, and did not set word spacing. Visible EPUB prose receives these dimensions from `readerTypographyCss`.
+- GREEN/HARNESS: the same Hobbit command passed after applying the reader typography dimensions to the page-number layer. The result showed matching Dys stack, `font-weight=500`, `letter-spacing=2px`, and `word-spacing=6px` for visible prose and page number.
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-page-number-font-parity --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3` passed with the same computed typography match on the production Bindery fixture.
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode font-css-smoke` passed.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js` and `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- GREEN/HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeShellProgressTest` passed.
+
+Result:
+- GREEN/DEBUG: organic page-number typography now follows the selected reader font family and key typography dimensions in computed browser evidence.
+- PENDING: physical-device visual judgment remains part of the final reader candidate pass.
+- NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this debug slice.
