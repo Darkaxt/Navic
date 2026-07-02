@@ -17,6 +17,7 @@
 - Plans A-D must use debug/readerdev APKs only. They may build, install, probe, commit, and push source changes, but they must not create GitHub tags, prereleases, or public APK assets.
 - Public release is only allowed in Plan E, after a coherent feature or major fix has passed its file-owned plan gates and is ready for physical-device acceptance.
 - Do not publish for isolated green probes, diagnostics, one-file visual tweaks, or partial fixes. A public release is a final candidate for a deployed feature/fix, not a normal iteration mechanism.
+- 2026-07-02 explicit user rule: only generate debug builds/releases for emulator iteration. Generate final public releases only after a new feature or fix has been fully deployed and validated through its gate.
 
 ## Focused Plan A: Reader Surface Fidelity
 
@@ -329,12 +330,14 @@ Plan B status on 2026-07-02:
 
   2026-07-02 result: Komikku matrix passed all 10 rows in `captures\reader-komikku-matrix\final-candidate-readerdev-bastille-20260702-043832`; Whispersync enjoyment gate passed all four probes in `captures\reader-whispersync-enjoyment\final-candidate-readerdev-20260702-044132\stage5c3-whispersync-enjoyment-20260702-044133`.
 
-- [ ] **E4: Bump version and commit candidate**
+- [x] **E4: Bump version and commit candidate**
   - Only after E2 and E3 pass, update Android version fields in `androidApp/build.gradle.kts`.
   - Commit message: `Prepare reader Whispersync release candidate`.
   - Push to GitHub.
 
-- [ ] **E5: Publish with explicit readiness note**
+  2026-07-02 result: Android release metadata was bumped to `v1.0.11-theta39` / versionCode `467`, committed as `04443f15 Prepare reader Whispersync release candidate`, and pushed to GitHub with tag `v1.0.11-theta39`.
+
+- [x] **E5: Publish with explicit readiness note**
   - Run:
     ```powershell
     $versionLine = Select-String -Path androidApp\build.gradle.kts -Pattern 'versionName\s*=\s*"([^"]+)"' | Select-Object -First 1
@@ -343,9 +346,13 @@ Plan B status on 2026-07-02:
     ```
   - Expected: Android APK release is published, iOS jobs are skipped, and the tag matches the committed Android version.
 
-- [ ] **E6: Record release evidence**
+  2026-07-02 result: GitHub Actions run `28559751405` completed successfully, Android APK build succeeded, iOS IPA jobs were skipped, and release `v1.0.11-theta39` was published with explicit Plan E readiness note.
+
+- [x] **E6: Record release evidence**
   - Update validation log and plans with tag, GitHub run id, APK asset URL, Gradle commands, readerdev capture paths, and remaining physical-device acceptance items.
   - Commit message: `Record reader Whispersync release evidence`.
+
+  2026-07-02 result: release evidence recorded for `v1.0.11-theta39`; remaining validation is physical-device/human acceptance only, not more public-release iteration.
 
 ## Completion Audit
 

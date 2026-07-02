@@ -10617,4 +10617,11 @@ Commands and evidence:
 
 Result:
 - GREEN/CANDIDATE: the reader/Whispersync candidate is validated enough to prepare a single public release candidate.
-- NEXT: version fields are bumped to `v1.0.11-theta39`; publish only through the explicit Plan E public-release override.
+- GREEN/RELEASE: public release `v1.0.11-theta39` was published after the Plan E gates passed.
+- GitHub Actions run: `28559751405` (`https://github.com/Darkaxt/Navic/actions/runs/28559751405`).
+- Android job: `Build Android APK` completed successfully. iOS IPA jobs were skipped.
+- Release URL: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta39`.
+- APK asset: `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta39/Navic.apk`.
+- APK metadata: `Navic.apk`, `33,597,735` bytes, `sha256:602ce48a9ace0c8b8cf7a2f200db6a865f55dad57e949f44acb1f5bb0312877f`.
+- Remaining scope: physical-device/human acceptance on the phone/tablet is still useful for feel, visual judgment, and release-package confirmation, but public release iteration must stop here until another coherent feature or major fix passes debug/readerdev gates.
+- Release cadence reaffirmed: debug/readerdev builds are the normal iteration path. Do not create GitHub tags, public APK assets, or release workflow runs for microfixes, diagnostics, isolated probes, or partially deployed fixes.
