@@ -14,8 +14,9 @@
 
 - Debug iteration means local `darkaxt.navic.readerdev` or another debuggable APK installed for emulator/device validation.
 - Public release means GitHub tag/prerelease/APK upload through `scripts/publish-github-release.ps1`.
-- Public release is only allowed after a coherent feature or major fix has passed its file-owned plan gates and is ready for physical-device acceptance.
-- Do not publish for isolated green probes, diagnostics, one-file visual tweaks, or partial fixes.
+- Plans A-D must use debug/readerdev APKs only. They may build, install, probe, commit, and push source changes, but they must not create GitHub tags, prereleases, or public APK assets.
+- Public release is only allowed in Plan E, after a coherent feature or major fix has passed its file-owned plan gates and is ready for physical-device acceptance.
+- Do not publish for isolated green probes, diagnostics, one-file visual tweaks, or partial fixes. A public release is a final candidate for a deployed feature/fix, not a normal iteration mechanism.
 
 ## Focused Plan A: Reader Surface Fidelity
 
