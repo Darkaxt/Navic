@@ -10538,3 +10538,25 @@ Commands and evidence:
 Result:
 - GREEN/DEBUG: Plan A is validated in host, browser harness, and readerdev emulator for the current source.
 - NO PUBLIC RELEASE: this remains a local debug/readerdev validation slice. Public release is still gated by the focused public release candidate plan.
+
+## 2026-07-02 Focused Plan B Debug Validation
+
+Scope:
+- Validate native Komikku shell/control ownership without creating a public release.
+- Cover native center tap, long press separation, edge taps, native drag, texture movement diagnostics, and current-chapter rail endpoints.
+
+Commands and evidence:
+- Updated `ReaderRuntimeAssetsTest` guard expectations to require exact chapter rail endpoint calls: `endpoint(href, 0, 0, chapterPageCount)` and `endpoint(href, 1, chapterPageCount - 1, chapterPageCount)`.
+- Focused rail asset guard passed from `artifacts\gradle\plan-b-native-shell\reader-assets-rail-20260702-034541.out.log`.
+- Plan B shell/control host gate passed from `artifacts\gradle\plan-b-native-shell\shell-controls-20260702-034929.out.log`.
+- Broad supported KMP unit gate `:composeApp:testAndroid` passed from `artifacts\gradle\plan-b-native-shell\test-android-20260702-035042.out.log`.
+- Readerdev matrix launched `darkaxt.navic.readerdev` on `emulator-5554`, reached `publicationReady`, and passed all 10 steps: baseline, enter readable content, center tap toggle, native long press, edge tap next, drag next, texture next walk, edge tap previous, drag previous, and texture previous walk.
+- Matrix artifacts: `captures\reader-komikku-matrix\focused-plan-b-native-shell-20260702-035337`.
+- A first standalone `chapter-progress-current-endpoints` smoke probe failed because the previous matrix had walked the reader back to the native cover/frontmatter edge, leaving `window.__navicReader.location=null`. This was a test precondition failure, not rail behavior evidence.
+- Relaunched readerdev directly to `OEBPS/xhtml/chapter1.xhtml` with `scripts\install-reader-dev.ps1 -NoBuild -NoInstall ... -StartHref OEBPS/xhtml/chapter1.xhtml`, then reran `adb-reader-smoke.ps1 -ReaderDevtoolsProbe chapter-progress-current-endpoints`.
+- Deterministic rail probe artifacts: `captures\reader-bridge-probes\focused-plan-b-progress-chapter1-20260702-040037`.
+- Rail probe reported Chapter 1 `chapterPageCount=9`, endpoint 0 at `chapterPageIndex=0`, and endpoint 1 at `chapterPageIndex=8`; stderr was empty and no reader console errors were reported.
+
+Result:
+- GREEN/DEBUG: Plan B native shell/control behavior is validated in host tests and readerdev emulator for the current source.
+- NO PUBLIC RELEASE: this remains a local debug/readerdev validation slice. Public release is still gated by the focused public release candidate plan.

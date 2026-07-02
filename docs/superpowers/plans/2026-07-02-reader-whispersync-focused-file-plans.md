@@ -115,7 +115,7 @@ Plan A status on 2026-07-02:
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeShellProgressTest.kt`
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeNavigationFlowTest.kt`
 
-- [ ] **B1: Add or tighten failing guards**
+- [x] **B1: Add or tighten failing guards**
   - Back from readable EPUB content must return to native shell cover before leaving reader.
   - Center tap toggles chrome through native overlay, not WebView.
   - Short tap over images/links must not accidentally trigger content action or page skip.
@@ -123,33 +123,47 @@ Plan A status on 2026-07-02:
   - Progress rail uses controller navigation and reaches first/last chapter pages.
   - Settings must have one primary entry path, not duplicated bottom/top controls.
 
-- [ ] **B2: Run focused red check**
+- [x] **B2: Run focused red check**
   - Run:
     ```powershell
-    .\gradlew.bat --no-daemon --console=plain :composeApp:test --tests paige.navic.reader.ReaderControllerTest
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
     .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest
     ```
-  - Expected: new guard fails until shell/controller ownership is correct, unless behavior is already implemented.
+  - Expected: supported KMP tasks pass; `testAndroid` covers the common/controller tests because this project does not expose filtered `:composeApp:test --tests ...`.
 
-- [ ] **B3: Implement shell/controller changes**
+- [x] **B3: Implement shell/controller changes**
   - Route app-bar back and Android back through `ReaderController.onNavigateBack()`.
   - Keep native overlay above WebView for short tap, center tap, edge tap, and drag.
   - Let WebView receive long press and explicit content actions.
   - Keep settings dialog as overlay instead of resizing reader content.
   - Keep Whispersync headset as dim paper-integrated glyph, not circular Material chrome.
 
-- [ ] **B4: Validate readerdev shell behavior**
+- [x] **B4: Validate readerdev shell behavior**
   - Run:
     ```powershell
     .\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -PrepareReaderLaunch -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\focused-plan-b-native-shell
-    .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -CaptureReaderDiagnostics -DevtoolsProbe chapter-progress-current-endpoints -RequireNoReaderConsoleErrors -ArtifactDir captures\reader-bridge-probes\focused-plan-b-progress
+    .\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -NoBuild -NoInstall -BookId 3809 -ResourceHref /api/v1/book/3809/file?bookFileId=426 -Kind ebook -Format epub -StartHref OEBPS/xhtml/chapter1.xhtml -WhispersyncSidecarUrl /opds/books/3809/sync/8 -WhispersyncArtifactId 8 -WhispersyncAudiobookId 34 -WhispersyncAudiobookBookFileId 633 -RequireReaderLaunch
+    .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch -CaptureReaderDiagnostics -ReaderDevtoolsProbe chapter-progress-current-endpoints -RequireNoReaderConsoleErrors -ArtifactDir captures\reader-bridge-probes\focused-plan-b-progress
     ```
   - Expected: center tap toggles chrome, drag next/previous works, rail endpoints work, no reader console errors.
 
-- [ ] **B5: Commit and audit**
+- [x] **B5: Commit and audit**
   - Run both focused Gradle commands from B2 and `git diff --check`.
   - Commit message: `Align reader shell controls with Komikku ownership`.
   - Audit docs for `center tap`, `cover drag`, `progress rail`, `back`, `duplicate settings`, and `bottom toolbar`.
+
+Plan B status on 2026-07-02:
+- The current branch already contained the native Komikku shell ownership path; no production code changes were needed in this pass.
+- Tightened `ReaderRuntimeAssetsTest` to guard exact native chapter rail endpoint calls instead of the older lossy `endpoint(href, 0/1)` assertions.
+- Host gates passed:
+  - `:composeApp:testAndroid` from `artifacts\gradle\plan-b-native-shell\test-android-20260702-035042.out.log`.
+  - `:composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimeCommonChromeTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest` from `artifacts\gradle\plan-b-native-shell\shell-controls-20260702-034929.out.log`.
+  - Focused rail asset guard rerun from `artifacts\gradle\plan-b-native-shell\reader-assets-rail-20260702-034541.out.log`.
+- Readerdev matrix passed 10/10 steps for `darkaxt.navic.readerdev` on `emulator-5554` using production book `3809`; artifacts: `captures\reader-komikku-matrix\focused-plan-b-native-shell-20260702-035337`.
+- Deterministic chapter rail probe passed after relaunching directly into `OEBPS/xhtml/chapter1.xhtml`; artifacts: `captures\reader-bridge-probes\focused-plan-b-progress-chapter1-20260702-040037`.
+- Rail probe evidence: Chapter 1 reported `chapterPageCount=9`; endpoint 0 resolved to `chapterPageIndex=0`; endpoint 1 resolved to `chapterPageIndex=8`.
+- `git diff --check` passed.
+- No public release was created. This remains local debug/readerdev validation only.
 
 ## Focused Plan C: Bindery API And Schema Parity
 
