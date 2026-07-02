@@ -397,6 +397,42 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun standardDragPreviewDoesNotConstructCurlSnapshots() {
+		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val layerFactory = pageTurnsText
+			.substringAfter("function ensurePageDragPreviewLayer")
+			.substringBefore("\nfunction ensurePageDragPreviewLayerChild")
+		val boundaryTarget = pageTurnsText
+			.substringAfter("function ensurePageDragPreviewTarget")
+			.substringBefore("\nfunction readerRendererPageStride")
+		val interiorTarget = pageTurnsText
+			.substringAfter("function ensureInteriorPageDragPreviewTarget")
+			.substringBefore("\nfunction preloadPageDragPreviewTargets")
+
+		assertContains(layerFactory, "curlEnabled = false")
+		assertContains(
+			layerFactory,
+			"if (curlEnabled)",
+			message = "The preview layer factory must not create curl sheets or snapshot iframes for Standard mode."
+		)
+		assertContains(
+			layerFactory,
+			"ensureSnapshot(turningFront, 'front')",
+			message = "Curl snapshot iframes should still exist for explicit curl mode."
+		)
+		assertContains(
+			boundaryTarget,
+			"this.ensurePageDragPreviewLayer({ curlEnabled",
+			message = "Boundary previews must request curl assets only when the active drag animation mode is curl."
+		)
+		assertContains(
+			interiorTarget,
+			"this.ensurePageDragPreviewLayer({ curlEnabled",
+			message = "Interior previews must request curl assets only when the active drag animation mode is curl."
+		)
+	}
+
+	@Test
 	fun androidReaderSplitsStaticMarginPaperFromMovingPageTextureOwner() {
 		val bridgeText = readerBridgeText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()

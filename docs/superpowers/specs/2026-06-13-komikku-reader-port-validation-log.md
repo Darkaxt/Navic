@@ -10625,3 +10625,26 @@ Result:
 - APK metadata: `Navic.apk`, `33,597,735` bytes, `sha256:602ce48a9ace0c8b8cf7a2f200db6a865f55dad57e949f44acb1f5bb0312877f`.
 - Remaining scope: physical-device/human acceptance on the phone/tablet is still useful for feel, visual judgment, and release-package confirmation, but public release iteration must stop here until another coherent feature or major fix passes debug/readerdev gates.
 - Release cadence reaffirmed: debug/readerdev builds are the normal iteration path. Do not create GitHub tags, public APK assets, or release workflow runs for microfixes, diagnostics, isolated probes, or partially deployed fixes.
+
+## 2026-07-02 Focused Plan F Debug Validation
+
+Scope:
+- Validate the first debug-only page-turn/texture stabilization slice after physical testing of `v1.0.11-theta39`.
+- Cover Standard mode isolation from curl-only snapshot paths, page-preview/commit identity, frontmatter boundary transitions, and texture-page-turn harness behavior.
+- Preserve the release rule: no public APK, tag, or GitHub release for this partial animation/texture slice.
+
+Commands and evidence:
+- RED/HOST: `ReaderRuntimePaperSurfaceTest > standardDragPreviewDoesNotConstructCurlSnapshots` failed as expected before the runtime patch; log `artifacts\gradle\plan-f-page-turn\red-paper-surface.out.log`.
+- GREEN/HOST: the same focused guard passed after gating curl sheets and snapshot iframes behind explicit curl mode; log `artifacts\gradle\plan-f-page-turn\green-paper-surface.out.log`.
+- GREEN/HOST: full `ReaderRuntimePaperSurfaceTest` passed from `artifacts\gradle\plan-f-page-turn\paper-surface-class.out.log`; stderr was empty.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` passed.
+- GREEN/HARNESS: `epub-native-drag-standard-no-curl` passed at tablet-landscape viewport `1974x1232` DPR 3; log `artifacts\reader-plan-f\standard-no-curl.out.log`, artifact `tools\reader-harness\output\epub-native-drag-standard-no-curl.json`.
+- GREEN/HARNESS: `epub-native-drag-single-commit` passed at tablet-landscape viewport `1974x1232` DPR 3; log `artifacts\reader-plan-f\epub-native-drag-single-commit.out.log`, artifact `tools\reader-harness\output\epub-native-drag-single-commit.json`.
+- GREEN/HARNESS: `epub-texture-frontmatter-transition` passed at tablet-landscape viewport `1974x1232` DPR 3 after the Standard/curl ownership split; log `artifacts\reader-plan-f\frontmatter-transition-red.out.log`, artifact `tools\reader-harness\output\epub-texture-frontmatter-transition.trace.json`.
+- GREEN/HARNESS: `epub-texture-page-turns` passed at tablet-landscape viewport `1974x1232` DPR 3; log `artifacts\reader-plan-f\epub-texture-page-turns.out.log`, artifact `tools\reader-harness\output\epub-texture-page-turns.trace.json`.
+- GREEN/GIT: `git diff --check` passed before commit.
+
+Result:
+- GREEN/DEBUG: Standard mode no longer constructs curl-only snapshot iframes or relies on curl-only sheet geometry. The focused browser harness rows are green for the current source.
+- NO PUBLIC RELEASE: this is a committed debug stabilization slice only. Public releases remain reserved for coherent major reader candidates after debug/readerdev gates, not partial page-turn/texture microfixes.
+- Remaining scope: physical-device/human acceptance is still required for texture intensity, border/shadow visibility, natural drag feel, and landscape spread behavior.

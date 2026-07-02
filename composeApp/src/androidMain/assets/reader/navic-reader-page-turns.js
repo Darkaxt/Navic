@@ -515,7 +515,7 @@ function safeNativeDragPreviewAtSectionBoundary(renderer, direction) {
   }
 }
 
-function ensurePageDragPreviewLayer() {
+function ensurePageDragPreviewLayer({ curlEnabled = false } = {}) {
   let layer = this.pageDragPreviewLayer
   if (!layer || !readerRoot.contains(layer)) {
     layer = document.createElement('div')
@@ -536,24 +536,28 @@ function ensurePageDragPreviewLayer() {
     return sheet
   }
   const underneath = ensureSheet('underneath')
-  const turningFront = ensureSheet('turning-front')
-  const turningBack = ensureSheet('turning-back')
-  ensureSheet('cast-shadow')
-  const ensureSnapshot = (sheet, role) => {
-    let snapshot = sheet.querySelector(`[data-navic-page-curl-snapshot="${role}"]`)
-    if (!snapshot) {
-      snapshot = document.createElement('iframe')
-      snapshot.dataset.navicPageCurlSnapshot = role
-      snapshot.dataset.navicPageCurlSnapshotReady = 'false'
-      snapshot.setAttribute('aria-hidden', 'true')
-      snapshot.setAttribute('tabindex', '-1')
-      snapshot.style.pointerEvents = 'none'
-      sheet.append(snapshot)
+  if (curlEnabled) {
+    const turningFront = ensureSheet('turning-front')
+    const turningBack = ensureSheet('turning-back')
+    ensureSheet('cast-shadow')
+    const ensureSnapshot = (sheet, role) => {
+      let snapshot = sheet.querySelector(`[data-navic-page-curl-snapshot="${role}"]`)
+      if (!snapshot) {
+        snapshot = document.createElement('iframe')
+        snapshot.dataset.navicPageCurlSnapshot = role
+        snapshot.dataset.navicPageCurlSnapshotReady = 'false'
+        snapshot.setAttribute('aria-hidden', 'true')
+        snapshot.setAttribute('tabindex', '-1')
+        snapshot.style.pointerEvents = 'none'
+        sheet.append(snapshot)
+      }
+      return snapshot
     }
-    return snapshot
+    ensureSnapshot(turningFront, 'front')
+    ensureSnapshot(turningBack, 'back')
+  } else {
+    clearPageDragCurlState(layer)
   }
-  ensureSnapshot(turningFront, 'front')
-  ensureSnapshot(turningBack, 'back')
   let frame = this.pageDragPreviewFrame
   if (!frame || !underneath.contains(frame)) {
     frame = document.createElement('iframe')
@@ -1198,7 +1202,8 @@ function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight =
   const { width, height } = this.pageDragPreviewDimensions(viewWidth, viewHeight)
   const side = direction === 'previous' ? 'left' : 'right'
   const palette = readerThemePalette(this.readerSettings?.theme)
-  const { layer, frame } = this.ensurePageDragPreviewLayer()
+  const curlEnabled = readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)
+  const { layer, frame } = this.ensurePageDragPreviewLayer({ curlEnabled })
   const targetKey = this.buildPageDragPreviewTargetKey(targetIndex, direction, width, height)
 
   layer.dataset.navicPageDragPreviewMode = 'boundary'
@@ -1438,7 +1443,8 @@ function ensureInteriorPageDragPreviewTarget({ direction, renderer, viewWidth = 
   const side = direction === 'previous' ? 'left' : 'right'
   const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
   const palette = readerThemePalette(this.readerSettings?.theme)
-  const { layer, frame } = this.ensurePageDragPreviewLayer()
+  const curlEnabled = readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)
+  const { layer, frame } = this.ensurePageDragPreviewLayer({ curlEnabled })
   const ready = this.syncPageDragInteriorPreviewFrame(frame, renderer, {
     direction,
     width,

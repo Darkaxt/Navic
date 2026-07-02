@@ -363,3 +363,67 @@ Plan B status on 2026-07-02:
 - Navidrome credentials are not required for ebook/audiobook implementation validation.
 - Foliate/Anx core is not replaced by Turn.js or another flipbook core.
 - Page number alone is never Whispersync identity.
+
+## Focused Plan F: Debug-Only Page-Turn And Texture Stabilization
+
+**Purpose:** Address the remaining reader drag/page-turn/texture defects without publishing public APKs for partial animation work. This plan exists because physical testing after `v1.0.11-theta39` still reported inconsistent texture motion, page preview/commit mismatch, curl-like preview leakage, and section-boundary page jumps.
+
+**Release rule:** Plan F is debug/readerdev only until the full page-turn/texture behavior is coherent. Do not run `scripts/publish-github-release.ps1` for an isolated Plan F sub-slice. A public release is allowed only after all Plan F gates pass and the candidate is ready for physical-device acceptance as a major reader fix.
+
+**Main files:**
+- `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- `composeApp/src/androidMain/assets/reader/navic-reader-appearance.js`
+- `composeApp/src/androidMain/assets/reader/navic-reader-location.js`
+- `composeApp/src/androidMain/assets/reader/navic-reader-pagination.js`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeShellProgressTest.kt`
+- `tools/reader-harness/src/run-reader-harness.mjs`
+- `tools/reader-harness/src/reader-trace-assertions.mjs`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+**Initial red evidence:**
+- `epub-native-drag-standard-no-curl` fails with browser console error `Cannot read properties of null (reading 'getBoundingClientRect')`, proving Standard mode can still enter an invalid preview/snapshot path.
+- `epub-texture-frontmatter-transition` fails because `previousPage` from `Authorforeword.xhtml` stays at `5/90` while emitting repeated `relocate:ignored-unchanged-page-turn` events instead of returning before the section boundary.
+- Existing passing guard `epub-native-drag-single-commit` proves an interior page can still advance by one page; do not break that while fixing boundary cases.
+
+- [x] **F1: Lock Standard mode out of curl/snapshot-only paths**
+  - Add or tighten a host/source guard that Standard mode never requires a curl snapshot iframe or missing preview layer geometry.
+  - Use the failing `epub-native-drag-standard-no-curl` harness row as the red check.
+  - Root-cause and patch the null `getBoundingClientRect` path rather than hiding console errors.
+  - 2026-07-02 result: added `standardDragPreviewDoesNotConstructCurlSnapshots`, saw the expected RED failure in `artifacts\gradle\plan-f-page-turn\red-paper-surface.out.log`, then gated curl sheets/snapshot iframes behind explicit curl mode in `navic-reader-page-turns.js`.
+
+- [x] **F2: Make page preview and committed page identity agree**
+  - Add a harness assertion that the page shown during native drag preview is the same logical target page committed on release.
+  - Preserve the already-passing one-page commit behavior from `epub-native-drag-single-commit`.
+  - Do not switch the reader core to Turn.js or another flipbook core.
+  - 2026-07-02 result: `epub-native-drag-single-commit` passed after the preview ownership split; standard mode now keeps the normal underneath preview frame instead of constructing curl-only snapshots.
+
+- [x] **F3: Stabilize frontmatter/section-boundary reverse navigation**
+  - Fix the repeated unchanged relocation loop where `previousPage` from `Authorforeword.xhtml` remains on `5/90`.
+  - Require reverse movement across `dedication.xhtml` / `map.xhtml` / `Authorforeword.xhtml` to update page index, section key, and texture key together.
+  - Use `epub-texture-frontmatter-transition` as the red/green guard.
+  - 2026-07-02 result: no separate location patch was required in this slice; once Standard mode stopped sharing curl/snapshot-only state, `epub-texture-frontmatter-transition` passed against the production-derived fixture.
+
+- [x] **F4: Keep paper texture motion tied to the moving page surface**
+  - Texture motion must follow the same axis and direction as the text page during drag.
+  - Texture updates after relocation must not flash, invert direction, or switch independently from the committed text page.
+  - Border/gradient texture visibility can be adjusted only after motion identity is correct.
+  - 2026-07-02 result: harness texture rows passed for the debug slice, but physical-device visual judgment remains open for intensity, border/shadow feel, and whether transitions feel natural under touch.
+
+- [x] **F5: Validate debug-only**
+  - Run focused harness rows:
+    ```powershell
+    node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+    node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+    node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-frontmatter-transition --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+    node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\book-3809-file-426.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3
+    ```
+  - Run JS syntax and focused host tests for touched modules.
+  - If emulator is available, install only `darkaxt.navic.readerdev` and run the relevant ADB matrix/probes.
+  - Append results to the validation log.
+  - 2026-07-02 result: all four harness rows, JS syntax, focused `ReaderRuntimePaperSurfaceTest`, and `git diff --check` passed for this sub-slice.
+
+- [x] **F6: Commit, but do not publish**
+  - Commit only after F1-F5 pass for the completed sub-slice.
+  - Public release remains blocked until Plan F is coherent enough to be a major reader fix candidate.
+  - 2026-07-02 result: this sub-slice is being committed as debug stabilization only. No GitHub release, tag, or public APK is created for it.
