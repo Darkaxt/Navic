@@ -26,7 +26,7 @@ configurations.all {
 composeCompiler {
 	// Treat Map params as stable so hot composables that take a Map (e.g. CoverArt's and
 	// ArtGridItem's imageRequestHeaders: Map<String, String>) become skippable.
-	stabilityConfigurationFile = project.layout.projectDirectory.file("stability_config.conf")
+	stabilityConfigurationFiles.add(project.layout.projectDirectory.file("stability_config.conf"))
 }
 
 extensions.configure<ValkyrieExtension> {
@@ -183,7 +183,7 @@ public fun interface TextFieldDecorator {
 	}
 
 	compilerOptions {
-		freeCompilerArgs.add("-Xexpect-actual-classes")
+		freeCompilerArgs.addAll("-Xexpect-actual-classes", "-Xexplicit-backing-fields")
 	}
 }
 

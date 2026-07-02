@@ -116,7 +116,7 @@ fun StarredScreen() {
 		}
 	) { innerPadding ->
 		val isAnythingLoading = albumsState is UiState.Loading ||
-			artistsState is UiState.Loading || 
+			artistsState is UiState.Loading ||
 			songsState is UiState.Loading
 		PullToRefreshBox(
 			modifier = Modifier
@@ -150,11 +150,11 @@ fun StarredScreen() {
 				onAddSongStar = { songsViewModel.starSong(true) },
 				onRemoveSongStar = { songsViewModel.starSong(false) },
 				onDownloadSong = { songsViewModel.downloadSong(it) },
-				onCancelDownloadSong = { song -> 
+				onCancelDownloadSong = { song ->
 					songsViewModel.cancelDownload(song.id)
 				},
-				onDeleteDownloadSong = { song -> 
-					songsViewModel.deleteDownload(song.id) 
+				onDeleteDownloadSong = { song ->
+					songsViewModel.deleteDownload(song.id)
 				},
 				onPlaySongNext = { song ->
 					queueSongOrConfirmDuplicate(song, QueueDuplicateAction.PlayNext) {
@@ -176,8 +176,8 @@ fun StarredScreen() {
 				onSelectAlbum = { albumsViewModel.selectAlbum(it) },
 				onClearAlbumSelection = { albumsViewModel.clearSelection() },
 				onStarSelectedAlbum = { albumsViewModel.starAlbum(it) },
-				onPlayAlbumNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection)},
-				onAddAlbumToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection)},
+				onPlayAlbumNext = { if (selectedAlbum != null) player.playNext(selectedAlbum as DomainSongCollection) },
+				onAddAlbumToQueue = { if (selectedAlbum != null) player.addToQueue(selectedAlbum as DomainSongCollection) },
 				onRateSelectedAlbum = { albumsViewModel.setRating(it) },
 
 				artistsState = artistsState,
@@ -187,18 +187,26 @@ fun StarredScreen() {
 				onSelectArtist = { artistsViewModel.selectArtist(it) },
 				onClearArtistSelection = { artistsViewModel.clearSelection() },
 				onStarSelectedArtist = { artistsViewModel.starArtist(it) },
-				onPlayArtistNext = { if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(player)},
-				onAddArtistToQueue = { if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(player)},
+				onPlayArtistNext = {
+					if (selectedArtist != null) artistsViewModel.playArtistAlbumsNext(
+						player
+					)
+				},
+				onAddArtistToQueue = {
+					if (selectedArtist != null) artistsViewModel.addArtistAlbumsToQueue(
+						player
+					)
+				},
 			)
 		}
 	}
 
-    ShareDialog(
-        id = shareId,
-        onIdClear = { shareId = null },
-        expiry = shareExpiry,
-        onExpiryChange = { shareExpiry = it }
-    )
+	ShareDialog(
+		id = shareId,
+		onIdClear = { shareId = null },
+		expiry = shareExpiry,
+		onExpiryChange = { shareExpiry = it }
+	)
 
 	if (songToQueue != null) {
 		QueueDuplicateDialog(

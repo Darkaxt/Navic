@@ -127,6 +127,7 @@ import paige.navic.ui.screens.settings.SettingsNowPlayingScreen
 import paige.navic.ui.screens.settings.SettingsPlaybackScreen
 import paige.navic.ui.screens.settings.SettingsScreen
 import paige.navic.ui.screens.settings.SettingsStreamingQualityScreen
+import paige.navic.ui.screens.settings.SettingsThemesScreen
 import paige.navic.ui.screens.share.ShareListScreen
 import paige.navic.ui.screens.song.SongDetailScreen
 import paige.navic.ui.screens.song.SongListScreen
@@ -469,6 +470,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.Appearance>(metadata = detailPane("settings")) {
 			SettingsAppearanceScreen()
+		}
+		entry<Screen.Settings.Themes>(metadata = detailPane("settings")) {
+			SettingsThemesScreen()
 		}
 		entry<Screen.Settings.LibraryRows>(metadata = detailPane("settings")) {
 			SettingsLibraryRowsScreen()

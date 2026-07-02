@@ -69,8 +69,8 @@ import paige.navic.ui.components.common.PlaybackSongCoverArt
 import paige.navic.ui.components.common.Waveform
 import paige.navic.ui.screens.collection.collectionDetailAlbumTrackLeadingWidth
 import paige.navic.util.core.InlineExplicitIcon
-import paige.navic.util.ui.segmentedShapes
 import paige.navic.util.core.toHoursMinutesSeconds
+import paige.navic.util.ui.segmentedShapes
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -169,6 +169,7 @@ fun CollectionDetailScreenSongRow(
 							SongSwipeAction.Disabled -> Unit
 						}
 					}
+
 					SwipeToDismissBoxValue.EndToStart -> {
 						when (endToStartSwipeAction) {
 							SongSwipeAction.AddToQueue -> Icon(
@@ -186,6 +187,7 @@ fun CollectionDetailScreenSongRow(
 							SongSwipeAction.Disabled -> Unit
 						}
 					}
+
 					else -> {}
 				}
 			}
@@ -251,7 +253,7 @@ fun CollectionDetailScreenSongRow(
 			},
 			trailingContent = {
 				Row(verticalAlignment = Alignment.CenterVertically) {
-					if(isStarred) {
+					if (isStarred) {
 						Icon(
 							Icons.Filled.Star,
 							null,

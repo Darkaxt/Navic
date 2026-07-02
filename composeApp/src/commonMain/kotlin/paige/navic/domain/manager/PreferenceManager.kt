@@ -1,5 +1,7 @@
 package paige.navic.domain.manager
 
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamiccolor.ColorSpec
 import paige.navic.domain.manager.base.BasePreferenceManager
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
@@ -65,6 +67,7 @@ class PreferenceManager(
 	var tapArtworkForLyrics by preference(false)
 	var gridSize by preference(GridSize.TwoByTwo)
 	var coverArtShape by preference(CoverArtShape.Soft)
+	var artistImageShape by preference(CoverArtShape.Soft)
 	var coverArtQuality by preference(CoverArtQuality.High)
 	var artistArtworkPriority by preference(ArtworkSourcePriority.AurralFirst)
 	var coverArtworkPriority by preference(ArtworkSourcePriority.AurralFirst)
@@ -308,8 +311,8 @@ class PreferenceManager(
 	var bottomBarProfile by preference(BottomBarProfile.Compact)
 	var navigationBarStyle by preference(NavigationBarStyle.Normal)
 	var navigationBarLabelVisibility by preference(
-        NavigationBarLabelVisibility.Always
-    )
+		NavigationBarLabelVisibility.Always
+	)
 	var miniPlayerStyle by preference(MiniPlayerStyle.Detached)
 	var miniPlayerProgressStyle by preference(MiniPlayerProgressStyle.Seekable)
 	var showMiniPlayerQueueAction by preference(false)
@@ -321,6 +324,9 @@ class PreferenceManager(
 	var accentColourH by preference(0f)
 	var accentColourS by preference(0f)
 	var accentColourV by preference(1f)
+	var paletteStyle by preference(PaletteStyle.TonalSpot)
+	var paletteSpec by preference(ColorSpec.SpecVersion.SPEC_2025)
+	var paletteAccentH by preference(0f)
 
 	// sync related settings
 	var lastFullSyncTime by preference(0L)

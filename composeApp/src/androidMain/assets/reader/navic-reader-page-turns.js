@@ -2105,9 +2105,8 @@ function issueReflowablePageTurn(direction) {
   const navigationPromise = direction === 'next'
     ? this.view?.next?.()
     : this.view?.prev?.()
-  this.reflowablePageTurnNavigationPromise = navigationPromise
-    ? Promise.resolve(navigationPromise).catch(error => reportError(error, 'navigation_failed'))
-    : null
+  this.reflowablePageTurnNavigationPromise =
+    navigationPromise?.catch(error => reportError(error, 'navigation_failed')) ?? null
   return true
 }
 

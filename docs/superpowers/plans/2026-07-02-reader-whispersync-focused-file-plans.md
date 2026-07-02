@@ -770,18 +770,18 @@ Plan B status on 2026-07-02:
 - `scripts/install-reader-dev.ps1`
 - `tools/reader-harness/**`
 
-- [ ] **P1: Create a disposable merge worktree or checkpoint branch**
+- [x] **P1: Create a disposable merge worktree or checkpoint branch**
   - Start from the current reader branch after pushing all local work.
   - Preserve the original branch as a rollback point.
   - Do not merge directly into a dirty tree with untracked `artifacts/`, `captures/`, `releases/`, or `tmp/` noise.
 
-- [ ] **P2: Resolve conflicts by feature ownership**
+- [x] **P2: Resolve conflicts by feature ownership**
   - Accept upstream's non-reader shell improvements where they do not remove reader/Bindery/Aurral behavior.
   - Preserve this branch's reader assets, reader tests, Bindery schema parity, Whispersync scripts, and release guardrails.
   - For build/dependency conflicts, keep the newer upstream dependency/toolchain versions only after confirming reader tasks still resolve.
   - For version conflicts, do not let upstream alpha release metadata overwrite the next reader candidate metadata unless publishing a new final candidate.
 
-- [ ] **P3: Run merge-specific source guards**
+- [x] **P3: Run merge-specific source guards**
   - Check for accidental reader stack deletion:
     ```powershell
     rg -n "ReaderWhispersync|Komikku|navic-reader-page-turns|Whispersync ready" composeApp\src scripts tools docs
@@ -792,7 +792,7 @@ Plan B status on 2026-07-02:
     ```
   - Check that upstream backstack/top-bar changes do not bypass reader-owned back handling.
 
-- [ ] **P4: Run focused Gradle and JS gates**
+- [x] **P4: Run focused Gradle and JS gates**
   - Minimum:
     ```powershell
     .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
@@ -803,12 +803,33 @@ Plan B status on 2026-07-02:
     ```
   - If dependency/toolchain changes break the supported task names, update this plan with the new supported commands instead of silently narrowing coverage.
 
-- [ ] **P5: Run readerdev acceptance after merge**
+- [x] **P5: Run readerdev acceptance after merge**
   - Rebuild/install `darkaxt.navic.readerdev` using `bindery-debug.env`.
   - Run the Komikku matrix and Whispersync enjoyment gate against production book `3809`.
   - Record artifact roots in `2026-06-13-komikku-reader-port-validation-log.md`.
 
-- [ ] **P6: Commit and push, but do not release**
+- [x] **P6: Commit and push, but do not release**
   - Commit message: `Merge upstream master into reader Whispersync branch`.
   - Push the branch.
   - Do not tag or publish until the merged candidate has passed the full release gate and is explicitly ready for physical-device acceptance.
+
+### Plan P Result - 2026-07-02
+
+- Isolated merge worktree: `C:\Users\darka\Documents\Projects\Android\Navic-planp-sync`, branch `codex/komikku-reader-planp-sync`.
+- Merged `origin/master` into the reader/Whispersync branch and resolved conflicts by ownership:
+  - Preserved local reader, Bindery, Whispersync, playback, Aurral, back/navigation, and release-guardrail behavior.
+  - Kept upstream non-reader shell improvements where they compiled cleanly with the reader branch.
+  - Kept `.github/workflows/publish.yml` release-only; no `workflow_dispatch` or iOS/TestFlight path was restored.
+  - Kept `androidApp` release metadata at `versionCode=467`, `versionName=v1.0.11-theta39`, and `applicationId="darkaxt.navic"`.
+- Merge gates passed:
+  - `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost`
+  - `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js`
+  - `git diff --check`
+  - Release guardrail grep confirmed `types: [published]`, `AllowPublicRelease`, and `ReleaseReadinessNote`.
+- Readerdev validation:
+  - Installed `darkaxt.navic.readerdev` on `emulator-5554` as `versionName=v1.0.11-theta39`, `versionCode=467`.
+  - Readerdev launch reached `publicationReady`; capture: `captures\reader-dev\reader-dev-20260702-130406.png`.
+  - Komikku matrix passed core reader steps in `captures\reader-komikku-matrix\planp-sync-theta39-20260702`.
+  - The first rail endpoint attempt failed only because the current section had `chapterPageCount=1`; rerun after relaunching at `StartProgress=0.10` passed in `captures\reader-komikku-matrix\planp-sync-theta39-rail-20260702`.
+  - Whispersync enjoyment gate passed with `-NoBuild -NoInstall`; artifacts: `captures\reader-whispersync-enjoyment\planp-sync-theta39-20260702\stage5c3-whispersync-enjoyment-20260702-131116`.
+- No public release, tag, public APK asset, or release workflow was created for Plan P.

@@ -122,7 +122,7 @@ fun SongRow(
 	ListItem(
 		modifier = modifier
 			.width(400.dp)
-			.combinedClickable (
+			.combinedClickable(
 				onClick = onClick,
 				onLongClick = onLongClick
 			),

@@ -190,6 +190,7 @@ fun ArtistActionButtons(
 				DownloadStatus.QUEUED,
 				DownloadStatus.DOWNLOADED,
 				DownloadStatus.FAILED -> true
+
 				DownloadStatus.NOT_DOWNLOADED -> playEnabled
 			},
 			contentPadding = PaddingValues(0.dp)

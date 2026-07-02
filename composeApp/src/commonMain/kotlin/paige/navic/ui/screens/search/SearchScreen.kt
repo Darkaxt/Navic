@@ -428,8 +428,8 @@ fun SearchScreen(
 									onDeselect = { albumListViewModel.clearSelection() },
 									onSetStarred = { albumListViewModel.starAlbum(it) },
 									onSetShareId = { },
-									onPlayNext = { player.playNext(album as DomainSongCollection)},
-									onAddToQueue = { player.addToQueue(album as DomainSongCollection)},
+									onPlayNext = { player.playNext(album as DomainSongCollection) },
+									onAddToQueue = { player.addToQueue(album as DomainSongCollection) },
 									rating = selectedAlbumRating,
 									onSetRating = { albumListViewModel.setRating(it) }
 								)
@@ -482,7 +482,11 @@ fun SearchScreen(
 									onDeselect = { artistListViewModel.clearSelection() },
 									onSetStarred = { artistListViewModel.starArtist(it) },
 									onPlayNext = { artistListViewModel.playArtistAlbumsNext(player) },
-									onAddToQueue = { artistListViewModel.addArtistAlbumsToQueue(player) }
+									onAddToQueue = {
+										artistListViewModel.addArtistAlbumsToQueue(
+											player
+										)
+									}
 								)
 							}
 

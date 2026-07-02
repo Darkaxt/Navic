@@ -83,7 +83,6 @@ import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.dialogs.ArtworkShapeDialog
 import paige.navic.ui.screens.settings.dialogs.GridSizeDialog
 import paige.navic.ui.screens.settings.dialogs.GridSizePreview
-import paige.navic.ui.screens.settings.dialogs.ThemeDialog
 
 @Composable
 fun SettingsAppearanceScreen() {
@@ -126,10 +125,9 @@ fun SettingsAppearanceScreen() {
 						}
 					}
 
-					var showThemeDialog by rememberSaveable { mutableStateOf(false) }
 					FormRow(
 						onClick = {
-							showThemeDialog = true
+							backStack.add(Screen.Settings.Themes)
 						}
 					) {
 						Column(Modifier.weight(1f)) {
@@ -141,11 +139,6 @@ fun SettingsAppearanceScreen() {
 							)
 						}
 					}
-
-					ThemeDialog(
-						presented = showThemeDialog,
-						onDismissRequest = { showThemeDialog = false }
-					)
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_dynamic_themes)) },
@@ -347,6 +340,9 @@ fun SettingsAppearanceScreen() {
 			}
 		}
 		ArtworkShapeDialog(
+			title = { Text(stringResource(Res.string.option_artwork_shape)) },
+			selection = preferenceManager.coverArtShape,
+			onSelect = { preferenceManager.coverArtShape = it },
 			presented = showArtworkShapeDialog,
 			onDismissRequest = { showArtworkShapeDialog = false }
 		)

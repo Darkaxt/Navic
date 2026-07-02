@@ -268,15 +268,20 @@ fun BottomBar(
 								Icon(item.iconUnselected, null)
 							}
 						},
-						label = {
-							Text(
-								stringResource(item.label),
-								maxLines = 1,
-								autoSize = TextAutoSize.StepBased(
-									minFontSize = 1.sp,
-									maxFontSize = MaterialTheme.typography.labelMedium.fontSize
+						label = if (preferenceManager.navigationBarLabelVisibility
+							!== NavigationBarLabelVisibility.Never) {
+							{
+								Text(
+									stringResource(item.label),
+									maxLines = 1,
+									autoSize = TextAutoSize.StepBased(
+										minFontSize = 1.sp,
+										maxFontSize = MaterialTheme.typography.labelMedium.fontSize
+									)
 								)
-							)
+							}
+						} else {
+							null
 						}
 					)
 				}
@@ -309,9 +314,14 @@ fun BottomBar(
 								Icon(item.iconUnselected, null)
 							}
 						},
-						label = {
-							Text(stringResource(item.label))
-						}
+						label = if (
+							preferenceManager.navigationBarLabelVisibility == NavigationBarLabelVisibility.Always ||
+							(preferenceManager.navigationBarLabelVisibility == NavigationBarLabelVisibility.OnlySelected && selected)
+						) {
+							{ Text(stringResource(item.label)) }
+						} else {
+							null
+						},
 					)
 				}
 			}

@@ -133,6 +133,10 @@
 	<string name="title_cellular">Cellular</string>
 	<string name="title_select_lyrics">Select Lyrics</string>
 	<string name="title_advanced">Advanced Transcoding</string>
+	<string name="title_palette">Palette</string>
+	<string name="title_theme_mode">Theme mode</string>
+	<string name="title_account">Account</string>
+
 	<string name="subtitle_appearance">Themes, colours, layout</string>
 	<string name="subtitle_dynamic_themes">Tint supported player and detail screens from the resolved artwork color</string>
 	<string name="subtitle_library_row_order">Reorder and hide Library rows</string>
@@ -310,7 +314,7 @@
 	<string name="option_now_playing_artwork_tap_action_disabled">Nothing</string>
 	<string name="option_now_playing_artwork_tap_action_lyrics">Lyrics</string>
 	<string name="option_now_playing_artwork_tap_action_track_info">Track info</string>
-	<string name="option_accent_colour">Accent colour</string>
+	<string name="option_accent_colour">Palette accent</string>
 	<string name="option_now_playing_song_info">Show technical song info</string>
 	<string name="option_now_playing_seek_buttons">Show seek buttons</string>
 	<string name="option_now_playing_remaining_time">Show remaining time</string>
@@ -357,6 +361,7 @@
 	<string name="option_swipe_to_skip">Swipe to change songs</string>
 	<string name="option_tap_artwork_for_lyrics">Tap artwork for lyrics</string>
 	<string name="option_artwork_shape">Artwork shape</string>
+	<string name="option_artist_image_shape">Artist image shape</string>
 	<string name="option_cover_art_size">Cover artwork size</string>
 	<string name="option_artist_artwork_priority">Artist artwork source</string>
 	<string name="option_cover_artwork_priority">Cover artwork source</string>
@@ -669,6 +674,8 @@
 	<string name="option_aurral_artist_search">Artist or album name</string>
 	<string name="option_aurral_flow_name">Flow name</string>
 	<string name="option_aurral_flow_size">Tracks</string>
+	<string name="option_palette_style">Palette style</string>
+	<string name="option_palette_specification">Palette specification</string>
 
 	<string name="info_status_idle">Idle</string>
 	<string name="info_status_calculating">Calculating...</string>
@@ -816,6 +823,7 @@
 	<string name="option_navigation_bar_label_visibility">Label visibility</string>
 	<string name="option_navigation_bar_label_visibility_always">Always</string>
 	<string name="option_navigation_bar_label_visibility_only_selected">Only selected</string>
+	<string name="option_navigation_bar_label_visibility_never">Never</string>
 	<string name="option_navigation_bar_tabs">Reorder navigation bar tabs</string>
 
 	<string name="option_mini_player_style">Mini player style</string>
@@ -827,15 +835,10 @@
 	<string name="option_mini_player_progress_style_seekable">Seekable</string>
 
 	<string name="theme_dynamic">Dynamic</string>
-	<string name="theme_subtitle_dynamic">Available on Android 12 and above</string>
 	<string name="theme_seeded">Tinted</string>
-	<string name="theme_subtitle_seeded">One colour for all</string>
 	<string name="theme_ios">Cupertino</string>
-	<string name="theme_subtitle_ios">A city in California</string>
 	<string name="theme_apple_music">Music.app</string>
-	<string name="theme_subtitle_apple_music">A theme with red/pink highlights</string>
 	<string name="theme_spotify">Spotlight</string>
-	<string name="theme_subtitle_spotify">A theme with green highlights</string>
 
 	<string name="theme_mode_system">System</string>
 	<string name="theme_mode_dark">Dark</string>
@@ -883,6 +886,9 @@
 
 	<string name="action_ok">OK</string>
 	<string name="action_play">Play</string>
+	<string name="action_next_song">Next song</string>
+	<string name="action_previous_song">Previous song</string>
+	<string name="action_pause">Pause</string>
 	<string name="action_new">New</string>
 	<string name="action_shuffle">Shuffle</string>
 	<string name="action_repeat">Repeat</string>
@@ -915,7 +921,6 @@
 	<string name="action_star">Star</string>
 	<string name="action_remove_star">Unstar</string>
 	<string name="action_download">Download</string>
-	<string name="action_pause">Pause</string>
 	<string name="action_resume">Resume</string>
 	<string name="action_delete_download">Delete download</string>
 	<string name="action_cancel_download">Cancel download</string>
@@ -1113,5 +1118,8 @@
 	<string name="info_login_description_end">instance.</string>
 	<string name="info_exception_handler">This will immediately crash the application. Are you sure?</string>
 	<string name="info_streaming_quality">Higher quality presets will use more data. Transcoding can severely impact load times and cause lyrics to become unsynced. Select Lossless if you encounter any issues.</string>
+	<string name="info_repeat_off">Repeat off</string>
+	<string name="info_repeat_one">Repeat one</string>
+	<string name="info_repeat_all">Repeat all</string>
 
 </resources>

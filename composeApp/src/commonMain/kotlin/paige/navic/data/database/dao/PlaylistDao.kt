@@ -104,6 +104,7 @@ interface PlaylistDao {
 		}
 		insertPlaylists(remotePlaylists)
 	}
+
 	@Transaction
 	suspend fun deleteObsoletePlaylists(remoteIds: Set<String>) {
 		getAllPlaylistIds().forEach { localId ->

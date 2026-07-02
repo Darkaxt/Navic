@@ -59,6 +59,8 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.kyant.capsule.ContinuousRoundedRectangle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_next_song
+import navic.composeapp.generated.resources.action_previous_song
 import navic.composeapp.generated.resources.action_queue
 import navic.composeapp.generated.resources.info_not_playing
 import org.jetbrains.compose.resources.stringResource
@@ -210,6 +212,8 @@ fun MiniPlayer(
 		onSwipeRight = {
 			if (isInteractive) player.previous()
 		},
+		swipeLeftAccessibilityLabel = stringResource(Res.string.action_next_song),
+		swipeRightAccessibilityLabel = stringResource(Res.string.action_previous_song),
 		modifier = modifier,
 		enabled = isInteractive
 	) {
