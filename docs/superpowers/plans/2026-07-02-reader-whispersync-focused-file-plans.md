@@ -485,9 +485,10 @@ Plan B status on 2026-07-02:
 - [x] **H3: Recheck texture/page motion after preview identity is stable**
   - Only after H2 passes, rerun the texture transition harness rows and readerdev emulator probes.
   - Do not adjust texture intensity, border gradients, or visual polish while the page identity is still unstable.
-  - 2026-07-02 result: `epub-texture-frontmatter-transition` first exposed that `previousPage()` could resolve before the duplicate adjacent fallback navigation posted the previous section. The page-turn transaction now waits for reflowable navigation and any adjacent fallback promise before settling. `epub-native-drag-standard-no-curl` then exposed that the live-strip shortcut was incorrectly active under Curl mode because it checked the wrong runtime field; the shortcut is now gated to `readerDragAnimationModeValue !== 'curl'`. Final browser rows passed for frontmatter transition, standard no-curl, texture page turns, and the original single-commit target. This remains debug/browser evidence only, not a public release trigger.
+  - 2026-07-02 result: `epub-texture-frontmatter-transition` first exposed that `previousPage()` could resolve before the duplicate adjacent fallback navigation posted the previous section. The page-turn transaction now waits for reflowable navigation and any adjacent fallback promise before settling. `epub-native-drag-standard-no-curl` then exposed that the live-strip shortcut was incorrectly active under Curl mode because it checked the wrong runtime field; the shortcut is now gated to `readerDragAnimationModeValue !== 'curl'`. Final browser rows passed for frontmatter transition, standard no-curl, texture page turns, and the original single-commit target. Readerdev active-page probes also passed for page box, texture slots, and next-direction texture motion under `captures\reader-bridge-probes\plan-h-h3-readerdev-skip-cover2`. This remains debug/browser/readerdev evidence only, not a public release trigger.
 
-- [ ] **H4: Commit debug-only evidence**
+- [x] **H4: Commit debug-only evidence**
   - Append validation results to the reader validation log.
   - Commit source and docs for the completed debug slice.
   - Do not publish a public release for Plan H unless all page-turn/texture gates become coherent enough for a major reader-fix candidate.
+  - 2026-07-02 result: Plan H source was committed as debug stabilization (`01cf91a7`, `b9a50fb2`) and readerdev evidence was recorded without creating a GitHub tag, public prerelease, public APK asset, or release workflow.

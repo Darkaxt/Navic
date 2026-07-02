@@ -10681,7 +10681,7 @@ Commands and evidence:
 
 Result:
 - GREEN/DEBUG: Plan H H1/H2 are validated for the browser/host harness path. Same-section drags now preview and commit through the same live Foliate surface instead of a synthetic clone.
-- PENDING: texture transition rows and readerdev emulator probes still need to be rerun after this identity fix before any broader page-turn/texture candidate can be considered release-worthy.
+- SUPERSEDED: texture transition rows and readerdev emulator probes were rerun in the H3 section below. Physical-device feel validation remains outside this debug slice.
 - NO PUBLIC RELEASE: this remains a debug stabilization slice. Public releases stay blocked for diagnostics, one-file visual tweaks, and partial page-turn/texture work.
 
 ## 2026-07-02 Focused Plan H H3 Texture/Page-Motion Debug Rerun
@@ -10701,8 +10701,13 @@ Commands and evidence:
 - GREEN/HARNESS: regression rows passed for `epub-native-drag-single-commit --target-global-page-index 11` and `epub-texture-page-turns` in `artifacts\reader-harness\plan-h-h3-regression`.
 - GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest` passed in `artifacts\gradle\plan-h-h3-final2\reader-runtime-paper-surface.out.log`.
 - GREEN/JS: `node --check` passed for `composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` and `tools\reader-harness\src\run-reader-harness.mjs`.
+- GREEN/READERDEV: relaunched `darkaxt.navic.readerdev` with `-SkipNativeShellCover`; `publicationReady` was reached and the active WebView page was captured at `captures\reader-dev\reader-dev-20260702-073110.png`.
+- GREEN/READERDEV: `page-box` probe under `captures\reader-bridge-probes\plan-h-h3-readerdev-skip-cover2\page-box` reported `nativeShellCoverVisible=False`, renderer size `1974x1232`, `maxColumnCount=2`, `topMargin=90px`, and `bottomMargin=50px`.
+- GREEN/READERDEV: `texture-slots` probe under `captures\reader-bridge-probes\plan-h-h3-readerdev-skip-cover2\texture-slots` reported the static texture layer plus moving paper and border layers, three paper slots, three border slots, and no duplicated static background image.
+- GREEN/READERDEV: `native-drag-preview-texture-final` under `captures\reader-bridge-probes\plan-h-h3-readerdev-skip-cover2\native-drag-preview-texture-final` reported `wrongTextureDirection=False` with a next-direction sample `axis=x offset=-691 expectedSign=-1 page=8/140 href=OEBPS/xhtml/chapter1.xhtml`.
+- NOTE: the first DevTools-dispatched drag probe with `-RequireNativeSwipeAction` was discarded as invalid evidence because `previewPageDrag` is not a native input event.
 
 Result:
-- GREEN/DEBUG: Plan H H3 browser/host gates are green for the current source.
-- PENDING: readerdev/emulator probe and physical-device feel validation are still required before this can be considered a major page-turn/texture release candidate.
+- GREEN/DEBUG: Plan H H3 browser/host/readerdev gates are green for the current source.
+- PENDING: physical-device feel validation is still required before this can be considered a major page-turn/texture release candidate.
 - NO PUBLIC RELEASE: no GitHub tag, public APK, or release workflow was created for this debug slice.

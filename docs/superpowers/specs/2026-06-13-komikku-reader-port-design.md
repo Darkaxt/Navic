@@ -62,6 +62,7 @@ If a Navic feature works but is not faithful to the reference, treat it as unfin
 - Terminology is part of the guardrail: "debug build" or "readerdev install" means a local debuggable APK built and installed for emulator validation. "Release" means a GitHub tag, GitHub prerelease/release, public APK upload, or physical-phone candidate. Do not call emulator artifacts releases.
 - Do not bump public release versions or start GitHub release workflows merely to let the user test a microfix. If the fix is not complete enough to be called the next deployed feature/fix candidate, keep it in debug/readerdev validation.
 - Final/public releases are reserved for completed feature slices or major fixes after their plan gates pass and the debug/readerdev candidate proves the fix actually works. Do not publish a public APK simply because one isolated test turned green.
+- Current operating rule: normal iteration must build/install only debug or readerdev APKs for emulator evidence; public releases are reserved for final candidate delivery after a new feature or major fix is fully deployed and validated.
 - `scripts/publish-github-release.ps1` must fail closed unless the caller explicitly passes a public-release override and a readiness note naming the completed feature/fix plus validation evidence. Treat missing override as a process error, not as a prompt to publish.
 - Do not build iOS artifacts for this Android reader work.
 - Do not treat host tests, desktop browser harnesses, or manual screenshots as proof of Android input/progress behavior.
