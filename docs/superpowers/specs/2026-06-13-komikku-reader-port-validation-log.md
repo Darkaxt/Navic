@@ -10711,3 +10711,22 @@ Result:
 - GREEN/DEBUG: Plan H H3 browser/host/readerdev gates are green for the current source.
 - PENDING: physical-device feel validation is still required before this can be considered a major page-turn/texture release candidate.
 - NO PUBLIC RELEASE: no GitHub tag, public APK, or release workflow was created for this debug slice.
+
+## 2026-07-02 Focused Plan I Page-Curl / Turn.js Architecture Decision
+
+Scope:
+- Answer whether the current curl animation is Turn.js-equivalent.
+- Decide whether importing Turn.js is a viable near-term replacement for the current page-turn/texture stack.
+- Preserve the debug-first/public-last cadence: this is architecture documentation only.
+
+Evidence:
+- The local mockup `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html` defines a custom page-curl sheet model with page slots, front/back opacity, gradients, and single/spread modes.
+- The current runtime `composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` implements a custom mockup-derived overlay through `ensurePageDragPreviewLayer({ curlEnabled = false } = {})`, `data-navic-page-curl-sheet`, snapshot iframes, `applyPageDragCurlMetrics`, and `applyPageDragCurlSheet`.
+- Source guards in `ReaderRuntimePaperSurfaceTest` verify the current curl behavior by inspecting those Navic-specific sheet roles and CSS variables, not any third-party flipbook API.
+- Turn.js references describe a jQuery flipbook plugin that owns a page container, page elements, single/double display mode, and its own event lifecycle. This does not map cleanly onto Foliate's active EPUB renderer or the native Komikku tap/drag surface.
+
+Result:
+- DECISION: current Navic curl is not Turn.js and should not be treated as the same implementation.
+- DECISION: do not import Turn.js into the active stabilization path. It is not a drop-in fix for the texture transition or current-page identity problems.
+- FUTURE OPTION: if Turn.js is revisited, scope it as a separate rendered-page adapter fed by deterministic page snapshots, with its own proof that Foliate pagination, Whispersync visible ranges, native tap zones, page textures, and landscape spread behavior remain correct.
+- NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this documentation slice.

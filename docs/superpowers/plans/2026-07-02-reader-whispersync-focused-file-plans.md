@@ -492,3 +492,32 @@ Plan B status on 2026-07-02:
   - Commit source and docs for the completed debug slice.
   - Do not publish a public release for Plan H unless all page-turn/texture gates become coherent enough for a major reader-fix candidate.
   - 2026-07-02 result: Plan H source was committed as debug stabilization (`01cf91a7`, `b9a50fb2`) and readerdev evidence was recorded without creating a GitHub tag, public prerelease, public APK asset, or release workflow.
+
+## Focused Plan I: Debug-Only Page-Curl / Turn.js Architecture Decision
+
+**Purpose:** Decide whether the current curl animation is equivalent to Turn.js and whether importing Turn.js is a viable near-term replacement for the current page-turn stack.
+
+**Release rule:** Plan I is documentation/architecture only. Do not create a debug APK, GitHub tag, public prerelease, public APK asset, or release workflow for this decision record.
+
+**Main files and references:**
+- `D:\Downloads\Trash\navic_page_curl_toggle_mockup_single_clipped.html`
+- `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+- `tools/reader-harness/src/run-reader-harness.mjs`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+- Turn.js references: `http://www.turnjs.com/`, `https://github.com/blasten/turn.js/`, and `https://www.turnjs.com/turnjs4-api-docs.pdf`
+
+- [x] **I1: Compare current Navic curl against the local mockup**
+  - Confirm whether Navic imports the mockup's sheet/snapshot model or delegates to a third-party flipbook library.
+  - 2026-07-02 result: current Navic curl is a custom mockup-derived snapshot overlay. It creates `data-navic-page-curl-sheet` roles, snapshot iframes, CSS variables, and per-drag lifecycle state inside `navic-reader-page-turns.js`. It is not Turn.js.
+
+- [x] **I2: Check Turn.js fit**
+  - Check whether Turn.js can be a drop-in animation layer on top of Foliate's live renderer.
+  - 2026-07-02 result: Turn.js is a jQuery flipbook plugin that owns a page container, page elements, single/double display mode, and its own page event lifecycle. It is better suited to pre-split magazine/catalog pages than to taking over Foliate's active EPUB renderer mid-drag.
+
+- [x] **I3: Record the decision**
+  - Do not import Turn.js for the current reader stabilization path.
+  - Keep Standard mode as the default and keep curl as opt-in/experimental until page identity, texture motion, and landscape layout are stable.
+  - If Turn.js is revisited later, treat it as a separate rendered-page adapter that consumes deterministic page snapshots, not as a patch inside `navic-reader-page-turns.js`.
+  - 2026-07-02 result: decision recorded in the reader spec and validation log. No code or release artifact was created.
