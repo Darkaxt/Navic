@@ -1068,6 +1068,12 @@ class ReaderRuntimeAssetsTest {
 		val endpointValidationBlock = scriptText
 			.substringAfter("function Assert-ReaderDevtoolsLocationEndpoint")
 			.substringBefore("function Get-ReaderDevtoolsPdfVisibleResult")
+		val fractionPointBlock = scriptText
+			.substringAfter("function Get-AdbUiNodeFractionPoint")
+			.substringBefore("function Invoke-PostProbeUiNodeAction")
+		val prepareLaunchBlock = matrixText
+			.substringAfter("function Invoke-ReaderMatrixPrepareLaunch")
+			.substringBefore("function Invoke-ReaderCoverMatrixSteps")
 		val railEndpointBlock = matrixText
 			.substringAfter("function Invoke-ReaderRailEndpointMatrixSteps")
 			.substringBefore("if (\$PrepareReaderLaunch)")
@@ -1095,6 +1101,13 @@ class ReaderRuntimeAssetsTest {
 		assertContains(matrixText, "tapDescIfPresent:Close history controls")
 		assertContains(matrixText, "tapDescFraction:Chapter page slider,0.0,0.5")
 		assertContains(matrixText, "tapDescFraction:Chapter page slider,1.0,0.5")
+		assertContains(scriptText, "function Clamp-AdbUiCoordinateInsideBounds")
+		assertContains(fractionPointBlock, "Clamp-AdbUiCoordinateInsideBounds")
+		assertContains(fractionPointBlock, "End \$bounds.Right")
+		assertContains(fractionPointBlock, "End \$bounds.Bottom")
+		assertContains(prepareLaunchBlock, "\$OnlyRailEndpointChecks")
+		assertContains(prepareLaunchBlock, "ignoring Whispersync prepare args during rail endpoint checks")
+		assertContains(prepareLaunchBlock, "if (-not \$OnlyRailEndpointChecks)")
 		assertContains(matrixText, "PostProbeAction = \$PostProbeAction")
 		assertContains(matrixText, "RequirePostActionChapterPageEndpoint = \$RequirePostActionChapterPageEndpoint")
 		assertContains(matrixText, "-RequirePostActionChapterPageEndpoint \"start\"")

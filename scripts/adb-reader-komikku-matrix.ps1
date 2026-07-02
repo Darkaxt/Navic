@@ -282,20 +282,30 @@ function Invoke-ReaderMatrixPrepareLaunch {
     if (-not [string]::IsNullOrWhiteSpace($PrepareStartCfi)) {
         $prepareArgs.StartCfi = $PrepareStartCfi
     }
-    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncSidecarUrl)) {
-        $prepareArgs.WhispersyncSidecarUrl = $PrepareWhispersyncSidecarUrl
-    }
-    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncArtifactId)) {
-        $prepareArgs.WhispersyncArtifactId = $PrepareWhispersyncArtifactId
-    }
-    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookId)) {
-        $prepareArgs.WhispersyncAudiobookId = $PrepareWhispersyncAudiobookId
-    }
-    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookBookFileId)) {
-        $prepareArgs.WhispersyncAudiobookBookFileId = $PrepareWhispersyncAudiobookBookFileId
-    }
-    if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookTitle)) {
-        $prepareArgs.WhispersyncAudiobookTitle = $PrepareWhispersyncAudiobookTitle
+    if (-not $OnlyRailEndpointChecks) {
+        if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncSidecarUrl)) {
+            $prepareArgs.WhispersyncSidecarUrl = $PrepareWhispersyncSidecarUrl
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncArtifactId)) {
+            $prepareArgs.WhispersyncArtifactId = $PrepareWhispersyncArtifactId
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookId)) {
+            $prepareArgs.WhispersyncAudiobookId = $PrepareWhispersyncAudiobookId
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookBookFileId)) {
+            $prepareArgs.WhispersyncAudiobookBookFileId = $PrepareWhispersyncAudiobookBookFileId
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookTitle)) {
+            $prepareArgs.WhispersyncAudiobookTitle = $PrepareWhispersyncAudiobookTitle
+        }
+    } elseif (
+        -not [string]::IsNullOrWhiteSpace($PrepareWhispersyncSidecarUrl) -or
+        -not [string]::IsNullOrWhiteSpace($PrepareWhispersyncArtifactId) -or
+        -not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookId) -or
+        -not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookBookFileId) -or
+        -not [string]::IsNullOrWhiteSpace($PrepareWhispersyncAudiobookTitle)
+    ) {
+        Write-Host "reader-matrix prepare: ignoring Whispersync prepare args during rail endpoint checks so audio-follow cannot relocate the page under test."
     }
     if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
         $prepareArgs.DeviceSerial = $DeviceSerial

@@ -795,6 +795,23 @@ function Get-AdbUiNodeCenter {
     }
 }
 
+function Clamp-AdbUiCoordinateInsideBounds {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int] $Coordinate,
+        [Parameter(Mandatory = $true)]
+        [int] $Start,
+        [Parameter(Mandatory = $true)]
+        [int] $End
+    )
+
+    if ($End -le ($Start + 1)) {
+        return [int] [math]::Round(($Start + $End) / 2)
+    }
+
+    return [int] [math]::Min($End - 1, [math]::Max($Start + 1, $Coordinate))
+}
+
 function Get-AdbUiNodeFractionPoint {
     param(
         [Parameter(Mandatory = $true)]
@@ -811,9 +828,11 @@ function Get-AdbUiNodeFractionPoint {
     $bounds = Get-AdbUiNodeBounds -MatcherKind $MatcherKind -ExpectedValue $ExpectedValue
     $clampedXFraction = [math]::Min(1.0, [math]::Max(0.0, $XFraction))
     $clampedYFraction = [math]::Min(1.0, [math]::Max(0.0, $YFraction))
+    $rawX = [int] [math]::Round($bounds.Left + ($bounds.Width * $clampedXFraction))
+    $rawY = [int] [math]::Round($bounds.Top + ($bounds.Height * $clampedYFraction))
     return [pscustomobject]@{
-        X = [int] [math]::Round($bounds.Left + ($bounds.Width * $clampedXFraction))
-        Y = [int] [math]::Round($bounds.Top + ($bounds.Height * $clampedYFraction))
+        X = Clamp-AdbUiCoordinateInsideBounds -Coordinate $rawX -Start $bounds.Left -End $bounds.Right
+        Y = Clamp-AdbUiCoordinateInsideBounds -Coordinate $rawY -Start $bounds.Top -End $bounds.Bottom
         Bounds = $bounds.Bounds
         Value = $bounds.Value
     }

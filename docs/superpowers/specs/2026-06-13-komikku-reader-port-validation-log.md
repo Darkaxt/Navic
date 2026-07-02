@@ -10793,3 +10793,45 @@ Result:
 - GREEN/DEBUG: organic page-number typography now follows the selected reader font family and key typography dimensions in computed browser evidence.
 - PENDING: physical-device visual judgment remains part of the final reader candidate pass.
 - NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this debug slice.
+
+## 2026-07-02 Focused Plan M Native Rail Endpoint Harness Stabilization
+
+Scope:
+- Stabilize current-source debug validation for native chapter rail endpoint taps.
+- Keep the fix in the harness/matrix layer unless production reader behavior is proven wrong.
+- Do not publish a public release for this slice.
+
+Red evidence:
+- Current-source readerdev on `emulator-5554` failed `chapter-rail-native-end` with production book `3809` file `426`.
+- Failing artifact: `captures\reader-komikku-matrix\plan-m-current-rail-endpoints\chapter-rail-native-end\reader-devtools-post-action-probe.json`.
+- Direct DevTools command inside the same step reached the correct endpoint: `chapterPageIndex=8`, `chapterPageCount=9`.
+- The visible native matrix then ended back at `chapterPageIndex=0`, `chapterPageCount=9`.
+- Log diagnosis showed two harness defects:
+  - `media-overlay-follow` was active during a rail-only check and could relocate the page under test.
+  - `tapDescFraction:Chapter page slider,1.0,0.5` tapped the exported right bound of `[158,1608][2802,1680]`, allowing the tap to fall through to the reader surface as `Reader native tap ignored under chrome action=RIGHT`.
+
+Changes:
+- `scripts\adb-reader-smoke.ps1`
+  - Added `Clamp-AdbUiCoordinateInsideBounds`.
+  - `Get-AdbUiNodeFractionPoint` now clamps `tapDescFraction` coordinates inside the UI node bounds instead of using exact exported right/bottom coordinates.
+- `scripts\adb-reader-komikku-matrix.ps1`
+  - `-OnlyRailEndpointChecks` now ignores Whispersync prepare arguments and logs that choice so audio-follow cannot mutate the rail endpoint check.
+- `ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe`
+  - Guards both the coordinate clamping and rail-only Whispersync isolation.
+
+Validation:
+
+```powershell
+.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe"
+```
+
+- GREEN/HOST: focused guard passed after the script changes.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -PrepareReaderLaunch -PrepareBookId 3809 -PrepareResourceHref /api/v1/book/3809/file?bookFileId=426 -PrepareKind ebook -PrepareFormat epub -PrepareStartHref OEBPS/xhtml/chapter1.xhtml -PrepareWhispersyncSidecarUrl /opds/books/3809/sync/8 -PrepareWhispersyncArtifactId 8 -PrepareWhispersyncAudiobookId 34 -PrepareWhispersyncAudiobookBookFileId 633 -PrepareWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -RequireReaderLaunch -OnlyRailEndpointChecks -ContinueOnFailure -ArtifactRoot captures\reader-komikku-matrix\plan-m-current-rail-endpoints-fixed
+```
+
+- GREEN/READERDEV: matrix logged `ignoring Whispersync prepare args during rail endpoint checks so audio-follow cannot relocate the page under test`.
+- GREEN/START: post-action snapshot reported `href=OEBPS/xhtml/chapter1.xhtml`, `chapterPageIndex=0`, `chapterPageCount=9`.
+- GREEN/END: post-action snapshot reported `href=OEBPS/xhtml/chapter1.xhtml`, `chapterPageIndex=8`, `chapterPageCount=9`.
+- NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this debug-only harness stabilization.

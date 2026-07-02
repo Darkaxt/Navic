@@ -610,3 +610,34 @@ Plan B status on 2026-07-02:
 - [x] **L3: Validate**
   - Run JS syntax, the new page-number parity row on Hobbit and production Bindery fixtures, the existing font CSS smoke row, and the focused reader shell progress host test.
   - 2026-07-02 result: Hobbit at `1536x2048` and production Bindery book `3809` file `426` at `1974x1232` both passed with page number and EPUB prose sharing the Dys stack, `font-weight=500`, `letter-spacing=2px`, and `word-spacing=6px`.
+
+## Focused Plan M: Debug-Only Native Rail Endpoint Harness Stabilization
+
+**Purpose:** Close the current-source debug gate for native chapter rail endpoint taps without using public release builds. The failing path was not the Foliate endpoint command itself: direct DevTools rail commands reached Chapter 1 page `0/9` and `8/9`, while the native matrix failed because the automation tapped the exact slider right bound and because Whispersync audio-follow was active during a rail-only check.
+
+**Release rule:** Plan M is debug/readerdev and test-harness only. Do not create a GitHub tag, public prerelease, public APK asset, or release workflow. A public release is only allowed later if this is part of a coherent major reader candidate that has passed the full debug gate.
+
+**Main files:**
+- `scripts/adb-reader-smoke.ps1`
+- `scripts/adb-reader-komikku-matrix.ps1`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+- [x] **M1: Preserve the red reproduction**
+  - Current-source readerdev with production book `3809` file `426` failed `chapter-rail-native-end`: the post-action snapshot remained `chapterPageIndex=0`, `chapterPageCount=9`.
+  - Evidence showed the direct WebView command reached `chapterPageIndex=8`, then a later `media-overlay-follow` relocation and a right-bound tap fallthrough invalidated the native UI check.
+
+- [x] **M2: Guard the harness failure modes**
+  - `ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe` now requires fractional UI-node taps to clamp inside exported bounds instead of tapping exact right/bottom bounds.
+  - The same guard requires rail-only matrix preparation to ignore Whispersync launch arguments so audio-follow cannot relocate the page under test.
+
+- [x] **M3: Patch the automation layer only**
+  - `adb-reader-smoke.ps1` now clamps `tapDescFraction` coordinates inside UI node bounds.
+  - `adb-reader-komikku-matrix.ps1` now strips Whispersync prepare args when `-OnlyRailEndpointChecks` is active and logs that choice.
+
+- [x] **M4: Validate on emulator without public release**
+  - Focused host guard passed with `:composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeAssetsTest.adbReaderSmokeCanRequireNativeChapterRailEndpointAfterPostActionProbe"`.
+  - The rail matrix passed on `emulator-5554` with the same Whispersync args still present on the command line; the matrix logged that it ignored them for rail-only mode.
+  - Artifacts: `captures\reader-komikku-matrix\plan-m-current-rail-endpoints-fixed`.
+  - Endpoint evidence: start snapshot `chapterPageIndex=0`, `chapterPageCount=9`; end snapshot `chapterPageIndex=8`, `chapterPageCount=9`; no public release was created.
