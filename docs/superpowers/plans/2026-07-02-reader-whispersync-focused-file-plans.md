@@ -482,10 +482,10 @@ Plan B status on 2026-07-02:
   - Rerun `epub-native-drag-single-commit` against production book `3809` at the late target that reproduced the mismatch.
   - 2026-07-02 result: the failing production target proved that synthetic preview iframes could not reliably reproduce Foliate's live paginator geometry. The fix now reuses the live Foliate strip for same-section drags, snaps the renderer on release, and suppresses the redundant native page command that follows the snap. The original red target and nearby targets 10/11/12 now pass the browser harness without publishing a public APK.
 
-- [ ] **H3: Recheck texture/page motion after preview identity is stable**
+- [x] **H3: Recheck texture/page motion after preview identity is stable**
   - Only after H2 passes, rerun the texture transition harness rows and readerdev emulator probes.
   - Do not adjust texture intensity, border gradients, or visual polish while the page identity is still unstable.
-  - 2026-07-02 status: pending. This is still debug/readerdev validation work and is not a public release trigger.
+  - 2026-07-02 result: `epub-texture-frontmatter-transition` first exposed that `previousPage()` could resolve before the duplicate adjacent fallback navigation posted the previous section. The page-turn transaction now waits for reflowable navigation and any adjacent fallback promise before settling. `epub-native-drag-standard-no-curl` then exposed that the live-strip shortcut was incorrectly active under Curl mode because it checked the wrong runtime field; the shortcut is now gated to `readerDragAnimationModeValue !== 'curl'`. Final browser rows passed for frontmatter transition, standard no-curl, texture page turns, and the original single-commit target. This remains debug/browser evidence only, not a public release trigger.
 
 - [ ] **H4: Commit debug-only evidence**
   - Append validation results to the reader validation log.

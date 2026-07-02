@@ -420,9 +420,23 @@ class ReaderRuntimePaperSurfaceTest {
 			"this.view?.goTo?.(targetIndex)",
 			message = "Adjacent-section duplicate page-turn fallback must use Foliate view navigation so numeric section targets resolve through the same route as normal section navigation."
 		)
+		assertContains(
+			duplicateFallback,
+			"this.pageTurnAdjacentFallbackPromise = fallbackPromise",
+			message = "Adjacent-section fallback navigation must be part of the active page-turn transaction instead of resolving after the caller has already sampled the old page."
+		)
 		assertFalse(
 			duplicateFallback.contains("this.view?.renderer?.goTo"),
 			"Adjacent-section fallback must not bypass Foliate view navigation with a raw renderer.goTo({ index }) call; that can leave stale same-section relocations at section boundaries."
+		)
+
+		val startPageTurn = pageTurnsText
+			.substringAfter("function startPageTurn(direction) {")
+			.substringBefore("\nfunction startNextQueuedPageTurn")
+		assertContains(
+			startPageTurn,
+			"await adjacentFallback",
+			message = "Page turns must wait for duplicate adjacent fallback navigation before settling the transaction."
 		)
 	}
 
@@ -1014,6 +1028,11 @@ class ReaderRuntimePaperSurfaceTest {
 			"renderer.scrollBy(",
 			message = "Same-section native readable drag previews must reuse Foliate's live strip instead of a synthetic iframe clone."
 		)
+		assertContains(
+			previewPageDrag,
+			"this.readerDragAnimationModeValue !== 'curl'",
+			message = "The live-strip shortcut must stay limited to Standard mode so explicit Curl mode still renders curl snapshots."
+		)
 	}
 
 	@Test
@@ -1024,7 +1043,7 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\nasync function scrollViewport")
 		val boundaryPreviewBlock = previewPageDrag
 			.substringAfter("if (boundaryDirection) {")
-			.substringBefore("\n  if (!boundaryDirection && textureDirection) {")
+			.substringBefore("\n  if (!boundaryDirection && textureDirection &&")
 
 		assertContains(
 			previewPageDrag,

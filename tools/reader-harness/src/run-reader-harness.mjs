@@ -2205,12 +2205,16 @@ if (mode === 'epub-native-drag-standard-no-curl') {
           if (String(name || '').startsWith('--navic-page-curl-')) curlCssVarCount += 1
         }
       }
+      const previewTrace = (window.__navicReaderTrace || [])
+        .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
+        .slice(-8)
       return {
         layerPresent: Boolean(layer),
         iframePresent: Boolean(iframe),
         ready: layer?.dataset.navicPageDragPreviewReady === 'true',
         direction: layer?.dataset.navicPageDragPreviewDirection || '',
         curl: layer?.dataset.navicPageDragPreviewCurl === 'true',
+        liveScrollPresent: previewTrace.some(event => event?.type === 'page-drag-preview:live-scroll'),
         curlSheetRoleCount: layer?.querySelectorAll?.('[data-navic-page-curl-sheet]')?.length || 0,
         curlOnlySheetRoleCount: layer
           ? Array.from(layer.querySelectorAll?.('[data-navic-page-curl-sheet]') || [])
@@ -2221,9 +2225,7 @@ if (mode === 'epub-native-drag-standard-no-curl') {
         curlCssVarCount,
         curlSheetRoles: layer?.dataset.navicPageCurlSheetRoles || '',
         curlSnapshots: layer?.dataset.navicPageCurlSnapshots || '',
-        trace: (window.__navicReaderTrace || [])
-          .filter(event => String(event?.type || '').startsWith('page-drag-preview'))
-          .slice(-8),
+        trace: previewTrace,
       }
     })
     await updatePreview()
@@ -2255,6 +2257,9 @@ if (mode === 'epub-native-drag-standard-no-curl') {
     await updatePreview()
     await page.waitForFunction(() => {
       const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      const trace = window.__navicReaderTrace || []
+      const liveStandard = trace.some(event => event?.type === 'page-drag-preview:live-scroll')
+      if (!layer && liveStandard) return true
       if (!layer) return false
       let curlCssVarCount = 0
       if (layer.style) {
@@ -2271,13 +2276,13 @@ if (mode === 'epub-native-drag-standard-no-curl') {
         curlCssVarCount === 0
     })
     const previewState = await readPreviewState()
-    if (!previewState.layerPresent) {
+    if (!previewState.layerPresent && !previewState.liveScrollPresent) {
       throw new Error(
-        `Expected standard native drag to keep a preview layer without curl; ` +
+        `Expected standard native drag to keep either a live-strip preview or a preview layer without curl; ` +
         `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`
       )
     }
-    if (!(previewState.curl === false)) {
+    if (previewState.layerPresent && !(previewState.curl === false)) {
       throw new Error(
         `Expected standard drag preview to report curl=false after curl state existed; ` +
         `state=${JSON.stringify(previewState)} curlSetup=${JSON.stringify(curlState)}`

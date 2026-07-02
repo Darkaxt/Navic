@@ -333,11 +333,12 @@ function handleDuplicatePageTurnRelocation(_detail, reason) {
   this.pageTurnDuplicateFallbackInProgress = true
   this.beginControlledRelocation(fallbackReason)
   const navigationPromise = this.view?.goTo?.(targetIndex)
-  Promise.resolve(navigationPromise)
+  const fallbackPromise = Promise.resolve(navigationPromise)
     .catch(error => reportError(error, 'navigation_failed'))
     .finally(() => {
       this.pageTurnDuplicateFallbackInProgress = false
     })
+  this.pageTurnAdjacentFallbackPromise = fallbackPromise
   this.scheduleControlledRelocationFallback(fallbackReason)
   return true
 }
@@ -1822,7 +1823,7 @@ function previewPageDrag(command) {
       })
     }
   }
-  if (!boundaryDirection && textureDirection) {
+  if (!boundaryDirection && textureDirection && this.readerDragAnimationModeValue !== 'curl') {
     const previousPreview = this.nativePageDragPreview?.renderer === renderer
       ? this.nativePageDragPreview
       : null
@@ -1972,6 +1973,8 @@ function startPageTurn(direction) {
     queueLength: this.pageTurnQueue.length,
   })
   this.cancelPendingCommittedRelocation()
+  this.reflowablePageTurnNavigationPromise = null
+  this.pageTurnAdjacentFallbackPromise = null
   this.pageTurnInProgress = true
   this.pageTurnDirection = direction
   const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
@@ -1983,7 +1986,13 @@ function startPageTurn(direction) {
   this.startSurfacePaperTextureMotionSync('page-turn-animation')
   const turnPromise = Promise.resolve().then(() => this.performPageTurn(direction))
   let completionPromise = null
-  completionPromise = turnPromise.finally(() => {
+  completionPromise = turnPromise.then(async () => {
+    const adjacentFallback = this.pageTurnAdjacentFallbackPromise
+    if (adjacentFallback) {
+      readerTrace('page-turn:await-adjacent-fallback', { direction })
+      await adjacentFallback
+    }
+  }).finally(() => {
     if (this.pageTurnPromise === completionPromise) this.pageTurnPromise = null
     this.pageTurnInProgress = false
     if (this.pageTurnDirection === direction) this.pageTurnDirection = null
@@ -2025,7 +2034,9 @@ function issueReflowablePageTurn(direction) {
   const navigationPromise = direction === 'next'
     ? this.view?.next?.()
     : this.view?.prev?.()
-  navigationPromise?.catch?.(error => reportError(error, 'navigation_failed'))
+  this.reflowablePageTurnNavigationPromise = navigationPromise
+    ? Promise.resolve(navigationPromise).catch(error => reportError(error, 'navigation_failed'))
+    : null
   return true
 }
 
@@ -2064,6 +2075,11 @@ async function performPageTurn(direction) {
       }
     }
     if (!pageTurnIssued) return
+    const reflowableNavigation = this.reflowablePageTurnNavigationPromise
+    if (reflowableNavigation) {
+      readerTrace('page-turn:await-reflowable-navigation', { direction })
+      await reflowableNavigation
+    }
     this.recentPageTurnDirection = direction
     this.applyReaderViewportLayout(`page-turn:${direction}`)
     requestAnimationFrame(() => {

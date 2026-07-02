@@ -10683,3 +10683,26 @@ Result:
 - GREEN/DEBUG: Plan H H1/H2 are validated for the browser/host harness path. Same-section drags now preview and commit through the same live Foliate surface instead of a synthetic clone.
 - PENDING: texture transition rows and readerdev emulator probes still need to be rerun after this identity fix before any broader page-turn/texture candidate can be considered release-worthy.
 - NO PUBLIC RELEASE: this remains a debug stabilization slice. Public releases stay blocked for diagnostics, one-file visual tweaks, and partial page-turn/texture work.
+
+## 2026-07-02 Focused Plan H H3 Texture/Page-Motion Debug Rerun
+
+Scope:
+- Recheck texture/page motion after the same-section live-strip preview fix.
+- Keep Standard and Curl drag modes isolated.
+- Keep section-boundary fallback navigation inside the active page-turn transaction.
+
+Commands and evidence:
+- RED/HARNESS: initial `epub-texture-frontmatter-transition` failed with `Expected previousPage to return before the discovered texture boundary; before=5/90 entry=5/90`; logs in `artifacts\reader-harness\plan-h-h3-texture\epub-texture-frontmatter-transition.*.log`.
+- DIAGNOSIS: the previous-section raw relocation did arrive, but only after the `previousPage()` transaction had settled. The duplicate adjacent fallback was fire-and-forget relative to the caller.
+- GREEN/HARNESS: after waiting for reflowable navigation and duplicate adjacent fallback promises before page-turn settlement, `epub-texture-frontmatter-transition` passed in `artifacts\reader-harness\plan-h-h3-rerun\epub-texture-frontmatter-transition.out.log`.
+- RED/HARNESS: `epub-native-drag-standard-no-curl` then failed because Curl mode was taking the same-section live-strip branch and never creating curl snapshots.
+- DIAGNOSIS: the mode guard checked `dragAnimationModeValue`, but the settings layer writes `readerDragAnimationModeValue`.
+- GREEN/HARNESS: after gating live-strip preview with `readerDragAnimationModeValue !== 'curl'`, `epub-native-drag-standard-no-curl` passed in `artifacts\reader-harness\plan-h-h3-final2\epub-native-drag-standard-no-curl.out.log`.
+- GREEN/HARNESS: regression rows passed for `epub-native-drag-single-commit --target-global-page-index 11` and `epub-texture-page-turns` in `artifacts\reader-harness\plan-h-h3-regression`.
+- GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest` passed in `artifacts\gradle\plan-h-h3-final2\reader-runtime-paper-surface.out.log`.
+- GREEN/JS: `node --check` passed for `composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` and `tools\reader-harness\src\run-reader-harness.mjs`.
+
+Result:
+- GREEN/DEBUG: Plan H H3 browser/host gates are green for the current source.
+- PENDING: readerdev/emulator probe and physical-device feel validation are still required before this can be considered a major page-turn/texture release candidate.
+- NO PUBLIC RELEASE: no GitHub tag, public APK, or release workflow was created for this debug slice.
