@@ -556,3 +556,30 @@ Plan B status on 2026-07-02:
   - Append results to the validation log.
   - Commit and push. Do not publish a public release.
   - 2026-07-02 result: new rendered rotation harness passed in `artifacts\reader-harness\plan-j-landscape-rotation\epub-landscape-rotation-layout.out.log`; direct landscape `css-smoke` and `adaptive-page-box-logic` passed in `artifacts\reader-harness\plan-j-landscape-probe`; `node --check tools\reader-harness\src\run-reader-harness.mjs` and `git diff --check` passed. No Gradle run was needed because this slice changed only the Node harness and docs.
+
+## Focused Plan K: Debug-Only Texture Surface Scaling
+
+**Purpose:** Fix the page texture snap/swap class where Foliate moves text by its renderer page stride while the paper/border texture slots are full-window surfaces. This plan does not change the release cadence, curl mode, page-numbering, Whispersync, or public APK packaging.
+
+**Release rule:** Plan K is debug/browser/host evidence only. Do not create a GitHub tag, public prerelease, public APK asset, or release workflow. Use only debug/readerdev builds if emulator evidence is needed after this source gate.
+
+**Main files:**
+- `composeApp/src/androidMain/assets/reader/navic-reader-motion.js`
+- `composeApp/src/androidMain/assets/reader/navic-reader-appearance.js`
+- `tools/reader-harness/src/run-reader-harness.mjs`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+- [x] **K1: Add a red texture stride guard**
+  - Reproduce the bug as math first: a renderer stride of `1444px` inside a `1536px` viewport should move the texture surface by `1536px`, not by `1444px`.
+  - 2026-07-02 result: `texture-offset-logic` failed red with expected `{"x":-1536,"y":0}` and actual `{"x":-1444,"y":0}`.
+
+- [x] **K2: Scale renderer movement to the full texture surface**
+  - Keep paper ownership as one static color backing plus moving paper/border slots.
+  - Pass Foliate `renderer.size` into `readerSurfacePaperTextureScrollOffset` and scale `containerPosition - baseOffset` to the full viewport-width or viewport-height surface.
+  - 2026-07-02 result: `navic-reader-motion.js` now scales texture movement by `maxOffset / rendererPageSize`; `navic-reader-appearance.js` passes `rendererPageSize` into scroll-offset diagnostics and runtime calls.
+
+- [x] **K3: Prove live preview and release snap use full-surface motion**
+  - Extend the harness state capture to include texture slot keys, assets, transforms, and recent texture trace events.
+  - Assert that current and next paper/border slots move by the scaled full-surface amount during live preview, and that release snap reaches one full surface before the committed texture update.
+  - 2026-07-02 result: Hobbit target page 11 at `1536x2048` passed with live current texture `x=-686`, next texture `x=850`, and release snap `x=-1536` before the texture update. Production Bindery book `3809` file `426` at `1974x1232` also passed the same debug gate.

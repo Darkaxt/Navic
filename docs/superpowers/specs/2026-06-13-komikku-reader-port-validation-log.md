@@ -10751,3 +10751,24 @@ Result:
 - NO PRODUCTION PATCH: no reader runtime file was changed because the new guard passed against current source.
 - PENDING: physical-device layout feel remains a release acceptance item; this harness guard prevents reintroducing the stale narrow-column class of regression.
 - NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this harness/documentation slice.
+
+## 2026-07-02 Focused Plan K Texture Surface Scaling
+
+Scope:
+- Fix one concrete texture transition class without publishing another public release.
+- Keep the paper texture architecture as one static color backing plus moving paper/border texture slots.
+- Scale Foliate renderer movement to the full reader surface when the renderer page stride is narrower than the viewport.
+
+Commands and evidence:
+- RED/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic` failed after adding `forward movement scales renderer stride to full-page texture surface`; expected `{"x":-1536,"y":0}` and got `{"x":-1444,"y":0}`.
+- DIAGNOSIS: `readerSurfacePaperTextureScrollOffset` used raw `renderer.containerPosition - baseOffset`. On the Hobbit portrait case the renderer stride was about `1443.84375px`, while the moving paper/border slots are full `1536px` viewport surfaces. Text therefore settled before the texture layer finished crossing the page.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-motion.js`, `node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js`, and `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode texture-offset-logic` passed after scaling by `maxOffset / rendererPageSize`.
+- GREEN/HARNESS: Hobbit `tmp\reader-live\served-input.epub` at `1536x2048` target global page index `11` passed `epub-native-drag-single-commit`. The captured trace shows live current paper texture `x=-686`, next paper texture `x=850`, and release snap `x=-1536` before the committed texture update.
+- GREEN/HARNESS: production Bindery fixture `tmp\reader-live\book-3809-file-426.epub` at `1974x1232` target global page index `4` passed the same `epub-native-drag-single-commit` gate.
+- GREEN/HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest` passed.
+
+Result:
+- GREEN/DEBUG: the renderer-stride/full-surface mismatch is closed in browser/host evidence.
+- PENDING: physical-device texture feel, edge/border shadow visibility, and section-boundary perception are still release-candidate acceptance items.
+- NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this debug slice.

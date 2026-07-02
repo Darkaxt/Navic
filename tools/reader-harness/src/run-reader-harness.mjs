@@ -228,6 +228,19 @@ if (mode === 'texture-offset-logic') {
     { x: -280, y: 0 }
   )
   assertOffset(
+    'forward movement scales renderer stride to full-page texture surface',
+    helpers.readerSurfacePaperTextureScrollOffset({
+      position: 1444,
+      baseOffset: 0,
+      viewportWidth: 1536,
+      viewportHeight: 2048,
+      rendererPageSize: 1444,
+      flowMode: 'paged',
+      pageTurnDirection: 'next',
+    }),
+    { x: -1536, y: 0 }
+  )
+  assertOffset(
     'forward movement keeps texture direction across inverted renderer coordinates',
     helpers.readerSurfacePaperTextureScrollOffset({
       position: -280,
@@ -2899,6 +2912,27 @@ if (mode === 'epub-native-drag-single-commit') {
       }
       const renderer = document.querySelector('foliate-view')?.renderer
       const pageNumberLayer = document.querySelector('[data-navic-page-number-layer="true"]')
+      const textureSlotState = (layerSelector, slotAttribute, keyDatasetName, assetDatasetName) => {
+        const layer = document.querySelector(layerSelector)
+        const slots = Array.from(layer?.querySelectorAll?.(`[${slotAttribute}]`) || [])
+          .map(slot => {
+            const style = getComputedStyle(slot)
+            const artwork = slot.querySelector?.('[data-navic-surface-texture-slot-artwork="true"]')
+            const artworkStyle = artwork ? getComputedStyle(artwork) : null
+            return {
+              slot: slot.getAttribute(slotAttribute) || '',
+              key: String(slot.dataset?.[keyDatasetName] || ''),
+              asset: String(slot.dataset?.[assetDatasetName] || ''),
+              transform: style.transform || slot.style.transform || '',
+              artworkTransform: artworkStyle?.transform || artwork?.style?.transform || '',
+              artworkImage: artworkStyle?.backgroundImage || artwork?.style?.backgroundImage || '',
+            }
+          })
+        return {
+          present: Boolean(layer),
+          slots,
+        }
+      }
       const viewportWidth = Number(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0)
       const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0)
       const allMessages = window.__navicReaderPostedMessages || []
@@ -2969,9 +3003,30 @@ if (mode === 'epub-native-drag-single-commit') {
           .trim()
           .slice(0, 1200),
         visibleDocuments,
+        texture: {
+          rootKey: String(document.documentElement.dataset.navicSurfacePaperTextureKey || document.body.dataset.navicSurfacePaperTextureKey || ''),
+          rootAsset: String(document.documentElement.dataset.navicSurfacePaperTextureAsset || document.body.dataset.navicSurfacePaperTextureAsset || ''),
+          paper: textureSlotState(
+            '[data-navic-moving-page-paper-texture-layer="true"]',
+            'data-navic-surface-paper-texture-slot',
+            'navicSurfacePaperTextureKey',
+            'navicSurfacePaperTextureAsset',
+          ),
+          border: textureSlotState(
+            '[data-navic-moving-page-border-overlay-layer="true"]',
+            'data-navic-surface-page-border-overlay-slot',
+            'navicSurfacePageBorderOverlayKey',
+            'navicSurfacePageBorderOverlayAsset',
+          ),
+        },
         trace: (window.__navicReaderTrace || [])
-          .filter(event => String(event?.type || '').startsWith('page-drag-preview') || String(event?.type || '').startsWith('page-turn'))
-          .slice(-12),
+          .filter(event => {
+            const type = String(event?.type || '')
+            return type.startsWith('page-drag-preview') ||
+              type.startsWith('page-turn') ||
+              type.startsWith('texture:')
+          })
+          .slice(-36),
       }
     })
     const waitForGlobalLocationAdvance = async previousState => {
@@ -3422,6 +3477,8 @@ if (mode === 'epub-native-drag-single-commit') {
       const match = String(transform || '').match(/matrix\([^,]+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*(-?\d+(?:\.\d+)?)/)
       return match ? Number(match[1]) : Number.NaN
     }
+    const slotByName = (state, type, slotName) =>
+      state?.texture?.[type]?.slots?.find(slot => slot?.slot === slotName) || null
     const paperTargetX = matrixX(previewVisual.paperTargetSlotTransform)
     const borderTargetX = matrixX(previewVisual.borderTargetSlotTransform)
     if (!Number.isFinite(paperTargetX) || paperTargetX >= 0) {
@@ -3645,6 +3702,51 @@ if (mode === 'epub-native-drag-single-commit') {
         throw new Error(
           `Expected live native drag preview to move the Foliate strip before release; ` +
           `before=${JSON.stringify(before)} livePreview=${JSON.stringify(livePreview)}`
+        )
+      }
+      const liveRendererDelta = Number(livePreview.start) - Number(before.start)
+      const rendererStride = Number(before.size)
+      const textureAxis = Number(readerHarnessViewport.viewport.width)
+      const expectedLiveTextureX = Number.isFinite(liveRendererDelta) &&
+        Number.isFinite(rendererStride) &&
+        rendererStride > 1 &&
+        Number.isFinite(textureAxis)
+          ? -Math.round(Math.abs(liveRendererDelta) * textureAxis / rendererStride)
+          : Number.NaN
+      const livePaperCurrentX = matrixX(slotByName(livePreview, 'paper', 'current')?.transform)
+      const livePaperNextX = matrixX(slotByName(livePreview, 'paper', 'next')?.transform)
+      const liveBorderCurrentX = matrixX(slotByName(livePreview, 'border', 'current')?.transform)
+      const liveBorderNextX = matrixX(slotByName(livePreview, 'border', 'next')?.transform)
+      const expectedLiveNextX = Number.isFinite(expectedLiveTextureX)
+        ? textureAxis + expectedLiveTextureX
+        : Number.NaN
+      if (
+        !Number.isFinite(expectedLiveTextureX) ||
+        Math.abs(livePaperCurrentX - expectedLiveTextureX) > 3 ||
+        Math.abs(liveBorderCurrentX - expectedLiveTextureX) > 3 ||
+        Math.abs(livePaperNextX - expectedLiveNextX) > 3 ||
+        Math.abs(liveBorderNextX - expectedLiveNextX) > 3
+      ) {
+        throw new Error(
+          `Expected live drag paper and border textures to scale renderer movement to the full surface; ` +
+          `rendererDelta=${liveRendererDelta} rendererStride=${rendererStride} textureAxis=${textureAxis} ` +
+          `expectedCurrentX=${expectedLiveTextureX} actualPaperCurrentX=${livePaperCurrentX} ` +
+          `actualBorderCurrentX=${liveBorderCurrentX} expectedNextX=${expectedLiveNextX} ` +
+          `actualPaperNextX=${livePaperNextX} actualBorderNextX=${liveBorderNextX} ` +
+          `before=${JSON.stringify(before)} livePreview=${JSON.stringify(livePreview)}`
+        )
+      }
+      const releaseSnapTextureScroll = (afterCommit.trace || []).findLast?.(entry =>
+        entry?.type === 'texture:scroll' &&
+        entry?.payload?.reason === 'scroll' &&
+        Math.abs(Number(entry?.payload?.offset?.x) || 0) > Math.max(1, textureAxis * 0.75)
+      )
+      const releaseSnapTextureX = Number(releaseSnapTextureScroll?.payload?.offset?.x)
+      if (!Number.isFinite(releaseSnapTextureX) || Math.abs(releaseSnapTextureX + textureAxis) > 3) {
+        throw new Error(
+          `Expected release snap texture scroll to reach one full surface before committed texture update; ` +
+          `textureAxis=${textureAxis} releaseSnapTextureX=${releaseSnapTextureX} ` +
+          `afterCommit=${JSON.stringify(afterCommit)}`
         )
       }
       const liveOutputDir = path.join(repoRoot, 'tools/reader-harness/output')

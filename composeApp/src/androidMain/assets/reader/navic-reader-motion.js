@@ -69,6 +69,7 @@ export const readerSurfacePaperTextureScrollOffset = ({
   baseOffset,
   viewportWidth,
   viewportHeight,
+  rendererPageSize,
   flowMode,
   pageTurnDirection,
   fallbackPageTurnDirection,
@@ -84,7 +85,11 @@ export const readerSurfacePaperTextureScrollOffset = ({
       ? (Number.isFinite(height) ? height : 0)
       : (Number.isFinite(width) ? width : 0)
   )
-  const delta = currentPosition - basePosition
+  const pageSize = Number(rendererPageSize)
+  const deltaScale = Number.isFinite(pageSize) && pageSize > 1
+    ? maxOffset / pageSize
+    : 1
+  const delta = (currentPosition - basePosition) * deltaScale
   const explicitDirection = readerPageTurnDirection(pageTurnDirection)
   const fallbackDirection = readerPageTurnDirection(fallbackPageTurnDirection)
   const directionlessBoundaryThreshold = Math.max(1, maxOffset * 0.75)

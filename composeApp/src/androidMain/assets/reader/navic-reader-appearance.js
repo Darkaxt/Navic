@@ -342,11 +342,13 @@ function surfacePaperTextureScrollOffset() {
     return this.surfaceTextureScrollOffset
   }
   const { width, height } = readerViewportSize()
+  const rendererPageSize = Number(renderer.size)
   this.surfaceTextureScrollOffset = readerSurfacePaperTextureScrollOffset({
     position,
     baseOffset: this.surfacePaperTextureBaseOffset,
     viewportWidth: width,
     viewportHeight: height,
+    rendererPageSize: Number.isFinite(rendererPageSize) ? rendererPageSize : null,
     flowMode: this.readerFlowModeValue,
     pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection,
     fallbackPageTurnDirection: this.surfacePaperTextureFallbackDirection || this.recentPageTurnDirection,
@@ -401,12 +403,15 @@ function surfacePaperTextureDiagnosticState(reason = 'scroll') {
   const pageCount = Number(this.currentPagePosition?.pageCount)
   const detail = this.lastRelocateDetail || {}
   const { width, height } = readerViewportSize()
+  const renderer = this.view?.renderer
+  const rendererPageSize = Number(renderer?.size)
   return {
     reason,
     offset: this.surfaceTextureScrollOffset || { x: 0, y: 0 },
     position: this.currentRendererContainerPosition(),
     baseOffset: this.surfacePaperTextureBaseOffset,
     delta: position - this.surfacePaperTextureBaseOffset,
+    rendererPageSize: Number.isFinite(rendererPageSize) ? rendererPageSize : null,
     pageTurnDirection: this.surfacePaperTextureTurnDirection || this.pageTurnDirection || '',
     viewportWidth: width,
     viewportHeight: height,
