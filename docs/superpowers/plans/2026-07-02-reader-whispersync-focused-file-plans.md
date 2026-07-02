@@ -713,3 +713,102 @@ Plan B status on 2026-07-02:
   - Required gates: `epub-native-drag-single-commit --drag-animation-mode curl` at `1974x1232`, default `epub-native-drag-single-commit` at `1974x1232`, `epub-native-drag-preview-underlay` at `1974x1232`, `epub-native-drag-standard-no-curl` at `1974x1232`, `epub-texture-page-turns` at `1974x1232`, JS syntax checks for touched modules, `git diff --check`, and focused host tests if runtime/source guards change.
   - Record the result in the validation log and commit/push only after the plan is complete. No public release.
   - 2026-07-02 result: all required browser/debug gates passed: curl single-commit, standard single-commit, preview underlay, standard no-curl, texture page turns, JS syntax for `navic-reader-page-turns.js`, `navic-reader-location.js`, and `run-reader-harness.mjs`, focused host guard `ReaderRuntimePaperSurfaceTest`, plus `git diff --check`. No public release, tag, public APK, or release workflow was created.
+
+## Focused Plan P: Upstream Master Sync Conflict Integration
+
+**Purpose:** Bring the reader/Whispersync branch onto the current upstream master without losing the Komikku/Anx/Foliate reader stack, Bindery API parity, or the debug/release guardrails. This is a separate integration plan because `origin/master` has moved 20 commits ahead while this branch is 1166 commits ahead, and a non-mutating merge-tree check shows real conflicts across app shell, playback, settings, strings, workflows, and shared UI.
+
+**Release rule:** Plan P is source integration only. Do not publish a public release merely because the branch has been merged with upstream. A public release is allowed only after the merged branch reruns the same local gates required by Plans A-D/E and is a coherent candidate worth physical-device validation.
+
+**Upstream commits to integrate:**
+- `07655aa5 feat: use screen corner radius on now playing sheet`
+- `5283a446 fix: load cover art from cache when calculating dominant colour`
+- `385f0fcd feat(a11y): various accessibility improvements`
+- `aca433f8 fix: share FormRow interactionSource with SettingsSwitch`
+- `848e1e9e docs: remove matrix link`
+- `57a97141 chore: update altstore repo for v1.0.0-alpha41`
+- `7383c75a chore: bump version`
+- `c2663465 feat: artist image shape setting`
+- `c4ac227c feat: Never option for navbar label visibility`
+- `8dc0040c fix: label visibility setting w/ short navbar`
+- `541bfedc fix: shares screen scrolling`
+- `3ac45e59 fix: sheet close animation, backstack crash`
+- `2deccc5f feat: replace user dropdown with a nicer sheet`
+- `1baa30ad fix: remove trailing slash from instance url`
+- `06be6de3 compose is entirely vibecoded (read for proof)`
+- `26cc1651 unused stuff`
+- `fa121db3 feat: nicer themes screen`
+- `451905c2 small refactoring (#420)`
+- `6cbb8536 chore: update compose to 1.12.0-alpha02 (#419)`
+- `29f20b78 chore: update dependencies & gradle wrapper`
+
+**Main conflict files from the 2026-07-02 non-mutating check:**
+- `.github/workflows/publish.yml`
+- `androidApp/build.gradle.kts`
+- `composeApp/build.gradle.kts`
+- `composeApp/src/commonMain/composeResources/values/strings.xml`
+- `composeApp/src/commonMain/kotlin/paige/navic/App.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/domain/manager/DownloadManager.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/domain/manager/SessionManager.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/shared/MediaPlayer.kt`
+- `composeApp/src/androidMain/kotlin/paige/navic/shared/MediaPlayer.android.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/components/layouts/RootTopBar.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/components/layouts/MiniPlayer.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/components/layouts/SheetScaffold.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/navigation/NowPlayingScene.kt`
+
+**Reader/Whispersync files that must be preserved unless deliberately replaced:**
+- `composeApp/src/androidMain/assets/reader/**`
+- `composeApp/src/androidMain/kotlin/paige/navic/reader/**`
+- `composeApp/src/commonMain/kotlin/paige/navic/reader/**`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/**`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/**`
+- `scripts/adb-reader-smoke.ps1`
+- `scripts/adb-reader-komikku-matrix.ps1`
+- `scripts/adb-whispersync-enjoyment.ps1`
+- `scripts/install-reader-dev.ps1`
+- `tools/reader-harness/**`
+
+- [ ] **P1: Create a disposable merge worktree or checkpoint branch**
+  - Start from the current reader branch after pushing all local work.
+  - Preserve the original branch as a rollback point.
+  - Do not merge directly into a dirty tree with untracked `artifacts/`, `captures/`, `releases/`, or `tmp/` noise.
+
+- [ ] **P2: Resolve conflicts by feature ownership**
+  - Accept upstream's non-reader shell improvements where they do not remove reader/Bindery/Aurral behavior.
+  - Preserve this branch's reader assets, reader tests, Bindery schema parity, Whispersync scripts, and release guardrails.
+  - For build/dependency conflicts, keep the newer upstream dependency/toolchain versions only after confirming reader tasks still resolve.
+  - For version conflicts, do not let upstream alpha release metadata overwrite the next reader candidate metadata unless publishing a new final candidate.
+
+- [ ] **P3: Run merge-specific source guards**
+  - Check for accidental reader stack deletion:
+    ```powershell
+    rg -n "ReaderWhispersync|Komikku|navic-reader-page-turns|Whispersync ready" composeApp\src scripts tools docs
+    ```
+  - Check that public release guardrails survived:
+    ```powershell
+    rg -n "AllowPublicRelease|ReleaseReadinessNote|iOS IPA|skip" scripts\publish-github-release.ps1 .github\workflows\publish.yml
+    ```
+  - Check that upstream backstack/top-bar changes do not bypass reader-owned back handling.
+
+- [ ] **P4: Run focused Gradle and JS gates**
+  - Minimum:
+    ```powershell
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost
+    node --check tools\reader-harness\src\run-reader-harness.mjs
+    node --check tools\reader-harness\src\adb-webview-eval.mjs
+    git diff --check
+    ```
+  - If dependency/toolchain changes break the supported task names, update this plan with the new supported commands instead of silently narrowing coverage.
+
+- [ ] **P5: Run readerdev acceptance after merge**
+  - Rebuild/install `darkaxt.navic.readerdev` using `bindery-debug.env`.
+  - Run the Komikku matrix and Whispersync enjoyment gate against production book `3809`.
+  - Record artifact roots in `2026-06-13-komikku-reader-port-validation-log.md`.
+
+- [ ] **P6: Commit and push, but do not release**
+  - Commit message: `Merge upstream master into reader Whispersync branch`.
+  - Push the branch.
+  - Do not tag or publish until the merged candidate has passed the full release gate and is explicitly ready for physical-device acceptance.
