@@ -10560,3 +10560,18 @@ Commands and evidence:
 Result:
 - GREEN/DEBUG: Plan B native shell/control behavior is validated in host tests and readerdev emulator for the current source.
 - NO PUBLIC RELEASE: this remains a local debug/readerdev validation slice. Public release is still gated by the focused public release candidate plan.
+
+## 2026-07-02 Focused Plan C Bindery Schema Validation
+
+Scope:
+- Validate Navic against the current Bindery client-facing OPDS/API contract without creating a public release.
+- Cover exact Whispersync pair readiness, sidecar route identity, resource keys, progress payload shape, audio quality metadata, generated reader-shell cover assets, and catalog/book-card headset badge rules.
+
+Commands and evidence:
+- `:composeApp:testAndroidHost --tests paige.navic.reader.BinderyWhispersyncSchemaContractTest` passed from hidden Gradle log `artifacts\gradle\plan-c-bindery-schema\schema-host-20260702-041327.out.log`; stderr was empty.
+- `:composeApp:testAndroid` passed from hidden Gradle log `artifacts\gradle\plan-c-bindery-schema\test-android-20260702-041453.out.log`; stderr was empty.
+- The active focused plan command was corrected from the stale unsupported `:composeApp:test --tests ...` form to the supported `:composeApp:testAndroid` common-test gate.
+
+Result:
+- GREEN/DEBUG: current production mapping already matches the 2026-06-29 Bindery schema for the Plan C scope.
+- NO PUBLIC RELEASE: this remains local schema/debug validation only. Public release is still gated by Plan E after coherent feature/fix completion.

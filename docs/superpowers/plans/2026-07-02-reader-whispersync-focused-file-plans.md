@@ -190,31 +190,39 @@ Plan B status on 2026-07-02:
 - `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/bindery/BinderyBookVersionPolicyTest.kt`
 - `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/bindery/BinderyCatalogDisplayPolicyTest.kt`
 
-- [ ] **C1: Add or tighten schema drift guards**
+- [x] **C1: Add or tighten schema drift guards**
   - Guard ready-pair rule: actionable only when exact pair has `status == ready` and non-empty `artifactHref`.
   - Guard current resource identity: `resourceKey`, current `href`, legacy `resourceHref`.
   - Guard current progress payload: `alias`, `resourceKey`, `href`, ms/seconds positions, `completed`, `updatedAt`.
   - Guard current audio quality sort: `qualityScore`, bitrate, sample rate, duration.
   - Guard generated cover asset shape: `type="readerShellCover"` and shell/fullscreen variant rels.
 
-- [ ] **C2: Run focused red check**
+- [x] **C2: Run focused red check**
   - Run:
     ```powershell
     .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.BinderyWhispersyncSchemaContractTest
-    .\gradlew.bat --no-daemon --console=plain :composeApp:test --tests paige.navic.domain.repositories.BinderyBookSyncJsonTest --tests paige.navic.domain.repositories.BinderyRepositoryCatalogJsonTest --tests paige.navic.domain.repositories.BinderyRepositoryResourceJsonTest --tests paige.navic.domain.repositories.BinderyRepositoryProgressCacheTest --tests paige.navic.ui.screens.bindery.BinderyBookVersionPolicyTest --tests paige.navic.ui.screens.bindery.BinderyCatalogDisplayPolicyTest
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
     ```
-  - Expected: any missing current-schema behavior fails before production mapping changes.
+  - Expected: host schema guard plus common Android tests cover the current Bindery models, JSON parsing, resource identity, progress payload, version rows, and catalog badges.
 
-- [ ] **C3: Implement schema parity**
+- [x] **C3: Implement schema parity**
   - Keep route resolution in `BinderyUrlPolicy`.
   - Keep pair launch alive from `ebookBookFileId + audiobookBookFileId + artifactHref` even without preloaded audiobook row.
   - Do not compare display titles as audio identity.
   - Do not show catalog headset badge for summary-only `whispersyncStatus`.
 
-- [ ] **C4: Commit and audit**
+- [x] **C4: Commit and audit**
   - Run C2 commands and `git diff --check`.
   - Commit message: `Track current Bindery Whispersync schema`.
   - Audit docs for `syncPairs`, `artifactHref`, `resourceKey`, `progress`, `qualityScore`, `readerShellCover`, and `navic-opds-api-schema`.
+
+### Plan C Result - 2026-07-02
+
+- Current production mapping already matches the 2026-06-29 Bindery schema for exact Whispersync pairs, resource/progress identity, audio quality metadata, and generated reader-shell cover assets.
+- Tightened the documented Plan C Gradle gate to use the real supported KMP commands.
+- `BinderyWhispersyncSchemaContractTest` passed from `artifacts\gradle\plan-c-bindery-schema\schema-host-20260702-041327.out.log`.
+- `:composeApp:testAndroid` passed from `artifacts\gradle\plan-c-bindery-schema\test-android-20260702-041453.out.log`.
+- No public release was created. This is local schema/debug validation only.
 
 ## Focused Plan D: Whispersync Runtime Enjoyment Path
 
