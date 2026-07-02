@@ -1,7 +1,9 @@
 package paige.navic.ui.components.sheets
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class ChangelogReleaseTest {
 	@Test
@@ -145,6 +147,16 @@ class ChangelogReleaseTest {
 	fun updateInstallProgressPercentIgnoresUnavailableProgress() {
 		assertEquals(null, normalizedUpdateInstallProgressPercent(null))
 		assertEquals(null, normalizedUpdateInstallProgressPercent(Float.NaN))
+	}
+
+	@Test
+	fun updateDownloadProgressLabelUsesSinglePercentSign() {
+		val strings = File("src/commonMain/composeResources/values/strings.xml").readText()
+
+		assertFalse(
+			strings.contains("name=\"action_downloading_update_percent\">Downloading update... %1\$d%%</string>"),
+			"The update download label should not render a doubled percent sign."
+		)
 	}
 
 	@Test
