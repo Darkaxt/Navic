@@ -866,11 +866,15 @@ Plan B status on 2026-07-02:
   - 2026-07-02 result: the first matrix attempt was invalid for Plan Q because it ran cover checks against an already-open content page; the second prepared attempt used default discovery and selected `A Memory of Light`, which produced an Android ANR dialog. The release gate was rerun with explicit production book `3809` metadata.
   - 2026-07-02 result: explicit Bastille matrix passed all scripted rows in `captures\reader-komikku-matrix\theta40-release-candidate-bastille-20260702`.
 
-- [ ] **Q4: Commit, tag, push, and publish**
+- [x] **Q4: Commit, tag, push, and publish**
   - Commit message: `Prepare reader Whispersync theta40 release candidate`.
   - Tag: `v1.0.11-theta40`.
   - Publish through `scripts/publish-github-release.ps1` with `-AllowPublicRelease` and a readiness note naming the completed plans and evidence.
   - Confirm Android APK succeeds and iOS jobs stay skipped.
+  - 2026-07-02 result: committed as `b65d9998 Prepare reader Whispersync theta40 release candidate`, tagged `v1.0.11-theta40`, pushed to `fork/codex/komikku-reader-backbone-eta64`, and published through guarded script run `28584240426`.
+  - 2026-07-02 result: GitHub Actions completed successfully; Android APK succeeded, iOS IPA jobs were skipped, and release `v1.0.11-theta40` was published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta40`.
 
-- [ ] **Q5: Record release evidence**
+- [x] **Q5: Record release evidence**
   - Update this plan with tag, run id, release URL, asset evidence, validation commands, readerdev artifact roots, and any physical-device follow-up items.
+  - 2026-07-02 result: release asset `Navic.apk` uploaded at `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta40/Navic.apk`, size `33631955`, digest `sha256:c7f14f7f367d0ebfb4738eff7a71c7cc54e03fb0641ba3840a55b8878396ba73`.
+  - 2026-07-02 result: remaining validation is physical-device/user acceptance only for subjective drag feel, texture intensity, tablet/fold layout feel, and real paired ebook/audio usage.

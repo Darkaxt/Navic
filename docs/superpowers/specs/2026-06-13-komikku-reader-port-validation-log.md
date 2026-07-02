@@ -10910,5 +10910,9 @@ Validation:
 - GREEN/MATRIX: explicit production book `3809` matrix passed with `.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta40 -PrepareReaderLaunch -IncludeCoverChecks -ContinueOnFailure -PreparePublicationUrl "https://bindery.remaxku.eu/book/3809" -PrepareResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -PrepareBookId 3809 -PrepareTitle "Bastille vs. the Evil Librarians" -PrepareKind Ebook -PrepareFormat EPUB -PrepareWhispersyncSidecarUrl "/opds/books/3809/sync/8" -PrepareWhispersyncArtifactId 8 -PrepareWhispersyncAudiobookId 34 -PrepareWhispersyncAudiobookBookFileId 633 -PrepareWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -ArtifactRoot captures\reader-komikku-matrix\theta40-release-candidate-bastille-20260702`.
 
 Release status:
-- READY TO TAG: local release gate passed for `v1.0.11-theta40`.
-- NOT YET PUBLISHED: GitHub release evidence is recorded after the tag workflow completes.
+- PUBLISHED: `v1.0.11-theta40` is live at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta40`.
+- COMMIT/TAG: `b65d9998 Prepare reader Whispersync theta40 release candidate`, tag `v1.0.11-theta40`.
+- GITHUB ACTIONS: run `28584240426` completed successfully; Android APK build succeeded, iOS IPA jobs were skipped, release creation succeeded, Discord/upload jobs were skipped as configured.
+- APK ASSET: `Navic.apk`, `33631955` bytes, `sha256:c7f14f7f367d0ebfb4738eff7a71c7cc54e03fb0641ba3840a55b8878396ba73`, URL `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta40/Navic.apk`.
+- RELEASE LOG: `release\logs\v1.0.11-theta40-20260702-134632.log`.
+- REMAINING: physical-device/user acceptance remains for subjective drag feel, paper/edge texture intensity, tablet/fold layout feel, and real paired ebook/audio enjoyment. No more public release iteration is warranted until a new coherent feature/fix candidate is ready.
