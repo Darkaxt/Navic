@@ -11,6 +11,54 @@ class NavBackPolicyTest {
 			NavBackAction.Stay,
 			navBackActionFor(listOf(Screen.Library()))
 		)
+		assertEquals(
+			NavBackAction.Stay,
+			navBackActionFor(listOf(Screen.Audiobooks))
+		)
+	}
+
+	@Test
+	fun musicRootSystemBackReturnsToLibraryInsteadOfClosingTheApp() {
+		listOf(
+			Screen.Starred(),
+			Screen.PlaylistList(),
+			Screen.ArtistList(),
+			Screen.Activity,
+			Screen.AlbumList(),
+			Screen.GenreList(),
+			Screen.SongList(),
+			Screen.RadioList(),
+			Screen.AurralHub,
+			Screen.AurralDiscoverList,
+			Screen.Settings.Root,
+			Screen.NowPlaying,
+			Screen.Lyrics,
+			Screen.MusicBrainzInfo,
+			Screen.Queue,
+			Screen.PlaybackSpeed,
+			Screen.ShareList
+		).forEach { screen ->
+			assertEquals(
+				NavBackAction.ReplaceRoot(Screen.Library()),
+				navBackActionFor(listOf(screen)),
+				"$screen should return to Library instead of letting Android close Navic"
+			)
+		}
+	}
+
+	@Test
+	fun audiobookRootSystemBackReturnsToAudiobooksInsteadOfClosingTheApp() {
+		listOf(
+			Screen.BinderyBooks,
+			Screen.BinderyCollections,
+			Screen.BinderyAuthors
+		).forEach { screen ->
+			assertEquals(
+				NavBackAction.ReplaceRoot(Screen.Audiobooks),
+				navBackActionFor(listOf(screen)),
+				"$screen should return to Audiobooks instead of letting Android close Navic"
+			)
+		}
 	}
 
 	@Test
@@ -59,6 +107,10 @@ class NavBackPolicyTest {
 		assertEquals(true, shouldShowRootBackForScreen(Screen.Settings.Ebooks))
 		assertEquals(false, shouldShowRootBackForScreen(Screen.BinderyBooks))
 		assertEquals(false, shouldShowRootBackForScreen(Screen.Library()))
+		assertEquals(false, shouldShowRootBackForScreen(Screen.Audiobooks))
+		assertEquals(false, shouldShowRootBackForScreen(Screen.AlbumList()))
+		assertEquals(false, shouldShowRootBackForScreen(Screen.ArtistList()))
+		assertEquals(false, shouldShowRootBackForScreen(Screen.Settings.Root))
 	}
 
 	@Test
