@@ -10887,3 +10887,28 @@ Validation:
 - GREEN/HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest` passed.
 - GREEN/DIFF: `git diff --check` passed.
 - NO PUBLIC RELEASE: no public tag, public APK, version bump, or release workflow was created. This remains debug/harness evidence only.
+
+## 2026-07-02 Focused Plan Q Post-Sync Release Candidate Gate
+
+Scope:
+- Prepare `v1.0.11-theta40` as the public Android candidate containing post-`theta39` reader/Whispersync work: Whispersync-ready Audiobooks row, curl/texture/page-turn stabilization, rail and Whispersync gate refreshes, and upstream master integration.
+
+Metadata:
+- `androidApp/build.gradle.kts`: `versionCode=468`, `versionName="v1.0.11-theta40"`, `applicationId="darkaxt.navic"`.
+
+Validation:
+- GREEN/GRADLE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid` passed.
+- GREEN/GRADLE: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost` passed.
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` passed.
+- GREEN/JS: `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- GREEN/JS: `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- GREEN/GUARDRAIL: release script and workflow still require `AllowPublicRelease`, `ReleaseReadinessNote`, and `.github\workflows\publish.yml` remains release-event only with `types: [published]`.
+- GREEN/DIFF: `git diff --check` passed.
+- GREEN/WHISPERSYNC: `.\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -ExpectedVersionName v1.0.11-theta40 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment\theta40-release-candidate-20260702` passed. Artifacts: `captures\reader-whispersync-enjoyment\theta40-release-candidate-20260702\stage5c3-whispersync-enjoyment-20260702-133145`.
+- INVALID/MATRIX: `captures\reader-komikku-matrix\theta40-release-candidate-20260702` failed cover rows because the app was already on a content page after the Whispersync gate.
+- INVALID/MATRIX: `captures\reader-komikku-matrix\theta40-release-candidate-prepared-20260702` used default discovery and selected `A Memory of Light`; Android raised an ANR dialog on that huge cover path. This run does not satisfy Plan Q because Plan Q requires production book `3809`.
+- GREEN/MATRIX: explicit production book `3809` matrix passed with `.\scripts\adb-reader-komikku-matrix.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -ExpectedVersionName v1.0.11-theta40 -PrepareReaderLaunch -IncludeCoverChecks -ContinueOnFailure -PreparePublicationUrl "https://bindery.remaxku.eu/book/3809" -PrepareResourceHref "https://bindery.remaxku.eu/api/v1/book/3809/file?bookFileId=426" -PrepareBookId 3809 -PrepareTitle "Bastille vs. the Evil Librarians" -PrepareKind Ebook -PrepareFormat EPUB -PrepareWhispersyncSidecarUrl "/opds/books/3809/sync/8" -PrepareWhispersyncArtifactId 8 -PrepareWhispersyncAudiobookId 34 -PrepareWhispersyncAudiobookBookFileId 633 -PrepareWhispersyncAudiobookTitle "Bastille vs. the Evil Librarians" -ArtifactRoot captures\reader-komikku-matrix\theta40-release-candidate-bastille-20260702`.
+
+Release status:
+- READY TO TAG: local release gate passed for `v1.0.11-theta40`.
+- NOT YET PUBLISHED: GitHub release evidence is recorded after the tag workflow completes.

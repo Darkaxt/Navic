@@ -833,3 +833,44 @@ Plan B status on 2026-07-02:
   - The first rail endpoint attempt failed only because the current section had `chapterPageCount=1`; rerun after relaunching at `StartProgress=0.10` passed in `captures\reader-komikku-matrix\planp-sync-theta39-rail-20260702`.
   - Whispersync enjoyment gate passed with `-NoBuild -NoInstall`; artifacts: `captures\reader-whispersync-enjoyment\planp-sync-theta39-20260702\stage5c3-whispersync-enjoyment-20260702-131116`.
 - No public release, tag, public APK asset, or release workflow was created for Plan P.
+
+## Focused Plan Q: Post-Sync Public Release Candidate
+
+**Purpose:** Publish a new public Android APK candidate for the coherent work that landed after `v1.0.11-theta39`: Whispersync-ready Audiobooks row, page-turn/curl/texture stabilization, rail/Whispersync gate refreshes, and upstream master integration. This plan exists because `v1.0.11-theta39` is already published at commit `04443f15`, while the current branch has later validated reader/Whispersync commits through `0867069f`.
+
+**Release rule:** Plan Q is allowed to publish only after the current branch passes the release gate again with bumped Android metadata. Do not publish if Gradle, JS syntax, release guardrails, or the readerdev acceptance gates fail.
+
+- [x] **Q1: Bump Android release metadata**
+  - Set `androidApp` to `versionCode=468`, `versionName=v1.0.11-theta40`, and keep `applicationId="darkaxt.navic"`.
+  - Do not change package ids or readerdev/debug suffixes.
+  - 2026-07-02 result: `androidApp/build.gradle.kts` now uses `versionCode=468`, `versionName="v1.0.11-theta40"`, `applicationId="darkaxt.navic"`, and keeps `NAVIC_READER_DEV=false` for release metadata.
+
+- [x] **Q2: Run release-candidate gates**
+  - Required commands:
+    ```powershell
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost
+    node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js
+    node --check tools\reader-harness\src\run-reader-harness.mjs
+    node --check tools\reader-harness\src\adb-webview-eval.mjs
+    git diff --check
+    ```
+  - Check release guardrails still require explicit public-release approval and a readiness note.
+  - 2026-07-02 result: all required Gradle, JS syntax, release guardrail, and `git diff --check` gates passed on the bumped branch.
+
+- [x] **Q3: Run readerdev acceptance on the bumped candidate**
+  - Install/run readerdev on the emulator.
+  - Run the Komikku matrix and Whispersync enjoyment gate against production book `3809`.
+  - Record artifact roots before publishing.
+  - 2026-07-02 result: Whispersync enjoyment passed in `captures\reader-whispersync-enjoyment\theta40-release-candidate-20260702\stage5c3-whispersync-enjoyment-20260702-133145`.
+  - 2026-07-02 result: the first matrix attempt was invalid for Plan Q because it ran cover checks against an already-open content page; the second prepared attempt used default discovery and selected `A Memory of Light`, which produced an Android ANR dialog. The release gate was rerun with explicit production book `3809` metadata.
+  - 2026-07-02 result: explicit Bastille matrix passed all scripted rows in `captures\reader-komikku-matrix\theta40-release-candidate-bastille-20260702`.
+
+- [ ] **Q4: Commit, tag, push, and publish**
+  - Commit message: `Prepare reader Whispersync theta40 release candidate`.
+  - Tag: `v1.0.11-theta40`.
+  - Publish through `scripts/publish-github-release.ps1` with `-AllowPublicRelease` and a readiness note naming the completed plans and evidence.
+  - Confirm Android APK succeeds and iOS jobs stay skipped.
+
+- [ ] **Q5: Record release evidence**
+  - Update this plan with tag, run id, release URL, asset evidence, validation commands, readerdev artifact roots, and any physical-device follow-up items.
