@@ -820,9 +820,22 @@ fun binderyHubRows(rootCatalog: BinderyCatalog): List<BinderyHubRow> {
 		)
 	}
 	return binderyHubRowKindOrder.mapNotNull { kind ->
-		candidates.firstOrNull { it.kind == kind }
+		candidates
+			.filter { it.kind == kind }
+			.preferredBinderyHubRow(kind)
 	}
 }
+
+private fun List<BinderyHubRow>.preferredBinderyHubRow(kind: BinderyHubRowKind): BinderyHubRow? =
+	when (kind) {
+		BinderyHubRowKind.Audiobooks -> firstOrNull { row ->
+			row.path.trim().substringBefore('?').trimEnd('/').equals(
+				BinderyCatalogTab.Audiobooks.path,
+				ignoreCase = true
+			)
+		} ?: firstOrNull()
+		else -> firstOrNull()
+	}
 
 private val binderyHubRowKindOrder = listOf(
 	BinderyHubRowKind.LastRead,

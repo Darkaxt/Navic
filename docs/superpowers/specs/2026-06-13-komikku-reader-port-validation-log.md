@@ -10916,3 +10916,28 @@ Release status:
 - APK ASSET: `Navic.apk`, `33631955` bytes, `sha256:c7f14f7f367d0ebfb4738eff7a71c7cc54e03fb0641ba3840a55b8878396ba73`, URL `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta40/Navic.apk`.
 - RELEASE LOG: `release\logs\v1.0.11-theta40-20260702-134632.log`.
 - REMAINING: physical-device/user acceptance remains for subjective drag feel, paper/edge texture intensity, tablet/fold layout feel, and real paired ebook/audio enjoyment. No more public release iteration is warranted until a new coherent feature/fix candidate is ready.
+
+## 2026-07-02 Focused Plan R Consolidated Whispersync Row Release Candidate
+
+Scope:
+- Prepare `v1.0.11-theta41` as a focused public Android candidate for the live Bindery Audiobooks hub route fix.
+- Keep the theta40 reader/Whispersync baseline and add the row preference needed for the `Whispersync ready` carousel to see book-level `syncPairs`.
+
+Diagnosis:
+- Live Bindery root publishes both `/opds/audiobooks` and `/opds/formats/audiobook`.
+- `/opds/audiobooks` returns audiobook-version publications and does not embed the ready ebook/audiobook sync-pair metadata needed by the carousel.
+- `/opds/formats/audiobook` returns book publications and includes ready `syncPairs`; production book `3809` was observed there with `status=ready`, `ready=1`, and `pairs=1`.
+- The hub row selector previously took the first Audiobooks-like root link, so the richer book catalog route could be skipped.
+
+Metadata:
+- `androidApp/build.gradle.kts`: `versionCode=469`, `versionName="v1.0.11-theta41"`, `applicationId="darkaxt.navic"`.
+
+Validation:
+- GREEN/WHISPERSYNC: `scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -ArtifactRoot captures\reader-whispersync-enjoyment` passed against production book `3809`. Artifacts: `captures\reader-whispersync-enjoyment\stage5c3-whispersync-enjoyment-20260702-215952`.
+- GREEN/PROBES: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` all passed in that run.
+- GREEN/FOCUSED TEST: `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.bindery.BinderyCatalogDisplayPolicyTest"` passed on the theta41 metadata branch after the release notes/doc updates.
+- GREEN/DIFF: `git diff --check` passed.
+- GREEN/VERSION: `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta41` passed.
+
+Release status:
+- PENDING: publish `v1.0.11-theta41` only after focused Gradle validation, version guard, and `git diff --check` pass on the final release commit.

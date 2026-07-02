@@ -878,3 +878,30 @@ Plan B status on 2026-07-02:
   - Update this plan with tag, run id, release URL, asset evidence, validation commands, readerdev artifact roots, and any physical-device follow-up items.
   - 2026-07-02 result: release asset `Navic.apk` uploaded at `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta40/Navic.apk`, size `33631955`, digest `sha256:c7f14f7f367d0ebfb4738eff7a71c7cc54e03fb0641ba3840a55b8878396ba73`.
   - 2026-07-02 result: remaining validation is physical-device/user acceptance only for subjective drag feel, texture intensity, tablet/fold layout feel, and real paired ebook/audio usage.
+
+## Focused Plan R: Consolidated Whispersync Row Release Candidate
+
+**Purpose:** Publish a consolidated Android candidate after live Bindery verification showed that the Audiobooks hub could hide the requested `Whispersync ready` carousel. The root catalog exposes both `/opds/audiobooks` and `/opds/formats/audiobook`; the former is an audiobook-version route without embedded `syncPairs`, while the latter is the book catalog route that carries ready ebook/audiobook sync metadata.
+
+**Release rule:** Plan R is allowed to publish only after the route fix is committed with bumped Android metadata and the focused route policy test plus release version guard pass. This is a focused public candidate for user testing; it is not a claim that subjective texture/page-turn/tablet layout issues are complete.
+
+- [x] **R1: Prefer the book-catalog Audiobooks hub route**
+  - Keep `BinderyHubRowKind.Audiobooks` mapped to `/opds/formats/audiobook` when both root links exist.
+  - Preserve fallback to the first matching Audiobooks row if the preferred route is absent.
+  - 2026-07-02 result: `binderyHubRows()` now filters by row kind and prefers the book-catalog Audiobooks route `/opds/formats/audiobook` before falling back.
+
+- [x] **R2: Guard the route preference**
+  - Add/keep a source-level policy test proving `/opds/formats/audiobook` wins over `/opds/audiobooks`.
+  - Run the focused `BinderyCatalogDisplayPolicyTest`.
+  - 2026-07-02 result: `hubRowsPreferBookCatalogAudiobookRouteOverTrimmedAudiobookVersionRoute()` covers the live root-link shape.
+  - 2026-07-02 result: `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.bindery.BinderyCatalogDisplayPolicyTest"` passed.
+
+- [ ] **R3: Publish theta41**
+  - Bump `androidApp` to `versionCode=469`, `versionName=v1.0.11-theta41`.
+  - Commit the focused fix and release metadata.
+  - Tag and publish `v1.0.11-theta41` through the guarded GitHub release script with `AllowPublicRelease`.
+  - 2026-07-02 result: `git diff --check` passed.
+  - 2026-07-02 result: `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta41` passed.
+
+- [ ] **R4: Record release evidence**
+  - Record release URL, GitHub Actions run, APK asset URL, size, digest, and validation commands after the release completes.

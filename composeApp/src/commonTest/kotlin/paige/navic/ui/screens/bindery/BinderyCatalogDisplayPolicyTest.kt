@@ -39,6 +39,30 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun hubRowsPreferBookCatalogAudiobookRouteOverTrimmedAudiobookVersionRoute() {
+		val rows = binderyHubRows(
+			BinderyCatalog(
+				title = "Bindery",
+				navigation = listOf(
+					BinderyLink(
+						href = "/opds/audiobooks",
+						title = "Audiobooks"
+					),
+					BinderyLink(
+						href = "/opds/formats/audiobook",
+						title = "Audiobook Books"
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			"/opds/formats/audiobook",
+			rows.single { it.kind == BinderyHubRowKind.Audiobooks }.path
+		)
+	}
+
+	@Test
 	fun bookLikeCatalogTabsUseFiveItemInitialPages() {
 		assertEquals("/opds/formats/audiobook?limit=5", BinderyCatalogTab.Audiobooks.initialCatalogPath())
 		assertEquals("/opds/books?limit=5", BinderyCatalogTab.Books.initialCatalogPath())
