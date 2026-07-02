@@ -185,6 +185,8 @@ Plan B status on 2026-07-02:
 - `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyMetadataCache.kt`
 - `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyBookVersionPolicy.kt`
 - `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyWhispersyncCoverOverlay.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyHubViewModel.kt`
+- `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyHubScreen.kt`
 
 **Tests and guards:**
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/BinderyWhispersyncSchemaContractTest.kt`
@@ -227,6 +229,8 @@ Plan B status on 2026-07-02:
 - Tightened the documented Plan C Gradle gate to use the real supported KMP commands.
 - `BinderyWhispersyncSchemaContractTest` passed from `artifacts\gradle\plan-c-bindery-schema\schema-host-20260702-041327.out.log`.
 - `:composeApp:testAndroid` passed from `artifacts\gradle\plan-c-bindery-schema\test-android-20260702-041453.out.log`.
+- Follow-up on 2026-07-02: the Audiobooks hub gained a dedicated `Whispersync ready` carousel sourced only from the already-loaded Audiobooks OPDS row. The row uses the same exact ready-pair predicate as cover badges: `syncPairs[]` must contain `whispersync.status == "ready"` and a non-empty `artifactHref`; summary-only `whispersyncStatus`, pending pairs, and ready pairs without an artifact are excluded.
+- Focused regression coverage for the follow-up is `BinderyCatalogDisplayPolicyTest.whispersyncReadyAudiobookRowUsesOnlyAudiobookCardsWithExactReadyPairs`, validated with `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.ui.screens.bindery.BinderyCatalogDisplayPolicyTest` and committed as `555fffee Add Whispersync-ready audiobooks row`.
 - No public release was created. This is local schema/debug validation only.
 
 ## Focused Plan D: Whispersync Runtime Enjoyment Path
