@@ -49,6 +49,9 @@ import androidx.navigation3.ui.NavDisplay
 import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
 import androidx.navigation3.ui.NavDisplay.transitionSpec
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import androidx.savedstate.serialization.SavedStateConfiguration
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -72,6 +75,7 @@ import paige.navic.ui.navigation.BottomSheetSceneStrategy
 import paige.navic.ui.navigation.NowPlayingSceneStrategy
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
+import paige.navic.ui.navigation.canNavigateBack
 import paige.navic.ui.navigation.performNavicBack
 import paige.navic.ui.screens.activity.ActivityScreen
 import paige.navic.ui.screens.album.AlbumListScreen
@@ -216,6 +220,17 @@ fun App(initialScreenOverride: Screen? = null) {
 						}
 					}
 				) { contentPadding ->
+					val handleNavicBack = {
+						if (!scrollManager.tryHandleBackToTop()) {
+							backStack.performNavicBack()
+						}
+						Unit
+					}
+					NavigationBackHandler(
+						state = rememberNavigationEventState(NavigationEventInfo.None),
+						isBackEnabled = scrollManager.isTriggered || canNavigateBack(backStack),
+						onBackCompleted = handleNavicBack
+					)
 					NavDisplay(
 						modifier = Modifier
 							.padding(
@@ -233,9 +248,7 @@ fun App(initialScreenOverride: Screen? = null) {
 							rememberListDetailSceneStrategy()
 						),
 						onBack = {
-							if (!scrollManager.tryHandleBackToTop()) {
-								backStack.performNavicBack()
-							}
+							handleNavicBack()
 						},
 						entryProvider = remember(backStack.size) { entryProvider(backStack) },
 						transitionSpec = {
