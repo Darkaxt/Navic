@@ -1092,6 +1092,64 @@ function readerPageNumberVisibleContentFontFamily() {
   return ''
 }
 
+function readerPageNumberUsesSpreadSlots(pagePosition) {
+  const pageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
+  if (!Number.isFinite(pageCount) || pageCount <= 1) return false
+  const flowMode = this.readerFlowModeValue || readerFlowMode(this.readerSettings)
+  if (flowMode !== ReaderFlowPaged) return false
+  const viewport = readerViewportSize()
+  if (viewport.width < viewport.height * 1.12) return false
+  const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings || {})
+  return Math.floor(Number(pageBox?.maxColumnCount) || 0) >= 2
+}
+
+function readerPageNumberSpreadLabels(pagePosition) {
+  const pageIndex = Number(pagePosition?.pageIndex)
+  const pageCount = readerPageNumberPageCount(pagePosition)
+  if (!Number.isFinite(pageIndex) || pageIndex < 0 || !Number.isFinite(pageCount) || pageCount <= 0) return []
+  const current = Math.min(pageCount, Math.max(1, Math.floor(pageIndex) + 1))
+  const next = current + 1 <= pageCount ? current + 1 : null
+  const rtl = this.effectiveReaderDirection?.() === ReaderDirectionRtl
+  const labels = rtl
+    ? [
+        { slot: 'left', page: next },
+        { slot: 'right', page: current },
+      ]
+    : [
+        { slot: 'left', page: current },
+        { slot: 'right', page: next },
+      ]
+  return labels
+    .filter(label => Number.isFinite(label.page) && label.page > 0)
+    .map(label => ({
+      ...label,
+      text: `${label.page} / ${pageCount}`,
+    }))
+}
+
+function updateReaderPageNumberSpreadSlots(layer, pageNumberPosition) {
+  const labels = this.readerPageNumberSpreadLabels(pageNumberPosition)
+  layer.replaceChildren()
+  for (const label of labels) {
+    const slot = document.createElement('span')
+    slot.setAttribute('data-navic-page-number-slot', label.slot)
+    slot.setAttribute('aria-hidden', 'true')
+    slot.textContent = label.text
+    setStylesImportant(slot, {
+      position: 'absolute',
+      left: label.slot === 'left' ? '25%' : '75%',
+      bottom: '0',
+      transform: 'translateX(-50%)',
+      background: 'transparent',
+      border: '0',
+      padding: '0',
+      margin: '0',
+      'white-space': 'nowrap',
+    })
+    layer.append(slot)
+  }
+}
+
 function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
   const pageNumberPosition = readerPageNumberPositionWithPageCount(pagePosition, this.currentPagePosition?.pageCount)
   this.currentPagePosition = pageNumberPosition || null
@@ -1117,13 +1175,19 @@ function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
   const letterSpacing = readerLetterSpacingValue(this.readerSettings)
   const wordSpacing = readerWordSpacingValue(this.readerSettings)
   document.documentElement.style.setProperty('--reader-page-number-font-family', fontFamily)
-  this.pageNumberLayer.textContent = label
+  const usesSpreadSlots = this.readerPageNumberUsesSpreadSlots(pageNumberPosition)
+  if (usesSpreadSlots) {
+    this.updateReaderPageNumberSpreadSlots(this.pageNumberLayer, pageNumberPosition)
+  } else {
+    this.pageNumberLayer.textContent = label
+  }
   this.pageNumberLayer.dataset.navicPageNumberTotal = String(pageNumberPosition.pageCount || '')
   setStylesImportant(this.pageNumberLayer, {
     position: 'fixed',
-    left: '50%',
+    left: usesSpreadSlots ? '0' : '50%',
+    right: usesSpreadSlots ? '0' : 'auto',
     bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)',
-    transform: 'translateX(-50%)',
+    transform: usesSpreadSlots ? 'none' : 'translateX(-50%)',
     'z-index': '2147483644',
     'pointer-events': 'none',
     'user-select': 'none',
@@ -1138,6 +1202,7 @@ function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
     'line-height': '1',
     'letter-spacing': `${letterSpacing}px`,
     'word-spacing': `${wordSpacing}px`,
+    height: usesSpreadSlots ? '1rem' : 'auto',
     background: 'transparent',
     border: '0',
     padding: '0',
@@ -1218,6 +1283,9 @@ export const NavicReaderPaginationMethods = {
   committedPageTurnPosition,
   passiveCommittedRelocationPosition,
   readerPageNumberFontFamily,
+  readerPageNumberUsesSpreadSlots,
+  readerPageNumberSpreadLabels,
+  updateReaderPageNumberSpreadSlots,
   updateReaderPageNumberLayer,
   tryUpdateReaderPageNumberLayer,
   scheduleReaderPageNumberRefresh

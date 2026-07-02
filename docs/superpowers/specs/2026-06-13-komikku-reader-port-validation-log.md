@@ -10940,4 +10940,33 @@ Validation:
 - GREEN/VERSION: `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta41` passed.
 
 Release status:
-- PENDING: publish `v1.0.11-theta41` only after focused Gradle validation, version guard, and `git diff --check` pass on the final release commit.
+- PUBLISHED: `v1.0.11-theta41` is live at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta41`.
+- COMMIT/TAG: `89e7f651 Prepare reader Whispersync theta41 release candidate`, tag `v1.0.11-theta41`.
+- GITHUB ACTIONS: run `28616667980` completed successfully; Android APK build succeeded, iOS IPA jobs were skipped, release creation succeeded, Discord/upload jobs were skipped as configured.
+- APK ASSET: `Navic.apk`, `33631951` bytes, `sha256:fabe3142ca79574962286fc7693ee824603230daea410bfe8af71b59b9231040`, URL `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta41/Navic.apk`.
+- RELEASE LOG: `release\logs\v1.0.11-theta41-20260702-223728.log`.
+- REMAINING: physical-device/user acceptance remains for subjective drag feel, paper/edge texture intensity, tablet/fold layout feel, real paired ebook/audio usage, and any post-release UI regressions reported against theta41.
+
+## 2026-07-02 Post-Theta41 Dual-Page Page Number Bug
+
+User report:
+- In dual-page/spread mode the organic page number is centered and shared by both visible pages, which does not match standard book page numbering or Komikku dual-page behavior.
+
+Root cause:
+- The reader runtime had only one root-level `data-navic-page-number-layer` and `updateReaderPageNumberLayer()` always positioned that layer at `left: 50%`, even though the pagination metadata and Foliate renderer can be in landscape/dual spread mode.
+
+Fix:
+- `navic-reader-pagination.js` now switches the root page-number layer into two organic slots only for paged wide-spread mode.
+- LTR spreads render current page on the left slot and current+1 on the right slot; RTL spreads mirror the slots.
+- Single-page/portrait mode keeps the existing centered organic page number and font matching.
+
+Validation:
+- RED: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-page-number-spread-layout --fixture tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3` failed before the fix with one centered label and `slotCount=0`.
+- GREEN: the same command passed after the fix with `left="1 / 271"` and `right="2 / 271"` on a landscape spread.
+- GREEN: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-page-number-font-parity --fixture tmp\reader-live\served-input.epub --viewport-width 1200 --viewport-height 1600 --device-scale-factor 2` passed.
+- GREEN: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3` passed.
+- GREEN: `node --check composeApp\src\androidMain\assets\reader\navic-reader-pagination.js` and `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- GREEN: `git diff --check` passed.
+
+Release status:
+- NOT RELEASED: this fix is post-`v1.0.11-theta41` and should be batched with the next coherent candidate rather than published as a standalone microrelease.

@@ -1270,6 +1270,132 @@ if (mode === 'epub-page-number-font-parity') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'epub-page-number-spread-layout') {
+  const fixture = argValue('--fixture')
+  if (!fixture) {
+    console.error('epub-page-number-spread-layout mode requires --fixture <path>')
+    process.exit(1)
+  }
+  const fixturePath = path.resolve(fixture)
+  if (!fs.existsSync(fixturePath) || !fs.statSync(fixturePath).isFile()) {
+    console.error(`Fixture file not found: ${fixturePath}`)
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage(readerHarnessViewport)
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          try {
+            window.__navicReaderPostedMessages.push(JSON.parse(value))
+          } catch {
+            window.__navicReaderPostedMessages.push({ raw: value })
+          }
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'disabled',
+          direction: 'ltr',
+          fontSource: 'navic',
+          fontFamily: '"Navic OpenDyslexic", OpenDyslexic, "Navic Atkinson Hyperlegible", system-ui, sans-serif',
+          fontSizePercent: 150,
+          lineHeight: 1.7,
+          fontWeight: 500,
+          letterSpacing: 2,
+          wordSpacing: 6,
+          paragraphSpacingPercent: 150,
+          maxColumnCount: 2,
+          columnThreshold: 720,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const contents = document.querySelector('foliate-view')?.renderer?.getContents?.() || []
+      return contents.some(content => content?.doc?.body)
+    })
+    await page.evaluate(async () => {
+      if (document.body.dataset.navicShellCoverVisible === 'true') {
+        await window.NavicReaderBridge.dispatch({ type: 'nextPage' })
+      }
+    })
+    await page.waitForFunction(() => {
+      const layer = document.querySelector('[data-navic-page-number-layer="true"]')
+      const contents = document.querySelector('foliate-view')?.renderer?.getContents?.() || []
+      return Boolean(layer?.textContent?.trim?.()) && contents.some(content => content?.doc?.body)
+    })
+    const result = await page.evaluate(() => {
+      const layer = document.querySelector('[data-navic-page-number-layer="true"]')
+      const slots = Array.from(layer?.querySelectorAll?.('[data-navic-page-number-slot]') || [])
+      return {
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        layerText: layer?.textContent || '',
+        slotCount: slots.length,
+        slots: slots.map(slot => {
+          const rect = slot.getBoundingClientRect()
+          return {
+            slot: slot.getAttribute('data-navic-page-number-slot') || '',
+            text: slot.textContent || '',
+            centerX: rect.left + rect.width / 2,
+          }
+        }),
+      }
+    })
+    assertNoConsoleErrors(errors)
+    if (result.viewportWidth <= result.viewportHeight) {
+      throw new Error(`Expected landscape viewport for spread page-number test, got ${result.viewportWidth}x${result.viewportHeight}`)
+    }
+    if (result.slotCount !== 2) {
+      throw new Error(`Expected dual-page mode to render two page-number slots, got ${result.slotCount}: ${JSON.stringify(result)}`)
+    }
+    const left = result.slots.find(slot => slot.slot === 'left')
+    const right = result.slots.find(slot => slot.slot === 'right')
+    if (!left || !right) {
+      throw new Error(`Expected left and right page-number slots, got ${JSON.stringify(result)}`)
+    }
+    if (left.centerX > result.viewportWidth * 0.4 || right.centerX < result.viewportWidth * 0.6) {
+      throw new Error(`Expected page-number slots to sit under their own pages, got ${JSON.stringify(result)}`)
+    }
+    if (!/^\d+\s*\/\s*\d+$/.test(left.text.trim()) || !/^\d+\s*\/\s*\d+$/.test(right.text.trim())) {
+      throw new Error(`Expected each page-number slot to keep "# / #" labels, got ${JSON.stringify(result)}`)
+    }
+    if (left.text.trim() === right.text.trim()) {
+      throw new Error(`Expected spread page-number slots to identify different visible pages, got ${JSON.stringify(result)}`)
+    }
+    console.log(JSON.stringify(result, null, 2))
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode === 'line-fragment-prose-smoke') {
   const server = await startReaderAssetServer({ repoRoot })
   const browser = await chromium.launch()

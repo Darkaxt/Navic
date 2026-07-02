@@ -896,12 +896,16 @@ Plan B status on 2026-07-02:
   - 2026-07-02 result: `hubRowsPreferBookCatalogAudiobookRouteOverTrimmedAudiobookVersionRoute()` covers the live root-link shape.
   - 2026-07-02 result: `.\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.bindery.BinderyCatalogDisplayPolicyTest"` passed.
 
-- [ ] **R3: Publish theta41**
+- [x] **R3: Publish theta41**
   - Bump `androidApp` to `versionCode=469`, `versionName=v1.0.11-theta41`.
   - Commit the focused fix and release metadata.
   - Tag and publish `v1.0.11-theta41` through the guarded GitHub release script with `AllowPublicRelease`.
   - 2026-07-02 result: `git diff --check` passed.
   - 2026-07-02 result: `.\scripts\verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-theta41` passed.
+  - 2026-07-02 result: committed as `89e7f651 Prepare reader Whispersync theta41 release candidate`, tagged `v1.0.11-theta41`, pushed to `fork/codex/komikku-reader-backbone-eta64`, and published through guarded script run `28616667980`.
+  - 2026-07-02 result: GitHub Actions completed successfully; Android APK succeeded, iOS IPA jobs were skipped, and release `v1.0.11-theta41` was published at `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-theta41`.
 
-- [ ] **R4: Record release evidence**
+- [x] **R4: Record release evidence**
   - Record release URL, GitHub Actions run, APK asset URL, size, digest, and validation commands after the release completes.
+  - 2026-07-02 result: release asset `Navic.apk` uploaded at `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta41/Navic.apk`, size `33631951`, digest `sha256:fabe3142ca79574962286fc7693ee824603230daea410bfe8af71b59b9231040`.
+  - 2026-07-02 result: release log `release\logs\v1.0.11-theta41-20260702-223728.log`; run URL `https://github.com/Darkaxt/Navic/actions/runs/28616667980`.
