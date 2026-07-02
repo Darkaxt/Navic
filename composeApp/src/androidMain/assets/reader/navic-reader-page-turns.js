@@ -690,6 +690,11 @@ function pageDragPreviewTextureScrollOffset({
 }
 
 function removePageDragPreviewLayer() {
+  readerTrace('page-drag-preview:removed', {
+    hadLayer: Boolean(this.pageDragPreviewLayer),
+    targetKey: this.pageDragPreviewTargetKey || '',
+    readyKey: this.pageDragPreviewReadyKey || '',
+  })
   this.pageDragPreviewLoadToken += 1
   this.pageDragPreviewLayer?.remove?.()
   this.pageDragPreviewLayer = null
@@ -906,6 +911,19 @@ function pageDragCurlSnapshotHtml(doc, layout = null) {
     head = doc.createElement('head')
     clone.insertBefore(head, clone.firstChild)
   }
+  let body = clone.querySelector?.('body')
+  if (!body) {
+    body = doc.createElement('body')
+    clone.append(body)
+  }
+  clone.removeAttribute('style')
+  body.removeAttribute('style')
+  const flow = doc.createElement('div')
+  flow.setAttribute('data-navic-page-curl-snapshot-flow', 'true')
+  while (body.firstChild) {
+    flow.append(body.firstChild)
+  }
+  body.append(flow)
   const style = doc.createElement('style')
   style.setAttribute('data-navic-page-curl-snapshot-style', 'true')
   const layoutWidth = Math.max(0, Math.round(Number(layout?.width) || 0))
@@ -916,6 +934,9 @@ function pageDragCurlSnapshotHtml(doc, layout = null) {
   const sourceColumnGap = sourceStyle?.columnGap && sourceStyle.columnGap !== 'normal'
     ? sourceStyle.columnGap
     : '0px'
+  const sourceColumnWidth = sourceStyle?.columnWidth && sourceStyle.columnWidth !== 'auto'
+    ? sourceStyle.columnWidth
+    : `${layoutAxisStep}px`
   const sourcePadding = sourceStyle
     ? `${sourceStyle.paddingTop || '0px'} ${sourceStyle.paddingRight || '0px'} ${sourceStyle.paddingBottom || '0px'} ${sourceStyle.paddingLeft || '0px'}`
     : '0px'
@@ -926,10 +947,18 @@ function pageDragCurlSnapshotHtml(doc, layout = null) {
         `max-width:${layoutViewSize}px!important;`,
         `height:${layoutHeight}px!important;`,
         `min-height:${layoutHeight}px!important;`,
-        `column-width:${layoutAxisStep}px!important;`,
+        `column-width:${sourceColumnWidth}!important;`,
         `column-gap:${sourceColumnGap}!important;`,
         'column-fill:auto!important;',
         `padding:${sourcePadding}!important;`,
+        'overflow-wrap:break-word!important;',
+        'position:static!important;',
+        'border:0!important;',
+        'margin:0!important;',
+        'max-height:none!important;',
+        'max-width:none!important;',
+        'min-height:none!important;',
+        'min-width:none!important;',
       ].join('')
     : ''
   const viewportSizeCss = layoutWidth > 0 && layoutHeight > 0
@@ -949,19 +978,34 @@ function pageDragCurlSnapshotHtml(doc, layout = null) {
     'background-color:var(--reader-background, transparent)!important;',
     'pointer-events:none!important;',
     'overflow:hidden!important;',
+    'column-width:auto!important;',
+    'column-gap:normal!important;',
+    'column-fill:balance!important;',
     viewportSizeCss,
     '}',
     'body{',
     'margin:0!important;',
     'padding:0!important;',
     'box-sizing:border-box!important;',
+    viewportSizeCss,
     'background-color:var(--reader-background, transparent)!important;',
     'pointer-events:none!important;',
     'overflow:hidden!important;',
+    'column-width:auto!important;',
+    'column-gap:normal!important;',
+    'column-fill:balance!important;',
     'position:relative!important;',
     'transform-origin:0 0!important;',
     'will-change:transform!important;',
-    pagedLayoutCss,
+    'max-height:none!important;',
+    'max-width:none!important;',
+    '}',
+    '[data-navic-page-curl-snapshot-flow="true"]{',
+    'display:block!important;',
+    'box-sizing:border-box!important;',
+    pagedLayoutCss || viewportSizeCss,
+    'transform-origin:0 0!important;',
+    'will-change:transform!important;',
     '}',
     'html::-webkit-scrollbar,body::-webkit-scrollbar{display:none!important;}',
     '*,*::before,*::after{pointer-events:none!important;}',
@@ -1187,16 +1231,22 @@ function loadPageDragPreviewFrame(frame, targetIndex, direction, token, targetKe
         href: section?.href || section?.id || '',
       })
       if (targetKey && token === this.pageDragPreviewLoadToken && frame === this.pageDragPreviewFrame) {
+        frame.dataset.navicPageDragPreviewLoadedKey = targetKey
         this.pageDragPreviewReadyKey = targetKey
         const pending = this.pendingPageDragPreviewCommand
+        readerTrace('page-drag-preview:pending-ready-check', {
+          targetKey,
+          pendingTargetKey: pending?.targetKey || '',
+          readyKey: this.pageDragPreviewReadyKey || '',
+        })
         if (pending?.targetKey === targetKey && pending?.command) {
-          requestAnimationFrame(() => {
-            if (this.pendingPageDragPreviewCommand?.targetKey !== targetKey) return
-            if (this.pageDragPreviewReadyKey !== targetKey) return
-            const command = this.pendingPageDragPreviewCommand.command
-            this.pendingPageDragPreviewCommand = null
-            this.previewPageDrag(command)
+          const command = pending.command
+          this.pendingPageDragPreviewCommand = null
+          readerTrace('page-drag-preview:pending-replay', {
+            targetKey,
+            direction: command?.deltaX < 0 ? 'next' : command?.deltaX > 0 ? 'previous' : '',
           })
+          this.previewPageDrag(command)
         }
       }
     })
@@ -1220,6 +1270,13 @@ function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight =
   const curlEnabled = readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)
   const { layer, frame } = this.ensurePageDragPreviewLayer({ curlEnabled })
   const targetKey = this.buildPageDragPreviewTargetKey(targetIndex, direction, width, height)
+  if (
+    frame?.dataset?.navicPageDragPreviewLoadedKey === targetKey &&
+    frame?.contentDocument?.body &&
+    this.pageDragPreviewReadyKey !== targetKey
+  ) {
+    this.pageDragPreviewReadyKey = targetKey
+  }
 
   layer.dataset.navicPageDragPreviewMode = 'boundary'
   layer.dataset.navicPageDragPreviewDirection = direction
@@ -1260,6 +1317,7 @@ function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight =
   if (this.pageDragPreviewTargetKey !== targetKey) {
     this.pageDragPreviewTargetKey = targetKey
     this.pageDragPreviewReadyKey = ''
+    delete frame.dataset.navicPageDragPreviewLoadedKey
     const token = ++this.pageDragPreviewLoadToken
     this.loadPageDragPreviewFrame(frame, targetIndex, direction, token, targetKey)
   }
@@ -1325,8 +1383,14 @@ function pageDragMappedPreviewScroll(frame, doc, targetScroll, { renderer, verti
     : null
   const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
   const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
-  const cloneScrollWidth = Number(root?.scrollWidth || flow?.scrollWidth || flow?.offsetWidth || body?.scrollWidth || 0)
-  const cloneScrollHeight = Number(root?.scrollHeight || flow?.scrollHeight || flow?.offsetHeight || body?.scrollHeight || 0)
+  const flowWidth = flow && flow !== root && flow !== body
+    ? Number(flow.offsetWidth || flow.scrollWidth || 0)
+    : 0
+  const flowHeight = flow && flow !== root && flow !== body
+    ? Number(flow.offsetHeight || flow.scrollHeight || 0)
+    : 0
+  const cloneScrollWidth = Number(flowWidth || root?.scrollWidth || flow?.scrollWidth || flow?.offsetWidth || body?.scrollWidth || 0)
+  const cloneScrollHeight = Number(flowHeight || root?.scrollHeight || flow?.scrollHeight || flow?.offsetHeight || body?.scrollHeight || 0)
   const cloneMaxX = Math.max(0, cloneScrollWidth - Math.max(1, frameWidth))
   const cloneMaxY = Math.max(0, cloneScrollHeight - Math.max(1, frameHeight))
   const mapAxis = (value, cloneMax) => {
@@ -1815,6 +1879,13 @@ function previewPageDrag(command) {
           },
         }
         : null
+      if (preview?.targetKey) {
+        const pending = this.pendingPageDragPreviewCommand
+        if (pending?.targetKey === preview.targetKey && this.pageDragPreviewReadyKey === preview.targetKey) {
+          this.pendingPageDragPreviewCommand = null
+          this.previewPageDrag(pending.command)
+        }
+      }
       waitingForBoundaryPreview = true
       readerTrace('page-drag-preview:underlay-waiting', {
         direction: boundaryDirection,

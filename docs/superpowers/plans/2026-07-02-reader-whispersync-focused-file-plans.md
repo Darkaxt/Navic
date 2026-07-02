@@ -672,3 +672,40 @@ Plan B status on 2026-07-02:
   - Commit and push the docs or any necessary harness fixes.
   - Do not publish a public release for this validation slice.
   - 2026-07-02 result: documentation records the readerdev pass. No public release was created.
+
+## Focused Plan O: Debug-Only Curl Spread Snapshot Stabilization
+
+**Purpose:** Fix the remaining tablet-landscape page-turn/curl class where the drag animation can show the wrong or incomplete page surface. The current evidence separates the problem from generic paper-texture math: full-surface texture motion passes in the rendered harness, while spread-mode curl preview can fail to capture the adjacent reverse page.
+
+**Release rule:** Plan O is harness/readerdev/debug evidence only. Do not create a GitHub tag, public prerelease, public APK asset, version bump, or release workflow. Iteration builds must be debug/readerdev installs for the emulator or a directly connected test device. A public/final release is allowed only after a coherent feature or fix has been fully implemented, deployed through the debug path, validated through the planned gates, committed, and judged worth physical-device acceptance.
+
+**Main files:**
+- `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- `composeApp/src/androidMain/assets/reader/navic-reader-appearance.js`
+- `tools/reader-harness/src/run-reader-harness.mjs`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+- [x] **O1: Preserve the red reproduction**
+  - Use a real EPUB fixture in tablet landscape dimensions.
+  - The red target is `epub-native-drag-single-commit --drag-animation-mode curl` with `--viewport-width 1974 --viewport-height 1232 --device-scale-factor 3`.
+  - The failure must prove page identity, not just sheet existence: while dragging from an interior page, the curl front/interior snapshot must overlap the currently visible page/commit target and must not reuse a chapter-start or unrelated section surface.
+  - 2026-07-02 result: the first red guard failed because the curl front snapshot reused chapter-start text while the committed page advanced correctly. After the first production patch attempt, the failure changed to an unrelated-title snapshot (`"XIV: FIRE AND WATER"`), proving the active problem is still wrong-page curl snapshot mapping rather than missing texture opacity or missing iframe creation.
+  - 2026-07-02 final result: the red curl guard was preserved as `epub-native-drag-single-commit --drag-animation-mode curl` at `1974x1232`; it now passes after the snapshot-flow and active-drag retention fixes below.
+
+- [x] **O2: Identify the snapshot boundary that loses adjacent content**
+  - Compare the loaded adjacent underlay iframe document against the back snapshot iframe after `syncPageDragCurlSnapshots`.
+  - Capture enough diagnostics to distinguish: source document not ready, cloned document empty, wrong layout CSS, wrong timing, or stale key/cache reuse.
+  - 2026-07-02 result: diagnostics showed two independent failures. First, cloned curl snapshots inherited Foliate root/body inline layout while also applying a separate flow transform, so point probes could read unrelated/chapter-start surfaces even when the committed page was correct. Second, boundary previews could load before a pending drag command existed, then `postLocationChanged` cleared the active preview immediately after it replayed.
+
+- [x] **O3: Patch only the root cause**
+  - Keep Standard mode as the stable default.
+  - Keep curl capture limited to active drag-preview updates.
+  - Do not reintroduce per-document paper texture injection, release-time curl capture, or public-release packaging.
+  - 2026-07-02 result: the snapshot clone now strips root/body inline styles, moves EPUB body children into one controlled snapshot flow, maps scroll using that flow instead of the root scroll width, and uses the live Foliate column width. Boundary preview readiness is now keyed to the loaded iframe target and replays immediately when ready. `postLocationChanged` retains active native drag previews; release/cancel still owns cleanup.
+
+- [x] **O4: Validate and record**
+  - Required gates: `epub-native-drag-single-commit --drag-animation-mode curl` at `1974x1232`, default `epub-native-drag-single-commit` at `1974x1232`, `epub-native-drag-preview-underlay` at `1974x1232`, `epub-native-drag-standard-no-curl` at `1974x1232`, `epub-texture-page-turns` at `1974x1232`, JS syntax checks for touched modules, `git diff --check`, and focused host tests if runtime/source guards change.
+  - Record the result in the validation log and commit/push only after the plan is complete. No public release.
+  - 2026-07-02 result: all required browser/debug gates passed: curl single-commit, standard single-commit, preview underlay, standard no-curl, texture page turns, JS syntax for `navic-reader-page-turns.js`, `navic-reader-location.js`, and `run-reader-harness.mjs`, focused host guard `ReaderRuntimePaperSurfaceTest`, plus `git diff --check`. No public release, tag, public APK, or release workflow was created.

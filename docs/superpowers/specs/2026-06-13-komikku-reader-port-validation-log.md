@@ -10853,3 +10853,37 @@ Result:
 - GREEN/PROBES: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` all wrote `PASS`.
 - ARTIFACTS: `captures\reader-whispersync-enjoyment\plan-n-post-rail-isolation\stage5c3-whispersync-enjoyment-20260702-092700\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
 - NO PUBLIC RELEASE: this is readerdev/emulator implementation evidence only. Public release cadence remains final-candidate only.
+
+## 2026-07-02 Focused Plan O Debug-Only Curl Spread Snapshot Stabilization
+
+Scope:
+- Stabilize tablet-landscape curl/native drag preview identity without creating a public release.
+- Keep Standard mode behavior intact.
+- Keep paper/texture motion as a full-surface layer; do not reintroduce per-document paper injection.
+
+Diagnosis:
+- The curl snapshot clone inherited Foliate root/body inline layout while also applying a separate transformed flow, so the preview could sample unrelated/chapter-start surfaces even when the committed page was correct.
+- Boundary preview loading had a race: an adjacent section could finish loading before a pending drag command existed, and a later `postLocationChanged` could clear the active preview during the same drag.
+
+Changes:
+- `navic-reader-page-turns.js`
+  - Root/body inline layout is stripped from cloned curl snapshots.
+  - EPUB body children are moved into one controlled snapshot flow.
+  - Snapshot scroll mapping uses the flow width/height instead of the cloned root scroll width.
+  - Boundary preview readiness is keyed to the loaded iframe target and replays immediately when ready.
+- `navic-reader-location.js`
+  - `postLocationChanged` now retains active native drag previews; release/cancel still owns cleanup.
+- `run-reader-harness.mjs`
+  - Curl mode can be explicitly selected for `epub-native-drag-single-commit`.
+  - The harness records curl/underlay diagnostics and accepts visual image/body content rather than text-only EPUB sections.
+
+Validation:
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3 --drag-animation-mode curl`
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-single-commit --fixture tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3`
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-preview-underlay --fixture tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3`
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-native-drag-standard-no-curl --fixture tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3`
+- GREEN/HARNESS: `node tools\reader-harness\src\run-reader-harness.mjs --mode epub-texture-page-turns --fixture tmp\reader-live\served-input.epub --viewport-width 1974 --viewport-height 1232 --device-scale-factor 3`
+- GREEN/JS: `node --check composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js`, `node --check composeApp\src\androidMain\assets\reader\navic-reader-location.js`, and `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- GREEN/HOST: `.\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest` passed.
+- GREEN/DIFF: `git diff --check` passed.
+- NO PUBLIC RELEASE: no public tag, public APK, version bump, or release workflow was created. This remains debug/harness evidence only.

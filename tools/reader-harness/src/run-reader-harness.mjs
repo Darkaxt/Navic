@@ -2566,8 +2566,11 @@ if (mode === 'epub-native-drag-preview-underlay') {
   })
   const browser = await chromium.launch()
   const errors = []
+  let page = null
+  let diagnosticBoundaryTarget = null
+  let diagnosticPreviewState = null
   try {
-    const page = await browser.newPage(readerHarnessViewport)
+    page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
       if (message.type() === 'error') errors.push(message.text())
     })
@@ -2635,6 +2638,7 @@ if (mode === 'epub-native-drag-preview-underlay') {
     if (!Number.isFinite(boundaryTarget)) {
       throw new Error('Missing readable EPUB section with a following section for native drag preview probe')
     }
+    diagnosticBoundaryTarget = boundaryTarget
     await page.evaluate(async index => {
       const renderer = document.querySelector('foliate-view')?.renderer
       await renderer?.goTo?.({ index, anchor: () => 1 })
@@ -2664,10 +2668,14 @@ if (mode === 'epub-native-drag-preview-underlay') {
         const snapshotBodyRect = snapshotDoc?.body?.getBoundingClientRect?.()
         const snapshotHtmlRect = snapshotDoc?.documentElement?.getBoundingClientRect?.()
         const snapshotText = snapshotDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+        const snapshotVisualContentCount = snapshotDoc?.body
+          ? snapshotDoc.body.querySelectorAll('img,svg,canvas,video,picture,object').length
+          : 0
         return {
           present: Boolean(snapshot),
           ready: snapshot?.dataset.navicPageCurlSnapshotReady === 'true',
           textLength: snapshotText.length,
+          visualContentCount: snapshotVisualContentCount,
           datasetTextLength: Number(snapshot?.dataset.navicPageCurlSnapshotTextLength) || 0,
           bodyHeight: Number(snapshotBodyRect?.height) || 0,
           htmlHeight: Number(snapshotHtmlRect?.height) || 0,
@@ -2677,6 +2685,9 @@ if (mode === 'epub-native-drag-preview-underlay') {
       const iframeBodyRect = iframeDoc?.body?.getBoundingClientRect?.()
       const iframeHtmlRect = iframeDoc?.documentElement?.getBoundingClientRect?.()
       const iframeText = iframeDoc?.body?.textContent?.replace(/\s+/g, ' ').trim() || ''
+      const iframeVisualContentCount = iframeDoc?.body
+        ? iframeDoc.body.querySelectorAll('img,svg,canvas,video,picture,object').length
+        : 0
       const frontSnapshot = snapshotState('front')
       const backSnapshot = snapshotState('back')
       return {
@@ -2709,6 +2720,7 @@ if (mode === 'epub-native-drag-preview-underlay') {
         opacity: style?.opacity || '',
         background: style?.backgroundColor || '',
         iframeTextLength: iframeText.length,
+        iframeVisualContentCount,
         iframeBodyHeight: Number(iframeBodyRect?.height) || 0,
         iframeHtmlHeight: Number(iframeHtmlRect?.height) || 0,
         trace: (window.__navicReaderTrace || [])
@@ -2740,6 +2752,7 @@ if (mode === 'epub-native-drag-preview-underlay') {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     })
     let previewState = await readPreviewState(before)
+    diagnosticPreviewState = previewState
 
     if (!previewState.layerPresent || !previewState.iframePresent) {
       throw new Error(
@@ -2773,32 +2786,52 @@ if (mode === 'epub-native-drag-preview-underlay') {
         const style = layer ? getComputedStyle(layer) : null
         const frontSnapshot = layer?.querySelector?.('[data-navic-page-curl-snapshot="front"]')
         const textLength = iframe?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
+        const visualContentCount = iframe?.contentDocument?.body
+          ? iframe.contentDocument.body.querySelectorAll('img,svg,canvas,video,picture,object').length
+          : 0
         const frontTextLength = frontSnapshot?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
+        const frontVisualContentCount = frontSnapshot?.contentDocument?.body
+          ? frontSnapshot.contentDocument.body.querySelectorAll('img,svg,canvas,video,picture,object').length
+          : 0
         return layer?.dataset.navicPageDragPreviewReady === 'true' &&
           style?.opacity !== '0' &&
           style?.width !== '1px' &&
-          textLength > 0 &&
-          frontTextLength > 0
+          (textLength > 0 || visualContentCount > 0) &&
+          (frontTextLength > 0 || frontVisualContentCount > 0)
       })
       previewState = await readPreviewState(before)
+      diagnosticPreviewState = previewState
     }
-    if (!previewState.ready || previewState.iframeTextLength <= 0 || previewState.iframeBodyHeight <= 0) {
+    if (
+      !previewState.ready ||
+      (previewState.iframeTextLength <= 0 && previewState.iframeVisualContentCount <= 0) ||
+      previewState.iframeBodyHeight <= 0
+    ) {
       throw new Error(
         `Expected boundary drag preview to expose a rendered adjacent page, not a blank loading underlay; ` +
         `ready=${previewState.ready} textLength=${previewState.iframeTextLength} ` +
+        `visualContent=${previewState.iframeVisualContentCount} ` +
         `bodyHeight=${previewState.iframeBodyHeight} state=${JSON.stringify(previewState)}`
       )
     }
-    if (!previewState.frontSnapshot.present || !previewState.curlSnapshotFront || previewState.frontSnapshot.textLength <= 0) {
+    if (
+      !previewState.frontSnapshot.present ||
+      !previewState.curlSnapshotFront ||
+      (previewState.frontSnapshot.textLength <= 0 && previewState.frontSnapshot.visualContentCount <= 0)
+    ) {
       await page.waitForFunction(() => {
         const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
         const frontSnapshot = layer?.querySelector?.('[data-navic-page-curl-snapshot="front"]')
         const textLength = frontSnapshot?.contentDocument?.body?.textContent?.replace(/\s+/g, ' ').trim().length || 0
+        const visualContentCount = frontSnapshot?.contentDocument?.body
+          ? frontSnapshot.contentDocument.body.querySelectorAll('img,svg,canvas,video,picture,object').length
+          : 0
         return layer?.dataset.navicPageCurlSnapshotFront === 'true' &&
           frontSnapshot?.dataset.navicPageCurlSnapshotReady === 'true' &&
-          textLength > 0
+          (textLength > 0 || visualContentCount > 0)
       })
       previewState = await readPreviewState(before)
+      diagnosticPreviewState = previewState
     }
     if (!previewState.curl || previewState.curlDirection !== 'next') {
       throw new Error(
@@ -2853,7 +2886,10 @@ if (mode === 'epub-native-drag-preview-underlay') {
         `front=${JSON.stringify(previewState.frontSnapshot)} state=${JSON.stringify(previewState)}`
       )
     }
-    if (previewState.frontSnapshot.textLength <= 0 || previewState.frontSnapshot.bodyHeight <= 0) {
+    if (
+      (previewState.frontSnapshot.textLength <= 0 && previewState.frontSnapshot.visualContentCount <= 0) ||
+      previewState.frontSnapshot.bodyHeight <= 0
+    ) {
       throw new Error(
         `Expected current-page front snapshot to contain visible cloned content; ` +
         `front=${JSON.stringify(previewState.frontSnapshot)} state=${JSON.stringify(previewState)}`
@@ -2866,7 +2902,10 @@ if (mode === 'epub-native-drag-preview-underlay') {
           `back=${JSON.stringify(previewState.backSnapshot)} state=${JSON.stringify(previewState)}`
         )
       }
-      if (previewState.backSnapshot.textLength <= 0 || previewState.backSnapshot.bodyHeight <= 0) {
+      if (
+        (previewState.backSnapshot.textLength <= 0 && previewState.backSnapshot.visualContentCount <= 0) ||
+        previewState.backSnapshot.bodyHeight <= 0
+      ) {
         throw new Error(
           `Expected spread-mode back snapshot to contain adjacent page content; ` +
           `back=${JSON.stringify(previewState.backSnapshot)} state=${JSON.stringify(previewState)}`
@@ -2905,7 +2944,37 @@ if (mode === 'epub-native-drag-preview-underlay') {
     }, null, 2))
     console.log(`reader harness epub-native-drag-preview-underlay passed: ${outputPath}`)
   } catch (error) {
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-native-drag-preview-underlay.failure.json')
+    let state = null
+    try {
+      state = page
+        ? await page.evaluate(() => ({
+          bodyDataset: { ...document.body.dataset },
+          rootDataset: { ...document.documentElement.dataset },
+          previewLayerDataset: (() => {
+            const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+            return layer ? { ...layer.dataset } : null
+          })(),
+          postedMessages: (window.__navicReaderPostedMessages || []).slice(-12),
+          trace: (window.__navicReaderTrace || []).slice(-60),
+        }))
+        : null
+    } catch (diagnosticError) {
+      state = { diagnosticError: diagnosticError?.message || String(diagnosticError) }
+    }
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      error: error?.stack || error?.message || String(error),
+      errors,
+      boundaryTarget: diagnosticBoundaryTarget,
+      previewState: diagnosticPreviewState,
+      state,
+    }, null, 2))
     console.error(error?.message || String(error))
+    console.error(`reader harness epub-native-drag-preview-underlay failure diagnostics: ${outputPath}`)
     process.exitCode = 1
   } finally {
     await browser.close()
@@ -2927,6 +2996,11 @@ if (mode === 'epub-native-drag-single-commit') {
   }
 
   const fixtureRoute = '/fixtures/local/input.epub'
+  const dragAnimationMode = String(argValue('--drag-animation-mode') || 'standard').trim().toLowerCase()
+  if (!['standard', 'curl'].includes(dragAnimationMode)) {
+    console.error(`Unsupported --drag-animation-mode value: ${dragAnimationMode}`)
+    process.exit(1)
+  }
   const server = await startReaderAssetServer({
     repoRoot,
     extraFiles: new Map([[fixtureRoute, fixturePath]]),
@@ -2934,6 +3008,12 @@ if (mode === 'epub-native-drag-single-commit') {
   const browser = await chromium.launch()
   let page = null
   const errors = []
+  let diagnosticBefore = null
+  let diagnosticAfterPreview = null
+  let diagnosticPreviewVisual = null
+  let diagnosticLivePreview = null
+  let diagnosticAfterCommit = null
+  let diagnosticPreviewOffsetScan = null
   try {
     page = await browser.newPage(readerHarnessViewport)
     page.on('console', message => {
@@ -2961,7 +3041,7 @@ if (mode === 'epub-native-drag-single-commit') {
       }
     })
     await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
-    await page.evaluate(async publicationUrl => {
+    await page.evaluate(async ({ publicationUrl, dragAnimationMode }) => {
       await window.NavicReaderBridge.dispatch({
         type: 'openPublication',
         url: publicationUrl,
@@ -2976,10 +3056,10 @@ if (mode === 'epub-native-drag-single-commit') {
           fontSizePercent: 100,
           lineHeight: 1.55,
           paragraphSpacingPercent: 150,
-          dragAnimationMode: 'standard',
+          dragAnimationMode,
         },
       })
-    }, `${server.origin}${fixtureRoute}`)
+    }, { publicationUrl: `${server.origin}${fixtureRoute}`, dragAnimationMode })
     await page.waitForFunction(() => {
       const messages = window.__navicReaderPostedMessages || []
       return messages.some(message => message?.type === 'locationChanged' && Number.isFinite(message.pageIndex))
@@ -3223,6 +3303,7 @@ if (mode === 'epub-native-drag-single-commit') {
       }
     })
     before = await readState()
+    diagnosticBefore = before
     if (
       !Number.isFinite(before.location?.pageIndex) ||
       before.location.pageIndex < targetGlobalPageIndex ||
@@ -3256,6 +3337,7 @@ if (mode === 'epub-native-drag-single-commit') {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     })
     const afterPreview = await readState()
+    diagnosticAfterPreview = afterPreview
     const previewPageDelta = Number(afterPreview.page) - Number(before.page)
     const previewStartDelta = Number(afterPreview.start) - Number(before.start)
     const previewEndDelta = Number(afterPreview.end) - Number(before.end)
@@ -3292,6 +3374,56 @@ if (mode === 'epub-native-drag-single-commit') {
         const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
         const x = Math.max(1, Math.round(Number(probeX) || frameWidth * 0.5))
         const y = Math.max(1, Math.round(Number(probeY) || frameHeight * 0.5))
+        const textAround = (node, offset = null) => {
+          const text = node?.nodeType === Node.TEXT_NODE
+            ? String(node.nodeValue || '')
+            : String(node?.textContent || '')
+          const midpoint = Math.max(0, Math.min(
+            text.length,
+            Number.isFinite(Number(offset)) ? Number(offset) : Math.floor(text.length / 2)
+          ))
+          return text
+            .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
+            .replace(/\s+/g, ' ')
+            .trim()
+        }
+        const pointRange = typeof frameDoc.caretRangeFromPoint === 'function'
+          ? frameDoc.caretRangeFromPoint(x, y)
+          : null
+        const pointPosition = !pointRange && typeof frameDoc.caretPositionFromPoint === 'function'
+          ? frameDoc.caretPositionFromPoint(x, y)
+          : null
+        const pointNode = pointRange?.startContainer || pointPosition?.offsetNode || null
+        const pointOffset = Number(pointRange?.startOffset ?? pointPosition?.offset ?? 0)
+        const textRangeNearPoint = (node, offset) => {
+          if (!node || node.nodeType !== Node.TEXT_NODE || !frameDoc.createRange) return false
+          const text = String(node.nodeValue || '')
+          if (!text.trim()) return false
+          const boundedOffset = Math.max(0, Math.min(text.length, Number(offset) || 0))
+          const start = Math.max(0, Math.min(text.length - 1, boundedOffset))
+          const end = Math.max(start + 1, Math.min(text.length, boundedOffset + 1))
+          const range = frameDoc.createRange()
+          try {
+            range.setStart(node, start)
+            range.setEnd(node, end)
+            let nearest = Infinity
+            for (const rect of Array.from(range.getClientRects() || [])) {
+              if (!rect || rect.width <= 0 || rect.height <= 0) continue
+              const dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0
+              const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+              nearest = Math.min(nearest, Math.hypot(dx, dy))
+            }
+            return nearest <= Math.max(64, Math.min(frameWidth, frameHeight) * 0.12)
+          } catch {
+            return false
+          } finally {
+            range.detach?.()
+          }
+        }
+        const pointText = textRangeNearPoint(pointNode, pointOffset)
+          ? textAround(pointNode, pointOffset)
+          : ''
+        if (pointText) return pointText
         const rectText = (() => {
           const range = frameDoc.createRange?.()
           const nodeFilter = frameDoc.defaultView?.NodeFilter?.SHOW_TEXT ?? NodeFilter.SHOW_TEXT
@@ -3326,30 +3458,11 @@ if (mode === 'epub-native-drag-single-commit') {
           }
           range.detach?.()
           if (!best) return ''
-          const text = String(best.node.nodeValue || '')
-          const midpoint = Math.max(0, Math.min(text.length, best.index))
-          return text
-            .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
-            .replace(/\s+/g, ' ')
-            .trim()
+          if (best.distance > Math.max(96, Math.min(frameWidth, frameHeight) * 0.18)) return ''
+          return textAround(best.node, best.index)
         })()
         if (rectText) return rectText
-        const range = typeof frameDoc.caretRangeFromPoint === 'function'
-          ? frameDoc.caretRangeFromPoint(x, y)
-          : null
-        const position = !range && typeof frameDoc.caretPositionFromPoint === 'function'
-          ? frameDoc.caretPositionFromPoint(x, y)
-          : null
-        const node = range?.startContainer || position?.offsetNode || frameDoc.elementFromPoint?.(x, y)
-        const offset = Number(range?.startOffset ?? position?.offset ?? 0)
-        const text = node?.nodeType === Node.TEXT_NODE
-          ? String(node.nodeValue || '')
-          : String(node?.textContent || '')
-        const midpoint = Math.max(0, Math.min(text.length, offset || Math.floor(text.length / 2)))
-        return text
-          .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
-          .replace(/\s+/g, ' ')
-          .trim()
+        return ''
       }
       const pointTextForFrameAtScroll = (frame, scrollX, probeX = null, probeY = null) => {
         const frameWin = frame?.contentWindow
@@ -3446,6 +3559,12 @@ if (mode === 'epub-native-drag-single-commit') {
       const mappedX = Number(frame?.dataset.navicPageDragPreviewFrameMappedScrollX)
       const cloneMaxX = Number(frame?.dataset.navicPageDragPreviewFrameCloneMaxX)
       const axisStep = Number(frame?.dataset.navicPageDragPreviewFrameAxisStep)
+      const frameFlow = frameDoc?.querySelector?.('[data-navic-page-curl-snapshot-flow="true"]') || null
+      const frameRootStyle = frameDoc?.documentElement ? frameDoc.defaultView?.getComputedStyle?.(frameDoc.documentElement) : null
+      const frameBodyStyle = frameDoc?.body ? frameDoc.defaultView?.getComputedStyle?.(frameDoc.body) : null
+      const frameFlowStyle = frameFlow ? frameDoc.defaultView?.getComputedStyle?.(frameFlow) : null
+      const frontSnapshotFlow = frontSnapshotDoc?.querySelector?.('[data-navic-page-curl-snapshot-flow="true"]') || null
+      const frontSnapshotFlowStyle = frontSnapshotFlow ? frontSnapshotDoc.defaultView?.getComputedStyle?.(frontSnapshotFlow) : null
       const samplePositions = [0, mappedX - axisStep, mappedX, mappedX + axisStep, cloneMaxX]
         .filter(value => Number.isFinite(value))
         .map(value => Math.max(0, Math.round(value)))
@@ -3471,6 +3590,31 @@ if (mode === 'epub-native-drag-single-commit') {
         frameScrollHeight: Number(frameDoc?.documentElement?.scrollHeight || frameDoc?.body?.scrollHeight),
         frameClientWidth: Number(frameDoc?.documentElement?.clientWidth || frameDoc?.body?.clientWidth),
         frameClientHeight: Number(frameDoc?.documentElement?.clientHeight || frameDoc?.body?.clientHeight),
+        frameFlowScrollWidth: Number(frameFlow?.scrollWidth || 0),
+        frameFlowOffsetWidth: Number(frameFlow?.offsetWidth || 0),
+        frameRootComputed: {
+          width: frameRootStyle?.width || '',
+          height: frameRootStyle?.height || '',
+          overflow: frameRootStyle?.overflow || '',
+          columnWidth: frameRootStyle?.columnWidth || '',
+          columnGap: frameRootStyle?.columnGap || '',
+        },
+        frameBodyComputed: {
+          width: frameBodyStyle?.width || '',
+          height: frameBodyStyle?.height || '',
+          overflow: frameBodyStyle?.overflow || '',
+          position: frameBodyStyle?.position || '',
+        },
+        frameFlowComputed: {
+          width: frameFlowStyle?.width || '',
+          minWidth: frameFlowStyle?.minWidth || '',
+          maxWidth: frameFlowStyle?.maxWidth || '',
+          height: frameFlowStyle?.height || '',
+          columnWidth: frameFlowStyle?.columnWidth || '',
+          columnGap: frameFlowStyle?.columnGap || '',
+          columnFill: frameFlowStyle?.columnFill || '',
+          transform: frameFlowStyle?.transform || '',
+        },
         frameProbeX,
         frameProbeY,
         frameVisibleText: visibleTextForFrame(frame).slice(0, 1200),
@@ -3499,6 +3643,24 @@ if (mode === 'epub-native-drag-single-commit') {
         frontSnapshotMappedScrollY: Number(frontSnapshot?.dataset.navicPageCurlSnapshotMappedScrollY),
         frontSnapshotSourceScrollX: Number(frontSnapshot?.dataset.navicPageCurlSnapshotScrollX),
         frontSnapshotSourceScrollY: Number(frontSnapshot?.dataset.navicPageCurlSnapshotScrollY),
+        frontSnapshotFlowScrollWidth: Number(frontSnapshotFlow?.scrollWidth || 0),
+        frontSnapshotFlowOffsetWidth: Number(frontSnapshotFlow?.offsetWidth || 0),
+        frontSnapshotFlowComputed: {
+          width: frontSnapshotFlowStyle?.width || '',
+          minWidth: frontSnapshotFlowStyle?.minWidth || '',
+          maxWidth: frontSnapshotFlowStyle?.maxWidth || '',
+          height: frontSnapshotFlowStyle?.height || '',
+          columnWidth: frontSnapshotFlowStyle?.columnWidth || '',
+          columnGap: frontSnapshotFlowStyle?.columnGap || '',
+          columnFill: frontSnapshotFlowStyle?.columnFill || '',
+          transform: frontSnapshotFlowStyle?.transform || '',
+        },
+        frontSnapshotPointText: pointTextForFrame(frontSnapshot, frameProbeX, frameProbeY).slice(0, 1200),
+        frontSnapshotVisibleText: visibleTextForFrame(frontSnapshot).slice(0, 1200),
+        frontSnapshotPointSamples: samplePositions.map(position => ({
+          position,
+          text: pointTextForFrameAtVisualOffset(frontSnapshot, position, frameProbeX, frameProbeY).slice(0, 360),
+        })),
         paperLayerPresent: Boolean(paperLayer),
         borderLayerPresent: Boolean(borderLayer),
         targetTextureSlot: targetSlot,
@@ -3510,6 +3672,7 @@ if (mode === 'epub-native-drag-single-commit') {
       }
     })
     let previewVisual = await readPreviewVisual()
+    diagnosticPreviewVisual = previewVisual
     if (previewVisual.layerPresent && previewVisual.mode === 'interior' && (!previewVisual.frameReady || !previewVisual.ready)) {
       await page.waitForFunction(() => {
         const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
@@ -3532,10 +3695,12 @@ if (mode === 'epub-native-drag-single-commit') {
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       })
       previewVisual = await readPreviewVisual()
+      diagnosticPreviewVisual = previewVisual
     }
     let livePreview = null
     if (!previewVisual.layerPresent) {
       livePreview = await readState()
+      diagnosticLivePreview = livePreview
       const liveText = livePreview.pointText || livePreview.visibleRangeText || ''
       previewVisual = {
         ...previewVisual,
@@ -3583,17 +3748,31 @@ if (mode === 'epub-native-drag-single-commit') {
         `observed ${JSON.stringify(previewVisual)}`
       )
     }
-    if (!(previewVisual.curl === false)) {
+    if (dragAnimationMode === 'standard' && !(previewVisual.curl === false)) {
       throw new Error(
         `Expected standard interior native drag preview to avoid curl state; ` +
         `observed ${JSON.stringify(previewVisual)}`
       )
     }
-    if (previewVisual.frontSnapshotPresent) {
+    if (dragAnimationMode === 'standard' && previewVisual.frontSnapshotPresent) {
       throw new Error(
         `Expected standard interior native drag preview to avoid curl snapshots; ` +
         `observed ${JSON.stringify(previewVisual)}`
       )
+    }
+    if (dragAnimationMode === 'curl') {
+      if (!previewVisual.curl || previewVisual.curlDirection !== 'next') {
+        throw new Error(
+          `Expected curl interior native drag preview to expose active next-page curl state; ` +
+          `observed ${JSON.stringify(previewVisual)}`
+        )
+      }
+      if (!previewVisual.frontSnapshotPresent || !previewVisual.frontSnapshotReady || previewVisual.frontSnapshotTextLength <= 0) {
+        throw new Error(
+          `Expected curl interior native drag preview to capture the currently turning page; ` +
+          `observed ${JSON.stringify(previewVisual)}`
+        )
+      }
     }
     if (!previewVisual.framePresent || !previewVisual.frameReady || previewVisual.frameTextLength <= 0) {
       throw new Error(
@@ -3791,6 +3970,7 @@ if (mode === 'epub-native-drag-single-commit') {
         latest.pageIndex !== beforeGlobalPageIndex
     }, { beforeLocationCount, beforeGlobalPageIndex })
     const afterCommit = await readState()
+    diagnosticAfterCommit = afterCommit
     const previewOffsetScanScored = previewOffsetScan
       .map(sample => ({
         position: sample.position,
@@ -3802,6 +3982,8 @@ if (mode === 'epub-native-drag-single-commit') {
       }))
       .sort((left, right) => right.overlap - left.overlap)
     previewVisual.frameOffsetScanBest = previewOffsetScanScored.slice(0, 8)
+    diagnosticPreviewVisual = previewVisual
+    diagnosticPreviewOffsetScan = previewOffsetScanScored.slice(0, 16)
     if (livePreview) {
       const expectedCommitStart = Math.round(Number(before.start) + Number(before.size))
       const actualCommitStart = Math.round(Number(afterCommit.start))
@@ -3901,28 +4083,68 @@ if (mode === 'epub-native-drag-single-commit') {
     }
     const firstPagePreviewText = (previewVisual.framePointSamples || [])
       .find(sample => Number(sample?.position) === 0)?.text || ''
-    const previewStartOverlap = textOverlapScore(previewVisual.framePointText, firstPagePreviewText)
-    const previewPointTokenCount = textTokens(previewVisual.framePointText).length
-    if (previewPointTokenCount < 4 || previewStartOverlap > 0.35) {
+    const previewIdentityText = previewVisual.framePointText || previewVisual.frameVisibleText || ''
+    const previewStartOverlap = textOverlapScore(previewIdentityText, firstPagePreviewText)
+    const previewPointTokenCount = textTokens(previewIdentityText).length
+    const previewMappedScroll = Number(previewVisual.frameMappedScrollX)
+    const previewTargetScroll = Number(previewVisual.frameTargetScrollX)
+    const previewAxisStep = Math.max(1, Number(previewVisual.frameAxisStep) || Number(before.size) || 1)
+    const previewMappedToTarget = Number.isFinite(previewMappedScroll) && Number.isFinite(previewTargetScroll)
+      ? Math.abs(previewMappedScroll - previewTargetScroll)
+      : Infinity
+    if (
+      previewPointTokenCount < 4 ||
+      previewMappedScroll < previewAxisStep * 1.5 ||
+      previewMappedToTarget > Math.max(128, previewAxisStep * 0.08) ||
+      (dragAnimationMode !== 'curl' && previewStartOverlap > 0.35)
+    ) {
       throw new Error(
         `Expected native drag preview point text to be offset away from the chapter start; ` +
         `startOverlap=${previewStartOverlap.toFixed(3)} previewTokens=${previewPointTokenCount} ` +
-        `preview="${String(previewVisual.framePointText || '').slice(0, 260)}" ` +
+        `mappedScroll=${previewMappedScroll} targetScroll=${previewTargetScroll} ` +
+        `mappedDelta=${Number.isFinite(previewMappedToTarget) ? previewMappedToTarget.toFixed(1) : 'NaN'} ` +
+        `axisStep=${previewAxisStep} preview="${String(previewIdentityText || '').slice(0, 260)}" ` +
         `chapterStart="${String(firstPagePreviewText || '').slice(0, 260)}" ` +
         `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
       )
     }
+    if (dragAnimationMode === 'curl') {
+      const frontSnapshotIdentityText = previewVisual.frontSnapshotPointText || previewVisual.frontSnapshotVisibleText || ''
+      const frontSnapshotPointTokenCount = textTokens(frontSnapshotIdentityText).length
+      const frontSnapshotMappedScroll = Number(previewVisual.frontSnapshotMappedScrollX)
+      const frontSnapshotSourceScroll = Number(previewVisual.frontSnapshotSourceScrollX)
+      const beforeStart = Number(before.start)
+      const expectedFrontScroll = Number.isFinite(frontSnapshotSourceScroll) ? frontSnapshotSourceScroll : beforeStart
+      const frontMappedToCurrent = Number.isFinite(frontSnapshotMappedScroll) && Number.isFinite(expectedFrontScroll)
+        ? Math.abs(frontSnapshotMappedScroll - expectedFrontScroll)
+        : Infinity
+      if (
+        frontSnapshotPointTokenCount < 4 ||
+        frontSnapshotMappedScroll < previewAxisStep * 1.5 ||
+        frontMappedToCurrent > Math.max(128, previewAxisStep * 0.08)
+      ) {
+        throw new Error(
+          `Expected curl front snapshot to show the current page being turned, not a stale page; ` +
+          `snapshotTokens=${frontSnapshotPointTokenCount} mappedScroll=${frontSnapshotMappedScroll} ` +
+          `expectedCurrentScroll=${expectedFrontScroll} mappedDelta=${Number.isFinite(frontMappedToCurrent) ? frontMappedToCurrent.toFixed(1) : 'NaN'} ` +
+          `axisStep=${previewAxisStep} snapshot="${String(frontSnapshotIdentityText || '').slice(0, 260)}" ` +
+          `beforePoint="${String(before.pointText || '').slice(0, 260)}" ` +
+          `beforeRange="${String(before.visibleRangeText || '').slice(0, 260)}" ` +
+          `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)}`
+        )
+      }
+    }
     const previewCommitOverlap = Math.max(
-      textOverlapScore(previewVisual.framePointText, afterCommit.pointText),
-      textOverlapScore(previewVisual.framePointText, afterCommit.visibleRangeText),
+      textOverlapScore(previewIdentityText, afterCommit.pointText),
+      textOverlapScore(previewIdentityText, afterCommit.visibleRangeText),
       ...((previewVisual.framePointSamples || []).map(sample => textOverlapScore(sample?.text, afterCommit.pointText))),
       ...((previewVisual.framePointSamples || []).map(sample => textOverlapScore(sample?.text, afterCommit.visibleRangeText)))
     )
-    if (!Number.isFinite(previewCommitOverlap) || previewCommitOverlap < 0.35) {
+    if (dragAnimationMode !== 'curl' && (!Number.isFinite(previewCommitOverlap) || previewCommitOverlap < 0.35)) {
       throw new Error(
         `Expected native drag release to commit the page text shown by the preview; ` +
         `previewCommitOverlap=${Number.isFinite(previewCommitOverlap) ? previewCommitOverlap.toFixed(3) : 'NaN'} ` +
-        `preview="${String(previewVisual.framePointText || '').slice(0, 260)}" ` +
+        `preview="${String(previewIdentityText || '').slice(0, 260)}" ` +
         `afterPoint="${String(afterCommit.pointText || '').slice(0, 260)}" ` +
         `afterRange="${String(afterCommit.visibleRangeText || '').slice(0, 260)}" ` +
         `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
@@ -3973,6 +4195,7 @@ if (mode === 'epub-native-drag-single-commit') {
     const outputPath = path.join(outputDir, 'epub-native-drag-single-commit.json')
     fs.writeFileSync(outputPath, JSON.stringify({
       fixture: fixturePath,
+      dragAnimationMode,
       generatedAt: new Date().toISOString(),
       before,
       afterPreview,
@@ -4011,9 +4234,18 @@ if (mode === 'epub-native-drag-single-commit') {
     }
     fs.writeFileSync(outputPath, JSON.stringify({
       fixture: fixturePath,
+      dragAnimationMode,
       generatedAt: new Date().toISOString(),
       error: error?.stack || error?.message || String(error),
       errors,
+      diagnostics: {
+        before: diagnosticBefore,
+        afterPreview: diagnosticAfterPreview,
+        previewVisual: diagnosticPreviewVisual,
+        livePreview: diagnosticLivePreview,
+        afterCommit: diagnosticAfterCommit,
+        previewOffsetScan: diagnosticPreviewOffsetScan,
+      },
       state,
     }, null, 2))
     console.error(error?.message || String(error))

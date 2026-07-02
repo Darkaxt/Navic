@@ -169,7 +169,11 @@ function postCurrentLocationSnapshot(reason = 'snapshot', options = {}) {
 
 
 function postLocationChanged(detail, reason = 'relocate', options = {}) {
-  this.removePageDragPreviewLayer()
+  if (this.nativePageDragPreview || this.pendingPageDragPreviewCommand) {
+    readerTrace('page-drag-preview:retained-for-location', { reason })
+  } else {
+    this.removePageDragPreviewLayer()
+  }
   if (this.detailTargetsCover(detail) && this.hasNonCoverReadableContent()) {
     this.updateReaderPageNumberLayer(null)
     log('location-changed:cover-skipped', reason)

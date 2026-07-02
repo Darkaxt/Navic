@@ -379,27 +379,43 @@ class ReaderRuntimePaperSurfaceTest {
 
 		assertContains(
 			singleCommit,
-			"dragAnimationMode: 'standard'",
-			message = "The release-default native drag commit guard must run standard mode, not the experimental curl path."
-		)
-		assertFalse(
-			singleCommit.contains("dragAnimationMode: 'curl'"),
-			"The standard single-commit guard must not opt into curl; curl remains covered by the curl preview harness."
+			"String(argValue('--drag-animation-mode') || 'standard').trim().toLowerCase()",
+			message = "The native drag commit guard must keep Standard as the default when no debug drag mode is provided."
 		)
 		assertContains(
 			singleCommit,
-			"previewVisual.curl === false",
+			"!['standard', 'curl'].includes(dragAnimationMode)",
+			message = "The native drag commit guard may exercise Curl explicitly, but only through the debug harness argument."
+		)
+		assertContains(
+			singleCommit,
+			"dragAnimationMode,",
+			message = "The native drag commit guard must pass the selected debug drag mode into the reader settings."
+		)
+		assertContains(
+			singleCommit,
+			"dragAnimationMode === 'standard' && !(previewVisual.curl === false)",
 			message = "The standard single-commit guard must prove the preview layer is not using curl state."
 		)
 		assertContains(
 			singleCommit,
-			"previewStartOverlap",
-			message = "The standard single-commit guard must prove the preview is offset away from chapter-start text before release."
+			"dragAnimationMode === 'standard' && previewVisual.frontSnapshotPresent",
+			message = "The standard single-commit guard must prove the preview layer is not using curl snapshots."
 		)
 		assertContains(
 			singleCommit,
-			"previewCommitOverlap",
-			message = "The standard single-commit guard must prove the previewed text matches the text visible after release, not only the numeric renderer offset."
+			"if (dragAnimationMode === 'curl')",
+			message = "Curl-specific snapshot validation must be isolated to the explicit debug curl mode."
+		)
+		assertContains(
+			singleCommit,
+			"frontSnapshotMappedScrollX",
+			message = "Curl debug validation must prove the front snapshot maps to the current rendered spread."
+		)
+		assertContains(
+			singleCommit,
+			"frameMappedScrollX",
+			message = "Curl debug validation must prove the next-page preview frame maps to the adjacent rendered spread."
 		)
 		assertContains(
 			singleCommit,
