@@ -38,27 +38,27 @@
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeShellProgressTest.kt`
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeNavigationFlowTest.kt`
 
-- [ ] **A1: Add or tighten failing source/harness guards**
+- [x] **A1: Add or tighten failing source/harness guards**
   - Guard tablet landscape against one-word/min-content columns using the existing `adaptive-page-box-logic` and `page-box` probes.
   - Guard standard drag so preview uses the current rendered page and release commits exactly one page.
   - Guard page-number font so the root organic page number resolves the selected reader font before publisher font sampling.
   - Guard paper and border layers so paper texture is not applied per EPUB document element and border overlays stay visible.
 
-- [ ] **A2: Run focused red check**
+- [x] **A2: Run focused red check**
   - Run:
     ```powershell
     .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --tests paige.navic.reader.ReaderRuntimeShellProgressTest --tests paige.navic.reader.ReaderRuntimeNavigationFlowTest
     ```
   - Expected: the new or tightened guard fails before production runtime changes, unless the behavior is already correctly implemented.
 
-- [ ] **A3: Implement runtime changes**
+- [x] **A3: Implement runtime changes**
   - Keep Foliate/Anx as the layout core.
   - Keep standard drag separate from optional curl preview.
   - Keep root surface texture ownership in the reader root, not in EPUB documents.
   - Let page textures move with the page preview/commit path instead of swapping after text settles.
   - Make tablet landscape use a readable spread/page box, not a narrow centered column.
 
-- [ ] **A4: Validate JS and browser harness**
+- [x] **A4: Validate JS and browser harness**
   - Run:
     ```powershell
     node --check composeApp\src\androidMain\assets\reader\navic-reader-appearance.js
@@ -77,7 +77,7 @@
     ```
   - Expected: syntax checks pass; harness rejects collapsed landscape and passes one-page drag commit plus texture boundary movement.
 
-- [ ] **A5: Validate in readerdev**
+- [x] **A5: Validate in readerdev**
   - Run readerdev install/open with production book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, audiobook file `633`.
   - Run `adb-reader-smoke.ps1` probes: `page-box`, `texture-slots`, `page-number-font`, `native-drag-preview-texture`.
   - Expected: `publicationReady`, readable page box, page-number font parity, moving texture slots, no reader console errors.
@@ -86,6 +86,15 @@
   - Run focused Gradle host test from A2 and `git diff --check`.
   - Commit message: `Stabilize reader surface fidelity`.
   - Audit docs for remaining `landscape`, `texture`, `page-number`, `curl`, and `drag` references; every remaining item must be physical acceptance or a named later slice.
+
+Plan A status on 2026-07-02:
+- The current branch already contained the tightened source and harness guards for landscape page boxes, standard drag isolation, page-number font parity, and root-owned paper/border layers.
+- Focused host tests passed from hidden Gradle log `artifacts\gradle\plan-a-reader-surface-host\gradle-20260702-031313.out.log`.
+- JS syntax checks passed for the Plan A reader modules and harness scripts.
+- Browser harness passed `adaptive-page-box-logic`, `epub-native-drag-single-commit`, `epub-native-drag-standard-no-curl`, and `epub-texture-frontmatter-transition` against `tmp\reader-live\book-3809-file-426.epub` at tablet landscape viewport `1974x1232`.
+- Readerdev APK `darkaxt.navic.readerdev` rebuilt and installed on `emulator-5554` as `v1.0.11-theta38`, reached `publicationReady`, and captured `captures\reader-dev\reader-dev-20260702-032712.png`.
+- Readerdev WebView probes passed `page-box`, `texture-slots`, `page-number-font`, and `native-drag-preview-texture`; smoke artifacts are in `captures\reader-bridge-probes\plan-a-reader-surface-smoke-20260702-033240`.
+- No public release was created. This is local debug/readerdev evidence only.
 
 ## Focused Plan B: Native Komikku Shell And Controls
 

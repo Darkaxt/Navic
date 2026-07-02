@@ -10516,3 +10516,25 @@ Results:
 
 Next:
 - Do not publish a public APK for this slice. It is a meaningful texture/page-turn boundary fix, but it still needs to be bundled with the broader reader visual/interaction candidate and verified in readerdev/emulator before a public release.
+
+## 2026-07-02 Focused Plan A Debug Validation
+
+Scope:
+- Validate the current reader surface fidelity slice without creating a public release.
+- Cover tablet landscape spread, page-number font parity, root-owned paper/border texture layers, standard drag isolation, and frontmatter texture boundary behavior.
+
+Commands and evidence:
+- Focused host tests passed from hidden Gradle log `artifacts\gradle\plan-a-reader-surface-host\gradle-20260702-031313.out.log`.
+- JS syntax checks passed for `navic-reader-appearance.js`, `navic-reader-helpers.js`, `navic-reader-viewport.js`, `navic-reader-typography.js`, `navic-reader-pagination.js`, `navic-reader-page-turns.js`, `navic-reader-location.js`, `run-reader-harness.mjs`, and `adb-webview-eval.mjs`.
+- Browser harness passed `adaptive-page-box-logic`, `epub-native-drag-single-commit`, `epub-native-drag-standard-no-curl`, and `epub-texture-frontmatter-transition` against `tmp\reader-live\book-3809-file-426.epub` at `1974x1232`.
+- `scripts\install-reader-dev.ps1` rebuilt and installed `darkaxt.navic.readerdev` on `emulator-5554` as `v1.0.11-theta38`, reached `publicationReady`, and captured `captures\reader-dev\reader-dev-20260702-032712.png`.
+- Readerdev DevTools probes passed:
+  - `page-box`: full renderer surface `1974x1232`, `maxColumnCount=2`.
+  - `texture-slots`: moving paper and border slots present for previous/current/next; static texture layer had no image set.
+  - `page-number-font`: page number, root variable, body, and content all resolved to the Dys/OpenDyslexic stack with `font-variant-numeric=normal`.
+  - `native-drag-preview-texture`: preview layer present, `textureSurface=paper,border`, next slot target present for both paper and border.
+- Smoke artifacts are in `captures\reader-bridge-probes\plan-a-reader-surface-smoke-20260702-033240`; stderr was empty and no `Reader console ERROR` entries were present.
+
+Result:
+- GREEN/DEBUG: Plan A is validated in host, browser harness, and readerdev emulator for the current source.
+- NO PUBLIC RELEASE: this remains a local debug/readerdev validation slice. Public release is still gated by the focused public release candidate plan.
