@@ -375,9 +375,18 @@ class View {
 
                 this.#contentRange.selectNodeContents(doc.body)
                 const layout = beforeRender?.({ vertical, rtl, background })
+                // Navic: keep the iframe invisible (visibility, not display — display must
+                // stay 'block' so foliate can still measure columns) while render() applies
+                // the page margins/columns, then reveal on the next frame once layout has
+                // committed. This closes the flash of unstyled, margin-less text when a new
+                // chapter section first paints.
+                this.#iframe.style.visibility = 'hidden'
                 this.#iframe.style.display = 'block'
                 this.render(layout)
                 this.#observer.observe(doc.body)
+                requestAnimationFrame(() => {
+                    this.#iframe.style.visibility = ''
+                })
 
                 // the resize observer above doesn't work in Firefox
                 // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)

@@ -1791,6 +1791,7 @@ function previewPageDrag(command) {
       deltaY: previousDelta.y,
       live: previousPreview?.live === true,
     })
+    let liveSnapInProgress = false
     if (previousPreview?.live === true) {
       if (releaseTextureDirection && typeof renderer.snap === 'function') {
         const velocity = readerNativeDragSnapVelocity({
@@ -1800,6 +1801,7 @@ function previewPageDrag(command) {
         })
         this.suppressNativeDragCommittedPageTurn = releaseTextureDirection
         renderer.snap(velocity.vx, velocity.vy)
+        liveSnapInProgress = true
         readerTrace('page-drag-preview:live-snap', {
           direction: releaseTextureDirection,
           velocity,
@@ -1818,10 +1820,22 @@ function previewPageDrag(command) {
     this.nativePageDragPreview = null
     this.pendingPageDragPreviewCommand = null
     this.removePageDragPreviewLayer()
-    this.surfacePaperTextureTurnDirection = null
+    // Stop using the live-drag offset source so the heuristic (which tracks the
+    // animating renderer position) drives the texture through the snap.
     this.surfaceLiveDragActive = false
     this.surfaceLiveDragOffset = { x: 0, y: 0 }
-    this.renderSurfacePaperTextureLayers()
+    if (liveSnapInProgress) {
+      // Keep the turn direction seeded (it is cleared later by applySurfacePaperTextureUpdate)
+      // so the heuristic does not directionless-clamp mid-snap, and run the motion-sync loop
+      // so the texture re-renders every frame through the snap instead of freezing (blank)
+      // until the deferred ~180ms variant commit. The loop is stopped by
+      // applySurfacePaperTextureUpdate when the new page's variant commits.
+      this.renderSurfacePaperTextureLayers()
+      this.startSurfacePaperTextureMotionSync('live-drag-snap')
+    } else {
+      this.surfacePaperTextureTurnDirection = null
+      this.renderSurfacePaperTextureLayers()
+    }
     return
   }
   const deltaX = Number(command?.deltaX)
@@ -1844,12 +1858,16 @@ function previewPageDrag(command) {
       source: 'native-preview',
     })
   }
-  const lastDeltaX = this.nativePageDragPreview?.renderer === renderer
-    ? Number(this.nativePageDragPreview?.deltaX) || 0
-    : 0
-  const lastDeltaY = this.nativePageDragPreview?.renderer === renderer
-    ? Number(this.nativePageDragPreview?.deltaY) || 0
-    : 0
+  // Source the previous delta only from a LIVE drag preview. A non-live
+  // underlay/boundary preview can carry a stale deltaX that corrupts
+  // incrementalDelta on the first live frame and makes the live scroll reveal
+  // the wrong adjacent page (e.g. page 7 instead of page 5 on a backward drag).
+  const previousLivePreview = this.nativePageDragPreview?.renderer === renderer
+    && this.nativePageDragPreview?.live === true
+    ? this.nativePageDragPreview
+    : null
+  const lastDeltaX = previousLivePreview ? (Number(previousLivePreview.deltaX) || 0) : 0
+  const lastDeltaY = previousLivePreview ? (Number(previousLivePreview.deltaY) || 0) : 0
   const { incrementalDelta } = readerPageDragPreviewMotion({
     deltaX: currentDeltaX,
     deltaY: currentDeltaY,
@@ -1899,11 +1917,11 @@ function previewPageDrag(command) {
     }
   }
   if (!boundaryDirection && textureDirection && this.readerDragAnimationModeValue !== 'curl') {
-    const previousPreview = this.nativePageDragPreview?.renderer === renderer
-      ? this.nativePageDragPreview
-      : null
-    const basePosition = Number.isFinite(Number(previousPreview?.basePosition))
-      ? Number(previousPreview.basePosition)
+    // Seed basePosition only from a live preview; otherwise anchor to the current
+    // renderer position so a prior non-live (underlay/boundary) preview can't shift
+    // the live scroll window by a page.
+    const basePosition = previousLivePreview && Number.isFinite(Number(previousLivePreview.basePosition))
+      ? Number(previousLivePreview.basePosition)
       : Number(renderer.containerPosition)
     if (Number.isFinite(incrementalDelta.x) || Number.isFinite(incrementalDelta.y)) {
       renderer.scrollBy(
@@ -1915,7 +1933,7 @@ function previewPageDrag(command) {
     // delta that just moved the text. Accumulate the exact incrementalDelta fed
     // to renderer.scrollBy (reset on the first move of this live drag) and apply
     // it synchronously so texture and text share one displacement source.
-    if (!previousPreview) {
+    if (!previousLivePreview) {
       this.surfaceLiveDragOffset = { x: 0, y: 0 }
     }
     this.surfaceLiveDragOffset = {
