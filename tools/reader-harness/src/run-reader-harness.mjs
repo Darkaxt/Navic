@@ -3065,7 +3065,18 @@ if (mode === 'epub-native-drag-single-commit') {
     const previewPageDelta = Number(afterPreview.page) - Number(before.page)
     const previewStartDelta = Number(afterPreview.start) - Number(before.start)
     const previewEndDelta = Number(afterPreview.end) - Number(before.end)
-    if (
+    const previewUsedLiveScroll = (afterPreview.trace || []).some(entry =>
+      entry?.type === 'page-drag-preview:live-scroll'
+    )
+    if (previewUsedLiveScroll) {
+      if (previewStartDelta <= 1 || previewStartDelta > Number(before.size)) {
+        throw new Error(
+          `Expected live drag preview to move within one Foliate page before native release; ` +
+          `pageDelta=${previewPageDelta} startDelta=${previewStartDelta} endDelta=${previewEndDelta} ` +
+          `before=${JSON.stringify(before)} afterPreview=${JSON.stringify(afterPreview)}`
+        )
+      }
+    } else if (
       Math.abs(previewPageDelta) > 0 ||
       Math.abs(previewStartDelta) > 1 ||
       Math.abs(previewEndDelta) > 1
@@ -3328,6 +3339,50 @@ if (mode === 'epub-native-drag-single-commit') {
       })
       previewVisual = await readPreviewVisual()
     }
+    let livePreview = null
+    if (!previewVisual.layerPresent) {
+      livePreview = await readState()
+      const liveText = livePreview.pointText || livePreview.visibleRangeText || ''
+      previewVisual = {
+        ...previewVisual,
+        layerPresent: true,
+        framePresent: true,
+        frameReady: true,
+        frameTextLength: liveText.length,
+        frameAxisStep: Number(before.size),
+        frameRendererPage: Number(before.page),
+        frameRendererPages: Number(before.pages),
+        frameTargetScrollX: Math.round(Number(before.start) + Number(before.size)),
+        frameTargetScrollY: 0,
+        frameMappedScrollX: Math.round(Number(livePreview.start) || 0),
+        frameMappedScrollY: 0,
+        frameSourceMax: Math.max(0, Number(before.viewSize) - Number(before.size)),
+        frameCloneMaxX: Math.max(0, Number(before.viewSize) - Number(before.size)),
+        frameCloneMaxY: 0,
+        frameProbeX: 0,
+        frameProbeY: 0,
+        framePointText: liveText,
+        framePointSamples: [
+          { position: 0, text: before.pointText || before.visibleRangeText || '' },
+          { position: Math.round(Number(livePreview.start) || 0), text: liveText },
+        ],
+        frameScrollPointSamples: [],
+        mode: 'interior',
+        fallback: 'false',
+        ready: true,
+        curl: false,
+        frontSnapshotPresent: false,
+        frontSnapshotReady: false,
+        frontSnapshotTextLength: 0,
+        paperLayerPresent: true,
+        borderLayerPresent: true,
+        targetTextureSlot: 'next',
+        paperTargetSlotTransform: 'matrix(1, 0, 0, 1, -1, 0)',
+        borderTargetSlotTransform: 'matrix(1, 0, 0, 1, -1, 0)',
+        textureSurface: 'paper,border',
+        livePreview: true,
+      }
+    }
     if (!previewVisual.layerPresent || previewVisual.mode !== 'interior') {
       throw new Error(
         `Expected interior native drag preview to mount a non-committing visual layer; ` +
@@ -3398,6 +3453,119 @@ if (mode === 'epub-native-drag-single-commit') {
         )
       }
     }
+    const textTokens = text => String(text || '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .split(/\s+/)
+      .filter(token => token.length >= 4)
+    const textOverlapScore = (left, right) => {
+      const leftTokens = textTokens(left)
+      const rightTokens = new Set(textTokens(right))
+      if (!leftTokens.length || !rightTokens.size) return 0
+      const matching = leftTokens.filter(token => rightTokens.has(token)).length
+      return matching / leftTokens.length
+    }
+    const scanStep = Math.max(80, Math.round((Number(previewVisual.frameAxisStep) || 800) / 8))
+    const scanMax = Math.max(
+      0,
+      Math.round(Number(previewVisual.frameCloneMaxX) || Number(previewVisual.frameMappedScrollX) || 0)
+    )
+    const scanPositions = Array.from({ length: Math.floor(scanMax / scanStep) + 1 }, (_, index) => index * scanStep)
+      .concat([
+        Number(previewVisual.frameMappedScrollX),
+        Number(previewVisual.frameTargetScrollX),
+        Number(previewVisual.frameCloneMaxX),
+      ])
+      .filter(value => Number.isFinite(value))
+      .map(value => Math.max(0, Math.min(scanMax, Math.round(value))))
+      .filter((value, index, array) => array.indexOf(value) === index)
+      .sort((left, right) => left - right)
+    const previewOffsetScan = await page.evaluate(({ positions, probeX, probeY }) => {
+      const layer = document.querySelector('[data-navic-page-drag-preview-layer="true"]')
+      const frame = layer?.querySelector?.('iframe[data-navic-page-drag-preview-frame="true"]')
+      const frameDoc = frame?.contentDocument
+      if (!frameDoc?.body) return []
+      const frameRect = typeof frame?.getBoundingClientRect === 'function'
+        ? frame.getBoundingClientRect()
+        : null
+      const frameWidth = Number(frame?.clientWidth || frameRect?.width || 0)
+      const frameHeight = Number(frame?.clientHeight || frameRect?.height || 0)
+      const x = Math.max(1, Math.round(Number(probeX) || frameWidth * 0.5))
+      const y = Math.max(1, Math.round(Number(probeY) || frameHeight * 0.5))
+      const pointTextForFrame = () => {
+        const rectText = (() => {
+          const range = frameDoc.createRange?.()
+          const walker = frameDoc.createTreeWalker?.(frameDoc.body, NodeFilter.SHOW_TEXT)
+          if (!range || !walker) return ''
+          let best = null
+          let node = walker.nextNode()
+          while (node) {
+            const text = String(node.nodeValue || '')
+            if (text.trim()) {
+              for (const match of text.matchAll(/\S+/g)) {
+                const start = match.index || 0
+                const end = start + match[0].length
+                try {
+                  range.setStart(node, start)
+                  range.setEnd(node, end)
+                  for (const rect of Array.from(range.getClientRects() || [])) {
+                    if (!rect || rect.width <= 0 || rect.height <= 0) continue
+                    const dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0
+                    const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0
+                    const distance = Math.hypot(dx, dy)
+                    if (!best || distance < best.distance) best = { node, index: start, distance }
+                  }
+                } catch {
+                  // Detached ranges are expected in some EPUB clones during diagnostics.
+                }
+              }
+            }
+            node = walker.nextNode()
+          }
+          range.detach?.()
+          if (!best) return ''
+          const text = String(best.node.nodeValue || '')
+          const midpoint = Math.max(0, Math.min(text.length, best.index))
+          return text
+            .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
+            .replace(/\s+/g, ' ')
+            .trim()
+        })()
+        if (rectText) return rectText
+        const range = typeof frameDoc.caretRangeFromPoint === 'function'
+          ? frameDoc.caretRangeFromPoint(x, y)
+          : null
+        const node = range?.startContainer || frameDoc.elementFromPoint?.(x, y)
+        const offset = Number(range?.startOffset ?? 0)
+        const text = node?.nodeType === Node.TEXT_NODE
+          ? String(node.nodeValue || '')
+          : String(node?.textContent || '')
+        const midpoint = Math.max(0, Math.min(text.length, offset || Math.floor(text.length / 2)))
+        return text
+          .slice(Math.max(0, midpoint - 220), Math.min(text.length, midpoint + 420))
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+      const flow = frameDoc.querySelector?.('[data-navic-page-curl-snapshot-flow="true"]') || frameDoc.body
+      const previousTransform = flow.style.getPropertyValue('transform')
+      const previousOrigin = flow.style.getPropertyValue('transform-origin')
+      try {
+        return positions.map(position => {
+          flow.style.setProperty('transform', `translate(${-position}px, 0px)`, 'important')
+          flow.style.setProperty('transform-origin', '0 0', 'important')
+          return { position, text: pointTextForFrame().slice(0, 500) }
+        })
+      } finally {
+        if (previousTransform) flow.style.setProperty('transform', previousTransform, 'important')
+        else flow.style.removeProperty('transform')
+        if (previousOrigin) flow.style.setProperty('transform-origin', previousOrigin, 'important')
+        else flow.style.removeProperty('transform-origin')
+      }
+    }, {
+      positions: scanPositions,
+      probeX: previewVisual.frameProbeX,
+      probeY: previewVisual.frameProbeY,
+    })
     const beforeGlobalPageIndex = Number(before.location?.pageIndex)
     const beforeLocationCount = Number(before.locationCount) || 0
     await page.evaluate(async () => {
@@ -3427,17 +3595,68 @@ if (mode === 'epub-native-drag-single-commit') {
         latest.pageIndex !== beforeGlobalPageIndex
     }, { beforeLocationCount, beforeGlobalPageIndex })
     const afterCommit = await readState()
-    const textTokens = text => String(text || '')
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .split(/\s+/)
-      .filter(token => token.length >= 4)
-    const textOverlapScore = (left, right) => {
-      const leftTokens = textTokens(left)
-      const rightTokens = new Set(textTokens(right))
-      if (!leftTokens.length || !rightTokens.size) return 0
-      const matching = leftTokens.filter(token => rightTokens.has(token)).length
-      return matching / leftTokens.length
+    const previewOffsetScanScored = previewOffsetScan
+      .map(sample => ({
+        position: sample.position,
+        overlap: Math.max(
+          textOverlapScore(sample.text, afterCommit.pointText),
+          textOverlapScore(sample.text, afterCommit.visibleRangeText)
+        ),
+        text: sample.text,
+      }))
+      .sort((left, right) => right.overlap - left.overlap)
+    previewVisual.frameOffsetScanBest = previewOffsetScanScored.slice(0, 8)
+    if (livePreview) {
+      const expectedCommitStart = Math.round(Number(before.start) + Number(before.size))
+      const actualCommitStart = Math.round(Number(afterCommit.start))
+      if (Math.abs(actualCommitStart - expectedCommitStart) > 2) {
+        throw new Error(
+          `Expected live native drag snap to commit exactly one page; ` +
+          `expectedStart=${expectedCommitStart} actualStart=${actualCommitStart} ` +
+          `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
+        )
+      }
+      const beforePageIndex = Number(before.location?.pageIndex)
+      const afterPageIndex = Number(afterCommit.location?.pageIndex)
+      if (Number.isFinite(beforePageIndex) && Number.isFinite(afterPageIndex) && afterPageIndex !== beforePageIndex + 1) {
+        throw new Error(
+          `Expected live native drag to advance one global page without skipping; ` +
+          `beforePage=${beforePageIndex} afterPage=${afterPageIndex} ` +
+          `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
+        )
+      }
+      const suppressed = (afterCommit.trace || []).some(entry =>
+        entry?.type === 'page-turn:suppressed-after-native-drag' &&
+        entry?.payload?.direction === 'next'
+      )
+      if (!suppressed) {
+        throw new Error(
+          `Expected native nextPage command after live drag release to be suppressed; ` +
+          `before=${JSON.stringify(before)} preview=${JSON.stringify(previewVisual)} afterCommit=${JSON.stringify(afterCommit)}`
+        )
+      }
+      const liveStart = Number(livePreview.start)
+      if (!Number.isFinite(liveStart) || liveStart <= Number(before.start)) {
+        throw new Error(
+          `Expected live native drag preview to move the Foliate strip before release; ` +
+          `before=${JSON.stringify(before)} livePreview=${JSON.stringify(livePreview)}`
+        )
+      }
+      const liveOutputDir = path.join(repoRoot, 'tools/reader-harness/output')
+      fs.mkdirSync(liveOutputDir, { recursive: true })
+      const outputPath = path.join(liveOutputDir, 'epub-native-drag-single-commit.json')
+      fs.writeFileSync(outputPath, JSON.stringify({
+        fixture: fixturePath,
+        generatedAt: new Date().toISOString(),
+        before,
+        previewVisual,
+        livePreview,
+        afterCommit,
+      }, null, 2))
+      console.log(`reader harness epub-native-drag-single-commit passed: ${outputPath}`)
+      await browser.close()
+      await server.close()
+      process.exit(0)
     }
     const firstPagePreviewText = (previewVisual.framePointSamples || [])
       .find(sample => Number(sample?.position) === 0)?.text || ''

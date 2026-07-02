@@ -332,9 +332,7 @@ function handleDuplicatePageTurnRelocation(_detail, reason) {
   })
   this.pageTurnDuplicateFallbackInProgress = true
   this.beginControlledRelocation(fallbackReason)
-  const navigationPromise = this.view?.renderer?.goTo
-    ? this.view.renderer.goTo({ index: targetIndex })
-    : this.view?.goTo?.(targetIndex)
+  const navigationPromise = this.view?.goTo?.(targetIndex)
   Promise.resolve(navigationPromise)
     .catch(error => reportError(error, 'navigation_failed'))
     .finally(() => {
@@ -726,6 +724,22 @@ function readerPageDragCurlMetrics({ direction, deltaX, deltaY, width, height, v
 
 function readerDragAnimationModeAllowsCurl(mode) {
   return String(mode || '').toLowerCase() === ReaderDragAnimationCurl
+}
+
+function readerNativeDragSnapVelocity({ direction, flowMode, readerDirection } = {}) {
+  if (flowMode === ReaderFlowPagedVertical) {
+    return {
+      vx: 0,
+      vy: direction === 'previous' ? -1 : 1,
+    }
+  }
+  const rtl = readerDirection === ReaderDirectionRtl
+  return {
+    vx: direction === 'previous'
+      ? (rtl ? 1 : -1)
+      : (rtl ? -1 : 1),
+    vy: 0,
+  }
 }
 
 function clearPageDragCurlState(layer) {
@@ -1649,12 +1663,24 @@ function previewPageDrag(command) {
       ? 'cancel'
       : 'update'
   if (phase === 'cancel') {
-    const previousDelta = this.nativePageDragPreview?.renderer === renderer
+    const previousPreview = this.nativePageDragPreview?.renderer === renderer
+      ? this.nativePageDragPreview
+      : null
+    const previousDelta = previousPreview
       ? {
-        x: Number(this.nativePageDragPreview?.deltaX) || 0,
-        y: Number(this.nativePageDragPreview?.deltaY) || 0,
+        x: Number(previousPreview.deltaX) || 0,
+        y: Number(previousPreview.deltaY) || 0,
       }
       : { x: 0, y: 0 }
+    const basePosition = Number(previousPreview?.basePosition)
+    if (previousPreview?.live === true && Number.isFinite(basePosition)) {
+      renderer.containerPosition = basePosition
+      readerTrace('page-drag-preview:live-reset', {
+        phase: 'cancel',
+        basePosition,
+        position: renderer.containerPosition,
+      })
+    }
     readerTrace('page-drag-preview:cancel', {
       deltaX: previousDelta.x,
       deltaY: previousDelta.y,
@@ -1668,10 +1694,13 @@ function previewPageDrag(command) {
     return
   }
   if (phase === 'release') {
-    const previousDelta = this.nativePageDragPreview?.renderer === renderer
+    const previousPreview = this.nativePageDragPreview?.renderer === renderer
+      ? this.nativePageDragPreview
+      : null
+    const previousDelta = previousPreview
       ? {
-        x: Number(this.nativePageDragPreview?.deltaX) || 0,
-        y: Number(this.nativePageDragPreview?.deltaY) || 0,
+        x: Number(previousPreview.deltaX) || 0,
+        y: Number(previousPreview.deltaY) || 0,
       }
       : { x: 0, y: 0 }
     const releaseDeltaX = Number(command?.deltaX)
@@ -1693,7 +1722,32 @@ function previewPageDrag(command) {
     readerTrace('page-drag-preview:release', {
       deltaX: previousDelta.x,
       deltaY: previousDelta.y,
+      live: previousPreview?.live === true,
     })
+    if (previousPreview?.live === true) {
+      if (releaseTextureDirection && typeof renderer.snap === 'function') {
+        const velocity = readerNativeDragSnapVelocity({
+          direction: releaseTextureDirection,
+          flowMode: this.readerFlowModeValue,
+          readerDirection: this.effectiveReaderDirection?.() || this.readerDirectionModeValue,
+        })
+        this.suppressNativeDragCommittedPageTurn = releaseTextureDirection
+        renderer.snap(velocity.vx, velocity.vy)
+        readerTrace('page-drag-preview:live-snap', {
+          direction: releaseTextureDirection,
+          velocity,
+          position: renderer.containerPosition,
+        })
+      } else {
+        const basePosition = Number(previousPreview.basePosition)
+        if (Number.isFinite(basePosition)) renderer.containerPosition = basePosition
+        readerTrace('page-drag-preview:live-reset', {
+          phase: 'release-without-direction',
+          basePosition,
+          position: renderer.containerPosition,
+        })
+      }
+    }
     this.nativePageDragPreview = null
     this.pendingPageDragPreviewCommand = null
     this.removePageDragPreviewLayer()
@@ -1768,6 +1822,42 @@ function previewPageDrag(command) {
       })
     }
   }
+  if (!boundaryDirection && textureDirection) {
+    const previousPreview = this.nativePageDragPreview?.renderer === renderer
+      ? this.nativePageDragPreview
+      : null
+    const basePosition = Number.isFinite(Number(previousPreview?.basePosition))
+      ? Number(previousPreview.basePosition)
+      : Number(renderer.containerPosition)
+    if (Number.isFinite(incrementalDelta.x) || Number.isFinite(incrementalDelta.y)) {
+      renderer.scrollBy(
+        Number.isFinite(incrementalDelta.x) ? -incrementalDelta.x : 0,
+        Number.isFinite(incrementalDelta.y) ? -incrementalDelta.y : 0
+      )
+    }
+    this.removePageDragPreviewLayer()
+    this.nativePageDragPreview = {
+      deltaX: currentDeltaX,
+      deltaY: currentDeltaY,
+      renderer,
+      live: true,
+      basePosition,
+    }
+    readerTrace('page-drag-preview:live-scroll', {
+      phase,
+      direction: textureDirection,
+      deltaX: currentDeltaX,
+      deltaY: currentDeltaY,
+      incrementalDeltaX: incrementalDelta.x,
+      incrementalDeltaY: incrementalDelta.y,
+      basePosition,
+      position: renderer.containerPosition,
+      start: renderer.start,
+      end: renderer.end,
+      viewSize: renderer.viewSize,
+    })
+    return
+  }
   this.updatePageDragPreviewLayer({
     direction: textureDirection,
     deltaX: currentDeltaX,
@@ -1830,6 +1920,14 @@ async function scrollViewport(direction) {
 }
 
 function turnPage(direction) {
+  if (this.suppressNativeDragCommittedPageTurn === direction) {
+    this.suppressNativeDragCommittedPageTurn = null
+    readerTrace('page-turn:suppressed-after-native-drag', {
+      direction,
+      position: this.currentRendererContainerPosition?.() ?? null,
+    })
+    return Promise.resolve()
+  }
   if (this.shellCoverVisible && direction === 'next') {
     log('page-turn:shell-cover-hide', direction)
     this.hideShellCover()

@@ -42,7 +42,7 @@ if ([string]::IsNullOrWhiteSpace($LogFile)) {
 }
 
 if (-not $AllowPublicRelease) {
-    throw "Public release blocked. Use debug/readerdev APKs for emulator iteration. Re-run with -AllowPublicRelease and -ReleaseReadinessNote only after a coherent feature or major fix is fully implemented, locally validated, committed, and ready for physical-device acceptance."
+    throw "Public release blocked. Use debug builds/readerdev installs for emulator iteration. Re-run with -AllowPublicRelease and -ReleaseReadinessNote only after a coherent feature or major fix is fully implemented, deployed in debug/readerdev, validated through its plan gates, committed, and ready for physical-device acceptance."
 }
 
 if ([string]::IsNullOrWhiteSpace($ReleaseReadinessNote)) {

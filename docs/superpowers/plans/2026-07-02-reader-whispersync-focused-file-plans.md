@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Break the Komikku reader and Whispersync work into file-owned, testable slices that can be completed, committed, and validated without publishing public APKs for microfixes.
+**Goal:** Break the Komikku reader and Whispersync work into file-owned, testable slices that can be completed, committed, and validated with debug/readerdev builds first, without publishing public APKs for microfixes.
 
 **Architecture:** Komikku owns native reader shell, tap ownership, chrome, rail, and settings. Anx/Foliate owns EPUB/PDF behavior, locators, selection, annotations, visible ranges, and media-overlay semantics. Bindery owns OPDS/API data, sidecars, resources, progress, generated cover assets, and audiobook identity.
 
@@ -15,10 +15,11 @@
 - Debug iteration means local `darkaxt.navic.readerdev` or another debuggable APK installed for emulator/device validation.
 - Public release means GitHub tag/prerelease/APK upload through `scripts/publish-github-release.ps1`.
 - Do not call emulator/debug artifacts "releases" in implementation notes. They are debug builds, readerdev installs, or validation artifacts.
+- Do not create a public release to collect routine user feedback. User/phone testing happens only after a coherent feature or major fix is already deployed and validated as a debug/readerdev candidate.
 - Plans A-D must use debug/readerdev APKs only. They may build, install, probe, commit, and push source changes, but they must not create GitHub tags, prereleases, or public APK assets.
 - Public release is only allowed in Plan E, after a coherent feature or major fix has passed its file-owned plan gates and is ready for physical-device acceptance.
 - Do not publish for isolated green probes, diagnostics, one-file visual tweaks, or partial fixes. A public release is a final candidate for a deployed feature/fix, not a normal iteration mechanism.
-- 2026-07-02 explicit user rule: use debug/readerdev builds for emulator iteration. Generate final public releases only after a new feature or fix has been fully deployed and validated through its gate.
+- 2026-07-02 explicit user rule: use debug/readerdev builds for emulator iteration. Generate final public releases only after a new feature or fix has been fully implemented, deployed in debug/readerdev, validated through its gate, and is ready as the next public candidate.
 - If a change still needs emulator iteration, physical-device judgement, or known follow-up patches before it is useful, it is not release-worthy.
 
 ## Focused Plan A: Reader Surface Fidelity
@@ -453,3 +454,40 @@ Plan B status on 2026-07-02:
   - Run `git diff --check`.
   - Commit this as a debug-only validation hardening change after the check passes.
   - 2026-07-02 result: `git diff --check` passed. This slice is ready to commit without creating a public release.
+
+## Focused Plan H: Debug-Only Adjacent Preview/Commit Stabilization
+
+**Purpose:** Close the remaining page-turn defect where late-section drags can preview one logical page but commit a different page, especially around adjacent section boundaries in production EPUBs. This continues Plan F and is not a separate release candidate.
+
+**Release rule:** Plan H is debug/readerdev only. Do not create a GitHub tag, public prerelease, public APK asset, or `publish-github-release.ps1` workflow for any isolated Plan H sub-slice. A public release is allowed only after the page-turn/texture stack is coherent as a major reader fix, passes browser/host/readerdev gates, and is worth physical-device acceptance.
+
+**Main files:**
+- `composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+- `tools/reader-harness/src/run-reader-harness.mjs`
+- `tools/reader-harness/src/reader-trace-assertions.mjs`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+**Current red evidence:**
+- Production book `3809` at a later chapter target reproduced a section-boundary stale relocation loop in `epub-native-drag-single-commit`: the adjacent fallback repeatedly emitted unchanged same-section relocations instead of entering the next section.
+- After routing the adjacent fallback through Foliate view navigation, the stale-loop blocker cleared, but the same production fixture still fails the preview/commit identity assertion: the release commits the expected numeric page while the preview iframe samples mismatched visible text. This makes the remaining task preview geometry, not public packaging.
+
+- [x] **H1: Stop bypassing Foliate view navigation at adjacent section boundaries**
+  - Add a host guard proving duplicate adjacent page-turn fallback uses `view.goTo(targetIndex)` and does not call raw `renderer.goTo({ index })`.
+  - 2026-07-02 result: focused host test went RED, then GREEN after changing the fallback to use Foliate view navigation.
+
+- [x] **H2: Make adjacent preview iframe geometry match the committed page**
+  - Root-cause why the preview iframe maps the target scroll to different visible text than the live committed Foliate page.
+  - Fix the preview document geometry/mapping instead of lowering overlap thresholds.
+  - Rerun `epub-native-drag-single-commit` against production book `3809` at the late target that reproduced the mismatch.
+  - 2026-07-02 result: the failing production target proved that synthetic preview iframes could not reliably reproduce Foliate's live paginator geometry. The fix now reuses the live Foliate strip for same-section drags, snaps the renderer on release, and suppresses the redundant native page command that follows the snap. The original red target and nearby targets 10/11/12 now pass the browser harness without publishing a public APK.
+
+- [ ] **H3: Recheck texture/page motion after preview identity is stable**
+  - Only after H2 passes, rerun the texture transition harness rows and readerdev emulator probes.
+  - Do not adjust texture intensity, border gradients, or visual polish while the page identity is still unstable.
+  - 2026-07-02 status: pending. This is still debug/readerdev validation work and is not a public release trigger.
+
+- [ ] **H4: Commit debug-only evidence**
+  - Append validation results to the reader validation log.
+  - Commit source and docs for the completed debug slice.
+  - Do not publish a public release for Plan H unless all page-turn/texture gates become coherent enough for a major reader-fix candidate.

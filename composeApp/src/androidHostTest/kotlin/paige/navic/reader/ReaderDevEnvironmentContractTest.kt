@@ -253,8 +253,8 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(
 			releaseScript.contains("[switch] \$AllowPublicRelease") &&
 				releaseScript.contains("[string] \$ReleaseReadinessNote") &&
-				releaseScript.contains("Use debug/readerdev APKs for emulator iteration") &&
-				releaseScript.contains("fully implemented, locally validated, committed") &&
+				releaseScript.contains("Use debug builds/readerdev installs for emulator iteration") &&
+				releaseScript.contains("fully implemented, deployed in debug/readerdev, validated through its plan gates, committed") &&
 				releaseScript.contains("ready for physical-device acceptance"),
 			"The public release script must fail closed unless a coherent candidate is explicitly marked release-worthy."
 		)

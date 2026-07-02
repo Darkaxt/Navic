@@ -409,6 +409,24 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun duplicateAdjacentPageTurnFallbackUsesViewNavigation() {
+		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val duplicateFallback = pageTurnsText
+			.substringAfter("function handleDuplicatePageTurnRelocation(")
+			.substringBefore("\nfunction nativeDragPreviewAtSectionBoundary")
+
+		assertContains(
+			duplicateFallback,
+			"this.view?.goTo?.(targetIndex)",
+			message = "Adjacent-section duplicate page-turn fallback must use Foliate view navigation so numeric section targets resolve through the same route as normal section navigation."
+		)
+		assertFalse(
+			duplicateFallback.contains("this.view?.renderer?.goTo"),
+			"Adjacent-section fallback must not bypass Foliate view navigation with a raw renderer.goTo({ index }) call; that can leave stale same-section relocations at section boundaries."
+		)
+	}
+
+	@Test
 	fun standardDragPreviewDoesNotConstructCurlSnapshots() {
 		val pageTurnsText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val layerFactory = pageTurnsText
@@ -989,11 +1007,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(
 			previewPageDrag,
 			"this.updatePageDragPreviewLayer({",
-			message = "Native readable drag previews must route movement to the visual preview layer."
+			message = "Section-boundary native readable drag previews must still route movement to the visual preview layer."
 		)
-		assertFalse(
-			previewPageDrag.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
-			"Native readable drag previews must not mutate Foliate renderer position before the release page turn."
+		assertContains(
+			previewPageDrag,
+			"renderer.scrollBy(",
+			message = "Same-section native readable drag previews must reuse Foliate's live strip instead of a synthetic iframe clone."
 		)
 	}
 
@@ -1005,7 +1024,7 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\nasync function scrollViewport")
 		val boundaryPreviewBlock = previewPageDrag
 			.substringAfter("if (boundaryDirection) {")
-			.substringBefore("\n  this.updatePageDragPreviewLayer({")
+			.substringBefore("\n  if (!boundaryDirection && textureDirection) {")
 
 		assertContains(
 			previewPageDrag,
@@ -1032,7 +1051,7 @@ class ReaderRuntimePaperSurfaceTest {
 			"The boundary-preview loading branch must still reach the visual preview update instead of stopping before it."
 		)
 		assertFalse(
-			previewPageDrag.contains("renderer.scrollBy(-incrementalDelta.x, -incrementalDelta.y)"),
+			boundaryPreviewBlock.contains("renderer.scrollBy("),
 			"Boundary drag preview must not mutate the committed renderer while the adjacent iframe preview is loading."
 		)
 	}

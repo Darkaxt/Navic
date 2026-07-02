@@ -10663,3 +10663,23 @@ Commands and evidence:
 Result:
 - GREEN/DEBUG: the curl guard tests now prove they inspect the current drag-preview factory instead of passing against stale source-slice behavior.
 - NO PUBLIC RELEASE: this is validation hardening only, not a deployed reader feature/fix.
+
+## 2026-07-02 Focused Plan H Adjacent Preview/Commit Debug Slice
+
+Scope:
+- Close the production EPUB drag defect where the preview showed one logical page while release committed another page.
+- Keep this as debug/browser/host evidence only. No public APK, tag, or GitHub release is justified by this sub-slice.
+
+Commands and evidence:
+- GREEN/HOST: `ReaderRuntimePaperSurfaceTest.duplicateAdjacentPageTurnFallbackUsesViewNavigation` proved the adjacent fallback routes through Foliate `view.goTo(targetIndex)` rather than raw `renderer.goTo({ index })`.
+- RED/HARNESS: production book `3809` file `426`, tablet-landscape viewport `1974x1232` DPR 3, and target global page index `11` reproduced the mismatch: preview iframe text came from a different logical page than the page committed on release.
+- DIAGNOSIS: synthetic preview iframes could not reproduce the live Foliate paginator geometry for the production fixture. The fix therefore stopped treating the iframe clone as authoritative for same-section drags.
+- GREEN/HARNESS: same-section drag preview now reuses the live Foliate strip, snaps on release, and suppresses the redundant native page command after the snap. The original target passed in `artifacts\reader-harness\plan-h-live-strip-4\book3809-target11.out.log`.
+- GREEN/HARNESS: nearby targets 10, 11, and 12 passed in `artifacts\reader-harness\plan-h-live-strip-target-10\out.log`, `artifacts\reader-harness\plan-h-live-strip-target-11-hidden\out.log`, and `artifacts\reader-harness\plan-h-live-strip-target-12-hidden\out.log`.
+- GREEN/HOST: focused `ReaderRuntimePaperSurfaceTest` and `ReaderDevEnvironmentContractTest` passed from hidden Gradle log `artifacts\gradle\plan-h-reader-host-rerun\reader-runtime-paper-surface.out.log`.
+- GREEN/JS: `node --check` passed for `composeApp\src\androidMain\assets\reader\navic-reader-page-turns.js` and `tools\reader-harness\src\run-reader-harness.mjs`.
+
+Result:
+- GREEN/DEBUG: Plan H H1/H2 are validated for the browser/host harness path. Same-section drags now preview and commit through the same live Foliate surface instead of a synthetic clone.
+- PENDING: texture transition rows and readerdev emulator probes still need to be rerun after this identity fix before any broader page-turn/texture candidate can be considered release-worthy.
+- NO PUBLIC RELEASE: this remains a debug stabilization slice. Public releases stay blocked for diagnostics, one-file visual tweaks, and partial page-turn/texture work.
