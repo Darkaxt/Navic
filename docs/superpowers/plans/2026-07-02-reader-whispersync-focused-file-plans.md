@@ -641,3 +641,34 @@ Plan B status on 2026-07-02:
   - The rail matrix passed on `emulator-5554` with the same Whispersync args still present on the command line; the matrix logged that it ignored them for rail-only mode.
   - Artifacts: `captures\reader-komikku-matrix\plan-m-current-rail-endpoints-fixed`.
   - Endpoint evidence: start snapshot `chapterPageIndex=0`, `chapterPageCount=9`; end snapshot `chapterPageIndex=8`, `chapterPageCount=9`; no public release was created.
+
+## Focused Plan N: Debug-Only Whispersync Gate Refresh After Rail Isolation
+
+**Purpose:** Prove that Plan M's rail-only Whispersync isolation did not weaken the actual paired ebook/audiobook path. The rail matrix is allowed to strip Whispersync launch args only when `-OnlyRailEndpointChecks` is active; the real Whispersync enjoyment gate must still launch the production paired route, resolve sidecar/audio state, apply overlays, and persist companion progress.
+
+**Release rule:** Plan N is readerdev/emulator validation only. Do not create a GitHub tag, public prerelease, public APK asset, version bump, or release workflow. A public release is allowed only later when this evidence is bundled into a coherent major reader/Whispersync candidate.
+
+**Main files:**
+- `scripts/adb-whispersync-enjoyment.ps1`
+- `scripts/adb-reader-smoke.ps1`
+- `scripts/install-reader-dev.ps1`
+- `docs/superpowers/specs/2026-06-18-whispersync-design.md`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+- [x] **N1: Confirm the gate still targets the real production paired route**
+  - Verify the script defaults still point at book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`.
+  - Verify the gate still runs all four probes: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress`.
+  - 2026-07-02 result: `scripts/adb-whispersync-enjoyment.ps1` still defaults to the production paired route and its probe list still contains all four required probes.
+
+- [x] **N2: Run the gate on readerdev/emulator**
+  - Use `darkaxt.navic.readerdev` and `C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env`.
+  - Let the script rebuild/install readerdev unless the installed package is freshly proven current.
+  - The expected pass criteria are: reader launch reaches `publicationReady`, all four probes write `PASS`, and the artifact root contains `stage5c3-whispersync-enjoyment-summary.txt` plus `probe-results.jsonl`.
+  - 2026-07-02 result: `scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment\plan-n-post-rail-isolation` rebuilt/installed readerdev, reached `publicationReady`, and passed all four probes. Artifacts: `captures\reader-whispersync-enjoyment\plan-n-post-rail-isolation\stage5c3-whispersync-enjoyment-20260702-092700`.
+
+- [x] **N3: Record evidence without publishing**
+  - Append one concise validation entry to `2026-06-13-komikku-reader-port-validation-log.md`.
+  - Add a Whispersync spec note with the new artifact root if the gate passes.
+  - Commit and push the docs or any necessary harness fixes.
+  - Do not publish a public release for this validation slice.
+  - 2026-07-02 result: documentation records the readerdev pass. No public release was created.

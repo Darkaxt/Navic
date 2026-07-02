@@ -10835,3 +10835,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-reader-komikku-m
 - GREEN/START: post-action snapshot reported `href=OEBPS/xhtml/chapter1.xhtml`, `chapterPageIndex=0`, `chapterPageCount=9`.
 - GREEN/END: post-action snapshot reported `href=OEBPS/xhtml/chapter1.xhtml`, `chapterPageIndex=8`, `chapterPageCount=9`.
 - NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this debug-only harness stabilization.
+
+## 2026-07-02 Focused Plan N Whispersync Debug Gate Refresh
+
+Purpose:
+- Re-run the production paired-route Whispersync enjoyment gate after Plan M changed the rail-only matrix to ignore Whispersync launch state during endpoint checks.
+- Verify the real ebook/audiobook path still uses sidecar/audio launch metadata and all Whispersync probes.
+
+Command:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -ArtifactRoot captures\reader-whispersync-enjoyment\plan-n-post-rail-isolation
+```
+
+Result:
+- GREEN/READERDEV: `darkaxt.navic.readerdev` rebuilt/installed on `emulator-5554`, launched production book `3809`, and reached `publicationReady`.
+- GREEN/PROBES: `whispersync-page-scoped-control`, `whispersync-audio-follow`, `whispersync-char-offset-overlay`, and `whispersync-companion-progress` all wrote `PASS`.
+- ARTIFACTS: `captures\reader-whispersync-enjoyment\plan-n-post-rail-isolation\stage5c3-whispersync-enjoyment-20260702-092700\stage5c3-whispersync-enjoyment-summary.txt` and `probe-results.jsonl`.
+- NO PUBLIC RELEASE: this is readerdev/emulator implementation evidence only. Public release cadence remains final-candidate only.
