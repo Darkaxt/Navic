@@ -521,3 +521,38 @@ Plan B status on 2026-07-02:
   - Keep Standard mode as the default and keep curl as opt-in/experimental until page identity, texture motion, and landscape layout are stable.
   - If Turn.js is revisited later, treat it as a separate rendered-page adapter that consumes deterministic page snapshots, not as a patch inside `navic-reader-page-turns.js`.
   - 2026-07-02 result: decision recorded in the reader spec and validation log. No code or release artifact was created.
+
+## Focused Plan J: Debug-Only Landscape Rotation Layout Guard
+
+**Purpose:** Close the evidence gap behind the tablet landscape complaint where rotating a text EPUB can collapse the page into a narrow centered column. Direct landscape loads already pass the math and CSS smoke harness; this plan verifies the harder path: portrait load first, then runtime viewport rotation/reflow.
+
+**Release rule:** Plan J is debug/harness only. Do not create a GitHub tag, public prerelease, public APK asset, or release workflow for this guard or any isolated layout tweak.
+
+**Main files:**
+- `tools/reader-harness/src/run-reader-harness.mjs`
+- `composeApp/src/androidMain/assets/reader/navic-reader-viewport.js`
+- `composeApp/src/androidMain/assets/reader/navic-reader-typography.js`
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeNavigationFlowTest.kt`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+**Current evidence:**
+- `adaptive-page-box-logic` passes for a direct `1974x1232` landscape viewport.
+- `css-smoke` passes for a direct `1974x1232` landscape EPUB render with `bodyWidthAt100=1737.125`, `htmlWidthAt100=1855.5625`, and `paragraphWidthAt100=809.34375`.
+- Missing evidence: a rendered EPUB must stay wide after the viewport changes from portrait to landscape during the same reader session.
+
+- [x] **J1: Add rendered rotation harness**
+  - Add a harness mode that opens the EPUB in portrait, waits for rendered content, switches the viewport to tablet landscape, forces the same runtime resize path Android uses, and records the final renderer/page-box/content measurements.
+  - Fail if `max-column-count` is not `2`, the renderer page box is not the landscape viewport, the content body stays phone-width, or a probe paragraph collapses below a natural column width.
+  - 2026-07-02 result: added `epub-landscape-rotation-layout` to the reader harness. It opens production book `3809` file `426` in portrait `1232x1974`, rotates to landscape `1974x1232`, and records the before/after renderer and content document measurements.
+
+- [x] **J2: Patch only if the rendered rotation guard fails**
+  - If the guard fails, patch the layout owner that failed: viewport resize application, adaptive page-box math, or Foliate renderer attributes.
+  - Do not change texture, curl, page number, Whispersync, or release code in this slice.
+  - 2026-07-02 result: the guard passed against current source, so no production runtime patch was made. Direct landscape and portrait-to-landscape rotation both render as a wide two-column spread in the harness.
+
+- [x] **J3: Validate and record**
+  - Run the new rendered rotation harness, direct landscape `css-smoke`, direct `adaptive-page-box-logic`, JS syntax for touched harness/runtime modules, and focused host tests only if production reader code changes.
+  - Append results to the validation log.
+  - Commit and push. Do not publish a public release.
+  - 2026-07-02 result: new rendered rotation harness passed in `artifacts\reader-harness\plan-j-landscape-rotation\epub-landscape-rotation-layout.out.log`; direct landscape `css-smoke` and `adaptive-page-box-logic` passed in `artifacts\reader-harness\plan-j-landscape-probe`; `node --check tools\reader-harness\src\run-reader-harness.mjs` and `git diff --check` passed. No Gradle run was needed because this slice changed only the Node harness and docs.

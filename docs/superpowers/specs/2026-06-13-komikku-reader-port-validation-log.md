@@ -10730,3 +10730,24 @@ Result:
 - DECISION: do not import Turn.js into the active stabilization path. It is not a drop-in fix for the texture transition or current-page identity problems.
 - FUTURE OPTION: if Turn.js is revisited, scope it as a separate rendered-page adapter fed by deterministic page snapshots, with its own proof that Foliate pagination, Whispersync visible ranges, native tap zones, page textures, and landscape spread behavior remain correct.
 - NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this documentation slice.
+
+## 2026-07-02 Focused Plan J Landscape Rotation Layout Guard
+
+Scope:
+- Add rendered harness coverage for the tablet landscape complaint where text could collapse into a narrow centered column after rotation.
+- Verify portrait-to-landscape reflow in one reader session, not only direct landscape helper math.
+- Keep this as debug/harness evidence only.
+
+Commands and evidence:
+- GREEN/HARNESS: existing direct landscape `adaptive-page-box-logic` passed for `1974x1232`; log `artifacts\reader-harness\plan-j-landscape-probe\adaptive-page-box-logic.out.log`.
+- GREEN/HARNESS: existing direct landscape `css-smoke` passed for production book `3809` file `426`; log `artifacts\reader-harness\plan-j-landscape-probe\css-smoke-landscape.out.log`. The trace reported `bodyWidthAt100=1737.125`, `htmlWidthAt100=1855.5625`, and `paragraphWidthAt100=809.34375`.
+- GREEN/HARNESS: new `epub-landscape-rotation-layout` passed for production book `3809` file `426`; log `artifacts\reader-harness\plan-j-landscape-rotation\epub-landscape-rotation-layout.out.log`, trace `tools\reader-harness\output\epub-landscape-rotation-layout.json`.
+- The rotation trace starts in portrait `1232x1974` with `maxColumnCount=0`, then rotates to `1974x1232` and reports renderer `1974x1232`, `maxColumnCount=2`, `maxInlineSize=1974px`, `maxBlockSize=1232px`, content body width `1737.125`, probe width `809.34375`, and horizontal writing mode.
+- GREEN/JS: `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- GREEN/WHITESPACE: `git diff --check` passed.
+
+Result:
+- GREEN/DEBUG: current source does not reproduce the landscape narrow-column failure in direct landscape load or portrait-to-landscape harness rotation.
+- NO PRODUCTION PATCH: no reader runtime file was changed because the new guard passed against current source.
+- PENDING: physical-device layout feel remains a release acceptance item; this harness guard prevents reintroducing the stale narrow-column class of regression.
+- NO PUBLIC RELEASE: no debug APK, GitHub tag, public APK, or release workflow was created for this harness/documentation slice.

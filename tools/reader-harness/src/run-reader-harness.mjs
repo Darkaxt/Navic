@@ -5996,6 +5996,185 @@ if (mode === 'css-smoke') {
   process.exit(process.exitCode || 0)
 }
 
+if (mode === 'epub-landscape-rotation-layout') {
+  const fixturePath = path.resolve(argValue('--fixture') || '')
+  if (!fixturePath || !fs.existsSync(fixturePath)) {
+    console.error('epub-landscape-rotation-layout mode requires --fixture <path-to-epub>')
+    process.exit(1)
+  }
+
+  const fixtureRoute = '/fixtures/local/input.epub'
+  const server = await startReaderAssetServer({
+    repoRoot,
+    extraFiles: new Map([[fixtureRoute, fixturePath]]),
+  })
+  const landscapeViewport = {
+    width: Math.max(readerHarnessViewport.viewport.width, readerHarnessViewport.viewport.height),
+    height: Math.min(readerHarnessViewport.viewport.width, readerHarnessViewport.viewport.height),
+  }
+  const portraitViewport = {
+    width: landscapeViewport.height,
+    height: landscapeViewport.width,
+  }
+  const browser = await chromium.launch()
+  const errors = []
+  try {
+    const page = await browser.newPage({
+      ...readerHarnessViewport,
+      viewport: portraitViewport,
+    })
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text())
+    })
+    page.on('pageerror', error => errors.push(error?.stack || error?.message || String(error)))
+    await page.addInitScript(() => {
+      window.__navicReaderTrace = []
+      window.__navicReaderPostedMessages = []
+      window.NavicAndroidBridge = {
+        postMessage(value) {
+          try {
+            window.__navicReaderPostedMessages.push(JSON.parse(value))
+          } catch {
+            window.__navicReaderPostedMessages.push({ raw: value })
+          }
+        },
+      }
+    })
+    await page.goto(`${server.origin}/index.html`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(async publicationUrl => {
+      await window.NavicReaderBridge.dispatch({
+        type: 'openPublication',
+        url: publicationUrl,
+        settings: {
+          theme: 'sepia',
+          paged: true,
+          flowMode: 'paged',
+          tapZone: 'disabled',
+          fontSource: 'navic',
+          fontFamily: 'dys',
+          fontSizePercent: 140,
+          lineHeight: 1.55,
+          paragraphSpacingPercent: 150,
+        },
+      })
+    }, `${server.origin}${fixtureRoute}`)
+    await page.waitForFunction(() => {
+      const contents = document.querySelector('foliate-view')?.renderer?.getContents?.() || []
+      return contents.some(content => content?.doc?.body)
+    })
+    const measureLayout = async label => page.evaluate(label => {
+      const view = document.querySelector('foliate-view')
+      const renderer = view?.renderer
+      const contents = renderer?.getContents?.() || []
+      const content = contents.find(entry => entry?.doc?.body)
+      const doc = content?.doc
+      if (!renderer || !doc?.body) throw new Error(`Missing rendered content for ${label}`)
+      let probe = doc.querySelector('[data-navic-rotation-layout-probe="true"]')
+      if (!probe) {
+        probe = doc.createElement('p')
+        probe.setAttribute('data-navic-rotation-layout-probe', 'true')
+        probe.textContent = 'Navic rotation layout probe text should render as a natural tablet landscape column, not a single narrow centered strip.'
+        doc.body.prepend(probe)
+      }
+      const win = doc.defaultView
+      const rendererRect = renderer.getBoundingClientRect()
+      const htmlRect = doc.documentElement.getBoundingClientRect()
+      const bodyRect = doc.body.getBoundingClientRect()
+      const probeRect = probe.getBoundingClientRect()
+      const probeStyle = win.getComputedStyle(probe)
+      const bodyStyle = win.getComputedStyle(doc.body)
+      let adaptivePageBox = null
+      try {
+        adaptivePageBox = JSON.parse(renderer.dataset.navicAdaptivePageBox || 'null')
+      } catch {
+        adaptivePageBox = null
+      }
+      return {
+        label,
+        viewportWidth: Number(window.visualViewport?.width || window.innerWidth || 0),
+        viewportHeight: Number(window.visualViewport?.height || window.innerHeight || 0),
+        rendererWidth: rendererRect.width,
+        rendererHeight: rendererRect.height,
+        maxInlineSize: renderer.getAttribute('max-inline-size') || '',
+        maxBlockSize: renderer.getAttribute('max-block-size') || '',
+        maxColumnCount: renderer.getAttribute('max-column-count') || '',
+        columnThreshold: renderer.getAttribute('column-threshold') || '',
+        adaptivePageBox,
+        contentDocumentCount: contents.length,
+        htmlWidth: htmlRect.width,
+        bodyWidth: bodyRect.width,
+        probeWidth: probeRect.width,
+        probeFontSize: probeStyle.fontSize,
+        probeWritingMode: probeStyle.writingMode,
+        bodyWritingMode: bodyStyle.writingMode,
+      }
+    }, label)
+    const before = await measureLayout('portrait-before-rotation')
+    await page.setViewportSize(landscapeViewport)
+    await page.waitForFunction(({ width, height }) => {
+      const renderer = document.querySelector('foliate-view')?.renderer
+      if (!renderer) return false
+      const box = renderer.dataset.navicAdaptivePageBox
+      if (!box) return false
+      try {
+        const parsed = JSON.parse(box)
+        return parsed?.viewportWidth === width &&
+          parsed?.viewportHeight === height &&
+          renderer.getAttribute('max-column-count') === '2'
+      } catch {
+        return false
+      }
+    }, landscapeViewport)
+    await page.evaluate(() => new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    }))
+    const after = await measureLayout('landscape-after-rotation')
+    const outputDir = path.join(repoRoot, 'tools/reader-harness/output')
+    fs.mkdirSync(outputDir, { recursive: true })
+    const outputPath = path.join(outputDir, 'epub-landscape-rotation-layout.json')
+    fs.writeFileSync(outputPath, JSON.stringify({
+      fixture: fixturePath,
+      generatedAt: new Date().toISOString(),
+      portraitViewport,
+      landscapeViewport,
+      before,
+      after,
+      trace: await page.evaluate(() => window.__navicReaderTrace || []),
+      postedMessages: await page.evaluate(() => window.__navicReaderPostedMessages || []),
+    }, null, 2))
+    assertNoConsoleErrors(errors)
+    if (after.viewportWidth !== landscapeViewport.width || after.viewportHeight !== landscapeViewport.height) {
+      throw new Error(`Expected rotated viewport ${JSON.stringify(landscapeViewport)}, got ${JSON.stringify(after)}`)
+    }
+    if (after.maxColumnCount !== '2') {
+      throw new Error(`Expected rotated landscape to request max-column-count=2, got ${JSON.stringify(after)}`)
+    }
+    if (after.maxInlineSize !== `${landscapeViewport.width}px` || after.maxBlockSize !== `${landscapeViewport.height}px`) {
+      throw new Error(`Expected rotated page box to match landscape viewport, got ${JSON.stringify(after)}`)
+    }
+    if (after.rendererWidth < landscapeViewport.width - 2 || after.rendererHeight < landscapeViewport.height - 2) {
+      throw new Error(`Expected renderer to fill rotated viewport, got ${JSON.stringify(after)}`)
+    }
+    if (after.bodyWidth < landscapeViewport.width * 0.65 || after.htmlWidth < landscapeViewport.width * 0.75) {
+      throw new Error(`Expected rotated content document to stay wide, got ${JSON.stringify(after)}`)
+    }
+    if (after.probeWidth < Math.min(560, landscapeViewport.width * 0.28)) {
+      throw new Error(`Expected rotated text probe to keep a natural column width, got ${JSON.stringify(after)}`)
+    }
+    if (String(after.probeWritingMode || after.bodyWritingMode || '').startsWith('vertical')) {
+      throw new Error(`Expected Western EPUB text to remain horizontal after rotation, got ${JSON.stringify(after)}`)
+    }
+    console.log(`reader harness epub-landscape-rotation-layout passed: ${outputPath}`)
+  } catch (error) {
+    console.error(error?.message || String(error))
+    process.exitCode = 1
+  } finally {
+    await browser.close()
+    await server.close()
+  }
+  process.exit(process.exitCode || 0)
+}
+
 if (mode !== 'smoke') {
   console.error(`Unsupported reader harness mode: ${mode}`)
   process.exit(1)
