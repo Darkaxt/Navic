@@ -83,7 +83,7 @@
   - Run `adb-reader-smoke.ps1` probes: `page-box`, `texture-slots`, `page-number-font`, `native-drag-preview-texture`.
   - Expected: `publicationReady`, readable page box, page-number font parity, moving texture slots, no reader console errors.
 
-- [ ] **A6: Commit and audit**
+- [x] **A6: Commit and audit**
   - Run focused Gradle host test from A2 and `git diff --check`.
   - Commit message: `Stabilize reader surface fidelity`.
   - Audit docs for remaining `landscape`, `texture`, `page-number`, `curl`, and `drag` references; every remaining item must be physical acceptance or a named later slice.
@@ -95,6 +95,7 @@ Plan A status on 2026-07-02:
 - Browser harness passed `adaptive-page-box-logic`, `epub-native-drag-single-commit`, `epub-native-drag-standard-no-curl`, and `epub-texture-frontmatter-transition` against `tmp\reader-live\book-3809-file-426.epub` at tablet landscape viewport `1974x1232`.
 - Readerdev APK `darkaxt.navic.readerdev` rebuilt and installed on `emulator-5554` as `v1.0.11-theta38`, reached `publicationReady`, and captured `captures\reader-dev\reader-dev-20260702-032712.png`.
 - Readerdev WebView probes passed `page-box`, `texture-slots`, `page-number-font`, and `native-drag-preview-texture`; smoke artifacts are in `captures\reader-bridge-probes\plan-a-reader-surface-smoke-20260702-033240`.
+- Plan A validation was recorded in commit `92cdedb5 Record reader surface debug validation`.
 - No public release was created. This is local debug/readerdev evidence only.
 
 ## Focused Plan B: Native Komikku Shell And Controls
