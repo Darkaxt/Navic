@@ -10598,3 +10598,23 @@ Commands and evidence:
 Result:
 - GREEN/DEBUG: Plan D Whispersync runtime enjoyment path is validated in common tests, host source guards, JS syntax, and readerdev emulator for the current source.
 - NO PUBLIC RELEASE: this remains a local debug/readerdev validation slice. Public release is still gated by Plan E after coherent feature/fix completion.
+
+## 2026-07-02 Focused Plan E Reader Whispersync Candidate Validation
+
+Scope:
+- Validate one coherent public release candidate for the completed reader/Whispersync slice, after Plans A-D passed debug gates.
+- Cover common tests, Android host tests, reader harness syntax, Komikku readerdev interaction matrix, and Whispersync readerdev enjoyment gate on production book `3809`.
+
+Commands and evidence:
+- `:composeApp:testAndroid` passed from hidden Gradle log `artifacts\gradle\plan-e-release-gate\test-android-20260702-043312.out.log`; stderr was empty.
+- `:composeApp:testAndroidHost` passed from hidden Gradle log `artifacts\gradle\plan-e-release-gate\test-android-host-20260702-043116.out.log`; stderr was empty.
+- `node --check tools\reader-harness\src\run-reader-harness.mjs` passed.
+- `node --check tools\reader-harness\src\adb-webview-eval.mjs` passed.
+- `git diff --check` passed before the version bump.
+- A first matrix attempt was stopped because it discovered a generic reader target instead of the explicit production book; this was a command-scope issue, not candidate evidence.
+- The corrected Komikku readerdev matrix explicitly targeted book `3809`, ebook file `426`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, and audiobook book file `633`; all 10 rows passed in `captures\reader-komikku-matrix\final-candidate-readerdev-bastille-20260702-043832`.
+- The final Whispersync enjoyment gate ran on the same installed `darkaxt.navic.readerdev` candidate with `-NoBuild -NoInstall`; all four probes passed in `captures\reader-whispersync-enjoyment\final-candidate-readerdev-20260702-044132\stage5c3-whispersync-enjoyment-20260702-044133`.
+
+Result:
+- GREEN/CANDIDATE: the reader/Whispersync candidate is validated enough to prepare a single public release candidate.
+- NEXT: version fields are bumped to `v1.0.11-theta39`; publish only through the explicit Plan E public-release override.

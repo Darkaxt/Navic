@@ -298,17 +298,17 @@ Plan B status on 2026-07-02:
 - `docs/superpowers/plans/2026-06-28-reader-whispersync-gap-closure.md`
 - `docs/superpowers/plans/2026-07-02-reader-whispersync-focused-file-plans.md`
 
-- [ ] **E1: Verify Plans A-D are complete for the release scope**
+- [x] **E1: Verify Plans A-D are complete for the release scope**
   - Run:
     ```powershell
     rg -n "\[ \] \*\*Step [A-D]" docs\superpowers\plans\2026-07-02-reader-whispersync-focused-file-plans.md
     ```
   - Expected: no unchecked A-D steps remain for the release candidate. If a slice is excluded, add a dated exclusion note naming why it does not block this candidate.
 
-- [ ] **E2: Run full local validation**
+- [x] **E2: Run full local validation**
   - Run:
     ```powershell
-    .\gradlew.bat --no-daemon --console=plain :composeApp:test
+    .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroid
     .\gradlew.bat --no-daemon --console=plain :composeApp:testAndroidHost
     node --check tools\reader-harness\src\run-reader-harness.mjs
     node --check tools\reader-harness\src\adb-webview-eval.mjs
@@ -316,7 +316,9 @@ Plan B status on 2026-07-02:
     ```
   - Expected: all pass.
 
-- [ ] **E3: Run final readerdev acceptance matrix**
+  2026-07-02 result: `:composeApp:testAndroid` passed from `artifacts\gradle\plan-e-release-gate\test-android-20260702-043312.out.log`; `:composeApp:testAndroidHost` passed from `artifacts\gradle\plan-e-release-gate\test-android-host-20260702-043116.out.log`; `node --check` passed for both reader harness scripts; `git diff --check` passed.
+
+- [x] **E3: Run final readerdev acceptance matrix**
   - Run:
     ```powershell
     .\scripts\install-reader-dev.ps1 -DeviceSerial emulator-5554 -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -BookId 3809 -BookFileId 426 -WhispersyncSidecarUrl /opds/books/3809/sync/8 -WhispersyncArtifactId 8 -WhispersyncAudiobookId 34 -WhispersyncAudiobookBookFileId 633 -WhispersyncAudiobookTitle "Bastille vs. the Evil Librarians"
@@ -324,6 +326,8 @@ Plan B status on 2026-07-02:
     .\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoBuild -NoInstall
     ```
   - Expected: Komikku matrix and Whispersync enjoyment gate pass on the same candidate.
+
+  2026-07-02 result: Komikku matrix passed all 10 rows in `captures\reader-komikku-matrix\final-candidate-readerdev-bastille-20260702-043832`; Whispersync enjoyment gate passed all four probes in `captures\reader-whispersync-enjoyment\final-candidate-readerdev-20260702-044132\stage5c3-whispersync-enjoyment-20260702-044133`.
 
 - [ ] **E4: Bump version and commit candidate**
   - Only after E2 and E3 pass, update Android version fields in `androidApp/build.gradle.kts`.
