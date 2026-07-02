@@ -9,6 +9,18 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderRuntimePaperSurfaceTest {
+	private fun requiredSliceAfter(
+		actual: String,
+		delimiter: String,
+		description: String
+	): String {
+		assertTrue(
+			actual.contains(delimiter),
+			"Missing source marker for $description: $delimiter"
+		)
+		return actual.substringAfter(delimiter)
+	}
+
 	@Test
 	fun androidReaderPackagesDeterministicPaperTextureVariants() {
 		val root = readerAssetRoot()
@@ -1135,8 +1147,11 @@ class ReaderRuntimePaperSurfaceTest {
 	@Test
 	fun androidReaderPortsMockupCurlSheetRolesToDragPreviewOnly() {
 		val bridgeText = readerBridgeText()
-		val ensureLayer = bridgeText
-			.substringAfter("function ensurePageDragPreviewLayer() {")
+		val ensureLayer = requiredSliceAfter(
+			bridgeText,
+			"function ensurePageDragPreviewLayer({ curlEnabled = false } = {}) {",
+			"page drag preview layer factory"
+		)
 			.substringBefore("\nfunction removePageDragPreviewLayer")
 		val applySheet = bridgeText
 			.substringAfter("function applyPageDragCurlSheet(")
@@ -1210,8 +1225,11 @@ class ReaderRuntimePaperSurfaceTest {
 	@Test
 	fun androidReaderPortsCurlSnapshotsToDragPreviewOnly() {
 		val bridgeText = readerBridgeText()
-		val ensureLayer = bridgeText
-			.substringAfter("function ensurePageDragPreviewLayer() {")
+		val ensureLayer = requiredSliceAfter(
+			bridgeText,
+			"function ensurePageDragPreviewLayer({ curlEnabled = false } = {}) {",
+			"page drag preview layer factory"
+		)
 			.substringBefore("\nfunction removePageDragPreviewLayer")
 		val snapshotHelper = bridgeText
 			.substringAfter("function syncPageDragCurlSnapshots(")

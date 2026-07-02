@@ -14,10 +14,12 @@
 
 - Debug iteration means local `darkaxt.navic.readerdev` or another debuggable APK installed for emulator/device validation.
 - Public release means GitHub tag/prerelease/APK upload through `scripts/publish-github-release.ps1`.
+- Do not call emulator/debug artifacts "releases" in implementation notes. They are debug builds, readerdev installs, or validation artifacts.
 - Plans A-D must use debug/readerdev APKs only. They may build, install, probe, commit, and push source changes, but they must not create GitHub tags, prereleases, or public APK assets.
 - Public release is only allowed in Plan E, after a coherent feature or major fix has passed its file-owned plan gates and is ready for physical-device acceptance.
 - Do not publish for isolated green probes, diagnostics, one-file visual tweaks, or partial fixes. A public release is a final candidate for a deployed feature/fix, not a normal iteration mechanism.
-- 2026-07-02 explicit user rule: only generate debug builds/releases for emulator iteration. Generate final public releases only after a new feature or fix has been fully deployed and validated through its gate.
+- 2026-07-02 explicit user rule: use debug/readerdev builds for emulator iteration. Generate final public releases only after a new feature or fix has been fully deployed and validated through its gate.
+- If a change still needs emulator iteration, physical-device judgement, or known follow-up patches before it is useful, it is not release-worthy.
 
 ## Focused Plan A: Reader Surface Fidelity
 
@@ -427,3 +429,27 @@ Plan B status on 2026-07-02:
   - Commit only after F1-F5 pass for the completed sub-slice.
   - Public release remains blocked until Plan F is coherent enough to be a major reader fix candidate.
   - 2026-07-02 result: this sub-slice is being committed as debug stabilization only. No GitHub release, tag, or public APK is created for it.
+
+## Focused Plan G: Debug-Only Curl Guard Hardening
+
+**Purpose:** Tighten stale page-turn source guards after Plan F changed the drag-preview factory from `ensurePageDragPreviewLayer()` to `ensurePageDragPreviewLayer({ curlEnabled = false } = {})`. This is validation hardening only; it does not justify a public APK.
+
+**Release rule:** Plan G is debug/test-only. Do not publish a GitHub release, tag, or public APK for this guard update.
+
+**Main files:**
+- `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
+- `docs/superpowers/specs/2026-06-13-komikku-reader-port-validation-log.md`
+
+- [x] **G1: Prove stale marker guards fail**
+  - Add a strict source-slice helper so a missing marker fails instead of returning the whole source file.
+  - Keep the old `function ensurePageDragPreviewLayer() {` marker for the red run.
+  - 2026-07-02 result: the two targeted curl tests failed as expected with `Missing source marker for page drag preview layer factory`; log `artifacts\gradle\plan-g-curl-guard-red\red-curl-guards.out.log`.
+
+- [x] **G2: Retarget guards to the current factory**
+  - Change the curl sheet and snapshot guards to slice from `function ensurePageDragPreviewLayer({ curlEnabled = false } = {}) {`.
+  - 2026-07-02 result: the same two focused tests passed; log `artifacts\gradle\plan-g-curl-guard-green\green-curl-guards.out.log`.
+
+- [x] **G3: Run final lightweight validation**
+  - Run `git diff --check`.
+  - Commit this as a debug-only validation hardening change after the check passes.
+  - 2026-07-02 result: `git diff --check` passed. This slice is ready to commit without creating a public release.

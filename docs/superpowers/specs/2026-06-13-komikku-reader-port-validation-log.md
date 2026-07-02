@@ -10648,3 +10648,18 @@ Result:
 - GREEN/DEBUG: Standard mode no longer constructs curl-only snapshot iframes or relies on curl-only sheet geometry. The focused browser harness rows are green for the current source.
 - NO PUBLIC RELEASE: this is a committed debug stabilization slice only. Public releases remain reserved for coherent major reader candidates after debug/readerdev gates, not partial page-turn/texture microfixes.
 - Remaining scope: physical-device/human acceptance is still required for texture intensity, border/shadow visibility, natural drag feel, and landscape spread behavior.
+
+## 2026-07-02 Focused Plan G Curl Guard Hardening
+
+Scope:
+- Tighten stale host/source guards after the page-turn preview factory changed from `ensurePageDragPreviewLayer()` to `ensurePageDragPreviewLayer({ curlEnabled = false } = {})`.
+- Prevent curl sheet/snapshot assertions from silently matching the whole runtime file when a marker is missing.
+- Preserve the release rule: no public APK, tag, or GitHub release for this test-hardening slice.
+
+Commands and evidence:
+- RED/HOST: after adding a strict source-slice helper but before updating the stale marker, `androidReaderPortsMockupCurlSheetRolesToDragPreviewOnly` and `androidReaderPortsCurlSnapshotsToDragPreviewOnly` failed as expected with `Missing source marker for page drag preview layer factory`; log `artifacts\gradle\plan-g-curl-guard-red\red-curl-guards.out.log`.
+- GREEN/HOST: after retargeting both guards to `function ensurePageDragPreviewLayer({ curlEnabled = false } = {}) {`, the same two focused tests passed; log `artifacts\gradle\plan-g-curl-guard-green\green-curl-guards.out.log`.
+
+Result:
+- GREEN/DEBUG: the curl guard tests now prove they inspect the current drag-preview factory instead of passing against stale source-slice behavior.
+- NO PUBLIC RELEASE: this is validation hardening only, not a deployed reader feature/fix.

@@ -339,7 +339,9 @@ The Komikku reader backbone is acceptable only when:
 - Every Anx EPUB/Foliate bridge callback/event/payload has a Navic bridge/engine counterpart, or a deliberate divergence with a source-reading parity guard and rationale.
 - The Anx parity phase guard remains green after every behavior-layer phase; no phase is complete with a red reader host suite.
 - Settings overlay follows Komikku behavior and remains usable on phone, foldable, and tablet dimensions.
-- Release candidates are only published when a major bug or milestone has been verified locally and is worth user validation.
+- Debug/readerdev APKs are the normal emulator iteration path; they are not public releases.
+- Public release candidates are only published when a major bug or milestone has been fully deployed, verified locally through its gate, and is worth user validation.
+- Do not create GitHub tags, public APK assets, or release workflow runs for diagnostics, microfixes, one-file visual tweaks, partial page-turn/texture experiments, or any change that still needs known follow-up implementation before it is useful.
 
 ## Validation Log Policy
 
