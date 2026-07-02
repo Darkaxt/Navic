@@ -544,6 +544,51 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun androidReaderLiveDragSharesOneDisplacementForTextPaperAndShadow() {
+		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+
+		// The lateral (non-curl) live-drag branch moves the text via renderer.scrollBy.
+		val liveScrollBranch = pageTurnText
+			.substringAfter("this.readerDragAnimationModeValue !== 'curl') {")
+			.substringBefore("\n  this.updatePageDragPreviewLayer(")
+		assertContains(
+			liveScrollBranch,
+			"renderer.scrollBy(",
+			message = "The lateral live-drag path must keep moving the Foliate renderer so the text follows the finger."
+		)
+		// The paper texture + border-overlay shadow must ride the SAME accumulated
+		// gesture delta, frame-locked to the scrollBy step, instead of the rescaled /
+		// sign-overwritten / zero-clamped heuristic. That is what stops the texture
+		// and shadows from drifting opposite or freezing relative to the text.
+		assertContains(liveScrollBranch, "surfaceLiveDragOffset")
+		assertContains(liveScrollBranch, "incrementalDelta.x")
+		assertContains(
+			liveScrollBranch,
+			"this.syncMovingPageTextureSurface('live-drag')",
+			message = "The texture surface must update in the same step as renderer.scrollBy so text and paper are frame-locked."
+		)
+		assertFalse(
+			liveScrollBranch.contains("readerSurfacePaperTextureScrollOffset("),
+			message = "The live-drag branch must not recompute the heuristic offset; it must ride the accumulated gesture delta."
+		)
+		// The heuristic is bypassed (not removed) for live drag so animated page turns keep their behavior.
+		val surfaceOffsetFn = appearanceText
+			.substringAfter("function surfacePaperTextureScrollOffset()")
+			.substringBefore("\n\nfunction ")
+		assertContains(
+			surfaceOffsetFn,
+			"this.surfaceLiveDragActive",
+			message = "Live lateral drag must bypass the position-based heuristic so the texture is neither sign-overwritten nor zero-clamped."
+		)
+		assertContains(surfaceOffsetFn, "this.surfaceLiveDragOffset")
+		assertContains(surfaceOffsetFn, "readerSurfacePaperTextureScrollOffset(")
+		// Cancel + release must tear down the live-drag offset so the texture returns to center.
+		assertContains(pageTurnText, "this.surfaceLiveDragActive = false")
+		assertContains(pageTurnText, "this.surfaceLiveDragOffset = { x: 0, y: 0 }")
+	}
+
+	@Test
 	fun androidReaderPageDragPreviewCarriesTheSamePaperAndBorderTextureSurface() {
 		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()

@@ -334,6 +334,31 @@ function surfacePaperTextureScrollOffset() {
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     return this.surfaceTextureScrollOffset
   }
+  if (this.surfaceLiveDragActive) {
+    // Live lateral drag bypass: move the paper texture + border-overlay shadow by
+    // the exact accumulated gesture displacement that drives renderer.scrollBy()
+    // (see previewPageDrag in navic-reader-page-turns.js). This keeps texture and
+    // text frame-locked on one signed source, eliminating the heuristic's
+    // instantaneous-direction sign flips, rendererPageSize rescaling, and the
+    // 0.75-viewport zero-clamp that caused texture/shadow to drift opposite or
+    // freeze relative to the text. Sign below matches the heuristic's clean-case
+    // (texture.x follows the finger / visual content). If a trace shows the
+    // texture moving opposite the text, flip READER_LIVE_DRAG_TEXTURE_SIGN.
+    const READER_LIVE_DRAG_TEXTURE_SIGN = 1
+    const liveViewport = readerViewportSize()
+    const liveMax = Math.max(
+      1,
+      this.readerFlowModeValue === ReaderFlowPagedVertical
+        ? (Number.isFinite(liveViewport.height) ? liveViewport.height : 1)
+        : (Number.isFinite(liveViewport.width) ? liveViewport.width : 1)
+    )
+    const dragX = READER_LIVE_DRAG_TEXTURE_SIGN * Math.max(-liveMax, Math.min(liveMax, Number(this.surfaceLiveDragOffset?.x) || 0))
+    const dragY = READER_LIVE_DRAG_TEXTURE_SIGN * Math.max(-liveMax, Math.min(liveMax, Number(this.surfaceLiveDragOffset?.y) || 0))
+    this.surfaceTextureScrollOffset = this.readerFlowModeValue === ReaderFlowPagedVertical
+      ? { x: 0, y: dragY }
+      : { x: dragX, y: 0 }
+    return this.surfaceTextureScrollOffset
+  }
   const position = Number(renderer.containerPosition)
   const continuousTextureFlow =
     this.readerFlowModeValue === ReaderFlowScrolled || this.readerFlowModeValue === ReaderFlowScrolledGaps

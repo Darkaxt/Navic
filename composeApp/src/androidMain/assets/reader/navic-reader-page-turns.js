@@ -1755,6 +1755,8 @@ function previewPageDrag(command) {
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
     this.surfacePaperTextureFallbackDirection = null
+    this.surfaceLiveDragActive = false
+    this.surfaceLiveDragOffset = { x: 0, y: 0 }
     this.renderSurfacePaperTextureLayers()
     return
   }
@@ -1817,6 +1819,8 @@ function previewPageDrag(command) {
     this.pendingPageDragPreviewCommand = null
     this.removePageDragPreviewLayer()
     this.surfacePaperTextureTurnDirection = null
+    this.surfaceLiveDragActive = false
+    this.surfaceLiveDragOffset = { x: 0, y: 0 }
     this.renderSurfacePaperTextureLayers()
     return
   }
@@ -1907,6 +1911,19 @@ function previewPageDrag(command) {
         Number.isFinite(incrementalDelta.y) ? -incrementalDelta.y : 0
       )
     }
+    // Frame-lock the paper texture + border-overlay shadow to the same gesture
+    // delta that just moved the text. Accumulate the exact incrementalDelta fed
+    // to renderer.scrollBy (reset on the first move of this live drag) and apply
+    // it synchronously so texture and text share one displacement source.
+    if (!previousPreview) {
+      this.surfaceLiveDragOffset = { x: 0, y: 0 }
+    }
+    this.surfaceLiveDragOffset = {
+      x: (Number(this.surfaceLiveDragOffset?.x) || 0) + (Number.isFinite(incrementalDelta.x) ? incrementalDelta.x : 0),
+      y: (Number(this.surfaceLiveDragOffset?.y) || 0) + (Number.isFinite(incrementalDelta.y) ? incrementalDelta.y : 0),
+    }
+    this.surfaceLiveDragActive = true
+    this.syncMovingPageTextureSurface('live-drag')
     this.removePageDragPreviewLayer()
     this.nativePageDragPreview = {
       deltaX: currentDeltaX,

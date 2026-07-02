@@ -252,6 +252,12 @@ class NavicReaderRuntime {
   surfaceBorderOverlaySlots = []
   surfacePaperTextureBaseOffset = 0
   surfaceTextureScrollOffset = { x: 0, y: 0 }
+  // Live lateral drag: the paper texture + border-overlay shadow ride the exact
+  // accumulated gesture delta that drives renderer.scrollBy(), instead of the
+  // rescaled/sign-overwritten heuristic used for animated page turns. See
+  // surfacePaperTextureScrollOffset() in navic-reader-appearance.js.
+  surfaceLiveDragActive = false
+  surfaceLiveDragOffset = { x: 0, y: 0 }
   surfacePaperTextureScrollRenderer = null
   surfacePaperTextureScrollListener = null
   surfacePaperTextureMotionFrame = null
@@ -635,6 +641,8 @@ class NavicReaderRuntime {
     this.surfaceBorderOverlaySlots = []
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
+    this.surfaceLiveDragActive = false
+    this.surfaceLiveDragOffset = { x: 0, y: 0 }
     this.stopSurfacePaperTextureMotionSync?.('runtime-reset')
     this.surfacePaperTextureMotionFrame = null
     this.surfacePaperTextureMotionSyncActive = false
