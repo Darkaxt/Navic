@@ -49,6 +49,7 @@ import navic.composeapp.generated.resources.title_audiobook_genres
 import navic.composeapp.generated.resources.title_audiobook_last_read
 import navic.composeapp.generated.resources.title_audiobook_most_popular
 import navic.composeapp.generated.resources.title_audiobook_recently_added
+import navic.composeapp.generated.resources.title_audiobook_whispersync_ready
 import navic.composeapp.generated.resources.title_audiobook_wanted
 import navic.composeapp.generated.resources.title_audiobooks
 import org.jetbrains.compose.resources.StringResource
@@ -233,8 +234,8 @@ fun BinderyHubScreen() {
 											}
 										}
 									)
-									binderyHubRows(
-										rows = data.rows,
+									binderyHubDiscoveryRows(
+										state = data,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
@@ -289,8 +290,8 @@ fun BinderyHubScreen() {
 											}
 										}
 									)
-									binderyHubRows(
-										rows = data.rows,
+									binderyHubDiscoveryRows(
+										state = data,
 										baseUrl = preferenceManager.binderyOpdsBaseUrl,
 										imageRequestHeaders = imageRequestHeaders,
 										bookGridColumns = bookGridColumns,
@@ -341,8 +342,8 @@ fun BinderyHubScreen() {
 										}
 									}
 								)
-								binderyHubRows(
-									rows = state.data.rows,
+								binderyHubDiscoveryRows(
+									state = state.data,
 									baseUrl = preferenceManager.binderyOpdsBaseUrl,
 									imageRequestHeaders = imageRequestHeaders,
 									bookGridColumns = bookGridColumns,
@@ -506,6 +507,83 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueR
 			fallbackKind = "Book",
 			id = item.key,
 			tab = "bindery-continue-reading"
+		)
+	}
+}
+
+private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyHubDiscoveryRows(
+	state: BinderyHubState,
+	baseUrl: String,
+	imageRequestHeaders: Map<String, String>,
+	bookGridColumns: Int,
+	languageFilter: String?,
+	collectionArtworkByPath: Map<String, String>,
+	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
+	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
+	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
+) {
+	binderyWhispersyncReadyAudiobookRow(
+		items = state.whispersyncReadyAudiobooks(languageFilter),
+		baseUrl = baseUrl,
+		imageRequestHeaders = imageRequestHeaders,
+		bookGridColumns = bookGridColumns,
+		languageFilter = languageFilter,
+		collectionArtworkByPath = collectionArtworkByPath,
+		onResolveCollectionArtwork = onResolveCollectionArtwork,
+		onOpenBook = onOpenBook,
+		onOpenCatalog = onOpenCatalog,
+		onOpenFinding = onOpenFinding
+	)
+	binderyHubRows(
+		rows = state.rows,
+		baseUrl = baseUrl,
+		imageRequestHeaders = imageRequestHeaders,
+		bookGridColumns = bookGridColumns,
+		languageFilter = languageFilter,
+		collectionArtworkByPath = collectionArtworkByPath,
+		onResolveCollectionArtwork = onResolveCollectionArtwork,
+		onOpenBook = onOpenBook,
+		onOpenCatalog = onOpenCatalog,
+		onOpenFinding = onOpenFinding
+	)
+}
+
+private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyWhispersyncReadyAudiobookRow(
+	items: List<BinderyCatalogCard.Book>,
+	baseUrl: String,
+	imageRequestHeaders: Map<String, String>,
+	bookGridColumns: Int,
+	languageFilter: String?,
+	collectionArtworkByPath: Map<String, String>,
+	onResolveCollectionArtwork: (BinderyCatalogCard.Link) -> Unit,
+	onOpenBook: (BinderyCatalogCard.Book) -> Unit,
+	onOpenCatalog: (BinderyCatalogCard.Link) -> Unit,
+	onOpenFinding: (BinderyCatalogCard.Finding) -> Unit
+) {
+	if (items.isEmpty()) return
+	horizontalSectionWithAvailableWidth(
+		title = Res.string.title_audiobook_whispersync_ready,
+		destination = Screen.Audiobooks,
+		state = UiState.Success(items),
+		key = { card -> "whispersync-ready-${card.id}" },
+		seeAll = false
+	) { card, availableWidth ->
+		val cardWidth = binderyCarouselCardWidthDp(
+			columns = bookGridColumns,
+			availableWidthDp = availableWidth.value.roundToInt()
+		).dp
+		BinderyHubCard(
+			modifier = Modifier.animateItem().width(cardWidth),
+			card = card,
+			baseUrl = baseUrl,
+			imageRequestHeaders = imageRequestHeaders,
+			languageFilter = languageFilter,
+			collectionArtworkByPath = collectionArtworkByPath,
+			onResolveCollectionArtwork = onResolveCollectionArtwork,
+			onOpenBook = onOpenBook,
+			onOpenCatalog = onOpenCatalog,
+			onOpenFinding = onOpenFinding
 		)
 	}
 }

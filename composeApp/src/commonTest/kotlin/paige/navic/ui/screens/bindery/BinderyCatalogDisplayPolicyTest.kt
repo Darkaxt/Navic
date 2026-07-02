@@ -383,6 +383,96 @@ class BinderyCatalogDisplayPolicyTest {
 	}
 
 	@Test
+	fun whispersyncReadyAudiobookRowUsesOnlyAudiobookCardsWithExactReadyPairs() {
+		fun publication(
+			id: String,
+			title: String,
+			sync: BinderyBookSync? = null
+		) = BinderyPublication(
+			id = id,
+			title = title,
+			availability = BinderyAvailability(owned = true, ownedFormats = listOf("audiobook")),
+			sync = sync
+		)
+
+		fun readySync(
+			status: String = "ready",
+			artifactHref: String? = "/opds/books/3809/sync/12"
+		) = BinderyBookSync(
+			whispersyncStatus = status,
+			syncPairs = listOf(
+				BinderySyncPair(
+					bookId = 3809,
+					ebookBookFileId = 633,
+					audiobookBookFileId = 426,
+					whispersync = BinderyWhispersyncArtifact(
+						status = status,
+						artifactId = 12,
+						artifactHref = artifactHref
+					)
+				)
+			)
+		)
+
+		val rows = listOf(
+			BinderyHubCatalogRow(
+				row = BinderyHubRow(
+					kind = BinderyHubRowKind.RecentlyAdded,
+					path = "/opds/recent",
+					title = "Recently Added"
+				),
+				catalog = BinderyCatalog(
+					title = "Recently Added",
+					publications = listOf(
+						publication(
+							id = "urn:bindery:book:recent-ready",
+							title = "Recent Ready",
+							sync = readySync()
+						)
+					)
+				)
+			),
+			BinderyHubCatalogRow(
+				row = BinderyHubRow(
+					kind = BinderyHubRowKind.Audiobooks,
+					path = "/opds/formats/audiobook",
+					title = "Audiobooks"
+				),
+				catalog = BinderyCatalog(
+					title = "Audiobooks",
+					publications = listOf(
+						publication(
+							id = "urn:bindery:book:ready",
+							title = "Ready Pair",
+							sync = readySync()
+						),
+						publication(
+							id = "urn:bindery:book:summary-only",
+							title = "Summary Ready Only",
+							sync = BinderyBookSync(whispersyncStatus = "ready")
+						),
+						publication(
+							id = "urn:bindery:book:pending",
+							title = "Pending Pair",
+							sync = readySync(status = "pending")
+						),
+						publication(
+							id = "urn:bindery:book:missing-artifact",
+							title = "Ready Missing Artifact",
+							sync = readySync(artifactHref = null)
+						)
+					)
+				)
+			)
+		)
+
+		assertEquals(
+			listOf("urn:bindery:book:ready"),
+			rows.whispersyncReadyAudiobookCards().map(BinderyCatalogCard.Book::id)
+		)
+	}
+
+	@Test
 	fun malformedFindingRowsWithoutFindingIdentityAreIgnored() {
 		val cards = binderyCatalogCards(
 			BinderyCatalog(

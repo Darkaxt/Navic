@@ -43,6 +43,18 @@ data class BinderyHubCatalogRow(
 			}
 }
 
+fun BinderyHubState.whispersyncReadyAudiobooks(languageFilter: String? = null): List<BinderyCatalogCard.Book> =
+	rows.whispersyncReadyAudiobookCards(languageFilter)
+
+fun List<BinderyHubCatalogRow>.whispersyncReadyAudiobookCards(
+	languageFilter: String? = null
+): List<BinderyCatalogCard.Book> =
+	firstOrNull { hubRow -> hubRow.row.kind == BinderyHubRowKind.Audiobooks }
+		?.cards(languageFilter)
+		.orEmpty()
+		.filterIsInstance<BinderyCatalogCard.Book>()
+		.filter { card -> card.hasActionableWhispersync }
+
 private fun BinderyHubRowKind.showOnlyAvailableContent(): Boolean =
 	when (this) {
 		BinderyHubRowKind.LastRead,
