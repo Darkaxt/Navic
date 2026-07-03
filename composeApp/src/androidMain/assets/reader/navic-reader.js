@@ -797,7 +797,7 @@ class NavicReaderRuntime {
       paintNormalized: Math.round(paintNormalized * 100) / 100,
       paintRaw: Math.round(paintRaw * 100) / 100,
     }
-    log('media-overlay-range:resolved', diagnostic)
+    log('media-overlay-range:resolved', JSON.stringify(diagnostic))
     readerTrace('media-overlay-range:resolved', diagnostic)
   }
 

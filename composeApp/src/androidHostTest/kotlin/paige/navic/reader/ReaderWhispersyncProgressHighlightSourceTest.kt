@@ -122,6 +122,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(diagnostic, "sidecarRange")
 		assertContains(diagnostic, "resolvedRange")
 		assertContains(diagnostic, "normalizedRange")
+		assertContains(diagnostic, "JSON.stringify(diagnostic)")
 		assertContains(highlighter, "this.postMediaOverlayRangeDiagnostic")
 	}
 
