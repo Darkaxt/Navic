@@ -120,6 +120,7 @@ class ReaderBridgeProtocolTest {
 				textStart = 10,
 				textEnd = 42,
 				textProgressEnd = 24,
+				spokenText = "I am not a good person.",
 				label = "Chapter 1 / Paragraph 1"
 			)
 		).toJavaScript()
@@ -133,6 +134,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"textStart\":10")
 		assertContains(script, "\"textEnd\":42")
 		assertContains(script, "\"textProgressEnd\":24")
+		assertContains(script, "\"spokenText\":\"I am not a good person.\"")
 		assertContains(script, "\"label\":\"Chapter 1 / Paragraph 1\"")
 	}
 

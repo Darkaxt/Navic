@@ -151,6 +151,9 @@ import {
   readerContentCss,
   readerMediaOverlayTextEntries,
   readerMediaOverlayTextPoint,
+  readerMediaOverlayNormalizedTextMap,
+  readerMediaOverlayRawOffsetForNormalizedOffset,
+  readerMediaOverlayResolvedTextRange,
   komikkuTapAction,
   normalizeSearchResult,
   normalizeExcerpt,
@@ -763,6 +766,14 @@ class NavicReaderRuntime {
     return Math.max(textStart, Math.min(textEnd, textProgressEnd))
   }
 
+  mediaOverlayPaintEndForResolvedRange(textStart, textEnd, paintEnd, resolvedNormalizedTextStart, resolvedNormalizedTextEnd) {
+    if (resolvedNormalizedTextEnd <= resolvedNormalizedTextStart) return resolvedNormalizedTextEnd
+    const characterCount = Math.max(1, textEnd - textStart)
+    const progress = Math.max(0, Math.min(1, (paintEnd - textStart) / characterCount))
+    const resolvedPaintEnd = resolvedNormalizedTextStart + ((resolvedNormalizedTextEnd - resolvedNormalizedTextStart) * progress)
+    return Math.min(resolvedNormalizedTextEnd, Math.max(resolvedNormalizedTextStart + 1, resolvedPaintEnd))
+  }
+
   highlightMediaOverlayTextRange(fragment) {
     const textStart = Number(fragment?.textStart)
     const textEnd = Number(fragment?.textEnd)
@@ -779,8 +790,20 @@ class NavicReaderRuntime {
       if (fragment.textHref && sectionHref && !readerHrefMatches(sectionHref, fragment.textHref)) continue
       const entries = readerMediaOverlayTextEntries(content.doc)
       if (!entries.length) continue
-      const start = readerMediaOverlayTextPoint(entries, Math.floor(textStart))
-      const end = readerMediaOverlayTextPoint(entries, Math.ceil(paintEnd))
+      const normalizedMap = readerMediaOverlayNormalizedTextMap(entries)
+      const resolvedRange = readerMediaOverlayResolvedTextRange(normalizedMap, textStart, textEnd, fragment.spokenText)
+      const resolvedTextStart = resolvedRange.textStart
+      const resolvedTextEnd = resolvedRange.textEnd
+      const resolvedPaintEnd = this.mediaOverlayPaintEndForResolvedRange(
+        textStart,
+        textEnd,
+        paintEnd,
+        resolvedRange.normalizedTextStart,
+        resolvedRange.normalizedTextEnd
+      )
+      const resolvedRawPaintEnd = readerMediaOverlayRawOffsetForNormalizedOffset(normalizedMap, resolvedPaintEnd, 'end')
+      const start = readerMediaOverlayTextPoint(entries, Math.floor(resolvedTextStart))
+      const end = readerMediaOverlayTextPoint(entries, Math.ceil(Math.min(resolvedTextEnd, resolvedRawPaintEnd)))
       if (!start || !end) continue
       const overlayer = content.overlayer
       if (!overlayer) continue

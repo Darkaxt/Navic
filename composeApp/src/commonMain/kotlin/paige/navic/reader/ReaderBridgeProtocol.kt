@@ -84,6 +84,7 @@ data class ReaderOverlayFragment(
 	val textStart: Int? = null,
 	val textEnd: Int? = null,
 	val textProgressEnd: Int? = null,
+	val spokenText: String? = null,
 	val label: String? = null
 )
 
@@ -726,6 +727,7 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		textStart?.let { put("textStart", it) }
 		textEnd?.let { put("textEnd", it) }
 		textProgressEnd?.let { put("textProgressEnd", it) }
+		spokenText?.let { put("spokenText", it) }
 		label?.let { put("label", it) }
 	}
 
@@ -797,6 +799,7 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		textStart = intValue("textStart"),
 		textEnd = intValue("textEnd"),
 		textProgressEnd = intValue("textProgressEnd"),
+		spokenText = stringValue("spokenText") ?: stringValue("text"),
 		label = stringValue("label")
 	)
 }

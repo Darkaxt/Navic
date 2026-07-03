@@ -76,6 +76,35 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(highlighter, "const paintEnd = Math.min(textEnd, Math.max(textStart + 1, rawPaintEnd))")
 	}
 
+	@Test
+	fun progressiveWhispersyncHighlightResolvesSpokenTextSubrangeBeforePainting() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
+
+		assertContains(helpers, "export const readerMediaOverlayResolvedTextRange")
+		assertContains(helpers, "export const readerMediaOverlayNormalizedTextMap")
+		assertContains(helpers, "export const readerMediaOverlayRawOffsetForNormalizedOffset")
+		assertContains(helpers, "spokenText")
+		assertContains(helpers, "ReaderMediaOverlayTextSearchPaddingMinimum")
+		assertContains(helpers, "readerMediaOverlayClosestTextMatch")
+		assertContains(helpers, "normalizedTextStart")
+		assertContains(helpers, "normalizedTextEnd")
+
+		val highlighter = runtime
+			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
+			.substringBefore("\n  clearOverlay()")
+
+		assertContains(highlighter, "readerMediaOverlayNormalizedTextMap(entries)")
+		assertContains(highlighter, "readerMediaOverlayResolvedTextRange")
+		assertContains(highlighter, "fragment.spokenText")
+		assertContains(highlighter, "resolvedRange.normalizedTextStart")
+		assertContains(highlighter, "resolvedRange.normalizedTextEnd")
+		assertContains(highlighter, "resolvedTextStart")
+		assertContains(highlighter, "resolvedTextEnd")
+		assertContains(highlighter, "mediaOverlayPaintEndForResolvedRange")
+		assertContains(highlighter, "readerMediaOverlayRawOffsetForNormalizedOffset")
+	}
+
 	private fun sourceFile(path: String): File =
 		listOf(
 			File("../$path"),

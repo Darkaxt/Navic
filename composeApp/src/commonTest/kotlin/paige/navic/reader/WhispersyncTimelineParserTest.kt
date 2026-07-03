@@ -68,6 +68,8 @@ class WhispersyncTimelineParserTest {
 		assertEquals("OEBPS/xhtml/Authorforeword.xhtml", segment.textHref)
 		assertEquals(0, segment.textStart)
 		assertEquals(107, segment.textEnd)
+		assertEquals("This is Audible.", segment.spokenText)
+		assertEquals("This is Audible.", segment.toReaderOverlayFragment().spokenText)
 	}
 
 	@Test

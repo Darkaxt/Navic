@@ -100,6 +100,146 @@ export const readerMediaOverlayTextPoint = (entries, requestedOffset) => {
   }
 }
 
+const readerMediaOverlayWordCharPattern = /[\p{L}\p{N}]/u
+const readerMediaOverlayMarkPattern = /\p{M}/gu
+export const ReaderMediaOverlayTextSearchPaddingMinimum = 96
+
+const readerMediaOverlayAppendComparable = (state, value, rawOffset, rawEndOffset = rawOffset + 1) => {
+  if (!value) return
+  if (value === ' ') {
+    if (!state.text || state.text.endsWith(' ')) return
+    state.text += ' '
+    state.offsets.push(rawOffset)
+    state.endOffsets.push(rawEndOffset)
+    return
+  }
+  state.text += value
+  state.offsets.push(rawOffset)
+  state.endOffsets.push(rawEndOffset)
+}
+
+const readerMediaOverlayComparableTextWithOffsets = (text, absoluteStart = 0) => {
+  const state = { text: '', offsets: [], endOffsets: [] }
+  const rawText = String(text || '')
+  let rawOffset = 0
+  for (const char of rawText) {
+    const absoluteRawStart = absoluteStart + rawOffset
+    const absoluteRawEnd = absoluteRawStart + char.length
+    const normalized = char
+      .normalize('NFKD')
+      .replace(readerMediaOverlayMarkPattern, '')
+      .toLowerCase()
+    let appendedWordChar = false
+    for (const normalizedChar of normalized) {
+      if (readerMediaOverlayWordCharPattern.test(normalizedChar)) {
+        readerMediaOverlayAppendComparable(state, normalizedChar, absoluteRawStart, absoluteRawEnd)
+        appendedWordChar = true
+      }
+    }
+    if (!appendedWordChar) {
+      readerMediaOverlayAppendComparable(state, ' ', absoluteRawStart, absoluteRawEnd)
+    }
+    rawOffset += char.length
+  }
+  while (state.text.startsWith(' ')) {
+    state.text = state.text.slice(1)
+    state.offsets.shift()
+    state.endOffsets.shift()
+  }
+  while (state.text.endsWith(' ')) {
+    state.text = state.text.slice(0, -1)
+    state.offsets.pop()
+    state.endOffsets.pop()
+  }
+  return state
+}
+
+export const readerMediaOverlayNormalizedTextMap = entries => {
+  if (!Array.isArray(entries) || !entries.length) return { text: '', offsets: [], endOffsets: [] }
+  return readerMediaOverlayComparableTextWithOffsets(entries.map(entry => entry.text || '').join(''))
+}
+
+export const readerMediaOverlayRawOffsetForNormalizedOffset = (normalizedMap, requestedOffset, edge = 'start') => {
+  const map = normalizedMap || {}
+  const textLength = map.text?.length || 0
+  if (!textLength) return 0
+  const offset = Number.isFinite(Number(requestedOffset)) ? Number(requestedOffset) : 0
+  if (edge === 'end') {
+    const endIndex = Math.max(0, Math.min(textLength, Math.ceil(offset)))
+    if (endIndex <= 0) return map.offsets[0] ?? 0
+    return map.endOffsets[endIndex - 1] ?? ((map.offsets[endIndex - 1] ?? 0) + 1)
+  }
+  const startIndex = Math.max(0, Math.min(textLength - 1, Math.floor(offset)))
+  return map.offsets[startIndex] ?? 0
+}
+
+export const readerMediaOverlayClosestTextMatch = (normalizedText, normalizedSpokenText, preferredCenter) => {
+  if (!normalizedText || !normalizedSpokenText) return null
+  let searchFrom = 0
+  let best = null
+  while (searchFrom <= normalizedText.length) {
+    const matchIndex = normalizedText.indexOf(normalizedSpokenText, searchFrom)
+    if (matchIndex < 0) break
+    const normalizedTextStart = matchIndex
+    const normalizedTextEnd = matchIndex + normalizedSpokenText.length
+    if (normalizedTextEnd > normalizedTextStart) {
+      const centerDistance = Math.abs(((normalizedTextStart + normalizedTextEnd) / 2) - preferredCenter)
+      if (!best || centerDistance < best.centerDistance) best = { normalizedTextStart, normalizedTextEnd, centerDistance }
+    }
+    searchFrom = matchIndex + 1
+  }
+  return best
+}
+
+export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, textEnd, spokenText) => {
+  const map = Array.isArray(normalizedMap) ? readerMediaOverlayNormalizedTextMap(normalizedMap) : (normalizedMap || {})
+  const mapLength = map.text?.length || 0
+  const requestedStart = Number.isFinite(Number(textStart)) ? Number(textStart) : 0
+  const requestedEnd = Number.isFinite(Number(textEnd)) ? Number(textEnd) : requestedStart
+  const fallbackStart = Math.max(0, Math.min(mapLength, Math.floor(requestedStart)))
+  const fallbackEnd = Math.max(fallbackStart, Math.min(mapLength, Math.ceil(requestedEnd)))
+  const fallbackRawStart = readerMediaOverlayRawOffsetForNormalizedOffset(map, fallbackStart, 'start')
+  const fallbackRawEnd = readerMediaOverlayRawOffsetForNormalizedOffset(map, fallbackEnd, 'end')
+  const fallback = {
+    textStart: fallbackRawStart,
+    textEnd: Math.max(fallbackRawStart, fallbackRawEnd),
+    normalizedTextStart: fallbackStart,
+    normalizedTextEnd: fallbackEnd,
+    matched: false,
+  }
+  const spoken = String(spokenText || '').trim()
+  if (!mapLength || !spoken || fallbackEnd <= fallbackStart) return fallback
+  const fallbackLength = fallbackEnd - fallbackStart
+  const searchPadding = Math.max(
+    ReaderMediaOverlayTextSearchPaddingMinimum,
+    fallbackLength * 2,
+    spoken.length * 2
+  )
+  const searchStart = Math.max(0, fallbackStart - searchPadding)
+  const searchEnd = Math.min(mapLength, fallbackEnd + searchPadding)
+  const searchText = map.text.slice(searchStart, searchEnd)
+  const comparableSpoken = readerMediaOverlayComparableTextWithOffsets(spoken)
+  if (!searchText || !comparableSpoken.text) return fallback
+  const match = readerMediaOverlayClosestTextMatch(
+    searchText,
+    comparableSpoken.text,
+    (fallbackStart + fallbackEnd) / 2
+  )
+  if (!match) return fallback
+  const normalizedTextStart = searchStart + match.normalizedTextStart
+  const normalizedTextEnd = searchStart + match.normalizedTextEnd
+  const resolvedStart = readerMediaOverlayRawOffsetForNormalizedOffset(map, normalizedTextStart, 'start')
+  const resolvedEnd = readerMediaOverlayRawOffsetForNormalizedOffset(map, normalizedTextEnd, 'end')
+  if (!Number.isFinite(resolvedStart) || !Number.isFinite(resolvedEnd) || resolvedEnd <= resolvedStart) return fallback
+  return {
+    textStart: resolvedStart,
+    textEnd: resolvedEnd,
+    normalizedTextStart,
+    normalizedTextEnd,
+    matched: true,
+  }
+}
+
 export const readerMediaOverlayTextOffsetForRange = (doc, range) => {
   const container = range?.startContainer
   const startOffset = Number(range?.startOffset)

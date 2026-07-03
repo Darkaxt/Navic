@@ -129,6 +129,7 @@ data class WhispersyncSegment(
 	val rangeCfi: String? = null,
 	val textStart: Int? = null,
 	val textEnd: Int? = null,
+	val spokenText: String? = null,
 	val label: String? = null
 ) {
 	fun toReaderOverlayFragment(textProgressEnd: Int? = null): ReaderOverlayFragment =
@@ -141,6 +142,7 @@ data class WhispersyncSegment(
 			textStart = textStart,
 			textEnd = textEnd,
 			textProgressEnd = textProgressEnd,
+			spokenText = spokenText,
 			label = label
 		)
 }
@@ -356,6 +358,10 @@ private fun JsonObject.toWhispersyncSegmentResult(
 			rangeCfi = stringValue("rangeCfi") ?: stringValue("cfi"),
 			textStart = intValue("textStart") ?: intValue("ebookStart") ?: intValue("startChar") ?: text?.intValue("start"),
 			textEnd = intValue("textEnd") ?: intValue("ebookEnd") ?: intValue("endChar") ?: text?.intValue("end"),
+			spokenText = stringValue("spokenText")
+				?: stringValue("asrText")
+				?: stringValue("transcript")
+				?: stringValue("text"),
 			label = stringValue("label") ?: stringValue("chapterLabel") ?: stringValue("sectionLabel")
 		)
 	)
