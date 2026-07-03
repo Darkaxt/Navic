@@ -158,6 +158,11 @@ sealed interface ReaderEngineEvent {
 		val rangeCfi: String? = null,
 		val source: String? = null
 	) : ReaderEngineEvent
+	data class WhispersyncTextLongPressed(
+		val textHref: String,
+		val textOffset: Int,
+		val source: String? = null
+	) : ReaderEngineEvent
 
 	data class MediaOverlayActive(val fragment: ReaderOverlayFragment) : ReaderEngineEvent
 	data class MediaOverlayInactive(val fragmentId: String? = null) : ReaderEngineEvent

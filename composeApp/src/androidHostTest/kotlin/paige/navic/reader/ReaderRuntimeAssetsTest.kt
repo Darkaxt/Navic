@@ -478,11 +478,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "mediaOverlayFollowShouldDeferForUserRelocation()")
 		assertContains(applyOverlayFragment, "this.mediaOverlayFollowShouldDeferForUserRelocation()")
 		assertContains(applyOverlayFragment, "media-overlay-follow:deferred")
-		assertTrue(
-			applyOverlayFragment.indexOf("this.mediaOverlayFollowShouldDeferForUserRelocation()") <
-				applyOverlayFragment.indexOf("await this.goTo(targetHref, 'media-overlay-follow')"),
-			"Playback-driven media-overlay follow must not start a second relocation over an active user go-to/page-turn."
+		assertFalse(
+			applyOverlayFragment.contains("await this.goTo(targetHref, 'media-overlay-follow')"),
+			"The ebook leads: audio-driven media-overlay follow must never navigate the page (page-bounded playback pauses at the page boundary instead)."
 		)
+		assertContains(applyOverlayFragment, "media-overlay-follow:suppressed")
 	}
 
 	@Test
@@ -500,11 +500,11 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "mediaOverlayFragmentAlreadyVisible(fragment)")
 		assertContains(applyOverlayFragment, "this.mediaOverlayFragmentAlreadyVisible(fragment)")
 		assertContains(applyOverlayFragment, "media-overlay-follow:already-visible")
-		assertTrue(
-			applyOverlayFragment.indexOf("this.mediaOverlayFragmentAlreadyVisible(fragment)") <
-				applyOverlayFragment.indexOf("await this.goTo(targetHref, 'media-overlay-follow')"),
-			"Character-range media-overlay cues that are already visible must be highlighted in place instead of forcing a section-level media-overlay relocation."
+		assertFalse(
+			applyOverlayFragment.contains("await this.goTo(targetHref, 'media-overlay-follow')"),
+			"The ebook leads: media-overlay cues are highlighted in place and never force a section-level navigation."
 		)
+		assertContains(applyOverlayFragment, "media-overlay-follow:already-visible")
 	}
 
 	@Test
@@ -583,8 +583,16 @@ class ReaderRuntimeAssetsTest {
 		assertContains(probe, "type: 'applyOverlayFragment'")
 		assertContains(probe, "data-navic-media-overlay-range")
 		assertContains(probe, "navic-active-overlay-fragment")
+		assertContains(probe, "Expected data-navic-media-overlay-range marker")
+		assertContains(probe, "Expected navic-active-overlay-fragment marker with exact offsets")
+		assertContains(probe, "textStart === String(targetStart)")
+		assertContains(probe, "textEnd === String(targetEnd)")
+		assertContains(probe, "baselineMarkerKeys")
+		assertContains(probe, "newMarkersAfterClear")
+		assertContains(probe, "targetRange")
 		assertContains(probe, "overlayFragmentActive")
 		assertContains(probe, "type: 'clearOverlay'")
+		assertContains(probe, "clearOverlay left probe-created char-offset markers behind")
 	}
 
 	@Test
@@ -954,7 +962,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeUiNodeFractionAction")
 		assertContains(postProbeGestureBlock, "Invoke-PostProbeTapFractionUntilDescPresent")
 		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"text\", \$text)")
-		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"keyevent\", \$keyEvent)")
+		assertContains(postProbeGestureBlock, "Invoke-Adb @(\"shell\", \"input\", \"keyevent\", \$normalizedKeyEvent)")
 		assertContains(scriptText, "Dispatching reader engine command: \$requiredEngineCommand")
 		assertContains(scriptText, "required engine command '\$requiredEngineCommand' was not captured")
 		assertContains(scriptText, "foreach (\$requiredReaderLog in \$RequireReaderLog)")
@@ -1032,6 +1040,34 @@ class ReaderRuntimeAssetsTest {
 		assertContains(logValidationBlock, "\$ReaderDevtoolsProbe")
 		assertContains(logValidationBlock, "\$PostActionReaderDevtoolsProbe")
 		assertContains(logValidationBlock, "reader-devtools-post-action-probe.json")
+	}
+
+	@Test
+	fun adbReaderSmokeNormalizesAndLogsPostProbeBackKeyEvents() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val keyEventBlock = scriptText
+			.substringAfter("if (\$postProbeAction.StartsWith(\"keyevent:\"))")
+			.substringBefore("throw \"Invalid post-probe action")
+
+		assertContains(
+			scriptText,
+			"function Normalize-AdbInputKeyEvent",
+			message = "The smoke script must normalize symbolic keyevent aliases before invoking Android input."
+		)
+		assertContains(keyEventBlock, "Normalize-AdbInputKeyEvent")
+		assertContains(keyEventBlock, "Write-Host")
+		assertContains(keyEventBlock, "sending keyevent")
+		assertContains(
+			scriptText,
+			"""Normalize-AdbInputKeyEvent -KeyEvent ${'$'}keyEvent""",
+			message = "Post-probe keyevents must pass through the normalizer before ADB execution."
+		)
+		assertContains(
+			scriptText,
+			""""KEYCODE_BACK" { "4" }""",
+			message = "KEYCODE_BACK must normalize to numeric 4 because the paired lifecycle gate is proven with numeric Android BACK."
+		)
+		assertContains(scriptText, """"BACK" { "4" }""")
 	}
 
 	@Test

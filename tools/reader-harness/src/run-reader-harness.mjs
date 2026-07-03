@@ -6283,18 +6283,30 @@ if (mode === 'css-smoke') {
         nativeViewWidth,
         nativeViewHeight
       )
-      const recentTouchContentHitAfterRemoval = async (html, selector) => {
+      await win.parent.NavicReaderBridge.dispatch({
+        type: 'applySettings',
+        settings: {
+          nativeTapZones: true,
+        },
+      })
+      const recentLongPressContentHitAfterRemoval = async (html, selector) => {
         const wrapper = doc.createElement('span')
-        wrapper.setAttribute('data-navic-css-smoke-transient-touch', 'true')
+        wrapper.setAttribute('data-navic-css-smoke-transient-long-press', 'true')
         wrapper.innerHTML = html
         doc.body.prepend(wrapper)
         await new Promise(resolve => win.requestAnimationFrame(resolve))
         const target = wrapper.querySelector(selector)
         if (!target) throw new Error(`Missing transient target for ${selector}`)
         const rootPoint = rootPointFor(target)
-        dispatchSyntheticTouchTap(target)
+        await win.parent.NavicReaderBridge.dispatch({
+          type: 'contentLongPressAt',
+          x: rootPoint.x,
+          y: rootPoint.y,
+          viewWidth: Math.round(win.parent.visualViewport?.width || win.parent.innerWidth),
+          viewHeight: Math.round(win.parent.visualViewport?.height || win.parent.innerHeight),
+        })
         wrapper.remove()
-        await new Promise(resolve => win.setTimeout(resolve, 25))
+        await new Promise(resolve => win.requestAnimationFrame(resolve))
         return win.parent.NavicReaderBridge.readerContentActionAtPoint(
           Math.round(rootPoint.x * nativeCoordinateScale),
           Math.round(rootPoint.y * nativeCoordinateScale),
@@ -6302,20 +6314,14 @@ if (mode === 'css-smoke') {
           nativeViewHeight
         )
       }
-      const imageRecentTouchContentHitAfterRemoval = await recentTouchContentHitAfterRemoval(
+      const imageRecentLongPressContentHitAfterRemoval = await recentLongPressContentHitAfterRemoval(
         `<img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='white'/%3E%3C/svg%3E">`,
         'img'
       )
-      const textLinkRecentTouchContentHitAfterRemoval = await recentTouchContentHitAfterRemoval(
+      const textLinkRecentLongPressContentHitAfterRemoval = await recentLongPressContentHitAfterRemoval(
         `<a href="#navic-css-smoke-target">Transient link</a>`,
         'a'
       )
-      await win.parent.NavicReaderBridge.dispatch({
-        type: 'applySettings',
-        settings: {
-          nativeTapZones: true,
-        },
-      })
       const nativeProbe = doc.createElement('section')
       nativeProbe.setAttribute('data-navic-css-smoke-native-tap-zones', 'true')
       nativeProbe.innerHTML = `
@@ -6534,8 +6540,8 @@ if (mode === 'css-smoke') {
         textLinkNativeScaledContentHit,
         paragraphNativeCenterContentHit,
         paragraphNativeScaledContentHit,
-        imageRecentTouchContentHitAfterRemoval,
-        textLinkRecentTouchContentHitAfterRemoval,
+        imageRecentLongPressContentHitAfterRemoval,
+        textLinkRecentLongPressContentHitAfterRemoval,
         surfaceTextureBackgroundImage: surfaceTextureStyle?.backgroundImage || '',
         surfaceTextureOpacity: surfaceTextureStyle?.opacity || '',
         movingPageTextureLayerPresent: Boolean(movingPageTextureLayer),

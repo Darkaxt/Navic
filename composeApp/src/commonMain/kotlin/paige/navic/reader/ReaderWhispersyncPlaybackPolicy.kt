@@ -43,6 +43,27 @@ fun readerWhispersyncPlaybackControlState(
 	)
 }
 
+fun readerWhispersyncPlaybackCommandsForUserRequest(
+	playbackPlan: ReadaloudPlaybackPlan?,
+	session: ReaderWhispersyncSessionState,
+	command: ReaderReadaloudPlaybackCommand
+): List<ReaderReadaloudPlaybackCommand> {
+	if (command !is ReaderReadaloudPlaybackCommand.Play || !session.sync.syncEnabled) {
+		return listOf(command)
+	}
+	val visibleRange = session.visibleTextRange ?: return listOf(command)
+	val seekTarget = session.timeline?.seekTargetForVisibleTextRange(
+		textHref = visibleRange.textHref,
+		visibleStart = visibleRange.visibleStart,
+		visibleEnd = visibleRange.visibleEnd
+	) ?: return listOf(command)
+	val seekCommand = readerWhispersyncPlaybackCommandForSeekTarget(
+		playbackPlan = playbackPlan,
+		seekTarget = seekTarget
+	) ?: return listOf(command)
+	return listOf(seekCommand, command)
+}
+
 fun readerWhispersyncPlaybackCommandForSeekTarget(
 	playbackPlan: ReadaloudPlaybackPlan?,
 	seekTarget: WhispersyncAudioSeekTarget?
@@ -76,3 +97,17 @@ private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
 	if (exactIndex != null) return exactIndex
 	return 0.takeIf { mediaItems.size == 1 }
 }
+
+fun readerWhispersyncShouldPausePlaybackOnReaderExit(
+	playbackPlanAvailable: Boolean,
+	playbackState: ReaderReadaloudPlaybackUiState?,
+	playbackStartedFromReader: Boolean = false
+): Boolean =
+	playbackPlanAvailable &&
+		(
+			playbackStartedFromReader ||
+				(
+					playbackState?.isAvailable == true &&
+						playbackState.isPlaying
+				)
+		)

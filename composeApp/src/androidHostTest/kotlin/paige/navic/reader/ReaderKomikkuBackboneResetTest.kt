@@ -792,7 +792,7 @@ class ReaderKomikkuBackboneResetTest {
 			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+			.substringBefore("\nfunction readerContentActionInDocumentAtPoint")
 
 		assertTrue(
 			androidHostText.contains("private class KomikkuGestureDetectorWithLongTap") &&
@@ -825,8 +825,9 @@ class ReaderKomikkuBackboneResetTest {
 			"Native long press must enter the typed reader controller path instead of relying on WebView contextmenu as a side effect."
 		)
 		assertTrue(
-			claimInteractiveTouch.contains("if (this.nativeTapZones === true) return false"),
-			"When native tap zones are active, JS must not claim touchstart/pointerdown for links or images; those claims suppress reader-owned short taps."
+			claimInteractiveTouch.contains("return this.suppressReaderNativeTapZoneContentActivation(doc, event, 'content-touch')") &&
+				!claimInteractiveTouch.contains("readerContentActionClaimPayload"),
+			"JS short touch handlers may suppress renderer activation, but must not claim links/images as ebook actions."
 		)
 		assertFalse(
 			viewerContainerBody.contains("val handled = super.dispatchTouchEvent(event)\n\t\thandleSwipeTouchEvent(event)\n\t\tgestureDetector.onTouchEvent(event)\n\t\treturn handled"),

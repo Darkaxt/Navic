@@ -226,7 +226,9 @@ data class ReaderControllerStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
 	val progressToSave: BinderyReadingProgress? = null,
-	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
+	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
+	val whispersyncActiveSegment: ReaderWhispersyncActiveSegmentDiagnostic? = null,
+	val whispersyncPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
 )
 
 data class ReaderControllerBackStep(
@@ -446,6 +448,7 @@ data class ReaderController(
 					)
 				)
 			)
+			is ReaderEngineEvent.WhispersyncTextLongPressed -> onWhispersyncTextLongPressed(event)
 			is ReaderEngineEvent.VisibleTextRange -> onVisibleTextRange(event)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(
@@ -713,7 +716,8 @@ data class ReaderController(
 						timeline = currentWhispersync.timeline,
 						audioResource = audioResource,
 						audioTrackIndex = playbackState.trackIndex,
-						positionMs = playbackState.positionMs
+						positionMs = playbackState.positionMs,
+						visibleTextRange = currentWhispersync.visibleTextRange
 					)
 				}
 		}
@@ -742,7 +746,9 @@ data class ReaderController(
 					}
 				)
 			),
-			engineCommands = listOfNotNull(command)
+			engineCommands = listOfNotNull(command),
+			whispersyncActiveSegment = playbackStep?.activeSegment,
+			whispersyncPlaybackCommand = playbackStep?.playbackCommand
 		)
 	}
 
@@ -855,7 +861,55 @@ data class ReaderController(
 			),
 			engineCommands = listOfNotNull(command),
 			progressToSave = progress,
-			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget,
+			whispersyncPlaybackCommand = syncStep.playbackCommand
+		)
+	}
+
+	private fun onWhispersyncTextLongPressed(event: ReaderEngineEvent.WhispersyncTextLongPressed): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		val syncStep = currentWhispersync.sync.onTextOffset(
+			timeline = currentWhispersync.timeline,
+			textHref = event.textHref,
+			textOffset = event.textOffset
+		)
+		val command = syncStep.state.engineCommand
+			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		val progress = syncStep.audioSeekTarget?.let {
+			state.publication?.let { publication ->
+				state.chrome.currentLocator?.toBinderyReadingProgress(
+					bookId = publication.bookId,
+					resourceHref = publication.resourceHref,
+					kind = publication.kind
+				)
+			}
+		}
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					whispersync = currentWhispersync.copy(
+						sync = syncStep.state,
+						audioSeekTarget = syncStep.audioSeekTarget,
+						status = syncStep.status ?: currentWhispersync.status
+					),
+					activeMediaOverlay = when {
+						overlayFragment != null -> overlayFragment
+						shouldClearOverlay -> null
+						else -> state.activeMediaOverlay
+					},
+					audioMetadataLabel = when {
+						overlayFragment != null -> overlayFragment.label
+						shouldClearOverlay -> null
+						else -> state.audioMetadataLabel
+					}
+				)
+			),
+			engineCommands = listOfNotNull(command),
+			progressToSave = progress,
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget,
+			whispersyncPlaybackCommand = syncStep.playbackCommand
 		)
 	}
 
@@ -921,7 +975,8 @@ data class ReaderController(
 			),
 			engineCommands = listOfNotNull(command),
 			progressToSave = progress,
-			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget,
+			whispersyncPlaybackCommand = syncStep.playbackCommand
 		)
 	}
 

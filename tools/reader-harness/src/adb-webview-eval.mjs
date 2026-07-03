@@ -1258,6 +1258,13 @@ async function runWhispersyncCharOffsetOverlayProbe(page) {
           }))
       })
     }
+    const markerKey = marker => [
+      marker?.href || '',
+      marker?.textStart || '',
+      marker?.textEnd || '',
+      marker?.className || '',
+      marker?.text || '',
+    ].join('\u001f')
 
     window.NavicAndroidBridge.postMessage = message => {
       originalPostMessage(message)
@@ -1291,6 +1298,7 @@ async function runWhispersyncCharOffsetOverlayProbe(page) {
         throw new Error(`Computed invalid char-offset range ${targetStart}-${targetEnd} from ${JSON.stringify(visibleRange)}`)
       }
 
+      const baselineMarkerKeys = new Set(rangeMarkers().map(markerKey))
       const overlayStartIndex = observedPayloads.length
       readerBridgeDispatch({
         type: 'applyOverlayFragment',
@@ -1327,8 +1335,9 @@ async function runWhispersyncCharOffsetOverlayProbe(page) {
       await Promise.resolve(readerBridgeDispatch({ type: 'clearOverlay' }))
       await settleFrames()
       const afterClearMarkers = rangeMarkers()
-      if (afterClearMarkers.length) {
-        throw new Error(`clearOverlay left char-offset markers behind: ${JSON.stringify(afterClearMarkers)}`)
+      const newMarkersAfterClear = afterClearMarkers.filter(entry => !baselineMarkerKeys.has(markerKey(entry)))
+      if (newMarkersAfterClear.length) {
+        throw new Error(`clearOverlay left probe-created char-offset markers behind: ${JSON.stringify(newMarkersAfterClear)}`)
       }
 
       return {

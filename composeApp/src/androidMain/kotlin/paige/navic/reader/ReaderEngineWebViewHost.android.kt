@@ -368,6 +368,8 @@ private fun ReaderBridgeEvent.engineDebugLabel(): String =
 		is ReaderBridgeEvent.PullUp -> "pullUp(source=${source.orEmpty()})"
 		is ReaderBridgeEvent.VisibleTextRange ->
 			"visibleTextRange(${textHref.engineUrlLabel()}, $visibleStart-$visibleEnd, source=${source.orEmpty()})"
+		is ReaderBridgeEvent.WhispersyncTextLongPress ->
+			"whispersyncTextLongPress(${textHref.engineUrlLabel()}, offset=$textOffset, source=${source.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentActive -> "overlayFragmentActive(${fragment.fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.OverlayFragmentInactive -> "overlayFragmentInactive(${fragmentId.orEmpty()})"
 		is ReaderBridgeEvent.SearchResults ->

@@ -3,12 +3,14 @@ package paige.navic.ui.screens.reader
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -56,6 +58,8 @@ import paige.navic.reader.persistReaderMarksIfChanged
 import paige.navic.reader.readerAnnotationState
 import paige.navic.reader.readerBookmarkState
 import paige.navic.reader.readerWhispersyncPlaybackCommandForSeekTarget
+import paige.navic.reader.readerWhispersyncPlaybackCommandsForUserRequest
+import paige.navic.reader.readerWhispersyncShouldPausePlaybackOnReaderExit
 import paige.navic.reader.ReaderReadingProgressState
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
@@ -177,6 +181,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 		versionRowId = whispersyncAudiobookIdentity,
 		syncEnabled = readaloudSyncEnabled
 	)
+	val latestWhispersyncPlaybackPlan by rememberUpdatedState(whispersyncPlaybackPlan)
+	val latestWhispersyncReadaloudPlaybackState by rememberUpdatedState(whispersyncReadaloudPlaybackState)
+	var whispersyncExitPauseDispatched by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf(false)
+	}
+	var whispersyncPlaybackStartedFromReader by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf(false)
+	}
 	@Suppress("DEPRECATION")
 	val clipboard = LocalClipboardManager.current
 	val readerFocusRequester = remember { FocusRequester() }
@@ -222,6 +234,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		)
+		step.whispersyncActiveSegment?.let { segment ->
+			Logger.i(
+				ReaderScreenTag,
+				"Whispersync activeSegment audio=${segment.audioResource} " +
+					"trackIndex=${segment.audioTrackIndex?.toString().orEmpty()} " +
+					"positionMs=${segment.positionMs} text=${segment.textHref}:" +
+					"${segment.textStart?.toString().orEmpty()}-${segment.textEnd?.toString().orEmpty()} " +
+					"fragment=${segment.fragmentId.orEmpty()} ApplyMediaOverlay=${segment.applyMediaOverlay}"
+			)
+		}
 		step.whispersyncAudioSeekTarget?.let { target ->
 			val command = readerWhispersyncPlaybackCommandForSeekTarget(
 				playbackPlan = whispersyncPlaybackPlan,
@@ -240,12 +262,39 @@ fun ReaderScreen(reader: Screen.Reader) {
 				)
 			}
 		}
+		step.whispersyncPlaybackCommand?.let { playbackCommand ->
+			// Dispatched after the seek block so resume-on-page-turn is seek-then-play.
+			audiobookPlaybackManager.dispatch(playbackCommand)
+		}
+	}
+
+	fun pauseWhispersyncAudiobookOnReaderExit(reason: String) {
+		if (whispersyncExitPauseDispatched) return
+		if (
+			readerWhispersyncShouldPausePlaybackOnReaderExit(
+				playbackPlanAvailable = latestWhispersyncPlaybackPlan != null,
+				playbackState = latestWhispersyncReadaloudPlaybackState,
+				playbackStartedFromReader = whispersyncPlaybackStartedFromReader
+			)
+		) {
+			whispersyncExitPauseDispatched = true
+			whispersyncPlaybackStartedFromReader = false
+			Logger.i(ReaderScreenTag, "Pausing Whispersync audiobook on reader exit reason=$reason")
+			audiobookPlaybackManager.dispatch(ReaderReadaloudPlaybackCommand.Pause)
+		}
 	}
 
 	fun applyReaderBackStep(step: ReaderCoordinatorBackStep) {
 		if (step.handled) {
+			if (
+				!coordinator.controller.state.shellCoverVisible &&
+				step.coordinator.controller.state.shellCoverVisible
+			) {
+				pauseWhispersyncAudiobookOnReaderExit("back-to-shell-cover")
+			}
 			coordinator = step.coordinator
 		} else {
+			pauseWhispersyncAudiobookOnReaderExit("app-navigation")
 			backStack.performNavicBack()
 		}
 	}
@@ -293,6 +342,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	LaunchedEffect(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		readerFocusRequester.requestFocus()
+	}
+
+	DisposableEffect(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		onDispose {
+			pauseWhispersyncAudiobookOnReaderExit("dispose")
+		}
 	}
 
 	LaunchedEffect(
@@ -503,7 +558,32 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(step)
 		},
 		onWhispersyncPlaybackCommand = { command ->
-			audiobookPlaybackManager.dispatch(command)
+			val playbackCommands = readerWhispersyncPlaybackCommandsForUserRequest(
+				playbackPlan = whispersyncPlaybackPlan,
+				session = coordinator.controller.state.whispersync,
+				command = command
+			)
+			when (command) {
+				ReaderReadaloudPlaybackCommand.Play -> whispersyncPlaybackStartedFromReader = true
+				ReaderReadaloudPlaybackCommand.Pause -> whispersyncPlaybackStartedFromReader = false
+				else -> Unit
+			}
+			val visibleTextRange = coordinator.controller.state.whispersync.visibleTextRange
+			playbackCommands.forEach { playbackCommand ->
+				if (command is ReaderReadaloudPlaybackCommand.Play && playbackCommand is ReaderReadaloudPlaybackCommand.SeekToTrack) {
+					val item = whispersyncPlaybackPlan?.mediaItems?.getOrNull(playbackCommand.trackIndex)
+					Logger.i(
+						ReaderScreenTag,
+						"Whispersync play preseek trackIndex=${playbackCommand.trackIndex} " +
+							"positionMs=${playbackCommand.positionMs} " +
+							"audio=${item?.resourceKey ?: item?.uri ?: item?.mediaId.orEmpty()} " +
+							"visibleTextRange=${visibleTextRange?.textHref.orEmpty()}:" +
+							"${visibleTextRange?.visibleStart?.toString().orEmpty()}-" +
+							"${visibleTextRange?.visibleEnd?.toString().orEmpty()}"
+					)
+				}
+				audiobookPlaybackManager.dispatch(playbackCommand)
+			}
 		},
 		onPreviousChapter = {
 			applyCoordinatorStep(coordinator.navigateToPreviousChapter())

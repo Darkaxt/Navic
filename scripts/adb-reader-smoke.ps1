@@ -76,6 +76,19 @@ function Invoke-Adb {
     }
 }
 
+function Normalize-AdbInputKeyEvent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $KeyEvent
+    )
+
+    switch ($KeyEvent.Trim().ToUpperInvariant()) {
+        "KEYCODE_BACK" { "4" }
+        "BACK" { "4" }
+        default { $KeyEvent.Trim() }
+    }
+}
+
 function Invoke-AdbExecOutToFile {
     param(
         [Parameter(Mandatory = $true)]
@@ -1156,8 +1169,10 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
         $keyEventPayload = $postProbeAction.Substring("keyevent:".Length)
         $keyEventWaitMatch = [regex]::Match($keyEventPayload, '^(.*?)(?:\s*,\s*(\d+))?$')
         $keyEvent = $keyEventWaitMatch.Groups[1].Value
+        $normalizedKeyEvent = Normalize-AdbInputKeyEvent -KeyEvent $keyEvent
         $waitMs = if ($keyEventWaitMatch.Groups[2].Success) { [int] $keyEventWaitMatch.Groups[2].Value } else { 500 }
-        Invoke-Adb @("shell", "input", "keyevent", $keyEvent)
+        Write-Host "post-probe action '$postProbeAction' sending keyevent '$normalizedKeyEvent'."
+        Invoke-Adb @("shell", "input", "keyevent", $normalizedKeyEvent)
         Start-Sleep -Milliseconds $waitMs
         continue
     }

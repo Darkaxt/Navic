@@ -67,7 +67,7 @@ If a Navic feature works but is not faithful to the reference, treat it as unfin
 - Do not build iOS artifacts for this Android reader work.
 - Do not treat host tests, desktop browser harnesses, or manual screenshots as proof of Android input/progress behavior.
 - Do not ask for routine human testing while host tests, emulator probes, or readerdev automation can still answer the question. Human/physical-device validation is the final acceptance gate for coherent candidates, not the normal implementation loop.
-- Do not let Foliate/WebView own normal reader tap zones. Short taps belong to the native Komikku-style surface; long press can reach content actions.
+- Do not let Foliate/WebView own normal reader tap zones. Short taps belong to the native Komikku-style surface; long press can reach content actions. This applies to Whispersync too: sentence-to-audio seek must be a long-press/content interaction, never a short-tap content bridge. Short taps may suppress renderer-owned links/images so the native shell keeps ownership, but they must not dispatch a generic `ContentTapAt`/`contentTapAt` command or directly seek audiobook cues.
 - Do not regress links, image interaction, search, EPUB text rendering, PDF rendering, or readaloud hooks while replacing the shell.
 - Do not invent Navic-specific reader behavior where Anx already defines a bridge callback, payload field, style dimension, or engine action.
 - Do not launch long Gradle, readerDev, emulator, or DevTools validation work through a foreground shell or `Start-Process` directly on `.bat` files. Use a no-console launch path with `ProcessStartInfo.UseShellExecute=false`, `CreateNoWindow=true`, file logs, and a PID file; smoke-test the wrapper before using it for a long command.

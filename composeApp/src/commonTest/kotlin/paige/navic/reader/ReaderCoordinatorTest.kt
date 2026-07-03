@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.domain.repositories.BinderyReadingProgress
@@ -186,6 +187,36 @@ class ReaderCoordinatorTest {
 		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
 		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
 		assertEquals(1L, viewState.commandKey)
+	}
+
+	@Test
+	fun whispersyncPlaybackStateSurfacesActiveSegmentDiagnosticThroughCoordinator() {
+		val synced = ReaderCoordinator()
+			.open(hobbitOpenRequest()).coordinator
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).coordinator
+
+		val step = synced.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+		val viewState = assertIs<ReaderEngineViewState.WebViewPublication>(step.coordinator.viewState)
+		val command = assertIs<ReaderBridgeCommand.ApplyOverlayFragment>(viewState.bridgeCommand())
+
+		assertEquals("seg-2", command.fragment.fragmentId)
+		val activeSegment = assertNotNull(step.whispersyncActiveSegment)
+		assertEquals("Audio/chapter01.m4b", activeSegment.audioResource)
+		assertEquals(5_500L, activeSegment.positionMs)
+		assertEquals("Text/chapter1.xhtml", activeSegment.textHref)
+		assertEquals(80, activeSegment.textStart)
+		assertEquals(140, activeSegment.textEnd)
+		assertEquals("seg-2", activeSegment.fragmentId)
+		assertEquals(true, activeSegment.applyMediaOverlay)
 	}
 
 	@Test

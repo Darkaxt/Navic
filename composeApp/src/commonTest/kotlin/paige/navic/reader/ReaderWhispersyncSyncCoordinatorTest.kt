@@ -38,6 +38,16 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals("OEBPS/xhtml/Authorforeword.xhtml", command.fragment.textHref)
 		assertEquals("Author foreword", command.fragment.label)
 		assertEquals(ReaderWhispersyncStatusKind.Playing, step.status?.kind)
+		val diagnostic = assertNotNull(step.activeSegment)
+		assertEquals("cue-999", diagnostic.segmentId)
+		assertEquals("6 Bastille vs. the Evil Librarians/Bastille vs. the Evil Librarians.m4b", diagnostic.audioResource)
+		assertEquals(0, diagnostic.audioTrackIndex)
+		assertEquals(263_500L, diagnostic.positionMs)
+		assertEquals("OEBPS/xhtml/Authorforeword.xhtml", diagnostic.textHref)
+		assertEquals(3, diagnostic.textStart)
+		assertEquals(4851, diagnostic.textEnd)
+		assertEquals("Author foreword", diagnostic.label)
+		assertEquals(true, diagnostic.applyMediaOverlay)
 	}
 
 	@Test
@@ -53,15 +63,36 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		val firstCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(first.engineCommand)
 		assertEquals("seg-1", firstCommand.fragment.fragmentId)
 		assertEquals("Opening sentence", firstCommand.fragment.label)
+		assertEquals(0.111, firstCommand.fragment.progress ?: -1.0, absoluteTolerance = 0.001)
+		assertEquals(14, firstCommand.fragment.progressTextEnd)
 		assertEquals(1L, first.engineCommandKey)
 
-		val duplicate = first.onAudiobookPlaybackPosition(
+		val progressed = first.onAudiobookPlaybackPosition(
 			timeline = timeline,
 			audioResource = "/Audio/chapter01.m4b",
 			positionMs = 2_000
 		)
-		assertEquals(first.engineCommand, duplicate.engineCommand)
-		assertEquals(first.engineCommandKey, duplicate.engineCommandKey)
+		val progressedCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(progressed.engineCommand)
+		assertEquals("seg-1", progressedCommand.fragment.fragmentId)
+		assertEquals(0.333, progressedCommand.fragment.progress ?: -1.0, absoluteTolerance = 0.001)
+		assertEquals(21, progressedCommand.fragment.progressTextEnd)
+		assertEquals(2L, progressed.engineCommandKey)
+
+		val duplicate = progressed.onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "/Audio/chapter01.m4b",
+			positionMs = 2_000
+		)
+		assertEquals(progressed.engineCommand, duplicate.engineCommand)
+		assertEquals(progressed.engineCommandKey, duplicate.engineCommandKey)
+
+		val duplicateStep = progressed.onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "/Audio/chapter01.m4b",
+			positionMs = 2_000
+		)
+		assertEquals("a", duplicateStep.activeSegment?.segmentId)
+		assertEquals(false, duplicateStep.activeSegment?.applyMediaOverlay)
 
 		val outsideSegment = duplicate.onAudiobookPlaybackPosition(
 			timeline = timeline,
@@ -69,7 +100,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			positionMs = 9_500
 		)
 		assertEquals(ReaderEngineCommand.ClearMediaOverlay, outsideSegment.engineCommand)
-		assertEquals(2L, outsideSegment.engineCommandKey)
+		assertEquals(3L, outsideSegment.engineCommandKey)
 		assertNull(outsideSegment.activeSegmentKey)
 	}
 
@@ -130,6 +161,34 @@ class ReaderWhispersyncSyncCoordinatorTest {
 	}
 
 	@Test
+	fun textOffsetPublishesSeekTargetFromExplicitLongPressOnly() {
+		val timeline = whispersyncTimeline()
+
+		val seek = ReaderWhispersyncSyncState().onTextOffset(
+			timeline = timeline,
+			textHref = "/Text/chapter1.xhtml",
+			textOffset = 95
+		)
+
+		assertEquals("Audio/chapter01.m4b", seek.audioSeekTarget?.audioResource)
+		assertEquals(5_000L, seek.audioSeekTarget?.positionMs)
+		assertEquals(ReaderWhispersyncStatusKind.SeekingAudio, seek.status?.kind)
+		val command = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(seek.state.engineCommand)
+		assertEquals("seg-2", command.fragment.fragmentId)
+		assertEquals("Second sentence", command.fragment.label)
+		assertEquals(1L, seek.state.engineCommandKey)
+
+		val miss = seek.state.onTextOffset(
+			timeline = timeline,
+			textHref = "/Text/chapter1.xhtml",
+			textOffset = 70
+		)
+		assertNull(miss.audioSeekTarget)
+		assertEquals(seek.state.engineCommandKey, miss.state.engineCommandKey)
+		assertEquals(ReaderWhispersyncStatusKind.Ready, miss.status?.kind)
+	}
+
+	@Test
 	fun syncTogglePublishesClearOverlayCommandWhenActiveSegmentIsVisible() {
 		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
 			timeline = whispersyncTimeline(),
@@ -153,6 +212,114 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals(disabled.engineCommandKey, suppressed.engineCommandKey)
 		assertEquals(false, suppressed.syncEnabled)
 	}
+
+	@Test
+	fun pageBoundaryPausesAudioWhenPlaybackReachesLastOnPageSegment() {
+		val timeline = pageBoundedTimeline()
+		val visible = ReaderWhispersyncVisibleTextRange(
+			textHref = "Text/chapter1.xhtml",
+			visibleStart = 0,
+			visibleEnd = 150
+		)
+		// Audio has crossed into segment c (off-page); the page boundary is b.endMs (8000).
+		val step = ReaderWhispersyncSyncState().onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 9_500,
+			visibleTextRange = visible
+		)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, step.playbackCommand)
+		assertEquals(true, step.state.pausedAtBoundary)
+		assertEquals(ReaderWhispersyncStatusKind.PausedAtPageBoundary, step.status?.kind)
+		assertEquals(false, step.activeSegment?.applyMediaOverlay)
+	}
+
+	@Test
+	fun onPagePlaybackHighlightsInPlaceWithoutPausing() {
+		val timeline = pageBoundedTimeline()
+		val visible = ReaderWhispersyncVisibleTextRange(
+			textHref = "Text/chapter1.xhtml",
+			visibleStart = 0,
+			visibleEnd = 150
+		)
+		val step = ReaderWhispersyncSyncState().onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 1_500,
+			visibleTextRange = visible
+		)
+		assertNull(step.playbackCommand)
+		assertEquals(false, step.state.pausedAtBoundary)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, step.status?.kind)
+		assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.state.engineCommand)
+	}
+
+	@Test
+	fun pageTurnWhilePausedAtBoundaryResumesAudioSeamlesslyWithoutSeeking() {
+		val timeline = pageBoundedTimeline()
+		val step = ReaderWhispersyncSyncState(pausedAtBoundary = true)
+			.onVisibleTextRange(
+				timeline = timeline,
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 190,
+				visibleEnd = 270
+			)
+		// Seamless resume: Play from the paused position, no seek (so a split
+		// sentence is not restarted from its beginning).
+		assertNull(step.audioSeekTarget)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, step.playbackCommand)
+		assertEquals(false, step.state.pausedAtBoundary)
+	}
+
+	@Test
+	fun pageTurnWhileUserPausedSeeksButDoesNotResumeAudio() {
+		val timeline = pageBoundedTimeline()
+		val step = ReaderWhispersyncSyncState(pausedAtBoundary = false)
+			.onVisibleTextRange(
+				timeline = timeline,
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 190,
+				visibleEnd = 270
+			)
+		assertNotNull(step.audioSeekTarget)
+		assertNull(step.playbackCommand)
+	}
+
+	private fun pageBoundedTimeline(): WhispersyncTimeline =
+		WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "a",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 1_250,
+					endMs = 3_500,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 10,
+					textEnd = 42,
+					label = "Opening sentence"
+				),
+				WhispersyncSegment(
+					id = "b",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 5_000,
+					endMs = 8_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 80,
+					textEnd = 140,
+					label = "Second sentence"
+				),
+				WhispersyncSegment(
+					id = "c",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 9_000,
+					endMs = 11_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 200,
+					textEnd = 260,
+					label = "Next page sentence"
+				)
+			)
+		)
 
 	private fun whispersyncTimeline(): WhispersyncTimeline =
 		WhispersyncTimeline(

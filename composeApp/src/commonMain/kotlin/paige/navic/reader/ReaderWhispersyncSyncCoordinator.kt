@@ -17,8 +17,10 @@ data class ReaderWhispersyncSessionState(
 data class ReaderWhispersyncSyncState(
 	val syncEnabled: Boolean = true,
 	val activeSegmentKey: String? = null,
+	val activeProgressKey: Int? = null,
 	val engineCommand: ReaderEngineCommand? = null,
-	val engineCommandKey: Long = 0L
+	val engineCommandKey: Long = 0L,
+	val pausedAtBoundary: Boolean = false
 )
 
 data class ReaderWhispersyncVisibleTextRange(
@@ -35,6 +37,7 @@ enum class ReaderWhispersyncStatusKind {
 	SyncDisabled,
 	SeekingAudio,
 	Playing,
+	PausedAtPageBoundary,
 	NoActiveCue,
 	Mismatch,
 	LoadFailed
@@ -61,18 +64,36 @@ data class ReaderWhispersyncStatus(
 data class ReaderWhispersyncVisibleRangeStep(
 	val state: ReaderWhispersyncSyncState,
 	val audioSeekTarget: WhispersyncAudioSeekTarget? = null,
-	val status: ReaderWhispersyncStatus? = null
+	val status: ReaderWhispersyncStatus? = null,
+	val playbackCommand: ReaderReadaloudPlaybackCommand? = null
 )
 
 data class ReaderWhispersyncPlaybackPositionStep(
 	val state: ReaderWhispersyncSyncState,
-	val status: ReaderWhispersyncStatus? = null
+	val status: ReaderWhispersyncStatus? = null,
+	val activeSegment: ReaderWhispersyncActiveSegmentDiagnostic? = null,
+	val playbackCommand: ReaderReadaloudPlaybackCommand? = null
+)
+
+data class ReaderWhispersyncActiveSegmentDiagnostic(
+	val audioResource: String,
+	val audioTrackIndex: Int? = null,
+	val positionMs: Long,
+	val segmentId: String? = null,
+	val label: String? = null,
+	val textHref: String,
+	val textStart: Int? = null,
+	val textEnd: Int? = null,
+	val fragmentId: String? = null,
+	val progress: Double? = null,
+	val applyMediaOverlay: Boolean = false
 )
 
 fun ReaderWhispersyncSyncState.setSyncEnabled(enabled: Boolean): ReaderWhispersyncSyncState {
 	val nextState = copy(
 		syncEnabled = enabled,
-		activeSegmentKey = if (enabled) activeSegmentKey else null
+		activeSegmentKey = if (enabled) activeSegmentKey else null,
+		activeProgressKey = if (enabled) activeProgressKey else null
 	)
 	val clearCommand = if (!enabled && activeSegmentKey != null) {
 		ReaderEngineCommand.ClearMediaOverlay
@@ -99,7 +120,8 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	timeline: WhispersyncTimeline?,
 	audioResource: String,
 	positionMs: Long,
-	audioTrackIndex: Int? = null
+	audioTrackIndex: Int? = null,
+	visibleTextRange: ReaderWhispersyncVisibleTextRange? = null
 ): ReaderWhispersyncPlaybackPositionStep {
 	if (!syncEnabled) {
 		return ReaderWhispersyncPlaybackPositionStep(
@@ -112,6 +134,44 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	}
 	if (timeline == null) {
 		return ReaderWhispersyncPlaybackPositionStep(state = this)
+	}
+	// Page-bounded playback: the ebook leads, so audio must not advance past the
+	// visible page. Check the boundary BEFORE the active-segment lookup so audio
+	// pauses exactly at the end of the last on-page segment (not after spilling
+	// into the next segment). A deliberate user pause is distinguished by status
+	// (this sets PausedAtPageBoundary, not SyncDisabled) so a page-turn can resume.
+	val pageSegments = visibleTextRange?.let { range ->
+		timeline.segmentsForVisibleTextRange(range.textHref, range.visibleStart, range.visibleEnd)
+	}
+	val pageBoundaryMs = pageSegments?.maxOfOrNull { it.endMs }
+	if (pageBoundaryMs != null && positionMs >= pageBoundaryMs && !pausedAtBoundary) {
+		val lastOnPage = pageSegments.lastOrNull { it.endMs == pageBoundaryMs }
+		return ReaderWhispersyncPlaybackPositionStep(
+			state = copy(pausedAtBoundary = true),
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.PausedAtPageBoundary,
+				label = "Reached end of page",
+				detail = lastOnPage?.label,
+				audioResource = lastOnPage?.audioResource ?: audioResource,
+				positionMs = positionMs
+			),
+			activeSegment = lastOnPage?.let { segment ->
+				ReaderWhispersyncActiveSegmentDiagnostic(
+					audioResource = segment.audioResource,
+					audioTrackIndex = segment.audioTrackIndex,
+					positionMs = positionMs,
+					segmentId = segment.id,
+					label = segment.label,
+					textHref = segment.textHref,
+					textStart = segment.textStart,
+					textEnd = segment.textEnd,
+					fragmentId = segment.fragmentId,
+					progress = segment.progressAt(positionMs),
+					applyMediaOverlay = false
+				)
+			},
+			playbackCommand = ReaderReadaloudPlaybackCommand.Pause
+		)
 	}
 	val segment = timeline.activeSegment(
 		audioResource = audioResource,
@@ -129,11 +189,20 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			)
 		)
 	val key = segment.readerOverlaySyncKey()
-	val nextState = if (key == activeSegmentKey) {
-		this
+	val progressKey = segment.readerOverlayProgressKey(positionMs)
+	val command = if (key == activeSegmentKey && progressKey == activeProgressKey) {
+		null
 	} else {
-		copy(activeSegmentKey = key)
-			.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(segment.toReaderOverlayFragment()))
+		ReaderEngineCommand.ApplyMediaOverlay(segment.toReaderOverlayFragment(positionMs))
+	}
+	val nextState = if (command == null) {
+		if (pausedAtBoundary) copy(pausedAtBoundary = false) else this
+	} else {
+		copy(
+			activeSegmentKey = key,
+			activeProgressKey = progressKey,
+			pausedAtBoundary = false
+		).withEngineCommand(command)
 	}
 	return ReaderWhispersyncPlaybackPositionStep(
 		state = nextState,
@@ -143,6 +212,19 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			detail = segment.label,
 			audioResource = segment.audioResource,
 			positionMs = positionMs
+		),
+		activeSegment = ReaderWhispersyncActiveSegmentDiagnostic(
+			audioResource = segment.audioResource,
+			audioTrackIndex = segment.audioTrackIndex,
+			positionMs = positionMs,
+			segmentId = segment.id,
+			label = segment.label,
+			textHref = segment.textHref,
+			textStart = segment.textStart,
+			textEnd = segment.textEnd,
+			fragmentId = segment.fragmentId,
+			progress = segment.progressAt(positionMs),
+			applyMediaOverlay = command is ReaderEngineCommand.ApplyMediaOverlay
 		)
 	)
 }
@@ -194,15 +276,81 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 			)
 		)
 	}
+	val resumePlayback = pausedAtBoundary && syncEnabled
+	if (resumePlayback) {
+		// Seamless resume: continue from the paused position WITHOUT seeking, so a
+		// sentence split across two pages is not restarted from its beginning. The
+		// audio→text path highlights the new page's cues as audio reaches them.
+		return ReaderWhispersyncVisibleRangeStep(
+			state = copy(pausedAtBoundary = false),
+			playbackCommand = ReaderReadaloudPlaybackCommand.Play,
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				label = "Resuming audiobook",
+				detail = target.segment.label,
+				audioResource = target.audioResource,
+				positionMs = target.positionMs
+			)
+		)
+	}
 	val key = target.segment.readerOverlaySyncKey()
 	if (key == activeSegmentKey) {
 		return ReaderWhispersyncVisibleRangeStep(state = this)
 	}
-	val nextState = copy(activeSegmentKey = key)
+	val nextState = copy(
+		activeSegmentKey = key,
+		activeProgressKey = null
+	)
 		.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(target.segment.toReaderOverlayFragment()))
 	return ReaderWhispersyncVisibleRangeStep(
 		state = nextState,
 		audioSeekTarget = target,
+		status = ReaderWhispersyncStatus(
+			kind = ReaderWhispersyncStatusKind.SeekingAudio,
+			label = "Syncing audiobook",
+			detail = target.segment.label,
+			audioResource = target.audioResource,
+			positionMs = target.positionMs
+		)
+	)
+}
+
+fun ReaderWhispersyncSyncState.onTextOffset(
+	timeline: WhispersyncTimeline?,
+	textHref: String,
+	textOffset: Int
+): ReaderWhispersyncVisibleRangeStep {
+	if (timeline == null) {
+		return ReaderWhispersyncVisibleRangeStep(state = this)
+	}
+	if (!syncEnabled) {
+		return ReaderWhispersyncVisibleRangeStep(
+			state = this,
+			status = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SyncDisabled,
+				label = "Whispersync paused"
+			)
+		)
+	}
+	val target = timeline.seekTargetForTextOffset(
+		textHref = textHref,
+		textOffset = textOffset
+	) ?: return ReaderWhispersyncVisibleRangeStep(
+		state = this,
+		status = readerWhispersyncReadyStatus(timeline)
+	)
+	val resumePlayback = pausedAtBoundary && syncEnabled
+	val key = target.segment.readerOverlaySyncKey()
+	val nextState = copy(
+		activeSegmentKey = key,
+		activeProgressKey = null,
+		pausedAtBoundary = false
+	)
+		.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(target.segment.toReaderOverlayFragment()))
+	return ReaderWhispersyncVisibleRangeStep(
+		state = nextState,
+		audioSeekTarget = target,
+		playbackCommand = if (resumePlayback) ReaderReadaloudPlaybackCommand.Play else null,
 		status = ReaderWhispersyncStatus(
 			kind = ReaderWhispersyncStatusKind.SeekingAudio,
 			label = "Syncing audiobook",
@@ -230,7 +378,10 @@ private fun ReaderWhispersyncSyncState.clearOverlayIfNeeded(): ReaderWhispersync
 	if (activeSegmentKey == null) {
 		this
 	} else {
-		copy(activeSegmentKey = null)
+		copy(
+			activeSegmentKey = null,
+			activeProgressKey = null
+		)
 			.withEngineCommand(ReaderEngineCommand.ClearMediaOverlay)
 	}
 
@@ -257,3 +408,6 @@ private fun WhispersyncSegment.readerOverlaySyncKey(): String =
 		startMs.toString(),
 		endMs.toString()
 	).joinToString("|")
+
+private fun WhispersyncSegment.readerOverlayProgressKey(positionMs: Long): Int =
+	(progressAt(positionMs) * 1000.0).toInt().coerceIn(0, 1000)

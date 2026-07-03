@@ -303,6 +303,20 @@ class FoliateEpubEngineAdapterTest {
 			)
 		)
 		assertEquals(
+			ReaderEngineEvent.WhispersyncTextLongPressed(
+				textHref = "chapter-01.xhtml",
+				textOffset = 95,
+				source = "native-long-press-command"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.WhispersyncTextLongPress(
+					textHref = "chapter-01.xhtml",
+					textOffset = 95,
+					source = "native-long-press-command"
+				)
+			)
+		)
+		assertEquals(
 			ReaderEngineEvent.ExternalLinkOpened(
 				href = "https://example.test/notes",
 				anchorHref = "../Text/chapter-01.xhtml#note"

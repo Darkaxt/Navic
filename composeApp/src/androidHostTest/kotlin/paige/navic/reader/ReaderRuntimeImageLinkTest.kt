@@ -480,7 +480,7 @@ class ReaderRuntimeImageLinkTest {
 			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+			.substringBefore("\nfunction readerContentActionInDocumentAtPoint")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
@@ -507,14 +507,29 @@ class ReaderRuntimeImageLinkTest {
 				webViewHostText.contains("scheduleReaderCenterTap("),
 			"The engine WebView host must not keep the legacy delayed center-tap suppression layer after Komikku native input ownership."
 		)
-		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
-		assertTrue(
-			claimInteractiveTouch.indexOf("if (this.nativeTapZones === true) return false") <
-				claimInteractiveTouch.indexOf("post(this.readerContentActionClaimPayload"),
-			"Short link/image touches must not post ownership claims while the native Komikku surface owns tap zones."
+		assertContains(claimInteractiveTouch, "return this.suppressReaderNativeTapZoneContentActivation(doc, event, 'content-touch')")
+		assertFalse(
+			claimInteractiveTouch.contains("post(this.readerContentActionClaimPayload"),
+			"Short link/image touches must never post ebook content-action claims; the native Komikku surface owns short taps."
 		)
-		assertContains(linkNavigation, "const toggled = this.toggleSepiaImageOverlayFromEvent(doc, event)")
-		assertContains(sepiaToggle, "this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)")
+		assertFalse(
+			linkNavigation
+				.substringAfter("doc.addEventListener('click', async event => {")
+				.substringBefore("}, { capture: true })")
+				.contains("activateReaderLinkFromEvent"),
+			"Short link clicks must suppress WebView activation without navigating ebook content."
+		)
+		assertFalse(
+			sepiaToggle
+				.substringAfter("doc.addEventListener('touchend', event => {")
+				.substringBefore("}, { capture: true, passive: false })")
+				.contains("toggleSepiaImageOverlayFromEvent") ||
+				sepiaToggle
+					.substringAfter("doc.addEventListener('click', event => {")
+					.substringBefore("}, { capture: true, passive: false })")
+					.contains("toggleSepiaImageOverlayFromEvent"),
+			"Short image taps must suppress WebView activation without toggling ebook image state."
+		)
 	}
 
 	@Test
@@ -580,22 +595,21 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+			.substringBefore("\nfunction readerContentActionInDocumentAtPoint")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
 
 		assertContains(bridgeText, "claimReaderInteractiveContentTouch(doc, event)")
-		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
+		assertContains(claimInteractiveTouch, "return this.suppressReaderNativeTapZoneContentActivation(doc, event, 'content-touch')")
 		assertContains(linkNavigation, "doc.addEventListener('touchstart', event => {")
 		assertContains(linkNavigation, "this.claimReaderInteractiveContentTouch(doc, event)")
 		assertContains(linkNavigation, "doc.addEventListener('touchend', event => {")
-		assertContains(claimInteractiveTouch, "source: 'media-touch'")
-		assertContains(claimInteractiveTouch, "source: 'link-touch'")
-		assertTrue(
-			claimInteractiveTouch.indexOf("if (this.nativeTapZones === true) return false") <
-				claimInteractiveTouch.indexOf("post(this.readerContentActionClaimPayload"),
-			"Native Komikku tap zones must win before JS posts touch-phase content claims."
+		assertFalse(
+			claimInteractiveTouch.contains("source: 'media-touch'") ||
+				claimInteractiveTouch.contains("source: 'link-touch'") ||
+				claimInteractiveTouch.contains("post(this.readerContentActionClaimPayload"),
+			"Short touch phases must only suppress renderer activation; ebook interaction metadata belongs to long press."
 		)
 	}
 
@@ -624,28 +638,25 @@ class ReaderRuntimeImageLinkTest {
 			message = "The runtime needs a single guard for leaked ordinary WebView clicks while Android owns short taps."
 		)
 		assertContains(linkClickHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')")
-		assertContains(linkClickHandler, "this.activateReaderLinkFromEvent(doc, event, index, 'link')")
-		assertTrue(
-			linkClickHandler.indexOf("this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')") <
-				linkClickHandler.indexOf("this.activateReaderLinkFromEvent(doc, event, index, 'link')"),
-			"Native short-tap ownership must suppress link activation before resolving or navigating anchors."
+		assertFalse(
+			linkClickHandler.contains("activateReaderLinkFromEvent"),
+			"Native short-tap ownership must suppress link activation instead of navigating anchors."
 		)
 		assertContains(imageClickHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')")
 		assertContains(imageClickHandler, "const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)")
-		assertContains(imageClickHandler, "mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')")
 		assertTrue(
 			imageClickHandler.indexOf("const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)") <
-				imageClickHandler.indexOf("this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')") &&
-				imageClickHandler.indexOf("mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')") <
-				imageClickHandler.indexOf("this.toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget)"),
-			"Native short-tap ownership must suppress image click activation before toggling the sepia overlay without swallowing plain text links."
+				imageClickHandler.indexOf("this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')"),
+			"Native short-tap ownership must detect image targets before suppressing image click activation."
+		)
+		assertFalse(
+			imageClickHandler.contains("toggleSepiaImageOverlayFromEvent"),
+			"Native short-tap ownership must not toggle the sepia overlay from image clicks."
 		)
 		assertContains(imageTouchEndHandler, "this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')")
-		assertContains(imageTouchEndHandler, "state.mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')")
-		assertTrue(
-			imageTouchEndHandler.indexOf("state.mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')") <
-				imageTouchEndHandler.indexOf("this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)"),
-			"Native short-tap ownership must suppress image touchend activation before toggling the sepia overlay without swallowing text-link touch metadata."
+		assertFalse(
+			imageTouchEndHandler.contains("toggleSepiaImageOverlayFromEvent"),
+			"Native short-tap ownership must not toggle the sepia overlay from image touchend."
 		)
 	}
 
@@ -721,22 +732,19 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+			.substringBefore("\nfunction readerContentActionInDocumentAtPoint")
 
-		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
+		assertContains(claimInteractiveTouch, "return this.suppressReaderNativeTapZoneContentActivation(doc, event, 'content-touch')")
 		assertContains(
 			claimInteractiveTouch,
-			"if (anchor) {",
-			message = "Fallback/non-native touch ownership still records actual anchor targets."
+			"suppressReaderNativeTapZoneContentActivation",
+			message = "Short touches must suppress real link/image activation without becoming ebook actions."
 		)
 		assertFalse(
-			claimInteractiveTouch.contains("if (anchor && readerPointInsideAnchorText(anchor, event))"),
-			"Text-rect hit testing can gate link navigation, but must not gate content metadata collection."
-		)
-		assertContains(
-			claimInteractiveTouch,
-			"textHit: readerPointInsideAnchorText(anchor, event)",
-			message = "Anchor diagnostics should still record whether the touch was inside rendered link text."
+			claimInteractiveTouch.contains("if (anchor)") ||
+				claimInteractiveTouch.contains("textHit: readerPointInsideAnchorText(anchor, event)") ||
+				claimInteractiveTouch.contains("readerContentActionClaimPayload"),
+			"Short touches must not collect content metadata; long press owns ebook interaction."
 		)
 	}
 
@@ -745,21 +753,25 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+			.substringBefore("\nfunction readerContentActionInDocumentAtPoint")
 		val linkNavigation = bridgeText
 			.substringAfter("attachLinkNavigation(doc, index) {")
 			.substringBefore("\n  classifyReaderLinks")
 
-		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
+		assertContains(claimInteractiveTouch, "return this.suppressReaderNativeTapZoneContentActivation(doc, event, 'content-touch')")
+		assertFalse(
+			claimInteractiveTouch.contains("post(this.readerContentActionClaimPayload"),
+			"Pointer/mouse short-tap style events must not post ebook content-action claims."
+		)
 		assertContains(
 			linkNavigation,
 			"doc.addEventListener('pointerdown', event => {",
-			message = "Pointer events remain instrumented for metadata/non-native fallback paths."
+			message = "Pointer events remain instrumented only to suppress renderer activation before native short-tap handling."
 		)
 		assertContains(
 			linkNavigation,
 			"doc.addEventListener('mousedown', event => {",
-			message = "Mouse-style WebView paths remain instrumented for metadata/non-native fallback paths."
+			message = "Mouse-style WebView paths remain instrumented only to suppress renderer activation before native short-tap handling."
 		)
 		assertTrue(
 			linkNavigation.indexOf("doc.addEventListener('pointerdown'") <
@@ -778,7 +790,7 @@ class ReaderRuntimeImageLinkTest {
 		val bridgeText = readerBridgeText()
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+			.substringBefore("\nfunction readerContentActionInDocumentAtPoint")
 		val sepiaToggle = bridgeText
 			.substringAfter("attachSepiaImageOverlayToggle(doc) {")
 			.substringBefore("\n  effectiveReaderDirection")
@@ -786,16 +798,16 @@ class ReaderRuntimeImageLinkTest {
 			.substringAfter("doc.addEventListener('touchstart', event => {")
 			.substringBefore("}, { capture: true, passive: true })")
 
-		assertContains(claimInteractiveTouch, "if (this.nativeTapZones === true) return false")
+		assertContains(claimInteractiveTouch, "return this.suppressReaderNativeTapZoneContentActivation(doc, event, 'content-touch')")
 		assertContains(
 			sepiaTouchStart,
 			"this.claimReaderInteractiveContentTouch(doc, event)",
-			message = "Image gestures should still record fallback content metadata before sepia toggle bookkeeping."
+			message = "Image gestures should suppress renderer activation before sepia bookkeeping."
 		)
 		assertTrue(
 			sepiaTouchStart.indexOf("this.claimReaderInteractiveContentTouch(doc, event)") <
 				sepiaTouchStart.indexOf("touchState = {"),
-			"The image touch metadata hook should happen before gesture bookkeeping so non-native fallback paths remain deterministic."
+			"The image touch suppression hook should happen before gesture bookkeeping so short taps stay native-owned."
 		)
 	}
 
@@ -829,12 +841,12 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(
 			harnessText,
 			"imageTouchContentTapHandledCount",
-			message = "CSS smoke must record touch-phase bridge ownership for image taps, because Android chrome races the touch sequence."
+			message = "CSS smoke must prove touch-phase image taps do not become ebook content-action bridge events."
 		)
 		assertContains(
 			harnessText,
 			"textLinkTouchContentTapHandledCount",
-			message = "CSS smoke must record touch-phase bridge ownership for link taps, because Android chrome races the touch sequence."
+			message = "CSS smoke must prove touch-phase link taps do not become ebook content-action bridge events."
 		)
 		assertContains(
 			harnessText,
@@ -868,13 +880,13 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			assertionsText,
-			"Expected image touch to send readerContentTapHandled",
-			message = "The renderer assertion must fail when image touch events do not notify native content ownership before Android chrome."
+			"Expected image short touch to stay native-owned without readerContentTapHandled",
+			message = "The renderer assertion must fail when image short touch becomes an ebook content action."
 		)
 		assertContains(
 			assertionsText,
-			"Expected styled text link touch to send readerContentTapHandled",
-			message = "The renderer assertion must fail when link touch events do not notify native content ownership before Android chrome."
+			"Expected styled text link short touch to stay native-owned without readerContentTapHandled",
+			message = "The renderer assertion must fail when link short touch becomes an ebook content action."
 		)
 		assertContains(
 			assertionsText,
@@ -1121,7 +1133,13 @@ class ReaderRuntimeImageLinkTest {
 		).first { it.exists() }.readText()
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
-			.substringBefore("\n  readerContentActionInDocumentAtPoint")
+			.substringBefore("\nfunction readerContentActionInDocumentAtPoint")
+		val linkActivation = bridgeText
+			.substringAfter("async function activateReaderLinkFromEvent(doc, event, index, source = 'link') {")
+			.substringBefore("\nfunction classifyReaderLinks")
+		val imageToggle = bridgeText
+			.substringAfter("function toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget = null) {")
+			.substringBefore("\nfunction attachSepiaImageOverlayToggle")
 		val contentActionAtRootPoint = bridgeText
 			.substringAfter("readerContentActionAtRootPoint(rootX, rootY, viewWidth = null, viewHeight = null) {")
 			.substringBefore("\n  handleReaderTapZoneTap")
@@ -1129,17 +1147,27 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(
 			bridgeText,
 			"rememberReaderContentActionTouch",
-			message = "Touch-phase image/link metadata should be remembered locally for renderer diagnostics and fallback content hit tests."
+			message = "Explicit ebook interactions may remember metadata for renderer diagnostics and fallback content hit tests."
 		)
 		assertContains(
 			bridgeText,
 			"recentReaderContentActionAtRootPoint",
 			message = "Runtime coordinate hit testing should check recent content-owned touch points before falling back to the current DOM."
 		)
+		assertFalse(
+			claimInteractiveTouch.contains("rememberReaderContentActionTouch") ||
+				claimInteractiveTouch.contains("post(this.readerContentActionClaimPayload"),
+			"Short touch phases must not remember or post ebook content metadata; short taps belong to native reader UI."
+		)
 		assertTrue(
-			claimInteractiveTouch.indexOf("rememberReaderContentActionTouch") <
-				claimInteractiveTouch.indexOf("post(this.readerContentActionClaimPayload"),
-			"Content touch metadata should be remembered before posting to Android so the local fallback survives document mutation."
+			linkActivation.indexOf("this.rememberReaderContentActionTouch(doc, event, {") <
+				linkActivation.indexOf("post(this.readerContentActionClaimPayload(doc, event, {"),
+			"Explicit long-press link activation should remember content metadata before posting to Android so the local fallback survives document mutation."
+		)
+		assertTrue(
+			imageToggle.indexOf("this.rememberReaderContentActionTouch(doc, event, {") <
+				imageToggle.indexOf("post(this.readerContentActionClaimPayload(doc, event, {"),
+			"Explicit long-press image activation should remember content metadata before posting to Android so the local fallback survives image state changes."
 		)
 		assertTrue(
 			contentActionAtRootPoint.indexOf("recentReaderContentActionAtRootPoint(rootPoint)") <
@@ -1148,23 +1176,23 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			harnessText,
-			"imageRecentTouchContentHitAfterRemoval",
-			message = "CSS smoke must model an image touch whose DOM node disappears before a later runtime hit test."
+			"imageRecentLongPressContentHitAfterRemoval",
+			message = "CSS smoke must model an explicit image long press whose DOM node disappears before a later runtime hit test."
 		)
 		assertContains(
 			harnessText,
-			"textLinkRecentTouchContentHitAfterRemoval",
-			message = "CSS smoke must model a link touch whose DOM node disappears before a later runtime hit test."
+			"textLinkRecentLongPressContentHitAfterRemoval",
+			message = "CSS smoke must model an explicit link long press whose DOM node disappears before a later runtime hit test."
 		)
 		assertContains(
 			assertionsText,
-			"Expected recent image touch ownership",
-			message = "Renderer assertions must fail when recent image touch ownership does not suppress native chrome."
+			"Expected recent image long-press ownership",
+			message = "Renderer assertions must fail when recent image long-press ownership does not suppress native chrome."
 		)
 		assertContains(
 			assertionsText,
-			"Expected recent text link touch ownership",
-			message = "Renderer assertions must fail when recent link touch ownership does not suppress native chrome."
+			"Expected recent text link long-press ownership",
+			message = "Renderer assertions must fail when recent link long-press ownership does not suppress native chrome."
 		)
 	}
 

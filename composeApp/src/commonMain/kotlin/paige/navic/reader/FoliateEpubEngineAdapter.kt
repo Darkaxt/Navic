@@ -193,6 +193,11 @@ sealed class FoliateWebViewEngineAdapter(
 				rangeCfi = event.rangeCfi,
 				source = event.source
 			)
+			is ReaderBridgeEvent.WhispersyncTextLongPress -> ReaderEngineEvent.WhispersyncTextLongPressed(
+				textHref = event.textHref,
+				textOffset = event.textOffset,
+				source = event.source
+			)
 			is ReaderBridgeEvent.OverlayFragmentActive -> ReaderEngineEvent.MediaOverlayActive(event.fragment)
 			is ReaderBridgeEvent.OverlayFragmentInactive -> ReaderEngineEvent.MediaOverlayInactive(event.fragmentId)
 			is ReaderBridgeEvent.Error -> ReaderEngineEvent.Error(

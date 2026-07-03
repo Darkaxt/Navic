@@ -119,7 +119,9 @@ class ReaderBridgeProtocolTest {
 				clipEndSeconds = 3.5,
 				textStart = 10,
 				textEnd = 42,
-				label = "Chapter 1 / Paragraph 1"
+				label = "Chapter 1 / Paragraph 1",
+				progress = 0.5,
+				progressTextEnd = 26
 			)
 		).toJavaScript()
 
@@ -132,6 +134,8 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"textStart\":10")
 		assertContains(script, "\"textEnd\":42")
 		assertContains(script, "\"label\":\"Chapter 1 / Paragraph 1\"")
+		assertContains(script, "\"progress\":0.5")
+		assertContains(script, "\"progressTextEnd\":26")
 	}
 
 	@Test
@@ -355,7 +359,9 @@ class ReaderBridgeProtocolTest {
 			  "clipEndSeconds": 16.9,
 			  "textStart": 120,
 			  "textEnd": 180,
-			  "label": "Chapter 1 / Paragraph 4"
+			  "label": "Chapter 1 / Paragraph 4",
+			  "progress": 0.75,
+			  "progressTextEnd": 165
 			}
 			""".trimIndent()
 		)
@@ -381,6 +387,8 @@ class ReaderBridgeProtocolTest {
 		assertEquals(120, active.fragment.textStart)
 		assertEquals(180, active.fragment.textEnd)
 		assertEquals("Chapter 1 / Paragraph 4", active.fragment.label)
+		assertEquals(0.75, active.fragment.progress)
+		assertEquals(165, active.fragment.progressTextEnd)
 	}
 
 	@Test
@@ -642,6 +650,47 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent() {
+		val event = assertIs<ReaderBridgeEvent.WhispersyncTextLongPress>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "whispersyncTextLongPress",
+				  "textHref": "EPUB/Text/chapter-01.xhtml",
+				  "textOffset": 95,
+				  "source": "native-long-press-command"
+				}
+				""".trimIndent()
+			)
+		)
+
+		assertEquals("EPUB/Text/chapter-01.xhtml", event.textHref)
+		assertEquals(95, event.textOffset)
+		assertEquals("native-long-press-command", event.source)
+		assertNull(
+			decodeReaderBridgeEvent("""{"type":"contentTapAt","textHref":"EPUB/Text/chapter-01.xhtml","textOffset":95}"""),
+			"Short taps must not have a generic content bridge route."
+		)
+		listOf("native-short-tap", "reader-center-tap", "link-touch", "media-touch").forEach { source ->
+			assertNull(
+				decodeReaderBridgeEvent(
+					"""{"type":"whispersyncTextLongPress","textHref":"EPUB/Text/chapter-01.xhtml","textOffset":95,"source":"$source"}"""
+				),
+				"Whispersync text seeking is explicit content interaction; source=$source must not decode from a short-tap path."
+			)
+		}
+		listOf(null, "link", "image", "click", "unknown").forEach { source ->
+			val sourceJson = source?.let { ""","source":"$it"""" } ?: ""
+			assertNull(
+				decodeReaderBridgeEvent(
+					"""{"type":"whispersyncTextLongPress","textHref":"EPUB/Text/chapter-01.xhtml","textOffset":95$sourceJson}"""
+				),
+				"Whispersync text seeking must require an explicit long-press source; source=$source must not decode."
+			)
+		}
+	}
+
+	@Test
 	fun bridgeEventsDecodePhase3AnxBridgeEvents() {
 		val externalLink = assertIs<ReaderBridgeEvent.ExternalLink>(
 			decodeReaderBridgeEvent(
@@ -749,11 +798,17 @@ class ReaderBridgeProtocolTest {
 	@Test
 	fun bridgeEventsDecodeTypedContentActionClaims() {
 		assertContentActionClaim(source = "link", action = ReaderContentAction.Link)
-		assertContentActionClaim(source = "link-touch", action = ReaderContentAction.Link)
 		assertContentActionClaim(source = "image", action = ReaderContentAction.Image)
-		assertContentActionClaim(source = "media-touch", action = ReaderContentAction.MediaControl)
 		assertContentActionClaim(source = "media-anchor", action = ReaderContentAction.MediaControl)
 		assertContentActionClaim(source = "unknown", action = ReaderContentAction.Generic)
+		assertNull(
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"link-touch"}"""),
+			"Short link touches belong to the native tap-zone layer and must not decode as ebook content interaction."
+		)
+		assertNull(
+			decodeReaderBridgeEvent("""{"type":"readerContentTapHandled","source":"media-touch"}"""),
+			"Short media touches belong to the native tap-zone layer and must not decode as ebook content interaction."
+		)
 	}
 
 	@Test

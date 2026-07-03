@@ -173,6 +173,131 @@ class ReaderViewerTest {
 	}
 
 	@Test
+	fun whispersyncPlaybackIsBoundToReaderLifecycleAndVisibleTextRange() {
+		val screenSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt").readText()
+		val applyBackStep = screenSource
+			.substringAfter("fun applyReaderBackStep(step: ReaderCoordinatorBackStep)")
+			.substringBefore("\n\tfun applyReadaloudEngineCommand")
+
+		assertTrue(
+			screenSource.contains("DisposableEffect(reader.bookId, reader.resourceHref, reader.publicationUrl)") &&
+				screenSource.contains("readerWhispersyncShouldPausePlaybackOnReaderExit") &&
+				screenSource.contains("playbackStartedFromReader = whispersyncPlaybackStartedFromReader") &&
+				screenSource.contains("audiobookPlaybackManager.dispatch(ReaderReadaloudPlaybackCommand.Pause)"),
+			"Leaving the reader must pause active or reader-started Whispersync audio instead of letting it continue detached."
+		)
+		assertTrue(
+			screenSource.contains("fun pauseWhispersyncAudiobookOnReaderExit(reason: String)") &&
+				applyBackStep.contains("pauseWhispersyncAudiobookOnReaderExit(\"back-to-shell-cover\")") &&
+				applyBackStep.contains("pauseWhispersyncAudiobookOnReaderExit(\"app-navigation\")") &&
+				applyBackStep.indexOf("pauseWhispersyncAudiobookOnReaderExit(\"app-navigation\")") <
+				applyBackStep.indexOf("backStack.performNavicBack()"),
+			"Reader Back must pause active Whispersync playback before returning to the native cover or leaving through app navigation; dispose-only pause is too late."
+		)
+		assertTrue(
+			screenSource.contains("readerWhispersyncPlaybackCommandsForUserRequest") &&
+				screenSource.contains("session = coordinator.controller.state.whispersync") &&
+				screenSource.contains("ReaderReadaloudPlaybackCommand.Play -> whispersyncPlaybackStartedFromReader = true") &&
+				screenSource.contains("Whispersync play preseek") &&
+				screenSource.contains("visibleTextRange=") &&
+				screenSource.contains("audiobookPlaybackManager.dispatch(playbackCommand)"),
+			"Whispersync Play must pass through the visible-text-range policy before dispatching audiobook commands."
+		)
+		assertFalse(
+			screenSource.contains("onWhispersyncPlaybackCommand = { command ->\n\t\t\taudiobookPlaybackManager.dispatch(command)"),
+			"Whispersync Play must not bypass the current EPUB visible range by dispatching raw commands."
+		)
+	}
+
+	@Test
+	fun shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands() {
+		val bridgeSource = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
+		val engineSource = File("src/commonMain/kotlin/paige/navic/reader/ReaderEngine.kt").readText()
+		val viewerActionSource = File("src/commonMain/kotlin/paige/navic/reader/ReaderViewerAction.kt").readText()
+		val controllerSource = File("src/commonMain/kotlin/paige/navic/reader/ReaderController.kt").readText()
+		val nativeFrameSource =
+			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt")
+				.readText()
+		val runtimeSource = File("src/androidMain/assets/reader/navic-reader.js").readText() +
+			File("src/androidMain/assets/reader/navic-reader-content-interactions.js").readText()
+
+		val sources = listOf(bridgeSource, engineSource, viewerActionSource, controllerSource, nativeFrameSource, runtimeSource)
+		assertTrue(
+			sources.any { it.contains("ContentLongPressAt") } &&
+				runtimeSource.contains("contentLongPressAt"),
+			"EPUB/content interaction must stay routed through the explicit long-press bridge."
+		)
+		sources.forEach { source ->
+			assertFalse(
+				source.contains("ContentTapAt") || source.contains("contentTapAt"),
+				"Short taps belong to Komikku-native reader UI; do not add a generic content-tap bridge."
+			)
+		}
+		assertTrue(
+			runtimeSource.contains("readerCenterTap"),
+			"Center short taps may only surface native reader chrome."
+		)
+		val nativeSingleTapHandler = nativeFrameSource
+			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
+			.substringBefore("override fun onLongTapConfirmed(event: MotionEvent)")
+		assertTrue(
+			nativeSingleTapHandler.contains("dispatchSingleTapAction(action)"),
+			"Native short taps must dispatch only Komikku navigation/UI regions."
+		)
+		assertFalse(
+			nativeSingleTapHandler.contains("onContentLongPress") ||
+				nativeSingleTapHandler.contains("ContentLongPressAt"),
+			"Native short taps must never enter the ebook/content interaction bridge."
+		)
+		val nativeLongTapHandler = nativeFrameSource
+			.substringAfter("override fun onLongTapConfirmed(event: MotionEvent) {")
+			.substringBefore("\n\t\t\t}\n\t\t}")
+		assertTrue(
+			nativeLongTapHandler.contains("onContentLongPress(event.x, event.y, width, height)"),
+			"Explicit long press is the only native gesture allowed to enter ebook/content interaction."
+		)
+		assertFalse(
+			runtimeSource.contains("source: 'media-touch'") ||
+				runtimeSource.contains("source: 'link-touch'"),
+			"Short touches must not emit ebook content action claims; ebook interaction is long-press only."
+		)
+		val nativeCenterShortTapHandler = runtimeSource
+			.substringAfter("if (action === KomikkuNavigationRegionMenu) {")
+			.substringBefore("const command = this.readerTapZoneCommand(action)")
+		assertTrue(
+			nativeCenterShortTapHandler.contains("post({ type: 'readerCenterTap' })"),
+			"Center short taps must post only the native reader chrome event."
+		)
+		assertFalse(
+			nativeCenterShortTapHandler.contains("readerTextOffsetAtDocumentPoint") ||
+				nativeCenterShortTapHandler.contains("postWhispersyncTextLongPressAt") ||
+				nativeCenterShortTapHandler.contains("handleNativeTapZoneContentLongPress"),
+			"Short taps must not query text offsets or route Whispersync sentence selection through the content bridge."
+		)
+		val linkNavigationShortClickHandler = runtimeSource
+			.substringAfter("function attachLinkNavigation")
+			.substringAfter("doc.addEventListener('click', async event => {")
+			.substringBefore("}, { capture: true })")
+		assertFalse(
+			linkNavigationShortClickHandler.contains("activateReaderLinkFromEvent"),
+			"Short link clicks must not navigate ebook content directly; use explicit long press."
+		)
+		val imageShortTouchHandler = runtimeSource
+			.substringAfter("function attachSepiaImageOverlayToggle")
+			.substringAfter("doc.addEventListener('touchend', event => {")
+			.substringBefore("doc.addEventListener('touchcancel'")
+		val imageShortClickHandler = runtimeSource
+			.substringAfter("function attachSepiaImageOverlayToggle")
+			.substringAfter("doc.addEventListener('click', event => {")
+			.substringBefore("}, { capture: true, passive: false })")
+		assertFalse(
+			imageShortTouchHandler.contains("toggleSepiaImageOverlayFromEvent") ||
+				imageShortClickHandler.contains("toggleSepiaImageOverlayFromEvent"),
+			"Short image taps must not toggle ebook image state directly; use explicit long press."
+		)
+	}
+
+	@Test
 	fun readerContentsDialogSurfacesSavedMarksThroughControllerRoutes() {
 		val contentsSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderContentsDialog.kt").readText()
 		val rootSource = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()

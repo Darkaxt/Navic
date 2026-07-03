@@ -909,3 +909,223 @@ Plan B status on 2026-07-02:
   - Record release URL, GitHub Actions run, APK asset URL, size, digest, and validation commands after the release completes.
   - 2026-07-02 result: release asset `Navic.apk` uploaded at `https://github.com/Darkaxt/Navic/releases/download/v1.0.11-theta41/Navic.apk`, size `33631951`, digest `sha256:fabe3142ca79574962286fc7693ee824603230daea410bfe8af71b59b9231040`.
   - 2026-07-02 result: release log `release\logs\v1.0.11-theta41-20260702-223728.log`; run URL `https://github.com/Darkaxt/Navic/actions/runs/28616667980`.
+
+## Focused Plan S: Whispersync Interaction Guardrail And Play-Time Seek
+
+**Purpose:** Correct the post-theta41 Whispersync interaction contract after user review found that sentence/audio sync was being described through a short-tap path. Short taps must remain Komikku/native reader chrome actions only; EPUB text/image/link interaction belongs to the explicit long-press path. Also ensure Whispersync Play seeks from the current visible EPUB text range before audio starts.
+
+**Release rule:** Do not publish a public release for this slice alone. It must be bundled with the next coherent reader candidate after device/emulator validation of the paired session.
+
+- [x] **S1: Make short taps native UI-only**
+  - Production now exposes only `ContentLongPressAt` for content hit testing; no generic `ContentTapAt` / `contentTapAt` / `whispersyncTextTap` route exists.
+  - `whispersyncTextLongPress` is the only text-offset bridge event for sentence-to-audio seeking.
+  - Short link, image, and media events may suppress renderer-owned content activation so the native Komikku layer can keep tap ownership, but they must not navigate links, toggle image state, seek audio cues, or emit ebook content-action claims from a short tap.
+  - The Kotlin bridge decoder rejects historical `link-touch` and `media-touch` sources outright; they must not enter controller state even as generic ebook content claims. The runtime source also contains no `source: 'link-touch'` or `source: 'media-touch'` producers.
+  - The Kotlin bridge decoder also rejects `whispersyncTextLongPress` payloads that claim a short-tap source such as `native-short-tap`, `reader-center-tap`, `link-touch`, or `media-touch`; even malformed JS cannot turn short tap into sentence/audio seeking.
+  - The reader harness expects touch-phase `readerContentTapHandled` counts to remain zero for image/link short touches while still proving native-mode suppression for ordinary leaked WebView clicks.
+  - Guarded by `ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands` and `ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent`. The viewer guard explicitly fails on a short-tap content bridge, `media-touch`/`link-touch` action claims, short link navigation, or short image overlay toggles.
+
+- [x] **S2: Route text-offset sync through long press only**
+  - `navic-reader-content-interactions.js` posts `whispersyncTextLongPress` only from `handleNativeTapZoneContentLongPressAt(...)` and only when media overlay sync is enabled.
+  - `ReaderController` consumes `ReaderEngineEvent.WhispersyncTextLongPressed` through `ReaderWhispersyncSyncCoordinator.onTextOffset(...)`, dispatching an audiobook seek target and applying the matching media overlay segment.
+  - Guarded by `ReaderWhispersyncSyncCoordinatorTest.textOffsetPublishesSeekTargetFromExplicitLongPressOnly` and `ReaderControllerTest.longPressedWhispersyncTextOffsetSeeksAudiobookAndAppliesOverlay`.
+
+- [x] **S3: Seek before Play from the current visible EPUB text**
+  - Added `readerWhispersyncPlaybackCommandsForUserRequest(...)`.
+  - When the user requests `Play`, sync is enabled, and the session has a current `visibleTextRange`, Navic now emits `SeekToTrack(current cue)`, then `Play`.
+  - Non-play commands, disabled sync, missing sidecar, and missing visible text range pass through without synthetic seeks.
+  - `ReaderScreen` now routes the headset/player command through this policy helper instead of directly dispatching the raw command.
+  - Guarded by `ReaderWhispersyncPlaybackPolicyTest.playCommandSeeksToCurrentVisibleTextRangeBeforeStartingAudio`.
+
+- [x] **S4: Keep reader-exit pause wired**
+  - `ReaderScreen` still uses `DisposableEffect(reader.bookId, reader.resourceHref, reader.publicationUrl)` and `readerWhispersyncShouldPausePlaybackOnReaderExit(...)` to dispatch `ReaderReadaloudPlaybackCommand.Pause` for active paired playback on reader exit.
+  - Guarded by `ReaderViewerTest.whispersyncPlaybackIsBoundToReaderLifecycleAndVisibleTextRange`.
+
+- [x] **S5: Tighten DOM overlay verification**
+  - `ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay` now requires the DevTools probe to assert real `data-navic-media-overlay-range` marker creation, exact text offsets, `overlayFragmentActive`, and cleanup through `clearOverlay`.
+  - This guards the WebView DOM side of `ApplyMediaOverlay`; it is not just a Kotlin bridge serialization check.
+
+- [x] **S6: Surface active ASR segment diagnostics**
+  - `ReaderWhispersyncPlaybackPositionStep` now carries `ReaderWhispersyncActiveSegmentDiagnostic` when audiobook playback position selects an active sidecar cue.
+  - The diagnostic records cue id, audio resource, optional track index, playback position, text href, character range, fragment id, progress, and whether the tick dispatched `ApplyMediaOverlay`.
+  - `ReaderControllerStep` and `ReaderCoordinatorStep` propagate that diagnostic to `ReaderScreen`.
+  - `ReaderScreen` logs a literal `Whispersync activeSegment ... applyMediaOverlay=...` line so ADB validation can prove the active cue decision happened before the WebView reports `overlayFragmentActive`.
+  - Guarded by `ReaderWhispersyncSyncCoordinatorTest.playbackPositionUsesSidecarTrackIndexWhenPlaybackResourceDiffersFromAudioHref`, `ReaderControllerTest.whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay`, `ReaderCoordinatorTest.whispersyncPlaybackStateSurfacesActiveSegmentDiagnosticThroughCoordinator`, and `ReaderWhispersyncCompanionProgressSourceTest.readerScreenLogsWhispersyncActiveSegmentDiagnosticsBeforeRuntimeOverlayEvidence`.
+
+- [x] **S7: Verification**
+  - Red gate observed before implementation: `ReaderWhispersyncPlaybackPolicyTest` failed on missing `readerWhispersyncPlaybackCommandsForUserRequest`.
+  - Red gate observed for the strengthened short-tap contract: `ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands` failed when short media/link touches could still be claimed as ebook content actions.
+  - Green focused gate passed:
+    ```powershell
+    .\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --no-configuration-cache `
+      --tests paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest `
+      --tests paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands `
+      --tests paige.navic.reader.ReaderViewerTest.whispersyncPlaybackIsBoundToReaderLifecycleAndVisibleTextRange `
+      --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent `
+      --tests paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest.textOffsetPublishesSeekTargetFromExplicitLongPressOnly `
+      --tests paige.navic.reader.ReaderControllerTest.longPressedWhispersyncTextOffsetSeeksAudiobookAndAppliesOverlay `
+      --tests paige.navic.reader.ReaderRuntimeAssetsTest.adbWebViewEvalHelperCanProbeWhispersyncCharacterOffsetOverlay
+    ```
+  - JS and whitespace gates passed:
+    ```powershell
+    node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+    node --check composeApp\src\androidMain\assets\reader\navic-reader.js
+    node --check tools\reader-harness\src\adb-webview-eval.mjs
+    git diff --check
+    ```
+  - Follow-up guardrail verification passed after tightening link/image short-tap handling:
+    ```powershell
+    node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+    git diff --check
+    .\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --no-configuration-cache `
+      --tests paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands
+    ```
+  - Follow-up decoder/harness guardrail verification passed after removing stale short-touch content-action semantics:
+    ```powershell
+    node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+    node --check tools\reader-harness\src\reader-trace-assertions.mjs
+    git diff --check
+    .\gradlew.bat --no-daemon :composeApp:testAndroidHostTest --no-configuration-cache `
+      --tests paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands `
+      --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent `
+      --tests paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims `
+      --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsMediaInteractionBelowNativeShortTapOwner `
+      --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderIgnoresInteractiveTouchClaimsWhenNativeTapZonesOwnShortTaps `
+      --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderSuppressesOrdinaryContentClicksWhenNativeTapZonesOwnShortTaps `
+      --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderClaimsAnchorTouchBeforeTextRectNavigationHitTesting `
+      --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsPointerAndMouseContentClaimsBehindNativeGuard `
+      --tests paige.navic.reader.ReaderRuntimeImageLinkTest.androidReaderKeepsSepiaImageTouchMetadataBehindNativeGuard `
+      --tests paige.navic.reader.ReaderRuntimeImageLinkTest.readerHarnessCssSmokeRequiresContentActionBridgeOwnership `
+      --tests paige.navic.reader.ReaderKomikkuBackboneResetTest.nativeKomikkuFrameOwnsShortTapsAndLeavesLongPressForWebViewContent
+    ```
+  - 2026-07-03 follow-up: a focused guard rerun caught one stale assertion in `ReaderRuntimeImageLinkTest.androidReaderRemembersRecentContentTouchOnlyInsideRuntimeMetadataLayer` that still expected an ordinary short touch to populate recent image/link ownership after DOM removal. The test and browser harness now model recent ownership only after explicit `contentLongPressAt`; ordinary touch phases remain suppression-only. Fresh focused verification passed:
+    ```powershell
+    node --check composeApp\src\androidMain\assets\reader\navic-reader-content-interactions.js
+    node --check tools\reader-harness\src\reader-trace-assertions.mjs
+    node --check tools\reader-harness\src\run-reader-harness.mjs
+    .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims" `
+      --tests "paige.navic.reader.ReaderRuntimeImageLinkTest"
+    ```
+  - 2026-07-03 follow-up: the protocol-level guard now rejects stale `readerContentTapHandled` messages whose source is `link-touch` or `media-touch`. RED was observed in `ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims` before the decoder was tightened; the focused GREEN gate passed:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent" `
+      --tests "paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands" `
+      --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest.textOffsetPublishesSeekTargetFromExplicitLongPressOnly" `
+      --tests "paige.navic.reader.ReaderControllerTest.longPressedWhispersyncTextOffsetSeeksAudiobookAndAppliesOverlay"
+    ```
+  - 2026-07-03 follow-up: the protocol-level guard now also rejects malformed `whispersyncTextLongPress` payloads whose source identifies a short-tap path (`native-short-tap`, `reader-center-tap`, `link-touch`, `media-touch`). RED was observed in `ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent` before the decoder checked the source. The focused GREEN gate passed:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache --rerun-tasks --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims" `
+      --tests "paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands" `
+      --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest.textOffsetPublishesSeekTargetFromExplicitLongPressOnly" `
+      --tests "paige.navic.reader.ReaderControllerTest.longPressedWhispersyncTextOffsetSeeksAudiobookAndAppliesOverlay"
+    ```
+  - 2026-07-03 follow-up: the same guard was tightened again so `whispersyncTextLongPress` requires an explicit long-press source, not merely "not a known short tap". Missing, `link`, `image`, `click`, and `unknown` sources now fail to decode. RED was observed in `ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent`; the single protocol gate then passed:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache --rerun-tasks --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent"
+    ```
+  - 2026-07-03 spec-audit gate passed after the bridge guard:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache --rerun-tasks --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.WhispersyncTimelineParserTest" `
+      --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest" `
+      --tests "paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest" `
+      --tests "paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest" `
+      --tests "paige.navic.reader.BinderyWhispersyncSchemaContractTest" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims" `
+      --tests "paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands" `
+      --tests "paige.navic.reader.ReaderViewerTest.whispersyncPlaybackIsBoundToReaderLifecycleAndVisibleTextRange"
+    ```
+  - 2026-07-03 current-source readerdev gate passed after rebuild/reinstall from this worktree:
+    ```powershell
+    .\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev `
+      -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env `
+      -ArtifactRoot captures\reader-whispersync-enjoyment\plan-s-post-bridge-guard
+    ```
+    Artifact root: `captures\reader-whispersync-enjoyment\plan-s-post-bridge-guard\stage5c3-whispersync-enjoyment-20260703-075029`. It passed page-scoped control, audio-follow, char-offset DOM overlay, and companion-progress probes for production book `3809`, sidecar `/opds/books/3809/sync/8`, audiobook `34`, audiobook book file `633`.
+  - 2026-07-03 post explicit-long-press guard audit passed after the decoder was tightened to reject missing/ambiguous `whispersyncTextLongPress` sources:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache --rerun-tasks --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.WhispersyncTimelineParserTest" `
+      --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest" `
+      --tests "paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest" `
+      --tests "paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest" `
+      --tests "paige.navic.reader.BinderyWhispersyncSchemaContractTest" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims" `
+      --tests "paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands" `
+      --tests "paige.navic.reader.ReaderViewerTest.whispersyncPlaybackIsBoundToReaderLifecycleAndVisibleTextRange"
+
+    .\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev `
+      -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env `
+      -ArtifactRoot captures\reader-whispersync-enjoyment\plan-s-post-explicit-longpress-guard
+    ```
+    Artifact root: `captures\reader-whispersync-enjoyment\plan-s-post-explicit-longpress-guard\stage5c3-whispersync-enjoyment-20260703-083117`. It rebuilt readerdev, reached `publicationReady`, and passed page-scoped control, audio-follow, char-offset DOM overlay, and companion-progress probes for production book `3809`. Runtime proof includes `Whispersync play preseek`, repeated `Whispersync activeSegment ... ApplyMediaOverlay=true`, progressing `overlayFragmentActive`, `Pausing Whispersync audiobook on reader exit`, and a live DOM marker with class `navic-active-overlay-fragment navic-media-overlay-range` for `OEBPS/xhtml/Authorforeword.xhtml:27-75`.
+  - 2026-07-03 standalone live DOM probe also passed after the baseline-aware cleanup fix:
+    ```powershell
+    .\scripts\adb-reader-smoke.ps1 -Package darkaxt.navic.readerdev -DeviceSerial emulator-5554 -NoLaunch `
+      -ArtifactDir captures\reader-dev\whispersync-char-offset-overlay-live-20260703-baseline `
+      -ReaderDevtoolsProbe whispersync-char-offset-overlay -RequireNoReaderConsoleErrors -CaptureWaitSeconds 1
+    ```
+    `reader-devtools-probe.json` shows `OEBPS/xhtml/Authorforeword.xhtml:27-75` wrapped by `navic-active-overlay-fragment navic-media-overlay-range`, then cleared without leaving a probe-created marker.
+  - Active-segment diagnostic host gate passed:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest" `
+      --tests "paige.navic.reader.ReaderControllerTest.whispersyncAudiobookPlaybackStateFeedsControllerHighlightOverlay" `
+      --tests "paige.navic.reader.ReaderCoordinatorTest.whispersyncPlaybackStateSurfacesActiveSegmentDiagnosticThroughCoordinator" `
+      --tests "paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest.readerScreenLogsWhispersyncActiveSegmentDiagnosticsBeforeRuntimeOverlayEvidence"
+    ```
+  - 2026-07-03 lifecycle-gate correction: emulator diagnosis showed the first Android Back can legitimately close the temporary history capsule (`History back` / `Close history controls`) without leaving the reader, so a one-Back enjoyment gate produced a false lifecycle failure while Whispersync playback kept running. RED was observed in `ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateRequiresRealNativePlaybackFeedback` before `adb-whispersync-enjoyment.ps1` was updated to close `Close history controls` before pressing numeric Back. GREEN gates passed after the fix:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache --rerun-tasks --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderDevEnvironmentContractTest.whispersyncEnjoymentGateRequiresRealNativePlaybackFeedback"
+
+    .\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev `
+      -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env -NoBuild -NoInstall `
+      -ArtifactRoot captures\reader-whispersync-enjoyment\plan-s-lifecycle-close-history
+    ```
+    Artifact root: `captures\reader-whispersync-enjoyment\plan-s-lifecycle-close-history\stage5c3-whispersync-enjoyment-20260703-062419`. The companion-progress probe passed with native playback feedback, `Whispersync activeSegment`, `ApplyMediaOverlay`, `overlayFragmentActive`, and `Pausing Whispersync audiobook on reader exit`.
+  - 2026-07-03 play-preseek gate correction: RED was observed in `ReaderWhispersyncCompanionProgressSourceTest.readerScreenLogsVisibleTextPreseekBeforeWhispersyncPlayDispatch` before the reader emitted any explicit Play-start preseek diagnostic or the ADB script required it. `ReaderScreen` now logs `Whispersync play preseek` immediately before dispatching the generated `SeekToTrack` command from a native Play request, including track index, position, audio item, and `visibleTextRange`. `adb-whispersync-enjoyment.ps1` now requires that log in the companion-progress probe. GREEN gates passed:
+    ```powershell
+    .\gradlew.bat --no-daemon --no-build-cache --rerun-tasks --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest.readerScreenLogsVisibleTextPreseekBeforeWhispersyncPlayDispatch"
+
+    .\gradlew.bat --no-daemon --no-build-cache --rerun-tasks --console=plain "-Pkotlin.incremental=false" :composeApp:testAndroidHost `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeTypedContentActionClaims" `
+      --tests "paige.navic.reader.ReaderBridgeProtocolTest.bridgeEventsDecodeWhispersyncTextLongPressOnlyAsExplicitContentEvent" `
+      --tests "paige.navic.reader.ReaderViewerTest.shortTapsRemainNativeUiOnlyAndCannotBecomeContentBridgeCommands" `
+      --tests "paige.navic.reader.ReaderWhispersyncSyncCoordinatorTest.textOffsetPublishesSeekTargetFromExplicitLongPressOnly" `
+      --tests "paige.navic.reader.ReaderControllerTest.longPressedWhispersyncTextOffsetSeeksAudiobookAndAppliesOverlay" `
+      --tests "paige.navic.reader.ReaderWhispersyncPlaybackPolicyTest.playCommandSeeksToCurrentVisibleTextRangeBeforeStartingAudio" `
+      --tests "paige.navic.reader.ReaderWhispersyncCompanionProgressSourceTest.readerScreenLogsVisibleTextPreseekBeforeWhispersyncPlayDispatch"
+
+    .\scripts\adb-whispersync-enjoyment.ps1 -DeviceSerial emulator-5554 -Package darkaxt.navic.readerdev `
+      -EnvFile C:\Users\darka\Documents\Projects\Android\Navic\bindery-debug.env `
+      -ArtifactRoot captures\reader-whispersync-enjoyment\plan-s-play-preseek
+    ```
+    Artifact root: `captures\reader-whispersync-enjoyment\plan-s-play-preseek\stage5c3-whispersync-enjoyment-20260703-065142`. The companion-progress log contains `Whispersync play preseek trackIndex=0 positionMs=90920 ... visibleTextRange=OEBPS/xhtml/Authorforeword.xhtml:3-1877`, followed by `Whispersync activeSegment ... positionMs=90933 ... ApplyMediaOverlay=true` and progressing `overlayFragmentActive` events.
+
+- [ ] **S8: Remaining validation**
+  - 2026-07-03 strengthened readerdev/emulator paired Whispersync session passed after adding native playback feedback requirements:
+    `captures\reader-whispersync-enjoyment\plan-s-native-playback-feedback\stage5c3-whispersync-enjoyment-20260703-034037`.
+  - The strengthened gate now presses the native headset through `tapDescWhenPresent:Play Whispersync audiobook`, waits until `Pause Whispersync audiobook` is visible, and fails unless the same paired session logs `Whispersync activeSegment`, `ApplyMediaOverlay`, and `overlayFragmentActive`.
+  - Companion-progress artifact evidence:
+    - `whispersync-companion-progress.log` found `Pause Whispersync audiobook` after the native tap.
+    - `whispersync-companion-progress/logcat-reader.log` contains repeated `Whispersync activeSegment ... ApplyMediaOverlay=true` lines for `OEBPS/xhtml/Authorforeword.xhtml:1087-1423`.
+    - The same log contains repeated `overlayFragmentActive` bridge events with progressing `progressTextEnd` values, proving the audio tick drove DOM overlay updates instead of only static bridge serialization.
+  - Still run a release-device paired Whispersync session before a public "fully usable" claim and prove:
+    - long press on text seeks the audiobook to the matching ASR segment;
+    - short tap only toggles native reader chrome or page navigation;
+    - Play from the headset seeks to the current visible range before playback;
+    - leaving the reader pauses active paired audiobook playback;
+    - `Whispersync activeSegment`, `ApplyMediaOverlay`, `overlayFragmentActive`, and DOM media overlay markers appear during real playback on the release package.

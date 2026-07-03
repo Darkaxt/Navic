@@ -1594,6 +1594,50 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun longPressedWhispersyncTextOffsetSeeksAudiobookAndAppliesOverlay() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncTextLongPressed(
+				textHref = "Text/chapter1.xhtml",
+				textOffset = 95,
+				source = "native-long-press-command"
+			)
+		)
+
+		val overlay = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(step.engineCommands.single())
+		assertEquals("seg-2", overlay.fragment.fragmentId)
+		assertEquals("Second sentence", overlay.fragment.label)
+		assertEquals(5_000L, step.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals("Audio/chapter01.m4b", step.whispersyncAudioSeekTarget?.audioResource)
+		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
+		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
+		assertEquals(
+			ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.SeekingAudio,
+				label = "Syncing audiobook",
+				detail = "Second sentence",
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_000L
+			),
+			step.controller.state.whispersync.status
+		)
+
+		val miss = step.controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncTextLongPressed(
+				textHref = "Text/chapter1.xhtml",
+				textOffset = 70,
+				source = "native-long-press-command"
+			)
+		)
+		assertEquals(emptyList(), miss.engineCommands)
+		assertNull(miss.whispersyncAudioSeekTarget)
+		assertEquals(overlay.fragment, miss.controller.state.activeMediaOverlay)
+	}
+
+	@Test
 	fun whispersyncOverlayFragmentActiveFeedsAudioSeekTarget() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller
@@ -1919,6 +1963,16 @@ class ReaderControllerTest {
 		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
 		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
 		assertNull(step.whispersyncAudioSeekTarget)
+		val activeSegment = assertNotNull(step.whispersyncActiveSegment)
+		assertEquals("b", activeSegment.segmentId)
+		assertEquals("Audio/chapter01.m4b", activeSegment.audioResource)
+		assertNull(activeSegment.audioTrackIndex)
+		assertEquals(5_500L, activeSegment.positionMs)
+		assertEquals("Text/chapter1.xhtml", activeSegment.textHref)
+		assertEquals(80, activeSegment.textStart)
+		assertEquals(140, activeSegment.textEnd)
+		assertEquals("seg-2", activeSegment.fragmentId)
+		assertEquals(true, activeSegment.applyMediaOverlay)
 	}
 
 	@Test

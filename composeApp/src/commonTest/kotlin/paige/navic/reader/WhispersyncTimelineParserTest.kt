@@ -201,6 +201,45 @@ class WhispersyncTimelineParserTest {
 	}
 
 	@Test
+	fun textOffsetChoosesContainingAudioSeekTarget() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "seg-1",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 1_250,
+					endMs = 3_500,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 10,
+					textEnd = 42,
+					label = "Opening sentence"
+				),
+				WhispersyncSegment(
+					id = "seg-2",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 5_000,
+					endMs = 8_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 80,
+					textEnd = 140,
+					label = "Second sentence"
+				)
+			)
+		)
+
+		val target = timeline.seekTargetForTextOffset(
+			textHref = "/Text/chapter1.xhtml",
+			textOffset = 95
+		)
+
+		assertNotNull(target)
+		assertEquals("Audio/chapter01.m4b", target.audioResource)
+		assertEquals(5_000, target.positionMs)
+		assertEquals("seg-2", target.segment.id)
+		assertNull(timeline.seekTargetForTextOffset("Text/chapter1.xhtml", 70))
+	}
+
+	@Test
 	fun activeSegmentSnapsTinyAudioBoundaryGapToNearestCue() {
 		val timeline = WhispersyncTimeline(
 			segments = listOf(

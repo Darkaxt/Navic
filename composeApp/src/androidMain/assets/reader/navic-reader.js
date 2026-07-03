@@ -204,6 +204,23 @@ const readerMediaOverlayTextPoint = (entries, requestedOffset) => {
   }
 }
 
+const readerMediaOverlayProgress = fragment => {
+  const progress = Number(fragment?.progress)
+  if (!Number.isFinite(progress)) return 1
+  return Math.max(0, Math.min(1, progress))
+}
+
+const readerApplyMediaOverlayProgress = (marker, fragment) => {
+  const progress = readerMediaOverlayProgress(fragment)
+  marker.style.setProperty('--navic-media-overlay-progress', `${(progress * 100).toFixed(3)}%`)
+  marker.dataset.navicProgress = String(progress)
+  if (Number.isFinite(Number(fragment?.progressTextEnd))) {
+    marker.dataset.navicProgressTextEnd = String(Math.floor(Number(fragment.progressTextEnd)))
+  } else {
+    delete marker.dataset.navicProgressTextEnd
+  }
+}
+
 const readerMediaOverlayUnwrapRangeMarker = marker => {
   const parent = marker?.parentNode
   if (!parent) return false
@@ -751,8 +768,17 @@ class NavicReaderRuntime {
           textEnd: Number(fragment?.textEnd),
         })
       } else {
-        await this.goTo(targetHref, 'media-overlay-follow')
+        // The ebook leads: audio must never turn the page. The audio→text path
+        // only highlights in place, and page-bounded playback pauses audio at the
+        // visible page boundary instead of navigating forward. This branch is kept
+        // as defense-in-depth — an off-page fragment is suppressed, never followed.
+        log('media-overlay-follow:suppressed', targetHref)
+        readerTrace('media-overlay-follow:suppressed', { targetHref })
       }
+    }
+    if (this.updateExistingMediaOverlayTextRange(fragment)) {
+      post({ type: 'overlayFragmentActive', ...fragment })
+      return
     }
     this.clearOverlay()
     let highlighted = false
@@ -797,6 +823,8 @@ class NavicReaderRuntime {
         marker.setAttribute(ReaderMediaOverlayRangeAttribute, 'true')
         marker.dataset.navicTextStart = String(Math.floor(textStart))
         marker.dataset.navicTextEnd = String(Math.ceil(textEnd))
+        if (fragment.textHref) marker.dataset.navicTextHref = String(fragment.textHref)
+        readerApplyMediaOverlayProgress(marker, fragment)
         try {
           range.surroundContents(marker)
         } catch (error) {
@@ -819,6 +847,28 @@ class NavicReaderRuntime {
       })
     }
     return highlighted
+  }
+
+  updateExistingMediaOverlayTextRange(fragment) {
+    const textStart = Number(fragment?.textStart)
+    const textEnd = Number(fragment?.textEnd)
+    if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
+    let updated = false
+    for (const content of this.contentEntries()) {
+      const section = Number.isFinite(Number(content.index))
+        ? this.view?.book?.sections?.[Math.floor(Number(content.index))]
+        : null
+      const sectionHref = section?.href || content.href || ''
+      if (fragment.textHref && sectionHref && !readerHrefMatches(sectionHref, fragment.textHref)) continue
+      for (const marker of Array.from(content.doc.querySelectorAll(`[${ReaderMediaOverlayRangeAttribute}="true"]`))) {
+        const markerStart = Number(marker.dataset.navicTextStart)
+        const markerEnd = Number(marker.dataset.navicTextEnd)
+        if (markerStart !== Math.floor(textStart) || markerEnd !== Math.ceil(textEnd)) continue
+        readerApplyMediaOverlayProgress(marker, fragment)
+        updated = true
+      }
+    }
+    return updated
   }
 
   clearOverlay() {

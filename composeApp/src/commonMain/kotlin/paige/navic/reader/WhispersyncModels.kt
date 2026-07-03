@@ -13,6 +13,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private val WhispersyncJson = Json {
@@ -93,6 +94,49 @@ data class WhispersyncTimeline(
 				)
 			}
 	}
+
+	fun seekTargetForTextOffset(
+		textHref: String,
+		textOffset: Int
+	): WhispersyncAudioSeekTarget? {
+		val normalizedText = normalizedMediaOverlayResource(textHref)
+		val offset = textOffset.coerceAtLeast(0)
+		return segments
+			.firstOrNull { segment ->
+				normalizedMediaOverlayResource(segment.textHref) == normalizedText &&
+					segment.containsTextOffset(offset)
+			}
+			?.let { segment ->
+				WhispersyncAudioSeekTarget(
+					audioResource = segment.audioResource,
+					positionMs = segment.startMs,
+					segment = segment
+				)
+			}
+	}
+
+	/**
+	 * Segments whose text range intersects the visible page, in playback (startMs)
+	 * order. Used to compute the page's audio boundary for page-bounded playback
+	 * (audio pauses at the last on-page segment's endMs). Segments without a char
+	 * range are excluded; pages with only such segments yield an empty window.
+	 */
+	fun segmentsForVisibleTextRange(
+		textHref: String,
+		visibleStart: Int,
+		visibleEnd: Int
+	): List<WhispersyncSegment> {
+		val normalizedText = normalizedMediaOverlayResource(textHref)
+		val start = minOf(visibleStart, visibleEnd).coerceAtLeast(0)
+		val end = maxOf(visibleStart, visibleEnd).coerceAtLeast(start)
+		val visibleCenter = (start + end) / 2.0
+		return segments
+			.asSequence()
+			.filter { segment -> normalizedMediaOverlayResource(segment.textHref) == normalizedText }
+			.filter { segment -> segment.overlapScore(start, end, visibleCenter) != null }
+			.sortedBy { segment -> segment.startMs }
+			.toList()
+	}
 }
 
 @Serializable
@@ -110,8 +154,9 @@ data class WhispersyncSegment(
 	val textEnd: Int? = null,
 	val label: String? = null
 ) {
-	fun toReaderOverlayFragment(): ReaderOverlayFragment =
-		ReaderOverlayFragment(
+	fun toReaderOverlayFragment(positionMs: Long? = null): ReaderOverlayFragment {
+		val progress = positionMs?.let(::progressAt)
+		return ReaderOverlayFragment(
 			resourceHref = audioResource,
 			fragmentId = fragmentId,
 			textHref = textHref,
@@ -119,8 +164,25 @@ data class WhispersyncSegment(
 			clipEndSeconds = endMs / 1000.0,
 			textStart = textStart,
 			textEnd = textEnd,
-			label = label
+			label = label,
+			progress = progress,
+			progressTextEnd = progress?.let(::progressTextEndAt)
 		)
+	}
+
+	fun progressAt(positionMs: Long): Double {
+		val duration = (endMs - startMs).coerceAtLeast(1L)
+		return ((positionMs - startMs).toDouble() / duration.toDouble()).coerceIn(0.0, 1.0)
+	}
+
+	private fun progressTextEndAt(progress: Double): Int? {
+		val start = textStart ?: return null
+		val end = textEnd ?: return null
+		val lower = minOf(start, end)
+		val upper = maxOf(start, end)
+		val span = upper - lower
+		return (lower + (span * progress).roundToInt()).coerceIn(lower, upper)
+	}
 }
 
 @Serializable
@@ -251,6 +313,14 @@ private fun WhispersyncSegment.overlapScore(
 		overlap = overlap,
 		centerDistance = abs(center - visibleCenter)
 	)
+}
+
+private fun WhispersyncSegment.containsTextOffset(offset: Int): Boolean {
+	val start = textStart ?: return false
+	val end = textEnd ?: return false
+	val lower = minOf(start, end).coerceAtLeast(0)
+	val upper = maxOf(start, end).coerceAtLeast(lower)
+	return offset >= lower && offset < upper
 }
 
 private fun JsonObject.segmentArray(): List<JsonElement>? =

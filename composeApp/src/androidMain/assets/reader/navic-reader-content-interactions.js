@@ -314,7 +314,7 @@ function rememberReaderContentActionTouch(doc, event, detail = {}) {
 }
 
 function suppressReaderNativeTapZoneContentActivation(doc, event, source = 'content-click') {
-  if (this.nativeTapZones !== true || !doc || event?.defaultPrevented || event?.button > 0) return false
+  if (!doc || event?.defaultPrevented || event?.button > 0) return false
   const anchor = closestElement(event.target, 'a[href]')
   const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
   if (!anchor && !mediaTapTarget) return false
@@ -383,6 +383,8 @@ async function handleNativeTapZoneContentLongPressAt(rootX, rootY, viewWidth = n
       return this.activateReaderLinkFromEvent(entry.doc, event, hit.index, source)
     }
     if (hit.kind === 'text') {
+      const sectionHref = this.view?.book?.sections?.[hit.index]?.href || entry.href || ''
+      if (this.postWhispersyncTextLongPressAt(entry.doc, hit, sectionHref, source)) return true
       return this.selectReaderTextAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)
     }
     return true
@@ -451,47 +453,7 @@ function recentReaderContentActionAtRootPoint(rootPoint) {
 
 function claimReaderInteractiveContentTouch(doc, event) {
   if (!doc || event?.defaultPrevented || event?.touches?.length > 1) return false
-  if (this.nativeTapZones === true) return false
-  const anchor = closestElement(event.target, 'a[href]')
-  const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
-  if (mediaTapTarget) {
-    this.rememberReaderContentActionTouch(doc, event, {
-      kind: 'media',
-      href: anchor?.getAttribute?.('href') || '',
-      source: 'media-touch',
-    })
-    post(this.readerContentActionClaimPayload(doc, event, {
-      kind: 'media',
-      href: anchor?.getAttribute?.('href') || '',
-      source: 'media-touch',
-      anchor,
-      mediaTapTarget,
-    }))
-    readerTrace('content-touch:media', {
-      tagName: mediaTapTarget.tagName || 'media',
-      href: anchor?.getAttribute?.('href') || '',
-    })
-    return true
-  }
-  if (anchor) {
-    this.rememberReaderContentActionTouch(doc, event, {
-      kind: 'link',
-      href: anchor.getAttribute('href') || '',
-      source: 'link-touch',
-    })
-    post(this.readerContentActionClaimPayload(doc, event, {
-      kind: 'link',
-      href: anchor.getAttribute('href') || '',
-      source: 'link-touch',
-      anchor,
-    }))
-    readerTrace('content-touch:link', {
-      href: anchor.getAttribute('href') || '',
-      textHit: readerPointInsideAnchorText(anchor, event),
-    })
-    return true
-  }
-  return false
+  return this.suppressReaderNativeTapZoneContentActivation(doc, event, 'content-touch')
 }
 
 function readerContentActionInDocumentAtPoint(doc, rootX, rootY, index = null) {
@@ -586,6 +548,60 @@ function readerTextNodeForRange(range) {
   if (candidate?.nodeType === textNodeType) return candidate
   const walker = doc?.createTreeWalker?.(candidate || range?.startContainer, textNodeType)
   return walker?.nextNode?.() || null
+}
+
+function readerDocumentTextEntries(doc) {
+  const root = doc?.body
+  if (!root || !doc.createTreeWalker) return []
+  const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter
+  const walker = doc.createTreeWalker(root, nodeFilter.SHOW_TEXT)
+  const entries = []
+  let offset = 0
+  let node = walker.nextNode()
+  while (node) {
+    const text = node.nodeValue || ''
+    const start = offset
+    const end = start + text.length
+    entries.push({ node, start, end, text })
+    offset = end
+    node = walker.nextNode()
+  }
+  return entries
+}
+
+function readerTextOffsetAtDocumentPoint(doc, x, y) {
+  const caretRange = this.readerCaretRangeFromPoint(doc, x, y)
+  const textNode = this.readerTextNodeForRange(caretRange)
+  if (!doc || !textNode) return null
+  const entries = readerDocumentTextEntries(doc)
+  const entry = entries.find(item => item.node === textNode)
+  if (!entry) return null
+  const rawOffset = caretRange?.startContainer === textNode ? Number(caretRange.startOffset) : 0
+  const localOffset = Number.isFinite(rawOffset) ? rawOffset : 0
+  return Math.max(entry.start, Math.min(entry.end, entry.start + localOffset))
+}
+
+function postWhispersyncTextLongPressAt(doc, hit, textHref, source = 'native-long-press-command') {
+  if (this.mediaOverlayEnabled !== true) return false
+  const href = textHref?.trim?.() || ''
+  if (!href) return false
+  const textOffset = this.readerTextOffsetAtDocumentPoint(doc, hit.x, hit.y)
+  if (!Number.isFinite(textOffset)) return false
+  post({
+    type: 'whispersyncTextLongPress',
+    textHref: href,
+    textOffset: Math.floor(textOffset),
+    source,
+  })
+  readerTrace('whispersync:text-long-press', {
+    source,
+    href,
+    textOffset: Math.floor(textOffset),
+    index: hit.index,
+    x: Math.round(Number(hit.x) || 0),
+    y: Math.round(Number(hit.y) || 0),
+  })
+  return true
 }
 
 function readerWordRangeAroundCaret(doc, caretRange) {
@@ -807,8 +823,7 @@ function attachLinkNavigation(doc, index) {
   }, { capture: true })
   doc.addEventListener('click', async event => {
     if (event.defaultPrevented || event.button > 0) return
-    if (this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')) return
-    await this.activateReaderLinkFromEvent(doc, event, index, 'link')
+    this.suppressReaderNativeTapZoneContentActivation(doc, event, 'link-click')
   }, { capture: true })
 }
 
@@ -1151,8 +1166,9 @@ function attachSepiaImageOverlayToggle(doc) {
       stopImmediatePropagation: () => event.stopImmediatePropagation(),
       timeStamp: event.timeStamp,
     }
-    if (state.mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')) return
-    this.toggleSepiaImageOverlayFromEvent(doc, tapEvent, state.mediaTapTarget)
+    if (state.mediaTapTarget) {
+      this.suppressReaderNativeTapZoneContentActivation(doc, tapEvent, 'image-touchend')
+    }
   }, { capture: true, passive: false })
   doc.addEventListener('touchcancel', () => {
     touchState = null
@@ -1163,7 +1179,10 @@ function attachSepiaImageOverlayToggle(doc) {
   doc.addEventListener('click', event => {
     const anchor = closestElement(event.target, 'a[href]')
     const mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)
-    if (mediaTapTarget && this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')) return
+    if (mediaTapTarget) {
+      this.suppressReaderNativeTapZoneContentActivation(doc, event, 'image-click')
+      return
+    }
     const lastMediaTap = Number(doc.defaultView?.__navicLastMediaTapHandledAt || 0)
     const timestamp = event.timeStamp || performance.now()
     if (lastMediaTap && Math.abs(timestamp - lastMediaTap) < CenterTapSyntheticClickDedupeMs) {
@@ -1172,7 +1191,6 @@ function attachSepiaImageOverlayToggle(doc) {
       event.stopImmediatePropagation()
       return
     }
-    this.toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget)
   }, { capture: true, passive: false })
 }
 
@@ -1195,6 +1213,9 @@ export const NavicReaderContentInteractionMethods = {
   readerContentActionInDocumentAtPoint,
   readerCaretRangeFromPoint,
   readerTextNodeForRange,
+  readerDocumentTextEntries,
+  readerTextOffsetAtDocumentPoint,
+  postWhispersyncTextLongPressAt,
   readerWordRangeAroundCaret,
   selectReaderTextAtDocumentPoint,
   normalizeReaderContentRootPoint,

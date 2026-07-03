@@ -108,7 +108,9 @@ function Invoke-WhispersyncProbe {
         [Parameter(Mandatory = $true)]
         [string] $RunRoot,
         [Parameter(Mandatory = $true)]
-        [string] $ProbeResultsPath
+        [string] $ProbeResultsPath,
+        [string[]] $PostProbeAction = @(),
+        [string[]] $RequireReaderLog = @()
     )
 
     $probeDir = Join-Path $RunRoot $ProbeName
@@ -121,6 +123,12 @@ function Invoke-WhispersyncProbe {
         CaptureReaderDiagnostics = $true
         ReaderDevtoolsProbe = $ProbeName
         ArtifactDir = $probeDir
+    }
+    if ($PostProbeAction.Count -gt 0) {
+        $smokeArgs["PostProbeAction"] = $PostProbeAction
+    }
+    if ($RequireReaderLog.Count -gt 0) {
+        $smokeArgs["RequireReaderLog"] = $RequireReaderLog
     }
     Add-OptionalArgument -Target $smokeArgs -Name "DeviceSerial" -Value $DeviceSerial
     Add-OptionalArgument -Target $smokeArgs -Name "ExpectedVersionName" -Value $ExpectedVersionName
@@ -180,14 +188,46 @@ if (-not $SkipLaunch) {
 }
 
 $probes = @(
-    "whispersync-page-scoped-control",
-    "whispersync-audio-follow",
-    "whispersync-char-offset-overlay",
-    "whispersync-companion-progress"
+    @{
+        Name = "whispersync-page-scoped-control"
+        PostProbeAction = @()
+        RequireReaderLog = @()
+    },
+    @{
+        Name = "whispersync-audio-follow"
+        PostProbeAction = @()
+        RequireReaderLog = @()
+    },
+    @{
+        Name = "whispersync-char-offset-overlay"
+        PostProbeAction = @()
+        RequireReaderLog = @()
+    },
+    @{
+        Name = "whispersync-companion-progress"
+        PostProbeAction = @(
+            "tapDescWhenPresent:Play Whispersync audiobook,20,500",
+            "waitDesc:Pause Whispersync audiobook,20,500",
+            "tapDescIfPresent:Close history controls,500",
+            "keyevent:4,1000"
+        )
+        RequireReaderLog = @(
+            "Whispersync play preseek",
+            "Whispersync activeSegment",
+            "ApplyMediaOverlay",
+            "overlayFragmentActive",
+            "Pausing Whispersync audiobook on reader exit"
+        )
+    }
 )
 
 $probeResults = foreach ($probe in $probes) {
-    Invoke-WhispersyncProbe -ProbeName $probe -RunRoot $runRoot -ProbeResultsPath $probeResultsPath
+    Invoke-WhispersyncProbe `
+        -ProbeName $probe.Name `
+        -RunRoot $runRoot `
+        -ProbeResultsPath $probeResultsPath `
+        -PostProbeAction @($probe.PostProbeAction) `
+        -RequireReaderLog @($probe.RequireReaderLog)
 }
 
 @(

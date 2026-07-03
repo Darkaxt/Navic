@@ -87,6 +87,20 @@
       background: color-mix(in srgb, var(--reader-accent) 28%, transparent);
       border-radius: 3px;
     }
+
+    .navic-media-overlay-range {
+      --navic-media-overlay-progress: 100%;
+      background:
+        linear-gradient(
+          90deg,
+          color-mix(in srgb, var(--reader-accent) 46%, transparent) 0%,
+          color-mix(in srgb, var(--reader-accent) 46%, transparent) var(--navic-media-overlay-progress),
+          color-mix(in srgb, var(--reader-accent) 16%, transparent) var(--navic-media-overlay-progress),
+          color-mix(in srgb, var(--reader-accent) 16%, transparent) 100%
+        );
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+    }
   </style>
 </head>
 <body>

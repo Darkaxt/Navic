@@ -83,7 +83,9 @@ data class ReaderOverlayFragment(
 	val clipEndSeconds: Double? = null,
 	val textStart: Int? = null,
 	val textEnd: Int? = null,
-	val label: String? = null
+	val label: String? = null,
+	val progress: Double? = null,
+	val progressTextEnd: Int? = null
 )
 
 data class ReaderSearchResult(
@@ -515,6 +517,11 @@ sealed interface ReaderBridgeEvent {
 		val rangeCfi: String? = null,
 		val source: String? = null
 	) : ReaderBridgeEvent
+	data class WhispersyncTextLongPress(
+		val textHref: String,
+		val textOffset: Int,
+		val source: String? = null
+	) : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
 	data class SearchResults(
@@ -537,7 +544,7 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			"ready" -> ReaderBridgeEvent.Ready
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
 			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
-			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled(json.toContentActionClaim())
+			"readerContentTapHandled" -> json.toContentActionClaimOrNull()?.let(ReaderBridgeEvent::ContentTapHandled)
 			"internalLink" -> ReaderBridgeEvent.InternalLinkRequested(
 				href = json.stringValue("href"),
 				prevented = json.booleanValue("prevented") ?: false,
@@ -625,6 +632,7 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 				source = json.stringValue("source")
 			)
 			"visibleTextRange" -> json.toVisibleTextRange()
+			"whispersyncTextLongPress" -> json.toWhispersyncTextLongPress()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
@@ -666,8 +674,21 @@ private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange?
 	)
 }
 
-private fun JsonObject.toContentActionClaim(): ReaderContentActionClaim {
+private fun JsonObject.toWhispersyncTextLongPress(): ReaderBridgeEvent.WhispersyncTextLongPress? {
+	val textHref = stringValue("textHref") ?: stringValue("href") ?: return null
+	val textOffset = intValue("textOffset") ?: intValue("offset") ?: return null
 	val source = stringValue("source")
+	if (!readerContentActionSourceIsExplicitLongPress(source)) return null
+	return ReaderBridgeEvent.WhispersyncTextLongPress(
+		textHref = textHref,
+		textOffset = textOffset.coerceAtLeast(0),
+		source = source
+	)
+}
+
+private fun JsonObject.toContentActionClaimOrNull(): ReaderContentActionClaim? {
+	val source = stringValue("source")
+	if (readerContentActionSourceIsShortTouch(source)) return null
 	val src = stringValue("src") ?: stringValue("image") ?: stringValue("imageSrc")
 	return ReaderContentActionClaim(
 		action = readerContentActionFromBridgeValue(stringValue("action") ?: source),
@@ -681,13 +702,30 @@ private fun JsonObject.toContentActionClaim(): ReaderContentActionClaim {
 	)
 }
 
+private fun readerContentActionSourceIsShortTouch(source: String?): Boolean =
+	when (source?.trim()?.lowercase()) {
+		"link-touch",
+		"media-touch",
+		"native-short-tap",
+		"reader-center-tap",
+		"center-short-tap",
+		"short-tap" -> true
+		else -> false
+	}
+
+private fun readerContentActionSourceIsExplicitLongPress(source: String?): Boolean {
+	val normalized = source?.trim()?.lowercase() ?: return false
+	if (readerContentActionSourceIsShortTouch(normalized)) return false
+	return normalized.contains("long-press") || normalized.contains("longpress")
+}
+
 private fun readerContentActionFromBridgeValue(value: String?): ReaderContentAction =
 	when (value?.trim()?.lowercase()) {
-		"link", "link-touch", "external-link" -> ReaderContentAction.Link
-		"image", "image-touch", "click-image" -> ReaderContentAction.Image
+		"link", "external-link" -> ReaderContentAction.Link
+		"image", "click-image" -> ReaderContentAction.Image
 		"selection", "text-selection" -> ReaderContentAction.Selection
 		"form", "form-control", "input", "editable" -> ReaderContentAction.FormControl
-		"media", "media-touch", "media-anchor", "audio", "video" -> ReaderContentAction.MediaControl
+		"media", "media-anchor", "audio", "video" -> ReaderContentAction.MediaControl
 		"annotation", "highlight", "note", "show-annotation" -> ReaderContentAction.Annotation
 		"footnote", "noteref" -> ReaderContentAction.Footnote
 		else -> ReaderContentAction.Generic
@@ -721,6 +759,8 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		textStart?.let { put("textStart", it) }
 		textEnd?.let { put("textEnd", it) }
 		label?.let { put("label", it) }
+		progress?.takeIf(Double::isFinite)?.let { put("progress", it.coerceIn(0.0, 1.0)) }
+		progressTextEnd?.let { put("progressTextEnd", it) }
 	}
 
 private fun ReaderAnnotation.toHighlightJsonObject(): JsonObject =
@@ -790,7 +830,9 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		clipEndSeconds = doubleValue("clipEndSeconds"),
 		textStart = intValue("textStart"),
 		textEnd = intValue("textEnd"),
-		label = stringValue("label")
+		label = stringValue("label"),
+		progress = doubleValue("progress")?.coerceIn(0.0, 1.0),
+		progressTextEnd = intValue("progressTextEnd")
 	)
 }
 

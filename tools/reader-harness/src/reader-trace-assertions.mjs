@@ -779,14 +779,14 @@ export const assertRendererCssSmoke = result => {
       `Expected image tint toggle to send readerContentTapHandled from image source; observed ${JSON.stringify(result.imageContentTapHandledSources || [])}`
     )
   }
-  if (!Number.isFinite(Number(result.imageTouchContentTapHandledCount)) || result.imageTouchContentTapHandledCount < 1) {
+  if (Number(result.imageTouchContentTapHandledCount || 0) !== 0) {
     throw new Error(
-      `Expected image touch to send readerContentTapHandled before native chrome dispatch; observed ${result.imageTouchContentTapHandledCount || 0}`
+      `Expected image short touch to stay native-owned without readerContentTapHandled; observed ${result.imageTouchContentTapHandledCount || 0}`
     )
   }
-  if (!Array.isArray(result.imageTouchContentTapHandledSources) || !result.imageTouchContentTapHandledSources.includes('media-touch')) {
+  if (Array.isArray(result.imageTouchContentTapHandledSources) && result.imageTouchContentTapHandledSources.length > 0) {
     throw new Error(
-      `Expected image touch to send readerContentTapHandled from media-touch source; observed ${JSON.stringify(result.imageTouchContentTapHandledSources || [])}`
+      `Expected image short touch to avoid content-action sources; observed ${JSON.stringify(result.imageTouchContentTapHandledSources || [])}`
     )
   }
   if (result.imageOverlayDatasetAfterSecondClick === 'off' || result.imageMixBlendModeAfterSecondClick !== 'multiply') {
@@ -804,14 +804,14 @@ export const assertRendererCssSmoke = result => {
       `Expected styled text link click to send readerContentTapHandled from link source; observed ${JSON.stringify(result.textLinkContentTapHandledSources || [])}`
     )
   }
-  if (!Number.isFinite(Number(result.textLinkTouchContentTapHandledCount)) || result.textLinkTouchContentTapHandledCount < 1) {
+  if (Number(result.textLinkTouchContentTapHandledCount || 0) !== 0) {
     throw new Error(
-      `Expected styled text link touch to send readerContentTapHandled before native chrome dispatch; observed ${result.textLinkTouchContentTapHandledCount || 0}`
+      `Expected styled text link short touch to stay native-owned without readerContentTapHandled; observed ${result.textLinkTouchContentTapHandledCount || 0}`
     )
   }
-  if (!Array.isArray(result.textLinkTouchContentTapHandledSources) || !result.textLinkTouchContentTapHandledSources.includes('link-touch')) {
+  if (Array.isArray(result.textLinkTouchContentTapHandledSources) && result.textLinkTouchContentTapHandledSources.length > 0) {
     throw new Error(
-      `Expected styled text link touch to send readerContentTapHandled from link-touch source; observed ${JSON.stringify(result.textLinkTouchContentTapHandledSources || [])}`
+      `Expected styled text link short touch to avoid content-action sources; observed ${JSON.stringify(result.textLinkTouchContentTapHandledSources || [])}`
     )
   }
   if (!Number.isFinite(Number(result.nativeTapZonesSuppressedImageClickCount)) || result.nativeTapZonesSuppressedImageClickCount < 1) {
@@ -933,11 +933,11 @@ export const assertRendererCssSmoke = result => {
   if (result.paragraphNativeScaledContentHit !== false) {
     throw new Error('Expected scaled native center hit-test not to suppress ordinary paragraph text')
   }
-  if (result.imageRecentTouchContentHitAfterRemoval !== true) {
-    throw new Error('Expected recent image touch ownership to suppress native chrome after DOM removal')
+  if (result.imageRecentLongPressContentHitAfterRemoval !== true) {
+    throw new Error('Expected recent image long-press ownership to suppress native chrome after DOM removal')
   }
-  if (result.textLinkRecentTouchContentHitAfterRemoval !== true) {
-    throw new Error('Expected recent text link touch ownership to suppress native chrome after DOM removal')
+  if (result.textLinkRecentLongPressContentHitAfterRemoval !== true) {
+    throw new Error('Expected recent text link long-press ownership to suppress native chrome after DOM removal')
   }
   if (String(result.surfaceTextureBackgroundImage || '').includes('paper-texture')) {
     throw new Error(`Expected static paper backing to be color-only; observed ${result.surfaceTextureBackgroundImage || 'unset'}`)

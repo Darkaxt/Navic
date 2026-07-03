@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderDevEnvironmentContractTest {
@@ -436,6 +437,36 @@ class ReaderDevEnvironmentContractTest {
 				gateScript.contains("if ([string]::IsNullOrWhiteSpace(${ '$' }ExpectedVersionName))") &&
 				gateScript.contains("${ '$' }ExpectedVersionName = Get-AndroidReleaseVersionName"),
 			"The Whispersync enjoyment gate must derive its default ExpectedVersionName from androidApp/build.gradle.kts instead of hardcoding a release tag like $androidVersion."
+		)
+	}
+
+	@Test
+	fun whispersyncEnjoymentGateRequiresRealNativePlaybackFeedback() {
+		val gateScript = root.resolve("scripts/adb-whispersync-enjoyment.ps1").readText()
+		val closeHistoryIndex = gateScript.indexOf("tapDescIfPresent:Close history controls")
+		val backIndex = gateScript.indexOf("keyevent:4,1000")
+
+		assertTrue(
+			gateScript.contains("-PostProbeAction") &&
+				gateScript.contains("tapDescWhenPresent:Play Whispersync audiobook") &&
+				gateScript.contains("keyevent:4,1000"),
+			"The Whispersync enjoyment gate must press the native headset playback control and leave the reader; DevTools-only overlay probes cannot prove audio playback feedback or lifecycle pause."
+		)
+		assertFalse(
+			gateScript.contains("keyevent:KEYCODE_BACK"),
+			"The lifecycle gate must use numeric Android BACK (4): emulator evidence showed the KEYCODE_BACK string path can fail to drive the reader back handler."
+		)
+		assertTrue(
+			closeHistoryIndex >= 0 && closeHistoryIndex < backIndex,
+			"The lifecycle gate must close transient history controls before pressing Back; emulator evidence showed the first Back can dismiss history chrome without leaving the reader or pausing Whispersync."
+		)
+		assertTrue(
+			gateScript.contains("-RequireReaderLog") &&
+				gateScript.contains("Whispersync activeSegment") &&
+				gateScript.contains("ApplyMediaOverlay") &&
+				gateScript.contains("overlayFragmentActive") &&
+				gateScript.contains("Pausing Whispersync audiobook on reader exit"),
+			"The Whispersync enjoyment gate must fail unless real playback produces activeSegment, ApplyMediaOverlay, overlayFragmentActive, and reader-exit pause evidence in the same paired session."
 		)
 	}
 
