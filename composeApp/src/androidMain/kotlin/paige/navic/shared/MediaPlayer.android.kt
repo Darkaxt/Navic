@@ -474,6 +474,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				val mediaItemIndex = player.currentMediaItemIndex
 				val delayMs = pauseBetweenSongsDelayMs(preferenceManager.pauseBetweenSongsSeconds)
 
+				logPlaybackServiceDiagnostic("pause-between-songs-paused", player, "delayMs" to delayMs)
 				player.pause()
 				pauseBetweenSongsJob = serviceScope.launch {
 					delay(delayMs)
@@ -482,6 +483,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 						player.mediaItemCount > 0 &&
 						player.playbackState != Player.STATE_ENDED
 					) {
+						logPlaybackServiceDiagnostic("pause-between-songs-resumed", player, "delayMs" to delayMs)
 						player.play()
 					}
 				}
@@ -535,6 +537,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 						volume = volume
 					)
 				) {
+					logPlaybackServiceDiagnostic("volume-zero-paused", player, "volume" to volume)
 					player.pause()
 					pausedByZeroVolume = true
 				} else if (
@@ -544,6 +547,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 						volume = volume
 					)
 				) {
+					logPlaybackServiceDiagnostic("volume-restored-resumed", player, "volume" to volume)
 					player.play()
 					pausedByZeroVolume = false
 				}
