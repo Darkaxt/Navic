@@ -31,6 +31,22 @@ class AppBackHandlerSourceTest {
 		)
 	}
 
+	@Test
+	fun searchTopBarUsesNavicBackPolicyForNestedAndRootSearch() {
+		val source = sourceFile("ui/screens/search/components/TopBar.kt").readText()
+
+		assertContains(
+			source,
+			"shouldShowRootBackForScreen",
+			message = "Search must show its top-left back arrow from Navic's visible-back policy, not from the nested flag only."
+		)
+		assertContains(
+			source,
+			"backStack.performNavicBack()",
+			message = "Search back arrow must use the same one-level-up policy as system back and RootTopBar."
+		)
+	}
+
 	private fun sourceFile(path: String): File =
 		listOf(
 			File("../composeApp/src/commonMain/kotlin/paige/navic/$path"),

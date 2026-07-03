@@ -36,6 +36,9 @@ import paige.navic.LocalNavStack
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Close
+import paige.navic.ui.navigation.Screen
+import paige.navic.ui.navigation.performNavicBack
+import paige.navic.ui.navigation.shouldShowRootBackForScreen
 import paige.navic.ui.theme.defaultFont
 
 @Composable
@@ -46,6 +49,7 @@ fun SearchScreenTopBar(
 ) {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
+	val showBack = nested || shouldShowRootBackForScreen(backStack.lastOrNull() as? Screen)
 
 	val focusManager = LocalFocusManager.current
 	val focusRequester = remember { FocusRequester() }
@@ -57,7 +61,7 @@ fun SearchScreenTopBar(
 	Row(
 		verticalAlignment = Alignment.CenterVertically
 	) {
-		if (nested) {
+		if (showBack) {
 			Box(
 				modifier = Modifier.size(56.dp),
 				contentAlignment = Alignment.Center
@@ -66,7 +70,7 @@ fun SearchScreenTopBar(
 					onClick = {
 						platformContext.clickSound()
 						focusManager.clearFocus(true)
-						if (backStack.size > 1) backStack.removeLastOrNull()
+						backStack.performNavicBack()
 					}
 				) {
 					Icon(
@@ -82,7 +86,7 @@ fun SearchScreenTopBar(
 			modifier = Modifier
 				.weight(1f)
 				.height(72.dp)
-				.padding(start = if (nested) 0.dp else 18.dp)
+				.padding(start = if (showBack) 0.dp else 18.dp)
 				.focusRequester(focusRequester),
 			lineLimits = TextFieldLineLimits.SingleLine,
 			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),

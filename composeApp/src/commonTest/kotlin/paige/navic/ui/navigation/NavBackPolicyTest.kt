@@ -102,14 +102,22 @@ class NavBackPolicyTest {
 	}
 
 	@Test
-	fun rootTopBarBackAffordanceAppearsForDetailRootsOnly() {
+	fun rootTopBarBackAffordanceAppearsForDetailsAndNavigableAreaRoots() {
 		assertEquals(true, shouldShowRootBackForScreen(Screen.BinderyBook("3809", "The Hobbit")))
 		assertEquals(true, shouldShowRootBackForScreen(Screen.Settings.Ebooks))
-		assertEquals(false, shouldShowRootBackForScreen(Screen.BinderyBooks))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.AlbumList()))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.PlaylistList()))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.ArtistList()))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.Activity))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.GenreList()))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.SongList()))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.RadioList()))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.BinderyBooks))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.BinderyCollections))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.BinderyAuthors))
+		assertEquals(true, shouldShowRootBackForScreen(Screen.Search(nested = false)))
 		assertEquals(false, shouldShowRootBackForScreen(Screen.Library()))
 		assertEquals(false, shouldShowRootBackForScreen(Screen.Audiobooks))
-		assertEquals(false, shouldShowRootBackForScreen(Screen.AlbumList()))
-		assertEquals(false, shouldShowRootBackForScreen(Screen.ArtistList()))
 		assertEquals(false, shouldShowRootBackForScreen(Screen.Settings.Root))
 	}
 

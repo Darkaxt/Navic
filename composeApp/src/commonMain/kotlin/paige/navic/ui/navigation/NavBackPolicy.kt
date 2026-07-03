@@ -35,13 +35,25 @@ private fun visibleRootBackDestinationFor(screen: Screen): Screen? =
 		is Screen.BinderyAudiobookDetail -> Screen.Audiobooks
 		is Screen.BinderyAudiobookPlayer -> Screen.BinderyAudiobookDetail(screen.audiobookId, screen.title)
 
+		is Screen.PlaylistList,
+		is Screen.ArtistList,
+		Screen.Activity,
+		is Screen.AlbumList,
+		is Screen.GenreList,
+		is Screen.SongList,
+		is Screen.RadioList -> Screen.Library()
+
+		Screen.BinderyBooks,
+		Screen.BinderyCollections,
+		Screen.BinderyAuthors -> Screen.Audiobooks
+
 		is Screen.Settings -> if (screen == Screen.Settings.Root) null else Screen.Settings.Root
 
 		is Screen.GenreDetail -> Screen.GenreList()
 		is Screen.CollectionDetail -> Screen.Library()
 		is Screen.SongDetail -> Screen.Library()
 		is Screen.ArtistDetail -> Screen.ArtistList()
-		is Screen.Search -> if (screen.nested) searchFallbackFor(screen.scope) else null
+		is Screen.Search -> searchFallbackFor(screen.scope)
 		is Screen.ShareList -> Screen.Library()
 		is Screen.LidaClipPlayer -> Screen.Library()
 		is Screen.AurralArtist -> Screen.AurralHub
