@@ -11,4 +11,37 @@ class PlaybackErrorPolicyTest {
 		assertFalse(shouldSkipMediaAfterPlaybackError(skipMediaOnError = false, hasNextMediaItem = true))
 		assertFalse(shouldSkipMediaAfterPlaybackError(skipMediaOnError = true, hasNextMediaItem = false))
 	}
+
+	@Test
+	fun restoredPausedPlaybackErrorsStaySilentUntilUserRequestsPlayback() {
+		assertFalse(
+			shouldHandlePlaybackErrorVisibly(
+				playWhenReady = false,
+				isUiPaused = true,
+				hasPendingSourceErrorRecovery = false
+			)
+		)
+
+		assertTrue(
+			shouldHandlePlaybackErrorVisibly(
+				playWhenReady = true,
+				isUiPaused = true,
+				hasPendingSourceErrorRecovery = false
+			)
+		)
+		assertTrue(
+			shouldHandlePlaybackErrorVisibly(
+				playWhenReady = false,
+				isUiPaused = false,
+				hasPendingSourceErrorRecovery = false
+			)
+		)
+		assertTrue(
+			shouldHandlePlaybackErrorVisibly(
+				playWhenReady = false,
+				isUiPaused = true,
+				hasPendingSourceErrorRecovery = true
+			)
+		)
+	}
 }

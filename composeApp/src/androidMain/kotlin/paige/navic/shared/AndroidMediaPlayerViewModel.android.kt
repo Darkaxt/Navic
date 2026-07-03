@@ -105,6 +105,7 @@ import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldPauseForAudioPlaybackClaim
 import paige.navic.domain.models.shouldFadePlaybackCommand
+import paige.navic.domain.models.shouldHandlePlaybackErrorVisibly
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
@@ -344,6 +345,7 @@ class AndroidMediaPlayerViewModel(
 					}
 
 					override fun onPlayerError(error: PlaybackException) {
+						val currentUiState = _uiState.value
 						Logger.w(
 							"MediaPlayer",
 							"Playback error mediaId=${currentMediaItem?.mediaId} " +
@@ -351,7 +353,22 @@ class AndroidMediaPlayerViewModel(
 								"code=${error.errorCodeName} message=${error.message}",
 							error
 						)
-						playbackDiagnostics.onPlayerError(this@apply, error, _uiState.value.currentSong)
+						playbackDiagnostics.onPlayerError(this@apply, error, currentUiState.currentSong)
+						if (
+							!shouldHandlePlaybackErrorVisibly(
+								playWhenReady = playWhenReady,
+								isUiPaused = currentUiState.isPaused,
+								hasPendingSourceErrorRecovery = pendingSourceErrorRecovery != null
+							)
+						) {
+							_uiState.update { state ->
+								state.copy(
+									isLoading = false,
+									playbackDownloadProgress = null
+								)
+							}
+							return
+						}
 						if (recoverCurrentMediaItemFromDownloadedFile(this@apply)) {
 							return
 						}
