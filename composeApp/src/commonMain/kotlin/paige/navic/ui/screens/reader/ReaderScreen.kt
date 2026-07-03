@@ -49,6 +49,7 @@ import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReadaloudPlaybackPlan
+import paige.navic.reader.WhispersyncSyncLogTag
 import paige.navic.reader.applyReaderCoordinatorStep
 import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.encodeReaderReadingProgress
@@ -57,6 +58,7 @@ import paige.navic.reader.readerAnnotationState
 import paige.navic.reader.readerBookmarkState
 import paige.navic.reader.readerWhispersyncPlaybackCommandForSeekTarget
 import paige.navic.reader.ReaderReadingProgressState
+import paige.navic.reader.whispersyncLogValue
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
 import paige.navic.ui.screens.bindery.binderyAudiobookPlaybackPlan
@@ -229,14 +231,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 			)
 			if (command != null) {
 				Logger.i(
-					ReaderScreenTag,
-					"Whispersync audiobook seek audio=${target.audioResource} positionMs=${target.positionMs}"
+					WhispersyncSyncLogTag,
+					"Whispersync audio seek dispatch audio=${target.audioResource.whispersyncLogValue()} " +
+						"positionMs=${target.positionMs} command=$command"
 				)
 				audiobookPlaybackManager.dispatch(command)
 			} else {
 				Logger.w(
-					ReaderScreenTag,
-					"Whispersync audiobook seek ignored; no playback plan match for audio=${target.audioResource}"
+					WhispersyncSyncLogTag,
+					"Whispersync audio seek ignored audio=${target.audioResource.whispersyncLogValue()} " +
+						"positionMs=${target.positionMs} reason=no-playback-plan-match"
 				)
 			}
 		}
@@ -503,6 +507,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(step)
 		},
 		onWhispersyncPlaybackCommand = { command ->
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync playback command command=$command"
+			)
 			audiobookPlaybackManager.dispatch(command)
 		},
 		onPreviousChapter = {

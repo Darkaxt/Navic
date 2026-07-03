@@ -1,6 +1,7 @@
 package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyReadingProgress
+import paige.navic.util.core.Logger
 import kotlin.math.roundToLong
 
 data class ReaderSearchState(
@@ -723,6 +724,21 @@ data class ReaderController(
 			?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		if (overlayFragment != null) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync apply overlay source=playback " +
+					"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
+					"text=${overlayFragment.textHref.whispersyncLogValue()} " +
+					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
+					"clip=${overlayFragment.clipBeginSeconds ?: "n/a"}-${overlayFragment.clipEndSeconds ?: "n/a"}"
+			)
+		} else if (shouldClearOverlay) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync apply overlay source=playback command=clear"
+			)
+		}
 		return ReaderControllerStep(
 			copy(
 				state = state.copy(
@@ -869,6 +885,14 @@ data class ReaderController(
 			source = event.source
 		)
 		val currentWhispersync = state.whispersync
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"Whispersync visible range source=${event.source.whispersyncLogValue()} " +
+				"audioFollow=${event.isWhispersyncAudioFollowRange()} " +
+				"href=${event.textHref.whispersyncLogValue()} " +
+				"textRange=${event.visibleStart}-${event.visibleEnd} " +
+				"active=${currentWhispersync.sync.activeSegmentKey.whispersyncLogValue(48)}"
+		)
 		if (event.isWhispersyncAudioFollowRange()) {
 			return ReaderControllerStep(
 				controller = copy(
@@ -890,6 +914,20 @@ data class ReaderController(
 			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		if (overlayFragment != null) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync apply overlay source=visible-range " +
+					"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
+					"text=${overlayFragment.textHref.whispersyncLogValue()} " +
+					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"}"
+			)
+		} else if (shouldClearOverlay) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync apply overlay source=visible-range command=clear"
+			)
+		}
 		val progress = syncStep.audioSeekTarget?.let {
 			state.publication?.let { publication ->
 				state.chrome.currentLocator?.toBinderyReadingProgress(
@@ -928,6 +966,12 @@ data class ReaderController(
 
 	private fun onTextPoint(event: ReaderEngineEvent.TextPoint): ReaderControllerStep {
 		val currentWhispersync = state.whispersync
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"Whispersync text point source=${event.source.whispersyncLogValue()} " +
+				"href=${event.textHref.whispersyncLogValue()} textOffset=${event.textOffset} " +
+				"active=${currentWhispersync.sync.activeSegmentKey.whispersyncLogValue(48)}"
+		)
 		val syncStep = currentWhispersync.sync.onTextPoint(
 			timeline = currentWhispersync.timeline,
 			textHref = event.textHref,
@@ -936,6 +980,15 @@ data class ReaderController(
 		val command = syncStep.state.engineCommand
 			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		if (overlayFragment != null) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync apply overlay source=text-point " +
+					"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
+					"text=${overlayFragment.textHref.whispersyncLogValue()} " +
+					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"}"
+			)
+		}
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(

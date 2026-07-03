@@ -1,5 +1,9 @@
 package paige.navic.reader
 
+import paige.navic.util.core.Logger
+
+const val WhispersyncSyncLogTag = "WhispersyncSync"
+
 data class ReaderWhispersyncSessionState(
 	val sidecar: WhispersyncSidecar? = null,
 	val sync: ReaderWhispersyncSyncState = ReaderWhispersyncSyncState(),
@@ -118,20 +122,38 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 		positionMs = positionMs,
 		audioTrackIndex = audioTrackIndex
 	)
-		?: return ReaderWhispersyncPlaybackPositionStep(
-			state = clearOverlayIfNeeded(),
-			status = ReaderWhispersyncStatus(
-				kind = ReaderWhispersyncStatusKind.NoActiveCue,
-				label = "No synced text here",
-				detail = audioResource,
-				audioResource = audioResource,
-				positionMs = positionMs
+		?: run {
+			if (activeSegmentKey != null) {
+				Logger.w(
+					WhispersyncSyncLogTag,
+					"Whispersync playback position lost cue audio=${audioResource.whispersyncLogValue()} " +
+						"track=${audioTrackIndex ?: "n/a"} positionMs=$positionMs"
+				)
+			}
+			return ReaderWhispersyncPlaybackPositionStep(
+				state = clearOverlayIfNeeded(),
+				status = ReaderWhispersyncStatus(
+					kind = ReaderWhispersyncStatusKind.NoActiveCue,
+					label = "No synced text here",
+					detail = audioResource,
+					audioResource = audioResource,
+					positionMs = positionMs
+				)
 			)
-		)
+		}
 	val key = segment.readerOverlaySyncKey()
 	val nextState = if (key == activeSegmentKey) {
 		this
 	} else {
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"Whispersync playback position audio=${audioResource.whispersyncLogValue()} " +
+				"track=${audioTrackIndex ?: "n/a"} positionMs=$positionMs " +
+				"cue=${segment.id.orEmpty().ifBlank { "n/a" }} " +
+				"text=${segment.textHref.whispersyncLogValue()} " +
+				"textRange=${segment.textStart ?: "n/a"}-${segment.textEnd ?: "n/a"} " +
+				"command=applyOverlay"
+		)
 		copy(activeSegmentKey = key)
 			.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(segment.toReaderOverlayFragment()))
 	}
@@ -181,10 +203,17 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 		textHref = textHref,
 		visibleStart = visibleStart,
 		visibleEnd = visibleEnd
-	) ?: return ReaderWhispersyncVisibleRangeStep(
-		state = clearOverlayIfNeeded(),
-		status = readerWhispersyncReadyStatus(timeline)
-	)
+	) ?: run {
+		Logger.w(
+			WhispersyncSyncLogTag,
+			"Whispersync visible range not matched href=${textHref.whispersyncLogValue()} " +
+				"textRange=$visibleStart-$visibleEnd"
+		)
+		return ReaderWhispersyncVisibleRangeStep(
+			state = clearOverlayIfNeeded(),
+			status = readerWhispersyncReadyStatus(timeline)
+		)
+	}
 	if (!syncEnabled) {
 		return ReaderWhispersyncVisibleRangeStep(
 			state = this,
@@ -198,6 +227,14 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 	if (key == activeSegmentKey) {
 		return ReaderWhispersyncVisibleRangeStep(state = this)
 	}
+	Logger.i(
+		WhispersyncSyncLogTag,
+		"Whispersync visible range selected audio=${target.audioResource.whispersyncLogValue()} " +
+			"positionMs=${target.positionMs} href=${textHref.whispersyncLogValue()} " +
+			"textRange=$visibleStart-$visibleEnd " +
+			"cue=${target.segment.id.orEmpty().ifBlank { "n/a" }} " +
+			"cueTextRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
+	)
 	val nextState = copy(activeSegmentKey = key)
 		.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(target.segment.toReaderOverlayFragment()))
 	return ReaderWhispersyncVisibleRangeStep(
@@ -224,10 +261,17 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 	val target = timeline.seekTargetForTextPoint(
 		textHref = textHref,
 		textOffset = textOffset
-	) ?: return ReaderWhispersyncVisibleRangeStep(
-		state = this,
-		status = readerWhispersyncReadyStatus(timeline)
-	)
+	) ?: run {
+		Logger.w(
+			WhispersyncSyncLogTag,
+			"Whispersync text point not matched href=${textHref.whispersyncLogValue()} " +
+				"textOffset=$textOffset"
+		)
+		return ReaderWhispersyncVisibleRangeStep(
+			state = this,
+			status = readerWhispersyncReadyStatus(timeline)
+		)
+	}
 	if (!syncEnabled) {
 		return ReaderWhispersyncVisibleRangeStep(
 			state = this,
@@ -241,6 +285,13 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 	val command = if (key == activeSegmentKey) {
 		null
 	} else {
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"Whispersync text point selected audio=${target.audioResource.whispersyncLogValue()} " +
+				"positionMs=${target.positionMs} href=${textHref.whispersyncLogValue()} " +
+				"textOffset=$textOffset cue=${target.segment.id.orEmpty().ifBlank { "n/a" }} " +
+				"textRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
+		)
 		ReaderEngineCommand.ApplyMediaOverlay(target.segment.toReaderOverlayFragment())
 	}
 	return ReaderWhispersyncVisibleRangeStep(
@@ -300,3 +351,14 @@ private fun WhispersyncSegment.readerOverlaySyncKey(): String =
 		startMs.toString(),
 		endMs.toString()
 	).joinToString("|")
+
+internal fun String?.whispersyncLogValue(maxLength: Int = 96): String =
+	this
+		?.replace('\\', '/')
+		?.replace(Regex("\\s+"), " ")
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?.let { value ->
+			if (value.length <= maxLength) value else value.take(maxLength - 1) + "..."
+		}
+		?: "n/a"
