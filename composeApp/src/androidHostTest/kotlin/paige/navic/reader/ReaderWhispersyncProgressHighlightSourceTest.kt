@@ -105,6 +105,26 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(highlighter, "readerMediaOverlayRawOffsetForNormalizedOffset")
 	}
 
+	@Test
+	fun progressiveWhispersyncHighlightLogsResolvedRangeDiagnostics() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		val diagnostic = runtime
+			.substringAfter("postMediaOverlayRangeDiagnostic(fragment, sidecarRange, resolvedRange, paintNormalized, paintRaw) {")
+			.substringBefore("\n  highlightMediaOverlayTextRange")
+		val highlighter = runtime
+			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
+			.substringBefore("\n  clearOverlay()")
+
+		assertContains(diagnostic, "media-overlay-range:resolved")
+		assertContains(diagnostic, "spokenLength")
+		assertContains(diagnostic, "matched")
+		assertContains(diagnostic, "sidecarRange")
+		assertContains(diagnostic, "resolvedRange")
+		assertContains(diagnostic, "normalizedRange")
+		assertContains(highlighter, "this.postMediaOverlayRangeDiagnostic")
+	}
+
 	private fun sourceFile(path: String): File =
 		listOf(
 			File("../$path"),

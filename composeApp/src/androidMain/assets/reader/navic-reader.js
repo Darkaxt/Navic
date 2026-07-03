@@ -259,6 +259,7 @@ class NavicReaderRuntime {
   committedRelocateDetail = null
   lastPostedLocationKey = null
   lastPostedVisibleTextRangeKey = null
+  lastMediaOverlayRangeDiagnosticKey = null
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
   controlledRelocateReason = null
@@ -774,6 +775,32 @@ class NavicReaderRuntime {
     return Math.min(resolvedNormalizedTextEnd, Math.max(resolvedNormalizedTextStart + 1, resolvedPaintEnd))
   }
 
+  postMediaOverlayRangeDiagnostic(fragment, sidecarRange, resolvedRange, paintNormalized, paintRaw) {
+    const key = [
+      fragment?.textHref || '',
+      sidecarRange.start,
+      sidecarRange.end,
+      resolvedRange.textStart,
+      resolvedRange.textEnd,
+      resolvedRange.matched ? 'matched' : 'fallback',
+      Math.floor(paintNormalized),
+    ].join('|')
+    if (key === this.lastMediaOverlayRangeDiagnosticKey) return
+    this.lastMediaOverlayRangeDiagnosticKey = key
+    const diagnostic = {
+      href: fragment?.textHref || null,
+      matched: Boolean(resolvedRange.matched),
+      spokenLength: String(fragment?.spokenText || '').length,
+      sidecarRange: `${sidecarRange.start}-${sidecarRange.end}`,
+      resolvedRange: `${resolvedRange.textStart}-${resolvedRange.textEnd}`,
+      normalizedRange: `${resolvedRange.normalizedTextStart}-${resolvedRange.normalizedTextEnd}`,
+      paintNormalized: Math.round(paintNormalized * 100) / 100,
+      paintRaw: Math.round(paintRaw * 100) / 100,
+    }
+    log('media-overlay-range:resolved', diagnostic)
+    readerTrace('media-overlay-range:resolved', diagnostic)
+  }
+
   highlightMediaOverlayTextRange(fragment) {
     const textStart = Number(fragment?.textStart)
     const textEnd = Number(fragment?.textEnd)
@@ -802,6 +829,13 @@ class NavicReaderRuntime {
         resolvedRange.normalizedTextEnd
       )
       const resolvedRawPaintEnd = readerMediaOverlayRawOffsetForNormalizedOffset(normalizedMap, resolvedPaintEnd, 'end')
+      this.postMediaOverlayRangeDiagnostic(
+        fragment,
+        { start: textStart, end: textEnd },
+        resolvedRange,
+        resolvedPaintEnd,
+        resolvedRawPaintEnd
+      )
       const start = readerMediaOverlayTextPoint(entries, Math.floor(resolvedTextStart))
       const end = readerMediaOverlayTextPoint(entries, Math.ceil(Math.min(resolvedTextEnd, resolvedRawPaintEnd)))
       if (!start || !end) continue
