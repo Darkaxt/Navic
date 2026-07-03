@@ -168,6 +168,7 @@ import { NavicReaderLocationMethods } from './navic-reader-location.js'
 
 const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
 const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
+const ReaderMediaOverlayRangeKey = 'navic-media-overlay-progress'
 
 const readerMediaOverlayUnwrapRangeMarker = marker => {
   const parent = marker?.parentNode
@@ -780,28 +781,20 @@ class NavicReaderRuntime {
       const start = readerMediaOverlayTextPoint(entries, Math.floor(textStart))
       const end = readerMediaOverlayTextPoint(entries, Math.ceil(paintEnd))
       if (!start || !end) continue
+      const overlayer = content.overlayer
+      if (!overlayer) continue
       const range = content.doc.createRange()
       try {
         range.setStart(start.node, start.offset)
         range.setEnd(end.node, end.offset)
         if (range.collapsed) continue
-        const marker = content.doc.createElement('span')
-        marker.className = `${overlayClass} navic-media-overlay-range`
-        marker.setAttribute(ReaderMediaOverlayRangeAttribute, 'true')
-        marker.dataset.navicTextStart = String(Math.floor(textStart))
-        marker.dataset.navicTextEnd = String(Math.ceil(textEnd))
-        marker.dataset.navicTextProgressEnd = String(Math.ceil(paintEnd))
-        try {
-          range.surroundContents(marker)
-        } catch (error) {
-          marker.appendChild(range.extractContents())
-          range.insertNode(marker)
-        }
+        overlayer.add(ReaderMediaOverlayRangeKey, range, Overlayer.highlight, {
+          color: 'var(--reader-accent)',
+          writingMode: this.view?.renderer?.writingMode,
+        })
         highlighted = true
       } catch (error) {
         logError('media-overlay-range:failed', error?.message || String(error))
-      } finally {
-        range.detach?.()
       }
     }
     if (!highlighted) {
@@ -817,6 +810,9 @@ class NavicReaderRuntime {
 
   clearOverlay() {
     let removedAny = false
+    for (const content of this.contentEntries()) {
+      content.overlayer?.remove?.(ReaderMediaOverlayRangeKey)
+    }
     for (const doc of this.contentDocuments()) {
       for (const marker of Array.from(doc.querySelectorAll(`[${ReaderMediaOverlayRangeAttribute}="true"]`))) {
         removedAny = readerMediaOverlayUnwrapRangeMarker(marker) || removedAny
