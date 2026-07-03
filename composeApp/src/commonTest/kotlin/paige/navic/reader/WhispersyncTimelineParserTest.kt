@@ -42,6 +42,7 @@ class WhispersyncTimelineParserTest {
 			      "spineIndex": 6,
 			      "ebookStart": 0,
 			      "ebookEnd": 107,
+			      "ebookText": "Alcatraz Versus the Evil Librarian AUTHOR’S FOREWORD. THIS IS AUDIBLE",
 			      "methods": ["exact", "fuzzy", "sequence"]
 			    }
 			  ],
@@ -69,7 +70,38 @@ class WhispersyncTimelineParserTest {
 		assertEquals(0, segment.textStart)
 		assertEquals(107, segment.textEnd)
 		assertEquals("This is Audible.", segment.spokenText)
+		assertEquals("Alcatraz Versus the Evil Librarian AUTHOR’S FOREWORD. THIS IS AUDIBLE", segment.ebookText)
 		assertEquals("This is Audible.", segment.toReaderOverlayFragment().spokenText)
+		assertEquals("Alcatraz Versus the Evil Librarian AUTHOR’S FOREWORD. THIS IS AUDIBLE", segment.toReaderOverlayFragment().ebookText)
+	}
+
+	@Test
+	fun binderySidecarKeepsEbookTextSeparateFromAsrTextForReaderHighlighting() {
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "cues": [
+			    {
+			      "id": 3,
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 21.44,
+			      "audioEnd": 27.52,
+			      "text": "They call me Oculator Dramatis, Hero, Savior of the 17 Kingdoms.",
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "spineIndex": 6,
+			      "ebookStart": 123,
+			      "ebookEnd": 190,
+			      "ebookText": "THEY CALL ME OCULATOR DRAMATUS, HERO, SAVIOR OF THE TWELVE KINGDOMS"
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val segment = sidecar.timeline.segments.single()
+		assertEquals("They call me Oculator Dramatis, Hero, Savior of the 17 Kingdoms.", segment.spokenText)
+		assertEquals("THEY CALL ME OCULATOR DRAMATUS, HERO, SAVIOR OF THE TWELVE KINGDOMS", segment.ebookText)
+		assertEquals("THEY CALL ME OCULATOR DRAMATUS, HERO, SAVIOR OF THE TWELVE KINGDOMS", segment.toReaderOverlayFragment().ebookText)
 	}
 
 	@Test

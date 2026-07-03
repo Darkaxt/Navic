@@ -191,7 +191,7 @@ export const readerMediaOverlayClosestTextMatch = (normalizedText, normalizedSpo
   return best
 }
 
-export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, textEnd, spokenText) => {
+export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, textEnd, ebookText) => {
   const map = Array.isArray(normalizedMap) ? readerMediaOverlayNormalizedTextMap(normalizedMap) : (normalizedMap || {})
   const mapLength = map.text?.length || 0
   const requestedStart = Number.isFinite(Number(textStart)) ? Number(textStart) : 0
@@ -206,23 +206,24 @@ export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, te
     normalizedTextStart: fallbackStart,
     normalizedTextEnd: fallbackEnd,
     matched: false,
+    locator: 'offset',
   }
-  const spoken = String(spokenText || '').trim()
-  if (!mapLength || !spoken || fallbackEnd <= fallbackStart) return fallback
+  const locatorText = String(ebookText || '').trim()
+  if (!mapLength || !locatorText || fallbackEnd <= fallbackStart) return fallback
   const fallbackLength = fallbackEnd - fallbackStart
   const searchPadding = Math.max(
     ReaderMediaOverlayTextSearchPaddingMinimum,
     fallbackLength * 2,
-    spoken.length * 2
+    locatorText.length * 2
   )
   const searchStart = Math.max(0, fallbackStart - searchPadding)
   const searchEnd = Math.min(mapLength, fallbackEnd + searchPadding)
   const searchText = map.text.slice(searchStart, searchEnd)
-  const comparableSpoken = readerMediaOverlayComparableTextWithOffsets(spoken)
-  if (!searchText || !comparableSpoken.text) return fallback
+  const comparableEbook = readerMediaOverlayComparableTextWithOffsets(locatorText)
+  if (!searchText || !comparableEbook.text) return fallback
   const match = readerMediaOverlayClosestTextMatch(
     searchText,
-    comparableSpoken.text,
+    comparableEbook.text,
     (fallbackStart + fallbackEnd) / 2
   )
   if (!match) return fallback
@@ -237,6 +238,7 @@ export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, te
     normalizedTextStart,
     normalizedTextEnd,
     matched: true,
+    locator: 'ebook-text',
   }
 }
 

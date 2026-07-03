@@ -783,6 +783,7 @@ class NavicReaderRuntime {
       resolvedRange.textStart,
       resolvedRange.textEnd,
       resolvedRange.matched ? 'matched' : 'fallback',
+      resolvedRange.locator || '',
       Math.floor(paintNormalized),
     ].join('|')
     if (key === this.lastMediaOverlayRangeDiagnosticKey) return
@@ -790,7 +791,9 @@ class NavicReaderRuntime {
     const diagnostic = {
       href: fragment?.textHref || null,
       matched: Boolean(resolvedRange.matched),
+      locator: resolvedRange.locator || 'offset',
       spokenLength: String(fragment?.spokenText || '').length,
+      ebookLength: String(fragment?.ebookText || '').length,
       sidecarRange: `${sidecarRange.start}-${sidecarRange.end}`,
       resolvedRange: `${resolvedRange.textStart}-${resolvedRange.textEnd}`,
       normalizedRange: `${resolvedRange.normalizedTextStart}-${resolvedRange.normalizedTextEnd}`,
@@ -818,7 +821,12 @@ class NavicReaderRuntime {
       const entries = readerMediaOverlayTextEntries(content.doc)
       if (!entries.length) continue
       const normalizedMap = readerMediaOverlayNormalizedTextMap(entries)
-      const resolvedRange = readerMediaOverlayResolvedTextRange(normalizedMap, textStart, textEnd, fragment.spokenText)
+      const resolvedRange = readerMediaOverlayResolvedTextRange(
+        normalizedMap,
+        textStart,
+        textEnd,
+        fragment.ebookText
+      )
       const resolvedTextStart = resolvedRange.textStart
       const resolvedTextEnd = resolvedRange.textEnd
       const resolvedPaintEnd = this.mediaOverlayPaintEndForResolvedRange(

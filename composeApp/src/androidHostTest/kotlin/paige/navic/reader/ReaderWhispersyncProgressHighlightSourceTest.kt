@@ -77,18 +77,20 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
-	fun progressiveWhispersyncHighlightResolvesSpokenTextSubrangeBeforePainting() {
+	fun progressiveWhispersyncHighlightResolvesEbookTextNearOffsetAnchorBeforePainting() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
 
 		assertContains(helpers, "export const readerMediaOverlayResolvedTextRange")
 		assertContains(helpers, "export const readerMediaOverlayNormalizedTextMap")
 		assertContains(helpers, "export const readerMediaOverlayRawOffsetForNormalizedOffset")
-		assertContains(helpers, "spokenText")
+		assertContains(helpers, "ebookText")
 		assertContains(helpers, "ReaderMediaOverlayTextSearchPaddingMinimum")
 		assertContains(helpers, "readerMediaOverlayClosestTextMatch")
 		assertContains(helpers, "normalizedTextStart")
 		assertContains(helpers, "normalizedTextEnd")
+		assertContains(helpers, "locator")
+		assertContains(helpers, "ebook-text")
 
 		val highlighter = runtime
 			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
@@ -96,7 +98,11 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 
 		assertContains(highlighter, "readerMediaOverlayNormalizedTextMap(entries)")
 		assertContains(highlighter, "readerMediaOverlayResolvedTextRange")
-		assertContains(highlighter, "fragment.spokenText")
+		assertContains(highlighter, "fragment.ebookText")
+		assertFalse(
+			highlighter.contains("readerMediaOverlayResolvedTextRange(normalizedMap, textStart, textEnd, fragment.spokenText)"),
+			"Whispersync EPUB highlighting must not use ASR text as the location authority; Bindery ebookText owns the EPUB-side span."
+		)
 		assertContains(highlighter, "resolvedRange.normalizedTextStart")
 		assertContains(highlighter, "resolvedRange.normalizedTextEnd")
 		assertContains(highlighter, "resolvedTextStart")
@@ -118,6 +124,8 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 
 		assertContains(diagnostic, "media-overlay-range:resolved")
 		assertContains(diagnostic, "spokenLength")
+		assertContains(diagnostic, "ebookLength")
+		assertContains(diagnostic, "locator")
 		assertContains(diagnostic, "matched")
 		assertContains(diagnostic, "sidecarRange")
 		assertContains(diagnostic, "resolvedRange")
