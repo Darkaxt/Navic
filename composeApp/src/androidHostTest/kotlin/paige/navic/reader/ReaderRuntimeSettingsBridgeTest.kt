@@ -432,6 +432,48 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
+	fun androidReaderFontFamilyControlOverridesPublisherHeadingAndLetterFonts() {
+		val bridgeText = readerBridgeText()
+		val inlineTypographyCandidateSelector = bridgeText
+			.substringAfter("const readerInlineTypographyCandidateSelector = [")
+			.substringBefore("].join(',')")
+		val inlineTypographyBlock = bridgeText
+			.substringAfter("export const normalizeReaderInlineTypography = (doc, settings = {}) => {")
+			.substringBefore("\nconst readerChapterOpeningHeadingSelector")
+
+		assertContains(
+			inlineTypographyCandidateSelector,
+			"'h1'",
+			message = "Selected reader fonts must normalize EPUB heading classes such as h1.titulocap, not only body/prose tags."
+		)
+		assertContains(
+			inlineTypographyCandidateSelector,
+			"'h6'",
+			message = "All EPUB heading levels must be candidates for selected reader font-family normalization."
+		)
+		assertContains(
+			bridgeText,
+			"readerInlineTypographyLooksLikeReaderFontFamilyTarget",
+			message = "Font-family normalization needs its own target check so headings can keep heading sizing while still using the selected reader font."
+		)
+		assertContains(
+			inlineTypographyBlock,
+			"const fontFamily = readerEffectiveFontFamily(settings)",
+			message = "The loaded EPUB document normalizer must use the same selected font family as readerTypographyCss."
+		)
+		assertContains(
+			inlineTypographyBlock,
+			"element.style.setProperty('font-family', fontFamily, 'important')",
+			message = "High-specificity publisher font-family rules must be beaten with inline-important reader font ownership."
+		)
+		assertContains(
+			inlineTypographyBlock,
+			"element.dataset.navicFontFamilyNormalized = 'true'",
+			message = "Font-family normalization should be observable in WebView diagnostics for EPUB classes that override Dys."
+		)
+	}
+
+	@Test
 	fun androidReaderFontSizeControlScalesPreformattedTypewriterProse() {
 		val bridgeText = readerBridgeText()
 		val typographyCss = bridgeText

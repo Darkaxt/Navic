@@ -393,6 +393,15 @@ const readerInlineTypographyBlockTags = new Set([
   'PRE',
 ])
 
+const readerInlineTypographyHeadingTags = new Set([
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+])
+
 const readerInlineTypographyTextTags = new Set([
   ...readerInlineTypographyBlockTags,
   'SPAN',
@@ -403,8 +412,19 @@ const readerInlineTypographyTextTags = new Set([
   'A',
 ])
 
+const readerInlineTypographyFontFamilyTags = new Set([
+  ...readerInlineTypographyTextTags,
+  ...readerInlineTypographyHeadingTags,
+])
+
 const readerInlineTypographyCandidateSelector = [
   'body',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
   'p',
   'li',
   'blockquote',
@@ -423,6 +443,7 @@ const readerInlineTypographyCandidateSelector = [
   'samp',
   'kbd',
   'a',
+  '[style*="font-family"]',
   '[style*="font-size"]',
   '[style*="font:"]',
   '[style*="font "]',
@@ -450,17 +471,30 @@ const readerInlineTypographyLooksLikeProse = element => {
   return text.length > 0
 }
 
+const readerInlineTypographyLooksLikeReaderFontFamilyTarget = element => {
+  if (!element?.matches) return false
+  if (element.matches?.(readerMediaSelector) || element.closest?.(readerMediaSelector)) return false
+  const tagName = element.tagName || ''
+  if (!readerInlineTypographyFontFamilyTags.has(tagName)) return false
+  const text = String(element.textContent || '').replace(/\s+/g, ' ').trim()
+  return text.length > 0
+}
+
 const readerInlineTypographyFontSize = element => '1em'
 
 export const normalizeReaderInlineTypography = (doc, settings = {}) => {
   if (!doc?.body) return 0
+  const fontFamily = readerEffectiveFontFamily(settings)
+  const preservePublisherFontFamily = settings.publisherStyles === true || !fontFamily
   const candidates = Array.from(new Set([
     doc.body,
     ...Array.from(doc.querySelectorAll?.(readerInlineTypographyCandidateSelector) || []),
   ]))
   let normalized = 0
   for (const element of candidates) {
-    if (!readerInlineTypographyLooksLikeProse(element)) continue
+    const fontSizeTarget = readerInlineTypographyLooksLikeProse(element)
+    const fontFamilyTarget = readerInlineTypographyLooksLikeReaderFontFamilyTarget(element)
+    if (!fontSizeTarget && !fontFamilyTarget) continue
     if (element.dataset?.navicOriginalInlineFontSize === undefined) {
       element.dataset.navicOriginalInlineFontSize = element.style.getPropertyValue('font-size') || ''
       element.dataset.navicOriginalInlineFontSizePriority = element.style.getPropertyPriority('font-size') || ''
@@ -469,12 +503,25 @@ export const normalizeReaderInlineTypography = (doc, settings = {}) => {
       element.dataset.navicOriginalFontSizeAttribute = element.getAttribute?.('size') || ''
       element.dataset.navicHadInlineFontSize = String(readerElementHasInlineFontSize(element))
     }
-    if (element.hasAttribute?.('size')) {
-      element.removeAttribute('size')
+    let changed = false
+    if (!preservePublisherFontFamily && fontFamilyTarget) {
+      if (element.dataset?.navicOriginalFontFamily === undefined) {
+        element.dataset.navicOriginalFontFamily = element.style.getPropertyValue('font-family') || ''
+        element.dataset.navicOriginalFontFamilyPriority = element.style.getPropertyPriority('font-family') || ''
+      }
+      element.style.setProperty('font-family', fontFamily, 'important')
+      element.dataset.navicFontFamilyNormalized = 'true'
+      changed = true
     }
-    element.style.setProperty('font-size', readerInlineTypographyFontSize(element), 'important')
-    element.dataset.navicInlineTypographyNormalized = 'true'
-    normalized += 1
+    if (fontSizeTarget) {
+      if (element.hasAttribute?.('size')) {
+        element.removeAttribute('size')
+      }
+      element.style.setProperty('font-size', readerInlineTypographyFontSize(element), 'important')
+      element.dataset.navicInlineTypographyNormalized = 'true'
+      changed = true
+    }
+    if (changed) normalized += 1
   }
   return normalized
 }
