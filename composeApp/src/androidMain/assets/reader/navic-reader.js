@@ -767,7 +767,8 @@ class NavicReaderRuntime {
     const textStart = Number(fragment?.textStart)
     const textEnd = Number(fragment?.textEnd)
     if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
-    const paintEnd = this.clampedMediaOverlayProgressEnd(textStart, textEnd, fragment)
+    const rawPaintEnd = this.clampedMediaOverlayProgressEnd(textStart, textEnd, fragment)
+    const paintEnd = Math.min(textEnd, Math.max(textStart + 1, rawPaintEnd))
     if (paintEnd <= textStart) return true
     let highlighted = false
     for (const content of this.contentEntries()) {
@@ -1061,17 +1062,21 @@ class NavicReaderRuntime {
     const entries = []
     const seen = new Set()
     const contents = this.view?.renderer?.getContents?.() || []
-    const add = (doc, index) => {
+    const add = (source, doc, index) => {
       if (!doc || seen.has(doc)) return
       seen.add(doc)
-      entries.push({ doc, index })
+      entries.push({
+        ...(source || {}),
+        doc,
+        index,
+      })
     }
     if (detail.doc) {
       const matchingContent = contents.find(content => content.doc === detail.doc)
-      add(detail.doc, Number.isFinite(detail.index) ? detail.index : matchingContent?.index)
+      add(matchingContent || detail, detail.doc, Number.isFinite(detail.index) ? detail.index : matchingContent?.index)
     }
     for (const content of contents) {
-      add(content.doc, content.index)
+      add(content, content.doc, content.index)
     }
     return entries
   }

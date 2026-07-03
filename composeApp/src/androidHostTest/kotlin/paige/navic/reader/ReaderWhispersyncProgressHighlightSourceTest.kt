@@ -46,6 +46,36 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		)
 	}
 
+	@Test
+	fun contentEntriesPreservesFoliateOverlayerAndHrefForWhispersyncPainting() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		val contentEntries = runtime
+			.substringAfter("contentEntries(detail = {}) {")
+			.substringBefore("\n  contentDocuments()")
+
+		assertContains(contentEntries, "const add = (source, doc, index)")
+		assertContains(contentEntries, "...(source || {})")
+		assertContains(contentEntries, "add(matchingContent || detail, detail.doc")
+		assertContains(contentEntries, "add(content, content.doc, content.index)")
+		assertFalse(
+			contentEntries.contains("entries.push({ doc, index })"),
+			"contentEntries must not strip Foliate getContents() metadata; Whispersync SVG painting needs content.overlayer."
+		)
+	}
+
+	@Test
+	fun progressiveWhispersyncHighlightPaintsFirstCharacterOnSegmentStart() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		val highlighter = runtime
+			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
+			.substringBefore("\n  clearOverlay()")
+
+		assertContains(highlighter, "const rawPaintEnd = this.clampedMediaOverlayProgressEnd(textStart, textEnd, fragment)")
+		assertContains(highlighter, "const paintEnd = Math.min(textEnd, Math.max(textStart + 1, rawPaintEnd))")
+	}
+
 	private fun sourceFile(path: String): File =
 		listOf(
 			File("../$path"),
