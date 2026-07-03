@@ -119,6 +119,7 @@ class ReaderBridgeProtocolTest {
 				clipEndSeconds = 3.5,
 				textStart = 10,
 				textEnd = 42,
+				textProgressEnd = 24,
 				label = "Chapter 1 / Paragraph 1"
 			)
 		).toJavaScript()
@@ -131,7 +132,31 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"clipEndSeconds\":3.5")
 		assertContains(script, "\"textStart\":10")
 		assertContains(script, "\"textEnd\":42")
+		assertContains(script, "\"textProgressEnd\":24")
 		assertContains(script, "\"label\":\"Chapter 1 / Paragraph 1\"")
+	}
+
+	@Test
+	fun updateOverlayProgressCommandDispatchesFragmentProgressOnly() {
+		val fragment = ReaderOverlayFragment(
+			resourceHref = "EPUB/Audio/chapter1.mp3",
+			fragmentId = "frag-1",
+			textHref = "EPUB/Text/chapter1.xhtml",
+			clipBeginSeconds = 1.25,
+			clipEndSeconds = 3.5,
+			textStart = 10,
+			textEnd = 42,
+			textProgressEnd = 24,
+			label = "Chapter 1 / Paragraph 1"
+		)
+
+		val script = ReaderBridgeCommand.UpdateOverlayFragmentProgress(fragment).toJavaScript()
+
+		assertContains(script, "\"type\":\"updateOverlayFragmentProgress\"")
+		assertContains(script, "\"fragment\"")
+		assertContains(script, "\"textStart\":10")
+		assertContains(script, "\"textEnd\":42")
+		assertContains(script, "\"textProgressEnd\":24")
 	}
 
 	@Test
@@ -355,6 +380,7 @@ class ReaderBridgeProtocolTest {
 			  "clipEndSeconds": 16.9,
 			  "textStart": 120,
 			  "textEnd": 180,
+			  "textProgressEnd": 144,
 			  "label": "Chapter 1 / Paragraph 4"
 			}
 			""".trimIndent()
@@ -380,6 +406,7 @@ class ReaderBridgeProtocolTest {
 		assertEquals(16.9, active.fragment.clipEndSeconds)
 		assertEquals(120, active.fragment.textStart)
 		assertEquals(180, active.fragment.textEnd)
+		assertEquals(144, active.fragment.textProgressEnd)
 		assertEquals("Chapter 1 / Paragraph 4", active.fragment.label)
 	}
 

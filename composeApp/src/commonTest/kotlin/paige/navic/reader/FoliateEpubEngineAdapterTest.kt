@@ -80,9 +80,14 @@ class FoliateEpubEngineAdapterTest {
 		val fragment = ReaderOverlayFragment(
 			resourceHref = "audio/chapter-01.mp3",
 			fragmentId = "clip-1",
+			textHref = "chapter-01.xhtml",
+			textStart = 10,
+			textEnd = 42,
+			textProgressEnd = 18,
 			label = "Chapter 1"
 		)
 		val overlay = navigateToProgress.engine.onCommand(ReaderEngineCommand.ApplyMediaOverlay(fragment))
+		val overlayProgress = overlay.engine.onCommand(ReaderEngineCommand.UpdateMediaOverlayProgress(fragment.copy(textProgressEnd = 24)))
 		val annotation = ReaderAnnotation(
 			id = "book-1|epubcfi(/6/8!/4/1:12)",
 			bookId = "book-1",
@@ -93,7 +98,7 @@ class FoliateEpubEngineAdapterTest {
 			color = "#ffcc66",
 			sectionTitle = "Chapter 1"
 		)
-		val highlights = overlay.engine.onCommand(ReaderEngineCommand.ApplyAnnotations(listOf(annotation)))
+		val highlights = overlayProgress.engine.onCommand(ReaderEngineCommand.ApplyAnnotations(listOf(annotation)))
 		val clearOverlay = highlights.engine.onCommand(ReaderEngineCommand.ClearMediaOverlay)
 		val historyBack = clearOverlay.engine.onCommand(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Back))
 		val historyForward = historyBack.engine.onCommand(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Forward))
@@ -119,25 +124,30 @@ class FoliateEpubEngineAdapterTest {
 		)
 		assertEquals(6L, assertIs<ReaderEngineViewState.WebViewPublication>(overlay.viewState).commandKey)
 		assertEquals(
+			ReaderBridgeCommand.UpdateOverlayFragmentProgress(fragment.copy(textProgressEnd = 24)),
+			assertIs<ReaderEngineViewState.WebViewPublication>(overlayProgress.viewState).bridgeCommand()
+		)
+		assertEquals(7L, assertIs<ReaderEngineViewState.WebViewPublication>(overlayProgress.viewState).commandKey)
+		assertEquals(
 			ReaderBridgeCommand.ApplyHighlights(listOf(annotation)),
 			assertIs<ReaderEngineViewState.WebViewPublication>(highlights.viewState).bridgeCommand()
 		)
-		assertEquals(7L, assertIs<ReaderEngineViewState.WebViewPublication>(highlights.viewState).commandKey)
+		assertEquals(8L, assertIs<ReaderEngineViewState.WebViewPublication>(highlights.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.ClearOverlay,
 			assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).bridgeCommand()
 		)
-		assertEquals(8L, assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).commandKey)
+		assertEquals(9L, assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.HistoryBack,
 			assertIs<ReaderEngineViewState.WebViewPublication>(historyBack.viewState).bridgeCommand()
 		)
-		assertEquals(9L, assertIs<ReaderEngineViewState.WebViewPublication>(historyBack.viewState).commandKey)
+		assertEquals(10L, assertIs<ReaderEngineViewState.WebViewPublication>(historyBack.viewState).commandKey)
 		assertEquals(
 			ReaderBridgeCommand.HistoryForward,
 			assertIs<ReaderEngineViewState.WebViewPublication>(historyForward.viewState).bridgeCommand()
 		)
-		assertEquals(10L, assertIs<ReaderEngineViewState.WebViewPublication>(historyForward.viewState).commandKey)
+		assertEquals(11L, assertIs<ReaderEngineViewState.WebViewPublication>(historyForward.viewState).commandKey)
 	}
 
 	@Test

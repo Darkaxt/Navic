@@ -347,6 +347,8 @@ class NavicReaderRuntime {
         return this.applyHighlights(command.highlights || [])
       case 'applyOverlayFragment':
         return this.applyOverlayFragment(command.fragment || command)
+      case 'updateOverlayFragmentProgress':
+        return this.updateOverlayFragmentProgress(command.fragment || command)
       case 'clearOverlay':
         return this.clearOverlay()
       case 'applySettings':
@@ -694,6 +696,12 @@ class NavicReaderRuntime {
     return textStart >= Number(visibleRange.visibleStart) && textEnd <= Number(visibleRange.visibleEnd)
   }
 
+  mediaOverlayFragmentHasTextRange(fragment) {
+    const textStart = Number(fragment?.textStart)
+    const textEnd = Number(fragment?.textEnd)
+    return Number.isFinite(textStart) && Number.isFinite(textEnd) && textEnd > textStart
+  }
+
   async applyOverlayFragment(fragment) {
     if (!this.view || !fragment) return
     const targetHref = fragment.textHref && fragment.fragmentId
@@ -720,8 +728,8 @@ class NavicReaderRuntime {
       }
     }
     this.clearOverlay()
-    let highlighted = false
-    if (fragment.fragmentId) {
+    let highlighted = this.highlightMediaOverlayTextRange(fragment)
+    if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
       for (const doc of this.contentDocuments()) {
         const element = doc.getElementById(fragment.fragmentId)
         if (element) {
@@ -730,16 +738,36 @@ class NavicReaderRuntime {
         }
       }
     }
-    if (!highlighted) {
-      this.highlightMediaOverlayTextRange(fragment)
-    }
     post({ type: 'overlayFragmentActive', ...fragment })
+  }
+
+  updateOverlayFragmentProgress(fragment) {
+    if (!this.view || !fragment) return
+    this.clearOverlay()
+    let highlighted = this.highlightMediaOverlayTextRange(fragment)
+    if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
+      for (const doc of this.contentDocuments()) {
+        const element = doc.getElementById(fragment.fragmentId)
+        if (element) {
+          element.classList.add(overlayClass)
+          highlighted = true
+        }
+      }
+    }
+  }
+
+  clampedMediaOverlayProgressEnd(textStart, textEnd, fragment) {
+    const textProgressEnd = Number(fragment?.textProgressEnd)
+    if (!Number.isFinite(textProgressEnd)) return textEnd
+    return Math.max(textStart, Math.min(textEnd, textProgressEnd))
   }
 
   highlightMediaOverlayTextRange(fragment) {
     const textStart = Number(fragment?.textStart)
     const textEnd = Number(fragment?.textEnd)
     if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
+    const paintEnd = this.clampedMediaOverlayProgressEnd(textStart, textEnd, fragment)
+    if (paintEnd <= textStart) return true
     let highlighted = false
     for (const content of this.contentEntries()) {
       const section = Number.isFinite(Number(content.index))
@@ -750,7 +778,7 @@ class NavicReaderRuntime {
       const entries = readerMediaOverlayTextEntries(content.doc)
       if (!entries.length) continue
       const start = readerMediaOverlayTextPoint(entries, Math.floor(textStart))
-      const end = readerMediaOverlayTextPoint(entries, Math.ceil(textEnd))
+      const end = readerMediaOverlayTextPoint(entries, Math.ceil(paintEnd))
       if (!start || !end) continue
       const range = content.doc.createRange()
       try {
@@ -762,6 +790,7 @@ class NavicReaderRuntime {
         marker.setAttribute(ReaderMediaOverlayRangeAttribute, 'true')
         marker.dataset.navicTextStart = String(Math.floor(textStart))
         marker.dataset.navicTextEnd = String(Math.ceil(textEnd))
+        marker.dataset.navicTextProgressEnd = String(Math.ceil(paintEnd))
         try {
           range.surroundContents(marker)
         } catch (error) {

@@ -690,6 +690,17 @@ data class ReaderController(
 			engineCommands = listOf(ReaderEngineCommand.ApplyMediaOverlay(fragment))
 		)
 
+	fun updateMediaOverlayProgress(fragment: ReaderOverlayFragment): ReaderControllerStep =
+		ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					activeMediaOverlay = fragment,
+					audioMetadataLabel = fragment.label ?: state.audioMetadataLabel
+				)
+			),
+			engineCommands = listOf(ReaderEngineCommand.UpdateMediaOverlayProgress(fragment))
+		)
+
 	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep {
 		val currentWhispersync = state.whispersync
 		val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
@@ -722,7 +733,7 @@ data class ReaderController(
 		val syncState = playbackStep?.state ?: currentWhispersync.sync
 		val command = syncState.engineCommand
 			?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
-		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val overlayFragment = command.overlayFragmentOrNull()
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
 		if (overlayFragment != null) {
 			Logger.i(
@@ -731,6 +742,7 @@ data class ReaderController(
 					"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
 					"text=${overlayFragment.textHref.whispersyncLogValue()} " +
 					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
+					"progressTextEnd=${overlayFragment.textProgressEnd ?: "n/a"} " +
 					"clip=${overlayFragment.clipBeginSeconds ?: "n/a"}-${overlayFragment.clipEndSeconds ?: "n/a"}"
 			)
 		} else if (shouldClearOverlay) {
@@ -780,7 +792,7 @@ data class ReaderController(
 			)
 		}
 		val command = syncStep?.state?.engineCommand
-		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val overlayFragment = command.overlayFragmentOrNull()
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
 		return ReaderControllerStep(
 			copy(
@@ -839,7 +851,7 @@ data class ReaderController(
 			)
 		val command = syncStep.state.engineCommand
 			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
-		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val overlayFragment = command.overlayFragmentOrNull()
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
 		val progress = syncStep.audioSeekTarget?.let {
 			state.publication?.let { publication ->
@@ -912,7 +924,7 @@ data class ReaderController(
 		)
 		val command = syncStep.state.engineCommand
 			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
-		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val overlayFragment = command.overlayFragmentOrNull()
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
 		if (overlayFragment != null) {
 			Logger.i(
@@ -920,7 +932,8 @@ data class ReaderController(
 				"Whispersync apply overlay source=visible-range " +
 					"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
 					"text=${overlayFragment.textHref.whispersyncLogValue()} " +
-					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"}"
+					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
+					"progressTextEnd=${overlayFragment.textProgressEnd ?: "n/a"}"
 			)
 		} else if (shouldClearOverlay) {
 			Logger.i(
@@ -979,14 +992,15 @@ data class ReaderController(
 		)
 		val command = syncStep.state.engineCommand
 			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
-		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		val overlayFragment = command.overlayFragmentOrNull()
 		if (overlayFragment != null) {
 			Logger.i(
 				WhispersyncSyncLogTag,
 				"Whispersync apply overlay source=text-point " +
 					"audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
 					"text=${overlayFragment.textHref.whispersyncLogValue()} " +
-					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"}"
+					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
+					"progressTextEnd=${overlayFragment.textProgressEnd ?: "n/a"}"
 			)
 		}
 		return ReaderControllerStep(
@@ -1546,6 +1560,13 @@ private fun readerTocHrefKey(href: String?): String? {
 
 private fun ReaderEngineEvent.VisibleTextRange.isWhispersyncAudioFollowRange(): Boolean =
 	source.equals("media-overlay-follow", ignoreCase = true)
+
+private fun ReaderEngineCommand?.overlayFragmentOrNull(): ReaderOverlayFragment? =
+	when (this) {
+		is ReaderEngineCommand.ApplyMediaOverlay -> fragment
+		is ReaderEngineCommand.UpdateMediaOverlayProgress -> fragment
+		else -> null
+	}
 
 private fun ReaderLocator.isWhispersyncAudioFollowRelocation(): Boolean =
 	reason.equals("media-overlay-follow", ignoreCase = true)

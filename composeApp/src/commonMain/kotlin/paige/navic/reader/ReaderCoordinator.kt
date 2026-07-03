@@ -87,9 +87,13 @@ data class ReaderCoordinator(
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderCoordinatorStep =
 		applyControllerStep(controller.applyMediaOverlay(fragment))
 
+	fun updateMediaOverlayProgress(fragment: ReaderOverlayFragment): ReaderCoordinatorStep =
+		applyControllerStep(controller.updateMediaOverlayProgress(fragment))
+
 	fun onReadaloudEngineCommand(command: ReaderEngineCommand): ReaderCoordinatorStep =
 		when (command) {
 			is ReaderEngineCommand.ApplyMediaOverlay -> applyMediaOverlay(command.fragment)
+			is ReaderEngineCommand.UpdateMediaOverlayProgress -> updateMediaOverlayProgress(command.fragment)
 			ReaderEngineCommand.ClearMediaOverlay -> clearMediaOverlay()
 			else -> ReaderCoordinatorStep(this)
 		}

@@ -131,7 +131,7 @@ data class WhispersyncSegment(
 	val textEnd: Int? = null,
 	val label: String? = null
 ) {
-	fun toReaderOverlayFragment(): ReaderOverlayFragment =
+	fun toReaderOverlayFragment(textProgressEnd: Int? = null): ReaderOverlayFragment =
 		ReaderOverlayFragment(
 			resourceHref = audioResource,
 			fragmentId = fragmentId,
@@ -140,6 +140,7 @@ data class WhispersyncSegment(
 			clipEndSeconds = endMs / 1000.0,
 			textStart = textStart,
 			textEnd = textEnd,
+			textProgressEnd = textProgressEnd,
 			label = label
 		)
 }

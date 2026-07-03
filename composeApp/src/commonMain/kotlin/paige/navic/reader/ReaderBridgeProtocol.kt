@@ -83,6 +83,7 @@ data class ReaderOverlayFragment(
 	val clipEndSeconds: Double? = null,
 	val textStart: Int? = null,
 	val textEnd: Int? = null,
+	val textProgressEnd: Int? = null,
 	val label: String? = null
 )
 
@@ -386,6 +387,18 @@ sealed interface ReaderBridgeCommand {
 		val fragment: ReaderOverlayFragment
 	) : ReaderBridgeCommand {
 		override val type: String = "applyOverlayFragment"
+
+		override fun toJsonObject(): JsonObject =
+			buildJsonObject {
+				put("type", type)
+				put("fragment", fragment.toJsonObject())
+			}
+	}
+
+	data class UpdateOverlayFragmentProgress(
+		val fragment: ReaderOverlayFragment
+	) : ReaderBridgeCommand {
+		override val type: String = "updateOverlayFragmentProgress"
 
 		override fun toJsonObject(): JsonObject =
 			buildJsonObject {
@@ -738,6 +751,7 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		clipEndSeconds?.let { put("clipEndSeconds", it) }
 		textStart?.let { put("textStart", it) }
 		textEnd?.let { put("textEnd", it) }
+		textProgressEnd?.let { put("textProgressEnd", it) }
 		label?.let { put("label", it) }
 	}
 
@@ -808,6 +822,7 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		clipEndSeconds = doubleValue("clipEndSeconds"),
 		textStart = intValue("textStart"),
 		textEnd = intValue("textEnd"),
+		textProgressEnd = intValue("textProgressEnd"),
 		label = stringValue("label")
 	)
 }

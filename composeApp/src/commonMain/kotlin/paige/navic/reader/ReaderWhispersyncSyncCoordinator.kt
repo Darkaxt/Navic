@@ -1,6 +1,7 @@
 package paige.navic.reader
 
 import paige.navic.util.core.Logger
+import kotlin.math.roundToInt
 
 const val WhispersyncSyncLogTag = "WhispersyncSync"
 
@@ -21,6 +22,7 @@ data class ReaderWhispersyncSessionState(
 data class ReaderWhispersyncSyncState(
 	val syncEnabled: Boolean = true,
 	val activeSegmentKey: String? = null,
+	val activeSegmentProgressTextEnd: Int? = null,
 	val engineCommand: ReaderEngineCommand? = null,
 	val engineCommandKey: Long = 0L
 )
@@ -76,7 +78,8 @@ data class ReaderWhispersyncPlaybackPositionStep(
 fun ReaderWhispersyncSyncState.setSyncEnabled(enabled: Boolean): ReaderWhispersyncSyncState {
 	val nextState = copy(
 		syncEnabled = enabled,
-		activeSegmentKey = if (enabled) activeSegmentKey else null
+		activeSegmentKey = if (enabled) activeSegmentKey else null,
+		activeSegmentProgressTextEnd = if (enabled) activeSegmentProgressTextEnd else null
 	)
 	val clearCommand = if (!enabled && activeSegmentKey != null) {
 		ReaderEngineCommand.ClearMediaOverlay
@@ -140,10 +143,30 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 					positionMs = positionMs
 				)
 			)
-		}
+	}
 	val key = segment.readerOverlaySyncKey()
+	val progressTextEnd = segment.textProgressEndForPosition(positionMs)
 	val nextState = if (key == activeSegmentKey) {
-		this
+		if (progressTextEnd != null && progressTextEnd != activeSegmentProgressTextEnd) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync playback position audio=${audioResource.whispersyncLogValue()} " +
+					"track=${audioTrackIndex ?: "n/a"} positionMs=$positionMs " +
+					"cue=${segment.id.orEmpty().ifBlank { "n/a" }} " +
+					"text=${segment.textHref.whispersyncLogValue()} " +
+					"textRange=${segment.textStart ?: "n/a"}-${segment.textEnd ?: "n/a"} " +
+					"progressTextEnd=$progressTextEnd " +
+					"command=updateOverlayProgress"
+			)
+			copy(activeSegmentProgressTextEnd = progressTextEnd)
+				.withEngineCommand(
+					ReaderEngineCommand.UpdateMediaOverlayProgress(
+						segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+					)
+				)
+		} else {
+			this
+		}
 	} else {
 		Logger.i(
 			WhispersyncSyncLogTag,
@@ -152,10 +175,17 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 				"cue=${segment.id.orEmpty().ifBlank { "n/a" }} " +
 				"text=${segment.textHref.whispersyncLogValue()} " +
 				"textRange=${segment.textStart ?: "n/a"}-${segment.textEnd ?: "n/a"} " +
+				"progressTextEnd=${progressTextEnd ?: "n/a"} " +
 				"command=applyOverlay"
 		)
-		copy(activeSegmentKey = key)
-			.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(segment.toReaderOverlayFragment()))
+		copy(
+			activeSegmentKey = key,
+			activeSegmentProgressTextEnd = progressTextEnd
+		).withEngineCommand(
+			ReaderEngineCommand.ApplyMediaOverlay(
+				segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+			)
+		)
 	}
 	return ReaderWhispersyncPlaybackPositionStep(
 		state = nextState,
@@ -235,8 +265,15 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 			"cue=${target.segment.id.orEmpty().ifBlank { "n/a" }} " +
 			"cueTextRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
 	)
-	val nextState = copy(activeSegmentKey = key)
-		.withEngineCommand(ReaderEngineCommand.ApplyMediaOverlay(target.segment.toReaderOverlayFragment()))
+	val progressTextEnd = target.segment.textStart
+	val nextState = copy(
+		activeSegmentKey = key,
+		activeSegmentProgressTextEnd = progressTextEnd
+	).withEngineCommand(
+		ReaderEngineCommand.ApplyMediaOverlay(
+			target.segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+		)
+	)
 	return ReaderWhispersyncVisibleRangeStep(
 		state = nextState,
 		audioSeekTarget = target,
@@ -282,8 +319,15 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 		)
 	}
 	val key = target.segment.readerOverlaySyncKey()
+	val progressTextEnd = target.segment.textStart
 	val command = if (key == activeSegmentKey) {
-		null
+		if (progressTextEnd != null && progressTextEnd != activeSegmentProgressTextEnd) {
+			ReaderEngineCommand.UpdateMediaOverlayProgress(
+				target.segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+			)
+		} else {
+			null
+		}
 	} else {
 		Logger.i(
 			WhispersyncSyncLogTag,
@@ -292,10 +336,15 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 				"textOffset=$textOffset cue=${target.segment.id.orEmpty().ifBlank { "n/a" }} " +
 				"textRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
 		)
-		ReaderEngineCommand.ApplyMediaOverlay(target.segment.toReaderOverlayFragment())
+		ReaderEngineCommand.ApplyMediaOverlay(
+			target.segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+		)
 	}
 	return ReaderWhispersyncVisibleRangeStep(
-		state = copy(activeSegmentKey = key).withEngineCommand(command),
+		state = copy(
+			activeSegmentKey = key,
+			activeSegmentProgressTextEnd = progressTextEnd
+		).withEngineCommand(command),
 		audioSeekTarget = target,
 		status = ReaderWhispersyncStatus(
 			kind = ReaderWhispersyncStatusKind.SeekingAudio,
@@ -324,7 +373,10 @@ private fun ReaderWhispersyncSyncState.clearOverlayIfNeeded(): ReaderWhispersync
 	if (activeSegmentKey == null) {
 		this
 	} else {
-		copy(activeSegmentKey = null)
+		copy(
+			activeSegmentKey = null,
+			activeSegmentProgressTextEnd = null
+		)
 			.withEngineCommand(ReaderEngineCommand.ClearMediaOverlay)
 	}
 
@@ -351,6 +403,18 @@ private fun WhispersyncSegment.readerOverlaySyncKey(): String =
 		startMs.toString(),
 		endMs.toString()
 	).joinToString("|")
+
+private fun WhispersyncSegment.textProgressEndForPosition(positionMs: Long): Int? {
+	val start = textStart ?: return null
+	val end = textEnd ?: return null
+	if (end <= start) return null
+	val durationMs = (endMs - startMs).coerceAtLeast(1L)
+	val elapsedMs = (positionMs - startMs).coerceIn(0L, durationMs)
+	val progress = elapsedMs.toDouble() / durationMs.toDouble()
+	val characterCount = end - start
+	return (start + (characterCount * progress).roundToInt())
+		.coerceIn(start, end)
+}
 
 internal fun String?.whispersyncLogValue(maxLength: Int = 96): String =
 	this

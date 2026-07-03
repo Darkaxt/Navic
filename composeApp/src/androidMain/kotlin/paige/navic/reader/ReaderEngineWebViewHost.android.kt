@@ -332,6 +332,8 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 			"applyHighlights(count=${highlights.size}, notes=$noteCount)"
 		}
 		is ReaderBridgeCommand.ApplyOverlayFragment -> "applyOverlayFragment(${fragment.fragmentId.orEmpty()})"
+		is ReaderBridgeCommand.UpdateOverlayFragmentProgress ->
+			"updateOverlayFragmentProgress(${fragment.fragmentId.orEmpty()}, ${fragment.textProgressEnd ?: "n/a"})"
 		ReaderBridgeCommand.ClearOverlay -> "clearOverlay"
 		is ReaderBridgeCommand.ApplySettings -> "applySettings"
 		is ReaderBridgeCommand.Search -> "search"
