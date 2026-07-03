@@ -447,6 +447,7 @@ data class ReaderController(
 				)
 			)
 			is ReaderEngineEvent.VisibleTextRange -> onVisibleTextRange(event)
+			is ReaderEngineEvent.TextPoint -> onTextPoint(event)
 			is ReaderEngineEvent.SearchResults -> ReaderControllerStep(
 				copy(
 					state = state.copy(
@@ -921,6 +922,33 @@ data class ReaderController(
 			),
 			engineCommands = listOfNotNull(command),
 			progressToSave = progress,
+			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
+		)
+	}
+
+	private fun onTextPoint(event: ReaderEngineEvent.TextPoint): ReaderControllerStep {
+		val currentWhispersync = state.whispersync
+		val syncStep = currentWhispersync.sync.onTextPoint(
+			timeline = currentWhispersync.timeline,
+			textHref = event.textHref,
+			textOffset = event.textOffset
+		)
+		val command = syncStep.state.engineCommand
+			?.takeIf { syncStep.state.engineCommandKey != currentWhispersync.sync.engineCommandKey }
+		val overlayFragment = (command as? ReaderEngineCommand.ApplyMediaOverlay)?.fragment
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					whispersync = currentWhispersync.copy(
+						sync = syncStep.state,
+						audioSeekTarget = syncStep.audioSeekTarget,
+						status = syncStep.status ?: currentWhispersync.status
+					),
+					activeMediaOverlay = overlayFragment ?: state.activeMediaOverlay,
+					audioMetadataLabel = overlayFragment?.label ?: state.audioMetadataLabel
+				)
+			),
+			engineCommands = listOfNotNull(command),
 			whispersyncAudioSeekTarget = syncStep.audioSeekTarget
 		)
 	}

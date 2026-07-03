@@ -80,11 +80,32 @@ data class WhispersyncTimeline(
 					?.let { score -> segment to score }
 			}
 			.sortedWith(
-				compareByDescending<Pair<WhispersyncSegment, WhispersyncRangeScore>> { (_, score) -> score.overlap }
+				compareBy<Pair<WhispersyncSegment, WhispersyncRangeScore>> { (_, score) -> score.anchorDistance }
 					.thenBy { (_, score) -> score.centerDistance }
+					.thenByDescending { (_, score) -> score.overlap }
 			)
 			.firstOrNull()
 			?.first
+			?.let { segment ->
+				WhispersyncAudioSeekTarget(
+					audioResource = segment.audioResource,
+					positionMs = segment.startMs,
+					segment = segment
+				)
+			}
+	}
+
+	fun seekTargetForTextPoint(
+		textHref: String,
+		textOffset: Int
+	): WhispersyncAudioSeekTarget? {
+		val normalizedText = normalizedMediaOverlayResource(textHref)
+		val point = textOffset.coerceAtLeast(0)
+		return segments
+			.firstOrNull { segment ->
+				normalizedMediaOverlayResource(segment.textHref) == normalizedText &&
+					segment.containsTextPoint(point)
+			}
 			?.let { segment ->
 				WhispersyncAudioSeekTarget(
 					audioResource = segment.audioResource,
@@ -191,6 +212,7 @@ private data class WhispersyncSegmentParseResult(
 }
 
 private data class WhispersyncRangeScore(
+	val anchorDistance: Int,
 	val overlap: Int,
 	val centerDistance: Double
 )
@@ -247,10 +269,27 @@ private fun WhispersyncSegment.overlapScore(
 	val overlap = (minOf(end, visibleEnd) - maxOf(start, visibleStart)).coerceAtLeast(0)
 	if (overlap == 0) return null
 	val center = (start + end) / 2.0
+	val anchorDistance = when {
+		visibleStart in start until end -> visibleStart - start
+		start >= visibleStart -> start - visibleStart
+		else -> visibleStart - end
+	}
 	return WhispersyncRangeScore(
+		anchorDistance = anchorDistance,
 		overlap = overlap,
 		centerDistance = abs(center - visibleCenter)
 	)
+}
+
+private fun WhispersyncSegment.containsTextPoint(textOffset: Int): Boolean {
+	val rangeStart = textStart
+	val rangeEnd = textEnd
+	if (rangeStart == null || rangeEnd == null) {
+		return false
+	}
+	val start = minOf(rangeStart, rangeEnd)
+	val end = maxOf(rangeStart, rangeEnd)
+	return textOffset >= start && textOffset < end
 }
 
 private fun JsonObject.segmentArray(): List<JsonElement>? =

@@ -407,6 +407,27 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun bridgeEventsDecodeTextPointForWhispersync() {
+		val event = decodeReaderBridgeEvent(
+			"""
+			{
+			  "type": "textPoint",
+			  "textHref": "OEBPS/Text/authorsforeword.xhtml",
+			  "textOffset": 82,
+			  "rangeCfi": "epubcfi(/6/12!/4/8,/1:0,/1:8)",
+			  "source": "native-long-press-command"
+			}
+			""".trimIndent()
+		)
+
+		val point = assertIs<ReaderBridgeEvent.TextPoint>(event)
+		assertEquals("OEBPS/Text/authorsforeword.xhtml", point.textHref)
+		assertEquals(82, point.textOffset)
+		assertEquals("epubcfi(/6/12!/4/8,/1:0,/1:8)", point.rangeCfi)
+		assertEquals("native-long-press-command", point.source)
+	}
+
+	@Test
 	fun bridgeEventsDecodeFixedLayoutPagePosition() {
 		val event = decodeReaderBridgeEvent(
 			"""

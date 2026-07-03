@@ -143,6 +143,7 @@ import {
   isThemeBackgroundMediaElement,
   readerDocumentThemeCss,
   readerContentCss,
+  readerMediaOverlayTextOffsetForRange,
   komikkuTapAction,
   normalizeSearchResult,
   normalizeExcerpt,
@@ -625,10 +626,28 @@ function selectReaderTextAtDocumentPoint(doc, x, y, index = null, source = 'cont
   }
   selection.removeAllRanges()
   selection.addRange(range)
+  const textOffset = readerMediaOverlayTextOffsetForRange(doc, range)
+  const numericIndex = Number(index)
+  const section = Number.isFinite(numericIndex)
+    ? this.view?.book?.sections?.[Math.floor(numericIndex)]
+    : null
+  const textHref = section?.href || section?.id || null
+  const rangeCfi = textHref ? this.annotationRangeCfi?.(index, range) : undefined
+  if (textHref && Number.isFinite(textOffset)) {
+    post({
+      type: 'textPoint',
+      textHref,
+      textOffset: Math.floor(textOffset),
+      rangeCfi,
+      source,
+    })
+  }
   doc.dispatchEvent(new Event('selectionchange', { bubbles: true }))
   readerTrace('native-tap-zones:text-long-press-selection', {
     source,
     index,
+    textHref: textHref || '',
+    textOffset: Number.isFinite(textOffset) ? Math.floor(textOffset) : null,
     textLength: selection.toString?.().trim?.().length || 0,
     x: Math.round(Number(x) || 0),
     y: Math.round(Number(y) || 0),

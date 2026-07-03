@@ -515,6 +515,12 @@ sealed interface ReaderBridgeEvent {
 		val rangeCfi: String? = null,
 		val source: String? = null
 	) : ReaderBridgeEvent
+	data class TextPoint(
+		val textHref: String,
+		val textOffset: Int,
+		val rangeCfi: String? = null,
+		val source: String? = null
+	) : ReaderBridgeEvent
 	data class OverlayFragmentActive(val fragment: ReaderOverlayFragment) : ReaderBridgeEvent
 	data class OverlayFragmentInactive(val fragmentId: String? = null) : ReaderBridgeEvent
 	data class SearchResults(
@@ -625,6 +631,7 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 				source = json.stringValue("source")
 			)
 			"visibleTextRange" -> json.toVisibleTextRange()
+			"textPoint" -> json.toTextPoint()
 			"overlayFragmentActive" -> json.toOverlayFragment()
 				?.let(ReaderBridgeEvent::OverlayFragmentActive)
 			"overlayFragmentInactive" -> ReaderBridgeEvent.OverlayFragmentInactive(
@@ -661,6 +668,17 @@ private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange?
 		textHref = textHref,
 		visibleStart = minOf(visibleStart, visibleEnd),
 		visibleEnd = maxOf(visibleStart, visibleEnd),
+		rangeCfi = stringValue("rangeCfi"),
+		source = stringValue("source") ?: stringValue("reason")
+	)
+}
+
+private fun JsonObject.toTextPoint(): ReaderBridgeEvent.TextPoint? {
+	val textHref = stringValue("textHref") ?: stringValue("href") ?: return null
+	val textOffset = intValue("textOffset") ?: intValue("offset") ?: return null
+	return ReaderBridgeEvent.TextPoint(
+		textHref = textHref,
+		textOffset = textOffset.coerceAtLeast(0),
 		rangeCfi = stringValue("rangeCfi"),
 		source = stringValue("source") ?: stringValue("reason")
 	)

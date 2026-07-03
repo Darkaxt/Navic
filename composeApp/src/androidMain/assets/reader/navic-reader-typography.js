@@ -820,11 +820,11 @@ export const readerDocumentThemeCss = settings => {
     background-image: none !important;
     position: relative !important;
   }
-  body :not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]) {
+  body :not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not(.${overlayClass}) {
     background-color: transparent !important;
   }
-  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]),
-  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]) {
+  body [style*="background"]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not(.${overlayClass}),
+  body [bgcolor]:not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not(.${overlayClass}) {
     background: transparent !important;
     background-color: transparent !important;
     background-image: none !important;
@@ -881,8 +881,11 @@ export const readerContentCss = settings => {
     content: '';
   }
   .${overlayClass} {
-    background: color-mix(in srgb, var(--reader-accent) 28%, transparent);
+    background-color: color-mix(in srgb, var(--reader-accent) 28%, transparent) !important;
+    background-image: none !important;
     border-radius: 3px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 `
 }

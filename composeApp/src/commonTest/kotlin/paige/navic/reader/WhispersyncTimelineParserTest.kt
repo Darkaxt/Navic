@@ -201,6 +201,52 @@ class WhispersyncTimelineParserTest {
 	}
 
 	@Test
+	fun visibleTextRangeStartsAtFirstBinderyCueInsteadOfLargestViewportOverlap() {
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "cues": [
+			    {
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 0,
+			      "audioEnd": 18.04,
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "ebookStart": 0,
+			      "ebookEnd": 78
+			    },
+			    {
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 56.08,
+			      "audioEnd": 59.86,
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "ebookStart": 607,
+			      "ebookEnd": 702
+			    },
+			    {
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 59.86,
+			      "audioEnd": 87.32,
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "ebookStart": 703,
+			      "ebookEnd": 1161
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val target = sidecar.timeline.seekTargetForVisibleTextRange(
+			textHref = "OEBPS/Text/authorsforeword.xhtml",
+			visibleStart = 3,
+			visibleEnd = 2479
+		)
+
+		assertNotNull(target)
+		assertEquals(0, target.positionMs)
+		assertEquals(0, target.segment.textStart)
+	}
+
+	@Test
 	fun activeSegmentSnapsTinyAudioBoundaryGapToNearestCue() {
 		val timeline = WhispersyncTimeline(
 			segments = listOf(
@@ -268,6 +314,50 @@ class WhispersyncTimelineParserTest {
 		)
 
 		assertNull(target)
+	}
+
+	@Test
+	fun textPointSelectsCueContainingExactEbookOffset() {
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "cues": [
+			    {
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 0,
+			      "audioEnd": 18.04,
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "ebookStart": 0,
+			      "ebookEnd": 78
+			    },
+			    {
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 18.04,
+			      "audioEnd": 21.44,
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "ebookStart": 81,
+			      "ebookEnd": 121
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		val target = sidecar.timeline.seekTargetForTextPoint(
+			textHref = "OEBPS/Text/authorsforeword.xhtml",
+			textOffset = 82
+		)
+
+		assertNotNull(target)
+		assertEquals(18_040, target.positionMs)
+		assertEquals(81, target.segment.textStart)
+		assertEquals(121, target.segment.textEnd)
+		assertNull(
+			sidecar.timeline.seekTargetForTextPoint(
+				textHref = "OEBPS/Text/authorsforeword.xhtml",
+				textOffset = 79
+			)
+		)
 	}
 
 	@Test

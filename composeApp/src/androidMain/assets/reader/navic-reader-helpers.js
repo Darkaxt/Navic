@@ -63,6 +63,53 @@ export const readerTokenText = value => {
   return String(value)
 }
 
+export const readerMediaOverlayTextEntries = doc => {
+  const root = doc?.body
+  if (!root || !doc.createTreeWalker) return []
+  const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter
+  const walker = doc.createTreeWalker(root, nodeFilter.SHOW_TEXT)
+  const entries = []
+  let offset = 0
+  let node = walker.nextNode()
+  while (node) {
+    const text = node.nodeValue || ''
+    const start = offset
+    const end = start + text.length
+    entries.push({ node, start, end, text })
+    offset = end
+    node = walker.nextNode()
+  }
+  return entries
+}
+
+export const readerMediaOverlayTextPoint = (entries, requestedOffset) => {
+  if (!entries.length) return null
+  const last = entries[entries.length - 1]
+  const offset = Math.max(0, Math.min(last.end, requestedOffset))
+  for (const entry of entries) {
+    if (offset >= entry.start && offset <= entry.end) {
+      return {
+        node: entry.node,
+        offset: Math.max(0, Math.min(entry.text.length, offset - entry.start)),
+      }
+    }
+  }
+  return {
+    node: last.node,
+    offset: last.text.length,
+  }
+}
+
+export const readerMediaOverlayTextOffsetForRange = (doc, range) => {
+  const container = range?.startContainer
+  const startOffset = Number(range?.startOffset)
+  if (!doc || !container || !Number.isFinite(startOffset)) return null
+  const entries = readerMediaOverlayTextEntries(doc)
+  const entry = entries.find(candidate => candidate.node === container)
+  if (!entry) return null
+  return entry.start + Math.max(0, Math.min(entry.text.length, Math.floor(startOffset)))
+}
+
 export const readerSectionTokenText = section =>
   [
     section?.id,

@@ -84,8 +84,11 @@
     }
 
     .navic-active-overlay-fragment {
-      background: color-mix(in srgb, var(--reader-accent) 28%, transparent);
+      background-color: color-mix(in srgb, var(--reader-accent) 28%, transparent) !important;
+      background-image: none !important;
       border-radius: 3px;
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
     }
   </style>
 </head>

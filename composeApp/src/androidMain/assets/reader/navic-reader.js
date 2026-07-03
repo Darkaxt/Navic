@@ -149,6 +149,8 @@ import {
   isThemeBackgroundMediaElement,
   readerDocumentThemeCss,
   readerContentCss,
+  readerMediaOverlayTextEntries,
+  readerMediaOverlayTextPoint,
   komikkuTapAction,
   normalizeSearchResult,
   normalizeExcerpt,
@@ -166,43 +168,6 @@ import { NavicReaderLocationMethods } from './navic-reader-location.js'
 
 const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
 const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
-
-const readerMediaOverlayTextEntries = doc => {
-  const root = doc?.body
-  if (!root || !doc.createTreeWalker) return []
-  const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter
-  const walker = doc.createTreeWalker(root, nodeFilter.SHOW_TEXT)
-  const entries = []
-  let offset = 0
-  let node = walker.nextNode()
-  while (node) {
-    const text = node.nodeValue || ''
-    const start = offset
-    const end = start + text.length
-    entries.push({ node, start, end, text })
-    offset = end
-    node = walker.nextNode()
-  }
-  return entries
-}
-
-const readerMediaOverlayTextPoint = (entries, requestedOffset) => {
-  if (!entries.length) return null
-  const last = entries[entries.length - 1]
-  const offset = Math.max(0, Math.min(last.end, requestedOffset))
-  for (const entry of entries) {
-    if (offset >= entry.start && offset <= entry.end) {
-      return {
-        node: entry.node,
-        offset: Math.max(0, Math.min(entry.text.length, offset - entry.start)),
-      }
-    }
-  }
-  return {
-    node: last.node,
-    offset: last.text.length,
-  }
-}
 
 const readerMediaOverlayUnwrapRangeMarker = marker => {
   const parent = marker?.parentNode

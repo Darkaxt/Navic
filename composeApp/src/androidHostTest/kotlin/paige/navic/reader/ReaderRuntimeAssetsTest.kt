@@ -588,6 +588,38 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun androidReaderMediaOverlayHighlightSurvivesThemeBackgroundReset() {
+		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
+		val documentThemeCss = typographyText
+			.substringAfter("export const readerDocumentThemeCss = settings =>")
+			.substringBefore("export const readerContentCss = settings =>")
+		val overlayCss = typographyText
+			.substringAfter(".\${overlayClass} {")
+			.substringBefore("}")
+
+		assertContains(
+			documentThemeCss,
+			":not(.\${overlayClass})",
+			message = "Theme background cleanup must not make Whispersync overlay marker spans transparent."
+		)
+		assertContains(
+			overlayCss,
+			"background-color:",
+			message = "Whispersync text ranges must paint with background-color so document cleanup cannot erase them."
+		)
+		assertContains(
+			overlayCss,
+			"!important",
+			message = "Whispersync text ranges must win over EPUB and theme background reset rules."
+		)
+		assertContains(
+			overlayCss,
+			"box-decoration-break: clone",
+			message = "Wrapped Whispersync text ranges must paint each visual line consistently."
+		)
+	}
+
+	@Test
 	fun androidReaderRuntimePostsVisibleTextRangeFromRenderedFoliateContent() {
 		val root = readerAssetRoot()
 		val locationText = root.resolve("navic-reader-location.js").readText()
@@ -609,6 +641,21 @@ class ReaderRuntimeAssetsTest {
 			"this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })",
 			message = "Visible text range must be emitted from committed relocation snapshots, not from controller-owned UI state."
 		)
+	}
+
+	@Test
+	fun androidReaderLongPressPostsWhispersyncTextPointOffset() {
+		val root = readerAssetRoot()
+		val helperText = root.resolve("navic-reader-helpers.js").readText()
+		val interactionText = root.resolve("navic-reader-content-interactions.js").readText()
+
+		assertContains(helperText, "export const readerMediaOverlayTextOffsetForRange")
+		assertContains(helperText, "readerMediaOverlayTextEntries(doc)")
+		assertContains(interactionText, "readerMediaOverlayTextOffsetForRange")
+		assertContains(interactionText, "type: 'textPoint'")
+		assertContains(interactionText, "textHref")
+		assertContains(interactionText, "textOffset: Math.floor(textOffset)")
+		assertContains(interactionText, "source")
 	}
 
 	@Test
