@@ -100,8 +100,6 @@ class FoliateEpubEngineAdapterTest {
 		)
 		val highlights = overlayProgress.engine.onCommand(ReaderEngineCommand.ApplyAnnotations(listOf(annotation)))
 		val clearOverlay = highlights.engine.onCommand(ReaderEngineCommand.ClearMediaOverlay)
-		val historyBack = clearOverlay.engine.onCommand(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Back))
-		val historyForward = historyBack.engine.onCommand(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Forward))
 
 		assertEquals(ReaderBridgeCommand.Search("dragon"), assertIs<ReaderEngineViewState.WebViewPublication>(search.viewState).bridgeCommand())
 		assertEquals(ReaderBridgeCommand.ClearSearch, assertIs<ReaderEngineViewState.WebViewPublication>(clearSearch.viewState).bridgeCommand())
@@ -138,16 +136,6 @@ class FoliateEpubEngineAdapterTest {
 			assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).bridgeCommand()
 		)
 		assertEquals(9L, assertIs<ReaderEngineViewState.WebViewPublication>(clearOverlay.viewState).commandKey)
-		assertEquals(
-			ReaderBridgeCommand.HistoryBack,
-			assertIs<ReaderEngineViewState.WebViewPublication>(historyBack.viewState).bridgeCommand()
-		)
-		assertEquals(10L, assertIs<ReaderEngineViewState.WebViewPublication>(historyBack.viewState).commandKey)
-		assertEquals(
-			ReaderBridgeCommand.HistoryForward,
-			assertIs<ReaderEngineViewState.WebViewPublication>(historyForward.viewState).bridgeCommand()
-		)
-		assertEquals(11L, assertIs<ReaderEngineViewState.WebViewPublication>(historyForward.viewState).commandKey)
 	}
 
 	@Test
@@ -375,10 +363,6 @@ class FoliateEpubEngineAdapterTest {
 					sectionId = "chapter-01"
 				)
 			)
-		)
-		assertEquals(
-			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = false),
-			adapter.onBridgeHostEvent(ReaderBridgeEvent.PushState(canGoBack = true, canGoForward = false))
 		)
 		assertEquals(
 			ReaderEngineEvent.FootnoteOpened(

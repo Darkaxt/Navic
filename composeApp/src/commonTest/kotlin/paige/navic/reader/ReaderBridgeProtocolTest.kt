@@ -179,17 +179,6 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
-	fun historyCommandsDispatchAnxFoliateHistoryIntents() {
-		val backScript = ReaderBridgeCommand.HistoryBack.toJavaScript()
-		val forwardScript = ReaderBridgeCommand.HistoryForward.toJavaScript()
-
-		assertContains(backScript, "window.NavicReaderBridge.dispatch")
-		assertContains(backScript, "\"type\":\"historyBack\"")
-		assertContains(forwardScript, "window.NavicReaderBridge.dispatch")
-		assertContains(forwardScript, "\"type\":\"historyForward\"")
-	}
-
-	@Test
 	fun clearSearchCommandDispatchesAnxSearchClearIntent() {
 		val script = ReaderBridgeCommand.ClearSearch.toJavaScript()
 
@@ -740,11 +729,8 @@ class ReaderBridgeProtocolTest {
 				  "sectionId": "chapter-01"
 				}
 				""".trimIndent()
+				)
 			)
-		)
-		val pushState = assertIs<ReaderBridgeEvent.PushState>(
-			decodeReaderBridgeEvent("""{"type":"pushState","canGoBack":true,"canGoForward":false}""")
-		)
 
 		assertEquals("https://example.test/notes", externalLink.href)
 		assertEquals("../Text/chapter-01.xhtml#note", externalLink.anchorHref)
@@ -762,8 +748,6 @@ class ReaderBridgeProtocolTest {
 		assertEquals("EPUB/Text/chapter-01.xhtml", loadDoc.href)
 		assertEquals("Chapter 1", loadDoc.title)
 		assertEquals("chapter-01", loadDoc.sectionId)
-		assertEquals(true, pushState.canGoBack)
-		assertEquals(false, pushState.canGoForward)
 		val footnoteOpen = assertIs<ReaderBridgeEvent.FootnoteOpen>(
 			decodeReaderBridgeEvent(
 				"""

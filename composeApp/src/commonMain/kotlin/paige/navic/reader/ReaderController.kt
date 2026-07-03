@@ -142,12 +142,6 @@ sealed interface ReaderOverlayInteraction {
 	data object PullUp : ReaderOverlayInteraction
 }
 
-data class ReaderEngineNavigationState(
-	val canGoBack: Boolean = false,
-	val canGoForward: Boolean = false,
-	val visible: Boolean = canGoBack || canGoForward
-)
-
 data class ReaderControllerState(
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
@@ -160,7 +154,6 @@ data class ReaderControllerState(
 	val annotationPopup: ReaderAnnotationPopupState? = null,
 	val footnotePopup: ReaderFootnotePopupState? = null,
 	val lastOverlayInteraction: ReaderOverlayInteraction? = null,
-	val engineNavigation: ReaderEngineNavigationState = ReaderEngineNavigationState(),
 	val shellCoverVisible: Boolean = false,
 	val nativeShellCoverUrl: String? = null,
 	val nativeShellCoverReturnLocatorKey: String? = null,
@@ -262,7 +255,6 @@ data class ReaderController(
 					annotationPopup = null,
 					footnotePopup = null,
 					lastOverlayInteraction = null,
-					engineNavigation = ReaderEngineNavigationState(),
 					shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank(),
 					nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl,
 					nativeShellCoverReturnLocatorKey = null,
@@ -402,17 +394,6 @@ data class ReaderController(
 							chapterProgress = state.chapterProgress.updatedFrom(document)
 						)
 					}
-				)
-			)
-			is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(
-				copy(
-					state = state.copy(
-						engineNavigation = ReaderEngineNavigationState(
-							canGoBack = event.canGoBack,
-							canGoForward = event.canGoForward,
-							visible = event.canGoBack || event.canGoForward
-						)
-					)
 				)
 			)
 			is ReaderEngineEvent.FootnoteOpened -> ReaderControllerStep(
@@ -624,40 +605,6 @@ data class ReaderController(
 
 	fun navigateToNextChapter(): ReaderControllerStep =
 		navigateToAdjacentTocChapter(direction = 1)
-
-	fun navigateHistoryBack(): ReaderControllerStep =
-		navigateHistory(
-			enabled = state.engineNavigation.canGoBack,
-			direction = ReaderHistoryDirection.Back
-		)
-
-	fun navigateHistoryForward(): ReaderControllerStep =
-		navigateHistory(
-			enabled = state.engineNavigation.canGoForward,
-			direction = ReaderHistoryDirection.Forward
-		)
-
-	fun dismissHistoryNavigation(): ReaderControllerStep =
-		ReaderControllerStep(
-			copy(
-				state = state.copy(
-					engineNavigation = state.engineNavigation.copy(visible = false)
-				)
-			)
-		)
-
-	private fun navigateHistory(
-		enabled: Boolean,
-		direction: ReaderHistoryDirection
-	): ReaderControllerStep =
-		if (enabled) {
-			ReaderControllerStep(
-				controller = this,
-				engineCommands = listOf(ReaderEngineCommand.NavigateHistory(direction))
-			)
-		} else {
-			ReaderControllerStep(this)
-		}
 
 	private fun navigateToAdjacentTocChapter(direction: Int): ReaderControllerStep {
 		val targetHref = state.adjacentTocChapter(direction)
@@ -1182,7 +1129,6 @@ data class ReaderController(
 			state.annotationPopup?.visible == true -> dismissAnnotationPopup()
 			state.footnotePopup?.visible == true -> dismissFootnotePopup()
 			state.externalLinkPrompt != null -> dismissExternalLinkPrompt()
-			state.engineNavigation.visible -> dismissHistoryNavigation()
 			state.menuVisible -> hideMenus()
 			else -> null
 		}
@@ -1200,7 +1146,6 @@ data class ReaderController(
 			state.annotationPopup?.visible == true -> dismissAnnotationPopup()
 			state.footnotePopup?.visible == true -> dismissFootnotePopup()
 			state.externalLinkPrompt != null -> dismissExternalLinkPrompt()
-			state.engineNavigation.visible -> dismissHistoryNavigation()
 			else -> null
 		}
 		if (closeOverlay != null) return closeOverlay.asBackStep(handled = true)

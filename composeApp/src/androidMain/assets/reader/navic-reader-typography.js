@@ -824,6 +824,15 @@ export const readerTypographyCss = settings => {
   h5 { font-size: calc(0.83em * ${headingFontSize}) !important; }
   h6 { font-size: calc(0.67em * ${headingFontSize}) !important; }
   `}
+  body > h1:first-child,
+  body > h2:first-child,
+  body > h3:first-child,
+  body > h4:first-child,
+  body > h5:first-child,
+  body > h6:first-child {
+    margin-block-start: clamp(48px, 4.5vh, 96px) !important;
+    margin-top: clamp(48px, 4.5vh, 96px) !important;
+  }
 `
 }
 

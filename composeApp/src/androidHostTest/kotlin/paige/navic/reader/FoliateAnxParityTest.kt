@@ -243,20 +243,6 @@ class FoliateAnxParityTest {
 			readerUiRoute("ReaderAnnotationDialog.kt", "KomikkuReaderAnnotationDialog"),
 			readerUiRoute("ReaderRoot.kt", "controllerState.annotationPopup")
 		),
-		"onPushState" to exists(
-			"PushState event updates history capabilities and surfaces the controller-owned history capsule",
-			controllerTest("pushStateSurfacesHistoryCapsuleWhenHistoryIsAvailable"),
-			readerUiRoute("ReaderRoot.kt", "KomikkuReaderHistoryCapsule"),
-			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryBack()"),
-			readerUiRoute("ReaderScreen.kt", "coordinator.navigateHistoryForward()"),
-			routeStop("ReaderController.kt", "engineNavigation = ReaderEngineNavigationState"),
-			routeStop("ReaderController.kt", "visible = event.canGoBack || event.canGoForward"),
-			routeStop("ReaderController.kt", "ReaderEngineCommand.NavigateHistory"),
-			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryBack"),
-			routeStop("FoliateEpubEngineAdapter.kt", "ReaderBridgeCommand.HistoryForward"),
-			routeStop("navic-reader.js", "case 'historyBack':"),
-			routeStop("navic-reader.js", "case 'historyForward':")
-		),
 		"onFootnoteClose" to exists(
 			"Footnote popup lifecycle with controller-owned open and close routes",
 			controllerTest("footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt"),
@@ -469,7 +455,6 @@ class FoliateAnxParityTest {
 			"onExternalLink",
 			"onSelectionCleared",
 			"onAnnotationClick",
-			"onPushState",
 			"onFootnoteClose",
 			"onPullUp",
 			"link",
@@ -577,7 +562,6 @@ class FoliateAnxParityTest {
 			Phase3Event("AnnotationDrawn", "annotationDrawn", "AnnotationDrawn", listOf("draw-annotation")),
 			Phase3Event("OverlayCreated", "overlayCreated", "OverlayCreated", listOf("create-overlay")),
 			Phase3Event("LoadDoc", "loadDoc", "DocLoaded", listOf("onLoadEnd", "load")),
-			Phase3Event("PushState", "pushState", "NavigationStateChanged", listOf("onPushState")),
 			Phase3Event("FootnoteClose", "footnoteClose", "FootnoteClose", listOf("onFootnoteClose")),
 			Phase3Event("PullUp", "pullUp", "PullUp", listOf("onPullUp"))
 		)
@@ -701,11 +685,6 @@ class FoliateAnxParityTest {
 				engineEvent = "DocLoaded",
 				controllerStateSymbol = "loadedDocument",
 				noOpBranch = "is ReaderEngineEvent.DocLoaded -> ReaderControllerStep(this)"
-			),
-			ControllerRoute(
-				engineEvent = "NavigationStateChanged",
-				controllerStateSymbol = "engineNavigation",
-				noOpBranch = "is ReaderEngineEvent.NavigationStateChanged -> ReaderControllerStep(this)"
 			),
 			ControllerRoute(
 				engineEvent = "FootnoteClose",

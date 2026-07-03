@@ -49,9 +49,6 @@ internal fun KomikkuReaderRoot(
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
-	onHistoryBack: () -> Unit,
-	onHistoryForward: () -> Unit,
-	onDismissHistory: () -> Unit,
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
 	onWhispersyncPlayer: () -> Unit,
@@ -171,9 +168,6 @@ internal fun KomikkuReaderRoot(
 						onPreviousChapter = onPreviousChapter,
 						onNextChapter = onNextChapter,
 						onGoToChapterPage = onGoToChapterPage,
-						onHistoryBack = onHistoryBack,
-						onHistoryForward = onHistoryForward,
-						onDismissHistory = onDismissHistory,
 						onContents = onContents,
 						onSearch = onSearch,
 						onWhispersyncPlayer = onWhispersyncPlayer,
@@ -221,7 +215,6 @@ private fun ReaderControllerState.hasVisibleReaderOverlay(): Boolean =
 		annotationPopup != null ||
 		footnotePopup != null ||
 		externalLinkPrompt != null ||
-		engineNavigation.visible ||
 		whispersync.status.requiresAttention ||
 		paginationProfile.status == "measuring" ||
 		paginationProfile.status == "failed"
@@ -245,9 +238,6 @@ private fun KomikkuComposeOverlay(
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
-	onHistoryBack: () -> Unit,
-	onHistoryForward: () -> Unit,
-	onDismissHistory: () -> Unit,
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
 	onWhispersyncPlayer: () -> Unit,
@@ -314,17 +304,6 @@ private fun KomikkuComposeOverlay(
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
 			modifier = Modifier.matchParentSize()
 		)
-		if (!controllerState.shellCoverVisible) {
-			KomikkuReaderHistoryCapsule(
-				navigation = controllerState.engineNavigation,
-				onHistoryBack = onHistoryBack,
-				onHistoryForward = onHistoryForward,
-				onDismissHistory = onDismissHistory,
-				modifier = Modifier
-					.align(Alignment.BottomCenter)
-					.padding(bottom = if (controllerState.menuVisible) 96.dp else 40.dp)
-			)
-		}
 		if (!controllerState.shellCoverVisible) {
 			KomikkuReaderSelectionActions(
 				selectionActions = controllerState.selectionActions,

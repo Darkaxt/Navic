@@ -75,15 +75,6 @@ data class ReaderCoordinator(
 	fun navigateToNextChapter(): ReaderCoordinatorStep =
 		applyControllerStep(controller.navigateToNextChapter())
 
-	fun navigateHistoryBack(): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateHistoryBack())
-
-	fun navigateHistoryForward(): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateHistoryForward())
-
-	fun dismissHistoryNavigation(): ReaderCoordinatorStep =
-		applyControllerStep(controller.dismissHistoryNavigation())
-
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderCoordinatorStep =
 		applyControllerStep(controller.applyMediaOverlay(fragment))
 

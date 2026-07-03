@@ -249,10 +249,7 @@ class ReaderControllerTest {
 		val overlayCreated = annotationDrawn.onEngineEvent(
 			ReaderEngineEvent.OverlayCreated(index = 4)
 		).controller
-		val navigation = overlayCreated.onEngineEvent(
-			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = false)
-		).controller
-		val footnoteClosed = navigation.onEngineEvent(ReaderEngineEvent.FootnoteClose).controller
+		val footnoteClosed = overlayCreated.onEngineEvent(ReaderEngineEvent.FootnoteClose).controller
 		val pullUp = footnoteClosed.onEngineEvent(ReaderEngineEvent.PullUp())
 
 		assertEquals(
@@ -291,10 +288,6 @@ class ReaderControllerTest {
 		assertEquals(
 			ReaderOverlayInteraction.Created(index = 4),
 			overlayCreated.state.lastOverlayInteraction
-		)
-		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = false, visible = true),
-			navigation.state.engineNavigation
 		)
 		assertEquals(
 			ReaderOverlayInteraction.FootnoteClosed,
@@ -337,37 +330,6 @@ class ReaderControllerTest {
 		)
 		assertFalse(step.controller.state.menuVisible)
 		assertEquals(emptyList(), step.engineCommands)
-	}
-
-	@Test
-	fun pushStateSurfacesHistoryCapsuleWhenHistoryIsAvailable() {
-		val controller = ReaderController().onEngineEvent(
-			ReaderEngineEvent.NavigationStateChanged(canGoBack = true, canGoForward = true)
-		).controller
-
-		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = true),
-			controller.state.engineNavigation
-		)
-
-		val back = controller.navigateHistoryBack()
-		assertEquals(
-			listOf(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Back)),
-			back.engineCommands
-		)
-
-		val forward = controller.navigateHistoryForward()
-		assertEquals(
-			listOf(ReaderEngineCommand.NavigateHistory(ReaderHistoryDirection.Forward)),
-			forward.engineCommands
-		)
-
-		val dismissed = controller.dismissHistoryNavigation()
-		assertEquals(
-			ReaderEngineNavigationState(canGoBack = true, canGoForward = true, visible = false),
-			dismissed.controller.state.engineNavigation
-		)
-		assertEquals(emptyList(), dismissed.engineCommands)
 	}
 
 	@Test

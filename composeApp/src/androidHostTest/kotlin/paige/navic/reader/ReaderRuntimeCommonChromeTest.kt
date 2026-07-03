@@ -185,32 +185,6 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
-	fun commonReaderChromeRoutesAnxPushStateToKomikkuHistoryCapsule() {
-		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
-		val historyCapsuleText = readerCommonUiFile("ReaderHistoryCapsule.kt").readText()
-		val readerScreenText = readerScreenFile().readText()
-		val controllerText = readerCommonFile("ReaderController.kt").readText()
-		val bridgeText = readerRuntimeImplementationText(readerAssetRoot())
-
-		assertContains(readerRootText, "KomikkuReaderHistoryCapsule")
-		assertContains(readerRootText, "navigation = controllerState.engineNavigation")
-		assertContains(historyCapsuleText, "if (!navigation.visible) return")
-		assertContains(readerRootText, "onHistoryBack")
-		assertContains(readerRootText, "onHistoryForward")
-		assertContains(readerRootText, "onDismissHistory")
-		assertContains(readerScreenText, "coordinator.navigateHistoryBack()")
-		assertContains(readerScreenText, "coordinator.navigateHistoryForward()")
-		assertContains(readerScreenText, "coordinator.dismissHistoryNavigation()")
-		assertContains(controllerText, "direction = ReaderHistoryDirection.Back")
-		assertContains(controllerText, "direction = ReaderHistoryDirection.Forward")
-		assertContains(controllerText, "ReaderEngineCommand.NavigateHistory(direction)")
-		assertContains(bridgeText, "case 'historyBack':")
-		assertContains(bridgeText, "this.view?.history?.back?.()")
-		assertContains(bridgeText, "case 'historyForward':")
-		assertContains(bridgeText, "this.view?.history?.forward?.()")
-	}
-
-	@Test
 	fun commonReaderDefaultSettingsRememberKeyTracksReaderPreferenceInputs() {
 		val readerScreenText = readerScreenFile().readText()
 		val settingsSessionText = readerCommonUiFile("ReaderSettingsSession.kt").readText()

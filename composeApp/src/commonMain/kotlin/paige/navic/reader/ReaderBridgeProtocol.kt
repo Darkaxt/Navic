@@ -269,24 +269,6 @@ sealed interface ReaderBridgeCommand {
 			}
 	}
 
-	data object HistoryBack : ReaderBridgeCommand {
-		override val type: String = "historyBack"
-
-		override fun toJsonObject(): JsonObject =
-			buildJsonObject {
-				put("type", type)
-			}
-	}
-
-	data object HistoryForward : ReaderBridgeCommand {
-		override val type: String = "historyForward"
-
-		override fun toJsonObject(): JsonObject =
-			buildJsonObject {
-				put("type", type)
-			}
-	}
-
 	data class PreviewPageDrag(
 		val deltaX: Double,
 		val deltaY: Double = 0.0,
@@ -509,10 +491,6 @@ sealed interface ReaderBridgeEvent {
 		val title: String? = null,
 		val sectionId: String? = null
 	) : ReaderBridgeEvent
-	data class PushState(
-		val canGoBack: Boolean = false,
-		val canGoForward: Boolean = false
-	) : ReaderBridgeEvent
 	data class FootnoteOpen(
 		val href: String? = null,
 		val text: String? = null,
@@ -628,10 +606,6 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 				href = json.stringValue("href"),
 				title = json.stringValue("title"),
 				sectionId = json.stringValue("sectionId")
-			)
-			"pushState" -> ReaderBridgeEvent.PushState(
-				canGoBack = json.booleanValue("canGoBack") ?: false,
-				canGoForward = json.booleanValue("canGoForward") ?: false
 			)
 			"footnoteOpen" -> ReaderBridgeEvent.FootnoteOpen(
 				href = json.stringValue("href"),
