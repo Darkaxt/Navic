@@ -143,9 +143,11 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	val pageSegments = visibleTextRange?.let { range ->
 		timeline.segmentsForVisibleTextRange(range.textHref, range.visibleStart, range.visibleEnd)
 	}
-	val pageBoundaryMs = pageSegments?.maxOfOrNull { it.endMs }
+	val pageBoundaryMs = visibleTextRange?.let { range ->
+		timeline.audioBoundaryForVisibleTextRange(range.textHref, range.visibleStart, range.visibleEnd)
+	}
 	if (pageBoundaryMs != null && positionMs >= pageBoundaryMs && !pausedAtBoundary) {
-		val lastOnPage = pageSegments.lastOrNull { it.endMs == pageBoundaryMs }
+		val lastOnPage = pageSegments?.lastOrNull()
 		return ReaderWhispersyncPlaybackPositionStep(
 			state = copy(pausedAtBoundary = true),
 			status = ReaderWhispersyncStatus(

@@ -285,6 +285,70 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertNull(step.playbackCommand)
 	}
 
+	@Test
+	fun audioBoundaryInterpolatesMidClipWhenSentenceSpansPageBreak() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "s",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 10_000,
+					endMs = 20_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 100,
+					textEnd = 200,
+					label = "Long sentence spanning pages"
+				)
+			)
+		)
+		// Visible page ends mid-sentence (char 150 of 100-200 → 50% of the clip).
+		assertEquals(15_000L, timeline.audioBoundaryForVisibleTextRange("Text/chapter1.xhtml", 0, 150))
+		// Whole sentence on page → boundary is the clip end (no interpolation).
+		assertEquals(20_000L, timeline.audioBoundaryForVisibleTextRange("Text/chapter1.xhtml", 0, 200))
+	}
+
+	@Test
+	fun splitSentencePausesAtInterpolatedPageBoundary() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "s",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 10_000,
+					endMs = 20_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 100,
+					textEnd = 200,
+					label = "Long sentence"
+				)
+			)
+		)
+		val visible = ReaderWhispersyncVisibleTextRange(
+			textHref = "Text/chapter1.xhtml",
+			visibleStart = 0,
+			visibleEnd = 150
+		)
+		// Before the interpolated boundary (15000ms) → still playing, no pause.
+		val before = ReaderWhispersyncSyncState().onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 14_000,
+			visibleTextRange = visible
+		)
+		assertNull(before.playbackCommand)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, before.status?.kind)
+		// At/after the interpolated boundary → pause mid-sentence.
+		val at = ReaderWhispersyncSyncState().onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 15_500,
+			visibleTextRange = visible
+		)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, at.playbackCommand)
+		assertEquals(true, at.state.pausedAtBoundary)
+		assertEquals(ReaderWhispersyncStatusKind.PausedAtPageBoundary, at.status?.kind)
+	}
+
 	private fun pageBoundedTimeline(): WhispersyncTimeline =
 		WhispersyncTimeline(
 			segments = listOf(

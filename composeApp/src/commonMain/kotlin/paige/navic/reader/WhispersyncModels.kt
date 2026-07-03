@@ -137,6 +137,34 @@ data class WhispersyncTimeline(
 			.sortedBy { segment -> segment.startMs }
 			.toList()
 	}
+
+	/**
+	 * Audio time at the end of the visible page. For a segment that spans the page
+	 * break (its text continues onto the next page), interpolate within the clip by
+	 * char fraction so audio pauses mid-sentence at the page boundary instead of
+	 * playing the whole clip through. Char-fraction is a proxy for the word-fraction
+	 * (word-level would need the document text plumbed in); it uses the char offsets
+	 * the sidecar already provides and assumes a roughly uniform speaking rate.
+	 */
+	fun audioBoundaryForVisibleTextRange(
+		textHref: String,
+		visibleStart: Int,
+		visibleEnd: Int
+	): Long? {
+		val onPage = segmentsForVisibleTextRange(textHref, visibleStart, visibleEnd)
+		if (onPage.isEmpty()) return null
+		val last = onPage.last()
+		val rangeStart = last.textStart
+		val rangeEnd = last.textEnd
+		if (rangeStart != null && rangeEnd != null && rangeEnd > rangeStart &&
+			visibleEnd > rangeStart && visibleEnd < rangeEnd
+		) {
+			val fraction = (visibleEnd - rangeStart).toDouble() / (rangeEnd - rangeStart)
+			val duration = (last.endMs - last.startMs).coerceAtLeast(0L)
+			return last.startMs + (fraction * duration).toLong()
+		}
+		return last.endMs
+	}
 }
 
 @Serializable
