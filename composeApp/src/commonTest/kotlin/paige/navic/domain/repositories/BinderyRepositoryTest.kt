@@ -225,6 +225,7 @@ class BinderyRepositoryTest {
 			      "fragmentId": "seg-1",
 			      "textStart": 10,
 			      "textEnd": 42,
+			      "spokenText": "Opening words",
 			      "label": "Opening"
 			    }
 			  ]
@@ -253,6 +254,91 @@ class BinderyRepositoryTest {
 					"artifact-3" in record.payloadJson
 			}
 		)
+	}
+
+	@Test
+	fun whispersyncSidecarRefetchesFreshCacheWhenCueTextIsMissing() = runBlocking {
+		val path = "/api/v1/sync/artifacts/2"
+		val apiClient = FakeBinderyApiClient(
+			whispersyncSidecarJson = """
+			{
+			  "schema": "bindery.whispersync.sidecar.v1",
+			  "bookId": 3959,
+			  "ebookBookFileId": 212,
+			  "audiobookBookFileId": 572,
+			  "cues": [
+			    {
+			      "id": 1,
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 0,
+			      "audioEnd": 18.04,
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "ebookStart": 0,
+			      "ebookEnd": 78,
+			      "text": "I am not a good person."
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val staleCacheKey = binderyMetadataCacheKey(
+			baseUrl = "https://bindery.example.com/opds",
+			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+			path = path
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			runBlocking {
+				put(
+					BinderyMetadataCacheRecord(
+						cacheKey = staleCacheKey,
+						baseUrl = "https://bindery.example.com/opds",
+						payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+						path = path,
+						payloadJson = """
+						{
+						  "artifactId": "2",
+						  "segments": [
+						    {
+						      "audioHref": "Part 01.mp3",
+						      "startMs": 0,
+						      "endMs": 18040,
+						      "textHref": "OEBPS/Text/authorsforeword.xhtml",
+						      "textStart": 0,
+						      "textEnd": 78
+						    }
+						  ]
+						}
+						""".trimIndent(),
+						updatedAtMillis = 1_000L
+					)
+				)
+			}
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 2_000L }
+		)
+
+		val sidecar = repository.getWhispersyncSidecar(path).getOrThrow()
+
+		assertEquals("I am not a good person.", sidecar.timeline.segments.single().spokenText)
+		assertEquals(listOf(path), apiClient.whispersyncSidecarPaths)
+		assertTrue(metadataCache.records.getValue(staleCacheKey).payloadJson.contains("I am not a good person."))
+	}
+
+	@Test
+	fun clearMetadataCacheClearsConfiguredBinderyBaseUrl() = runBlocking {
+		val metadataCache = RecordingBinderyMetadataCache()
+		val repository = configuredBinderyRepository(
+			apiClient = FakeBinderyApiClient(),
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L }
+		)
+
+		repository.clearMetadataCache().getOrThrow()
+
+		assertEquals(listOf("https://bindery.example.com/opds"), metadataCache.clearedBaseUrls)
 	}
 
 	@Test

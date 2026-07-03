@@ -66,11 +66,11 @@ internal fun settingsSearchStorageRows(context: SettingsSearchContext): List<Sea
 			}
 		))
 		add(valueRow(
-			id = "data.ebook-cache",
+			id = "data.bindery-cache",
 			path = path(dataStorage, cacheManagement),
-			title = stringResource(Res.string.option_ebook_cache_size),
-			subtitle = stringResource(Res.string.info_clear_ebook_cache_confirmation),
-			keywords = listOf("ebook", "epub", "pdf", "reader", "cache", "bindery", "clear cache"),
+			title = stringResource(Res.string.option_bindery_reader_cache_size),
+			subtitle = stringResource(Res.string.info_clear_bindery_cache_confirmation),
+			keywords = listOf("bindery", "whispersync", "audiobook", "ebook", "epub", "pdf", "reader", "cache", "clear cache"),
 			value = readerPublicationCacheStorageSizeText(readerPublicationCacheSize)
 		))
 		add(valueRow(

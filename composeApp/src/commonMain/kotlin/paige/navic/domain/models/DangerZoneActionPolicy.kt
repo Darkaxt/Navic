@@ -4,14 +4,14 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_clear_downloads
-import navic.composeapp.generated.resources.action_clear_ebook_cache
+import navic.composeapp.generated.resources.action_clear_bindery_cache
 import navic.composeapp.generated.resources.action_clear_image_cache
 import navic.composeapp.generated.resources.action_clear_lidaclips_video_cache
 import navic.composeapp.generated.resources.action_clear_musicbrainz_cache
 import navic.composeapp.generated.resources.action_clear_pending_actions
 import navic.composeapp.generated.resources.action_rebuild_database
 import navic.composeapp.generated.resources.info_clear_downloads_confirmation
-import navic.composeapp.generated.resources.info_clear_ebook_cache_confirmation
+import navic.composeapp.generated.resources.info_clear_bindery_cache_confirmation
 import navic.composeapp.generated.resources.info_clear_image_cache_confirmation
 import navic.composeapp.generated.resources.info_clear_lidaclips_video_cache_confirmation
 import navic.composeapp.generated.resources.info_clear_musicbrainz_cache_confirmation
@@ -36,9 +36,9 @@ enum class DangerZoneAction(
 		Res.string.action_clear_lidaclips_video_cache,
 		Res.string.info_clear_lidaclips_video_cache_confirmation
 	),
-	ClearReaderPublicationCache(
-		Res.string.action_clear_ebook_cache,
-		Res.string.info_clear_ebook_cache_confirmation
+	ClearBinderyCache(
+		Res.string.action_clear_bindery_cache,
+		Res.string.info_clear_bindery_cache_confirmation
 	),
 	ClearPendingSyncActions(
 		Res.string.action_clear_pending_actions,
@@ -59,7 +59,7 @@ fun dangerZoneActions(): ImmutableList<DangerZoneAction> =
 		DangerZoneAction.ClearImageCache,
 		DangerZoneAction.ClearMusicBrainzCache,
 		DangerZoneAction.ClearLidaClipsVideoCache,
-		DangerZoneAction.ClearReaderPublicationCache,
+		DangerZoneAction.ClearBinderyCache,
 		DangerZoneAction.ClearPendingSyncActions,
 		DangerZoneAction.ClearDownloads,
 		DangerZoneAction.RebuildDatabase

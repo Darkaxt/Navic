@@ -480,7 +480,7 @@
 	<string name="option_audio_offload">Audio offload</string>
 	<string name="option_live_status">Live status</string>
 	<string name="option_image_cache_size">Image cache size</string>
-	<string name="option_ebook_cache_size">Ebook cache size</string>
+	<string name="option_bindery_reader_cache_size">Bindery reader cache size</string>
 	<string name="option_musicbrainz_cache">MusicBrainz cache</string>
 	<string name="option_last_sync">Last full sync</string>
 	<string name="option_pending_actions">Pending sync actions</string>
@@ -972,7 +972,7 @@
 	<string name="action_clear_search_history">Clear search history</string>
 	<string name="action_remove_from_history">Remove from history</string>
 	<string name="action_clear_image_cache">Clear image cache</string>
-	<string name="action_clear_ebook_cache">Clear ebook cache</string>
+	<string name="action_clear_bindery_cache">Clear Bindery cache</string>
 	<string name="action_clear_musicbrainz_cache">Clear MusicBrainz cache</string>
 	<string name="action_clear_lidaclips_video_cache">Clear LidaClips video cache</string>
 	<string name="action_clear_pending_actions">Clear pending sync actions</string>
@@ -1012,7 +1012,7 @@
 	<string name="info_app_version">Navic %1$s</string>
 	<string name="info_action_is_permanent">This action cannot be undone</string>
 	<string name="info_clear_image_cache_confirmation">Cached artwork images will be removed and downloaded again when needed.</string>
-	<string name="info_clear_ebook_cache_confirmation">Cached ebook and PDF files will be removed and downloaded again when opened.</string>
+	<string name="info_clear_bindery_cache_confirmation">Cached Bindery books, audiobooks, eBooks, covers, reader files, and Whispersync metadata will be removed and fetched again when opened.</string>
 	<string name="info_clear_musicbrainz_cache_confirmation">Cached MusicBrainz metadata, Cover Art Archive lookup results, and missing-result entries will be removed and resolved again during playback.</string>
 	<string name="info_clear_lidaclips_video_cache_confirmation">Cached LidaClips videos will be removed. Saved/offline clips kept with downloaded songs are not deleted by this action.</string>
 	<string name="info_ebook_reader_import_font_success">Imported ebook font.</string>

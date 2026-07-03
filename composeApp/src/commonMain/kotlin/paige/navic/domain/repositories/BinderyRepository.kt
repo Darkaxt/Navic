@@ -324,8 +324,15 @@ class BinderyRepository(
 				decodeWhispersyncSidecar(apiClient.fetchWhispersyncSidecarJson(baseUrl, headers, path))
 			},
 			encode = ::encodeWhispersyncSidecar,
-			decode = ::decodeWhispersyncSidecar
+			decode = ::decodeWhispersyncSidecar,
+			acceptCached = ::acceptCachedWhispersyncSidecar
 		)
+
+	suspend fun clearMetadataCache(): Result<Unit> =
+		withConfiguredClientAvailability { baseUrl, _ ->
+			metadataCache.clearBaseUrl(baseUrl)
+			Result.success(Unit)
+		}
 
 	suspend fun getResourceBytes(path: String): Result<ByteArray> {
 		val label = readerPublicationResourceLogLabel(path)
@@ -486,7 +493,8 @@ class BinderyRepository(
 		path: String,
 		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> T,
 		encode: (T) -> String,
-		decode: (String) -> T
+		decode: (String) -> T,
+		acceptCached: (T) -> Boolean = { true }
 	): Result<T> =
 		withConfiguredClientAvailability { baseUrl, headers ->
 			val cachePath = path.trim()
@@ -495,7 +503,13 @@ class BinderyRepository(
 			if (cached != null && isFresh(cached.updatedAtMillis)) {
 				runCatching { decode(cached.payloadJson) }
 					.onSuccess { cachedPayload ->
-						return@withConfiguredClientAvailability Result.success(cachedPayload)
+						if (acceptCached(cachedPayload)) {
+							return@withConfiguredClientAvailability Result.success(cachedPayload)
+						}
+						Logger.i(
+							TAG,
+							"Bindery metadata cache stale type=$payloadType path=${readerPublicationResourceLogLabel(cachePath)}"
+						)
 					}
 					.onFailure { cacheError ->
 						Logger.w(TAG, "Bindery metadata cache decode failed", cacheError)
@@ -535,6 +549,13 @@ class BinderyRepository(
 							.onFailure { cacheError ->
 								Logger.w(TAG, "Bindery metadata cache decode failed", cacheError)
 							}
+							.mapCatching { cachedPayload ->
+								if (acceptCached(cachedPayload)) {
+									cachedPayload
+								} else {
+									throw IllegalStateException("Cached Bindery payload is stale")
+								}
+							}
 					} else {
 						Result.failure(error)
 					}
@@ -544,6 +565,15 @@ class BinderyRepository(
 
 	private fun isFresh(updatedAtMillis: Long): Boolean =
 		currentTimeMillis() - updatedAtMillis <= BINDERY_METADATA_CACHE_FRESH_MILLIS
+
+	private fun acceptCachedWhispersyncSidecar(sidecar: WhispersyncSidecar): Boolean {
+		val rangedSegments = sidecar.timeline.segments.filter { segment ->
+			segment.textStart != null && segment.textEnd != null
+		}
+		return rangedSegments.isEmpty() || rangedSegments.any { segment ->
+			!segment.spokenText.isNullOrBlank()
+		}
+	}
 
 	private suspend fun <T> withConfiguredClient(
 		action: suspend (baseUrl: String, headers: Map<String, String>) -> T

@@ -70,7 +70,7 @@ import navic.composeapp.generated.resources.option_auto_download_starred_songs
 import navic.composeapp.generated.resources.option_cover_art_quality
 import navic.composeapp.generated.resources.option_download_queue
 import navic.composeapp.generated.resources.option_downloaded_songs
-import navic.composeapp.generated.resources.option_ebook_cache_size
+import navic.composeapp.generated.resources.option_bindery_reader_cache_size
 import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_live_status
@@ -108,6 +108,7 @@ import paige.navic.domain.models.DangerZoneAction
 import paige.navic.domain.models.dangerZoneActions
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.OfflineMode
+import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
@@ -137,6 +138,7 @@ fun SettingsDataStorageScreen() {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val storageManager = koinInject<StorageManager>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
+	val binderyRepository = koinInject<BinderyRepository>()
 	val scope = rememberCoroutineScope()
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val imageLoader = SingletonImageLoader.get(coilPlatformContext)
@@ -194,8 +196,9 @@ fun SettingsDataStorageScreen() {
 			DangerZoneAction.ClearLidaClipsVideoCache -> scope.launch(Dispatchers.IO) {
 				storageManager.clearLidaClipVideoCache()
 			}
-			DangerZoneAction.ClearReaderPublicationCache -> scope.launch(Dispatchers.IO) {
+			DangerZoneAction.ClearBinderyCache -> scope.launch(Dispatchers.IO) {
 				storageManager.clearReaderPublicationCache()
+				binderyRepository.clearMetadataCache()
 				readerPublicationCacheSizeText = readerPublicationCacheStorageSizeText(0)
 			}
 			DangerZoneAction.ClearPendingSyncActions -> viewModel.removeAllActions()
@@ -442,7 +445,7 @@ fun SettingsDataStorageScreen() {
 					)
 
 					SettingValueRow(
-						title = { Text(stringResource(Res.string.option_ebook_cache_size)) },
+						title = { Text(stringResource(Res.string.option_bindery_reader_cache_size)) },
 						value = readerPublicationCacheSizeText
 					)
 
