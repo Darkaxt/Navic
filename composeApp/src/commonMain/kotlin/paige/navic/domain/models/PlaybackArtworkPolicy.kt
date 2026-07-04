@@ -71,7 +71,8 @@ fun resolvedPlaybackArtwork(
 	artworkSourcePriority: ArtworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 	aurralArtworkEnabled: Boolean = true,
 	musicBrainzArtworkEnabled: Boolean = true,
-	serverCoverLoadFailed: Boolean = false
+	serverCoverLoadFailed: Boolean = false,
+	preferAurralArtistWhenNativeCoverExists: Boolean = false
 ): PlaybackArtworkResolution {
 	val nativeCover = serverCoverArtId.nonBlankOrNull()
 		?.takeUnless { serverCoverLoadFailed }
@@ -119,10 +120,15 @@ fun resolvedPlaybackArtwork(
 		}
 
 	return when (artworkSourcePriority) {
-		ArtworkSourcePriority.AurralFirst ->
+		ArtworkSourcePriority.AurralFirst -> if (preferAurralArtistWhenNativeCoverExists) {
 			aurralResolution()
 				?: nativeResolution()
 				?: musicBrainzResolution()
+		} else {
+			nativeResolution()
+				?: musicBrainzResolution()
+				?: aurralResolution()
+		}
 
 		ArtworkSourcePriority.NativeFirst ->
 			nativeResolution()

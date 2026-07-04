@@ -1,8 +1,10 @@
 export const ReaderDocumentThemeStyleId = 'navic-reader-document-theme'
 export const ReaderSurfacePaperTextureLayerSelector = '[data-navic-surface-paper-texture-layer="true"]'
 export const ReaderSurfacePageBorderOverlayLayerSelector = '[data-navic-surface-page-border-overlay-layer="true"]'
+export const ReaderSurfacePageStainOverlayLayerSelector = '[data-navic-surface-page-stain-overlay-layer="true"]'
 export const ReaderMovingPagePaperTextureLayerSelector = '[data-navic-moving-page-paper-texture-layer="true"]'
 export const ReaderMovingPageBorderOverlayLayerSelector = '[data-navic-moving-page-border-overlay-layer="true"]'
+export const ReaderMovingPageStainOverlayLayerSelector = '[data-navic-moving-page-stain-overlay-layer="true"]'
 export const ReaderTapZoneOverlayLayerSelector = '[data-navic-tap-zone-overlay-layer="true"]'
 export const ReaderPageNumberLayerSelector = '[data-navic-page-number-layer="true"]'
 export const ReaderShellCoverLayerSelector = '[data-navic-shell-cover-layer="true"]'
@@ -54,12 +56,21 @@ export const ReaderPaperTextureAssets = [
   'paper-textures/paper-texture-09.jpg',
 ]
 export const ReaderPaperTextureVariantCount = ReaderPaperTextureAssets.length * 2 * 2
-export const ReaderPageBorderOverlayAssets = [
-  'paper-textures/page-border-overlay-1.png',
-  'paper-textures/page-border-overlay-2.png',
-  'paper-textures/page-border-overlay-3.png',
-  'paper-textures/page-border-overlay-4.png',
+export const ReaderPageEdgeOverlayAssets = [
+  'paper-textures/page-edge-overlay-1.png',
+  'paper-textures/page-edge-overlay-2.png',
+  'paper-textures/page-edge-overlay-3.png',
+  'paper-textures/page-edge-overlay-4.png',
 ]
+export const ReaderPageEdgeOverlayVariantCount = ReaderPageEdgeOverlayAssets.length * 2 * 2
+export const ReaderPageStainOverlayAssets = [
+  'paper-textures/page-stain-overlay-1.png',
+  'paper-textures/page-stain-overlay-2.png',
+  'paper-textures/page-stain-overlay-3.png',
+  'paper-textures/page-stain-overlay-4.png',
+]
+export const ReaderPageStainOverlayVariantCount = ReaderPageStainOverlayAssets.length * 2 * 2
+export const ReaderPageBorderOverlayAssets = ReaderPageEdgeOverlayAssets
 export const ReaderPageBorderOverlayVariantCount = ReaderPageBorderOverlayAssets.length * 2 * 2
 export const ReaderThemePalettes = {
   light: {

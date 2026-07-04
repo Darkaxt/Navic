@@ -62,6 +62,9 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		orientation = readerOrientation,
 		theme = readerTheme,
 		direction = readerDirection,
+		paperTextureEnabled = readerPaperTextureEnabled,
+		pageEdgesEnabled = readerPageEdgesEnabled,
+		paperStainsEnabled = readerPaperStainsEnabled,
 		navBarType = readerNavBarType,
 		dragAnimationMode = readerDragAnimationMode,
 		flowMode = readerFlowMode,
@@ -114,6 +117,9 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerOrientation = normalized.orientation ?: ReaderOrientationDefault
 	readerTheme = normalized.theme ?: ReaderLightTheme
 	readerDirection = normalized.direction ?: ReaderDirectionDefault
+	readerPaperTextureEnabled = normalized.paperTextureEnabled ?: true
+	readerPageEdgesEnabled = normalized.pageEdgesEnabled ?: true
+	readerPaperStainsEnabled = normalized.paperStainsEnabled ?: true
 	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
 	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationStandard
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
@@ -192,6 +198,9 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		orientation = override.orientation ?: orientation,
 		theme = override.theme ?: theme,
 		direction = override.direction ?: direction,
+		paperTextureEnabled = override.paperTextureEnabled ?: paperTextureEnabled,
+		pageEdgesEnabled = override.pageEdgesEnabled ?: pageEdgesEnabled,
+		paperStainsEnabled = override.paperStainsEnabled ?: paperStainsEnabled,
 		navBarType = override.navBarType ?: navBarType,
 		dragAnimationMode = override.dragAnimationMode ?: dragAnimationMode,
 		flowMode = override.flowMode ?: flowMode,
@@ -244,6 +253,9 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		orientation = if (orientation != null) normalized.orientation else null,
 		theme = if (theme != null) normalized.theme else null,
 		direction = if (direction != null) normalized.direction else null,
+		paperTextureEnabled = if (paperTextureEnabled != null) normalized.paperTextureEnabled else null,
+		pageEdgesEnabled = if (pageEdgesEnabled != null) normalized.pageEdgesEnabled else null,
+		paperStainsEnabled = if (paperStainsEnabled != null) normalized.paperStainsEnabled else null,
 		navBarType = if (navBarType != null) normalized.navBarType else null,
 		dragAnimationMode = if (dragAnimationMode != null) normalized.dragAnimationMode else null,
 		flowMode = if (flowMode != null) normalized.flowMode else null,
@@ -335,6 +347,9 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		orientation = stringValue("orientation"),
 		theme = stringValue("theme"),
 		direction = stringValue("direction"),
+		paperTextureEnabled = booleanValue("paperTextureEnabled"),
+		pageEdgesEnabled = booleanValue("pageEdgesEnabled"),
+		paperStainsEnabled = booleanValue("paperStainsEnabled"),
 		navBarType = stringValue("navBarType"),
 		dragAnimationMode = stringValue("dragAnimationMode"),
 		flowMode = stringValue("flowMode"),
@@ -384,6 +399,9 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }
+		paperTextureEnabled?.let { put("paperTextureEnabled", it) }
+		pageEdgesEnabled?.let { put("pageEdgesEnabled", it) }
+		paperStainsEnabled?.let { put("paperStainsEnabled", it) }
 		navBarType?.let { put("navBarType", it) }
 		dragAnimationMode?.let { put("dragAnimationMode", it) }
 		flowMode?.let { put("flowMode", it) }

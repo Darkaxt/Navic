@@ -125,7 +125,7 @@ class PlaybackArtworkPolicyTest {
 	}
 
 	@Test
-	fun resolvedPlaybackArtworkPrefersAurralBeforeNativeAndMusicBrainzWhenAurralFirst() {
+	fun resolvedPlaybackArtworkKeepsNativeCoverBeforeAurralArtistPhotoWhenAurralFirst() {
 		val resolved = resolvedPlaybackArtwork(
 			serverCoverArtId = "navidrome-cover",
 			aurralArtistImageUrl = " https://aurral.example/api/artists/jason-ross/image.jpg ",
@@ -135,6 +135,26 @@ class PlaybackArtworkPolicyTest {
 			artworkSourcePriority = ArtworkSourcePriority.AurralFirst,
 			aurralArtworkEnabled = true,
 			musicBrainzArtworkEnabled = true
+		)
+
+		assertEquals(PlaybackArtworkSource.NativeCover, resolved.source)
+		assertEquals("navidrome-cover", resolved.coverArtId)
+		assertNull(resolved.imageUrl)
+		assertNull(resolved.imageCacheKey)
+	}
+
+	@Test
+	fun resolvedPlaybackArtworkAllowsArtistSurfacesToPreferAurralBeforeNative() {
+		val resolved = resolvedPlaybackArtwork(
+			serverCoverArtId = "navidrome-artist-cover",
+			aurralArtistImageUrl = " https://aurral.example/api/artists/jason-ross/image.jpg ",
+			aurralArtistCacheKey = "artist:jason-ross",
+			musicBrainzArtworkUrl = null,
+			musicBrainzArtworkCacheKey = null,
+			artworkSourcePriority = ArtworkSourcePriority.AurralFirst,
+			aurralArtworkEnabled = true,
+			musicBrainzArtworkEnabled = false,
+			preferAurralArtistWhenNativeCoverExists = true
 		)
 
 		assertEquals(PlaybackArtworkSource.AurralArtist, resolved.source)

@@ -227,6 +227,31 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripPageEffectOverlays() {
+		val preferences = PreferenceManager(MapSettings())
+		preferences.readerPaperTextureEnabled = false
+		preferences.readerPageEdgesEnabled = false
+		preferences.readerPaperStainsEnabled = false
+
+		val defaults = preferences.readerDefaultSettings()
+		assertEquals(false, defaults.paperTextureEnabled)
+		assertEquals(false, defaults.pageEdgesEnabled)
+		assertEquals(false, defaults.paperStainsEnabled)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(
+				paperTextureEnabled = true,
+				pageEdgesEnabled = true,
+				paperStainsEnabled = true
+			)
+		)
+
+		assertEquals(true, preferences.readerPaperTextureEnabled)
+		assertEquals(true, preferences.readerPageEdgesEnabled)
+		assertEquals(true, preferences.readerPaperStainsEnabled)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripWhispersyncHighlightLead() {
 		val preferences = PreferenceManager(MapSettings())
 

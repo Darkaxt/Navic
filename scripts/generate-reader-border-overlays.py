@@ -108,15 +108,21 @@ def dust(seed: int) -> Image.Image:
     return dust_mask.filter(ImageFilter.GaussianBlur(0.45))
 
 
+def save_overlay(index: int, prefix: str, alpha: Image.Image) -> None:
+    overlay = Image.new("RGBA", (WIDTH, HEIGHT), OVERLAY_RGB + (0,))
+    overlay.putalpha(alpha.filter(ImageFilter.GaussianBlur(0.35)))
+    overlay.save(OUTPUT_DIR / f"{prefix}-{index}.png", optimize=True)
+
+
 def generate_variant(index: int, config: dict[str, float]) -> None:
     seed = int(config["seed"])
-    alpha = ImageChops.lighter(edge_alpha(config), stains(seed))
-    alpha = ImageChops.lighter(alpha, dust(seed))
-    alpha = alpha.filter(ImageFilter.GaussianBlur(0.35))
+    edge = edge_alpha(config)
+    stain = ImageChops.lighter(stains(seed), dust(seed))
+    combined = ImageChops.lighter(edge, stain)
 
-    overlay = Image.new("RGBA", (WIDTH, HEIGHT), OVERLAY_RGB + (0,))
-    overlay.putalpha(alpha)
-    overlay.save(OUTPUT_DIR / f"page-border-overlay-{index}.png", optimize=True)
+    save_overlay(index, "page-edge-overlay", edge)
+    save_overlay(index, "page-stain-overlay", stain)
+    save_overlay(index, "page-border-overlay", combined)
 
 
 def main() -> None:

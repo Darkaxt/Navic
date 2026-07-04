@@ -138,6 +138,9 @@ data class ReaderSettings(
 	val orientation: String? = null,
 	val theme: String? = null,
 	val direction: String? = null,
+	val paperTextureEnabled: Boolean? = null,
+	val pageEdgesEnabled: Boolean? = null,
+	val paperStainsEnabled: Boolean? = null,
 	val navBarType: String? = null,
 	val flowMode: String? = null,
 	val dragAnimationMode: String? = null,
@@ -788,6 +791,9 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		orientation?.let { put("orientation", it) }
 		theme?.let { put("theme", it) }
 		direction?.let { put("direction", it) }
+		paperTextureEnabled?.let { put("paperTextureEnabled", it) }
+		pageEdgesEnabled?.let { put("pageEdgesEnabled", it) }
+		paperStainsEnabled?.let { put("paperStainsEnabled", it) }
 		navBarType?.let { put("navBarType", it) }
 		flowMode?.let { put("flowMode", it) }
 		dragAnimationMode?.let { put("dragAnimationMode", it) }

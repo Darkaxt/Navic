@@ -268,12 +268,16 @@ class NavicReaderRuntime {
   publicationUrl = ''
   surfaceTextureLayer = null
   surfaceBorderOverlayLayer = null
+  surfaceStainOverlayLayer = null
   movingPageTextureLayer = null
   movingPageBorderOverlayLayer = null
+  movingPageStainOverlayLayer = null
   surfaceTextureVariant = null
   surfaceBorderOverlayVariant = null
+  surfaceStainOverlayVariant = null
   surfaceTextureSlots = []
   surfaceBorderOverlaySlots = []
+  surfaceStainOverlaySlots = []
   surfacePaperTextureBaseOffset = 0
   surfaceTextureScrollOffset = { x: 0, y: 0 }
   // Live lateral drag: the paper texture + border-overlay shadow ride the exact
@@ -645,10 +649,14 @@ class NavicReaderRuntime {
     this.surfaceTextureLayer = null
     this.surfaceBorderOverlayLayer?.remove?.()
     this.surfaceBorderOverlayLayer = null
+    this.surfaceStainOverlayLayer?.remove?.()
+    this.surfaceStainOverlayLayer = null
     this.movingPageTextureLayer?.remove?.()
     this.movingPageTextureLayer = null
     this.movingPageBorderOverlayLayer?.remove?.()
     this.movingPageBorderOverlayLayer = null
+    this.movingPageStainOverlayLayer?.remove?.()
+    this.movingPageStainOverlayLayer = null
     this.tapZoneOverlayLayer?.remove?.()
     this.tapZoneOverlayLayer = null
     this.pageNumberLayer?.remove?.()
@@ -678,8 +686,10 @@ class NavicReaderRuntime {
     this.reflowableLastLocationProgress = null
     this.surfaceTextureVariant = null
     this.surfaceBorderOverlayVariant = null
+    this.surfaceStainOverlayVariant = null
     this.surfaceTextureSlots = []
     this.surfaceBorderOverlaySlots = []
+    this.surfaceStainOverlaySlots = []
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     this.surfaceLiveDragActive = false
@@ -1357,6 +1367,9 @@ class NavicReaderRuntime {
       const movingPageBorderOverlayStyle = this.movingPageBorderOverlayLayer
         ? window.getComputedStyle(this.movingPageBorderOverlayLayer)
         : null
+      const movingPageStainOverlayStyle = this.movingPageStainOverlayLayer
+        ? window.getComputedStyle(this.movingPageStainOverlayLayer)
+        : null
       const paragraphBlocks = Array.from(doc.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || [])
       const firstParagraphStyle = paragraphBlocks[0]
         ? doc.defaultView.getComputedStyle(paragraphBlocks[0])
@@ -1382,10 +1395,13 @@ class NavicReaderRuntime {
         `movingPageTextureImage=${movingPageTextureStyle?.backgroundImage === 'none' ? 'none' : movingPageTextureStyle ? 'set' : 'unset'}`,
         `movingPageBorderOverlayOpacity=${movingPageBorderOverlayStyle?.opacity || 'unset'}`,
         `movingPageBorderOverlayImage=${movingPageBorderOverlayStyle?.backgroundImage === 'none' ? 'none' : movingPageBorderOverlayStyle ? 'set' : 'unset'}`,
+        `movingPageStainOverlayOpacity=${movingPageStainOverlayStyle?.opacity || 'unset'}`,
+        `movingPageStainOverlayImage=${movingPageStainOverlayStyle?.backgroundImage === 'none' ? 'none' : movingPageStainOverlayStyle ? 'set' : 'unset'}`,
         `surfaceTextureLayer=${this.surfaceTextureLayer ? 'present' : 'missing'}`,
         `movingPageTextureLayer=${this.movingPageTextureLayer ? 'present' : 'missing'}`,
         `surfaceTextureAsset=${readerRoot.dataset.navicSurfacePaperTextureAsset || 'unset'}`,
-        `surfaceBorderOverlayAsset=${readerRoot.dataset.navicSurfaceBorderOverlayAsset || 'unset'}`
+        `surfaceBorderOverlayAsset=${readerRoot.dataset.navicSurfaceBorderOverlayAsset || 'unset'}`,
+        `surfaceStainOverlayAsset=${readerRoot.dataset.navicSurfacePageStainOverlayAsset || 'unset'}`
       )
     }
   }

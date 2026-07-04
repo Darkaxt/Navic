@@ -179,7 +179,10 @@ class ReaderBridgeProtocolTest {
 				whispersyncHighlightLeadMs = 750,
 				whispersyncHighlightColorArgb = 0x66F6C343,
 				whispersyncHighlightLoading = "persistent-played-text",
-				whispersyncHighlightStyle = "marker"
+				whispersyncHighlightStyle = "marker",
+				paperTextureEnabled = false,
+				pageEdgesEnabled = false,
+				paperStainsEnabled = false
 			)
 		).toJavaScript()
 
@@ -189,6 +192,9 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"whispersyncHighlightColorArgb\":1727447875")
 		assertContains(script, "\"whispersyncHighlightLoading\":\"persistent-played-text\"")
 		assertContains(script, "\"whispersyncHighlightStyle\":\"marker\"")
+		assertContains(script, "\"paperTextureEnabled\":false")
+		assertContains(script, "\"pageEdgesEnabled\":false")
+		assertContains(script, "\"paperStainsEnabled\":false")
 	}
 
 	@Test

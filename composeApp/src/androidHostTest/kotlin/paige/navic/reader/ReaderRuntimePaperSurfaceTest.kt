@@ -67,48 +67,82 @@ class ReaderRuntimePaperSurfaceTest {
 	fun androidReaderPackagesDeterministicPaperBorderOverlayVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
-		val overlay1 = root.resolve("paper-textures/page-border-overlay-1.png")
-		val overlay2 = root.resolve("paper-textures/page-border-overlay-2.png")
-		val overlay3 = root.resolve("paper-textures/page-border-overlay-3.png")
-		val overlay4 = root.resolve("paper-textures/page-border-overlay-4.png")
+		val overlay1 = root.resolve("paper-textures/page-edge-overlay-1.png")
+		val overlay2 = root.resolve("paper-textures/page-edge-overlay-2.png")
+		val overlay3 = root.resolve("paper-textures/page-edge-overlay-3.png")
+		val overlay4 = root.resolve("paper-textures/page-edge-overlay-4.png")
 
-		assertTrue(overlay1.isFile, "Reader page border overlay 1 must be packaged")
-		assertTrue(overlay2.isFile, "Reader page border overlay 2 must be packaged")
-		assertTrue(overlay3.isFile, "Reader page border overlay 3 must be packaged")
-		assertTrue(overlay4.isFile, "Reader page border overlay 4 must be packaged")
-		assertTrue(overlay1.length() > 1_000, "Reader page border overlay 1 should be a real image")
-		assertTrue(overlay2.length() > 1_000, "Reader page border overlay 2 should be a real image")
-		assertTrue(overlay3.length() > 1_000, "Reader page border overlay 3 should be a real image")
-		assertTrue(overlay4.length() > 1_000, "Reader page border overlay 4 should be a real image")
-		assertTrue(overlay1.hasPngAlphaChannel(), "Reader page border overlay 1 must be transparent")
-		assertTrue(overlay2.hasPngAlphaChannel(), "Reader page border overlay 2 must be transparent")
-		assertTrue(overlay3.hasPngAlphaChannel(), "Reader page border overlay 3 must be transparent")
-		assertTrue(overlay4.hasPngAlphaChannel(), "Reader page border overlay 4 must be transparent")
-		assertTrue(overlay1.averagePngAlpha() >= 2.0, "Reader page border overlay 1 must be visible at runtime")
-		assertTrue(overlay2.averagePngAlpha() >= 2.0, "Reader page border overlay 2 must be visible at runtime")
-		assertTrue(overlay3.averagePngAlpha() >= 2.0, "Reader page border overlay 3 must be visible at runtime")
-		assertTrue(overlay4.averagePngAlpha() >= 2.0, "Reader page border overlay 4 must be visible at runtime")
+		assertTrue(overlay1.isFile, "Reader page edge overlay 1 must be packaged")
+		assertTrue(overlay2.isFile, "Reader page edge overlay 2 must be packaged")
+		assertTrue(overlay3.isFile, "Reader page edge overlay 3 must be packaged")
+		assertTrue(overlay4.isFile, "Reader page edge overlay 4 must be packaged")
+		assertTrue(overlay1.length() > 1_000, "Reader page edge overlay 1 should be a real image")
+		assertTrue(overlay2.length() > 1_000, "Reader page edge overlay 2 should be a real image")
+		assertTrue(overlay3.length() > 1_000, "Reader page edge overlay 3 should be a real image")
+		assertTrue(overlay4.length() > 1_000, "Reader page edge overlay 4 should be a real image")
+		assertTrue(overlay1.hasPngAlphaChannel(), "Reader page edge overlay 1 must be transparent")
+		assertTrue(overlay2.hasPngAlphaChannel(), "Reader page edge overlay 2 must be transparent")
+		assertTrue(overlay3.hasPngAlphaChannel(), "Reader page edge overlay 3 must be transparent")
+		assertTrue(overlay4.hasPngAlphaChannel(), "Reader page edge overlay 4 must be transparent")
+		assertTrue(overlay1.averagePngAlpha() >= 2.0, "Reader page edge overlay 1 must be visible at runtime")
+		assertTrue(overlay2.averagePngAlpha() >= 2.0, "Reader page edge overlay 2 must be visible at runtime")
+		assertTrue(overlay3.averagePngAlpha() >= 2.0, "Reader page edge overlay 3 must be visible at runtime")
+		assertTrue(overlay4.averagePngAlpha() >= 2.0, "Reader page edge overlay 4 must be visible at runtime")
 		listOf(overlay1, overlay2, overlay3, overlay4).forEachIndexed { index, overlay ->
 			assertTrue(
 				overlay.outerEdgeAlphaHighFrequencyPercent() <= 0.5,
-				"Reader page border overlay ${index + 1} must not contain baked checkerboard artifacts"
+				"Reader page edge overlay ${index + 1} must not contain baked checkerboard artifacts"
 			)
 			assertTrue(
 				overlay.maxPngAlpha() <= 70,
-				"Reader page border overlay ${index + 1} should be subtle page-edge degradation"
+				"Reader page edge overlay ${index + 1} should be subtle page-edge degradation"
+			)
+		}
+		for (index in 1..4) {
+			assertTrue(
+				root.resolve("paper-textures/page-border-overlay-$index.png").isFile,
+				"Legacy combined page border overlay $index should stay packaged while older assets are retired"
 			)
 		}
 		assertContains(bridgeText, "ReaderPageBorderOverlayAssets")
-		assertContains(bridgeText, "paper-textures/page-border-overlay-1.png")
-		assertContains(bridgeText, "paper-textures/page-border-overlay-2.png")
-		assertContains(bridgeText, "paper-textures/page-border-overlay-3.png")
-		assertContains(bridgeText, "paper-textures/page-border-overlay-4.png")
+		assertContains(bridgeText, "paper-textures/page-edge-overlay-1.png")
+		assertContains(bridgeText, "paper-textures/page-edge-overlay-2.png")
+		assertContains(bridgeText, "paper-textures/page-edge-overlay-3.png")
+		assertContains(bridgeText, "paper-textures/page-edge-overlay-4.png")
 		assertContains(bridgeText, "ReaderPageBorderOverlayVariantCount = ReaderPageBorderOverlayAssets.length * 2 * 2")
 		assertContains(bridgeText, "readerPageBorderOverlayVariantForPage")
 		assertContains(bridgeText, "ReaderSurfacePageBorderOverlayLayerSelector")
 		assertContains(bridgeText, "ensureReaderSurfaceBorderOverlayLayer")
 		assertContains(bridgeText, "updateReaderSurfaceBorderOverlayLayer")
 		assertContains(bridgeText, "surfaceBorderOverlayAsset")
+	}
+
+	@Test
+	fun androidReaderSplitsPageEffectOverlaysForIndependentSettings() {
+		val root = readerAssetRoot()
+		val bridgeText = readerBridgeText(root)
+		val helperText = root.resolve("navic-reader-helpers.js").readText()
+		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
+		val protocolText = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
+
+		for (index in 1..4) {
+			assertTrue(root.resolve("paper-textures/page-edge-overlay-$index.png").isFile)
+			assertTrue(root.resolve("paper-textures/page-stain-overlay-$index.png").isFile)
+			assertContains(bridgeText, "paper-textures/page-edge-overlay-$index.png")
+			assertContains(bridgeText, "paper-textures/page-stain-overlay-$index.png")
+		}
+		assertContains(protocolText, "val paperTextureEnabled: Boolean? = null")
+		assertContains(protocolText, "val pageEdgesEnabled: Boolean? = null")
+		assertContains(protocolText, "val paperStainsEnabled: Boolean? = null")
+		assertContains(helperText, "settings?.paperTextureEnabled === false")
+		assertContains(helperText, "settings?.pageEdgesEnabled === false")
+		assertContains(helperText, "settings?.paperStainsEnabled === false")
+		assertContains(helperText, "ReaderPageEdgeOverlayAssets")
+		assertContains(helperText, "ReaderPageStainOverlayAssets")
+		assertContains(helperText, "updateReaderSurfaceStainOverlayLayer")
+		assertContains(settingsDialogText, "Paper texture")
+		assertContains(settingsDialogText, "Page edges")
+		assertContains(settingsDialogText, "Paper stains")
 	}
 
 	@Test

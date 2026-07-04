@@ -169,7 +169,8 @@ fun rememberAurralFirstArtistArtworkUiState(
 			musicBrainzArtworkCacheKey = null,
 			artworkSourcePriority = preferenceManager.artistArtworkPriority,
 			aurralArtworkEnabled = preferenceManager.aurralEnabled,
-			musicBrainzArtworkEnabled = false
+			musicBrainzArtworkEnabled = false,
+			preferAurralArtistWhenNativeCoverExists = true
 		)
 	}
 	val requestHeaders = remember(

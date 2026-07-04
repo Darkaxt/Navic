@@ -22,6 +22,8 @@ import {
   ReaderPageBorderOverlayAssets,
   ReaderPageBorderOverlayVariantCount,
   ReaderPageNumberLayerSelector,
+  ReaderPageStainOverlayAssets,
+  ReaderPageStainOverlayVariantCount,
   ReaderPaperTextureAssets,
   ReaderPaperTextureVariantCount,
   ReaderReflowableReadableUnitsPerSyntheticPage,
@@ -30,6 +32,7 @@ import {
   ReaderShellCoverLayerSelector,
   ReaderShellCoverTransitionMs,
   ReaderSurfacePageBorderOverlayLayerSelector,
+  ReaderSurfacePageStainOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
   ReaderTapZoneDefault,
   ReaderTapZoneDisabled,
@@ -96,6 +99,7 @@ import {
   readerAdjacentPaperTextureSlots,
   readerPaperTextureVariantForPage,
   readerPageBorderOverlayVariantForPage,
+  readerPageStainOverlayVariantForPage,
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
@@ -103,6 +107,7 @@ import {
   readerSurfacePaperTextureScrollOffset,
   readerSurfacePaperTextureOpacity,
   readerSurfacePageBorderOverlayOpacity,
+  readerSurfacePageStainOverlayOpacity,
   readerPageNumberPageCount,
   readerPageNumberPositionWithPageCount,
   readerPageNumberLabel,
@@ -114,9 +119,11 @@ import {
   normalizeReaderInlineTypography,
   readerNormalizeChapterOpeningMargins,
   ensureReaderMovingPageBorderOverlayLayer,
+  ensureReaderMovingPageStainOverlayLayer,
   ensureReaderMovingPageTextureLayer,
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
+  ensureReaderSurfaceStainOverlayLayer,
   ensureReaderPageNumberLayer,
   ensureReaderShellCoverLayer,
   ensureReaderShellCoverImage,
@@ -124,9 +131,11 @@ import {
   updateReaderShellCoverLayer,
   updateReaderStaticPaperBackingLayer,
   updateReaderMovingPageBorderOverlayLayer,
+  updateReaderMovingPageStainOverlayLayer,
   updateReaderMovingPageTextureLayer,
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
+  updateReaderSurfaceStainOverlayLayer,
   updateTapZoneOverlayLayer,
   isParagraphCandidate,
   isReaderParagraphBlock,
@@ -466,7 +475,7 @@ function detachSurfacePaperTextureScrollSync() {
 }
 
 function syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
-  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return
+  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant && !this.surfaceStainOverlayVariant) return
   this.renderSurfacePaperTextureLayers()
   const offset = this.surfaceTextureScrollOffset
   if (Math.abs(offset.x || 0) > 1 || Math.abs(offset.y || 0) > 1) {
@@ -488,7 +497,7 @@ function syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
 }
 
 function startSurfacePaperTextureMotionSync(reason = 'page-turn-animation') {
-  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return
+  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant && !this.surfaceStainOverlayVariant) return
   this.surfacePaperTextureMotionSyncActive = true
   if (this.surfacePaperTextureMotionFrame != null) {
     cancelAnimationFrame(this.surfacePaperTextureMotionFrame)
@@ -517,11 +526,14 @@ function stopSurfacePaperTextureMotionSync(reason = 'page-turn-settled') {
 function renderSurfacePaperTextureLayers() {
   const textureSlots = this.surfaceTextureSlots || []
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
+  const stainOverlaySlots = this.surfaceStainOverlaySlots || []
   if (
     !this.surfaceTextureVariant &&
     !this.surfaceBorderOverlayVariant &&
+    !this.surfaceStainOverlayVariant &&
     textureSlots.length === 0 &&
-    borderOverlaySlots.length === 0
+    borderOverlaySlots.length === 0 &&
+    stainOverlaySlots.length === 0
   ) return
   const scrollOffset = this.surfacePaperTextureScrollOffset()
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
@@ -555,6 +567,21 @@ function renderSurfacePaperTextureLayers() {
     updateReaderMovingPageBorderOverlayLayer(
       this.movingPageBorderOverlayLayer,
       borderOverlaySlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
+  }
+  if (this.surfaceStainOverlayVariant) {
+    this.surfaceStainOverlayLayer?.remove?.()
+    this.surfaceStainOverlayLayer = null
+    this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
+      ? this.movingPageStainOverlayLayer
+      : ensureReaderMovingPageStainOverlayLayer()
+    updateReaderMovingPageStainOverlayLayer(
+      this.movingPageStainOverlayLayer,
+      stainOverlaySlots,
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
@@ -596,12 +623,23 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     pagePosition,
     resolveVariant: readerPageBorderOverlayVariantForPage,
   })
+  const stainOverlaySlots = readerAdjacentPaperTextureSlots({
+    publicationUrl: this.publicationUrl,
+    sections: this.view?.book?.sections || [],
+    index,
+    detail,
+    pagePosition,
+    resolveVariant: readerPageStainOverlayVariantForPage,
+  })
   const textureVariant = textureSlots.find(slot => slot.slot === 'current')?.variant || readerPaperTextureVariantForPage(textureKey)
   const borderOverlayVariant = borderOverlaySlots.find(slot => slot.slot === 'current')?.variant || readerPageBorderOverlayVariantForPage(textureKey)
+  const stainOverlayVariant = stainOverlaySlots.find(slot => slot.slot === 'current')?.variant || readerPageStainOverlayVariantForPage(textureKey)
   this.surfaceTextureSlots = textureSlots
   this.surfaceBorderOverlaySlots = borderOverlaySlots
+  this.surfaceStainOverlaySlots = stainOverlaySlots
   this.surfaceTextureVariant = textureVariant
   this.surfaceBorderOverlayVariant = borderOverlayVariant
+  this.surfaceStainOverlayVariant = stainOverlayVariant
   this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
     ? this.surfaceTextureLayer
     : ensureReaderSurfaceTextureLayer()
@@ -610,15 +648,21 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     : ensureReaderMovingPageTextureLayer()
   this.surfaceBorderOverlayLayer?.remove?.()
   this.surfaceBorderOverlayLayer = null
+  this.surfaceStainOverlayLayer?.remove?.()
+  this.surfaceStainOverlayLayer = null
   this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
     ? this.movingPageBorderOverlayLayer
     : ensureReaderMovingPageBorderOverlayLayer()
+  this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
+    ? this.movingPageStainOverlayLayer
+    : ensureReaderMovingPageStainOverlayLayer()
   this.surfacePaperTextureBaseOffset = this.currentRendererContainerPosition()
   this.surfaceTextureScrollOffset = { x: 0, y: 0 }
   readerRoot.dataset.navicSurfacePaperTextureKey = textureKey
   readerRoot.dataset.navicSurfacePaperTextureAsset = textureVariant.asset
   readerRoot.dataset.navicSurfacePageBorderOverlayAsset = borderOverlayVariant.asset
   readerRoot.dataset.navicSurfaceBorderOverlayAsset = borderOverlayVariant.asset
+  readerRoot.dataset.navicSurfacePageStainOverlayAsset = stainOverlayVariant.asset
   const diagnostic = this.surfacePaperTextureDiagnosticState('update')
   log(
     'surface-texture-update',

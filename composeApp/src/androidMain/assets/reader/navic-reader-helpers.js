@@ -11,14 +11,20 @@ import {
   ReaderFontSourceNavic,
   ReaderMovingPageBorderOverlayLayerSelector,
   ReaderMovingPagePaperTextureLayerSelector,
+  ReaderMovingPageStainOverlayLayerSelector,
   ReaderPageBorderOverlayAssets,
   ReaderPageBorderOverlayVariantCount,
+  ReaderPageEdgeOverlayAssets,
+  ReaderPageEdgeOverlayVariantCount,
   ReaderPageNumberLayerSelector,
+  ReaderPageStainOverlayAssets,
+  ReaderPageStainOverlayVariantCount,
   ReaderPaperTextureAssets,
   ReaderPaperTextureVariantCount,
   ReaderShellCoverLayerSelector,
   ReaderShellCoverTransitionMs,
   ReaderSurfacePageBorderOverlayLayerSelector,
+  ReaderSurfacePageStainOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
   ReaderTapZoneOverlayLayerSelector,
   ReaderThemeLight,
@@ -519,6 +525,20 @@ export const readerPageBorderOverlayVariantForPage = key =>
     ReaderPageBorderOverlayVariantCount
   )
 
+export const readerPageEdgeOverlayVariantForPage = key =>
+  readerSurfaceTextureVariantForPage(
+    `${key}|page-edge-overlay`,
+    ReaderPageEdgeOverlayAssets,
+    ReaderPageEdgeOverlayVariantCount
+  )
+
+export const readerPageStainOverlayVariantForPage = key =>
+  readerSurfaceTextureVariantForPage(
+    `${key}|page-stain-overlay`,
+    ReaderPageStainOverlayAssets,
+    ReaderPageStainOverlayVariantCount
+  )
+
 const readerPaperTextureSlotDetail = (detail = {}, pageIndex = null, pageCount = null, section = null) => {
   const next = { ...detail }
   if (section?.href || section?.id) {
@@ -631,6 +651,7 @@ export {
 } from './navic-reader-motion.js'
 
 export const readerSurfacePaperTextureOpacity = settings => {
+  if (settings?.paperTextureEnabled === false) return '0'
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
@@ -645,6 +666,7 @@ export const readerSurfacePaperTextureOpacity = settings => {
 }
 
 export const readerSurfacePageBorderOverlayOpacity = settings => {
+  if (settings?.pageEdgesEnabled === false) return '0'
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
@@ -655,6 +677,21 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
       return '0.42'
     default:
       return '0.58'
+  }
+}
+
+export const readerSurfacePageStainOverlayOpacity = settings => {
+  if (settings?.paperStainsEnabled === false) return '0'
+  switch (readerThemeKey(settings?.theme)) {
+    case 'black':
+      return '0'
+    case ReaderThemeSepia:
+      return '0.72'
+    case 'dark':
+    case 'dusk':
+      return '0.24'
+    default:
+      return '0.38'
   }
 }
 
@@ -669,6 +706,20 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
       return 'contrast(1.35) saturate(1.08)'
     default:
       return 'contrast(1.3) saturate(1.06)'
+  }
+}
+
+export const readerSurfacePageStainOverlayFilter = settings => {
+  switch (readerThemeKey(settings?.theme)) {
+    case 'black':
+      return 'none'
+    case ReaderThemeSepia:
+      return 'contrast(1.55) saturate(1.08) brightness(0.98)'
+    case 'dark':
+    case 'dusk':
+      return 'contrast(1.2) saturate(1.04)'
+    default:
+      return 'contrast(1.16) saturate(1.03)'
   }
 }
 
@@ -776,6 +827,17 @@ export const ensureReaderSurfaceBorderOverlayLayer = () => {
   return layer
 }
 
+export const ensureReaderSurfaceStainOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderSurfacePageStainOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicSurfacePageStainOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
 export const ensureReaderMovingPageTextureLayer = () => {
   let layer = readerRoot.querySelector?.(ReaderMovingPagePaperTextureLayerSelector)
   if (!layer) {
@@ -792,6 +854,17 @@ export const ensureReaderMovingPageBorderOverlayLayer = () => {
   if (!layer) {
     layer = document.createElement('div')
     layer.dataset.navicMovingPageBorderOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+export const ensureReaderMovingPageStainOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderMovingPageStainOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicMovingPageStainOverlayLayer = 'true'
     layer.setAttribute('aria-hidden', 'true')
     readerRoot.append(layer)
   }
@@ -1026,6 +1099,67 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
 
 export const updateReaderMovingPageBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
   updateReaderSurfaceBorderOverlayLayer(layer, borderOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
+
+export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
+  if (!layer || !Array.isArray(stainOverlaySlots) || !stainOverlaySlots.some(slot => slot?.variant?.asset)) return
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
+  setStylesImportant(layer, {
+    position: 'fixed',
+    inset: '0px',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    'z-index': '2147483630',
+    'pointer-events': 'none',
+    'background-color': 'transparent',
+    opacity: readerSurfacePageStainOverlayOpacity(settings),
+    filter: readerSurfacePageStainOverlayFilter(settings),
+    'mix-blend-mode': 'multiply',
+    overflow: 'hidden',
+    transform: 'none',
+  })
+  pruneReaderSurfaceTextureSlots(layer, stainOverlaySlots, 'data-navic-surface-page-stain-overlay-slot')
+  for (const slot of stainOverlaySlots) {
+    if (!slot?.variant?.asset) continue
+    const slotLayer = ensureReaderSurfaceTextureSlot(layer, slot.slot || 'current', 'data-navic-surface-page-stain-overlay-slot')
+    const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer)
+    slotLayer.dataset.navicSurfacePageStainOverlayKey = slot.key || ''
+    slotLayer.dataset.navicSurfacePageStainOverlayAsset = slot.variant.asset || ''
+    setStylesImportant(slotLayer, {
+      position: 'absolute',
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
+      transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection }),
+      'transform-origin': 'center',
+      'will-change': 'transform',
+    })
+    setStylesImportant(artwork, {
+      position: 'absolute',
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
+      'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant),
+      'background-size': 'cover, cover, cover, cover',
+      'background-position': [
+        readerPaperTextureBackgroundPosition(null),
+        readerPaperTextureBackgroundPosition(null),
+        readerPaperTextureBackgroundPosition(null),
+        readerPaperTextureBackgroundPosition(null),
+      ].join(', '),
+      'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
+      'background-color': 'transparent',
+      transform: readerPaperTextureTransform(slot.variant),
+      'transform-origin': 'center',
+    })
+  }
+}
+
+export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceStainOverlayLayer(layer, stainOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
 
 export const readerTapZoneOverlayLabel = type => {
   switch (type) {

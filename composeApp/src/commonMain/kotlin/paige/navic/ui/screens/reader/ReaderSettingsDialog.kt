@@ -643,6 +643,27 @@ internal fun KomikkuReaderSettingsDialog(
 								}
 							)
 							CheckboxItem(
+								label = "Paper texture",
+								checked = settings.paperTextureEnabled != false,
+								onClick = {
+									onSettingsChange(settings.copy(paperTextureEnabled = settings.paperTextureEnabled == false))
+								}
+							)
+							CheckboxItem(
+								label = "Page edges",
+								checked = settings.pageEdgesEnabled != false,
+								onClick = {
+									onSettingsChange(settings.copy(pageEdgesEnabled = settings.pageEdgesEnabled == false))
+								}
+							)
+							CheckboxItem(
+								label = "Paper stains",
+								checked = settings.paperStainsEnabled != false,
+								onClick = {
+									onSettingsChange(settings.copy(paperStainsEnabled = settings.paperStainsEnabled == false))
+								}
+							)
+							CheckboxItem(
 								label = "Fullscreen",
 								checked = settings.fullscreen == true,
 								onClick = {

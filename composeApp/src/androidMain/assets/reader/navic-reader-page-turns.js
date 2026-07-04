@@ -23,6 +23,8 @@ import {
   ReaderPageBorderOverlayAssets,
   ReaderPageBorderOverlayVariantCount,
   ReaderPageNumberLayerSelector,
+  ReaderPageStainOverlayAssets,
+  ReaderPageStainOverlayVariantCount,
   ReaderPaperTextureAssets,
   ReaderPaperTextureVariantCount,
   ReaderReflowableReadableUnitsPerSyntheticPage,
@@ -31,6 +33,7 @@ import {
   ReaderShellCoverLayerSelector,
   ReaderShellCoverTransitionMs,
   ReaderSurfacePageBorderOverlayLayerSelector,
+  ReaderSurfacePageStainOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
   ReaderTapZoneDefault,
   ReaderTapZoneDisabled,
@@ -113,15 +116,18 @@ import {
   readerNormalizeChapterOpeningMargins,
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
+  ensureReaderSurfaceStainOverlayLayer,
   ensureReaderPageNumberLayer,
   ensureReaderShellCoverLayer,
   ensureReaderShellCoverImage,
   ensureTapZoneOverlayLayer,
   updateReaderShellCoverLayer,
   updateReaderMovingPageBorderOverlayLayer,
+  updateReaderMovingPageStainOverlayLayer,
   updateReaderMovingPageTextureLayer,
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
+  updateReaderSurfaceStainOverlayLayer,
   updateTapZoneOverlayLayer,
   isParagraphCandidate,
   isReaderParagraphBlock,
@@ -587,6 +593,7 @@ function ensurePageDragPreviewTextureLayers(layer) {
   return {
     paperLayer: ensurePageDragPreviewLayerChild(layer, 'data-navic-page-drag-preview-paper-layer'),
     borderLayer: ensurePageDragPreviewLayerChild(layer, 'data-navic-page-drag-preview-border-layer'),
+    stainLayer: ensurePageDragPreviewLayerChild(layer, 'data-navic-page-drag-preview-stain-layer'),
   }
 }
 
@@ -606,7 +613,7 @@ function overridePageDragPreviewTextureLayerBox(layer, zIndex) {
 }
 
 function syncMovingPageTextureSurface(reason = 'page-drag-preview') {
-  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant) return null
+  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant && !this.surfaceStainOverlayVariant) return null
   this.renderSurfacePaperTextureLayers()
   const offset = this.surfaceTextureScrollOffset || { x: 0, y: 0 }
   readerTrace('texture:moving-page-surface', {
@@ -623,14 +630,17 @@ function syncPageDragPreviewTextureLayers(layer, previewScrollOffset = null) {
   if (!layer) return null
   const textureSlots = this.surfaceTextureSlots || []
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
+  const stainOverlaySlots = this.surfaceStainOverlaySlots || []
   const hasPaper = textureSlots.some(slot => slot?.variant?.asset)
   const hasBorder = borderOverlaySlots.some(slot => slot?.variant?.asset)
-  if (!hasPaper && !hasBorder) {
+  const hasStain = stainOverlaySlots.some(slot => slot?.variant?.asset)
+  if (!hasPaper && !hasBorder && !hasStain) {
     layer.querySelector('[data-navic-page-drag-preview-paper-layer="true"]')?.remove()
     layer.querySelector('[data-navic-page-drag-preview-border-layer="true"]')?.remove()
+    layer.querySelector('[data-navic-page-drag-preview-stain-layer="true"]')?.remove()
     return null
   }
-  const { paperLayer, borderLayer } = this.ensurePageDragPreviewTextureLayers(layer)
+  const { paperLayer, borderLayer, stainLayer } = this.ensurePageDragPreviewTextureLayers(layer)
   const scrollOffset = previewScrollOffset || this.surfaceTextureScrollOffset || { x: 0, y: 0 }
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   if (hasPaper && paperLayer) {
@@ -659,11 +669,25 @@ function syncPageDragPreviewTextureLayers(layer, previewScrollOffset = null) {
   } else {
     borderLayer?.remove()
   }
+  if (hasStain && stainLayer) {
+    updateReaderMovingPageStainOverlayLayer(
+      stainLayer,
+      stainOverlaySlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
+    this.overridePageDragPreviewTextureLayerBox(stainLayer, 4)
+  } else {
+    stainLayer?.remove()
+  }
   layer.dataset.navicPageDragPreviewTextureSurface = [
     hasPaper ? 'paper' : '',
     hasBorder ? 'border' : '',
+    hasStain ? 'stain' : '',
   ].filter(Boolean).join(',')
-  return { hasPaper, hasBorder }
+  return { hasPaper, hasBorder, hasStain }
 }
 
 function pageDragPreviewTextureScrollOffset({
