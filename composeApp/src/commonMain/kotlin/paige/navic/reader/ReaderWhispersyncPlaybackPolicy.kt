@@ -13,10 +13,7 @@ fun readerWhispersyncPlaybackControlState(
 	status: ReaderWhispersyncStatus,
 	playbackState: ReaderReadaloudPlaybackUiState?
 ): ReaderWhispersyncPlaybackControlState {
-	if (!status.visible ||
-		status.kind == ReaderWhispersyncStatusKind.Ready ||
-		status.kind == ReaderWhispersyncStatusKind.NoActiveCue
-	) {
+	if (!status.visible) {
 		return ReaderWhispersyncPlaybackControlState()
 	}
 	val availablePlayback = playbackState?.takeIf { it.isAvailable }

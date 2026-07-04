@@ -254,37 +254,45 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
-	fun whispersyncControlIsHiddenWhenSidecarIsReadyButCurrentPageHasNoCue() {
+	fun whispersyncControlCanRestartListeningWhenSidecarIsReadyAndPlaybackIsStopped() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Ready,
 				label = "Whispersync ready"
 			),
-			playbackState = null
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				syncEnabled = false
+			)
 		)
 
-		assertFalse(control.visible)
+		assertTrue(control.visible)
 		assertFalse(control.loading)
 		assertTrue(control.crossed)
-		assertFalse(control.enabled)
-		assertNull(control.command)
+		assertTrue(control.enabled)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, control.command)
 	}
 
 	@Test
-	fun whispersyncControlIsHiddenWhenAudioIsInTimelineGap() {
+	fun whispersyncControlCanRestartListeningWhenAudioIsInTimelineGap() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.NoActiveCue,
 				label = "No synced text here"
 			),
-			playbackState = null
+			playbackState = ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = false,
+				syncEnabled = false
+			)
 		)
 
-		assertFalse(control.visible)
+		assertTrue(control.visible)
 		assertFalse(control.loading)
 		assertTrue(control.crossed)
-		assertFalse(control.enabled)
-		assertNull(control.command)
+		assertTrue(control.enabled)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, control.command)
 	}
 
 	@Test

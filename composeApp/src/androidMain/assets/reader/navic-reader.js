@@ -228,9 +228,9 @@ const readerDrawMediaOverlayMarker = (rects, options = {}) => {
     element.setAttribute(
       'points',
       [
-        `${markerLeft},${markerTop + slant}`,
+        `${markerLeft + slant},${markerTop}`,
         `${markerLeft + markerWidth},${markerTop}`,
-        `${markerLeft + markerWidth},${markerTop + markerHeight - slant}`,
+        `${markerLeft + markerWidth - slant},${markerTop + markerHeight}`,
         `${markerLeft},${markerTop + markerHeight}`,
       ].join(' ')
     )

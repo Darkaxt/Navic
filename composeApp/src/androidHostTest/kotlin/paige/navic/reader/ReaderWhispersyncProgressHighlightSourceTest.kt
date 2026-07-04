@@ -235,6 +235,26 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
+	fun markerHighlightSlantsOnlyTheSideEdges() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		val markerDraw = runtime
+			.substringAfter("const readerDrawMediaOverlayMarker = (rects, options = {}) => {")
+			.substringBefore("\nconst readerDrawNoteAnnotation")
+
+		assertContains(markerDraw, "const slant = Math.min(Math.max(markerHeight * 0.36, 2), 12)")
+		assertContains(markerDraw, "`${'$'}{markerLeft + slant},${'$'}{markerTop}`")
+		assertContains(markerDraw, "`${'$'}{markerLeft + markerWidth},${'$'}{markerTop}`")
+		assertContains(markerDraw, "`${'$'}{markerLeft + markerWidth - slant},${'$'}{markerTop + markerHeight}`")
+		assertContains(markerDraw, "`${'$'}{markerLeft},${'$'}{markerTop + markerHeight}`")
+		assertFalse(
+			markerDraw.contains("`${'$'}{markerLeft},${'$'}{markerTop + slant}`") ||
+				markerDraw.contains("`${'$'}{markerLeft + markerWidth},${'$'}{markerTop + markerHeight - slant}`"),
+			"Marker style must keep top and bottom edges horizontal; only the side caps should carry the 20 degree slant."
+		)
+	}
+
+	@Test
 	fun whispersyncOverlayActivationDoesNotNavigateReaderAcrossPages() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 
