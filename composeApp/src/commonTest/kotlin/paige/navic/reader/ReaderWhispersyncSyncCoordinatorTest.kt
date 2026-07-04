@@ -100,6 +100,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		)
 		val startCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(start.engineCommand)
 		assertEquals(100, startCommand.fragment.textProgressEnd)
+		assertEquals(0.0, startCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
 		assertEquals(1L, start.engineCommandKey)
 
 		val quarter = start.onAudiobookPlaybackPosition(
@@ -109,6 +110,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		)
 		val quarterCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(quarter.engineCommand)
 		assertEquals(110, quarterCommand.fragment.textProgressEnd)
+		assertEquals(0.25, quarterCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
 		assertEquals(2L, quarter.engineCommandKey)
 
 		val sameCharacter = quarter.onAudiobookPlaybackPosition(
@@ -126,6 +128,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		)
 		val completeCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(complete.engineCommand)
 		assertEquals(140, completeCommand.fragment.textProgressEnd)
+		assertEquals(0.9995, completeCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
 		assertEquals(3L, complete.engineCommandKey)
 
 		val textSeek = complete.onTextPoint(

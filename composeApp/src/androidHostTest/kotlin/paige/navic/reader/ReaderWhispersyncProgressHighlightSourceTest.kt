@@ -17,10 +17,9 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(runtime, "paintEnd")
 		assertContains(runtime, "clampedMediaOverlayProgressEnd")
 
-		val applyOverlay = runtime
-			.substringAfter("async applyOverlayFragment(fragment) {")
-			.substringBefore("\n  highlightMediaOverlayTextRange")
-		val paintBlock = applyOverlay.substringAfter("this.clearOverlay({ preservePlayed: true })")
+		val paintBlock = runtime
+			.substringAfter("paintActiveMediaOverlayFragment(fragment) {")
+			.substringBefore("\n  startMediaOverlayProgressAnimation")
 		val textRangePath = paintBlock.indexOf("this.highlightMediaOverlayTextRange(fragment)")
 		val fragmentIdPath = paintBlock.indexOf("fragment.fragmentId")
 		assertTrue(
@@ -77,6 +76,32 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
+	fun progressiveWhispersyncHighlightUsesAudioProgressFractionForResolvedRangePacing() {
+		val protocol = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
+		val model = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/reader/WhispersyncModels.kt").readText()
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		assertContains(protocol, "textProgressFraction")
+		assertContains(model, "textProgressFraction")
+
+		val painter = runtime
+			.substringAfter("mediaOverlayPaintEndForResolvedRange(")
+			.substringBefore("\n  postMediaOverlayRangeDiagnostic")
+		val progress = runtime
+			.substringAfter("mediaOverlayProgressFraction(")
+			.substringBefore("\n  paintActiveMediaOverlayFragment")
+
+		assertContains(painter, "fragment")
+		assertContains(painter, "this.mediaOverlayProgressFraction")
+		assertContains(progress, "textProgressFraction")
+		assertContains(painter, "resolvedNormalizedTextEnd - resolvedNormalizedTextStart")
+		assertFalse(
+			painter.contains("(paintEnd - textStart) / characterCount"),
+			"Resolved EPUB highlight fill must be paced by audio progress, not by stale sidecar offset length."
+		)
+	}
+
+	@Test
 	fun progressiveWhispersyncHighlightResolvesEbookTextNearOffsetAnchorBeforePainting() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
@@ -129,6 +154,34 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(highlighter, "fragment.nextTextStart")
 		assertContains(highlighter, "fragment.nextTextEnd")
 		assertContains(highlighter, "readerMediaOverlayClampRangeBeforeNextCue")
+	}
+
+	@Test
+	fun progressiveWhispersyncHighlightAnchorsOffsetFallbackBeforeNextResolvedCue() {
+		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
+
+		val clamp = helpers
+			.substringAfter("export const readerMediaOverlayClampRangeBeforeNextCue =")
+			.substringBefore("\n}\n\nexport const readerMediaOverlayTextOffsetForRange")
+
+		assertContains(clamp, "range?.locator === 'offset'")
+		assertContains(clamp, "nextStart <= currentStart")
+		assertContains(clamp, "next-anchor-gap")
+		assertContains(clamp, "readerMediaOverlayRawOffsetForNormalizedOffset(map, anchoredStart, 'start')")
+		assertContains(clamp, "readerMediaOverlayRawOffsetForNormalizedOffset(map, nextStart, 'start')")
+	}
+
+	@Test
+	fun progressiveWhispersyncHighlightInterpolatesBetweenNativePositionTicks() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		assertContains(runtime, "requestAnimationFrame")
+		assertContains(runtime, "cancelAnimationFrame")
+		assertContains(runtime, "startMediaOverlayProgressAnimation")
+		assertContains(runtime, "stopMediaOverlayProgressAnimation")
+		assertContains(runtime, "mediaOverlayProgressAnimationFrame")
+		assertContains(runtime, "mediaOverlayProgressDisplayKey")
+		assertContains(runtime, "smallBackwardJitter")
 	}
 
 	@Test

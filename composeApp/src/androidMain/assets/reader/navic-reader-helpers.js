@@ -292,18 +292,36 @@ export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, te
 
 export const readerMediaOverlayClampRangeBeforeNextCue = (normalizedMap, range, nextRange) => {
   const map = Array.isArray(normalizedMap) ? readerMediaOverlayNormalizedTextMap(normalizedMap) : (normalizedMap || {})
+  const mapLength = map.text?.length || 0
   const nextStart = Number(nextRange?.normalizedTextStart)
   const currentStart = Number(range?.normalizedTextStart)
   const currentEnd = Number(range?.normalizedTextEnd)
   if (
     !Number.isFinite(nextStart) ||
       !Number.isFinite(currentStart) ||
-      !Number.isFinite(currentEnd) ||
-      nextStart <= currentStart ||
-      nextStart >= currentEnd
+      !Number.isFinite(currentEnd)
   ) {
     return range
   }
+  if (range?.locator === 'offset' && nextStart <= currentStart && nextStart > 0) {
+    const currentLength = Math.max(1, currentEnd - currentStart)
+    const anchoredEnd = Math.max(0, Math.min(mapLength, nextStart))
+    const anchoredStart = Math.max(0, anchoredEnd - currentLength)
+    const textStart = readerMediaOverlayRawOffsetForNormalizedOffset(map, anchoredStart, 'start')
+    const textEnd = readerMediaOverlayRawOffsetForNormalizedOffset(map, nextStart, 'start')
+    if (Number.isFinite(textStart) && Number.isFinite(textEnd) && textEnd > textStart) {
+      return {
+        ...range,
+        textStart,
+        textEnd,
+        normalizedTextStart: anchoredStart,
+        normalizedTextEnd: anchoredEnd,
+        clampedByNextCue: true,
+        locator: 'next-anchor-gap',
+      }
+    }
+  }
+  if (nextStart <= currentStart || nextStart >= currentEnd) return range
   const textEnd = readerMediaOverlayRawOffsetForNormalizedOffset(map, nextStart, 'start')
   return {
     ...range,

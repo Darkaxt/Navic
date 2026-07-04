@@ -264,6 +264,11 @@ class NavicReaderRuntime {
   lastMediaOverlayRangeDiagnosticKey = null
   mediaOverlayActiveFragment = null
   mediaOverlayPlayedFragments = new Map()
+  mediaOverlayProgressAnimationFrame = null
+  mediaOverlayProgressAnimationToken = 0
+  mediaOverlayProgressAnimationKey = ''
+  mediaOverlayProgressDisplayKey = ''
+  mediaOverlayProgressDisplayedFraction = 0
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
   controlledRelocateReason = null
@@ -734,6 +739,7 @@ class NavicReaderRuntime {
     this.mediaOverlayPlayedFragments.set(key, {
       ...previousFragment,
       textProgressEnd: previousFragment.textEnd,
+      textProgressFraction: 1,
     })
   }
 
@@ -757,8 +763,111 @@ class NavicReaderRuntime {
         overlayKey: key,
         suppressDiagnostic: true,
         textProgressEnd: fragment.textEnd,
+        textProgressFraction: 1,
       })
     }
+  }
+
+  mediaOverlayAnimationKeyForFragment(fragment) {
+    if (!fragment) return ''
+    return [
+      fragment.textHref || '',
+      fragment.resourceHref || '',
+      fragment.clipBeginSeconds ?? '',
+      fragment.clipEndSeconds ?? '',
+      fragment.textStart ?? '',
+      fragment.textEnd ?? '',
+      fragment.ebookText || '',
+    ].join('|')
+  }
+
+  stopMediaOverlayProgressAnimation() {
+    this.mediaOverlayProgressAnimationToken += 1
+    this.mediaOverlayProgressAnimationKey = ''
+    if (this.mediaOverlayProgressAnimationFrame != null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.mediaOverlayProgressAnimationFrame)
+    }
+    this.mediaOverlayProgressAnimationFrame = null
+  }
+
+  mediaOverlayProgressFraction(textStart, textEnd, paintEnd, fragment) {
+    const fraction = Number(fragment?.textProgressFraction)
+    const rawProgress = Number.isFinite(fraction)
+      ? fraction
+      : (paintEnd - textStart) / Math.max(1, textEnd - textStart)
+    const clampedProgress = Math.max(0, Math.min(1, rawProgress))
+    const key = this.mediaOverlayAnimationKeyForFragment(fragment)
+    if (key && key === this.mediaOverlayProgressDisplayKey) {
+      const displayedProgress = this.mediaOverlayProgressDisplayedFraction
+      const smallBackwardJitter = clampedProgress < displayedProgress && clampedProgress + 0.12 >= displayedProgress
+      const progress = smallBackwardJitter ? displayedProgress : clampedProgress
+      this.mediaOverlayProgressDisplayedFraction = Math.max(displayedProgress, progress)
+      return progress
+    }
+    this.mediaOverlayProgressDisplayKey = key
+    this.mediaOverlayProgressDisplayedFraction = clampedProgress
+    return clampedProgress
+  }
+
+  paintActiveMediaOverlayFragment(fragment) {
+    this.clearOverlay({ preservePlayed: true, preserveAnimation: true })
+    this.paintPlayedMediaOverlayFragments()
+    let highlighted = this.highlightMediaOverlayTextRange(fragment)
+    if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
+      for (const doc of this.contentDocuments()) {
+        const element = doc.getElementById(fragment.fragmentId)
+        if (element) {
+          element.classList.add(overlayClass)
+          highlighted = true
+        }
+      }
+    }
+    this.mediaOverlayActiveFragment = fragment
+    return highlighted
+  }
+
+  startMediaOverlayProgressAnimation(fragment) {
+    this.stopMediaOverlayProgressAnimation()
+    if (
+      !fragment ||
+        !this.mediaOverlayFragmentHasTextRange(fragment) ||
+        typeof requestAnimationFrame !== 'function'
+    ) {
+      return
+    }
+    const clipBegin = Number(fragment.clipBeginSeconds)
+    const clipEnd = Number(fragment.clipEndSeconds)
+    const speed = Math.max(0.05, Number(fragment.playbackSpeed) || 1)
+    if (!Number.isFinite(clipBegin) || !Number.isFinite(clipEnd) || clipEnd <= clipBegin) return
+    const textStart = Number(fragment.textStart)
+    const textEnd = Number(fragment.textEnd)
+    const paintEnd = this.clampedMediaOverlayProgressEnd(textStart, textEnd, fragment)
+    const startFraction = this.mediaOverlayProgressFraction(textStart, textEnd, paintEnd, fragment)
+    if (startFraction >= 1) return
+    const durationMs = Math.max(1, (clipEnd - clipBegin) * 1000)
+    const startAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now()
+    const key = this.mediaOverlayAnimationKeyForFragment(fragment)
+    const token = this.mediaOverlayProgressAnimationToken
+    this.mediaOverlayProgressAnimationKey = key
+    const tick = now => {
+      if (token !== this.mediaOverlayProgressAnimationToken) return
+      if (this.mediaOverlayAnimationKeyForFragment(this.mediaOverlayActiveFragment) !== key) return
+      const elapsedMs = Math.max(0, now - startAt)
+      const progress = Math.min(1, startFraction + ((elapsedMs * speed) / durationMs))
+      const animatedFragment = {
+        ...this.mediaOverlayActiveFragment,
+        textProgressFraction: progress,
+      }
+      this.paintActiveMediaOverlayFragment(animatedFragment)
+      if (progress < 1) {
+        this.mediaOverlayProgressAnimationFrame = requestAnimationFrame(tick)
+      } else {
+        this.mediaOverlayProgressAnimationFrame = null
+      }
+    }
+    this.mediaOverlayProgressAnimationFrame = requestAnimationFrame(tick)
   }
 
   async applyOverlayFragment(fragment) {
@@ -788,38 +897,16 @@ class NavicReaderRuntime {
     }
     this.prunePlayedMediaOverlayFragments(fragment)
     this.rememberPlayedMediaOverlayFragment(this.mediaOverlayActiveFragment, fragment)
-    this.clearOverlay({ preservePlayed: true })
-    this.paintPlayedMediaOverlayFragments()
-    let highlighted = this.highlightMediaOverlayTextRange(fragment)
-    if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
-      for (const doc of this.contentDocuments()) {
-        const element = doc.getElementById(fragment.fragmentId)
-        if (element) {
-          element.classList.add(overlayClass)
-          highlighted = true
-        }
-      }
-    }
-    this.mediaOverlayActiveFragment = fragment
+    this.paintActiveMediaOverlayFragment(fragment)
+    this.startMediaOverlayProgressAnimation(fragment)
     post({ type: 'overlayFragmentActive', ...fragment })
   }
 
   updateOverlayFragmentProgress(fragment) {
     if (!this.view || !fragment) return
     this.prunePlayedMediaOverlayFragments(fragment)
-    this.clearOverlay({ preservePlayed: true })
-    this.paintPlayedMediaOverlayFragments()
-    let highlighted = this.highlightMediaOverlayTextRange(fragment)
-    if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
-      for (const doc of this.contentDocuments()) {
-        const element = doc.getElementById(fragment.fragmentId)
-        if (element) {
-          element.classList.add(overlayClass)
-          highlighted = true
-        }
-      }
-    }
-    this.mediaOverlayActiveFragment = fragment
+    this.paintActiveMediaOverlayFragment(fragment)
+    this.startMediaOverlayProgressAnimation(fragment)
   }
 
   clampedMediaOverlayProgressEnd(textStart, textEnd, fragment) {
@@ -828,10 +915,9 @@ class NavicReaderRuntime {
     return Math.max(textStart, Math.min(textEnd, textProgressEnd))
   }
 
-  mediaOverlayPaintEndForResolvedRange(textStart, textEnd, paintEnd, resolvedNormalizedTextStart, resolvedNormalizedTextEnd) {
+  mediaOverlayPaintEndForResolvedRange(textStart, textEnd, paintEnd, resolvedNormalizedTextStart, resolvedNormalizedTextEnd, fragment) {
     if (resolvedNormalizedTextEnd <= resolvedNormalizedTextStart) return resolvedNormalizedTextEnd
-    const characterCount = Math.max(1, textEnd - textStart)
-    const progress = Math.max(0, Math.min(1, (paintEnd - textStart) / characterCount))
+    const progress = this.mediaOverlayProgressFraction(textStart, textEnd, paintEnd, fragment)
     const resolvedPaintEnd = resolvedNormalizedTextStart + ((resolvedNormalizedTextEnd - resolvedNormalizedTextStart) * progress)
     return Math.min(resolvedNormalizedTextEnd, Math.max(resolvedNormalizedTextStart + 1, resolvedPaintEnd))
   }
@@ -916,7 +1002,8 @@ class NavicReaderRuntime {
         textEnd,
         paintEnd,
         resolvedRange.normalizedTextStart,
-        resolvedRange.normalizedTextEnd
+        resolvedRange.normalizedTextEnd,
+        fragment
       )
       const resolvedRawPaintEnd = readerMediaOverlayRawOffsetForNormalizedOffset(normalizedMap, resolvedPaintEnd, 'end')
       if (!suppressDiagnostic) {
@@ -959,7 +1046,8 @@ class NavicReaderRuntime {
   }
 
   clearOverlay() {
-    const { preservePlayed = false } = arguments[0] || {}
+    const { preservePlayed = false, preserveAnimation = false } = arguments[0] || {}
+    if (!preserveAnimation) this.stopMediaOverlayProgressAnimation()
     let removedAny = false
     for (const content of this.contentEntries()) {
       content.overlayer?.remove?.(ReaderMediaOverlayActiveRangeKey)

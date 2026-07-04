@@ -153,6 +153,8 @@ data class WhispersyncSegment(
 ) {
 	fun toReaderOverlayFragment(
 		textProgressEnd: Int? = null,
+		textProgressFraction: Double? = null,
+		playbackSpeed: Float? = null,
 		nextSegment: WhispersyncSegment? = null
 	): ReaderOverlayFragment =
 		ReaderOverlayFragment(
@@ -164,12 +166,14 @@ data class WhispersyncSegment(
 			textStart = textStart,
 			textEnd = textEnd,
 			textProgressEnd = textProgressEnd,
+			textProgressFraction = textProgressFraction,
 			spokenText = spokenText,
 			ebookText = ebookText,
 			nextTextHref = nextSegment?.textHref,
 			nextTextStart = nextSegment?.textStart,
 			nextTextEnd = nextSegment?.textEnd,
 			nextEbookText = nextSegment?.ebookText,
+			playbackSpeed = playbackSpeed,
 			label = label
 		)
 }

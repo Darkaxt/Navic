@@ -84,12 +84,14 @@ data class ReaderOverlayFragment(
 	val textStart: Int? = null,
 	val textEnd: Int? = null,
 	val textProgressEnd: Int? = null,
+	val textProgressFraction: Double? = null,
 	val spokenText: String? = null,
 	val ebookText: String? = null,
 	val nextTextHref: String? = null,
 	val nextTextStart: Int? = null,
 	val nextTextEnd: Int? = null,
 	val nextEbookText: String? = null,
+	val playbackSpeed: Float? = null,
 	val label: String? = null
 )
 
@@ -732,12 +734,14 @@ private fun ReaderOverlayFragment.toJsonObject(): JsonObject =
 		textStart?.let { put("textStart", it) }
 		textEnd?.let { put("textEnd", it) }
 		textProgressEnd?.let { put("textProgressEnd", it) }
+		textProgressFraction?.let { put("textProgressFraction", it) }
 		spokenText?.let { put("spokenText", it) }
 		ebookText?.let { put("ebookText", it) }
 		nextTextHref?.let { put("nextTextHref", it) }
 		nextTextStart?.let { put("nextTextStart", it) }
 		nextTextEnd?.let { put("nextTextEnd", it) }
 		nextEbookText?.let { put("nextEbookText", it) }
+		playbackSpeed?.let { put("playbackSpeed", it.toDouble()) }
 		label?.let { put("label", it) }
 	}
 
@@ -809,12 +813,14 @@ private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {
 		textStart = intValue("textStart"),
 		textEnd = intValue("textEnd"),
 		textProgressEnd = intValue("textProgressEnd"),
+		textProgressFraction = doubleValue("textProgressFraction"),
 		spokenText = stringValue("spokenText") ?: stringValue("text"),
 		ebookText = stringValue("ebookText") ?: stringValue("epubText"),
 		nextTextHref = stringValue("nextTextHref"),
 		nextTextStart = intValue("nextTextStart"),
 		nextTextEnd = intValue("nextTextEnd"),
 		nextEbookText = stringValue("nextEbookText"),
+		playbackSpeed = doubleValue("playbackSpeed")?.toFloat(),
 		label = stringValue("label")
 	)
 }

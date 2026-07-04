@@ -673,7 +673,8 @@ data class ReaderController(
 						timeline = currentWhispersync.timeline,
 						audioResource = audioResource,
 						audioTrackIndex = playbackState.trackIndex,
-						positionMs = playbackState.positionMs
+						positionMs = playbackState.positionMs,
+						playbackSpeed = playbackState.playbackSpeed
 					)
 				}
 		}

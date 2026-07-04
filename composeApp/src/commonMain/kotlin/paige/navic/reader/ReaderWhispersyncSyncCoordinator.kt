@@ -93,20 +93,23 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPosition(
 	timeline: WhispersyncTimeline?,
 	audioResource: String,
 	positionMs: Long,
-	audioTrackIndex: Int? = null
+	audioTrackIndex: Int? = null,
+	playbackSpeed: Float = 1f
 ): ReaderWhispersyncSyncState =
 	onAudiobookPlaybackPositionStep(
 		timeline = timeline,
 		audioResource = audioResource,
 		positionMs = positionMs,
-		audioTrackIndex = audioTrackIndex
+		audioTrackIndex = audioTrackIndex,
+		playbackSpeed = playbackSpeed
 	).state
 
 fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	timeline: WhispersyncTimeline?,
 	audioResource: String,
 	positionMs: Long,
-	audioTrackIndex: Int? = null
+	audioTrackIndex: Int? = null,
+	playbackSpeed: Float = 1f
 ): ReaderWhispersyncPlaybackPositionStep {
 	if (!syncEnabled) {
 		return ReaderWhispersyncPlaybackPositionStep(
@@ -146,6 +149,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	}
 	val key = segment.readerOverlaySyncKey()
 	val progressTextEnd = segment.textProgressEndForPosition(positionMs)
+	val progressFraction = segment.textProgressFractionForPosition(positionMs)
 	val nextState = if (key == activeSegmentKey) {
 		if (progressTextEnd != null && progressTextEnd != activeSegmentProgressTextEnd) {
 			Logger.i(
@@ -161,7 +165,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			copy(activeSegmentProgressTextEnd = progressTextEnd)
 				.withEngineCommand(
 					ReaderEngineCommand.UpdateMediaOverlayProgress(
-						timeline.overlayFragmentFor(segment, progressTextEnd)
+						timeline.overlayFragmentFor(segment, progressTextEnd, progressFraction, playbackSpeed)
 					)
 				)
 		} else {
@@ -183,7 +187,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			activeSegmentProgressTextEnd = progressTextEnd
 		).withEngineCommand(
 			ReaderEngineCommand.ApplyMediaOverlay(
-				timeline.overlayFragmentFor(segment, progressTextEnd)
+				timeline.overlayFragmentFor(segment, progressTextEnd, progressFraction, playbackSpeed)
 			)
 		)
 	}
@@ -271,7 +275,7 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 		activeSegmentProgressTextEnd = progressTextEnd
 	).withEngineCommand(
 		ReaderEngineCommand.ApplyMediaOverlay(
-			timeline.overlayFragmentFor(target.segment, progressTextEnd)
+			timeline.overlayFragmentFor(target.segment, progressTextEnd, 0.0)
 		)
 	)
 	return ReaderWhispersyncVisibleRangeStep(
@@ -323,7 +327,7 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 	val command = if (key == activeSegmentKey) {
 		if (progressTextEnd != null && progressTextEnd != activeSegmentProgressTextEnd) {
 			ReaderEngineCommand.UpdateMediaOverlayProgress(
-				timeline.overlayFragmentFor(target.segment, progressTextEnd)
+				timeline.overlayFragmentFor(target.segment, progressTextEnd, 0.0)
 			)
 		} else {
 			null
@@ -337,7 +341,7 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 				"textRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
 		)
 		ReaderEngineCommand.ApplyMediaOverlay(
-			timeline.overlayFragmentFor(target.segment, progressTextEnd)
+			timeline.overlayFragmentFor(target.segment, progressTextEnd, 0.0)
 		)
 	}
 	return ReaderWhispersyncVisibleRangeStep(
@@ -394,10 +398,14 @@ private fun ReaderWhispersyncSyncState.withEngineCommand(
 
 private fun WhispersyncTimeline.overlayFragmentFor(
 	segment: WhispersyncSegment,
-	textProgressEnd: Int? = null
+	textProgressEnd: Int? = null,
+	textProgressFraction: Double? = null,
+	playbackSpeed: Float = 1f
 ): ReaderOverlayFragment =
 	segment.toReaderOverlayFragment(
 		textProgressEnd = textProgressEnd,
+		textProgressFraction = textProgressFraction,
+		playbackSpeed = playbackSpeed,
 		nextSegment = nextSegmentAfter(segment)
 	)
 
@@ -417,12 +425,17 @@ private fun WhispersyncSegment.textProgressEndForPosition(positionMs: Long): Int
 	val start = textStart ?: return null
 	val end = textEnd ?: return null
 	if (end <= start) return null
-	val durationMs = (endMs - startMs).coerceAtLeast(1L)
-	val elapsedMs = (positionMs - startMs).coerceIn(0L, durationMs)
-	val progress = elapsedMs.toDouble() / durationMs.toDouble()
+	val progress = textProgressFractionForPosition(positionMs)
 	val characterCount = end - start
 	return (start + (characterCount * progress).roundToInt())
 		.coerceIn(start, end)
+}
+
+private fun WhispersyncSegment.textProgressFractionForPosition(positionMs: Long): Double {
+	val durationMs = (endMs - startMs).coerceAtLeast(1L)
+	val elapsedMs = (positionMs - startMs).coerceIn(0L, durationMs)
+	return (elapsedMs.toDouble() / durationMs.toDouble())
+		.coerceIn(0.0, 1.0)
 }
 
 internal fun String?.whispersyncLogValue(maxLength: Int = 96): String =
