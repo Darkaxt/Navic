@@ -206,6 +206,22 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 	}
 
 	@Test
+	fun whispersyncOverlayActivationDoesNotNavigateReaderAcrossPages() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		val applyOverlay = runtime
+			.substringAfter("async applyOverlayFragment(fragment) {")
+			.substringBefore("\n  updateOverlayFragmentProgress")
+
+		assertFalse(
+			applyOverlay.contains("this.goTo(targetHref, 'media-overlay-follow')"),
+			"Playback-driven Whispersync overlay updates must not relocate the reader; page-end handling is owned by native."
+		)
+		assertContains(applyOverlay, "media-overlay-follow:outside-visible-page")
+		assertContains(applyOverlay, "overlayFragmentInactive")
+	}
+
+	@Test
 	fun progressiveWhispersyncHighlightLogsResolvedRangeDiagnostics() {
 		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
 

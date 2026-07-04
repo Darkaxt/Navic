@@ -694,6 +694,42 @@ data class ReaderController(
 			?.takeIf { syncState.engineCommandKey != currentWhispersync.sync.engineCommandKey }
 		val overlayFragment = command.overlayFragmentOrNull()
 		val shouldClearOverlay = command == ReaderEngineCommand.ClearMediaOverlay
+		val visibleRange = currentWhispersync.visibleTextRange
+		if (overlayFragment != null && overlayFragment.isOutsideWhispersyncVisibleRange(visibleRange)) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync page boundary reached audio=${overlayFragment.resourceHref.whispersyncLogValue()} " +
+					"text=${overlayFragment.textHref.whispersyncLogValue()} " +
+					"textRange=${overlayFragment.textStart ?: "n/a"}-${overlayFragment.textEnd ?: "n/a"} " +
+					"visible=${visibleRange?.textHref.whispersyncLogValue()}:" +
+					"${visibleRange?.visibleStart ?: "n/a"}-${visibleRange?.visibleEnd ?: "n/a"} " +
+					"command=pause"
+			)
+			return ReaderControllerStep(
+				controller = copy(
+					state = state.copy(
+						chrome = state.chrome.onReadaloudPlaybackState(playbackState.copy(isPlaying = false)),
+						whispersync = currentWhispersync.copy(
+							sync = syncState.copy(
+								activeSegmentKey = null,
+								activeSegmentProgressTextEnd = null
+							),
+							status = ReaderWhispersyncStatus(
+								kind = ReaderWhispersyncStatusKind.NoActiveCue,
+								label = "End of visible page",
+								detail = overlayFragment.label,
+								audioResource = playbackState.audioResource,
+								positionMs = playbackState.positionMs
+							)
+						),
+						activeMediaOverlay = null,
+						audioMetadataLabel = null
+					)
+				),
+				engineCommands = listOf(ReaderEngineCommand.ClearMediaOverlay),
+				readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
+			)
+		}
 		if (overlayFragment != null) {
 			Logger.i(
 				WhispersyncSyncLogTag,
@@ -1532,6 +1568,25 @@ private fun readerTocHrefKey(href: String?): String? {
 
 private fun ReaderEngineEvent.VisibleTextRange.isWhispersyncAudioFollowRange(): Boolean =
 	source.equals("media-overlay-follow", ignoreCase = true)
+
+private fun ReaderOverlayFragment.isOutsideWhispersyncVisibleRange(
+	visibleRange: ReaderWhispersyncVisibleTextRange?
+): Boolean {
+	visibleRange ?: return false
+	val fragmentHref = textHref?.trim()?.takeIf { it.isNotEmpty() }
+	val visibleHref = visibleRange.textHref.trim().takeIf { it.isNotEmpty() }
+	if (
+		fragmentHref != null &&
+		visibleHref != null &&
+		readerTocHrefKey(fragmentHref) != readerTocHrefKey(visibleHref)
+	) {
+		return true
+	}
+	val start = textStart ?: return false
+	val end = textEnd ?: return false
+	if (end <= start) return false
+	return end <= visibleRange.visibleStart || start >= visibleRange.visibleEnd
+}
 
 private fun ReaderEngineCommand?.overlayFragmentOrNull(): ReaderOverlayFragment? =
 	when (this) {

@@ -899,7 +899,14 @@ class NavicReaderRuntime {
           textEnd: Number(fragment?.textEnd),
         })
       } else {
-        await this.goTo(targetHref, 'media-overlay-follow')
+        log('media-overlay-follow:outside-visible-page', targetHref)
+        readerTrace('media-overlay-follow:outside-visible-page', {
+          targetHref,
+          textStart: Number(fragment?.textStart),
+          textEnd: Number(fragment?.textEnd),
+        })
+        post({ type: 'overlayFragmentInactive', fragmentId: fragment.fragmentId })
+        return
       }
     }
     this.prunePlayedMediaOverlayFragments(fragment)

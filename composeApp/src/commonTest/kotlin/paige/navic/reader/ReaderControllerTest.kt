@@ -2120,6 +2120,40 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun playbackCueOutsideVisiblePageStopsWhispersyncInsteadOfFollowingNextChapter() {
+		val visible = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onEngineEvent(
+				ReaderEngineEvent.VisibleTextRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 10,
+					visibleEnd = 42,
+					source = "reader-visible-page"
+				)
+			).controller
+
+		val step = visible.onReadaloudPlaybackState(
+			ReaderReadaloudPlaybackUiState(
+				isAvailable = true,
+				isPlaying = true,
+				trackIndex = 0,
+				audioResource = "Audio/chapter01.m4b",
+				positionMs = 5_500L,
+				durationMs = 8_000L
+			)
+		)
+
+		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), step.engineCommands)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, step.readaloudPlaybackCommand)
+		assertNull(step.whispersyncAudioSeekTarget)
+		assertNull(step.controller.state.activeMediaOverlay)
+		assertNull(step.controller.state.audioMetadataLabel)
+		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, step.controller.state.whispersync.status.kind)
+		assertEquals("End of visible page", step.controller.state.whispersync.status.label)
+	}
+
+	@Test
 	fun audioFollowRelocationDoesNotOverwriteReaderOwnedProgress() {
 		val opened = ReaderController().open(hobbitOpenRequest()).controller
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
