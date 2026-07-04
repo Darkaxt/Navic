@@ -5,6 +5,53 @@ import kotlin.test.assertEquals
 
 class NowPlayingControlsLayoutPolicyTest {
 	@Test
+	fun wideLandscapeLayoutRequiresBothLandscapeAndTabletWidth() {
+		assertEquals(
+			true,
+			shouldUseWideNowPlayingLandscapeLayout(
+				widthDp = 1000,
+				heightDp = 640
+			)
+		)
+		assertEquals(
+			false,
+			shouldUseWideNowPlayingLandscapeLayout(
+				widthDp = 820,
+				heightDp = 500
+			)
+		)
+		assertEquals(
+			false,
+			shouldUseWideNowPlayingLandscapeLayout(
+				widthDp = 1000,
+				heightDp = 1200
+			)
+		)
+	}
+
+	@Test
+	fun wideLandscapeContentUsesCenteredProgressColumn() {
+		assertEquals(
+			NowPlayingWideLandscapeContentLayout(
+				progressWidthDp = 760,
+				upNextWidthDp = 440
+			),
+			nowPlayingWideLandscapeContentLayout(
+				contentPaneWidthDp = 900
+			)
+		)
+		assertEquals(
+			NowPlayingWideLandscapeContentLayout(
+				progressWidthDp = 560,
+				upNextWidthDp = 420
+			),
+			nowPlayingWideLandscapeContentLayout(
+				contentPaneWidthDp = 560
+			)
+		)
+	}
+
+	@Test
 	fun defaultLayoutKeepsTimelineAbovePlaybackButtons() {
 		assertEquals(
 			listOf(

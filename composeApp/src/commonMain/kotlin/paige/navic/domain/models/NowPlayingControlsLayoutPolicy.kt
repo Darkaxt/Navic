@@ -14,6 +14,32 @@ enum class NowPlayingPlaybackButtonsArrangement {
 	EvenlySpaced
 }
 
+data class NowPlayingWideLandscapeContentLayout(
+	val progressWidthDp: Int,
+	val upNextWidthDp: Int
+)
+
+fun shouldUseWideNowPlayingLandscapeLayout(
+	widthDp: Int,
+	heightDp: Int
+): Boolean = widthDp > heightDp && widthDp >= 900
+
+fun nowPlayingWideLandscapeContentLayout(
+	contentPaneWidthDp: Int
+): NowPlayingWideLandscapeContentLayout {
+	val progressWidth = contentPaneWidthDp
+		.coerceAtMost(760)
+		.coerceAtLeast(0)
+	val upNextWidth = (contentPaneWidthDp - 140)
+		.coerceAtMost(440)
+		.coerceAtLeast(0)
+
+	return NowPlayingWideLandscapeContentLayout(
+		progressWidthDp = progressWidth,
+		upNextWidthDp = upNextWidth
+	)
+}
+
 fun nowPlayingControlsLayoutBlocks(
 	swapControlsAndTimeline: Boolean,
 	showTechnicalInfo: Boolean = false

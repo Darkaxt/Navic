@@ -15,6 +15,12 @@ enum class NowPlayingFallbackLabelStyle {
 	Arc
 }
 
+enum class NowPlayingMediaSlotMode {
+	Empty,
+	VinylArtwork,
+	ForegroundClip
+}
+
 data class NowPlayingTechnicalInfoPlacement(
 	val bottomPaddingDp: Int,
 	val verticalOffsetDp: Int
@@ -24,8 +30,9 @@ fun shouldRotateNowPlayingArtwork(
 	enabled: Boolean,
 	isPaused: Boolean,
 	isActiveArtwork: Boolean,
-	hasCoverArt: Boolean
-): Boolean = enabled && !isPaused && isActiveArtwork && hasCoverArt
+	hasCoverArt: Boolean,
+	hasGeneratedArtwork: Boolean = false
+): Boolean = enabled && !isPaused && isActiveArtwork && (hasCoverArt || hasGeneratedArtwork)
 
 fun nowPlayingArtworkShapeForPlayback(
 	configuredShape: CoverArtShape,
@@ -34,8 +41,9 @@ fun nowPlayingArtworkShapeForPlayback(
 
 fun shouldShowNowPlayingVinylOverlay(
 	isRotatingArtwork: Boolean,
-	hasCoverArt: Boolean
-): Boolean = isRotatingArtwork && hasCoverArt
+	hasCoverArt: Boolean,
+	hasGeneratedArtwork: Boolean = false
+): Boolean = isRotatingArtwork && (hasCoverArt || hasGeneratedArtwork)
 
 fun nowPlayingVinylOverlayRotationDegrees(
 	isRotatingArtwork: Boolean,
@@ -51,6 +59,24 @@ fun nowPlayingArtworkRotationDegreesForElapsedMillis(elapsedMillis: Long): Float
 }
 
 fun shouldUseTurnTableWidgetVinylArtwork(hasCoverArt: Boolean): Boolean = hasCoverArt
+
+fun retainedNowPlayingForegroundClipSongId(
+	foregroundClipSongId: String?,
+	currentSongId: String?
+): String? = foregroundClipSongId.takeIf { it != null && it == currentSongId }
+
+fun nowPlayingMediaSlotMode(
+	showArtwork: Boolean,
+	currentSongId: String?,
+	foregroundClipSongId: String?,
+	hasClip: Boolean
+): NowPlayingMediaSlotMode = when {
+	currentSongId != null && hasClip && foregroundClipSongId == currentSongId ->
+		NowPlayingMediaSlotMode.ForegroundClip
+
+	showArtwork && currentSongId != null -> NowPlayingMediaSlotMode.VinylArtwork
+	else -> NowPlayingMediaSlotMode.Empty
+}
 
 fun nowPlayingFallbackLabelStyle(isRotatingArtwork: Boolean): NowPlayingFallbackLabelStyle =
 	if (isRotatingArtwork) NowPlayingFallbackLabelStyle.Arc else NowPlayingFallbackLabelStyle.Center

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,8 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.NowPlayingUpNextLayout
+import paige.navic.domain.models.nowPlayingUpNextLayout
 import paige.navic.domain.models.nowPlayingUpNextItems
 import paige.navic.domain.models.shouldShowNowPlayingUpNextArtwork
 import paige.navic.shared.MediaPlayerViewModel
@@ -54,7 +57,10 @@ internal fun nowPlayingUpNextBottomPadding(showTechnicalInfo: Boolean): Dp =
 	0.dp
 
 @Composable
-fun NowPlayingUpNextRow(showTechnicalInfoBelow: Boolean = false) {
+fun NowPlayingUpNextRow(
+	showTechnicalInfoBelow: Boolean = false,
+	layout: NowPlayingUpNextLayout = nowPlayingUpNextLayout(wideLandscape = false)
+) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val showNowPlayingUpNext = preferenceManager.showNowPlayingUpNext
 	if (!showNowPlayingUpNext) return
@@ -91,22 +97,46 @@ fun NowPlayingUpNextRow(showTechnicalInfoBelow: Boolean = false) {
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			modifier = Modifier.clickable(onClick = onOpenQueue)
 		)
-		LazyRow(
-			modifier = Modifier
-				.fillMaxWidth()
-				.padding(top = 6.dp),
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-			contentPadding = PaddingValues(end = 16.dp)
-		) {
-			items(
-				items = upNextSongs,
-				key = { song -> song.id }
-			) { song ->
-				NowPlayingUpNextItem(
-					song = song,
-					showArtwork = showArtwork,
-					onClick = onOpenQueue
-				)
+		when (layout) {
+			NowPlayingUpNextLayout.HorizontalRow -> {
+				LazyRow(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(top = 6.dp),
+					horizontalArrangement = Arrangement.spacedBy(8.dp),
+					contentPadding = PaddingValues(end = 16.dp)
+				) {
+					items(
+						items = upNextSongs,
+						key = { song -> song.id }
+					) { song ->
+						NowPlayingUpNextItem(
+							song = song,
+							showArtwork = showArtwork,
+							onClick = onOpenQueue
+						)
+					}
+				}
+			}
+
+			NowPlayingUpNextLayout.VerticalStack -> {
+				Column(
+					modifier = Modifier
+						.fillMaxWidth()
+						.widthIn(max = 440.dp)
+						.padding(top = 6.dp),
+					verticalArrangement = Arrangement.spacedBy(8.dp)
+				) {
+					upNextSongs.forEach { song ->
+						NowPlayingUpNextItem(
+							song = song,
+							showArtwork = showArtwork,
+							onClick = onOpenQueue,
+							modifier = Modifier.fillMaxWidth(),
+							fillWidth = true
+						)
+					}
+				}
 			}
 		}
 	}
@@ -116,7 +146,9 @@ fun NowPlayingUpNextRow(showTechnicalInfoBelow: Boolean = false) {
 private fun NowPlayingUpNextItem(
 	song: DomainSong,
 	showArtwork: Boolean,
-	onClick: () -> Unit
+	onClick: () -> Unit,
+	modifier: Modifier = Modifier,
+	fillWidth: Boolean = false
 ) {
 	Surface(
 		onClick = onClick,
@@ -128,8 +160,8 @@ private fun NowPlayingUpNextItem(
 		contentColor = when (nowPlayingUpNextContainerTone()) {
 			NowPlayingUpNextContainerTone.SecondaryContainer -> MaterialTheme.colorScheme.onSecondaryContainer
 		},
-		modifier = Modifier
-			.width(nowPlayingUpNextItemWidth(showArtwork))
+		modifier = modifier
+			.then(if (fillWidth) Modifier else Modifier.width(nowPlayingUpNextItemWidth(showArtwork)))
 			.heightIn(min = if (showArtwork) 52.dp else 42.dp)
 	) {
 		if (showArtwork) {

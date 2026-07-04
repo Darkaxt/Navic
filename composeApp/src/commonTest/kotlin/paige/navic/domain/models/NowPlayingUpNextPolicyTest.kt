@@ -7,6 +7,22 @@ import kotlin.test.assertTrue
 
 class NowPlayingUpNextPolicyTest {
 	@Test
+	fun upNextUsesVerticalStackOnlyForWideLandscape() {
+		assertEquals(
+			NowPlayingUpNextLayout.VerticalStack,
+			nowPlayingUpNextLayout(
+				wideLandscape = true
+			)
+		)
+		assertEquals(
+			NowPlayingUpNextLayout.HorizontalRow,
+			nowPlayingUpNextLayout(
+				wideLandscape = false
+			)
+		)
+	}
+
+	@Test
 	fun returnsUpcomingItemsAfterCurrentIndex() {
 		val queue = listOf("current", "next", "after next", "later")
 

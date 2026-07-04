@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,13 +46,18 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.LidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.NowPlayingArtworkTapDestination
+import paige.navic.domain.models.NowPlayingMediaSlotMode
 import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
+import paige.navic.domain.models.nowPlayingMediaSlotMode
+import paige.navic.domain.models.nowPlayingUpNextLayout
+import paige.navic.domain.models.retainedNowPlayingForegroundClipSongId
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.shouldShowNowPlayingMusicBrainzInfoAction
 import paige.navic.domain.models.shouldShowNowPlayingLyricsAction
 import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
+import paige.navic.domain.models.shouldUseWideNowPlayingLandscapeLayout
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
@@ -77,6 +84,7 @@ import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipArtwork
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingLidaClipBackground
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingArtworkPager
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingControlsRow
+import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingWindowActions
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -119,8 +127,20 @@ fun NowPlayingScreen() {
 		lyricsLoading = lyricsAvailableState is UiState.Loading
 	)
 	var foregroundClipSongId by rememberSaveable { mutableStateOf<String?>(null) }
-	val showClipInArtwork = lidaClip != null && foregroundClipSongId == song?.id
 	val showArtwork = preferenceManager.showNowPlayingArtwork
+	LaunchedEffect(song?.id) {
+		foregroundClipSongId = retainedNowPlayingForegroundClipSongId(
+			foregroundClipSongId = foregroundClipSongId,
+			currentSongId = song?.id
+		)
+	}
+	val mediaSlotMode = nowPlayingMediaSlotMode(
+		showArtwork = showArtwork,
+		currentSongId = song?.id,
+		foregroundClipSongId = foregroundClipSongId,
+		hasClip = lidaClip != null
+	)
+	val showClipInArtwork = mediaSlotMode == NowPlayingMediaSlotMode.ForegroundClip
 	val isDynamicBackground = preferenceManager.nowPlayingBackgroundStyle == NowPlayingBackgroundStyle.Dynamic
 	val artworkTapDestination = nowPlayingArtworkTapDestination(
 		configuredAction = preferenceManager.nowPlayingArtworkTapAction,
@@ -288,6 +308,10 @@ fun NowPlayingScreen() {
 					.fillMaxSize()
 			) {
 				val isLandscape = maxWidth > maxHeight
+				val isWideLandscape = shouldUseWideNowPlayingLandscapeLayout(
+					widthDp = maxWidth.value.toInt(),
+					heightDp = maxHeight.value.toInt()
+				)
 				val collapseTopPadding = if (preferenceManager.nowPlayingToolbarPosition == ToolbarPosition.Top) {
 					contentPadding.calculateTopPadding() + 8.dp
 				} else {
@@ -308,6 +332,17 @@ fun NowPlayingScreen() {
 								contentDescription = stringResource(Res.string.action_navigate_back)
 							)
 						}
+					)
+				} else if (isWideLandscape) {
+					NowPlayingWindowActions(
+						onCollapse = { backStack.remove(Screen.NowPlaying) },
+						songIsStarred = songIsStarred,
+						onSetSongIsStarred = { viewModel.starSong(it) },
+						songRating = songRating,
+						onSetSongRating = { viewModel.rateSong(it) },
+						modifier = Modifier
+							.align(Alignment.TopEnd)
+							.padding(top = collapseTopPadding, end = 14.dp)
 					)
 				}
 				val toolbarPosition = preferenceManager.nowPlayingToolbarPosition
@@ -334,12 +369,12 @@ fun NowPlayingScreen() {
 						horizontalArrangement = Arrangement.SpaceEvenly,
 						verticalAlignment = Alignment.CenterVertically
 					) {
-						if (showArtwork || showClipInArtwork) {
+						if (mediaSlotMode != NowPlayingMediaSlotMode.Empty) {
 							NowPlayingMediaSlot(
 								modifier = Modifier.weight(1f).fillMaxHeight(),
 								isLandscape = true,
 								clip = lidaClip,
-								showClipInArtwork = showClipInArtwork,
+								mode = mediaSlotMode,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap,
@@ -349,17 +384,26 @@ fun NowPlayingScreen() {
 								}
 							)
 						}
-						NowPlayingControlsRow(
+						Box(
 							modifier = Modifier.weight(1f).fillMaxHeight(),
-							isLandscape = true,
-							hasCurrentSong = song != null,
-							showTechnicalInfo = showTechnicalInfo,
-							onCollapse = { backStack.remove(Screen.NowPlaying) },
-							songIsStarred = songIsStarred,
-							onSetSongIsStarred = { viewModel.starSong(it) },
-							songRating = songRating,
-							onSetSongRating = { viewModel.rateSong(it) }
-						)
+							contentAlignment = Alignment.Center
+						) {
+							NowPlayingControlsRow(
+								modifier = Modifier
+									.fillMaxWidth()
+									.widthIn(max = if (isWideLandscape) 760.dp else 560.dp),
+								isLandscape = true,
+								hasCurrentSong = song != null,
+								showTechnicalInfo = showTechnicalInfo,
+								onCollapse = if (isWideLandscape) null else ({ backStack.remove(Screen.NowPlaying) }),
+								songIsStarred = songIsStarred,
+								onSetSongIsStarred = { viewModel.starSong(it) },
+								songRating = songRating,
+								onSetSongRating = { viewModel.rateSong(it) },
+								showInlineActions = !isWideLandscape,
+								upNextLayout = nowPlayingUpNextLayout(wideLandscape = isWideLandscape)
+							)
+						}
 					}
 				} else {
 					Column(
@@ -367,12 +411,12 @@ fun NowPlayingScreen() {
 						horizontalAlignment = Alignment.CenterHorizontally,
 						verticalArrangement = Arrangement.Center
 					) {
-						if (showArtwork || showClipInArtwork) {
+						if (mediaSlotMode != NowPlayingMediaSlotMode.Empty) {
 							NowPlayingMediaSlot(
 								modifier = Modifier.weight(1f).fillMaxWidth(),
 								isLandscape = false,
 								clip = lidaClip,
-								showClipInArtwork = showClipInArtwork,
+								mode = mediaSlotMode,
 								playerProgress = playerState.progress,
 								musicIsPaused = playerState.isPaused,
 								onArtworkTap = onArtworkTap,
@@ -391,7 +435,8 @@ fun NowPlayingScreen() {
 							songIsStarred = songIsStarred,
 							onSetSongIsStarred = { viewModel.starSong(it) },
 							songRating = songRating,
-							onSetSongRating = { viewModel.rateSong(it) }
+							onSetSongRating = { viewModel.rateSong(it) },
+							upNextLayout = nowPlayingUpNextLayout(wideLandscape = false)
 						)
 					}
 				}
@@ -403,7 +448,7 @@ fun NowPlayingScreen() {
 @Composable
 private fun NowPlayingMediaSlot(
 	clip: DomainLidaClip?,
-	showClipInArtwork: Boolean,
+	mode: NowPlayingMediaSlotMode,
 	playerProgress: Float,
 	musicIsPaused: Boolean,
 	isLandscape: Boolean,
@@ -412,19 +457,30 @@ private fun NowPlayingMediaSlot(
 	modifier: Modifier = Modifier
 ) {
 	Box(modifier) {
-		NowPlayingArtworkPager(
-			modifier = Modifier.matchParentSize(),
-			isLandscape = isLandscape,
-			onArtworkTap = onArtworkTap
-		)
-		if (showClipInArtwork && clip != null) {
-			NowPlayingLidaClipArtwork(
-				clip = clip,
-				playerProgress = playerProgress,
-				musicIsPaused = musicIsPaused,
-				onRecoverablePlaybackError = onLidaClipRecoverablePlaybackError,
-				modifier = Modifier.matchParentSize()
-			)
+		when (mode) {
+			NowPlayingMediaSlotMode.VinylArtwork -> {
+				NowPlayingArtworkPager(
+					modifier = Modifier.matchParentSize(),
+					isLandscape = isLandscape,
+					onArtworkTap = onArtworkTap
+				)
+			}
+
+			NowPlayingMediaSlotMode.ForegroundClip -> {
+				if (clip != null) {
+					NowPlayingLidaClipArtwork(
+						clip = clip,
+						playerProgress = playerProgress,
+						musicIsPaused = musicIsPaused,
+						onRecoverablePlaybackError = onLidaClipRecoverablePlaybackError,
+						modifier = Modifier
+							.matchParentSize()
+							.padding(if (isLandscape) 28.dp else 12.dp)
+					)
+				}
+			}
+
+			NowPlayingMediaSlotMode.Empty -> Unit
 		}
 	}
 }

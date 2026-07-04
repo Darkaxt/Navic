@@ -4,6 +4,11 @@ const val NowPlayingRepeatOff = 0
 const val NowPlayingRepeatOne = 1
 const val NowPlayingRepeatAll = 2
 
+enum class NowPlayingUpNextLayout {
+	HorizontalRow,
+	VerticalStack
+}
+
 fun <Item> nowPlayingUpNextItems(
 	queue: List<Item>,
 	currentIndex: Int,
@@ -36,6 +41,9 @@ fun shouldShowNowPlayingUpNextArtwork(
 	showNowPlayingUpNext: Boolean,
 	showNowPlayingUpNextArtwork: Boolean
 ): Boolean = showNowPlayingUpNext && showNowPlayingUpNextArtwork
+
+fun nowPlayingUpNextLayout(wideLandscape: Boolean): NowPlayingUpNextLayout =
+	if (wideLandscape) NowPlayingUpNextLayout.VerticalStack else NowPlayingUpNextLayout.HorizontalRow
 
 private fun repeatAllUpcomingIndexes(
 	queueSize: Int,

@@ -80,6 +80,7 @@ fun NowPlayingArtwork(
 		variant = GeneratedArtworkVariant.NowPlayingDisc
 	)
 	val hasArtwork = playbackArtwork.hasArtwork
+	val hasGeneratedArtwork = true
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
@@ -87,7 +88,8 @@ fun NowPlayingArtwork(
 		enabled = preferenceManager.nowPlayingRotatingArtwork,
 		isPaused = playerState.isPaused,
 		isActiveArtwork = isActiveArtwork,
-		hasCoverArt = hasArtwork
+		hasCoverArt = hasArtwork,
+		hasGeneratedArtwork = hasGeneratedArtwork
 	)
 	val rotationDegrees = rememberNowPlayingArtworkRotationDegrees(
 		enabled = isRotatingArtwork
@@ -142,7 +144,8 @@ fun NowPlayingArtwork(
 			if (
 				shouldShowNowPlayingVinylOverlay(
 					isRotatingArtwork = isRotatingArtwork,
-					hasCoverArt = hasArtwork
+					hasCoverArt = hasArtwork,
+					hasGeneratedArtwork = hasGeneratedArtwork
 				)
 			) {
 				VinylRecordOverlay(
@@ -150,7 +153,7 @@ fun NowPlayingArtwork(
 				)
 			}
 		}
-		if (!hasArtwork) {
+		if (!hasArtwork && !hasGeneratedArtwork) {
 			Icon(
 				imageVector = if (isRadio) Icons.Outlined.Radio else Icons.Filled.Note,
 				contentDescription = null,

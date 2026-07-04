@@ -12,22 +12,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.shouldEnableNowPlayingArtworkSwipe
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingArtwork
-import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun NowPlayingArtworkPager(
@@ -44,14 +39,9 @@ fun NowPlayingArtworkPager(
 		pageCount = { playerState.queue.size }
 	)
 
-	var visible by rememberSaveable { mutableStateOf(false) }
+	val visible = true
 	val scale by animateFloatAsState(if (visible) 1f else 0f)
 	val offset by animateDpAsState(if (visible) 0.dp else 200.dp)
-
-	LaunchedEffect(Unit) {
-		delay(50.milliseconds)
-		visible = true
-	}
 
 	LaunchedEffect(playerState.currentIndex) {
 		if (playerState.currentIndex != -1 && playerState.currentIndex != pagerState.currentPage) {

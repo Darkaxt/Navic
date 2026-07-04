@@ -12,17 +12,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
@@ -34,7 +29,6 @@ import paige.navic.domain.models.shouldOpenQueueFromNowPlayingControlsSwipeUp
 import paige.navic.domain.models.shouldOverlayTechnicalInfoBetween
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingProgressBar
-import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun NowPlayingControlsRow(
@@ -46,12 +40,15 @@ fun NowPlayingControlsRow(
 	songIsStarred: Boolean,
 	onSetSongIsStarred: (Boolean) -> Unit,
 	songRating: Int,
-	onSetSongRating: (Int) -> Unit
+	onSetSongRating: (Int) -> Unit,
+	showInlineActions: Boolean = true,
+	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout =
+		paige.navic.domain.models.NowPlayingUpNextLayout.HorizontalRow
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
 	val platformContext = LocalPlatformContext.current
-	var visible by rememberSaveable { mutableStateOf(false) }
+	val visible = true
 	val scale by animateFloatAsState(if (visible) 1f else 0f)
 	val offset by animateDpAsState(if (visible) 0.dp else 200.dp)
 	val openQueueOnSwipeUp = preferenceManager.openQueueOnNowPlayingControlsSwipeUp
@@ -65,11 +62,6 @@ fun NowPlayingControlsRow(
 			platformContext.clickSound()
 			backStack.add(Screen.Queue)
 		}
-	}
-
-	LaunchedEffect(Unit) {
-		delay(200.milliseconds)
-		visible = true
 	}
 
 	Column(
@@ -125,7 +117,9 @@ fun NowPlayingControlsRow(
 			songIsStarred = songIsStarred,
 			onSetSongIsStarred = onSetSongIsStarred,
 			songRating = songRating,
-			onSetSongRating = onSetSongRating
+			onSetSongRating = onSetSongRating,
+			showActions = showInlineActions,
+			centerText = !showInlineActions
 		)
 		val blocks = nowPlayingControlsLayoutBlocks(
 			swapControlsAndTimeline = preferenceManager.swapNowPlayingControlsAndTimeline,
@@ -133,7 +127,9 @@ fun NowPlayingControlsRow(
 		)
 		blocks.forEachIndexed { index, block ->
 			when (block) {
-				NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock()
+				NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock(
+					upNextLayout = upNextLayout
+				)
 
 				NowPlayingControlsLayoutBlock.TechnicalInfo -> Unit
 
@@ -165,10 +161,14 @@ fun NowPlayingControlsRow(
 }
 
 @Composable
-private fun NowPlayingTimelineBlock() {
-	Column {
+private fun NowPlayingTimelineBlock(
+	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout
+) {
+	Column(
+		horizontalAlignment = Alignment.CenterHorizontally
+	) {
 		NowPlayingProgressBar()
 		NowPlayingDurationsRow()
-		NowPlayingUpNextRow()
+		NowPlayingUpNextRow(layout = upNextLayout)
 	}
 }

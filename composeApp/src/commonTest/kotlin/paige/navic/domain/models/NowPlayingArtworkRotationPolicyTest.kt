@@ -48,6 +48,75 @@ class NowPlayingArtworkRotationPolicyTest {
 	}
 
 	@Test
+	fun generatedFallbackCanUseRotatingVinylInNowPlaying() {
+		assertTrue(
+			shouldRotateNowPlayingArtwork(
+				enabled = true,
+				isPaused = false,
+				isActiveArtwork = true,
+				hasCoverArt = false,
+				hasGeneratedArtwork = true
+			)
+		)
+		assertTrue(
+			shouldShowNowPlayingVinylOverlay(
+				isRotatingArtwork = true,
+				hasCoverArt = false,
+				hasGeneratedArtwork = true
+			)
+		)
+	}
+
+	@Test
+	fun staleForegroundClipIsClearedWhenSongChanges() {
+		assertEquals(
+			"song-1",
+			retainedNowPlayingForegroundClipSongId(
+				foregroundClipSongId = "song-1",
+				currentSongId = "song-1"
+			)
+		)
+		assertEquals(
+			null,
+			retainedNowPlayingForegroundClipSongId(
+				foregroundClipSongId = "song-1",
+				currentSongId = "song-2"
+			)
+		)
+	}
+
+	@Test
+	fun mediaSlotShowsOnlyOneForegroundSurface() {
+		assertEquals(
+			NowPlayingMediaSlotMode.ForegroundClip,
+			nowPlayingMediaSlotMode(
+				showArtwork = true,
+				currentSongId = "song-1",
+				foregroundClipSongId = "song-1",
+				hasClip = true
+			)
+		)
+		assertEquals(
+			NowPlayingMediaSlotMode.VinylArtwork,
+			nowPlayingMediaSlotMode(
+				showArtwork = true,
+				currentSongId = "song-2",
+				foregroundClipSongId = "song-1",
+				hasClip = true
+			)
+		)
+		assertEquals(
+			NowPlayingMediaSlotMode.Empty,
+			nowPlayingMediaSlotMode(
+				showArtwork = false,
+				currentSongId = null,
+				foregroundClipSongId = "song-1",
+				hasClip = true
+			)
+		)
+	}
+
+	@Test
 	fun rotationCanRunForPlayingActiveArtworkWithCoverArt() {
 		assertTrue(
 			shouldRotateNowPlayingArtwork(
