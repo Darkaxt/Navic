@@ -570,9 +570,10 @@ class BinderyRepository(
 		val rangedSegments = sidecar.timeline.segments.filter { segment ->
 			segment.textStart != null && segment.textEnd != null
 		}
-		return rangedSegments.isEmpty() || rangedSegments.any { segment ->
-			!segment.spokenText.isNullOrBlank()
-		}
+		if (rangedSegments.isEmpty()) return true
+		val hasSpokenText = rangedSegments.any { segment -> !segment.spokenText.isNullOrBlank() }
+		val hasEbookText = rangedSegments.any { segment -> !segment.ebookText.isNullOrBlank() }
+		return hasSpokenText && hasEbookText
 	}
 
 	private suspend fun <T> withConfiguredClient(

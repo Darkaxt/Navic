@@ -153,6 +153,7 @@ import {
   readerMediaOverlayTextPoint,
   readerMediaOverlayNormalizedTextMap,
   readerMediaOverlayRawOffsetForNormalizedOffset,
+  readerMediaOverlayClampRangeBeforeNextCue,
   readerMediaOverlayResolvedTextRange,
   komikkuTapAction,
   normalizeSearchResult,
@@ -171,7 +172,8 @@ import { NavicReaderLocationMethods } from './navic-reader-location.js'
 
 const ReaderSvgNamespace = 'http://www.w3.org/2000/svg'
 const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
-const ReaderMediaOverlayRangeKey = 'navic-media-overlay-progress'
+const ReaderMediaOverlayActiveRangeKey = 'navic-media-overlay-active'
+const ReaderMediaOverlayPlayedRangeKeyPrefix = 'navic-media-overlay-played-'
 
 const readerMediaOverlayUnwrapRangeMarker = marker => {
   const parent = marker?.parentNode
@@ -260,6 +262,8 @@ class NavicReaderRuntime {
   lastPostedLocationKey = null
   lastPostedVisibleTextRangeKey = null
   lastMediaOverlayRangeDiagnosticKey = null
+  mediaOverlayActiveFragment = null
+  mediaOverlayPlayedFragments = new Map()
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
   controlledRelocateReason = null
@@ -707,6 +711,56 @@ class NavicReaderRuntime {
     return Number.isFinite(textStart) && Number.isFinite(textEnd) && textEnd > textStart
   }
 
+  mediaOverlayPlayedKeyForFragment(fragment) {
+    return `${ReaderMediaOverlayPlayedRangeKeyPrefix}${stableHash([
+      fragment?.textHref || '',
+      fragment?.clipBeginSeconds ?? '',
+      fragment?.clipEndSeconds ?? '',
+      fragment?.textStart ?? '',
+      fragment?.textEnd ?? '',
+      fragment?.ebookText || '',
+    ].join('|'))}`
+  }
+
+  rememberPlayedMediaOverlayFragment(previousFragment, nextFragment) {
+    if (!previousFragment || !this.mediaOverlayFragmentHasTextRange(previousFragment)) return
+    const previousStart = Number(previousFragment.clipBeginSeconds)
+    const nextStart = Number(nextFragment?.clipBeginSeconds)
+    if (Number.isFinite(previousStart) && Number.isFinite(nextStart) && nextStart < previousStart) return
+    const previousHref = previousFragment.textHref || ''
+    const nextHref = nextFragment?.textHref || ''
+    if (previousHref && nextHref && !readerHrefMatches(previousHref, nextHref)) return
+    const key = this.mediaOverlayPlayedKeyForFragment(previousFragment)
+    this.mediaOverlayPlayedFragments.set(key, {
+      ...previousFragment,
+      textProgressEnd: previousFragment.textEnd,
+    })
+  }
+
+  prunePlayedMediaOverlayFragments(fragment) {
+    const currentStart = Number(fragment?.clipBeginSeconds)
+    const currentHref = fragment?.textHref || ''
+    if (!Number.isFinite(currentStart) || !currentHref) return
+    for (const [key, played] of Array.from(this.mediaOverlayPlayedFragments.entries())) {
+      const playedStart = Number(played?.clipBeginSeconds)
+      const playedHref = played?.textHref || ''
+      if (Number.isFinite(playedStart) && playedStart >= currentStart && readerHrefMatches(playedHref, currentHref)) {
+        this.mediaOverlayPlayedFragments.delete(key)
+      }
+    }
+  }
+
+  paintPlayedMediaOverlayFragments() {
+    for (const [key, fragment] of this.mediaOverlayPlayedFragments.entries()) {
+      this.highlightMediaOverlayTextRange({
+        ...fragment,
+        overlayKey: key,
+        suppressDiagnostic: true,
+        textProgressEnd: fragment.textEnd,
+      })
+    }
+  }
+
   async applyOverlayFragment(fragment) {
     if (!this.view || !fragment) return
     const targetHref = fragment.textHref && fragment.fragmentId
@@ -732,7 +786,10 @@ class NavicReaderRuntime {
         await this.goTo(targetHref, 'media-overlay-follow')
       }
     }
-    this.clearOverlay()
+    this.prunePlayedMediaOverlayFragments(fragment)
+    this.rememberPlayedMediaOverlayFragment(this.mediaOverlayActiveFragment, fragment)
+    this.clearOverlay({ preservePlayed: true })
+    this.paintPlayedMediaOverlayFragments()
     let highlighted = this.highlightMediaOverlayTextRange(fragment)
     if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
       for (const doc of this.contentDocuments()) {
@@ -743,12 +800,15 @@ class NavicReaderRuntime {
         }
       }
     }
+    this.mediaOverlayActiveFragment = fragment
     post({ type: 'overlayFragmentActive', ...fragment })
   }
 
   updateOverlayFragmentProgress(fragment) {
     if (!this.view || !fragment) return
-    this.clearOverlay()
+    this.prunePlayedMediaOverlayFragments(fragment)
+    this.clearOverlay({ preservePlayed: true })
+    this.paintPlayedMediaOverlayFragments()
     let highlighted = this.highlightMediaOverlayTextRange(fragment)
     if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
       for (const doc of this.contentDocuments()) {
@@ -759,6 +819,7 @@ class NavicReaderRuntime {
         }
       }
     }
+    this.mediaOverlayActiveFragment = fragment
   }
 
   clampedMediaOverlayProgressEnd(textStart, textEnd, fragment) {
@@ -784,6 +845,7 @@ class NavicReaderRuntime {
       resolvedRange.textEnd,
       resolvedRange.matched ? 'matched' : 'fallback',
       resolvedRange.locator || '',
+      resolvedRange.clampedByNextCue ? 'next-clamp' : '',
       Math.floor(paintNormalized),
     ].join('|')
     if (key === this.lastMediaOverlayRangeDiagnosticKey) return
@@ -797,6 +859,7 @@ class NavicReaderRuntime {
       sidecarRange: `${sidecarRange.start}-${sidecarRange.end}`,
       resolvedRange: `${resolvedRange.textStart}-${resolvedRange.textEnd}`,
       normalizedRange: `${resolvedRange.normalizedTextStart}-${resolvedRange.normalizedTextEnd}`,
+      clampedByNextCue: Boolean(resolvedRange.clampedByNextCue),
       paintNormalized: Math.round(paintNormalized * 100) / 100,
       paintRaw: Math.round(paintRaw * 100) / 100,
     }
@@ -808,6 +871,8 @@ class NavicReaderRuntime {
     const textStart = Number(fragment?.textStart)
     const textEnd = Number(fragment?.textEnd)
     if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
+    const overlayKey = fragment?.overlayKey || ReaderMediaOverlayActiveRangeKey
+    const suppressDiagnostic = Boolean(fragment?.suppressDiagnostic)
     const rawPaintEnd = this.clampedMediaOverlayProgressEnd(textStart, textEnd, fragment)
     const paintEnd = Math.min(textEnd, Math.max(textStart + 1, rawPaintEnd))
     if (paintEnd <= textStart) return true
@@ -821,11 +886,28 @@ class NavicReaderRuntime {
       const entries = readerMediaOverlayTextEntries(content.doc)
       if (!entries.length) continue
       const normalizedMap = readerMediaOverlayNormalizedTextMap(entries)
-      const resolvedRange = readerMediaOverlayResolvedTextRange(
+      const resolvedRangeBeforeClamp = readerMediaOverlayResolvedTextRange(
         normalizedMap,
         textStart,
         textEnd,
         fragment.ebookText
+      )
+      const hasNextTextRange = Number.isFinite(Number(fragment.nextTextStart)) &&
+        Number.isFinite(Number(fragment.nextTextEnd)) &&
+        Number(fragment.nextTextEnd) > Number(fragment.nextTextStart)
+      const nextRange = hasNextTextRange &&
+        (!fragment.nextTextHref || !fragment.textHref || readerHrefMatches(fragment.nextTextHref, fragment.textHref))
+        ? readerMediaOverlayResolvedTextRange(
+          normalizedMap,
+          fragment.nextTextStart,
+          fragment.nextTextEnd,
+          fragment.nextEbookText
+        )
+        : null
+      const resolvedRange = readerMediaOverlayClampRangeBeforeNextCue(
+        normalizedMap,
+        resolvedRangeBeforeClamp,
+        nextRange
       )
       const resolvedTextStart = resolvedRange.textStart
       const resolvedTextEnd = resolvedRange.textEnd
@@ -837,13 +919,15 @@ class NavicReaderRuntime {
         resolvedRange.normalizedTextEnd
       )
       const resolvedRawPaintEnd = readerMediaOverlayRawOffsetForNormalizedOffset(normalizedMap, resolvedPaintEnd, 'end')
-      this.postMediaOverlayRangeDiagnostic(
-        fragment,
-        { start: textStart, end: textEnd },
-        resolvedRange,
-        resolvedPaintEnd,
-        resolvedRawPaintEnd
-      )
+      if (!suppressDiagnostic) {
+        this.postMediaOverlayRangeDiagnostic(
+          fragment,
+          { start: textStart, end: textEnd },
+          resolvedRange,
+          resolvedPaintEnd,
+          resolvedRawPaintEnd
+        )
+      }
       const start = readerMediaOverlayTextPoint(entries, Math.floor(resolvedTextStart))
       const end = readerMediaOverlayTextPoint(entries, Math.ceil(Math.min(resolvedTextEnd, resolvedRawPaintEnd)))
       if (!start || !end) continue
@@ -854,7 +938,7 @@ class NavicReaderRuntime {
         range.setStart(start.node, start.offset)
         range.setEnd(end.node, end.offset)
         if (range.collapsed) continue
-        overlayer.add(ReaderMediaOverlayRangeKey, range, Overlayer.highlight, {
+        overlayer.add(overlayKey, range, Overlayer.highlight, {
           color: 'var(--reader-accent)',
           writingMode: this.view?.renderer?.writingMode,
         })
@@ -875,9 +959,19 @@ class NavicReaderRuntime {
   }
 
   clearOverlay() {
+    const { preservePlayed = false } = arguments[0] || {}
     let removedAny = false
     for (const content of this.contentEntries()) {
-      content.overlayer?.remove?.(ReaderMediaOverlayRangeKey)
+      content.overlayer?.remove?.(ReaderMediaOverlayActiveRangeKey)
+      if (!preservePlayed) {
+        for (const key of this.mediaOverlayPlayedFragments.keys()) {
+          content.overlayer?.remove?.(key)
+        }
+      }
+    }
+    if (!preservePlayed) {
+      this.mediaOverlayPlayedFragments.clear()
+      this.mediaOverlayActiveFragment = null
     }
     for (const doc of this.contentDocuments()) {
       for (const marker of Array.from(doc.querySelectorAll(`[${ReaderMediaOverlayRangeAttribute}="true"]`))) {

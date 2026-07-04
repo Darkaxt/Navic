@@ -122,6 +122,10 @@ class ReaderBridgeProtocolTest {
 				textProgressEnd = 24,
 				spokenText = "I am not a good person.",
 				ebookText = "Alcatraz Versus the Evil Librarian AUTHOR’S FOREWORD. I AM NOT A GOOD PERSON",
+				nextTextHref = "EPUB/Text/chapter1.xhtml",
+				nextTextStart = 81,
+				nextTextEnd = 121,
+				nextEbookText = "OH, I KNOW WHAT THE STORIES SAY ABOUT ME",
 				label = "Chapter 1 / Paragraph 1"
 			)
 		).toJavaScript()
@@ -137,6 +141,10 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"textProgressEnd\":24")
 		assertContains(script, "\"spokenText\":\"I am not a good person.\"")
 		assertContains(script, "\"ebookText\":\"Alcatraz Versus the Evil Librarian AUTHOR")
+		assertContains(script, "\"nextTextHref\":\"EPUB/Text/chapter1.xhtml\"")
+		assertContains(script, "\"nextTextStart\":81")
+		assertContains(script, "\"nextTextEnd\":121")
+		assertContains(script, "\"nextEbookText\":\"OH, I KNOW WHAT THE STORIES SAY ABOUT ME\"")
 		assertContains(script, "\"label\":\"Chapter 1 / Paragraph 1\"")
 	}
 

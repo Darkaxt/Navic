@@ -191,6 +191,25 @@ export const readerMediaOverlayClosestTextMatch = (normalizedText, normalizedSpo
   return best
 }
 
+export const readerMediaOverlayEbookTextCandidates = ebookText => {
+  const comparableEbook = readerMediaOverlayComparableTextWithOffsets(String(ebookText || '').trim())
+  const text = comparableEbook.text || ''
+  if (!text) return []
+  const candidates = [{ text, locator: 'ebook-text', priority: 0 }]
+  const minimumSuffixLength = Math.max(16, Math.min(48, Math.floor(text.length * 0.35)))
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== ' ') continue
+    const suffix = text.slice(index + 1).trim()
+    if (suffix.length < minimumSuffixLength || suffix.length >= text.length) continue
+    candidates.push({
+      text: suffix,
+      locator: 'ebook-text-suffix',
+      priority: 1,
+    })
+  }
+  return candidates
+}
+
 export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, textEnd, ebookText) => {
   const map = Array.isArray(normalizedMap) ? readerMediaOverlayNormalizedTextMap(normalizedMap) : (normalizedMap || {})
   const mapLength = map.text?.length || 0
@@ -219,14 +238,43 @@ export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, te
   const searchStart = Math.max(0, fallbackStart - searchPadding)
   const searchEnd = Math.min(mapLength, fallbackEnd + searchPadding)
   const searchText = map.text.slice(searchStart, searchEnd)
-  const comparableEbook = readerMediaOverlayComparableTextWithOffsets(locatorText)
-  if (!searchText || !comparableEbook.text) return fallback
-  const match = readerMediaOverlayClosestTextMatch(
-    searchText,
-    comparableEbook.text,
-    (fallbackStart + fallbackEnd) / 2
-  )
-  if (!match) return fallback
+  const candidates = readerMediaOverlayEbookTextCandidates(locatorText)
+  if (!searchText || !candidates.length) return fallback
+  const preferredCenter = (fallbackStart + fallbackEnd) / 2
+  const preferredCenterInSearch = preferredCenter - searchStart
+  let match = null
+  let matchedCandidate = null
+  for (const candidate of candidates.filter(candidate => candidate.priority === 0)) {
+    const candidateMatch = readerMediaOverlayClosestTextMatch(
+      searchText,
+      candidate.text,
+      preferredCenterInSearch
+    )
+    if (candidateMatch) {
+      match = candidateMatch
+      matchedCandidate = candidate
+      break
+    }
+  }
+  if (!match) {
+    for (const candidate of candidates.filter(candidate => candidate.priority > 0)) {
+      const candidateMatch = readerMediaOverlayClosestTextMatch(
+        searchText,
+        candidate.text,
+        preferredCenterInSearch
+      )
+      if (!candidateMatch) continue
+      if (
+        !match ||
+          candidate.text.length > matchedCandidate.text.length ||
+          (candidate.text.length === matchedCandidate.text.length && candidateMatch.centerDistance < match.centerDistance)
+      ) {
+        match = candidateMatch
+        matchedCandidate = candidate
+      }
+    }
+  }
+  if (!match || !matchedCandidate) return fallback
   const normalizedTextStart = searchStart + match.normalizedTextStart
   const normalizedTextEnd = searchStart + match.normalizedTextEnd
   const resolvedStart = readerMediaOverlayRawOffsetForNormalizedOffset(map, normalizedTextStart, 'start')
@@ -238,7 +286,30 @@ export const readerMediaOverlayResolvedTextRange = (normalizedMap, textStart, te
     normalizedTextStart,
     normalizedTextEnd,
     matched: true,
-    locator: 'ebook-text',
+    locator: matchedCandidate.locator,
+  }
+}
+
+export const readerMediaOverlayClampRangeBeforeNextCue = (normalizedMap, range, nextRange) => {
+  const map = Array.isArray(normalizedMap) ? readerMediaOverlayNormalizedTextMap(normalizedMap) : (normalizedMap || {})
+  const nextStart = Number(nextRange?.normalizedTextStart)
+  const currentStart = Number(range?.normalizedTextStart)
+  const currentEnd = Number(range?.normalizedTextEnd)
+  if (
+    !Number.isFinite(nextStart) ||
+      !Number.isFinite(currentStart) ||
+      !Number.isFinite(currentEnd) ||
+      nextStart <= currentStart ||
+      nextStart >= currentEnd
+  ) {
+    return range
+  }
+  const textEnd = readerMediaOverlayRawOffsetForNormalizedOffset(map, nextStart, 'start')
+  return {
+    ...range,
+    textEnd: Math.max(range.textStart, textEnd),
+    normalizedTextEnd: nextStart,
+    clampedByNextCue: true,
   }
 }
 

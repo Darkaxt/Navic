@@ -161,7 +161,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			copy(activeSegmentProgressTextEnd = progressTextEnd)
 				.withEngineCommand(
 					ReaderEngineCommand.UpdateMediaOverlayProgress(
-						segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+						timeline.overlayFragmentFor(segment, progressTextEnd)
 					)
 				)
 		} else {
@@ -183,7 +183,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			activeSegmentProgressTextEnd = progressTextEnd
 		).withEngineCommand(
 			ReaderEngineCommand.ApplyMediaOverlay(
-				segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+				timeline.overlayFragmentFor(segment, progressTextEnd)
 			)
 		)
 	}
@@ -271,7 +271,7 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 		activeSegmentProgressTextEnd = progressTextEnd
 	).withEngineCommand(
 		ReaderEngineCommand.ApplyMediaOverlay(
-			target.segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+			timeline.overlayFragmentFor(target.segment, progressTextEnd)
 		)
 	)
 	return ReaderWhispersyncVisibleRangeStep(
@@ -323,7 +323,7 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 	val command = if (key == activeSegmentKey) {
 		if (progressTextEnd != null && progressTextEnd != activeSegmentProgressTextEnd) {
 			ReaderEngineCommand.UpdateMediaOverlayProgress(
-				target.segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+				timeline.overlayFragmentFor(target.segment, progressTextEnd)
 			)
 		} else {
 			null
@@ -337,7 +337,7 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 				"textRange=${target.segment.textStart ?: "n/a"}-${target.segment.textEnd ?: "n/a"}"
 		)
 		ReaderEngineCommand.ApplyMediaOverlay(
-			target.segment.toReaderOverlayFragment(textProgressEnd = progressTextEnd)
+			timeline.overlayFragmentFor(target.segment, progressTextEnd)
 		)
 	}
 	return ReaderWhispersyncVisibleRangeStep(
@@ -391,6 +391,15 @@ private fun ReaderWhispersyncSyncState.withEngineCommand(
 			engineCommandKey = engineCommandKey + 1L
 		)
 	}
+
+private fun WhispersyncTimeline.overlayFragmentFor(
+	segment: WhispersyncSegment,
+	textProgressEnd: Int? = null
+): ReaderOverlayFragment =
+	segment.toReaderOverlayFragment(
+		textProgressEnd = textProgressEnd,
+		nextSegment = nextSegmentAfter(segment)
+	)
 
 private fun WhispersyncSegment.readerOverlaySyncKey(): String =
 	listOf(

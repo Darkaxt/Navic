@@ -139,6 +139,48 @@ class ReaderWhispersyncSyncCoordinatorTest {
 	}
 
 	@Test
+	fun playbackPositionIncludesNextCueHintForWebHighlightClamping() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "cue-1",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 0,
+					endMs = 18_040,
+					textHref = "Text/authorsforeword.xhtml",
+					textStart = 0,
+					textEnd = 78,
+					spokenText = "I am not a good person.",
+					ebookText = "Alcatraz Versus the Evil Librarian AUTHOR’S FOREWORD. I AM NOT A GOOD PERSON"
+				),
+				WhispersyncSegment(
+					id = "cue-2",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 18_040,
+					endMs = 21_440,
+					textHref = "Text/authorsforeword.xhtml",
+					textStart = 81,
+					textEnd = 121,
+					spokenText = "Oh, I know what the stories say about me.",
+					ebookText = "OH, I KNOW WHAT THE STORIES SAY ABOUT ME"
+				)
+			)
+		)
+
+		val state = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 1_000
+		)
+
+		val command = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(state.engineCommand)
+		assertEquals("Text/authorsforeword.xhtml", command.fragment.nextTextHref)
+		assertEquals(81, command.fragment.nextTextStart)
+		assertEquals(121, command.fragment.nextTextEnd)
+		assertEquals("OH, I KNOW WHAT THE STORIES SAY ABOUT ME", command.fragment.nextEbookText)
+	}
+
+	@Test
 	fun playbackPositionInTimelineGapClearsOverlayWithoutMismatchRepairPrompt() {
 		val timeline = whispersyncTimeline()
 		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(

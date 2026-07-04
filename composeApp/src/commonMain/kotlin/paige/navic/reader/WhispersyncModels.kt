@@ -114,6 +114,24 @@ data class WhispersyncTimeline(
 				)
 			}
 	}
+
+	fun nextSegmentAfter(segment: WhispersyncSegment): WhispersyncSegment? {
+		val normalizedText = normalizedMediaOverlayResource(segment.textHref)
+		val normalizedAudio = normalizedMediaOverlayResource(segment.audioResource)
+		return segments
+			.asSequence()
+			.filter { candidate ->
+				candidate !== segment &&
+					candidate.startMs >= segment.endMs &&
+					normalizedMediaOverlayResource(candidate.textHref) == normalizedText &&
+					normalizedMediaOverlayResource(candidate.audioResource) == normalizedAudio &&
+					(segment.audioTrackIndex == null || candidate.audioTrackIndex == segment.audioTrackIndex)
+			}
+			.minWithOrNull(
+				compareBy<WhispersyncSegment> { candidate -> candidate.startMs }
+					.thenBy { candidate -> candidate.textStart ?: Int.MAX_VALUE }
+			)
+	}
 }
 
 @Serializable
@@ -133,7 +151,10 @@ data class WhispersyncSegment(
 	val ebookText: String? = null,
 	val label: String? = null
 ) {
-	fun toReaderOverlayFragment(textProgressEnd: Int? = null): ReaderOverlayFragment =
+	fun toReaderOverlayFragment(
+		textProgressEnd: Int? = null,
+		nextSegment: WhispersyncSegment? = null
+	): ReaderOverlayFragment =
 		ReaderOverlayFragment(
 			resourceHref = audioResource,
 			fragmentId = fragmentId,
@@ -145,6 +166,10 @@ data class WhispersyncSegment(
 			textProgressEnd = textProgressEnd,
 			spokenText = spokenText,
 			ebookText = ebookText,
+			nextTextHref = nextSegment?.textHref,
+			nextTextStart = nextSegment?.textStart,
+			nextTextEnd = nextSegment?.textEnd,
+			nextEbookText = nextSegment?.ebookText,
 			label = label
 		)
 }

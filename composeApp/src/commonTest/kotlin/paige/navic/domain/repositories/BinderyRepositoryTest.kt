@@ -226,6 +226,7 @@ class BinderyRepositoryTest {
 			      "textStart": 10,
 			      "textEnd": 42,
 			      "spokenText": "Opening words",
+			      "ebookText": "Opening words",
 			      "label": "Opening"
 			    }
 			  ]
@@ -325,6 +326,82 @@ class BinderyRepositoryTest {
 		assertEquals("I am not a good person.", sidecar.timeline.segments.single().spokenText)
 		assertEquals(listOf(path), apiClient.whispersyncSidecarPaths)
 		assertTrue(metadataCache.records.getValue(staleCacheKey).payloadJson.contains("I am not a good person."))
+	}
+
+	@Test
+	fun whispersyncSidecarRefetchesFreshCacheWhenEbookTextIsMissing() = runBlocking {
+		val path = "/api/v1/sync/artifacts/2"
+		val apiClient = FakeBinderyApiClient(
+			whispersyncSidecarJson = """
+			{
+			  "schema": "bindery.whispersync.sidecar.v1",
+			  "bookId": 3959,
+			  "ebookBookFileId": 212,
+			  "audiobookBookFileId": 572,
+			  "cues": [
+			    {
+			      "id": 3,
+			      "audioHref": "Part 01.mp3",
+			      "audioStart": 21.44,
+			      "audioEnd": 27.52,
+			      "ebookHref": "OEBPS/Text/authorsforeword.xhtml",
+			      "ebookStart": 123,
+			      "ebookEnd": 190,
+			      "text": "They call me Oculator Dramatis, Hero, Savior of the 17 Kingdoms.",
+			      "ebookText": "THEY CALL ME OCULATOR DRAMATUS, HERO, SAVIOR OF THE TWELVE KINGDOMS"
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val staleCacheKey = binderyMetadataCacheKey(
+			baseUrl = "https://bindery.example.com/opds",
+			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+			path = path
+		)
+		val metadataCache = RecordingBinderyMetadataCache().apply {
+			runBlocking {
+				put(
+					BinderyMetadataCacheRecord(
+						cacheKey = staleCacheKey,
+						baseUrl = "https://bindery.example.com/opds",
+						payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+						path = path,
+						payloadJson = """
+						{
+						  "artifactId": "2",
+						  "segments": [
+						    {
+						      "audioHref": "Part 01.mp3",
+						      "startMs": 21440,
+						      "endMs": 27520,
+						      "textHref": "OEBPS/Text/authorsforeword.xhtml",
+						      "textStart": 123,
+						      "textEnd": 190,
+						      "spokenText": "They call me Oculator Dramatis, Hero, Savior of the 17 Kingdoms."
+						    }
+						  ]
+						}
+						""".trimIndent(),
+						updatedAtMillis = 1_000L
+					)
+				)
+			}
+		}
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { 2_000L }
+		)
+
+		val sidecar = repository.getWhispersyncSidecar(path).getOrThrow()
+
+		assertEquals(
+			"THEY CALL ME OCULATOR DRAMATUS, HERO, SAVIOR OF THE TWELVE KINGDOMS",
+			sidecar.timeline.segments.single().ebookText
+		)
+		assertEquals(listOf(path), apiClient.whispersyncSidecarPaths)
+		assertTrue(metadataCache.records.getValue(staleCacheKey).payloadJson.contains("ebookText"))
 	}
 
 	@Test

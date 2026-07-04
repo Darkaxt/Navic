@@ -20,7 +20,7 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		val applyOverlay = runtime
 			.substringAfter("async applyOverlayFragment(fragment) {")
 			.substringBefore("\n  highlightMediaOverlayTextRange")
-		val paintBlock = applyOverlay.substringAfter("this.clearOverlay()")
+		val paintBlock = applyOverlay.substringAfter("this.clearOverlay({ preservePlayed: true })")
 		val textRangePath = paintBlock.indexOf("this.highlightMediaOverlayTextRange(fragment)")
 		val fragmentIdPath = paintBlock.indexOf("fragment.fragmentId")
 		assertTrue(
@@ -109,6 +109,47 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertContains(highlighter, "resolvedTextEnd")
 		assertContains(highlighter, "mediaOverlayPaintEndForResolvedRange")
 		assertContains(highlighter, "readerMediaOverlayRawOffsetForNormalizedOffset")
+	}
+
+	@Test
+	fun progressiveWhispersyncHighlightUsesVisibleEbookTextSuffixAndNextCueClamp() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+		val helpers = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-helpers.js").readText()
+
+		assertContains(helpers, "readerMediaOverlayEbookTextCandidates")
+		assertContains(helpers, "locator: 'ebook-text-suffix'")
+		assertContains(helpers, "preferredCenter - searchStart")
+		assertContains(helpers, "readerMediaOverlayClampRangeBeforeNextCue")
+
+		val highlighter = runtime
+			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
+			.substringBefore("\n  clearOverlay()")
+
+		assertContains(highlighter, "fragment.nextEbookText")
+		assertContains(highlighter, "fragment.nextTextStart")
+		assertContains(highlighter, "fragment.nextTextEnd")
+		assertContains(highlighter, "readerMediaOverlayClampRangeBeforeNextCue")
+	}
+
+	@Test
+	fun progressiveWhispersyncHighlightKeepsPlayedOverlaySeparateFromActiveOverlay() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		assertContains(runtime, "ReaderMediaOverlayActiveRangeKey")
+		assertContains(runtime, "ReaderMediaOverlayPlayedRangeKeyPrefix")
+		assertContains(runtime, "rememberPlayedMediaOverlayFragment")
+		assertContains(runtime, "prunePlayedMediaOverlayFragments")
+
+		val highlighter = runtime
+			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
+			.substringBefore("\n  clearOverlay()")
+
+		assertContains(highlighter, "overlayKey")
+		assertContains(highlighter, "ReaderMediaOverlayActiveRangeKey")
+		assertFalse(
+			highlighter.contains("overlayer.add(ReaderMediaOverlayRangeKey"),
+			"Whispersync active highlighting must not reuse the played-highlight key; completed cues need separate persistent overlays."
+		)
 	}
 
 	@Test
