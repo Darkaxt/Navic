@@ -155,6 +155,9 @@ data class ReaderSettings(
 	val keepScreenOn: Boolean? = null,
 	val readaloudSyncEnabled: Boolean? = null,
 	val whispersyncHighlightLeadMs: Int? = null,
+	val whispersyncHighlightColorArgb: Int? = null,
+	val whispersyncHighlightLoading: String? = null,
+	val whispersyncHighlightStyle: String? = null,
 	val volumeKeyPageTurns: Boolean? = null,
 	val webContentsDebuggingEnabled: Boolean? = null
 )
@@ -802,6 +805,9 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		keepScreenOn?.let { put("keepScreenOn", it) }
 		readaloudSyncEnabled?.let { put("readaloudSyncEnabled", it) }
 		whispersyncHighlightLeadMs?.let { put("whispersyncHighlightLeadMs", it) }
+		whispersyncHighlightColorArgb?.let { put("whispersyncHighlightColorArgb", it) }
+		whispersyncHighlightLoading?.let { put("whispersyncHighlightLoading", it) }
+		whispersyncHighlightStyle?.let { put("whispersyncHighlightStyle", it) }
 		volumeKeyPageTurns?.let { put("volumeKeyPageTurns", it) }
 		webContentsDebuggingEnabled?.let { put("webContentsDebuggingEnabled", it) }
 	}

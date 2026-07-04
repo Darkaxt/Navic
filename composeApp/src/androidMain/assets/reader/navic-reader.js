@@ -175,6 +175,17 @@ const ReaderMediaOverlayRangeAttribute = 'data-navic-media-overlay-range'
 const ReaderMediaOverlayActiveRangeKey = 'navic-media-overlay-active'
 const ReaderMediaOverlayPlayedRangeKeyPrefix = 'navic-media-overlay-played-'
 
+const readerCssColorFromArgb = (argb, fallback) => {
+  const value = Number(argb)
+  if (!Number.isFinite(value)) return fallback
+  const unsigned = value >>> 0
+  const alpha = ((unsigned >>> 24) & 255) / 255
+  const red = (unsigned >>> 16) & 255
+  const green = (unsigned >>> 8) & 255
+  const blue = unsigned & 255
+  return `rgba(${red}, ${green}, ${blue}, ${Math.round(alpha * 1000) / 1000})`
+}
+
 const readerMediaOverlayUnwrapRangeMarker = marker => {
   const parent = marker?.parentNode
   if (!parent) return false
@@ -184,6 +195,48 @@ const readerMediaOverlayUnwrapRangeMarker = marker => {
   parent.removeChild(marker)
   parent.normalize?.()
   return true
+}
+
+const readerDrawMediaOverlaySelection = (rects, options = {}) => {
+  const { color = 'red', padding = 0 } = options
+  const group = document.createElementNS(ReaderSvgNamespace, 'g')
+  group.setAttribute('fill', color)
+  group.style.mixBlendMode = 'var(--overlayer-highlight-blend-mode, normal)'
+  for (const { left, top, height, width } of rects) {
+    const element = document.createElementNS(ReaderSvgNamespace, 'rect')
+    element.setAttribute('x', left - padding)
+    element.setAttribute('y', top - padding)
+    element.setAttribute('height', height + padding * 2)
+    element.setAttribute('width', width + padding * 2)
+    group.append(element)
+  }
+  return group
+}
+
+const readerDrawMediaOverlayMarker = (rects, options = {}) => {
+  const { color = 'red', padding = 0 } = options
+  const group = document.createElementNS(ReaderSvgNamespace, 'g')
+  group.setAttribute('fill', color)
+  group.style.mixBlendMode = 'var(--overlayer-highlight-blend-mode, normal)'
+  for (const { left, top, height, width } of rects) {
+    const markerTop = top - padding
+    const markerLeft = left - padding
+    const markerWidth = width + padding * 2
+    const markerHeight = height + padding * 2
+    const slant = Math.min(Math.max(markerHeight * 0.36, 2), 12)
+    const element = document.createElementNS(ReaderSvgNamespace, 'polygon')
+    element.setAttribute(
+      'points',
+      [
+        `${markerLeft},${markerTop + slant}`,
+        `${markerLeft + markerWidth},${markerTop}`,
+        `${markerLeft + markerWidth},${markerTop + markerHeight - slant}`,
+        `${markerLeft},${markerTop + markerHeight}`,
+      ].join(' ')
+    )
+    group.append(element)
+  }
+  return group
 }
 
 const readerDrawNoteAnnotation = (rects, options = {}) => {
@@ -735,6 +788,7 @@ class NavicReaderRuntime {
   }
 
   rememberPlayedMediaOverlayFragment(previousFragment, nextFragment) {
+    if (!this.readerMediaOverlayPersistentPlayed()) return
     if (!previousFragment || !this.mediaOverlayFragmentHasTextRange(previousFragment)) return
     const previousStart = Number(previousFragment.clipBeginSeconds)
     const nextStart = Number(nextFragment?.clipBeginSeconds)
@@ -773,6 +827,20 @@ class NavicReaderRuntime {
         textProgressFraction: 1,
       })
     }
+  }
+
+  readerMediaOverlayPersistentPlayed(settings = this.readerSettings) {
+    return settings?.whispersyncHighlightLoading === 'persistent-played-text'
+  }
+
+  readerMediaOverlayHighlightColor(settings = this.readerSettings) {
+    return readerCssColorFromArgb(settings?.whispersyncHighlightColorArgb, 'rgba(246, 195, 67, 0.4)')
+  }
+
+  readerMediaOverlayHighlightDraw(settings = this.readerSettings) {
+    return settings?.whispersyncHighlightStyle === 'marker'
+      ? readerDrawMediaOverlayMarker
+      : readerDrawMediaOverlaySelection
   }
 
   mediaOverlayAnimationKeyForFragment(fragment) {
@@ -817,8 +885,9 @@ class NavicReaderRuntime {
   }
 
   paintActiveMediaOverlayFragment(fragment) {
-    this.clearOverlay({ preservePlayed: true, preserveAnimation: true })
-    this.paintPlayedMediaOverlayFragments()
+    const preservePlayed = this.readerMediaOverlayPersistentPlayed()
+    this.clearOverlay({ preservePlayed, preserveAnimation: true })
+    if (preservePlayed) this.paintPlayedMediaOverlayFragments()
     let highlighted = this.highlightMediaOverlayTextRange(fragment)
     if (!highlighted && fragment.fragmentId && !this.mediaOverlayFragmentHasTextRange(fragment)) {
       for (const doc of this.contentDocuments()) {
@@ -973,6 +1042,8 @@ class NavicReaderRuntime {
     if (!Number.isFinite(textStart) || !Number.isFinite(textEnd) || textEnd <= textStart) return false
     const overlayKey = fragment?.overlayKey || ReaderMediaOverlayActiveRangeKey
     const suppressDiagnostic = Boolean(fragment?.suppressDiagnostic)
+    const highlightColor = this.readerMediaOverlayHighlightColor()
+    const highlightDraw = this.readerMediaOverlayHighlightDraw()
     const rawPaintEnd = this.clampedMediaOverlayProgressEnd(textStart, textEnd, fragment)
     const paintEnd = Math.min(textEnd, Math.max(textStart + 1, rawPaintEnd))
     if (paintEnd <= textStart) return true
@@ -1039,8 +1110,8 @@ class NavicReaderRuntime {
         range.setStart(start.node, start.offset)
         range.setEnd(end.node, end.offset)
         if (range.collapsed) continue
-        overlayer.add(overlayKey, range, Overlayer.highlight, {
-          color: 'var(--reader-accent)',
+        overlayer.add(overlayKey, range, highlightDraw, {
+          color: highlightColor,
           writingMode: this.view?.renderer?.writingMode,
         })
         highlighted = true

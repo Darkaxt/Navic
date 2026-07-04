@@ -41,6 +41,7 @@ import paige.navic.reader.ReaderCoordinatorStep
 import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineEvent
 import paige.navic.reader.ReaderEngineHostEvent
+import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -54,10 +55,14 @@ import paige.navic.reader.applyReaderCoordinatorStep
 import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.encodeReaderReadingProgress
 import paige.navic.reader.persistReaderMarksIfChanged
+import paige.navic.reader.normalizedReaderListeningSettings
 import paige.navic.reader.readerAnnotationState
 import paige.navic.reader.readerBookmarkState
+import paige.navic.reader.readerListeningSettings
 import paige.navic.reader.readerWhispersyncPlaybackCommandForSeekTarget
 import paige.navic.reader.ReaderReadingProgressState
+import paige.navic.reader.setReaderListeningSettings
+import paige.navic.reader.withReaderListeningSettings
 import paige.navic.reader.whispersyncLogValue
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
@@ -134,12 +139,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 			scope = readerSettingsScope
 		)
 	}
+	var listeningSettings by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
+		mutableStateOf(preferenceManager.readerListeningSettings())
+	}
 	var coordinator by remember(reader.bookId, reader.resourceHref, reader.publicationUrl) {
 		mutableStateOf(
 			ReaderCoordinator(
 				controller = ReaderController(
 					state = ReaderControllerState(
-						chrome = ReaderChromeState(settings = defaultReaderSettings),
+						chrome = ReaderChromeState(settings = defaultReaderSettings.withReaderListeningSettings(listeningSettings)),
 						annotations = preferenceManager.readerAnnotationState(),
 						bookmarks = preferenceManager.readerBookmarkState()
 					)
@@ -173,7 +181,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
-	val readaloudSyncEnabled = settings.readaloudSyncEnabled != false
+	val runtimeSettings = settings.withReaderListeningSettings(listeningSettings)
+	val readaloudSyncEnabled = runtimeSettings.readaloudSyncEnabled != false
 	val whispersyncReadaloudPlaybackState = audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(
 		playbackPlan = whispersyncPlaybackPlan,
 		bookId = reader.bookId,
@@ -290,6 +299,21 @@ fun ReaderScreen(reader: Screen.Reader) {
 		applyCoordinatorStep(coordinator.applySettings(normalized))
 	}
 
+	fun applyReaderListeningSettings(nextSettings: ReaderListeningSettings) {
+		val normalized = nextSettings.normalizedReaderListeningSettings()
+		listeningSettings = normalized
+		preferenceManager.setReaderListeningSettings(normalized)
+		applyCoordinatorStep(coordinator.applySettings(settings.withReaderListeningSettings(normalized)))
+		audiobookPlaybackManager.dispatch(ReaderReadaloudPlaybackCommand.SetSpeed(normalized.playbackSpeed))
+		if (!normalized.listeningEnabled) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync playback command source=listening-settings command=${ReaderReadaloudPlaybackCommand.StopAndReset}"
+			)
+			audiobookPlaybackManager.dispatch(ReaderReadaloudPlaybackCommand.StopAndReset)
+		}
+	}
+
 	fun selectReaderSettingsScope(scope: ReaderSettingsScope) {
 		readerSettingsScope = scope
 		val nextSettings = preferenceManager.readerSettingsForSelectedScope(
@@ -319,7 +343,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		whispersyncPlaybackPlan,
 		reader.bookId,
 		reader.whispersyncAudiobookId,
-		settings.readaloudSyncEnabled
+		readaloudSyncEnabled
 	) {
 		whispersyncReadaloudPlaybackState?.let { playbackState ->
 			applyCoordinatorStep(coordinator.onReadaloudPlaybackState(playbackState))
@@ -353,7 +377,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 						shellCoverUrl = shellCoverUrl,
 						savedProgress = savedProgress,
 						localStartLocator = localStartLocator,
-						settings = settings
+						settings = runtimeSettings
 					)
 				)
 			)
@@ -425,6 +449,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 								imageRequestHeaders = requestHeaders,
 								playWhenReady = false
 							)
+							audiobookPlaybackManager.dispatch(
+								ReaderReadaloudPlaybackCommand.SetSpeed(listeningSettings.playbackSpeed)
+							)
 							Logger.i(
 								ReaderScreenTag,
 								"Whispersync audiobook plan loaded audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId} " +
@@ -463,7 +490,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	ReaderReadaloudRuntimeHost(
 		reader = reader,
-		readaloudSyncEnabled = settings.readaloudSyncEnabled != false,
+		readaloudSyncEnabled = readaloudSyncEnabled,
 		readerHostEvent = lastReaderEngineHostEvent,
 		readerHostEventKey = readerEngineHostEventKey,
 		onPublicationReady = { publicationUrl ->
@@ -473,7 +500,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 						publicationUrl = publicationUrl,
 						shellCoverUrl = null,
 						savedProgress = null,
-						settings = settings
+						settings = runtimeSettings
 					)
 				)
 			)
@@ -519,6 +546,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		settingsScope = readerSettingsScope,
 		hasBookSettings = hasReaderBookSettings,
 		publicationFormat = reader.publicationFormat,
+		whispersyncCapable = reader.whispersyncLaunchAttachment() != null,
+		listeningSettings = listeningSettings,
 		readaloudPlaybackState = whispersyncReadaloudPlaybackState,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onViewerAction = { action ->
@@ -637,6 +666,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onRepairWhispersyncMismatch = {
 			applyCoordinatorStep(coordinator.repairWhispersyncMismatch())
+		},
+		onListeningSettingsChange = { nextSettings ->
+			applyReaderListeningSettings(nextSettings)
 		},
 		onDismissDialog = {
 			applyCoordinatorStep(coordinator.closeDialog())

@@ -172,6 +172,26 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun applySettingsCommandDispatchesWhispersyncListeningOverlaySettings() {
+		val script = ReaderBridgeCommand.ApplySettings(
+			ReaderSettings(
+				readaloudSyncEnabled = true,
+				whispersyncHighlightLeadMs = 750,
+				whispersyncHighlightColorArgb = 0x66F6C343,
+				whispersyncHighlightLoading = "persistent-played-text",
+				whispersyncHighlightStyle = "marker"
+			)
+		).toJavaScript()
+
+		assertContains(script, "\"type\":\"applySettings\"")
+		assertContains(script, "\"readaloudSyncEnabled\":true")
+		assertContains(script, "\"whispersyncHighlightLeadMs\":750")
+		assertContains(script, "\"whispersyncHighlightColorArgb\":1727447875")
+		assertContains(script, "\"whispersyncHighlightLoading\":\"persistent-played-text\"")
+		assertContains(script, "\"whispersyncHighlightStyle\":\"marker\"")
+	}
+
+	@Test
 	fun goToCfiCommandDispatchesSearchResultNavigationTarget() {
 		val script = ReaderBridgeCommand.GoToCfi("epubcfi(/6/8!/4/1:0)").toJavaScript()
 

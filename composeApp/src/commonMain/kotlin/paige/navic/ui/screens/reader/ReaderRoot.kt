@@ -17,6 +17,7 @@ import paige.navic.reader.ReaderControllerState
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
+import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -42,6 +43,8 @@ internal fun KomikkuReaderRoot(
 	settingsScope: ReaderSettingsScope,
 	hasBookSettings: Boolean,
 	publicationFormat: ReaderPublicationFormat,
+	whispersyncCapable: Boolean,
+	listeningSettings: ReaderListeningSettings,
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	onViewerAction: (ReaderViewerAction) -> Unit,
@@ -77,6 +80,7 @@ internal fun KomikkuReaderRoot(
 	onResetBookSettings: () -> Unit,
 	onRepairWhispersyncMismatch: () -> Unit,
 	onDismissDialog: () -> Unit,
+	onListeningSettingsChange: (ReaderListeningSettings) -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
@@ -181,6 +185,8 @@ internal fun KomikkuReaderRoot(
 						settingsScope = settingsScope,
 						hasBookSettings = hasBookSettings,
 						publicationFormat = publicationFormat,
+						whispersyncCapable = whispersyncCapable,
+						listeningSettings = listeningSettings,
 						onNavigateToTocItem = onNavigateToTocItem,
 						onToggleCurrentBookmark = onToggleCurrentBookmark,
 						onHighlightSelection = onHighlightSelection,
@@ -196,6 +202,7 @@ internal fun KomikkuReaderRoot(
 						onSettingsScopeChange = onSettingsScopeChange,
 						onResetBookSettings = onResetBookSettings,
 						onRepairWhispersyncMismatch = onRepairWhispersyncMismatch,
+						onListeningSettingsChange = onListeningSettingsChange,
 						onNavigateToBookmark = onNavigateToBookmark,
 						onNavigateToAnnotation = onNavigateToAnnotation,
 						onDismissDialog = onDismissDialog,
@@ -251,6 +258,8 @@ private fun KomikkuComposeOverlay(
 	settingsScope: ReaderSettingsScope,
 	hasBookSettings: Boolean,
 	publicationFormat: ReaderPublicationFormat,
+	whispersyncCapable: Boolean,
+	listeningSettings: ReaderListeningSettings,
 	onNavigateToTocItem: (ReaderTocItem) -> Unit,
 	onNavigateToBookmark: (ReaderBookmark) -> Unit,
 	onNavigateToAnnotation: (ReaderAnnotation) -> Unit,
@@ -268,6 +277,7 @@ private fun KomikkuComposeOverlay(
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
 	onRepairWhispersyncMismatch: () -> Unit,
+	onListeningSettingsChange: (ReaderListeningSettings) -> Unit,
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
@@ -352,7 +362,12 @@ private fun KomikkuComposeOverlay(
 				settingsScope = settingsScope,
 				hasBookSettings = hasBookSettings,
 				publicationFormat = publicationFormat,
+				whispersyncCapable = whispersyncCapable,
+				listeningSettings = listeningSettings,
+				readaloudPlaybackState = readaloudPlaybackState ?: ReaderReadaloudPlaybackUiState(),
 				onSettingsChange = onSettingsChange,
+				onListeningSettingsChange = onListeningSettingsChange,
+				onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
 				onSettingsScopeChange = onSettingsScopeChange,
 				onResetBookSettings = onResetBookSettings,
 				onShowMenus = onShowMenus,

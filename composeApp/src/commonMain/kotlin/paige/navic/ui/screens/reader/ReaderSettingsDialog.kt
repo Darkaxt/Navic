@@ -65,7 +65,10 @@ import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
+import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderPublicationFormat
+import paige.navic.reader.ReaderReadaloudPlaybackCommand
+import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderSupportedColorFilterModes
@@ -79,6 +82,8 @@ import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedSettingsScopes
 import paige.navic.reader.ReaderSupportedTapZoneInvertModes
 import paige.navic.reader.ReaderSupportedThemes
+import paige.navic.reader.ReaderWhispersyncHighlightLoading
+import paige.navic.reader.ReaderWhispersyncHighlightStyle
 import paige.navic.reader.ReaderTapZoneDefault
 import paige.navic.reader.ReaderTapZoneDisabled
 import paige.navic.reader.ReaderTapZoneEdge
@@ -101,6 +106,7 @@ import paige.navic.reader.normalizedReaderTapZone
 import paige.navic.reader.normalizedReaderTapZoneInvertMode
 import paige.navic.reader.normalizedReaderTheme
 import paige.navic.reader.normalizedReaderWhispersyncHighlightLeadMs
+import paige.navic.reader.defaultReaderListeningSettings
 import paige.navic.reader.readerColorFilterModeShortLabel
 import paige.navic.reader.readerDirectionShortLabel
 import paige.navic.reader.readerDragAnimationModeShortLabel
@@ -111,6 +117,7 @@ import paige.navic.reader.readerOrientationShortLabel
 import paige.navic.reader.readerPdfFitShortLabel
 import paige.navic.reader.readerSettingsScopeLabel
 import paige.navic.reader.readerThemeShortLabel
+import paige.navic.reader.readerReadaloudPlaybackSpeedLabel
 
 internal val TabbedDialogPaddingsVertical = 8.dp
 
@@ -121,8 +128,9 @@ private object SettingsItemsPaddings {
 	val SliderVertical = 6.dp
 }
 
-private enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label) {
+internal enum class KomikkuSettingsTab(val label: String, val compactLabel: String = label) {
 	Reading("Reading mode", "Reading"),
+	Listening("Listening mode", "Listening"),
 	General("General"),
 	PdfImage("PDF/Image", "PDF"),
 	CustomFilter("Custom filter", "Filter")
@@ -190,20 +198,31 @@ private val KomikkuTapZoneInvertOptions = listOf(
 	ReaderTapZoneInvertBoth to "Both"
 )
 
-private fun komikkuSettingsTabs(publicationFormat: ReaderPublicationFormat): List<KomikkuSettingsTab> =
-	if (publicationFormat == ReaderPublicationFormat.Pdf) {
-		listOf(
-			KomikkuSettingsTab.Reading,
-			KomikkuSettingsTab.General,
-			KomikkuSettingsTab.PdfImage,
-			KomikkuSettingsTab.CustomFilter
-		)
-	} else {
-		listOf(
-			KomikkuSettingsTab.Reading,
-			KomikkuSettingsTab.General,
-			KomikkuSettingsTab.CustomFilter
-		)
+private val ReaderWhispersyncSpeedOptions = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+
+private data class ReaderWhispersyncHighlightColorOption(
+	val label: String,
+	val argb: Int
+)
+
+private val ReaderWhispersyncHighlightColorOptions = listOf(
+	ReaderWhispersyncHighlightColorOption("Amber", 0x66F6C343),
+	ReaderWhispersyncHighlightColorOption("Yellow", 0x66FDE047),
+	ReaderWhispersyncHighlightColorOption("Green", 0x665BE49B),
+	ReaderWhispersyncHighlightColorOption("Blue", 0x6642A5F5),
+	ReaderWhispersyncHighlightColorOption("Pink", 0x66F472B6)
+)
+
+internal fun komikkuSettingsTabs(
+	publicationFormat: ReaderPublicationFormat,
+	whispersyncCapable: Boolean
+): List<KomikkuSettingsTab> =
+	buildList {
+		add(KomikkuSettingsTab.Reading)
+		if (whispersyncCapable) add(KomikkuSettingsTab.Listening)
+		add(KomikkuSettingsTab.General)
+		if (publicationFormat == ReaderPublicationFormat.Pdf) add(KomikkuSettingsTab.PdfImage)
+		add(KomikkuSettingsTab.CustomFilter)
 	}
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -214,7 +233,12 @@ internal fun KomikkuReaderSettingsDialog(
 	settingsScope: ReaderSettingsScope,
 	hasBookSettings: Boolean,
 	publicationFormat: ReaderPublicationFormat,
+	whispersyncCapable: Boolean = false,
+	listeningSettings: ReaderListeningSettings = defaultReaderListeningSettings(),
+	readaloudPlaybackState: ReaderReadaloudPlaybackUiState = ReaderReadaloudPlaybackUiState(),
 	onSettingsChange: (ReaderSettings) -> Unit,
+	onListeningSettingsChange: (ReaderListeningSettings) -> Unit = {},
+	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit = {},
 	onSettingsScopeChange: (ReaderSettingsScope) -> Unit,
 	onResetBookSettings: () -> Unit,
 	onShowMenus: () -> Unit,
@@ -222,7 +246,7 @@ internal fun KomikkuReaderSettingsDialog(
 	onDismissRequest: () -> Unit
 ) {
 	// Ported from Komikku ReaderSettingsDialog: tabbed overlay above content, never a docked panel.
-	val tabs = komikkuSettingsTabs(publicationFormat)
+	val tabs = komikkuSettingsTabs(publicationFormat, whispersyncCapable)
 	val pagerState = rememberPagerState(
 		initialPage = initialTab.coerceIn(tabs.indices),
 		pageCount = { tabs.size }
@@ -339,17 +363,98 @@ internal fun KomikkuReaderSettingsDialog(
 								onSettingsChange(settings.copy(smallerTapZone = settings.smallerTapZone != true))
 							}
 						)
+					}
+					KomikkuSettingsTab.Listening -> KomikkuSettingsDialogPage(
+						title = "Listening mode"
+					) {
+						CheckboxItem(
+							label = "Whispersync",
+							checked = listeningSettings.listeningEnabled,
+							onClick = {
+								val nextEnabled = !listeningSettings.listeningEnabled
+								onListeningSettingsChange(listeningSettings.copy(listeningEnabled = nextEnabled))
+								onWhispersyncPlaybackCommand(
+									if (nextEnabled) {
+										ReaderReadaloudPlaybackCommand.Play
+									} else {
+										ReaderReadaloudPlaybackCommand.StopAndReset
+									}
+								)
+							}
+						)
+						SettingsSelectableChipRow(
+							title = "Playback speed",
+							options = ReaderWhispersyncSpeedOptions.map { speed ->
+								speed.toString() to readerReadaloudPlaybackSpeedLabel(speed)
+							},
+							selectedValue = listeningSettings.playbackSpeed.toString(),
+							onSelect = { selected ->
+								val speed = selected.toFloatOrNull() ?: return@SettingsSelectableChipRow
+								onListeningSettingsChange(listeningSettings.copy(playbackSpeed = speed))
+								onWhispersyncPlaybackCommand(ReaderReadaloudPlaybackCommand.SetSpeed(speed))
+							}
+						)
 						SliderItem(
 							label = "Whispersync lead",
-							value = normalizedReaderWhispersyncHighlightLeadMs(settings.whispersyncHighlightLeadMs),
+							value = normalizedReaderWhispersyncHighlightLeadMs(listeningSettings.highlightLeadMs),
 							valueRange = MinReaderWhispersyncHighlightLeadMs..MaxReaderWhispersyncHighlightLeadMs,
 							steps = 5,
 							valueString = readerMillisecondsAsSecondsString(
-								normalizedReaderWhispersyncHighlightLeadMs(settings.whispersyncHighlightLeadMs)
+								normalizedReaderWhispersyncHighlightLeadMs(listeningSettings.highlightLeadMs)
 							),
 							onChange = { highlightLeadMs ->
-								onSettingsChange(settings.copy(whispersyncHighlightLeadMs = highlightLeadMs))
+								onListeningSettingsChange(listeningSettings.copy(highlightLeadMs = highlightLeadMs))
 							}
+						)
+						SettingsSelectableChipRow(
+							title = "Highlight color",
+							options = ReaderWhispersyncHighlightColorOptions.map { option ->
+								option.argb.toString() to option.label
+							},
+							selectedValue = listeningSettings.highlightColorArgb.toString(),
+							onSelect = { selected ->
+								selected.toIntOrNull()?.let { color ->
+									onListeningSettingsChange(listeningSettings.copy(highlightColorArgb = color))
+								}
+							}
+						)
+						SettingsSelectableChipRow(
+							title = "Highlight loading",
+							options = listOf(
+								ReaderWhispersyncHighlightLoading.CurrentCue.value to "Current cue",
+								ReaderWhispersyncHighlightLoading.PersistentPlayedText.value to "Persistent played text"
+							),
+							selectedValue = listeningSettings.highlightLoading.value,
+							onSelect = { loading ->
+								ReaderWhispersyncHighlightLoading.entries
+									.firstOrNull { it.value == loading }
+									?.let { onListeningSettingsChange(listeningSettings.copy(highlightLoading = it)) }
+							}
+						)
+						SettingsSelectableChipRow(
+							title = "Highlight style",
+							options = listOf(
+								ReaderWhispersyncHighlightStyle.Selection.value to "Selection",
+								ReaderWhispersyncHighlightStyle.Marker.value to "Marker"
+							),
+							selectedValue = listeningSettings.highlightStyle.value,
+							onSelect = { style ->
+								ReaderWhispersyncHighlightStyle.entries
+									.firstOrNull { it.value == style }
+									?.let { onListeningSettingsChange(listeningSettings.copy(highlightStyle = it)) }
+							}
+						)
+						SettingsSelectableChipRow(
+							title = "Page boundary",
+							options = listOf("pause-at-visible-page-end" to "Pause at page end"),
+							selectedValue = listeningSettings.pageBoundaryBehavior.value,
+							onSelect = {}
+						)
+						SettingsSelectableChipRow(
+							title = "Long press",
+							options = listOf("seek-audio-to-text" to "Seek audio to text"),
+							selectedValue = listeningSettings.longPressBehavior.value,
+							onSelect = {}
 						)
 					}
 					KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(
@@ -1080,12 +1185,14 @@ private fun settingSliderContentDescription(title: String): String = "Reader set
 
 private fun readerMillisecondsAsSecondsString(value: Int): String {
 	val normalized = normalizedReaderWhispersyncHighlightLeadMs(value)
-	val seconds = normalized / 1000
-	val tenths = (normalized % 1000) / 100
+	val sign = if (normalized < 0) "-" else ""
+	val absolute = kotlin.math.abs(normalized)
+	val seconds = absolute / 1000
+	val tenths = (absolute % 1000) / 100
 	return if (tenths == 0) {
-		"$seconds s"
+		"$sign$seconds s"
 	} else {
-		"$seconds.$tenths s"
+		"$sign$seconds.$tenths s"
 	}
 }
 

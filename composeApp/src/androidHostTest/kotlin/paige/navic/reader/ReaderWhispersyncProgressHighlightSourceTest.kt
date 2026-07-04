@@ -36,7 +36,8 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
 			.substringBefore("\n  clearOverlay()")
 		assertContains(highlighter, "content.overlayer")
-		assertContains(highlighter, "Overlayer.highlight")
+		assertContains(highlighter, "const highlightDraw = this.readerMediaOverlayHighlightDraw()")
+		assertContains(highlighter, "overlayer.add(overlayKey, range, highlightDraw")
 		assertFalse(
 			highlighter.contains("surroundContents") ||
 				highlighter.contains("extractContents") ||
@@ -202,6 +203,34 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertFalse(
 			highlighter.contains("overlayer.add(ReaderMediaOverlayRangeKey"),
 			"Whispersync active highlighting must not reuse the played-highlight key; completed cues need separate persistent overlays."
+		)
+	}
+
+	@Test
+	fun progressiveWhispersyncHighlightConsumesListeningModeOverlaySettings() {
+		val runtime = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader.js").readText()
+
+		assertContains(runtime, "readerMediaOverlayHighlightColor(settings = this.readerSettings)")
+		assertContains(runtime, "readerMediaOverlayHighlightDraw(settings = this.readerSettings)")
+		assertContains(runtime, "readerMediaOverlayPersistentPlayed(settings = this.readerSettings)")
+		assertContains(runtime, "readerDrawMediaOverlayMarker")
+
+		val activePainter = runtime
+			.substringAfter("paintActiveMediaOverlayFragment(fragment) {")
+			.substringBefore("\n  startMediaOverlayProgressAnimation")
+		val highlighter = runtime
+			.substringAfter("highlightMediaOverlayTextRange(fragment) {")
+			.substringBefore("\n  clearOverlay()")
+
+		assertContains(activePainter, "const preservePlayed = this.readerMediaOverlayPersistentPlayed()")
+		assertContains(activePainter, "this.clearOverlay({ preservePlayed, preserveAnimation: true })")
+		assertContains(activePainter, "if (preservePlayed) this.paintPlayedMediaOverlayFragments()")
+		assertContains(highlighter, "const highlightColor = this.readerMediaOverlayHighlightColor()")
+		assertContains(highlighter, "const highlightDraw = this.readerMediaOverlayHighlightDraw()")
+		assertContains(highlighter, "overlayer.add(overlayKey, range, highlightDraw")
+		assertFalse(
+			highlighter.contains("color: 'var(--reader-accent)'"),
+			"Whispersync highlight color must come from Listening mode settings, not the reader accent token."
 		)
 	}
 
