@@ -73,6 +73,7 @@ class ReaderSettingsDefaultsTest {
 				fullscreen = true,
 				keepScreenOn = false,
 				readaloudSyncEnabled = true,
+				whispersyncHighlightLeadMs = MaxReaderWhispersyncHighlightLeadMs,
 				volumeKeyPageTurns = false,
 				webContentsDebuggingEnabled = true
 			),
@@ -105,6 +106,7 @@ class ReaderSettingsDefaultsTest {
 				fullscreen = true,
 				keepScreenOn = false,
 				readaloudSyncEnabled = true,
+				whispersyncHighlightLeadMs = 8_000,
 				volumeKeyPageTurns = false,
 				webContentsDebuggingEnabled = true
 			)
@@ -155,6 +157,7 @@ class ReaderSettingsDefaultsTest {
 				fullscreen = false,
 				keepScreenOn = true,
 				readaloudSyncEnabled = false,
+				whispersyncHighlightLeadMs = 1_500,
 				volumeKeyPageTurns = true,
 				webContentsDebuggingEnabled = false
 			),
@@ -191,6 +194,7 @@ class ReaderSettingsDefaultsTest {
 				fullscreen = false,
 				keepScreenOn = true,
 				readaloudSyncEnabled = false,
+				whispersyncHighlightLeadMs = 1_500,
 				volumeKeyPageTurns = true,
 				webContentsDebuggingEnabled = false
 			)

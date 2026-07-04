@@ -224,12 +224,13 @@ class FoliateEpubEngineAdapterTest {
 		)
 
 		assertEquals(
-			ReaderBridgeCommand.ContentLongPressAt(
-				x = 250.0,
-				y = 500.0,
-				viewWidth = 500.0,
-				viewHeight = 1000.0
-			),
+				ReaderBridgeCommand.ContentLongPressAt(
+					x = 250.0,
+					y = 500.0,
+					viewWidth = 500.0,
+					viewHeight = 1000.0,
+					selectText = true
+				),
 			assertIs<ReaderEngineViewState.WebViewPublication>(step.viewState).bridgeCommand()
 		)
 		assertEquals(1L, assertIs<ReaderEngineViewState.WebViewPublication>(step.viewState).commandKey)

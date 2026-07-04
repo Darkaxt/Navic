@@ -55,6 +55,8 @@ import kotlinx.coroutines.launch
 import paige.navic.reader.DefaultReaderFontSizePercent
 import paige.navic.reader.DefaultReaderLineHeight
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
+import paige.navic.reader.MaxReaderWhispersyncHighlightLeadMs
+import paige.navic.reader.MinReaderWhispersyncHighlightLeadMs
 import paige.navic.reader.ReaderColorFilterModeSrcOver
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderDirectionLtr
@@ -98,6 +100,7 @@ import paige.navic.reader.normalizedReaderPdfFitMode
 import paige.navic.reader.normalizedReaderTapZone
 import paige.navic.reader.normalizedReaderTapZoneInvertMode
 import paige.navic.reader.normalizedReaderTheme
+import paige.navic.reader.normalizedReaderWhispersyncHighlightLeadMs
 import paige.navic.reader.readerColorFilterModeShortLabel
 import paige.navic.reader.readerDirectionShortLabel
 import paige.navic.reader.readerDragAnimationModeShortLabel
@@ -334,6 +337,18 @@ internal fun KomikkuReaderSettingsDialog(
 							checked = settings.smallerTapZone == true,
 							onClick = {
 								onSettingsChange(settings.copy(smallerTapZone = settings.smallerTapZone != true))
+							}
+						)
+						SliderItem(
+							label = "Whispersync lead",
+							value = normalizedReaderWhispersyncHighlightLeadMs(settings.whispersyncHighlightLeadMs),
+							valueRange = MinReaderWhispersyncHighlightLeadMs..MaxReaderWhispersyncHighlightLeadMs,
+							steps = 5,
+							valueString = readerMillisecondsAsSecondsString(
+								normalizedReaderWhispersyncHighlightLeadMs(settings.whispersyncHighlightLeadMs)
+							),
+							onChange = { highlightLeadMs ->
+								onSettingsChange(settings.copy(whispersyncHighlightLeadMs = highlightLeadMs))
 							}
 						)
 					}
@@ -1062,6 +1077,17 @@ private fun BaseSliderItem(
 }
 
 private fun settingSliderContentDescription(title: String): String = "Reader setting slider $title"
+
+private fun readerMillisecondsAsSecondsString(value: Int): String {
+	val normalized = normalizedReaderWhispersyncHighlightLeadMs(value)
+	val seconds = normalized / 1000
+	val tenths = (normalized % 1000) / 100
+	return if (tenths == 0) {
+		"$seconds s"
+	} else {
+		"$seconds.$tenths s"
+	}
+}
 
 @Composable
 private fun Pill(

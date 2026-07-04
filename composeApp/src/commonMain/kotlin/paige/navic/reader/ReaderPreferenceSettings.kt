@@ -77,6 +77,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		fullscreen = readerFullscreen,
 		keepScreenOn = readerKeepScreenOn,
 		readaloudSyncEnabled = readerReadaloudSyncEnabled,
+		whispersyncHighlightLeadMs = readerWhispersyncHighlightLeadMs,
 		volumeKeyPageTurns = readerVolumeKeyPageTurns,
 		webContentsDebuggingEnabled = readerWebContentsDebuggingEnabled
 	)
@@ -128,6 +129,8 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerFullscreen = normalized.fullscreen ?: true
 	readerKeepScreenOn = normalized.keepScreenOn ?: false
 	readerReadaloudSyncEnabled = normalized.readaloudSyncEnabled ?: true
+	readerWhispersyncHighlightLeadMs = normalized.whispersyncHighlightLeadMs
+		?: DefaultReaderWhispersyncHighlightLeadMs
 	readerVolumeKeyPageTurns = normalized.volumeKeyPageTurns ?: false
 	readerWebContentsDebuggingEnabled = normalized.webContentsDebuggingEnabled ?: false
 }
@@ -204,6 +207,7 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		fullscreen = override.fullscreen ?: fullscreen,
 		keepScreenOn = override.keepScreenOn ?: keepScreenOn,
 		readaloudSyncEnabled = override.readaloudSyncEnabled ?: readaloudSyncEnabled,
+		whispersyncHighlightLeadMs = override.whispersyncHighlightLeadMs ?: whispersyncHighlightLeadMs,
 		volumeKeyPageTurns = override.volumeKeyPageTurns ?: volumeKeyPageTurns,
 		webContentsDebuggingEnabled = override.webContentsDebuggingEnabled ?: webContentsDebuggingEnabled
 	)
@@ -255,6 +259,11 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		fullscreen = if (fullscreen != null) normalized.fullscreen else null,
 		keepScreenOn = if (keepScreenOn != null) normalized.keepScreenOn else null,
 		readaloudSyncEnabled = if (readaloudSyncEnabled != null) normalized.readaloudSyncEnabled else null,
+		whispersyncHighlightLeadMs = if (whispersyncHighlightLeadMs != null) {
+			normalized.whispersyncHighlightLeadMs
+		} else {
+			null
+		},
 		volumeKeyPageTurns = if (volumeKeyPageTurns != null) normalized.volumeKeyPageTurns else null,
 		webContentsDebuggingEnabled = if (webContentsDebuggingEnabled != null) {
 			normalized.webContentsDebuggingEnabled
@@ -341,6 +350,7 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		fullscreen = booleanValue("fullscreen"),
 		keepScreenOn = booleanValue("keepScreenOn"),
 		readaloudSyncEnabled = booleanValue("readaloudSyncEnabled"),
+		whispersyncHighlightLeadMs = intValue("whispersyncHighlightLeadMs"),
 		volumeKeyPageTurns = booleanValue("volumeKeyPageTurns"),
 		webContentsDebuggingEnabled = booleanValue("webContentsDebuggingEnabled")
 	)
@@ -389,6 +399,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		fullscreen?.let { put("fullscreen", it) }
 		keepScreenOn?.let { put("keepScreenOn", it) }
 		readaloudSyncEnabled?.let { put("readaloudSyncEnabled", it) }
+		whispersyncHighlightLeadMs?.let { put("whispersyncHighlightLeadMs", it) }
 		volumeKeyPageTurns?.let { put("volumeKeyPageTurns", it) }
 		webContentsDebuggingEnabled?.let { put("webContentsDebuggingEnabled", it) }
 	}

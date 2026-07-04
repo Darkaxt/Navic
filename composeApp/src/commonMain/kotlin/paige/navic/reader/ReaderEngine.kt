@@ -40,7 +40,8 @@ sealed interface ReaderEngineCommand {
 		val x: Double,
 		val y: Double,
 		val viewWidth: Double? = null,
-		val viewHeight: Double? = null
+		val viewHeight: Double? = null,
+		val selectText: Boolean = true
 	) : ReaderEngineCommand
 	data class ApplySettings(val settings: ReaderSettings) : ReaderEngineCommand
 	data class ApplyAnnotations(val annotations: List<ReaderAnnotation>) : ReaderEngineCommand

@@ -307,7 +307,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
-	fun whispersyncControlShowsPlayingStateAndPausesOnTap() {
+	fun whispersyncControlShowsPlayingStateAndResetsOnTap() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Playing,
@@ -324,7 +324,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertFalse(control.loading)
 		assertFalse(control.crossed)
 		assertTrue(control.enabled)
-		assertEquals(ReaderReadaloudPlaybackCommand.Pause, control.command)
+		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, control.command)
 	}
 
 	@Test

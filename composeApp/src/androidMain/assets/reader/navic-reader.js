@@ -354,7 +354,14 @@ class NavicReaderRuntime {
       case 'previewPageDrag':
         return this.previewPageDrag(command)
       case 'contentLongPressAt':
-        return this.handleNativeTapZoneContentLongPressAt(command.x, command.y, command.viewWidth, command.viewHeight, 'native-long-press-command')
+        return this.handleNativeTapZoneContentLongPressAt(
+          command.x,
+          command.y,
+          command.viewWidth,
+          command.viewHeight,
+          'native-long-press-command',
+          command.selectText !== false,
+        )
       case 'applyHighlight':
         return this.applyHighlight(command)
       case 'applyHighlights':

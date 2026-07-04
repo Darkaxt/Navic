@@ -347,7 +347,7 @@ async function handleNativeTapZoneContentLongPress(doc, event, index = null, sou
   return this.activateReaderLinkFromEvent(doc, event, index, source)
 }
 
-async function handleNativeTapZoneContentLongPressAt(rootX, rootY, viewWidth = null, viewHeight = null, source = 'content-long-press-command') {
+async function handleNativeTapZoneContentLongPressAt(rootX, rootY, viewWidth = null, viewHeight = null, source = 'content-long-press-command', selectText = true) {
   if (this.nativeTapZones !== true) return false
   const rootPoint = this.normalizeReaderContentRootPoint(rootX, rootY, viewWidth, viewHeight)
   for (const entry of this.contentEntries()) {
@@ -384,7 +384,9 @@ async function handleNativeTapZoneContentLongPressAt(rootX, rootY, viewWidth = n
       return this.activateReaderLinkFromEvent(entry.doc, event, hit.index, source)
     }
     if (hit.kind === 'text') {
-      return this.selectReaderTextAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)
+      return selectText
+        ? this.selectReaderTextAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)
+        : this.postReaderTextPointAtDocumentPoint(entry.doc, hit.x, hit.y, hit.index, source)
     }
     return true
   }
@@ -649,6 +651,52 @@ function selectReaderTextAtDocumentPoint(doc, x, y, index = null, source = 'cont
     textHref: textHref || '',
     textOffset: Number.isFinite(textOffset) ? Math.floor(textOffset) : null,
     textLength: selection.toString?.().trim?.().length || 0,
+    x: Math.round(Number(x) || 0),
+    y: Math.round(Number(y) || 0),
+  })
+  return true
+}
+
+function postReaderTextPointAtDocumentPoint(doc, x, y, index = null, source = 'content-long-press-command') {
+  const caretRange = this.readerCaretRangeFromPoint(doc, x, y)
+  if (!caretRange) {
+    readerTrace('native-tap-zones:text-long-press-point-miss', {
+      source,
+      index,
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+    return false
+  }
+  const textOffset = readerMediaOverlayTextOffsetForRange(doc, caretRange)
+  const numericIndex = Number(index)
+  const section = Number.isFinite(numericIndex)
+    ? this.view?.book?.sections?.[Math.floor(numericIndex)]
+    : null
+  const textHref = section?.href || section?.id || null
+  const rangeCfi = textHref ? this.annotationRangeCfi?.(index, caretRange) : undefined
+  if (!textHref || !Number.isFinite(textOffset)) {
+    readerTrace('native-tap-zones:text-long-press-point-unresolved', {
+      source,
+      index,
+      textHref: textHref || '',
+      x: Math.round(Number(x) || 0),
+      y: Math.round(Number(y) || 0),
+    })
+    return false
+  }
+  post({
+    type: 'textPoint',
+    textHref,
+    textOffset: Math.floor(textOffset),
+    rangeCfi,
+    source,
+  })
+  readerTrace('native-tap-zones:text-long-press-point', {
+    source,
+    index,
+    textHref,
+    textOffset: Math.floor(textOffset),
     x: Math.round(Number(x) || 0),
     y: Math.round(Number(y) || 0),
   })
@@ -1215,6 +1263,7 @@ export const NavicReaderContentInteractionMethods = {
   readerCaretRangeFromPoint,
   readerTextNodeForRange,
   readerWordRangeAroundCaret,
+  postReaderTextPointAtDocumentPoint,
   selectReaderTextAtDocumentPoint,
   normalizeReaderContentRootPoint,
   readerContentActionAtRootPoint,

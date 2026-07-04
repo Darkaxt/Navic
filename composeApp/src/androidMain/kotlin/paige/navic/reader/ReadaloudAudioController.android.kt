@@ -102,6 +102,21 @@ class ReadaloudAudioController(
 		positionPulse.update()
 	}
 
+	fun stopAndReset() {
+		val currentPlan = activePlan
+		controller?.pause()
+		if (currentPlan != null && currentPlan.mediaItems.isNotEmpty()) {
+			controller?.seekTo(
+				currentPlan.startTrackIndex.coerceIn(currentPlan.mediaItems.indices),
+				currentPlan.startPositionMs.coerceAtLeast(0L)
+			)
+		} else {
+			controller?.seekTo(0L)
+		}
+		publishPosition()
+		positionPulse.update()
+	}
+
 	fun seekTo(positionMs: Long) {
 		controller?.seekTo(positionMs.coerceAtLeast(0L))
 		publishPosition()

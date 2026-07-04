@@ -824,6 +824,37 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun readerBackToNativeCoverStopsWhispersyncAudiobookPlayback() {
+		val opened = ReaderController().open(
+			hobbitOpenRequest().copy(
+				externalShellCover = true,
+				nativeShellCoverUrl = "https://appassets.androidplatform.net/reader-cache/book-1/cover.jpg",
+				canReturnToShellCover = true
+			)
+		).controller
+		val readable = opened
+			.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+			.controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onReadaloudPlaybackState(
+				ReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					isPlaying = true,
+					trackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 5_500L,
+					durationMs = 8_000L
+				)
+			).controller
+
+		val back = readable.onBack()
+
+		assertTrue(back.handled)
+		assertTrue(back.controller.state.shellCoverVisible)
+		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, back.readaloudPlaybackCommand)
+	}
+
+	@Test
 	fun readerAppBarBackFromVisibleChromeReturnsToNativeCoverBeforeLeavingReader() {
 		val opened = ReaderController().open(
 			hobbitOpenRequest().copy(
@@ -962,11 +993,52 @@ class ReaderControllerTest {
 					x = 250.0,
 					y = 500.0,
 					viewWidth = 500.0,
-					viewHeight = 1000.0
+					viewHeight = 1000.0,
+					selectText = true
 				)
 			),
 			step.engineCommands
 		)
+	}
+
+	@Test
+	fun viewerLongPressContentActionsUseTextPointOnlyWhileWhispersyncAudiobookIsActive() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onReadaloudPlaybackState(
+				ReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					isPlaying = true,
+					trackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 5_500L,
+					durationMs = 8_000L
+				)
+			).controller
+
+		val step = controller.onViewerAction(
+			ReaderViewerAction.ContentLongPressAt(
+				x = 250.0,
+				y = 500.0,
+				viewWidth = 500.0,
+				viewHeight = 1000.0
+			)
+		)
+
+		assertEquals(
+			listOf(
+				ReaderEngineCommand.ContentLongPressAt(
+					x = 250.0,
+					y = 500.0,
+					viewWidth = 500.0,
+					viewHeight = 1000.0,
+					selectText = false
+				)
+			),
+			step.engineCommands
+		)
+		assertFalse(step.controller.state.selectionActions.visible)
 	}
 
 	@Test
@@ -1904,6 +1976,34 @@ class ReaderControllerTest {
 		assertEquals(overlay.fragment, step.controller.state.activeMediaOverlay)
 		assertEquals("Second sentence", step.controller.state.audioMetadataLabel)
 		assertNull(step.whispersyncAudioSeekTarget)
+	}
+
+	@Test
+	fun whispersyncAudiobookPlaybackSuppressesNormalTextSelectionActions() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+			.onReadaloudPlaybackState(
+				ReaderReadaloudPlaybackUiState(
+					isAvailable = true,
+					isPlaying = true,
+					trackIndex = 0,
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 5_500L,
+					durationMs = 8_000L
+				)
+			).controller
+
+		val step = controller.onEngineEvent(
+			ReaderEngineEvent.SelectionChanged(
+				text = "selected word",
+				cfi = "epubcfi(/6/2!/4/4,/1:2,/1:10)",
+				href = "Text/chapter1.xhtml"
+			)
+		)
+
+		assertNull(step.controller.state.selection)
+		assertFalse(step.controller.state.selectionActions.visible)
 	}
 
 	@Test

@@ -295,6 +295,7 @@ class PreferenceManager(
 	var readerKeepScreenOn by preference(false)
 	var readerMediaOverlayEnabled by preference(true)
 	var readerReadaloudSyncEnabled by preference(true)
+	var readerWhispersyncHighlightLeadMs by preference(1000)
 	var readerVolumeKeyPageTurns by preference(false)
 	var readerWebContentsDebuggingEnabled by preference(false)
 	var readerBookSettingsJson by preference("")

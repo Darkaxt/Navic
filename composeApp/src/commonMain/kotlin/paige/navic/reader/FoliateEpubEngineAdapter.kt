@@ -94,7 +94,8 @@ sealed class FoliateWebViewEngineAdapter(
 					x = command.x,
 					y = command.y,
 					viewWidth = command.viewWidth,
-					viewHeight = command.viewHeight
+					viewHeight = command.viewHeight,
+					selectText = command.selectText
 				)
 			)
 			is ReaderEngineCommand.ApplySettings -> dispatch(

@@ -51,6 +51,9 @@ private const val DefaultReaderColorFilterArgb = 0
 private const val MinReaderPdfPageGapPercent = 0
 private const val MaxReaderPdfPageGapPercent = 48
 private const val DefaultReaderPdfPageGapPercent = 0
+const val MinReaderWhispersyncHighlightLeadMs = 0
+const val MaxReaderWhispersyncHighlightLeadMs = 3000
+const val DefaultReaderWhispersyncHighlightLeadMs = 1000
 const val ReaderSansFontFamily = "system-ui, sans-serif"
 const val ReaderSerifFontFamily = "Georgia, serif"
 const val ReaderBookFontFamily = "\"Navic Literata\", Literata, Bookerly, Georgia, serif"
@@ -753,6 +756,7 @@ fun normalizedReaderSettings(
 	fullscreen: Boolean = true,
 	keepScreenOn: Boolean = false,
 	readaloudSyncEnabled: Boolean = true,
+	whispersyncHighlightLeadMs: Int = DefaultReaderWhispersyncHighlightLeadMs,
 	volumeKeyPageTurns: Boolean = false,
 	webContentsDebuggingEnabled: Boolean = false,
 	pdfFitMode: String? = ReaderPdfFitWidth,
@@ -838,6 +842,7 @@ fun normalizedReaderSettings(
 		fullscreen = fullscreen,
 		keepScreenOn = keepScreenOn,
 		readaloudSyncEnabled = readaloudSyncEnabled,
+		whispersyncHighlightLeadMs = normalizedReaderWhispersyncHighlightLeadMs(whispersyncHighlightLeadMs),
 		volumeKeyPageTurns = volumeKeyPageTurns,
 		webContentsDebuggingEnabled = webContentsDebuggingEnabled,
 		pdfFitMode = normalizedReaderPdfFitMode(pdfFitMode),
@@ -890,11 +895,18 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		fullscreen = fullscreen ?: true,
 		keepScreenOn = keepScreenOn ?: false,
 		readaloudSyncEnabled = readaloudSyncEnabled ?: true,
+		whispersyncHighlightLeadMs = normalizedReaderWhispersyncHighlightLeadMs(whispersyncHighlightLeadMs),
 		volumeKeyPageTurns = volumeKeyPageTurns ?: false,
 		webContentsDebuggingEnabled = webContentsDebuggingEnabled ?: false,
 		pdfFitMode = pdfFitMode,
 		pdfCropBorders = pdfCropBorders ?: false,
 		pdfPageGapPercent = pdfPageGapPercent ?: DefaultReaderPdfPageGapPercent
+	)
+
+fun normalizedReaderWhispersyncHighlightLeadMs(value: Int?): Int =
+	(value ?: DefaultReaderWhispersyncHighlightLeadMs).coerceIn(
+		MinReaderWhispersyncHighlightLeadMs,
+		MaxReaderWhispersyncHighlightLeadMs
 	)
 
 data class ReaderChromeState(
@@ -1111,6 +1123,7 @@ data class ReaderReadaloudPlaybackUiState(
 sealed interface ReaderReadaloudPlaybackCommand {
 	data object Play : ReaderReadaloudPlaybackCommand
 	data object Pause : ReaderReadaloudPlaybackCommand
+	data object StopAndReset : ReaderReadaloudPlaybackCommand
 	data class SeekTo(val positionMs: Long) : ReaderReadaloudPlaybackCommand
 	data class SeekToTrack(val trackIndex: Int, val positionMs: Long = 0L) : ReaderReadaloudPlaybackCommand
 	data class SetSpeed(val speed: Float) : ReaderReadaloudPlaybackCommand

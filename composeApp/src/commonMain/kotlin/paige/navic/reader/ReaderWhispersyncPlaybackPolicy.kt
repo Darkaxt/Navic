@@ -27,7 +27,7 @@ fun readerWhispersyncPlaybackControlState(
 			enabled = false,
 			contentDescription = "Whispersync audiobook loading"
 		)
-	val command = availablePlayback.toggleCommand()
+	val command = availablePlayback.whispersyncHeadsetCommand()
 	val crossed = !availablePlayback.isPlaying || !availablePlayback.syncEnabled
 	return ReaderWhispersyncPlaybackControlState(
 		visible = true,
@@ -35,13 +35,22 @@ fun readerWhispersyncPlaybackControlState(
 		crossed = crossed,
 		enabled = command != null,
 		contentDescription = if (availablePlayback.isPlaying) {
-			"Pause Whispersync audiobook"
+			"Reset Whispersync audiobook"
 		} else {
 			"Play Whispersync audiobook"
 		},
 		command = command
 	)
 }
+
+private fun ReaderReadaloudPlaybackUiState.whispersyncHeadsetCommand(): ReaderReadaloudPlaybackCommand? =
+	if (!isAvailable) {
+		null
+	} else if (isPlaying) {
+		ReaderReadaloudPlaybackCommand.StopAndReset
+	} else {
+		ReaderReadaloudPlaybackCommand.Play
+	}
 
 fun readerWhispersyncPlaybackCommandForSeekTarget(
 	playbackPlan: ReadaloudPlaybackPlan?,

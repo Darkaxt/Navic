@@ -167,11 +167,15 @@ actual fun ReaderReadaloudRuntimeHost(
 		when (playbackCommand) {
 			ReaderReadaloudPlaybackCommand.Play -> controller.play()
 			ReaderReadaloudPlaybackCommand.Pause -> controller.pause()
+			ReaderReadaloudPlaybackCommand.StopAndReset -> controller.stopAndReset()
 			is ReaderReadaloudPlaybackCommand.SeekTo -> controller.seekTo(playbackCommand.positionMs)
 			is ReaderReadaloudPlaybackCommand.SeekToTrack ->
 				controller.seekTo(playbackCommand.trackIndex, playbackCommand.positionMs)
 			is ReaderReadaloudPlaybackCommand.SetSpeed -> controller.setPlaybackSpeed(playbackCommand.speed)
 			is ReaderReadaloudPlaybackCommand.SetSyncEnabled -> {
+				if (!playbackCommand.enabled) {
+					controller.stopAndReset()
+				}
 				val nextState = syncState.setSyncEnabled(playbackCommand.enabled)
 				if (nextState.engineCommandKey != syncState.engineCommandKey) {
 					nextState.engineCommand?.let { command ->

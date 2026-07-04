@@ -119,13 +119,16 @@ class AndroidAudiobookPlaybackManager(
 				controller.play()
 			}
 			ReaderReadaloudPlaybackCommand.Pause -> controller.pause()
+			ReaderReadaloudPlaybackCommand.StopAndReset -> controller.stopAndReset()
 			is ReaderReadaloudPlaybackCommand.SeekTo -> controller.seekTo(command.positionMs)
 			is ReaderReadaloudPlaybackCommand.SeekToTrack -> controller.seekTo(command.trackIndex, command.positionMs)
 			is ReaderReadaloudPlaybackCommand.SetSpeed -> {
 				controller.setPlaybackSpeed(command.speed)
 				_uiState.value = _uiState.value.copy(playbackSpeed = normalizedReadaloudPlaybackSpeed(command.speed))
 			}
-			is ReaderReadaloudPlaybackCommand.SetSyncEnabled -> Unit
+			is ReaderReadaloudPlaybackCommand.SetSyncEnabled -> {
+				if (!command.enabled) controller.stopAndReset()
+			}
 		}
 	}
 

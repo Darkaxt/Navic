@@ -220,13 +220,15 @@ data class ReaderControllerStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
 	val progressToSave: BinderyReadingProgress? = null,
-	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
+	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
 )
 
 data class ReaderControllerBackStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
-	val handled: Boolean = true
+	val handled: Boolean = true,
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
 )
 
 data class ReaderController(
@@ -446,23 +448,29 @@ data class ReaderController(
 			is ReaderEngineEvent.Toc -> ReaderControllerStep(
 				copy(state = state.copy(toc = event.items))
 			)
-			is ReaderEngineEvent.SelectionChanged -> ReaderControllerStep(
-				copy(
-					state = state.copy(
-						selection = ReaderSelection(
-							text = event.text,
-							cfi = event.cfi,
-							href = event.href,
-							footnote = event.footnote,
-							contextText = event.contextText,
-							posLeft = event.posLeft,
-							posTop = event.posTop,
-							posRight = event.posRight,
-							posBottom = event.posBottom
+			is ReaderEngineEvent.SelectionChanged -> {
+				if (state.whispersyncOwnsTextSelection()) {
+					ReaderControllerStep(copy(state = state.copy(selection = null, selectionNoteDraft = null)))
+				} else {
+					ReaderControllerStep(
+						copy(
+							state = state.copy(
+								selection = ReaderSelection(
+									text = event.text,
+									cfi = event.cfi,
+									href = event.href,
+									footnote = event.footnote,
+									contextText = event.contextText,
+									posLeft = event.posLeft,
+									posTop = event.posTop,
+									posRight = event.posRight,
+									posBottom = event.posBottom
+								)
+							)
 						)
 					)
-				)
-			)
+				}
+			}
 			ReaderEngineEvent.SelectionCleared -> ReaderControllerStep(
 				copy(state = state.copy(selection = null, selectionNoteDraft = null))
 			)
@@ -674,7 +682,10 @@ data class ReaderController(
 						audioResource = audioResource,
 						audioTrackIndex = playbackState.trackIndex,
 						positionMs = playbackState.positionMs,
-						playbackSpeed = playbackState.playbackSpeed
+						playbackSpeed = playbackState.playbackSpeed,
+						highlightLeadMs = normalizedReaderWhispersyncHighlightLeadMs(
+							state.chrome.settings.whispersyncHighlightLeadMs
+						)
 					)
 				}
 		}
@@ -1168,7 +1179,8 @@ data class ReaderController(
 						dialog = null
 					)
 				),
-				handled = true
+				handled = true,
+				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
 			)
 		}
 
@@ -1275,7 +1287,8 @@ data class ReaderController(
 						menuVisible = false,
 						dialog = null
 					)
-				)
+				),
+				readaloudPlaybackCommand = state.shellCoverReadaloudResetCommand()
 			)
 		} else {
 			ReaderControllerStep(
@@ -1312,11 +1325,24 @@ data class ReaderController(
 					x = action.x,
 					y = action.y,
 					viewWidth = action.viewWidth,
-					viewHeight = action.viewHeight
+					viewHeight = action.viewHeight,
+					selectText = !state.whispersyncOwnsTextSelection()
 				)
 			)
 	)
 }
+
+private fun ReaderControllerState.whispersyncOwnsTextSelection(): Boolean =
+	whispersync.available &&
+		chrome.readaloudPlayback.isAvailable &&
+		chrome.readaloudPlayback.syncEnabled
+
+private fun ReaderControllerState.shellCoverReadaloudResetCommand(): ReaderReadaloudPlaybackCommand? =
+	if (chrome.readaloudPlayback.isAvailable) {
+		ReaderReadaloudPlaybackCommand.StopAndReset
+	} else {
+		null
+	}
 
 private fun ReaderControllerState.onExternalLinkOpened(
 	event: ReaderEngineEvent.ExternalLinkOpened

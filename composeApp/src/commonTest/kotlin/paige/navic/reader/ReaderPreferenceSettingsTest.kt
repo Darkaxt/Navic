@@ -227,6 +227,22 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripWhispersyncHighlightLead() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.readerWhispersyncHighlightLeadMs = 1_500
+
+		assertEquals(1_500, preferences.readerDefaultSettings().whispersyncHighlightLeadMs)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(whispersyncHighlightLeadMs = 500)
+		)
+
+		assertEquals(500, preferences.readerWhispersyncHighlightLeadMs)
+		assertEquals(500, preferences.readerDefaultSettings().whispersyncHighlightLeadMs)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripDimOverlay() {
 		val preferences = PreferenceManager(MapSettings())
 
@@ -428,7 +444,8 @@ class ReaderPreferenceSettingsTest {
 				colorFilterArgb = 0x44225588,
 				colorFilterMode = ReaderColorFilterModeOverlay,
 				grayscaleEnabled = true,
-				invertedColors = true
+				invertedColors = true,
+				whispersyncHighlightLeadMs = 1_500
 			)
 		)
 
@@ -453,6 +470,7 @@ class ReaderPreferenceSettingsTest {
 		assertEquals(ReaderColorFilterModeOverlay, bookSettings.colorFilterMode)
 		assertEquals(true, bookSettings.grayscaleEnabled)
 		assertEquals(true, bookSettings.invertedColors)
+		assertEquals(1_500, bookSettings.whispersyncHighlightLeadMs)
 		assertEquals(ReaderDarkTheme, preferences.readerDefaultSettings().theme)
 		assertEquals(100, preferences.readerDefaultSettings().fontSizePercent)
 		assertEquals(ReaderNavBarTypeVerticalRight, preferences.readerDefaultSettings().navBarType)

@@ -154,6 +154,7 @@ data class ReaderSettings(
 	val fullscreen: Boolean? = null,
 	val keepScreenOn: Boolean? = null,
 	val readaloudSyncEnabled: Boolean? = null,
+	val whispersyncHighlightLeadMs: Int? = null,
 	val volumeKeyPageTurns: Boolean? = null,
 	val webContentsDebuggingEnabled: Boolean? = null
 )
@@ -324,7 +325,8 @@ sealed interface ReaderBridgeCommand {
 		val x: Double,
 		val y: Double,
 		val viewWidth: Double? = null,
-		val viewHeight: Double? = null
+		val viewHeight: Double? = null,
+		val selectText: Boolean = true
 	) : ReaderBridgeCommand {
 		override val type: String = "contentLongPressAt"
 
@@ -335,6 +337,7 @@ sealed interface ReaderBridgeCommand {
 				put("y", y)
 				viewWidth?.let { put("viewWidth", it) }
 				viewHeight?.let { put("viewHeight", it) }
+				put("selectText", selectText)
 			}
 	}
 
@@ -798,6 +801,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		fullscreen?.let { put("fullscreen", it) }
 		keepScreenOn?.let { put("keepScreenOn", it) }
 		readaloudSyncEnabled?.let { put("readaloudSyncEnabled", it) }
+		whispersyncHighlightLeadMs?.let { put("whispersyncHighlightLeadMs", it) }
 		volumeKeyPageTurns?.let { put("volumeKeyPageTurns", it) }
 		webContentsDebuggingEnabled?.let { put("webContentsDebuggingEnabled", it) }
 	}

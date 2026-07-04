@@ -124,6 +124,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		preferenceManager.readerFullscreen,
 		preferenceManager.readerKeepScreenOn,
 		preferenceManager.readerReadaloudSyncEnabled,
+		preferenceManager.readerWhispersyncHighlightLeadMs,
 		preferenceManager.readerVolumeKeyPageTurns,
 		preferenceManager.readerWebContentsDebuggingEnabled,
 		preferenceManager.readerBookSettingsJson
@@ -224,6 +225,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 			}
 		)
+		step.readaloudPlaybackCommand?.let { command ->
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync playback command source=controller command=$command"
+			)
+			audiobookPlaybackManager.dispatch(command)
+		}
 		step.whispersyncAudioSeekTarget?.let { target ->
 			val command = readerWhispersyncPlaybackCommandForSeekTarget(
 				playbackPlan = whispersyncPlaybackPlan,
@@ -249,6 +257,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 	fun applyReaderBackStep(step: ReaderCoordinatorBackStep) {
 		if (step.handled) {
 			coordinator = step.coordinator
+			step.readaloudPlaybackCommand?.let { command ->
+				Logger.i(
+					WhispersyncSyncLogTag,
+					"Whispersync playback command source=back command=$command"
+				)
+				audiobookPlaybackManager.dispatch(command)
+			}
 		} else {
 			backStack.performNavicBack()
 		}
@@ -308,6 +323,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 	) {
 		whispersyncReadaloudPlaybackState?.let { playbackState ->
 			applyCoordinatorStep(coordinator.onReadaloudPlaybackState(playbackState))
+		}
+	}
+
+	LaunchedEffect(readaloudSyncEnabled, whispersyncPlaybackPlan, whispersyncAudiobookIdentity) {
+		if (!readaloudSyncEnabled && whispersyncPlaybackPlan != null) {
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"Whispersync playback command source=sync-disabled command=${ReaderReadaloudPlaybackCommand.StopAndReset}"
+			)
+			audiobookPlaybackManager.dispatch(ReaderReadaloudPlaybackCommand.StopAndReset)
 		}
 	}
 

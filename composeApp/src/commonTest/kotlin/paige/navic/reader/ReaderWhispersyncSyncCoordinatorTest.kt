@@ -142,6 +142,48 @@ class ReaderWhispersyncSyncCoordinatorTest {
 	}
 
 	@Test
+	fun playbackPositionUsesLeadOnlyForVisualHighlightProgress() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "cue-lead",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 1_000,
+					endMs = 5_000,
+					textHref = "Text/chapter1.xhtml",
+					fragmentId = "sentence-lead",
+					textStart = 200,
+					textEnd = 240,
+					label = "Lead sentence"
+				)
+			)
+		)
+
+		val start = ReaderWhispersyncSyncState().onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 1_000,
+			highlightLeadMs = 1_000
+		)
+		val startCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(start.state.engineCommand)
+		assertEquals(210, startCommand.fragment.textProgressEnd)
+		assertEquals(0.25, startCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
+		assertEquals(ReaderWhispersyncStatusKind.Playing, start.status?.kind)
+		assertEquals(1_000L, start.status?.positionMs)
+
+		val nearEnd = start.state.onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 4_500,
+			highlightLeadMs = 1_000
+		)
+		val nearEndCommand = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(nearEnd.state.engineCommand)
+		assertEquals(240, nearEndCommand.fragment.textProgressEnd)
+		assertEquals(1.0, nearEndCommand.fragment.textProgressFraction ?: -1.0, 0.0001)
+		assertEquals(4_500L, nearEnd.status?.positionMs)
+	}
+
+	@Test
 	fun playbackPositionIncludesNextCueHintForWebHighlightClamping() {
 		val timeline = WhispersyncTimeline(
 			segments = listOf(

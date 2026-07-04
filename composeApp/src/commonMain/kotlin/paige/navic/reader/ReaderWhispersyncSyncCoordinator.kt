@@ -94,14 +94,16 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPosition(
 	audioResource: String,
 	positionMs: Long,
 	audioTrackIndex: Int? = null,
-	playbackSpeed: Float = 1f
+	playbackSpeed: Float = 1f,
+	highlightLeadMs: Int = 0
 ): ReaderWhispersyncSyncState =
 	onAudiobookPlaybackPositionStep(
 		timeline = timeline,
 		audioResource = audioResource,
 		positionMs = positionMs,
 		audioTrackIndex = audioTrackIndex,
-		playbackSpeed = playbackSpeed
+		playbackSpeed = playbackSpeed,
+		highlightLeadMs = highlightLeadMs
 	).state
 
 fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
@@ -109,7 +111,8 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 	audioResource: String,
 	positionMs: Long,
 	audioTrackIndex: Int? = null,
-	playbackSpeed: Float = 1f
+	playbackSpeed: Float = 1f,
+	highlightLeadMs: Int = 0
 ): ReaderWhispersyncPlaybackPositionStep {
 	if (!syncEnabled) {
 		return ReaderWhispersyncPlaybackPositionStep(
@@ -148,8 +151,10 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			)
 	}
 	val key = segment.readerOverlaySyncKey()
-	val progressTextEnd = segment.textProgressEndForPosition(positionMs)
-	val progressFraction = segment.textProgressFractionForPosition(positionMs)
+	val visualPositionMs = (positionMs + highlightLeadMs.coerceAtLeast(0).toLong())
+		.coerceIn(segment.startMs, segment.endMs)
+	val progressTextEnd = segment.textProgressEndForPosition(visualPositionMs)
+	val progressFraction = segment.textProgressFractionForPosition(visualPositionMs)
 	val nextState = if (key == activeSegmentKey) {
 		if (progressTextEnd != null && progressTextEnd != activeSegmentProgressTextEnd) {
 			Logger.i(

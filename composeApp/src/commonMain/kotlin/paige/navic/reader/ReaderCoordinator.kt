@@ -5,12 +5,14 @@ import paige.navic.domain.repositories.BinderyReadingProgress
 data class ReaderCoordinatorStep(
 	val coordinator: ReaderCoordinator,
 	val progressToSave: BinderyReadingProgress? = null,
-	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null
+	val whispersyncAudioSeekTarget: WhispersyncAudioSeekTarget? = null,
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
 )
 
 data class ReaderCoordinatorBackStep(
 	val coordinator: ReaderCoordinator,
-	val handled: Boolean
+	val handled: Boolean,
+	val readaloudPlaybackCommand: ReaderReadaloudPlaybackCommand? = null
 )
 
 data class ReaderCoordinator(
@@ -166,7 +168,8 @@ data class ReaderCoordinator(
 		return ReaderCoordinatorStep(
 			coordinator = next,
 			progressToSave = step.progressToSave,
-			whispersyncAudioSeekTarget = step.whispersyncAudioSeekTarget
+			whispersyncAudioSeekTarget = step.whispersyncAudioSeekTarget,
+			readaloudPlaybackCommand = step.readaloudPlaybackCommand
 		)
 	}
 
@@ -177,7 +180,8 @@ data class ReaderCoordinator(
 		}
 		return ReaderCoordinatorBackStep(
 			coordinator = next,
-			handled = step.handled
+			handled = step.handled,
+			readaloudPlaybackCommand = step.readaloudPlaybackCommand
 		)
 	}
 
