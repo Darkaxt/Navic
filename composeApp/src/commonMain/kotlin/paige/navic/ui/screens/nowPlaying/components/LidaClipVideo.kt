@@ -3,7 +3,9 @@ package paige.navic.ui.screens.nowPlaying.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -237,48 +240,61 @@ fun NowPlayingLidaClipArtwork(
 		KeepScreenOn()
 	}
 
+	val frameShape = MaterialTheme.shapes.large
 	Box(
-		modifier = modifier.clip(MaterialTheme.shapes.large),
+		modifier = modifier
+			.shadow(18.dp, frameShape, clip = false)
+			.clip(frameShape)
+			.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+			.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f), frameShape)
+			.padding(8.dp),
 		contentAlignment = Alignment.Center
 	) {
-		PlatformLidaClipPlayer(
-			clip = clip,
-			requestHeaders = requestHeaders,
-			pictureInPictureEnabled = false,
-			landscapeVideoModeEnabled = false,
-			videoFitMode = lidaClipForegroundVideoFitMode(preferenceManager.lidaClipsVideoFitMode),
-			respectAudioFocus = preferenceManager.respectAudioFocus,
-			startPositionMs = startPositionMs,
-			muted = !hasRenderedFirstFrame || shouldMuteNowPlayingPromotedLidaClipVideo(),
-			showControls = shouldShowNowPlayingLidaClipControls(),
-			startProgress = startProgress,
-			playWhenReady = shouldPlayNowPlayingLidaClipVideo(musicIsPaused),
-			seekProgress = seekProgress,
-			seekKey = seekKey,
-			retryKey = playbackState.retryKey,
-			onPlaybackReady = {
-				playbackState = playbackState.onReady()
-			},
-			onFirstFrameRendered = {
-				hasRenderedFirstFrame = true
-				playbackState = playbackState.onReady()
-			},
-			onPlaybackError = { message ->
-				hasRenderedFirstFrame = false
-				if (shouldRecoverLidaClipFromPlaybackError(message)) {
+		Box(
+			modifier = Modifier
+				.matchParentSize()
+				.clip(frameShape)
+				.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f))
+		) {
+			PlatformLidaClipPlayer(
+				clip = clip,
+				requestHeaders = requestHeaders,
+				pictureInPictureEnabled = false,
+				landscapeVideoModeEnabled = false,
+				videoFitMode = lidaClipForegroundVideoFitMode(preferenceManager.lidaClipsVideoFitMode),
+				respectAudioFocus = preferenceManager.respectAudioFocus,
+				startPositionMs = startPositionMs,
+				muted = !hasRenderedFirstFrame || shouldMuteNowPlayingPromotedLidaClipVideo(),
+				showControls = shouldShowNowPlayingLidaClipControls(),
+				startProgress = startProgress,
+				playWhenReady = shouldPlayNowPlayingLidaClipVideo(musicIsPaused),
+				seekProgress = seekProgress,
+				seekKey = seekKey,
+				retryKey = playbackState.retryKey,
+				onPlaybackReady = {
 					playbackState = playbackState.onReady()
-					onRecoverablePlaybackError()
-				} else {
-					playbackState = playbackState.onError(message)
+				},
+				onFirstFrameRendered = {
+					hasRenderedFirstFrame = true
+					playbackState = playbackState.onReady()
+				},
+				onPlaybackError = { message ->
+					hasRenderedFirstFrame = false
+					if (shouldRecoverLidaClipFromPlaybackError(message)) {
+						playbackState = playbackState.onReady()
+						onRecoverablePlaybackError()
+					} else {
+						playbackState = playbackState.onError(message)
+					}
+				},
+				onPlaybackPositionChange = {},
+				modifier = Modifier.matchParentSize().graphicsLayer {
+					alpha = videoAlpha
+					scaleX = videoScale
+					scaleY = videoScale
 				}
-			},
-			onPlaybackPositionChange = {},
-			modifier = Modifier.matchParentSize().graphicsLayer {
-				alpha = videoAlpha
-				scaleX = videoScale
-				scaleY = videoScale
-			}
-		)
+			)
+		}
 		playbackState.errorMessage?.let { errorMessage ->
 			ErrorBox<Unit>(
 				error = UiState.Error(Exception(errorMessage)),
