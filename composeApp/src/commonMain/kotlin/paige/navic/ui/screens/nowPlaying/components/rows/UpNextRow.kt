@@ -89,13 +89,28 @@ fun NowPlayingUpNextRow(
 			.padding(
 				top = 8.dp,
 				bottom = nowPlayingUpNextBottomPadding(showTechnicalInfoBelow)
-			)
+			),
+		horizontalAlignment = if (layout == NowPlayingUpNextLayout.VerticalStack) {
+			Alignment.CenterHorizontally
+		} else {
+			Alignment.Start
+		}
 	) {
 		Text(
 			text = stringResource(Res.string.title_up_next),
 			style = MaterialTheme.typography.labelMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier.clickable(onClick = onOpenQueue)
+			modifier = Modifier
+				.then(
+					if (layout == NowPlayingUpNextLayout.VerticalStack) {
+						Modifier
+							.widthIn(max = 440.dp)
+							.fillMaxWidth()
+					} else {
+						Modifier
+					}
+				)
+				.clickable(onClick = onOpenQueue)
 		)
 		when (layout) {
 			NowPlayingUpNextLayout.HorizontalRow -> {
@@ -122,8 +137,8 @@ fun NowPlayingUpNextRow(
 			NowPlayingUpNextLayout.VerticalStack -> {
 				Column(
 					modifier = Modifier
-						.fillMaxWidth()
 						.widthIn(max = 440.dp)
+						.fillMaxWidth()
 						.padding(top = 6.dp),
 					verticalArrangement = Arrangement.spacedBy(8.dp)
 				) {

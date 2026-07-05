@@ -165,9 +165,10 @@ private fun NowPlayingTimelineBlock(
 	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout
 ) {
 	Column(
+		modifier = Modifier.fillMaxWidth(),
 		horizontalAlignment = Alignment.CenterHorizontally
 	) {
-		NowPlayingProgressBar()
+		NowPlayingProgressBar(modifier = Modifier.fillMaxWidth())
 		NowPlayingDurationsRow()
 		NowPlayingUpNextRow(layout = upNextLayout)
 	}

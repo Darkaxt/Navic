@@ -3,6 +3,7 @@ package paige.navic.ui.screens.nowPlaying.components.rows
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -75,7 +76,9 @@ fun NowPlayingDurationsRow() {
 	}
 
 	Row(
-		modifier = Modifier.padding(horizontal = 16.dp),
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(horizontal = 16.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
 		if (preferenceManager.showNowPlayingSeekButtons) {

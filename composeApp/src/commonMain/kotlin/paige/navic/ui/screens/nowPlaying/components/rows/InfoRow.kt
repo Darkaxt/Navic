@@ -83,6 +83,7 @@ fun NowPlayingInfoRow(
 	} ?: stringResource(Res.string.info_not_playing)
 	Row(
 		modifier = Modifier
+			.fillMaxWidth()
 			.padding(horizontal = 16.dp)
 			.padding(bottom = 6.dp),
 		verticalAlignment = Alignment.CenterVertically,

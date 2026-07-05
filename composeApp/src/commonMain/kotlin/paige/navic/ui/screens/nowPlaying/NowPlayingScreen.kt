@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -51,6 +52,7 @@ import paige.navic.domain.models.lidaClipsNowPlayingMusicVideoAction
 import paige.navic.domain.models.nowPlayingArtworkTapDestination
 import paige.navic.domain.models.nowPlayingMediaSlotMode
 import paige.navic.domain.models.nowPlayingUpNextLayout
+import paige.navic.domain.models.nowPlayingWideLandscapeContentLayout
 import paige.navic.domain.models.retainedNowPlayingForegroundClipSongId
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
 import paige.navic.domain.models.shouldShowNowPlayingMusicBrainzInfoAction
@@ -364,6 +366,7 @@ fun NowPlayingScreen() {
 					else -> contentPadding
 				}
 				if (isLandscape) {
+					val contentPaneWidthDp = maxWidth.value.toInt() / 2
 					Row(
 						modifier = Modifier.fillMaxSize().padding(padding),
 						horizontalArrangement = Arrangement.SpaceEvenly,
@@ -389,10 +392,18 @@ fun NowPlayingScreen() {
 							modifier = Modifier.weight(1f).fillMaxHeight(),
 							contentAlignment = Alignment.Center
 						) {
-							NowPlayingControlsRow(
-								modifier = Modifier
+							val controlsModifier = if (isWideLandscape) {
+								val contentLayout = nowPlayingWideLandscapeContentLayout(
+									contentPaneWidthDp = contentPaneWidthDp
+								)
+								Modifier.width(contentLayout.progressWidthDp.dp)
+							} else {
+								Modifier
 									.fillMaxWidth()
-									.widthIn(max = if (isWideLandscape) 760.dp else 560.dp),
+									.widthIn(max = 560.dp)
+							}
+							NowPlayingControlsRow(
+								modifier = controlsModifier,
 								isLandscape = true,
 								hasCurrentSong = song != null,
 								showTechnicalInfo = showTechnicalInfo,
