@@ -64,56 +64,53 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderPackagesDeterministicPaperBorderOverlayVariants() {
+	fun androidReaderPackagesHighResolutionPageEffectOverlayVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
-		val overlay1 = root.resolve("paper-textures/page-edge-overlay-1.png")
-		val overlay2 = root.resolve("paper-textures/page-edge-overlay-2.png")
-		val overlay3 = root.resolve("paper-textures/page-edge-overlay-3.png")
-		val overlay4 = root.resolve("paper-textures/page-edge-overlay-4.png")
-
-		assertTrue(overlay1.isFile, "Reader page edge overlay 1 must be packaged")
-		assertTrue(overlay2.isFile, "Reader page edge overlay 2 must be packaged")
-		assertTrue(overlay3.isFile, "Reader page edge overlay 3 must be packaged")
-		assertTrue(overlay4.isFile, "Reader page edge overlay 4 must be packaged")
-		assertTrue(overlay1.length() > 1_000, "Reader page edge overlay 1 should be a real image")
-		assertTrue(overlay2.length() > 1_000, "Reader page edge overlay 2 should be a real image")
-		assertTrue(overlay3.length() > 1_000, "Reader page edge overlay 3 should be a real image")
-		assertTrue(overlay4.length() > 1_000, "Reader page edge overlay 4 should be a real image")
-		assertTrue(overlay1.hasPngAlphaChannel(), "Reader page edge overlay 1 must be transparent")
-		assertTrue(overlay2.hasPngAlphaChannel(), "Reader page edge overlay 2 must be transparent")
-		assertTrue(overlay3.hasPngAlphaChannel(), "Reader page edge overlay 3 must be transparent")
-		assertTrue(overlay4.hasPngAlphaChannel(), "Reader page edge overlay 4 must be transparent")
-		assertTrue(overlay1.averagePngAlpha() >= 2.0, "Reader page edge overlay 1 must be visible at runtime")
-		assertTrue(overlay2.averagePngAlpha() >= 2.0, "Reader page edge overlay 2 must be visible at runtime")
-		assertTrue(overlay3.averagePngAlpha() >= 2.0, "Reader page edge overlay 3 must be visible at runtime")
-		assertTrue(overlay4.averagePngAlpha() >= 2.0, "Reader page edge overlay 4 must be visible at runtime")
-		listOf(overlay1, overlay2, overlay3, overlay4).forEachIndexed { index, overlay ->
-			assertTrue(
-				overlay.outerEdgeAlphaHighFrequencyPercent() <= 0.5,
-				"Reader page edge overlay ${index + 1} must not contain baked checkerboard artifacts"
-			)
-			assertTrue(
-				overlay.maxPngAlpha() <= 70,
-				"Reader page edge overlay ${index + 1} should be subtle page-edge degradation"
-			)
+		val edgeOverlays = (1..8).map { index ->
+			root.resolve("paper-textures/page-edge-overlay-${index.toString().padStart(2, '0')}.png")
 		}
-		for (index in 1..4) {
+		val stainOverlays = (1..8).map { index ->
+			root.resolve("paper-textures/page-stain-overlay-${index.toString().padStart(2, '0')}.png")
+		}
+		val gutterOverlays = (1..4).map { index ->
+			root.resolve("paper-textures/spread-gutter-overlay-${index.toString().padStart(2, '0')}.png")
+		}
+
+		(edgeOverlays + stainOverlays + gutterOverlays).forEach { overlay ->
+			assertTrue(overlay.isFile, "${overlay.name} must be packaged")
+			assertTrue(overlay.length() > 20_000, "${overlay.name} should be a real 4K-class raster overlay")
+			assertTrue(overlay.hasPngAlphaChannel(), "${overlay.name} must be transparent")
+			val image = ImageIO.read(overlay) ?: error("Could not read ${overlay.name}")
 			assertTrue(
-				root.resolve("paper-textures/page-border-overlay-$index.png").isFile,
-				"Legacy combined page border overlay $index should stay packaged while older assets are retired"
+				image.width >= 3840 && image.height >= 2160,
+				"${overlay.name} should be at least 3840x2160 for tablet landscape rendering"
+			)
+			assertTrue(overlay.averagePngAlpha() >= 0.5, "${overlay.name} must be visible at runtime")
+			assertTrue(overlay.maxPngAlpha() <= 120, "${overlay.name} should remain a subtle overlay")
+		}
+		edgeOverlays.forEachIndexed { index, overlay ->
+			assertTrue(
+				overlay.outerEdgeAlphaHighFrequencyPercent() <= 12.0,
+				"Reader page edge overlay ${index + 1} must not contain baked checkerboard artifacts"
 			)
 		}
 		assertContains(bridgeText, "ReaderPageBorderOverlayAssets")
-		assertContains(bridgeText, "paper-textures/page-edge-overlay-1.png")
-		assertContains(bridgeText, "paper-textures/page-edge-overlay-2.png")
-		assertContains(bridgeText, "paper-textures/page-edge-overlay-3.png")
-		assertContains(bridgeText, "paper-textures/page-edge-overlay-4.png")
+		assertContains(bridgeText, "ReaderSpreadGutterOverlayAssets")
+		assertFalse(
+			bridgeText.contains("ReaderSpreadGutterOverlayAssets = ReaderPageEdgeOverlayAssets"),
+			"Spread gutter overlays need their own center-crease texture family, not an alias to page edges."
+		)
+		edgeOverlays.forEach { overlay -> assertContains(bridgeText, "paper-textures/${overlay.name}") }
+		stainOverlays.forEach { overlay -> assertContains(bridgeText, "paper-textures/${overlay.name}") }
+		gutterOverlays.forEach { overlay -> assertContains(bridgeText, "paper-textures/${overlay.name}") }
 		assertContains(bridgeText, "ReaderPageBorderOverlayVariantCount = ReaderPageBorderOverlayAssets.length * 2 * 2")
+		assertContains(bridgeText, "ReaderSpreadGutterOverlayVariantCount = ReaderSpreadGutterOverlayAssets.length * 2 * 2")
 		assertContains(bridgeText, "readerPageBorderOverlayVariantForPage")
+		assertContains(bridgeText, "readerSpreadGutterOverlayVariantForPage")
 		assertContains(bridgeText, "ReaderSurfacePageBorderOverlayLayerSelector")
-		assertContains(bridgeText, "ensureReaderSurfaceBorderOverlayLayer")
 		assertContains(bridgeText, "updateReaderSurfaceBorderOverlayLayer")
+		assertContains(bridgeText, "updateReaderMovingPageSpreadGutterOverlayLayer")
 		assertContains(bridgeText, "surfaceBorderOverlayAsset")
 	}
 
@@ -125,11 +122,17 @@ class ReaderRuntimePaperSurfaceTest {
 		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
 		val protocolText = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
 
+		for (index in 1..8) {
+			val suffix = index.toString().padStart(2, '0')
+			assertTrue(root.resolve("paper-textures/page-edge-overlay-$suffix.png").isFile)
+			assertTrue(root.resolve("paper-textures/page-stain-overlay-$suffix.png").isFile)
+			assertContains(bridgeText, "paper-textures/page-edge-overlay-$suffix.png")
+			assertContains(bridgeText, "paper-textures/page-stain-overlay-$suffix.png")
+		}
 		for (index in 1..4) {
-			assertTrue(root.resolve("paper-textures/page-edge-overlay-$index.png").isFile)
-			assertTrue(root.resolve("paper-textures/page-stain-overlay-$index.png").isFile)
-			assertContains(bridgeText, "paper-textures/page-edge-overlay-$index.png")
-			assertContains(bridgeText, "paper-textures/page-stain-overlay-$index.png")
+			val suffix = index.toString().padStart(2, '0')
+			assertTrue(root.resolve("paper-textures/spread-gutter-overlay-$suffix.png").isFile)
+			assertContains(bridgeText, "paper-textures/spread-gutter-overlay-$suffix.png")
 		}
 		assertContains(protocolText, "val paperTextureEnabled: Boolean? = null")
 		assertContains(protocolText, "val pageEdgesEnabled: Boolean? = null")
@@ -139,10 +142,42 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "settings?.paperStainsEnabled === false")
 		assertContains(helperText, "ReaderPageEdgeOverlayAssets")
 		assertContains(helperText, "ReaderPageStainOverlayAssets")
+		assertContains(helperText, "ReaderSpreadGutterOverlayAssets")
+		assertContains(helperText, "readerSurfaceSpreadGutterOverlayOpacity")
+		assertContains(helperText, "updateReaderMovingPageSpreadGutterOverlayLayer")
 		assertContains(helperText, "updateReaderSurfaceStainOverlayLayer")
 		assertContains(settingsDialogText, "Paper texture")
 		assertContains(settingsDialogText, "Page edges")
 		assertContains(settingsDialogText, "Paper stains")
+	}
+
+	@Test
+	fun androidReaderUsesDistinctTextureVariantSeedSuffixesAndSpreadModeGate() {
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+
+		assertContains(helperText, "\${key}|paper-base")
+		assertContains(helperText, "\${key}|page-edge")
+		assertContains(helperText, "\${key}|page-stain")
+		assertContains(helperText, "\${key}|spread-gutter")
+		assertContains(helperText, "export const readerSurfaceSpreadMode = ({")
+		assertContains(helperText, "flowMode === ReaderFlowScrolled")
+		assertContains(helperText, "flowMode === ReaderFlowScrolledGaps")
+		assertContains(helperText, "flowMode === ReaderFlowPagedVertical")
+		assertContains(helperText, "width >= height * 1.12")
+		assertContains(helperText, "export const readerSurfaceSpreadGutterVisible = ({")
+		assertContains(helperText, "settings?.pageEdgesEnabled === false")
+		assertContains(helperText, "spreadMode === 'spread'")
+		assertContains(helperText, "readerSpreadPageTextureSlots = (")
+		assertContains(helperText, "data-navic-surface-texture-slot-page")
+		assertContains(helperText, "left")
+		assertContains(helperText, "right")
+		assertContains(appearanceText, "const spreadMode = readerSurfaceSpreadMode({")
+		assertContains(appearanceText, "this.surfaceSpreadMode = spreadMode")
+		assertContains(appearanceText, "readerSpreadPageTextureSlots(textureSlots, readerPaperTextureVariantForPage, spreadMode)")
+		assertContains(appearanceText, "readerSpreadPageTextureSlots(borderOverlaySlots, readerPageBorderOverlayVariantForPage, spreadMode)")
+		assertContains(appearanceText, "readerSpreadPageTextureSlots(stainOverlaySlots, readerPageStainOverlayVariantForPage, spreadMode)")
+		assertContains(appearanceText, "readerSurfaceSpreadGutterVisible({")
 	}
 
 	@Test
@@ -181,7 +216,7 @@ class ReaderRuntimePaperSurfaceTest {
 			message = "Border overlay PNGs have low source alpha, so the single border layer needs enough opacity to be visible over paper texture."
 		)
 		assertContains(borderUpdater, "for (const slot of borderOverlaySlots)")
-		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant)")
+		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(page.variant)")
 		assertContains(
 			borderBackgroundImage,
 			"[textureUrl, textureUrl, textureUrl, textureUrl].join(', ')",
@@ -265,8 +300,8 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(surfaceTextureUpdater, "readerRoot.dataset.navicSurfacePaperTextureAsset")
 		assertContains(
 			surfaceLayerUpdater,
-			"readerPaperTextureBackgroundImage(slot.variant)",
-			message = "The moving page texture owner carries current and adjacent page slots."
+			"readerPaperTextureBackgroundImage(page.variant)",
+			message = "The moving page texture owner carries current and adjacent page slots, including independent spread pages."
 		)
 		assertContains(indexText, "body > foliate-view")
 		assertContains(indexText, "z-index: 1;")
@@ -778,7 +813,7 @@ class ReaderRuntimePaperSurfaceTest {
 			surfaceLayerUpdater.contains("height: '100vh'"),
 			"Android WebView resolved 100vh to a zero-height fixed texture layer in the reader."
 		)
-		assertContains(surfaceLayerUpdater, "'background-image': readerPaperTextureBackgroundImage(slot.variant)")
+		assertContains(surfaceLayerUpdater, "'background-image': readerPaperTextureBackgroundImage(page.variant)")
 		assertContains(surfaceLayerUpdater, "opacity: readerSurfacePaperTextureOpacity(settings)")
 		assertContains(surfaceLayerUpdater, "'pointer-events': 'none'")
 	}
@@ -908,20 +943,20 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "readerSurfaceTextureSlotTransform")
 		assertContains(helperText, "ensureReaderSurfaceTextureSlotArtwork")
 		assertContains(helperText, "ReaderDirectionRtl")
-		assertContains(surfaceTextureUpdate, "const textureSlots = readerAdjacentPaperTextureSlots")
-		assertContains(surfaceTextureUpdate, "const borderOverlaySlots = readerAdjacentPaperTextureSlots")
+		assertContains(surfaceTextureUpdate, "let textureSlots = readerAdjacentPaperTextureSlots")
+		assertContains(surfaceTextureUpdate, "let borderOverlaySlots = readerAdjacentPaperTextureSlots")
 		assertContains(surfaceTextureUpdate, "this.surfaceTextureSlots = textureSlots")
 		assertContains(surfaceTextureUpdate, "this.surfaceBorderOverlaySlots = borderOverlaySlots")
 		assertContains(surfaceLayerUpdater, "for (const slot of textureSlots)")
 		assertContains(surfaceLayerUpdater, "readerSurfaceTextureSlotTransform({")
 		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
 		assertContains(surfaceLayerUpdater, "transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection })")
-		assertContains(surfaceLayerUpdater, "transform: readerPaperTextureTransform(slot.variant)")
+		assertContains(surfaceLayerUpdater, "transform: readerPaperTextureTransform(page.variant)")
 		assertContains(borderLayerUpdater, "for (const slot of borderOverlaySlots)")
 		assertContains(borderLayerUpdater, "readerSurfaceTextureSlotTransform({")
 		assertContains(borderLayerUpdater, "readerPaperTextureBackgroundPosition(null)")
 		assertContains(borderLayerUpdater, "transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection })")
-		assertContains(borderLayerUpdater, "transform: readerPaperTextureTransform(slot.variant)")
+		assertContains(borderLayerUpdater, "transform: readerPaperTextureTransform(page.variant)")
 		assertFalse(
 			surfaceLayerUpdater.contains("'background-image': readerPaperTextureBackgroundImage(textureVariant)"),
 			"One mutable root background swaps after relocation; slots let current and adjacent page textures move with the text."

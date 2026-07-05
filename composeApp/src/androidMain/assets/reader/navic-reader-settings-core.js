@@ -5,6 +5,7 @@ export const ReaderSurfacePageStainOverlayLayerSelector = '[data-navic-surface-p
 export const ReaderMovingPagePaperTextureLayerSelector = '[data-navic-moving-page-paper-texture-layer="true"]'
 export const ReaderMovingPageBorderOverlayLayerSelector = '[data-navic-moving-page-border-overlay-layer="true"]'
 export const ReaderMovingPageStainOverlayLayerSelector = '[data-navic-moving-page-stain-overlay-layer="true"]'
+export const ReaderMovingPageSpreadGutterOverlayLayerSelector = '[data-navic-moving-page-spread-gutter-overlay-layer="true"]'
 export const ReaderTapZoneOverlayLayerSelector = '[data-navic-tap-zone-overlay-layer="true"]'
 export const ReaderPageNumberLayerSelector = '[data-navic-page-number-layer="true"]'
 export const ReaderShellCoverLayerSelector = '[data-navic-shell-cover-layer="true"]'
@@ -57,21 +58,36 @@ export const ReaderPaperTextureAssets = [
 ]
 export const ReaderPaperTextureVariantCount = ReaderPaperTextureAssets.length * 2 * 2
 export const ReaderPageEdgeOverlayAssets = [
-  'paper-textures/page-edge-overlay-1.png',
-  'paper-textures/page-edge-overlay-2.png',
-  'paper-textures/page-edge-overlay-3.png',
-  'paper-textures/page-edge-overlay-4.png',
+  'paper-textures/page-edge-overlay-01.png',
+  'paper-textures/page-edge-overlay-02.png',
+  'paper-textures/page-edge-overlay-03.png',
+  'paper-textures/page-edge-overlay-04.png',
+  'paper-textures/page-edge-overlay-05.png',
+  'paper-textures/page-edge-overlay-06.png',
+  'paper-textures/page-edge-overlay-07.png',
+  'paper-textures/page-edge-overlay-08.png',
 ]
 export const ReaderPageEdgeOverlayVariantCount = ReaderPageEdgeOverlayAssets.length * 2 * 2
 export const ReaderPageStainOverlayAssets = [
-  'paper-textures/page-stain-overlay-1.png',
-  'paper-textures/page-stain-overlay-2.png',
-  'paper-textures/page-stain-overlay-3.png',
-  'paper-textures/page-stain-overlay-4.png',
+  'paper-textures/page-stain-overlay-01.png',
+  'paper-textures/page-stain-overlay-02.png',
+  'paper-textures/page-stain-overlay-03.png',
+  'paper-textures/page-stain-overlay-04.png',
+  'paper-textures/page-stain-overlay-05.png',
+  'paper-textures/page-stain-overlay-06.png',
+  'paper-textures/page-stain-overlay-07.png',
+  'paper-textures/page-stain-overlay-08.png',
 ]
 export const ReaderPageStainOverlayVariantCount = ReaderPageStainOverlayAssets.length * 2 * 2
 export const ReaderPageBorderOverlayAssets = ReaderPageEdgeOverlayAssets
 export const ReaderPageBorderOverlayVariantCount = ReaderPageBorderOverlayAssets.length * 2 * 2
+export const ReaderSpreadGutterOverlayAssets = [
+  'paper-textures/spread-gutter-overlay-01.png',
+  'paper-textures/spread-gutter-overlay-02.png',
+  'paper-textures/spread-gutter-overlay-03.png',
+  'paper-textures/spread-gutter-overlay-04.png',
+]
+export const ReaderSpreadGutterOverlayVariantCount = ReaderSpreadGutterOverlayAssets.length * 2 * 2
 export const ReaderThemePalettes = {
   light: {
     background: '#fbfaf8',

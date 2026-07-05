@@ -272,12 +272,16 @@ class NavicReaderRuntime {
   movingPageTextureLayer = null
   movingPageBorderOverlayLayer = null
   movingPageStainOverlayLayer = null
+  movingPageSpreadGutterOverlayLayer = null
   surfaceTextureVariant = null
   surfaceBorderOverlayVariant = null
   surfaceStainOverlayVariant = null
+  surfaceSpreadGutterOverlayVariant = null
+  surfaceSpreadMode = 'single'
   surfaceTextureSlots = []
   surfaceBorderOverlaySlots = []
   surfaceStainOverlaySlots = []
+  surfaceSpreadGutterOverlaySlots = []
   surfacePaperTextureBaseOffset = 0
   surfaceTextureScrollOffset = { x: 0, y: 0 }
   // Live lateral drag: the paper texture + border-overlay shadow ride the exact
@@ -687,9 +691,14 @@ class NavicReaderRuntime {
     this.surfaceTextureVariant = null
     this.surfaceBorderOverlayVariant = null
     this.surfaceStainOverlayVariant = null
+    this.surfaceSpreadGutterOverlayVariant = null
+    this.surfaceSpreadMode = 'single'
     this.surfaceTextureSlots = []
     this.surfaceBorderOverlaySlots = []
     this.surfaceStainOverlaySlots = []
+    this.surfaceSpreadGutterOverlaySlots = []
+    this.movingPageSpreadGutterOverlayLayer?.remove?.()
+    this.movingPageSpreadGutterOverlayLayer = null
     this.surfacePaperTextureBaseOffset = 0
     this.surfaceTextureScrollOffset = { x: 0, y: 0 }
     this.surfaceLiveDragActive = false

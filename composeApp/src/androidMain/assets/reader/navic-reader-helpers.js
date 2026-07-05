@@ -12,6 +12,7 @@ import {
   ReaderMovingPageBorderOverlayLayerSelector,
   ReaderMovingPagePaperTextureLayerSelector,
   ReaderMovingPageStainOverlayLayerSelector,
+  ReaderMovingPageSpreadGutterOverlayLayerSelector,
   ReaderPageBorderOverlayAssets,
   ReaderPageBorderOverlayVariantCount,
   ReaderPageEdgeOverlayAssets,
@@ -23,6 +24,8 @@ import {
   ReaderPaperTextureVariantCount,
   ReaderShellCoverLayerSelector,
   ReaderShellCoverTransitionMs,
+  ReaderSpreadGutterOverlayAssets,
+  ReaderSpreadGutterOverlayVariantCount,
   ReaderSurfacePageBorderOverlayLayerSelector,
   ReaderSurfacePageStainOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
@@ -516,27 +519,34 @@ export const readerSurfaceTextureVariantForPage = (key, assets, variantCount) =>
 }
 
 export const readerPaperTextureVariantForPage = key =>
-  readerSurfaceTextureVariantForPage(key, ReaderPaperTextureAssets, ReaderPaperTextureVariantCount)
+  readerSurfaceTextureVariantForPage(`${key}|paper-base`, ReaderPaperTextureAssets, ReaderPaperTextureVariantCount)
 
 export const readerPageBorderOverlayVariantForPage = key =>
   readerSurfaceTextureVariantForPage(
-    `${key}|page-border-overlay`,
+    `${key}|page-edge`,
     ReaderPageBorderOverlayAssets,
     ReaderPageBorderOverlayVariantCount
   )
 
 export const readerPageEdgeOverlayVariantForPage = key =>
   readerSurfaceTextureVariantForPage(
-    `${key}|page-edge-overlay`,
+    `${key}|page-edge`,
     ReaderPageEdgeOverlayAssets,
     ReaderPageEdgeOverlayVariantCount
   )
 
 export const readerPageStainOverlayVariantForPage = key =>
   readerSurfaceTextureVariantForPage(
-    `${key}|page-stain-overlay`,
+    `${key}|page-stain`,
     ReaderPageStainOverlayAssets,
     ReaderPageStainOverlayVariantCount
+  )
+
+export const readerSpreadGutterOverlayVariantForPage = key =>
+  readerSurfaceTextureVariantForPage(
+    `${key}|spread-gutter`,
+    ReaderSpreadGutterOverlayAssets,
+    ReaderSpreadGutterOverlayVariantCount
   )
 
 const readerPaperTextureSlotDetail = (detail = {}, pageIndex = null, pageCount = null, section = null) => {
@@ -601,6 +611,51 @@ export const readerAdjacentPaperTextureSlots = ({
     slots.push(slotFor('next', currentIndex + 1, null))
   }
   return slots
+}
+
+export const readerSurfaceSpreadMode = ({
+  flowMode = '',
+  width: rawWidth = null,
+  height: rawHeight = null,
+} = {}) => {
+  if (flowMode === ReaderFlowScrolled) return 'single'
+  if (flowMode === ReaderFlowScrolledGaps) return 'single'
+  if (flowMode === ReaderFlowPagedVertical) return 'single'
+  const width = Number(rawWidth)
+  const height = Number(rawHeight)
+  if (Number.isFinite(width) && Number.isFinite(height) && width >= height * 1.12) {
+    return 'spread'
+  }
+  return 'single'
+}
+
+export const readerSurfaceSpreadGutterVisible = ({
+  settings,
+  spreadMode = '',
+  flowMode = '',
+  width = null,
+  height = null,
+} = {}) => {
+  if (settings?.pageEdgesEnabled === false) return false
+  if (spreadMode === 'spread') return true
+  if (spreadMode) return false
+  return readerSurfaceSpreadMode({ flowMode, width, height }) === 'spread'
+}
+
+const readerSpreadTextureSlotPageAttribute = 'data-navic-surface-texture-slot-page'
+
+export const readerSpreadPageTextureSlots = (textureSlots, resolveVariant, spreadMode) => {
+  if (spreadMode !== 'spread') return textureSlots || []
+  return (textureSlots || []).map(slot => {
+    if (!slot?.key) return slot
+    return {
+      ...slot,
+      spreadPages: [
+        { page: 'left', key: `${slot.key}|left`, variant: resolveVariant(`${slot.key}|left`) },
+        { page: 'right', key: `${slot.key}|right`, variant: resolveVariant(`${slot.key}|right`) },
+      ],
+    }
+  })
 }
 
 export const readerPaperTextureTransform = variant => {
@@ -692,6 +747,21 @@ export const readerSurfacePageStainOverlayOpacity = settings => {
       return '0.24'
     default:
       return '0.38'
+  }
+}
+
+export const readerSurfaceSpreadGutterOverlayOpacity = settings => {
+  if (settings?.pageEdgesEnabled === false) return '0'
+  switch (readerThemeKey(settings?.theme)) {
+    case 'black':
+      return '0'
+    case ReaderThemeSepia:
+      return '0.88'
+    case 'dark':
+    case 'dusk':
+      return '0.38'
+    default:
+      return '0.5'
   }
 }
 
@@ -798,15 +868,24 @@ const ensureReaderSurfaceTextureSlot = (layer, slotName, attributeName) => {
   return slot
 }
 
-const ensureReaderSurfaceTextureSlotArtwork = slot => {
-  let artwork = slot?.querySelector?.('[data-navic-surface-texture-slot-artwork="true"]')
+const ensureReaderSurfaceTextureSlotArtwork = (slot, page = 'full') => {
+  const selector = `[data-navic-surface-texture-slot-artwork="true"][${readerSpreadTextureSlotPageAttribute}="${page}"]`
+  let artwork = slot?.querySelector?.(selector)
   if (!artwork) {
     artwork = document.createElement('div')
     artwork.dataset.navicSurfaceTextureSlotArtwork = 'true'
+    artwork.setAttribute(readerSpreadTextureSlotPageAttribute, page)
     artwork.setAttribute('aria-hidden', 'true')
     slot.append(artwork)
   }
   return artwork
+}
+
+const pruneReaderSurfaceTextureSlotArtwork = (slotLayer, pages) => {
+  const active = new Set(pages)
+  for (const artwork of Array.from(slotLayer?.querySelectorAll?.('[data-navic-surface-texture-slot-artwork="true"]') || [])) {
+    if (!active.has(artwork.getAttribute(readerSpreadTextureSlotPageAttribute) || 'full')) artwork.remove()
+  }
 }
 
 const pruneReaderSurfaceTextureSlots = (layer, textureSlots, attributeName) => {
@@ -865,6 +944,17 @@ export const ensureReaderMovingPageStainOverlayLayer = () => {
   if (!layer) {
     layer = document.createElement('div')
     layer.dataset.navicMovingPageStainOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+export const ensureReaderMovingPageSpreadGutterOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderMovingPageSpreadGutterOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicMovingPageSpreadGutterOverlayLayer = 'true'
     layer.setAttribute('aria-hidden', 'true')
     readerRoot.append(layer)
   }
@@ -1008,7 +1098,8 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
   for (const slot of textureSlots) {
     if (!slot?.variant?.asset) continue
     const slotLayer = ensureReaderSurfaceTextureSlot(layer, slot.slot || 'current', 'data-navic-surface-paper-texture-slot')
-    const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer)
+    const pages = slot.spreadPages?.length ? slot.spreadPages : [{ page: 'full', key: slot.key, variant: slot.variant }]
+    pruneReaderSurfaceTextureSlotArtwork(slotLayer, pages.map(page => page.page))
     slotLayer.dataset.navicSurfacePaperTextureKey = slot.key || ''
     slotLayer.dataset.navicSurfacePaperTextureAsset = slot.variant.asset || ''
     setStylesImportant(slotLayer, {
@@ -1020,19 +1111,27 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
       'transform-origin': 'center',
       'will-change': 'transform',
     })
-    setStylesImportant(artwork, {
-      position: 'absolute',
-      inset: '0px',
-      width: widthPx,
-      height: heightPx,
-      'background-image': readerPaperTextureBackgroundImage(slot.variant),
-      'background-size': 'cover',
-      'background-position': readerPaperTextureBackgroundPosition(null),
-      'background-repeat': 'no-repeat',
-      'background-color': 'transparent',
-      transform: readerPaperTextureTransform(slot.variant),
-      'transform-origin': 'center',
-    })
+    for (const page of pages) {
+      if (!page?.variant?.asset) continue
+      const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
+      const pageWidth = page.page === 'full' ? widthPx : '50%'
+      const pageLeft = page.page === 'right' ? '50%' : '0px'
+      setStylesImportant(artwork, {
+        position: 'absolute',
+        top: '0px',
+        bottom: '0px',
+        left: pageLeft,
+        width: pageWidth,
+        height: heightPx,
+        'background-image': readerPaperTextureBackgroundImage(page.variant),
+        'background-size': 'cover',
+        'background-position': readerPaperTextureBackgroundPosition(null),
+        'background-repeat': 'no-repeat',
+        'background-color': 'transparent',
+        transform: readerPaperTextureTransform(page.variant),
+        'transform-origin': 'center',
+      })
+    }
   }
 }
 
@@ -1064,7 +1163,8 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
   for (const slot of borderOverlaySlots) {
     if (!slot?.variant?.asset) continue
     const slotLayer = ensureReaderSurfaceTextureSlot(layer, slot.slot || 'current', 'data-navic-surface-page-border-overlay-slot')
-    const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer)
+    const pages = slot.spreadPages?.length ? slot.spreadPages : [{ page: 'full', key: slot.key, variant: slot.variant }]
+    pruneReaderSurfaceTextureSlotArtwork(slotLayer, pages.map(page => page.page))
     slotLayer.dataset.navicSurfacePageBorderOverlayKey = slot.key || ''
     slotLayer.dataset.navicSurfacePageBorderOverlayAsset = slot.variant.asset || ''
     setStylesImportant(slotLayer, {
@@ -1076,24 +1176,32 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
       'transform-origin': 'center',
       'will-change': 'transform',
     })
-    setStylesImportant(artwork, {
-      position: 'absolute',
-      inset: '0px',
-      width: widthPx,
-      height: heightPx,
-      'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant),
-      'background-size': 'cover, cover, cover, cover',
-      'background-position': [
-        readerPaperTextureBackgroundPosition(null),
-        readerPaperTextureBackgroundPosition(null),
-        readerPaperTextureBackgroundPosition(null),
-        readerPaperTextureBackgroundPosition(null),
-      ].join(', '),
-      'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
-      'background-color': 'transparent',
-      transform: readerPaperTextureTransform(slot.variant),
-      'transform-origin': 'center',
-    })
+    for (const page of pages) {
+      if (!page?.variant?.asset) continue
+      const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
+      const pageWidth = page.page === 'full' ? widthPx : '50%'
+      const pageLeft = page.page === 'right' ? '50%' : '0px'
+      setStylesImportant(artwork, {
+        position: 'absolute',
+        top: '0px',
+        bottom: '0px',
+        left: pageLeft,
+        width: pageWidth,
+        height: heightPx,
+        'background-image': readerSurfacePageBorderOverlayBackgroundImage(page.variant),
+        'background-size': 'cover, cover, cover, cover',
+        'background-position': [
+          readerPaperTextureBackgroundPosition(null),
+          readerPaperTextureBackgroundPosition(null),
+          readerPaperTextureBackgroundPosition(null),
+          readerPaperTextureBackgroundPosition(null),
+        ].join(', '),
+        'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
+        'background-color': 'transparent',
+        transform: readerPaperTextureTransform(page.variant),
+        'transform-origin': 'center',
+      })
+    }
   }
 }
 
@@ -1125,9 +1233,79 @@ export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, s
   for (const slot of stainOverlaySlots) {
     if (!slot?.variant?.asset) continue
     const slotLayer = ensureReaderSurfaceTextureSlot(layer, slot.slot || 'current', 'data-navic-surface-page-stain-overlay-slot')
-    const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer)
+    const pages = slot.spreadPages?.length ? slot.spreadPages : [{ page: 'full', key: slot.key, variant: slot.variant }]
+    pruneReaderSurfaceTextureSlotArtwork(slotLayer, pages.map(page => page.page))
     slotLayer.dataset.navicSurfacePageStainOverlayKey = slot.key || ''
     slotLayer.dataset.navicSurfacePageStainOverlayAsset = slot.variant.asset || ''
+    setStylesImportant(slotLayer, {
+      position: 'absolute',
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
+      transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection }),
+      'transform-origin': 'center',
+      'will-change': 'transform',
+    })
+    for (const page of pages) {
+      if (!page?.variant?.asset) continue
+      const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
+      const pageWidth = page.page === 'full' ? widthPx : '50%'
+      const pageLeft = page.page === 'right' ? '50%' : '0px'
+      setStylesImportant(artwork, {
+        position: 'absolute',
+        top: '0px',
+        bottom: '0px',
+        left: pageLeft,
+        width: pageWidth,
+        height: heightPx,
+        'background-image': readerSurfacePageBorderOverlayBackgroundImage(page.variant),
+        'background-size': 'cover, cover, cover, cover',
+        'background-position': [
+          readerPaperTextureBackgroundPosition(null),
+          readerPaperTextureBackgroundPosition(null),
+          readerPaperTextureBackgroundPosition(null),
+          readerPaperTextureBackgroundPosition(null),
+        ].join(', '),
+        'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
+        'background-color': 'transparent',
+        transform: readerPaperTextureTransform(page.variant),
+        'transform-origin': 'center',
+      })
+    }
+  }
+}
+
+export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceStainOverlayLayer(layer, stainOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
+
+export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
+  if (!layer || !Array.isArray(spreadGutterOverlaySlots) || !spreadGutterOverlaySlots.some(slot => slot?.variant?.asset)) return
+  const { width, height } = readerViewportSize()
+  const widthPx = `${width}px`
+  const heightPx = `${height}px`
+  setStylesImportant(layer, {
+    position: 'fixed',
+    inset: '0px',
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
+    'z-index': '2147483632',
+    'pointer-events': 'none',
+    'background-color': 'transparent',
+    opacity: readerSurfaceSpreadGutterOverlayOpacity(settings),
+    filter: readerSurfacePageBorderOverlayFilter(settings),
+    'mix-blend-mode': 'multiply',
+    overflow: 'hidden',
+    transform: 'none',
+  })
+  pruneReaderSurfaceTextureSlots(layer, spreadGutterOverlaySlots, 'data-navic-surface-spread-gutter-overlay-slot')
+  for (const slot of spreadGutterOverlaySlots) {
+    if (!slot?.variant?.asset) continue
+    const slotLayer = ensureReaderSurfaceTextureSlot(layer, slot.slot || 'current', 'data-navic-surface-spread-gutter-overlay-slot')
+    const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer)
+    slotLayer.dataset.navicSurfaceSpreadGutterOverlayKey = slot.key || ''
+    slotLayer.dataset.navicSurfaceSpreadGutterOverlayAsset = slot.variant.asset || ''
     setStylesImportant(slotLayer, {
       position: 'absolute',
       inset: '0px',
@@ -1158,8 +1336,8 @@ export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, s
   }
 }
 
-export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
-  updateReaderSurfaceStainOverlayLayer(layer, stainOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
+export const updateReaderMovingPageSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceSpreadGutterOverlayLayer(layer, spreadGutterOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
 
 export const readerTapZoneOverlayLabel = type => {
   switch (type) {

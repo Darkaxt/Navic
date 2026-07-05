@@ -100,6 +100,10 @@ import {
   readerPaperTextureVariantForPage,
   readerPageBorderOverlayVariantForPage,
   readerPageStainOverlayVariantForPage,
+  readerSpreadGutterOverlayVariantForPage,
+  readerSpreadPageTextureSlots,
+  readerSurfaceSpreadGutterVisible,
+  readerSurfaceSpreadMode,
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
@@ -120,6 +124,7 @@ import {
   readerNormalizeChapterOpeningMargins,
   ensureReaderMovingPageBorderOverlayLayer,
   ensureReaderMovingPageStainOverlayLayer,
+  ensureReaderMovingPageSpreadGutterOverlayLayer,
   ensureReaderMovingPageTextureLayer,
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
@@ -132,6 +137,7 @@ import {
   updateReaderStaticPaperBackingLayer,
   updateReaderMovingPageBorderOverlayLayer,
   updateReaderMovingPageStainOverlayLayer,
+  updateReaderMovingPageSpreadGutterOverlayLayer,
   updateReaderMovingPageTextureLayer,
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
@@ -475,7 +481,7 @@ function detachSurfacePaperTextureScrollSync() {
 }
 
 function syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
-  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant && !this.surfaceStainOverlayVariant) return
+  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant && !this.surfaceStainOverlayVariant && !this.surfaceSpreadGutterOverlayVariant) return
   this.renderSurfacePaperTextureLayers()
   const offset = this.surfaceTextureScrollOffset
   if (Math.abs(offset.x || 0) > 1 || Math.abs(offset.y || 0) > 1) {
@@ -497,7 +503,7 @@ function syncSurfacePaperTextureScrollOffset(reason = 'scroll') {
 }
 
 function startSurfacePaperTextureMotionSync(reason = 'page-turn-animation') {
-  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant && !this.surfaceStainOverlayVariant) return
+  if (!this.surfaceTextureVariant && !this.surfaceBorderOverlayVariant && !this.surfaceStainOverlayVariant && !this.surfaceSpreadGutterOverlayVariant) return
   this.surfacePaperTextureMotionSyncActive = true
   if (this.surfacePaperTextureMotionFrame != null) {
     cancelAnimationFrame(this.surfacePaperTextureMotionFrame)
@@ -527,13 +533,16 @@ function renderSurfacePaperTextureLayers() {
   const textureSlots = this.surfaceTextureSlots || []
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
   const stainOverlaySlots = this.surfaceStainOverlaySlots || []
+  const spreadGutterOverlaySlots = this.surfaceSpreadGutterOverlaySlots || []
   if (
     !this.surfaceTextureVariant &&
     !this.surfaceBorderOverlayVariant &&
     !this.surfaceStainOverlayVariant &&
+    !this.surfaceSpreadGutterOverlayVariant &&
     textureSlots.length === 0 &&
     borderOverlaySlots.length === 0 &&
-    stainOverlaySlots.length === 0
+    stainOverlaySlots.length === 0 &&
+    spreadGutterOverlaySlots.length === 0
   ) return
   const scrollOffset = this.surfacePaperTextureScrollOffset()
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
@@ -588,6 +597,22 @@ function renderSurfacePaperTextureLayers() {
       readerDirection
     )
   }
+  if (this.surfaceSpreadGutterOverlayVariant) {
+    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
+      ? this.movingPageSpreadGutterOverlayLayer
+      : ensureReaderMovingPageSpreadGutterOverlayLayer()
+    updateReaderMovingPageSpreadGutterOverlayLayer(
+      this.movingPageSpreadGutterOverlayLayer,
+      spreadGutterOverlaySlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
+  } else {
+    this.movingPageSpreadGutterOverlayLayer?.remove?.()
+    this.movingPageSpreadGutterOverlayLayer = null
+  }
 }
 
 function surfacePaperTextureIndex(detail = {}) {
@@ -607,7 +632,13 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     ? { ...detail, pageIndex: pagePosition.pageIndex, pageCount: pagePosition.pageCount }
     : detail
   const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index, textureDetail)
-  const textureSlots = readerAdjacentPaperTextureSlots({
+  const { width, height } = readerViewportSize()
+  const spreadMode = readerSurfaceSpreadMode({
+    flowMode: this.readerFlowModeValue,
+    width,
+    height,
+  })
+  let textureSlots = readerAdjacentPaperTextureSlots({
     publicationUrl: this.publicationUrl,
     sections: this.view?.book?.sections || [],
     index,
@@ -615,7 +646,7 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     pagePosition,
     resolveVariant: readerPaperTextureVariantForPage,
   })
-  const borderOverlaySlots = readerAdjacentPaperTextureSlots({
+  let borderOverlaySlots = readerAdjacentPaperTextureSlots({
     publicationUrl: this.publicationUrl,
     sections: this.view?.book?.sections || [],
     index,
@@ -623,7 +654,7 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     pagePosition,
     resolveVariant: readerPageBorderOverlayVariantForPage,
   })
-  const stainOverlaySlots = readerAdjacentPaperTextureSlots({
+  let stainOverlaySlots = readerAdjacentPaperTextureSlots({
     publicationUrl: this.publicationUrl,
     sections: this.view?.book?.sections || [],
     index,
@@ -631,15 +662,39 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     pagePosition,
     resolveVariant: readerPageStainOverlayVariantForPage,
   })
+  textureSlots = readerSpreadPageTextureSlots(textureSlots, readerPaperTextureVariantForPage, spreadMode)
+  borderOverlaySlots = readerSpreadPageTextureSlots(borderOverlaySlots, readerPageBorderOverlayVariantForPage, spreadMode)
+  stainOverlaySlots = readerSpreadPageTextureSlots(stainOverlaySlots, readerPageStainOverlayVariantForPage, spreadMode)
+  const spreadGutterVisible = readerSurfaceSpreadGutterVisible({
+    settings: this.readerSettings,
+    spreadMode,
+    flowMode: this.readerFlowModeValue,
+    width,
+    height,
+  })
+  const spreadGutterOverlaySlots = spreadGutterVisible
+    ? readerAdjacentPaperTextureSlots({
+      publicationUrl: this.publicationUrl,
+      sections: this.view?.book?.sections || [],
+      index,
+      detail,
+      pagePosition,
+      resolveVariant: readerSpreadGutterOverlayVariantForPage,
+    })
+    : []
   const textureVariant = textureSlots.find(slot => slot.slot === 'current')?.variant || readerPaperTextureVariantForPage(textureKey)
   const borderOverlayVariant = borderOverlaySlots.find(slot => slot.slot === 'current')?.variant || readerPageBorderOverlayVariantForPage(textureKey)
   const stainOverlayVariant = stainOverlaySlots.find(slot => slot.slot === 'current')?.variant || readerPageStainOverlayVariantForPage(textureKey)
+  const spreadGutterOverlayVariant = spreadGutterOverlaySlots.find(slot => slot.slot === 'current')?.variant || null
+  this.surfaceSpreadMode = spreadMode
   this.surfaceTextureSlots = textureSlots
   this.surfaceBorderOverlaySlots = borderOverlaySlots
   this.surfaceStainOverlaySlots = stainOverlaySlots
+  this.surfaceSpreadGutterOverlaySlots = spreadGutterOverlaySlots
   this.surfaceTextureVariant = textureVariant
   this.surfaceBorderOverlayVariant = borderOverlayVariant
   this.surfaceStainOverlayVariant = stainOverlayVariant
+  this.surfaceSpreadGutterOverlayVariant = spreadGutterOverlayVariant
   this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
     ? this.surfaceTextureLayer
     : ensureReaderSurfaceTextureLayer()
@@ -656,6 +711,14 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
     ? this.movingPageStainOverlayLayer
     : ensureReaderMovingPageStainOverlayLayer()
+  if (spreadGutterOverlayVariant) {
+    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
+      ? this.movingPageSpreadGutterOverlayLayer
+      : ensureReaderMovingPageSpreadGutterOverlayLayer()
+  } else {
+    this.movingPageSpreadGutterOverlayLayer?.remove?.()
+    this.movingPageSpreadGutterOverlayLayer = null
+  }
   this.surfacePaperTextureBaseOffset = this.currentRendererContainerPosition()
   this.surfaceTextureScrollOffset = { x: 0, y: 0 }
   readerRoot.dataset.navicSurfacePaperTextureKey = textureKey
@@ -663,6 +726,8 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   readerRoot.dataset.navicSurfacePageBorderOverlayAsset = borderOverlayVariant.asset
   readerRoot.dataset.navicSurfaceBorderOverlayAsset = borderOverlayVariant.asset
   readerRoot.dataset.navicSurfacePageStainOverlayAsset = stainOverlayVariant.asset
+  readerRoot.dataset.navicSurfaceSpreadMode = spreadMode
+  readerRoot.dataset.navicSurfaceSpreadGutterOverlayAsset = spreadGutterOverlayVariant?.asset || ''
   const diagnostic = this.surfacePaperTextureDiagnosticState('update')
   log(
     'surface-texture-update',
@@ -678,6 +743,8 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     key: textureKey,
     baseAsset: textureVariant.asset,
     borderAsset: borderOverlayVariant.asset,
+    gutterAsset: spreadGutterOverlayVariant?.asset || '',
+    spreadMode,
   })
   this.renderSurfacePaperTextureLayers()
   this.stopSurfacePaperTextureMotionSync('texture-update')
