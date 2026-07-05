@@ -366,7 +366,6 @@ fun NowPlayingScreen() {
 					else -> contentPadding
 				}
 				if (isLandscape) {
-					val contentPaneWidthDp = maxWidth.value.toInt() / 2
 					Row(
 						modifier = Modifier.fillMaxSize().padding(padding),
 						horizontalArrangement = Arrangement.SpaceEvenly,
@@ -388,13 +387,13 @@ fun NowPlayingScreen() {
 								}
 							)
 						}
-						Box(
+						BoxWithConstraints(
 							modifier = Modifier.weight(1f).fillMaxHeight(),
 							contentAlignment = Alignment.Center
 						) {
 							val controlsModifier = if (isWideLandscape) {
 								val contentLayout = nowPlayingWideLandscapeContentLayout(
-									contentPaneWidthDp = contentPaneWidthDp
+									contentPaneWidthDp = maxWidth.value.toInt()
 								)
 								Modifier.width(contentLayout.progressWidthDp.dp)
 							} else {
