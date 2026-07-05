@@ -24,4 +24,30 @@ class NowPlayingWideLandscapeSourceTest {
 				"so title, buttons, progress, and Up Next share the same center."
 		)
 	}
+
+	@Test
+	fun wideLandscapeVinylPresentationControlsTheArtworkShape() {
+		val source = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/components/Artwork.kt"
+		).readText()
+
+		assertTrue(
+			"nowPlayingArtworkShapeForPlayback(\n\t\tconfiguredShape = preferenceManager.coverArtShape,\n\t\tisRotating = isVinylPresentation\n\t)" in source,
+			"Wide Now Playing generated artwork must use the vinyl/disc shape whenever the media slot is " +
+				"in vinyl presentation mode, even when the artwork animation is not currently rotating."
+		)
+	}
+
+	@Test
+	fun wideLandscapeVerticalUpNextUsesStableKeys() {
+		val source = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/components/rows/UpNextRow.kt"
+		).readText()
+
+		assertTrue(
+			"key(song.id)" in source,
+			"Wide Now Playing vertical Up Next rows must keep stable song keys so artwork/video state " +
+				"does not migrate between rows during queue updates."
+		)
+	}
 }

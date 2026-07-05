@@ -30,8 +30,8 @@ fun nowPlayingWideLandscapeContentLayout(
 	val progressWidth = contentPaneWidthDp
 		.coerceAtMost(760)
 		.coerceAtLeast(0)
-	val upNextWidth = (contentPaneWidthDp - 140)
-		.coerceAtMost(440)
+	val upNextWidth = progressWidth
+		.coerceAtMost(520)
 		.coerceAtLeast(0)
 
 	return NowPlayingWideLandscapeContentLayout(

@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
@@ -43,7 +44,8 @@ fun NowPlayingControlsRow(
 	onSetSongRating: (Int) -> Unit,
 	showInlineActions: Boolean = true,
 	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout =
-		paige.navic.domain.models.NowPlayingUpNextLayout.HorizontalRow
+		paige.navic.domain.models.NowPlayingUpNextLayout.HorizontalRow,
+	upNextWidth: Dp? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
@@ -128,7 +130,8 @@ fun NowPlayingControlsRow(
 		blocks.forEachIndexed { index, block ->
 			when (block) {
 				NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock(
-					upNextLayout = upNextLayout
+					upNextLayout = upNextLayout,
+					upNextWidth = upNextWidth
 				)
 
 				NowPlayingControlsLayoutBlock.TechnicalInfo -> Unit
@@ -162,7 +165,8 @@ fun NowPlayingControlsRow(
 
 @Composable
 private fun NowPlayingTimelineBlock(
-	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout
+	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout,
+	upNextWidth: Dp?
 ) {
 	Column(
 		modifier = Modifier.fillMaxWidth(),
@@ -170,6 +174,9 @@ private fun NowPlayingTimelineBlock(
 	) {
 		NowPlayingProgressBar(modifier = Modifier.fillMaxWidth())
 		NowPlayingDurationsRow()
-		NowPlayingUpNextRow(layout = upNextLayout)
+		NowPlayingUpNextRow(
+			layout = upNextLayout,
+			maxWidth = upNextWidth
+		)
 	}
 }

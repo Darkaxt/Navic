@@ -391,16 +391,21 @@ fun NowPlayingScreen() {
 							modifier = Modifier.weight(1f).fillMaxHeight(),
 							contentAlignment = Alignment.Center
 						) {
-							val controlsModifier = if (isWideLandscape) {
-								val contentLayout = nowPlayingWideLandscapeContentLayout(
+							val contentLayout = if (isWideLandscape) {
+								nowPlayingWideLandscapeContentLayout(
 									contentPaneWidthDp = maxWidth.value.toInt()
 								)
-								Modifier.width(contentLayout.progressWidthDp.dp)
+							} else {
+								null
+							}
+							val controlsModifier = if (isWideLandscape) {
+								Modifier.width(contentLayout?.progressWidthDp?.dp ?: 0.dp)
 							} else {
 								Modifier
 									.fillMaxWidth()
 									.widthIn(max = 560.dp)
 							}
+							val upNextWidth = contentLayout?.upNextWidthDp?.dp
 							NowPlayingControlsRow(
 								modifier = controlsModifier,
 								isLandscape = true,
@@ -412,7 +417,8 @@ fun NowPlayingScreen() {
 								songRating = songRating,
 								onSetSongRating = { viewModel.rateSong(it) },
 								showInlineActions = !isWideLandscape,
-								upNextLayout = nowPlayingUpNextLayout(wideLandscape = isWideLandscape)
+								upNextLayout = nowPlayingUpNextLayout(wideLandscape = isWideLandscape),
+								upNextWidth = upNextWidth
 							)
 						}
 					}

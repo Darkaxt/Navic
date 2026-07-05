@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,7 +60,8 @@ internal fun nowPlayingUpNextBottomPadding(showTechnicalInfo: Boolean): Dp =
 @Composable
 fun NowPlayingUpNextRow(
 	showTechnicalInfoBelow: Boolean = false,
-	layout: NowPlayingUpNextLayout = nowPlayingUpNextLayout(wideLandscape = false)
+	layout: NowPlayingUpNextLayout = nowPlayingUpNextLayout(wideLandscape = false),
+	maxWidth: Dp? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val showNowPlayingUpNext = preferenceManager.showNowPlayingUpNext
@@ -104,7 +106,7 @@ fun NowPlayingUpNextRow(
 				.then(
 					if (layout == NowPlayingUpNextLayout.VerticalStack) {
 						Modifier
-							.widthIn(max = 440.dp)
+							.then(maxWidth?.let { Modifier.width(it) } ?: Modifier.widthIn(max = 520.dp))
 							.fillMaxWidth()
 					} else {
 						Modifier
@@ -137,19 +139,21 @@ fun NowPlayingUpNextRow(
 			NowPlayingUpNextLayout.VerticalStack -> {
 				Column(
 					modifier = Modifier
-						.widthIn(max = 440.dp)
+						.then(maxWidth?.let { Modifier.width(it) } ?: Modifier.widthIn(max = 520.dp))
 						.fillMaxWidth()
 						.padding(top = 6.dp),
 					verticalArrangement = Arrangement.spacedBy(8.dp)
 				) {
 					upNextSongs.forEach { song ->
-						NowPlayingUpNextItem(
-							song = song,
-							showArtwork = showArtwork,
-							onClick = onOpenQueue,
-							modifier = Modifier.fillMaxWidth(),
-							fillWidth = true
-						)
+						key(song.id) {
+							NowPlayingUpNextItem(
+								song = song,
+								showArtwork = showArtwork,
+								onClick = onOpenQueue,
+								modifier = Modifier.fillMaxWidth(),
+								fillWidth = true
+							)
+						}
 					}
 				}
 			}

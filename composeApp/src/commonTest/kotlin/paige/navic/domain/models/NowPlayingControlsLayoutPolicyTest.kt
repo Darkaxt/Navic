@@ -41,7 +41,7 @@ class NowPlayingControlsLayoutPolicyTest {
 		assertEquals(
 			NowPlayingWideLandscapeContentLayout(
 				progressWidthDp = 760,
-				upNextWidthDp = 440
+				upNextWidthDp = 520
 			),
 			nowPlayingWideLandscapeContentLayout(
 				contentPaneWidthDp = 900
@@ -50,10 +50,19 @@ class NowPlayingControlsLayoutPolicyTest {
 		assertEquals(
 			NowPlayingWideLandscapeContentLayout(
 				progressWidthDp = 560,
-				upNextWidthDp = 420
+				upNextWidthDp = 520
 			),
 			nowPlayingWideLandscapeContentLayout(
 				contentPaneWidthDp = 560
+			)
+		)
+		assertEquals(
+			NowPlayingWideLandscapeContentLayout(
+				progressWidthDp = 420,
+				upNextWidthDp = 420
+			),
+			nowPlayingWideLandscapeContentLayout(
+				contentPaneWidthDp = 420
 			)
 		)
 	}
