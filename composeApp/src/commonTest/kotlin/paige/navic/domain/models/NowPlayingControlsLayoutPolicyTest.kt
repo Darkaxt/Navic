@@ -9,14 +9,14 @@ class NowPlayingControlsLayoutPolicyTest {
 		assertEquals(
 			false,
 			shouldUseWideNowPlayingLandscapeLayout(
-				widthDp = 1000,
+				widthDp = 899,
 				heightDp = 640
 			)
 		)
 		assertEquals(
 			true,
 			shouldUseWideNowPlayingLandscapeLayout(
-				widthDp = 1120,
+				widthDp = 900,
 				heightDp = 640
 			)
 		)

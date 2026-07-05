@@ -40,10 +40,7 @@ fun nowPlayingWideLandscapeContentLayout(
 	)
 }
 
-private const val NowPlayingWideLandscapeMinimumProgressWidthDp = 560
-private const val NowPlayingWideLandscapePaneCount = 2
-private const val NowPlayingWideLandscapeMinimumWidthDp =
-	NowPlayingWideLandscapeMinimumProgressWidthDp * NowPlayingWideLandscapePaneCount
+private const val NowPlayingWideLandscapeMinimumWidthDp = 900
 
 fun nowPlayingControlsLayoutBlocks(
 	swapControlsAndTimeline: Boolean,
