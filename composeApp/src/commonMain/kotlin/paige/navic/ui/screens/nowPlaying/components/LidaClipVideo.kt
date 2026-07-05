@@ -5,8 +5,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
@@ -26,6 +29,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_play_music_video
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.PreferenceManager
@@ -51,6 +57,8 @@ import paige.navic.domain.models.shouldShowNowPlayingLidaClipControls
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.repositories.LidaClipsRepository
 import paige.navic.domain.repositories.lidaClipsStreamRequestHeaders
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Movie
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorBox
 import paige.navic.ui.components.common.KeepScreenOn
@@ -303,5 +311,32 @@ fun NowPlayingLidaClipArtwork(
 				}
 			)
 		}
+		NowPlayingForegroundClipBadge(
+			modifier = Modifier
+				.align(Alignment.TopEnd)
+				.padding(12.dp)
+		)
+	}
+}
+
+@Composable
+private fun NowPlayingForegroundClipBadge(
+	modifier: Modifier = Modifier
+) {
+	Surface(
+		shape = MaterialTheme.shapes.small,
+		color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.88f),
+		contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+		tonalElevation = 4.dp,
+		shadowElevation = 2.dp,
+		modifier = modifier
+	) {
+		Icon(
+			imageVector = Icons.Outlined.Movie,
+			contentDescription = stringResource(Res.string.action_play_music_video),
+			modifier = Modifier
+				.padding(7.dp)
+				.size(18.dp)
+		)
 	}
 }
