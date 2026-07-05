@@ -21,6 +21,9 @@ import {
   ReaderDirectionRtl,
   ReaderDocumentThemeStyleId,
   ReaderFlowPaged,
+  ReaderPageTurnCanvas,
+  ReaderPageTurnNone,
+  ReaderPageTurnWebgl,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
   ReaderFlowScrolledGaps,
@@ -260,7 +263,10 @@ class NavicReaderRuntime {
   readerSettings = {}
   readerTapZoneMode = ReaderTapZoneDefault
   readerFlowModeValue = ReaderFlowPaged
-  readerDragAnimationModeValue = 'standard'
+  readerPageTurnAnimationValue = 'none'
+  readerPageTurnAnimationEffectiveValue = 'none'
+  readerPageTurnWebglAvailable = null // null=unprobed, true/false after probe
+  readerPageTurnWebglContextLost = false
   readerDirectionModeValue = ReaderDirectionDefault
   smallerTapZone = false
   nativeTapZones = false
@@ -362,6 +368,55 @@ class NavicReaderRuntime {
     window.visualViewport?.addEventListener('resize', this.viewportResizeListener)
     window.addEventListener('resize', this.viewportResizeListener)
     requestAnimationFrame(() => this.applyReaderViewportLayout('startup'))
+  }
+
+  // Page-turn animation: WebGL capability probe + event-driven downgrade (spec §9.1, §9.2).
+  // No timeouts/polling: probe once; react to webglcontextlost/restored only.
+  probePageTurnWebglAvailability() {
+    if (this.readerPageTurnWebglAvailable !== null) return this.readerPageTurnWebglAvailable
+    try {
+      const canvas = document.createElement('canvas')
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+      this.readerPageTurnWebglAvailable = Boolean(gl)
+      if (gl) {
+        const loseExt = gl.getExtension?.('WEBGL_lose_context')
+        loseExt?.loseContext?.() // release the probe context immediately
+      }
+    } catch (error) {
+      log('page-turn:webgl-probe-failed', error?.message || String(error))
+      this.readerPageTurnWebglAvailable = false
+    }
+    return this.readerPageTurnWebglAvailable
+  }
+
+  resolveEffectivePageTurnAnimation(requested) {
+    const mode = String(requested || '').toLowerCase()
+    if (mode === ReaderPageTurnWebgl) {
+      if (this.readerPageTurnWebglContextLost) {
+        log('page-turn:webgl-downgraded', 'reason=context-lost', 'fallback=canvas')
+        return ReaderPageTurnCanvas
+      }
+      if (!this.probePageTurnWebglAvailability()) {
+        log('page-turn:webgl-downgraded', 'reason=probe-failed', 'fallback=canvas')
+        return ReaderPageTurnCanvas
+      }
+      return ReaderPageTurnWebgl
+    }
+    return mode === ReaderPageTurnCanvas ? ReaderPageTurnCanvas : ReaderPageTurnNone
+  }
+
+  registerPageTurnWebglContextLoss(canvas) {
+    if (!canvas || this.readerPageTurnWebglContextListenerAttached) return
+    this.readerPageTurnWebglContextListenerAttached = true
+    canvas.addEventListener('webglcontextlost', event => {
+      event.preventDefault()
+      this.readerPageTurnWebglContextLost = true
+      log('page-turn:webgl-context-lost', 'downgrading to canvas for session')
+      // Force re-evaluation on next settings apply so the effective mode downgrades.
+      this.readerPageTurnAnimationEffectiveValue = ReaderPageTurnCanvas
+      readerRoot.dataset.navicReaderPageTurnAnimation = ReaderPageTurnCanvas
+    }, { once: false })
+    // webglcontextrestored does NOT auto-promote back (spec §9.2: session stays on canvas once downgraded).
   }
 
   dispatch(command) {

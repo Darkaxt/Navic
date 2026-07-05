@@ -45,7 +45,7 @@ class ReaderBridgeProtocolTest {
 				theme = ReaderDuskTheme,
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
-				dragAnimationMode = ReaderDragAnimationCurl,
+				pageTurnAnimation = ReaderPageTurnCanvas,
 				paged = false,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertHorizontal,
@@ -95,7 +95,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"theme\":\"dusk\"")
 		assertContains(script, "\"direction\":\"rtl\"")
 		assertContains(script, "\"navBarType\":\"bottom\"")
-		assertContains(script, "\"dragAnimationMode\":\"curl\"")
+		assertContains(script, "\"pageTurnAnimation\":\"canvas\"")
 		assertContains(script, "\"paged\":false")
 		assertContains(script, "\"tapZone\":\"kindle\"")
 		assertContains(script, "\"tapZoneInvertMode\":\"horizontal\"")

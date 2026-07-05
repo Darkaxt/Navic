@@ -60,7 +60,7 @@ class ReaderSettingsDefaultsTest {
 				direction = ReaderDirectionDefault,
 				navBarType = ReaderNavBarTypeVerticalRight,
 				flowMode = ReaderFlowScrolled,
-				dragAnimationMode = ReaderDragAnimationStandard,
+				pageTurnAnimation = ReaderPageTurnNone,
 				paged = false,
 				tapZone = ReaderTapZoneDefault,
 				tapZoneInvertMode = ReaderTapZoneInvertNone,
@@ -97,7 +97,7 @@ class ReaderSettingsDefaultsTest {
 				orientation = "sideways",
 				theme = "neon",
 				direction = "sideways",
-				dragAnimationMode = "fold",
+				pageTurnAnimation = "fold",
 				paged = false,
 				tapZone = "maze",
 				smallerTapZone = false,
@@ -144,7 +144,7 @@ class ReaderSettingsDefaultsTest {
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
 				flowMode = ReaderFlowPaged,
-				dragAnimationMode = ReaderDragAnimationCurl,
+				pageTurnAnimation = ReaderPageTurnCanvas,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertBoth,
@@ -184,7 +184,7 @@ class ReaderSettingsDefaultsTest {
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
-				dragAnimationMode = ReaderDragAnimationCurl,
+				pageTurnAnimation = ReaderPageTurnCanvas,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertBoth,
@@ -379,16 +379,17 @@ class ReaderSettingsDefaultsTest {
 	@Test
 	fun readerSettingsDefaultsKeepExplicitDragAnimationModes() {
 		assertEquals(
-			listOf(ReaderDragAnimationStandard, ReaderDragAnimationCurl),
-			ReaderSupportedDragAnimationModes
+			listOf(ReaderPageTurnNone, ReaderPageTurnCanvas, ReaderPageTurnWebgl),
+			ReaderSupportedPageTurnAnimations
 		)
-		assertEquals(ReaderDragAnimationStandard, defaultReaderSettings().dragAnimationMode)
-		assertEquals(ReaderDragAnimationStandard, normalizedReaderDragAnimationMode("fold"))
-		assertEquals(ReaderDragAnimationCurl, normalizedReaderDragAnimationMode(ReaderDragAnimationCurl))
-		assertEquals("Standard", readerDragAnimationModeShortLabel(ReaderDragAnimationStandard))
-		assertEquals("Curl", readerDragAnimationModeShortLabel(ReaderDragAnimationCurl))
+		assertEquals(ReaderPageTurnNone, defaultReaderSettings().pageTurnAnimation)
+		assertEquals(ReaderPageTurnNone, normalizedPageTurnAnimation("fold"))
+		assertEquals(ReaderPageTurnCanvas, normalizedPageTurnAnimation(ReaderPageTurnCanvas))
+		assertEquals("None", pageTurnAnimationShortLabel(ReaderPageTurnNone))
+		assertEquals("Canvas", pageTurnAnimationShortLabel(ReaderPageTurnCanvas))
+		assertEquals("WebGL", pageTurnAnimationShortLabel(ReaderPageTurnWebgl))
 		assertEquals(
-			ReaderDragAnimationCurl,
+			ReaderPageTurnCanvas,
 			normalizedReaderSettings(
 				fontFamily = ReaderSansFontFamily,
 				fontSizePercent = 100,
@@ -396,8 +397,8 @@ class ReaderSettingsDefaultsTest {
 				marginPercent = 0,
 				theme = "light",
 				paged = true,
-				dragAnimationMode = ReaderDragAnimationCurl
-			).dragAnimationMode
+				pageTurnAnimation = ReaderPageTurnCanvas
+			).pageTurnAnimation
 		)
 	}
 

@@ -618,8 +618,9 @@
 	<string name="option_ebook_reader_nav_bar_type_bottom">Bottom</string>
 	<string name="option_ebook_reader_flow">Reading flow</string>
 	<string name="option_ebook_reader_page_turn_animation">Page turn animation</string>
-	<string name="option_ebook_reader_page_turn_animation_standard">Standard</string>
-	<string name="option_ebook_reader_page_turn_animation_curl">Curl</string>
+	<string name="option_ebook_reader_page_turn_animation_none">None</string>
+	<string name="option_ebook_reader_page_turn_animation_canvas">Canvas</string>
+	<string name="option_ebook_reader_page_turn_animation_webgl">WebGL</string>
 	<string name="option_ebook_reader_paged">Paged</string>
 	<string name="option_ebook_reader_paged_vertical">Paged vertical</string>
 	<string name="option_ebook_reader_column_mode">Column mode</string>

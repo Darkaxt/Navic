@@ -143,7 +143,7 @@ data class ReaderSettings(
 	val paperStainsEnabled: Boolean? = null,
 	val navBarType: String? = null,
 	val flowMode: String? = null,
-	val dragAnimationMode: String? = null,
+	val pageTurnAnimation: String? = null,
 	val paged: Boolean? = null,
 	val tapZone: String? = null,
 	val tapZoneInvertMode: String? = null,
@@ -796,7 +796,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		paperStainsEnabled?.let { put("paperStainsEnabled", it) }
 		navBarType?.let { put("navBarType", it) }
 		flowMode?.let { put("flowMode", it) }
-		dragAnimationMode?.let { put("dragAnimationMode", it) }
+		pageTurnAnimation?.let { put("pageTurnAnimation", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }
 		tapZoneInvertMode?.let { put("tapZoneInvertMode", it) }

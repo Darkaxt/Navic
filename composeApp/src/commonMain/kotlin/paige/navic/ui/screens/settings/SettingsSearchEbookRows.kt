@@ -19,7 +19,7 @@ import paige.navic.domain.models.settings.*
 import paige.navic.reader.DefaultReaderFontSizePercent
 import paige.navic.reader.DefaultReaderParagraphSpacingPercent
 import paige.navic.reader.ReaderDirectionDefault
-import paige.navic.reader.ReaderDragAnimationStandard
+import paige.navic.reader.ReaderPageTurnNone
 import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
@@ -195,11 +195,11 @@ internal fun settingsSearchEbookRows(context: SettingsSearchContext): List<Searc
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_page_turn_animation),
 			subtitle = stringResource(Res.string.subtitle_ebook_reader_page_turn_animation),
-			keywords = listOf("reader", "ebook", "EPUB", "drag", "curl", "standard", "gesture", "Komikku", "page turn"),
-			items = readerDragAnimationSearchOptions,
-			label = { dragAnimationMode -> readerDragAnimationSearchLabel(dragAnimationMode) },
-			selection = readerSettings.dragAnimationMode ?: ReaderDragAnimationStandard,
-			onSelect = { dragAnimationMode -> preferenceManager.readerDragAnimationMode = dragAnimationMode }
+			keywords = listOf("reader", "ebook", "EPUB", "drag", "curl", "standard", "gesture", "Komikku", "page turn", "animation", "canvas", "webgl"),
+			items = pageTurnAnimationSearchOptions,
+			label = { dragAnimationMode -> pageTurnAnimationSearchLabel(dragAnimationMode) },
+			selection = readerSettings.pageTurnAnimation ?: ReaderPageTurnNone,
+			onSelect = { dragAnimationMode -> preferenceManager.readerPageTurnAnimation = dragAnimationMode }
 		))
 		add(selectionRow(
 			id = "ebooks.pdf-fit",

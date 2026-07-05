@@ -11,7 +11,9 @@ import {
   ReaderDirectionLtr,
   ReaderDirectionRtl,
   ReaderDocumentThemeStyleId,
-  ReaderDragAnimationCurl,
+  ReaderPageTurnCanvas,
+  ReaderPageTurnNone,
+  ReaderPageTurnWebgl,
   ReaderFlowPaged,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
@@ -752,8 +754,13 @@ function readerPageDragCurlMetrics({ direction, deltaX, deltaY, width, height, v
   return { progress, eased, angle, frontShadow, spineShadow, shadowAlpha, curlWidth }
 }
 
-function readerDragAnimationModeAllowsCurl(mode) {
-  return String(mode || '').toLowerCase() === ReaderDragAnimationCurl
+function pageTurnAnimationAllowsCurl(mode) {
+  const normalized = String(mode || '').toLowerCase()
+  return normalized === ReaderPageTurnCanvas || normalized === ReaderPageTurnWebgl
+}
+
+function pageTurnAnimationIsNone(mode) {
+  return String(mode || '').toLowerCase() === ReaderPageTurnNone
 }
 
 function readerNativeDragSnapVelocity({ direction, flowMode, readerDirection } = {}) {
@@ -1291,7 +1298,7 @@ function ensurePageDragPreviewTarget({ direction, viewWidth = null, viewHeight =
   const { width, height } = this.pageDragPreviewDimensions(viewWidth, viewHeight)
   const side = direction === 'previous' ? 'left' : 'right'
   const palette = readerThemePalette(this.readerSettings?.theme)
-  const curlEnabled = readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)
+  const curlEnabled = false // retired: legacy CSS curl snapshot path; canvas/webgl renderers own the curl in Stage 2
   const { layer, frame } = this.ensurePageDragPreviewLayer({ curlEnabled })
   const targetKey = this.buildPageDragPreviewTargetKey(targetIndex, direction, width, height)
   if (
@@ -1546,7 +1553,7 @@ function ensureInteriorPageDragPreviewTarget({ direction, renderer, viewWidth = 
   const side = direction === 'previous' ? 'left' : 'right'
   const vertical = this.readerFlowModeValue === ReaderFlowPagedVertical
   const palette = readerThemePalette(this.readerSettings?.theme)
-  const curlEnabled = readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)
+  const curlEnabled = false // retired: legacy CSS curl snapshot path; canvas/webgl renderers own the curl in Stage 2
   const { layer, frame } = this.ensurePageDragPreviewLayer({ curlEnabled })
   const ready = this.syncPageDragInteriorPreviewFrame(frame, renderer, {
     direction,
@@ -1612,7 +1619,7 @@ function updatePageDragPreviewLayer({ direction, deltaX, deltaY, viewWidth, view
   const exposedHeight = vertical ? Math.max(1, Math.min(height, Math.round(Math.abs(Number(deltaY) || 0)))) : height
   const left = vertical || side !== 'right' ? 0 : width - exposedWidth
   const top = vertical && direction === 'next' ? height - exposedHeight : 0
-  const curlEnabled = readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)
+  const curlEnabled = false // retired: legacy CSS curl snapshot path; canvas/webgl renderers own the curl in Stage 2
   if (curlEnabled) {
     this.applyPageDragCurlMetrics(layer, {
       direction,
@@ -1940,7 +1947,7 @@ function previewPageDrag(command) {
       })
     }
   }
-  if (!boundaryDirection && textureDirection && this.readerDragAnimationModeValue !== 'curl') {
+  if (!boundaryDirection && textureDirection && pageTurnAnimationIsNone(this.readerPageTurnAnimationEffectiveValue)) {
     // Seed basePosition only from a live preview; otherwise anchor to the current
     // renderer position so a prior non-live (underlay/boundary) preview can't shift
     // the live scroll window by a page.
@@ -2387,7 +2394,8 @@ export const NavicReaderPageTurnMethods = {
   pageDragInteriorPreviewScroll,
   syncPageDragInteriorPreviewFrame,
   ensureInteriorPageDragPreviewTarget,
-  readerDragAnimationModeAllowsCurl,
+  pageTurnAnimationAllowsCurl,
+  pageTurnAnimationIsNone,
   clearPageDragCurlState,
   preloadPageDragPreviewTargets,
   updatePageDragPreviewLayer,

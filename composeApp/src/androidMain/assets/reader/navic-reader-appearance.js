@@ -42,7 +42,7 @@ import {
   ScrollEdgeTurnSwipeThreshold,
   optionalNumber,
   readerDirectionMode,
-  readerDragAnimationMode,
+  pageTurnAnimationFromSettings,
   readerEffectiveFontFamily,
   readerFlowMode,
   readerFoliateFlow,
@@ -221,12 +221,14 @@ function applySettings(settings) {
   const flowMode = readerFlowMode(settings)
   this.readerFlowModeValue = flowMode
   readerRoot.dataset.navicReaderFlowMode = flowMode
-  const dragAnimationMode = readerDragAnimationMode(settings)
-  if (this.readerDragAnimationModeValue && this.readerDragAnimationModeValue !== dragAnimationMode) {
+  const pageTurnAnimation = pageTurnAnimationFromSettings(settings)
+  const effectivePageTurnAnimation = this.resolveEffectivePageTurnAnimation?.(pageTurnAnimation) || pageTurnAnimation
+  if (this.readerPageTurnAnimationEffectiveValue && this.readerPageTurnAnimationEffectiveValue !== effectivePageTurnAnimation) {
     this.removePageDragPreviewLayer?.()
   }
-  this.readerDragAnimationModeValue = dragAnimationMode
-  readerRoot.dataset.navicReaderDragAnimationMode = dragAnimationMode
+  this.readerPageTurnAnimationValue = pageTurnAnimation
+  this.readerPageTurnAnimationEffectiveValue = effectivePageTurnAnimation
+  readerRoot.dataset.navicReaderPageTurnAnimation = effectivePageTurnAnimation
   rootStyle.setProperty('--reader-scroll-gap', flowMode === ReaderFlowScrolledGaps ? '1.25rem' : '0rem')
   this.view?.renderer?.setAttribute('flow', readerFoliateFlow(flowMode))
   this.readerDirectionModeValue = readerDirectionMode(settings)

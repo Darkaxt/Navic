@@ -80,8 +80,9 @@ const val ReaderDirectionRtl = "rtl"
 const val ReaderNavBarTypeVerticalRight = "vertical-right"
 const val ReaderNavBarTypeVerticalLeft = "vertical-left"
 const val ReaderNavBarTypeBottom = "bottom"
-const val ReaderDragAnimationStandard = "standard"
-const val ReaderDragAnimationCurl = "curl"
+const val ReaderPageTurnNone = "none"
+const val ReaderPageTurnCanvas = "canvas"
+const val ReaderPageTurnWebgl = "webgl"
 const val ReaderFlowPaged = "paged"
 const val ReaderFlowPagedVertical = "paged-vertical"
 const val ReaderFlowScrolled = "scrolled"
@@ -136,9 +137,10 @@ val ReaderSupportedFontSources: List<String> = listOf(
 	ReaderFontSourceCustom
 )
 
-val ReaderSupportedDragAnimationModes: List<String> = listOf(
-	ReaderDragAnimationStandard,
-	ReaderDragAnimationCurl
+val ReaderSupportedPageTurnAnimations: List<String> = listOf(
+	ReaderPageTurnNone,
+	ReaderPageTurnCanvas,
+	ReaderPageTurnWebgl
 )
 
 val ReaderSupportedTapZones: List<String> = listOf(
@@ -274,9 +276,19 @@ fun normalizedReaderDirection(direction: String?): String =
 fun normalizedReaderNavBarType(navBarType: String?): String =
 	ReaderSupportedNavBarTypes.firstOrNull { supported -> supported == navBarType } ?: ReaderNavBarTypeVerticalRight
 
-fun normalizedReaderDragAnimationMode(dragAnimationMode: String?): String =
-	ReaderSupportedDragAnimationModes.firstOrNull { supported -> supported == dragAnimationMode }
-		?: ReaderDragAnimationStandard
+fun normalizedPageTurnAnimation(pageTurnAnimation: String?): String =
+	ReaderSupportedPageTurnAnimations.firstOrNull { supported -> supported == pageTurnAnimation }
+		?: ReaderPageTurnNone
+
+fun migratedPageTurnAnimation(dragAnimationMode: String?): String? = when (dragAnimationMode) {
+	ReaderPageTurnNone, ReaderPageTurnCanvas, ReaderPageTurnWebgl -> dragAnimationMode
+	"curl" -> ReaderPageTurnCanvas
+	"standard" -> ReaderPageTurnNone
+	else -> null
+}
+
+private const val ReaderLegacyDragAnimationStandard = "standard"
+private const val ReaderLegacyDragAnimationCurl = "curl"
 
 fun normalizedReaderPdfFitMode(pdfFitMode: String?): String =
 	ReaderSupportedPdfFitModes.firstOrNull { supported -> supported == pdfFitMode } ?: ReaderPdfFitWidth
@@ -650,10 +662,11 @@ fun readerNavBarTypeShortLabel(navBarType: String?): String =
 		else -> "Right"
 	}
 
-fun readerDragAnimationModeShortLabel(dragAnimationMode: String?): String =
-	when (normalizedReaderDragAnimationMode(dragAnimationMode)) {
-		ReaderDragAnimationCurl -> "Curl"
-		else -> "Standard"
+fun pageTurnAnimationShortLabel(pageTurnAnimation: String?): String =
+	when (normalizedPageTurnAnimation(pageTurnAnimation)) {
+		ReaderPageTurnCanvas -> "Canvas"
+		ReaderPageTurnWebgl -> "WebGL"
+		else -> "None"
 	}
 
 fun readerColorFilterModeShortLabel(colorFilterMode: String?): String =
@@ -701,7 +714,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		pageEdgesEnabled = true,
 		paperStainsEnabled = true,
 		navBarType = ReaderNavBarTypeVerticalRight,
-		dragAnimationMode = ReaderDragAnimationStandard,
+		pageTurnAnimation = ReaderPageTurnNone,
 		flowMode = ReaderFlowPaged,
 		paged = true,
 		tapZone = ReaderTapZoneDefault,
@@ -751,7 +764,7 @@ fun normalizedReaderSettings(
 	pageEdgesEnabled: Boolean = true,
 	paperStainsEnabled: Boolean = true,
 	navBarType: String? = ReaderNavBarTypeVerticalRight,
-	dragAnimationMode: String? = ReaderDragAnimationStandard,
+	pageTurnAnimation: String? = ReaderPageTurnNone,
 	flowMode: String? = null,
 	paged: Boolean,
 	tapZone: String? = ReaderTapZoneDefault,
@@ -842,7 +855,7 @@ fun normalizedReaderSettings(
 		pageEdgesEnabled = pageEdgesEnabled,
 		paperStainsEnabled = paperStainsEnabled,
 		navBarType = normalizedReaderNavBarType(navBarType),
-		dragAnimationMode = normalizedReaderDragAnimationMode(dragAnimationMode),
+		pageTurnAnimation = normalizedPageTurnAnimation(pageTurnAnimation),
 		flowMode = normalizedReaderFlowMode(flowMode, paged),
 		paged = normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolled &&
 			normalizedReaderFlowMode(flowMode, paged) != ReaderFlowScrolledGaps,
@@ -902,7 +915,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		pageEdgesEnabled = pageEdgesEnabled ?: true,
 		paperStainsEnabled = paperStainsEnabled ?: true,
 		navBarType = navBarType,
-		dragAnimationMode = dragAnimationMode,
+		pageTurnAnimation = pageTurnAnimation,
 		flowMode = flowMode,
 		paged = paged ?: true,
 		tapZone = tapZone,

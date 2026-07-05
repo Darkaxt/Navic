@@ -32,8 +32,11 @@ export const ReaderFlowPaged = 'paged'
 export const ReaderFlowPagedVertical = 'paged-vertical'
 export const ReaderFlowScrolled = 'scrolled'
 export const ReaderFlowScrolledGaps = 'scrolled-gaps'
-export const ReaderDragAnimationStandard = 'standard'
-export const ReaderDragAnimationCurl = 'curl'
+export const ReaderPageTurnNone = 'none'
+export const ReaderPageTurnCanvas = 'canvas'
+export const ReaderPageTurnWebgl = 'webgl'
+export const ReaderPageTurnDefault = ReaderPageTurnNone
+export const ReaderSupportedPageTurnAnimations = [ReaderPageTurnNone, ReaderPageTurnCanvas, ReaderPageTurnWebgl]
 export const ReaderDirectionDefault = 'default'
 export const ReaderDirectionLtr = 'ltr'
 export const ReaderDirectionRtl = 'rtl'
@@ -122,10 +125,18 @@ export const readerFoliateFlow = flowMode =>
     ? 'scrolled'
     : 'paginated'
 
-export const readerDragAnimationMode = settings =>
-  settings?.["dragAnimationMode"] === ReaderDragAnimationCurl
-    ? ReaderDragAnimationCurl
-    : ReaderDragAnimationStandard
+const migrateDragAnimationMode = value =>
+  value === 'curl' ? ReaderPageTurnCanvas
+    : value === 'standard' ? ReaderPageTurnNone
+    : null
+
+export const pageTurnAnimationFromSettings = settings => {
+  const requested = settings?.["pageTurnAnimation"]
+  const supported = ReaderSupportedPageTurnAnimations.includes(requested) ? requested : null
+  if (supported) return supported
+  const migrated = migrateDragAnimationMode(settings?.["dragAnimationMode"])
+  return migrated || ReaderPageTurnDefault
+}
 
 export const readerDirectionMode = settings => {
   if (settings?.direction === ReaderDirectionLtr) return ReaderDirectionLtr

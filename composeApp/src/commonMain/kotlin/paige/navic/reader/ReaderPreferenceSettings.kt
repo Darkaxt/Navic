@@ -66,7 +66,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		pageEdgesEnabled = readerPageEdgesEnabled,
 		paperStainsEnabled = readerPaperStainsEnabled,
 		navBarType = readerNavBarType,
-		dragAnimationMode = readerDragAnimationMode,
+		pageTurnAnimation = readerPageTurnAnimation,
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
@@ -121,7 +121,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerPageEdgesEnabled = normalized.pageEdgesEnabled ?: true
 	readerPaperStainsEnabled = normalized.paperStainsEnabled ?: true
 	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
-	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationStandard
+	readerPageTurnAnimation = normalized.pageTurnAnimation ?: ReaderPageTurnNone
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
@@ -202,7 +202,7 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		pageEdgesEnabled = override.pageEdgesEnabled ?: pageEdgesEnabled,
 		paperStainsEnabled = override.paperStainsEnabled ?: paperStainsEnabled,
 		navBarType = override.navBarType ?: navBarType,
-		dragAnimationMode = override.dragAnimationMode ?: dragAnimationMode,
+		pageTurnAnimation = override.pageTurnAnimation ?: pageTurnAnimation,
 		flowMode = override.flowMode ?: flowMode,
 		paged = override.paged ?: paged,
 		tapZone = override.tapZone ?: tapZone,
@@ -257,7 +257,7 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		pageEdgesEnabled = if (pageEdgesEnabled != null) normalized.pageEdgesEnabled else null,
 		paperStainsEnabled = if (paperStainsEnabled != null) normalized.paperStainsEnabled else null,
 		navBarType = if (navBarType != null) normalized.navBarType else null,
-		dragAnimationMode = if (dragAnimationMode != null) normalized.dragAnimationMode else null,
+		pageTurnAnimation = if (pageTurnAnimation != null) normalized.pageTurnAnimation else null,
 		flowMode = if (flowMode != null) normalized.flowMode else null,
 		paged = if (paged != null) normalized.paged else null,
 		tapZone = if (tapZone != null) normalized.tapZone else null,
@@ -351,7 +351,8 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		pageEdgesEnabled = booleanValue("pageEdgesEnabled"),
 		paperStainsEnabled = booleanValue("paperStainsEnabled"),
 		navBarType = stringValue("navBarType"),
-		dragAnimationMode = stringValue("dragAnimationMode"),
+		pageTurnAnimation = stringValue("pageTurnAnimation")
+			?: migratedPageTurnAnimation(stringValue("dragAnimationMode")),
 		flowMode = stringValue("flowMode"),
 		paged = booleanValue("paged"),
 		tapZone = stringValue("tapZone"),
@@ -403,7 +404,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		pageEdgesEnabled?.let { put("pageEdgesEnabled", it) }
 		paperStainsEnabled?.let { put("paperStainsEnabled", it) }
 		navBarType?.let { put("navBarType", it) }
-		dragAnimationMode?.let { put("dragAnimationMode", it) }
+		pageTurnAnimation?.let { put("pageTurnAnimation", it) }
 		flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }

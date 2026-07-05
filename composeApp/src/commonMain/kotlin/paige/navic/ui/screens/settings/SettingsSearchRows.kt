@@ -36,7 +36,9 @@ import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderDarkTheme
 import paige.navic.reader.ReaderDirectionLtr
 import paige.navic.reader.ReaderDirectionRtl
-import paige.navic.reader.ReaderDragAnimationCurl
+import paige.navic.reader.ReaderPageTurnCanvas
+import paige.navic.reader.ReaderPageTurnNone
+import paige.navic.reader.ReaderPageTurnWebgl
 import paige.navic.reader.ReaderDuskTheme
 import paige.navic.reader.ReaderDyslexicFontFamily
 import paige.navic.reader.ReaderFlowPagedVertical
@@ -62,7 +64,7 @@ import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
 import paige.navic.reader.ReaderSupportedDirections
-import paige.navic.reader.ReaderSupportedDragAnimationModes
+import paige.navic.reader.ReaderSupportedPageTurnAnimations
 import paige.navic.reader.ReaderSupportedNavBarTypes
 import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedFlowModes
@@ -297,7 +299,7 @@ internal val readerOrientationSearchOptions = ReaderSupportedOrientations
 internal val readerDirectionSearchOptions = ReaderSupportedDirections
 internal val readerNavBarTypeSearchOptions = ReaderSupportedNavBarTypes
 internal val readerFlowSearchOptions = ReaderSupportedFlowModes
-internal val readerDragAnimationSearchOptions = ReaderSupportedDragAnimationModes
+internal val pageTurnAnimationSearchOptions = ReaderSupportedPageTurnAnimations
 internal val readerPdfFitSearchOptions = ReaderSupportedPdfFitModes
 internal val readerPdfPageGapSearchOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
 internal val readerTapZoneSearchOptions = ReaderSupportedTapZones
@@ -373,10 +375,11 @@ internal fun readerFlowSearchLabel(flowMode: String): String =
 	}
 
 @Composable
-internal fun readerDragAnimationSearchLabel(dragAnimationMode: String): String =
-	when (dragAnimationMode) {
-		ReaderDragAnimationCurl -> stringResource(Res.string.option_ebook_reader_page_turn_animation_curl)
-		else -> stringResource(Res.string.option_ebook_reader_page_turn_animation_standard)
+internal fun pageTurnAnimationSearchLabel(pageTurnAnimation: String): String =
+	when (pageTurnAnimation) {
+		ReaderPageTurnCanvas -> stringResource(Res.string.option_ebook_reader_page_turn_animation_canvas)
+		ReaderPageTurnWebgl -> stringResource(Res.string.option_ebook_reader_page_turn_animation_webgl)
+		else -> stringResource(Res.string.option_ebook_reader_page_turn_animation_none)
 	}
 
 @Composable

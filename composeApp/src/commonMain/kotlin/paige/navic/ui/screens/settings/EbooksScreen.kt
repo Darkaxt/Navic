@@ -231,7 +231,7 @@ fun SettingsEbooksScreen() {
 	val direction = ReaderDirectionOption.forDirection(settings.direction)
 	val navBarType = ReaderNavBarTypeOption.forNavBarType(settings.navBarType)
 	val flow = ReaderFlowOption.forFlowMode(settings.flowMode, settings.paged)
-	val dragAnimation = ReaderDragAnimationOption.forDragAnimationMode(settings.dragAnimationMode)
+	val pageTurn = ReaderPageTurnOption.forPageTurnAnimation(settings.pageTurnAnimation)
 	val columnMode = ReaderColumnModeOption.forMaxColumnCount(settings.maxColumnCount)
 	val tapZone = ReaderTapZoneOption.forTapZone(settings.tapZone)
 	val tapZoneInvertMode = ReaderTapZoneInvertOption.forTapZoneInvertMode(settings.tapZoneInvertMode)
@@ -494,11 +494,11 @@ fun SettingsEbooksScreen() {
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_page_turn_animation)) },
-						items = ReaderDragAnimationOption.entries.toImmutableList(),
+						items = ReaderPageTurnOption.entries.toImmutableList(),
 						label = { option -> stringResource(option.title) },
 						description = stringResource(Res.string.subtitle_ebook_reader_page_turn_animation),
-						selection = dragAnimation,
-						onSelect = { option -> preferenceManager.readerDragAnimationMode = option.dragAnimationMode }
+						selection = pageTurn,
+						onSelect = { option -> preferenceManager.readerPageTurnAnimation = option.pageTurnAnimation }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_column_mode)) },

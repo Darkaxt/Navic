@@ -50,6 +50,7 @@ import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.models.DefaultMaxConcurrentDownloads
 import com.russhwolf.settings.Settings as KmpSettings
+import com.russhwolf.settings.get
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -284,7 +285,7 @@ class PreferenceManager(
 	var readerPaperStainsEnabled by preference(true)
 	var readerNavBarType by preference("vertical-right")
 	var readerFlowMode by preference("paged")
-	var readerDragAnimationMode by preference("standard")
+	var readerPageTurnAnimation by preference("readerPageTurnAnimation", "none")
 	var readerPaged by preference(true)
 	var readerTapZone by preference("default")
 	var readerTapZoneInvertMode by preference("none")
@@ -341,6 +342,23 @@ class PreferenceManager(
 
 	// sync related settings
 	var lastFullSyncTime by preference(0L)
+
+	init {
+		migrateReaderPageTurnAnimation()
+	}
+
+	private fun migrateReaderPageTurnAnimation() {
+		val existing = settings.get<String>("readerPageTurnAnimation")
+		if (existing != null) return
+		val legacyValue = settings.get<String>("readerDragAnimationMode") ?: return
+		readerPageTurnAnimation = when (legacyValue) {
+			"curl" -> "canvas"
+			"standard" -> "none"
+			"none", "canvas", "webgl" -> legacyValue
+			else -> "none"
+		}
+		settings.remove("readerDragAnimationMode")
+	}
 
 	fun customHeadersMap(): Map<String, String> = buildMap {
 		for (line in customHeaders.lines()) {

@@ -22,8 +22,9 @@ import navic.composeapp.generated.resources.option_ebook_reader_font_source_syst
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_bottom
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_left
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_right
-import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation_curl
-import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation_standard
+import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation_canvas
+import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation_none
+import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation_webgl
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_default
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_free
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_landscape
@@ -61,8 +62,9 @@ import paige.navic.reader.ReaderDarkTheme
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderDirectionLtr
 import paige.navic.reader.ReaderDirectionRtl
-import paige.navic.reader.ReaderDragAnimationCurl
-import paige.navic.reader.ReaderDragAnimationStandard
+import paige.navic.reader.ReaderPageTurnCanvas
+import paige.navic.reader.ReaderPageTurnNone
+import paige.navic.reader.ReaderPageTurnWebgl
 import paige.navic.reader.ReaderDuskTheme
 import paige.navic.reader.ReaderDyslexicFontFamily
 import paige.navic.reader.ReaderFlowPaged
@@ -173,16 +175,17 @@ internal enum class ReaderFlowOption(
 	}
 }
 
-internal enum class ReaderDragAnimationOption(
-	val dragAnimationMode: String,
+internal enum class ReaderPageTurnOption(
+	val pageTurnAnimation: String,
 	val title: StringResource
 ) {
-	Standard(ReaderDragAnimationStandard, Res.string.option_ebook_reader_page_turn_animation_standard),
-	Curl(ReaderDragAnimationCurl, Res.string.option_ebook_reader_page_turn_animation_curl);
+	None(ReaderPageTurnNone, Res.string.option_ebook_reader_page_turn_animation_none),
+	Canvas(ReaderPageTurnCanvas, Res.string.option_ebook_reader_page_turn_animation_canvas),
+	Webgl(ReaderPageTurnWebgl, Res.string.option_ebook_reader_page_turn_animation_webgl);
 
 	companion object {
-		fun forDragAnimationMode(dragAnimationMode: String?): ReaderDragAnimationOption =
-			entries.firstOrNull { option -> option.dragAnimationMode == dragAnimationMode } ?: Standard
+		fun forPageTurnAnimation(pageTurnAnimation: String?): ReaderPageTurnOption =
+			entries.firstOrNull { option -> option.pageTurnAnimation == pageTurnAnimation } ?: None
 	}
 }
 

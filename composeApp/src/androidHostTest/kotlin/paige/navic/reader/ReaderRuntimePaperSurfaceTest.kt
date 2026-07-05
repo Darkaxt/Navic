@@ -295,36 +295,45 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderDragAnimationModeIsExplicitAndDefaultsToStandard() {
+	fun androidReaderPageTurnAnimationIsExplicitAndDefaultsToNone() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
 		val pageTurnsText = root.resolve("navic-reader-page-turns.js").readText()
 		val appearanceText = root.resolve("navic-reader-appearance.js").readText()
+		val runtimeText = root.resolve("navic-reader.js").readText()
 		val settingsText = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
 		val chromeText = File("src/commonMain/kotlin/paige/navic/reader/ReaderChromeState.kt").readText()
 		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
 
-		assertContains(settingsText, "val dragAnimationMode: String? = null")
-		assertContains(chromeText, "const val ReaderDragAnimationStandard = \"standard\"")
-		assertContains(chromeText, "const val ReaderDragAnimationCurl = \"curl\"")
-		assertContains(chromeText, "normalizedReaderDragAnimationMode")
-		assertContains(chromeText, "dragAnimationMode = ReaderDragAnimationStandard")
+		assertContains(settingsText, "val pageTurnAnimation: String? = null")
+		assertContains(chromeText, "const val ReaderPageTurnNone = \"none\"")
+		assertContains(chromeText, "const val ReaderPageTurnCanvas = \"canvas\"")
+		assertContains(chromeText, "const val ReaderPageTurnWebgl = \"webgl\"")
+		assertContains(chromeText, "normalizedPageTurnAnimation")
+		assertContains(chromeText, "pageTurnAnimation = ReaderPageTurnNone")
+		assertContains(chromeText, "migratedPageTurnAnimation")
 		assertContains(settingsDialogText, "title = \"Page turn\"")
-		assertContains(settingsDialogText, "ReaderSupportedDragAnimationModes")
-		assertContains(bridgeText, "\"dragAnimationMode\"")
-		assertContains(appearanceText, "this.readerDragAnimationModeValue")
-		assertContains(pageTurnsText, "readerDragAnimationModeAllowsCurl")
-		assertContains(pageTurnsText, "data-navic-page-curl-sheet")
-		assertContains(pageTurnsText, "data-navic-page-drag-preview-curl")
+		assertContains(settingsDialogText, "ReaderSupportedPageTurnAnimations")
+		assertContains(bridgeText, "\"pageTurnAnimation\"")
+		assertContains(appearanceText, "this.readerPageTurnAnimationValue")
+		assertContains(appearanceText, "pageTurnAnimationFromSettings")
+		assertContains(pageTurnsText, "pageTurnAnimationIsNone")
+		assertContains(pageTurnsText, "pageTurnAnimationAllowsCurl")
+		assertContains(pageTurnsText, "pageTurnAnimationIsNone(this.readerPageTurnAnimationEffectiveValue)")
 		assertContains(
-			pageTurnsText,
-			"if (curlEnabled)",
-			message = "Curl preview must be gated so standard mode cannot build stale curl snapshots while normal drag remains active."
+			runtimeText,
+			"resolveEffectivePageTurnAnimation",
+			message = "The runtime must expose a WebGL capability probe resolver so webgl downgrades to canvas on probe failure or context loss."
 		)
 		assertContains(
-			pageTurnsText,
-			"element?.dataset?.navicPageCurlSheet === 'underneath'",
-			message = "Standard mode must preserve the shared underlay sheet; deleting it removes the standard page preview iframe."
+			runtimeText,
+			"webglcontextlost",
+			message = "WebGL recovery must be event-driven (webglcontextlost/restored), not timeout-based."
+		)
+		assertContains(
+			runtimeText,
+			"probePageTurnWebglAvailability",
+			message = "The runtime must probe WebGL availability once per session."
 		)
 	}
 
@@ -582,9 +591,9 @@ class ReaderRuntimePaperSurfaceTest {
 		val pageTurnText = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
 
-		// The lateral (non-curl) live-drag branch moves the text via renderer.scrollBy.
+		// The lateral (None-mode) live-drag branch moves the text via renderer.scrollBy.
 		val liveScrollBranch = pageTurnText
-			.substringAfter("this.readerDragAnimationModeValue !== 'curl') {")
+			.substringAfter("pageTurnAnimationIsNone(this.readerPageTurnAnimationEffectiveValue)) {")
 			.substringBefore("\n  this.updatePageDragPreviewLayer(")
 		assertContains(
 			liveScrollBranch,
@@ -1125,8 +1134,8 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			previewPageDrag,
-			"this.readerDragAnimationModeValue !== 'curl'",
-			message = "The live-strip shortcut must stay limited to Standard mode so explicit Curl mode still renders curl snapshots."
+			"pageTurnAnimationIsNone(this.readerPageTurnAnimationEffectiveValue)",
+			message = "The live-strip shortcut must stay limited to None mode so Canvas/WebGL modes own their own animation."
 		)
 	}
 
