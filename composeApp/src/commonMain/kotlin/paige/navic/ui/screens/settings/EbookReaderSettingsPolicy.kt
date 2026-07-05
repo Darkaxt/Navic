@@ -19,6 +19,30 @@ data class EbookReaderSettingDescriptor(
 fun ebookReaderSettingDescriptors(): List<EbookReaderSettingDescriptor> =
 	listOf(
 		EbookReaderSettingDescriptor(
+			id = "ebooks.paper-texture",
+			title = "Paper texture",
+			subtitle = "Show the reader paper grain texture.",
+			keywords = listOf("reader", "ebook", "paper", "cover", "texture", "grain", "overlay", "appearance")
+		),
+		EbookReaderSettingDescriptor(
+			id = "ebooks.page-edges",
+			title = "Page edges",
+			subtitle = "Show worn page-edge shading.",
+			keywords = listOf("reader", "ebook", "paper", "cover", "page", "edges", "border", "worn", "overlay", "appearance")
+		),
+		EbookReaderSettingDescriptor(
+			id = "ebooks.paper-stains",
+			title = "Paper stains",
+			subtitle = "Show subtle stains and use marks.",
+			keywords = listOf("reader", "ebook", "paper", "cover", "stains", "marks", "wear", "overlay", "appearance")
+		),
+		EbookReaderSettingDescriptor(
+			id = "ebooks.cover-backdrop",
+			title = "Cover backdrop",
+			subtitle = "Fill cover-page margins with a blurred copy of the cover.",
+			keywords = listOf("reader", "ebook", "cover", "backdrop", "blur", "background", "paper", "appearance")
+		),
+		EbookReaderSettingDescriptor(
 			id = "ebooks.pdf-fit",
 			title = "PDF/Image fit",
 			subtitle = "Default scaling for PDF and fixed image pages.",

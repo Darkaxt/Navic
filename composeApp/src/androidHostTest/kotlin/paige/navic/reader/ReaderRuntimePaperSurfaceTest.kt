@@ -137,9 +137,11 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(protocolText, "val paperTextureEnabled: Boolean? = null")
 		assertContains(protocolText, "val pageEdgesEnabled: Boolean? = null")
 		assertContains(protocolText, "val paperStainsEnabled: Boolean? = null")
+		assertContains(protocolText, "val coverBackdropEnabled: Boolean? = null")
 		assertContains(helperText, "settings?.paperTextureEnabled === false")
 		assertContains(helperText, "settings?.pageEdgesEnabled === false")
 		assertContains(helperText, "settings?.paperStainsEnabled === false")
+		assertContains(helperText, "settings?.coverBackdropEnabled !== false")
 		assertContains(helperText, "ReaderPageEdgeOverlayAssets")
 		assertContains(helperText, "ReaderPageStainOverlayAssets")
 		assertContains(helperText, "ReaderSpreadGutterOverlayAssets")
@@ -149,6 +151,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(settingsDialogText, "Paper texture")
 		assertContains(settingsDialogText, "Page edges")
 		assertContains(settingsDialogText, "Paper stains")
+		assertContains(settingsDialogText, "Cover backdrop")
 	}
 
 	@Test

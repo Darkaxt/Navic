@@ -9,9 +9,24 @@ class EbookReaderSettingsPolicyTest {
 	fun appLevelEbookSettingsExposePdfImageDefaults() {
 		val ids = ebookReaderSettingDescriptors().map { descriptor -> descriptor.id }
 
+		assertTrue("ebooks.paper-texture" in ids)
+		assertTrue("ebooks.page-edges" in ids)
+		assertTrue("ebooks.paper-stains" in ids)
+		assertTrue("ebooks.cover-backdrop" in ids)
 		assertTrue("ebooks.pdf-fit" in ids)
 		assertTrue("ebooks.pdf-crop-borders" in ids)
 		assertTrue("ebooks.pdf-page-gap" in ids)
+	}
+
+	@Test
+	fun paperSurfaceSettingsAreSearchableAsReaderAppearanceControls() {
+		val rows = ebookReaderSettingDescriptors()
+			.map { descriptor -> descriptor.toSearchEntry(path = "Settings > Ebooks") }
+
+		assertEquals(
+			listOf("ebooks.paper-texture", "ebooks.page-edges", "ebooks.paper-stains", "ebooks.cover-backdrop"),
+			filteredSettingsSearchEntries(rows, "paper cover").map { entry -> entry.id }
+		)
 	}
 
 	@Test

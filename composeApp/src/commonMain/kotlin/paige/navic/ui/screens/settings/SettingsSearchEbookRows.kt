@@ -131,6 +131,42 @@ internal fun settingsSearchEbookRows(context: SettingsSearchContext): List<Searc
 			selection = readerSettings.theme ?: ReaderLightTheme,
 			onSelect = { theme -> preferenceManager.readerTheme = theme }
 		))
+		add(switchRow(
+			id = "ebooks.paper-texture",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_paper_texture),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_paper_texture),
+			keywords = ebookReaderSettingDescriptor("ebooks.paper-texture").keywords,
+			value = preferenceManager.readerPaperTextureEnabled,
+			onSetValue = { enabled -> preferenceManager.readerPaperTextureEnabled = enabled }
+		))
+		add(switchRow(
+			id = "ebooks.page-edges",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_page_edges),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_page_edges),
+			keywords = ebookReaderSettingDescriptor("ebooks.page-edges").keywords,
+			value = preferenceManager.readerPageEdgesEnabled,
+			onSetValue = { enabled -> preferenceManager.readerPageEdgesEnabled = enabled }
+		))
+		add(switchRow(
+			id = "ebooks.paper-stains",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_paper_stains),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_paper_stains),
+			keywords = ebookReaderSettingDescriptor("ebooks.paper-stains").keywords,
+			value = preferenceManager.readerPaperStainsEnabled,
+			onSetValue = { enabled -> preferenceManager.readerPaperStainsEnabled = enabled }
+		))
+		add(switchRow(
+			id = "ebooks.cover-backdrop",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_cover_backdrop),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_cover_backdrop),
+			keywords = ebookReaderSettingDescriptor("ebooks.cover-backdrop").keywords,
+			value = preferenceManager.readerCoverBackdropEnabled,
+			onSetValue = { enabled -> preferenceManager.readerCoverBackdropEnabled = enabled }
+		))
 		add(selectionRow(
 			id = "ebooks.orientation",
 			path = path(ebooks),

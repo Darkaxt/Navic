@@ -664,6 +664,13 @@ internal fun KomikkuReaderSettingsDialog(
 								}
 							)
 							CheckboxItem(
+								label = "Cover backdrop",
+								checked = settings.coverBackdropEnabled != false,
+								onClick = {
+									onSettingsChange(settings.copy(coverBackdropEnabled = settings.coverBackdropEnabled == false))
+								}
+							)
+							CheckboxItem(
 								label = "Fullscreen",
 								checked = settings.fullscreen == true,
 								onClick = {

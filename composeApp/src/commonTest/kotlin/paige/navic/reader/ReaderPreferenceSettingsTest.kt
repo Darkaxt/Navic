@@ -232,23 +232,27 @@ class ReaderPreferenceSettingsTest {
 		preferences.readerPaperTextureEnabled = false
 		preferences.readerPageEdgesEnabled = false
 		preferences.readerPaperStainsEnabled = false
+		preferences.readerCoverBackdropEnabled = false
 
 		val defaults = preferences.readerDefaultSettings()
 		assertEquals(false, defaults.paperTextureEnabled)
 		assertEquals(false, defaults.pageEdgesEnabled)
 		assertEquals(false, defaults.paperStainsEnabled)
+		assertEquals(false, defaults.coverBackdropEnabled)
 
 		preferences.setReaderDefaultSettings(
 			ReaderSettings(
 				paperTextureEnabled = true,
 				pageEdgesEnabled = true,
-				paperStainsEnabled = true
+				paperStainsEnabled = true,
+				coverBackdropEnabled = true
 			)
 		)
 
 		assertEquals(true, preferences.readerPaperTextureEnabled)
 		assertEquals(true, preferences.readerPageEdgesEnabled)
 		assertEquals(true, preferences.readerPaperStainsEnabled)
+		assertEquals(true, preferences.readerCoverBackdropEnabled)
 	}
 
 	@Test

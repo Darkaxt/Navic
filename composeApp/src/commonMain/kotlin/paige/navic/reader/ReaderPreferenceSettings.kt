@@ -65,6 +65,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		paperTextureEnabled = readerPaperTextureEnabled,
 		pageEdgesEnabled = readerPageEdgesEnabled,
 		paperStainsEnabled = readerPaperStainsEnabled,
+		coverBackdropEnabled = readerCoverBackdropEnabled,
 		navBarType = readerNavBarType,
 		dragAnimationMode = readerDragAnimationMode,
 		flowMode = readerFlowMode,
@@ -120,6 +121,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerPaperTextureEnabled = normalized.paperTextureEnabled ?: true
 	readerPageEdgesEnabled = normalized.pageEdgesEnabled ?: true
 	readerPaperStainsEnabled = normalized.paperStainsEnabled ?: true
+	readerCoverBackdropEnabled = normalized.coverBackdropEnabled ?: true
 	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
 	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationStandard
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
@@ -201,6 +203,7 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		paperTextureEnabled = override.paperTextureEnabled ?: paperTextureEnabled,
 		pageEdgesEnabled = override.pageEdgesEnabled ?: pageEdgesEnabled,
 		paperStainsEnabled = override.paperStainsEnabled ?: paperStainsEnabled,
+		coverBackdropEnabled = override.coverBackdropEnabled ?: coverBackdropEnabled,
 		navBarType = override.navBarType ?: navBarType,
 		dragAnimationMode = override.dragAnimationMode ?: dragAnimationMode,
 		flowMode = override.flowMode ?: flowMode,
@@ -256,6 +259,7 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		paperTextureEnabled = if (paperTextureEnabled != null) normalized.paperTextureEnabled else null,
 		pageEdgesEnabled = if (pageEdgesEnabled != null) normalized.pageEdgesEnabled else null,
 		paperStainsEnabled = if (paperStainsEnabled != null) normalized.paperStainsEnabled else null,
+		coverBackdropEnabled = if (coverBackdropEnabled != null) normalized.coverBackdropEnabled else null,
 		navBarType = if (navBarType != null) normalized.navBarType else null,
 		dragAnimationMode = if (dragAnimationMode != null) normalized.dragAnimationMode else null,
 		flowMode = if (flowMode != null) normalized.flowMode else null,
@@ -350,6 +354,7 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		paperTextureEnabled = booleanValue("paperTextureEnabled"),
 		pageEdgesEnabled = booleanValue("pageEdgesEnabled"),
 		paperStainsEnabled = booleanValue("paperStainsEnabled"),
+		coverBackdropEnabled = booleanValue("coverBackdropEnabled"),
 		navBarType = stringValue("navBarType"),
 		dragAnimationMode = stringValue("dragAnimationMode"),
 		flowMode = stringValue("flowMode"),
@@ -402,6 +407,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		paperTextureEnabled?.let { put("paperTextureEnabled", it) }
 		pageEdgesEnabled?.let { put("pageEdgesEnabled", it) }
 		paperStainsEnabled?.let { put("paperStainsEnabled", it) }
+		coverBackdropEnabled?.let { put("coverBackdropEnabled", it) }
 		navBarType?.let { put("navBarType", it) }
 		dragAnimationMode?.let { put("dragAnimationMode", it) }
 		flowMode?.let { put("flowMode", it) }

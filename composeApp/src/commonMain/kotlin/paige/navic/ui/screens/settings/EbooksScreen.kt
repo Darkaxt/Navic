@@ -69,6 +69,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_bot
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_left
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_right
 import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation
+import navic.composeapp.generated.resources.option_ebook_reader_page_edges
 import navic.composeapp.generated.resources.option_ebook_reader_orientation
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_default
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_free
@@ -80,6 +81,8 @@ import navic.composeapp.generated.resources.option_ebook_reader_orientation_reve
 import navic.composeapp.generated.resources.option_ebook_reader_paged
 import navic.composeapp.generated.resources.option_ebook_reader_paged_vertical
 import navic.composeapp.generated.resources.option_ebook_reader_paragraph_spacing
+import navic.composeapp.generated.resources.option_ebook_reader_paper_stains
+import navic.composeapp.generated.resources.option_ebook_reader_paper_texture
 import navic.composeapp.generated.resources.option_ebook_reader_pdf_crop_borders
 import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit
 import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit_height
@@ -106,6 +109,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_l_shape
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_right_left
 import navic.composeapp.generated.resources.option_ebook_reader_smaller_tap_zones
 import navic.composeapp.generated.resources.option_ebook_reader_theme
+import navic.composeapp.generated.resources.option_ebook_reader_cover_backdrop
 import navic.composeapp.generated.resources.option_ebook_reader_theme_black
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dark
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dusk
@@ -133,8 +137,11 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_media_overlay
 import navic.composeapp.generated.resources.subtitle_ebook_reader_nav_bar_type
 import navic.composeapp.generated.resources.subtitle_ebook_reader_orientation
 import navic.composeapp.generated.resources.subtitle_ebook_reader_page_turn_animation
+import navic.composeapp.generated.resources.subtitle_ebook_reader_page_edges
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paragraph_spacing
+import navic.composeapp.generated.resources.subtitle_ebook_reader_paper_stains
+import navic.composeapp.generated.resources.subtitle_ebook_reader_paper_texture
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_crop_borders
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_fit
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_page_gap
@@ -145,6 +152,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_smaller_tap_zo
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone
 import navic.composeapp.generated.resources.subtitle_ebook_reader_tap_zone_invert
 import navic.composeapp.generated.resources.subtitle_ebook_reader_theme
+import navic.composeapp.generated.resources.subtitle_ebook_reader_cover_backdrop
 import navic.composeapp.generated.resources.subtitle_ebook_reader_volume_keys
 import navic.composeapp.generated.resources.title_ebook_reader
 import org.jetbrains.compose.resources.StringResource
@@ -450,6 +458,30 @@ fun SettingsEbooksScreen() {
 						description = stringResource(Res.string.subtitle_ebook_reader_theme),
 						selection = theme,
 						onSelect = { option -> preferenceManager.readerTheme = option.theme }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_paper_texture)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_paper_texture)) },
+						value = preferenceManager.readerPaperTextureEnabled,
+						onSetValue = { enabled -> preferenceManager.readerPaperTextureEnabled = enabled }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_page_edges)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_page_edges)) },
+						value = preferenceManager.readerPageEdgesEnabled,
+						onSetValue = { enabled -> preferenceManager.readerPageEdgesEnabled = enabled }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_paper_stains)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_paper_stains)) },
+						value = preferenceManager.readerPaperStainsEnabled,
+						onSetValue = { enabled -> preferenceManager.readerPaperStainsEnabled = enabled }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_cover_backdrop)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_cover_backdrop)) },
+						value = preferenceManager.readerCoverBackdropEnabled,
+						onSetValue = { enabled -> preferenceManager.readerCoverBackdropEnabled = enabled }
 					)
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_orientation)) },

@@ -141,6 +141,7 @@ data class ReaderSettings(
 	val paperTextureEnabled: Boolean? = null,
 	val pageEdgesEnabled: Boolean? = null,
 	val paperStainsEnabled: Boolean? = null,
+	val coverBackdropEnabled: Boolean? = null,
 	val navBarType: String? = null,
 	val flowMode: String? = null,
 	val dragAnimationMode: String? = null,
@@ -794,6 +795,7 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		paperTextureEnabled?.let { put("paperTextureEnabled", it) }
 		pageEdgesEnabled?.let { put("pageEdgesEnabled", it) }
 		paperStainsEnabled?.let { put("paperStainsEnabled", it) }
+		coverBackdropEnabled?.let { put("coverBackdropEnabled", it) }
 		navBarType?.let { put("navBarType", it) }
 		flowMode?.let { put("flowMode", it) }
 		dragAnimationMode?.let { put("dragAnimationMode", it) }

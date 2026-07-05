@@ -246,6 +246,10 @@
 	<string name="subtitle_ebook_reader_grayscale">Render the reader surface through Komikku's grayscale viewer-layer filter.</string>
 	<string name="subtitle_ebook_reader_inverted_colors">Invert reader colors through the native viewer-layer filter.</string>
 	<string name="subtitle_ebook_reader_theme">Default light or dark reader colors.</string>
+	<string name="subtitle_ebook_reader_paper_texture">Show the reader paper grain texture.</string>
+	<string name="subtitle_ebook_reader_page_edges">Show worn page-edge shading.</string>
+	<string name="subtitle_ebook_reader_paper_stains">Show subtle stains and use marks.</string>
+	<string name="subtitle_ebook_reader_cover_backdrop">Fill cover-page margins with a blurred copy of the cover.</string>
 	<string name="subtitle_ebook_reader_orientation">Control rotation while the reader is open.</string>
 	<string name="subtitle_ebook_reader_fullscreen">Hide Android system bars while reading; swipe from the edge to reveal them.</string>
 	<string name="subtitle_ebook_reader_direction">Override left-to-right or right-to-left page progression when the publication metadata is wrong.</string>
@@ -594,6 +598,10 @@
 	<string name="option_ebook_reader_grayscale">Grayscale</string>
 	<string name="option_ebook_reader_inverted_colors">Inverted colors</string>
 	<string name="option_ebook_reader_theme">Reader theme</string>
+	<string name="option_ebook_reader_paper_texture">Paper texture</string>
+	<string name="option_ebook_reader_page_edges">Page edges</string>
+	<string name="option_ebook_reader_paper_stains">Paper stains</string>
+	<string name="option_ebook_reader_cover_backdrop">Cover backdrop</string>
 	<string name="option_ebook_reader_orientation">Orientation</string>
 	<string name="option_ebook_reader_fullscreen">Fullscreen reader</string>
 	<string name="option_ebook_reader_orientation_default">Default</string>

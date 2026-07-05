@@ -182,7 +182,8 @@ class ReaderBridgeProtocolTest {
 				whispersyncHighlightStyle = "marker",
 				paperTextureEnabled = false,
 				pageEdgesEnabled = false,
-				paperStainsEnabled = false
+				paperStainsEnabled = false,
+				coverBackdropEnabled = false
 			)
 		).toJavaScript()
 
@@ -195,6 +196,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"paperTextureEnabled\":false")
 		assertContains(script, "\"pageEdgesEnabled\":false")
 		assertContains(script, "\"paperStainsEnabled\":false")
+		assertContains(script, "\"coverBackdropEnabled\":false")
 	}
 
 	@Test

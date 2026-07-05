@@ -642,6 +642,8 @@ export const readerSurfaceSpreadGutterVisible = ({
   return readerSurfaceSpreadMode({ flowMode, width, height }) === 'spread'
 }
 
+export const readerCoverBackdropEnabled = settings => settings?.coverBackdropEnabled !== false
+
 const readerSpreadTextureSlotPageAttribute = 'data-navic-surface-texture-slot-page'
 
 export const readerSpreadPageTextureSlots = (textureSlots, resolveVariant, spreadMode) => {
@@ -983,6 +985,17 @@ export const ensureReaderShellCoverLayer = () => {
   return layer
 }
 
+export const ensureReaderShellCoverBackdrop = layer => {
+  let backdrop = layer?.querySelector?.('[data-navic-shell-cover-backdrop="true"]')
+  if (!backdrop) {
+    backdrop = document.createElement('div')
+    backdrop.dataset.navicShellCoverBackdrop = 'true'
+    backdrop.setAttribute('aria-hidden', 'true')
+    layer?.append?.(backdrop)
+  }
+  return backdrop
+}
+
 export const ensureReaderShellCoverImage = layer => {
   let image = layer?.querySelector?.('[data-navic-shell-cover-image="true"]')
   if (!image) {
@@ -990,7 +1003,7 @@ export const ensureReaderShellCoverImage = layer => {
     image.dataset.navicShellCoverImage = 'true'
     image.decoding = 'async'
     image.loading = 'eager'
-    layer.replaceChildren(image)
+    layer?.append?.(image)
   }
   return image
 }
@@ -1000,6 +1013,7 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
+  const backdrop = ensureReaderShellCoverBackdrop(layer)
   const image = ensureReaderShellCoverImage(layer)
   if (image.getAttribute('src') !== coverUrl) image.setAttribute('src', coverUrl)
   image.setAttribute('alt', title || 'Book cover')
@@ -1011,7 +1025,7 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     height: heightPx,
     'min-height': heightPx,
     'z-index': '2147483643',
-    display: 'flex',
+    display: 'grid',
     'align-items': 'center',
     'justify-content': 'center',
     overflow: 'hidden',
@@ -1027,8 +1041,32 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     'pointer-events': 'auto',
     'touch-action': 'manipulation',
   })
+  if (readerCoverBackdropEnabled(settings)) {
+    setStylesImportant(backdrop, {
+      display: 'block',
+      position: 'absolute',
+      inset: '0px',
+      width: '100%',
+      height: '100%',
+      'background-image': `linear-gradient(rgba(0,0,0,.34), rgba(0,0,0,.46)), url("${coverUrl}")`,
+      'background-size': 'cover, cover',
+      'background-position': 'center center, center center',
+      'background-repeat': 'no-repeat, no-repeat',
+      filter: 'blur(30px) saturate(1.08)',
+      transform: 'scale(1.1)',
+      opacity: '0.86',
+      'z-index': '0',
+      'pointer-events': 'none',
+    })
+  } else {
+    setStylesImportant(backdrop, {
+      display: 'none',
+      'background-image': 'none',
+    })
+  }
   setStylesImportant(image, {
     display: 'block',
+    'grid-area': '1 / 1',
     width: '100%',
     height: '100%',
     'max-width': '100%',
@@ -1041,6 +1079,7 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     padding: '0',
     border: '0',
     'box-shadow': 'none',
+    'z-index': '1',
   })
 }
 
