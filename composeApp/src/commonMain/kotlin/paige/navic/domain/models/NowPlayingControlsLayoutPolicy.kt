@@ -22,7 +22,7 @@ data class NowPlayingWideLandscapeContentLayout(
 fun shouldUseWideNowPlayingLandscapeLayout(
 	widthDp: Int,
 	heightDp: Int
-): Boolean = widthDp > heightDp && widthDp >= 900
+): Boolean = widthDp > heightDp && widthDp >= NowPlayingWideLandscapeMinimumWidthDp
 
 fun nowPlayingWideLandscapeContentLayout(
 	contentPaneWidthDp: Int
@@ -39,6 +39,11 @@ fun nowPlayingWideLandscapeContentLayout(
 		upNextWidthDp = upNextWidth
 	)
 }
+
+private const val NowPlayingWideLandscapeMinimumProgressWidthDp = 560
+private const val NowPlayingWideLandscapePaneCount = 2
+private const val NowPlayingWideLandscapeMinimumWidthDp =
+	NowPlayingWideLandscapeMinimumProgressWidthDp * NowPlayingWideLandscapePaneCount
 
 fun nowPlayingControlsLayoutBlocks(
 	swapControlsAndTimeline: Boolean,

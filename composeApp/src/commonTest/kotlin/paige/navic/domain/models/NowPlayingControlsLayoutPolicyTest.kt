@@ -7,9 +7,16 @@ class NowPlayingControlsLayoutPolicyTest {
 	@Test
 	fun wideLandscapeLayoutRequiresBothLandscapeAndTabletWidth() {
 		assertEquals(
-			true,
+			false,
 			shouldUseWideNowPlayingLandscapeLayout(
 				widthDp = 1000,
+				heightDp = 640
+			)
+		)
+		assertEquals(
+			true,
+			shouldUseWideNowPlayingLandscapeLayout(
+				widthDp = 1120,
 				heightDp = 640
 			)
 		)
@@ -23,7 +30,7 @@ class NowPlayingControlsLayoutPolicyTest {
 		assertEquals(
 			false,
 			shouldUseWideNowPlayingLandscapeLayout(
-				widthDp = 1000,
+				widthDp = 1120,
 				heightDp = 1200
 			)
 		)
