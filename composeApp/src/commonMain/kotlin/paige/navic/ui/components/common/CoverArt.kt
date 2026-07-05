@@ -38,9 +38,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.SubcomposeAsyncImageContent
 import coil3.network.httpHeaders
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
@@ -52,10 +55,12 @@ import paige.navic.domain.models.NowPlayingFallbackLabelStyle
 import paige.navic.util.core.Logger
 import paige.navic.util.core.toNetworkHeaders
 import paige.navic.ui.theme.defaultFont
+import paige.navic.util.ui.toImageBitmap
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import coil3.compose.LocalPlatformContext as LocalCoilPlatformContext
 
@@ -107,6 +112,11 @@ internal fun coverArtFallbackKindLabel(fallbackKind: String?): String? =
 		?.replace(Regex("\\s+"), " ")
 		?.takeIf { it.isNotEmpty() }
 		?.uppercase()
+
+enum class CoverArtEdgeCompression {
+	None,
+	Soft
+}
 
 private val CoverArtFallbackSeedColors = listOf(
 	Color(0xFF845336),
@@ -200,6 +210,7 @@ fun CoverArt(
 	artworkResolving: Boolean = false,
 	normalization: CoverArtNormalization = CoverArtNormalization.None,
 	contentScale: ContentScale = ContentScale.Crop,
+	edgeCompression: CoverArtEdgeCompression = CoverArtEdgeCompression.None,
 	onImageSizeResolved: ((width: Int, height: Int) -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -303,6 +314,21 @@ fun CoverArt(
 		modifier = commonModifier,
 		contentScale = contentScale,
 		colorFilter = colorFilter,
+		success = { state ->
+			val image = state.result.image
+			onImageSizeResolved?.invoke(image.width, image.height)
+			val compressedImageBitmap = remember(image) {
+				image.toImageBitmap()
+			}
+			if (edgeCompression == CoverArtEdgeCompression.Soft && colorFilter == null && compressedImageBitmap != null) {
+				SoftEdgeCompressedCoverArtImage(
+					image = compressedImageBitmap,
+					modifier = Modifier.fillMaxSize()
+				)
+			} else {
+				SubcomposeAsyncImageContent()
+			}
+		},
 		onSuccess = { state ->
 			val image = state.result.image
 			onImageSizeResolved?.invoke(image.width, image.height)
@@ -341,6 +367,79 @@ fun CoverArt(
 		}
 	)
 }
+
+@Composable
+private fun SoftEdgeCompressedCoverArtImage(
+	image: androidx.compose.ui.graphics.ImageBitmap,
+	modifier: Modifier = Modifier
+) {
+	Canvas(modifier = modifier) {
+		val canvasWidth = size.width.roundToInt().coerceAtLeast(1)
+		val canvasHeight = size.height.roundToInt().coerceAtLeast(1)
+		val imageWidth = image.width.coerceAtLeast(1)
+		val imageHeight = image.height.coerceAtLeast(1)
+		val scale = min(
+			canvasWidth.toFloat() / imageWidth.toFloat(),
+			canvasHeight.toFloat() / imageHeight.toFloat()
+		)
+		val fittedWidth = (imageWidth * scale).roundToInt().coerceAtLeast(1)
+		val fittedHeight = (imageHeight * scale).roundToInt().coerceAtLeast(1)
+		val left = ((canvasWidth - fittedWidth) / 2f).roundToInt()
+		val top = ((canvasHeight - fittedHeight) / 2f).roundToInt()
+
+		if (top > 0) {
+			val sampleHeight = (imageHeight * SoftEdgeCompressionSampleFraction).roundToInt().coerceAtLeast(1)
+			val bottomHeight = canvasHeight - top - fittedHeight
+			drawImage(
+				image = image,
+				srcOffset = IntOffset(0, 0),
+				srcSize = IntSize(imageWidth, sampleHeight),
+				dstOffset = IntOffset(0, 0),
+				dstSize = IntSize(canvasWidth, top)
+			)
+			if (bottomHeight > 0) {
+				drawImage(
+					image = image,
+					srcOffset = IntOffset(0, imageHeight - sampleHeight),
+					srcSize = IntSize(imageWidth, sampleHeight),
+					dstOffset = IntOffset(0, top + fittedHeight),
+					dstSize = IntSize(canvasWidth, bottomHeight)
+				)
+			}
+		}
+
+		if (left > 0) {
+			val sampleWidth = (imageWidth * SoftEdgeCompressionSampleFraction).roundToInt().coerceAtLeast(1)
+			val rightWidth = canvasWidth - left - fittedWidth
+			drawImage(
+				image = image,
+				srcOffset = IntOffset(0, 0),
+				srcSize = IntSize(sampleWidth, imageHeight),
+				dstOffset = IntOffset(0, 0),
+				dstSize = IntSize(left, canvasHeight)
+			)
+			if (rightWidth > 0) {
+				drawImage(
+					image = image,
+					srcOffset = IntOffset(imageWidth - sampleWidth, 0),
+					srcSize = IntSize(sampleWidth, imageHeight),
+					dstOffset = IntOffset(left + fittedWidth, 0),
+					dstSize = IntSize(rightWidth, canvasHeight)
+				)
+			}
+		}
+
+		drawImage(
+			image = image,
+			srcOffset = IntOffset.Zero,
+			srcSize = IntSize(imageWidth, imageHeight),
+			dstOffset = IntOffset(left, top),
+			dstSize = IntSize(fittedWidth, fittedHeight)
+		)
+	}
+}
+
+private const val SoftEdgeCompressionSampleFraction = 0.12f
 
 private fun coverArtDiagnosticValue(value: String?): String {
 	val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return "none"

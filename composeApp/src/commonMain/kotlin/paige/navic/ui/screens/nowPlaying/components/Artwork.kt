@@ -32,6 +32,7 @@ import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NowPlayingDiscContentScale
+import paige.navic.domain.models.NowPlayingDiscFitMode
 import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
@@ -52,6 +53,7 @@ import paige.navic.icons.filled.Note
 import paige.navic.icons.outlined.Radio
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.CoverArt
+import paige.navic.ui.components.common.CoverArtEdgeCompression
 import paige.navic.ui.components.common.CoverArtNormalization
 import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.generatedArtworkSpec
@@ -134,6 +136,11 @@ fun NowPlayingArtwork(
 		NowPlayingDiscContentScale.Crop -> ContentScale.Crop
 		NowPlayingDiscContentScale.Fit -> ContentScale.Fit
 	}
+	val edgeCompression = if (discFitMode == NowPlayingDiscFitMode.SoftEdgeCompress) {
+		CoverArtEdgeCompression.Soft
+	} else {
+		CoverArtEdgeCompression.None
+	}
 
 	val padding by animateDpAsState(
 		targetValue = nowPlayingArtworkPaddingDp(
@@ -172,8 +179,9 @@ fun NowPlayingArtwork(
 					musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
 					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
 				},
-					normalization = CoverArtNormalization.TrimWhitespace,
-					contentScale = coverArtContentScale,
+				normalization = CoverArtNormalization.TrimWhitespace,
+				contentScale = coverArtContentScale,
+				edgeCompression = edgeCompression,
 				onImageSizeResolved = { width, height ->
 					resolvedImageSize = width to height
 				},
