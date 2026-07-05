@@ -37,7 +37,9 @@ import java.io.File
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHost"
 
@@ -227,7 +229,9 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 private class KomikkuReaderNativeShellCoverView(context: Context) : View(context) {
 	private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+	private val backdropPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 	private val destination = RectF()
+	private val backdropDestination = RectF()
 	private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
 		color = Color.WHITE
 		textAlign = Paint.Align.CENTER
@@ -236,6 +240,9 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 	private var coverUrl: String? = null
 	private var title: String = ""
 	private var bitmap: Bitmap? = null
+	private var backdropBitmap: Bitmap? = null
+	private var backdropWidth: Int = 0
+	private var backdropHeight: Int = 0
 
 	fun setShellCover(coverUrl: String?, title: String) {
 		if (this.coverUrl == coverUrl && this.title == title) return
@@ -245,7 +252,15 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 			?.let { context.readerShellCoverFileFor(it) }
 			?.absolutePath
 			?.let { path -> BitmapFactory.decodeFile(path) }
+		clearBackdrop()
 		invalidate()
+	}
+
+	private fun clearBackdrop() {
+		backdropBitmap?.recycle()
+		backdropBitmap = null
+		backdropWidth = 0
+		backdropHeight = 0
 	}
 
 	override fun onDraw(canvas: Canvas) {
@@ -256,6 +271,7 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 			canvas.drawText(title.ifBlank { "Cover" }, width / 2f, height / 2f, titlePaint)
 			return
 		}
+		drawShellCoverBackdrop(canvas, currentBitmap)
 		val scale = min(
 			width.toFloat() / currentBitmap.width.toFloat(),
 			height.toFloat() / currentBitmap.height.toFloat()
@@ -266,6 +282,113 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 		val top = (height - drawHeight) / 2f
 		destination.set(left, top, left + drawWidth, top + drawHeight)
 		canvas.drawBitmap(currentBitmap, null, destination, imagePaint)
+	}
+
+	override fun onDetachedFromWindow() {
+		clearBackdrop()
+		super.onDetachedFromWindow()
+	}
+
+	private fun drawShellCoverBackdrop(canvas: Canvas, source: Bitmap) {
+		val backdrop = shellCoverBackdropBitmap(source) ?: return
+		backdropDestination.set(0f, 0f, width.toFloat(), height.toFloat())
+		canvas.drawBitmap(backdrop, null, backdropDestination, backdropPaint)
+		canvas.drawColor(Color.argb(142, 0, 0, 0))
+	}
+
+	private fun shellCoverBackdropBitmap(source: Bitmap): Bitmap? {
+		if (width <= 0 || height <= 0) return null
+		backdropBitmap
+			?.takeIf { !it.isRecycled && backdropWidth == width && backdropHeight == height }
+			?.let { return it }
+		clearBackdrop()
+		val targetMaxSide = 128
+		val aspect = width.toFloat() / height.toFloat()
+		val targetWidth: Int
+		val targetHeight: Int
+		if (aspect >= 1f) {
+			targetWidth = targetMaxSide
+			targetHeight = max(1, (targetMaxSide / aspect).roundToInt())
+		} else {
+			targetWidth = max(1, (targetMaxSide * aspect).roundToInt())
+			targetHeight = targetMaxSide
+		}
+		val generated = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+		val generatedCanvas = Canvas(generated)
+		val fillScale = max(
+			targetWidth.toFloat() / source.width.toFloat(),
+			targetHeight.toFloat() / source.height.toFloat()
+		)
+		val drawWidth = source.width * fillScale
+		val drawHeight = source.height * fillScale
+		val left = (targetWidth - drawWidth) / 2f
+		val top = (targetHeight - drawHeight) / 2f
+		destination.set(left, top, left + drawWidth, top + drawHeight)
+		generatedCanvas.drawBitmap(source, null, destination, imagePaint)
+		boxBlurInPlace(generated, radius = 7, iterations = 2)
+		backdropBitmap = generated
+		backdropWidth = width
+		backdropHeight = height
+		return generated
+	}
+
+	private fun boxBlurInPlace(bitmap: Bitmap, radius: Int, iterations: Int) {
+		if (bitmap.width <= 1 || bitmap.height <= 1 || radius <= 0 || iterations <= 0) return
+		val pixels = IntArray(bitmap.width * bitmap.height)
+		val scratch = IntArray(pixels.size)
+		bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+		repeat(iterations) {
+			boxBlurHorizontal(pixels, scratch, bitmap.width, bitmap.height, radius)
+			boxBlurVertical(scratch, pixels, bitmap.width, bitmap.height, radius)
+		}
+		bitmap.setPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+	}
+
+	private fun boxBlurHorizontal(input: IntArray, output: IntArray, width: Int, height: Int, radius: Int) {
+		for (y in 0 until height) {
+			val row = y * width
+			for (x in 0 until width) {
+				var alpha = 0
+				var red = 0
+				var green = 0
+				var blue = 0
+				var count = 0
+				val left = max(0, x - radius)
+				val right = min(width - 1, x + radius)
+				for (sampleX in left..right) {
+					val color = input[row + sampleX]
+					alpha += Color.alpha(color)
+					red += Color.red(color)
+					green += Color.green(color)
+					blue += Color.blue(color)
+					count++
+				}
+				output[row + x] = Color.argb(alpha / count, red / count, green / count, blue / count)
+			}
+		}
+	}
+
+	private fun boxBlurVertical(input: IntArray, output: IntArray, width: Int, height: Int, radius: Int) {
+		for (y in 0 until height) {
+			for (x in 0 until width) {
+				var alpha = 0
+				var red = 0
+				var green = 0
+				var blue = 0
+				var count = 0
+				val top = max(0, y - radius)
+				val bottom = min(height - 1, y + radius)
+				for (sampleY in top..bottom) {
+					val color = input[sampleY * width + x]
+					alpha += Color.alpha(color)
+					red += Color.red(color)
+					green += Color.green(color)
+					blue += Color.blue(color)
+					count++
+				}
+				output[y * width + x] = Color.argb(alpha / count, red / count, green / count, blue / count)
+			}
+		}
 	}
 }
 

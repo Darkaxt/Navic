@@ -545,6 +545,27 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun nativeShellCoverDrawsBlurredCoverBackdropBehindContainedCover() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val shellCoverView = nativeFrameHostText
+			.substringAfter("private class KomikkuReaderNativeShellCoverView")
+			.substringBefore("\nprivate fun getCombinedReaderLayerPaint")
+
+		assertContains(shellCoverView, "drawShellCoverBackdrop(canvas, currentBitmap)")
+		assertContains(shellCoverView, "shellCoverBackdropBitmap(source)")
+		assertContains(shellCoverView, "val targetMaxSide = 128")
+		assertContains(shellCoverView, "boxBlurInPlace(generated, radius = 7, iterations = 2)")
+		assertContains(shellCoverView, "canvas.drawColor(Color.argb(142, 0, 0, 0))")
+		assertContains(shellCoverView, "val scale = min(")
+		assertContains(shellCoverView, "canvas.drawBitmap(currentBitmap, null, destination, imagePaint)")
+		assertTrue(
+			shellCoverView.indexOf("drawShellCoverBackdrop(canvas, currentBitmap)") <
+				shellCoverView.indexOf("canvas.drawBitmap(currentBitmap, null, destination, imagePaint)"),
+			"The diffuse cover backdrop must be drawn before the existing contain-fit foreground cover."
+		)
+	}
+
+	@Test
 	fun nativeShellCoverSupportsHorizontalSwipeAndNativeReadableDragPreview() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val dispatchTouchEvent = nativeFrameHostText
