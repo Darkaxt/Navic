@@ -373,6 +373,7 @@ fun NowPlayingScreen() {
 							NowPlayingMediaSlot(
 								modifier = Modifier.weight(1f).fillMaxHeight(),
 								isLandscape = true,
+								isWideLandscape = isWideLandscape,
 								clip = lidaClip,
 								mode = mediaSlotMode,
 								playerProgress = playerState.progress,
@@ -415,6 +416,7 @@ fun NowPlayingScreen() {
 							NowPlayingMediaSlot(
 								modifier = Modifier.weight(1f).fillMaxWidth(),
 								isLandscape = false,
+								isWideLandscape = false,
 								clip = lidaClip,
 								mode = mediaSlotMode,
 								playerProgress = playerState.progress,
@@ -452,6 +454,7 @@ private fun NowPlayingMediaSlot(
 	playerProgress: Float,
 	musicIsPaused: Boolean,
 	isLandscape: Boolean,
+	isWideLandscape: Boolean,
 	onArtworkTap: (() -> Unit)?,
 	onLidaClipRecoverablePlaybackError: () -> Unit,
 	modifier: Modifier = Modifier
@@ -462,6 +465,7 @@ private fun NowPlayingMediaSlot(
 				NowPlayingArtworkPager(
 					modifier = Modifier.matchParentSize(),
 					isLandscape = isLandscape,
+					isWideLandscape = isWideLandscape,
 					onArtworkTap = onArtworkTap
 				)
 			}

@@ -21,6 +21,17 @@ enum class NowPlayingMediaSlotMode {
 	ForegroundClip
 }
 
+enum class NowPlayingDiscFitMode {
+	Crop,
+	Fit,
+	SoftEdgeCompress
+}
+
+enum class NowPlayingDiscContentScale {
+	Crop,
+	Fit
+}
+
 data class NowPlayingTechnicalInfoPlacement(
 	val bottomPaddingDp: Int,
 	val verticalOffsetDp: Int
@@ -39,11 +50,19 @@ fun nowPlayingArtworkShapeForPlayback(
 	isRotating: Boolean
 ): CoverArtShape = if (isRotating) CoverArtShape.Circle else configuredShape
 
-fun shouldShowNowPlayingVinylOverlay(
+fun shouldUseNowPlayingVinylPresentation(
+	isWideLandscape: Boolean,
 	isRotatingArtwork: Boolean,
 	hasCoverArt: Boolean,
 	hasGeneratedArtwork: Boolean = false
-): Boolean = isRotatingArtwork && (hasCoverArt || hasGeneratedArtwork)
+): Boolean =
+	(isWideLandscape || isRotatingArtwork) && (hasCoverArt || hasGeneratedArtwork)
+
+fun shouldShowNowPlayingVinylOverlay(
+	isVinylPresentation: Boolean,
+	hasCoverArt: Boolean,
+	hasGeneratedArtwork: Boolean = false
+): Boolean = isVinylPresentation && (hasCoverArt || hasGeneratedArtwork)
 
 fun nowPlayingVinylOverlayRotationDegrees(
 	isRotatingArtwork: Boolean,
@@ -81,6 +100,39 @@ fun nowPlayingMediaSlotMode(
 fun nowPlayingFallbackLabelStyle(isRotatingArtwork: Boolean): NowPlayingFallbackLabelStyle =
 	if (isRotatingArtwork) NowPlayingFallbackLabelStyle.Arc else NowPlayingFallbackLabelStyle.Center
 
+fun nowPlayingDiscFitMode(
+	isWideLandscape: Boolean,
+	isVinylArtwork: Boolean,
+	hasRealArtwork: Boolean
+): NowPlayingDiscFitMode =
+	if (isWideLandscape && isVinylArtwork && hasRealArtwork) {
+		NowPlayingDiscFitMode.SoftEdgeCompress
+	} else {
+		NowPlayingDiscFitMode.Crop
+	}
+
+fun nowPlayingDiscContentScale(
+	fitMode: NowPlayingDiscFitMode,
+	imageWidth: Int?,
+	imageHeight: Int?
+): NowPlayingDiscContentScale {
+	if (fitMode == NowPlayingDiscFitMode.Crop) return NowPlayingDiscContentScale.Crop
+	if (fitMode == NowPlayingDiscFitMode.Fit) return NowPlayingDiscContentScale.Fit
+
+	val width = imageWidth ?: return NowPlayingDiscContentScale.Crop
+	val height = imageHeight ?: return NowPlayingDiscContentScale.Crop
+	if (width <= 0 || height <= 0) return NowPlayingDiscContentScale.Crop
+
+	val wider = width.toFloat() / height.toFloat()
+	val taller = height.toFloat() / width.toFloat()
+	val aspectRatio = maxOf(wider, taller)
+	return if (aspectRatio >= NowPlayingDiscSoftEdgeFitAspectThreshold) {
+		NowPlayingDiscContentScale.Fit
+	} else {
+		NowPlayingDiscContentScale.Crop
+	}
+}
+
 fun nowPlayingTechnicalInfoPlacement(
 	isLandscape: Boolean,
 	isVinylArtwork: Boolean
@@ -95,3 +147,5 @@ fun nowPlayingTechnicalInfoPlacement(
 	)
 
 private fun Long.floorMod(modulus: Long): Long = ((this % modulus) + modulus) % modulus
+
+private const val NowPlayingDiscSoftEdgeFitAspectThreshold = 1.18f

@@ -60,7 +60,27 @@ class NowPlayingArtworkRotationPolicyTest {
 		)
 		assertTrue(
 			shouldShowNowPlayingVinylOverlay(
-				isRotatingArtwork = true,
+				isVinylPresentation = true,
+				hasCoverArt = false,
+				hasGeneratedArtwork = true
+			)
+		)
+	}
+
+	@Test
+	fun wideLandscapeKeepsGeneratedArtworkInVinylPresentationEvenWhenStatic() {
+		assertTrue(
+			shouldUseNowPlayingVinylPresentation(
+				isWideLandscape = true,
+				isRotatingArtwork = false,
+				hasCoverArt = false,
+				hasGeneratedArtwork = true
+			)
+		)
+		assertFalse(
+			shouldUseNowPlayingVinylPresentation(
+				isWideLandscape = false,
+				isRotatingArtwork = false,
 				hasCoverArt = false,
 				hasGeneratedArtwork = true
 			)
@@ -147,22 +167,22 @@ class NowPlayingArtworkRotationPolicyTest {
 	}
 
 	@Test
-	fun vinylOverlayOnlyAppearsForRotatingArtworkWithCoverArt() {
+	fun vinylOverlayOnlyAppearsForVinylPresentationWithArtwork() {
 		assertTrue(
 			shouldShowNowPlayingVinylOverlay(
-				isRotatingArtwork = true,
+				isVinylPresentation = true,
 				hasCoverArt = true
 			)
 		)
 		assertFalse(
 			shouldShowNowPlayingVinylOverlay(
-				isRotatingArtwork = false,
+				isVinylPresentation = false,
 				hasCoverArt = true
 			)
 		)
 		assertFalse(
 			shouldShowNowPlayingVinylOverlay(
-				isRotatingArtwork = true,
+				isVinylPresentation = true,
 				hasCoverArt = false
 			)
 		)
@@ -272,5 +292,53 @@ class NowPlayingArtworkRotationPolicyTest {
 	fun lidaClipArtworkTransitionIsShortAndSubtle() {
 		assertTrue(NowPlayingVideoArtworkCrossfadeDurationMs in 120..500)
 		assertTrue(NowPlayingVideoArtworkCrossfadeInitialScale in 0.95f..1f)
+	}
+
+	@Test
+	fun wideLandscapeVinylUsesSoftEdgeCompressForRealArtwork() {
+		assertEquals(
+			NowPlayingDiscFitMode.SoftEdgeCompress,
+			nowPlayingDiscFitMode(
+				isWideLandscape = true,
+				isVinylArtwork = true,
+				hasRealArtwork = true
+			)
+		)
+		assertEquals(
+			NowPlayingDiscFitMode.Crop,
+			nowPlayingDiscFitMode(
+				isWideLandscape = false,
+				isVinylArtwork = true,
+				hasRealArtwork = true
+			)
+		)
+	}
+
+	@Test
+	fun softEdgeCompressKeepsSquareCoversCroppedAndFitsWideCovers() {
+		assertEquals(
+			NowPlayingDiscContentScale.Crop,
+			nowPlayingDiscContentScale(
+				fitMode = NowPlayingDiscFitMode.SoftEdgeCompress,
+				imageWidth = 1000,
+				imageHeight = 1000
+			)
+		)
+		assertEquals(
+			NowPlayingDiscContentScale.Fit,
+			nowPlayingDiscContentScale(
+				fitMode = NowPlayingDiscFitMode.SoftEdgeCompress,
+				imageWidth = 1600,
+				imageHeight = 900
+			)
+		)
+		assertEquals(
+			NowPlayingDiscContentScale.Crop,
+			nowPlayingDiscContentScale(
+				fitMode = NowPlayingDiscFitMode.Crop,
+				imageWidth = 1600,
+				imageHeight = 900
+			)
+		)
 	}
 }

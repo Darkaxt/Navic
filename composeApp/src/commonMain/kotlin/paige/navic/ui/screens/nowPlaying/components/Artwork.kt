@@ -16,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -25,14 +26,18 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.NowPlayingDiscContentScale
 import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylSpindleRadiusFraction
+import paige.navic.domain.models.nowPlayingDiscContentScale
+import paige.navic.domain.models.nowPlayingDiscFitMode
 import paige.navic.domain.models.nowPlayingFallbackLabelStyle
 import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.nowPlayingArtworkRotationDegreesForElapsedMillis
@@ -40,6 +45,7 @@ import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
 import paige.navic.domain.models.nowPlayingVinylOverlayRotationDegrees
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
 import paige.navic.domain.models.shouldShowNowPlayingVinylOverlay
+import paige.navic.domain.models.shouldUseNowPlayingVinylPresentation
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Note
@@ -56,6 +62,7 @@ import kotlin.math.min
 fun NowPlayingArtwork(
 	modifier: Modifier = Modifier,
 	isLandscape: Boolean,
+	isWideLandscape: Boolean = false,
 	song: DomainSong,
 	onClick: (() -> Unit)? = null
 ) {
@@ -91,13 +98,42 @@ fun NowPlayingArtwork(
 		hasCoverArt = hasArtwork,
 		hasGeneratedArtwork = hasGeneratedArtwork
 	)
+	val isVinylPresentation = shouldUseNowPlayingVinylPresentation(
+		isWideLandscape = isWideLandscape,
+		isRotatingArtwork = isRotatingArtwork,
+		hasCoverArt = hasArtwork,
+		hasGeneratedArtwork = hasGeneratedArtwork
+	)
 	val rotationDegrees = rememberNowPlayingArtworkRotationDegrees(
 		enabled = isRotatingArtwork
 	)
 	val artworkShape = nowPlayingArtworkShapeForPlayback(
 		configuredShape = preferenceManager.coverArtShape,
-		isRotating = isRotatingArtwork
+		isRotating = isVinylPresentation
 	)
+	var resolvedImageSize by remember(
+		song.id,
+		playbackArtwork.coverArtId,
+		playbackArtwork.imageUrl,
+		playbackArtwork.imageCacheKey
+	) {
+		mutableStateOf<Pair<Int, Int>?>(null)
+	}
+	val discFitMode = nowPlayingDiscFitMode(
+		isWideLandscape = isWideLandscape,
+		isVinylArtwork = isVinylPresentation,
+		hasRealArtwork = hasArtwork
+	)
+	val coverArtContentScale = when (
+		nowPlayingDiscContentScale(
+			fitMode = discFitMode,
+			imageWidth = resolvedImageSize?.first,
+			imageHeight = resolvedImageSize?.second
+		)
+	) {
+		NowPlayingDiscContentScale.Crop -> ContentScale.Crop
+		NowPlayingDiscContentScale.Fit -> ContentScale.Fit
+	}
 
 	val padding by animateDpAsState(
 		targetValue = nowPlayingArtworkPaddingDp(
@@ -136,14 +172,18 @@ fun NowPlayingArtwork(
 					musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
 					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
 				},
-				normalization = CoverArtNormalization.TrimWhitespace,
+					normalization = CoverArtNormalization.TrimWhitespace,
+					contentScale = coverArtContentScale,
+				onImageSizeResolved = { width, height ->
+					resolvedImageSize = width to height
+				},
 				modifier = Modifier.fillMaxSize(),
 				shadowElevation = 8.dp,
 				shape = artworkShape.shape
 			)
 			if (
 				shouldShowNowPlayingVinylOverlay(
-					isRotatingArtwork = isRotatingArtwork,
+					isVinylPresentation = isVinylPresentation,
 					hasCoverArt = hasArtwork,
 					hasGeneratedArtwork = hasGeneratedArtwork
 				)

@@ -28,6 +28,7 @@ import paige.navic.ui.screens.nowPlaying.components.NowPlayingArtwork
 fun NowPlayingArtworkPager(
 	modifier: Modifier = Modifier,
 	isLandscape: Boolean,
+	isWideLandscape: Boolean = false,
 	onArtworkTap: (() -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -80,6 +81,7 @@ fun NowPlayingArtworkPager(
 			NowPlayingArtwork(
 				song = song,
 				isLandscape = isLandscape,
+				isWideLandscape = isWideLandscape,
 				onClick = onArtworkTap
 			)
 		}
