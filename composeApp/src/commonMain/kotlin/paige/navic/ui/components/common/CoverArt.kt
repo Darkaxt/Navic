@@ -118,6 +118,13 @@ enum class CoverArtEdgeCompression {
 	Soft
 }
 
+internal data class SoftEdgeCompressionBand(
+	val srcOffset: IntOffset,
+	val srcSize: IntSize,
+	val dstOffset: IntOffset,
+	val dstSize: IntSize
+)
+
 private val CoverArtFallbackSeedColors = listOf(
 	Color(0xFF845336),
 	Color(0xFF57553C),
@@ -388,43 +395,43 @@ private fun SoftEdgeCompressedCoverArtImage(
 		val top = ((canvasHeight - fittedHeight) / 2f).roundToInt()
 
 		if (top > 0) {
-			val sampleHeight = (imageHeight * SoftEdgeCompressionSampleFraction).roundToInt().coerceAtLeast(1)
 			val bottomHeight = canvasHeight - top - fittedHeight
-			drawImage(
-				image = image,
-				srcOffset = IntOffset(0, 0),
-				srcSize = IntSize(imageWidth, sampleHeight),
-				dstOffset = IntOffset(0, 0),
-				dstSize = IntSize(canvasWidth, top)
-			)
-			if (bottomHeight > 0) {
+			softEdgeCompressionBands(
+				axis = SoftEdgeCompressionAxis.Vertical,
+				canvasPrimarySize = canvasHeight,
+				canvasSecondarySize = canvasWidth,
+				imagePrimarySize = imageHeight,
+				imageSecondarySize = imageWidth,
+				leadingGapSize = top,
+				trailingGapSize = bottomHeight
+			).forEach { band ->
 				drawImage(
 					image = image,
-					srcOffset = IntOffset(0, imageHeight - sampleHeight),
-					srcSize = IntSize(imageWidth, sampleHeight),
-					dstOffset = IntOffset(0, top + fittedHeight),
-					dstSize = IntSize(canvasWidth, bottomHeight)
+					srcOffset = band.srcOffset,
+					srcSize = band.srcSize,
+					dstOffset = band.dstOffset,
+					dstSize = band.dstSize
 				)
 			}
 		}
 
 		if (left > 0) {
-			val sampleWidth = (imageWidth * SoftEdgeCompressionSampleFraction).roundToInt().coerceAtLeast(1)
 			val rightWidth = canvasWidth - left - fittedWidth
-			drawImage(
-				image = image,
-				srcOffset = IntOffset(0, 0),
-				srcSize = IntSize(sampleWidth, imageHeight),
-				dstOffset = IntOffset(0, 0),
-				dstSize = IntSize(left, canvasHeight)
-			)
-			if (rightWidth > 0) {
+			softEdgeCompressionBands(
+				axis = SoftEdgeCompressionAxis.Horizontal,
+				canvasPrimarySize = canvasWidth,
+				canvasSecondarySize = canvasHeight,
+				imagePrimarySize = imageWidth,
+				imageSecondarySize = imageHeight,
+				leadingGapSize = left,
+				trailingGapSize = rightWidth
+			).forEach { band ->
 				drawImage(
 					image = image,
-					srcOffset = IntOffset(imageWidth - sampleWidth, 0),
-					srcSize = IntSize(sampleWidth, imageHeight),
-					dstOffset = IntOffset(left + fittedWidth, 0),
-					dstSize = IntSize(rightWidth, canvasHeight)
+					srcOffset = band.srcOffset,
+					srcSize = band.srcSize,
+					dstOffset = band.dstOffset,
+					dstSize = band.dstSize
 				)
 			}
 		}
@@ -439,7 +446,103 @@ private fun SoftEdgeCompressedCoverArtImage(
 	}
 }
 
-private const val SoftEdgeCompressionSampleFraction = 0.12f
+internal fun softEdgeCompressionBands(
+	axis: SoftEdgeCompressionAxis,
+	canvasPrimarySize: Int,
+	canvasSecondarySize: Int,
+	imagePrimarySize: Int,
+	imageSecondarySize: Int,
+	leadingGapSize: Int,
+	trailingGapSize: Int
+): List<SoftEdgeCompressionBand> {
+	if (canvasPrimarySize <= 0 || canvasSecondarySize <= 0 || imagePrimarySize <= 0 || imageSecondarySize <= 0) {
+		return emptyList()
+	}
+	val leadingBands = softEdgeCompressionSideBands(
+		axis = axis,
+		canvasSecondarySize = canvasSecondarySize,
+		imagePrimarySize = imagePrimarySize,
+		imageSecondarySize = imageSecondarySize,
+		gapSize = leadingGapSize,
+		isLeading = true,
+		dstPrimaryStart = 0
+	)
+	val trailingBands = softEdgeCompressionSideBands(
+		axis = axis,
+		canvasSecondarySize = canvasSecondarySize,
+		imagePrimarySize = imagePrimarySize,
+		imageSecondarySize = imageSecondarySize,
+		gapSize = trailingGapSize,
+		isLeading = false,
+		dstPrimaryStart = canvasPrimarySize - trailingGapSize
+	)
+	return leadingBands + trailingBands
+}
+
+internal enum class SoftEdgeCompressionAxis {
+	Horizontal,
+	Vertical
+}
+
+private fun softEdgeCompressionSideBands(
+	axis: SoftEdgeCompressionAxis,
+	canvasSecondarySize: Int,
+	imagePrimarySize: Int,
+	imageSecondarySize: Int,
+	gapSize: Int,
+	isLeading: Boolean,
+	dstPrimaryStart: Int
+): List<SoftEdgeCompressionBand> {
+	if (gapSize <= 0) return emptyList()
+	val bandCount = min(SoftEdgeCompressionBandCount, gapSize).coerceAtLeast(1)
+	val sourceDepth = (imagePrimarySize * SoftEdgeCompressionOuterSourceFraction)
+		.roundToInt()
+		.coerceIn(1, imagePrimarySize)
+	return (0 until bandCount).mapNotNull { index ->
+		val dstStart = dstPrimaryStart + (gapSize * index / bandCount.toFloat()).roundToInt()
+		val dstEnd = dstPrimaryStart + (gapSize * (index + 1) / bandCount.toFloat()).roundToInt()
+		val dstSize = (dstEnd - dstStart).coerceAtLeast(1)
+		val inner = index / bandCount.toFloat()
+		val outer = (index + 1) / bandCount.toFloat()
+		val sourceStartFraction = if (isLeading) {
+			softEdgeCompressionEaseIn(inner)
+		} else {
+			1f - softEdgeCompressionEaseIn(outer)
+		}
+		val sourceEndFraction = if (isLeading) {
+			softEdgeCompressionEaseIn(outer)
+		} else {
+			1f - softEdgeCompressionEaseIn(inner)
+		}
+		val srcStart = (sourceStartFraction * sourceDepth).roundToInt().coerceIn(0, imagePrimarySize - 1)
+		val srcEnd = (sourceEndFraction * sourceDepth).roundToInt().coerceIn(srcStart + 1, imagePrimarySize)
+		val srcPrimaryOffset = if (isLeading) srcStart else imagePrimarySize - srcEnd
+		val srcPrimarySize = (srcEnd - srcStart).coerceAtLeast(1)
+		if (axis == SoftEdgeCompressionAxis.Horizontal) {
+			SoftEdgeCompressionBand(
+				srcOffset = IntOffset(srcPrimaryOffset, 0),
+				srcSize = IntSize(srcPrimarySize, imageSecondarySize),
+				dstOffset = IntOffset(dstStart, 0),
+				dstSize = IntSize(dstSize, canvasSecondarySize)
+			)
+		} else {
+			SoftEdgeCompressionBand(
+				srcOffset = IntOffset(0, srcPrimaryOffset),
+				srcSize = IntSize(imageSecondarySize, srcPrimarySize),
+				dstOffset = IntOffset(0, dstStart),
+				dstSize = IntSize(canvasSecondarySize, dstSize)
+			)
+		}
+	}
+}
+
+private fun softEdgeCompressionEaseIn(value: Float): Float {
+	val clamped = value.coerceIn(0f, 1f)
+	return clamped * clamped
+}
+
+private const val SoftEdgeCompressionBandCount = 8
+private const val SoftEdgeCompressionOuterSourceFraction = 0.22f
 
 private fun coverArtDiagnosticValue(value: String?): String {
 	val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return "none"
