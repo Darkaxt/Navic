@@ -418,7 +418,11 @@ fun NowPlayingScreen() {
 								onSetSongRating = { viewModel.rateSong(it) },
 								showInlineActions = !isWideLandscape,
 								upNextLayout = nowPlayingUpNextLayout(wideLandscape = isWideLandscape),
-								upNextWidth = upNextWidth
+								upNextWidth = upNextWidth,
+								metadataBottomPadding = contentLayout?.metadataBottomPaddingDp?.dp ?: 0.dp,
+								upNextTopPadding = contentLayout?.upNextTopPaddingDp?.dp ?: 8.dp,
+								titleFontScale = contentLayout?.titleFontScale ?: 1.1f,
+								subtitleFontScale = contentLayout?.subtitleFontScale ?: 1.1f
 							)
 						}
 					}

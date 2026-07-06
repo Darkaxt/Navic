@@ -41,7 +41,11 @@ class NowPlayingControlsLayoutPolicyTest {
 		assertEquals(
 			NowPlayingWideLandscapeContentLayout(
 				progressWidthDp = 760,
-				upNextWidthDp = 520
+				upNextWidthDp = 520,
+				metadataBottomPaddingDp = 36,
+				upNextTopPaddingDp = 42,
+				titleFontScale = 1.45f,
+				subtitleFontScale = 1.22f
 			),
 			nowPlayingWideLandscapeContentLayout(
 				contentPaneWidthDp = 900
@@ -50,7 +54,11 @@ class NowPlayingControlsLayoutPolicyTest {
 		assertEquals(
 			NowPlayingWideLandscapeContentLayout(
 				progressWidthDp = 560,
-				upNextWidthDp = 520
+				upNextWidthDp = 520,
+				metadataBottomPaddingDp = 36,
+				upNextTopPaddingDp = 42,
+				titleFontScale = 1.45f,
+				subtitleFontScale = 1.22f
 			),
 			nowPlayingWideLandscapeContentLayout(
 				contentPaneWidthDp = 560
@@ -59,7 +67,11 @@ class NowPlayingControlsLayoutPolicyTest {
 		assertEquals(
 			NowPlayingWideLandscapeContentLayout(
 				progressWidthDp = 420,
-				upNextWidthDp = 420
+				upNextWidthDp = 420,
+				metadataBottomPaddingDp = 36,
+				upNextTopPaddingDp = 42,
+				titleFontScale = 1.45f,
+				subtitleFontScale = 1.22f
 			),
 			nowPlayingWideLandscapeContentLayout(
 				contentPaneWidthDp = 420

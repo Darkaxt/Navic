@@ -61,7 +61,8 @@ internal fun nowPlayingUpNextBottomPadding(showTechnicalInfo: Boolean): Dp =
 fun NowPlayingUpNextRow(
 	showTechnicalInfoBelow: Boolean = false,
 	layout: NowPlayingUpNextLayout = nowPlayingUpNextLayout(wideLandscape = false),
-	maxWidth: Dp? = null
+	maxWidth: Dp? = null,
+	topPadding: Dp = 8.dp
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val showNowPlayingUpNext = preferenceManager.showNowPlayingUpNext
@@ -89,7 +90,7 @@ fun NowPlayingUpNextRow(
 			.fillMaxWidth()
 			.padding(horizontal = 16.dp)
 			.padding(
-				top = 8.dp,
+				top = topPadding,
 				bottom = nowPlayingUpNextBottomPadding(showTechnicalInfoBelow)
 			),
 		horizontalAlignment = if (layout == NowPlayingUpNextLayout.VerticalStack) {

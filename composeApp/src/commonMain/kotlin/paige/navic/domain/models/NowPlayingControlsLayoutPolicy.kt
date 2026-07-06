@@ -16,7 +16,11 @@ enum class NowPlayingPlaybackButtonsArrangement {
 
 data class NowPlayingWideLandscapeContentLayout(
 	val progressWidthDp: Int,
-	val upNextWidthDp: Int
+	val upNextWidthDp: Int,
+	val metadataBottomPaddingDp: Int,
+	val upNextTopPaddingDp: Int,
+	val titleFontScale: Float,
+	val subtitleFontScale: Float
 )
 
 fun shouldUseWideNowPlayingLandscapeLayout(
@@ -36,7 +40,11 @@ fun nowPlayingWideLandscapeContentLayout(
 
 	return NowPlayingWideLandscapeContentLayout(
 		progressWidthDp = progressWidth,
-		upNextWidthDp = upNextWidth
+		upNextWidthDp = upNextWidth,
+		metadataBottomPaddingDp = 36,
+		upNextTopPaddingDp = 42,
+		titleFontScale = 1.45f,
+		subtitleFontScale = 1.22f
 	)
 }
 

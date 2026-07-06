@@ -57,7 +57,9 @@ fun NowPlayingInfoRow(
 	songRating: Int,
 	onSetSongRating: (Int) -> Unit,
 	showActions: Boolean = true,
-	centerText: Boolean = false
+	centerText: Boolean = false,
+	titleFontScale: Float = 1.1f,
+	subtitleFontScale: Float = 1.1f
 ) {
 	val backStack = LocalNavStack.current
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -142,7 +144,7 @@ fun NowPlayingInfoRow(
 							inlineContent = InlineExplicitIconLarge,
 							modifier = Modifier.fillMaxWidth(),
 							style = MaterialTheme.typography.bodyLarge.copy(
-								fontSize = MaterialTheme.typography.bodyLarge.fontSize * 1.1,
+								fontSize = MaterialTheme.typography.bodyLarge.fontSize * titleFontScale,
 								textAlign = TextAlign.Center
 							),
 							maxLines = 1,
@@ -155,7 +157,7 @@ fun NowPlayingInfoRow(
 							modifier = Modifier.weight(1f),
 							style = MaterialTheme.typography.bodyLarge
 								.copy(
-									fontSize = MaterialTheme.typography.bodyLarge.fontSize * 1.1
+									fontSize = MaterialTheme.typography.bodyLarge.fontSize * titleFontScale
 								),
 						)
 					}
@@ -195,7 +197,7 @@ fun NowPlayingInfoRow(
 						modifier = Modifier.fillMaxWidth(),
 						style = MaterialTheme.typography.bodyMedium.copy(
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							fontSize = MaterialTheme.typography.bodyMedium.fontSize * 1.1,
+							fontSize = MaterialTheme.typography.bodyMedium.fontSize * subtitleFontScale,
 							textAlign = TextAlign.Center
 						),
 						text = subtitle,
@@ -208,7 +210,7 @@ fun NowPlayingInfoRow(
 						style = MaterialTheme.typography.bodyMedium
 							.copy(
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
-								fontSize = MaterialTheme.typography.bodyMedium.fontSize * 1.1
+								fontSize = MaterialTheme.typography.bodyMedium.fontSize * subtitleFontScale
 							),
 						text = subtitle
 					)

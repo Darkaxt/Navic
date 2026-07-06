@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,7 +46,11 @@ fun NowPlayingControlsRow(
 	showInlineActions: Boolean = true,
 	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout =
 		paige.navic.domain.models.NowPlayingUpNextLayout.HorizontalRow,
-	upNextWidth: Dp? = null
+	upNextWidth: Dp? = null,
+	metadataBottomPadding: Dp = 0.dp,
+	upNextTopPadding: Dp = 8.dp,
+	titleFontScale: Float = 1.1f,
+	subtitleFontScale: Float = 1.1f
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val backStack = LocalNavStack.current
@@ -121,8 +126,13 @@ fun NowPlayingControlsRow(
 			songRating = songRating,
 			onSetSongRating = onSetSongRating,
 			showActions = showInlineActions,
-			centerText = !showInlineActions
+			centerText = !showInlineActions,
+			titleFontScale = titleFontScale,
+			subtitleFontScale = subtitleFontScale
 		)
+		if (metadataBottomPadding != 0.dp) {
+			Spacer(modifier = Modifier.height(metadataBottomPadding))
+		}
 		val blocks = nowPlayingControlsLayoutBlocks(
 			swapControlsAndTimeline = preferenceManager.swapNowPlayingControlsAndTimeline,
 			showTechnicalInfo = showTechnicalInfo
@@ -131,7 +141,8 @@ fun NowPlayingControlsRow(
 			when (block) {
 				NowPlayingControlsLayoutBlock.Timeline -> NowPlayingTimelineBlock(
 					upNextLayout = upNextLayout,
-					upNextWidth = upNextWidth
+					upNextWidth = upNextWidth,
+					upNextTopPadding = upNextTopPadding
 				)
 
 				NowPlayingControlsLayoutBlock.TechnicalInfo -> Unit
@@ -166,7 +177,8 @@ fun NowPlayingControlsRow(
 @Composable
 private fun NowPlayingTimelineBlock(
 	upNextLayout: paige.navic.domain.models.NowPlayingUpNextLayout,
-	upNextWidth: Dp?
+	upNextWidth: Dp?,
+	upNextTopPadding: Dp
 ) {
 	Column(
 		modifier = Modifier.fillMaxWidth(),
@@ -176,7 +188,8 @@ private fun NowPlayingTimelineBlock(
 		NowPlayingDurationsRow()
 		NowPlayingUpNextRow(
 			layout = upNextLayout,
-			maxWidth = upNextWidth
+			maxWidth = upNextWidth,
+			topPadding = upNextTopPadding
 		)
 	}
 }

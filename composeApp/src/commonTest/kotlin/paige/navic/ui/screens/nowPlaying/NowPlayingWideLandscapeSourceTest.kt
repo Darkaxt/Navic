@@ -50,4 +50,27 @@ class NowPlayingWideLandscapeSourceTest {
 				"does not migrate between rows during queue updates."
 		)
 	}
+
+	@Test
+	fun wideLandscapeControlsGiveMetadataAndUpNextMoreBreathingRoom() {
+		val controlsSource = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/components/rows/ControlsRow.kt"
+		).readText()
+		val infoSource = File(
+			"src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/components/rows/InfoRow.kt"
+		).readText()
+
+		assertTrue(
+			"metadataBottomPadding: Dp = 0.dp" in controlsSource &&
+				"upNextTopPadding: Dp = 8.dp" in controlsSource,
+			"Wide Now Playing must be able to push the title/artist block higher and the Up Next block " +
+				"lower without moving controls off the progress-bar center axis."
+		)
+		assertTrue(
+			"titleFontScale: Float = 1.1f" in infoSource &&
+				"subtitleFontScale: Float = 1.1f" in infoSource,
+			"Wide Now Playing metadata must support a larger centered title/artist treatment instead " +
+				"of reusing the compact phone-scale typography."
+		)
+	}
 }
