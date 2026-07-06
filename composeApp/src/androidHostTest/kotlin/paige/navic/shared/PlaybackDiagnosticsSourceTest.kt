@@ -7,7 +7,9 @@ import kotlin.test.assertContains
 class PlaybackDiagnosticsSourceTest {
 	@Test
 	fun mediaPlayerViewModelLogsPauseAndRecoveryBoundaries() {
-		val source = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val source = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText() +
+			"\n" +
+			androidSharedSourceFile("AndroidPlaybackDownloadRecoveryCoordinator.android.kt").readText()
 
 		assertContains(source, "private val playbackDiagnostics = AndroidPlaybackDiagnosticsLogger()")
 		assertContains(source, "override fun onPlayWhenReadyChanged")
@@ -20,6 +22,10 @@ class PlaybackDiagnosticsSourceTest {
 		assertContains(source, "playbackDiagnostics.onRecoveryDownloadStatus")
 		assertContains(source, "playbackDiagnostics.onRecoveryLocalFileReady")
 		assertContains(source, "playbackDiagnostics.onRecoveryCleared")
+		assertContains(source, "onDeferredDownloadRequested")
+		assertContains(source, "onPlaybackRecoveryDecision")
+		assertContains(source, "onDeferredDownloadReady")
+		assertContains(source, "onReplayLastPlayable")
 	}
 
 	@Test

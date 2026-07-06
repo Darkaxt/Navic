@@ -149,6 +149,27 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(queueAutoFillerText, "fun cancel()")
 		assertContains(queueAutoFillerText, "shouldAutoFillQueue(")
 	}
+
+	@Test
+	fun playbackDownloadRecoveryDefersUnavailableItemsInsteadOfBlindSkipping() {
+		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val coordinatorText = androidSharedSourceFile("AndroidPlaybackDownloadRecoveryCoordinator.android.kt").readText()
+
+		assertContains(viewModelText, "private val playbackDownloadRecovery = AndroidPlaybackDownloadRecoveryCoordinator(")
+		assertContains(viewModelText, "playbackDownloadRecovery.deferCurrentAndContinueOrReplay")
+		assertContains(viewModelText, "playbackDownloadRecovery.promoteReadyDeferredDownloads")
+		assertContains(viewModelText, "playbackDownloadRecovery.rememberLastPlayableSong")
+		assertContains(coordinatorText, "private var lastPlayableSnapshot: LastPlayableSnapshot?")
+		assertContains(coordinatorText, "private val deferredPlaybackDownloads = linkedMapOf<String, DeferredPlaybackDownload>()")
+		assertContains(coordinatorText, "diagnostics.onDeferredDownloadRequested")
+		assertContains(coordinatorText, "diagnostics.onPlaybackRecoveryDecision")
+		assertContains(coordinatorText, "diagnostics.onDeferredDownloadReady")
+		assertContains(coordinatorText, "diagnostics.onReplayLastPlayable")
+		assertFalse(
+			viewModelText.contains("clearPendingSourceErrorRecovery(\"skip-after-error\")"),
+			"Source-error recovery should defer/download and continue or replay, not clear recovery and blindly skip."
+		)
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =

@@ -161,6 +161,71 @@ internal class AndroidPlaybackDiagnosticsLogger {
 			)
 		)
 	}
+
+	fun onDeferredDownloadRequested(song: DomainSong, index: Int, reason: String, deferredCount: Int) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"deferred-download-requested",
+				"songId" to song.id,
+				"title" to song.title,
+				"index" to index,
+				"reason" to reason,
+				"deferredCount" to deferredCount
+			)
+		)
+	}
+
+	fun onPlaybackRecoveryDecision(
+		event: String,
+		song: DomainSong?,
+		currentIndex: Int,
+		targetIndex: Int?,
+		reason: String,
+		deferredCount: Int,
+		fallbackAvailable: Boolean
+	) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				event,
+				"songId" to song?.id,
+				"title" to song?.title,
+				"currentIndex" to currentIndex,
+				"targetIndex" to targetIndex,
+				"reason" to reason,
+				"deferredCount" to deferredCount,
+				"fallbackAvailable" to fallbackAvailable
+			)
+		)
+	}
+
+	fun onDeferredDownloadReady(songId: String, title: String?, targetIndex: Int, deferredCount: Int) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"deferred-download-ready",
+				"songId" to songId,
+				"title" to title,
+				"targetIndex" to targetIndex,
+				"deferredCount" to deferredCount
+			)
+		)
+	}
+
+	fun onReplayLastPlayable(song: DomainSong, index: Int, reason: String, deferredCount: Int) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"replay-last-playable",
+				"songId" to song.id,
+				"title" to song.title,
+				"index" to index,
+				"reason" to reason,
+				"deferredCount" to deferredCount
+			)
+		)
+	}
 }
 
 private fun playbackStateLabel(state: Int): String = when (state) {

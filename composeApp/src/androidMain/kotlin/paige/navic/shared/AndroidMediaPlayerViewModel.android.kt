@@ -110,7 +110,6 @@ import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailabi
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
-import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.settings.MediaNotificationAction
@@ -166,6 +165,15 @@ class AndroidMediaPlayerViewModel(
 	)
 	private val playbackErrorNotifier = AndroidPlaybackErrorNotifier(snackBarManager)
 	private val playbackDiagnostics = AndroidPlaybackDiagnosticsLogger()
+	private val playbackDownloadRecovery = AndroidPlaybackDownloadRecoveryCoordinator(
+		downloadManager = downloadManager,
+		diagnostics = playbackDiagnostics,
+		isAvailable = ::isAvailable,
+		claimMusicPlayback = ::claimMusicPlayback,
+		onWaitForDeferredDownload = ::waitForDeferredDownload,
+		onDeferredCurrentReady = ::resumeDeferredDownloadIfCurrent,
+		updateQueue = ::moveUiQueueItem
+	)
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
 		downloadManager = downloadManager,
@@ -292,7 +300,7 @@ class AndroidMediaPlayerViewModel(
 						if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
 							mediaItem?.mediaId?.let { id ->
 								if (!isAvailable(id)) {
-									controller?.seekToNextMediaItem()
+									playbackDownloadRecovery.deferCurrentAndContinueOrReplay(this@apply, _uiState.value, "unavailable-auto-transition")
 								}
 							}
 						}
@@ -340,6 +348,7 @@ class AndroidMediaPlayerViewModel(
 						updatePlaybackDownloadProgress()
 						updatePlaybackState()
 						if (playbackState == Player.STATE_READY) {
+							playbackDownloadRecovery.rememberLastPlayableSong(this@apply, _uiState.value)
 							queueAutoFiller.maybeAutoFillQueue()
 						}
 					}
@@ -372,17 +381,8 @@ class AndroidMediaPlayerViewModel(
 						if (recoverCurrentMediaItemFromDownloadedFile(this@apply)) {
 							return
 						}
-						playbackErrorNotifier.notify(error)
-						val shouldSkip = shouldSkipMediaAfterPlaybackError(
-							skipMediaOnError = preferenceManager.skipMediaOnError,
-							hasNextMediaItem = hasNextMediaItem()
-						)
-						if (shouldSkip) {
-							clearPendingSourceErrorRecovery("skip-after-error")
-							seekToNextMediaItem()
-							prepare()
-							play()
-						} else {
+						if (!playbackDownloadRecovery.deferCurrentAndContinueOrReplay(this@apply, currentUiState, "source-error-deferred")) {
+							playbackErrorNotifier.notify(error)
 							beginPendingSourceErrorRecovery(this@apply)
 						}
 					}
@@ -439,6 +439,7 @@ class AndroidMediaPlayerViewModel(
 						.associate { download -> download.songId to download.filePath!! }
 					val player = controller ?: return@collectLatest
 					val currentIndex = player.currentMediaItemIndex
+					playbackDownloadRecovery.promoteReadyDeferredDownloads(player, _uiState.value, downloadedMap)
 
 					for (i in 0 until player.mediaItemCount) {
 						val item = player.getMediaItemAt(i)
@@ -605,6 +606,27 @@ class AndroidMediaPlayerViewModel(
 			index = nextIndex
 		}
 		return indexes
+	}
+
+	private fun waitForDeferredDownload(song: DomainSong, shouldResume: Boolean) {
+		pendingSourceErrorRecovery = PendingSourceErrorRecovery(song.id, 0L, shouldResume)
+		updatePlaybackDownloadProgress()
+	}
+
+	private fun resumeDeferredDownloadIfCurrent(songId: String, targetIndex: Int) {
+		val player = controller ?: return
+		val pendingRecovery = pendingSourceErrorRecovery?.takeIf { it.songId == songId } ?: return
+		player.seekTo(targetIndex, pendingRecovery.positionMs)
+		player.prepare()
+		if (pendingRecovery.shouldResume) {
+			claimMusicPlayback()
+			player.play()
+		}
+		clearPendingSourceErrorRecovery("deferred-download-ready")
+	}
+
+	private fun moveUiQueueItem(fromIndex: Int, toIndex: Int) {
+		_uiState.update { state -> state.copy(queue = state.queue.movedMediaItem(fromIndex, toIndex)) }
 	}
 
 	private fun beginPendingSourceErrorRecovery(player: MediaController) {
@@ -954,6 +976,8 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			playbackOriginRecorder.setOriginNow(null)
 			pendingPlayIndex = null
+			pendingSourceErrorRecovery = null
+			playbackDownloadRecovery.clear()
 			queueAutoFiller.cancel()
 			_uiState.update {
 				it.copy(
@@ -1374,3 +1398,11 @@ private data class PendingSourceErrorRecovery(
 	val positionMs: Long,
 	val shouldResume: Boolean
 )
+
+private fun <T> List<T>.movedMediaItem(fromIndex: Int, toIndex: Int): List<T> {
+	if (fromIndex !in indices) return this
+	val mutable = toMutableList()
+	val item = mutable.removeAt(fromIndex)
+	mutable.add(toIndex.coerceIn(0, mutable.size), item)
+	return mutable
+}
