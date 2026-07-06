@@ -29,60 +29,68 @@
 
 ## Task 1: Pure Recovery Policy
 
-- [ ] Write failing tests in `PlaybackQueueRecoveryPolicyTest`:
+- [x] Write failing tests in `PlaybackQueueRecoveryPolicyTest`:
   - `firstPlayableUpcomingIndexSkipsUnavailableItems`
   - `queueRecoveryReplaysLastPlayableWhenNoPlayableCandidateExists`
   - `downloadedDeferredItemMovesDirectlyAfterCurrentItem`
-- [ ] Run the focused test and confirm it fails because the policy does not exist.
-- [ ] Add `PlaybackQueueRecoveryPolicy.kt` with:
+- [x] Run the focused test and confirm it fails because the policy does not exist.
+- [x] Add `PlaybackQueueRecoveryPolicy.kt` with:
   - `firstPlayableUpcomingIndex(currentIndex, queueSongIds, availableSongIds)`
   - `shouldReplayLastPlayable(hasLastPlayable, hasPlayableUpcoming, hasDeferredDownloads)`
   - `recoveredDownloadTargetIndex(currentIndex, queueSize)`
-- [ ] Run the focused test and confirm it passes.
+- [x] Run the focused test and confirm it passes.
 
 ## Task 2: Diagnostics Contract
 
-- [ ] Extend `PlaybackDiagnosticsSourceTest` with assertions for:
+- [x] Extend `PlaybackDiagnosticsSourceTest` with assertions for:
   - `onDeferredDownloadRequested`
   - `onPlaybackRecoveryDecision`
   - `onDeferredDownloadReady`
   - `onReplayLastPlayable`
-- [ ] Run the focused source test and confirm it fails.
-- [ ] Add the diagnostics methods to `AndroidPlaybackDiagnosticsLogger`.
-- [ ] Run the focused source test and confirm it passes.
+- [x] Run the focused source test and confirm it fails.
+- [x] Add the diagnostics methods to `AndroidPlaybackDiagnosticsLogger`.
+- [x] Run the focused source test and confirm it passes.
 
 ## Task 3: Android Player Wiring
 
-- [ ] Extend `AndroidMediaPlayerViewModelSourceTest` with assertions that:
+- [x] Extend `AndroidMediaPlayerViewModelSourceTest` with assertions that:
   - auto-transition unavailable handling calls a helper that defers current song for download
   - source-error skip handling calls the same recovery helper instead of only `seekToNextMediaItem()`
   - download-flow recovery promotes deferred items after the current item
   - the view model tracks a last playable snapshot
-- [ ] Run the focused source test and confirm it fails.
-- [ ] Add `LastPlayableSnapshot` and `DeferredPlaybackDownload` state to `AndroidMediaPlayerViewModel`.
-- [ ] Refresh the last playable snapshot from ready/playable state changes.
-- [ ] Add `deferCurrentAndContinueOrReplay(...)`:
+- [x] Run the focused source test and confirm it fails.
+- [x] Add `LastPlayableSnapshot` and `DeferredPlaybackDownload` state to `AndroidPlaybackDownloadRecoveryCoordinator`.
+- [x] Refresh the last playable snapshot from ready/playable state changes.
+- [x] Add `deferCurrentAndContinueOrReplay(...)`:
   - records deferred download work
   - calls `downloadManager.prefetchPlaybackSongs(listOf(song))`
   - chooses next playable using `firstPlayableUpcomingIndex(...)`
   - replays last playable when no candidate exists
   - logs every decision
-- [ ] Replace the auto-transition skip path with `deferCurrentAndContinueOrReplay(...)`.
-- [ ] Replace source-error skip-only handling with `deferCurrentAndContinueOrReplay(...)`.
-- [ ] In the download flow, detect deferred downloaded items and move them to the first safe upcoming slot.
-- [ ] Run the focused source test and confirm it passes.
+- [x] Replace the auto-transition skip path with `deferCurrentAndContinueOrReplay(...)`.
+- [x] Replace source-error skip-only handling with `deferCurrentAndContinueOrReplay(...)`.
+- [x] In the download flow, detect deferred downloaded items and move them to the first safe upcoming slot.
+- [x] Run the focused source test and confirm it passes.
 
 ## Task 4: Verification
 
-- [ ] Run focused policy and source tests:
+- [x] Run focused policy and source tests:
   - `./gradlew :composeApp:testAndroidHostTest --tests "paige.navic.domain.models.PlaybackQueueRecoveryPolicyTest" --tests "paige.navic.shared.PlaybackDiagnosticsSourceTest" --tests "paige.navic.shared.AndroidMediaPlayerViewModelSourceTest"`
-- [ ] Run `git diff --check`.
-- [ ] Run a broader host test only after focused tests are green.
+- [x] Run `git diff --check`.
+- [x] Run a broader host test only after focused tests are green.
 
 ## Task 5: Commit, Sync, Release
 
-- [ ] Commit the spec, plan, tests, and implementation.
-- [ ] Fetch `fork` and rebase/merge if master moved.
-- [ ] Prepare the next theta release version.
-- [ ] Push master and tag/release with the APK artifact.
-- [ ] Verify the GitHub release exists and the uploaded APK is present.
+- [x] Commit the spec, plan, tests, and implementation.
+- [x] Fetch `fork` and rebase/merge if master moved.
+- [x] Prepare the theta75 release version.
+- [x] Push master and tag/release with the APK artifact.
+- [x] Verify the GitHub release exists and the uploaded APK is present.
+
+## Theta76 Diagnostic Tightening
+
+- [x] Add RED source assertions for explicit skip, retry, and hard-failure recovery events.
+- [x] Emit `skip-to-next-playable` when the coordinator skips an unavailable item to a playable candidate.
+- [x] Emit `retry-playback-source` when a local file replaces the failed stream/download source.
+- [x] Emit `hard-playback-failure` only when no defer/continue/replay recovery path can be started.
+- [x] Re-run focused tests and `git diff --check` for the theta76 patch.

@@ -382,6 +382,7 @@ class AndroidMediaPlayerViewModel(
 							return
 						}
 						if (!playbackDownloadRecovery.deferCurrentAndContinueOrReplay(this@apply, currentUiState, "source-error-deferred")) {
+							playbackDiagnostics.onHardPlaybackFailure(this@apply, error, currentUiState.currentSong, "no-deferred-recovery-candidate")
 							playbackErrorNotifier.notify(error)
 							beginPendingSourceErrorRecovery(this@apply)
 						}

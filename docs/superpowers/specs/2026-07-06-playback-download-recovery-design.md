@@ -64,7 +64,8 @@ Every recovery decision must be visible in `PlaybackDiagnostics`:
 - `deferred-download-requested`
 - `unavailable-auto-transition`
 - `source-error-deferred`
-- `continue-next-playable`
+- `skip-to-next-playable`
+- `retry-playback-source`
 - `replay-last-playable`
 - `deferred-download-ready`
 - `deferred-download-reinserted`

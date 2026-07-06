@@ -53,7 +53,7 @@ internal class AndroidPlaybackDownloadRecoveryCoordinator(
 		)
 		if (targetIndex != null) {
 			diagnostics.onPlaybackRecoveryDecision(
-				event = "continue-next-playable",
+				event = "skip-to-next-playable",
 				song = song,
 				currentIndex = currentIndex,
 				targetIndex = targetIndex,

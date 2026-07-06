@@ -97,6 +97,23 @@ internal class AndroidPlaybackDiagnosticsLogger {
 		)
 	}
 
+	fun onHardPlaybackFailure(player: Player, error: PlaybackException, currentSong: DomainSong?, reason: String) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"hard-playback-failure",
+				"code" to error.errorCodeName,
+				"message" to error.message,
+				"songId" to (currentSong?.id ?: player.currentMediaItem?.mediaId),
+				"title" to currentSong?.title,
+				"index" to player.currentMediaItemIndex,
+				"state" to playbackStateLabel(player.playbackState),
+				"playWhenReady" to player.playWhenReady,
+				"reason" to reason
+			)
+		)
+	}
+
 	fun onRecoveryPending(song: DomainSong, positionMs: Long, shouldResume: Boolean) {
 		Logger.i(
 			PlaybackDiagnosticsLogTag,
@@ -143,6 +160,29 @@ internal class AndroidPlaybackDiagnosticsLogger {
 			playbackDiagnosticMessage(
 				"recovery-local-file-ready",
 				"songId" to songId,
+				"positionMs" to positionMs,
+				"shouldResume" to shouldResume,
+				"source" to source
+			)
+		)
+		onPlaybackRetry(
+			songId = songId,
+			title = null,
+			index = null,
+			positionMs = positionMs,
+			shouldResume = shouldResume,
+			source = source
+		)
+	}
+
+	fun onPlaybackRetry(songId: String, title: String?, index: Int?, positionMs: Long, shouldResume: Boolean, source: String) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"retry-playback-source",
+				"songId" to songId,
+				"title" to title,
+				"index" to index,
 				"positionMs" to positionMs,
 				"shouldResume" to shouldResume,
 				"source" to source
