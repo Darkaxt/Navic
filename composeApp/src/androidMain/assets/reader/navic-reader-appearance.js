@@ -104,6 +104,9 @@ import {
   readerSpreadPageTextureSlots,
   readerSurfaceSpreadGutterVisible,
   readerSurfaceSpreadMode,
+  readerPageShellGeometryForViewport,
+  readerShellGeometryDiagnosticState,
+  applyReaderPageShellContentGeometry as applyReaderPageShellContentGeometryToDocument,
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
@@ -260,6 +263,14 @@ function applyThemeToLoadedContent(settings = this.readerSettings) {
   this.applyRendererTheme(settings)
 }
 
+function applyReaderPageShellContentGeometry(doc, settings = this.readerSettings, index = undefined) {
+  const geometry = this.readerPageShellGeometry || readerPageShellGeometryForViewport(settings, {
+    flowMode: this.readerFlowModeValue,
+    spreadMode: this.surfaceSpreadMode,
+  })
+  return applyReaderPageShellContentGeometryToDocument(doc, settings, geometry, index)
+}
+
 function applyRendererTheme(settings = this.readerSettings) {
   const palette = readerThemePalette(settings?.theme)
   setStylesImportant(this.view, {
@@ -289,6 +300,7 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
   const root = doc.documentElement
   const body = doc.body
   const styleHost = doc.head || root
+  this.applyReaderPageShellContentGeometry(doc, settings, index)
   normalizeReaderLineFragmentParagraphs(doc, settings)
   applyReaderParagraphSpacing(doc, settings)
   root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
@@ -546,6 +558,10 @@ function renderSurfacePaperTextureLayers() {
   ) return
   const scrollOffset = this.surfacePaperTextureScrollOffset()
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
+  const shellGeometry = this.readerPageShellGeometry || readerPageShellGeometryForViewport(this.readerSettings, {
+    flowMode: this.readerFlowModeValue,
+    spreadMode: this.surfaceSpreadMode,
+  })
   if (this.surfaceTextureVariant) {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
@@ -553,7 +569,8 @@ function renderSurfacePaperTextureLayers() {
     updateReaderStaticPaperBackingLayer(
       this.surfaceTextureLayer,
       textureSlots,
-      this.readerSettings
+      this.readerSettings,
+      shellGeometry
     )
     this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
       ? this.movingPageTextureLayer
@@ -564,7 +581,8 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      shellGeometry
     )
   }
   if (this.surfaceBorderOverlayVariant) {
@@ -579,7 +597,8 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      shellGeometry
     )
   }
   if (this.surfaceStainOverlayVariant) {
@@ -594,7 +613,8 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      shellGeometry
     )
   }
   if (this.surfaceSpreadGutterOverlayVariant) {
@@ -607,7 +627,8 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      shellGeometry
     )
   } else {
     this.movingPageSpreadGutterOverlayLayer?.remove?.()
@@ -637,6 +658,10 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     flowMode: this.readerFlowModeValue,
     width,
     height,
+  })
+  const shellGeometry = readerPageShellGeometryForViewport(this.readerSettings, {
+    flowMode: this.readerFlowModeValue,
+    spreadMode,
   })
   let textureSlots = readerAdjacentPaperTextureSlots({
     publicationUrl: this.publicationUrl,
@@ -687,6 +712,7 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   const stainOverlayVariant = stainOverlaySlots.find(slot => slot.slot === 'current')?.variant || readerPageStainOverlayVariantForPage(textureKey)
   const spreadGutterOverlayVariant = spreadGutterOverlaySlots.find(slot => slot.slot === 'current')?.variant || null
   this.surfaceSpreadMode = spreadMode
+  this.readerPageShellGeometry = shellGeometry
   this.surfaceTextureSlots = textureSlots
   this.surfaceBorderOverlaySlots = borderOverlaySlots
   this.surfaceStainOverlaySlots = stainOverlaySlots
@@ -727,6 +753,9 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   readerRoot.dataset.navicSurfaceBorderOverlayAsset = borderOverlayVariant.asset
   readerRoot.dataset.navicSurfacePageStainOverlayAsset = stainOverlayVariant.asset
   readerRoot.dataset.navicSurfaceSpreadMode = spreadMode
+  readerRoot.dataset.navicReaderShellGeometryMode = shellGeometry.mode
+  readerRoot.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
+  readerRoot.dataset.navicReaderShellGeometry = JSON.stringify(readerShellGeometryDiagnosticState(shellGeometry, 'reader-shell-geometry'))
   readerRoot.dataset.navicSurfaceSpreadGutterOverlayAsset = spreadGutterOverlayVariant?.asset || ''
   const diagnostic = this.surfacePaperTextureDiagnosticState('update')
   log(
@@ -739,6 +768,7 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   )
   readerTrace('texture:update', {
     ...diagnostic,
+    shellGeometry: readerShellGeometryDiagnosticState(shellGeometry, 'texture:update'),
     index,
     key: textureKey,
     baseAsset: textureVariant.asset,
@@ -746,6 +776,8 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     gutterAsset: spreadGutterOverlayVariant?.asset || '',
     spreadMode,
   })
+  readerTrace('reader-shell-geometry', readerShellGeometryDiagnosticState(shellGeometry, 'texture:update'))
+  this.applyThemeToLoadedContent(this.readerSettings)
   this.renderSurfacePaperTextureLayers()
   this.stopSurfacePaperTextureMotionSync('texture-update')
   this.surfacePaperTextureTurnDirection = null
@@ -846,6 +878,7 @@ export const NavicReaderAppearanceMethods = {
   applyRootReaderFontFaces,
   applySettings,
   applyThemeToLoadedContent,
+  applyReaderPageShellContentGeometry,
   applyRendererTheme,
   applyDocumentTheme,
   currentRendererContainerPosition,

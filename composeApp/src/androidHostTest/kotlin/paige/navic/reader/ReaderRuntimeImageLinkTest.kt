@@ -271,21 +271,27 @@ class ReaderRuntimeImageLinkTest {
 	}
 
 	@Test
-	fun androidReaderShellCoverUsesFullscreenBlackSurface() {
+	fun androidReaderShellCoverUsesDiffusedBackdropAndContainedForegroundCover() {
 		val bridgeText = readerBridgeText()
 		val shellCoverLayer = bridgeText
 			.substringAfter("const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '') => {")
 			.substringBefore("\nexport const updateReaderStaticPaperBackingLayer")
 
-		assertContains(shellCoverLayer, "background: '#000000'")
-		assertContains(shellCoverLayer, "'background-color': '#000000'")
+		assertFalse(
+			shellCoverLayer.contains("background: '#000000'"),
+			"The shell cover should not regress to the flat black stage."
+		)
+		assertContains(shellCoverLayer, "background: 'linear-gradient(180deg")
+		assertContains(shellCoverLayer, "'background-color': '#100e0a'")
 		assertContains(shellCoverLayer, "padding: '0px'")
-		assertContains(shellCoverLayer, "width: '100%'")
-		assertContains(shellCoverLayer, "height: '100%'")
+		assertContains(shellCoverLayer, "coverRect")
+		assertContains(shellCoverLayer, "backCoverRect")
+		assertContains(shellCoverLayer, "readerPageShellRectStyle(coverRect)")
+		assertContains(shellCoverLayer, "readerPageShellRectStyle(backCoverRect)")
 		assertContains(shellCoverLayer, "'object-fit': 'contain'")
-		assertContains(shellCoverLayer, "'max-height': '100%'")
-		assertContains(shellCoverLayer, "'box-shadow': 'none'")
 		assertContains(bridgeText, "ensureReaderShellCoverBackdrop")
+		assertContains(bridgeText, "ensureReaderShellCoverBackCover")
+		assertContains(bridgeText, "data-navic-shell-cover-back-cover")
 		assertContains(bridgeText, "settings?.coverBackdropEnabled !== false")
 		assertContains(shellCoverLayer, "linear-gradient(rgba(0,0,0,.34), rgba(0,0,0,.46)), url")
 		assertContains(shellCoverLayer, "'object-fit': 'contain'")
