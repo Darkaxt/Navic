@@ -58,6 +58,35 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun readerPageShellPrototypeUsesSharedGeometryVisualRules() {
+		val prototype = listOf(
+			File("docs/superpowers/prototypes/reader-page-shell/index.html"),
+			File("../docs/superpowers/prototypes/reader-page-shell/index.html")
+		).firstOrNull { it.isFile }
+			?: error("Reader page-shell prototype must be tracked")
+		val html = prototype.readText()
+
+		assertContains(html, "--gutter-width")
+		assertContains(html, "--edge-width")
+		assertContains(html, "--edge-opacity")
+		assertContains(html, "--shell-padding")
+		assertContains(html, "padding: var(--shell-padding)")
+		assertContains(html, "object-fit: contain")
+		assertContains(html, ".back-cover-plane")
+		assertContains(html, ".diffuse-cover-backdrop")
+		assertContains(html, "grid-template-columns: minmax(0, 1fr) var(--gutter-width) minmax(0, 1fr)")
+		assertContains(html, "grid-template-columns: var(--gutter-width) minmax(0, 1fr)")
+		assertTrue(
+			html.indexOf("diffuse-cover-backdrop") < html.indexOf("foreground-cover"),
+			"Cover backdrop must be declared below the foreground cover in the rendered stack."
+		)
+		assertFalse(
+			html.contains("coffee"),
+			"Edge wear must be represented as a narrow tunable wear layer, not a broad border stain."
+		)
+	}
+
+	@Test
 	fun androidReaderPackagesDeterministicPaperTextureVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
