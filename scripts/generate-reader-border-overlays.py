@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import math
 import random
+import shutil
+import sys
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 
@@ -20,7 +23,11 @@ OUTPUT_DIR = ROOT / "composeApp" / "src" / "androidMain" / "assets" / "reader" /
 
 WIDTH = 3840
 HEIGHT = 2160
-OVERLAY_RGB = (70, 64, 58)
+EDGE_WEAR_RGB = (78, 58, 37)
+EDGE_RIM_RGB = (238, 206, 146)
+STAIN_RGB = (84, 66, 42)
+GUTTER_SHADOW_RGB = (48, 38, 28)
+GUTTER_HIGHLIGHT_RGB = (242, 212, 158)
 
 EDGE_VARIANTS = (
     {"seed": 4217, "left": 1.10, "right": 0.86, "top": 0.62, "bottom": 0.82, "bias": 0.96},
@@ -51,24 +58,35 @@ def edge_alpha(config: dict[str, float]) -> Image.Image:
     bottom_weight = float(config["bottom"])
     bias = float(config["bias"])
 
-    alpha = Image.new("L", (WIDTH, HEIGHT), 0)
-    pixels = alpha.load()
-
-    for y in range(HEIGHT):
-        top = max(0.0, 1.0 - y / 390.0) * top_weight
-        bottom = max(0.0, 1.0 - (HEIGHT - 1 - y) / 430.0) * bottom_weight
-        vertical = max(top, bottom)
-        for x in range(WIDTH):
-            left = max(0.0, 1.0 - x / 255.0) * left_weight
-            right = max(0.0, 1.0 - (WIDTH - 1 - x) / 255.0) * right_weight
-            side = max(left, right)
-            corner = max(side, vertical) ** 1.55
-            edge = max(side ** 1.8, vertical ** 2.05, corner * 0.48) * bias
-            pixels[x, y] = min(66, int(edge * 64))
+    x = np.arange(WIDTH, dtype=np.float32)
+    y = np.arange(HEIGHT, dtype=np.float32)
+    side = np.maximum(
+        np.maximum(0.0, 1.0 - x / 72.0) * left_weight,
+        np.maximum(0.0, 1.0 - (WIDTH - 1 - x) / 72.0) * right_weight,
+    )[None, :]
+    vertical = np.maximum(
+        np.maximum(0.0, 1.0 - y / 58.0) * top_weight,
+        np.maximum(0.0, 1.0 - (HEIGHT - 1 - y) / 62.0) * bottom_weight,
+    )[:, None]
+    corner = np.maximum(side, vertical) ** 1.55
+    edge = np.maximum(np.maximum(side ** 1.55, vertical ** 1.85), corner * 0.38) * bias
+    alpha = Image.fromarray(np.clip(edge * 70, 0, 82).astype(np.uint8), "L")
 
     fibers = noise_layer(int(config["seed"]), (WIDTH, HEIGHT), blur=1.1, strength=14, offset=101)
     fibers = fibers.point(lambda value: max(0, min(11, int((value - 126) * 0.17))))
-    return ImageChops.lighter(alpha.filter(ImageFilter.GaussianBlur(13)), ImageChops.multiply(fibers, alpha))
+    return ImageChops.lighter(alpha.filter(ImageFilter.GaussianBlur(2.2)), ImageChops.multiply(fibers, alpha))
+
+
+def rim_alpha(config: dict[str, float], wear: Image.Image) -> Image.Image:
+    x = np.arange(WIDTH, dtype=np.float32)
+    y = np.arange(HEIGHT, dtype=np.float32)
+    horizontal = np.minimum(x, WIDTH - 1 - x)[None, :]
+    vertical = np.minimum(y, HEIGHT - 1 - y)[:, None]
+    distance = np.minimum(horizontal, vertical)
+    ridge = np.maximum(0.0, 1.0 - np.abs(distance - 11.0) / 13.0)
+    outer = np.maximum(0.0, 1.0 - distance / 22.0)
+    rim = Image.fromarray(np.clip((ridge * 44 + outer * 18) * float(config["bias"]), 0, 58).astype(np.uint8), "L")
+    return ImageChops.multiply(rim.filter(ImageFilter.GaussianBlur(0.55)), wear.point(lambda value: 255 if value > 2 else 0))
 
 
 def stain_alpha(seed: int) -> Image.Image:
@@ -97,20 +115,17 @@ def stain_alpha(seed: int) -> Image.Image:
 
 def gutter_alpha(seed: int) -> Image.Image:
     rng = random.Random(seed)
-    alpha = Image.new("L", (WIDTH, HEIGHT), 0)
-    pixels = alpha.load()
     center = (WIDTH - 1) / 2.0 + rng.uniform(-9, 9)
 
     phase = rng.uniform(0, math.tau)
-    for y in range(HEIGHT):
-        vertical_bias = 0.92 + 0.08 * math.sin((y / HEIGHT) * math.tau + phase)
-        for x in range(WIDTH):
-            d = abs(x - center)
-            crease = max(0.0, 1.0 - d / 9.0) * 46
-            shadow_left = max(0.0, 1.0 - abs(x - (center - 34)) / 74.0) * 22
-            shadow_right = max(0.0, 1.0 - abs(x - (center + 36)) / 80.0) * 20
-            ridge = max(0.0, 1.0 - abs(x - (center + 7)) / 18.0) * 13
-            pixels[x, y] = min(74, int(max(crease, shadow_left, shadow_right, ridge) * vertical_bias))
+    x = np.arange(WIDTH, dtype=np.float32)[None, :]
+    y = np.arange(HEIGHT, dtype=np.float32)[:, None]
+    vertical_bias = 0.92 + 0.08 * np.sin((y / HEIGHT) * math.tau + phase)
+    crease = np.maximum(0.0, 1.0 - np.abs(x - center) / 9.0) * 46
+    shadow_left = np.maximum(0.0, 1.0 - np.abs(x - (center - 34)) / 74.0) * 22
+    shadow_right = np.maximum(0.0, 1.0 - np.abs(x - (center + 36)) / 80.0) * 20
+    ridge = np.maximum(0.0, 1.0 - np.abs(x - (center + 7)) / 18.0) * 13
+    alpha = Image.fromarray(np.clip(np.maximum.reduce((crease, shadow_left, shadow_right, ridge)) * vertical_bias, 0, 74).astype(np.uint8), "L")
 
     fibers = noise_layer(seed, (WIDTH, HEIGHT), blur=0.9, strength=10, offset=301)
     mask = Image.new("L", (WIDTH, HEIGHT), 0)
@@ -123,20 +138,62 @@ def gutter_alpha(seed: int) -> Image.Image:
     return ImageChops.lighter(alpha.filter(ImageFilter.GaussianBlur(2.2)), fiber_alpha)
 
 
-def save_overlay(name: str, alpha: Image.Image) -> None:
-    overlay = Image.new("RGBA", (WIDTH, HEIGHT), OVERLAY_RGB + (0,))
+def gutter_highlight_alpha(seed: int) -> Image.Image:
+    rng = random.Random(seed + 53)
+    center = (WIDTH - 1) / 2.0 + rng.uniform(-7, 7)
+    phase = rng.uniform(-0.02, 0.02)
+    x = np.arange(WIDTH, dtype=np.float32)[None, :]
+    y = np.arange(HEIGHT, dtype=np.float32)[:, None]
+    vertical_bias = 0.9 + 0.1 * np.sin((y / HEIGHT) * math.tau + phase)
+    highlight = np.maximum(0.0, 1.0 - np.abs(x - (center + 12)) / 17.0) * 34
+    soft = np.maximum(0.0, 1.0 - np.abs(x - (center + 48)) / 92.0) * 12
+    alpha = Image.fromarray(np.clip(np.maximum(highlight, soft) * vertical_bias, 0, 46).astype(np.uint8), "L")
+    return alpha.filter(ImageFilter.GaussianBlur(1.4))
+
+
+FORCE_REGENERATE = "--force" in sys.argv
+
+
+def save_overlay(name: str, alpha: Image.Image, rgb: tuple[int, int, int]) -> bool:
+    target = OUTPUT_DIR / name
+    if target.exists() and not FORCE_REGENERATE:
+        return False
+    overlay = Image.new("RGBA", (WIDTH, HEIGHT), rgb + (0,))
     overlay.putalpha(alpha.filter(ImageFilter.GaussianBlur(0.2)))
-    overlay.save(OUTPUT_DIR / name, optimize=True)
+    overlay.save(target, compress_level=1)
+    return True
 
 
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     for index, config in enumerate(EDGE_VARIANTS, start=1):
         seed = int(config["seed"])
-        save_overlay(f"page-edge-overlay-{index:02d}.png", edge_alpha(config))
-        save_overlay(f"page-stain-overlay-{index:02d}.png", stain_alpha(seed))
+        edge_targets = (
+            OUTPUT_DIR / f"page-edge-overlay-{index:02d}.png",
+            OUTPUT_DIR / f"page-edge-wear-overlay-{index:02d}.png",
+            OUTPUT_DIR / f"page-edge-rim-overlay-{index:02d}.png",
+            OUTPUT_DIR / f"page-stain-overlay-{index:02d}.png",
+        )
+        if not FORCE_REGENERATE and all(target.exists() for target in edge_targets):
+            continue
+        wear = edge_alpha(config)
+        rim = rim_alpha(config, wear)
+        wear_name = f"page-edge-wear-overlay-{index:02d}.png"
+        save_overlay(wear_name, wear, EDGE_WEAR_RGB)
+        legacy_edge = OUTPUT_DIR / f"page-edge-overlay-{index:02d}.png"
+        if FORCE_REGENERATE or not legacy_edge.exists():
+            shutil.copyfile(OUTPUT_DIR / wear_name, legacy_edge)
+        save_overlay(f"page-edge-rim-overlay-{index:02d}.png", rim, EDGE_RIM_RGB)
+        save_overlay(f"page-stain-overlay-{index:02d}.png", stain_alpha(seed), STAIN_RGB)
     for index, seed in enumerate(GUTTER_SEEDS, start=1):
-        save_overlay(f"spread-gutter-overlay-{index:02d}.png", gutter_alpha(seed))
+        gutter_targets = (
+            OUTPUT_DIR / f"spread-gutter-overlay-{index:02d}.png",
+            OUTPUT_DIR / f"spread-gutter-highlight-overlay-{index:02d}.png",
+        )
+        if not FORCE_REGENERATE and all(target.exists() for target in gutter_targets):
+            continue
+        save_overlay(f"spread-gutter-overlay-{index:02d}.png", gutter_alpha(seed), GUTTER_SHADOW_RGB)
+        save_overlay(f"spread-gutter-highlight-overlay-{index:02d}.png", gutter_highlight_alpha(seed), GUTTER_HIGHLIGHT_RGB)
 
 
 if __name__ == "__main__":

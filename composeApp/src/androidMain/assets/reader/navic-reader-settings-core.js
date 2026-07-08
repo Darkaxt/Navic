@@ -68,6 +68,26 @@ export const ReaderPageEdgeOverlayAssets = [
   'paper-textures/page-edge-overlay-08.png',
 ]
 export const ReaderPageEdgeOverlayVariantCount = ReaderPageEdgeOverlayAssets.length * 2 * 2
+export const ReaderPageEdgeWearOverlayAssets = [
+  'paper-textures/page-edge-wear-overlay-01.png',
+  'paper-textures/page-edge-wear-overlay-02.png',
+  'paper-textures/page-edge-wear-overlay-03.png',
+  'paper-textures/page-edge-wear-overlay-04.png',
+  'paper-textures/page-edge-wear-overlay-05.png',
+  'paper-textures/page-edge-wear-overlay-06.png',
+  'paper-textures/page-edge-wear-overlay-07.png',
+  'paper-textures/page-edge-wear-overlay-08.png',
+]
+export const ReaderPageEdgeRimOverlayAssets = [
+  'paper-textures/page-edge-rim-overlay-01.png',
+  'paper-textures/page-edge-rim-overlay-02.png',
+  'paper-textures/page-edge-rim-overlay-03.png',
+  'paper-textures/page-edge-rim-overlay-04.png',
+  'paper-textures/page-edge-rim-overlay-05.png',
+  'paper-textures/page-edge-rim-overlay-06.png',
+  'paper-textures/page-edge-rim-overlay-07.png',
+  'paper-textures/page-edge-rim-overlay-08.png',
+]
 export const ReaderPageStainOverlayAssets = [
   'paper-textures/page-stain-overlay-01.png',
   'paper-textures/page-stain-overlay-02.png',
@@ -88,6 +108,12 @@ export const ReaderSpreadGutterOverlayAssets = [
   'paper-textures/spread-gutter-overlay-04.png',
 ]
 export const ReaderSpreadGutterOverlayVariantCount = ReaderSpreadGutterOverlayAssets.length * 2 * 2
+export const ReaderSpreadGutterHighlightOverlayAssets = [
+  'paper-textures/spread-gutter-highlight-overlay-01.png',
+  'paper-textures/spread-gutter-highlight-overlay-02.png',
+  'paper-textures/spread-gutter-highlight-overlay-03.png',
+  'paper-textures/spread-gutter-highlight-overlay-04.png',
+]
 export const ReaderThemePalettes = {
   light: {
     background: '#fbfaf8',

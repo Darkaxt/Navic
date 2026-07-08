@@ -15,8 +15,10 @@ import {
   ReaderMovingPageSpreadGutterOverlayLayerSelector,
   ReaderPageBorderOverlayAssets,
   ReaderPageBorderOverlayVariantCount,
+  ReaderPageEdgeRimOverlayAssets,
   ReaderPageEdgeOverlayAssets,
   ReaderPageEdgeOverlayVariantCount,
+  ReaderPageEdgeWearOverlayAssets,
   ReaderPageNumberLayerSelector,
   ReaderPageStainOverlayAssets,
   ReaderPageStainOverlayVariantCount,
@@ -24,6 +26,7 @@ import {
   ReaderPaperTextureVariantCount,
   ReaderShellCoverLayerSelector,
   ReaderShellCoverTransitionMs,
+  ReaderSpreadGutterHighlightOverlayAssets,
   ReaderSpreadGutterOverlayAssets,
   ReaderSpreadGutterOverlayVariantCount,
   ReaderSurfacePageBorderOverlayLayerSelector,
@@ -795,14 +798,46 @@ export const readerSurfacePageStainOverlayFilter = settings => {
   }
 }
 
+const readerOverlaySiblingAsset = (variant, siblingAssets) => {
+  const textureIndex = Number(variant?.textureIndex)
+  if (Number.isFinite(textureIndex) && siblingAssets?.[textureIndex]) return siblingAssets[textureIndex]
+  return variant?.asset || ''
+}
+
+export const readerPageEdgeWearOverlayAsset = variant =>
+  readerOverlaySiblingAsset(variant, ReaderPageEdgeWearOverlayAssets)
+
+export const readerPageEdgeRimOverlayAsset = variant =>
+  readerOverlaySiblingAsset(variant, ReaderPageEdgeRimOverlayAssets)
+
+export const readerSpreadGutterHighlightOverlayAsset = variant =>
+  readerOverlaySiblingAsset(variant, ReaderSpreadGutterHighlightOverlayAssets)
+
 export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVariant => {
   if (!borderOverlayVariant?.asset) return 'none'
-  const textureUrl = `url("${readerAssetUrl(borderOverlayVariant.asset)}")`
-  return [textureUrl, textureUrl, textureUrl, textureUrl].join(', ')
+  const wearAsset = readerPageEdgeWearOverlayAsset(borderOverlayVariant)
+  const rimAsset = readerPageEdgeRimOverlayAsset(borderOverlayVariant)
+  return [
+    `url("${readerAssetUrl(wearAsset)}")`,
+    `url("${readerAssetUrl(rimAsset)}")`,
+  ].join(', ')
 }
 
 export const readerPaperTextureBackgroundImage = textureVariant =>
   textureVariant?.asset ? `url("${readerAssetUrl(textureVariant.asset)}")` : 'none'
+
+export const readerSurfacePageStainOverlayBackgroundImage = stainOverlayVariant =>
+  stainOverlayVariant?.asset ? `url("${readerAssetUrl(stainOverlayVariant.asset)}")` : 'none'
+
+export const readerSurfaceSpreadGutterOverlayBackgroundImage = gutterOverlayVariant => {
+  if (!gutterOverlayVariant?.asset) return 'none'
+  const shadowAsset = gutterOverlayVariant.asset
+  const highlightAsset = readerSpreadGutterHighlightOverlayAsset(gutterOverlayVariant)
+  return [
+    `url("${readerAssetUrl(shadowAsset)}")`,
+    `url("${readerAssetUrl(highlightAsset)}")`,
+  ].join(', ')
+}
 
 export const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
   const pageCount = pagePosition?.pageCount
@@ -1228,14 +1263,13 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
         width: pageWidth,
         height: heightPx,
         'background-image': readerSurfacePageBorderOverlayBackgroundImage(page.variant),
-        'background-size': 'cover, cover, cover, cover',
+        'background-size': '100% 100%, 100% 100%',
         'background-position': [
           readerPaperTextureBackgroundPosition(null),
           readerPaperTextureBackgroundPosition(null),
-          readerPaperTextureBackgroundPosition(null),
-          readerPaperTextureBackgroundPosition(null),
         ].join(', '),
-        'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
+        'background-repeat': 'no-repeat, no-repeat',
+        'background-blend-mode': 'multiply, screen',
         'background-color': 'transparent',
         transform: readerPaperTextureTransform(page.variant),
         'transform-origin': 'center',
@@ -1297,15 +1331,10 @@ export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, s
         left: pageLeft,
         width: pageWidth,
         height: heightPx,
-        'background-image': readerSurfacePageBorderOverlayBackgroundImage(page.variant),
-        'background-size': 'cover, cover, cover, cover',
-        'background-position': [
-          readerPaperTextureBackgroundPosition(null),
-          readerPaperTextureBackgroundPosition(null),
-          readerPaperTextureBackgroundPosition(null),
-          readerPaperTextureBackgroundPosition(null),
-        ].join(', '),
-        'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
+        'background-image': readerSurfacePageStainOverlayBackgroundImage(page.variant),
+        'background-size': '100% 100%',
+        'background-position': readerPaperTextureBackgroundPosition(null),
+        'background-repeat': 'no-repeat',
         'background-color': 'transparent',
         transform: readerPaperTextureTransform(page.variant),
         'transform-origin': 'center',
@@ -1359,15 +1388,14 @@ export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterO
       inset: '0px',
       width: widthPx,
       height: heightPx,
-      'background-image': readerSurfacePageBorderOverlayBackgroundImage(slot.variant),
-      'background-size': 'cover, cover, cover, cover',
+      'background-image': readerSurfaceSpreadGutterOverlayBackgroundImage(slot.variant),
+      'background-size': '100% 100%, 100% 100%',
       'background-position': [
         readerPaperTextureBackgroundPosition(null),
         readerPaperTextureBackgroundPosition(null),
-        readerPaperTextureBackgroundPosition(null),
-        readerPaperTextureBackgroundPosition(null),
       ].join(', '),
-      'background-repeat': 'no-repeat, no-repeat, no-repeat, no-repeat',
+      'background-repeat': 'no-repeat, no-repeat',
+      'background-blend-mode': 'multiply, screen',
       'background-color': 'transparent',
       transform: readerPaperTextureTransform(slot.variant),
       'transform-origin': 'center',
