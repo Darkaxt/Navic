@@ -7,6 +7,7 @@ import {
   log,
   readerAdaptiveFoliatePageBox,
   readerPageShellGeometryForViewport,
+  readerPageShellRectStyle,
   readerShellGeometryDiagnosticState,
   readerTrace,
   readerViewportSize,
@@ -79,22 +80,29 @@ function applyReaderViewportLayout(label = 'unknown') {
   })
   const renderer = this.view?.renderer
   const fixedLayout = this.view?.isFixedLayout === true || renderer?.localName === 'foliate-fxl'
-  const pageBox = readerAdaptiveFoliatePageBox({ width, height }, this.readerSettings)
   const shellGeometry = readerPageShellGeometryForViewport(this.readerSettings, {
     flowMode: this.readerFlowModeValue || readerFlowMode(this.readerSettings),
   })
+  const rendererRect = fixedLayout
+    ? { left: 0, top: 0, width, height }
+    : shellGeometry.shellRect
+  const rendererRectStyle = readerPageShellRectStyle(rendererRect)
+  const shellRectStyle = readerPageShellRectStyle(shellGeometry.shellRect)
+  const pageBox = readerAdaptiveFoliatePageBox({
+    width: fixedLayout ? width : shellGeometry.renderer.width,
+    height: fixedLayout ? height : shellGeometry.renderer.height,
+  }, this.readerSettings)
   this.readerPageShellGeometry = shellGeometry
   readerRoot.dataset.navicReaderShellGeometryMode = shellGeometry.mode
   readerRoot.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
   readerRoot.dataset.navicReaderShellGeometry = JSON.stringify(readerShellGeometryDiagnosticState(shellGeometry, 'reader-shell-geometry'))
   setStylesImportant(renderer, {
     position: 'absolute',
-    inset: '0px',
+    inset: 'auto',
     display: 'block',
-    width: widthPx,
-    'min-width': widthPx,
-    height: heightPx,
-    'min-height': heightPx,
+    ...rendererRectStyle,
+    'min-width': rendererRectStyle.width,
+    'min-height': rendererRectStyle.height,
     overflow: fixedLayout ? 'auto' : 'hidden',
   })
   if (renderer && !fixedLayout) {
@@ -108,6 +116,12 @@ function applyReaderViewportLayout(label = 'unknown') {
     renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
     renderer.dataset.navicReaderShellGeometryMode = shellGeometry.mode
     renderer.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
+    renderer.dataset.navicReaderShellRect = JSON.stringify(shellGeometry.shellRect)
+    renderer.dataset.navicReaderShellContentRects = JSON.stringify(shellGeometry.contentRects)
+    renderer.style.setProperty('--navic-reader-shell-left', shellRectStyle.left)
+    renderer.style.setProperty('--navic-reader-shell-top', shellRectStyle.top)
+    renderer.style.setProperty('--navic-reader-shell-width', shellRectStyle.width)
+    renderer.style.setProperty('--navic-reader-shell-height', shellRectStyle.height)
   }
   this.applyThemeToLoadedContent?.(this.readerSettings)
   this.applyPdfImageSettings(this.readerSettings)
@@ -148,18 +162,21 @@ function applyReaderViewportLayoutToProfilerView(profileView, settings = this.re
     'z-index': '-1',
   })
   const renderer = profileView?.renderer
-  const pageBox = readerAdaptiveFoliatePageBox({ width, height }, settings)
   const shellGeometry = readerPageShellGeometryForViewport(settings, {
     flowMode: readerFlowMode(settings),
   })
+  const rendererRectStyle = readerPageShellRectStyle(shellGeometry.shellRect)
+  const pageBox = readerAdaptiveFoliatePageBox({
+    width: shellGeometry.renderer.width,
+    height: shellGeometry.renderer.height,
+  }, settings)
   setStylesImportant(renderer, {
     position: 'absolute',
-    inset: '0px',
+    inset: 'auto',
     display: 'block',
-    width: widthPx,
-    'min-width': widthPx,
-    height: heightPx,
-    'min-height': heightPx,
+    ...rendererRectStyle,
+    'min-width': rendererRectStyle.width,
+    'min-height': rendererRectStyle.height,
     overflow: 'hidden',
   })
   if (renderer) {
@@ -173,6 +190,8 @@ function applyReaderViewportLayoutToProfilerView(profileView, settings = this.re
     renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
     renderer.dataset.navicReaderShellGeometryMode = shellGeometry.mode
     renderer.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
+    renderer.dataset.navicReaderShellRect = JSON.stringify(shellGeometry.shellRect)
+    renderer.dataset.navicReaderShellContentRects = JSON.stringify(shellGeometry.contentRects)
   }
   renderer?.setAttribute?.('flow', readerFoliateFlow(readerFlowMode(settings)))
   renderer?.render?.()

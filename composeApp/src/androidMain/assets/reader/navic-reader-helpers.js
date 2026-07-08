@@ -666,6 +666,8 @@ const readerPageShellBottomMarginPx = settings =>
   readerPageShellClamp(readerPageShellNumber(settings?.bottomMargin, 50), 0, 240)
 
 const readerPageShellRect = (left, top, width, height) => ({
+  x: Math.round(left),
+  y: Math.round(top),
   left: Math.round(left),
   top: Math.round(top),
   width: Math.max(1, Math.round(width)),
@@ -686,8 +688,8 @@ const readerPageShellInsetRect = (rect, insets = {}) => {
 }
 
 export const readerPageShellRectStyle = rect => ({
-  left: `${Math.round(Number(rect?.left) || 0)}px`,
-  top: `${Math.round(Number(rect?.top) || 0)}px`,
+  left: `${Math.round(Number(rect?.left ?? rect?.x) || 0)}px`,
+  top: `${Math.round(Number(rect?.top ?? rect?.y) || 0)}px`,
   width: `${Math.max(1, Math.round(Number(rect?.width) || 1))}px`,
   height: `${Math.max(1, Math.round(Number(rect?.height) || 1))}px`,
 })
@@ -707,34 +709,54 @@ export const readerPageShellGeometry = ({
     ? 'cover'
     : (spreadMode || readerSurfaceSpreadMode({ flowMode, width, height }))
   const sideMarginPercent = readerPageShellSideMarginPercent(settings)
+  const viewportRect = readerPageShellRect(0, 0, width, height)
+  const shellInsetX = mode === 'cover'
+    ? 0
+    : readerPageShellClamp(Math.round(width * 0.04), 0, 140)
+  const shellInsetY = mode === 'cover'
+    ? 0
+    : readerPageShellClamp(Math.round(height * 0.035), 0, 110)
+  const shellRect = readerPageShellRect(
+    shellInsetX,
+    shellInsetY,
+    width - shellInsetX * 2,
+    height - shellInsetY * 2
+  )
   const spreadGutterWidth = mode === 'spread'
     ? Math.max(
       ReaderPageShellDefaultGutterPx,
-      Math.round(width * sideMarginPercent / 100)
+      Math.round(shellRect.width * sideMarginPercent / 100)
     )
     : 0
   const pageEdgesEnabled = settings?.pageEdgesEnabled !== false
   const outerEdge = pageEdgesEnabled
     ? readerPageShellClamp(
-      Math.round(Math.min(width, height) * 0.024),
+      Math.round(Math.min(shellRect.width, shellRect.height) * 0.024),
       18,
       ReaderPageShellDefaultOuterEdgePx
     )
     : 0
+  const innerEdge = mode === 'spread'
+    ? Math.max(outerEdge, Math.round(spreadGutterWidth * 0.18))
+    : outerEdge
   const topMargin = readerPageShellTopMarginPx(settings)
   const bottomMargin = readerPageShellBottomMarginPx(settings)
-  const shellRect = readerPageShellRect(0, 0, width, height)
   const pageHeight = shellRect.height
-  const singlePage = readerPageShellRect(0, 0, width, pageHeight)
+  const singlePage = readerPageShellRect(shellRect.left, shellRect.top, shellRect.width, pageHeight)
   const spreadPageWidth = mode === 'spread'
-    ? Math.max(1, Math.round((width - spreadGutterWidth) / 2))
-    : width
-  const leftPage = readerPageShellRect(0, 0, spreadPageWidth, pageHeight)
+    ? Math.max(1, Math.round((shellRect.width - spreadGutterWidth) / 2))
+    : shellRect.width
+  const leftPage = readerPageShellRect(shellRect.left, shellRect.top, spreadPageWidth, pageHeight)
   const gutterRect = mode === 'spread'
-    ? readerPageShellRect(spreadPageWidth, 0, spreadGutterWidth, pageHeight)
+    ? readerPageShellRect(shellRect.left + spreadPageWidth, shellRect.top, spreadGutterWidth, pageHeight)
     : null
   const rightPage = mode === 'spread'
-    ? readerPageShellRect(spreadPageWidth + spreadGutterWidth, 0, width - spreadPageWidth - spreadGutterWidth, pageHeight)
+    ? readerPageShellRect(
+      shellRect.left + spreadPageWidth + spreadGutterWidth,
+      shellRect.top,
+      shellRect.width - spreadPageWidth - spreadGutterWidth,
+      pageHeight
+    )
     : null
   const contentTop = Math.round(topMargin)
   const contentBottom = Math.round(bottomMargin)
@@ -747,12 +769,12 @@ export const readerPageShellGeometry = ({
   const leftContent = readerPageShellInsetRect(leftPage, {
     left: outerEdge,
     top: contentTop,
-    right: Math.max(outerEdge, Math.round(spreadGutterWidth * 0.18)),
+    right: innerEdge,
     bottom: contentBottom,
   })
   const rightContent = rightPage
     ? readerPageShellInsetRect(rightPage, {
-      left: Math.max(outerEdge, Math.round(spreadGutterWidth * 0.18)),
+      left: innerEdge,
       top: contentTop,
       right: outerEdge,
       bottom: contentBottom,
@@ -775,6 +797,7 @@ export const readerPageShellGeometry = ({
   )
   return {
     mode,
+    viewportRect,
     shellRect,
     pageRects: {
       single: singlePage,
@@ -790,8 +813,14 @@ export const readerPageShellGeometry = ({
     gutterRect,
     coverRect,
     backCoverRect,
+    cover: {
+      backdropRect: shellRect,
+      foregroundRect: coverRect,
+      backCoverRect,
+    },
     edgeInsets: {
       outer: outerEdge,
+      inner: innerEdge,
       gutter: spreadGutterWidth,
       top: topMargin,
       bottom: bottomMargin,
@@ -800,8 +829,9 @@ export const readerPageShellGeometry = ({
       gapPercent: sideMarginPercent,
       topMargin,
       bottomMargin,
-      width,
-      height,
+      width: shellRect.width,
+      height: shellRect.height,
+      rect: shellRect,
     },
   }
 }
@@ -839,6 +869,7 @@ export const applyReaderPageShellContentGeometry = (doc, settings = {}, geometry
   })
   const contentRect = readerPageShellContentRectForIndex(resolved, index) || resolved?.contentRects?.single
   const root = doc.documentElement
+  root.setAttribute('data-navic-reader-shell-content', 'true')
   root.dataset.navicReaderShellGeometryMode = resolved?.mode || ''
   root.style.setProperty('--navic-reader-shell-content-left', `${Math.round(contentRect?.left || 0)}px`)
   root.style.setProperty('--navic-reader-shell-content-top', `${Math.round(contentRect?.top || 0)}px`)
@@ -851,12 +882,16 @@ export const applyReaderPageShellContentGeometry = (doc, settings = {}, geometry
 export const readerShellGeometryDiagnosticState = (geometry, reason = 'unknown') => ({
   reason,
   mode: geometry?.mode || '',
+  viewportRect: geometry?.viewportRect || null,
   shellRect: geometry?.shellRect || null,
   pageRects: geometry?.pageRects || null,
   contentRects: geometry?.contentRects || null,
   gutterRect: geometry?.gutterRect || null,
   coverRect: geometry?.coverRect || null,
   backCoverRect: geometry?.backCoverRect || null,
+  edgeInsets: geometry?.edgeInsets || null,
+  cover: geometry?.cover || null,
+  renderer: geometry?.renderer || null,
 })
 
 export const readerCoverBackdropEnabled = settings => settings?.coverBackdropEnabled !== false
@@ -1274,8 +1309,9 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
   const widthPx = `${width}px`
   const heightPx = `${height}px`
   const shellGeometry = readerPageShellGeometryForViewport(settings, { coverMode: true })
-  const coverRect = shellGeometry.coverRect || shellGeometry.shellRect
-  const backCoverRect = shellGeometry.backCoverRect || shellGeometry.shellRect
+  const coverRect = shellGeometry.cover?.foregroundRect || shellGeometry.coverRect || shellGeometry.shellRect
+  const backCoverRect = shellGeometry.cover?.backCoverRect || shellGeometry.backCoverRect || shellGeometry.shellRect
+  const backdropRect = shellGeometry.cover?.backdropRect || shellGeometry.shellRect
   const backdrop = ensureReaderShellCoverBackdrop(layer)
   const backCover = ensureReaderShellCoverBackCover(layer)
   const image = ensureReaderShellCoverImage(layer)
@@ -1309,9 +1345,7 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     setStylesImportant(backdrop, {
       display: 'block',
       position: 'absolute',
-      inset: '0px',
-      width: '100%',
-      height: '100%',
+      ...readerPageShellRectStyle(backdropRect),
       'background-image': `linear-gradient(rgba(0,0,0,.34), rgba(0,0,0,.46)), url("${coverUrl}")`,
       'background-size': 'cover, cover',
       'background-position': 'center center, center center',
@@ -1600,6 +1634,7 @@ export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterO
   const widthPx = `${width}px`
   const heightPx = `${height}px`
   const geometry = shellGeometry || readerPageShellGeometryForViewport(settings, { flowMode })
+  if (!geometry.gutterRect) return
   const gutterStyle = readerPageShellRectStyle(geometry.gutterRect)
   setStylesImportant(layer, {
     position: 'fixed',
