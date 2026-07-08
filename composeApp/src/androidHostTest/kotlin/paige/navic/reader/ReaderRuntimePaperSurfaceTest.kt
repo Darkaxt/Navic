@@ -22,6 +22,42 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun readerPageShellPrototypeIsTrackedAndCaptureFriendly() {
+		val prototype = listOf(
+			File("docs/superpowers/prototypes/reader-page-shell/index.html"),
+			File("../docs/superpowers/prototypes/reader-page-shell/index.html")
+		).firstOrNull { it.isFile }
+		val readme = listOf(
+			File("docs/superpowers/prototypes/reader-page-shell/README.md"),
+			File("../docs/superpowers/prototypes/reader-page-shell/README.md")
+		).firstOrNull { it.isFile }
+
+		assertTrue(
+			prototype?.isFile == true,
+			"Reader page-shell prototype must be tracked before production shell changes continue."
+		)
+		assertTrue(
+			readme?.isFile == true,
+			"Reader page-shell prototype must document capture and acceptance steps."
+		)
+
+		val html = prototype.readText()
+		assertContains(html, "data-mode=\"spread\"")
+		assertContains(html, "data-mode=\"portrait\"")
+		assertContains(html, "data-mode=\"cover\"")
+		assertContains(html, "data-capture")
+		assertContains(html, "paper-texture-toggle")
+		assertContains(html, "edge-width")
+		assertContains(html, "back-cover-plane")
+		assertContains(html, "foreground-cover")
+		assertContains(html, "diffuse-cover-backdrop")
+		assertFalse(
+			html.contains("chrome-profile"),
+			"The tracked prototype must not depend on local Chrome profile folders."
+		)
+	}
+
+	@Test
 	fun androidReaderPackagesDeterministicPaperTextureVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
