@@ -174,4 +174,29 @@ class ReaderRuntimeShellGeometryTest {
 			message = "Spread gutter artwork must not fall back to a 1x1 origin rectangle in single-page mode."
 		)
 	}
+
+	@Test
+	fun androidReaderMasksPageEdgeOverlayToEdgeBands() {
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val body = helperText.substringAfter("export const updateReaderSurfaceBorderOverlayLayer =")
+			.substringBefore("\n\nexport const")
+
+		assertContains(
+			helperText,
+			"readerPageEdgeOverlayMask",
+			message = "Page edge overlays need a shared mask helper so edge assets cannot render as full-page panels."
+		)
+		assertContains(
+			helperText,
+			"geometry.edgeInsets",
+			message = "The edge mask must come from shell geometry edge insets, not a hard-coded full-page overlay."
+		)
+		assertContains(
+			body,
+			"readerPageEdgeOverlayMask(page.page, geometry)",
+			message = "Every settled/moving page edge overlay must be masked to the active page edge bands."
+		)
+		assertContains(body, "'-webkit-mask'")
+		assertContains(body, "mask:")
+	}
 }

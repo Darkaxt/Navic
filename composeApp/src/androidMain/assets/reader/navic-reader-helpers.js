@@ -1079,6 +1079,24 @@ export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVarian
   ].join(', ')
 }
 
+export const readerPageEdgeOverlayMask = (page = 'full', geometry = null) => {
+  if (!geometry) return 'none'
+  const edgeInsets = geometry && geometry.edgeInsets ? geometry.edgeInsets : {}
+  const outer = Math.max(1, Math.round(Number(edgeInsets.outer) || ReaderPageShellDefaultOuterEdgePx))
+  const inner = Math.max(outer, Math.round(Number(edgeInsets.inner) || outer))
+  const top = outer
+  const bottom = outer
+  const left = page === 'right' ? inner : outer
+  const right = page === 'left' ? inner : outer
+  const edgeScale = 1.35
+  return [
+    `linear-gradient(to bottom, #000 0%, #000 52%, transparent 100%) top / 100% ${Math.round(top * edgeScale)}px no-repeat`,
+    `linear-gradient(to top, #000 0%, #000 52%, transparent 100%) bottom / 100% ${Math.round(bottom * edgeScale)}px no-repeat`,
+    `linear-gradient(to right, #000 0%, #000 52%, transparent 100%) left / ${Math.round(left * edgeScale)}px 100% no-repeat`,
+    `linear-gradient(to left, #000 0%, #000 52%, transparent 100%) right / ${Math.round(right * edgeScale)}px 100% no-repeat`,
+  ].join(', ')
+}
+
 export const readerPaperTextureBackgroundImage = textureVariant =>
   textureVariant?.asset ? `url("${readerAssetUrl(textureVariant.asset)}")` : 'none'
 
@@ -1636,6 +1654,7 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
       if (!page?.variant?.asset) continue
       const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
       const pageStyle = readerPageShellRectStyle(readerPageShellRectForPage(geometry, page.page))
+      const edgeMask = readerPageEdgeOverlayMask(page.page, geometry)
       setStylesImportant(artwork, {
         position: 'absolute',
         ...pageStyle,
@@ -1648,6 +1667,8 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
         'background-repeat': 'no-repeat, no-repeat',
         'background-blend-mode': 'multiply, screen',
         'background-color': 'transparent',
+        '-webkit-mask': edgeMask,
+        mask: edgeMask,
         transform: readerPaperTextureTransform(page.variant),
         'transform-origin': 'center',
       })
