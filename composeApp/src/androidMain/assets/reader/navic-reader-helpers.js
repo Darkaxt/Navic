@@ -648,6 +648,7 @@ export const readerSurfaceSpreadGutterVisible = ({
 
 export const ReaderPageShellDefaultOuterEdgePx = 32
 export const ReaderPageShellDefaultGutterPx = 48
+const ReaderPageEdgeOverlayMaskScale = 0.75
 
 const readerPageShellClamp = (value, min, max) =>
   Math.min(max, Math.max(min, value))
@@ -987,12 +988,12 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '1'
+      return '0.64'
     case 'dark':
     case 'dusk':
-      return '0.42'
+      return '0.34'
     default:
-      return '0.58'
+      return '0.46'
   }
 }
 
@@ -1031,12 +1032,12 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
     case 'black':
       return 'none'
     case ReaderThemeSepia:
-      return 'contrast(1.9) saturate(1.16) brightness(0.94)'
+      return 'contrast(1.32) saturate(1.08) brightness(0.98)'
     case 'dark':
     case 'dusk':
-      return 'contrast(1.35) saturate(1.08)'
+      return 'contrast(1.18) saturate(1.04)'
     default:
-      return 'contrast(1.3) saturate(1.06)'
+      return 'contrast(1.14) saturate(1.03)'
   }
 }
 
@@ -1088,7 +1089,7 @@ export const readerPageEdgeOverlayMask = (page = 'full', geometry = null) => {
   const bottom = outer
   const left = page === 'right' ? inner : outer
   const right = page === 'left' ? inner : outer
-  const edgeScale = 1.35
+  const edgeScale = ReaderPageEdgeOverlayMaskScale
   return [
     `linear-gradient(to bottom, #000 0%, #000 52%, transparent 100%) top / 100% ${Math.round(top * edgeScale)}px no-repeat`,
     `linear-gradient(to top, #000 0%, #000 52%, transparent 100%) bottom / 100% ${Math.round(bottom * edgeScale)}px no-repeat`,

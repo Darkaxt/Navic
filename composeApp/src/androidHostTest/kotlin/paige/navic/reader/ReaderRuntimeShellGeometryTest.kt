@@ -239,4 +239,25 @@ class ReaderRuntimeShellGeometryTest {
 		assertContains(body, "'-webkit-mask'")
 		assertContains(body, "mask:")
 	}
+
+	@Test
+	fun androidReaderEdgeOverlayDefaultsDoNotCreateDecorativePageFrames() {
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+
+		assertContains(
+			helperText,
+			"const ReaderPageEdgeOverlayMaskScale = 0.75",
+			message = "Page edge wear must stay narrower than the reserved edge inset; wide masks make the reader look like a framed kids-book panel."
+		)
+		assertContains(
+			helperText,
+			"return '0.64'",
+			message = "Sepia page edges must not render at full opacity by default; the edge layer should read as subtle wear, not a border."
+		)
+		assertContains(
+			helperText,
+			"contrast(1.32) saturate(1.08) brightness(0.98)",
+			message = "Sepia edge filtering must stay moderate so edge wear does not become a high-contrast frame."
+		)
+	}
 }
