@@ -2468,11 +2468,18 @@ async function runTextureSlotsProbe(page) {
   return evaluateOnPage(page, `(${async probeSettings => {
     if (window.NavicReaderBridge?.dispatch) {
       const settings = { theme: 'sepia', ...(probeSettings || {}) }
-      await window.NavicReaderBridge.dispatch({
-        type: 'applySettings',
-        settings,
-      })
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      try {
+        const applySettings = window.NavicReaderBridge.dispatch({
+          type: 'applySettings',
+          settings,
+        })
+        if (applySettings && typeof applySettings.catch === 'function') {
+          applySettings.catch(() => {})
+        }
+      } catch {
+        // The probe samples current DOM state; dispatch failure is reflected by missing layers below.
+      }
+      await Promise.resolve()
     }
     const staticTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
     const staticPaperShell = staticTextureLayer?.querySelector?.('[data-navic-static-paper-shell="true"]') || null

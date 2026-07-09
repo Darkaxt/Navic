@@ -738,6 +738,14 @@ class ReaderRuntimeAssetsTest {
 		assertContains(textureProbe, "staticPaperShellImageSet")
 		assertContains(textureProbe, "staticPaperShellAsset")
 		assertContains(textureProbe, "staticPaperShellMode")
+		assertFalse(
+			textureProbe.contains("await window.NavicReaderBridge.dispatch"),
+			"Texture slot probe must not block on applySettings dispatch; the reader can be relocating while the probe samples static shell layers.",
+		)
+		assertFalse(
+			textureProbe.contains("requestAnimationFrame"),
+			"Texture slot probe must not wait on requestAnimationFrame; Android WebView DevTools can report the target hidden even when the activity is focused.",
+		)
 	}
 
 	@Test
