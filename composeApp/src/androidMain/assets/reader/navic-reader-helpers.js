@@ -31,6 +31,7 @@ import {
   ReaderSpreadGutterOverlayVariantCount,
   ReaderSurfacePageBorderOverlayLayerSelector,
   ReaderSurfacePageStainOverlayLayerSelector,
+  ReaderSurfaceSpreadGutterOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
   ReaderTapZoneOverlayLayerSelector,
   ReaderThemeLight,
@@ -1094,6 +1095,37 @@ export const readerSurfaceSpreadGutterOverlayBackgroundImage = gutterOverlayVari
   ].join(', ')
 }
 
+const readerStaticPaperShellTextureVariant = textureSlots =>
+  (textureSlots || []).find(slot => slot?.slot === 'current' && slot?.variant?.asset)?.variant ||
+  (textureSlots || []).find(slot => slot?.variant?.asset)?.variant ||
+  null
+
+const readerStaticPaperShellFoldBackground = (settings, geometry) => {
+  const theme = readerThemeKey(settings?.theme)
+  if (theme === 'black') return 'linear-gradient(180deg, #000000, #000000)'
+  if (geometry?.mode === 'spread') {
+    return [
+      'linear-gradient(90deg,',
+      'rgba(105,72,36,.14) 0%,',
+      'rgba(255,248,226,.05) 18%,',
+      'rgba(255,255,255,.04) 45%,',
+      'rgba(32,20,12,.34) 49.2%,',
+      'rgba(12,8,6,.46) 50%,',
+      'rgba(32,20,12,.34) 50.8%,',
+      'rgba(255,255,255,.04) 55%,',
+      'rgba(255,248,226,.06) 82%,',
+      'rgba(105,72,36,.14) 100%)',
+    ].join(' ')
+  }
+  return [
+    'linear-gradient(90deg,',
+    'rgba(28,18,10,.34) 0%,',
+    'rgba(98,64,32,.16) 4.5%,',
+    'rgba(255,255,255,.03) 11%,',
+    'rgba(255,255,255,.02) 100%)',
+  ].join(' ')
+}
+
 export const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
   const pageCount = pagePosition?.pageCount
   if (Number.isFinite(pageCount) && pageCount > 0) return Math.floor(pageCount)
@@ -1187,6 +1219,17 @@ const pruneReaderSurfaceTextureSlots = (layer, textureSlots, attributeName) => {
   }
 }
 
+const ensureReaderStaticPaperShell = layer => {
+  let shell = layer?.querySelector?.('[data-navic-static-paper-shell="true"]')
+  if (!shell) {
+    shell = document.createElement('div')
+    shell.dataset.navicStaticPaperShell = 'true'
+    shell.setAttribute('aria-hidden', 'true')
+    layer?.append?.(shell)
+  }
+  return shell
+}
+
 export const ensureReaderSurfaceBorderOverlayLayer = () => {
   let layer = readerRoot.querySelector?.(ReaderSurfacePageBorderOverlayLayerSelector)
   if (!layer) {
@@ -1203,6 +1246,17 @@ export const ensureReaderSurfaceStainOverlayLayer = () => {
   if (!layer) {
     layer = document.createElement('div')
     layer.dataset.navicSurfacePageStainOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
+export const ensureReaderSurfaceSpreadGutterOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderSurfaceSpreadGutterOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicSurfaceSpreadGutterOverlayLayer = 'true'
     layer.setAttribute('aria-hidden', 'true')
     readerRoot.append(layer)
   }
@@ -1415,6 +1469,14 @@ export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, setting
   const palette = readerThemePalette(settings?.theme)
   const geometry = shellGeometry || readerPageShellGeometryForViewport(settings)
   const shellStyle = readerPageShellRectStyle(geometry.shellRect)
+  const textureVariant = readerStaticPaperShellTextureVariant(textureSlots)
+  const textureEnabled = readerSurfacePaperTextureOpacity(settings) !== '0' && Boolean(textureVariant?.asset)
+  const shell = ensureReaderStaticPaperShell(layer)
+  const shellRadius = Math.max(12, Math.round(Math.min(geometry.shellRect.width, geometry.shellRect.height) * 0.014))
+  const shellBackgroundImages = [
+    readerStaticPaperShellFoldBackground(settings, geometry),
+    textureEnabled ? readerPaperTextureBackgroundImage(textureVariant) : null,
+  ].filter(Boolean)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -1435,13 +1497,36 @@ export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, setting
     overflow: 'hidden',
     transform: 'none',
   })
+  setStylesImportant(shell, {
+    position: 'absolute',
+    ...shellStyle,
+    'border-radius': `${shellRadius}px`,
+    overflow: 'hidden',
+    'pointer-events': 'none',
+    background: palette.background,
+    'background-color': palette.background,
+    'background-image': shellBackgroundImages.join(', '),
+    'background-size': shellBackgroundImages.map(() => '100% 100%').join(', '),
+    'background-position': shellBackgroundImages.map(() => 'center center').join(', '),
+    'background-repeat': shellBackgroundImages.map(() => 'no-repeat').join(', '),
+    'background-blend-mode': textureEnabled ? 'multiply, normal' : 'normal',
+    'box-shadow': [
+      '0 24px 70px rgba(0,0,0,.18)',
+      'inset 0 0 0 1px rgba(70,48,24,.16)',
+      'inset 0 0 56px rgba(91,62,31,.18)',
+    ].join(', '),
+    opacity: '1',
+    transform: 'none',
+  })
   layer.dataset.navicStaticPaperBackingShell = JSON.stringify(geometry.shellRect)
+  shell.dataset.navicStaticPaperBackingShellMode = geometry.mode || ''
+  shell.dataset.navicStaticPaperBackingAsset = textureEnabled ? textureVariant.asset || '' : ''
   layer.style.setProperty('--navic-reader-shell-left', shellStyle.left)
   layer.style.setProperty('--navic-reader-shell-top', shellStyle.top)
   layer.style.setProperty('--navic-reader-shell-width', shellStyle.width)
   layer.style.setProperty('--navic-reader-shell-height', shellStyle.height)
-  layer.dataset.navicStaticPaperBackingAsset = ''
-  layer.dataset.navicStaticPaperBackingOwner = 'margin'
+  layer.dataset.navicStaticPaperBackingAsset = textureEnabled ? textureVariant.asset || '' : ''
+  layer.dataset.navicStaticPaperBackingOwner = 'shell'
 }
 
 export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) => {

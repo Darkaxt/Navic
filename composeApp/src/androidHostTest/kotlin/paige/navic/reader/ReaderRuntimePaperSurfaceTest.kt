@@ -70,7 +70,9 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(html, "--edge-width")
 		assertContains(html, "--edge-opacity")
 		assertContains(html, "--shell-padding")
-		assertContains(html, "padding: var(--shell-padding)")
+		assertContains(html, ".spread-shell")
+		assertContains(html, "url(\"assets/shell-paper-warm.jpg\")")
+		assertContains(html, "background: transparent")
 		assertContains(html, "object-fit: contain")
 		assertContains(html, ".back-cover-plane")
 		assertContains(html, ".diffuse-cover-backdrop")
@@ -718,12 +720,23 @@ class ReaderRuntimePaperSurfaceTest {
 			.substringBefore("\n\nexport const updateReaderSurfaceTextureLayer")
 		assertContains(
 			staticBacking,
-			"'background-image': 'none'",
-			message = "The static backing must be color-only; paper bitmaps belong to the moving page texture slots."
+			"ensureReaderStaticPaperShell",
+			message = "The static backing must paint one continuous shell surface instead of leaving page panes/window holes."
 		)
-		assertFalse(
-			staticBacking.contains("readerPaperTextureBackgroundImage("),
-			"The static backing must not apply the same paper bitmap a second time."
+		assertContains(
+			staticBacking,
+			"readerStaticPaperShellFoldBackground",
+			message = "The static backing must include the continuous fold/gutter paper substrate."
+		)
+		assertContains(
+			staticBacking,
+			"readerPaperTextureBackgroundImage(textureVariant)",
+			message = "The static backing owns the continuous paper substrate while moving slots still own drag displacement."
+		)
+		assertContains(
+			staticBacking,
+			"dataset.navicStaticPaperBackingOwner = 'shell'",
+			message = "Diagnostics must report shell ownership rather than the old margin-only backing."
 		)
 		assertContains(
 			appearanceText,
@@ -977,12 +990,17 @@ class ReaderRuntimePaperSurfaceTest {
 	@Test
 	fun androidReaderKeepsSingleRootTextureAboveContentWithoutDocumentMovement() {
 		val bridgeText = readerBridgeText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val settingsText = readerAssetRoot().resolve("navic-reader-settings-core.js").readText()
 		val surfaceLayerUpdater = bridgeText
 			.substringAfter("const updateReaderSurfaceTextureLayer = (layer, textureVariant, settings")
 			.substringBefore("\n\nconst isParagraphCandidate")
 		val renderSurfacePaperTextureLayers = bridgeText
 			.substringAfter("renderSurfacePaperTextureLayers() {")
 			.substringBefore("\nfunction surfacePaperTextureIndex")
+		val surfaceTextureUpdate = bridgeText
+			.substringAfter("function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null)")
+			.substringBefore("\nfunction shouldDeferSurfacePaperTextureUpdate")
 		val pageTurnSnapshot = bridgeText
 			.substringAfter("function pageDragCurlSnapshotHtml(doc) {")
 			.substringBefore("\n\nfunction pageDragCurlSnapshotKey")
@@ -1026,6 +1044,31 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(renderSurfacePaperTextureLayers, "updateReaderMovingPageTextureLayer(")
 		assertContains(
 			renderSurfacePaperTextureLayers,
+			"const movingLayersActive = this.surfaceMovingPageLayersActive(scrollOffset)",
+			message = "Settled reader pages must keep one continuous shell; adjacent moving slots are only enabled during drag/turn motion."
+		)
+		assertContains(
+			renderSurfacePaperTextureLayers,
+			"currentSurfaceTextureSlots(borderOverlaySlots)",
+			message = "Settled edge wear must render as the current shell surface, not as adjacent page windows."
+		)
+		assertContains(
+			renderSurfacePaperTextureLayers,
+			"currentSurfaceTextureSlots(spreadGutterOverlaySlots)",
+			message = "Settled spread gutter must render on the continuous shell, not as a moving page-slot panel."
+		)
+		assertContains(
+			settingsText,
+			"ReaderSurfaceSpreadGutterOverlayLayerSelector",
+			message = "Settled spread gutter needs a static root-layer selector; only defining a moving page selector recreates the panel/window failure."
+		)
+		assertContains(
+			helperText,
+			"export const ensureReaderSurfaceSpreadGutterOverlayLayer",
+			message = "Reader appearance imports the static spread-gutter factory, so helpers must export it before ReaderDev can load."
+		)
+		assertContains(
+			renderSurfacePaperTextureLayers,
 			"const scrollOffset = this.surfacePaperTextureScrollOffset()",
 			message = "The moving page texture render path must feed committed drag/scroll offset into both paper layers."
 		)
@@ -1040,6 +1083,13 @@ class ReaderRuntimePaperSurfaceTest {
 			surfaceLayerUpdater,
 			"readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection })",
 			message = "The single root surface must move page texture slots with the rendered page instead of swapping one parent background."
+		)
+		assertFalse(
+			surfaceTextureUpdate.contains("ensureReaderMovingPageTextureLayer()") ||
+				surfaceTextureUpdate.contains("ensureReaderMovingPageBorderOverlayLayer()") ||
+				surfaceTextureUpdate.contains("ensureReaderMovingPageStainOverlayLayer()") ||
+				surfaceTextureUpdate.contains("ensureReaderMovingPageSpreadGutterOverlayLayer()"),
+			"Committed texture updates must not eagerly create moving page-slot panels; renderSurfacePaperTextureLayers gates them by active motion."
 		)
 		assertContains(surfaceLayerUpdater, "readerPaperTextureTransform(slot.variant)")
 		assertContains(

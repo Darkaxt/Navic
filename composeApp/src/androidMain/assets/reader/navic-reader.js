@@ -269,6 +269,7 @@ class NavicReaderRuntime {
   surfaceTextureLayer = null
   surfaceBorderOverlayLayer = null
   surfaceStainOverlayLayer = null
+  surfaceSpreadGutterOverlayLayer = null
   movingPageTextureLayer = null
   movingPageBorderOverlayLayer = null
   movingPageStainOverlayLayer = null
@@ -655,6 +656,8 @@ class NavicReaderRuntime {
     this.surfaceBorderOverlayLayer = null
     this.surfaceStainOverlayLayer?.remove?.()
     this.surfaceStainOverlayLayer = null
+    this.surfaceSpreadGutterOverlayLayer?.remove?.()
+    this.surfaceSpreadGutterOverlayLayer = null
     this.movingPageTextureLayer?.remove?.()
     this.movingPageTextureLayer = null
     this.movingPageBorderOverlayLayer?.remove?.()

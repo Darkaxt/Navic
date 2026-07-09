@@ -41,6 +41,7 @@ export {
   ReaderSurfacePageBorderOverlayLayerSelector,
   ReaderSurfacePageStainOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
+  ReaderSurfaceSpreadGutterOverlayLayerSelector,
   ReaderTapZoneDefault,
   ReaderTapZoneDisabled,
   ReaderTapZoneEdge,

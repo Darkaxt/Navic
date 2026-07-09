@@ -132,6 +132,7 @@ import {
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
   ensureReaderSurfaceStainOverlayLayer,
+  ensureReaderSurfaceSpreadGutterOverlayLayer,
   ensureReaderPageNumberLayer,
   ensureReaderShellCoverLayer,
   ensureReaderShellCoverImage,
@@ -145,6 +146,7 @@ import {
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
   updateReaderSurfaceStainOverlayLayer,
+  updateReaderSurfaceSpreadGutterOverlayLayer,
   updateTapZoneOverlayLayer,
   isParagraphCandidate,
   isReaderParagraphBlock,
@@ -274,22 +276,22 @@ function applyReaderPageShellContentGeometry(doc, settings = this.readerSettings
 function applyRendererTheme(settings = this.readerSettings) {
   const palette = readerThemePalette(settings?.theme)
   setStylesImportant(this.view, {
-    background: palette.background,
-    'background-color': palette.background,
+    background: 'transparent',
+    'background-color': 'transparent',
     color: palette.foreground,
   })
   const renderer = this.view?.renderer
   setStylesImportant(renderer, {
-    background: palette.background,
-    'background-color': palette.background,
+    background: 'transparent',
+    'background-color': 'transparent',
     color: palette.foreground,
   })
   const shadowRoot = renderer?.shadowRoot
   if (!shadowRoot) return
   for (const element of shadowRoot.querySelectorAll('#background, #background > *')) {
     setStylesImportant(element, {
-      background: palette.background,
-      'background-color': palette.background,
+      background: 'transparent',
+      'background-color': 'transparent',
     })
   }
 }
@@ -301,6 +303,7 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
   const body = doc.body
   const styleHost = doc.head || root
   this.applyReaderPageShellContentGeometry(doc, settings, index)
+  const documentBackground = root.dataset.navicReaderShellContent === 'true' ? 'transparent' : palette.background
   normalizeReaderLineFragmentParagraphs(doc, settings)
   applyReaderParagraphSpacing(doc, settings)
   root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
@@ -322,8 +325,8 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
       '--reader-accent': palette.accent,
       '--theme-bg-color': palette.background,
       '--reader-paragraph-spacing': readerParagraphSpacingEm(settings),
-      background: palette.background,
-      'background-color': palette.background,
+      background: documentBackground,
+      'background-color': documentBackground,
       'background-image': 'none',
       color: palette.foreground,
     })
@@ -541,6 +544,31 @@ function stopSurfacePaperTextureMotionSync(reason = 'page-turn-settled') {
   this.syncSurfacePaperTextureScrollOffset(reason)
 }
 
+const currentSurfaceTextureSlots = slots => {
+  const current = (slots || []).find(slot => slot?.slot === 'current' && slot?.variant?.asset) ||
+    (slots || []).find(slot => slot?.variant?.asset)
+  return current ? [{ ...current, slot: 'current' }] : []
+}
+
+function surfaceMovingPageLayersActive(scrollOffset = null) {
+  const offset = scrollOffset || this.surfaceTextureScrollOffset || { x: 0, y: 0 }
+  return this.surfaceLiveDragActive === true ||
+    this.surfacePaperTextureMotionSyncActive === true ||
+    Math.abs(Number(offset.x) || 0) > 1 ||
+    Math.abs(Number(offset.y) || 0) > 1
+}
+
+function removeMovingSurfacePaperLayers() {
+  this.movingPageTextureLayer?.remove?.()
+  this.movingPageTextureLayer = null
+  this.movingPageBorderOverlayLayer?.remove?.()
+  this.movingPageBorderOverlayLayer = null
+  this.movingPageStainOverlayLayer?.remove?.()
+  this.movingPageStainOverlayLayer = null
+  this.movingPageSpreadGutterOverlayLayer?.remove?.()
+  this.movingPageSpreadGutterOverlayLayer = null
+}
+
 function renderSurfacePaperTextureLayers() {
   const textureSlots = this.surfaceTextureSlots || []
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
@@ -562,6 +590,7 @@ function renderSurfacePaperTextureLayers() {
     flowMode: this.readerFlowModeValue,
     spreadMode: this.surfaceSpreadMode,
   })
+  const movingLayersActive = this.surfaceMovingPageLayersActive(scrollOffset)
   if (this.surfaceTextureVariant) {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
@@ -572,65 +601,135 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       shellGeometry
     )
-    this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
-      ? this.movingPageTextureLayer
-      : ensureReaderMovingPageTextureLayer()
-    updateReaderMovingPageTextureLayer(
-      this.movingPageTextureLayer,
-      textureSlots,
-      this.readerSettings,
-      scrollOffset,
-      this.readerFlowModeValue,
-      readerDirection,
-      shellGeometry
-    )
+    if (movingLayersActive) {
+      this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
+        ? this.movingPageTextureLayer
+        : ensureReaderMovingPageTextureLayer()
+      updateReaderMovingPageTextureLayer(
+        this.movingPageTextureLayer,
+        textureSlots,
+        this.readerSettings,
+        scrollOffset,
+        this.readerFlowModeValue,
+        readerDirection,
+        shellGeometry
+      )
+    } else {
+      this.movingPageTextureLayer?.remove?.()
+      this.movingPageTextureLayer = null
+    }
   }
   if (this.surfaceBorderOverlayVariant) {
+    if (movingLayersActive) {
+      this.surfaceBorderOverlayLayer?.remove?.()
+      this.surfaceBorderOverlayLayer = null
+      this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
+        ? this.movingPageBorderOverlayLayer
+        : ensureReaderMovingPageBorderOverlayLayer()
+      updateReaderMovingPageBorderOverlayLayer(
+        this.movingPageBorderOverlayLayer,
+        borderOverlaySlots,
+        this.readerSettings,
+        scrollOffset,
+        this.readerFlowModeValue,
+        readerDirection,
+        shellGeometry
+      )
+    } else {
+      this.movingPageBorderOverlayLayer?.remove?.()
+      this.movingPageBorderOverlayLayer = null
+      this.surfaceBorderOverlayLayer = this.surfaceBorderOverlayLayer && readerRoot.contains(this.surfaceBorderOverlayLayer)
+        ? this.surfaceBorderOverlayLayer
+        : ensureReaderSurfaceBorderOverlayLayer()
+      updateReaderSurfaceBorderOverlayLayer(
+        this.surfaceBorderOverlayLayer,
+        currentSurfaceTextureSlots(borderOverlaySlots),
+        this.readerSettings,
+        null,
+        this.readerFlowModeValue,
+        readerDirection,
+        shellGeometry
+      )
+    }
+  } else {
     this.surfaceBorderOverlayLayer?.remove?.()
     this.surfaceBorderOverlayLayer = null
-    this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
-      ? this.movingPageBorderOverlayLayer
-      : ensureReaderMovingPageBorderOverlayLayer()
-    updateReaderMovingPageBorderOverlayLayer(
-      this.movingPageBorderOverlayLayer,
-      borderOverlaySlots,
-      this.readerSettings,
-      scrollOffset,
-      this.readerFlowModeValue,
-      readerDirection,
-      shellGeometry
-    )
+    this.movingPageBorderOverlayLayer?.remove?.()
+    this.movingPageBorderOverlayLayer = null
   }
   if (this.surfaceStainOverlayVariant) {
+    if (movingLayersActive) {
+      this.surfaceStainOverlayLayer?.remove?.()
+      this.surfaceStainOverlayLayer = null
+      this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
+        ? this.movingPageStainOverlayLayer
+        : ensureReaderMovingPageStainOverlayLayer()
+      updateReaderMovingPageStainOverlayLayer(
+        this.movingPageStainOverlayLayer,
+        stainOverlaySlots,
+        this.readerSettings,
+        scrollOffset,
+        this.readerFlowModeValue,
+        readerDirection,
+        shellGeometry
+      )
+    } else {
+      this.movingPageStainOverlayLayer?.remove?.()
+      this.movingPageStainOverlayLayer = null
+      this.surfaceStainOverlayLayer = this.surfaceStainOverlayLayer && readerRoot.contains(this.surfaceStainOverlayLayer)
+        ? this.surfaceStainOverlayLayer
+        : ensureReaderSurfaceStainOverlayLayer()
+      updateReaderSurfaceStainOverlayLayer(
+        this.surfaceStainOverlayLayer,
+        currentSurfaceTextureSlots(stainOverlaySlots),
+        this.readerSettings,
+        null,
+        this.readerFlowModeValue,
+        readerDirection,
+        shellGeometry
+      )
+    }
+  } else {
     this.surfaceStainOverlayLayer?.remove?.()
     this.surfaceStainOverlayLayer = null
-    this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
-      ? this.movingPageStainOverlayLayer
-      : ensureReaderMovingPageStainOverlayLayer()
-    updateReaderMovingPageStainOverlayLayer(
-      this.movingPageStainOverlayLayer,
-      stainOverlaySlots,
-      this.readerSettings,
-      scrollOffset,
-      this.readerFlowModeValue,
-      readerDirection,
-      shellGeometry
-    )
+    this.movingPageStainOverlayLayer?.remove?.()
+    this.movingPageStainOverlayLayer = null
   }
   if (this.surfaceSpreadGutterOverlayVariant) {
-    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
-      ? this.movingPageSpreadGutterOverlayLayer
-      : ensureReaderMovingPageSpreadGutterOverlayLayer()
-    updateReaderMovingPageSpreadGutterOverlayLayer(
-      this.movingPageSpreadGutterOverlayLayer,
-      spreadGutterOverlaySlots,
-      this.readerSettings,
-      scrollOffset,
-      this.readerFlowModeValue,
-      readerDirection,
-      shellGeometry
-    )
+    if (movingLayersActive) {
+      this.surfaceSpreadGutterOverlayLayer?.remove?.()
+      this.surfaceSpreadGutterOverlayLayer = null
+      this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
+        ? this.movingPageSpreadGutterOverlayLayer
+        : ensureReaderMovingPageSpreadGutterOverlayLayer()
+      updateReaderMovingPageSpreadGutterOverlayLayer(
+        this.movingPageSpreadGutterOverlayLayer,
+        spreadGutterOverlaySlots,
+        this.readerSettings,
+        scrollOffset,
+        this.readerFlowModeValue,
+        readerDirection,
+        shellGeometry
+      )
+    } else {
+      this.movingPageSpreadGutterOverlayLayer?.remove?.()
+      this.movingPageSpreadGutterOverlayLayer = null
+      this.surfaceSpreadGutterOverlayLayer = this.surfaceSpreadGutterOverlayLayer && readerRoot.contains(this.surfaceSpreadGutterOverlayLayer)
+        ? this.surfaceSpreadGutterOverlayLayer
+        : ensureReaderSurfaceSpreadGutterOverlayLayer()
+      updateReaderSurfaceSpreadGutterOverlayLayer(
+        this.surfaceSpreadGutterOverlayLayer,
+        currentSurfaceTextureSlots(spreadGutterOverlaySlots),
+        this.readerSettings,
+        null,
+        this.readerFlowModeValue,
+        readerDirection,
+        shellGeometry
+      )
+    }
   } else {
+    this.surfaceSpreadGutterOverlayLayer?.remove?.()
+    this.surfaceSpreadGutterOverlayLayer = null
     this.movingPageSpreadGutterOverlayLayer?.remove?.()
     this.movingPageSpreadGutterOverlayLayer = null
   }
@@ -722,27 +821,6 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
     ? this.surfaceTextureLayer
     : ensureReaderSurfaceTextureLayer()
-  this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
-    ? this.movingPageTextureLayer
-    : ensureReaderMovingPageTextureLayer()
-  this.surfaceBorderOverlayLayer?.remove?.()
-  this.surfaceBorderOverlayLayer = null
-  this.surfaceStainOverlayLayer?.remove?.()
-  this.surfaceStainOverlayLayer = null
-  this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
-    ? this.movingPageBorderOverlayLayer
-    : ensureReaderMovingPageBorderOverlayLayer()
-  this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
-    ? this.movingPageStainOverlayLayer
-    : ensureReaderMovingPageStainOverlayLayer()
-  if (spreadGutterOverlayVariant) {
-    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
-      ? this.movingPageSpreadGutterOverlayLayer
-      : ensureReaderMovingPageSpreadGutterOverlayLayer()
-  } else {
-    this.movingPageSpreadGutterOverlayLayer?.remove?.()
-    this.movingPageSpreadGutterOverlayLayer = null
-  }
   this.surfacePaperTextureBaseOffset = this.currentRendererContainerPosition()
   this.surfaceTextureScrollOffset = { x: 0, y: 0 }
   readerRoot.dataset.navicSurfacePaperTextureKey = textureKey
@@ -888,6 +966,8 @@ export const NavicReaderAppearanceMethods = {
   syncSurfacePaperTextureScrollOffset,
   startSurfacePaperTextureMotionSync,
   stopSurfacePaperTextureMotionSync,
+  surfaceMovingPageLayersActive,
+  removeMovingSurfacePaperLayers,
   renderSurfacePaperTextureLayers,
   surfacePaperTextureIndex,
   applySurfacePaperTextureUpdate,

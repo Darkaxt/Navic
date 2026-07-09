@@ -1873,8 +1873,8 @@ function previewPageDrag(command) {
       // so the texture re-renders every frame through the snap instead of freezing (blank)
       // until the deferred ~180ms variant commit. The loop is stopped by
       // applySurfacePaperTextureUpdate when the new page's variant commits.
-      this.renderSurfacePaperTextureLayers()
       this.startSurfacePaperTextureMotionSync('live-drag-snap')
+      this.renderSurfacePaperTextureLayers()
     } else {
       this.surfacePaperTextureTurnDirection = null
       this.renderSurfacePaperTextureLayers()
