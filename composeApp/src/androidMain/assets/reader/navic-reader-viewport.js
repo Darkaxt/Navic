@@ -88,10 +88,13 @@ function applyReaderViewportLayout(label = 'unknown') {
     : shellGeometry.shellRect
   const rendererRectStyle = readerPageShellRectStyle(rendererRect)
   const shellRectStyle = readerPageShellRectStyle(shellGeometry.shellRect)
+  const pageBoxSettings = shellGeometry.renderer.pageBoxMaxColumnCount == null
+    ? this.readerSettings
+    : { ...this.readerSettings, maxColumnCount: shellGeometry.renderer.pageBoxMaxColumnCount }
   const pageBox = readerAdaptiveFoliatePageBox({
-    width: fixedLayout ? width : shellGeometry.renderer.width,
+    width: fixedLayout ? width : shellGeometry.renderer.pageBoxWidth,
     height: fixedLayout ? height : shellGeometry.renderer.height,
-  }, this.readerSettings)
+  }, pageBoxSettings)
   this.readerPageShellGeometry = shellGeometry
   readerRoot.dataset.navicReaderShellGeometryMode = shellGeometry.mode
   readerRoot.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
@@ -166,10 +169,13 @@ function applyReaderViewportLayoutToProfilerView(profileView, settings = this.re
     flowMode: readerFlowMode(settings),
   })
   const rendererRectStyle = readerPageShellRectStyle(shellGeometry.shellRect)
+  const pageBoxSettings = shellGeometry.renderer.pageBoxMaxColumnCount == null
+    ? settings
+    : { ...settings, maxColumnCount: shellGeometry.renderer.pageBoxMaxColumnCount }
   const pageBox = readerAdaptiveFoliatePageBox({
-    width: shellGeometry.renderer.width,
+    width: shellGeometry.renderer.pageBoxWidth,
     height: shellGeometry.renderer.height,
-  }, settings)
+  }, pageBoxSettings)
   setStylesImportant(renderer, {
     position: 'absolute',
     inset: 'auto',

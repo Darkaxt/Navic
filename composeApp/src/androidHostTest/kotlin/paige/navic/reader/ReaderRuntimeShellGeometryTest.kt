@@ -22,6 +22,8 @@ class ReaderRuntimeShellGeometryTest {
 		assertContains(helperText, "backdropRect")
 		assertContains(helperText, "foregroundRect")
 		assertContains(helperText, "backCoverRect")
+		assertContains(helperText, "pageBoxWidth")
+		assertContains(helperText, "pageBoxMaxColumnCount")
 		assertContains(helperText, "inner:")
 		assertContains(helperText, "readerPageShellGeometryForViewport")
 	}
@@ -34,11 +36,27 @@ class ReaderRuntimeShellGeometryTest {
 		val profileLayout = viewportText.substringAfter("function applyReaderViewportLayoutToProfilerView")
 			.substringBefore("\n\nfunction applyPdfImageSettings")
 
+		assertContains(
+			viewportLayout,
+			"width: fixedLayout ? width : shellGeometry.renderer.pageBoxWidth",
+			message = "main viewport layout must size reflowable Foliate columns from the readable page box, not the full decorative shell."
+		)
+		assertContains(
+			profileLayout,
+			"width: shellGeometry.renderer.pageBoxWidth",
+			message = "profile viewport layout must size Foliate columns from the readable page box, not the full decorative shell."
+		)
+
 		for ((name, body) in listOf("main" to viewportLayout, "profile" to profileLayout)) {
 			assertContains(
 				body,
 				"readerPageShellRectStyle(shellGeometry.shellRect)",
 				message = "$name viewport layout must use the same shell rectangle as paper and gutter overlays."
+			)
+			assertContains(
+				body,
+				"maxColumnCount: shellGeometry.renderer.pageBoxMaxColumnCount",
+				message = "$name viewport layout must preserve spread mode after switching page-box math to per-page content width."
 			)
 			assertContains(
 				body,
@@ -92,12 +110,18 @@ class ReaderRuntimeShellGeometryTest {
 	fun androidReaderAppliesShellGeometryToContentDocuments() {
 		val bridgeText = readerBridgeText()
 		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
+		val typographyCss = typographyText.substringAfter("export const readerTypographyCss = settings =>")
+			.substringBefore("\n\nexport const readerParagraphSpacingCss")
 
 		assertContains(bridgeText, "applyReaderPageShellContentGeometry")
 		assertContains(bridgeText, "--navic-reader-shell-content-left")
 		assertContains(bridgeText, "--navic-reader-shell-content-width")
 		assertContains(bridgeText, "--navic-reader-shell-gutter-width")
 		assertContains(bridgeText, "data-navic-reader-shell-content")
+		assertContains(typographyCss, "html[data-navic-reader-shell-content=\"true\"] body")
+		assertContains(typographyCss, "max-width: var(--navic-reader-shell-content-width")
+		assertContains(typographyCss, "margin-inline: auto")
 		assertContains(appearanceText, "this.readerPageShellGeometry")
 		assertContains(appearanceText, "this.applyReaderPageShellContentGeometry(doc, settings, index)")
 		assertContains(appearanceText, "this.applyThemeToLoadedContent(settings)")

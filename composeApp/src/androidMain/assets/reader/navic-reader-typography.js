@@ -692,6 +692,12 @@ export const readerTypographyCss = settings => {
     margin: 0 !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
+  html[data-navic-reader-shell-content="true"] body {
+    box-sizing: border-box !important;
+    width: min(100%, var(--navic-reader-shell-content-width, 100%)) !important;
+    max-width: var(--navic-reader-shell-content-width, none) !important;
+    margin-inline: auto !important;
+  }
   main,
   section,
   article,

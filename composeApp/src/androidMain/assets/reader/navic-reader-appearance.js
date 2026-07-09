@@ -688,8 +688,6 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     resolveVariant: readerPageStainOverlayVariantForPage,
   })
   textureSlots = readerSpreadPageTextureSlots(textureSlots, readerPaperTextureVariantForPage, spreadMode)
-  borderOverlaySlots = readerSpreadPageTextureSlots(borderOverlaySlots, readerPageBorderOverlayVariantForPage, spreadMode)
-  stainOverlaySlots = readerSpreadPageTextureSlots(stainOverlaySlots, readerPageStainOverlayVariantForPage, spreadMode)
   const spreadGutterVisible = readerSurfaceSpreadGutterVisible({
     settings: this.readerSettings,
     spreadMode,

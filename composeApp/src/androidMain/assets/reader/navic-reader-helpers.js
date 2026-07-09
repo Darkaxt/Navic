@@ -780,6 +780,10 @@ export const readerPageShellGeometry = ({
       bottom: contentBottom,
     })
     : null
+  const pageBoxWidth = mode === 'spread'
+    ? Math.max(1, Math.min(leftContent.width, rightContent?.width || leftContent.width))
+    : singleContent.width
+  const pageBoxMaxColumnCount = mode === 'spread' ? 2 : undefined
   const coverWidth = Math.round(Math.min(width * 0.38, height * 0.72))
   const coverHeight = Math.round(Math.min(height * 0.86, Math.max(coverWidth * 1.42, height * 0.72)))
   const coverRect = readerPageShellRect(
@@ -831,6 +835,8 @@ export const readerPageShellGeometry = ({
       bottomMargin,
       width: shellRect.width,
       height: shellRect.height,
+      pageBoxWidth,
+      pageBoxMaxColumnCount,
       rect: shellRect,
     },
   }

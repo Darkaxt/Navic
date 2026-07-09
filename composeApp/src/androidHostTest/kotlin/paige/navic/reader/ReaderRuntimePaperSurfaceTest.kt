@@ -273,9 +273,34 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(appearanceText, "const spreadMode = readerSurfaceSpreadMode({")
 		assertContains(appearanceText, "this.surfaceSpreadMode = spreadMode")
 		assertContains(appearanceText, "readerSpreadPageTextureSlots(textureSlots, readerPaperTextureVariantForPage, spreadMode)")
-		assertContains(appearanceText, "readerSpreadPageTextureSlots(borderOverlaySlots, readerPageBorderOverlayVariantForPage, spreadMode)")
-		assertContains(appearanceText, "readerSpreadPageTextureSlots(stainOverlaySlots, readerPageStainOverlayVariantForPage, spreadMode)")
 		assertContains(appearanceText, "readerSurfaceSpreadGutterVisible({")
+	}
+
+	@Test
+	fun androidReaderDoesNotFrameSpreadHalvesWithPageEffectOverlays() {
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val surfaceTextureUpdate = appearanceText
+			.substringAfter("function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null)")
+			.substringBefore("\nfunction shouldDeferSurfacePaperTextureUpdate")
+		val borderLayerUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceBorderOverlayLayer =")
+			.substringBefore("\n\nexport const updateReaderMovingPageBorderOverlayLayer")
+		val stainLayerUpdater = helperText
+			.substringAfter("export const updateReaderSurfaceStainOverlayLayer =")
+			.substringBefore("\n\nexport const updateReaderMovingPageStainOverlayLayer")
+
+		assertContains(surfaceTextureUpdate, "readerSpreadPageTextureSlots(textureSlots, readerPaperTextureVariantForPage, spreadMode)")
+		assertFalse(
+			surfaceTextureUpdate.contains("readerSpreadPageTextureSlots(borderOverlaySlots"),
+			"Page-edge overlays must not be split into left/right full-page frames; that creates a two-window spread."
+		)
+		assertFalse(
+			surfaceTextureUpdate.contains("readerSpreadPageTextureSlots(stainOverlaySlots"),
+			"Paper stains must stay on the shared shell surface instead of drawing a framed stain card per page."
+		)
+		assertContains(borderLayerUpdater, "[{ page: 'full', key: slot.key, variant: slot.variant }]")
+		assertContains(stainLayerUpdater, "[{ page: 'full', key: slot.key, variant: slot.variant }]")
 	}
 
 	@Test
