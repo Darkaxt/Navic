@@ -170,6 +170,10 @@ class ReaderRuntimeShellGeometryTest {
 		assertContains(body, "object-fit")
 		assertContains(body, "contain")
 		assertFalse(
+			body.contains("radial-gradient(circle"),
+			"The live shell cover back-cover must be a plain worn/tinted plane, not a decorative surface with circular windows or holes."
+		)
+		assertFalse(
 			body.contains("background: '#000000'"),
 			"The cover shell should use the blurred/diffused cover backdrop, not a flat black stage."
 		)

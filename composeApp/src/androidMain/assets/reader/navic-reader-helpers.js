@@ -1447,8 +1447,8 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     ...readerPageShellRectStyle(backCoverRect),
     'border-radius': `${Math.max(8, Math.round(Math.min(backCoverRect.width, backCoverRect.height) * 0.018))}px`,
     background: [
-      'radial-gradient(circle at 18% 20%, rgba(255,255,255,.14), transparent 32%)',
-      'radial-gradient(circle at 86% 78%, rgba(0,0,0,.18), transparent 34%)',
+      'linear-gradient(108deg, rgba(255,255,255,.12), transparent 28%, rgba(0,0,0,.18) 82%)',
+      'linear-gradient(180deg, rgba(255,244,210,.08), transparent 36%, rgba(0,0,0,.16))',
       'linear-gradient(135deg, rgba(255,255,255,.1), rgba(0,0,0,.22))',
       'linear-gradient(180deg, rgba(90,69,42,.92), rgba(48,34,22,.94))',
     ].join(', '),

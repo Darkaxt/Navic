@@ -89,6 +89,10 @@ class ReaderRuntimePaperSurfaceTest {
 			html.contains("radial-gradient(circle at 98% 97%"),
 			"Prototype edge wear must not paint visible circular corner dots; those read as holes/windows instead of worn paper."
 		)
+		assertFalse(
+			html.contains("radial-gradient(circle"),
+			"The page-shell prototype must not use circular radial gradients. They read as windows/holes instead of a continuous ebook surface."
+		)
 		assertTrue(
 			html.indexOf("diffuse-cover-backdrop") < html.indexOf("foreground-cover"),
 			"Cover backdrop must be declared below the foreground cover in the rendered stack."
