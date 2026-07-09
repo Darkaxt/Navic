@@ -285,52 +285,60 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 		canvas.drawColor(Color.rgb(16, 14, 10))
 		val currentBitmap = bitmap
 		if (currentBitmap == null || currentBitmap.width <= 0 || currentBitmap.height <= 0) {
+			val shellGeometry = resolveNativeReaderShellCoverGeometry(
+				viewWidth = width,
+				viewHeight = height,
+				bitmapWidth = 720,
+				bitmapHeight = 1000
+			)
 			if (coverBackdropEnabled) {
-				drawNativeBackCoverPlane(canvas, null)
+				drawNativeBackCoverPlane(canvas, shellGeometry)
 			}
 			canvas.drawText(title.ifBlank { "Cover" }, width / 2f, height / 2f, titlePaint)
 			return
 		}
+		val shellGeometry = resolveNativeReaderShellCoverGeometry(
+			viewWidth = width,
+			viewHeight = height,
+			bitmapWidth = currentBitmap.width,
+			bitmapHeight = currentBitmap.height
+		)
 		if (coverBackdropEnabled) {
-			drawDiffuseCoverBackdrop(canvas, currentBitmap)
-			drawNativeBackCoverPlane(canvas, currentBitmap)
+			drawDiffuseCoverBackdrop(canvas, currentBitmap, shellGeometry)
+			drawNativeBackCoverPlane(canvas, shellGeometry)
 		}
-		val foregroundBounds = nativeShellCoverForegroundRect(currentBitmap)
-		destination.set(foregroundBounds)
-		canvas.drawBitmap(currentBitmap, null, destination, imagePaint)
+		drawContainedNativeShellCover(canvas, currentBitmap, shellGeometry)
 	}
 
-	private fun drawDiffuseCoverBackdrop(canvas: Canvas, currentBitmap: Bitmap) {
+	private fun drawDiffuseCoverBackdrop(
+		canvas: Canvas,
+		currentBitmap: Bitmap,
+		shellGeometry: NativeReaderShellCoverGeometry
+	) {
+		val backdropRect = shellGeometry.backdropRect
 		val scale = max(
-			width.toFloat() / currentBitmap.width.toFloat(),
-			height.toFloat() / currentBitmap.height.toFloat()
+			backdropRect.width() / currentBitmap.width.toFloat(),
+			backdropRect.height() / currentBitmap.height.toFloat()
 		)
 		val drawWidth = currentBitmap.width * scale
 		val drawHeight = currentBitmap.height * scale
-		val left = (width - drawWidth) / 2f
-		val top = (height - drawHeight) / 2f
+		val left = backdropRect.centerX() - drawWidth / 2f
+		val top = backdropRect.centerY() - drawHeight / 2f
 		backdropDestination.set(left, top, left + drawWidth, top + drawHeight)
 		source.set(0, 0, currentBitmap.width, currentBitmap.height)
+		val checkpoint = canvas.save()
+		canvas.clipRect(backdropRect)
 		canvas.drawBitmap(currentBitmap, source, backdropDestination, backdropImagePaint)
-		canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
+		canvas.restoreToCount(checkpoint)
+		canvas.drawRect(backdropRect, dimPaint)
 	}
 
-	private fun drawNativeBackCoverPlane(canvas: Canvas, currentBitmap: Bitmap?) {
-		val foregroundBounds = currentBitmap?.let(::nativeShellCoverForegroundRect)
-			?: RectF(width * 0.34f, height * 0.12f, width * 0.66f, height * 0.88f)
-		val offset = max(18f, min(width, height) * 0.026f)
-		backCoverDestination.set(foregroundBounds)
-		backCoverDestination.offset(offset, offset * 0.72f)
-		if (backCoverDestination.right > width - offset) {
-			backCoverDestination.offset((width - offset) - backCoverDestination.right, 0f)
-		}
-		if (backCoverDestination.bottom > height - offset) {
-			backCoverDestination.offset(0f, (height - offset) - backCoverDestination.bottom)
-		}
+	private fun drawNativeBackCoverPlane(canvas: Canvas, shellGeometry: NativeReaderShellCoverGeometry) {
+		backCoverDestination.set(shellGeometry.backCoverRect)
 		val radius = max(8f, min(backCoverDestination.width(), backCoverDestination.height()) * 0.018f)
 		backCoverShadowPaint.alpha = 92
 		canvas.drawRoundRect(
-			RectF(backCoverDestination).apply { offset(0f, max(8f, offset * 0.5f)) },
+			RectF(backCoverDestination).apply { offset(0f, max(8f, shellGeometry.backCoverOffset * 0.5f)) },
 			radius,
 			radius,
 			backCoverShadowPaint
@@ -362,20 +370,75 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 		)
 	}
 
-	private fun nativeShellCoverForegroundRect(currentBitmap: Bitmap): RectF {
-		val landscape = width > height
-		val maxWidth = if (landscape) width * 0.38f else width * 0.72f
-		val maxHeight = if (landscape) height * 0.86f else height * 0.78f
-		val scale = min(
-			maxWidth / currentBitmap.width.toFloat(),
-			maxHeight / currentBitmap.height.toFloat()
-		)
-		val drawWidth = currentBitmap.width * scale
-		val drawHeight = currentBitmap.height * scale
-		val left = (width - drawWidth) / 2f
-		val top = (height - drawHeight) / 2f
-		return RectF(left, top, left + drawWidth, top + drawHeight)
+	private fun drawContainedNativeShellCover(
+		canvas: Canvas,
+		currentBitmap: Bitmap,
+		shellGeometry: NativeReaderShellCoverGeometry
+	) {
+		destination.set(shellGeometry.foregroundImageRect)
+		canvas.drawBitmap(currentBitmap, null, destination, imagePaint)
 	}
+}
+
+private data class NativeReaderShellCoverGeometry(
+	val backdropRect: RectF,
+	val foregroundRect: RectF,
+	val foregroundImageRect: RectF,
+	val backCoverRect: RectF,
+	val backCoverOffset: Float
+)
+
+private fun resolveNativeReaderShellCoverGeometry(
+	viewWidth: Int,
+	viewHeight: Int,
+	bitmapWidth: Int,
+	bitmapHeight: Int
+): NativeReaderShellCoverGeometry {
+	val resolvedWidth = max(1, viewWidth).toFloat()
+	val resolvedHeight = max(1, viewHeight).toFloat()
+	val foregroundRect = nativeShellCoverForegroundRect(
+		viewWidth = resolvedWidth,
+		viewHeight = resolvedHeight,
+		bitmapWidth = max(1, bitmapWidth).toFloat(),
+		bitmapHeight = max(1, bitmapHeight).toFloat()
+	)
+	val backCoverOffset = max(18f, min(resolvedWidth, resolvedHeight) * 0.026f)
+	val backCoverRect = RectF(foregroundRect).apply {
+		offset(backCoverOffset, backCoverOffset * 0.72f)
+		if (right > resolvedWidth - backCoverOffset) {
+			offset((resolvedWidth - backCoverOffset) - right, 0f)
+		}
+		if (bottom > resolvedHeight - backCoverOffset) {
+			offset(0f, (resolvedHeight - backCoverOffset) - bottom)
+		}
+	}
+	return NativeReaderShellCoverGeometry(
+		backdropRect = RectF(0f, 0f, resolvedWidth, resolvedHeight),
+		foregroundRect = foregroundRect,
+		foregroundImageRect = foregroundRect,
+		backCoverRect = backCoverRect,
+		backCoverOffset = backCoverOffset
+	)
+}
+
+private fun nativeShellCoverForegroundRect(
+	viewWidth: Float,
+	viewHeight: Float,
+	bitmapWidth: Float,
+	bitmapHeight: Float
+): RectF {
+	val landscape = viewWidth > viewHeight
+	val maxWidth = if (landscape) viewWidth * 0.38f else viewWidth * 0.72f
+	val maxHeight = if (landscape) viewHeight * 0.86f else viewHeight * 0.78f
+	val scale = min(
+		maxWidth / bitmapWidth,
+		maxHeight / bitmapHeight
+	)
+	val drawWidth = bitmapWidth * scale
+	val drawHeight = bitmapHeight * scale
+	val left = (viewWidth - drawWidth) / 2f
+	val top = (viewHeight - drawHeight) / 2f
+	return RectF(left, top, left + drawWidth, top + drawHeight)
 }
 
 private fun Bitmap.readerDominantCoverColor(): Int {

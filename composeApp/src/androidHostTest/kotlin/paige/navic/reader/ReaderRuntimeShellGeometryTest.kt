@@ -163,6 +163,33 @@ class ReaderRuntimeShellGeometryTest {
 	}
 
 	@Test
+	fun androidNativeShellCoverUsesCoverGeometryContract() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val shellCoverClass = nativeFrameHostText
+			.substringAfter("private class KomikkuReaderNativeShellCoverView")
+			.substringBefore("\nprivate fun Bitmap.readerDominantCoverColor")
+
+		assertContains(
+			nativeFrameHostText,
+			"private data class NativeReaderShellCoverGeometry",
+			message = "The native shell cover must resolve foreground, back-cover, and backdrop rects as one geometry contract."
+		)
+		assertContains(
+			nativeFrameHostText,
+			"resolveNativeReaderShellCoverGeometry(",
+			message = "Native cover mode must use a named geometry resolver instead of inferring each layer separately."
+		)
+		assertContains(shellCoverClass, "val shellGeometry = resolveNativeReaderShellCoverGeometry(")
+		assertContains(shellCoverClass, "drawDiffuseCoverBackdrop(canvas, currentBitmap, shellGeometry)")
+		assertContains(shellCoverClass, "drawNativeBackCoverPlane(canvas, shellGeometry)")
+		assertContains(shellCoverClass, "drawContainedNativeShellCover(canvas, currentBitmap, shellGeometry)")
+		assertFalse(
+			shellCoverClass.contains("val foregroundBounds = nativeShellCoverForegroundRect(currentBitmap)"),
+			"Foreground, back-cover, and backdrop geometry must not be split across independent ad hoc calculations."
+		)
+	}
+
+	@Test
 	fun androidReaderDoesNotRenderGutterLayerWithoutSpreadGutterRect() {
 		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
 		val body = helperText.substringAfter("export const updateReaderSurfaceSpreadGutterOverlayLayer =")
