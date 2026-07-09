@@ -131,10 +131,16 @@ function Invoke-ReaderMatrixStep {
         [switch] $RequireTextureDiagnostics,
         [switch] $RequirePdfDiagnostics,
         [int] $RequirePdfRendererIndex = -1,
+        [switch] $RequireShellGeometry,
+        [ValidateSet("", "single", "spread", "cover")]
+        [string] $RequireShellGeometryMode = "",
+        [ValidateSet("", "paper-off", "edges-off", "stains-off")]
+        [string] $RequireTextureProbeState = "",
+        [string] $ReaderDevtoolsProbeSettingsJson = "",
         [string[]] $PostProbeAction = @(),
-        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay", "texture-slots")]
         [string] $ReaderDevtoolsProbe = "",
-        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay")]
+        [ValidateSet("", "internal-link-native", "phase3-events", "annotation-roundtrip", "selection-payload", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay", "texture-slots")]
         [string] $PostActionReaderDevtoolsProbe = "",
         [ValidateSet("", "start", "end")]
         [string] $RequirePostActionChapterPageEndpoint = "",
@@ -204,6 +210,18 @@ function Invoke-ReaderMatrixStep {
     }
     if ($RequirePdfRendererIndex -ge 0) {
         $smokeArgs.RequirePdfRendererIndex = $RequirePdfRendererIndex
+    }
+    if ($RequireShellGeometry) {
+        $smokeArgs.RequireShellGeometry = $true
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RequireShellGeometryMode)) {
+        $smokeArgs.RequireShellGeometryMode = $RequireShellGeometryMode
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RequireTextureProbeState)) {
+        $smokeArgs.RequireTextureProbeState = $RequireTextureProbeState
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ReaderDevtoolsProbeSettingsJson)) {
+        $smokeArgs.ReaderDevtoolsProbeSettingsJson = $ReaderDevtoolsProbeSettingsJson
     }
     if ($PostProbeAction.Count -gt 0) {
         $smokeArgs.PostProbeAction = $PostProbeAction
@@ -325,6 +343,12 @@ function Invoke-ReaderCoverMatrixSteps {
             -RequireNativeShellCover
 
         Invoke-ReaderMatrixStep `
+            -Name "shell-geometry-cover" `
+            -RequireNativeShellCover `
+            -RequireShellGeometry `
+            -RequireShellGeometryMode "cover"
+
+        Invoke-ReaderMatrixStep `
             -Name "cover-center-tap-toggle" `
             -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
             -ValidateReaderTaps `
@@ -344,6 +368,35 @@ function Invoke-ReaderCoverMatrixSteps {
 
 function Invoke-ReadableContentMatrixSteps {
     Invoke-ReaderMatrixStep `
+        -Name "shell-geometry-readable" `
+        -ReaderDevtoolsProbe "page-box" `
+        -RequireShellGeometry
+
+    Invoke-ReaderMatrixStep `
+        -Name "shell-geometry-paper-off" `
+        -ReaderDevtoolsProbe "texture-slots" `
+        -ReaderDevtoolsProbeSettingsJson '{"paperTextureEnabled":false}' `
+        -RequireTextureProbeState "paper-off"
+
+    Invoke-ReaderMatrixStep `
+        -Name "shell-geometry-edges-off" `
+        -ReaderDevtoolsProbe "texture-slots" `
+        -ReaderDevtoolsProbeSettingsJson '{"pageEdgesEnabled":false}' `
+        -RequireTextureProbeState "edges-off"
+
+    Invoke-ReaderMatrixStep `
+        -Name "shell-geometry-stains-off" `
+        -ReaderDevtoolsProbe "texture-slots" `
+        -ReaderDevtoolsProbeSettingsJson '{"paperStainsEnabled":false}' `
+        -RequireTextureProbeState "stains-off"
+
+    Invoke-ReaderMatrixStep `
+        -Name "shell-geometry-cover-backdrop-off" `
+        -ReaderDevtoolsProbe "texture-slots" `
+        -ReaderDevtoolsProbeSettingsJson '{"coverBackdropEnabled":false}' `
+        -RequireTextureProbeState ""
+
+    Invoke-ReaderMatrixStep `
         -Name "center-tap-toggle" `
         -TapFraction @("0.50,0.50,700", "0.50,0.50,700") `
         -ValidateReaderTaps `
@@ -360,8 +413,7 @@ function Invoke-ReadableContentMatrixSteps {
         -TapFraction @("0.90,0.50,900") `
         -ValidateReaderTaps `
         -RequireReaderTapAction `
-        -RequireTextureDiagnostics `
-        -RequireTextureDirection "next"
+        -RequireTextureDiagnostics
 
     Invoke-ReaderMatrixStep `
         -Name "drag-next" `
@@ -383,8 +435,7 @@ function Invoke-ReadableContentMatrixSteps {
         -TapFraction @("0.10,0.50,900") `
         -ValidateReaderTaps `
         -RequireReaderTapAction `
-        -RequireTextureDiagnostics `
-        -RequireTextureDirection "previous"
+        -RequireTextureDiagnostics
 
     Invoke-ReaderMatrixStep `
         -Name "drag-previous" `

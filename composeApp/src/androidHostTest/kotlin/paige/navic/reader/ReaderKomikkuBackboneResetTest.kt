@@ -907,6 +907,12 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("texture-previous-walk"))
 		assertTrue(matrixText.contains("cover-center-tap-toggle"))
 		assertTrue(matrixText.contains("cover-drag-next"))
+		assertTrue(matrixText.contains("shell-geometry-cover"))
+		assertTrue(matrixText.contains("shell-geometry-readable"))
+		assertTrue(matrixText.contains("shell-geometry-paper-off"))
+		assertTrue(matrixText.contains("shell-geometry-edges-off"))
+		assertTrue(matrixText.contains("shell-geometry-stains-off"))
+		assertTrue(matrixText.contains("shell-geometry-cover-backdrop-off"))
 		assertTrue(matrixText.contains("pdf-baseline"))
 		assertTrue(matrixText.contains("pdf-edge-tap-next"))
 		assertTrue(matrixText.contains("pdf-edge-tap-previous"))
@@ -921,7 +927,35 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(matrixText.contains("\$smokeArgs.RequireShellCoverCommand = \$true"))
 		assertTrue(matrixText.contains("\$smokeArgs.RequireTextureDiagnostics = \$true"))
 		assertTrue(matrixText.contains("\$smokeArgs.RequirePdfDiagnostics = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireShellGeometry = \$true"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireShellGeometryMode = \$RequireShellGeometryMode"))
+		assertTrue(matrixText.contains("\$smokeArgs.ReaderDevtoolsProbeSettingsJson = \$ReaderDevtoolsProbeSettingsJson"))
+		assertTrue(matrixText.contains("\$smokeArgs.RequireTextureProbeState = \$RequireTextureProbeState"))
+		assertTrue(matrixText.contains("texture-slots"))
+		assertTrue(matrixText.contains("-RequireTextureProbeState \"paper-off\""))
+		assertTrue(matrixText.contains("-RequireTextureProbeState \"edges-off\""))
+		assertTrue(matrixText.contains("-RequireTextureProbeState \"stains-off\""))
 		assertTrue(matrixText.contains("[switch] \$IncludePdfChecks"))
+		assertTrue(
+			smokeText.contains("[switch] \$RequireShellGeometry") &&
+				smokeText.contains("[ValidateSet(\"\", \"single\", \"spread\", \"cover\")]") &&
+				smokeText.contains("[string] \$RequireShellGeometryMode"),
+			"adb reader smoke must support requiring concrete shell geometry modes from page-box probes."
+		)
+		assertTrue(
+			smokeText.contains("Assert-ReaderShellGeometryProbe") &&
+				smokeText.contains("reader-shell-geometry-validation.txt") &&
+				smokeText.contains("Reader shell-geometry validation failed"),
+			"adb reader smoke must persist and fail shell-geometry validation instead of only capturing screenshots."
+		)
+		assertTrue(
+			smokeText.contains("[ValidateSet(\"\", \"paper-off\", \"edges-off\", \"stains-off\")]") &&
+				smokeText.contains("[string] \$RequireTextureProbeState") &&
+				smokeText.contains("Assert-ReaderTextureProbeState") &&
+				smokeText.contains("reader-texture-state-validation.txt") &&
+				smokeText.contains("Reader texture-state validation failed"),
+			"adb reader smoke must persist and fail texture toggle validation instead of only probing screenshots."
+		)
 		assertTrue(
 			smokeText.contains("[ValidateSet(\"\", \"next\", \"previous\")]") &&
 				smokeText.contains("[string] \$RequireTextureDirection"),

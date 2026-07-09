@@ -33,6 +33,7 @@ param(
     [string] $ReaderDevtoolsProbe = "",
     [ValidateSet("", "internal-link-native", "phase3-events", "external-link-prompt", "annotation-roundtrip", "history-controls", "selection-payload", "visible-selection-payload", "visible-selection-clear", "relocation-payload", "runtime-state", "page-box", "visible-page-content", "pdf-visible-page", "font-size", "font-size-current", "font-size-publisher-styles", "location-snapshot", "chapter-progress-endpoints", "chapter-progress-current-endpoints", "whispersync-audio-follow", "whispersync-page-scoped-control", "whispersync-companion-progress", "whispersync-char-offset-overlay", "texture-slots", "native-drag-preview-texture", "page-number-font", "page-number-spread-layout")]
     [string] $PostActionReaderDevtoolsProbe = "",
+    [string] $ReaderDevtoolsProbeSettingsJson = "",
     [ValidateSet("", "start", "end")]
     [string] $RequirePostActionChapterPageEndpoint = "",
     [switch] $RequireNoReaderCenterDispatch,
@@ -40,6 +41,11 @@ param(
     [switch] $RequirePdfDiagnostics,
     [int] $RequirePdfRendererIndex = -1,
     [switch] $RequireNativeShellCover,
+    [switch] $RequireShellGeometry,
+    [ValidateSet("", "single", "spread", "cover")]
+    [string] $RequireShellGeometryMode = "",
+    [ValidateSet("", "paper-off", "edges-off", "stains-off")]
+    [string] $RequireTextureProbeState = "",
     [switch] $RequireNeutralReaderVisualState,
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
@@ -600,7 +606,8 @@ function Invoke-ReaderDevtoolsProbe {
     param(
         [string] $ProbeName,
         [Parameter(Mandatory = $true)]
-        [string] $OutputFileName
+        [string] $OutputFileName,
+        [string] $SettingsJson = ""
     )
 
     if ([string]::IsNullOrWhiteSpace($ProbeName)) {
@@ -617,6 +624,9 @@ function Invoke-ReaderDevtoolsProbe {
     if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
         $probeArguments += @("--device", $DeviceSerial)
     }
+    if (-not [string]::IsNullOrWhiteSpace($SettingsJson)) {
+        $probeArguments += @("--settings-json", $SettingsJson)
+    }
 
     $previousErrorActionPreference = $ErrorActionPreference
     try {
@@ -632,7 +642,10 @@ function Invoke-ReaderDevtoolsProbe {
     }
 }
 
-Invoke-ReaderDevtoolsProbe -ProbeName $ReaderDevtoolsProbe -OutputFileName "reader-devtools-probe.json"
+Invoke-ReaderDevtoolsProbe `
+    -ProbeName $ReaderDevtoolsProbe `
+    -OutputFileName "reader-devtools-probe.json" `
+    -SettingsJson $ReaderDevtoolsProbeSettingsJson
 
 foreach ($tapSpec in $PostProbeTap) {
     if ($tapSpec -notmatch '^\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$') {
@@ -1165,7 +1178,10 @@ foreach ($postProbeActionEntry in $PostProbeAction) {
     throw "Invalid post-probe action '$postProbeAction'. Use tap:, tapFraction:, tapFractionUntilDescPresent:, tapText:, tapTextWhenPresent:, tapDesc:, tapDescIfPresent:, tapDescWhenPresent:, waitDesc:, tapDescFraction:, swipeDescFraction:, text:, or keyevent:."
 }
 
-Invoke-ReaderDevtoolsProbe -ProbeName $PostActionReaderDevtoolsProbe -OutputFileName "reader-devtools-post-action-probe.json"
+Invoke-ReaderDevtoolsProbe `
+    -ProbeName $PostActionReaderDevtoolsProbe `
+    -OutputFileName "reader-devtools-post-action-probe.json" `
+    -SettingsJson $ReaderDevtoolsProbeSettingsJson
 
 Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $ArtifactDir "screen.png")
 
@@ -1192,6 +1208,202 @@ $readerLogText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-reader.lo
 if ($RequireNativeShellCover -and -not $nativeShellCoverVisible) {
     throw "Reader diagnostics validation failed: native shell cover was not visible. See $ArtifactDir"
 }
+
+function Test-ReaderPositiveRect {
+    param(
+        [object] $Rect
+    )
+
+    if ($null -eq $Rect) {
+        return $false
+    }
+    $width = 0.0
+    $height = 0.0
+    return [double]::TryParse(([string] $Rect.width), [ref] $width) -and
+        [double]::TryParse(([string] $Rect.height), [ref] $height) -and
+        $width -gt 0 -and
+        $height -gt 0
+}
+
+function Assert-ReaderShellGeometryProbe {
+    param(
+        [ValidateSet("", "single", "spread", "cover")]
+        [string] $ExpectedMode = "",
+        [switch] $RequireGeometry,
+        [bool] $NativeShellCoverVisible
+    )
+
+    if (-not $RequireGeometry -and [string]::IsNullOrWhiteSpace($ExpectedMode)) {
+        return
+    }
+
+    $summaryPath = Join-Path $ArtifactDir "reader-shell-geometry-validation.txt"
+    if ($ExpectedMode -eq "cover") {
+        @(
+            "expectedMode=cover",
+            "nativeShellCoverVisible=$NativeShellCoverVisible"
+        ) | Out-File -Encoding utf8 $summaryPath
+        if (-not $NativeShellCoverVisible) {
+            throw "Reader shell-geometry validation failed: expected native cover shell for cover mode. See $summaryPath"
+        }
+        return
+    }
+
+    $probeResults = @()
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-probe.json"
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-post-action-probe.json"
+    $pageBoxResult = $probeResults | Where-Object { $null -ne $_ -and $_.probe -eq "page-box" } | Select-Object -First 1
+    if ($null -eq $pageBoxResult) {
+        @(
+            "expectedMode=$ExpectedMode",
+            "pageBoxProbePresent=false"
+        ) | Out-File -Encoding utf8 $summaryPath
+        throw "Reader shell-geometry validation failed: expected a page-box DevTools probe. See $summaryPath"
+    }
+
+    $mode = [string] $pageBoxResult.shellGeometryMode
+    if ([string]::IsNullOrWhiteSpace($mode) -and $null -ne $pageBoxResult.shellGeometry) {
+        $mode = [string] $pageBoxResult.shellGeometry.mode
+    }
+    $shellRect = $pageBoxResult.rendererShellRect
+    if ($null -eq $shellRect -and $null -ne $pageBoxResult.shellGeometry) {
+        $shellRect = $pageBoxResult.shellGeometry.shellRect
+    }
+    $contentRects = $pageBoxResult.rendererShellContentRects
+    if ($null -eq $contentRects -and $null -ne $pageBoxResult.shellGeometry) {
+        $contentRects = $pageBoxResult.shellGeometry.contentRects
+    }
+    $singleRectValid = Test-ReaderPositiveRect -Rect $contentRects.single
+    $leftRectValid = Test-ReaderPositiveRect -Rect $contentRects.left
+    $rightRectValid = Test-ReaderPositiveRect -Rect $contentRects.right
+    $gutterWidth = 0.0
+    [void] [double]::TryParse(([string] $pageBoxResult.shellGutterWidth), [ref] $gutterWidth)
+
+    @(
+        "expectedMode=$ExpectedMode",
+        "actualMode=$mode",
+        "shellRectValid=$(Test-ReaderPositiveRect -Rect $shellRect)",
+        "singleRectValid=$singleRectValid",
+        "leftRectValid=$leftRectValid",
+        "rightRectValid=$rightRectValid",
+        "shellGutterWidth=$gutterWidth"
+    ) | Out-File -Encoding utf8 $summaryPath
+
+    if (-not (Test-ReaderPositiveRect -Rect $shellRect)) {
+        throw "Reader shell-geometry validation failed: shell rect was missing or empty. See $summaryPath"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedMode) -and $mode -ne $ExpectedMode) {
+        throw "Reader shell-geometry validation failed: expected mode '$ExpectedMode' but got '$mode'. See $summaryPath"
+    }
+    if ($ExpectedMode -eq "spread") {
+        if (-not ($leftRectValid -and $rightRectValid -and $gutterWidth -gt 0)) {
+            throw "Reader shell-geometry validation failed: spread mode requires left/right content rects and a positive gutter. See $summaryPath"
+        }
+    } elseif ($ExpectedMode -eq "single") {
+        if (-not $singleRectValid) {
+            throw "Reader shell-geometry validation failed: single mode requires a single content rect. See $summaryPath"
+        }
+    } elseif (-not ($singleRectValid -or ($leftRectValid -and $rightRectValid))) {
+        throw "Reader shell-geometry validation failed: no readable content rects were reported. See $summaryPath"
+    }
+}
+
+Assert-ReaderShellGeometryProbe `
+    -ExpectedMode $RequireShellGeometryMode `
+    -RequireGeometry:$RequireShellGeometry `
+    -NativeShellCoverVisible $nativeShellCoverVisible
+
+function Assert-ReaderTextureProbeState {
+    param(
+        [ValidateSet("", "paper-off", "edges-off", "stains-off")]
+        [string] $ExpectedState = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExpectedState)) {
+        return
+    }
+
+    $summaryPath = Join-Path $ArtifactDir "reader-texture-state-validation.txt"
+    $probeResults = @()
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-probe.json"
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-post-action-probe.json"
+    $textureResult = $probeResults | Where-Object { $null -ne $_ -and $_.probe -eq "texture-slots" } | Select-Object -First 1
+    if ($null -eq $textureResult) {
+        @(
+            "expectedState=$ExpectedState",
+            "textureSlotsProbePresent=false"
+        ) | Out-File -Encoding utf8 $summaryPath
+        throw "Reader texture-state validation failed: expected a texture-slots DevTools probe. See $summaryPath"
+    }
+
+    function Test-ReaderDisabledTextureOpacity {
+        param(
+            [AllowNull()]
+            [object] $Opacity
+        )
+
+        $opacityText = [string] $Opacity
+        return [string]::IsNullOrWhiteSpace($opacityText) -or $opacityText -eq "0"
+    }
+
+    $paperOpacity = [string] $textureResult.staticTextureLayerOpacity
+    $paperImageSet = [string] $textureResult.staticTextureLayerImageSet
+    $movingPaperOpacity = [string] $textureResult.textureLayerOpacity
+    $borderOpacity = [string] $textureResult.staticBorderLayerOpacity
+    $movingBorderOpacity = [string] $textureResult.borderLayerOpacity
+    $gutterOpacity = [string] $textureResult.staticGutterLayerOpacity
+    $movingGutterOpacity = [string] $textureResult.gutterLayerOpacity
+    $stainOpacity = [string] $textureResult.staticStainLayerOpacity
+    $movingStainOpacity = [string] $textureResult.stainLayerOpacity
+    @(
+        "expectedState=$ExpectedState",
+        "paperOpacity=$paperOpacity",
+        "paperImageSet=$paperImageSet",
+        "movingPaperOpacity=$movingPaperOpacity",
+        "borderOpacity=$borderOpacity",
+        "movingBorderOpacity=$movingBorderOpacity",
+        "gutterOpacity=$gutterOpacity",
+        "movingGutterOpacity=$movingGutterOpacity",
+        "stainOpacity=$stainOpacity",
+        "movingStainOpacity=$movingStainOpacity"
+    ) | Out-File -Encoding utf8 $summaryPath
+
+    if (
+        $ExpectedState -eq "paper-off" -and
+        -not (
+            (
+                (Test-ReaderDisabledTextureOpacity -Opacity $paperOpacity) -or
+                $paperImageSet -eq "False" -or
+                $paperImageSet -eq "false"
+            ) -and
+            (Test-ReaderDisabledTextureOpacity -Opacity $movingPaperOpacity)
+        )
+    ) {
+        throw "Reader texture-state validation failed: paper texture opacity was not disabled. See $summaryPath"
+    }
+    if (
+        $ExpectedState -eq "edges-off" -and
+        -not (
+            (Test-ReaderDisabledTextureOpacity -Opacity $borderOpacity) -and
+            (Test-ReaderDisabledTextureOpacity -Opacity $movingBorderOpacity) -and
+            (Test-ReaderDisabledTextureOpacity -Opacity $gutterOpacity) -and
+            (Test-ReaderDisabledTextureOpacity -Opacity $movingGutterOpacity)
+        )
+    ) {
+        throw "Reader texture-state validation failed: page-edge/gutter opacity was not disabled. See $summaryPath"
+    }
+    if (
+        $ExpectedState -eq "stains-off" -and
+        -not (
+            (Test-ReaderDisabledTextureOpacity -Opacity $stainOpacity) -and
+            (Test-ReaderDisabledTextureOpacity -Opacity $movingStainOpacity)
+        )
+    ) {
+        throw "Reader texture-state validation failed: paper-stain opacity was not disabled. See $summaryPath"
+    }
+}
+
+Assert-ReaderTextureProbeState -ExpectedState $RequireTextureProbeState
 
 if ($RequireNeutralReaderVisualState) {
     Assert-NeutralReaderVisualState -WindowXmlText $windowXmlText
