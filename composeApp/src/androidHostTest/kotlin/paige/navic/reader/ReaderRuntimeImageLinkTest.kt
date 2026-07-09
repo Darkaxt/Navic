@@ -181,7 +181,8 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(controllerText, "nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl")
 		assertContains(controllerText, "shellCoverVisible = !normalizedRequest.nativeShellCoverUrl.isNullOrBlank()")
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeShellCoverView")
-		assertContains(nativeFrameHostText, "setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle)")
+		assertContains(readerRootText, "coverBackdropEnabled = controllerState.chrome.settings.coverBackdropEnabled != false")
+		assertContains(nativeFrameHostText, "setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)")
 		assertContains(webViewHostText, "externalShellCover: Boolean")
 		assertFalse(
 			webViewHostText.contains("nativeShellCoverUrl: String?") ||
@@ -313,7 +314,15 @@ class ReaderRuntimeImageLinkTest {
 
 		assertContains(openRequestText, "nativeShellCoverUrl = shellCoverUrl")
 		assertContains(nativeFrameHostText, "KomikkuReaderNativeShellCoverView")
-		assertContains(nativeFrameHostText, "canvas.drawColor(Color.BLACK)")
+		assertContains(nativeFrameHostText, "coverBackdropEnabled")
+		assertFalse(
+			nativeFrameHostText.contains("canvas.drawColor(Color.BLACK)"),
+			"Native shell cover must not keep a flat black stage behind the foreground cover."
+		)
+		assertContains(nativeFrameHostText, "drawDiffuseCoverBackdrop")
+		assertContains(nativeFrameHostText, "drawNativeBackCoverPlane")
+		assertContains(nativeFrameHostText, "nativeShellCoverForegroundRect")
+		assertContains(nativeFrameHostText, "readerDominantCoverColor")
 		assertContains(nativeFrameHostText, "canvas.drawBitmap")
 		assertFalse(
 			webViewHostText.contains("ReaderSurfaceHost") ||

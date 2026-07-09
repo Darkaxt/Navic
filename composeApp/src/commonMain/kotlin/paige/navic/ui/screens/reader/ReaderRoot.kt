@@ -114,6 +114,7 @@ internal fun KomikkuReaderRoot(
 			shellCoverVisible = controllerState.shellCoverVisible,
 			shellCoverUrl = shellCoverUrl,
 			shellCoverTitle = shellCoverTitle,
+			coverBackdropEnabled = controllerState.chrome.settings.coverBackdropEnabled != false,
 			viewerKey = viewer.key,
 			grayscaleEnabled = controllerState.chrome.settings.grayscaleEnabled == true,
 			invertedColors = controllerState.chrome.settings.invertedColors == true,

@@ -13,6 +13,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	shellCoverVisible: Boolean,
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
+	coverBackdropEnabled: Boolean,
 	viewerKey: ReaderViewerKey,
 	grayscaleEnabled: Boolean,
 	invertedColors: Boolean,

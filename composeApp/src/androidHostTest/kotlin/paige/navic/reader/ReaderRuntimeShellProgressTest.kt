@@ -520,10 +520,16 @@ class ReaderRuntimeShellProgressTest {
 			"private class KomikkuReaderNativeShellCoverView",
 			message = "The shell cover must be an Android view owned by the reader shell, not an HTML page in a second WebView."
 		)
-		assertContains(nativeFrameHostText, "fun setShellCover(coverUrl: String?, title: String)")
+		assertContains(nativeFrameHostText, "fun setShellCover(coverUrl: String?, title: String, coverBackdropEnabled: Boolean)")
 		assertContains(nativeFrameHostText, "readerShellCoverFileFor(")
 		assertContains(nativeFrameHostText, "BitmapFactory.decodeFile")
-		assertContains(nativeFrameHostText, "canvas.drawColor(Color.BLACK)")
+		assertContains(nativeFrameHostText, "coverBackdropEnabled")
+		assertFalse(
+			nativeFrameHostText.contains("canvas.drawColor(Color.BLACK)"),
+			"Native shell cover must not render a flat black stage when the cover-backdrop setting is enabled."
+		)
+		assertContains(nativeFrameHostText, "drawDiffuseCoverBackdrop")
+		assertContains(nativeFrameHostText, "drawNativeBackCoverPlane")
 		assertContains(nativeFrameHostText, "canvas.drawBitmap")
 		assertContains(nativeFrameHostText, "Paint(Paint.ANTI_ALIAS_FLAG")
 		assertFalse(
