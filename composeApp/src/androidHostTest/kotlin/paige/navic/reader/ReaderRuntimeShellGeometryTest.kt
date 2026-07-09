@@ -128,6 +128,19 @@ class ReaderRuntimeShellGeometryTest {
 	}
 
 	@Test
+	fun androidReaderShellContentDocumentsDoNotCoverPaperSurface() {
+		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
+		val documentThemeCss = typographyText.substringAfter("export const readerDocumentThemeCss = settings =>")
+			.substringBefore("\n\nexport const readerContentCss")
+
+		assertContains(documentThemeCss, "html[data-navic-reader-shell-content=\"true\"],")
+		assertContains(documentThemeCss, "html[data-navic-reader-shell-content=\"true\"] body")
+		assertContains(documentThemeCss, "background: transparent !important;")
+		assertContains(documentThemeCss, "background-color: transparent !important;")
+		assertContains(documentThemeCss, "background-image: none !important;")
+	}
+
+	@Test
 	fun androidReaderExposesShellGeometryDiagnostics() {
 		val bridgeText = readerBridgeText()
 

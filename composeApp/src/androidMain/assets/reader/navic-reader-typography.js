@@ -882,6 +882,12 @@ export const readerDocumentThemeCss = settings => {
     background-image: none !important;
     position: relative !important;
   }
+  html[data-navic-reader-shell-content="true"],
+  html[data-navic-reader-shell-content="true"] body {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+  }
   body :not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not(.${overlayClass}) {
     background-color: transparent !important;
   }
