@@ -1783,11 +1783,25 @@ async function runPageBoxProbe(page) {
         return null
       }
     }
-    const readerRoot = document.documentElement
+    const readerRoot = document.body || document.documentElement
     const shellGeometry = parseDatasetJson(readerRoot.dataset.navicReaderShellGeometry || '')
     const rendererShellRect = parseDatasetJson(renderer.dataset.navicReaderShellRect || '')
     const rendererShellContentRects = parseDatasetJson(renderer.dataset.navicReaderShellContentRects || '')
     const contentEntries = Array.from(renderer.getContents?.() || [])
+    const shellContentRectForEntry = entryIndex => {
+      if (!rendererShellContentRects) return null
+      if (rendererShellContentRects.single && !rendererShellContentRects.right) {
+        return { side: 'single', rect: rendererShellContentRects.single }
+      }
+      const number = Number(entryIndex)
+      const side = Number.isFinite(number) && Math.abs(Math.floor(number)) % 2 === 1
+        ? 'right'
+        : 'left'
+      return {
+        side,
+        rect: rendererShellContentRects[side] || rendererShellContentRects.single || null,
+      }
+    }
     const ratio = (part, whole) => {
       const numerator = Number(part)
       const denominator = Number(whole)
@@ -1841,6 +1855,17 @@ async function runPageBoxProbe(page) {
         })
       const firstProseRect = firstProseElement?.getBoundingClientRect?.()
       const firstProseStyle = firstProseElement ? doc.defaultView.getComputedStyle(firstProseElement) : null
+      const expectedContent = shellContentRectForEntry(Number.isFinite(entry?.index) ? entry.index : index)
+      const expectedContentRect = expectedContent?.rect || null
+      const expectedContentCenterX = expectedContentRect
+        ? Number(expectedContentRect.width || 0) / 2
+        : null
+      const firstProseCenterX = firstProseRect
+        ? Number(firstProseRect.left || 0) + Number(firstProseRect.width || 0) / 2
+        : null
+      const centerDeltaPx = Number.isFinite(firstProseCenterX) && Number.isFinite(expectedContentCenterX)
+        ? Number((firstProseCenterX - expectedContentCenterX).toFixed(1))
+        : null
       return {
         index,
         contentDocument,
@@ -1850,6 +1875,20 @@ async function runPageBoxProbe(page) {
         documentElementRect: elementRect ? roundRect(elementRect) : null,
         documentToViewportWidthRatio: elementRect ? ratio(elementRect.width, window.visualViewport?.width || window.innerWidth || 0) : null,
         bodyToDocumentWidthRatio: bodyRect && elementRect ? ratio(bodyRect.width, elementRect.width) : null,
+        readerShellContentAlignment: {
+          side: expectedContent?.side || '',
+          expectedContentRect,
+          expectedContentCenterX: Number.isFinite(expectedContentCenterX)
+            ? Number(expectedContentCenterX.toFixed(1))
+            : null,
+          firstProseCenterX: Number.isFinite(firstProseCenterX)
+            ? Number(firstProseCenterX.toFixed(1))
+            : null,
+          centerDeltaPx,
+          centerDeltaRatio: centerDeltaPx != null && expectedContentRect?.width
+            ? ratio(Math.abs(centerDeltaPx), expectedContentRect.width)
+            : null,
+        },
         transientState: {
           activeOverlayMarkerCount: activeOverlayMarkers.length,
           activeMediaOverlayMarkerCount: activeMediaOverlayMarkers.length,

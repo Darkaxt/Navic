@@ -686,6 +686,7 @@ class ReaderRuntimeAssetsTest {
 			.substringBefore("async function runFontSizeProbe(page)")
 
 		assertContains(pageBoxProbe, "probe: 'page-box'")
+		assertContains(pageBoxProbe, "const readerRoot = document.body || document.documentElement")
 		assertContains(pageBoxProbe, "renderer.getAttribute('max-inline-size')")
 		assertContains(pageBoxProbe, "renderer.getAttribute('max-block-size')")
 		assertContains(pageBoxProbe, "renderer.getAttribute('max-column-count')")
@@ -705,6 +706,10 @@ class ReaderRuntimeAssetsTest {
 		assertContains(pageBoxProbe, "rendererShellContentRects")
 		assertContains(pageBoxProbe, "documentToViewportWidthRatio")
 		assertContains(pageBoxProbe, "bodyToDocumentWidthRatio")
+		assertContains(pageBoxProbe, "readerShellContentAlignment")
+		assertContains(pageBoxProbe, "expectedContentRect")
+		assertContains(pageBoxProbe, "centerDeltaPx")
+		assertContains(pageBoxProbe, "centerDeltaRatio")
 		assertContains(pageBoxProbe, "firstProse")
 		assertContains(pageBoxProbe, "chapterOpening")
 		assertContains(pageBoxProbe, "data-navic-chapter-opening-margin-capped")
