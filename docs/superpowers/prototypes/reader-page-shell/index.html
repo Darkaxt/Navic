@@ -14,7 +14,7 @@
 			--paper-shadow: rgba(43, 24, 11, 0.42);
 			--page-radius: clamp(10px, 0.9vw, 22px);
 			--edge-width: 0.75;
-			--edge-opacity: 0.58;
+			--edge-opacity: 0.46;
 			--edge-rim: 24px;
 			--gutter-width: clamp(18px, 1.7vw, 42px);
 			--stain-opacity: 0.18;
@@ -91,7 +91,7 @@
 					rgba(255, 244, 214, 0) 78%,
 					rgba(94, 55, 22, 0.10) 100%),
 				linear-gradient(rgba(255, 247, 219, 0.28), rgba(92, 54, 22, 0.08)),
-				url("assets/paper-base-05.jpg");
+				url("assets/shell-paper-warm.jpg");
 			background-size: 100% 100%, 100% 100%, cover;
 			background-blend-mode: normal, soft-light, multiply;
 			box-shadow:
@@ -116,7 +116,7 @@
 					rgba(255, 240, 205, 0.10) 11%,
 					rgba(255, 240, 205, 0) 24%),
 				linear-gradient(rgba(255, 247, 219, 0.28), rgba(92, 54, 22, 0.08)),
-				url("assets/paper-base-05.jpg");
+				url("assets/shell-paper-warm.jpg");
 			background-size: 100% 100%, 100% 100%, cover;
 			background-blend-mode: normal, soft-light, multiply;
 			box-shadow:
@@ -186,43 +186,40 @@
 			opacity: var(--edge-opacity);
 			z-index: 6;
 			background-image:
-				linear-gradient(to bottom, rgba(85, 45, 15, 0.44), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
-				linear-gradient(to top, rgba(85, 45, 15, 0.40), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
-				linear-gradient(to right, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.10) 44%, transparent 100%),
-				linear-gradient(to left, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.10) 44%, transparent 100%),
-				radial-gradient(circle at 2% 3%, rgba(93, 53, 20, 0.20), transparent 10%),
-				radial-gradient(circle at 98% 97%, rgba(93, 53, 20, 0.18), transparent 11%);
-			background-position: top, bottom, left, right, center, center;
-			background-size:
-				100% var(--edge-rim),
-				100% var(--edge-rim),
-				var(--edge-rim) 100%,
-				var(--edge-rim) 100%,
-				100% 100%,
-				100% 100%;
+				url("assets/page-edge-rim.png"),
+				url("assets/page-edge-wear.png");
+			background-position: center, center;
+			background-size: 100% 100%, 100% 100%;
+			-webkit-mask:
+				linear-gradient(#000, #000) top / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) bottom / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) left / var(--edge-rim) 100% no-repeat,
+				linear-gradient(#000, #000) right / var(--edge-rim) 100% no-repeat;
+			mask:
+				linear-gradient(#000, #000) top / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) bottom / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) left / var(--edge-rim) 100% no-repeat,
+				linear-gradient(#000, #000) right / var(--edge-rim) 100% no-repeat;
 			mix-blend-mode: multiply;
-			filter: contrast(1.08) saturate(0.88);
+			filter: contrast(1.04) saturate(0.92);
 		}
 
 		.portrait-shell::before {
-			background-image:
-				linear-gradient(to bottom, rgba(85, 45, 15, 0.42), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
-				linear-gradient(to top, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
-				linear-gradient(to left, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.10) 44%, transparent 100%);
-			background-position: top, bottom, right;
-			background-size: 100% var(--edge-rim), 100% var(--edge-rim), var(--edge-rim) 100%;
+			-webkit-mask:
+				linear-gradient(#000, #000) top / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) bottom / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) right / var(--edge-rim) 100% no-repeat;
+			mask:
+				linear-gradient(#000, #000) top / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) bottom / 100% var(--edge-rim) no-repeat,
+				linear-gradient(#000, #000) right / var(--edge-rim) 100% no-repeat;
 		}
 
 		.spread-shell::after,
 		.portrait-shell::after {
 			opacity: var(--stain-opacity);
 			z-index: 2;
-			background-image:
-				radial-gradient(circle at 16% 18%, rgba(107, 67, 26, 0.11), transparent 2.6%),
-				radial-gradient(circle at 72% 15%, rgba(107, 67, 26, 0.08), transparent 2.4%),
-				radial-gradient(circle at 84% 72%, rgba(107, 67, 26, 0.10), transparent 3.2%),
-				radial-gradient(circle at 36% 84%, rgba(107, 67, 26, 0.07), transparent 2.5%),
-				url("assets/paper-stains.png");
+			background-image: url("assets/page-stain-overlay.png");
 			background-size: 100% 100%;
 			mix-blend-mode: multiply;
 		}
@@ -500,7 +497,7 @@
 			<label><input id="paper-stains-toggle" type="checkbox" checked /> Paper stains</label>
 			<label><input id="cover-backdrop-toggle" type="checkbox" checked /> Cover backdrop</label>
 			<label>Edge width <input id="edge-width" type="range" min="0" max="1" step="0.01" value="0.75" /></label>
-			<label>Edge opacity <input id="edge-opacity" type="range" min="0" max="1" step="0.01" value="0.58" /></label>
+			<label>Edge opacity <input id="edge-opacity" type="range" min="0" max="1" step="0.01" value="0.46" /></label>
 		</aside>
 	</main>
 

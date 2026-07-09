@@ -72,12 +72,23 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(html, "--shell-padding")
 		assertContains(html, ".spread-shell")
 		assertContains(html, "url(\"assets/shell-paper-warm.jpg\")")
+		assertContains(html, "url(\"assets/page-edge-wear.png\")")
+		assertContains(html, "url(\"assets/page-edge-rim.png\")")
+		assertContains(html, "url(\"assets/page-stain-overlay.png\")")
 		assertContains(html, "background: transparent")
 		assertContains(html, "object-fit: contain")
 		assertContains(html, ".back-cover-plane")
 		assertContains(html, ".diffuse-cover-backdrop")
 		assertContains(html, "grid-template-columns: minmax(0, 1fr) var(--gutter-width) minmax(0, 1fr)")
 		assertContains(html, "grid-template-columns: var(--gutter-width) minmax(0, 1fr)")
+		assertFalse(
+			html.contains("radial-gradient(circle at 2% 3%"),
+			"Prototype edge wear must not paint visible circular corner dots; those read as holes/windows instead of worn paper."
+		)
+		assertFalse(
+			html.contains("radial-gradient(circle at 98% 97%"),
+			"Prototype edge wear must not paint visible circular corner dots; those read as holes/windows instead of worn paper."
+		)
 		assertTrue(
 			html.indexOf("diffuse-cover-backdrop") < html.indexOf("foreground-cover"),
 			"Cover backdrop must be declared below the foreground cover in the rendered stack."
@@ -338,8 +349,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "readerSurfacePageBorderOverlayBackgroundImage")
 		assertContains(
 			borderOpacity,
-			"return '1'",
-			message = "Border overlay PNGs have low source alpha, so the single border layer needs enough opacity to be visible over paper texture."
+			"return '0.64'",
+			message = "Border overlay PNGs need to stay visible while avoiding the full-opacity framed page look."
+		)
+		assertFalse(
+			borderOpacity.contains("return '1'"),
+			"Full-opacity page edge overlays turn subtle wear into a decorative frame."
 		)
 		assertContains(borderUpdater, "for (const slot of borderOverlaySlots)")
 		assertContains(borderUpdater, "'background-image': readerSurfacePageBorderOverlayBackgroundImage(page.variant)")
@@ -355,7 +370,11 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(borderUpdater, "filter: readerSurfacePageBorderOverlayFilter(settings)")
 		assertContains(helperText, "export const readerSurfacePageBorderOverlayFilter = settings =>")
-		assertContains(helperText, "contrast(1.9) saturate(1.16) brightness(0.94)")
+		assertContains(helperText, "contrast(1.32) saturate(1.08) brightness(0.98)")
+		assertFalse(
+			helperText.contains("contrast(1.9) saturate(1.16) brightness(0.94)"),
+			"Sepia edge overlays must stay softened; high-contrast borders read as framed holes/windows."
+		)
 	}
 
 	@Test
