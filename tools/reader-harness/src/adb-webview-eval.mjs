@@ -16,6 +16,19 @@ const probe = args.get('probe') || 'internal-link-native'
 const localPort = args.get('local-port') || '9223'
 const adbForwardCommand = 'adb forward'
 
+function parseJsonArg(name, fallback = {}) {
+  const text = args.get(name) || ''
+  if (!text.trim()) return fallback
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    throw new Error(`Invalid --${name} JSON: ${error?.message || String(error)}`)
+  }
+}
+
+const probeSettings = parseJsonArg('settings-json')
+const probeSettingsLiteral = JSON.stringify(probeSettings)
+
 function adbArgs(argumentsList) {
   return deviceSerial ? ['-s', deviceSerial, ...argumentsList] : argumentsList
 }
@@ -1762,6 +1775,18 @@ async function runPageBoxProbe(page) {
       throw new Error('Missing Foliate renderer')
     }
     const rendererStyle = getComputedStyle(renderer)
+    const parseDatasetJson = value => {
+      if (!value) return null
+      try {
+        return JSON.parse(value)
+      } catch {
+        return null
+      }
+    }
+    const readerRoot = document.documentElement
+    const shellGeometry = parseDatasetJson(readerRoot.dataset.navicReaderShellGeometry || '')
+    const rendererShellRect = parseDatasetJson(renderer.dataset.navicReaderShellRect || '')
+    const rendererShellContentRects = parseDatasetJson(renderer.dataset.navicReaderShellContentRects || '')
     const contentEntries = Array.from(renderer.getContents?.() || [])
     const ratio = (part, whole) => {
       const numerator = Number(part)
@@ -1895,6 +1920,17 @@ async function runPageBoxProbe(page) {
         width: rendererStyle.width,
         height: rendererStyle.height,
       },
+      shellGeometry,
+      shellGeometryMode: renderer.dataset.navicReaderShellGeometryMode ||
+        readerRoot.dataset.navicReaderShellGeometryMode ||
+        shellGeometry?.mode ||
+        '',
+      shellGutterWidth: Number(renderer.dataset.navicReaderShellGutterWidth ||
+        readerRoot.dataset.navicReaderShellGutterWidth ||
+        shellGeometry?.edgeInsets?.gutter ||
+        0),
+      rendererShellRect,
+      rendererShellContentRects,
       closedShadowRoot: renderer.shadowRoot === null,
       contentRects,
     }
@@ -2429,17 +2465,24 @@ async function runRuntimeStateProbe(page) {
 }
 
 async function runTextureSlotsProbe(page) {
-  return evaluateOnPage(page, `(${async () => {
+  return evaluateOnPage(page, `(${async probeSettings => {
     if (window.NavicReaderBridge?.dispatch) {
+      const settings = { theme: 'sepia', ...(probeSettings || {}) }
       await window.NavicReaderBridge.dispatch({
         type: 'applySettings',
-        settings: { theme: 'sepia' },
+        settings,
       })
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     }
     const staticTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
+    const staticPaperShell = staticTextureLayer?.querySelector?.('[data-navic-static-paper-shell="true"]') || null
+    const staticBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
+    const staticStainLayer = document.querySelector('[data-navic-surface-page-stain-overlay-layer="true"]')
+    const staticGutterLayer = document.querySelector('[data-navic-surface-spread-gutter-overlay-layer="true"]')
     const textureLayer = document.querySelector('[data-navic-moving-page-paper-texture-layer="true"]')
     const borderLayer = document.querySelector('[data-navic-moving-page-border-overlay-layer="true"]')
+    const stainLayer = document.querySelector('[data-navic-moving-page-stain-overlay-layer="true"]')
+    const gutterLayer = document.querySelector('[data-navic-moving-page-spread-gutter-overlay-layer="true"]')
     const textureSlots = Array.from(textureLayer?.querySelectorAll?.('[data-navic-surface-paper-texture-slot]') || [])
       .map(slot => {
         const style = getComputedStyle(slot)
@@ -2470,15 +2513,30 @@ async function runTextureSlotsProbe(page) {
       })
     return {
       probe: 'texture-slots',
+      appliedSettings: probeSettings || {},
       staticTextureLayerPresent: Boolean(staticTextureLayer),
+      staticBorderLayerPresent: Boolean(staticBorderLayer),
+      staticStainLayerPresent: Boolean(staticStainLayer),
+      staticGutterLayerPresent: Boolean(staticGutterLayer),
+      staticPaperShellPresent: Boolean(staticPaperShell),
       textureLayerPresent: Boolean(textureLayer),
       borderLayerPresent: Boolean(borderLayer),
+      stainLayerPresent: Boolean(stainLayer),
+      gutterLayerPresent: Boolean(gutterLayer),
       textureSlotCount: textureSlots.length,
       borderSlotCount: borderSlots.length,
       staticTextureLayerOpacity: staticTextureLayer ? getComputedStyle(staticTextureLayer).opacity : '',
       staticTextureLayerImageSet: staticTextureLayer ? getComputedStyle(staticTextureLayer).backgroundImage !== 'none' : false,
+      staticPaperShellImageSet: staticPaperShell ? getComputedStyle(staticPaperShell).backgroundImage !== 'none' : false,
+      staticPaperShellAsset: staticPaperShell?.dataset?.navicStaticPaperBackingAsset || '',
+      staticPaperShellMode: staticPaperShell?.dataset?.navicStaticPaperBackingShellMode || '',
+      staticBorderLayerOpacity: staticBorderLayer ? getComputedStyle(staticBorderLayer).opacity : '',
+      staticStainLayerOpacity: staticStainLayer ? getComputedStyle(staticStainLayer).opacity : '',
+      staticGutterLayerOpacity: staticGutterLayer ? getComputedStyle(staticGutterLayer).opacity : '',
       textureLayerOpacity: textureLayer ? getComputedStyle(textureLayer).opacity : '',
       borderLayerOpacity: borderLayer ? getComputedStyle(borderLayer).opacity : '',
+      stainLayerOpacity: stainLayer ? getComputedStyle(stainLayer).opacity : '',
+      gutterLayerOpacity: gutterLayer ? getComputedStyle(gutterLayer).opacity : '',
       textureSlots,
       borderSlots,
       surfaceTextureAsset: document.documentElement.dataset.navicSurfacePaperTextureAsset || '',
@@ -2490,7 +2548,7 @@ async function runTextureSlotsProbe(page) {
       pageTitle: document.title,
       pageUrl: window.location.href,
     }
-  }})()`)
+  }})(${probeSettingsLiteral})`)
 }
 
 async function runNativeDragPreviewTextureProbe(page) {

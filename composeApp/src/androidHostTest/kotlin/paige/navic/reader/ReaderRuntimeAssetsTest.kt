@@ -694,6 +694,15 @@ class ReaderRuntimeAssetsTest {
 		assertContains(pageBoxProbe, "closedShadowRoot")
 		assertContains(pageBoxProbe, "rendererRect")
 		assertContains(pageBoxProbe, "contentRects")
+		assertContains(pageBoxProbe, "navicReaderShellGeometry")
+		assertContains(pageBoxProbe, "navicReaderShellGeometryMode")
+		assertContains(pageBoxProbe, "navicReaderShellGutterWidth")
+		assertContains(pageBoxProbe, "navicReaderShellRect")
+		assertContains(pageBoxProbe, "navicReaderShellContentRects")
+		assertContains(pageBoxProbe, "shellGeometry")
+		assertContains(pageBoxProbe, "shellGeometryMode")
+		assertContains(pageBoxProbe, "rendererShellRect")
+		assertContains(pageBoxProbe, "rendererShellContentRects")
 		assertContains(pageBoxProbe, "documentToViewportWidthRatio")
 		assertContains(pageBoxProbe, "bodyToDocumentWidthRatio")
 		assertContains(pageBoxProbe, "firstProse")
@@ -715,6 +724,20 @@ class ReaderRuntimeAssetsTest {
 			pageBoxProbe.contains("createElement"),
 			"Page-box probing must not inject diagnostic DOM into the reader."
 		)
+	}
+
+	@Test
+	fun adbWebViewEvalHelperReportsStaticPaperShellTextureState() {
+		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+		val textureProbe = helperText
+			.substringAfter("async function runTextureSlotsProbe(page)")
+			.substringBefore("async function runNativeDragPreviewTextureProbe(page)")
+
+		assertContains(textureProbe, "data-navic-static-paper-shell")
+		assertContains(textureProbe, "staticPaperShellPresent")
+		assertContains(textureProbe, "staticPaperShellImageSet")
+		assertContains(textureProbe, "staticPaperShellAsset")
+		assertContains(textureProbe, "staticPaperShellMode")
 	}
 
 	@Test
