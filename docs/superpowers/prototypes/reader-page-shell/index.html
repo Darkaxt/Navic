@@ -15,9 +15,10 @@
 			--page-radius: clamp(10px, 0.9vw, 22px);
 			--edge-width: 0.75;
 			--edge-opacity: 0.58;
+			--edge-rim: 24px;
 			--gutter-width: clamp(18px, 1.7vw, 42px);
-			--stain-opacity: 0.32;
-			--texture-opacity: 0.42;
+			--stain-opacity: 0.18;
+			--texture-opacity: 0.62;
 			--content-column: min(62ch, 68%);
 			--shell-inline: min(86vw, 2300px);
 			--shell-block: min(78vh, 1380px);
@@ -76,8 +77,27 @@
 			grid-template-columns: minmax(0, 1fr) var(--gutter-width) minmax(0, 1fr);
 			align-items: stretch;
 			border-radius: calc(var(--page-radius) * 1.25);
-			background: linear-gradient(90deg, rgba(79, 45, 18, 0.65), rgba(50, 31, 16, 0.34));
-			padding: var(--shell-padding);
+			overflow: hidden;
+			isolation: isolate;
+			background-color: var(--paper-base);
+			background-image:
+				linear-gradient(90deg,
+					rgba(92, 53, 19, 0.10) 0%,
+					rgba(255, 244, 214, 0.12) 6%,
+					rgba(255, 244, 214, 0) 22%,
+					rgba(83, 47, 18, 0.08) 48.9%,
+					rgba(35, 20, 9, 0.22) 50%,
+					rgba(255, 238, 192, 0.10) 51.1%,
+					rgba(255, 244, 214, 0) 78%,
+					rgba(94, 55, 22, 0.10) 100%),
+				linear-gradient(rgba(255, 247, 219, 0.28), rgba(92, 54, 22, 0.08)),
+				url("assets/paper-base-05.jpg");
+			background-size: 100% 100%, 100% 100%, cover;
+			background-blend-mode: normal, soft-light, multiply;
+			box-shadow:
+				0 32px 72px rgba(0, 0, 0, 0.42),
+				inset 0 0 0 1px rgba(255, 238, 196, 0.14),
+				inset 0 0 48px rgba(99, 58, 20, 0.10);
 		}
 
 		.portrait-shell {
@@ -86,24 +106,34 @@
 			display: grid;
 			grid-template-columns: var(--gutter-width) minmax(0, 1fr);
 			border-radius: calc(var(--page-radius) * 1.2);
-			padding: var(--shell-padding);
-			background: linear-gradient(90deg, rgba(38, 23, 13, 0.88), rgba(78, 51, 27, 0.24) 5%, transparent 10%);
+			overflow: hidden;
+			isolation: isolate;
+			background-color: var(--paper-base);
+			background-image:
+				linear-gradient(90deg,
+					rgba(46, 27, 11, 0.32) 0%,
+					rgba(80, 49, 19, 0.12) 5%,
+					rgba(255, 240, 205, 0.10) 11%,
+					rgba(255, 240, 205, 0) 24%),
+				linear-gradient(rgba(255, 247, 219, 0.28), rgba(92, 54, 22, 0.08)),
+				url("assets/paper-base-05.jpg");
+			background-size: 100% 100%, 100% 100%, cover;
+			background-blend-mode: normal, soft-light, multiply;
+			box-shadow:
+				0 28px 72px rgba(0, 0, 0, 0.42),
+				-8px 0 20px rgba(31, 17, 5, 0.32),
+				inset 0 0 0 1px rgba(255, 238, 196, 0.14),
+				inset 24px 0 40px rgba(54, 33, 15, 0.20),
+				inset 0 0 58px rgba(100, 63, 25, 0.12);
 		}
 
 		.page {
 			position: relative;
 			isolation: isolate;
 			overflow: hidden;
-			background-color: var(--paper-base);
-			background-image:
-				linear-gradient(rgba(255, 248, 220, 0.12), rgba(95, 55, 23, 0.08)),
-				url("assets/paper-base-05.jpg");
-			background-size: cover, 46%;
-			background-blend-mode: soft-light, multiply;
-			box-shadow:
-				inset 0 0 0 1px rgba(91, 56, 27, 0.16),
-				inset 0 0 calc(60px * var(--edge-width)) rgba(80, 42, 13, calc(0.12 * var(--edge-width))),
-				0 0 0 1px rgba(229, 198, 137, 0.06);
+			z-index: 2;
+			background: transparent;
+			box-shadow: none;
 		}
 
 		.left-page {
@@ -119,41 +149,88 @@
 			border-radius: 0 var(--page-radius) var(--page-radius) 0;
 		}
 
-		#prototype[data-paper-texture="off"] .page {
-			background-image: linear-gradient(rgba(255, 248, 220, 0.1), rgba(95, 55, 23, 0.06));
+		#prototype[data-paper-texture="off"] .spread-shell,
+		#prototype[data-paper-texture="off"] .portrait-shell {
+			background-color: var(--paper-base);
+			background-image:
+				linear-gradient(90deg,
+					rgba(92, 53, 19, 0.10) 0%,
+					rgba(255, 244, 214, 0.12) 6%,
+					rgba(255, 244, 214, 0) 22%,
+					rgba(83, 47, 18, 0.08) 48.9%,
+					rgba(35, 20, 9, 0.20) 50%,
+					rgba(255, 238, 192, 0.08) 51.1%,
+					rgba(255, 244, 214, 0) 78%,
+					rgba(94, 55, 22, 0.10) 100%);
 		}
 
-		.page::before,
-		.page::after {
+		.spread-shell::before,
+		.spread-shell::after,
+		.portrait-shell::before,
+		.portrait-shell::after {
 			content: "";
 			position: absolute;
 			inset: 0;
 			pointer-events: none;
-			z-index: 2;
-		}
-
-		.page::before {
-			opacity: calc(var(--edge-opacity) * var(--edge-width));
-			background-image:
-				url("assets/edge-frame-wear.png"),
-				url("assets/edge-frame-rim.png");
-			background-size: 100% 100%, 100% 100%;
 			background-repeat: no-repeat;
-			background-blend-mode: multiply, screen;
-			filter: contrast(1.25) saturate(0.95);
-			clip-path: inset(calc((1 - var(--edge-width)) * 3.8%) round var(--page-radius));
-		}
-
-		.page::after {
-			opacity: var(--stain-opacity);
-			background-image: url("assets/paper-stains.png");
 			background-size: 100% 100%;
-			background-repeat: no-repeat;
+		}
+
+		.page::before,
+		.page::after {
+			display: none;
+		}
+
+		.spread-shell::before,
+		.portrait-shell::before {
+			opacity: var(--edge-opacity);
+			z-index: 6;
+			background-image:
+				linear-gradient(to bottom, rgba(85, 45, 15, 0.44), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
+				linear-gradient(to top, rgba(85, 45, 15, 0.40), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
+				linear-gradient(to right, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.10) 44%, transparent 100%),
+				linear-gradient(to left, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.10) 44%, transparent 100%),
+				radial-gradient(circle at 2% 3%, rgba(93, 53, 20, 0.20), transparent 10%),
+				radial-gradient(circle at 98% 97%, rgba(93, 53, 20, 0.18), transparent 11%);
+			background-position: top, bottom, left, right, center, center;
+			background-size:
+				100% var(--edge-rim),
+				100% var(--edge-rim),
+				var(--edge-rim) 100%,
+				var(--edge-rim) 100%,
+				100% 100%,
+				100% 100%;
+			mix-blend-mode: multiply;
+			filter: contrast(1.08) saturate(0.88);
+		}
+
+		.portrait-shell::before {
+			background-image:
+				linear-gradient(to bottom, rgba(85, 45, 15, 0.42), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
+				linear-gradient(to top, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.12) 42%, transparent 100%),
+				linear-gradient(to left, rgba(85, 45, 15, 0.38), rgba(111, 68, 24, 0.10) 44%, transparent 100%);
+			background-position: top, bottom, right;
+			background-size: 100% var(--edge-rim), 100% var(--edge-rim), var(--edge-rim) 100%;
+		}
+
+		.spread-shell::after,
+		.portrait-shell::after {
+			opacity: var(--stain-opacity);
+			z-index: 2;
+			background-image:
+				radial-gradient(circle at 16% 18%, rgba(107, 67, 26, 0.11), transparent 2.6%),
+				radial-gradient(circle at 72% 15%, rgba(107, 67, 26, 0.08), transparent 2.4%),
+				radial-gradient(circle at 84% 72%, rgba(107, 67, 26, 0.10), transparent 3.2%),
+				radial-gradient(circle at 36% 84%, rgba(107, 67, 26, 0.07), transparent 2.5%),
+				url("assets/paper-stains.png");
+			background-size: 100% 100%;
 			mix-blend-mode: multiply;
 		}
 
-		#prototype[data-page-edges="off"] .page::before,
-		#prototype[data-paper-stains="off"] .page::after {
+		#prototype[data-page-edges="off"] .spread-shell::before,
+		#prototype[data-page-edges="off"] .portrait-shell::before,
+		#prototype[data-paper-stains="off"] .spread-shell::after,
+		#prototype[data-paper-stains="off"] .portrait-shell::after {
 			display: none;
 		}
 
@@ -162,9 +239,13 @@
 			position: relative;
 			z-index: 3;
 			background:
-				url("assets/gutter-highlight.png") center / 100% 100% no-repeat,
-				url("assets/gutter-shadow.png") center / 100% 100% no-repeat,
-				linear-gradient(90deg, rgba(34, 19, 10, 0.36), rgba(255, 235, 183, 0.16), rgba(31, 18, 10, 0.38));
+				linear-gradient(90deg,
+					rgba(35, 19, 8, 0.32) 0%,
+					rgba(35, 19, 8, 0.14) 28%,
+					rgba(255, 235, 183, 0.10) 50%,
+					rgba(31, 18, 10, 0.16) 72%,
+					rgba(31, 18, 10, 0.34) 100%),
+				linear-gradient(90deg, transparent, rgba(255, 240, 196, 0.18) 48%, transparent 52%);
 			filter: saturate(0.9);
 		}
 
@@ -225,21 +306,20 @@
 			height: min(74vh, 1040px);
 			border-radius: clamp(18px, 1.1vw, 28px);
 			overflow: hidden;
-			background:
-				linear-gradient(90deg, rgba(4, 30, 25, 0.95), rgba(9, 73, 62, 0.56) 50%, rgba(2, 31, 26, 0.9)),
-				var(--cover-tint);
+			isolation: isolate;
+			background: color-mix(in srgb, var(--cover-tint) 76%, #120d08);
 		}
 
 		.diffuse-cover-backdrop {
 			position: absolute;
-			inset: -9%;
+			inset: 0;
 			z-index: 0;
 			background:
-				linear-gradient(90deg, rgba(0, 0, 0, 0.56), transparent 32%, rgba(0, 0, 0, 0.48)),
+				linear-gradient(90deg, rgba(0, 0, 0, 0.58), rgba(0, 0, 0, 0.10) 48%, rgba(0, 0, 0, 0.46)),
 				url("assets/sample-cover.jpg") center / cover no-repeat;
-			filter: blur(30px) saturate(1.12);
-			transform: scale(1.08);
-			opacity: 0.66;
+			filter: blur(34px) saturate(1.10);
+			transform: scale(1.12);
+			opacity: 0.62;
 		}
 
 		.back-cover-plane {
@@ -251,16 +331,16 @@
 			height: 78%;
 			border-radius: clamp(16px, 1.1vw, 28px);
 			background:
-				radial-gradient(circle at 22% 18%, rgba(255, 245, 201, 0.14), transparent 24%),
-				radial-gradient(circle at 78% 84%, rgba(28, 16, 8, 0.28), transparent 32%),
-				linear-gradient(120deg, rgba(255, 248, 219, 0.12), transparent 34%, rgba(0, 0, 0, 0.28)),
-				url("assets/paper-stains.png") center / 112% 112% no-repeat,
+				linear-gradient(120deg, rgba(255, 248, 219, 0.11), transparent 34%, rgba(0, 0, 0, 0.22)),
+				radial-gradient(circle at 20% 18%, rgba(255, 245, 201, 0.10), transparent 22%),
+				radial-gradient(circle at 82% 86%, rgba(28, 16, 8, 0.20), transparent 30%),
+				linear-gradient(rgba(255, 245, 210, 0.12), rgba(0, 0, 0, 0.08)),
 				color-mix(in srgb, var(--cover-tint) 76%, #5b3e22);
 			box-shadow:
 				inset 0 0 0 1px rgba(245, 218, 168, 0.12),
 				inset 0 0 70px rgba(0, 0, 0, 0.28),
 				0 28px 72px rgba(0, 0, 0, 0.34);
-			background-blend-mode: screen, multiply, normal, multiply, normal;
+			background-blend-mode: screen, screen, multiply, soft-light, normal;
 			opacity: 0.82;
 		}
 
@@ -460,12 +540,19 @@
 
 		const edgeWidth = document.getElementById('edge-width')
 		const edgeOpacity = document.getElementById('edge-opacity')
-		edgeWidth?.addEventListener('input', () => {
+		const updateEdgeWidth = () => {
+			if (!edgeWidth) return
+			const rimPx = 8 + Number(edgeWidth.value) * 28
 			document.documentElement.style.setProperty('--edge-width', edgeWidth.value)
+			document.documentElement.style.setProperty('--edge-rim', `${rimPx.toFixed(1)}px`)
+		}
+		edgeWidth?.addEventListener('input', () => {
+			updateEdgeWidth()
 		})
 		edgeOpacity?.addEventListener('input', () => {
 			document.documentElement.style.setProperty('--edge-opacity', edgeOpacity.value)
 		})
+		updateEdgeWidth()
 	</script>
 </body>
 </html>
