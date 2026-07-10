@@ -12,6 +12,7 @@ export const ReaderPageNumberLayerSelector = '[data-navic-page-number-layer="tru
 export const ReaderShellCoverLayerSelector = '[data-navic-shell-cover-layer="true"]'
 export const ReaderThemeLight = 'light'
 export const ReaderThemeSepia = 'sepia'
+export const ReaderThemeAgedPaper = 'aged-paper'
 export const ScrollEdgeTurnSwipeThreshold = 60
 export const ScrollEdgeTurnSlop = 2
 export const FixedLayoutSurfaceSwipeThreshold = 56
@@ -126,6 +127,11 @@ export const ReaderThemePalettes = {
     foreground: '#2b2118',
     accent: '#8a5a2b',
   },
+  'aged-paper': {
+    background: '#ead9ae',
+    foreground: '#261b10',
+    accent: '#8a5526',
+  },
   dusk: {
     background: '#252236',
     foreground: '#ece7f6',
@@ -151,6 +157,14 @@ export const readerThemeKey = theme =>
 
 export const readerThemePalette = theme =>
   ReaderThemePalettes[readerThemeKey(theme)]
+
+export const readerThemeUsesSepiaImageTreatment = theme => {
+  const key = readerThemeKey(theme)
+  return key === ReaderThemeSepia || key === ReaderThemeAgedPaper
+}
+
+export const readerThemeUsesWarmPaperTreatment = theme =>
+  readerThemeKey(theme) === ReaderThemeAgedPaper
 
 export const readerFlowMode = settings => {
   if (settings?.flowMode === ReaderFlowPagedVertical) return ReaderFlowPagedVertical

@@ -146,6 +146,17 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun agedPaperIntensityUsesTheSharedWarmPaperSemantic() {
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+
+		assertContains(helperText, "readerThemeUsesWarmPaperTreatment")
+		assertFalse(
+			helperText.contains("ReaderThemeSepia ||") || helperText.contains("ReaderThemeAgedPaper ||"),
+			"Paper composition must not duplicate warm-theme pair checks."
+		)
+	}
+
+	@Test
 	fun androidReaderPackagesHighResolutionPageEffectOverlayVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)

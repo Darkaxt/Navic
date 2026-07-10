@@ -3,7 +3,6 @@ import {
   ReaderFlowScrolledGaps,
   ReaderFontSourceCustom,
   ReaderFontSourceNavic,
-  ReaderThemeSepia,
   readerCssQuotedString,
   readerCustomFontFamily,
   readerCustomFontUrl,
@@ -13,6 +12,7 @@ import {
   readerFontSource,
   readerThemeKey,
   readerThemePalette,
+  readerThemeUsesSepiaImageTreatment,
 } from './navic-reader-settings-core.js'
 import {
   overlayClass,
@@ -885,7 +885,7 @@ export const readerDocumentThemeCss = settings => {
     background-color: transparent !important;
     background-image: none !important;
   }
-  ${readerThemeKey(settings?.theme) === ReaderThemeSepia ? `
+  ${readerThemeUsesSepiaImageTreatment(settings?.theme) ? `
   img:not([data-navic-sepia-overlay="off"]) {
     mix-blend-mode: multiply;
   }

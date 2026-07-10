@@ -49,6 +49,7 @@ export {
   ReaderTapZoneLShaped,
   ReaderTapZoneOverlayLayerSelector,
   ReaderTapZoneRightLeft,
+  ReaderThemeAgedPaper,
   ReaderThemeLight,
   ReaderThemeSepia,
   ScrollEdgeTurnSlop,
@@ -61,5 +62,7 @@ export {
   readerFoliateFlow,
   readerFontSource,
   readerThemeKey,
-  readerThemePalette
+  readerThemePalette,
+  readerThemeUsesSepiaImageTreatment,
+  readerThemeUsesWarmPaperTreatment
 } from './navic-reader-settings-core.js'

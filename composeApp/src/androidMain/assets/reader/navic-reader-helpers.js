@@ -45,6 +45,7 @@ import {
   readerFontSource,
   readerThemeKey,
   readerThemePalette,
+  readerThemeUsesWarmPaperTreatment,
 } from './navic-reader-settings-core.js'
 import {
   closestElement,
@@ -713,6 +714,7 @@ export {
 
 export const readerSurfacePaperTextureOpacity = settings => {
   if (settings?.paperTextureEnabled === false) return '0'
+  if (readerThemeUsesWarmPaperTreatment(settings?.theme)) return '0.58'
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
@@ -728,6 +730,7 @@ export const readerSurfacePaperTextureOpacity = settings => {
 
 export const readerSurfacePageBorderOverlayOpacity = settings => {
   if (settings?.pageEdgesEnabled === false) return '0'
+  if (readerThemeUsesWarmPaperTreatment(settings?.theme)) return '0.72'
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
@@ -743,6 +746,7 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
 
 export const readerSurfacePageStainOverlayOpacity = settings => {
   if (settings?.paperStainsEnabled === false) return '0'
+  if (readerThemeUsesWarmPaperTreatment(settings?.theme)) return '0.62'
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
@@ -758,6 +762,7 @@ export const readerSurfacePageStainOverlayOpacity = settings => {
 
 export const readerSurfaceSpreadGutterOverlayOpacity = settings => {
   if (settings?.pageEdgesEnabled === false) return '0'
+  if (readerThemeUsesWarmPaperTreatment(settings?.theme)) return '0.92'
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return '0'
@@ -772,6 +777,9 @@ export const readerSurfaceSpreadGutterOverlayOpacity = settings => {
 }
 
 export const readerSurfacePageBorderOverlayFilter = settings => {
+  if (readerThemeUsesWarmPaperTreatment(settings?.theme)) {
+    return 'contrast(1.42) saturate(1.12) brightness(0.96)'
+  }
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return 'none'
@@ -786,6 +794,9 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
 }
 
 export const readerSurfacePageStainOverlayFilter = settings => {
+  if (readerThemeUsesWarmPaperTreatment(settings?.theme)) {
+    return 'contrast(1.35) saturate(1.05) brightness(0.98)'
+  }
   switch (readerThemeKey(settings?.theme)) {
     case 'black':
       return 'none'
@@ -874,6 +885,7 @@ export const readerPageNumberLabel = pagePosition => {
 }
 
 export const readerPageNumberBlendMode = settings => {
+  if (readerThemeUsesWarmPaperTreatment(settings?.theme)) return 'multiply'
   switch (readerThemeKey(settings?.theme)) {
     case ReaderThemeSepia:
     case ReaderThemeLight:

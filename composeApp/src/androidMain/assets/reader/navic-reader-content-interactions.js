@@ -40,7 +40,6 @@ import {
   ReaderTapZoneDefault,
   ReaderTapZoneDisabled,
   ReaderThemeLight,
-  ReaderThemeSepia,
   ScrollEdgeTurnSlop,
   ScrollEdgeTurnSwipeThreshold,
   optionalNumber,
@@ -50,7 +49,8 @@ import {
   readerFoliateFlow,
   readerFontSource,
   readerThemeKey,
-  readerThemePalette
+  readerThemePalette,
+  readerThemeUsesSepiaImageTreatment
 } from './navic-reader-settings.js'
 import {
   readerRoot,
@@ -1141,7 +1141,7 @@ function classifyReaderLinks(doc) {
 
 function toggleSepiaImageOverlayFromEvent(doc, event, mediaTapTarget = null) {
   if (event.defaultPrevented || event.button > 0) return false
-  if (readerThemeKey(this.readerSettings?.theme) !== ReaderThemeSepia) return false
+  if (!readerThemeUsesSepiaImageTreatment(this.readerSettings?.theme)) return false
   if (!mediaTapTarget) {
     const anchor = closestElement(event.target, 'a[href]')
     mediaTapTarget = readerMediaTapTargetForEvent(doc, event, anchor)

@@ -298,11 +298,25 @@ class ReaderRuntimeSettingsBridgeTest {
 	@Test
 	fun androidReaderExposesExpandedThemePalettes() {
 		val bridgeText = readerBridgeText()
+		val settingsCore = readerAssetRoot().resolve("navic-reader-settings-core.js").readText()
+		val contentInteractions = readerAssetRoot().resolve("navic-reader-content-interactions.js").readText()
+		val typography = readerAssetRoot().resolve("navic-reader-typography.js").readText()
 		val ebooksSettingsText = settingsFile("EbooksScreen.kt").readText()
 		val searchSettingsText = settingsSearchSourceText()
 
 		assertContains(bridgeText, "ReaderThemePalettes")
 		assertContains(bridgeText, "sepia: {")
+		assertContains(settingsCore, "export const ReaderThemeAgedPaper = 'aged-paper'")
+		assertContains(settingsCore, "'aged-paper': {")
+		assertContains(settingsCore, "readerThemeUsesWarmPaperTreatment")
+		assertContains(settingsCore, "readerThemeUsesSepiaImageTreatment")
+		assertContains(contentInteractions, "readerThemeUsesSepiaImageTreatment")
+		assertContains(typography, "readerThemeUsesSepiaImageTreatment")
+		assertFalse(
+			contentInteractions.contains("theme === ReaderThemeSepia ||") ||
+				typography.contains("theme === ReaderThemeSepia ||"),
+			"Warm reader themes must share semantic helpers instead of repeating Sepia/Aged Paper pairs."
+		)
 		assertContains(bridgeText, "dusk: {")
 		assertContains(bridgeText, "black: {")
 		assertContains(bridgeText, "--reader-accent")
