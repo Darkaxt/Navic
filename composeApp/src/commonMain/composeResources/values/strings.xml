@@ -214,6 +214,7 @@
 	<string name="subtitle_now_playing_up_next_artwork">Show cover artwork beside upcoming songs</string>
 	<string name="subtitle_now_playing_up_next_count">Choose how many upcoming songs to show</string>
 	<string name="subtitle_now_playing_toolbar_position">Choose where the Now Playing toolbar appears, or hide it for a cleaner player</string>
+	<string name="subtitle_now_playing_screen_on_mode">Expanded Now Playing only</string>
 	<string name="subtitle_mini_player_queue_action">Open the Queue directly from the mini player</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
 	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
@@ -813,6 +814,10 @@
 	<string name="info_stop_monitoring_artist_confirmation">Stop monitoring %1$s in Aurral?</string>
 
 	<string name="option_now_playing_toolbar_position">Toolbar position</string>
+	<string name="option_now_playing_screen_on_mode">Keep screen on</string>
+	<string name="option_now_playing_screen_on_off">Off</string>
+	<string name="option_now_playing_screen_on_playing_charging">While playing and charging</string>
+	<string name="option_now_playing_screen_on_playing">While playing</string>
 	<string name="option_position_top">Top</string>
 	<string name="option_position_bottom">Bottom</string>
 	<string name="option_position_hidden">Hidden</string>
