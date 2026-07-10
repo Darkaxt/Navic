@@ -103,7 +103,33 @@ class AurralRepository(
 	}
 
 	suspend fun refreshAlbumRequests(): Result<List<AurralAlbumRequest>> =
-		getServiceStatus().map { status -> status.acquisitionQueue.map { it.toAlbumRequest() } }
+		getAcquisitionRequests()
+
+	suspend fun getAcquisitionRequests(): Result<List<AurralAlbumRequest>> {
+		if (!preferenceManager.aurralEnabled) {
+			localState.clearAlbumRequests()
+			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
+		}
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) {
+			localState.clearAlbumRequests()
+			return Result.failure(IllegalStateException(baseUrlError))
+		}
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: run {
+				localState.clearAlbumRequests()
+				return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+			}
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			apiClient.fetchAlbumRequests(baseUrl, requestHeaders)
+		}.onSuccess { requests ->
+			localState.setAlbumRequests(requests)
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral acquisition requests failed", error)
+		}.recordAurralAvailability()
+	}
 
 	suspend fun getActivityStatus(): Result<AurralServiceStatus> {
 		if (!preferenceManager.aurralEnabled) {
@@ -161,6 +187,82 @@ class AurralRepository(
 
 	suspend fun getLibraryDiscovery(): Result<AurralDiscoverySummary> =
 		getDiscovery(hydrateMissingImages = false)
+
+	suspend fun getDiscoveryBase(): Result<AurralDiscoverySummary> {
+		if (!preferenceManager.aurralEnabled) return Result.success(AurralDiscoverySummary())
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			cachedAurralPayload<AurralDiscoverySummary>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.Discovery,
+				path = "summary-base",
+				operation = "Aurral base discovery"
+			) {
+				apiClient.fetchDiscoveryBase(baseUrl, requestHeaders)
+			}
+				.let { summary ->
+					localState.withLibraryArtists(
+						discovery = summary,
+						libraryArtists = getCachedLibraryArtists(baseUrl, requestHeaders)
+					)
+				}
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral base discovery failed", error)
+		}
+	}
+
+	suspend fun getDiscoveryRecentlyAdded(): Result<List<AurralDiscoverArtist>> {
+		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			val recentlyAdded = cachedAurralPayload<List<AurralDiscoverArtist>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.Discovery,
+				path = "recently-added",
+				operation = "Aurral recently added artists"
+			) {
+				apiClient.fetchRecentlyAddedArtists(baseUrl, requestHeaders)
+			}
+			localState.withLibraryArtists(
+				discovery = AurralDiscoverySummary(recentlyAdded = recentlyAdded),
+				libraryArtists = getCachedLibraryArtists(baseUrl, requestHeaders)
+			).recentlyAdded
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral recently added discovery failed", error)
+		}
+	}
+
+	suspend fun getDiscoveryRecentReleases(): Result<List<AurralAlbumSearchItem>> {
+		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			cachedAurralPayload<List<AurralAlbumSearchItem>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.Discovery,
+				path = "recent-releases",
+				operation = "Aurral recent releases"
+			) {
+				apiClient.fetchRecentReleases(baseUrl, requestHeaders)
+			}
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral recent releases discovery failed", error)
+		}
+	}
 
 	suspend fun refreshLibraryArtistMonitorStates(): Result<Map<String, Boolean?>> {
 		if (!preferenceManager.aurralEnabled) {
@@ -430,6 +532,49 @@ class AurralRepository(
 			}
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist core enrichment failed for $artistName", error)
+		}
+	}
+
+	suspend fun getArtistMonitoring(artist: DomainArtist): Result<Boolean?> {
+		if (!preferenceManager.aurralEnabled) return Result.success(null)
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+			?: return Result.success(null)
+		val directArtistMbid = artist.musicBrainzId?.trim()?.takeIf { it.isNotEmpty() }
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) return Result.failure(IllegalStateException(baseUrlError))
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return Result.failure(IllegalStateException(AURRAL_BASE_URL_REQUIRED_MESSAGE))
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			val resolvedArtist = resolveArtistForEnrichment(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = directArtistMbid,
+				artistName = artistName
+			) ?: return@runCatching null
+			getCachedLibraryArtistMonitoring(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = resolvedArtist.artistMbid,
+				artistName = resolvedArtist.artistName
+			) ?: apiClient.fetchLibraryArtistMonitoring(
+				baseUrl = baseUrl,
+				requestHeaders = requestHeaders,
+				artistMbid = resolvedArtist.artistMbid
+			).also { monitored ->
+				monitored?.let {
+					rememberLibraryArtistMonitoring(
+						baseUrl = baseUrl,
+						requestHeaders = requestHeaders,
+						artistMbid = resolvedArtist.artistMbid,
+						artistName = resolvedArtist.artistName,
+						monitored = it
+					)
+				}
+			}
+		}.onFailure { error ->
+			Logger.w(TAG, "Aurral artist monitoring lookup failed for $artistName", error)
 		}
 	}
 

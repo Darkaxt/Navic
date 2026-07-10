@@ -451,9 +451,9 @@ class ArtistDetailViewModel(
 						enrichment = cachedEnrichment,
 						loading = true
 					)
-				}
+			}
 			val discoveryDeferred = async {
-				aurralRepository.getDiscovery(hydrateMissingImages = false).getOrNull()
+				aurralRepository.getDiscoveryBase().getOrNull()
 			}
 			val coreEnrichmentResultsByMbid = mutableMapOf<String, Result<AurralArtistEnrichment?>>()
 			suspend fun coreEnrichmentResultFor(aurralArtist: DomainArtist): Result<AurralArtistEnrichment?> {

@@ -63,6 +63,8 @@ import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralAcquisitionProgress
+import paige.navic.domain.models.AurralAlbumRequest
+import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralReleaseGroup
@@ -214,44 +216,66 @@ fun AurralMissingAlbumScreen(route: Screen.AurralMissingAlbum) {
 			return@LaunchedEffect
 		}
 
-		val enrichmentResult = withContext(Dispatchers.IO) {
-			aurralRepository.getArtistEnrichment(localArtist)
-		}
-		if (enrichmentResult.isSuccess) {
-			val enrichment = enrichmentResult.getOrNull()
-			val refreshedReleaseGroup = enrichment
-				?.releaseGroups
-				?.firstOrNull { it.id == releaseGroup.id }
-				?: releaseGroup
-			val coverUrl = route.coverUrl ?: refreshedReleaseGroup.coverUrl ?: withContext(Dispatchers.IO) {
-				aurralRepository.getReleaseGroupCoverImageUrl(
-					releaseGroup = refreshedReleaseGroup,
-					artistName = localArtist.name
-				).getOrNull()
+		launch {
+			withContext(Dispatchers.IO) {
+				aurralRepository.getArtistCoreEnrichment(localArtist)
 			}
-			state = state.copy(
-				artist = localArtist,
-				coverUrl = coverUrl,
-				previewTracks = enrichment
-					?.let { aurralPreviewTracksForReleaseGroup(refreshedReleaseGroup, it.previewTracks) }
-					.orEmpty(),
-				progress = enrichment?.let {
-					aurralAlbumAcquisitionProgress(
-						albumMusicBrainzId = refreshedReleaseGroup.id,
-						albumName = refreshedReleaseGroup.title,
-						artistName = localArtist.name,
-						requests = it.requests
+				.onSuccess { enrichment ->
+					val refreshedReleaseGroup = enrichment
+						?.releaseGroups
+						?.firstOrNull { it.id == releaseGroup.id }
+						?: releaseGroup
+					state = state.withCoreReleaseGroup(
+						releaseGroup = refreshedReleaseGroup,
+						route = route
 					)
-				} ?: state.progress,
-				loading = false,
-				error = null
-			)
-		} else {
-			state = state.copy(
-				artist = localArtist,
-				loading = false,
-				error = enrichmentResult.exceptionOrNull()
-			)
+					if (enrichment == null) return@onSuccess
+					val resolvedArtist = enrichment.toResolvedArtist(localArtist)
+					launch {
+						withContext(Dispatchers.IO) {
+							aurralRepository.getArtistAlbumRequests(resolvedArtist)
+						}
+							.onSuccess { requests ->
+								state = state.withAlbumRequests(
+									releaseGroup = refreshedReleaseGroup,
+									requests = requests
+								)
+							}
+					}
+					launch {
+						withContext(Dispatchers.IO) {
+							aurralRepository.getArtistPreviewTracks(resolvedArtist)
+						}
+							.onSuccess { previewTracks ->
+								state = state.withPreviewTracks(
+									releaseGroup = refreshedReleaseGroup,
+									previewTracks = previewTracks
+								)
+							}
+					}
+					if (state.coverUrl.isNullOrBlank()) {
+						launch {
+							withContext(Dispatchers.IO) {
+								aurralRepository.getReleaseGroupCoverImageUrl(
+									releaseGroup = refreshedReleaseGroup,
+									artistName = localArtist.name
+								)
+							}
+								.onSuccess { coverUrl ->
+									if (!coverUrl.isNullOrBlank()) {
+										state = state.copy(coverUrl = coverUrl)
+									}
+								}
+						}
+					}
+				}
+				.onFailure { error ->
+					state = state.copy(
+						artist = localArtist,
+						loading = false,
+						error = error
+					)
+				}
 		}
 	}
 
@@ -537,6 +561,48 @@ private fun AurralMissingAlbumActions(
 			)
 		}
 	}
+}
+
+private fun AurralMissingAlbumUiState.withCoreReleaseGroup(
+	releaseGroup: AurralReleaseGroup,
+	route: Screen.AurralMissingAlbum
+): AurralMissingAlbumUiState =
+	copy(
+		coverUrl = coverUrl ?: route.coverUrl ?: releaseGroup.coverUrl,
+		loading = false,
+		error = null
+	)
+
+private fun AurralMissingAlbumUiState.withAlbumRequests(
+	releaseGroup: AurralReleaseGroup,
+	requests: List<AurralAlbumRequest>
+): AurralMissingAlbumUiState =
+	copy(
+		progress = aurralAlbumAcquisitionProgress(
+			albumMusicBrainzId = releaseGroup.id,
+			albumName = releaseGroup.title,
+			artistName = artist.name,
+			requests = requests
+		) ?: progress
+	)
+
+private fun AurralMissingAlbumUiState.withPreviewTracks(
+	releaseGroup: AurralReleaseGroup,
+	previewTracks: List<AurralPreviewTrack>
+): AurralMissingAlbumUiState =
+	copy(
+		previewTracks = aurralPreviewTracksForReleaseGroup(releaseGroup, previewTracks)
+	)
+
+private fun AurralArtistEnrichment.toResolvedArtist(fallback: DomainArtist): DomainArtist {
+	val resolvedName = artistName.trim().takeIf { it.isNotEmpty() } ?: fallback.name
+	val resolvedMbid = artistMbid.trim().takeIf { it.isNotEmpty() }
+	return DomainArtist(
+		id = resolvedMbid?.let { "aurral-$it" } ?: fallback.id,
+		name = resolvedName,
+		musicBrainzId = resolvedMbid ?: fallback.musicBrainzId,
+		artistImageUrl = fallback.artistImageUrl
+	)
 }
 
 private data class AurralMissingAlbumUiState(

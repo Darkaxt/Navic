@@ -1205,6 +1205,58 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistMonitoringUsesFocusedLookupWithoutFullEnrichmentFetch(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond"))
+			),
+			libraryArtists = listOf(AurralDiscoverArtist(id = "artist-mbid", name = "Bond", monitored = true)),
+			libraryArtistMonitoring = false
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		repository.getLibraryDiscovery().getOrThrow()
+		val monitored = repository.getArtistMonitoring(
+			DomainArtist(id = "bond", name = "BOND", musicBrainzId = "artist-mbid")
+		).getOrThrow()
+
+		assertEquals(true, monitored)
+		assertEquals(emptyList(), apiClient.libraryArtistMonitoringRequests)
+		assertEquals(emptyList(), apiClient.artistEnrichmentRequests)
+		assertEquals(emptyList(), apiClient.artistCoreEnrichmentRequests)
+	}
+
+	@Test
+	fun repositoryAlbumRequestRefreshUsesFocusedRequestEndpointWithoutFullServiceStatus(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			albumRequests = listOf(
+				AurralAlbumRequest(
+					albumMbid = "album-mbid",
+					albumName = "Album",
+					artistMbid = "artist-mbid",
+					artistName = "Artist",
+					status = "requested"
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val requests = repository.refreshAlbumRequests().getOrThrow()
+
+		assertEquals("requested", requests.single().status)
+		assertEquals(listOf("https://aurral.example.com"), apiClient.albumRequestBaseUrls)
+		assertEquals(emptyList(), apiClient.statusBaseUrls)
+	}
+
+	@Test
 	fun repositoryArtistDetailRefreshesFreshCachedSectionsFromAurral(): Unit = runBlocking {
 		val nowMillis = 10_000L
 		val metadataCache = RecordingAurralMetadataCache()

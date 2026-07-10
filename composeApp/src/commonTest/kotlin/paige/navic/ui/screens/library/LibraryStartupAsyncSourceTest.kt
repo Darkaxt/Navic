@@ -182,6 +182,25 @@ class LibraryStartupAsyncSourceTest {
 	}
 
 	@Test
+	fun artistDetailAurralDiscoveryIdentityLookupUsesBaseDiscovery() {
+		val source = commonMain(
+			"paige/navic/ui/screens/artist/viewmodels/ArtistDetailViewModel.kt"
+		)
+		val start = source.indexOf("private fun loadAurralEnrichment(")
+		val end = source.indexOf("private fun applyAurralEnrichmentSnapshot", start)
+		val loadAurralEnrichment = source.substring(start, end)
+
+		assertTrue(
+			"getDiscoveryBase()" in loadAurralEnrichment,
+			"Artist detail should use base Aurral discovery for identity candidates and recommendations."
+		)
+		assertFalse(
+			"getDiscovery(hydrateMissingImages = false)" in loadAurralEnrichment,
+			"Artist detail identity lookup must not wait for aggregate discovery optional sections."
+		)
+	}
+
+	@Test
 	fun albumAurralStatusRefreshRunsOffTheUiDispatcher() {
 		val source = commonMain(
 			"paige/navic/ui/screens/album/viewmodels/AlbumListViewModel.kt"
@@ -290,9 +309,9 @@ class LibraryStartupAsyncSourceTest {
 			"refreshDiscovery already loaded the requested discovery mode; service status must not immediately re-run the heavier hydrated discovery path."
 		)
 		assertTrue(
-			"refreshDiscovery: Boolean = true" in source &&
+			"refreshDiscovery: Boolean = false" in source &&
 				"if (refreshDiscovery) {" in source,
-			"Service status may refresh discovery for status-only screens, but Library's lightweight discovery request must be able to opt out."
+			"Service status should be cheap by default, with discovery refresh remaining an explicit opt-in."
 		)
 	}
 
@@ -339,6 +358,117 @@ class LibraryStartupAsyncSourceTest {
 				"Aurral detail screens read local artist/album tables during load; those DAO reads must run off the UI dispatcher."
 			)
 		}
+	}
+
+	@Test
+	fun aurralArtistPagePublishesFirstResolvedFacetsWithoutFullEnrichmentGate() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralArtistScreen.kt")
+		val start = source.indexOf("LaunchedEffect(route, configured)")
+		val end = source.indexOf("val monitorWaitingMessage", start)
+		val loadBlock = source.substring(start, end)
+		val monitoringFetch = loadBlock.indexOf("getArtistMonitoring(artist)")
+		val coreFetch = loadBlock.indexOf("getArtistCoreEnrichment(artist)")
+		val corePublish = loadBlock.indexOf("withCoreEnrichment(")
+		val requestRefresh = loadBlock.indexOf("getArtistAlbumRequests(resolvedArtist)")
+		val previewRefresh = loadBlock.indexOf("getArtistPreviewTracks(resolvedArtist)")
+		val similarRefresh = loadBlock.indexOf("getArtistSimilarArtists(resolvedArtist)")
+
+		assertFalse(
+			"getArtistEnrichment(" in loadBlock,
+			"Aurral artist page must not wait for the combined full enrichment payload before publishing page state."
+		)
+		assertTrue(
+			monitoringFetch >= 0 && monitoringFetch < coreFetch,
+			"Aurral artist monitoring should start as an independent focused lookup before profile enrichment sections."
+		)
+		assertTrue(
+			coreFetch >= 0 && corePublish > coreFetch,
+			"Aurral artist page must publish the core profile/release rows as soon as the core enrichment resolves."
+		)
+		assertTrue(
+			requestRefresh > corePublish && previewRefresh > corePublish && similarRefresh > corePublish,
+			"Aurral artist requests, preview tracks, and similar artists should refresh independently after the core profile renders."
+		)
+	}
+
+	@Test
+	fun aurralMissingAlbumPagePublishesAlbumIdentityWithoutFullEnrichmentGate() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt")
+		val start = source.indexOf("LaunchedEffect(route, configured)")
+		val end = source.indexOf("val aurralMissingAlbumIntegrationIndicators", start)
+		val loadBlock = source.substring(start, end)
+		val coreFetch = loadBlock.indexOf("getArtistCoreEnrichment(localArtist)")
+		val corePublish = loadBlock.indexOf("withCoreReleaseGroup(")
+		val requestRefresh = loadBlock.indexOf("getArtistAlbumRequests(resolvedArtist)")
+		val previewRefresh = loadBlock.indexOf("getArtistPreviewTracks(resolvedArtist)")
+		val coverRefresh = loadBlock.indexOf("getReleaseGroupCoverImageUrl(")
+
+		assertFalse(
+			"getArtistEnrichment(" in loadBlock,
+			"Aurral missing-album page must not block album identity, cover seed, or request progress on full artist enrichment."
+		)
+		assertTrue(
+			coreFetch >= 0 && corePublish > coreFetch,
+			"Aurral missing-album page should publish the focused release-group snapshot before optional sections finish."
+		)
+		assertTrue(
+			requestRefresh > corePublish && previewRefresh > corePublish && coverRefresh > corePublish,
+			"Missing-album progress, preview tracks, and cover fallback should refresh independently after the core release group resolves."
+		)
+	}
+
+	@Test
+	fun aurralHubDiscoveryPublishesBaseBeforeOptionalSections() {
+		val source = commonMain("paige/navic/ui/screens/aurral/AurralHubViewModel.kt")
+		val start = source.indexOf("private suspend fun loadDiscovery(")
+		val end = source.indexOf("private suspend fun loadStationPlaylists", start)
+		val loadDiscovery = source.substring(start, end)
+		val baseFetch = loadDiscovery.indexOf("repository.getDiscoveryBase()")
+		val basePublish = loadDiscovery.indexOf("UiState.Success(it)")
+		val optionalRefresh = loadDiscovery.indexOf("loadDiscoverySupplement(")
+
+		assertTrue(
+			baseFetch >= 0 && basePublish > baseFetch,
+			"Aurral lightweight discovery should publish the base discovery summary before recently-added/recent-release sections."
+		)
+		assertTrue(
+			optionalRefresh > basePublish &&
+				"repository.getDiscoveryRecentlyAdded()" in source &&
+				"repository.getDiscoveryRecentReleases()" in source,
+			"Aurral discovery optional sections should refresh after base discovery is already visible."
+		)
+		assertFalse(
+			"repository.getLibraryDiscovery()" in loadDiscovery,
+			"Lightweight Aurral discovery should use the focused base endpoint instead of the aggregate discovery payload."
+		)
+	}
+
+	@Test
+	fun aurralAcquisitionRefreshesAvoidFullServiceStatus() {
+		val repositorySource = commonMain("paige/navic/domain/repositories/AurralRepository.kt")
+		val albumSource = commonMain("paige/navic/ui/screens/album/viewmodels/AlbumListViewModel.kt")
+		val collectionSource = commonMain("paige/navic/ui/screens/collection/viewmodels/CollectionDetailViewModel.kt")
+		val refreshAlbumRequests = repositorySource.substring(
+			repositorySource.indexOf("suspend fun refreshAlbumRequests()"),
+			repositorySource.indexOf(
+				"suspend fun getActivityStatus()",
+				repositorySource.indexOf("suspend fun refreshAlbumRequests()")
+			)
+		)
+
+		assertTrue(
+			"getAcquisitionRequests()" in refreshAlbumRequests,
+			"Album and collection acquisition chips need only request status; repository refresh must call the focused request path."
+		)
+		assertFalse(
+			"getServiceStatus()" in refreshAlbumRequests,
+			"Album and collection acquisition chips must not wait for health/auth/Weekly Flow service status."
+		)
+		assertTrue(
+			"aurralRepository.refreshAlbumRequests()" in albumSource &&
+				"aurralRepository.refreshAlbumRequests()" in collectionSource,
+			"Album and collection screens should keep using the shared focused acquisition refresh."
+		)
 	}
 
 	@Test

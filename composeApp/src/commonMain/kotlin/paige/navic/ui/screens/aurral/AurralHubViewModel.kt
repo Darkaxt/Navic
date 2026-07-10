@@ -7,6 +7,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import paige.navic.domain.repositories.AurralArtistSearchResult
@@ -86,7 +87,7 @@ class AurralHubViewModel(
 		if (_serviceStatus.value is UiState.Loading) return
 
 		viewModelScope.launch(Dispatchers.IO) {
-			loadServiceStatus()
+			loadServiceStatus(refreshDiscovery = false)
 		}
 	}
 
@@ -297,7 +298,7 @@ class AurralHubViewModel(
 	}
 
 	private suspend fun loadServiceStatus(
-		refreshDiscovery: Boolean = true
+		refreshDiscovery: Boolean = false
 	) {
 		_serviceStatus.value = UiState.Loading(_serviceStatus.value.data)
 		val result = repository.getServiceStatus()
@@ -319,7 +320,7 @@ class AurralHubViewModel(
 		val result = if (hydrateMissingImages) {
 			repository.getDiscovery()
 		} else {
-			repository.getLibraryDiscovery()
+			repository.getDiscoveryBase()
 		}
 		_discovery.value = result.fold(
 			onSuccess = {
@@ -328,6 +329,44 @@ class AurralHubViewModel(
 			},
 			onFailure = { UiState.Error(Exception(it), _discovery.value.data) }
 		)
+		if (!hydrateMissingImages && result.isSuccess) {
+			loadDiscoverySupplement(configurationKey)
+		}
+	}
+
+	private fun loadDiscoverySupplement(configurationKey: String?) {
+		viewModelScope.launch(Dispatchers.IO) {
+			launch {
+				repository.getDiscoveryRecentlyAdded()
+					.onSuccess { recentlyAdded ->
+						mergeDiscoverySupplement(configurationKey) { discovery ->
+							discovery.copy(recentlyAdded = recentlyAdded)
+						}
+					}
+			}
+			launch {
+				repository.getDiscoveryRecentReleases()
+					.onSuccess { recentReleases ->
+						mergeDiscoverySupplement(configurationKey) { discovery ->
+							discovery.copy(recentReleases = recentReleases)
+						}
+					}
+			}
+		}
+	}
+
+	private fun mergeDiscoverySupplement(
+		configurationKey: String?,
+		transform: (AurralDiscoverySummary) -> AurralDiscoverySummary
+	) {
+		_discovery.update { current ->
+			val discovery = current.data
+			when {
+				configurationKey != discoveryConfigurationKey -> current
+				discovery == null -> current
+				else -> UiState.Success(transform(discovery))
+			}
+		}
 	}
 
 	private suspend fun loadStationPlaylists() {

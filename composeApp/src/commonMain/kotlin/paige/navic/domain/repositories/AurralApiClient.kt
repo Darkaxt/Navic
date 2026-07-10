@@ -51,6 +51,21 @@ interface AurralApiClient {
 		requestHeaders: Map<String, String>
 	): AurralDiscoverySummary = error("Aurral discovery is not supported by this client.")
 
+	suspend fun fetchDiscoveryBase(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralDiscoverySummary = fetchDiscovery(baseUrl, requestHeaders)
+
+	suspend fun fetchRecentlyAddedArtists(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralDiscoverArtist> = fetchDiscovery(baseUrl, requestHeaders).recentlyAdded
+
+	suspend fun fetchRecentReleases(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): List<AurralAlbumSearchItem> = fetchDiscovery(baseUrl, requestHeaders).recentReleases
+
 	suspend fun fetchLibraryArtists(
 		baseUrl: String,
 		requestHeaders: Map<String, String>
@@ -257,15 +272,9 @@ internal class KtorAurralApiClient : AurralApiClient {
 		baseUrl: String,
 		requestHeaders: Map<String, String>
 	): AurralDiscoverySummary {
-		val response = client.get(aurralEndpoint(baseUrl, "api/discover")) {
-			aurralJsonRequest(requestHeaders)
-		}
-		if (!response.status.isSuccess()) {
-			error(aurralHttpErrorMessage("Aurral Discover", response.status))
-		}
-		val discovery = response.body<AurralDiscoveryResponseDto>()
+		val discovery = fetchDiscoveryBase(baseUrl, requestHeaders)
 		val recentlyAdded = runCatching {
-			fetchRecentlyAdded(baseUrl, requestHeaders)
+			fetchRecentlyAddedArtists(baseUrl, requestHeaders)
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral recently added failed", error)
 		}.getOrDefault(emptyList())
@@ -274,15 +283,32 @@ internal class KtorAurralApiClient : AurralApiClient {
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral recent releases failed", error)
 		}.getOrDefault(emptyList())
-		return aurralDiscoverySummary(
-			baseUrl = baseUrl,
-			response = discovery,
+		return discovery.copy(
 			recentlyAdded = recentlyAdded,
 			recentReleases = recentReleases
 		)
 	}
 
-	private suspend fun fetchRecentlyAdded(
+	override suspend fun fetchDiscoveryBase(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralDiscoverySummary {
+		val response = client.get(aurralEndpoint(baseUrl, "api/discover")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		if (!response.status.isSuccess()) {
+			error(aurralHttpErrorMessage("Aurral Discover", response.status))
+		}
+		val discovery = response.body<AurralDiscoveryResponseDto>()
+		return aurralDiscoverySummary(
+			baseUrl = baseUrl,
+			response = discovery,
+			recentlyAdded = emptyList(),
+			recentReleases = emptyList()
+		)
+	}
+
+	override suspend fun fetchRecentlyAddedArtists(
 		baseUrl: String,
 		requestHeaders: Map<String, String>
 	): List<AurralDiscoverArtist> {
@@ -320,7 +346,7 @@ internal class KtorAurralApiClient : AurralApiClient {
 		}
 	}
 
-	private suspend fun fetchRecentReleases(
+	override suspend fun fetchRecentReleases(
 		baseUrl: String,
 		requestHeaders: Map<String, String>
 	): List<AurralAlbumSearchItem> {

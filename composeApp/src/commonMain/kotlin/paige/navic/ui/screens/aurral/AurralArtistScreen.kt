@@ -73,6 +73,7 @@ import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistAlbumRow
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralMissingAlbumRow
@@ -84,10 +85,12 @@ import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.aurralArtistAlbumRows
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
+import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralConfirmationStatus
+import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
 import paige.navic.domain.repositories.aurralRequestHeadersForUrl
@@ -203,66 +206,79 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			return@LaunchedEffect
 		}
 
-		val enrichmentResult = withContext(Dispatchers.IO) {
-			aurralRepository.getArtistEnrichment(artist)
-		}
-		val discovery = if (enrichmentResult.isSuccess) {
+		launch {
 			withContext(Dispatchers.IO) {
-				aurralRepository.getDiscovery(hydrateMissingImages = false)
-					.getOrNull()
+				aurralRepository.getArtistMonitoring(artist)
 			}
-		} else {
-			null
+				.onSuccess { monitored ->
+					monitored?.let { state = state.copy(monitorConfirmed = it) }
+				}
 		}
-		enrichmentResult
-			.onSuccess { enrichment ->
-				val recommendedAlbums = discovery
-					?.let {
-						aurralRecommendedAlbumsForArtist(
-							discovery = it,
-							artistMbid = route.artistMbid,
-							artistName = route.artistName
-						)
+
+		launch {
+			withContext(Dispatchers.IO) {
+				aurralRepository.getDiscoveryBase()
+			}
+				.onSuccess { discovery ->
+					state = state.withDiscoverySummary(
+						route = route,
+						localCatalog = localCatalog,
+						discovery = discovery,
+						artistArtworkPriority = preferenceManager.artistArtworkPriority,
+						externalArtworkEnabled = preferenceManager.aurralEnabled
+					)
+				}
+		}
+
+		launch {
+			withContext(Dispatchers.IO) {
+				aurralRepository.getArtistCoreEnrichment(artist)
+			}
+				.onSuccess { enrichment ->
+					state = state.withCoreEnrichment(
+						route = route,
+						localCatalog = localCatalog,
+						enrichment = enrichment
+					)
+					if (enrichment == null) return@onSuccess
+					val resolvedArtist = enrichment.toResolvedArtist(route, state.heroImageUrl)
+					launch {
+						withContext(Dispatchers.IO) {
+							aurralRepository.getArtistAlbumRequests(resolvedArtist)
+						}
+							.onSuccess { requests ->
+								state = state.withArtistAlbumRequests(
+									requests = requests,
+									localAlbums = localCatalog.localAlbums
+								)
+							}
 					}
-					.orEmpty()
-				state = state.copy(
-					artist = if (localCatalog.localArtist == null && enrichment != null) {
-						DomainArtist(
-							id = "aurral-${enrichment.artistMbid}",
-							name = enrichment.artistName.ifBlank { route.artistName },
-							musicBrainzId = enrichment.artistMbid.ifBlank { null },
-							artistImageUrl = state.heroImageUrl
-						)
-					} else {
-						state.artist
-					},
-					enrichment = enrichment,
-					missingAlbums = enrichment?.let { aurralMissingAlbumRows(it, localCatalog.localAlbums) }.orEmpty(),
-					recommendedAlbums = recommendedAlbums,
-					similarArtists = enrichment?.let {
-						aurralSimilarArtistRows(
-							enrichment = it,
-							allLocalArtists = localCatalog.localArtists,
-							localSimilarArtists = emptyList(),
-							externalArtists = discovery?.let { discoverySummary ->
-								aurralSimilarArtistImageCandidates(
-									discovery = discoverySummary,
-									artistPhotoCacheEntries = localCatalog.artistPhotoCacheEntries,
+					launch {
+						withContext(Dispatchers.IO) {
+							aurralRepository.getArtistPreviewTracks(resolvedArtist)
+						}
+							.onSuccess { previewTracks ->
+								state = state.withPreviewTracks(previewTracks)
+							}
+					}
+					launch {
+						withContext(Dispatchers.IO) {
+							aurralRepository.getArtistSimilarArtists(resolvedArtist)
+						}
+							.onSuccess { similarArtists ->
+								state = state.withSimilarArtists(
+									similarArtists = similarArtists,
+									localCatalog = localCatalog,
 									artistArtworkPriority = preferenceManager.artistArtworkPriority,
 									externalArtworkEnabled = preferenceManager.aurralEnabled
 								)
-							}.orEmpty()
-						)
-					}.orEmpty(),
-					previewTracks = enrichment?.previewTracks.orEmpty(),
-					monitorConfirmed = enrichment?.monitored == true,
-					loading = false,
-					error = null
-				)
-			}
-			.onFailure { error ->
-				state = state.copy(loading = false, error = error)
-			}
+							}
+					}
+				}
+				.onFailure { error ->
+					state = state.copy(loading = false, error = error)
+				}
+		}
 	}
 
 	val monitorWaitingMessage = stringResource(Res.string.info_aurral_monitor_waiting)
@@ -774,6 +790,119 @@ private fun Screen.AurralArtist.toDomainArtist(): DomainArtist =
 			)
 		}
 
+private fun AurralArtistUiState.withCoreEnrichment(
+	route: Screen.AurralArtist,
+	localCatalog: AurralArtistLocalCatalog,
+	enrichment: AurralArtistEnrichment?
+): AurralArtistUiState {
+	val nextArtist = if (localCatalog.localArtist == null && enrichment != null) {
+		enrichment.toResolvedArtist(route, heroImageUrl)
+	} else {
+		artist
+	}
+	val nextState = copy(
+		artist = nextArtist,
+		enrichment = enrichment,
+		missingAlbums = enrichment?.let { aurralMissingAlbumRows(it, localCatalog.localAlbums) }.orEmpty(),
+		previewTracks = enrichment?.previewTracks.orEmpty(),
+		monitorConfirmed = if (enrichment?.monitored == true) true else monitorConfirmed,
+		loading = false,
+		error = null
+	)
+	return nextState
+}
+
+private fun AurralArtistUiState.withDiscoverySummary(
+	route: Screen.AurralArtist,
+	localCatalog: AurralArtistLocalCatalog,
+	discovery: AurralDiscoverySummary,
+	artistArtworkPriority: ArtworkSourcePriority,
+	externalArtworkEnabled: Boolean
+): AurralArtistUiState {
+	val externalArtists = aurralSimilarArtistImageCandidates(
+		discovery = discovery,
+		artistPhotoCacheEntries = localCatalog.artistPhotoCacheEntries,
+		artistArtworkPriority = artistArtworkPriority,
+		externalArtworkEnabled = externalArtworkEnabled
+	)
+	return copy(
+		discovery = discovery,
+		recommendedAlbums = aurralRecommendedAlbumsForArtist(
+			discovery = discovery,
+			artistMbid = route.artistMbid,
+			artistName = route.artistName
+		),
+		similarArtists = enrichment?.let {
+			aurralSimilarArtistRows(
+				enrichment = it,
+				allLocalArtists = localCatalog.localArtists,
+				localSimilarArtists = emptyList(),
+				externalArtists = externalArtists
+			)
+		}.orEmpty()
+	)
+}
+
+private fun AurralArtistUiState.withArtistAlbumRequests(
+	requests: List<AurralAlbumRequest>,
+	localAlbums: List<DomainAlbum>
+): AurralArtistUiState {
+	val currentEnrichment = enrichment ?: return this
+	val nextEnrichment = currentEnrichment.copy(requests = requests)
+	return copy(
+		enrichment = nextEnrichment,
+		missingAlbums = aurralMissingAlbumRows(nextEnrichment, localAlbums)
+	)
+}
+
+private fun AurralArtistUiState.withPreviewTracks(
+	previewTracks: List<AurralPreviewTrack>
+): AurralArtistUiState =
+	copy(
+		previewTracks = previewTracks,
+		enrichment = enrichment?.copy(previewTracks = previewTracks)
+	)
+
+private fun AurralArtistUiState.withSimilarArtists(
+	similarArtists: List<paige.navic.domain.models.AurralSimilarArtist>,
+	localCatalog: AurralArtistLocalCatalog,
+	artistArtworkPriority: ArtworkSourcePriority,
+	externalArtworkEnabled: Boolean
+): AurralArtistUiState {
+	val currentEnrichment = enrichment ?: return this
+	val nextEnrichment = currentEnrichment.copy(similarArtists = similarArtists)
+	return copy(
+		enrichment = nextEnrichment,
+		similarArtists = aurralSimilarArtistRows(
+			enrichment = nextEnrichment,
+			allLocalArtists = localCatalog.localArtists,
+			localSimilarArtists = emptyList(),
+			externalArtists = discovery?.let { discovery ->
+				aurralSimilarArtistImageCandidates(
+					discovery = discovery,
+					artistPhotoCacheEntries = localCatalog.artistPhotoCacheEntries,
+					artistArtworkPriority = artistArtworkPriority,
+					externalArtworkEnabled = externalArtworkEnabled
+				)
+			}.orEmpty()
+		)
+	)
+}
+
+private fun AurralArtistEnrichment.toResolvedArtist(
+	route: Screen.AurralArtist,
+	heroImageUrl: String?
+): DomainArtist {
+	val resolvedName = artistName.trim().takeIf { it.isNotEmpty() } ?: route.artistName
+	val resolvedMbid = artistMbid.trim().takeIf { it.isNotEmpty() }
+	return DomainArtist(
+		id = resolvedMbid?.let { "aurral-$it" } ?: "aurral-${resolvedName.normalizedAurralArtistName()}",
+		name = resolvedName,
+		musicBrainzId = resolvedMbid,
+		artistImageUrl = heroImageUrl
+	)
+}
+
 private fun List<DomainArtist>.findAurralLocalArtist(
 	artistMbid: String,
 	artistName: String
@@ -803,6 +932,7 @@ private data class AurralArtistUiState(
 	val similarArtists: List<AurralSimilarArtistRow> = emptyList(),
 	val previewTracks: List<AurralPreviewTrack> = emptyList(),
 	val enrichment: AurralArtistEnrichment? = null,
+	val discovery: AurralDiscoverySummary? = null,
 	val loading: Boolean = false,
 	val monitoring: Boolean = false,
 	val monitorConfirmed: Boolean = false,

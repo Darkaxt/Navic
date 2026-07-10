@@ -153,7 +153,8 @@ class AurralMissingAlbumActionPolicyTest {
 	@Test
 	fun missingAlbumDetailKeepsAcceptedRequestVisibleWhenBackgroundRequestFails() {
 		val source = commonMain("paige/navic/ui/screens/aurral/AurralMissingAlbumScreen.kt")
-		val failureStart = source.indexOf(".onFailure { error ->")
+		val requestCall = source.indexOf("aurralRepository.requestAlbum(requestArtist, releaseGroup)")
+		val failureStart = source.indexOf(".onFailure { error ->", requestCall)
 		val failureBody = source.substring(failureStart, source.indexOf("\n\t\t\t\t\t\t}", failureStart))
 
 		assertFalse(
