@@ -71,6 +71,7 @@ const val ReaderFontSourcePublisher = "publisher"
 const val ReaderFontSourceCustom = "custom"
 const val ReaderLightTheme = "light"
 const val ReaderSepiaTheme = "sepia"
+const val ReaderAgedPaperTheme = "aged-paper"
 const val ReaderDuskTheme = "dusk"
 const val ReaderDarkTheme = "dark"
 const val ReaderBlackTheme = "black"
@@ -160,6 +161,7 @@ val ReaderSupportedTapZoneInvertModes: List<String> = listOf(
 val ReaderSupportedThemes: List<String> = listOf(
 	ReaderLightTheme,
 	ReaderSepiaTheme,
+	ReaderAgedPaperTheme,
 	ReaderDuskTheme,
 	ReaderDarkTheme,
 	ReaderBlackTheme
@@ -593,6 +595,7 @@ fun readerFontSourceShortLabel(fontSource: String?): String =
 fun readerThemeShortLabel(theme: String?): String =
 	when (normalizedReaderTheme(theme)) {
 		ReaderSepiaTheme -> "Sepia"
+		ReaderAgedPaperTheme -> "Aged"
 		ReaderDuskTheme -> "Dusk"
 		ReaderDarkTheme -> "Dark"
 		ReaderBlackTheme -> "Black"

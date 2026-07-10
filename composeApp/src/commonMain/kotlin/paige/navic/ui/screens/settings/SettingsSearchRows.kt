@@ -32,6 +32,7 @@ import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.BinderyMaxBookGridColumns
 import paige.navic.domain.models.BinderyMinBookGridColumns
 import paige.navic.reader.ReaderBlackTheme
+import paige.navic.reader.ReaderAgedPaperTheme
 import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderDarkTheme
 import paige.navic.reader.ReaderDirectionLtr
@@ -329,6 +330,7 @@ internal fun readerFontSourceSearchLabel(fontSource: String): String =
 internal fun readerThemeSearchLabel(theme: String): String =
 	when (theme) {
 		ReaderSepiaTheme -> stringResource(Res.string.option_ebook_reader_theme_sepia)
+		ReaderAgedPaperTheme -> stringResource(Res.string.option_ebook_reader_theme_aged_paper)
 		ReaderDuskTheme -> stringResource(Res.string.option_ebook_reader_theme_dusk)
 		ReaderDarkTheme -> stringResource(Res.string.option_ebook_reader_theme_dark)
 		ReaderBlackTheme -> stringResource(Res.string.option_ebook_reader_theme_black)

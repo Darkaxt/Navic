@@ -95,6 +95,13 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun agedPaperIsAStableReaderTheme() {
+		assertEquals("aged-paper", normalizedReaderTheme("aged-paper"))
+		assertTrue("aged-paper" in ReaderSupportedThemes)
+		assertEquals("Aged", readerThemeShortLabel("aged-paper"))
+	}
+
+	@Test
 	fun fontFamilyControlsCycleThroughReaderFontSources() {
 		var state = ReaderChromeState()
 		val visited = mutableListOf<String>()

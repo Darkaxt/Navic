@@ -6,6 +6,14 @@ import kotlin.test.assertTrue
 
 class EbookReaderSettingsPolicyTest {
 	@Test
+	fun readerThemeOptionsExposeAgedPaperWithoutReplacingSepia() {
+		val themes = ReaderThemeOption.entries.map { option -> option.theme }
+
+		assertTrue("aged-paper" in themes)
+		assertTrue("sepia" in themes)
+	}
+
+	@Test
 	fun appLevelEbookSettingsExposePdfImageDefaults() {
 		val ids = ebookReaderSettingDescriptors().map { descriptor -> descriptor.id }
 

@@ -49,12 +49,14 @@ import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_invert_
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_kindle
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_l_shaped
 import navic.composeapp.generated.resources.option_ebook_reader_tap_zone_right_left
+import navic.composeapp.generated.resources.option_ebook_reader_theme_aged_paper
 import navic.composeapp.generated.resources.option_ebook_reader_theme_black
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dark
 import navic.composeapp.generated.resources.option_ebook_reader_theme_dusk
 import navic.composeapp.generated.resources.option_ebook_reader_theme_light
 import navic.composeapp.generated.resources.option_ebook_reader_theme_sepia
 import org.jetbrains.compose.resources.StringResource
+import paige.navic.reader.ReaderAgedPaperTheme
 import paige.navic.reader.ReaderBlackTheme
 import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderDarkTheme
@@ -146,6 +148,7 @@ internal enum class ReaderThemeOption(
 ) {
 	Light(ReaderLightTheme, Res.string.option_ebook_reader_theme_light),
 	Sepia(ReaderSepiaTheme, Res.string.option_ebook_reader_theme_sepia),
+	AgedPaper(ReaderAgedPaperTheme, Res.string.option_ebook_reader_theme_aged_paper),
 	Dusk(ReaderDuskTheme, Res.string.option_ebook_reader_theme_dusk),
 	Dark(ReaderDarkTheme, Res.string.option_ebook_reader_theme_dark),
 	Black(ReaderBlackTheme, Res.string.option_ebook_reader_theme_black);

@@ -613,6 +613,7 @@
 	<string name="option_ebook_reader_orientation_reverse_portrait">Reverse portrait</string>
 	<string name="option_ebook_reader_theme_light">Light</string>
 	<string name="option_ebook_reader_theme_sepia">Sepia</string>
+	<string name="option_ebook_reader_theme_aged_paper">Aged Paper</string>
 	<string name="option_ebook_reader_theme_dusk">Dusk</string>
 	<string name="option_ebook_reader_theme_dark">Dark</string>
 	<string name="option_ebook_reader_theme_black">Black</string>

@@ -8,6 +8,16 @@ import kotlin.test.assertNull
 
 class ReaderPreferenceSettingsTest {
 	@Test
+	fun readerPreferencesRoundTripAgedPaperWithoutMigratingSepia() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.setReaderDefaultSettings(ReaderSettings(theme = "aged-paper"))
+
+		assertEquals("aged-paper", preferences.readerDefaultSettings().theme)
+		assertEquals(ReaderSepiaTheme, normalizedReaderTheme(ReaderSepiaTheme))
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripFontSourcePreference() {
 		val preferences = PreferenceManager(MapSettings())
 
