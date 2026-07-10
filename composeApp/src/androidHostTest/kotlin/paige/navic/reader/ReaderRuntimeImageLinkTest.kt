@@ -326,11 +326,21 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(nativeFrameHostText, "drawDiffuseCoverBackdrop")
 		assertContains(nativeFrameHostText, "nativeShellCoverForegroundRect")
+		assertContains(nativeFrameHostText, "val scale = min(")
+		assertContains(nativeFrameHostText, "maxWidth / bitmapWidth")
+		assertContains(nativeFrameHostText, "maxHeight / bitmapHeight")
+		assertContains(nativeFrameHostText, "destination.set(shellGeometry.foregroundImageRect)")
+		assertContains(nativeFrameHostText, "canvas.drawBitmap(currentBitmap, null, destination, imagePaint)")
 		assertFalse(
 			nativeFrameHostText.contains("drawNativeBackCoverPlane") ||
 				nativeFrameHostText.contains("readerDominantCoverColor") ||
 				nativeFrameHostText.contains("backCoverRect"),
 			"Native cover rendering must not draw the rejected green/brown back-cover square behind the foreground cover."
+		)
+		assertFalse(
+			nativeFrameHostText.contains("drawBitmap(currentBitmap, null, shellGeometry.backdropRect") ||
+				nativeFrameHostText.contains("drawBitmap(currentBitmap, null, backdropDestination, imagePaint"),
+			"Native cover foreground must be drawn through the contained foreground rect, not the cover backdrop crop."
 		)
 		assertContains(nativeFrameHostText, "canvas.drawBitmap")
 		assertFalse(
