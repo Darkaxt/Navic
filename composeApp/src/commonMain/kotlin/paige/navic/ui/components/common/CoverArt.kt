@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -193,6 +194,14 @@ private fun Color.mixWith(other: Color, weight: Float): Color {
 	)
 }
 
+internal fun cachedCoverArtLoadingPlaceholderKey(
+	enabled: Boolean,
+	resolvedImageCacheKey: String?
+): String? {
+	if (!enabled || resolvedImageCacheKey.isNullOrBlank()) return null
+	return resolvedImageCacheKey
+}
+
 @Composable
 fun CoverArt(
 	modifier: Modifier = Modifier,
@@ -210,6 +219,7 @@ fun CoverArt(
 	onServerCoverLoadFailed: (suspend () -> Unit)? = null,
 	square: Boolean = true,
 	crossfadeMs: Int = 500,
+	useCachedLoadingPlaceholder: Boolean = false,
 	shadowElevation: Dp = 0.dp,
 	interactionSource: MutableInteractionSource? = null,
 	shape: Shape? = null,
@@ -235,6 +245,11 @@ fun CoverArt(
 		cacheKey = imageCacheKey ?: resolvedImageUrl ?: visibleCoverArtId,
 		normalization = normalization
 	)
+	val resolvedImageData = resolvedImageUrl ?: visibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) }
+	val cachedLoadingPlaceholderKey = cachedCoverArtLoadingPlaceholderKey(
+		enabled = useCachedLoadingPlaceholder,
+		resolvedImageCacheKey = resolvedImageCacheKey
+	)
 	LaunchedEffect(
 		imageDiagnosticLabel,
 		coverArtId,
@@ -254,9 +269,17 @@ fun CoverArt(
 			)
 		}
 	}
-	val model = remember(visibleCoverArtId, resolvedImageUrl, resolvedImageCacheKey, resolvedRequestHeaders) {
+	val model = remember(
+		coilPlatformContext,
+		resolvedImageData,
+		resolvedImageCacheKey,
+		cachedLoadingPlaceholderKey,
+		resolvedRequestHeaders,
+		crossfadeMs,
+		normalization
+	) {
 		ImageRequest.Builder(coilPlatformContext)
-			.data(resolvedImageUrl ?: visibleCoverArtId?.let { sessionManager.getCoverArtUrl(it) })
+			.data(resolvedImageData)
 			.memoryCacheKey(resolvedImageCacheKey)
 			.diskCacheKey(resolvedImageCacheKey)
 			.diskCachePolicy(CachePolicy.ENABLED)
@@ -264,6 +287,9 @@ fun CoverArt(
 			.crossfade(crossfadeMs)
 			.applyCoverArtNormalization(normalization)
 			.apply {
+				if (cachedLoadingPlaceholderKey != null) {
+					placeholderMemoryCacheKey(cachedLoadingPlaceholderKey)
+				}
 				if (resolvedRequestHeaders.isNotEmpty()) {
 					httpHeaders(resolvedRequestHeaders.toNetworkHeaders())
 				}
@@ -315,64 +341,79 @@ fun CoverArt(
 			showLoadingIndicator = artworkResolving
 		)
 	}
-	SubcomposeAsyncImage(
-		model = model,
-		contentDescription = contentDescription,
-		modifier = commonModifier,
-		contentScale = contentScale,
-		colorFilter = colorFilter,
-		success = { state ->
-			val image = state.result.image
-			onImageSizeResolved?.invoke(image.width, image.height)
-			val compressedImageBitmap = remember(image) {
-				image.toImageBitmap()
-			}
-			if (edgeCompression == CoverArtEdgeCompression.Soft && colorFilter == null && compressedImageBitmap != null) {
-				SoftEdgeCompressedCoverArtImage(
-					image = compressedImageBitmap,
+	key(
+		coilPlatformContext,
+		resolvedImageData,
+		resolvedImageCacheKey,
+		cachedLoadingPlaceholderKey,
+		resolvedRequestHeaders,
+		crossfadeMs,
+		normalization
+	) {
+		SubcomposeAsyncImage(
+			model = model,
+			contentDescription = contentDescription,
+			modifier = commonModifier,
+			contentScale = contentScale,
+			colorFilter = colorFilter,
+			success = { state ->
+				val image = state.result.image
+				onImageSizeResolved?.invoke(image.width, image.height)
+				val compressedImageBitmap = remember(image) {
+					image.toImageBitmap()
+				}
+				if (edgeCompression == CoverArtEdgeCompression.Soft && colorFilter == null && compressedImageBitmap != null) {
+					SoftEdgeCompressedCoverArtImage(
+						image = compressedImageBitmap,
+						modifier = Modifier.fillMaxSize()
+					)
+				} else {
+					SubcomposeAsyncImageContent()
+				}
+			},
+			onSuccess = { state ->
+				val image = state.result.image
+				onImageSizeResolved?.invoke(image.width, image.height)
+			},
+			loading = loading@{
+				Box(modifier = Modifier.fillMaxSize()) {
+					CoverArtFallback(
+						fallbackContent = fallbackContent,
+						generatedArtwork = resolvedGeneratedArtwork,
+						modifier = Modifier.fillMaxSize(),
+						showLoadingIndicator = true
+					)
+					if (cachedLoadingPlaceholderKey != null) {
+						this@loading.SubcomposeAsyncImageContent(modifier = Modifier.fillMaxSize())
+					}
+				}
+			},
+			error = {
+				LaunchedEffect(it.result.throwable) {
+					if (imageDiagnosticLabel != null) {
+						Logger.w(
+							"CoverArt",
+							"Failed to load cover art, falling back to placeholder" +
+								" [$imageDiagnosticLabel] usesServer=$usesServerCoverArt " +
+								"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
+								"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
+								"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
+								"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}",
+							it.result.throwable
+						)
+					}
+					if (usesServerCoverArt) {
+						onServerCoverLoadFailed?.invoke()
+					}
+				}
+				CoverArtFallback(
+					fallbackContent = fallbackContent,
+					generatedArtwork = resolvedGeneratedArtwork,
 					modifier = Modifier.fillMaxSize()
 				)
-			} else {
-				SubcomposeAsyncImageContent()
 			}
-		},
-		onSuccess = { state ->
-			val image = state.result.image
-			onImageSizeResolved?.invoke(image.width, image.height)
-		},
-		loading = {
-			CoverArtFallback(
-				fallbackContent = fallbackContent,
-				generatedArtwork = resolvedGeneratedArtwork,
-				modifier = Modifier.fillMaxSize(),
-				showLoadingIndicator = true
-			)
-		},
-		error = {
-			LaunchedEffect(it.result.throwable) {
-				if (imageDiagnosticLabel != null) {
-					Logger.w(
-						"CoverArt",
-						"Failed to load cover art, falling back to placeholder" +
-							" [$imageDiagnosticLabel] usesServer=$usesServerCoverArt " +
-							"coverArtId=${coverArtDiagnosticValue(coverArtId)} " +
-							"imageUrl=${coverArtDiagnosticValue(resolvedImageUrl)} " +
-							"cacheKey=${coverArtDiagnosticValue(resolvedImageCacheKey)} " +
-							"headerKeys=${coverArtDiagnosticHeaderKeys(resolvedRequestHeaders)}",
-						it.result.throwable
-					)
-				}
-				if (usesServerCoverArt) {
-					onServerCoverLoadFailed?.invoke()
-				}
-			}
-			CoverArtFallback(
-				fallbackContent = fallbackContent,
-				generatedArtwork = resolvedGeneratedArtwork,
-				modifier = Modifier.fillMaxSize()
-			)
-		}
-	)
+		)
+	}
 }
 
 @Composable

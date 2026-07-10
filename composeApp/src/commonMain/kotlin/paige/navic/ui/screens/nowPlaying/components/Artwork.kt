@@ -179,6 +179,7 @@ fun NowPlayingArtwork(
 					musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
 					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
 				},
+				useCachedLoadingPlaceholder = true,
 				normalization = CoverArtNormalization.TrimWhitespace,
 				contentScale = coverArtContentScale,
 				edgeCompression = edgeCompression,

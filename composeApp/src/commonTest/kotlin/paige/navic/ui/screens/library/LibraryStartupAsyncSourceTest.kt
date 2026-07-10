@@ -334,7 +334,7 @@ class LibraryStartupAsyncSourceTest {
 		val source = commonMain("paige/navic/ui/components/common/CoverArt.kt")
 
 		assertTrue(
-			"if (imageDiagnosticLabel != null) {\n\t\t\t\t\tLogger.w(" in source,
+			Regex("""if \(imageDiagnosticLabel != null\) \{\s+Logger\.w\(""").containsMatchIn(source),
 			"CoverArt should only log image-load failures when an explicit diagnostic label is present."
 		)
 		assertFalse(
