@@ -169,6 +169,81 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun landscapeDecorationUsesExplicitOuterEdgesAndCoverTint() {
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+		val shellCoverText = readerAssetRoot().resolve("navic-reader-shell-cover.js").readText()
+		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
+		val engineText = readerCommonFile("ReaderEngine.kt").readText()
+		val engineHostText = readerCommonFile("ReaderEngineHostProtocol.kt").readText()
+		val openRequestText = readerCommonUiFile("ReaderOpenRequest.kt").readText()
+		val readerScreenText = readerCommonUiFile("ReaderScreen.kt").readText()
+		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+		val resourceText = readerAndroidPackageFile("ReaderPublicationResource.android.kt").readText()
+		val webViewHostText = readerEngineWebViewHostFile().readText()
+
+		assertContains(helperText, "export const readerSurfacePageDecorationGeometry = ({")
+		assertContains(helperText, "outerInsetPercent = gapPercent / 2")
+		assertContains(helperText, "pageWidthPercent = 50 - outerInsetPercent")
+		assertContains(helperText, "backCoverRevealPercent = outerInsetPercent")
+		assertContains(helperText, "backCoverStartPercent = 0")
+		assertContains(helperText, "backCoverVisible")
+		assertContains(helperText, "shellCoverVisible !== true")
+		assertContains(helperText, "data-navic-surface-back-cover-plane")
+		assertContains(appearanceText, "foliateGap: pageBox.foliateGap")
+		assertContains(appearanceText, "shellCoverVisible: this.shellCoverVisible")
+		assertContains(appearanceText, "coverTint: this.shellCoverDominantColor")
+		assertContains(appearanceText, "this.surfacePageDecorationGeometry")
+		assertContains(shellCoverText, "readerDominantCoverColorFromBlob(blob)")
+		assertContains(shellCoverText, "createImageBitmap(blob")
+		assertContains(shellCoverText, "this.shellCoverDominantColor = color")
+		assertContains(helperText, "geometry.coverTint")
+		assertContains(resourceText, "shellCoverTint: String? = null")
+		assertContains(resourceText, "withShellCoverTint()")
+		assertContains(runtimeHostText, "resolved.shellCoverTint")
+		assertContains(readerScreenText, "shellCoverTint")
+		assertContains(openRequestText, "shellCoverTint: String?")
+		assertContains(openRequestText, "nativeShellCoverTint = shellCoverTint")
+		assertContains(engineText, "val nativeShellCoverTint: String? = null")
+		assertContains(engineHostText, "nativeShellCoverTint = viewState.nativeShellCoverTint")
+		assertContains(webViewHostText, "nativeShellCoverTint = nativeShellCoverTint")
+		assertContains(bridgeText, "val nativeShellCoverTint: String? = null")
+		assertContains(bridgeText, "nativeShellCoverTint?.let { put(\"nativeShellCoverTint\", it) }")
+		assertFalse(
+			helperText.contains("data-navic-static-paper-shell"),
+			"Balanced page decoration must reuse overlay bounds and must not recreate shell geometry."
+		)
+	}
+
+	@Test
+	fun landscapeContentMarginsDoNotWidenBackCoverReveal() {
+		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
+		val viewportText = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val probeText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(typographyText, "export const readerResolvedFoliateGap")
+		assertContains(typographyText, "? '2%'")
+		assertContains(typographyText, "export const readerResolvedFoliateContentGap")
+		assertContains(typographyText, "? '6%'")
+		assertContains(typographyText, "foliateContentGap: readerResolvedFoliateContentGap({")
+		assertContains(viewportText, "renderer.setAttribute('content-gap', resolvedContentGap)")
+		assertContains(viewportText, "renderer.removeAttribute('content-gap')")
+		assertContains(paginatorText, "'flow', 'gap', 'content-gap', 'margin'")
+		assertContains(paginatorText, "--_content-gap: var(--_gap);")
+		assertContains(paginatorText, "style.getPropertyValue('--_content-gap')")
+		assertContains(probeText, "contentGap: renderer.getAttribute('content-gap') || ''")
+		assertContains(probeText, "paddingLeft: documentElementStyle?.paddingLeft || ''")
+		assertContains(probeText, "paddingRight: documentElementStyle?.paddingRight || ''")
+		assertContains(helperText, "backCoverRevealPercent = outerInsetPercent")
+		assertFalse(
+			helperText.contains("backCoverRevealPercent = contentGapPercent"),
+			"Increasing text margins must not widen the external back-cover reveal."
+		)
+	}
+
+	@Test
 	fun androidReaderPackagesHighResolutionPageEffectOverlayVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
@@ -991,7 +1066,9 @@ class ReaderRuntimePaperSurfaceTest {
 			surfaceLayerUpdater.contains("height: '100vh'"),
 			"Android WebView resolved 100vh to a zero-height fixed texture layer in the reader."
 		)
-		assertContains(surfaceLayerUpdater, "'background-image': readerPaperTextureBackgroundImage(page.variant)")
+		assertContains(surfaceLayerUpdater, "const paperBase = readerSurfacePaperBaseBackground(")
+		assertContains(surfaceLayerUpdater, "'background-image': paperBase.image === 'none'")
+		assertContains(surfaceLayerUpdater, "readerPaperTextureBackgroundImage(page.variant)")
 		assertContains(surfaceLayerUpdater, "opacity: readerSurfacePaperTextureOpacity(settings)")
 		assertContains(surfaceLayerUpdater, "'pointer-events': 'none'")
 	}

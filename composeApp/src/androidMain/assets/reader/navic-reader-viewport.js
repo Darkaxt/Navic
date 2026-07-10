@@ -24,6 +24,9 @@ const applyReaderFoliateGap = (renderer, pageBox) => {
   const resolvedGap = pageBox?.foliateGap
   if (resolvedGap) renderer.setAttribute('gap', resolvedGap)
   else renderer.removeAttribute('gap')
+  const resolvedContentGap = pageBox?.foliateContentGap
+  if (resolvedContentGap) renderer.setAttribute('content-gap', resolvedContentGap)
+  else renderer.removeAttribute('content-gap')
 }
 
 const normalizedReaderPdfFitMode = value =>

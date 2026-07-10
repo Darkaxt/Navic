@@ -24,7 +24,7 @@ private const val ReaderPublicationRuntimeLogTag = "ReaderPublicationRuntime"
 @Composable
 actual fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String, String?, BinderyReadingProgress?) -> Unit,
+	onPublicationReady: (String, String?, String?, BinderyReadingProgress?) -> Unit,
 	onError: (String) -> Unit
 ) {
 	if (reader.kind == ReaderPublicationKind.Readaloud && reader.mediaOverlayEnabled) return
@@ -60,7 +60,7 @@ actual fun ReaderPublicationRuntimeHost(
 					"url=${readerPublicationResourceLogLabel(directUrl)} " +
 					directShellCoverLog
 			)
-			currentOnPublicationReady(directUrl, preferredShellCoverUrl, savedProgress)
+			currentOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress)
 			return@LaunchedEffect
 		}
 		Logger.i(
@@ -113,7 +113,7 @@ actual fun ReaderPublicationRuntimeHost(
 				} else {
 					resolved.shellCoverUrl
 				}
-				currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, savedProgress)
+				currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, resolved.shellCoverTint, savedProgress)
 			},
 			onFailure = { error ->
 				Logger.e(

@@ -200,7 +200,7 @@ class ReaderRuntimeImageLinkTest {
 
 		assertContains(
 			readerScreenText,
-			"onPublicationReady = { publicationUrl, shellCoverUrl, savedProgress ->",
+			"onPublicationReady = { publicationUrl, shellCoverUrl, shellCoverTint, savedProgress ->",
 			message = "Publication preparation should pass the resolved shell-cover URL into the controller open request once."
 		)
 		assertContains(readerScreenText, "toReaderEngineOpenRequest(")
@@ -266,7 +266,7 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			runtimeHostText,
-			"currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, savedProgress)",
+			"currentOnPublicationReady(resolved.publicationUrl, shellCoverUrl, resolved.shellCoverTint, savedProgress)",
 			message = "The preferred cover URL must be the one passed into the common reader open request."
 		)
 	}

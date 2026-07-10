@@ -46,6 +46,7 @@ actual fun ReaderEngineWebViewHost(
 	mediaOverlayEnabled: Boolean,
 	externalShellCover: Boolean,
 	suppressWebShellCover: Boolean,
+	nativeShellCoverTint: String?,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
@@ -75,6 +76,7 @@ actual fun ReaderEngineWebViewHost(
 		mediaOverlayEnabled,
 		externalShellCover,
 		suppressWebShellCover,
+		nativeShellCoverTint,
 		startCfi,
 		startHref,
 		startProgress
@@ -84,6 +86,7 @@ actual fun ReaderEngineWebViewHost(
 			mediaOverlayEnabled.toString(),
 			externalShellCover.toString(),
 			suppressWebShellCover.toString(),
+			nativeShellCoverTint.orEmpty(),
 			startCfi.orEmpty(),
 			startHref.orEmpty(),
 			startProgress?.toString().orEmpty()
@@ -94,6 +97,7 @@ actual fun ReaderEngineWebViewHost(
 		mediaOverlayEnabled,
 		externalShellCover,
 		suppressWebShellCover,
+		nativeShellCoverTint,
 		settings,
 		startCfi,
 		startHref,
@@ -104,6 +108,7 @@ actual fun ReaderEngineWebViewHost(
 			mediaOverlayEnabled = mediaOverlayEnabled,
 			externalShellCover = externalShellCover,
 			suppressWebShellCover = suppressWebShellCover,
+			nativeShellCoverTint = nativeShellCoverTint,
 			startLocator = ReaderLocator(
 				cfi = startCfi,
 				href = startHref,

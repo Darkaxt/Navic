@@ -72,25 +72,41 @@ Normal text pages must not restore any of the discarded shell-geometry mechanism
 
 Navic may configure documented Foliate layout inputs. It must not independently reposition the renderer.
 
-### 3. Landscape Spread Gap
+### 3. Landscape Page And Content Gaps
 
-The landscape two-page spread uses Foliate's native observed `gap` attribute.
+The landscape two-page spread uses two independent Foliate-owned layout inputs:
 
-Target:
+- `gap = 2%` controls the real renderer frame and therefore the physical page edges.
+- `content-gap = 6%` controls document padding, prose-column width, and the gap between prose columns.
+
+Targets:
 
 ```text
-8.5%
+physical gap: 2%
+content gap: 6%
 ```
 
 Rules:
 
 - Apply only to paginated horizontal two-page landscape spreads.
 - Do not apply to portrait, single-page, vertical-paged, or scrolled flows.
-- Remove the explicit attribute when the layout no longer qualifies so Foliate returns to its normal behavior.
+- Remove both explicit attributes when the layout no longer qualifies so Foliate returns to its normal behavior.
 - The gutter overlay must remain centered on the resolved spread seam.
 - The gap change is a layout correction, not an Aged Paper-only decoration. It applies to every reader theme in qualifying landscape spreads.
 
-The target is deliberately modest. It should visually separate the inner page margins without shrinking each prose column into a narrow book-window layout.
+The targets are deliberately independent. The physical gap keeps the page surfaces wide and the back-cover reveal thin. The content gap restores normal book-page text margins without widening the cover reveal or introducing an unused shell band.
+
+For a qualifying spread, the physical geometry is `x = 1%` at each outer edge and `2x = 2%` across the complete spread seam. The real page surfaces are `49%` wide. The independent `6%` content gap is resolved inside Foliate's paginator into equal page-relative prose margins and a center prose gap twice either individual margin. On the readerdev Tab S9 Ultra landscape profile, the expected values are approximately `61.74px` left/right document padding and `123.48px` between prose columns. Navic must preserve both relationships:
+
+- paper, edge, and stain artwork begins at the resolved Foliate page boundary instead of the viewport edge
+- the complete `1%` outer inset reveals the back cover, leaving no unused strip between the cover and page
+- the band inherits a darkened, desaturated dominant tint resolved once from the cached native cover; theme color is the fallback when no cover tint is available
+- the cover remains a slight oversize rim of an opened book rather than a second frame
+- the reveal is painted through the existing decorative backing/overlay pipeline; it is not a shell node or a layout rectangle
+- Navic does not reposition the text, renderer, or iframe independently; Foliate recalculates pagination from the two explicit layout inputs
+- the reveal is absent from portrait, single-page, scrolled, fixed-layout, and cover modes
+
+This keeps the thin physical `1% / 2% / 1%` surface geometry while restoring natural prose margins. The physical cover dimension never derives from `content-gap`.
 
 ### 4. Landscape Aged Paper Composition
 
@@ -114,6 +130,8 @@ The Aged Paper base should reproduce the PoC's depth using theme-aware CSS compo
 
 The left and right pages retain deterministic independent texture variants. The settled spread uses one center gutter; it does not paint a duplicate seam per page.
 
+All page-local decorative layers use the same resolved physical page bounds. Paper, edge wear, and stains must not disagree about where the left or right page begins. The narrow outer back-cover reveal remains beneath those page-local layers, consumes the complete `1%` outer inset, and never appears on the shell cover screen. Increasing the independent `6%` content gap must not increase this reveal. Its tint is derived once from the cached native shell-cover file during publication preparation and carried through the existing open command; ordinary page rendering must not request or decode the cover again.
+
 ### 5. Portrait Is A Separate Single-Page Composition
 
 Landscape geometry must not be copied directly into portrait.
@@ -121,7 +139,7 @@ Landscape geometry must not be copied directly into portrait.
 Portrait rules:
 
 - one Foliate page surface
-- no two-page `8.5%` gap
+- no explicit landscape `2%` physical gap or `6%` content gap
 - no centered spread-gutter overlay
 - no right-side empty page or inside-cover slab
 - outer edge wear on the visible page boundary
@@ -182,7 +200,8 @@ Extend readerdev diagnostics to report:
 {
   "theme": "aged-paper",
   "spreadMode": "spread",
-  "foliateGap": "8.5%",
+  "foliateGap": "2%",
+  "foliateContentGap": "6%",
   "paperTextureEnabled": true,
   "pageEdgesEnabled": true,
   "paperStainsEnabled": true,
@@ -193,7 +212,7 @@ Extend readerdev diagnostics to report:
 }
 ```
 
-Portrait diagnostics must report `spreadMode: single`, no explicit landscape gap, and no spread gutter.
+Portrait diagnostics must report `spreadMode: single`, no explicit landscape physical/content gaps, and no spread gutter.
 
 ## Validation Strategy
 
@@ -201,7 +220,7 @@ Portrait diagnostics must report `spreadMode: single`, no explicit landscape gap
 
 - Kotlin theme normalization, cycling, preference round-trip, display labels, and settings options include Aged Paper.
 - JS theme palette and warm-theme semantics include Aged Paper.
-- Foliate's `gap` attribute is set only for qualifying landscape spreads and removed otherwise.
+- Foliate's `gap` and `content-gap` attributes are set only for qualifying landscape spreads and removed otherwise.
 - Existing shell-geometry negative guards remain green.
 - Layer toggles independently remove only their owned visual layer.
 - Cover containment guards remain green.

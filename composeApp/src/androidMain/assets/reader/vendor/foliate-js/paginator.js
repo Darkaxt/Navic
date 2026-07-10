@@ -544,7 +544,7 @@ class View {
 // NOTE: everything here assumes the so-called "negative scroll type" for RTL
 export class Paginator extends HTMLElement {
     static observedAttributes = [
-        'flow', 'gap', 'margin',
+        'flow', 'gap', 'content-gap', 'margin',
         'top-margin', 'bottom-margin',
         'max-inline-size', 'max-block-size', 'max-column-count', 'column-threshold',
     ]
@@ -588,6 +588,7 @@ export class Paginator extends HTMLElement {
         }
         #top {
             --_gap: 7%;
+            --_content-gap: var(--_gap);
             --_margin: 48px;
             --_top-margin: var(--_margin);
             --_bottom-margin: var(--_margin);
@@ -763,6 +764,7 @@ export class Paginator extends HTMLElement {
                 this.render()
                 break
             case 'gap':
+            case 'content-gap':
             case 'margin':
             case 'top-margin':
             case 'max-block-size':
@@ -870,7 +872,9 @@ export class Paginator extends HTMLElement {
             : parseFloat(style.getPropertyValue('--_margin'))
         this.#margin = margin
 
-        const g = parseFloat(style.getPropertyValue('--_gap')) / 100
+        const outerGap = parseFloat(style.getPropertyValue('--_gap')) / 100
+        const contentGap = parseFloat(style.getPropertyValue('--_content-gap')) / 100
+        const g = Number.isFinite(contentGap) ? contentGap : outerGap
         // The gap will be a percentage of the #container, not the whole view.
         // This means the outer padding will be bigger than the column gap. Let
         // `a` be the gap percentage. The actual percentage for the column gap

@@ -104,6 +104,7 @@ import {
   readerSpreadPageTextureSlots,
   readerSurfaceSpreadGutterVisible,
   readerSurfaceSpreadMode,
+  readerSurfacePageDecorationGeometry,
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
@@ -548,6 +549,15 @@ function renderSurfacePaperTextureLayers() {
   ) return
   const scrollOffset = this.surfacePaperTextureScrollOffset()
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
+  const viewport = readerViewportSize()
+  const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings)
+  this.surfacePageDecorationGeometry = readerSurfacePageDecorationGeometry({
+    settings: this.readerSettings,
+    spreadMode: this.surfaceSpreadMode,
+    foliateGap: pageBox.foliateGap,
+    shellCoverVisible: this.shellCoverVisible,
+    coverTint: this.shellCoverDominantColor,
+  })
   if (this.surfaceTextureVariant) {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
@@ -555,7 +565,8 @@ function renderSurfacePaperTextureLayers() {
     updateReaderStaticPaperBackingLayer(
       this.surfaceTextureLayer,
       textureSlots,
-      this.readerSettings
+      this.readerSettings,
+      this.surfacePageDecorationGeometry
     )
     this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
       ? this.movingPageTextureLayer
@@ -566,7 +577,8 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      this.surfacePageDecorationGeometry
     )
   }
   if (this.surfaceBorderOverlayVariant) {
@@ -581,7 +593,8 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      this.surfacePageDecorationGeometry
     )
   }
   if (this.surfaceStainOverlayVariant) {
@@ -596,7 +609,8 @@ function renderSurfacePaperTextureLayers() {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      this.surfacePageDecorationGeometry
     )
   }
   if (this.surfaceSpreadGutterOverlayVariant) {

@@ -845,6 +845,12 @@ if (mode === 'adaptive-page-box-logic') {
   if (parsePx(landscape.maxInlineSize) !== 1974 || parsePx(landscape.maxBlockSize) !== 1232) {
     throw new Error(`Expected landscape page box to use wide viewport capacity, got ${JSON.stringify(landscape)}`)
   }
+  if (landscape.foliateGap !== '2%' || landscape.foliateContentGap !== '6%') {
+    throw new Error(`Expected landscape page and content gaps to stay decoupled, got ${JSON.stringify(landscape)}`)
+  }
+  if (portrait.foliateGap != null || portrait.foliateContentGap != null) {
+    throw new Error(`Expected portrait page box to leave both landscape gaps unset, got ${JSON.stringify(portrait)}`)
+  }
 
   console.log('reader harness adaptive-page-box-logic passed')
   process.exit(0)

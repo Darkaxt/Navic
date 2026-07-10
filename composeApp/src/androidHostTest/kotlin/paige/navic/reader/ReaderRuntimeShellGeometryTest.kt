@@ -49,7 +49,7 @@ class ReaderRuntimeShellGeometryTest {
 		assertContains(typography, "flowMode === ReaderFlowPaged")
 		assertContains(typography, "width >= height * 1.12")
 		assertContains(typography, "columnCount >= 2")
-		assertContains(typography, "? '8.5%'")
+		assertContains(typography, "? '2%'")
 		assertContains(viewport, "renderer.setAttribute('gap', resolvedGap)")
 		assertContains(viewport, "renderer.removeAttribute('gap')")
 

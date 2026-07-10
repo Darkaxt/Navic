@@ -216,6 +216,7 @@ sealed class FoliateWebViewEngineAdapter(
 			externalShellCover = request.externalShellCover,
 			suppressWebShellCover = request.suppressWebShellCover,
 			nativeShellCoverUrl = request.nativeShellCoverUrl,
+			nativeShellCoverTint = request.nativeShellCoverTint,
 			canReturnToShellCover = request.canReturnToShellCover,
 			settings = request.settings.normalizedReaderSettings(),
 			startLocator = request.startLocator

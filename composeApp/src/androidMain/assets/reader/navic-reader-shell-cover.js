@@ -19,6 +19,49 @@ import {
   updateReaderShellCoverLayer,
 } from './navic-reader-helpers.js'
 
+const ReaderCoverColorSampleSize = 24
+
+async function readerDominantCoverColorFromBlob(blob) {
+  if (!blob || typeof createImageBitmap !== 'function') return null
+  let bitmap = null
+  try {
+    bitmap = await createImageBitmap(blob, {
+      resizeWidth: ReaderCoverColorSampleSize,
+      resizeHeight: ReaderCoverColorSampleSize,
+      resizeQuality: 'low',
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = ReaderCoverColorSampleSize
+    canvas.height = ReaderCoverColorSampleSize
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) return null
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+    const buckets = new Map()
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index]
+      const green = pixels[index + 1]
+      const blue = pixels[index + 2]
+      const alpha = pixels[index + 3]
+      if (alpha < 128) continue
+      if (red > 245 && green > 245 && blue > 245) continue
+      if (red < 12 && green < 12 && blue < 12) continue
+      const key = `${red >> 5}|${green >> 5}|${blue >> 5}`
+      const bucket = buckets.get(key) || { count: 0, red: 0, green: 0, blue: 0 }
+      bucket.count += 1
+      bucket.red += red
+      bucket.green += green
+      bucket.blue += blue
+      buckets.set(key, bucket)
+    }
+    const dominant = Array.from(buckets.values()).sort((left, right) => right.count - left.count)[0]
+    if (!dominant?.count) return null
+    return `rgb(${Math.round(dominant.red / dominant.count)}, ${Math.round(dominant.green / dominant.count)}, ${Math.round(dominant.blue / dominant.count)})`
+  } finally {
+    bitmap?.close?.()
+  }
+}
+
 function clearShellCover({ revoke = true } = {}) {
   if (this.shellCoverHideTimer) {
     clearTimeout(this.shellCoverHideTimer)
@@ -28,6 +71,8 @@ function clearShellCover({ revoke = true } = {}) {
   this.shellCoverLayer?.remove?.()
   this.shellCoverLayer = null
   delete readerRoot.dataset.navicShellCoverVisible
+  delete readerRoot.dataset.navicShellCoverDominantColor
+  this.shellCoverDominantColor = null
   if (revoke && this.shellCoverBlobUrl) {
     URL.revokeObjectURL(this.shellCoverBlobUrl)
     this.shellCoverBlobUrl = null
@@ -40,6 +85,8 @@ async function loadShellCover() {
     URL.revokeObjectURL(this.shellCoverBlobUrl)
     this.shellCoverBlobUrl = null
   }
+  this.shellCoverDominantColor = null
+  delete readerRoot.dataset.navicShellCoverDominantColor
   try {
     const book = this.view?.book
     const blob = await book.getCover?.()
@@ -47,7 +94,17 @@ async function loadShellCover() {
       log('shell-cover:missing')
       return null
     }
-    this.shellCoverBlobUrl = URL.createObjectURL(blob)
+    const coverUrl = URL.createObjectURL(blob)
+    this.shellCoverBlobUrl = coverUrl
+    readerDominantCoverColorFromBlob(blob)
+      .then(color => {
+        if (!color || this.shellCoverBlobUrl !== coverUrl) return
+        this.shellCoverDominantColor = color
+        readerRoot.dataset.navicShellCoverDominantColor = color
+        this.renderSurfacePaperTextureLayers?.()
+        readerTrace('shell-cover:dominant-color', { color })
+      })
+      .catch(error => logError('shell-cover:dominant-color-failed', error?.message || error))
     log('shell-cover:loaded', blob.type || 'blob', blob.size || 0)
     return this.shellCoverBlobUrl
   } catch (error) {
@@ -160,6 +217,7 @@ function showShellCover({ animate = true } = {}) {
   }
   this.shellCoverVisible = true
   readerRoot.dataset.navicShellCoverVisible = 'true'
+  this.renderSurfacePaperTextureLayers?.()
   this.pageNumberLayer?.remove?.()
   this.pageNumberLayer = null
   this.shellCoverLayer = this.shellCoverLayer && readerRoot.contains(this.shellCoverLayer)
@@ -197,6 +255,7 @@ function hideShellCover({ animate = true } = {}) {
   if (!this.shellCoverVisible && !this.shellCoverLayer) return false
   this.shellCoverVisible = false
   delete readerRoot.dataset.navicShellCoverVisible
+  this.renderSurfacePaperTextureLayers?.()
   const layer = this.shellCoverLayer
   const finish = () => {
     if (this.shellCoverVisible || this.shellCoverLayer !== layer) return

@@ -1926,7 +1926,7 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 
 		assertTrue(
-			platformHostsText.contains("onPublicationReady: (String, String?, BinderyReadingProgress?) -> Unit"),
+			platformHostsText.contains("onPublicationReady: (String, String?, String?, BinderyReadingProgress?) -> Unit"),
 			"Publication runtime must return saved progress through the app boundary before the engine open request is built."
 		)
 		assertTrue(

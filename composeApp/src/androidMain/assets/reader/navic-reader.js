@@ -279,6 +279,7 @@ class NavicReaderRuntime {
   surfaceStainOverlayVariant = null
   surfaceSpreadGutterOverlayVariant = null
   surfaceSpreadMode = 'single'
+  surfacePageDecorationGeometry = null
   surfaceTextureSlots = []
   surfaceBorderOverlaySlots = []
   surfaceStainOverlaySlots = []
@@ -309,6 +310,7 @@ class NavicReaderRuntime {
   pageDragPreviewLoadToken = 0
   pendingPageDragPreviewCommand = null
   shellCoverBlobUrl = null
+  shellCoverDominantColor = null
   shellCoverVisible = false
   externalShellCover = false
   suppressWebShellCover = false
@@ -450,6 +452,7 @@ class NavicReaderRuntime {
     mediaOverlayEnabled = false,
     externalShellCover = false,
     suppressWebShellCover = false,
+    nativeShellCoverTint = null,
     startLocator = null,
     settings = null
   }) {
@@ -464,6 +467,14 @@ class NavicReaderRuntime {
       this.close()
       this.externalShellCover = Boolean(externalShellCover)
       this.suppressWebShellCover = Boolean(suppressWebShellCover)
+      this.shellCoverDominantColor = /^#[0-9a-f]{6}$/i.test(String(nativeShellCoverTint || '').trim())
+        ? String(nativeShellCoverTint).trim().toLowerCase()
+        : null
+      if (this.shellCoverDominantColor) {
+        readerRoot.dataset.navicShellCoverDominantColor = this.shellCoverDominantColor
+      } else {
+        delete readerRoot.dataset.navicShellCoverDominantColor
+      }
       this.publicationUrl = url
       this.lastRelocateDetail = null
       if (settings) this.readerSettings = settings
@@ -696,6 +707,7 @@ class NavicReaderRuntime {
     this.surfaceStainOverlayVariant = null
     this.surfaceSpreadGutterOverlayVariant = null
     this.surfaceSpreadMode = 'single'
+    this.surfacePageDecorationGeometry = null
     this.surfaceTextureSlots = []
     this.surfaceBorderOverlaySlots = []
     this.surfaceStainOverlaySlots = []

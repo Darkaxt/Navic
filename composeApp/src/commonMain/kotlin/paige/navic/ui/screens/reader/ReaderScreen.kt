@@ -362,7 +362,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	ReaderPublicationRuntimeHost(
 		reader = reader,
-		onPublicationReady = { publicationUrl, shellCoverUrl, savedProgress ->
+		onPublicationReady = { publicationUrl, shellCoverUrl, shellCoverTint, savedProgress ->
 			val localStartLocator = ReaderReadingProgressState(
 				decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
 			).startLocatorFor(
@@ -375,6 +375,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					reader.toReaderEngineOpenRequest(
 						publicationUrl = publicationUrl,
 						shellCoverUrl = shellCoverUrl,
+						shellCoverTint = shellCoverTint,
 						savedProgress = savedProgress,
 						localStartLocator = localStartLocator,
 						settings = runtimeSettings
@@ -499,6 +500,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					reader.toReaderEngineOpenRequest(
 						publicationUrl = publicationUrl,
 						shellCoverUrl = null,
+						shellCoverTint = null,
 						savedProgress = null,
 						settings = runtimeSettings
 					)

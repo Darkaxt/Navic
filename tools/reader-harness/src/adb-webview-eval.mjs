@@ -1874,6 +1874,8 @@ async function runPageBoxProbe(page) {
         bodyTextLength: String(body?.textContent || '').trim().length,
         bodyRect: bodyRect ? roundRect(bodyRect) : null,
         documentElementRect: elementRect ? roundRect(elementRect) : null,
+        paddingLeft: documentElementStyle?.paddingLeft || '',
+        paddingRight: documentElementStyle?.paddingRight || '',
         columnGap: documentElementStyle?.columnGap || '',
         documentToViewportWidthRatio: elementRect ? ratio(elementRect.width, window.visualViewport?.width || window.innerWidth || 0) : null,
         bodyToDocumentWidthRatio: bodyRect && elementRect ? ratio(bodyRect.width, elementRect.width) : null,
@@ -1956,6 +1958,7 @@ async function runPageBoxProbe(page) {
         topMargin: renderer.getAttribute('top-margin') || '',
         bottomMargin: renderer.getAttribute('bottom-margin') || '',
         gap: renderer.getAttribute('gap') || '',
+        contentGap: renderer.getAttribute('content-gap') || '',
       },
       rendererComputed: {
         display: rendererStyle.display,

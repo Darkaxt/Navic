@@ -43,6 +43,7 @@ expect fun ReaderEngineWebViewHost(
 	mediaOverlayEnabled: Boolean,
 	externalShellCover: Boolean,
 	suppressWebShellCover: Boolean,
+	nativeShellCoverTint: String?,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,
@@ -77,7 +78,7 @@ expect fun komikkuReaderIsTabletUi(): Boolean
 @Composable
 expect fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String, String?, BinderyReadingProgress?) -> Unit,
+	onPublicationReady: (String, String?, String?, BinderyReadingProgress?) -> Unit,
 	onError: (String) -> Unit
 )
 

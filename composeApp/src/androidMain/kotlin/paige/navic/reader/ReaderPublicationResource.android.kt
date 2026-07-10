@@ -1,5 +1,7 @@
 package paige.navic.reader
 
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.content.Context
 import java.io.File
 import java.io.InputStream
@@ -38,6 +40,7 @@ data class ReaderResolvedPublicationResource(
 	val cacheKey: String,
 	val fromCache: Boolean,
 	val shellCoverUrl: String? = null,
+	val shellCoverTint: String? = null,
 	val requestHeaders: Map<String, String> = emptyMap()
 )
 
@@ -53,29 +56,33 @@ class BinderyReaderPublicationResolver(
 			File(cacheRoot, "$ReaderPublicationCachePublicationDirectory/$cacheKey"),
 			"publication.$publicationExtension"
 		)
-		if (publicationFile.isFile && publicationFile.length() > 0L) {
-			return request.resolvedPublicationResource(
+		val resolved = if (publicationFile.isFile && publicationFile.length() > 0L) {
+			request.resolvedPublicationResource(
 				publicationFile = publicationFile,
 				resourceHref = resourceHref,
 				cacheKey = cacheKey,
 				fromCache = true,
 				publicationExtension = publicationExtension
-			).withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
-		}
-		val bytes = if (request.shouldFetchReaderDevSourceUrl(resourceHref)) {
-			request.fetchReaderDevSourceBytes()
+			)
 		} else {
-			fetchResourceBytes(resourceHref)
+			val bytes = if (request.shouldFetchReaderDevSourceUrl(resourceHref)) {
+				request.fetchReaderDevSourceBytes()
+			} else {
+				fetchResourceBytes(resourceHref)
+			}
+			publicationFile.parentFile?.mkdirs()
+			publicationFile.writeBytes(bytes)
+			request.resolvedPublicationResource(
+				publicationFile = publicationFile,
+				resourceHref = resourceHref,
+				cacheKey = cacheKey,
+				fromCache = false,
+				publicationExtension = publicationExtension
+			)
 		}
-		publicationFile.parentFile?.mkdirs()
-		publicationFile.writeBytes(bytes)
-		return request.resolvedPublicationResource(
-			publicationFile = publicationFile,
-			resourceHref = resourceHref,
-			cacheKey = cacheKey,
-			fromCache = false,
-			publicationExtension = publicationExtension
-		).withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
+		return resolved
+			.withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
+			.withShellCoverTint()
 	}
 }
 
@@ -190,6 +197,81 @@ private suspend fun ReaderResolvedPublicationResource.withExternalShellCover(
 		copy(shellCoverUrl = coverFile.toReaderShellCoverAssetUrl(cacheKey))
 	}.getOrElse { this }
 }
+
+private suspend fun ReaderResolvedPublicationResource.withShellCoverTint(): ReaderResolvedPublicationResource {
+	val coverFile = shellCoverUrl?.readerShellCoverFile(publicationFile.parentFile) ?: return this
+	val tint = withContext(Dispatchers.IO) { coverFile.readerCachedDominantTint() } ?: return this
+	return copy(shellCoverTint = tint)
+}
+
+private fun String.readerShellCoverFile(publicationDirectory: File?): File? {
+	val directory = publicationDirectory ?: return null
+	val leaf = substringBefore('?')
+		.substringBefore('#')
+		.substringAfterLast('/')
+		.takeIf { it.isNotBlank() }
+		?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
+		?: return null
+	return directory.resolve(leaf).takeIf { it.isFile && it.length() > 0L }
+}
+
+private fun File.readerCachedDominantTint(): String? {
+	val cacheFile = resolveSibling("$name.dominant-tint")
+	if (cacheFile.isFile && cacheFile.lastModified() >= lastModified()) {
+		cacheFile.readText().trim().takeIf(String::readerIsHexColor)?.let { return it }
+	}
+	val tint = readerDominantTint() ?: return null
+	cacheFile.writeText(tint)
+	return tint
+}
+
+private fun File.readerDominantTint(): String? {
+	val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+	BitmapFactory.decodeFile(absolutePath, bounds)
+	if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+	var sampleSize = 1
+	while (bounds.outWidth / sampleSize > 96 || bounds.outHeight / sampleSize > 96) {
+		sampleSize *= 2
+	}
+	val bitmap = BitmapFactory.decodeFile(
+		absolutePath,
+		BitmapFactory.Options().apply { inSampleSize = sampleSize }
+	) ?: return null
+	return try {
+		data class Bucket(var count: Int = 0, var red: Long = 0, var green: Long = 0, var blue: Long = 0)
+		val buckets = mutableMapOf<Int, Bucket>()
+		val xStep = maxOf(1, bitmap.width / 32)
+		val yStep = maxOf(1, bitmap.height / 32)
+		for (y in 0 until bitmap.height step yStep) {
+			for (x in 0 until bitmap.width step xStep) {
+				val color = bitmap.getPixel(x, y)
+				if (Color.alpha(color) < 128) continue
+				val red = Color.red(color)
+				val green = Color.green(color)
+				val blue = Color.blue(color)
+				if (red > 245 && green > 245 && blue > 245) continue
+				if (red < 12 && green < 12 && blue < 12) continue
+				val key = ((red shr 5) shl 6) or ((green shr 5) shl 3) or (blue shr 5)
+				buckets.getOrPut(key, ::Bucket).apply {
+					count += 1
+					this.red += red.toLong()
+					this.green += green.toLong()
+					this.blue += blue.toLong()
+				}
+			}
+		}
+		val dominant = buckets.values.maxByOrNull(Bucket::count)?.takeIf { it.count > 0 } ?: return null
+		"#%02x%02x%02x".format(
+			(dominant.red / dominant.count).toInt(),
+			(dominant.green / dominant.count).toInt(),
+			(dominant.blue / dominant.count).toInt()
+		)
+	} finally {
+		bitmap.recycle()
+	}
+}
+
+private fun String.readerIsHexColor(): Boolean = matches(Regex("^#[0-9a-fA-F]{6}$"))
 
 private fun File.findCachedExternalShellCover(shellCoverHref: String): File? {
 	val filePrefix = shellCoverHref.externalShellCoverFilePrefix()

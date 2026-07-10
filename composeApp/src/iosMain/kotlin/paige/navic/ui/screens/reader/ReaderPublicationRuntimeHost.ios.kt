@@ -8,10 +8,10 @@ import paige.navic.ui.navigation.Screen
 @Composable
 actual fun ReaderPublicationRuntimeHost(
 	reader: Screen.Reader,
-	onPublicationReady: (String, String?, BinderyReadingProgress?) -> Unit,
+	onPublicationReady: (String, String?, String?, BinderyReadingProgress?) -> Unit,
 	onError: (String) -> Unit
 ) {
 	LaunchedEffect(reader.publicationUrl) {
-		onPublicationReady(reader.publicationUrl, null, null)
+		onPublicationReady(reader.publicationUrl, null, null, null)
 	}
 }

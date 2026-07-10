@@ -4,7 +4,7 @@
 
 **Goal:** Add a distinct Aged Paper reader theme, correct the landscape spread gap through Foliate's native layout input, and deliver separate safe landscape and portrait paper compositions without restoring synthetic shell geometry.
 
-**Architecture:** Foliate remains the only text-layout authority. Navic supplies one qualifying landscape `gap` attribute and paints bounded deterministic decoration layers over the real reader viewport. Aged Paper is a theme preset with shared warm-theme semantics; Sepia remains unchanged and cover mode stays isolated.
+**Architecture:** Foliate remains the only text-layout authority. Navic supplies a qualifying landscape physical `gap` plus an independent `content-gap`, then paints bounded deterministic decoration layers over the real reader viewport. The physical gap fixes the page/back-cover bounds; the content gap fixes prose margins without changing the external reveal. Aged Paper is a theme preset with shared warm-theme semantics; Sepia remains unchanged and cover mode stays isolated.
 
 **Tech Stack:** Kotlin Multiplatform, Compose Multiplatform, JavaScript WebView reader bridge, Foliate paginator, Android host tests, readerdev ADB harness, emulator screenshots.
 
@@ -193,12 +193,13 @@ git add composeApp/src/androidMain/assets/reader composeApp/src/androidHostTest
 git commit -m "refactor: unify warm reader theme semantics"
 ```
 
-## Stage 3: Widen Only The Native Landscape Spread Gap
+## Stage 3: Separate Landscape Page And Content Gaps
 
 **Files:**
 
 - Modify: `composeApp/src/androidMain/assets/reader/navic-reader-typography.js`
 - Modify: `composeApp/src/androidMain/assets/reader/navic-reader-viewport.js`
+- Modify: `composeApp/src/androidMain/assets/reader/vendor/foliate-js/paginator.js`
 - Modify: `tools/reader-harness/src/adb-webview-eval.mjs`
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeShellGeometryTest.kt`
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
@@ -210,11 +211,16 @@ Require a pure resolver:
 ```javascript
 export const readerResolvedFoliateGap = ({ flowMode, width, height, columnCount }) =>
   flowMode === 'paged' && width >= height * 1.12 && columnCount >= 2
-    ? '8.5%'
+    ? '2%'
+    : null
+
+export const readerResolvedFoliateContentGap = ({ flowMode, width, height, columnCount }) =>
+  flowMode === 'paged' && width >= height * 1.12 && columnCount >= 2
+    ? '6%'
     : null
 ```
 
-Source tests must require `renderer.setAttribute('gap', resolvedGap)` when non-null and `renderer.removeAttribute('gap')` otherwise. They must continue to prohibit shell geometry.
+Source tests must require independent `gap` and `content-gap` attributes when non-null and remove both otherwise. The physical gap stays `2%`; changing content margins must not widen the `1%` back-cover reveal. The tests must continue to prohibit shell geometry.
 
 - [ ] **Step 2: Run the focused host tests in red state**
 
@@ -222,22 +228,25 @@ Source tests must require `renderer.setAttribute('gap', resolvedGap)` when non-n
 .\gradlew.bat --no-daemon --no-configuration-cache :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeShellGeometryTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest
 ```
 
-Expected: failure on missing gap resolver/application.
+Expected: failure on missing gap resolvers/application.
 
-- [ ] **Step 3: Implement the Foliate-native gap**
+- [ ] **Step 3: Implement independent Foliate-owned gaps**
 
 Add the pure resolver to `navic-reader-typography.js`. Include its result in the existing page-box projection. In `navic-reader-viewport.js`:
 
 ```javascript
 if (pageBox.foliateGap) renderer.setAttribute('gap', pageBox.foliateGap)
 else renderer.removeAttribute('gap')
+
+if (pageBox.foliateContentGap) renderer.setAttribute('content-gap', pageBox.foliateContentGap)
+else renderer.removeAttribute('content-gap')
 ```
 
-Do not edit `vendor/foliate-js/paginator.js`. Its existing observed `gap` attribute is the supported insertion point.
+Add `content-gap` as a narrowly scoped observed paginator attribute. Its default is `var(--_gap)`, preserving upstream behavior when Navic does not supply it. The paginator continues to own padding, column spacing, column width, and pagination; Navic must not patch iframe CSS after render.
 
 - [ ] **Step 4: Extend the page-box probe**
 
-Report the renderer `gap` attribute and computed document `columnGap`. Landscape must report `8.5%`; portrait and scrolled modes must report no explicit Navic gap.
+Report renderer `gap`, renderer `content-gap`, computed document padding, and computed document `columnGap`. Landscape must report `2%`, `6%`, approximately `61.74px` page padding, and approximately `123.48px` prose gap on the target emulator profile. Portrait and scrolled modes must report no explicit Navic gaps. The corresponding physical outer page inset remains `1%` on each side.
 
 - [ ] **Step 5: Run code-level validation**
 
@@ -253,7 +262,7 @@ Expected: all checks pass and shell-geometry negative guards remain green.
 node tools\reader-harness\src\adb-webview-eval.mjs --device emulator-5554 --probe page-box --local-port 9241
 ```
 
-Capture `captures/reader-aged-paper/stage-3-landscape-gap.png` after publication ready. Reject if the prose gap is not visibly wider and balanced.
+Capture `captures/reader-aged-paper/stage-3-landscape-gap.png` after publication ready. Reject if the prose margins are not visibly natural and balanced, or if the external back-cover reveal grows beyond `1%`.
 
 - [ ] **Step 7: Commit Stage 3**
 
@@ -276,6 +285,7 @@ git commit -m "fix: widen native reader landscape spread gap"
 Require dedicated pure helpers:
 
 ```javascript
+readerSurfacePageDecorationGeometry({ settings, spreadMode, foliateGap, shellCoverVisible })
 readerSurfacePaperBaseBackground(settings, spreadMode)
 readerSurfacePaperTextureOpacity(settings)
 readerSurfacePageBorderOverlayOpacity(settings)
@@ -283,7 +293,7 @@ readerSurfacePageStainOverlayOpacity(settings)
 readerSurfaceSpreadGutterOverlayOpacity(settings)
 ```
 
-The tests must require an Aged Paper branch and confirm Sepia values remain unchanged.
+The geometry guard must require half of the native Foliate gap as the outer page inset, shared page bounds for paper/edge/stain layers, and a normal-landscape-only back-cover reveal. The tests must also require an Aged Paper branch and confirm Sepia values remain unchanged.
 
 - [ ] **Step 2: Implement the Aged Paper base**
 
@@ -297,6 +307,8 @@ const agedPaperBase = [
 ```
 
 Apply it inside the existing backing/overlay pipeline. Do not create a shell node, reserve margins, or move Foliate content.
+
+Align every page-local artwork layer to Foliate's resolved physical page bounds. For the `2%` physical gap, the outer decorative inset is `1%` and each page artwork width is `49%` of the viewport. Reuse the existing static backing layer to reveal the back cover across that complete outer inset, with no unused strip. The independent `6%` content gap must not alter these artwork or cover dimensions. Resolve the cover tint once from the cached native shell-cover file during publication preparation, pass it through the existing reader open command, and use the theme palette only as a temporary fallback. Do not add a second network request or a new shell element. The plane must be disabled while `shellCoverVisible` is true and outside qualifying landscape spreads.
 
 - [ ] **Step 3: Tune only the Aged Paper layer strengths**
 
@@ -318,6 +330,8 @@ Focused tests must prove:
 - paper off removes fibers but leaves warm theme color
 - edges off removes outer wear and gutter
 - stains off removes patina only
+- paper, edge, and stain artwork share the same left/right page bounds
+- cover and portrait modes do not show the landscape back-cover reveal
 - no layer alters renderer dimensions
 
 - [ ] **Step 5: Validate the Aged Paper spread on emulator**
@@ -354,7 +368,7 @@ Tests must require:
 
 ```text
 spread mode single -> no spread gutter slots
-spread mode single -> no explicit 8.5% gap
+spread mode single -> no explicit 2% physical gap or 6% content gap
 page edges enabled -> optional left binding hint
 page edges disabled -> no binding hint
 ```
@@ -442,7 +456,7 @@ git commit -m "test: lock aged reader visual diagnostics"
 
 - [ ] **Step 2: Run the landscape matrix**
 
-Validate Sepia, Aged Paper, three layer toggles, and the `8.5%` page-box probe.
+Validate Sepia, Aged Paper, three layer toggles, and the `2%` page-box probe.
 
 - [ ] **Step 3: Run the portrait matrix**
 
@@ -528,7 +542,7 @@ Report commit SHAs, test/build results, emulator capture paths, whether the tabl
 - Every specification requirement has a stage.
 - Landscape and portrait have separate contracts and separate screenshots.
 - Aged Paper does not modify Sepia or migrate existing users.
-- The Foliate gap uses the existing observed `gap` attribute and does not edit vendor code.
+- The physical Foliate gap uses the existing observed `gap` attribute; a minimal observed `content-gap` extension defaults to the physical gap and changes behavior only for qualifying Navic landscape spreads.
 - Cover mode remains isolated and guarded.
 - Emulator validation is the default; tablet validation is conditional and evidence-driven.
 - No placeholder implementation steps or runtime timeouts are present.

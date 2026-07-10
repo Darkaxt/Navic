@@ -651,6 +651,123 @@ export const readerCoverBackdropEnabled = settings => settings?.coverBackdropEna
 
 const readerSpreadTextureSlotPageAttribute = 'data-navic-surface-texture-slot-page'
 
+const readerPercentValue = value => `${Number(Number(value).toFixed(4))}%`
+
+export const readerSurfacePageDecorationGeometry = ({
+  settings,
+  spreadMode = '',
+  foliateGap = null,
+  shellCoverVisible = false,
+  coverTint = null,
+} = {}) => {
+  const parsedGap = Number.parseFloat(String(foliateGap || ''))
+  const gapPercent = spreadMode === 'spread' && Number.isFinite(parsedGap)
+    ? Math.min(40, Math.max(0, parsedGap))
+    : 0
+  const outerInsetPercent = gapPercent / 2
+  const pageWidthPercent = 50 - outerInsetPercent
+  const backCoverRevealPercent = outerInsetPercent
+  const backCoverStartPercent = 0
+  const boundedSpread = gapPercent > 0
+  return {
+    boundedSpread,
+    gapPercent,
+    outerInsetPercent,
+    pageWidthPercent,
+    backCoverRevealPercent,
+    backCoverStartPercent,
+    backCoverVisible: boundedSpread && shellCoverVisible !== true,
+    pages: {
+      full: { left: '0px', width: '100%' },
+      left: {
+        left: boundedSpread ? readerPercentValue(outerInsetPercent) : '0px',
+        width: boundedSpread ? readerPercentValue(pageWidthPercent) : '50%',
+      },
+      right: {
+        left: '50%',
+        width: boundedSpread ? readerPercentValue(pageWidthPercent) : '50%',
+      },
+    },
+    theme: readerThemeKey(settings?.theme),
+    coverTint,
+  }
+}
+
+const readerColorChannels = value => {
+  if (value && typeof value === 'object') {
+    const red = Number(value.red)
+    const green = Number(value.green)
+    const blue = Number(value.blue)
+    if ([red, green, blue].every(Number.isFinite)) return { red, green, blue }
+  }
+  const match = /^#([0-9a-f]{6})$/i.exec(String(value || '').trim())
+  if (match) {
+    const number = Number.parseInt(match[1], 16)
+    return {
+      red: (number >> 16) & 255,
+      green: (number >> 8) & 255,
+      blue: number & 255,
+    }
+  }
+  const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/i.exec(String(value || '').trim())
+  return rgb ? { red: Number(rgb[1]), green: Number(rgb[2]), blue: Number(rgb[3]) } : null
+}
+
+const readerMixedColorChannels = (background, foreground, foregroundWeight) => {
+  const base = readerColorChannels(background) || { red: 234, green: 217, blue: 174 }
+  const front = readerColorChannels(foreground) || { red: 38, green: 27, blue: 16 }
+  const weight = Math.min(1, Math.max(0, Number(foregroundWeight) || 0))
+  return {
+    red: Math.round(base.red + (front.red - base.red) * weight),
+    green: Math.round(base.green + (front.green - base.green) * weight),
+    blue: Math.round(base.blue + (front.blue - base.blue) * weight),
+  }
+}
+
+const readerDesaturatedColorChannels = (value, amount = 0.24) => {
+  const color = readerColorChannels(value)
+  if (!color) return null
+  const weight = Math.min(1, Math.max(0, Number(amount) || 0))
+  const luminance = color.red * 0.299 + color.green * 0.587 + color.blue * 0.114
+  return {
+    red: Math.round(color.red + (luminance - color.red) * weight),
+    green: Math.round(color.green + (luminance - color.green) * weight),
+    blue: Math.round(color.blue + (luminance - color.blue) * weight),
+  }
+}
+
+const readerRgba = (channels, alpha) =>
+  `rgba(${channels.red}, ${channels.green}, ${channels.blue}, ${alpha})`
+
+export const readerSurfaceBackCoverBackground = (settings, geometry) => {
+  if (!geometry?.backCoverVisible) return 'none'
+  const palette = readerThemePalette(settings?.theme)
+  const warm = readerThemeUsesWarmPaperTreatment(settings?.theme)
+  const coverBase = readerDesaturatedColorChannels(geometry.coverTint, 0.28) || palette.background
+  const outer = readerMixedColorChannels(coverBase, palette.foreground, warm ? 0.48 : 0.42)
+  const middle = readerMixedColorChannels(coverBase, palette.foreground, warm ? 0.30 : 0.26)
+  const edge = readerMixedColorChannels(coverBase, palette.foreground, warm ? 0.40 : 0.34)
+  const inset = geometry.outerInsetPercent
+  const coverStart = geometry.backCoverStartPercent
+  const fade = Math.min(inset, coverStart + Math.min(0.35, geometry.backCoverRevealPercent * 0.4))
+  const reverseCoverStart = 100 - coverStart
+  const reverseFade = 100 - fade
+  const reverseInset = 100 - inset
+  return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(coverStart)}, ${readerRgba(outer, 0.74)} ${readerPercentValue(coverStart)}, ${readerRgba(middle, 0.56)} ${readerPercentValue(fade)}, ${readerRgba(edge, 0.68)} ${readerPercentValue(inset)}, transparent ${readerPercentValue(inset)}, transparent ${readerPercentValue(reverseInset)}, ${readerRgba(edge, 0.68)} ${readerPercentValue(reverseInset)}, ${readerRgba(middle, 0.56)} ${readerPercentValue(reverseFade)}, ${readerRgba(outer, 0.74)} ${readerPercentValue(reverseCoverStart)}, transparent ${readerPercentValue(reverseCoverStart)}, transparent 100%)`
+}
+
+export const readerSurfacePaperBaseBackground = (settings, spreadMode = '') => {
+  const palette = readerThemePalette(settings?.theme)
+  if (!readerThemeUsesWarmPaperTreatment(settings?.theme)) {
+    return { image: 'none', color: palette.background }
+  }
+  const edgeStrength = spreadMode === 'spread' ? '.10' : '.08'
+  return {
+    image: `linear-gradient(90deg, rgba(118,76,31,${edgeStrength}) 0%, rgba(255,244,212,.09) 7%, rgba(255,244,212,0) 19%, rgba(255,244,212,0) 81%, rgba(103,65,26,${edgeStrength}) 100%)`,
+    color: palette.background,
+  }
+}
+
 export const readerSpreadPageTextureSlots = (textureSlots, resolveVariant, spreadMode) => {
   if (spreadMode !== 'spread') return textureSlots || []
   return (textureSlots || []).map(slot => {
@@ -1142,12 +1259,14 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
   })
 }
 
-export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, settings) => {
+export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, settings, decorationGeometry = null) => {
   if (!layer || !Array.isArray(textureSlots) || !textureSlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
   const palette = readerThemePalette(settings?.theme)
+  const backCoverVisible = decorationGeometry?.backCoverVisible === true
+  const backCoverBackground = readerSurfaceBackCoverBackground(settings, decorationGeometry)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -1155,24 +1274,27 @@ export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, setting
     'min-width': widthPx,
     height: heightPx,
     'min-height': heightPx,
-    'z-index': '0',
+    'z-index': backCoverVisible ? '2147483629' : '0',
     'pointer-events': 'none',
-    background: palette.background,
-    'background-color': palette.background,
-    'background-image': 'none',
-    'background-size': 'auto',
-    'background-position': '0px 0px',
+    background: backCoverVisible ? backCoverBackground : palette.background,
+    'background-color': backCoverVisible ? 'transparent' : palette.background,
+    'background-image': backCoverVisible ? backCoverBackground : 'none',
+    'background-size': backCoverVisible ? '100% 100%' : 'auto',
+    'background-position': backCoverVisible ? 'center center' : '0px 0px',
     'background-repeat': 'no-repeat',
     opacity: '1',
     'mix-blend-mode': 'normal',
     overflow: 'hidden',
     transform: 'none',
+    'box-shadow': 'none',
   })
+  if (backCoverVisible) layer.setAttribute('data-navic-surface-back-cover-plane', 'true')
+  else layer.removeAttribute('data-navic-surface-back-cover-plane')
   layer.dataset.navicStaticPaperBackingAsset = ''
   layer.dataset.navicStaticPaperBackingOwner = 'margin'
 }
 
-export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
+export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', decorationGeometry = null) => {
   if (!layer || !Array.isArray(textureSlots) || !textureSlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
@@ -1212,8 +1334,10 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
     for (const page of pages) {
       if (!page?.variant?.asset) continue
       const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
-      const pageWidth = page.page === 'full' ? widthPx : '50%'
-      const pageLeft = page.page === 'right' ? '50%' : '0px'
+      const pageBounds = decorationGeometry?.pages?.[page.page] || null
+      const pageWidth = pageBounds?.width || (page.page === 'full' ? widthPx : '50%')
+      const pageLeft = pageBounds?.left || (page.page === 'right' ? '50%' : '0px')
+      const paperBase = readerSurfacePaperBaseBackground(settings, decorationGeometry?.boundedSpread ? 'spread' : 'single')
       setStylesImportant(artwork, {
         position: 'absolute',
         top: '0px',
@@ -1221,11 +1345,15 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
         left: pageLeft,
         width: pageWidth,
         height: heightPx,
-        'background-image': readerPaperTextureBackgroundImage(page.variant),
-        'background-size': 'cover',
-        'background-position': readerPaperTextureBackgroundPosition(null),
-        'background-repeat': 'no-repeat',
-        'background-color': 'transparent',
+        'background-image': paperBase.image === 'none'
+          ? readerPaperTextureBackgroundImage(page.variant)
+          : `${paperBase.image}, ${readerPaperTextureBackgroundImage(page.variant)}`,
+        'background-size': paperBase.image === 'none' ? 'cover' : '100% 100%, cover',
+        'background-position': paperBase.image === 'none'
+          ? readerPaperTextureBackgroundPosition(null)
+          : `center center, ${readerPaperTextureBackgroundPosition(null)}`,
+        'background-repeat': paperBase.image === 'none' ? 'no-repeat' : 'no-repeat, no-repeat',
+        'background-color': paperBase.image === 'none' ? 'transparent' : paperBase.color,
         transform: readerPaperTextureTransform(page.variant),
         'transform-origin': 'center',
       })
@@ -1233,10 +1361,10 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
   }
 }
 
-export const updateReaderMovingPageTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
-  updateReaderSurfaceTextureLayer(layer, textureSlots, settings, scrollOffset, flowMode, readerDirection)
+export const updateReaderMovingPageTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', decorationGeometry = null) =>
+  updateReaderSurfaceTextureLayer(layer, textureSlots, settings, scrollOffset, flowMode, readerDirection, decorationGeometry)
 
-export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
+export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', decorationGeometry = null) => {
   if (!layer || !Array.isArray(borderOverlaySlots) || !borderOverlaySlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
@@ -1277,8 +1405,9 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
     for (const page of pages) {
       if (!page?.variant?.asset) continue
       const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
-      const pageWidth = page.page === 'full' ? widthPx : '50%'
-      const pageLeft = page.page === 'right' ? '50%' : '0px'
+      const pageBounds = decorationGeometry?.pages?.[page.page] || null
+      const pageWidth = pageBounds?.width || (page.page === 'full' ? widthPx : '50%')
+      const pageLeft = pageBounds?.left || (page.page === 'right' ? '50%' : '0px')
       setStylesImportant(artwork, {
         position: 'absolute',
         top: '0px',
@@ -1302,10 +1431,10 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
   }
 }
 
-export const updateReaderMovingPageBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
-  updateReaderSurfaceBorderOverlayLayer(layer, borderOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
+export const updateReaderMovingPageBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', decorationGeometry = null) =>
+  updateReaderSurfaceBorderOverlayLayer(layer, borderOverlaySlots, settings, scrollOffset, flowMode, readerDirection, decorationGeometry)
 
-export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
+export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', decorationGeometry = null) => {
   if (!layer || !Array.isArray(stainOverlaySlots) || !stainOverlaySlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
@@ -1346,8 +1475,9 @@ export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, s
     for (const page of pages) {
       if (!page?.variant?.asset) continue
       const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
-      const pageWidth = page.page === 'full' ? widthPx : '50%'
-      const pageLeft = page.page === 'right' ? '50%' : '0px'
+      const pageBounds = decorationGeometry?.pages?.[page.page] || null
+      const pageWidth = pageBounds?.width || (page.page === 'full' ? widthPx : '50%')
+      const pageLeft = pageBounds?.left || (page.page === 'right' ? '50%' : '0px')
       setStylesImportant(artwork, {
         position: 'absolute',
         top: '0px',
@@ -1367,8 +1497,8 @@ export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, s
   }
 }
 
-export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
-  updateReaderSurfaceStainOverlayLayer(layer, stainOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
+export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', decorationGeometry = null) =>
+  updateReaderSurfaceStainOverlayLayer(layer, stainOverlaySlots, settings, scrollOffset, flowMode, readerDirection, decorationGeometry)
 
 export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(spreadGutterOverlaySlots) || !spreadGutterOverlaySlots.some(slot => slot?.variant?.asset)) return

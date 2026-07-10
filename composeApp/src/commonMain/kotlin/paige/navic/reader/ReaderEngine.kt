@@ -19,6 +19,7 @@ data class ReaderEngineOpenRequest(
 	val startLocator: ReaderLocator? = null,
 	val settings: ReaderSettings = defaultReaderSettings(),
 	val nativeShellCoverUrl: String? = null,
+	val nativeShellCoverTint: String? = null,
 	val canReturnToShellCover: Boolean = false
 )
 
@@ -195,6 +196,7 @@ sealed interface ReaderEngineViewState {
 		val externalShellCover: Boolean,
 		val suppressWebShellCover: Boolean = false,
 		val nativeShellCoverUrl: String?,
+		val nativeShellCoverTint: String? = null,
 		val canReturnToShellCover: Boolean,
 		val settings: ReaderSettings,
 		val startLocator: ReaderLocator?,

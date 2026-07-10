@@ -19,6 +19,7 @@ actual fun ReaderEngineWebViewHost(
 	mediaOverlayEnabled: Boolean,
 	externalShellCover: Boolean,
 	suppressWebShellCover: Boolean,
+	nativeShellCoverTint: String?,
 	settings: ReaderSettings,
 	startCfi: String?,
 	startHref: String?,

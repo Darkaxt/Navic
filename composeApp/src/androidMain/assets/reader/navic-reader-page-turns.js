@@ -655,7 +655,8 @@ function syncPageDragPreviewTextureLayers(layer, previewScrollOffset = null) {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      this.surfacePageDecorationGeometry
     )
     this.overridePageDragPreviewTextureLayerBox(paperLayer, 2)
   } else {
@@ -668,7 +669,8 @@ function syncPageDragPreviewTextureLayers(layer, previewScrollOffset = null) {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      this.surfacePageDecorationGeometry
     )
     this.overridePageDragPreviewTextureLayerBox(borderLayer, 3)
   } else {
@@ -681,7 +683,8 @@ function syncPageDragPreviewTextureLayers(layer, previewScrollOffset = null) {
       this.readerSettings,
       scrollOffset,
       this.readerFlowModeValue,
-      readerDirection
+      readerDirection,
+      this.surfacePageDecorationGeometry
     )
     this.overridePageDragPreviewTextureLayerBox(gutterLayer, 4)
   } else {
