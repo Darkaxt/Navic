@@ -146,6 +146,19 @@ internal fun settingsSearchAppearanceRows(context: SettingsSearchContext): List<
 			value = preferenceManager.swipeToSkip,
 			onSetValue = { preferenceManager.swipeToSkip = it }
 		))
+		if (isAndroid) {
+			add(selectionRow(
+				id = "now-playing.screen-on-mode",
+				path = path(nowPlaying, behaviour),
+				title = stringResource(Res.string.option_now_playing_screen_on_mode),
+				subtitle = stringResource(Res.string.subtitle_now_playing_screen_on_mode),
+				keywords = listOf("screen", "awake", "charging", "power", "playback"),
+				items = NowPlayingScreenOnMode.entries,
+				label = { stringResource(it.displayName) },
+				selection = preferenceManager.nowPlayingScreenOnMode,
+				onSelect = { preferenceManager.nowPlayingScreenOnMode = it }
+			))
+		}
 		add(selectionRow(
 			id = "now-playing.background-style",
 			path = path(nowPlaying),

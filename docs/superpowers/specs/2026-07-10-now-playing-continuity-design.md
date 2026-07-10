@@ -3,6 +3,15 @@
 Date: 2026-07-10
 Branch: master
 
+## Android-Only Scope (2026-07-10)
+
+After approval, the user removed cross-platform support for the new Now Playing screen-on feature. This design now contains only its Android settings, observer, runtime, validation, and release requirements.
+
+- The screen-on setting is visible and searchable only on Android.
+- The new external-power observation, policy application, and `KeepScreenOn()` ownership run only on Android while expanded Now Playing is visible.
+- The iOS actual returns `null` only for common source-set compatibility; the setting is hidden and no new policy or `KeepScreenOn()` behavior applies there.
+- All new release gates for this feature are Android-only. Existing independent Lyrics, Reader, and LidaClips behavior remains unchanged.
+
 ## Goal
 
 Improve continuity in the expanded Now Playing view in two focused ways:
@@ -16,7 +25,7 @@ Both changes are scoped to the full Now Playing surface. They must not alter que
 
 ### Screen State
 
-Navic already has a cross-platform `KeepScreenOn()` composable. Android sets `View.keepScreenOn`, while iOS controls `UIApplication.idleTimerDisabled`; both restore the platform value when the composable leaves composition. Lyrics, the reader, and LidaClips use this facility for their own features, but the normal expanded Now Playing view has no policy for it.
+Navic already has `KeepScreenOn()`. This feature uses Android's `View.keepScreenOn` only while the expanded Now Playing composition owns the policy. Lyrics, the reader, and LidaClips retain their independent behavior, while normal expanded Now Playing currently has no policy of its own.
 
 The requested policy is:
 
@@ -66,7 +75,7 @@ enum class NowPlayingScreenOnMode {
 
 The enum should expose localized display names. Persist it in `PreferenceManager` with `Off` as the default.
 
-Add one `SettingSelectionRow` to the Now Playing settings screen and a matching settings-search row. The user-facing values are exactly:
+Add one Android-only `SettingSelectionRow` to the Now Playing settings screen and a matching Android-only settings-search row. The user-facing values are exactly:
 
 - Off
 - While playing and charging
@@ -95,7 +104,7 @@ The policy returns true only when an active song exists and playback is not paus
 
 ### Platform Power Observation
 
-Add a small common `expect` API that exposes external-power state to Compose. The platform implementations own observation and cleanup.
+Add a small common `expect` API that exposes external-power state to Compose. The Android implementation owns observation and cleanup; the runtime composes it only for visible expanded Now Playing in charging-only mode.
 
 Android behavior:
 
@@ -105,19 +114,11 @@ Android behavior:
 - Treat a full battery that remains plugged in as connected.
 - Unregister the receiver on disposal.
 
-iOS behavior:
-
-- Enable device battery monitoring while observation is active.
-- Read the initial `UIDevice` battery state.
-- Observe battery-state change notifications.
-- Treat charging and full as externally powered.
-- Remove the notification observer on disposal. If this observer enabled battery monitoring, record the prior value and restore it when disposed; do not disable monitoring that was already enabled by another owner.
-
 If power state is unavailable, `While playing and charging` behaves as false. `While playing` does not depend on power observation.
 
 ### Composition Ownership
 
-`NowPlayingScreen` evaluates the pure policy from the current song, pause state, preference, and power state. It composes `KeepScreenOn()` only when the result is true.
+On Android, `NowPlayingScreen` evaluates the pure policy from the current song, pause state, preference, and power state. It composes `KeepScreenOn()` only while the expanded Now Playing screen is visible and the result is true.
 
 Consequences are immediate and state-driven:
 
@@ -200,7 +201,7 @@ Likely implementation areas:
 - `composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt`
 - `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/NowPlayingScreen.kt`
 - the corresponding Now Playing settings-search rows and string resources
-- a common `expect` power-state API with Android and iOS `actual` implementations
+- a common power-state API with an Android observer implementation
 - `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/NowPlayingScreen.kt`
 - `composeApp/src/commonMain/kotlin/paige/navic/ui/components/common/CoverArt.kt`
 - `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/components/Artwork.kt`
@@ -217,13 +218,12 @@ Add focused tests for:
 - An empty player never keeping the screen awake.
 - Charging-only mode failing closed when platform state is unavailable.
 - Android power mapping for AC, USB, wireless, dock, battery-only, and plugged/full states.
-- iOS power mapping for charging, full, unplugged, and unknown states.
-- Observer registration and disposal contracts using platform-appropriate source or host tests.
+- Android observer registration and disposal contracts using host/source tests.
 - `CoverArt` applying the placeholder memory-cache key only when opted in and a key exists.
 - The loading renderer preferring a matching Coil placeholder while preserving generated fallback when none exists.
 - `NowPlayingArtwork` opting into the cached placeholder with `TrimWhitespace` normalization.
 
-Run the focused common and Android host tests, followed by the repository's normal Gradle verification appropriate to the touched common, Android, and iOS source sets.
+Run the focused common and Android host tests, followed by the repository's normal Gradle verification for the touched common and Android source sets.
 
 ### Physical Tablet Verification
 
@@ -239,8 +239,8 @@ Use the attached tablet for behavioral validation:
 
 ## Success Criteria
 
-- The new setting offers the three approved modes and defaults to `Off`.
-- Screen retention applies only to active playback in the full Now Playing composition.
+- The Android-only setting offers the three approved modes and defaults to `Off`.
+- Android screen retention applies only to active playback in the visible full Now Playing composition.
 - Pause, unplug, navigation, and preference changes release the screen flag immediately when required.
 - The first destination frame uses the matching cached cover when Up Next has already loaded it.
 - Full-size artwork can continue resolving without exposing generated coverless vinyl between matching images.

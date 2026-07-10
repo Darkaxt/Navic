@@ -4,11 +4,20 @@
 
 **Goal:** Keep the display awake under the approved expanded Now Playing policy and eliminate the coverless vinyl frame when the destination cover is already cached.
 
-**Architecture:** A pure common policy decides when the screen flag belongs to Now Playing, while small Android and iOS observers publish external-power state only when charging-only mode needs it. `CoverArt` gains an opt-in Coil memory-cache loading placeholder; only `NowPlayingArtwork` enables it, so existing artwork surfaces and genuine fallback behavior remain unchanged.
+**Architecture:** A pure common policy decides when the Android screen flag belongs to visible expanded Now Playing, while a small Android observer publishes external-power state only when charging-only mode needs it. `CoverArt` gains an opt-in Coil memory-cache loading placeholder; only `NowPlayingArtwork` enables it, so existing artwork surfaces and genuine fallback behavior remain unchanged.
 
-**Tech Stack:** Kotlin Multiplatform, Compose Multiplatform, Android battery broadcasts, UIKit battery notifications, Coil 3.5.0, kotlin.test, Android host tests, ADB, GitHub Actions.
+**Tech Stack:** Kotlin Multiplatform, Compose Multiplatform, Android battery broadcasts, Coil 3.5.0, kotlin.test, Android host tests, ADB, GitHub Actions.
 
 ---
+
+## Android-Only Scope (2026-07-10)
+
+After approval, the user removed cross-platform support for the new Now Playing screen-on feature. This plan now contains only its Android settings, observer, runtime, validation, and release requirements.
+
+- The screen-on setting is visible and searchable only on Android.
+- The new external-power observation, policy application, and `KeepScreenOn()` ownership run only on Android while expanded Now Playing is visible.
+- The iOS actual returns `null` only for common source-set compatibility; the setting is hidden and no new policy or `KeepScreenOn()` behavior applies there.
+- All new release gates for this feature are Android-only. Existing independent Lyrics, Reader, and LidaClips behavior remains unchanged.
 
 Spec: `docs/superpowers/specs/2026-07-10-now-playing-continuity-design.md`
 
@@ -49,12 +58,10 @@ Baseline at plan creation:
   - Common `expect` composable returning connected, disconnected, or unknown.
 - Create `composeApp/src/androidMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.android.kt`
   - Reads and observes `ACTION_BATTERY_CHANGED` and cleans up its receiver.
-- Create `composeApp/src/iosMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.ios.kt`
-  - Reads and observes `UIDevice` battery state and cleans up its observer.
 - Create `composeApp/src/androidHostTest/kotlin/paige/navic/ui/components/common/ExternalPowerStateAndroidTest.kt`
   - Tests Android plugged-value mapping.
 - Create `composeApp/src/androidHostTest/kotlin/paige/navic/ui/components/common/ExternalPowerStateSourceTest.kt`
-  - Guards expect/actual observation and cleanup contracts, including the iOS source on Windows.
+  - Guards the common API and Android observation and cleanup contracts.
 
 ### Now Playing Ownership
 
@@ -266,13 +273,12 @@ git add -- `
 git commit -m "Add Now Playing screen-on policy"
 ```
 
-## Task 2: Cross-Platform External-Power Observation
+## Task 2: Android External-Power Observation
 
 **Files:**
 
 - Create: `composeApp/src/commonMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.kt`
 - Create: `composeApp/src/androidMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.android.kt`
-- Create: `composeApp/src/iosMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.ios.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/components/common/ExternalPowerStateAndroidTest.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/components/common/ExternalPowerStateSourceTest.kt`
 
@@ -313,17 +319,13 @@ import kotlin.test.assertContains
 
 class ExternalPowerStateSourceTest {
 	@Test
-	fun commonAndPlatformSourcesObserveAndReleasePowerState() {
+	fun commonAndAndroidSourcesObserveAndReleasePowerState() {
 		val common = source("commonMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.kt")
 		val android = source("androidMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.android.kt")
-		val ios = source("iosMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.ios.kt")
 
 		assertContains(common, "expect fun rememberExternalPowerConnected(): Boolean?")
 		assertContains(android, "Intent.ACTION_BATTERY_CHANGED")
 		assertContains(android, "context.unregisterReceiver(receiver)")
-		assertContains(ios, "UIDeviceBatteryStateDidChangeNotification")
-		assertContains(ios, "NSNotificationCenter.defaultCenter.removeObserver(observer)")
-		assertContains(ios, "if (!wasBatteryMonitoringEnabled)")
 	}
 
 	private fun source(path: String): String =
@@ -428,80 +430,18 @@ actual fun rememberExternalPowerConnected(): Boolean? {
 
 The nonzero plugged mapping covers AC, USB, wireless, and dock values while keeping plugged/full true.
 
-- [ ] **Step 6: Add the iOS observer**
-
-Create `ExternalPowerState.ios.kt`:
-
-```kotlin
-@file:OptIn(ExperimentalForeignApi::class)
-
-package paige.navic.ui.components.common
-
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import kotlinx.cinterop.ExperimentalForeignApi
-import platform.Foundation.NSNotificationCenter
-import platform.Foundation.NSOperationQueue
-import platform.UIKit.UIDevice
-import platform.UIKit.UIDeviceBatteryStateCharging
-import platform.UIKit.UIDeviceBatteryStateDidChangeNotification
-import platform.UIKit.UIDeviceBatteryStateFull
-import platform.UIKit.UIDeviceBatteryStateUnplugged
-
-private fun currentExternalPowerConnected(device: UIDevice): Boolean? =
-	when (device.batteryState) {
-		UIDeviceBatteryStateCharging,
-		UIDeviceBatteryStateFull -> true
-		UIDeviceBatteryStateUnplugged -> false
-		else -> null
-	}
-
-@Composable
-actual fun rememberExternalPowerConnected(): Boolean? {
-	val device = UIDevice.currentDevice
-	var connected by remember(device) { mutableStateOf<Boolean?>(null) }
-
-	DisposableEffect(device) {
-		val wasBatteryMonitoringEnabled = device.batteryMonitoringEnabled
-		device.batteryMonitoringEnabled = true
-		connected = currentExternalPowerConnected(device)
-		val observer = NSNotificationCenter.defaultCenter.addObserverForName(
-			name = UIDeviceBatteryStateDidChangeNotification,
-			`object` = device,
-			queue = NSOperationQueue.mainQueue
-		) { _ ->
-			connected = currentExternalPowerConnected(device)
-		}
-
-		onDispose {
-			NSNotificationCenter.defaultCenter.removeObserver(observer)
-			if (!wasBatteryMonitoringEnabled) {
-				device.batteryMonitoringEnabled = false
-			}
-		}
-	}
-
-	return connected
-}
-```
-
-- [ ] **Step 7: Run the focused Android host tests and verify GREEN**
+- [ ] **Step 6: Run the focused Android host tests and verify GREEN**
 
 Run the command from Step 3.
 
-Expected: both power-state tests pass. The iOS source contract passes on Windows; native compilation is covered by the macOS workflow gate in Task 6.
+Expected: both Android power-state tests pass.
 
-- [ ] **Step 8: Commit the platform power observer**
+- [ ] **Step 7: Commit the Android power observer**
 
 ```powershell
 git add -- `
   composeApp/src/commonMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.kt `
   composeApp/src/androidMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.android.kt `
-  composeApp/src/iosMain/kotlin/paige/navic/ui/components/common/ExternalPowerState.ios.kt `
   composeApp/src/androidHostTest/kotlin/paige/navic/ui/components/common/ExternalPowerStateAndroidTest.kt `
   composeApp/src/androidHostTest/kotlin/paige/navic/ui/components/common/ExternalPowerStateSourceTest.kt
 git commit -m "Observe external power for Now Playing"
@@ -513,6 +453,7 @@ git commit -m "Observe external power for Now Playing"
 
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/NowPlayingScreen.kt`
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/SettingsSearchAppearanceRows.kt`
+- Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/SettingsSearchRegistry.kt`
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/NowPlayingScreen.kt`
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/nowPlaying/NowPlayingScreenOnSourceTest.kt`
 
@@ -538,7 +479,7 @@ class NowPlayingScreenOnSourceTest {
 		assertContains(source, "screenOnMode == NowPlayingScreenOnMode.WhilePlayingAndCharging")
 		assertContains(source, "rememberExternalPowerConnected() == true")
 		assertContains(source, "shouldKeepNowPlayingScreenOn(")
-		assertContains(source, "if (isNowPlayingVisible && keepNowPlayingScreenOn)")
+		assertContains(source, "if (isAndroidPlatform && isNowPlayingVisible && shouldKeepScreenOn)")
 		assertContains(source, "KeepScreenOn()")
 	}
 
@@ -570,7 +511,7 @@ Expected: assertions fail because neither the settings rows nor screen ownership
 
 - [ ] **Step 3: Add the Now Playing selection row**
 
-Import the setting title/subtitle resources and `NowPlayingScreenOnMode` in the settings screen. Add this row near the top of the main Now Playing form, after swipe-to-skip:
+Import `PlatformType`, the setting title/subtitle resources, and `NowPlayingScreenOnMode` in the settings screen. Add this row near the top of the main Now Playing form, after swipe-to-skip, inside `if (platformContext.platformType == PlatformType.Android)`:
 
 ```kotlin
 SettingSelectionRow(
@@ -583,9 +524,9 @@ SettingSelectionRow(
 )
 ```
 
-- [ ] **Step 4: Add the searchable selection**
+- [ ] **Step 4: Add the Android-only searchable selection**
 
-Add this row in `settingsSearchAppearanceRows`, with the other Now Playing behavior rows:
+In `SettingsSearchRegistry.kt`, import `PlatformType` and derive `isAndroid` with `platformContext.platformType == PlatformType.Android`. Add this row inside `if (isAndroid)` in `settingsSearchAppearanceRows`, with the other Now Playing behavior rows:
 
 ```kotlin
 add(selectionRow(
@@ -601,15 +542,16 @@ add(selectionRow(
 ))
 ```
 
-- [ ] **Step 5: Wire composition-scoped ownership**
+- [ ] **Step 5: Wire Android composition-scoped ownership**
 
-In `NowPlayingScreen.kt`, import `NowPlayingScreenOnMode`, `shouldKeepNowPlayingScreenOn`, `KeepScreenOn`, and `rememberExternalPowerConnected`. Immediately after resolving `currentScreen`, add:
+In `NowPlayingScreen.kt`, import `LocalPlatformContext`, `PlatformType`, `NowPlayingScreenOnMode`, `shouldKeepNowPlayingScreenOn`, `KeepScreenOn`, and `rememberExternalPowerConnected`. Derive `isAndroidPlatform` from `LocalPlatformContext.current.platformType == PlatformType.Android`; immediately after resolving `currentScreen`, add:
 
 ```kotlin
 val isNowPlayingVisible = currentScreen is Screen.NowPlaying
 val screenOnMode = preferenceManager.nowPlayingScreenOnMode
 val shouldObserveExternalPower =
-	isNowPlayingVisible &&
+	isAndroidPlatform &&
+		isNowPlayingVisible &&
 		screenOnMode == NowPlayingScreenOnMode.WhilePlayingAndCharging
 val isExternalPowerConnected = if (shouldObserveExternalPower) {
 	rememberExternalPowerConnected() == true
@@ -621,18 +563,18 @@ val isExternalPowerConnected = if (shouldObserveExternalPower) {
 After `playerState` and `song` are available, add:
 
 ```kotlin
-val keepNowPlayingScreenOn = shouldKeepNowPlayingScreenOn(
+val shouldKeepScreenOn = shouldKeepNowPlayingScreenOn(
 	mode = screenOnMode,
 	hasActiveSong = song != null,
 	isPaused = playerState.isPaused,
 	isExternalPowerConnected = isExternalPowerConnected
 )
-if (isNowPlayingVisible && keepNowPlayingScreenOn) {
+if (isAndroidPlatform && isNowPlayingVisible && shouldKeepScreenOn) {
 	KeepScreenOn()
 }
 ```
 
-Keep the existing broader `isPlayerCurrent` behavior unchanged for Queue and Playback Speed rendering. Only the new screen-retention flag uses the narrower `isNowPlayingVisible` check.
+Keep the existing broader `isPlayerCurrent` behavior unchanged for Queue and Playback Speed rendering. Only the new screen-retention flag uses the Android and `isNowPlayingVisible` checks.
 
 - [ ] **Step 6: Run policy, preference, platform, and source tests**
 
@@ -653,6 +595,7 @@ Expected: all selected tests pass.
 git add -- `
   composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/NowPlayingScreen.kt `
   composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/SettingsSearchAppearanceRows.kt `
+  composeApp/src/commonMain/kotlin/paige/navic/ui/screens/settings/SettingsSearchRegistry.kt `
   composeApp/src/commonMain/kotlin/paige/navic/ui/screens/nowPlaying/NowPlayingScreen.kt `
   composeApp/src/commonTest/kotlin/paige/navic/ui/screens/nowPlaying/NowPlayingScreenOnSourceTest.kt
 git commit -m "Apply screen-on mode to Now Playing"
@@ -892,7 +835,7 @@ git log -5 --oneline
 
 Expected: no whitespace errors; only `output/` and `releases/` remain untracked; implementation is split into the four focused commits from Tasks 1-4.
 
-## Task 6: Version, Cross-Platform CI, And Signed Release
+## Task 6: Version, Android CI, And Signed Release
 
 **Files:**
 
@@ -937,12 +880,12 @@ git commit -m "Prepare v1.0.11-theta85"
 
 Expected: version verification passes and the release identity commit contains only `androidApp/build.gradle.kts`.
 
-- [ ] **Step 5: Push master and run the macOS iOS compile/package gate**
+- [ ] **Step 5: Push master and run the Android release package gate**
 
 ```powershell
 git push fork master
 $headSha = (git rev-parse HEAD).Trim()
-gh workflow run build.yml --repo Darkaxt/Navic --ref master -f build_ios=true
+gh workflow run build.yml --repo Darkaxt/Navic --ref master
 do {
 	$runs = gh run list `
 	  --repo Darkaxt/Navic `
@@ -962,7 +905,7 @@ gh run watch $runId --repo Darkaxt/Navic --exit-status
 gh run view $runId --repo Darkaxt/Navic --json conclusion,url,jobs
 ```
 
-Expected: the workflow concludes `success`; Android release packaging and the macOS `Build iOS IPA` job both pass. The watch command is a release-monitoring heartbeat, not a cancellation timeout.
+Expected: the workflow concludes `success` and Android release packaging passes. The watch command is a release-monitoring heartbeat, not a cancellation timeout.
 
 - [ ] **Step 6: Tag and publish the signed theta85 release**
 
@@ -974,7 +917,7 @@ git tag -a v1.0.11-theta85 -m "v1.0.11-theta85"
   -Remote fork `
   -Branch master `
   -AllowPublicRelease `
-  -ReleaseReadinessNote "Now Playing screen-on modes and cached artwork transition continuity passed focused tests, the full Android host suite, Android assembly, and macOS iOS packaging."
+  -ReleaseReadinessNote "Now Playing screen-on modes and cached artwork transition continuity passed focused tests, the full Android host suite, and Android assembly."
 ```
 
 Expected: the script pushes the tag, watches the tag workflow to success, and reports the published GitHub release with `Navic.apk`.
@@ -1130,11 +1073,11 @@ Expected: `master` matches `fork/master`; only pre-existing untracked runtime di
 - All three setting values are present, searchable, persisted, and default to `Off`.
 - Only visible expanded Now Playing can acquire the new screen flag.
 - Active playback is required; pause, unplug in charging-only mode, collapse, and navigation release the flag.
-- Android and iOS observers release their platform subscriptions when composition ends.
+- The Android observer releases its receiver when composition ends.
 - Power state is observed only when visible charging-only mode requires it.
 - Now Playing uses a matching normalized memory-cache image during the larger destination request's loading state.
 - The generated loading/error artwork remains available for cache misses and genuine failures.
 - Queue order, five-item download prefetching, playback service behavior, Lyrics, Reader, LidaClips, and mini-player screen policies are unchanged.
-- Focused tests, full Android host tests, Android assembly, macOS iOS packaging, signed release publication, and physical tablet acceptance all pass.
+- Focused tests, full Android host tests, Android assembly, signed release publication, and physical tablet acceptance all pass.
 - `v1.0.11-theta85` / `513` is installed and verified on the physical tablet.
 - No cancellation timeout, wake lock, or unrelated refactor is introduced.

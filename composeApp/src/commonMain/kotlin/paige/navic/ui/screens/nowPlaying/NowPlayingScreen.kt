@@ -43,6 +43,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 import paige.navic.LocalNavStack
+import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.LidaClipsNowPlayingMusicVideoAction
@@ -55,12 +56,14 @@ import paige.navic.domain.models.nowPlayingUpNextLayout
 import paige.navic.domain.models.nowPlayingWideLandscapeContentLayout
 import paige.navic.domain.models.retainedNowPlayingForegroundClipSongId
 import paige.navic.domain.models.shouldReserveNowPlayingToolbarGap
+import paige.navic.domain.models.shouldKeepNowPlayingScreenOn
 import paige.navic.domain.models.shouldShowNowPlayingMusicBrainzInfoAction
 import paige.navic.domain.models.shouldShowNowPlayingLyricsAction
 import paige.navic.domain.models.shouldShowLidaClipBackgroundVideo
 import paige.navic.domain.models.shouldShowNowPlayingBackgroundBottomGradient
 import paige.navic.domain.models.shouldUseWideNowPlayingLandscapeLayout
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
+import paige.navic.domain.models.settings.NowPlayingScreenOnMode
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
@@ -72,10 +75,12 @@ import paige.navic.icons.outlined.Movie
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.BlendBackground
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.KeepScreenOn
 import paige.navic.ui.components.common.MusicIntegrationServices
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.common.rememberPlaybackArtworkUiState
+import paige.navic.ui.components.common.rememberExternalPowerConnected
 import paige.navic.ui.components.layouts.SheetScaffold
 import paige.navic.ui.components.layouts.TopBarButton
 import paige.navic.ui.components.toolbars.SheetActionButton
@@ -88,16 +93,19 @@ import paige.navic.ui.screens.nowPlaying.components.controls.NowPlayingArtworkPa
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingControlsRow
 import paige.navic.ui.screens.nowPlaying.components.rows.NowPlayingWindowActions
 import paige.navic.ui.screens.nowPlaying.viewmodels.NowPlayingViewModel
+import paige.navic.util.core.PlatformType
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NowPlayingScreen() {
+	val isAndroidPlatform = LocalPlatformContext.current.platformType == PlatformType.Android
 	val preferenceManager = koinInject<PreferenceManager>()
 	val player = koinInject<MediaPlayerViewModel>()
 	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
 	val backStack = LocalNavStack.current
 
 	val currentScreen = backStack.lastOrNull()
+	val isNowPlayingVisible = currentScreen is Screen.NowPlaying
 	val isPlayerCurrent = currentScreen is Screen.NowPlaying
 		|| currentScreen is Screen.Queue
 		|| currentScreen is Screen.PlaybackSpeed
@@ -107,6 +115,25 @@ fun NowPlayingScreen() {
 	val serverCoverLoadFailedSongIds by musicBrainzArtworkRepository.serverCoverLoadFailedSongIds.collectAsStateWithLifecycle()
 	val resolvingMusicBrainzSongIds by musicBrainzArtworkRepository.resolvingMusicBrainzSongIds.collectAsStateWithLifecycle()
 	val song = playerState.currentSong
+	val screenOnMode = preferenceManager.nowPlayingScreenOnMode
+	val isExternalPowerConnected = if (
+		isAndroidPlatform &&
+		isNowPlayingVisible &&
+		screenOnMode == NowPlayingScreenOnMode.WhilePlayingAndCharging
+	) {
+		rememberExternalPowerConnected() == true
+	} else {
+		false
+	}
+	val shouldKeepScreenOn = shouldKeepNowPlayingScreenOn(
+		mode = screenOnMode,
+		hasActiveSong = song != null,
+		isPaused = playerState.isPaused,
+		isExternalPowerConnected = isExternalPowerConnected
+	)
+	if (isAndroidPlatform && isNowPlayingVisible && shouldKeepScreenOn) {
+		KeepScreenOn()
+	}
 	val currentMusicBrainzArtwork = song?.id?.let(musicBrainzArtworkBySongId::get)
 	val serverCoverLoadFailed = song?.id?.let { it in serverCoverLoadFailedSongIds } == true
 	val currentPlaybackArtwork = rememberPlaybackArtworkUiState(
