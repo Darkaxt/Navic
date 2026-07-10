@@ -8,6 +8,21 @@ import kotlin.test.assertTrue
 
 class NowPlayingArtworkContinuitySourceTest {
 	@Test
+	fun unresolvedRealArtworkKeepsTheCompleteNowPlayingSurfaceInvisible() {
+		val artwork = sourceFile("ui/screens/nowPlaying/components/Artwork.kt").readText()
+
+		assertTrue(
+			"val artworkSurfaceAlpha = if (isVinylArtworkReady) 1f else 0f" in artwork &&
+				".alpha(artworkSurfaceAlpha)" in artwork,
+			"The artwork loader must stay composed but invisible until the exact cover request succeeds."
+		)
+		assertTrue(
+			"crossfadeMs = 0" in artwork,
+			"Now Playing must reveal the successful cover directly instead of crossfading from its generated square fallback."
+		)
+	}
+
+	@Test
 	fun vinylWaitsForTheExactCurrentArtworkRequestToResolve() {
 		val artwork = sourceFile("ui/screens/nowPlaying/components/Artwork.kt").readText()
 

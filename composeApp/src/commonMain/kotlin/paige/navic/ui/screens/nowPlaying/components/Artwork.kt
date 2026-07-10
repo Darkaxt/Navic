@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
@@ -116,6 +117,7 @@ fun NowPlayingArtwork(
 	)
 	val vinylHasCoverArt = hasArtwork && isVinylArtworkReady
 	val vinylHasGeneratedArtwork = !hasArtwork && hasGeneratedArtwork
+	val artworkSurfaceAlpha = if (isVinylArtworkReady) 1f else 0f
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
@@ -183,9 +185,11 @@ fun NowPlayingArtwork(
 		isRotatingArtwork = isRotatingArtwork,
 		artworkRotationDegrees = rotationDegrees
 	)
-	val discModifier = artworkModifier.then(
-		if (discRotationDegrees == 0f) Modifier else Modifier.rotate(discRotationDegrees)
-	)
+	val discModifier = artworkModifier
+		.alpha(artworkSurfaceAlpha)
+		.then(
+			if (discRotationDegrees == 0f) Modifier else Modifier.rotate(discRotationDegrees)
+		)
 	Box(
 		contentAlignment = Alignment.Center,
 		modifier = modifier.then(
@@ -205,6 +209,7 @@ fun NowPlayingArtwork(
 					musicBrainzArtworkRepository.reportServerCoverLoadFailed(song.id)
 					musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)
 				},
+				crossfadeMs = 0,
 				useCachedLoadingPlaceholder = true,
 				normalization = CoverArtNormalization.TrimWhitespace,
 				contentScale = coverArtContentScale,
