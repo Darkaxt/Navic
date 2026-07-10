@@ -417,11 +417,11 @@ git commit -m "fix: separate portrait reader paper composition"
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeImageLinkTest.kt`
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
 
-- [ ] **Step 1: Extend diagnostics**
+- [x] **Step 1: Extend diagnostics**
 
 The texture probe reports theme, spread mode, explicit Foliate gap, toggle state, and layer presence. It must distinguish the portrait binding hint from the landscape gutter.
 
-- [ ] **Step 2: Keep cover regression guards green**
+- [x] **Step 2: Keep cover regression guards green**
 
 Require:
 
@@ -431,13 +431,13 @@ Require:
 - no text-page paper layer is inserted into cover mode
 - no back-cover plane is drawn on the cover page
 
-- [ ] **Step 3: Capture the emulator cover matrix**
+- [x] **Step 3: Capture the emulator cover matrix**
 
 Capture backdrop on and off at `OEBPS/Text/cubierta.xhtml`.
 
 Acceptance: both foreground covers are fully visible; backdrop-on fills unused space; backdrop-off does not introduce the removed green plane.
 
-- [ ] **Step 4: Run the focused diagnostics/cover suite and commit**
+- [x] **Step 4: Run the focused diagnostics/cover suite and commit**
 
 ```powershell
 node --check tools\reader-harness\src\adb-webview-eval.mjs

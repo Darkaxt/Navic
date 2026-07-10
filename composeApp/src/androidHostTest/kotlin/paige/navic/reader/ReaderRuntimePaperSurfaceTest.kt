@@ -288,6 +288,38 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun textureProbeReportsResolvedReaderGeometryAndDecorationState() {
+		val probeText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
+
+		assertContains(probeText, "const readerRoot = document.body")
+		assertContains(probeText, "const requestedSettings = { theme: 'sepia', ...(probeSettings || {}) }")
+		assertContains(probeText, "const applySettings = window.NavicReaderBridge.dispatch({")
+		assertContains(probeText, "applySettings.catch(() => {})")
+		assertContains(probeText, "requestAnimationFrame(() => requestAnimationFrame(resolve))")
+		assertContains(probeText, "const view = document.querySelector('foliate-view')")
+		assertContains(probeText, "const renderer = view?.renderer")
+		assertContains(probeText, "theme:")
+		assertContains(probeText, "spreadMode:")
+		assertContains(probeText, "foliateGap: renderer?.getAttribute?.('gap') || ''")
+		assertContains(probeText, "foliateContentGap: renderer?.getAttribute?.('content-gap') || ''")
+		assertContains(probeText, "paperTextureEnabled: effectiveSettings.paperTextureEnabled !== false")
+		assertContains(probeText, "pageEdgesEnabled: effectiveSettings.pageEdgesEnabled !== false")
+		assertContains(probeText, "paperStainsEnabled: effectiveSettings.paperStainsEnabled !== false")
+		assertContains(probeText, "portraitBindingHintPresent:")
+		assertContains(probeText, "landscapeGutterPresent:")
+		assertContains(probeText, "backCoverEdge:")
+		assertContains(probeText, "backCoverTint: readerRoot.dataset.navicShellCoverDominantColor || ''")
+		assertContains(probeText, "backCoverRevealPixels:")
+		assertContains(probeText, "backCoverRevealPercent:")
+		assertContains(probeText, "surfaceTextureAsset: readerRoot.dataset.navicSurfacePaperTextureAsset || ''")
+		assertContains(probeText, "surfaceBorderOverlayAsset: readerRoot.dataset.navicSurfaceBorderOverlayAsset || ''")
+		assertFalse(
+			probeText.contains("document.documentElement.dataset.navicSurfacePaperTextureAsset"),
+			"The reader surface datasets live on document.body, not document.documentElement."
+		)
+	}
+
+	@Test
 	fun androidReaderPackagesHighResolutionPageEffectOverlayVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)

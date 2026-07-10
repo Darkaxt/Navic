@@ -2511,12 +2511,12 @@ async function runRuntimeStateProbe(page) {
 
 async function runTextureSlotsProbe(page) {
   return evaluateOnPage(page, `(${async probeSettings => {
+    const requestedSettings = { theme: 'sepia', ...(probeSettings || {}) }
     if (window.NavicReaderBridge?.dispatch) {
-      const settings = { theme: 'sepia', ...(probeSettings || {}) }
       try {
         const applySettings = window.NavicReaderBridge.dispatch({
           type: 'applySettings',
-          settings,
+          settings: requestedSettings,
         })
         if (applySettings && typeof applySettings.catch === 'function') {
           applySettings.catch(() => {})
@@ -2524,8 +2524,16 @@ async function runTextureSlotsProbe(page) {
       } catch {
         // The probe samples current DOM state; dispatch failure is reflected by missing layers below.
       }
-      await Promise.resolve()
     }
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const readerRoot = document.body
+    const view = document.querySelector('foliate-view')
+    const renderer = view?.renderer
+    const effectiveSettings = view?.readerSettings || requestedSettings
+    const contentDocument = renderer?.getContents?.()
+      ?.find?.(entry => entry?.doc?.documentElement)
+      ?.doc
+    const contentRoot = contentDocument?.documentElement
     const staticTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
     const staticBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
     const staticStainLayer = document.querySelector('[data-navic-surface-page-stain-overlay-layer="true"]')
@@ -2534,6 +2542,32 @@ async function runTextureSlotsProbe(page) {
     const borderLayer = document.querySelector('[data-navic-moving-page-border-overlay-layer="true"]')
     const stainLayer = document.querySelector('[data-navic-moving-page-stain-overlay-layer="true"]')
     const gutterLayer = document.querySelector('[data-navic-moving-page-spread-gutter-overlay-layer="true"]')
+    const spreadMode = readerRoot.dataset.navicSurfaceSpreadMode || ''
+    const currentTextureSlot = textureLayer?.querySelector?.('[data-navic-surface-paper-texture-slot="current"]') || textureLayer
+    const currentPageArtwork = Array.from(currentTextureSlot?.querySelectorAll?.('[data-navic-surface-texture-slot-artwork="true"]') || [])
+    const artworkForPage = pageName => currentPageArtwork.find(artwork =>
+      (artwork.getAttribute('data-navic-surface-texture-slot-page') || 'full') === pageName)
+    const fullArtwork = artworkForPage('full')
+    const leftArtwork = artworkForPage('left')
+    const rightArtwork = artworkForPage('right')
+    const bindingArtwork = fullArtwork || leftArtwork || rightArtwork || currentPageArtwork[0] || null
+    const bindingShadow = bindingArtwork ? getComputedStyle(bindingArtwork).boxShadow : ''
+    const backCoverPlanePresent = staticTextureLayer?.getAttribute?.('data-navic-surface-back-cover-plane') === 'true'
+    const backCoverEdge = backCoverPlanePresent
+      ? spreadMode === 'spread' ? 'both' : 'right'
+      : 'none'
+    const viewportWidth = window.innerWidth || 0
+    const leftPageRect = (leftArtwork || fullArtwork)?.getBoundingClientRect?.() || null
+    const rightPageRect = (rightArtwork || fullArtwork)?.getBoundingClientRect?.() || null
+    const leftRevealPixels = backCoverEdge === 'both' && leftPageRect
+      ? Math.max(0, leftPageRect.left)
+      : 0
+    const rightRevealPixels = backCoverEdge !== 'none' && rightPageRect
+      ? Math.max(0, viewportWidth - rightPageRect.right)
+      : 0
+    const revealPercent = pixels => viewportWidth > 0
+      ? Number((pixels / viewportWidth * 100).toFixed(3))
+      : 0
     const textureSlots = Array.from(textureLayer?.querySelectorAll?.('[data-navic-surface-paper-texture-slot]') || [])
       .map(slot => {
         const style = getComputedStyle(slot)
@@ -2564,7 +2598,30 @@ async function runTextureSlotsProbe(page) {
       })
     return {
       probe: 'texture-slots',
-      appliedSettings: probeSettings || {},
+      appliedSettings: requestedSettings,
+      theme: contentRoot?.dataset?.navicReaderTheme || effectiveSettings.theme || requestedSettings.theme || '',
+      spreadMode: spreadMode,
+      foliateGap: renderer?.getAttribute?.('gap') || '',
+      foliateContentGap: renderer?.getAttribute?.('content-gap') || '',
+      toggles: {
+        paperTextureEnabled: effectiveSettings.paperTextureEnabled !== false,
+        pageEdgesEnabled: effectiveSettings.pageEdgesEnabled !== false,
+        paperStainsEnabled: effectiveSettings.paperStainsEnabled !== false,
+      },
+      portraitBindingHintPresent: spreadMode === 'single' && Boolean(bindingShadow && bindingShadow !== 'none'),
+      portraitBindingHintBoxShadow: bindingShadow,
+      landscapeGutterPresent: spreadMode === 'spread' && Boolean(staticGutterLayer || gutterLayer),
+      backCoverPlanePresent,
+      backCoverEdge: backCoverEdge,
+      backCoverTint: readerRoot.dataset.navicShellCoverDominantColor || '',
+      backCoverRevealPixels: {
+        left: Number(leftRevealPixels.toFixed(3)),
+        right: Number(rightRevealPixels.toFixed(3)),
+      },
+      backCoverRevealPercent: {
+        left: revealPercent(leftRevealPixels),
+        right: revealPercent(rightRevealPixels),
+      },
       staticTextureLayerPresent: Boolean(staticTextureLayer),
       staticBorderLayerPresent: Boolean(staticBorderLayer),
       staticStainLayerPresent: Boolean(staticStainLayer),
@@ -2586,8 +2643,8 @@ async function runTextureSlotsProbe(page) {
       gutterLayerOpacity: gutterLayer ? getComputedStyle(gutterLayer).opacity : '',
       textureSlots,
       borderSlots,
-      surfaceTextureAsset: document.documentElement.dataset.navicSurfacePaperTextureAsset || '',
-      surfaceBorderOverlayAsset: document.documentElement.dataset.navicSurfaceBorderOverlayAsset || '',
+      surfaceTextureAsset: readerRoot.dataset.navicSurfacePaperTextureAsset || '',
+      surfaceBorderOverlayAsset: readerRoot.dataset.navicSurfaceBorderOverlayAsset || '',
       viewport: {
         width: window.innerWidth,
         height: window.innerHeight,
