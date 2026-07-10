@@ -450,25 +450,25 @@ git commit -m "test: lock aged reader visual diagnostics"
 
 **Evidence directory:** `captures/reader-aged-paper/final-emulator`
 
-- [ ] **Step 1: Build readerdev once from the final candidate**
+- [x] **Step 1: Build readerdev once from the final candidate**
 
 ```powershell
 .\gradlew.bat --no-daemon --no-configuration-cache :androidApp:assembleReaderDev
 ```
 
-- [ ] **Step 2: Run the landscape matrix**
+- [x] **Step 2: Run the landscape matrix**
 
 Validate Sepia, Aged Paper, three layer toggles, and the `2%` page-box probe.
 
-- [ ] **Step 3: Run the portrait matrix**
+- [x] **Step 3: Run the portrait matrix**
 
 Validate Aged Paper and edges-off. Confirm no explicit landscape gap and no spread gutter.
 
-- [ ] **Step 4: Run the cover matrix**
+- [x] **Step 4: Run the cover matrix**
 
 Validate foreground containment with backdrop on and off.
 
-- [ ] **Step 5: Compare captures**
+- [x] **Step 5: Compare captures**
 
 Compare against:
 
@@ -478,17 +478,21 @@ Compare against:
 
 Reject if any shell/window/triple-margin regression returns or if portrait looks like half of the landscape spread.
 
+Final readerdev evidence is stored under `captures/reader-aged-paper/final-emulator`. The same installed APK was used for all captures. Live diagnostics confirmed landscape `gap=2%`, `content-gap=6%`, and fixed `1%` left/right cover reveals; portrait reported no explicit gap, no gutter, and a fixed `1%` right-only cover reveal. Layer-off captures changed only their selected decoration. Cover backdrop on/off preserved the same fully-contained foreground cover and never introduced the removed shell/back-cover plane.
+
 ## Stage 8: Conditional Physical Tablet Gate
 
-- [ ] **Step 1: Decide whether escalation is required**
+- [x] **Step 1: Decide whether escalation is required**
 
 The tablet is required only if emulator output conflicts with prior tablet output, DPI/banding is uncertain, insets alter the gap, or the acceptance result is ambiguous.
 
-- [ ] **Step 2: If required, install readerdev and capture only the disputed modes**
+Decision: physical-tablet escalation is not required. The final visible emulator run used the Tab S9 Ultra landscape and portrait viewport profiles, produced stable compositor-settled screenshots, and matched live DOM geometry measurements. No acceptance result remains ambiguous or conflicts with the restored theta77 layout contract.
+
+- [x] **Step 2: If required, install readerdev and capture only the disputed modes**
 
 Use Alcatraz and the same hrefs as the emulator. Do not rerun the entire matrix when the uncertainty is limited to one mode.
 
-- [ ] **Step 3: Patch and repeat the smallest relevant gate if the tablet exposes a discrepancy**
+- [x] **Step 3: Patch and repeat the smallest relevant gate if the tablet exposes a discrepancy**
 
 Do not create a release while a disputed visual gate remains unresolved.
 
