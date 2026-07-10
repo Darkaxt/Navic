@@ -37,6 +37,25 @@ data class NowPlayingTechnicalInfoPlacement(
 	val verticalOffsetDp: Int
 )
 
+data class NowPlayingArtworkRequestIdentity(
+	val songId: String,
+	val coverArtId: String?,
+	val imageUrl: String?,
+	val imageCacheKey: String?
+)
+
+fun isNowPlayingVinylArtworkReady(
+	hasCoverArt: Boolean,
+	hasGeneratedArtwork: Boolean,
+	requestedArtwork: NowPlayingArtworkRequestIdentity,
+	resolvedArtwork: NowPlayingArtworkRequestIdentity?
+): Boolean =
+	if (hasCoverArt) {
+		resolvedArtwork == requestedArtwork
+	} else {
+		hasGeneratedArtwork
+	}
+
 fun shouldRotateNowPlayingArtwork(
 	enabled: Boolean,
 	isPaused: Boolean,

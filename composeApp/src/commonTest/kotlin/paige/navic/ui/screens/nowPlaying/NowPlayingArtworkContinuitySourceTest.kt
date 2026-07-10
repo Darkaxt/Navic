@@ -8,6 +8,33 @@ import kotlin.test.assertTrue
 
 class NowPlayingArtworkContinuitySourceTest {
 	@Test
+	fun vinylWaitsForTheExactCurrentArtworkRequestToResolve() {
+		val artwork = sourceFile("ui/screens/nowPlaying/components/Artwork.kt").readText()
+
+		assertTrue(
+			"val artworkRequestIdentity = remember(" in artwork &&
+				"NowPlayingArtworkRequestIdentity(" in artwork,
+			"Now Playing must identify artwork readiness by song and complete cover request."
+		)
+		assertTrue(
+			"var resolvedVinylArtworkRequest by remember {" in artwork &&
+				"resolvedVinylArtworkRequest = artworkRequestIdentity" in artwork,
+			"Only a successful image resolution may unlock the active artwork request."
+		)
+		assertTrue(
+			"isNowPlayingVinylArtworkReady(" in artwork &&
+				"requestedArtwork = artworkRequestIdentity" in artwork &&
+				"resolvedArtwork = resolvedVinylArtworkRequest" in artwork,
+			"Vinyl readiness must reject unresolved and previous-song artwork identities."
+		)
+		assertTrue(
+			"hasCoverArt = vinylHasCoverArt" in artwork &&
+				"hasGeneratedArtwork = vinylHasGeneratedArtwork" in artwork,
+			"Rotation, shape, and groove overlay must receive readiness-gated artwork flags."
+		)
+	}
+
+	@Test
 	fun coverArtScopesCachedLoadingPlaceholderToAnExplicitOptIn() {
 		val source = sourceFile("ui/components/common/CoverArt.kt").readText()
 

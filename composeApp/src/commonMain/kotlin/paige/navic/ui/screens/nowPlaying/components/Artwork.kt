@@ -33,6 +33,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NowPlayingDiscContentScale
 import paige.navic.domain.models.NowPlayingDiscFitMode
+import paige.navic.domain.models.NowPlayingArtworkRequestIdentity
 import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
@@ -44,6 +45,7 @@ import paige.navic.domain.models.nowPlayingArtworkPaddingDp
 import paige.navic.domain.models.nowPlayingArtworkRotationDegreesForElapsedMillis
 import paige.navic.domain.models.nowPlayingArtworkShapeForPlayback
 import paige.navic.domain.models.nowPlayingVinylOverlayRotationDegrees
+import paige.navic.domain.models.isNowPlayingVinylArtworkReady
 import paige.navic.domain.models.shouldRotateNowPlayingArtwork
 import paige.navic.domain.models.shouldShowNowPlayingVinylOverlay
 import paige.navic.domain.models.shouldUseNowPlayingVinylPresentation
@@ -90,6 +92,30 @@ fun NowPlayingArtwork(
 	)
 	val hasArtwork = playbackArtwork.hasArtwork
 	val hasGeneratedArtwork = true
+	val artworkRequestIdentity = remember(
+		song.id,
+		playbackArtwork.coverArtId,
+		playbackArtwork.imageUrl,
+		playbackArtwork.imageCacheKey
+	) {
+		NowPlayingArtworkRequestIdentity(
+			songId = song.id,
+			coverArtId = playbackArtwork.coverArtId,
+			imageUrl = playbackArtwork.imageUrl,
+			imageCacheKey = playbackArtwork.imageCacheKey
+		)
+	}
+	var resolvedVinylArtworkRequest by remember {
+		mutableStateOf<NowPlayingArtworkRequestIdentity?>(null)
+	}
+	val isVinylArtworkReady = isNowPlayingVinylArtworkReady(
+		hasCoverArt = hasArtwork,
+		hasGeneratedArtwork = hasGeneratedArtwork,
+		requestedArtwork = artworkRequestIdentity,
+		resolvedArtwork = resolvedVinylArtworkRequest
+	)
+	val vinylHasCoverArt = hasArtwork && isVinylArtworkReady
+	val vinylHasGeneratedArtwork = !hasArtwork && hasGeneratedArtwork
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
@@ -97,14 +123,14 @@ fun NowPlayingArtwork(
 		enabled = preferenceManager.nowPlayingRotatingArtwork,
 		isPaused = playerState.isPaused,
 		isActiveArtwork = isActiveArtwork,
-		hasCoverArt = hasArtwork,
-		hasGeneratedArtwork = hasGeneratedArtwork
+		hasCoverArt = vinylHasCoverArt,
+		hasGeneratedArtwork = vinylHasGeneratedArtwork
 	)
 	val isVinylPresentation = shouldUseNowPlayingVinylPresentation(
 		isWideLandscape = isWideLandscape,
 		isRotatingArtwork = isRotatingArtwork,
-		hasCoverArt = hasArtwork,
-		hasGeneratedArtwork = hasGeneratedArtwork
+		hasCoverArt = vinylHasCoverArt,
+		hasGeneratedArtwork = vinylHasGeneratedArtwork
 	)
 	val rotationDegrees = rememberNowPlayingArtworkRotationDegrees(
 		enabled = isRotatingArtwork
@@ -124,7 +150,7 @@ fun NowPlayingArtwork(
 	val discFitMode = nowPlayingDiscFitMode(
 		isWideLandscape = isWideLandscape,
 		isVinylArtwork = isVinylPresentation,
-		hasRealArtwork = hasArtwork
+		hasRealArtwork = vinylHasCoverArt
 	)
 	val coverArtContentScale = when (
 		nowPlayingDiscContentScale(
@@ -185,6 +211,7 @@ fun NowPlayingArtwork(
 				edgeCompression = edgeCompression,
 				onImageSizeResolved = { width, height ->
 					resolvedImageSize = width to height
+					resolvedVinylArtworkRequest = artworkRequestIdentity
 				},
 				modifier = Modifier.fillMaxSize(),
 				shadowElevation = 8.dp,
@@ -193,8 +220,8 @@ fun NowPlayingArtwork(
 			if (
 				shouldShowNowPlayingVinylOverlay(
 					isVinylPresentation = isVinylPresentation,
-					hasCoverArt = hasArtwork,
-					hasGeneratedArtwork = hasGeneratedArtwork
+					hasCoverArt = vinylHasCoverArt,
+					hasGeneratedArtwork = vinylHasGeneratedArtwork
 				)
 			) {
 				VinylRecordOverlay(
