@@ -692,12 +692,6 @@ export const readerTypographyCss = settings => {
     margin: 0 !important;
     padding-block: var(--reader-scroll-gap, 0rem) !important;
   }
-  html[data-navic-reader-shell-content="true"] body {
-    box-sizing: border-box !important;
-    width: min(100%, var(--navic-reader-shell-content-width, 100%)) !important;
-    max-width: var(--navic-reader-shell-content-width, none) !important;
-    margin-inline: auto !important;
-  }
   main,
   section,
   article,
@@ -881,12 +875,6 @@ export const readerDocumentThemeCss = settings => {
     background-color: var(--reader-background) !important;
     background-image: none !important;
     position: relative !important;
-  }
-  html[data-navic-reader-shell-content="true"],
-  html[data-navic-reader-shell-content="true"] body {
-    background: transparent !important;
-    background-color: transparent !important;
-    background-image: none !important;
   }
   body :not(img):not(picture):not(video):not(canvas):not(svg):not(object):not(embed):not([role="img"]):not(.${overlayClass}) {
     background-color: transparent !important;

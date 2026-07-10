@@ -3,265 +3,138 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class ReaderRuntimeShellGeometryTest {
-	@Test
-	fun androidReaderDefinesSharedPageShellGeometryModel() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+	private fun readerAssetText(fileName: String): String =
+		readerAssetRoot().resolve(fileName).readText()
 
-		assertContains(helperText, "export const readerPageShellGeometry = (")
-		assertContains(helperText, "ReaderPageShellDefaultOuterEdgePx")
-		assertContains(helperText, "ReaderPageShellDefaultGutterPx")
-		assertContains(helperText, "viewportRect")
-		assertContains(helperText, "shellRect")
-		assertContains(helperText, "pageRects")
-		assertContains(helperText, "contentRects")
-		assertContains(helperText, "gutterRect")
-		assertContains(helperText, "cover: {")
-		assertContains(helperText, "backdropRect")
-		assertContains(helperText, "foregroundRect")
-		assertContains(helperText, "backCoverRect")
-		assertContains(helperText, "pageBoxWidth")
-		assertContains(helperText, "pageBoxMaxColumnCount")
-		assertContains(helperText, "inner:")
-		assertContains(helperText, "readerPageShellGeometryForViewport")
+	@Test
+	fun normalTextPagesDoNotUseSyntheticShellGeometry() {
+		val helpers = readerAssetText("navic-reader-helpers.js")
+		val viewport = readerAssetText("navic-reader-viewport.js")
+		val root = readerAssetText("navic-reader.js")
+
+		listOf(helpers, viewport, root).forEach { source ->
+			assertFalse(
+				source.contains("readerPageShellGeometry"),
+				"Normal text pages must not route through readerPageShellGeometry; Foliate owns page geometry.",
+			)
+			assertFalse(
+				source.contains("readerPageShellGeometryForViewport"),
+				"Normal text pages must not derive renderer bounds from the synthetic book shell.",
+			)
+		}
+
+		assertFalse(
+			helpers.contains("ensureReaderStaticPaperShell"),
+			"The static paper shell created the extra book-cover/page/body margin stack and must stay removed.",
+		)
+		assertFalse(
+			helpers.contains("data-navic-static-paper-shell"),
+			"Text pages must not render a fake static paper shell around the Foliate page.",
+		)
 	}
 
 	@Test
-	fun androidReaderConstrainsFoliateRendererToSharedShellGeometry() {
-		val viewportText = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
-		val viewportLayout = viewportText.substringAfter("function applyReaderViewportLayout")
-			.substringBefore("\n\nfunction applyReaderViewportLayoutToProfilerView")
-		val profileLayout = viewportText.substringAfter("function applyReaderViewportLayoutToProfilerView")
-			.substringBefore("\n\nfunction applyPdfImageSettings")
+	fun viewportKeepsFoliateAsTheLayoutSourceOfTruth() {
+		val viewport = readerAssetText("navic-reader-viewport.js")
 
-		assertContains(
-			viewportLayout,
-			"width: fixedLayout ? width : shellGeometry.renderer.pageBoxWidth",
-			message = "main viewport layout must size reflowable Foliate columns from the readable page box, not the full decorative shell."
-		)
-		assertContains(
-			profileLayout,
-			"width: shellGeometry.renderer.pageBoxWidth",
-			message = "profile viewport layout must size Foliate columns from the readable page box, not the full decorative shell."
-		)
+		assertContains(viewport, "readerAdaptiveFoliatePageBox")
+		assertContains(viewport, "readerTopMarginValue")
+		assertContains(viewport, "readerBottomMarginValue")
+		assertContains(viewport, "readerSideMarginValue")
+		assertContains(viewport, "readerAdaptiveFoliatePageBox({ width, height }, this.readerSettings)")
+		assertContains(viewport, "inset: '0px'")
 
-		for ((name, body) in listOf("main" to viewportLayout, "profile" to profileLayout)) {
-			assertContains(
-				body,
-				"readerPageShellRectStyle(shellGeometry.shellRect)",
-				message = "$name viewport layout must use the same shell rectangle as paper and gutter overlays."
-			)
-			assertContains(
-				body,
-				"maxColumnCount: shellGeometry.renderer.pageBoxMaxColumnCount",
-				message = "$name viewport layout must preserve spread mode after switching page-box math to per-page content width."
-			)
-			assertContains(
-				body,
-				"renderer.dataset.navicReaderShellRect",
-				message = "$name viewport layout must expose the renderer shell rectangle for readerdev diagnostics."
+		assertFalse(
+			viewport.contains("readerPageShellRectStyle"),
+			"The viewport must not resize Foliate into a simulated shell rectangle.",
+		)
+		assertFalse(
+			viewport.contains("navicReaderShellRect"),
+			"Diagnostics must not expose shell rects for normal text pages.",
+		)
+		assertFalse(
+			viewport.contains("applyReaderPageShellContentGeometry"),
+			"Document content must not be rewritten to fit a synthetic shell.",
+		)
+	}
+
+	@Test
+	fun documentThemeDoesNotInjectShellContentMargins() {
+		val appearance = readerAssetText("navic-reader-appearance.js")
+		val typography = readerAssetText("navic-reader-typography.js")
+		val root = readerAssetText("navic-reader.js")
+
+		listOf(appearance, typography, root).forEach { source ->
+			assertFalse(
+				source.contains("data-navic-reader-shell-content"),
+				"Reader documents must not get shell-content data attributes.",
 			)
 			assertFalse(
-				body.contains("renderer.setAttribute('max-inline-size', pageBox.maxInlineSize)") &&
-					body.contains("const pageBox = readerAdaptiveFoliatePageBox({ width, height }"),
-				"$name viewport layout must not compute Foliate page-box sizing from the raw viewport after shell geometry is available."
+				source.contains("--navic-reader-shell-content"),
+				"Reader documents must not receive shell-content CSS variables.",
+			)
+			assertFalse(
+				source.contains("applyReaderPageShellContentGeometry"),
+				"Reader documents must not have shell geometry injected.",
 			)
 		}
 	}
 
 	@Test
-	fun androidReaderSurfaceLayersConsumeSharedPageShellGeometry() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+	fun paperEdgesAndStainsAreDecorativeOverlaysOnly() {
+		val helpers = readerAssetText("navic-reader-helpers.js")
 
-		for (functionName in listOf(
+		assertContains(helpers, "updateReaderSurfaceTextureLayer")
+		assertContains(helpers, "updateReaderSurfaceBorderOverlayLayer")
+		assertContains(helpers, "updateReaderSurfaceStainOverlayLayer")
+
+		listOf(
 			"updateReaderSurfaceTextureLayer",
 			"updateReaderSurfaceBorderOverlayLayer",
 			"updateReaderSurfaceStainOverlayLayer",
-			"updateReaderSurfaceSpreadGutterOverlayLayer",
-			"updateReaderStaticPaperBackingLayer"
-		)) {
-			val body = helperText.substringAfter("export const $functionName =")
-				.substringBefore("\n\nexport const")
-			assertContains(
-				body,
-				"readerPageShellGeometryForViewport",
-				message = "$functionName must render against the shared shell geometry, not raw viewport splits."
+		).forEach { functionName ->
+			val functionSource = helpers.substringAfter("export const $functionName")
+				.substringBefore("\nexport function ")
+				.substringBefore("\nexport const ")
+			assertFalse(
+				functionSource.contains("readerPageShellGeometry"),
+				"$functionName must decorate resolved reader surfaces without changing page geometry.",
 			)
-			assertContains(
-				body,
-				"readerPageShellRectStyle",
-				message = "$functionName must position artwork from geometry rects."
+			assertFalse(
+				functionSource.contains("readerPageShellRect"),
+				"$functionName must not size itself from a synthetic shell rectangle.",
+			)
+			assertFalse(
+				functionSource.contains("data-navic-static-paper-shell"),
+				"$functionName must not render through the removed static shell.",
 			)
 		}
+	}
+
+	@Test
+	fun coverBackdropRemainsCoverOnlyAndDoesNotCropTheForegroundCover() {
+		val helpers = readerAssetText("navic-reader-helpers.js")
+		val coverLayer = helpers.substringAfter("export const updateReaderShellCoverLayer")
+			.substringBefore("\nexport function ")
+			.substringBefore("\nexport const ")
+
+		assertContains(coverLayer, "readerCoverBackdropEnabled(settings)")
+		assertContains(coverLayer, "backdrop")
+		assertContains(coverLayer, "'background-size': 'cover, cover'")
+		assertContains(coverLayer, "image")
+		assertContains(coverLayer, "'object-fit': 'contain'")
+		assertContains(coverLayer, "width: '100%'")
+		assertContains(coverLayer, "height: '100%'")
 
 		assertFalse(
-			helperText.contains("page.page === 'full' ? widthPx : '50%'"),
-			"Surface overlays must not split spreads with hard-coded 50% page widths."
+			coverLayer.contains("backCover"),
+			"Cover pages may use a blurred backdrop, but must not inject the failed fake back-cover spread shell.",
 		)
 		assertFalse(
-			helperText.contains("page.page === 'right' ? '50%' : '0px'"),
-			"Surface overlays must not place right pages with hard-coded 50% offsets."
-		)
-	}
-
-	@Test
-	fun androidReaderAppliesShellGeometryToContentDocuments() {
-		val bridgeText = readerBridgeText()
-		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
-		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
-		val typographyCss = typographyText.substringAfter("export const readerTypographyCss = settings =>")
-			.substringBefore("\n\nexport const readerParagraphSpacingCss")
-
-		assertContains(bridgeText, "applyReaderPageShellContentGeometry")
-		assertContains(bridgeText, "--navic-reader-shell-content-left")
-		assertContains(bridgeText, "--navic-reader-shell-content-width")
-		assertContains(bridgeText, "--navic-reader-shell-gutter-width")
-		assertContains(bridgeText, "data-navic-reader-shell-content")
-		assertContains(typographyCss, "html[data-navic-reader-shell-content=\"true\"] body")
-		assertContains(typographyCss, "max-width: var(--navic-reader-shell-content-width")
-		assertContains(typographyCss, "margin-inline: auto")
-		assertContains(appearanceText, "this.readerPageShellGeometry")
-		assertContains(appearanceText, "this.applyReaderPageShellContentGeometry(doc, settings, index)")
-		assertContains(appearanceText, "this.applyThemeToLoadedContent(settings)")
-	}
-
-	@Test
-	fun androidReaderShellContentDocumentsDoNotCoverPaperSurface() {
-		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
-		val documentThemeCss = typographyText.substringAfter("export const readerDocumentThemeCss = settings =>")
-			.substringBefore("\n\nexport const readerContentCss")
-
-		assertContains(documentThemeCss, "html[data-navic-reader-shell-content=\"true\"],")
-		assertContains(documentThemeCss, "html[data-navic-reader-shell-content=\"true\"] body")
-		assertContains(documentThemeCss, "background: transparent !important;")
-		assertContains(documentThemeCss, "background-color: transparent !important;")
-		assertContains(documentThemeCss, "background-image: none !important;")
-	}
-
-	@Test
-	fun androidReaderExposesShellGeometryDiagnostics() {
-		val bridgeText = readerBridgeText()
-
-		assertContains(bridgeText, "readerShellGeometryDiagnosticState")
-		assertContains(bridgeText, "reader-shell-geometry")
-		assertContains(bridgeText, "navicReaderShellGeometryMode")
-		assertContains(bridgeText, "navicReaderShellGutterWidth")
-		assertContains(bridgeText, "viewportRect")
-		assertContains(bridgeText, "shellRect")
-		assertContains(bridgeText, "contentRects")
-		assertContains(bridgeText, "edgeInsets")
-		assertContains(bridgeText, "cover")
-	}
-
-	@Test
-	fun androidReaderShellCoverUsesBackdropBackCoverAndContainedForeground() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
-		val body = helperText.substringAfter("export const updateReaderShellCoverLayer =")
-			.substringBefore("\n\nexport const")
-
-		assertContains(helperText, "ensureReaderShellCoverBackCover")
-		assertContains(helperText, "data-navic-shell-cover-back-cover")
-		assertContains(body, "readerPageShellGeometryForViewport")
-		assertContains(body, "shellGeometry.cover?.backCoverRect")
-		assertContains(body, "shellGeometry.cover?.foregroundRect")
-		assertContains(body, "shellGeometry.cover?.backdropRect")
-		assertContains(body, "object-fit")
-		assertContains(body, "contain")
-		assertFalse(
-			body.contains("radial-gradient(circle"),
-			"The live shell cover back-cover must be a plain worn/tinted plane, not a decorative surface with circular windows or holes."
-		)
-		assertFalse(
-			body.contains("background: '#000000'"),
-			"The cover shell should use the blurred/diffused cover backdrop, not a flat black stage."
-		)
-	}
-
-	@Test
-	fun androidNativeShellCoverUsesCoverGeometryContract() {
-		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val shellCoverClass = nativeFrameHostText
-			.substringAfter("private class KomikkuReaderNativeShellCoverView")
-			.substringBefore("\nprivate fun Bitmap.readerDominantCoverColor")
-
-		assertContains(
-			nativeFrameHostText,
-			"private data class NativeReaderShellCoverGeometry",
-			message = "The native shell cover must resolve foreground, back-cover, and backdrop rects as one geometry contract."
-		)
-		assertContains(
-			nativeFrameHostText,
-			"resolveNativeReaderShellCoverGeometry(",
-			message = "Native cover mode must use a named geometry resolver instead of inferring each layer separately."
-		)
-		assertContains(shellCoverClass, "val shellGeometry = resolveNativeReaderShellCoverGeometry(")
-		assertContains(shellCoverClass, "drawDiffuseCoverBackdrop(canvas, currentBitmap, shellGeometry)")
-		assertContains(shellCoverClass, "drawNativeBackCoverPlane(canvas, shellGeometry)")
-		assertContains(shellCoverClass, "drawContainedNativeShellCover(canvas, currentBitmap, shellGeometry)")
-		assertFalse(
-			shellCoverClass.contains("val foregroundBounds = nativeShellCoverForegroundRect(currentBitmap)"),
-			"Foreground, back-cover, and backdrop geometry must not be split across independent ad hoc calculations."
-		)
-	}
-
-	@Test
-	fun androidReaderDoesNotRenderGutterLayerWithoutSpreadGutterRect() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
-		val body = helperText.substringAfter("export const updateReaderSurfaceSpreadGutterOverlayLayer =")
-			.substringBefore("\n\nexport const")
-
-		assertContains(
-			body,
-			"if (!geometry.gutterRect) return",
-			message = "Spread gutter artwork must not fall back to a 1x1 origin rectangle in single-page mode."
-		)
-	}
-
-	@Test
-	fun androidReaderMasksPageEdgeOverlayToEdgeBands() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
-		val body = helperText.substringAfter("export const updateReaderSurfaceBorderOverlayLayer =")
-			.substringBefore("\n\nexport const")
-
-		assertContains(
-			helperText,
-			"readerPageEdgeOverlayMask",
-			message = "Page edge overlays need a shared mask helper so edge assets cannot render as full-page panels."
-		)
-		assertContains(
-			helperText,
-			"geometry.edgeInsets",
-			message = "The edge mask must come from shell geometry edge insets, not a hard-coded full-page overlay."
-		)
-		assertContains(
-			body,
-			"readerPageEdgeOverlayMask(page.page, geometry)",
-			message = "Every settled/moving page edge overlay must be masked to the active page edge bands."
-		)
-		assertContains(body, "'-webkit-mask'")
-		assertContains(body, "mask:")
-	}
-
-	@Test
-	fun androidReaderEdgeOverlayDefaultsDoNotCreateDecorativePageFrames() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
-
-		assertContains(
-			helperText,
-			"const ReaderPageEdgeOverlayMaskScale = 0.75",
-			message = "Page edge wear must stay narrower than the reserved edge inset; wide masks make the reader look like a framed kids-book panel."
-		)
-		assertContains(
-			helperText,
-			"return '0.64'",
-			message = "Sepia page edges must not render at full opacity by default; the edge layer should read as subtle wear, not a border."
-		)
-		assertContains(
-			helperText,
-			"contrast(1.32) saturate(1.08) brightness(0.98)",
-			message = "Sepia edge filtering must stay moderate so edge wear does not become a high-contrast frame."
+			coverLayer.contains("readerPageShellGeometryForViewport"),
+			"Cover backdrop must not crop the foreground cover through shell geometry.",
 		)
 	}
 }

@@ -104,9 +104,6 @@ import {
   readerSpreadPageTextureSlots,
   readerSurfaceSpreadGutterVisible,
   readerSurfaceSpreadMode,
-  readerPageShellGeometryForViewport,
-  readerShellGeometryDiagnosticState,
-  applyReaderPageShellContentGeometry as applyReaderPageShellContentGeometryToDocument,
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
@@ -132,7 +129,6 @@ import {
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
   ensureReaderSurfaceStainOverlayLayer,
-  ensureReaderSurfaceSpreadGutterOverlayLayer,
   ensureReaderPageNumberLayer,
   ensureReaderShellCoverLayer,
   ensureReaderShellCoverImage,
@@ -146,7 +142,6 @@ import {
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
   updateReaderSurfaceStainOverlayLayer,
-  updateReaderSurfaceSpreadGutterOverlayLayer,
   updateTapZoneOverlayLayer,
   isParagraphCandidate,
   isReaderParagraphBlock,
@@ -265,33 +260,25 @@ function applyThemeToLoadedContent(settings = this.readerSettings) {
   this.applyRendererTheme(settings)
 }
 
-function applyReaderPageShellContentGeometry(doc, settings = this.readerSettings, index = undefined) {
-  const geometry = this.readerPageShellGeometry || readerPageShellGeometryForViewport(settings, {
-    flowMode: this.readerFlowModeValue,
-    spreadMode: this.surfaceSpreadMode,
-  })
-  return applyReaderPageShellContentGeometryToDocument(doc, settings, geometry, index)
-}
-
 function applyRendererTheme(settings = this.readerSettings) {
   const palette = readerThemePalette(settings?.theme)
   setStylesImportant(this.view, {
-    background: 'transparent',
-    'background-color': 'transparent',
+    background: palette.background,
+    'background-color': palette.background,
     color: palette.foreground,
   })
   const renderer = this.view?.renderer
   setStylesImportant(renderer, {
-    background: 'transparent',
-    'background-color': 'transparent',
+    background: palette.background,
+    'background-color': palette.background,
     color: palette.foreground,
   })
   const shadowRoot = renderer?.shadowRoot
   if (!shadowRoot) return
   for (const element of shadowRoot.querySelectorAll('#background, #background > *')) {
     setStylesImportant(element, {
-      background: 'transparent',
-      'background-color': 'transparent',
+      background: palette.background,
+      'background-color': palette.background,
     })
   }
 }
@@ -302,8 +289,6 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
   const root = doc.documentElement
   const body = doc.body
   const styleHost = doc.head || root
-  this.applyReaderPageShellContentGeometry(doc, settings, index)
-  const documentBackground = root.dataset.navicReaderShellContent === 'true' ? 'transparent' : palette.background
   normalizeReaderLineFragmentParagraphs(doc, settings)
   applyReaderParagraphSpacing(doc, settings)
   root.dataset.navicReaderTheme = readerThemeKey(settings?.theme)
@@ -325,8 +310,8 @@ function applyDocumentTheme(doc, settings = this.readerSettings, index = undefin
       '--reader-accent': palette.accent,
       '--theme-bg-color': palette.background,
       '--reader-paragraph-spacing': readerParagraphSpacingEm(settings),
-      background: documentBackground,
-      'background-color': documentBackground,
+      background: palette.background,
+      'background-color': palette.background,
       'background-image': 'none',
       color: palette.foreground,
     })
@@ -544,31 +529,6 @@ function stopSurfacePaperTextureMotionSync(reason = 'page-turn-settled') {
   this.syncSurfacePaperTextureScrollOffset(reason)
 }
 
-const currentSurfaceTextureSlots = slots => {
-  const current = (slots || []).find(slot => slot?.slot === 'current' && slot?.variant?.asset) ||
-    (slots || []).find(slot => slot?.variant?.asset)
-  return current ? [{ ...current, slot: 'current' }] : []
-}
-
-function surfaceMovingPageLayersActive(scrollOffset = null) {
-  const offset = scrollOffset || this.surfaceTextureScrollOffset || { x: 0, y: 0 }
-  return this.surfaceLiveDragActive === true ||
-    this.surfacePaperTextureMotionSyncActive === true ||
-    Math.abs(Number(offset.x) || 0) > 1 ||
-    Math.abs(Number(offset.y) || 0) > 1
-}
-
-function removeMovingSurfacePaperLayers() {
-  this.movingPageTextureLayer?.remove?.()
-  this.movingPageTextureLayer = null
-  this.movingPageBorderOverlayLayer?.remove?.()
-  this.movingPageBorderOverlayLayer = null
-  this.movingPageStainOverlayLayer?.remove?.()
-  this.movingPageStainOverlayLayer = null
-  this.movingPageSpreadGutterOverlayLayer?.remove?.()
-  this.movingPageSpreadGutterOverlayLayer = null
-}
-
 function renderSurfacePaperTextureLayers() {
   const textureSlots = this.surfaceTextureSlots || []
   const borderOverlaySlots = this.surfaceBorderOverlaySlots || []
@@ -586,11 +546,6 @@ function renderSurfacePaperTextureLayers() {
   ) return
   const scrollOffset = this.surfacePaperTextureScrollOffset()
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
-  const shellGeometry = this.readerPageShellGeometry || readerPageShellGeometryForViewport(this.readerSettings, {
-    flowMode: this.readerFlowModeValue,
-    spreadMode: this.surfaceSpreadMode,
-  })
-  const movingLayersActive = this.surfaceMovingPageLayersActive(scrollOffset)
   if (this.surfaceTextureVariant) {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
       ? this.surfaceTextureLayer
@@ -598,138 +553,63 @@ function renderSurfacePaperTextureLayers() {
     updateReaderStaticPaperBackingLayer(
       this.surfaceTextureLayer,
       textureSlots,
-      this.readerSettings,
-      shellGeometry
+      this.readerSettings
     )
-    if (movingLayersActive) {
-      this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
-        ? this.movingPageTextureLayer
-        : ensureReaderMovingPageTextureLayer()
-      updateReaderMovingPageTextureLayer(
-        this.movingPageTextureLayer,
-        textureSlots,
-        this.readerSettings,
-        scrollOffset,
-        this.readerFlowModeValue,
-        readerDirection,
-        shellGeometry
-      )
-    } else {
-      this.movingPageTextureLayer?.remove?.()
-      this.movingPageTextureLayer = null
-    }
+    this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
+      ? this.movingPageTextureLayer
+      : ensureReaderMovingPageTextureLayer()
+    updateReaderMovingPageTextureLayer(
+      this.movingPageTextureLayer,
+      textureSlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
   }
   if (this.surfaceBorderOverlayVariant) {
-    if (movingLayersActive) {
-      this.surfaceBorderOverlayLayer?.remove?.()
-      this.surfaceBorderOverlayLayer = null
-      this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
-        ? this.movingPageBorderOverlayLayer
-        : ensureReaderMovingPageBorderOverlayLayer()
-      updateReaderMovingPageBorderOverlayLayer(
-        this.movingPageBorderOverlayLayer,
-        borderOverlaySlots,
-        this.readerSettings,
-        scrollOffset,
-        this.readerFlowModeValue,
-        readerDirection,
-        shellGeometry
-      )
-    } else {
-      this.movingPageBorderOverlayLayer?.remove?.()
-      this.movingPageBorderOverlayLayer = null
-      this.surfaceBorderOverlayLayer = this.surfaceBorderOverlayLayer && readerRoot.contains(this.surfaceBorderOverlayLayer)
-        ? this.surfaceBorderOverlayLayer
-        : ensureReaderSurfaceBorderOverlayLayer()
-      updateReaderSurfaceBorderOverlayLayer(
-        this.surfaceBorderOverlayLayer,
-        currentSurfaceTextureSlots(borderOverlaySlots),
-        this.readerSettings,
-        null,
-        this.readerFlowModeValue,
-        readerDirection,
-        shellGeometry
-      )
-    }
-  } else {
     this.surfaceBorderOverlayLayer?.remove?.()
     this.surfaceBorderOverlayLayer = null
-    this.movingPageBorderOverlayLayer?.remove?.()
-    this.movingPageBorderOverlayLayer = null
+    this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
+      ? this.movingPageBorderOverlayLayer
+      : ensureReaderMovingPageBorderOverlayLayer()
+    updateReaderMovingPageBorderOverlayLayer(
+      this.movingPageBorderOverlayLayer,
+      borderOverlaySlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
   }
   if (this.surfaceStainOverlayVariant) {
-    if (movingLayersActive) {
-      this.surfaceStainOverlayLayer?.remove?.()
-      this.surfaceStainOverlayLayer = null
-      this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
-        ? this.movingPageStainOverlayLayer
-        : ensureReaderMovingPageStainOverlayLayer()
-      updateReaderMovingPageStainOverlayLayer(
-        this.movingPageStainOverlayLayer,
-        stainOverlaySlots,
-        this.readerSettings,
-        scrollOffset,
-        this.readerFlowModeValue,
-        readerDirection,
-        shellGeometry
-      )
-    } else {
-      this.movingPageStainOverlayLayer?.remove?.()
-      this.movingPageStainOverlayLayer = null
-      this.surfaceStainOverlayLayer = this.surfaceStainOverlayLayer && readerRoot.contains(this.surfaceStainOverlayLayer)
-        ? this.surfaceStainOverlayLayer
-        : ensureReaderSurfaceStainOverlayLayer()
-      updateReaderSurfaceStainOverlayLayer(
-        this.surfaceStainOverlayLayer,
-        currentSurfaceTextureSlots(stainOverlaySlots),
-        this.readerSettings,
-        null,
-        this.readerFlowModeValue,
-        readerDirection,
-        shellGeometry
-      )
-    }
-  } else {
     this.surfaceStainOverlayLayer?.remove?.()
     this.surfaceStainOverlayLayer = null
-    this.movingPageStainOverlayLayer?.remove?.()
-    this.movingPageStainOverlayLayer = null
+    this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
+      ? this.movingPageStainOverlayLayer
+      : ensureReaderMovingPageStainOverlayLayer()
+    updateReaderMovingPageStainOverlayLayer(
+      this.movingPageStainOverlayLayer,
+      stainOverlaySlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
   }
   if (this.surfaceSpreadGutterOverlayVariant) {
-    if (movingLayersActive) {
-      this.surfaceSpreadGutterOverlayLayer?.remove?.()
-      this.surfaceSpreadGutterOverlayLayer = null
-      this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
-        ? this.movingPageSpreadGutterOverlayLayer
-        : ensureReaderMovingPageSpreadGutterOverlayLayer()
-      updateReaderMovingPageSpreadGutterOverlayLayer(
-        this.movingPageSpreadGutterOverlayLayer,
-        spreadGutterOverlaySlots,
-        this.readerSettings,
-        scrollOffset,
-        this.readerFlowModeValue,
-        readerDirection,
-        shellGeometry
-      )
-    } else {
-      this.movingPageSpreadGutterOverlayLayer?.remove?.()
-      this.movingPageSpreadGutterOverlayLayer = null
-      this.surfaceSpreadGutterOverlayLayer = this.surfaceSpreadGutterOverlayLayer && readerRoot.contains(this.surfaceSpreadGutterOverlayLayer)
-        ? this.surfaceSpreadGutterOverlayLayer
-        : ensureReaderSurfaceSpreadGutterOverlayLayer()
-      updateReaderSurfaceSpreadGutterOverlayLayer(
-        this.surfaceSpreadGutterOverlayLayer,
-        currentSurfaceTextureSlots(spreadGutterOverlaySlots),
-        this.readerSettings,
-        null,
-        this.readerFlowModeValue,
-        readerDirection,
-        shellGeometry
-      )
-    }
+    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
+      ? this.movingPageSpreadGutterOverlayLayer
+      : ensureReaderMovingPageSpreadGutterOverlayLayer()
+    updateReaderMovingPageSpreadGutterOverlayLayer(
+      this.movingPageSpreadGutterOverlayLayer,
+      spreadGutterOverlaySlots,
+      this.readerSettings,
+      scrollOffset,
+      this.readerFlowModeValue,
+      readerDirection
+    )
   } else {
-    this.surfaceSpreadGutterOverlayLayer?.remove?.()
-    this.surfaceSpreadGutterOverlayLayer = null
     this.movingPageSpreadGutterOverlayLayer?.remove?.()
     this.movingPageSpreadGutterOverlayLayer = null
   }
@@ -758,10 +638,6 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     width,
     height,
   })
-  const shellGeometry = readerPageShellGeometryForViewport(this.readerSettings, {
-    flowMode: this.readerFlowModeValue,
-    spreadMode,
-  })
   let textureSlots = readerAdjacentPaperTextureSlots({
     publicationUrl: this.publicationUrl,
     sections: this.view?.book?.sections || [],
@@ -787,6 +663,8 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     resolveVariant: readerPageStainOverlayVariantForPage,
   })
   textureSlots = readerSpreadPageTextureSlots(textureSlots, readerPaperTextureVariantForPage, spreadMode)
+  borderOverlaySlots = readerSpreadPageTextureSlots(borderOverlaySlots, readerPageBorderOverlayVariantForPage, spreadMode)
+  stainOverlaySlots = readerSpreadPageTextureSlots(stainOverlaySlots, readerPageStainOverlayVariantForPage, spreadMode)
   const spreadGutterVisible = readerSurfaceSpreadGutterVisible({
     settings: this.readerSettings,
     spreadMode,
@@ -809,7 +687,6 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   const stainOverlayVariant = stainOverlaySlots.find(slot => slot.slot === 'current')?.variant || readerPageStainOverlayVariantForPage(textureKey)
   const spreadGutterOverlayVariant = spreadGutterOverlaySlots.find(slot => slot.slot === 'current')?.variant || null
   this.surfaceSpreadMode = spreadMode
-  this.readerPageShellGeometry = shellGeometry
   this.surfaceTextureSlots = textureSlots
   this.surfaceBorderOverlaySlots = borderOverlaySlots
   this.surfaceStainOverlaySlots = stainOverlaySlots
@@ -821,6 +698,27 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)
     ? this.surfaceTextureLayer
     : ensureReaderSurfaceTextureLayer()
+  this.movingPageTextureLayer = this.movingPageTextureLayer && readerRoot.contains(this.movingPageTextureLayer)
+    ? this.movingPageTextureLayer
+    : ensureReaderMovingPageTextureLayer()
+  this.surfaceBorderOverlayLayer?.remove?.()
+  this.surfaceBorderOverlayLayer = null
+  this.surfaceStainOverlayLayer?.remove?.()
+  this.surfaceStainOverlayLayer = null
+  this.movingPageBorderOverlayLayer = this.movingPageBorderOverlayLayer && readerRoot.contains(this.movingPageBorderOverlayLayer)
+    ? this.movingPageBorderOverlayLayer
+    : ensureReaderMovingPageBorderOverlayLayer()
+  this.movingPageStainOverlayLayer = this.movingPageStainOverlayLayer && readerRoot.contains(this.movingPageStainOverlayLayer)
+    ? this.movingPageStainOverlayLayer
+    : ensureReaderMovingPageStainOverlayLayer()
+  if (spreadGutterOverlayVariant) {
+    this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
+      ? this.movingPageSpreadGutterOverlayLayer
+      : ensureReaderMovingPageSpreadGutterOverlayLayer()
+  } else {
+    this.movingPageSpreadGutterOverlayLayer?.remove?.()
+    this.movingPageSpreadGutterOverlayLayer = null
+  }
   this.surfacePaperTextureBaseOffset = this.currentRendererContainerPosition()
   this.surfaceTextureScrollOffset = { x: 0, y: 0 }
   readerRoot.dataset.navicSurfacePaperTextureKey = textureKey
@@ -829,9 +727,6 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   readerRoot.dataset.navicSurfaceBorderOverlayAsset = borderOverlayVariant.asset
   readerRoot.dataset.navicSurfacePageStainOverlayAsset = stainOverlayVariant.asset
   readerRoot.dataset.navicSurfaceSpreadMode = spreadMode
-  readerRoot.dataset.navicReaderShellGeometryMode = shellGeometry.mode
-  readerRoot.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
-  readerRoot.dataset.navicReaderShellGeometry = JSON.stringify(readerShellGeometryDiagnosticState(shellGeometry, 'reader-shell-geometry'))
   readerRoot.dataset.navicSurfaceSpreadGutterOverlayAsset = spreadGutterOverlayVariant?.asset || ''
   const diagnostic = this.surfacePaperTextureDiagnosticState('update')
   log(
@@ -844,7 +739,6 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
   )
   readerTrace('texture:update', {
     ...diagnostic,
-    shellGeometry: readerShellGeometryDiagnosticState(shellGeometry, 'texture:update'),
     index,
     key: textureKey,
     baseAsset: textureVariant.asset,
@@ -852,8 +746,6 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     gutterAsset: spreadGutterOverlayVariant?.asset || '',
     spreadMode,
   })
-  readerTrace('reader-shell-geometry', readerShellGeometryDiagnosticState(shellGeometry, 'texture:update'))
-  this.applyThemeToLoadedContent(this.readerSettings)
   this.renderSurfacePaperTextureLayers()
   this.stopSurfacePaperTextureMotionSync('texture-update')
   this.surfacePaperTextureTurnDirection = null
@@ -954,7 +846,6 @@ export const NavicReaderAppearanceMethods = {
   applyRootReaderFontFaces,
   applySettings,
   applyThemeToLoadedContent,
-  applyReaderPageShellContentGeometry,
   applyRendererTheme,
   applyDocumentTheme,
   currentRendererContainerPosition,
@@ -966,8 +857,6 @@ export const NavicReaderAppearanceMethods = {
   syncSurfacePaperTextureScrollOffset,
   startSurfacePaperTextureMotionSync,
   stopSurfacePaperTextureMotionSync,
-  surfaceMovingPageLayersActive,
-  removeMovingSurfacePaperLayers,
   renderSurfacePaperTextureLayers,
   surfacePaperTextureIndex,
   applySurfacePaperTextureUpdate,

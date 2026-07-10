@@ -31,7 +31,6 @@ import {
   ReaderSpreadGutterOverlayVariantCount,
   ReaderSurfacePageBorderOverlayLayerSelector,
   ReaderSurfacePageStainOverlayLayerSelector,
-  ReaderSurfaceSpreadGutterOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
   ReaderTapZoneOverlayLayerSelector,
   ReaderThemeLight,
@@ -646,262 +645,6 @@ export const readerSurfaceSpreadGutterVisible = ({
   return readerSurfaceSpreadMode({ flowMode, width, height }) === 'spread'
 }
 
-export const ReaderPageShellDefaultOuterEdgePx = 32
-export const ReaderPageShellDefaultGutterPx = 48
-const ReaderPageEdgeOverlayMaskScale = 0.75
-
-const readerPageShellClamp = (value, min, max) =>
-  Math.min(max, Math.max(min, value))
-
-const readerPageShellNumber = (value, fallback) => {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : fallback
-}
-
-const readerPageShellSideMarginPercent = settings =>
-  readerPageShellClamp(readerPageShellNumber(settings?.sideMargin, 6), 0, 20)
-
-const readerPageShellTopMarginPx = settings =>
-  readerPageShellClamp(readerPageShellNumber(settings?.topMargin, 90), 0, 240)
-
-const readerPageShellBottomMarginPx = settings =>
-  readerPageShellClamp(readerPageShellNumber(settings?.bottomMargin, 50), 0, 240)
-
-const readerPageShellRect = (left, top, width, height) => ({
-  x: Math.round(left),
-  y: Math.round(top),
-  left: Math.round(left),
-  top: Math.round(top),
-  width: Math.max(1, Math.round(width)),
-  height: Math.max(1, Math.round(height)),
-})
-
-const readerPageShellInsetRect = (rect, insets = {}) => {
-  const left = Math.max(0, Math.round(Number(insets.left) || 0))
-  const top = Math.max(0, Math.round(Number(insets.top) || 0))
-  const right = Math.max(0, Math.round(Number(insets.right) || 0))
-  const bottom = Math.max(0, Math.round(Number(insets.bottom) || 0))
-  return readerPageShellRect(
-    rect.left + left,
-    rect.top + top,
-    Math.max(1, rect.width - left - right),
-    Math.max(1, rect.height - top - bottom)
-  )
-}
-
-export const readerPageShellRectStyle = rect => ({
-  left: `${Math.round(Number(rect?.left ?? rect?.x) || 0)}px`,
-  top: `${Math.round(Number(rect?.top ?? rect?.y) || 0)}px`,
-  width: `${Math.max(1, Math.round(Number(rect?.width) || 1))}px`,
-  height: `${Math.max(1, Math.round(Number(rect?.height) || 1))}px`,
-})
-
-export const readerPageShellGeometry = ({
-  settings = {},
-  flowMode = '',
-  spreadMode = '',
-  width: rawWidth = null,
-  height: rawHeight = null,
-  coverMode = false,
-} = {}) => {
-  const viewport = readerViewportSize()
-  const width = Math.max(1, Math.round(readerPageShellNumber(rawWidth, viewport.width)))
-  const height = Math.max(1, Math.round(readerPageShellNumber(rawHeight, viewport.height)))
-  const mode = coverMode
-    ? 'cover'
-    : (spreadMode || readerSurfaceSpreadMode({ flowMode, width, height }))
-  const sideMarginPercent = readerPageShellSideMarginPercent(settings)
-  const viewportRect = readerPageShellRect(0, 0, width, height)
-  const shellInsetX = mode === 'cover'
-    ? 0
-    : readerPageShellClamp(Math.round(width * 0.04), 0, 140)
-  const shellInsetY = mode === 'cover'
-    ? 0
-    : readerPageShellClamp(Math.round(height * 0.035), 0, 110)
-  const shellRect = readerPageShellRect(
-    shellInsetX,
-    shellInsetY,
-    width - shellInsetX * 2,
-    height - shellInsetY * 2
-  )
-  const spreadGutterWidth = mode === 'spread'
-    ? Math.max(
-      ReaderPageShellDefaultGutterPx,
-      Math.round(shellRect.width * sideMarginPercent / 100)
-    )
-    : 0
-  const pageEdgesEnabled = settings?.pageEdgesEnabled !== false
-  const outerEdge = pageEdgesEnabled
-    ? readerPageShellClamp(
-      Math.round(Math.min(shellRect.width, shellRect.height) * 0.024),
-      18,
-      ReaderPageShellDefaultOuterEdgePx
-    )
-    : 0
-  const innerEdge = mode === 'spread'
-    ? Math.max(outerEdge, Math.round(spreadGutterWidth * 0.18))
-    : outerEdge
-  const topMargin = readerPageShellTopMarginPx(settings)
-  const bottomMargin = readerPageShellBottomMarginPx(settings)
-  const pageHeight = shellRect.height
-  const singlePage = readerPageShellRect(shellRect.left, shellRect.top, shellRect.width, pageHeight)
-  const spreadPageWidth = mode === 'spread'
-    ? Math.max(1, Math.round((shellRect.width - spreadGutterWidth) / 2))
-    : shellRect.width
-  const leftPage = readerPageShellRect(shellRect.left, shellRect.top, spreadPageWidth, pageHeight)
-  const gutterRect = mode === 'spread'
-    ? readerPageShellRect(shellRect.left + spreadPageWidth, shellRect.top, spreadGutterWidth, pageHeight)
-    : null
-  const rightPage = mode === 'spread'
-    ? readerPageShellRect(
-      shellRect.left + spreadPageWidth + spreadGutterWidth,
-      shellRect.top,
-      shellRect.width - spreadPageWidth - spreadGutterWidth,
-      pageHeight
-    )
-    : null
-  const contentTop = Math.round(topMargin)
-  const contentBottom = Math.round(bottomMargin)
-  const singleContent = readerPageShellInsetRect(singlePage, {
-    left: outerEdge,
-    top: contentTop,
-    right: outerEdge,
-    bottom: contentBottom,
-  })
-  const leftContent = readerPageShellInsetRect(leftPage, {
-    left: outerEdge,
-    top: contentTop,
-    right: innerEdge,
-    bottom: contentBottom,
-  })
-  const rightContent = rightPage
-    ? readerPageShellInsetRect(rightPage, {
-      left: innerEdge,
-      top: contentTop,
-      right: outerEdge,
-      bottom: contentBottom,
-    })
-    : null
-  const pageBoxWidth = mode === 'spread'
-    ? Math.max(1, Math.min(leftContent.width, rightContent?.width || leftContent.width))
-    : singleContent.width
-  const pageBoxMaxColumnCount = mode === 'spread' ? 2 : undefined
-  const coverWidth = Math.round(Math.min(width * 0.38, height * 0.72))
-  const coverHeight = Math.round(Math.min(height * 0.86, Math.max(coverWidth * 1.42, height * 0.72)))
-  const coverRect = readerPageShellRect(
-    (width - coverWidth) / 2,
-    (height - coverHeight) / 2,
-    coverWidth,
-    coverHeight
-  )
-  const backCoverOffset = Math.max(18, Math.round(Math.min(width, height) * 0.024))
-  const backCoverRect = readerPageShellRect(
-    Math.min(width - coverRect.width - outerEdge, coverRect.left + backCoverOffset),
-    Math.min(height - coverRect.height - outerEdge, coverRect.top + backCoverOffset),
-    coverRect.width,
-    coverRect.height
-  )
-  return {
-    mode,
-    viewportRect,
-    shellRect,
-    pageRects: {
-      single: singlePage,
-      left: mode === 'spread' ? leftPage : singlePage,
-      right: mode === 'spread' ? rightPage : null,
-      full: shellRect,
-    },
-    contentRects: {
-      single: singleContent,
-      left: mode === 'spread' ? leftContent : singleContent,
-      right: mode === 'spread' ? rightContent : null,
-    },
-    gutterRect,
-    coverRect,
-    backCoverRect,
-    cover: {
-      backdropRect: shellRect,
-      foregroundRect: coverRect,
-      backCoverRect,
-    },
-    edgeInsets: {
-      outer: outerEdge,
-      inner: innerEdge,
-      gutter: spreadGutterWidth,
-      top: topMargin,
-      bottom: bottomMargin,
-    },
-    renderer: {
-      gapPercent: sideMarginPercent,
-      topMargin,
-      bottomMargin,
-      width: shellRect.width,
-      height: shellRect.height,
-      pageBoxWidth,
-      pageBoxMaxColumnCount,
-      rect: shellRect,
-    },
-  }
-}
-
-export const readerPageShellGeometryForViewport = (settings = {}, options = {}) => {
-  const viewport = readerViewportSize()
-  return readerPageShellGeometry({
-    settings,
-    width: viewport.width,
-    height: viewport.height,
-    ...options,
-  })
-}
-
-export const readerPageShellRectForPage = (geometry, page = 'full') => {
-  if (page === 'left') return geometry?.pageRects?.left || geometry?.pageRects?.single
-  if (page === 'right') return geometry?.pageRects?.right || geometry?.pageRects?.single
-  if (page === 'single') return geometry?.pageRects?.single
-  return geometry?.pageRects?.full || geometry?.shellRect
-}
-
-export const readerPageShellContentRectForIndex = (geometry, index = undefined) => {
-  if (geometry?.mode !== 'spread') return geometry?.contentRects?.single
-  const number = Number(index)
-  if (Number.isFinite(number) && Math.abs(Math.floor(number)) % 2 === 1) {
-    return geometry?.contentRects?.right || geometry?.contentRects?.left
-  }
-  return geometry?.contentRects?.left || geometry?.contentRects?.right
-}
-
-export const applyReaderPageShellContentGeometry = (doc, settings = {}, geometry = null, index = undefined) => {
-  if (!doc?.documentElement) return null
-  const resolved = geometry || readerPageShellGeometryForViewport(settings, {
-    flowMode: readerFlowMode(settings),
-  })
-  const contentRect = readerPageShellContentRectForIndex(resolved, index) || resolved?.contentRects?.single
-  const root = doc.documentElement
-  root.setAttribute('data-navic-reader-shell-content', 'true')
-  root.dataset.navicReaderShellGeometryMode = resolved?.mode || ''
-  root.style.setProperty('--navic-reader-shell-content-left', `${Math.round(contentRect?.left || 0)}px`)
-  root.style.setProperty('--navic-reader-shell-content-top', `${Math.round(contentRect?.top || 0)}px`)
-  root.style.setProperty('--navic-reader-shell-content-width', `${Math.max(1, Math.round(contentRect?.width || 1))}px`)
-  root.style.setProperty('--navic-reader-shell-content-height', `${Math.max(1, Math.round(contentRect?.height || 1))}px`)
-  root.style.setProperty('--navic-reader-shell-gutter-width', `${Math.round(resolved?.edgeInsets?.gutter || 0)}px`)
-  return resolved
-}
-
-export const readerShellGeometryDiagnosticState = (geometry, reason = 'unknown') => ({
-  reason,
-  mode: geometry?.mode || '',
-  viewportRect: geometry?.viewportRect || null,
-  shellRect: geometry?.shellRect || null,
-  pageRects: geometry?.pageRects || null,
-  contentRects: geometry?.contentRects || null,
-  gutterRect: geometry?.gutterRect || null,
-  coverRect: geometry?.coverRect || null,
-  backCoverRect: geometry?.backCoverRect || null,
-  edgeInsets: geometry?.edgeInsets || null,
-  cover: geometry?.cover || null,
-  renderer: geometry?.renderer || null,
-})
-
 export const readerCoverBackdropEnabled = settings => settings?.coverBackdropEnabled !== false
 
 const readerSpreadTextureSlotPageAttribute = 'data-navic-surface-texture-slot-page'
@@ -988,12 +731,12 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '0.64'
+      return '1'
     case 'dark':
     case 'dusk':
-      return '0.34'
+      return '0.42'
     default:
-      return '0.46'
+      return '0.58'
   }
 }
 
@@ -1032,12 +775,12 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
     case 'black':
       return 'none'
     case ReaderThemeSepia:
-      return 'contrast(1.32) saturate(1.08) brightness(0.98)'
+      return 'contrast(1.9) saturate(1.16) brightness(0.94)'
     case 'dark':
     case 'dusk':
-      return 'contrast(1.18) saturate(1.04)'
+      return 'contrast(1.35) saturate(1.08)'
     default:
-      return 'contrast(1.14) saturate(1.03)'
+      return 'contrast(1.3) saturate(1.06)'
   }
 }
 
@@ -1080,24 +823,6 @@ export const readerSurfacePageBorderOverlayBackgroundImage = borderOverlayVarian
   ].join(', ')
 }
 
-export const readerPageEdgeOverlayMask = (page = 'full', geometry = null) => {
-  if (!geometry) return 'none'
-  const edgeInsets = geometry && geometry.edgeInsets ? geometry.edgeInsets : {}
-  const outer = Math.max(1, Math.round(Number(edgeInsets.outer) || ReaderPageShellDefaultOuterEdgePx))
-  const inner = Math.max(outer, Math.round(Number(edgeInsets.inner) || outer))
-  const top = outer
-  const bottom = outer
-  const left = page === 'right' ? inner : outer
-  const right = page === 'left' ? inner : outer
-  const edgeScale = ReaderPageEdgeOverlayMaskScale
-  return [
-    `linear-gradient(to bottom, #000 0%, #000 52%, transparent 100%) top / 100% ${Math.round(top * edgeScale)}px no-repeat`,
-    `linear-gradient(to top, #000 0%, #000 52%, transparent 100%) bottom / 100% ${Math.round(bottom * edgeScale)}px no-repeat`,
-    `linear-gradient(to right, #000 0%, #000 52%, transparent 100%) left / ${Math.round(left * edgeScale)}px 100% no-repeat`,
-    `linear-gradient(to left, #000 0%, #000 52%, transparent 100%) right / ${Math.round(right * edgeScale)}px 100% no-repeat`,
-  ].join(', ')
-}
-
 export const readerPaperTextureBackgroundImage = textureVariant =>
   textureVariant?.asset ? `url("${readerAssetUrl(textureVariant.asset)}")` : 'none'
 
@@ -1112,37 +837,6 @@ export const readerSurfaceSpreadGutterOverlayBackgroundImage = gutterOverlayVari
     `url("${readerAssetUrl(shadowAsset)}")`,
     `url("${readerAssetUrl(highlightAsset)}")`,
   ].join(', ')
-}
-
-const readerStaticPaperShellTextureVariant = textureSlots =>
-  (textureSlots || []).find(slot => slot?.slot === 'current' && slot?.variant?.asset)?.variant ||
-  (textureSlots || []).find(slot => slot?.variant?.asset)?.variant ||
-  null
-
-const readerStaticPaperShellFoldBackground = (settings, geometry) => {
-  const theme = readerThemeKey(settings?.theme)
-  if (theme === 'black') return 'linear-gradient(180deg, #000000, #000000)'
-  if (geometry?.mode === 'spread') {
-    return [
-      'linear-gradient(90deg,',
-      'rgba(105,72,36,.14) 0%,',
-      'rgba(255,248,226,.05) 18%,',
-      'rgba(255,255,255,.04) 45%,',
-      'rgba(32,20,12,.34) 49.2%,',
-      'rgba(12,8,6,.46) 50%,',
-      'rgba(32,20,12,.34) 50.8%,',
-      'rgba(255,255,255,.04) 55%,',
-      'rgba(255,248,226,.06) 82%,',
-      'rgba(105,72,36,.14) 100%)',
-    ].join(' ')
-  }
-  return [
-    'linear-gradient(90deg,',
-    'rgba(28,18,10,.34) 0%,',
-    'rgba(98,64,32,.16) 4.5%,',
-    'rgba(255,255,255,.03) 11%,',
-    'rgba(255,255,255,.02) 100%)',
-  ].join(' ')
 }
 
 export const readerPageNumberPageCount = (pagePosition, fallbackPageCount = null) => {
@@ -1238,17 +932,6 @@ const pruneReaderSurfaceTextureSlots = (layer, textureSlots, attributeName) => {
   }
 }
 
-const ensureReaderStaticPaperShell = layer => {
-  let shell = layer?.querySelector?.('[data-navic-static-paper-shell="true"]')
-  if (!shell) {
-    shell = document.createElement('div')
-    shell.dataset.navicStaticPaperShell = 'true'
-    shell.setAttribute('aria-hidden', 'true')
-    layer?.append?.(shell)
-  }
-  return shell
-}
-
 export const ensureReaderSurfaceBorderOverlayLayer = () => {
   let layer = readerRoot.querySelector?.(ReaderSurfacePageBorderOverlayLayerSelector)
   if (!layer) {
@@ -1265,17 +948,6 @@ export const ensureReaderSurfaceStainOverlayLayer = () => {
   if (!layer) {
     layer = document.createElement('div')
     layer.dataset.navicSurfacePageStainOverlayLayer = 'true'
-    layer.setAttribute('aria-hidden', 'true')
-    readerRoot.append(layer)
-  }
-  return layer
-}
-
-export const ensureReaderSurfaceSpreadGutterOverlayLayer = () => {
-  let layer = readerRoot.querySelector?.(ReaderSurfaceSpreadGutterOverlayLayerSelector)
-  if (!layer) {
-    layer = document.createElement('div')
-    layer.dataset.navicSurfaceSpreadGutterOverlayLayer = 'true'
     layer.setAttribute('aria-hidden', 'true')
     readerRoot.append(layer)
   }
@@ -1359,17 +1031,6 @@ export const ensureReaderShellCoverBackdrop = layer => {
   return backdrop
 }
 
-export const ensureReaderShellCoverBackCover = layer => {
-  let backCover = layer?.querySelector?.('[data-navic-shell-cover-back-cover="true"]')
-  if (!backCover) {
-    backCover = document.createElement('div')
-    backCover.dataset.navicShellCoverBackCover = 'true'
-    backCover.setAttribute('aria-hidden', 'true')
-    layer?.append?.(backCover)
-  }
-  return backCover
-}
-
 export const ensureReaderShellCoverImage = layer => {
   let image = layer?.querySelector?.('[data-navic-shell-cover-image="true"]')
   if (!image) {
@@ -1387,12 +1048,7 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const shellGeometry = readerPageShellGeometryForViewport(settings, { coverMode: true })
-  const coverRect = shellGeometry.cover?.foregroundRect || shellGeometry.coverRect || shellGeometry.shellRect
-  const backCoverRect = shellGeometry.cover?.backCoverRect || shellGeometry.backCoverRect || shellGeometry.shellRect
-  const backdropRect = shellGeometry.cover?.backdropRect || shellGeometry.shellRect
   const backdrop = ensureReaderShellCoverBackdrop(layer)
-  const backCover = ensureReaderShellCoverBackCover(layer)
   const image = ensureReaderShellCoverImage(layer)
   if (image.getAttribute('src') !== coverUrl) image.setAttribute('src', coverUrl)
   image.setAttribute('alt', title || 'Book cover')
@@ -1408,8 +1064,8 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     'align-items': 'center',
     'justify-content': 'center',
     overflow: 'hidden',
-    background: 'linear-gradient(180deg, rgba(16,14,10,.98), rgba(6,5,4,.98))',
-    'background-color': '#100e0a',
+    background: '#000000',
+    'background-color': '#000000',
     color: '#ffffff',
     padding: '0px',
     'box-sizing': 'border-box',
@@ -1424,7 +1080,9 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     setStylesImportant(backdrop, {
       display: 'block',
       position: 'absolute',
-      ...readerPageShellRectStyle(backdropRect),
+      inset: '0px',
+      width: '100%',
+      height: '100%',
       'background-image': `linear-gradient(rgba(0,0,0,.34), rgba(0,0,0,.46)), url("${coverUrl}")`,
       'background-size': 'cover, cover',
       'background-position': 'center center, center center',
@@ -1441,32 +1099,13 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
       'background-image': 'none',
     })
   }
-  setStylesImportant(backCover, {
-    display: 'block',
-    position: 'absolute',
-    ...readerPageShellRectStyle(backCoverRect),
-    'border-radius': `${Math.max(8, Math.round(Math.min(backCoverRect.width, backCoverRect.height) * 0.018))}px`,
-    background: [
-      'linear-gradient(108deg, rgba(255,255,255,.12), transparent 28%, rgba(0,0,0,.18) 82%)',
-      'linear-gradient(180deg, rgba(255,244,210,.08), transparent 36%, rgba(0,0,0,.16))',
-      'linear-gradient(135deg, rgba(255,255,255,.1), rgba(0,0,0,.22))',
-      'linear-gradient(180deg, rgba(90,69,42,.92), rgba(48,34,22,.94))',
-    ].join(', '),
-    'background-blend-mode': 'screen, multiply, overlay, normal',
-    border: '1px solid rgba(255,255,255,.12)',
-    'box-shadow': '0 26px 72px rgba(0,0,0,.34), inset 0 0 0 1px rgba(255,255,255,.08), inset 0 0 56px rgba(0,0,0,.24)',
-    opacity: '0.78',
-    transform: 'translateX(-1.8%) rotate(-0.4deg)',
-    'transform-origin': 'center',
-    'z-index': '1',
-    'pointer-events': 'none',
-  })
   setStylesImportant(image, {
     display: 'block',
-    position: 'absolute',
-    ...readerPageShellRectStyle(coverRect),
-    'max-width': `${Math.max(1, Math.round(coverRect.width))}px`,
-    'max-height': `${Math.max(1, Math.round(coverRect.height))}px`,
+    'grid-area': '1 / 1',
+    width: '100%',
+    height: '100%',
+    'max-width': '100%',
+    'max-height': '100%',
     'object-fit': 'contain',
     'object-position': 'center center',
     background: 'transparent',
@@ -1474,28 +1113,17 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     margin: '0',
     padding: '0',
     border: '0',
-    'box-shadow': '0 18px 44px rgba(0,0,0,.42)',
-    'border-radius': `${Math.max(6, Math.round(Math.min(coverRect.width, coverRect.height) * 0.014))}px`,
-    'z-index': '2',
+    'box-shadow': 'none',
+    'z-index': '1',
   })
 }
 
-export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, settings, shellGeometry = null) => {
+export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, settings) => {
   if (!layer || !Array.isArray(textureSlots) || !textureSlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
   const palette = readerThemePalette(settings?.theme)
-  const geometry = shellGeometry || readerPageShellGeometryForViewport(settings)
-  const shellStyle = readerPageShellRectStyle(geometry.shellRect)
-  const textureVariant = readerStaticPaperShellTextureVariant(textureSlots)
-  const textureEnabled = readerSurfacePaperTextureOpacity(settings) !== '0' && Boolean(textureVariant?.asset)
-  const shell = ensureReaderStaticPaperShell(layer)
-  const shellRadius = Math.max(12, Math.round(Math.min(geometry.shellRect.width, geometry.shellRect.height) * 0.014))
-  const shellBackgroundImages = [
-    readerStaticPaperShellFoldBackground(settings, geometry),
-    textureEnabled ? readerPaperTextureBackgroundImage(textureVariant) : null,
-  ].filter(Boolean)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -1516,47 +1144,15 @@ export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, setting
     overflow: 'hidden',
     transform: 'none',
   })
-  setStylesImportant(shell, {
-    position: 'absolute',
-    ...shellStyle,
-    'border-radius': `${shellRadius}px`,
-    overflow: 'hidden',
-    'pointer-events': 'none',
-    background: palette.background,
-    'background-color': palette.background,
-    'background-image': shellBackgroundImages.join(', '),
-    'background-size': shellBackgroundImages.map(() => '100% 100%').join(', '),
-    'background-position': shellBackgroundImages.map(() => 'center center').join(', '),
-    'background-repeat': shellBackgroundImages.map(() => 'no-repeat').join(', '),
-    'background-blend-mode': textureEnabled ? 'multiply, normal' : 'normal',
-    'box-shadow': [
-      '0 24px 70px rgba(0,0,0,.18)',
-      'inset 0 0 0 1px rgba(70,48,24,.16)',
-      'inset 0 0 56px rgba(91,62,31,.18)',
-    ].join(', '),
-    opacity: '1',
-    transform: 'none',
-  })
-  layer.dataset.navicStaticPaperBackingShell = JSON.stringify(geometry.shellRect)
-  shell.dataset.navicStaticPaperBackingShellMode = geometry.mode || ''
-  shell.dataset.navicStaticPaperBackingAsset = textureEnabled ? textureVariant.asset || '' : ''
-  layer.style.setProperty('--navic-reader-shell-left', shellStyle.left)
-  layer.style.setProperty('--navic-reader-shell-top', shellStyle.top)
-  layer.style.setProperty('--navic-reader-shell-width', shellStyle.width)
-  layer.style.setProperty('--navic-reader-shell-height', shellStyle.height)
-  layer.dataset.navicStaticPaperBackingAsset = textureEnabled ? textureVariant.asset || '' : ''
-  layer.dataset.navicStaticPaperBackingOwner = 'shell'
+  layer.dataset.navicStaticPaperBackingAsset = ''
+  layer.dataset.navicStaticPaperBackingOwner = 'margin'
 }
 
-export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) => {
+export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(textureSlots) || !textureSlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const geometry = shellGeometry || readerPageShellGeometryForViewport(settings, { flowMode })
-  const shellRect = geometry.shellRect || { left: 0, top: 0, width, height }
-  const shellWidthPx = `${Math.max(1, Math.round(shellRect.width))}px`
-  const shellHeightPx = `${Math.max(1, Math.round(shellRect.height))}px`
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -1592,13 +1188,17 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
     for (const page of pages) {
       if (!page?.variant?.asset) continue
       const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
-      const pageRect = readerPageShellRectForPage(geometry, page.page)
-      const pageStyle = readerPageShellRectStyle(pageRect)
+      const pageWidth = page.page === 'full' ? widthPx : '50%'
+      const pageLeft = page.page === 'right' ? '50%' : '0px'
       setStylesImportant(artwork, {
         position: 'absolute',
-        ...pageStyle,
+        top: '0px',
+        bottom: '0px',
+        left: pageLeft,
+        width: pageWidth,
+        height: heightPx,
         'background-image': readerPaperTextureBackgroundImage(page.variant),
-        'background-size': `${shellWidthPx} ${shellHeightPx}`,
+        'background-size': 'cover',
         'background-position': readerPaperTextureBackgroundPosition(null),
         'background-repeat': 'no-repeat',
         'background-color': 'transparent',
@@ -1609,15 +1209,14 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
   }
 }
 
-export const updateReaderMovingPageTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) =>
-  updateReaderSurfaceTextureLayer(layer, textureSlots, settings, scrollOffset, flowMode, readerDirection, shellGeometry)
+export const updateReaderMovingPageTextureLayer = (layer, textureSlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceTextureLayer(layer, textureSlots, settings, scrollOffset, flowMode, readerDirection)
 
-export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) => {
+export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(borderOverlaySlots) || !borderOverlaySlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const geometry = shellGeometry || readerPageShellGeometryForViewport(settings, { flowMode })
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -1654,11 +1253,15 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
     for (const page of pages) {
       if (!page?.variant?.asset) continue
       const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
-      const pageStyle = readerPageShellRectStyle(readerPageShellRectForPage(geometry, page.page))
-      const edgeMask = readerPageEdgeOverlayMask(page.page, geometry)
+      const pageWidth = page.page === 'full' ? widthPx : '50%'
+      const pageLeft = page.page === 'right' ? '50%' : '0px'
       setStylesImportant(artwork, {
         position: 'absolute',
-        ...pageStyle,
+        top: '0px',
+        bottom: '0px',
+        left: pageLeft,
+        width: pageWidth,
+        height: heightPx,
         'background-image': readerSurfacePageBorderOverlayBackgroundImage(page.variant),
         'background-size': '100% 100%, 100% 100%',
         'background-position': [
@@ -1668,8 +1271,6 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
         'background-repeat': 'no-repeat, no-repeat',
         'background-blend-mode': 'multiply, screen',
         'background-color': 'transparent',
-        '-webkit-mask': edgeMask,
-        mask: edgeMask,
         transform: readerPaperTextureTransform(page.variant),
         'transform-origin': 'center',
       })
@@ -1677,15 +1278,14 @@ export const updateReaderSurfaceBorderOverlayLayer = (layer, borderOverlaySlots,
   }
 }
 
-export const updateReaderMovingPageBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) =>
-  updateReaderSurfaceBorderOverlayLayer(layer, borderOverlaySlots, settings, scrollOffset, flowMode, readerDirection, shellGeometry)
+export const updateReaderMovingPageBorderOverlayLayer = (layer, borderOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceBorderOverlayLayer(layer, borderOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
 
-export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) => {
+export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(stainOverlaySlots) || !stainOverlaySlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const geometry = shellGeometry || readerPageShellGeometryForViewport(settings, { flowMode })
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -1722,10 +1322,15 @@ export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, s
     for (const page of pages) {
       if (!page?.variant?.asset) continue
       const artwork = ensureReaderSurfaceTextureSlotArtwork(slotLayer, page.page)
-      const pageStyle = readerPageShellRectStyle(readerPageShellRectForPage(geometry, page.page))
+      const pageWidth = page.page === 'full' ? widthPx : '50%'
+      const pageLeft = page.page === 'right' ? '50%' : '0px'
       setStylesImportant(artwork, {
         position: 'absolute',
-        ...pageStyle,
+        top: '0px',
+        bottom: '0px',
+        left: pageLeft,
+        width: pageWidth,
+        height: heightPx,
         'background-image': readerSurfacePageStainOverlayBackgroundImage(page.variant),
         'background-size': '100% 100%',
         'background-position': readerPaperTextureBackgroundPosition(null),
@@ -1738,17 +1343,14 @@ export const updateReaderSurfaceStainOverlayLayer = (layer, stainOverlaySlots, s
   }
 }
 
-export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) =>
-  updateReaderSurfaceStainOverlayLayer(layer, stainOverlaySlots, settings, scrollOffset, flowMode, readerDirection, shellGeometry)
+export const updateReaderMovingPageStainOverlayLayer = (layer, stainOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceStainOverlayLayer(layer, stainOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
 
-export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) => {
+export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') => {
   if (!layer || !Array.isArray(spreadGutterOverlaySlots) || !spreadGutterOverlaySlots.some(slot => slot?.variant?.asset)) return
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
-  const geometry = shellGeometry || readerPageShellGeometryForViewport(settings, { flowMode })
-  if (!geometry.gutterRect) return
-  const gutterStyle = readerPageShellRectStyle(geometry.gutterRect)
   setStylesImportant(layer, {
     position: 'fixed',
     inset: '0px',
@@ -1774,7 +1376,9 @@ export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterO
     slotLayer.dataset.navicSurfaceSpreadGutterOverlayAsset = slot.variant.asset || ''
     setStylesImportant(slotLayer, {
       position: 'absolute',
-      ...gutterStyle,
+      inset: '0px',
+      width: widthPx,
+      height: heightPx,
       transform: readerSurfaceTextureSlotTransform({ slot: slot.slot, scrollOffset, width, height, flowMode, readerDirection }),
       'transform-origin': 'center',
       'will-change': 'transform',
@@ -1782,8 +1386,8 @@ export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterO
     setStylesImportant(artwork, {
       position: 'absolute',
       inset: '0px',
-      width: gutterStyle.width,
-      height: gutterStyle.height,
+      width: widthPx,
+      height: heightPx,
       'background-image': readerSurfaceSpreadGutterOverlayBackgroundImage(slot.variant),
       'background-size': '100% 100%, 100% 100%',
       'background-position': [
@@ -1799,8 +1403,8 @@ export const updateReaderSurfaceSpreadGutterOverlayLayer = (layer, spreadGutterO
   }
 }
 
-export const updateReaderMovingPageSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '', shellGeometry = null) =>
-  updateReaderSurfaceSpreadGutterOverlayLayer(layer, spreadGutterOverlaySlots, settings, scrollOffset, flowMode, readerDirection, shellGeometry)
+export const updateReaderMovingPageSpreadGutterOverlayLayer = (layer, spreadGutterOverlaySlots, settings, scrollOffset = null, flowMode = '', readerDirection = '') =>
+  updateReaderSurfaceSpreadGutterOverlayLayer(layer, spreadGutterOverlaySlots, settings, scrollOffset, flowMode, readerDirection)
 
 export const readerTapZoneOverlayLabel = type => {
   switch (type) {

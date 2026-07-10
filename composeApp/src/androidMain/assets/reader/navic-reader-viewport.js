@@ -3,12 +3,11 @@ import {
   readerFoliateFlow,
 } from './navic-reader-settings.js'
 import {
-  readerRoot,
   log,
   readerAdaptiveFoliatePageBox,
-  readerPageShellGeometryForViewport,
-  readerPageShellRectStyle,
-  readerShellGeometryDiagnosticState,
+  readerBottomMarginValue,
+  readerSideMarginValue,
+  readerTopMarginValue,
   readerTrace,
   readerViewportSize,
   setStylesImportant,
@@ -80,32 +79,15 @@ function applyReaderViewportLayout(label = 'unknown') {
   })
   const renderer = this.view?.renderer
   const fixedLayout = this.view?.isFixedLayout === true || renderer?.localName === 'foliate-fxl'
-  const shellGeometry = readerPageShellGeometryForViewport(this.readerSettings, {
-    flowMode: this.readerFlowModeValue || readerFlowMode(this.readerSettings),
-  })
-  const rendererRect = fixedLayout
-    ? { left: 0, top: 0, width, height }
-    : shellGeometry.shellRect
-  const rendererRectStyle = readerPageShellRectStyle(rendererRect)
-  const shellRectStyle = readerPageShellRectStyle(shellGeometry.shellRect)
-  const pageBoxSettings = shellGeometry.renderer.pageBoxMaxColumnCount == null
-    ? this.readerSettings
-    : { ...this.readerSettings, maxColumnCount: shellGeometry.renderer.pageBoxMaxColumnCount }
-  const pageBox = readerAdaptiveFoliatePageBox({
-    width: fixedLayout ? width : shellGeometry.renderer.pageBoxWidth,
-    height: fixedLayout ? height : shellGeometry.renderer.height,
-  }, pageBoxSettings)
-  this.readerPageShellGeometry = shellGeometry
-  readerRoot.dataset.navicReaderShellGeometryMode = shellGeometry.mode
-  readerRoot.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
-  readerRoot.dataset.navicReaderShellGeometry = JSON.stringify(readerShellGeometryDiagnosticState(shellGeometry, 'reader-shell-geometry'))
+  const pageBox = readerAdaptiveFoliatePageBox({ width, height }, this.readerSettings)
   setStylesImportant(renderer, {
     position: 'absolute',
-    inset: 'auto',
+    inset: '0px',
     display: 'block',
-    ...rendererRectStyle,
-    'min-width': rendererRectStyle.width,
-    'min-height': rendererRectStyle.height,
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
     overflow: fixedLayout ? 'auto' : 'hidden',
   })
   if (renderer && !fixedLayout) {
@@ -113,20 +95,11 @@ function applyReaderViewportLayout(label = 'unknown') {
     renderer.setAttribute('max-block-size', pageBox.maxBlockSize)
     renderer.setAttribute('max-column-count', pageBox.maxColumnCount)
     renderer.setAttribute('column-threshold', pageBox.columnThreshold)
-    renderer.setAttribute('top-margin', `${shellGeometry.renderer.topMargin}px`)
-    renderer.setAttribute('bottom-margin', `${shellGeometry.renderer.bottomMargin}px`)
-    renderer.setAttribute('gap', `${shellGeometry.renderer.gapPercent}%`)
+    renderer.setAttribute('top-margin', `${readerTopMarginValue(this.readerSettings)}px`)
+    renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(this.readerSettings)}px`)
+    renderer.setAttribute('gap', `${readerSideMarginValue(this.readerSettings)}%`)
     renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
-    renderer.dataset.navicReaderShellGeometryMode = shellGeometry.mode
-    renderer.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
-    renderer.dataset.navicReaderShellRect = JSON.stringify(shellGeometry.shellRect)
-    renderer.dataset.navicReaderShellContentRects = JSON.stringify(shellGeometry.contentRects)
-    renderer.style.setProperty('--navic-reader-shell-left', shellRectStyle.left)
-    renderer.style.setProperty('--navic-reader-shell-top', shellRectStyle.top)
-    renderer.style.setProperty('--navic-reader-shell-width', shellRectStyle.width)
-    renderer.style.setProperty('--navic-reader-shell-height', shellRectStyle.height)
   }
-  this.applyThemeToLoadedContent?.(this.readerSettings)
   this.applyPdfImageSettings(this.readerSettings)
   if (renderer) requestAnimationFrame(() => renderer?.render?.())
   if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
@@ -141,7 +114,6 @@ function applyReaderViewportLayout(label = 'unknown') {
   this.renderTapZoneOverlayLayer()
   this.preloadPageDragPreviewTargets?.(`viewport-layout:${label}`)
   log('viewport-layout', `label=${label}`, `${width}x${height}`)
-  readerTrace('reader-shell-geometry', readerShellGeometryDiagnosticState(shellGeometry, `viewport-layout:${label}`))
 }
 
 
@@ -165,24 +137,15 @@ function applyReaderViewportLayoutToProfilerView(profileView, settings = this.re
     'z-index': '-1',
   })
   const renderer = profileView?.renderer
-  const shellGeometry = readerPageShellGeometryForViewport(settings, {
-    flowMode: readerFlowMode(settings),
-  })
-  const rendererRectStyle = readerPageShellRectStyle(shellGeometry.shellRect)
-  const pageBoxSettings = shellGeometry.renderer.pageBoxMaxColumnCount == null
-    ? settings
-    : { ...settings, maxColumnCount: shellGeometry.renderer.pageBoxMaxColumnCount }
-  const pageBox = readerAdaptiveFoliatePageBox({
-    width: shellGeometry.renderer.pageBoxWidth,
-    height: shellGeometry.renderer.height,
-  }, pageBoxSettings)
+  const pageBox = readerAdaptiveFoliatePageBox({ width, height }, settings)
   setStylesImportant(renderer, {
     position: 'absolute',
-    inset: 'auto',
+    inset: '0px',
     display: 'block',
-    ...rendererRectStyle,
-    'min-width': rendererRectStyle.width,
-    'min-height': rendererRectStyle.height,
+    width: widthPx,
+    'min-width': widthPx,
+    height: heightPx,
+    'min-height': heightPx,
     overflow: 'hidden',
   })
   if (renderer) {
@@ -190,14 +153,10 @@ function applyReaderViewportLayoutToProfilerView(profileView, settings = this.re
     renderer.setAttribute('max-block-size', pageBox.maxBlockSize)
     renderer.setAttribute('max-column-count', pageBox.maxColumnCount)
     renderer.setAttribute('column-threshold', pageBox.columnThreshold)
-    renderer.setAttribute('top-margin', `${shellGeometry.renderer.topMargin}px`)
-    renderer.setAttribute('bottom-margin', `${shellGeometry.renderer.bottomMargin}px`)
-    renderer.setAttribute('gap', `${shellGeometry.renderer.gapPercent}%`)
+    renderer.setAttribute('top-margin', `${readerTopMarginValue(settings)}px`)
+    renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(settings)}px`)
+    renderer.setAttribute('gap', `${readerSideMarginValue(settings)}%`)
     renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
-    renderer.dataset.navicReaderShellGeometryMode = shellGeometry.mode
-    renderer.dataset.navicReaderShellGutterWidth = String(shellGeometry.edgeInsets?.gutter || 0)
-    renderer.dataset.navicReaderShellRect = JSON.stringify(shellGeometry.shellRect)
-    renderer.dataset.navicReaderShellContentRects = JSON.stringify(shellGeometry.contentRects)
   }
   renderer?.setAttribute?.('flow', readerFoliateFlow(readerFlowMode(settings)))
   renderer?.render?.()
