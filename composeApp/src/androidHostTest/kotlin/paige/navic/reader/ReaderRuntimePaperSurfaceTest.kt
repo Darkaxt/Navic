@@ -273,9 +273,13 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "const backCoverEdge = boundedSpread ? 'both' : portraitSingle ? 'right' : 'none'")
 		assertContains(helperText, "width: portraitSingle ? readerPercentValue(100 - portraitRevealPercent) : '100%'")
 		assertContains(helperText, "geometry.backCoverEdge === 'right'")
-		assertContains(helperText, "readerRgba(edge, 0.96)")
-		assertContains(helperText, "readerRgba(middle, 0.90)")
-		assertContains(helperText, "readerRgba(outer, 0.98)")
+		assertContains(helperText, "readerReadableCoverTintChannels(geometry.coverTint)")
+		assertContains(helperText, "const minimumLightness = 0.22")
+		assertContains(helperText, "const minimumSaturation = 0.38")
+		assertContains(helperText, "readerRgba(highlight, 0.72)")
+		assertContains(helperText, "readerRgba(portraitEdge, 0.96)")
+		assertContains(helperText, "readerRgba(portraitMiddle, 0.90)")
+		assertContains(helperText, "readerRgba(portraitOuter, 0.98)")
 		assertContains(helperText, "if (spreadMode !== 'spread') return textureSlots || []")
 		assertFalse(
 			helperText.contains("renderer.style.width") || helperText.contains("renderer.setAttribute('gap', '1%')"),

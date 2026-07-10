@@ -142,7 +142,7 @@ Portrait rules:
 - no explicit landscape `2%` physical gap or `6%` content gap
 - no centered spread-gutter overlay
 - no right-side empty page or inside-cover slab
-- a fixed `1%` right-only external back-cover reveal, tinted from the cached cover color with enough opacity to remain visibly cover-derived at that narrow width
+- a fixed `1%` right-only external back-cover reveal, tinted from the cached cover color with enough contrast to remain visibly cover-derived at that narrow width; very dark or weakly chromatic samples retain their hue but are normalized to a readable minimum saturation and lightness instead of being widened
 - no back-cover reveal on the left binding edge
 - outer edge wear on the visible page boundary
 - an optional subtle binding hint on the left edge when `Page edges` is enabled

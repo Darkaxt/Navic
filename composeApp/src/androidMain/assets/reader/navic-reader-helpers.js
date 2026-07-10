@@ -767,6 +767,50 @@ const readerDesaturatedColorChannels = (value, amount = 0.24) => {
   }
 }
 
+const readerHueChannel = (p, q, value) => {
+  let hue = value
+  if (hue < 0) hue += 1
+  if (hue > 1) hue -= 1
+  if (hue < 1 / 6) return p + (q - p) * 6 * hue
+  if (hue < 1 / 2) return q
+  if (hue < 2 / 3) return p + (q - p) * (2 / 3 - hue) * 6
+  return p
+}
+
+export const readerReadableCoverTintChannels = value => {
+  const color = readerColorChannels(value)
+  if (!color) return null
+  const red = color.red / 255
+  const green = color.green / 255
+  const blue = color.blue / 255
+  const maximum = Math.max(red, green, blue)
+  const minimum = Math.min(red, green, blue)
+  const delta = maximum - minimum
+  let hue = 0
+  if (delta > 0) {
+    if (maximum === red) hue = ((green - blue) / delta + (green < blue ? 6 : 0)) / 6
+    else if (maximum === green) hue = ((blue - red) / delta + 2) / 6
+    else hue = ((red - green) / delta + 4) / 6
+  }
+  const sourceLightness = (maximum + minimum) / 2
+  const sourceSaturation = delta === 0
+    ? 0
+    : delta / (1 - Math.abs(2 * sourceLightness - 1))
+  const minimumLightness = 0.22
+  const minimumSaturation = 0.38
+  const lightness = Math.min(0.46, Math.max(minimumLightness, sourceLightness))
+  const saturation = Math.min(0.72, Math.max(minimumSaturation, sourceSaturation))
+  const q = lightness < 0.5
+    ? lightness * (1 + saturation)
+    : lightness + saturation - lightness * saturation
+  const p = 2 * lightness - q
+  return {
+    red: Math.round(readerHueChannel(p, q, hue + 1 / 3) * 255),
+    green: Math.round(readerHueChannel(p, q, hue) * 255),
+    blue: Math.round(readerHueChannel(p, q, hue - 1 / 3) * 255),
+  }
+}
+
 const readerRgba = (channels, alpha) =>
   `rgba(${channels.red}, ${channels.green}, ${channels.blue}, ${alpha})`
 
@@ -782,10 +826,16 @@ export const readerSurfaceBackCoverBackground = (settings, geometry) => {
   const coverStart = geometry.backCoverStartPercent
   const fade = Math.min(inset, coverStart + Math.min(0.35, geometry.backCoverRevealPercent * 0.4))
   if (geometry.backCoverEdge === 'right') {
+    const readableCover = readerReadableCoverTintChannels(geometry.coverTint) || coverBase
+    const highlight = readerMixedColorChannels(readableCover, palette.background, 0.26)
+    const portraitEdge = readerMixedColorChannels(readableCover, palette.foreground, 0.14)
+    const portraitMiddle = readerMixedColorChannels(readableCover, palette.foreground, 0.04)
+    const portraitOuter = readerMixedColorChannels(readableCover, palette.foreground, 0.30)
     const reveal = Math.min(4, Math.max(0, geometry.backCoverRevealPercent))
     const revealStart = 100 - reveal
+    const highlightEnd = revealStart + Math.min(0.12, reveal * 0.12)
     const transitionStart = 100 - Math.min(reveal, Math.min(0.35, reveal * 0.4))
-    return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(revealStart)}, ${readerRgba(edge, 0.96)} ${readerPercentValue(revealStart)}, ${readerRgba(middle, 0.90)} ${readerPercentValue(transitionStart)}, ${readerRgba(outer, 0.98)} 100%)`
+    return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(revealStart)}, ${readerRgba(highlight, 0.72)} ${readerPercentValue(revealStart)}, ${readerRgba(portraitEdge, 0.96)} ${readerPercentValue(highlightEnd)}, ${readerRgba(portraitMiddle, 0.90)} ${readerPercentValue(transitionStart)}, ${readerRgba(portraitOuter, 0.98)} 100%)`
   }
   const reverseCoverStart = 100 - coverStart
   const reverseFade = 100 - fade

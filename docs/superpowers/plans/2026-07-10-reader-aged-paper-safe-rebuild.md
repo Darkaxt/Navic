@@ -399,7 +399,7 @@ Switch to the portrait tablet profile, launch the same Alcatraz location, and ca
 - `stage-5-portrait-aged.png`
 - `stage-5-portrait-aged-edges-off.png`
 
-Acceptance: one complete page, no center seam, no right blank page, no inside-cover slab, no landscape gap behavior, no left cover reveal, and one visibly cover-tinted right reveal exactly `1%` wide. The reveal must retain enough contrast to read as cover material without increasing its physical width. Validation must use a native portrait display override at rotation `0`; rotated-landscape captures with Android `ScreenDecorOverlay` side bands are invalid evidence.
+Acceptance: one complete page, no center seam, no right blank page, no inside-cover slab, no landscape gap behavior, no left cover reveal, and one visibly cover-tinted right reveal exactly `1%` wide. The reveal must retain enough contrast to read as cover material without increasing its physical width. If the sampled cover tint is too dark or weakly chromatic, preserve its hue while enforcing a readable minimum saturation and lightness, then verify both the rasterized width and sampled pixels. Validation must use a native portrait display override at rotation `0`; rotated-landscape captures with Android `ScreenDecorOverlay` side bands are invalid evidence.
 
 - [x] **Step 4: Run Stage 5 focused tests and commit**
 
