@@ -157,6 +157,18 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
+	fun pageBoxProbeReportsTheNativeFoliateGapAndDocumentColumnGap() {
+		val probe = listOf(
+			File("tools/reader-harness/src/adb-webview-eval.mjs"),
+			File("../tools/reader-harness/src/adb-webview-eval.mjs"),
+		).firstOrNull { it.isFile }?.readText()
+			?: error("Could not locate the ADB WebView probe")
+
+		assertContains(probe, "gap: renderer.getAttribute('gap') || ''")
+		assertContains(probe, "columnGap")
+	}
+
+	@Test
 	fun androidReaderPackagesHighResolutionPageEffectOverlayVariants() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)

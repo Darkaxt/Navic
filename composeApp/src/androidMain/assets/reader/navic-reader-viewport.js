@@ -6,7 +6,6 @@ import {
   log,
   readerAdaptiveFoliatePageBox,
   readerBottomMarginValue,
-  readerSideMarginValue,
   readerTopMarginValue,
   readerTrace,
   readerViewportSize,
@@ -19,6 +18,13 @@ const ReaderPdfFitPage = 'page'
 const ReaderPdfFitHeight = 'height'
 const ReaderPdfFitOriginal = 'original'
 const ReaderPdfPageGapMaxPercent = 48
+
+const applyReaderFoliateGap = (renderer, pageBox) => {
+  if (!renderer) return
+  const resolvedGap = pageBox?.foliateGap
+  if (resolvedGap) renderer.setAttribute('gap', resolvedGap)
+  else renderer.removeAttribute('gap')
+}
 
 const normalizedReaderPdfFitMode = value =>
   [ReaderPdfFitWidth, ReaderPdfFitPage, ReaderPdfFitHeight, ReaderPdfFitOriginal].includes(value)
@@ -97,7 +103,7 @@ function applyReaderViewportLayout(label = 'unknown') {
     renderer.setAttribute('column-threshold', pageBox.columnThreshold)
     renderer.setAttribute('top-margin', `${readerTopMarginValue(this.readerSettings)}px`)
     renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(this.readerSettings)}px`)
-    renderer.setAttribute('gap', `${readerSideMarginValue(this.readerSettings)}%`)
+    applyReaderFoliateGap(renderer, pageBox)
     renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
   }
   this.applyPdfImageSettings(this.readerSettings)
@@ -155,7 +161,7 @@ function applyReaderViewportLayoutToProfilerView(profileView, settings = this.re
     renderer.setAttribute('column-threshold', pageBox.columnThreshold)
     renderer.setAttribute('top-margin', `${readerTopMarginValue(settings)}px`)
     renderer.setAttribute('bottom-margin', `${readerBottomMarginValue(settings)}px`)
-    renderer.setAttribute('gap', `${readerSideMarginValue(settings)}%`)
+    applyReaderFoliateGap(renderer, pageBox)
     renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
   }
   renderer?.setAttribute?.('flow', readerFoliateFlow(readerFlowMode(settings)))

@@ -1,4 +1,5 @@
 import {
+  ReaderFlowPaged,
   ReaderFlowScrolled,
   ReaderFlowScrolledGaps,
   ReaderFontSourceCustom,
@@ -637,6 +638,11 @@ const readerViewportSize = () => {
   return { width, height }
 }
 
+export const readerResolvedFoliateGap = ({ flowMode, width, height, columnCount } = {}) =>
+  flowMode === ReaderFlowPaged && width >= height * 1.12 && columnCount >= 2
+    ? '8.5%'
+    : null
+
 export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), settings = {}) => {
   const width = Math.max(1, Math.round(Number(viewport?.width) || 1))
   const height = Math.max(1, Math.round(Number(viewport?.height) || 1))
@@ -661,6 +667,12 @@ export const readerAdaptiveFoliatePageBox = (viewport = readerViewportSize(), se
     viewportWidth: width,
     viewportHeight: height,
     flowMode,
+    foliateGap: readerResolvedFoliateGap({
+      flowMode,
+      width,
+      height,
+      columnCount: resolvedMaxColumnCount,
+    }),
   }
 }
 

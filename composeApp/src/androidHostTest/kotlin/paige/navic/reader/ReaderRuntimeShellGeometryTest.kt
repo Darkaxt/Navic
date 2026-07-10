@@ -37,14 +37,21 @@ class ReaderRuntimeShellGeometryTest {
 
 	@Test
 	fun viewportKeepsFoliateAsTheLayoutSourceOfTruth() {
+		val typography = readerAssetText("navic-reader-typography.js")
 		val viewport = readerAssetText("navic-reader-viewport.js")
 
 		assertContains(viewport, "readerAdaptiveFoliatePageBox")
 		assertContains(viewport, "readerTopMarginValue")
 		assertContains(viewport, "readerBottomMarginValue")
-		assertContains(viewport, "readerSideMarginValue")
 		assertContains(viewport, "readerAdaptiveFoliatePageBox({ width, height }, this.readerSettings)")
 		assertContains(viewport, "inset: '0px'")
+		assertContains(typography, "export const readerResolvedFoliateGap")
+		assertContains(typography, "flowMode === ReaderFlowPaged")
+		assertContains(typography, "width >= height * 1.12")
+		assertContains(typography, "columnCount >= 2")
+		assertContains(typography, "? '8.5%'")
+		assertContains(viewport, "renderer.setAttribute('gap', resolvedGap)")
+		assertContains(viewport, "renderer.removeAttribute('gap')")
 
 		assertFalse(
 			viewport.contains("readerPageShellRectStyle"),

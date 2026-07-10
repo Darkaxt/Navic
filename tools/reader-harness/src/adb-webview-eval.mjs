@@ -1826,6 +1826,7 @@ async function runPageBoxProbe(page) {
       )
       const bodyRect = body?.getBoundingClientRect?.()
       const elementRect = documentElement?.getBoundingClientRect?.()
+      const documentElementStyle = documentElement ? doc.defaultView.getComputedStyle(documentElement) : null
       const visibleElement = element => {
         const rect = element?.getBoundingClientRect?.()
         if (!rect || rect.width <= 0 || rect.height <= 0) return false
@@ -1873,6 +1874,7 @@ async function runPageBoxProbe(page) {
         bodyTextLength: String(body?.textContent || '').trim().length,
         bodyRect: bodyRect ? roundRect(bodyRect) : null,
         documentElementRect: elementRect ? roundRect(elementRect) : null,
+        columnGap: documentElementStyle?.columnGap || '',
         documentToViewportWidthRatio: elementRect ? ratio(elementRect.width, window.visualViewport?.width || window.innerWidth || 0) : null,
         bodyToDocumentWidthRatio: bodyRect && elementRect ? ratio(bodyRect.width, elementRect.width) : null,
         readerShellContentAlignment: {
@@ -1953,6 +1955,7 @@ async function runPageBoxProbe(page) {
         columnThreshold: renderer.getAttribute('column-threshold') || '',
         topMargin: renderer.getAttribute('top-margin') || '',
         bottomMargin: renderer.getAttribute('bottom-margin') || '',
+        gap: renderer.getAttribute('gap') || '',
       },
       rendererComputed: {
         display: rendererStyle.display,
