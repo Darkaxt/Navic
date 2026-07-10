@@ -104,7 +104,7 @@ For a qualifying spread, the physical geometry is `x = 1%` at each outer edge an
 - the cover remains a slight oversize rim of an opened book rather than a second frame
 - the reveal is painted through the existing decorative backing/overlay pipeline; it is not a shell node or a layout rectangle
 - Navic does not reposition the text, renderer, or iframe independently; Foliate recalculates pagination from the two explicit layout inputs
-- the reveal is absent from portrait, single-page, scrolled, fixed-layout, and cover modes
+- the two-sided landscape reveal is absent from portrait, scrolled, fixed-layout, and cover modes; paginated portrait uses the separate right-only reveal defined below
 
 This keeps the thin physical `1% / 2% / 1%` surface geometry while restoring natural prose margins. The physical cover dimension never derives from `content-gap`.
 
@@ -142,12 +142,14 @@ Portrait rules:
 - no explicit landscape `2%` physical gap or `6%` content gap
 - no centered spread-gutter overlay
 - no right-side empty page or inside-cover slab
+- a fixed `1%` right-only external back-cover reveal, tinted from the cached cover color with enough opacity to remain visibly cover-derived at that narrow width
+- no back-cover reveal on the left binding edge
 - outer edge wear on the visible page boundary
 - an optional subtle binding hint on the left edge when `Page edges` is enabled
 - one paper and stain variant covering the page
 - content remains centered by Foliate's normal single-page layout
 
-The portrait binding hint is a decorative asymmetry only. It must not reserve layout width or move text.
+The portrait binding hint and right cover reveal are decoration only. Foliate and its iframe remain `100%` wide and retain their native padding and pagination. The shared paper, edge, and stain bounds end at `99%`, exposing the already-resolved backing tint in the final `1%`; no page shell, renderer resize, or content offset is allowed. The reveal is absent from scrolled, vertical-paged, fixed-layout, and cover modes.
 
 ### 6. Cover Mode Remains Independent
 
@@ -212,7 +214,7 @@ Extend readerdev diagnostics to report:
 }
 ```
 
-Portrait diagnostics must report `spreadMode: single`, no explicit landscape physical/content gaps, and no spread gutter.
+Portrait diagnostics must report `spreadMode: single`, no explicit landscape physical/content gaps, no spread gutter, and `backCoverEdge: right` with a fixed `1%` reveal for paginated horizontal text pages.
 
 ## Validation Strategy
 

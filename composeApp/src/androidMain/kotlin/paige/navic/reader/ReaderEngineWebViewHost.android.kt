@@ -318,7 +318,8 @@ private fun ReaderBridgeCommand.withEngineNativeTapZones(): ReaderBridgeCommand 
 private fun ReaderBridgeCommand.engineDebugLabel(): String =
 	when (this) {
 		is ReaderBridgeCommand.OpenPublication ->
-			"openPublication(url=${url.engineUrlLabel()}, overlay=$mediaOverlayEnabled)"
+			"openPublication(url=${url.engineUrlLabel()}, overlay=$mediaOverlayEnabled, " +
+				"tint=${if (nativeShellCoverTint.isNullOrBlank()) "missing" else "present"})"
 		is ReaderBridgeCommand.GoToCfi -> "goToCfi"
 		is ReaderBridgeCommand.GoToHref -> "goToHref(${href.engineUrlLabel()})"
 		is ReaderBridgeCommand.GoToProgress -> "goToProgress(${progress.coerceIn(0.0, 1.0)})"

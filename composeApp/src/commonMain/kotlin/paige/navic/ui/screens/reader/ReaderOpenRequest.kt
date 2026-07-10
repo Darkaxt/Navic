@@ -47,7 +47,7 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 		startLocator = routeStartLocator ?: fallbackStartLocator,
 		settings = settings,
 		nativeShellCoverUrl = shellCoverUrl.takeIf { hasShellCover },
-		nativeShellCoverTint = shellCoverTint.takeIf { hasShellCover },
+		nativeShellCoverTint = shellCoverTint,
 		canReturnToShellCover = hasShellCover
 	)
 }

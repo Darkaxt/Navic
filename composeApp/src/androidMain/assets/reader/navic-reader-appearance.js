@@ -104,6 +104,7 @@ import {
   readerSpreadPageTextureSlots,
   readerSurfaceSpreadGutterVisible,
   readerSurfaceSpreadMode,
+  readerPaperLayoutProfile,
   readerSurfacePageDecorationGeometry,
   readerPaperTextureTransform,
   readerPaperTextureCssOffset,
@@ -551,12 +552,19 @@ function renderSurfacePaperTextureLayers() {
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   const viewport = readerViewportSize()
   const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings)
+  this.surfacePaperLayoutProfile = readerPaperLayoutProfile({
+    flowMode: this.readerFlowModeValue,
+    width: viewport.width,
+    height: viewport.height,
+    spreadMode: this.surfaceSpreadMode,
+  })
   this.surfacePageDecorationGeometry = readerSurfacePageDecorationGeometry({
     settings: this.readerSettings,
     spreadMode: this.surfaceSpreadMode,
     foliateGap: pageBox.foliateGap,
     shellCoverVisible: this.shellCoverVisible,
     coverTint: this.shellCoverDominantColor,
+    layoutProfile: this.surfacePaperLayoutProfile,
   })
   if (this.surfaceTextureVariant) {
     this.surfaceTextureLayer = this.surfaceTextureLayer && readerRoot.contains(this.surfaceTextureLayer)

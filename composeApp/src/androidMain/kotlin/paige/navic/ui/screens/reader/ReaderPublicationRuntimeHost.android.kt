@@ -103,6 +103,7 @@ actual fun ReaderPublicationRuntimeHost(
 					"cache=${if (resolved.fromCache) "hit" else "miss"} " +
 					"cacheKey=${resolved.cacheKey} " +
 					"shellCover=${if (resolved.shellCoverUrl.isNullOrBlank()) "missing" else "present"} " +
+					"shellCoverTint=${if (resolved.shellCoverTint.isNullOrBlank()) "missing" else "present"} " +
 					"fileBytes=${resolved.publicationFile.length()}"
 			)
 			resolved

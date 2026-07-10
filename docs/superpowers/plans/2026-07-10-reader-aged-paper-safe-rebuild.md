@@ -323,7 +323,7 @@ gutter: 0.92
 
 The final values may move by at most `0.08` during emulator tuning. Edge assets must remain narrow; do not solve visibility by scaling them into the prose area.
 
-- [ ] **Step 4: Validate independent toggles in code**
+- [x] **Step 4: Validate independent toggles in code**
 
 Focused tests must prove:
 
@@ -334,7 +334,7 @@ Focused tests must prove:
 - cover and portrait modes do not show the landscape back-cover reveal
 - no layer alters renderer dimensions
 
-- [ ] **Step 5: Validate the Aged Paper spread on emulator**
+- [x] **Step 5: Validate the Aged Paper spread on emulator**
 
 Reuse the installed readerdev build after one rebuild. Capture:
 
@@ -346,7 +346,7 @@ Reuse the installed readerdev build after one rebuild. Capture:
 
 Acceptance: Aged Paper is visibly warmer and more worn than Sepia, but text remains clear and no framed-window appearance returns.
 
-- [ ] **Step 6: Commit Stage 4**
+- [x] **Step 6: Commit Stage 4**
 
 ```powershell
 git add composeApp/src/androidMain/assets/reader composeApp/src/androidHostTest
@@ -362,20 +362,22 @@ git commit -m "feat: add aged paper reader composition"
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimePaperSurfaceTest.kt`
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeShellGeometryTest.kt`
 
-- [ ] **Step 1: Add failing portrait guards**
+- [x] **Step 1: Add failing portrait guards**
 
 Tests must require:
 
 ```text
 spread mode single -> no spread gutter slots
 spread mode single -> no explicit 2% physical gap or 6% content gap
+horizontal paginated single page -> fixed 1% right-only external back-cover reveal
+scrolled or vertical-paged single page -> no back-cover reveal
 page edges enabled -> optional left binding hint
 page edges disabled -> no binding hint
 ```
 
-They must prohibit a second-page slab and centered two-page seam in portrait.
+They must prohibit a second-page slab, centered two-page seam, left-side cover reveal, and any change to Foliate's portrait renderer width or padding.
 
-- [ ] **Step 2: Implement the single-page resolver**
+- [x] **Step 2: Implement the single-page resolver**
 
 Add a pure profile such as:
 
@@ -388,18 +390,18 @@ export const readerPaperLayoutProfile = ({ flowMode, width, height }) => {
 }
 ```
 
-Use `mode: single` to render one page texture/edge/stain field and a subtle left binding hint. The hint is an overlay and cannot affect width, padding, or column layout.
+Use `mode: single` to render one page texture/edge/stain field and a subtle left binding hint. Horizontal paginated portrait also exposes a fixed `1%` right-only cover-tinted reveal by ending the shared decorative page bounds at `99%`. Foliate and its iframe remain `100%` wide; neither the binding hint nor reveal can affect width, padding, or column layout. Scrolled, vertical-paged, fixed-layout, and shell-cover modes do not receive the reveal.
 
-- [ ] **Step 3: Validate portrait on the emulator**
+- [x] **Step 3: Validate portrait on the emulator**
 
 Switch to the portrait tablet profile, launch the same Alcatraz location, and capture:
 
 - `stage-5-portrait-aged.png`
 - `stage-5-portrait-aged-edges-off.png`
 
-Acceptance: one complete page, no center seam, no right blank page, no inside-cover slab, and no landscape gap behavior.
+Acceptance: one complete page, no center seam, no right blank page, no inside-cover slab, no landscape gap behavior, no left cover reveal, and one visibly cover-tinted right reveal exactly `1%` wide. The reveal must retain enough contrast to read as cover material without increasing its physical width. Validation must use a native portrait display override at rotation `0`; rotated-landscape captures with Android `ScreenDecorOverlay` side bands are invalid evidence.
 
-- [ ] **Step 4: Run Stage 5 focused tests and commit**
+- [x] **Step 4: Run Stage 5 focused tests and commit**
 
 ```powershell
 .\gradlew.bat --no-daemon --no-configuration-cache :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimePaperSurfaceTest --tests paige.navic.reader.ReaderRuntimeShellGeometryTest

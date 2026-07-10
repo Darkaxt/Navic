@@ -129,10 +129,12 @@ class ReaderOpenRequestFactoryTest {
 		).toReaderEngineOpenRequest(
 			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
 			shellCoverUrl = "https://appassets.androidplatform.net/reader-cache/3693/cover.jpg",
+			shellCoverTint = "#051112",
 			settings = defaultReaderSettings()
 		)
 
 		assertEquals(null, request.nativeShellCoverUrl)
+		assertEquals("#051112", request.nativeShellCoverTint)
 		assertEquals(false, request.externalShellCover)
 		assertEquals(true, request.suppressWebShellCover)
 		assertEquals(false, request.canReturnToShellCover)

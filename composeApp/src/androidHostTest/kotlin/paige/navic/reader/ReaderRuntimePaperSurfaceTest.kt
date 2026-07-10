@@ -185,7 +185,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "export const readerSurfacePageDecorationGeometry = ({")
 		assertContains(helperText, "outerInsetPercent = gapPercent / 2")
 		assertContains(helperText, "pageWidthPercent = 50 - outerInsetPercent")
-		assertContains(helperText, "backCoverRevealPercent = outerInsetPercent")
+		assertContains(helperText, "backCoverRevealPercent = boundedSpread ? outerInsetPercent : portraitRevealPercent")
 		assertContains(helperText, "backCoverStartPercent = 0")
 		assertContains(helperText, "backCoverVisible")
 		assertContains(helperText, "shellCoverVisible !== true")
@@ -201,12 +201,16 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(resourceText, "shellCoverTint: String? = null")
 		assertContains(resourceText, "withShellCoverTint()")
 		assertContains(runtimeHostText, "resolved.shellCoverTint")
+		assertContains(runtimeHostText, "shellCoverTint=")
+		assertContains(runtimeHostText, "resolved.shellCoverTint.isNullOrBlank()")
 		assertContains(readerScreenText, "shellCoverTint")
 		assertContains(openRequestText, "shellCoverTint: String?")
 		assertContains(openRequestText, "nativeShellCoverTint = shellCoverTint")
 		assertContains(engineText, "val nativeShellCoverTint: String? = null")
 		assertContains(engineHostText, "nativeShellCoverTint = viewState.nativeShellCoverTint")
 		assertContains(webViewHostText, "nativeShellCoverTint = nativeShellCoverTint")
+		assertContains(webViewHostText, "tint=")
+		assertContains(webViewHostText, "nativeShellCoverTint.isNullOrBlank()")
 		assertContains(bridgeText, "val nativeShellCoverTint: String? = null")
 		assertContains(bridgeText, "nativeShellCoverTint?.let { put(\"nativeShellCoverTint\", it) }")
 		assertFalse(
@@ -236,10 +240,46 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(probeText, "contentGap: renderer.getAttribute('content-gap') || ''")
 		assertContains(probeText, "paddingLeft: documentElementStyle?.paddingLeft || ''")
 		assertContains(probeText, "paddingRight: documentElementStyle?.paddingRight || ''")
-		assertContains(helperText, "backCoverRevealPercent = outerInsetPercent")
+		assertContains(helperText, "backCoverRevealPercent = boundedSpread ? outerInsetPercent : portraitRevealPercent")
 		assertFalse(
 			helperText.contains("backCoverRevealPercent = contentGapPercent"),
 			"Increasing text margins must not widen the external back-cover reveal."
+		)
+	}
+
+	@Test
+	fun portraitPaperCompositionDoesNotInheritLandscapeGeometry() {
+		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
+		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
+		val viewportText = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
+
+		assertContains(helperText, "export const readerPaperLayoutProfile = ({")
+		assertContains(helperText, "? { mode: 'spread', bindingEdge: 'center' }")
+		assertContains(helperText, "flowMode === ReaderFlowPaged ? 'right' : 'none'")
+		assertContains(helperText, ": { mode: 'single', bindingEdge: 'left', backCoverEdge }")
+		assertContains(helperText, "export const readerPortraitBindingHintBoxShadow = (settings, profile) =>")
+		assertContains(helperText, "profile?.mode !== 'single'")
+		assertContains(helperText, "settings?.pageEdgesEnabled === false")
+		assertContains(helperText, "'box-shadow': readerPortraitBindingHintBoxShadow(settings, layoutProfile)")
+		assertContains(appearanceText, "this.surfacePaperLayoutProfile = readerPaperLayoutProfile({")
+		assertContains(appearanceText, "spreadMode: this.surfaceSpreadMode")
+		assertContains(appearanceText, "layoutProfile: this.surfacePaperLayoutProfile")
+		assertContains(typographyText, "width >= height * 1.12")
+		assertContains(typographyText, "columnCount >= 2")
+		assertContains(viewportText, "renderer.removeAttribute('gap')")
+		assertContains(viewportText, "renderer.removeAttribute('content-gap')")
+		assertContains(helperText, "const portraitRevealPercent = portraitSingle ? 1 : 0")
+		assertContains(helperText, "const backCoverEdge = boundedSpread ? 'both' : portraitSingle ? 'right' : 'none'")
+		assertContains(helperText, "width: portraitSingle ? readerPercentValue(100 - portraitRevealPercent) : '100%'")
+		assertContains(helperText, "geometry.backCoverEdge === 'right'")
+		assertContains(helperText, "readerRgba(edge, 0.96)")
+		assertContains(helperText, "readerRgba(middle, 0.90)")
+		assertContains(helperText, "readerRgba(outer, 0.98)")
+		assertContains(helperText, "if (spreadMode !== 'spread') return textureSlots || []")
+		assertFalse(
+			helperText.contains("renderer.style.width") || helperText.contains("renderer.setAttribute('gap', '1%')"),
+			"Portrait cover decoration must not resize the Foliate renderer or emulate a page gap."
 		)
 	}
 

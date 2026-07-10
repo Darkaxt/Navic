@@ -4,6 +4,7 @@ import {
   KomikkuNavigationRegionPrevious,
   KomikkuNavigationRegionRight,
   ReaderDirectionRtl,
+  ReaderFlowPaged,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
   ReaderFlowScrolledGaps,
@@ -634,6 +635,25 @@ export const readerSurfaceSpreadMode = ({
   return 'single'
 }
 
+export const readerPaperLayoutProfile = ({
+  flowMode = '',
+  width = null,
+  height = null,
+  spreadMode = '',
+} = {}) => {
+  const mode = spreadMode || readerSurfaceSpreadMode({ flowMode, width, height })
+  const backCoverEdge = flowMode === ReaderFlowPaged ? 'right' : 'none'
+  return mode === 'spread'
+    ? { mode: 'spread', bindingEdge: 'center' }
+    : { mode: 'single', bindingEdge: 'left', backCoverEdge }
+}
+
+export const readerPortraitBindingHintBoxShadow = (settings, profile) => {
+  if (profile?.mode !== 'single' || profile?.bindingEdge !== 'left') return 'none'
+  if (settings?.pageEdgesEnabled === false) return 'none'
+  return 'inset 18px 0 24px -22px rgba(67, 42, 20, .52)'
+}
+
 export const readerSurfaceSpreadGutterVisible = ({
   settings,
   spreadMode = '',
@@ -659,6 +679,7 @@ export const readerSurfacePageDecorationGeometry = ({
   foliateGap = null,
   shellCoverVisible = false,
   coverTint = null,
+  layoutProfile = null,
 } = {}) => {
   const parsedGap = Number.parseFloat(String(foliateGap || ''))
   const gapPercent = spreadMode === 'spread' && Number.isFinite(parsedGap)
@@ -666,9 +687,14 @@ export const readerSurfacePageDecorationGeometry = ({
     : 0
   const outerInsetPercent = gapPercent / 2
   const pageWidthPercent = 50 - outerInsetPercent
-  const backCoverRevealPercent = outerInsetPercent
-  const backCoverStartPercent = 0
   const boundedSpread = gapPercent > 0
+  const portraitSingle = spreadMode !== 'spread' &&
+    layoutProfile?.mode === 'single' &&
+    layoutProfile?.backCoverEdge === 'right'
+  const portraitRevealPercent = portraitSingle ? 1 : 0
+  const backCoverRevealPercent = boundedSpread ? outerInsetPercent : portraitRevealPercent
+  const backCoverStartPercent = 0
+  const backCoverEdge = boundedSpread ? 'both' : portraitSingle ? 'right' : 'none'
   return {
     boundedSpread,
     gapPercent,
@@ -676,9 +702,13 @@ export const readerSurfacePageDecorationGeometry = ({
     pageWidthPercent,
     backCoverRevealPercent,
     backCoverStartPercent,
-    backCoverVisible: boundedSpread && shellCoverVisible !== true,
+    backCoverEdge,
+    backCoverVisible: backCoverEdge !== 'none' && shellCoverVisible !== true,
     pages: {
-      full: { left: '0px', width: '100%' },
+      full: {
+        left: '0px',
+        width: portraitSingle ? readerPercentValue(100 - portraitRevealPercent) : '100%',
+      },
       left: {
         left: boundedSpread ? readerPercentValue(outerInsetPercent) : '0px',
         width: boundedSpread ? readerPercentValue(pageWidthPercent) : '50%',
@@ -690,6 +720,7 @@ export const readerSurfacePageDecorationGeometry = ({
     },
     theme: readerThemeKey(settings?.theme),
     coverTint,
+    layoutProfile,
   }
 }
 
@@ -750,6 +781,12 @@ export const readerSurfaceBackCoverBackground = (settings, geometry) => {
   const inset = geometry.outerInsetPercent
   const coverStart = geometry.backCoverStartPercent
   const fade = Math.min(inset, coverStart + Math.min(0.35, geometry.backCoverRevealPercent * 0.4))
+  if (geometry.backCoverEdge === 'right') {
+    const reveal = Math.min(4, Math.max(0, geometry.backCoverRevealPercent))
+    const revealStart = 100 - reveal
+    const transitionStart = 100 - Math.min(reveal, Math.min(0.35, reveal * 0.4))
+    return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(revealStart)}, ${readerRgba(edge, 0.96)} ${readerPercentValue(revealStart)}, ${readerRgba(middle, 0.90)} ${readerPercentValue(transitionStart)}, ${readerRgba(outer, 0.98)} 100%)`
+  }
   const reverseCoverStart = 100 - coverStart
   const reverseFade = 100 - fade
   const reverseInset = 100 - inset
@@ -1338,6 +1375,7 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
       const pageWidth = pageBounds?.width || (page.page === 'full' ? widthPx : '50%')
       const pageLeft = pageBounds?.left || (page.page === 'right' ? '50%' : '0px')
       const paperBase = readerSurfacePaperBaseBackground(settings, decorationGeometry?.boundedSpread ? 'spread' : 'single')
+      const layoutProfile = decorationGeometry?.layoutProfile || null
       setStylesImportant(artwork, {
         position: 'absolute',
         top: '0px',
@@ -1356,6 +1394,7 @@ export const updateReaderSurfaceTextureLayer = (layer, textureSlots, settings, s
         'background-color': paperBase.image === 'none' ? 'transparent' : paperBase.color,
         transform: readerPaperTextureTransform(page.variant),
         'transform-origin': 'center',
+        'box-shadow': readerPortraitBindingHintBoxShadow(settings, layoutProfile),
       })
     }
   }
