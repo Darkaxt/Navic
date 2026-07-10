@@ -2,8 +2,6 @@ package paige.navic.domain.models
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class PlaybackQueueRecoveryPolicyTest {
 	@Test
@@ -31,47 +29,37 @@ class PlaybackQueueRecoveryPolicyTest {
 	}
 
 	@Test
-	fun queueRecoveryReplaysLastPlayableWhenNoPlayableCandidateExists() {
-		assertTrue(
-			shouldReplayLastPlayable(
-				hasLastPlayable = true,
-				hasPlayableUpcoming = false,
-				hasDeferredDownloads = true
+	fun playbackFailureAdvancesOnlyWhenPreferenceAllowsIt() {
+		assertEquals(
+			3,
+			playbackFailureTargetIndex(
+				skipMediaOnError = true,
+				nextPlayableIndex = 3
 			)
 		)
-
-		assertFalse(
-			shouldReplayLastPlayable(
-				hasLastPlayable = true,
-				hasPlayableUpcoming = true,
-				hasDeferredDownloads = true
+		assertEquals(
+			null,
+			playbackFailureTargetIndex(
+				skipMediaOnError = false,
+				nextPlayableIndex = 3
 			)
 		)
-
-		assertFalse(
-			shouldReplayLastPlayable(
-				hasLastPlayable = false,
-				hasPlayableUpcoming = false,
-				hasDeferredDownloads = true
+		assertEquals(
+			null,
+			playbackFailureTargetIndex(
+				skipMediaOnError = true,
+				nextPlayableIndex = null
 			)
 		)
 	}
 
 	@Test
-	fun downloadedDeferredItemMovesDirectlyAfterCurrentItem() {
+	fun playbackFailureNeverInventsAQueueTarget() {
 		assertEquals(
-			2,
-			recoveredDownloadTargetIndex(
-				currentIndex = 1,
-				queueSize = 6
-			)
-		)
-
-		assertEquals(
-			4,
-			recoveredDownloadTargetIndex(
-				currentIndex = 5,
-				queueSize = 4
+			null,
+			playbackFailureTargetIndex(
+				skipMediaOnError = true,
+				nextPlayableIndex = null
 			)
 		)
 	}

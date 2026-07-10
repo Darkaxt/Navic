@@ -126,7 +126,9 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(prefetcherText, "internal class AndroidPlaybackAssetPrefetcher")
 		assertContains(prefetcherText, "private var lastCurrentArtworkPrefetchSongId: String? = null")
 		assertContains(prefetcherText, "private var lastUpcomingPrefetchSignature: String? = null")
-		assertContains(prefetcherText, "downloadManager.prefetchPlaybackSongs(songs)")
+		assertContains(prefetcherText, "musicBrainzArtworkRepository.prefetchArtworkForPlayingSong(song)")
+		assertFalse(prefetcherText.contains("DownloadManager"))
+		assertFalse(prefetcherText.contains("prefetchPlaybackSongs"))
 	}
 
 	@Test
@@ -151,24 +153,31 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
-	fun playbackDownloadRecoveryDefersUnavailableItemsInsteadOfBlindSkipping() {
+	fun playbackRecoveryRefreshesInPlaceAndNeverMutatesQueueOrder() {
 		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
-		val coordinatorText = androidSharedSourceFile("AndroidPlaybackDownloadRecoveryCoordinator.android.kt").readText()
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
 
-		assertContains(viewModelText, "private val playbackDownloadRecovery = AndroidPlaybackDownloadRecoveryCoordinator(")
-		assertContains(viewModelText, "playbackDownloadRecovery.deferCurrentAndContinueOrReplay")
-		assertContains(viewModelText, "playbackDownloadRecovery.promoteReadyDeferredDownloads")
-		assertContains(viewModelText, "playbackDownloadRecovery.rememberLastPlayableSong")
-		assertContains(coordinatorText, "private var lastPlayableSnapshot: LastPlayableSnapshot?")
-		assertContains(coordinatorText, "private val deferredPlaybackDownloads = linkedMapOf<String, DeferredPlaybackDownload>()")
-		assertContains(coordinatorText, "diagnostics.onDeferredDownloadRequested")
-		assertContains(coordinatorText, "diagnostics.onPlaybackRecoveryDecision")
-		assertContains(coordinatorText, "diagnostics.onDeferredDownloadReady")
-		assertContains(coordinatorText, "diagnostics.onReplayLastPlayable")
-		assertFalse(
-			viewModelText.contains("clearPendingSourceErrorRecovery(\"skip-after-error\")"),
-			"Source-error recovery should defer/download and continue or replay, not clear recovery and blindly skip."
-		)
+		assertContains(viewModelText, "private val playbackRecovery = AndroidStablePlaybackRecoveryCoordinator(")
+		assertContains(viewModelText, "playbackRecovery.handlePlayerError")
+		assertContains(recoveryText, "refreshCurrentRemoteMediaItem")
+		assertContains(recoveryText, "playbackFailureTargetIndex(")
+		assertContains(recoveryText, "skipMediaOnError()")
+		assertFalse(viewModelText.contains("AndroidPlaybackDownloadRecoveryCoordinator"))
+		assertFalse(viewModelText.contains("prefetchPlaybackSongs"))
+		assertFalse(viewModelText.contains("promoteReadyDeferredDownloads"))
+		assertFalse(viewModelText.contains("moveUiQueueItem"))
+		assertFalse(recoveryText.contains("prefetchPlaybackSongs"))
+		assertFalse(recoveryText.contains("moveMediaItem"))
+	}
+
+	@Test
+	fun bufferingDoesNotOverwriteUserPlaybackIntent() {
+		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+
+		assertContains(viewModelText, "isPaused = !playWhenReady")
+		assertContains(viewModelText, "isPaused = !controller.playWhenReady")
+		assertFalse(viewModelText.contains("it.copy(isPaused = !isPlaying)"))
+		assertFalse(viewModelText.contains("isPaused = !controller.isPlaying"))
 	}
 }
 

@@ -98,7 +98,6 @@ import paige.navic.domain.models.medleyModeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
 import paige.navic.domain.models.pauseBetweenSongsDelayMs
-import paige.navic.domain.models.playbackPrefetchIndexes
 import paige.navic.domain.models.playbackVolumeMultiplier
 import paige.navic.domain.models.mediaNotificationActions
 import paige.navic.domain.models.queueAutoFillAppendCount
@@ -119,7 +118,6 @@ import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.shouldSendNowPlayingWidgetUpdate
 import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
 import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
-import paige.navic.domain.models.shouldSkipMediaAfterPlaybackError
 import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.settings.AutoFillQueueSource

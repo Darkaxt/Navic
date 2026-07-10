@@ -12,17 +12,13 @@ fun firstPlayableUpcomingIndex(
 		.firstOrNull { (_, songId) -> songId in availableSongIds }
 		?.let { (offset, _) -> currentIndex + 1 + offset }
 
-fun shouldReplayLastPlayable(
-	hasLastPlayable: Boolean,
-	hasPlayableUpcoming: Boolean,
-	hasDeferredDownloads: Boolean
-): Boolean =
-	hasLastPlayable &&
-		!hasPlayableUpcoming &&
-		hasDeferredDownloads
-
-fun recoveredDownloadTargetIndex(
-	currentIndex: Int,
-	queueSize: Int
-): Int =
-	(currentIndex + 1).coerceIn(0, queueSize)
+fun playbackFailureTargetIndex(
+	skipMediaOnError: Boolean,
+	nextPlayableIndex: Int?
+): Int? =
+	nextPlayableIndex?.takeIf {
+		shouldSkipMediaAfterPlaybackError(
+			skipMediaOnError = skipMediaOnError,
+			hasNextMediaItem = true
+		)
+	}

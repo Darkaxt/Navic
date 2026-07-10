@@ -4,16 +4,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.models.DomainSong
-import paige.navic.domain.models.playbackPrefetchIndexes
+import paige.navic.domain.models.playbackArtworkPrefetchIndexes
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 
 internal class AndroidPlaybackAssetPrefetcher(
 	private val scope: CoroutineScope,
-	private val downloadManager: DownloadManager,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val upNextCount: () -> Int,
 	private val onCurrentSongArtworkPrefetched: (DomainSong) -> Unit
@@ -45,7 +43,7 @@ internal class AndroidPlaybackAssetPrefetcher(
 		isPlaying: Boolean
 	) {
 		if (!isPlaying) return
-		val indexes = playbackPrefetchIndexes(
+		val indexes = playbackArtworkPrefetchIndexes(
 			upcomingIndexes = state.upcomingIndexes,
 			upNextCount = upNextCount()
 		)
@@ -57,7 +55,6 @@ internal class AndroidPlaybackAssetPrefetcher(
 		if (signature == lastUpcomingPrefetchSignature) return
 		lastUpcomingPrefetchSignature = signature
 
-		downloadManager.prefetchPlaybackSongs(songs)
 		scope.launch(Dispatchers.IO) {
 			songs.forEach { song ->
 				runCatching {

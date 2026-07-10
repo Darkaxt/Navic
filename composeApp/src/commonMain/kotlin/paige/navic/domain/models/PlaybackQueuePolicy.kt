@@ -16,7 +16,7 @@ fun collectionShufflePlaybackPlan(): CollectionShufflePlaybackPlan =
 		enablePlayerShuffle = true
 	)
 
-fun playbackPrefetchIndexes(
+fun playbackArtworkPrefetchIndexes(
 	upcomingIndexes: List<Int>,
 	upNextCount: Int
 ): List<Int> =
