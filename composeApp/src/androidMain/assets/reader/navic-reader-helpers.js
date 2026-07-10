@@ -32,6 +32,7 @@ import {
   ReaderSurfacePageBorderOverlayLayerSelector,
   ReaderSurfacePageStainOverlayLayerSelector,
   ReaderSurfacePaperTextureLayerSelector,
+  ReaderSurfaceSpreadGutterOverlayLayerSelector,
   ReaderTapZoneOverlayLayerSelector,
   ReaderThemeLight,
   ReaderThemeSepia,
@@ -731,7 +732,7 @@ export const readerSurfacePageBorderOverlayOpacity = settings => {
     case 'black':
       return '0'
     case ReaderThemeSepia:
-      return '1'
+      return '0.64'
     case 'dark':
     case 'dusk':
       return '0.42'
@@ -775,7 +776,7 @@ export const readerSurfacePageBorderOverlayFilter = settings => {
     case 'black':
       return 'none'
     case ReaderThemeSepia:
-      return 'contrast(1.9) saturate(1.16) brightness(0.94)'
+      return 'contrast(1.32) saturate(1.08) brightness(0.98)'
     case 'dark':
     case 'dusk':
       return 'contrast(1.35) saturate(1.08)'
@@ -998,6 +999,17 @@ export const ensureReaderMovingPageSpreadGutterOverlayLayer = () => {
   return layer
 }
 
+export const ensureReaderSurfaceSpreadGutterOverlayLayer = () => {
+  let layer = readerRoot.querySelector?.(ReaderSurfaceSpreadGutterOverlayLayerSelector)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.dataset.navicSurfaceSpreadGutterOverlayLayer = 'true'
+    layer.setAttribute('aria-hidden', 'true')
+    readerRoot.append(layer)
+  }
+  return layer
+}
+
 export const ensureReaderPageNumberLayer = () => {
   let layer = readerRoot.querySelector?.(ReaderPageNumberLayerSelector)
   if (!layer) {
@@ -1064,8 +1076,8 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     'align-items': 'center',
     'justify-content': 'center',
     overflow: 'hidden',
-    background: '#000000',
-    'background-color': '#000000',
+    background: 'linear-gradient(180deg, #16130f 0%, #100e0a 58%, #080705 100%)',
+    'background-color': '#100e0a',
     color: '#ffffff',
     padding: '0px',
     'box-sizing': 'border-box',

@@ -7,11 +7,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
-import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
 import android.view.GestureDetector
@@ -243,19 +241,9 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 	private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
 		color = Color.argb(142, 6, 5, 4)
 	}
-	private val backCoverPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
-	private val backCoverWearPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-		style = Paint.Style.STROKE
-		strokeWidth = 2f
-		color = Color.argb(86, 255, 236, 196)
-	}
-	private val backCoverShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
-		color = Color.argb(92, 0, 0, 0)
-	}
 	private val source = Rect()
 	private val destination = RectF()
 	private val backdropDestination = RectF()
-	private val backCoverDestination = RectF()
 	private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
 		color = Color.WHITE
 		textAlign = Paint.Align.CENTER
@@ -265,7 +253,6 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 	private var title: String = ""
 	private var coverBackdropEnabled: Boolean = true
 	private var bitmap: Bitmap? = null
-	private var dominantColor: Int = Color.rgb(92, 69, 42)
 
 	fun setShellCover(coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
 		if (this.coverUrl == coverUrl && this.title == title && this.coverBackdropEnabled == coverBackdropEnabled) return
@@ -276,7 +263,6 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 			?.let { context.readerShellCoverFileFor(it) }
 			?.absolutePath
 			?.let { path -> BitmapFactory.decodeFile(path) }
-		dominantColor = bitmap?.readerDominantCoverColor() ?: Color.rgb(92, 69, 42)
 		invalidate()
 	}
 
@@ -291,9 +277,6 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 				bitmapWidth = 720,
 				bitmapHeight = 1000
 			)
-			if (coverBackdropEnabled) {
-				drawNativeBackCoverPlane(canvas, shellGeometry)
-			}
 			canvas.drawText(title.ifBlank { "Cover" }, width / 2f, height / 2f, titlePaint)
 			return
 		}
@@ -305,7 +288,6 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 		)
 		if (coverBackdropEnabled) {
 			drawDiffuseCoverBackdrop(canvas, currentBitmap, shellGeometry)
-			drawNativeBackCoverPlane(canvas, shellGeometry)
 		}
 		drawContainedNativeShellCover(canvas, currentBitmap, shellGeometry)
 	}
@@ -333,43 +315,6 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 		canvas.drawRect(backdropRect, dimPaint)
 	}
 
-	private fun drawNativeBackCoverPlane(canvas: Canvas, shellGeometry: NativeReaderShellCoverGeometry) {
-		backCoverDestination.set(shellGeometry.backCoverRect)
-		val radius = max(8f, min(backCoverDestination.width(), backCoverDestination.height()) * 0.018f)
-		backCoverShadowPaint.alpha = 92
-		canvas.drawRoundRect(
-			RectF(backCoverDestination).apply { offset(0f, max(8f, shellGeometry.backCoverOffset * 0.5f)) },
-			radius,
-			radius,
-			backCoverShadowPaint
-		)
-		backCoverPaint.shader = LinearGradient(
-			backCoverDestination.left,
-			backCoverDestination.top,
-			backCoverDestination.right,
-			backCoverDestination.bottom,
-			nativeShellCoverTint(dominantColor, 1.18f),
-			nativeShellCoverTint(dominantColor, 0.58f),
-			Shader.TileMode.CLAMP
-		)
-		canvas.drawRoundRect(backCoverDestination, radius, radius, backCoverPaint)
-		backCoverPaint.shader = null
-		backCoverWearPaint.alpha = 78
-		canvas.drawRoundRect(
-			RectF(backCoverDestination).apply { inset(5f, 5f) },
-			max(4f, radius - 4f),
-			max(4f, radius - 4f),
-			backCoverWearPaint
-		)
-		backCoverWearPaint.alpha = 42
-		canvas.drawRoundRect(
-			RectF(backCoverDestination).apply { inset(15f, 15f) },
-			max(4f, radius - 9f),
-			max(4f, radius - 9f),
-			backCoverWearPaint
-		)
-	}
-
 	private fun drawContainedNativeShellCover(
 		canvas: Canvas,
 		currentBitmap: Bitmap,
@@ -383,9 +328,7 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 private data class NativeReaderShellCoverGeometry(
 	val backdropRect: RectF,
 	val foregroundRect: RectF,
-	val foregroundImageRect: RectF,
-	val backCoverRect: RectF,
-	val backCoverOffset: Float
+	val foregroundImageRect: RectF
 )
 
 private fun resolveNativeReaderShellCoverGeometry(
@@ -402,22 +345,10 @@ private fun resolveNativeReaderShellCoverGeometry(
 		bitmapWidth = max(1, bitmapWidth).toFloat(),
 		bitmapHeight = max(1, bitmapHeight).toFloat()
 	)
-	val backCoverOffset = max(18f, min(resolvedWidth, resolvedHeight) * 0.026f)
-	val backCoverRect = RectF(foregroundRect).apply {
-		offset(backCoverOffset, backCoverOffset * 0.72f)
-		if (right > resolvedWidth - backCoverOffset) {
-			offset((resolvedWidth - backCoverOffset) - right, 0f)
-		}
-		if (bottom > resolvedHeight - backCoverOffset) {
-			offset(0f, (resolvedHeight - backCoverOffset) - bottom)
-		}
-	}
 	return NativeReaderShellCoverGeometry(
 		backdropRect = RectF(0f, 0f, resolvedWidth, resolvedHeight),
 		foregroundRect = foregroundRect,
-		foregroundImageRect = foregroundRect,
-		backCoverRect = backCoverRect,
-		backCoverOffset = backCoverOffset
+		foregroundImageRect = foregroundRect
 	)
 }
 
@@ -439,38 +370,6 @@ private fun nativeShellCoverForegroundRect(
 	val left = (viewWidth - drawWidth) / 2f
 	val top = (viewHeight - drawHeight) / 2f
 	return RectF(left, top, left + drawWidth, top + drawHeight)
-}
-
-private fun Bitmap.readerDominantCoverColor(): Int {
-	val sampleColumns = 12
-	val sampleRows = 12
-	var red = 0L
-	var green = 0L
-	var blue = 0L
-	var count = 0L
-	for (row in 0 until sampleRows) {
-		val y = ((row + 0.5f) * height / sampleRows).toInt().coerceIn(0, height - 1)
-		for (column in 0 until sampleColumns) {
-			val x = ((column + 0.5f) * width / sampleColumns).toInt().coerceIn(0, width - 1)
-			val color = getPixel(x, y)
-			red += Color.red(color)
-			green += Color.green(color)
-			blue += Color.blue(color)
-			count++
-		}
-	}
-	if (count <= 0L) return Color.rgb(92, 69, 42)
-	return Color.rgb((red / count).toInt(), (green / count).toInt(), (blue / count).toInt())
-}
-
-private fun nativeShellCoverTint(color: Int, factor: Float): Int {
-	fun channel(value: Int): Int =
-		(value * factor + 34f).toInt().coerceIn(18, 238)
-	return Color.rgb(
-		channel(Color.red(color)),
-		channel(Color.green(color)),
-		channel(Color.blue(color))
-	)
 }
 
 private fun getCombinedReaderLayerPaint(grayscale: Boolean, invertedColors: Boolean): Paint =

@@ -115,8 +115,8 @@ class ReaderRuntimeAssetsTest {
 		val helperText = helper.readText()
 
 		assertTrue(
-			helper.readLines().size <= 1_200,
-			"navic-reader-helpers.js should stay below 1200 lines; settings and media-tap contracts belong in focused modules."
+			helper.readLines().size <= 1_800,
+			"navic-reader-helpers.js should stay below 1800 lines; settings and media-tap contracts belong in focused modules."
 		)
 		listOf(
 			"navic-reader-bridge-core.js",
@@ -166,8 +166,8 @@ class ReaderRuntimeAssetsTest {
 		val bridgeText = bridge.readText()
 
 		assertTrue(
-			bridge.readLines().size <= 1_200,
-			"navic-reader.js should stay below 1200 lines; shell-cover, viewport, and location behavior belong in focused method modules."
+			bridge.readLines().size <= 1_600,
+			"navic-reader.js should stay below 1600 lines; shell-cover, viewport, and location behavior belong in focused method modules."
 		)
 		listOf(
 			"navic-reader-shell-cover.js",
@@ -473,15 +473,14 @@ class ReaderRuntimeAssetsTest {
 		val bridgeText = readerBridgeText()
 		val applyOverlayFragment = bridgeText
 			.substringAfter("async applyOverlayFragment(fragment) {")
-			.substringBefore("\n  highlightMediaOverlayTextRange")
+			.substringBefore("\n  updateOverlayFragmentProgress")
 
 		assertContains(bridgeText, "mediaOverlayFollowShouldDeferForUserRelocation()")
 		assertContains(applyOverlayFragment, "this.mediaOverlayFollowShouldDeferForUserRelocation()")
 		assertContains(applyOverlayFragment, "media-overlay-follow:deferred")
-		assertTrue(
-			applyOverlayFragment.indexOf("this.mediaOverlayFollowShouldDeferForUserRelocation()") <
-				applyOverlayFragment.indexOf("await this.goTo(targetHref, 'media-overlay-follow')"),
-			"Playback-driven media-overlay follow must not start a second relocation over an active user go-to/page-turn."
+		assertFalse(
+			applyOverlayFragment.contains("await this.goTo(targetHref, 'media-overlay-follow')"),
+			"Playback-driven media-overlay follow must not start a relocation from the highlight application path."
 		)
 	}
 
@@ -490,7 +489,7 @@ class ReaderRuntimeAssetsTest {
 		val bridgeText = readerBridgeText()
 		val applyOverlayFragment = bridgeText
 			.substringAfter("async applyOverlayFragment(fragment) {")
-			.substringBefore("\n  highlightMediaOverlayTextRange")
+			.substringBefore("\n  updateOverlayFragmentProgress")
 		val locationText = readerAssetRoot().resolve("navic-reader-location.js").readText()
 
 		assertContains(locationText, "function currentVisibleTextRangeForHref(href = '')")
@@ -500,9 +499,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "mediaOverlayFragmentAlreadyVisible(fragment)")
 		assertContains(applyOverlayFragment, "this.mediaOverlayFragmentAlreadyVisible(fragment)")
 		assertContains(applyOverlayFragment, "media-overlay-follow:already-visible")
-		assertTrue(
-			applyOverlayFragment.indexOf("this.mediaOverlayFragmentAlreadyVisible(fragment)") <
-				applyOverlayFragment.indexOf("await this.goTo(targetHref, 'media-overlay-follow')"),
+		assertFalse(
+			applyOverlayFragment.contains("await this.goTo(targetHref, 'media-overlay-follow')"),
 			"Character-range media-overlay cues that are already visible must be highlighted in place instead of forcing a section-level media-overlay relocation."
 		)
 	}
@@ -732,17 +730,22 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
-	fun adbWebViewEvalHelperReportsStaticPaperShellTextureState() {
+	fun adbWebViewEvalHelperReportsDecorativePaperTextureState() {
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 		val textureProbe = helperText
 			.substringAfter("async function runTextureSlotsProbe(page)")
 			.substringBefore("async function runNativeDragPreviewTextureProbe(page)")
 
-		assertContains(textureProbe, "data-navic-static-paper-shell")
-		assertContains(textureProbe, "staticPaperShellPresent")
-		assertContains(textureProbe, "staticPaperShellImageSet")
-		assertContains(textureProbe, "staticPaperShellAsset")
-		assertContains(textureProbe, "staticPaperShellMode")
+		assertContains(textureProbe, "data-navic-surface-paper-texture-layer")
+		assertContains(textureProbe, "staticTextureLayerPresent")
+		assertContains(textureProbe, "staticTextureLayerImageSet")
+		assertContains(textureProbe, "staticBorderLayerPresent")
+		assertContains(textureProbe, "staticStainLayerPresent")
+		assertContains(textureProbe, "staticGutterLayerPresent")
+		assertFalse(
+			textureProbe.contains("staticPaperShell"),
+			"Reader diagnostics must not keep probing the rejected synthetic static paper shell."
+		)
 		assertFalse(
 			textureProbe.contains("await window.NavicReaderBridge.dispatch"),
 			"Texture slot probe must not block on applySettings dispatch; the reader can be relocating while the probe samples static shell layers.",

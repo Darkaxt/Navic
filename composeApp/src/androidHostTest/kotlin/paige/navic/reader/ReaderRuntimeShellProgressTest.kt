@@ -529,7 +529,12 @@ class ReaderRuntimeShellProgressTest {
 			"Native shell cover must not render a flat black stage when the cover-backdrop setting is enabled."
 		)
 		assertContains(nativeFrameHostText, "drawDiffuseCoverBackdrop")
-		assertContains(nativeFrameHostText, "drawNativeBackCoverPlane")
+		assertFalse(
+			nativeFrameHostText.contains("drawNativeBackCoverPlane") ||
+				nativeFrameHostText.contains("readerDominantCoverColor") ||
+				nativeFrameHostText.contains("backCoverRect"),
+			"Native shell cover must not draw the rejected back-cover square behind the real cover."
+		)
 		assertContains(nativeFrameHostText, "canvas.drawBitmap")
 		assertContains(nativeFrameHostText, "Paint(Paint.ANTI_ALIAS_FLAG")
 		assertFalse(

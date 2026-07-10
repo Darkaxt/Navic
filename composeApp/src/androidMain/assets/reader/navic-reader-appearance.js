@@ -129,6 +129,7 @@ import {
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
   ensureReaderSurfaceStainOverlayLayer,
+  ensureReaderSurfaceSpreadGutterOverlayLayer,
   ensureReaderPageNumberLayer,
   ensureReaderShellCoverLayer,
   ensureReaderShellCoverImage,
@@ -142,6 +143,7 @@ import {
   updateReaderSurfaceTextureLayer,
   updateReaderSurfaceBorderOverlayLayer,
   updateReaderSurfaceStainOverlayLayer,
+  updateReaderSurfaceSpreadGutterOverlayLayer,
   updateTapZoneOverlayLayer,
   isParagraphCandidate,
   isReaderParagraphBlock,
@@ -598,6 +600,17 @@ function renderSurfacePaperTextureLayers() {
     )
   }
   if (this.surfaceSpreadGutterOverlayVariant) {
+    this.surfaceSpreadGutterOverlayLayer = this.surfaceSpreadGutterOverlayLayer && readerRoot.contains(this.surfaceSpreadGutterOverlayLayer)
+      ? this.surfaceSpreadGutterOverlayLayer
+      : ensureReaderSurfaceSpreadGutterOverlayLayer()
+    updateReaderSurfaceSpreadGutterOverlayLayer(
+      this.surfaceSpreadGutterOverlayLayer,
+      spreadGutterOverlaySlots,
+      this.readerSettings,
+      null,
+      this.readerFlowModeValue,
+      readerDirection
+    )
     this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
       ? this.movingPageSpreadGutterOverlayLayer
       : ensureReaderMovingPageSpreadGutterOverlayLayer()
@@ -610,6 +623,8 @@ function renderSurfacePaperTextureLayers() {
       readerDirection
     )
   } else {
+    this.surfaceSpreadGutterOverlayLayer?.remove?.()
+    this.surfaceSpreadGutterOverlayLayer = null
     this.movingPageSpreadGutterOverlayLayer?.remove?.()
     this.movingPageSpreadGutterOverlayLayer = null
   }
@@ -712,10 +727,15 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     ? this.movingPageStainOverlayLayer
     : ensureReaderMovingPageStainOverlayLayer()
   if (spreadGutterOverlayVariant) {
+    this.surfaceSpreadGutterOverlayLayer = this.surfaceSpreadGutterOverlayLayer && readerRoot.contains(this.surfaceSpreadGutterOverlayLayer)
+      ? this.surfaceSpreadGutterOverlayLayer
+      : ensureReaderSurfaceSpreadGutterOverlayLayer()
     this.movingPageSpreadGutterOverlayLayer = this.movingPageSpreadGutterOverlayLayer && readerRoot.contains(this.movingPageSpreadGutterOverlayLayer)
       ? this.movingPageSpreadGutterOverlayLayer
       : ensureReaderMovingPageSpreadGutterOverlayLayer()
   } else {
+    this.surfaceSpreadGutterOverlayLayer?.remove?.()
+    this.surfaceSpreadGutterOverlayLayer = null
     this.movingPageSpreadGutterOverlayLayer?.remove?.()
     this.movingPageSpreadGutterOverlayLayer = null
   }

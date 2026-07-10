@@ -285,14 +285,19 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(shellCoverLayer, "background: 'linear-gradient(180deg")
 		assertContains(shellCoverLayer, "'background-color': '#100e0a'")
 		assertContains(shellCoverLayer, "padding: '0px'")
-		assertContains(shellCoverLayer, "coverRect")
-		assertContains(shellCoverLayer, "backCoverRect")
-		assertContains(shellCoverLayer, "readerPageShellRectStyle(coverRect)")
-		assertContains(shellCoverLayer, "readerPageShellRectStyle(backCoverRect)")
+		assertFalse(
+			shellCoverLayer.contains("coverRect") ||
+				shellCoverLayer.contains("backCoverRect") ||
+				shellCoverLayer.contains("readerPageShellRectStyle"),
+			"The shell cover Web layer must not simulate book geometry; the foreground cover stays contained over the backdrop."
+		)
 		assertContains(shellCoverLayer, "'object-fit': 'contain'")
 		assertContains(bridgeText, "ensureReaderShellCoverBackdrop")
-		assertContains(bridgeText, "ensureReaderShellCoverBackCover")
-		assertContains(bridgeText, "data-navic-shell-cover-back-cover")
+		assertFalse(
+			bridgeText.contains("ensureReaderShellCoverBackCover") ||
+				bridgeText.contains("data-navic-shell-cover-back-cover"),
+			"The cover screen must not render a back-cover plane; that belongs only to normal page decoration if reintroduced."
+		)
 		assertContains(bridgeText, "settings?.coverBackdropEnabled !== false")
 		assertContains(shellCoverLayer, "linear-gradient(rgba(0,0,0,.34), rgba(0,0,0,.46)), url")
 		assertContains(shellCoverLayer, "'object-fit': 'contain'")
@@ -320,9 +325,13 @@ class ReaderRuntimeImageLinkTest {
 			"Native shell cover must not keep a flat black stage behind the foreground cover."
 		)
 		assertContains(nativeFrameHostText, "drawDiffuseCoverBackdrop")
-		assertContains(nativeFrameHostText, "drawNativeBackCoverPlane")
 		assertContains(nativeFrameHostText, "nativeShellCoverForegroundRect")
-		assertContains(nativeFrameHostText, "readerDominantCoverColor")
+		assertFalse(
+			nativeFrameHostText.contains("drawNativeBackCoverPlane") ||
+				nativeFrameHostText.contains("readerDominantCoverColor") ||
+				nativeFrameHostText.contains("backCoverRect"),
+			"Native cover rendering must not draw the rejected green/brown back-cover square behind the foreground cover."
+		)
 		assertContains(nativeFrameHostText, "canvas.drawBitmap")
 		assertFalse(
 			webViewHostText.contains("ReaderSurfaceHost") ||

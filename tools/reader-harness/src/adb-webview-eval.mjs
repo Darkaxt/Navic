@@ -2521,7 +2521,6 @@ async function runTextureSlotsProbe(page) {
       await Promise.resolve()
     }
     const staticTextureLayer = document.querySelector('[data-navic-surface-paper-texture-layer="true"]')
-    const staticPaperShell = staticTextureLayer?.querySelector?.('[data-navic-static-paper-shell="true"]') || null
     const staticBorderLayer = document.querySelector('[data-navic-surface-page-border-overlay-layer="true"]')
     const staticStainLayer = document.querySelector('[data-navic-surface-page-stain-overlay-layer="true"]')
     const staticGutterLayer = document.querySelector('[data-navic-surface-spread-gutter-overlay-layer="true"]')
@@ -2564,7 +2563,6 @@ async function runTextureSlotsProbe(page) {
       staticBorderLayerPresent: Boolean(staticBorderLayer),
       staticStainLayerPresent: Boolean(staticStainLayer),
       staticGutterLayerPresent: Boolean(staticGutterLayer),
-      staticPaperShellPresent: Boolean(staticPaperShell),
       textureLayerPresent: Boolean(textureLayer),
       borderLayerPresent: Boolean(borderLayer),
       stainLayerPresent: Boolean(stainLayer),
@@ -2573,9 +2571,6 @@ async function runTextureSlotsProbe(page) {
       borderSlotCount: borderSlots.length,
       staticTextureLayerOpacity: staticTextureLayer ? getComputedStyle(staticTextureLayer).opacity : '',
       staticTextureLayerImageSet: staticTextureLayer ? getComputedStyle(staticTextureLayer).backgroundImage !== 'none' : false,
-      staticPaperShellImageSet: staticPaperShell ? getComputedStyle(staticPaperShell).backgroundImage !== 'none' : false,
-      staticPaperShellAsset: staticPaperShell?.dataset?.navicStaticPaperBackingAsset || '',
-      staticPaperShellMode: staticPaperShell?.dataset?.navicStaticPaperBackingShellMode || '',
       staticBorderLayerOpacity: staticBorderLayer ? getComputedStyle(staticBorderLayer).opacity : '',
       staticStainLayerOpacity: staticStainLayer ? getComputedStyle(staticStainLayer).opacity : '',
       staticGutterLayerOpacity: staticGutterLayer ? getComputedStyle(staticGutterLayer).opacity : '',
