@@ -20,6 +20,7 @@ import {
   ReaderDirectionLtr,
   ReaderDirectionRtl,
   ReaderDocumentThemeStyleId,
+  ReaderDragAnimationNone,
   ReaderFlowPaged,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
@@ -104,6 +105,9 @@ import {
   readerPaperTextureVariantForPage,
   readerPageBorderOverlayVariantForPage,
   readerPaperTextureTransform,
+  readerPaperLayoutProfile,
+  readerSurfacePageDecorationGeometry,
+  readerSurfaceSpreadMode,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
   readerPaperTextureDragDirection,
@@ -254,13 +258,23 @@ const readerDrawNoteAnnotation = (rects, options = {}) => {
   return group
 }
 
+const readerCssColorToArgb = color => {
+  const normalized = String(color || '').trim()
+  const rgb = /^#[0-9a-f]{6}$/i.test(normalized)
+    ? parseInt(normalized.slice(1), 16)
+    : /^#[0-9a-f]{3}$/i.test(normalized)
+      ? parseInt(normalized.slice(1).split('').map(value => `${value}${value}`).join(''), 16)
+      : 0xead9ae
+  return (0xff000000 | rgb) >>> 0
+}
+
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
   readerSettings = {}
   readerTapZoneMode = ReaderTapZoneDefault
   readerFlowModeValue = ReaderFlowPaged
-  readerDragAnimationModeValue = 'standard'
+  readerDragAnimationModeValue = ReaderDragAnimationNone
   readerDirectionModeValue = ReaderDirectionDefault
   smallerTapZone = false
   nativeTapZones = false
@@ -352,6 +366,8 @@ class NavicReaderRuntime {
   pageTurnQueue = []
   pageTurnInProgress = false
   pageTurnDirection = null
+  pendingNativePageTurnSettleToken = null
+  nativePageTurnSettledToken = null
   deferredReflowablePageTurn = null
   deferredReflowablePageTurnToken = 0
   recentPageTurnDirection = null
@@ -1456,6 +1472,54 @@ class NavicReaderRuntime {
   contentDocuments() {
     return this.contentEntries().map(content => content.doc)
   }
+
+  pageTurnCaptureGeometry() {
+    const viewport = readerViewportSize()
+    const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings)
+    const spreadMode = this.surfaceSpreadMode || readerSurfaceSpreadMode({
+      flowMode: this.readerFlowModeValue,
+      width: viewport.width,
+      height: viewport.height,
+    })
+    const layoutProfile = this.surfacePaperLayoutProfile || readerPaperLayoutProfile({
+      flowMode: this.readerFlowModeValue,
+      width: viewport.width,
+      height: viewport.height,
+      spreadMode,
+    })
+    const geometry = this.surfacePageDecorationGeometry || readerSurfacePageDecorationGeometry({
+      settings: this.readerSettings,
+      spreadMode,
+      foliateGap: pageBox.foliateGap,
+      shellCoverVisible: this.shellCoverVisible,
+      coverTint: this.shellCoverDominantColor,
+      layoutProfile,
+    })
+    const percentPixels = (value, axisSize) => {
+      const text = String(value || '').trim()
+      if (text.endsWith('%')) return Number.parseFloat(text) * axisSize / 100
+      return Number.parseFloat(text) || 0
+    }
+    const pageRect = (role, page) => ({
+      role,
+      left: percentPixels(page?.left, viewport.width),
+      top: 0,
+      width: percentPixels(page?.width, viewport.width),
+      height: viewport.height,
+    })
+    const pages = spreadMode === 'spread'
+      ? [pageRect('left', geometry.pages.left), pageRect('right', geometry.pages.right)]
+      : [pageRect('full', geometry.pages.full)]
+    const background = readerThemePalette(this.readerSettings?.theme).background
+    const reverseFaceColorArgb = readerCssColorToArgb(background)
+    return {
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      mode: spreadMode === 'spread' ? 'spread' : 'single',
+      pages,
+      reverseFaceColorArgb,
+    }
+  }
 }
 
 Object.assign(NavicReaderRuntime.prototype,
@@ -1471,7 +1535,30 @@ Object.assign(NavicReaderRuntime.prototype,
 const runtime = new NavicReaderRuntime()
 
 window.NavicReaderBridge = {
-  dispatch: command => runtime.dispatch(command),
+  dispatch: command => {
+    const pageTurnCommand = command?.type === 'nextPage' || command?.type === 'previousPage'
+    const settleToken = pageTurnCommand ? runtime.pendingNativePageTurnSettleToken : null
+    if (settleToken) runtime.pendingNativePageTurnSettleToken = null
+    let result = null
+    try {
+      result = runtime.dispatch(command)
+    } catch (error) {
+      if (settleToken) runtime.nativePageTurnSettledToken = settleToken
+      throw error
+    }
+    if (settleToken) {
+      Promise.resolve(result).finally(() => {
+        runtime.nativePageTurnSettledToken = settleToken
+      })
+    }
+    return result
+  },
+  armNativePageTurnSettle: token => {
+    runtime.pendingNativePageTurnSettleToken = String(token || '') || null
+    runtime.nativePageTurnSettledToken = null
+  },
+  nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
+  pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
   postOverlayFragmentActive: fragment => post({ type: 'overlayFragmentActive', ...fragment }),

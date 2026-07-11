@@ -58,9 +58,13 @@ class ReaderSettingsDefaultsTest {
 				orientation = ReaderOrientationDefault,
 				theme = "light",
 				direction = ReaderDirectionDefault,
+				paperTextureEnabled = true,
+				pageEdgesEnabled = true,
+				paperStainsEnabled = true,
+				coverBackdropEnabled = true,
 				navBarType = ReaderNavBarTypeVerticalRight,
 				flowMode = ReaderFlowScrolled,
-				dragAnimationMode = ReaderDragAnimationStandard,
+				dragAnimationMode = ReaderDragAnimationNone,
 				paged = false,
 				tapZone = ReaderTapZoneDefault,
 				tapZoneInvertMode = ReaderTapZoneInvertNone,
@@ -74,6 +78,9 @@ class ReaderSettingsDefaultsTest {
 				keepScreenOn = false,
 				readaloudSyncEnabled = true,
 				whispersyncHighlightLeadMs = MaxReaderWhispersyncHighlightLeadMs,
+				whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb,
+				whispersyncHighlightLoading = ReaderWhispersyncHighlightLoading.CurrentCue.value,
+				whispersyncHighlightStyle = ReaderWhispersyncHighlightStyle.Selection.value,
 				volumeKeyPageTurns = false,
 				webContentsDebuggingEnabled = true
 			),
@@ -142,9 +149,13 @@ class ReaderSettingsDefaultsTest {
 				orientation = ReaderOrientationLockedLandscape,
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
+				paperTextureEnabled = true,
+				pageEdgesEnabled = true,
+				paperStainsEnabled = true,
+				coverBackdropEnabled = true,
 				navBarType = ReaderNavBarTypeBottom,
 				flowMode = ReaderFlowPaged,
-				dragAnimationMode = ReaderDragAnimationCurl,
+				dragAnimationMode = ReaderDragAnimationCanvas,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertBoth,
@@ -158,6 +169,9 @@ class ReaderSettingsDefaultsTest {
 				keepScreenOn = true,
 				readaloudSyncEnabled = false,
 				whispersyncHighlightLeadMs = 1_500,
+				whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb,
+				whispersyncHighlightLoading = ReaderWhispersyncHighlightLoading.CurrentCue.value,
+				whispersyncHighlightStyle = ReaderWhispersyncHighlightStyle.Selection.value,
 				volumeKeyPageTurns = true,
 				webContentsDebuggingEnabled = false
 			),
@@ -184,7 +198,7 @@ class ReaderSettingsDefaultsTest {
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
-				dragAnimationMode = ReaderDragAnimationCurl,
+				dragAnimationMode = ReaderDragAnimationCanvas,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertBoth,
@@ -377,18 +391,20 @@ class ReaderSettingsDefaultsTest {
 	}
 
 	@Test
-	fun readerSettingsDefaultsKeepExplicitDragAnimationModes() {
+	fun readerSettingsDefaultsMigrateLegacyDragAnimationModes() {
 		assertEquals(
-			listOf(ReaderDragAnimationStandard, ReaderDragAnimationCurl),
+			listOf(ReaderDragAnimationNone, ReaderDragAnimationCanvas),
 			ReaderSupportedDragAnimationModes
 		)
-		assertEquals(ReaderDragAnimationStandard, defaultReaderSettings().dragAnimationMode)
-		assertEquals(ReaderDragAnimationStandard, normalizedReaderDragAnimationMode("fold"))
-		assertEquals(ReaderDragAnimationCurl, normalizedReaderDragAnimationMode(ReaderDragAnimationCurl))
-		assertEquals("Standard", readerDragAnimationModeShortLabel(ReaderDragAnimationStandard))
-		assertEquals("Curl", readerDragAnimationModeShortLabel(ReaderDragAnimationCurl))
+		assertEquals(ReaderDragAnimationNone, defaultReaderSettings().dragAnimationMode)
+		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("fold"))
+		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("standard"))
+		assertEquals(ReaderDragAnimationCanvas, normalizedReaderDragAnimationMode("curl"))
+		assertEquals(ReaderDragAnimationCanvas, normalizedReaderDragAnimationMode(ReaderDragAnimationCanvas))
+		assertEquals("None", readerDragAnimationModeShortLabel(ReaderDragAnimationNone))
+		assertEquals("Canvas", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
 		assertEquals(
-			ReaderDragAnimationCurl,
+			ReaderDragAnimationCanvas,
 			normalizedReaderSettings(
 				fontFamily = ReaderSansFontFamily,
 				fontSizePercent = 100,
@@ -396,7 +412,7 @@ class ReaderSettingsDefaultsTest {
 				marginPercent = 0,
 				theme = "light",
 				paged = true,
-				dragAnimationMode = ReaderDragAnimationCurl
+				dragAnimationMode = ReaderDragAnimationCanvas
 			).dragAnimationMode
 		)
 	}

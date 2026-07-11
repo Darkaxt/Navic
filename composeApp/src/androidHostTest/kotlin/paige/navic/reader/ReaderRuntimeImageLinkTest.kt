@@ -757,7 +757,12 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			exportedBridge,
-			"dispatch: command => runtime.dispatch(command)",
+			"dispatch: command => {",
+			message = "The coordinate long-press command should flow through the existing bridge dispatch entrypoint."
+		)
+		assertContains(
+			exportedBridge,
+			"runtime.dispatch(command)",
 			message = "The coordinate long-press command should flow through the existing bridge dispatch entrypoint."
 		)
 	}

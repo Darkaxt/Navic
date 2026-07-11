@@ -33,6 +33,10 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 			readerParagraphSpacingPercent
 		}
 	}
+	val dragAnimationMode = normalizedReaderDragAnimationMode(readerDragAnimationMode)
+	if (readerDragAnimationMode != dragAnimationMode) {
+		readerDragAnimationMode = dragAnimationMode
+	}
 
 	return normalizedReaderSettings(
 		fontFamily = readerFontFamily,
@@ -67,7 +71,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		paperStainsEnabled = readerPaperStainsEnabled,
 		coverBackdropEnabled = readerCoverBackdropEnabled,
 		navBarType = readerNavBarType,
-		dragAnimationMode = readerDragAnimationMode,
+		dragAnimationMode = dragAnimationMode,
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
@@ -123,7 +127,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerPaperStainsEnabled = normalized.paperStainsEnabled ?: true
 	readerCoverBackdropEnabled = normalized.coverBackdropEnabled ?: true
 	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
-	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationStandard
+	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationNone
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
@@ -145,7 +149,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 
 fun PreferenceManager.readerBookSettings(bookId: String): ReaderSettings? {
 	val key = readerBookSettingsKey(bookId) ?: return null
-	return decodeReaderBookSettings(readerBookSettingsJson)[key]
+	return migratedReaderBookSettings()[key]
 }
 
 fun PreferenceManager.readerSettingsForBook(bookId: String): ReaderSettings {
@@ -156,20 +160,32 @@ fun PreferenceManager.readerSettingsForBook(bookId: String): ReaderSettings {
 
 fun PreferenceManager.setReaderBookSettings(bookId: String, settings: ReaderSettings) {
 	val key = readerBookSettingsKey(bookId) ?: return
-	val nextSettings = decodeReaderBookSettings(readerBookSettingsJson).toMutableMap()
+	val nextSettings = migratedReaderBookSettings().toMutableMap()
 	nextSettings[key] = settings.normalizedReaderOverrideSettings()
 	readerBookSettingsJson = encodeReaderBookSettings(nextSettings)
 }
 
 fun PreferenceManager.clearReaderBookSettings(bookId: String) {
 	val key = readerBookSettingsKey(bookId) ?: return
-	val nextSettings = decodeReaderBookSettings(readerBookSettingsJson).toMutableMap()
+	val nextSettings = migratedReaderBookSettings().toMutableMap()
 	nextSettings.remove(key)
 	readerBookSettingsJson = encodeReaderBookSettings(nextSettings)
 }
 
 private fun readerBookSettingsKey(bookId: String): String? =
 	bookId.trim().takeIf { it.isNotEmpty() }
+
+private fun PreferenceManager.migratedReaderBookSettings(): Map<String, ReaderSettings> {
+	val decoded = decodeReaderBookSettings(readerBookSettingsJson)
+	val migrated = decoded.mapValues { (_, settings) ->
+		val mode = settings.dragAnimationMode ?: return@mapValues settings
+		settings.copy(dragAnimationMode = normalizedReaderDragAnimationMode(mode))
+	}
+	if (migrated != decoded) {
+		readerBookSettingsJson = encodeReaderBookSettings(migrated)
+	}
+	return migrated
+}
 
 private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings): ReaderSettings =
 	copy(

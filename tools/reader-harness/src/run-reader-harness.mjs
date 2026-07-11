@@ -31,6 +31,7 @@ const currentDir = path.dirname(currentFile)
 const repoRoot = path.resolve(currentDir, '../../..')
 const readerBridge = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader.js')
 const readerHelpers = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-helpers.js')
+const readerSettingsCore = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-settings-core.js')
 const bridgeText = fs.readFileSync(readerBridge, 'utf8')
 const helperText = fs.readFileSync(readerHelpers, 'utf8')
 
@@ -124,6 +125,26 @@ const performReaderTouchDrag = async (
   }
 }
 
+if (mode === 'drag-animation-mode-migration') {
+  const settings = await import(`${pathToFileURL(readerSettingsCore).href}?drag-animation-mode=${Date.now()}`)
+  const cases = [
+    { input: 'none', expected: 'none' },
+    { input: 'canvas', expected: 'canvas' },
+    { input: 'standard', expected: 'none' },
+    { input: 'curl', expected: 'canvas' },
+    { input: 'unknown', expected: 'none' },
+  ]
+  for (const testCase of cases) {
+    const actual = settings.readerDragAnimationMode({ dragAnimationMode: testCase.input })
+    if (actual !== testCase.expected) {
+      console.error(`drag animation migration failed: input=${testCase.input} expected=${testCase.expected} actual=${actual}`)
+      process.exit(1)
+    }
+  }
+  console.log('reader harness drag-animation-mode-migration passed')
+  process.exit(0)
+}
+
 if (mode === 'phase1-stabilization') {
   const epubFixturePath = path.resolve(argValue('--epub-fixture') || '')
   const pdfFixturePath = path.resolve(argValue('--pdf-fixture') || '')
@@ -149,7 +170,7 @@ if (mode === 'phase1-stabilization') {
     { mode: 'epub-native-tap-zone-open', fixture: epubFixturePath },
     { mode: 'css-smoke', fixture: epubFixturePath },
     { mode: 'epub-link-jump-drag', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
-    { mode: 'epub-native-drag-standard-no-curl', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
+    { mode: 'drag-animation-mode-migration' },
     { mode: 'epub-native-drag-single-commit', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'epub-native-drag-preview-underlay', fixture: epubFixturePath, timeoutMs: defaultStepTimeoutMs },
     { mode: 'texture-offset-logic' },

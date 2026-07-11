@@ -1,6 +1,6 @@
 # Reader Page-Turn Animation Design
 
-**Status:** Revision 4 research specification; capture spike required before renderer implementation
+**Status:** Revision 4 Canvas implementation accepted on readerdev emulator; release validation in progress
 
 **Original date:** 2026-07-04
 
@@ -58,8 +58,9 @@ Rules:
 3. Drag updates only the native overlay. Foliate does not scroll during the gesture.
 4. Commit is decided only on release using distance or velocity.
 5. Cancel always relaxes to the original page and performs no navigation.
-6. Commit animation completes before one existing Foliate page-turn action is issued.
-7. Every terminal path clears snapshots, overlay views, gesture state, and suppression flags.
+6. A committed release issues one existing Foliate page-turn action as the sheet begins animating to the center binding, then holds the captured sheet at the binding if Foliate's page-turn promise has not settled yet.
+7. After settlement, the captured sheet completes its sweep across the opposite page and detaches.
+8. Every terminal path clears snapshots, overlay views, gesture state, and suppression flags.
 
 No timeout cancels capture or animation. Completion is driven by capture callbacks and frame/animation completion events.
 
@@ -82,7 +83,7 @@ Before capture:
 
 The animation overlay must not exist in the captured region until the copy callback reports success.
 
-`PixelCopy` is available from Android API 24, matching Navic's current minimum API. The modern request builder is newer, so implementation must use the API-compatible request overload selected for the active SDK.
+Navic's exact `PixelCopy(Window, Rect, Bitmap, ...)` path is enabled on Android API 26+. API 24-25 retain the existing immediate page navigation without the Canvas overlay.
 
 ### Stage A proof
 
@@ -96,7 +97,7 @@ The spike must demonstrate on readerdev emulator and physical tablet when availa
 - capture latency and allocation size are logged for diagnostics
 - rotation invalidates old geometry and snapshots before another capture
 
-The spike remains internal and does not add a user-facing page-turn mode.
+The capture gate passed on the tablet-sized readerdev emulator before the public `canvas` mode was enabled.
 
 ## 5. Destination and Reverse-Face Contract
 
@@ -109,30 +110,42 @@ The first accepted Canvas implementation uses:
 - captured current page as the deforming front face
 - a paper-tinted neutral reverse face derived from the active reader theme
 - the existing live reader held static underneath during relax
-- a commit sweep followed by exactly one Foliate navigation action
+- exactly one Foliate navigation action issued only after release commits the gesture
+- a commit sweep that remains above the WebView until both the native animation and Foliate's page-turn promise settle
 
-The destination page is not revealed before Foliate commits. This is intentionally less ambitious than a two-page photographic curl, but it is honest and deterministic.
+The destination page may render under the captured sheet during the commit sweep. Cancel and relax never navigate. Teardown is condition-driven by animation completion plus Foliate settlement; it does not use a delay or cancellation timeout.
 
-A future destination-preview stage may be added only if Navic can obtain it without visibly moving Foliate, mutating the EPUB DOM, or maintaining a second hidden reader.
+A future destination-preview stage may be added only if Navic can obtain it without visibly moving Foliate or mutating the live EPUB DOM. Revision 4 does not create or maintain a second reader.
 
-## 6. Canvas Renderer: Portrait First
+The next revision must prove destination-aware turning in landscape first:
 
-The first renderer is native Android Canvas and portrait-only.
+- the untouched page in the current spread remains stable
+- the deforming page uses the captured current-page pixels
+- the folded reverse face shows the correct content for the physical back of that sheet
+- the uncovered area shows the real incoming page before the native overlay detaches
+- obtaining those pixels must not scroll, flash, resize, or otherwise move the live Foliate renderer
+
+The implementation may evaluate an isolated offscreen render surface if Foliate cannot expose adjacent-page pixels directly, but it must first prove bounded lifetime, deterministic teardown, EPUB style parity, and no duplicate progress or media-overlay side effects. Portrait follows only after this destination-source contract is proven; it replaces a full page and must not inherit landscape spread assumptions unchanged.
+
+## 6. Canvas Renderer
+
+The first renderer is native Android Canvas. The same edge-origin geometry supports portrait pages and one selected page of a landscape spread.
 
 - Use the exact captured page rectangle.
-- Use a bounded mesh or strip deformation that leaves the binding edge fixed.
+- Begin the fold at the exact vertical point where the gesture first crosses the outer page edge. Do not snap edge gestures to a corner.
+- Use an edge-origin mesh deformation that leaves the binding edge fixed and keeps the unaffected page region substantially rigid.
+- Derive a rigid fold plane from the exact grabbed edge point and live pointer. The folded side reflects across that plane while the unaffected side remains rigid; no cylindrical row-by-row roll is permitted.
+- Let vertical pointer movement bias the fold upward or downward. Near the top or bottom, the same geometry naturally approaches a corner peel without changing renderer modes.
 - Render the paper-tinted reverse face where the sheet turns over.
-- Apply crease shading and edge highlight at draw time.
+- Apply crease shading and edge highlight along the resulting fold boundary. A purely horizontal middle-edge drag may produce a vertical crease, but the page on either side remains planar rather than rolling around a cylinder.
 - Keep the renderer outside the WebView and drive it from native frame callbacks.
 - Relax and commit sweeps animate to completion; immediate teardown is not acceptable.
 
-Acceptance requires stable 60 Hz behavior on the readerdev emulator and usable behavior on the target tablet. Mesh density is selected from measured performance rather than hard-coded as a universal quality level.
+Acceptance requires visually continuous behavior on the tablet-sized readerdev emulator and usable behavior on the target tablet. Mesh density is selected from measured performance rather than hard-coded as a universal quality level.
 
 ## 7. Landscape and Spread Stage
 
 Landscape does not inherit portrait assumptions unchanged.
-
-It begins only after portrait is accepted.
 
 - Use the current public reader layout profile to identify single-page versus spread.
 - Curl one actual page, never the full spread as one sheet.
@@ -159,16 +172,14 @@ The eventual renderer must have an independent implementation and capability pro
 
 ## 9. Settings and Migration
 
-Do not rename `dragAnimationMode` or migrate `standard`/`curl` while Stage A is unresolved.
+The accepted Canvas implementation atomically migrates the existing `dragAnimationMode` value across Kotlin, bridge JSON, JavaScript, resources, settings search, per-book overrides, tests, and the reader harness.
 
-When Canvas portrait mode is accepted, prepare a separate atomic settings migration covering Kotlin, bridge JSON, JavaScript, resources, settings search, per-book overrides, tests, and the reader harness.
-
-Provisional mapping remains:
+Definitive mapping:
 
 - `standard` -> `none`
 - `curl` -> `canvas`
 
-The migration is re-audited against the then-current master before implementation. It is not cherry-picked from the old branch.
+`none` is the default. `canvas` is the only public animated mode. The legacy values remain accepted only as migration inputs and are rewritten when preferences are read.
 
 ## 10. Failure and Fallback Behavior
 
@@ -196,14 +207,15 @@ The migration is re-audited against the then-current master before implementatio
 - capture target excludes native reader controls
 - no live Foliate scrolling during deformation
 - commit invokes the existing page-turn action exactly once
+- the native settle poll reads the JavaScript token directly; it must not double-encode the string with `JSON.stringify`
 - text-page shell geometry remains absent
 - no production OpenGL label delegates to Canvas
 
 ### Visual validation
 
 1. Readerdev emulator, portrait Alcatraz chapter text.
-2. Readerdev emulator, true wide landscape spread after portrait acceptance.
-3. Physical tablet before public release.
+2. Readerdev emulator, true wide landscape spread.
+3. Physical tablet when emulator and tablet composition differ or a device-specific issue is suspected.
 4. Forward, previous, cancel, slow drag, fast flick, rotation during capture, and boundary page behavior.
 
 Screenshots prove geometry and capture ownership. A screen recording proves animation continuity and exactly-once navigation.
@@ -220,10 +232,11 @@ Reusable concepts may be reimplemented on a fresh branch from current master. It
 2. Capture diagnostics and stale-callback guards.
 3. Static overlay proof with no reader movement.
 4. Pure gesture state machine on current master.
-5. Portrait Canvas deform/relax/commit.
-6. Portrait emulator and tablet acceptance.
-7. Landscape/spread extension.
+5. Edge-origin Canvas deform/relax/commit.
+6. Portrait emulator acceptance.
+7. Landscape/spread extension and mirrored-turn acceptance.
 8. Atomic setting migration.
-9. OpenGL investigation, if Canvas quality or performance justifies it.
+9. Full host tests, harness verification, and release build.
+10. OpenGL investigation, if Canvas quality or performance justifies it.
 
 Only completed and visually accepted stages are released. The capture spike and incomplete renderers remain debug-only.

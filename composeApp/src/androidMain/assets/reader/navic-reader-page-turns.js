@@ -11,7 +11,8 @@ import {
   ReaderDirectionLtr,
   ReaderDirectionRtl,
   ReaderDocumentThemeStyleId,
-  ReaderDragAnimationCurl,
+  ReaderDragAnimationCanvas,
+  ReaderDragAnimationNone,
   ReaderFlowPaged,
   ReaderFlowPagedVertical,
   ReaderFlowScrolled,
@@ -775,7 +776,7 @@ function readerPageDragCurlMetrics({ direction, deltaX, deltaY, width, height, v
 }
 
 function readerDragAnimationModeAllowsCurl(mode) {
-  return String(mode || '').toLowerCase() === ReaderDragAnimationCurl
+  return false
 }
 
 function readerNativeDragSnapVelocity({ direction, flowMode, readerDirection } = {}) {
@@ -1806,6 +1807,20 @@ function previewPageDrag(command) {
     this.renderSurfacePaperTextureLayers()
     return
   }
+  if (
+    this.readerDragAnimationModeValue === ReaderDragAnimationNone ||
+    this.readerDragAnimationModeValue === ReaderDragAnimationCanvas
+  ) {
+    this.nativePageDragPreview = null
+    this.pendingPageDragPreviewCommand = null
+    this.removePageDragPreviewLayer()
+    this.surfacePaperTextureTurnDirection = null
+    this.surfacePaperTextureFallbackDirection = null
+    this.surfaceLiveDragActive = false
+    this.surfaceLiveDragOffset = { x: 0, y: 0 }
+    this.renderSurfacePaperTextureLayers()
+    return
+  }
   if (phase === 'release') {
     const previousPreview = this.nativePageDragPreview?.renderer === renderer
       ? this.nativePageDragPreview
@@ -1962,7 +1977,7 @@ function previewPageDrag(command) {
       })
     }
   }
-  if (!boundaryDirection && textureDirection && this.readerDragAnimationModeValue !== 'curl') {
+  if (!boundaryDirection && textureDirection && !readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)) {
     // Seed basePosition only from a live preview; otherwise anchor to the current
     // renderer position so a prior non-live (underlay/boundary) preview can't shift
     // the live scroll window by a page.

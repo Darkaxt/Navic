@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,6 +29,7 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.viewinterop.AndroidView
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
+import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.readerNativeReaderSwipeAction
@@ -56,6 +58,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	grayscaleEnabled: Boolean,
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
+	pageTurnCanvasEnabled: Boolean,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
@@ -79,6 +82,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				setVerticalPageDragPreview(verticalPageDragPreview)
+				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
 				setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
 					currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
@@ -93,6 +97,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
 			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 			root.setVerticalPageDragPreview(verticalPageDragPreview)
+			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -187,6 +192,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setVerticalPageDragPreview(verticalPageDragPreview: Boolean) {
 		viewerContainer.verticalPageDragPreview = verticalPageDragPreview
+	}
+
+	fun setPageTurnCanvasEnabled(enabled: Boolean) {
+		viewerContainer.setPageTurnCanvasEnabled(enabled)
 	}
 
 	fun setOnReadableDragPreview(
@@ -434,6 +443,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeTapCancelledByDrag: Boolean = false
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeSwipeIntercepted: Boolean = false
+	private var pageTurnCanvasEnabled: Boolean = false
+	private val pageTurnController = ReaderPageTurnController(
+		host = this,
+		webViewProvider = { viewerContentContainer.findDescendantWebView() },
+		onCommitTurn = { direction ->
+			when (direction) {
+				ReaderPageTurnPhysicalDirection.TowardLeft -> onAction(KomikkuNavigationRegion.RIGHT)
+				ReaderPageTurnPhysicalDirection.TowardRight -> onAction(KomikkuNavigationRegion.LEFT)
+			}
+		}
+	)
 
 	init {
 		descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -453,11 +473,18 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun replaceViewerContent(viewerView: View) {
+		pageTurnController.cancel()
 		viewerContentContainer.removeAllViews()
 		viewerContentContainer.addView(
 			viewerView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
+	}
+
+	fun setPageTurnCanvasEnabled(enabled: Boolean) {
+		if (pageTurnCanvasEnabled == enabled) return
+		pageTurnCanvasEnabled = enabled
+		if (!enabled) pageTurnController.cancel()
 	}
 
 	private val gestureDetector = KomikkuGestureDetectorWithLongTap(
@@ -598,6 +625,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 						val shellCoverVisible = shellCoverView?.visibility == VISIBLE
 						if (shellCoverVisible) {
 							updateShellCoverDragOffset(dx)
+						} else if (usesNativePageTurnCanvas()) {
+							pageTurnController.update(dx, width, swipeStartY, event.y, height)
+							logReaderReadableDragPreview(dx, dy)
 						} else {
 							updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)
 							logReaderReadableDragPreview(dx, dy)
@@ -619,6 +649,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 								deltaX = dx,
 								deltaY = dy
 							)
+						} else if (usesNativePageTurnCanvas()) {
+							pageTurnController.release(dx, width, swipeStartY, event.y, height)
+							horizontalSwipeDispatched = true
+							nativeTapCancelledByDrag = true
+							nativeSwipeIntercepted = true
 						} else {
 							logReaderReadableDragPreview(dx, dy)
 							val readableSwipeAction = readableSwipeAction(
@@ -646,7 +681,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			}
 			MotionEvent.ACTION_CANCEL,
 			MotionEvent.ACTION_POINTER_DOWN -> {
-				if (shellCoverView?.visibility != VISIBLE) cancelReadableViewerDragPreview()
+				if (shellCoverView?.visibility != VISIBLE) {
+					if (usesNativePageTurnCanvas()) {
+						pageTurnController.cancel()
+					} else {
+						cancelReadableViewerDragPreview()
+					}
+				}
 				clearSwipeTouchState()
 			}
 		}
@@ -710,6 +751,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private fun cancelReadableViewerDragPreview() {
 		onReadableDragPreview(0f, 0f, width, height, ReaderPageDragPreviewPhase.Cancel)
 	}
+
+	private fun usesNativePageTurnCanvas(): Boolean =
+		pageTurnCanvasEnabled &&
+			!verticalPageDragPreview &&
+			shellCoverView?.visibility != VISIBLE &&
+			pageTurnController.isAvailable
 
 	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
 		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible = shellCoverView?.visibility == VISIBLE)
@@ -799,6 +846,27 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		swipeStartY = 0f
 		nativeDragPreviewDiagnosticLogged = false
 	}
+
+	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+		super.onSizeChanged(w, h, oldw, oldh)
+		if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh)) {
+			pageTurnController.cancel()
+		}
+	}
+
+	override fun onDetachedFromWindow() {
+		pageTurnController.destroy()
+		super.onDetachedFromWindow()
+	}
+}
+
+private fun View.findDescendantWebView(): WebView? {
+	if (this is WebView) return this
+	if (this !is ViewGroup) return null
+	for (index in 0 until childCount) {
+		getChildAt(index).findDescendantWebView()?.let { return it }
+	}
+	return null
 }
 
 private class KomikkuGestureDetectorWithLongTap(

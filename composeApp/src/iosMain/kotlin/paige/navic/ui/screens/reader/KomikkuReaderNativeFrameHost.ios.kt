@@ -18,6 +18,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	grayscaleEnabled: Boolean,
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
+	pageTurnCanvasEnabled: Boolean,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,

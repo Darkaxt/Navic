@@ -363,19 +363,34 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
-	fun readerDefaultSettingsRoundTripDragAnimationModePreference() {
+	fun readerDefaultSettingsMigratesAndPersistsLegacyDragAnimationModePreference() {
 		val preferences = PreferenceManager(MapSettings())
 
-		preferences.readerDragAnimationMode = ReaderDragAnimationCurl
+		preferences.readerDragAnimationMode = "curl"
 
-		assertEquals(ReaderDragAnimationCurl, preferences.readerDefaultSettings().dragAnimationMode)
+		assertEquals(ReaderDragAnimationCanvas, preferences.readerDefaultSettings().dragAnimationMode)
+		assertEquals(ReaderDragAnimationCanvas, preferences.readerDragAnimationMode)
 
 		preferences.setReaderDefaultSettings(
-			ReaderSettings(dragAnimationMode = ReaderDragAnimationStandard)
+			ReaderSettings(dragAnimationMode = ReaderDragAnimationNone)
 		)
 
-		assertEquals(ReaderDragAnimationStandard, preferences.readerDragAnimationMode)
-		assertEquals(ReaderDragAnimationStandard, preferences.readerDefaultSettings().dragAnimationMode)
+		assertEquals(ReaderDragAnimationNone, preferences.readerDragAnimationMode)
+		assertEquals(ReaderDragAnimationNone, preferences.readerDefaultSettings().dragAnimationMode)
+	}
+
+	@Test
+	fun readerBookSettingsMigratesAndPersistsLegacyDragAnimationModes() {
+		val preferences = PreferenceManager(MapSettings())
+		preferences.readerBookSettingsJson =
+			"""{"book-none":{"dragAnimationMode":"standard"},"book-canvas":{"dragAnimationMode":"curl"}}"""
+
+		assertEquals(ReaderDragAnimationNone, preferences.readerBookSettings("book-none")?.dragAnimationMode)
+		assertEquals(ReaderDragAnimationCanvas, preferences.readerBookSettings("book-canvas")?.dragAnimationMode)
+		assertEquals(
+			"""{"version":1,"books":{"book-canvas":{"dragAnimationMode":"canvas"},"book-none":{"dragAnimationMode":"none"}}}""",
+			preferences.readerBookSettingsJson
+		)
 	}
 
 	@Test

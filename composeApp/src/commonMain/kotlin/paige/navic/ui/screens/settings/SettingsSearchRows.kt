@@ -37,7 +37,7 @@ import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderDarkTheme
 import paige.navic.reader.ReaderDirectionLtr
 import paige.navic.reader.ReaderDirectionRtl
-import paige.navic.reader.ReaderDragAnimationCurl
+import paige.navic.reader.ReaderDragAnimationCanvas
 import paige.navic.reader.ReaderDuskTheme
 import paige.navic.reader.ReaderDyslexicFontFamily
 import paige.navic.reader.ReaderFlowPagedVertical
@@ -377,8 +377,8 @@ internal fun readerFlowSearchLabel(flowMode: String): String =
 @Composable
 internal fun readerDragAnimationSearchLabel(dragAnimationMode: String): String =
 	when (dragAnimationMode) {
-		ReaderDragAnimationCurl -> stringResource(Res.string.option_ebook_reader_page_turn_animation_curl)
-		else -> stringResource(Res.string.option_ebook_reader_page_turn_animation_standard)
+		ReaderDragAnimationCanvas -> stringResource(Res.string.option_ebook_reader_page_turn_animation_canvas)
+		else -> stringResource(Res.string.option_ebook_reader_page_turn_animation_none)
 	}
 
 @Composable

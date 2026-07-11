@@ -666,7 +666,7 @@ class ReaderRuntimePaperSurfaceTest {
 	}
 
 	@Test
-	fun androidReaderDragAnimationModeIsExplicitAndDefaultsToStandard() {
+	fun androidReaderDragAnimationModeIsExplicitAndDefaultsToNone() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
 		val pageTurnsText = root.resolve("navic-reader-page-turns.js").readText()
@@ -676,10 +676,10 @@ class ReaderRuntimePaperSurfaceTest {
 		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
 
 		assertContains(settingsText, "val dragAnimationMode: String? = null")
-		assertContains(chromeText, "const val ReaderDragAnimationStandard = \"standard\"")
-		assertContains(chromeText, "const val ReaderDragAnimationCurl = \"curl\"")
+		assertContains(chromeText, "const val ReaderDragAnimationNone = \"none\"")
+		assertContains(chromeText, "const val ReaderDragAnimationCanvas = \"canvas\"")
 		assertContains(chromeText, "normalizedReaderDragAnimationMode")
-		assertContains(chromeText, "dragAnimationMode = ReaderDragAnimationStandard")
+		assertContains(chromeText, "dragAnimationMode = ReaderDragAnimationNone")
 		assertContains(settingsDialogText, "title = \"Page turn\"")
 		assertContains(settingsDialogText, "ReaderSupportedDragAnimationModes")
 		assertContains(bridgeText, "\"dragAnimationMode\"")
@@ -690,12 +690,12 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(
 			pageTurnsText,
 			"if (curlEnabled)",
-			message = "Curl preview must be gated so standard mode cannot build stale curl snapshots while normal drag remains active."
+			message = "The retired DOM curl implementation must remain gated while the native Canvas renderer owns public Canvas mode."
 		)
 		assertContains(
 			pageTurnsText,
 			"element?.dataset?.navicPageCurlSheet === 'underneath'",
-			message = "Standard mode must preserve the shared underlay sheet; deleting it removes the standard page preview iframe."
+			message = "The retired preview implementation must keep its internal underlay contract until that dead code is removed separately."
 		)
 	}
 
@@ -1521,8 +1521,8 @@ class ReaderRuntimePaperSurfaceTest {
 		)
 		assertContains(
 			previewPageDrag,
-			"this.readerDragAnimationModeValue !== 'curl'",
-			message = "The live-strip shortcut must stay limited to Standard mode so explicit Curl mode still renders curl snapshots."
+			"!readerDragAnimationModeAllowsCurl(this.readerDragAnimationModeValue)",
+			message = "The retired live-strip implementation must no longer key behavior directly from the removed public curl value."
 		)
 	}
 

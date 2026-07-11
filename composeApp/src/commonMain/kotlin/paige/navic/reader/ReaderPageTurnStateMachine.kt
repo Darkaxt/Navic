@@ -33,6 +33,8 @@ class ReaderPageTurnStateMachine(
 	private var velocityPxPerSecond: Float = 0f
 	private var pendingCommit: Boolean? = null
 	private var overlayAttached: Boolean = false
+	private var commitAnimationFinished = false
+	private var destinationSettled = false
 
 	fun begin(direction: ReaderPageTurnPhysicalDirection, spread: Boolean): Long {
 		generation += 1
@@ -86,10 +88,10 @@ class ReaderPageTurnStateMachine(
 		return effects
 	}
 
-	fun captureFailed(captureGeneration: Long): List<ReaderPageTurnEffect> {
-		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Capturing) return emptyList()
+	fun captureFailed(captureGeneration: Long): Boolean {
+		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Capturing) return false
 		reset(invalidateGeneration = true)
-		return emptyList()
+		return true
 	}
 
 	fun cancel(): List<ReaderPageTurnEffect> {
@@ -101,9 +103,8 @@ class ReaderPageTurnStateMachine(
 
 	fun animationFinished(): List<ReaderPageTurnEffect> = when (phase) {
 		ReaderPageTurnPhase.Committing -> {
-			val committedDirection = direction
-			reset(invalidateGeneration = true)
-			listOf(ReaderPageTurnEffect.Commit(committedDirection), ReaderPageTurnEffect.DetachOverlay)
+			commitAnimationFinished = true
+			finishCommitIfReady()
 		}
 		ReaderPageTurnPhase.Relaxing -> {
 			reset(invalidateGeneration = true)
@@ -112,15 +113,29 @@ class ReaderPageTurnStateMachine(
 		else -> emptyList()
 	}
 
+	fun destinationSettled(): List<ReaderPageTurnEffect> {
+		if (phase != ReaderPageTurnPhase.Committing) return emptyList()
+		destinationSettled = true
+		return finishCommitIfReady()
+	}
+
 	private fun beginTerminalAnimation(commit: Boolean): List<ReaderPageTurnEffect> {
 		pendingCommit = null
 		return if (commit) {
 			phase = ReaderPageTurnPhase.Committing
-			listOf(ReaderPageTurnEffect.AnimateCommit(progress))
+			commitAnimationFinished = false
+			destinationSettled = false
+			listOf(ReaderPageTurnEffect.Commit(direction), ReaderPageTurnEffect.AnimateCommit(progress))
 		} else {
 			phase = ReaderPageTurnPhase.Relaxing
 			listOf(ReaderPageTurnEffect.AnimateRelax(progress))
 		}
+	}
+
+	private fun finishCommitIfReady(): List<ReaderPageTurnEffect> {
+		if (!commitAnimationFinished || !destinationSettled) return emptyList()
+		reset(invalidateGeneration = true)
+		return listOf(ReaderPageTurnEffect.DetachOverlay)
 	}
 
 	private fun updateMotion(deltaAxis: Float, axisSize: Int, timestampMs: Long) {
@@ -149,5 +164,7 @@ class ReaderPageTurnStateMachine(
 		velocityPxPerSecond = 0f
 		pendingCommit = null
 		overlayAttached = false
+		commitAnimationFinished = false
+		destinationSettled = false
 	}
 }

@@ -35,8 +35,10 @@ export const ReaderFlowPaged = 'paged'
 export const ReaderFlowPagedVertical = 'paged-vertical'
 export const ReaderFlowScrolled = 'scrolled'
 export const ReaderFlowScrolledGaps = 'scrolled-gaps'
-export const ReaderDragAnimationStandard = 'standard'
-export const ReaderDragAnimationCurl = 'curl'
+export const ReaderDragAnimationNone = 'none'
+export const ReaderDragAnimationCanvas = 'canvas'
+export const LegacyReaderDragAnimationStandard = 'standard'
+export const LegacyReaderDragAnimationCurl = 'curl'
 export const ReaderDirectionDefault = 'default'
 export const ReaderDirectionLtr = 'ltr'
 export const ReaderDirectionRtl = 'rtl'
@@ -179,10 +181,13 @@ export const readerFoliateFlow = flowMode =>
     ? 'scrolled'
     : 'paginated'
 
-export const readerDragAnimationMode = settings =>
-  settings?.["dragAnimationMode"] === ReaderDragAnimationCurl
-    ? ReaderDragAnimationCurl
-    : ReaderDragAnimationStandard
+export const readerDragAnimationMode = settings => {
+  const rawMode = String(settings?.["dragAnimationMode"] || '').trim().toLowerCase()
+  if (rawMode === ReaderDragAnimationCanvas || rawMode === LegacyReaderDragAnimationCurl) {
+    return ReaderDragAnimationCanvas
+  }
+  return ReaderDragAnimationNone
+}
 
 export const readerDirectionMode = settings => {
   if (settings?.direction === ReaderDirectionLtr) return ReaderDirectionLtr

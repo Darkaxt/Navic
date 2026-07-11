@@ -42,18 +42,35 @@ class ReaderPageTurnStateMachineTest {
 	}
 
 	@Test
-	fun distanceCommitNavigatesOnlyAfterAnimationAndExactlyOnce() {
+	fun distanceCommitNavigatesAtCommitStartAndDetachesAfterBothConditions() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
 		machine.captureSucceeded(generation)
 		machine.update(-500f, 1000, 100)
-		assertIs<ReaderPageTurnEffect.AnimateCommit>(machine.release(-500f, 1000, 180).single())
+		val release = machine.release(-500f, 1000, 180)
+		assertIs<ReaderPageTurnEffect.Commit>(release.first())
+		assertIs<ReaderPageTurnEffect.AnimateCommit>(release.last())
 		assertEquals(ReaderPageTurnPhase.Committing, machine.phase)
 
-		val finished = machine.animationFinished()
-		assertEquals(1, finished.count { it is ReaderPageTurnEffect.Commit })
+		assertTrue(machine.animationFinished().isEmpty())
+		val finished = machine.destinationSettled()
+		assertEquals(1, release.count { it is ReaderPageTurnEffect.Commit })
 		assertEquals(1, finished.count { it is ReaderPageTurnEffect.DetachOverlay })
 		assertTrue(machine.animationFinished().isEmpty())
+	}
+
+	@Test
+	fun destinationMaySettleBeforeAnimationWithoutEarlyDetach() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)
+		machine.captureSucceeded(generation)
+		machine.update(-500f, 1000, 100)
+		machine.release(-500f, 1000, 180)
+
+		assertTrue(machine.destinationSettled().isEmpty())
+		assertEquals(ReaderPageTurnPhase.Committing, machine.phase)
+		assertIs<ReaderPageTurnEffect.DetachOverlay>(machine.animationFinished().single())
+		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
 	}
 
 	@Test
@@ -65,6 +82,7 @@ class ReaderPageTurnStateMachineTest {
 		assertTrue(machine.release(140f, 1000, 120).isEmpty())
 		val effects = machine.captureSucceeded(generation)
 		assertTrue(effects.any { it is ReaderPageTurnEffect.AttachOverlay })
+		assertTrue(effects.any { it is ReaderPageTurnEffect.Commit })
 		assertTrue(effects.any { it is ReaderPageTurnEffect.AnimateCommit })
 		assertEquals(ReaderPageTurnPhase.Committing, machine.phase)
 	}
@@ -73,7 +91,17 @@ class ReaderPageTurnStateMachineTest {
 	fun captureFailureReturnsToIdleWithoutNavigation() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)
-		assertTrue(machine.captureFailed(generation).isEmpty())
+		assertTrue(machine.captureFailed(generation))
+		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
+	}
+
+	@Test
+	fun staleCaptureFailureCannotDisableTheCurrentSession() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)
+		machine.cancel()
+
+		assertFalse(machine.captureFailed(generation))
 		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
 	}
 }
