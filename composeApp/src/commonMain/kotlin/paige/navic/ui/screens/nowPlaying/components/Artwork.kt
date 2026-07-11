@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.nowPlaying.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NowPlayingDiscContentScale
 import paige.navic.domain.models.NowPlayingDiscFitMode
 import paige.navic.domain.models.NowPlayingArtworkRequestIdentity
+import paige.navic.domain.models.NowPlayingArtworkRevealDurationMs
 import paige.navic.domain.models.NowPlayingVinylGrooveEndRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylGrooveStartRadiusFraction
 import paige.navic.domain.models.NowPlayingVinylLabelRadiusFraction
@@ -117,7 +120,17 @@ fun NowPlayingArtwork(
 	)
 	val vinylHasCoverArt = hasArtwork && isVinylArtworkReady
 	val vinylHasGeneratedArtwork = !hasArtwork && hasGeneratedArtwork
-	val artworkSurfaceAlpha = if (isVinylArtworkReady) 1f else 0f
+	val artworkSurfaceAlpha = remember(artworkRequestIdentity) { Animatable(0f) }
+	LaunchedEffect(artworkRequestIdentity, isVinylArtworkReady) {
+		if (!isVinylArtworkReady) {
+			artworkSurfaceAlpha.snapTo(0f)
+			return@LaunchedEffect
+		}
+		artworkSurfaceAlpha.animateTo(
+			targetValue = 1f,
+			animationSpec = tween(durationMillis = NowPlayingArtworkRevealDurationMs)
+		)
+	}
 
 	val isRadio = song.id.startsWith("radio_")
 	val isActiveArtwork = playerState.currentSong?.id == song.id
@@ -186,7 +199,7 @@ fun NowPlayingArtwork(
 		artworkRotationDegrees = rotationDegrees
 	)
 	val discModifier = artworkModifier
-		.alpha(artworkSurfaceAlpha)
+		.alpha(if (isVinylArtworkReady) artworkSurfaceAlpha.value else 0f)
 		.then(
 			if (discRotationDegrees == 0f) Modifier else Modifier.rotate(discRotationDegrees)
 		)

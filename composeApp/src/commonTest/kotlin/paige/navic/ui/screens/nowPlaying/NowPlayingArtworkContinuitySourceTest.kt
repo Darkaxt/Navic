@@ -12,9 +12,16 @@ class NowPlayingArtworkContinuitySourceTest {
 		val artwork = sourceFile("ui/screens/nowPlaying/components/Artwork.kt").readText()
 
 		assertTrue(
-			"val artworkSurfaceAlpha = if (isVinylArtworkReady) 1f else 0f" in artwork &&
-				".alpha(artworkSurfaceAlpha)" in artwork,
-			"The artwork loader must stay composed but invisible until the exact cover request succeeds."
+			"val artworkSurfaceAlpha = remember(artworkRequestIdentity) { Animatable(0f) }" in artwork &&
+				"LaunchedEffect(artworkRequestIdentity, isVinylArtworkReady)" in artwork &&
+				"artworkSurfaceAlpha.snapTo(0f)" in artwork &&
+				".alpha(if (isVinylArtworkReady) artworkSurfaceAlpha.value else 0f)" in artwork,
+			"A new artwork request must hide immediately while its loader stays composed."
+		)
+		assertTrue(
+			"artworkSurfaceAlpha.animateTo(" in artwork &&
+				"tween(durationMillis = NowPlayingArtworkRevealDurationMs)" in artwork,
+			"Only the successful exact cover may fade the Now Playing surface into view."
 		)
 		assertTrue(
 			"crossfadeMs = 0" in artwork,

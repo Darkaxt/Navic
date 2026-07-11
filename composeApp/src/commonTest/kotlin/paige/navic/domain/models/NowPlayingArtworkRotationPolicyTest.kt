@@ -8,6 +8,11 @@ import kotlin.test.assertTrue
 
 class NowPlayingArtworkRotationPolicyTest {
 	@Test
+	fun successfulArtworkRevealFadeIsShortAndSubtle() {
+		assertTrue(NowPlayingArtworkRevealDurationMs in 120..300)
+	}
+
+	@Test
 	fun realCoverMustResolveForTheExactSongAndArtworkRequestBeforeVinylAppears() {
 		val previousRequest = NowPlayingArtworkRequestIdentity(
 			songId = "song-1",
