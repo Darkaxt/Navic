@@ -1874,9 +1874,10 @@ class ReaderKomikkuBackboneResetTest {
 			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
 			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncStatusBadge(")
 		assertTrue(
-			playbackControlBody.contains("copy(alpha =") &&
-				playbackControlBody.contains("0.42f"),
-			"The page-level Whispersync headset must be a low-opacity paper-layer glyph, not high-contrast chrome."
+			playbackControlBody.contains("readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)") &&
+				!playbackControlBody.contains("MaterialTheme.colorScheme.onSurface") &&
+				!playbackControlBody.contains("0.42f"),
+			"The page-level Whispersync headset must use the readable foreground of the active reader theme."
 		)
 		assertTrue(
 			playbackControlBody.contains("Icons.Outlined.Headset") &&
