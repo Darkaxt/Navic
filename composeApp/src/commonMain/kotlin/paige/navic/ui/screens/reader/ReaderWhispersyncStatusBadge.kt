@@ -38,6 +38,7 @@ private val readerWhispersyncBadgeFadeAnimationSpec = tween<Float>(150)
 @Composable
 internal fun KomikkuWhispersyncPlaybackControl(
 	control: ReaderWhispersyncPlaybackControlState,
+	readerTheme: String?,
 	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onOpenPlayer: () -> Unit,
 	modifier: Modifier = Modifier
@@ -61,7 +62,7 @@ internal fun KomikkuWhispersyncPlaybackControl(
 			)
 		}
 	) {
-		val glyphColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+		val glyphColor = readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)
 		Box(
 			modifier = Modifier.size(48.dp),
 			contentAlignment = Alignment.Center

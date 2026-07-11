@@ -340,6 +340,7 @@ private fun KomikkuComposeOverlay(
 			)
 			KomikkuWhispersyncPlaybackControl(
 				control = whispersyncPlaybackControl,
+				readerTheme = controllerState.chrome.settings.theme,
 				onCommand = onWhispersyncPlaybackCommand,
 				onOpenPlayer = onWhispersyncPlayer,
 				modifier = Modifier
