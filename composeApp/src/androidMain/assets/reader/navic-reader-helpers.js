@@ -755,18 +755,6 @@ const readerMixedColorChannels = (background, foreground, foregroundWeight) => {
   }
 }
 
-const readerDesaturatedColorChannels = (value, amount = 0.24) => {
-  const color = readerColorChannels(value)
-  if (!color) return null
-  const weight = Math.min(1, Math.max(0, Number(amount) || 0))
-  const luminance = color.red * 0.299 + color.green * 0.587 + color.blue * 0.114
-  return {
-    red: Math.round(color.red + (luminance - color.red) * weight),
-    green: Math.round(color.green + (luminance - color.green) * weight),
-    blue: Math.round(color.blue + (luminance - color.blue) * weight),
-  }
-}
-
 const readerHueChannel = (p, q, value) => {
   let hue = value
   if (hue < 0) hue += 1
@@ -814,33 +802,36 @@ export const readerReadableCoverTintChannels = value => {
 const readerRgba = (channels, alpha) =>
   `rgba(${channels.red}, ${channels.green}, ${channels.blue}, ${alpha})`
 
+export const readerSurfaceBackCoverPalette = (settings, coverTint) => {
+  const theme = readerThemePalette(settings?.theme)
+  const warm = readerThemeUsesWarmPaperTreatment(settings?.theme)
+  const base = readerReadableCoverTintChannels(coverTint) || theme.background
+  return {
+    base,
+    highlight: readerMixedColorChannels(base, theme.background, 0.26),
+    middle: readerMixedColorChannels(base, theme.foreground, 0.04),
+    edge: readerMixedColorChannels(base, theme.foreground, warm ? 0.18 : 0.14),
+    outer: readerMixedColorChannels(base, theme.foreground, warm ? 0.34 : 0.30),
+  }
+}
+
 export const readerSurfaceBackCoverBackground = (settings, geometry) => {
   if (!geometry?.backCoverVisible) return 'none'
-  const palette = readerThemePalette(settings?.theme)
-  const warm = readerThemeUsesWarmPaperTreatment(settings?.theme)
-  const coverBase = readerDesaturatedColorChannels(geometry.coverTint, 0.28) || palette.background
-  const outer = readerMixedColorChannels(coverBase, palette.foreground, warm ? 0.48 : 0.42)
-  const middle = readerMixedColorChannels(coverBase, palette.foreground, warm ? 0.30 : 0.26)
-  const edge = readerMixedColorChannels(coverBase, palette.foreground, warm ? 0.40 : 0.34)
+  const coverPalette = readerSurfaceBackCoverPalette(settings, geometry.coverTint)
   const inset = geometry.outerInsetPercent
   const coverStart = geometry.backCoverStartPercent
   const fade = Math.min(inset, coverStart + Math.min(0.35, geometry.backCoverRevealPercent * 0.4))
   if (geometry.backCoverEdge === 'right') {
-    const readableCover = readerReadableCoverTintChannels(geometry.coverTint) || coverBase
-    const highlight = readerMixedColorChannels(readableCover, palette.background, 0.26)
-    const portraitEdge = readerMixedColorChannels(readableCover, palette.foreground, 0.14)
-    const portraitMiddle = readerMixedColorChannels(readableCover, palette.foreground, 0.04)
-    const portraitOuter = readerMixedColorChannels(readableCover, palette.foreground, 0.30)
     const reveal = Math.min(4, Math.max(0, geometry.backCoverRevealPercent))
     const revealStart = 100 - reveal
     const highlightEnd = revealStart + Math.min(0.12, reveal * 0.12)
     const transitionStart = 100 - Math.min(reveal, Math.min(0.35, reveal * 0.4))
-    return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(revealStart)}, ${readerRgba(highlight, 0.72)} ${readerPercentValue(revealStart)}, ${readerRgba(portraitEdge, 0.96)} ${readerPercentValue(highlightEnd)}, ${readerRgba(portraitMiddle, 0.90)} ${readerPercentValue(transitionStart)}, ${readerRgba(portraitOuter, 0.98)} 100%)`
+    return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(revealStart)}, ${readerRgba(coverPalette.highlight, 0.72)} ${readerPercentValue(revealStart)}, ${readerRgba(coverPalette.edge, 0.96)} ${readerPercentValue(highlightEnd)}, ${readerRgba(coverPalette.base, 0.90)} ${readerPercentValue(transitionStart)}, ${readerRgba(coverPalette.middle, 0.94)} ${readerPercentValue(99.82)}, ${readerRgba(coverPalette.outer, 0.98)} 100%)`
   }
   const reverseCoverStart = 100 - coverStart
   const reverseFade = 100 - fade
   const reverseInset = 100 - inset
-  return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(coverStart)}, ${readerRgba(outer, 0.74)} ${readerPercentValue(coverStart)}, ${readerRgba(middle, 0.56)} ${readerPercentValue(fade)}, ${readerRgba(edge, 0.68)} ${readerPercentValue(inset)}, transparent ${readerPercentValue(inset)}, transparent ${readerPercentValue(reverseInset)}, ${readerRgba(edge, 0.68)} ${readerPercentValue(reverseInset)}, ${readerRgba(middle, 0.56)} ${readerPercentValue(reverseFade)}, ${readerRgba(outer, 0.74)} ${readerPercentValue(reverseCoverStart)}, transparent ${readerPercentValue(reverseCoverStart)}, transparent 100%)`
+  return `linear-gradient(90deg, transparent 0%, transparent ${readerPercentValue(coverStart)}, ${readerRgba(coverPalette.outer, 0.92)} ${readerPercentValue(coverStart)}, ${readerRgba(coverPalette.base, 0.86)} ${readerPercentValue(fade)}, ${readerRgba(coverPalette.middle, 0.82)} ${readerPercentValue(Math.min(inset, fade + 0.16))}, ${readerRgba(coverPalette.edge, 0.90)} ${readerPercentValue(inset)}, transparent ${readerPercentValue(inset)}, transparent ${readerPercentValue(reverseInset)}, ${readerRgba(coverPalette.edge, 0.90)} ${readerPercentValue(reverseInset)}, ${readerRgba(coverPalette.middle, 0.82)} ${readerPercentValue(Math.max(reverseInset, reverseFade - 0.16))}, ${readerRgba(coverPalette.base, 0.86)} ${readerPercentValue(reverseFade)}, ${readerRgba(coverPalette.outer, 0.92)} ${readerPercentValue(reverseCoverStart)}, transparent ${readerPercentValue(reverseCoverStart)}, transparent 100%)`
 }
 
 export const readerSurfacePaperBaseBackground = (settings, spreadMode = '') => {
