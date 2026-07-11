@@ -16,6 +16,7 @@ import paige.navic.domain.models.settings.NowPlayingArtworkTapAction
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingProgressWidth
+import paige.navic.domain.models.settings.NowPlayingScreenOnMode
 import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
@@ -28,6 +29,41 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PreferenceManagerTest {
+	@Test
+	fun nowPlayingScreenOnModeDefaultsToOff() {
+		val manager = PreferenceManager(MapSettings())
+
+		assertEquals(NowPlayingScreenOnMode.Off, manager.nowPlayingScreenOnMode)
+	}
+
+	@Test
+	fun nowPlayingScreenOnModePersistsAcrossManagers() {
+		val settings = MapSettings()
+		PreferenceManager(settings).nowPlayingScreenOnMode = NowPlayingScreenOnMode.WhilePlayingAndCharging
+
+		assertEquals(
+			NowPlayingScreenOnMode.WhilePlayingAndCharging,
+			PreferenceManager(settings).nowPlayingScreenOnMode
+		)
+	}
+
+	@Test
+	fun nowPlayingScreenOnModeKeepsRawOrdinalCompatibility() {
+		val settings = MapSettings()
+
+		settings.putInt("nowPlayingScreenOnMode", 0)
+		assertEquals(NowPlayingScreenOnMode.Off, PreferenceManager(settings).nowPlayingScreenOnMode)
+
+		settings.putInt("nowPlayingScreenOnMode", 1)
+		assertEquals(
+			NowPlayingScreenOnMode.WhilePlayingAndCharging,
+			PreferenceManager(settings).nowPlayingScreenOnMode
+		)
+
+		settings.putInt("nowPlayingScreenOnMode", 2)
+		assertEquals(NowPlayingScreenOnMode.WhilePlaying, PreferenceManager(settings).nowPlayingScreenOnMode)
+	}
+
 	@Test
 	fun libraryRowPreferencesDefaultToCurrentBehavior() {
 		val manager = PreferenceManager(MapSettings())

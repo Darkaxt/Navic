@@ -50,6 +50,7 @@ import navic.composeapp.generated.resources.option_now_playing_queue_action
 import navic.composeapp.generated.resources.option_now_playing_remaining_time
 import navic.composeapp.generated.resources.option_now_playing_repeat_control
 import navic.composeapp.generated.resources.option_now_playing_rotating_artwork
+import navic.composeapp.generated.resources.option_now_playing_screen_on_mode
 import navic.composeapp.generated.resources.option_now_playing_seek_buttons
 import navic.composeapp.generated.resources.option_now_playing_shuffle_control
 import navic.composeapp.generated.resources.option_now_playing_shrink_artwork_on_pause
@@ -84,6 +85,7 @@ import navic.composeapp.generated.resources.subtitle_now_playing_progress_width
 import navic.composeapp.generated.resources.subtitle_now_playing_remaining_time
 import navic.composeapp.generated.resources.subtitle_now_playing_repeat_control
 import navic.composeapp.generated.resources.subtitle_now_playing_rotating_artwork
+import navic.composeapp.generated.resources.subtitle_now_playing_screen_on_mode
 import navic.composeapp.generated.resources.subtitle_now_playing_seek_buttons
 import navic.composeapp.generated.resources.subtitle_now_playing_shuffle_control
 import navic.composeapp.generated.resources.subtitle_now_playing_shrink_artwork_on_pause
@@ -115,6 +117,7 @@ import paige.navic.domain.models.settings.NowPlayingArtworkTapAction
 import paige.navic.domain.models.settings.NowPlayingBackgroundStyle
 import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingProgressWidth
+import paige.navic.domain.models.settings.NowPlayingScreenOnMode
 import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.ui.components.common.Form
@@ -124,6 +127,7 @@ import paige.navic.ui.components.layouts.NestedTopBar
 import paige.navic.ui.screens.settings.components.SettingSelectionRow
 import paige.navic.ui.screens.settings.components.SettingSwitchRow
 import paige.navic.ui.screens.settings.dialogs.NowPlayingSliderStyleDialog
+import paige.navic.util.core.PlatformType
 import kotlin.math.roundToInt
 
 @Composable
@@ -154,6 +158,17 @@ fun SettingsNowPlayingScreen() {
 						value = preferenceManager.swipeToSkip,
 						onSetValue = { preferenceManager.swipeToSkip = it }
 					)
+
+					if (platformContext.platformType == PlatformType.Android) {
+						SettingSelectionRow(
+							items = NowPlayingScreenOnMode.entries.toImmutableList(),
+							label = { stringResource(it.displayName) },
+							selection = preferenceManager.nowPlayingScreenOnMode,
+							onSelect = { preferenceManager.nowPlayingScreenOnMode = it },
+							description = stringResource(Res.string.subtitle_now_playing_screen_on_mode),
+							title = { Text(stringResource(Res.string.option_now_playing_screen_on_mode)) }
+						)
+					}
 
 					SettingSelectionRow(
 						items = NowPlayingBackgroundStyle.entries.toImmutableList(),

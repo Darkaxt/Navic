@@ -17,10 +17,10 @@ class PlaybackQueuePolicyTest {
 	}
 
 	@Test
-	fun playbackPrefetchUsesVisibleUpNextWindowOnly() {
+	fun artworkPrefetchUsesVisibleUpNextWindowOnly() {
 		assertEquals(
 			listOf(2, 3, 4),
-			playbackPrefetchIndexes(
+			playbackArtworkPrefetchIndexes(
 				upcomingIndexes = listOf(2, 3, 4, 5),
 				upNextCount = 3
 			)
@@ -28,17 +28,17 @@ class PlaybackQueuePolicyTest {
 	}
 
 	@Test
-	fun playbackPrefetchIgnoresDisabledOrNegativeWindows() {
+	fun artworkPrefetchIgnoresDisabledOrNegativeWindows() {
 		assertEquals(
 			emptyList(),
-			playbackPrefetchIndexes(
+			playbackArtworkPrefetchIndexes(
 				upcomingIndexes = listOf(2, 3),
 				upNextCount = 0
 			)
 		)
 		assertEquals(
 			emptyList(),
-			playbackPrefetchIndexes(
+			playbackArtworkPrefetchIndexes(
 				upcomingIndexes = listOf(2, 3),
 				upNextCount = -1
 			)

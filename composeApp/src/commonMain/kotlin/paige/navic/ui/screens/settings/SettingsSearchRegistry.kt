@@ -44,6 +44,7 @@ import paige.navic.reader.DefaultReaderLineHeight
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.readerDefaultSettings
 import paige.navic.shared.MediaPlayerViewModel
+import paige.navic.util.core.PlatformType
 import kotlin.math.roundToInt
 
 internal data class SettingsSearchContext(
@@ -128,7 +129,7 @@ internal fun searchableSettingsRows(): List<SearchableSettingsRow> {
 		lidaClipOfflineFiles = lidaClipOfflineFiles,
 		lidaClipOfflineSize = lidaClipOfflineSize,
 		readerPublicationCacheSize = readerPublicationCacheSize,
-		isAndroid = platformContext.name.lowercase().startsWith("android"),
+		isAndroid = platformContext.platformType == PlatformType.Android,
 		isApple = listOf("ios", "ipados").contains(platformContext.name.lowercase()),
 		settings = stringResource(Res.string.title_settings),
 		appearance = stringResource(Res.string.title_appearance),

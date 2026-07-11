@@ -8,6 +8,74 @@ import kotlin.test.assertTrue
 
 class NowPlayingArtworkRotationPolicyTest {
 	@Test
+	fun realCoverMustResolveForTheExactSongAndArtworkRequestBeforeVinylAppears() {
+		val previousRequest = NowPlayingArtworkRequestIdentity(
+			songId = "song-1",
+			coverArtId = "cover-1",
+			imageUrl = null,
+			imageCacheKey = "cover-1"
+		)
+		val currentRequest = NowPlayingArtworkRequestIdentity(
+			songId = "song-2",
+			coverArtId = "cover-2",
+			imageUrl = null,
+			imageCacheKey = "cover-2"
+		)
+
+		assertFalse(
+			isNowPlayingVinylArtworkReady(
+				hasCoverArt = true,
+				hasGeneratedArtwork = true,
+				requestedArtwork = currentRequest,
+				resolvedArtwork = null
+			)
+		)
+		assertFalse(
+			isNowPlayingVinylArtworkReady(
+				hasCoverArt = true,
+				hasGeneratedArtwork = true,
+				requestedArtwork = currentRequest,
+				resolvedArtwork = previousRequest
+			)
+		)
+		assertTrue(
+			isNowPlayingVinylArtworkReady(
+				hasCoverArt = true,
+				hasGeneratedArtwork = true,
+				requestedArtwork = currentRequest,
+				resolvedArtwork = currentRequest
+			)
+		)
+	}
+
+	@Test
+	fun generatedArtworkIsImmediatelyVinylReadyOnlyWhenNoRealCoverIsRequested() {
+		val request = NowPlayingArtworkRequestIdentity(
+			songId = "song-1",
+			coverArtId = null,
+			imageUrl = null,
+			imageCacheKey = null
+		)
+
+		assertTrue(
+			isNowPlayingVinylArtworkReady(
+				hasCoverArt = false,
+				hasGeneratedArtwork = true,
+				requestedArtwork = request,
+				resolvedArtwork = null
+			)
+		)
+		assertFalse(
+			isNowPlayingVinylArtworkReady(
+				hasCoverArt = false,
+				hasGeneratedArtwork = false,
+				requestedArtwork = request,
+				resolvedArtwork = null
+			)
+		)
+	}
+
+	@Test
 	fun rotationDefaultsToInactive() {
 		assertFalse(
 			shouldRotateNowPlayingArtwork(

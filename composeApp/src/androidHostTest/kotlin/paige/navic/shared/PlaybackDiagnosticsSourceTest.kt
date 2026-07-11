@@ -9,7 +9,7 @@ class PlaybackDiagnosticsSourceTest {
 	fun mediaPlayerViewModelLogsPauseAndRecoveryBoundaries() {
 		val source = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText() +
 			"\n" +
-			androidSharedSourceFile("AndroidPlaybackDownloadRecoveryCoordinator.android.kt").readText() +
+			androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText() +
 			"\n" +
 			androidSharedSourceFile("AndroidPlaybackDiagnosticsLogger.android.kt").readText()
 
@@ -20,17 +20,10 @@ class PlaybackDiagnosticsSourceTest {
 		assertContains(source, "playbackDiagnostics.onPlaybackSuppressionReasonChanged")
 		assertContains(source, "playbackDiagnostics.onIsPlayingChanged")
 		assertContains(source, "playbackDiagnostics.onPlayerError")
-		assertContains(source, "playbackDiagnostics.onRecoveryPending")
-		assertContains(source, "playbackDiagnostics.onRecoveryDownloadStatus")
 		assertContains(source, "playbackDiagnostics.onRecoveryLocalFileReady")
-		assertContains(source, "playbackDiagnostics.onRecoveryCleared")
-		assertContains(source, "onDeferredDownloadRequested")
 		assertContains(source, "onPlaybackRecoveryDecision")
-		assertContains(source, "onDeferredDownloadReady")
-		assertContains(source, "onReplayLastPlayable")
 		assertContains(source, "onPlaybackRetry")
 		assertContains(source, "onHardPlaybackFailure")
-		assertContains(source, "\"skip-to-next-playable\"")
 		assertContains(source, "\"retry-playback-source\"")
 		assertContains(source, "\"hard-playback-failure\"")
 	}
