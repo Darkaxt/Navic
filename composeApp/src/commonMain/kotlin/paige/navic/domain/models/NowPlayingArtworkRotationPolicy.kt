@@ -3,6 +3,7 @@ package paige.navic.domain.models
 import paige.navic.domain.models.settings.CoverArtShape
 
 const val NowPlayingArtworkRotationDurationMs = 8000
+const val NowPlayingArtworkRevealDurationMs = 180
 const val NowPlayingVinylSpindleRadiusFraction = 0.025f
 const val NowPlayingVinylLabelRadiusFraction = 0.17f
 const val NowPlayingVinylGrooveStartRadiusFraction = 0.24f
