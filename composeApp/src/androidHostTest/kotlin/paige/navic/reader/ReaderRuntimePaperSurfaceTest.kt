@@ -274,6 +274,15 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(helperText, "width: portraitSingle ? readerPercentValue(100 - portraitRevealPercent) : '100%'")
 		assertContains(helperText, "geometry.backCoverEdge === 'right'")
 		assertContains(helperText, "readerReadableCoverTintChannels(geometry.coverTint)")
+		assertContains(helperText, "export const readerSurfaceBackCoverPalette = (settings, coverTint) =>")
+		assertContains(helperText, "const coverPalette = readerSurfaceBackCoverPalette(settings, geometry.coverTint)")
+		assertFalse(
+			helperText
+				.substringAfter("export const readerSurfaceBackCoverBackground")
+				.substringBefore("export const readerSurfacePageDecorationBackground")
+				.contains("readerDesaturatedColorChannels(geometry.coverTint"),
+			"Orientation-specific back-cover gradients must not independently desaturate the sampled cover hue."
+		)
 		assertContains(helperText, "const minimumLightness = 0.22")
 		assertContains(helperText, "const minimumSaturation = 0.38")
 		assertContains(helperText, "readerRgba(highlight, 0.72)")

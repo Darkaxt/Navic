@@ -479,6 +479,65 @@ if (mode === 'texture-offset-logic') {
   process.exit(0)
 }
 
+if (mode === 'back-cover-tint-logic') {
+  globalThis.document = globalThis.document || {
+    body: {},
+    documentElement: { clientWidth: 500, clientHeight: 960 },
+  }
+  globalThis.window = globalThis.window || {
+    innerWidth: 500,
+    innerHeight: 960,
+    devicePixelRatio: 3,
+    visualViewport: { width: 500, height: 960, scale: 1 },
+    location: { origin: 'http://127.0.0.1', href: 'http://127.0.0.1/index.html' },
+  }
+  const helpers = await import(`${pathToFileURL(readerHelpers).href}?back-cover-tint-logic=${Date.now()}`)
+  if (typeof helpers.readerSurfaceBackCoverPalette !== 'function') {
+    throw new Error('readerSurfaceBackCoverPalette helper is not exported')
+  }
+
+  const coverTint = 'rgb(17, 103, 112)'
+  const palette = helpers.readerSurfaceBackCoverPalette({ theme: 'sepia' }, coverTint)
+  if (!(palette.base.green > palette.base.red && palette.base.blue > palette.base.red)) {
+    throw new Error(`Expected cover hue to survive normalization: ${JSON.stringify(palette)}`)
+  }
+  const baseRgbaPrefix = `rgba(${palette.base.red}, ${palette.base.green}, ${palette.base.blue}`
+  const portrait = helpers.readerSurfaceBackCoverBackground(
+    { theme: 'sepia' },
+    {
+      backCoverVisible: true,
+      backCoverEdge: 'right',
+      coverTint,
+      backCoverRevealPercent: 1,
+      outerInsetPercent: 0,
+      backCoverStartPercent: 0,
+    }
+  )
+  const landscape = helpers.readerSurfaceBackCoverBackground(
+    { theme: 'sepia' },
+    {
+      backCoverVisible: true,
+      backCoverEdge: 'both',
+      coverTint,
+      backCoverRevealPercent: 1,
+      outerInsetPercent: 1,
+      backCoverStartPercent: 0,
+    }
+  )
+  if (!portrait.includes(baseRgbaPrefix)) {
+    throw new Error(`Portrait back cover lost shared tint: ${portrait}`)
+  }
+  if (!landscape.includes(baseRgbaPrefix)) {
+    throw new Error(`Landscape back cover lost shared tint: ${landscape}`)
+  }
+  if (!landscape.includes('linear-gradient(90deg')) {
+    throw new Error(`Landscape back cover is not symmetric: ${landscape}`)
+  }
+
+  console.log('reader harness back-cover-tint-logic passed')
+  process.exit(0)
+}
+
 if (mode === 'pagination-profile-logic') {
   globalThis.document = globalThis.document || {
     body: {},
