@@ -58,13 +58,13 @@ The most serious problems are **data-safety, not design**. Both Room databases o
 
 ## Implementation status
 
-Stage 1 is implemented on `fix/qa-impact-hardening`, pending final Android validation, integration, and public release:
+Stage 1 was integrated into `master` and publicly released in `v1.0.11-theta94` on 2026-07-13:
 
 - **C1:** `791ef4ce` removes destructive fallback from both Android Room builders and adds a fail-closed source contract test.
 - **C5:** `ed68bd1c` reconciles albums from authoritative summary IDs and suppresses global song deletion whenever any listed album detail was skipped.
 - **C8:** `86c0530f` persists structural queue/playback changes immediately and samples progress through the same serialized DataStore writer.
 
-Finding severities remain unchanged until the implementation is integrated and released. The remaining findings are not implied to be resolved by this stage.
+The severity table remains the original audit snapshot. C1, C5, and C8 are closed at the implementation/release level; the remaining findings are not implied to be resolved by this stage.
 
 ---
 

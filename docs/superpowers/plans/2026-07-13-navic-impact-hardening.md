@@ -8,6 +8,8 @@
 
 **Tech Stack:** Kotlin Multiplatform, Kotlin coroutines/Flow, AndroidX Room 3, DataStore Preferences, kotlin.test, Gradle.
 
+**Status:** Completed and released as `v1.0.11-theta94` on 2026-07-13. Affected Android test packages and the complete debug APK build passed. The unfiltered Android host suite retained 29 unrelated reader-harness/bitmap failures from the concurrent ebook work; the unsupported iOS aggregate target also remained non-compiling.
+
 ---
 
 ### Task 1: Fail-closed Android Room migration policy
