@@ -1,6 +1,6 @@
 # Reader Page-Turn Animation Design
 
-**Status:** Revision 4 Canvas implementation accepted on readerdev emulator; release validation in progress
+**Status:** Revision 4 implemented and released in `v1.0.11-theta92`; superseded for destination-aware work by `2026-07-12-reader-destination-aware-page-turn-design.md`
 
 **Original date:** 2026-07-04
 
