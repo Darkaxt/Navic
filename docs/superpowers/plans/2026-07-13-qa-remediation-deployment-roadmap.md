@@ -4,6 +4,7 @@ Date: 2026-07-13
 Baseline: `master` @ `2de204a1` (`feat(reader): coordinate visual and settled slide targets`)
 Source audit: `docs/superpowers/plans/2026-07-12-qa-analysis.md`
 Released foundation: `v1.0.11-theta94`
+Released Tranche 1: `v1.0.11-iota1`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -107,6 +108,15 @@ Every tranche uses the following pipeline:
 - Ship behind no user-facing flag; ownership must be singular and deterministic.
 - Collect diagnostics for owner transitions and controller connection states without logging credentials/URLs.
 - Roll back by forward release reverting coordinator wiring; retain the persisted shuffle format with backward-compatible defaults.
+
+### Release evidence
+
+- Released `v1.0.11-iota1` from commit `790028f2` on 2026-07-13.
+- GitHub Actions run `29213897610` passed release build, APK signature verification, artifact upload, and release creation; checks run `29213897640` passed wrapper validation.
+- Public `Navic.apk` SHA-256: `8c15e411766dfeb8a5c5733a0840eb9e302b3975a8b117b3ee36f668133d95e2`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7` (`CN=Darkaxt Navic Release`).
+- Downloaded APK embeds `versionCode=523` and `versionName=v1.0.11-iota1`; signed APK installed and launched on `emulator-5554` with no fatal or MediaController connection error during startup smoke testing.
+- Focused host tests cover concurrent/replayable/stale ownership claims, failed and disconnected controller futures, synchronous release, readaloud service visibility, and exact persisted shuffle-order reconstruction.
 
 ## Tranche 2 — Session, sync, and download integrity
 
@@ -338,8 +348,8 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B6 | Medium | Pending | Tranche 3 |
 | B7 | Medium | Pending | Tranche 5 |
 | B8 | Low | Pending | Tranche 3 |
-| B9 | High | Pending | Tranche 1 |
-| B10 | Medium | Pending | Tranche 1 |
+| B9 | High | Released | `v1.0.11-iota1` |
+| B10 | Medium | Released | `v1.0.11-iota1` |
 | B11 | Medium | Pending | Tranche 4 |
 | B12 | Medium | Pending | Tranche 4 |
 | B13 | Medium | Pending | Tranche 4 |
@@ -362,9 +372,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | C6 | Medium | Pending | Tranche 2 |
 | C7 | Medium | Pending | Tranche 2 |
 | C8 | High | Released | `v1.0.11-theta94` |
-| C9 | Medium | Pending | Tranche 1 |
-| C10 | Medium | Pending | Tranche 1 |
-| C11 | Medium | Pending | Tranche 1 |
+| C9 | Medium | Released | `v1.0.11-iota1` |
+| C10 | Medium | Released | `v1.0.11-iota1` |
+| C11 | Medium | Released | `v1.0.11-iota1` |
 | C12 | Verified | Preserve | Regression tests only |
 | C13 | Medium | Pending | Tranche 8 |
 | C14 | Low | Pending | Tranche 5 |
@@ -374,9 +384,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 3 (`C1`, `C5`, `C8`).
+- Released findings: 8 (`B9`, `B10`, `C1`, `C5`, `C8`, `C9`, `C10`, `C11`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 52.
+- Pending implementation findings assigned to tranches: 47.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
