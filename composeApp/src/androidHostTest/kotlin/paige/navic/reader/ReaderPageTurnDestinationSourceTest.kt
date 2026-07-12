@@ -136,4 +136,43 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(expose, "'z-index': '1'")
 		assertFalse(expose.contains("'z-index': '2147483638'"))
 	}
+
+	@Test
+	fun immutableBitmapBundleOwnsEveryDestinationSurfaceExactlyOnce() {
+		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
+
+		assertContains(bundle, "data class ReaderPageTurnTransitionPlan")
+		assertContains(bundle, "class ReaderPageTurnBitmapBundle")
+		assertContains(bundle, "val currentBase: Bitmap")
+		assertContains(bundle, "val turningFront: Bitmap")
+		assertContains(bundle, "val turningReverse: Bitmap?")
+		assertContains(bundle, "val underneath: Bitmap?")
+		assertContains(bundle, "val finalBase: Bitmap")
+		assertContains(bundle, "if (recycled) return")
+		assertContains(bundle, "fun recycle()")
+		assertContains(bundle, "distinctBy { System.identityHashCode(it) }")
+	}
+
+	@Test
+	fun bitmapBundleCacheIsBoundedAndRecyclesEvictedEntries() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+
+		assertContains(source, "LinkedHashMap<String, ReaderPageTurnBitmapBundle>(0, 0.75f, true)")
+		assertContains(source, "private const val MaxCachedBundles = 3")
+		assertContains(source, "eldest.value.recycle()")
+		assertContains(source, "cache.clear()")
+	}
+
+	@Test
+	fun stagedCaptureRejectsAndRecyclesStaleGenerationsWithoutTimeouts() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+
+		assertContains(source, "captureSurface(")
+		assertContains(source, "captureStagedSurface(")
+		assertContains(source, "if (generation != activeGeneration)")
+		assertContains(source, "bundle.recycle()")
+		assertContains(source, "webView.draw(canvas)")
+		assertFalse(source.contains("postDelayed"))
+		assertFalse(source.contains("setTimeout"))
+	}
 }

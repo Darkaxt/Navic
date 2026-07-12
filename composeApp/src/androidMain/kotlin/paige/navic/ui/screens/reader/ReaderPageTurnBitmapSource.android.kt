@@ -40,6 +40,32 @@ internal class ReaderPageTurnBitmapSource(
 		webView: WebView,
 		direction: ReaderPageTurnPhysicalDirection,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	) = capture(webView, onCaptured) { geometry, location ->
+		geometry.sourceRectInWindow(
+			direction = direction,
+			webViewWindowLeft = location[0],
+			webViewWindowTop = location[1],
+			webViewWidth = webView.width,
+			webViewHeight = webView.height
+		)
+	}
+
+	fun captureSurface(
+		webView: WebView,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	) = capture(webView, onCaptured) { geometry, location ->
+		geometry.surfaceRectInWindow(
+			webViewWindowLeft = location[0],
+			webViewWindowTop = location[1],
+			webViewWidth = webView.width,
+			webViewHeight = webView.height
+		)
+	}
+
+	private fun capture(
+		webView: WebView,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
 		if (!isAvailable || !webView.isAttachedToWindow || webView.width <= 0 || webView.height <= 0) {
 			onCaptured(null)
@@ -57,13 +83,7 @@ internal class ReaderPageTurnBitmapSource(
 			}
 			val location = IntArray(2)
 			webView.getLocationInWindow(location)
-			val pixelRect = geometry.sourceRectInWindow(
-				direction = direction,
-				webViewWindowLeft = location[0],
-				webViewWindowTop = location[1],
-				webViewWidth = webView.width,
-				webViewHeight = webView.height
-			)
+			val pixelRect = resolveRect(geometry, location)
 			if (pixelRect == null) {
 				onCaptured(null)
 				return@evaluateJavascript
@@ -105,7 +125,7 @@ internal class ReaderPageTurnBitmapSource(
 		}
 	}
 
-	private fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? = runCatching {
+	internal fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? = runCatching {
 		val decoded = JSONTokener(encoded.orEmpty()).nextValue()
 		val jsonText = when (decoded) {
 			is String -> decoded
@@ -152,4 +172,3 @@ private tailrec fun Context.findActivityOrNull(): Activity? = when (this) {
 	is ContextWrapper -> baseContext.findActivityOrNull()
 	else -> null
 }
-

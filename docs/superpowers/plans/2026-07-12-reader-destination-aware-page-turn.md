@@ -328,21 +328,21 @@ Expected: tests pass, visual gate evidence is accepted, and commit succeeds. If 
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnBitmapSource.android.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt`
 
-- [ ] **Step 1: Write failing parser and lifecycle source tests**
+- [x] **Step 1: Write failing parser and lifecycle source tests**
 
 Assert the bundle owns `currentBase`, `turningFront`, `turningReverse`, `underneath`, and `finalBase`; all bitmaps recycle exactly once; cache capacity is three bundles; stale generations recycle results.
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [x] **Step 2: Run focused test and verify RED**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest"
 ```
 
-- [ ] **Step 3: Implement immutable plan parsing**
+- [x] **Step 3: Implement immutable plan parsing**
 
 Parse transition kind, all page indices, source/target sides, target index, rectangles, direction, and generation from the JavaScript JSON plan. Reject missing required fields before allocating bitmaps.
 
-- [ ] **Step 4: Implement current and staged capture**
+- [x] **Step 4: Implement current and staged capture**
 
 - current base: exact-window `PixelCopy`
 - staged final: `webView.draw(canvas)` clipped and translated to the exact WebView page/spread rectangle while the current-base native freeze is opaque
@@ -351,11 +351,11 @@ Parse transition kind, all page indices, source/target sides, target index, rect
 
 Every draw runs on the main thread and reports completion through a callback. No polling delay or cancellation timeout is introduced.
 
-- [ ] **Step 5: Implement bounded cache and invalidation**
+- [x] **Step 5: Implement bounded cache and invalidation**
 
 Use an access-ordered map with maximum three bundles. Eviction, rotation, settings change, backgrounding, destroy, and stale generation recycle every owned bitmap.
 
-- [ ] **Step 6: Run focused test and commit**
+- [x] **Step 6: Run focused test and commit**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest"

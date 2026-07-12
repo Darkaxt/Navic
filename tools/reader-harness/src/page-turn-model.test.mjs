@@ -123,6 +123,9 @@ test('landscape next turns one physical leaf and advances two pages', () => {
     targetPageIndex: 18,
     sourcePageSide: ReaderPhysicalPageRight,
     targetPageSide: ReaderPhysicalPageLeft,
+    turningFrontPageSide: ReaderPhysicalPageRight,
+    turningReversePageSide: ReaderPhysicalPageLeft,
+    underneathPageSide: ReaderPhysicalPageRight,
   })
 })
 
@@ -144,6 +147,9 @@ test('landscape previous mirrors one physical leaf and advances two pages', () =
     targetPageIndex: 14,
     sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageLeft,
+    turningFrontPageSide: ReaderPhysicalPageLeft,
+    turningReversePageSide: ReaderPhysicalPageRight,
+    underneathPageSide: ReaderPhysicalPageLeft,
   })
 })
 
@@ -161,6 +167,9 @@ test('RTL landscape mirrors physical page roles without changing logical ordinal
   assert.equal(plan.underneathPageIndex, 19)
   assert.equal(plan.sourcePageSide, ReaderPhysicalPageLeft)
   assert.equal(plan.targetPageSide, ReaderPhysicalPageRight)
+  assert.equal(plan.turningFrontPageSide, ReaderPhysicalPageLeft)
+  assert.equal(plan.turningReversePageSide, ReaderPhysicalPageRight)
+  assert.equal(plan.underneathPageSide, ReaderPhysicalPageLeft)
 })
 
 test('portrait LTR next alternates slide then leaf', () => {
@@ -182,6 +191,9 @@ test('portrait LTR next alternates slide then leaf', () => {
     targetPageIndex: 7,
     sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageRight,
+    turningFrontPageSide: ReaderPhysicalPageLeft,
+    turningReversePageSide: null,
+    underneathPageSide: null,
   })
 
   const leaf = readerPageTurnPlan({
@@ -202,6 +214,9 @@ test('portrait LTR next alternates slide then leaf', () => {
     targetPageIndex: 8,
     sourcePageSide: ReaderPhysicalPageRight,
     targetPageSide: ReaderPhysicalPageLeft,
+    turningFrontPageSide: ReaderPhysicalPageRight,
+    turningReversePageSide: ReaderPhysicalPageLeft,
+    underneathPageSide: ReaderPhysicalPageRight,
   })
 })
 
@@ -229,6 +244,9 @@ test('portrait previous mirrors slide and leaf behavior', () => {
   assert.equal(leaf.turningReversePageIndex, 5)
   assert.equal(leaf.underneathPageIndex, 4)
   assert.equal(leaf.targetPageIndex, 5)
+  assert.equal(leaf.turningFrontPageSide, ReaderPhysicalPageLeft)
+  assert.equal(leaf.turningReversePageSide, ReaderPhysicalPageRight)
+  assert.equal(leaf.underneathPageSide, ReaderPhysicalPageLeft)
 })
 
 test('portrait RTL mirrors which physical side performs the leaf', () => {
@@ -243,6 +261,9 @@ test('portrait RTL mirrors which physical side performs the leaf', () => {
   assert.equal(leaf.kind, ReaderPageTurnPortraitLeaf)
   assert.equal(leaf.targetPageIndex, 8)
   assert.equal(leaf.targetPageSide, ReaderPhysicalPageRight)
+  assert.equal(leaf.turningFrontPageSide, ReaderPhysicalPageLeft)
+  assert.equal(leaf.turningReversePageSide, ReaderPhysicalPageRight)
+  assert.equal(leaf.underneathPageSide, ReaderPhysicalPageLeft)
 })
 
 test('planner rejects incomplete physical bundles at publication boundaries', () => {

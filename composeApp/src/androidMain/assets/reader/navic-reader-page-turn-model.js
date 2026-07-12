@@ -98,6 +98,9 @@ const frozenPlan = ({
   targetPageIndex,
   sourcePageSide,
   targetPageSide,
+  turningFrontPageSide = sourcePageSide,
+  turningReversePageSide = null,
+  underneathPageSide = null,
 }) => Object.freeze({
   kind,
   logicalDirection,
@@ -108,6 +111,9 @@ const frozenPlan = ({
   targetPageIndex,
   sourcePageSide,
   targetPageSide,
+  turningFrontPageSide,
+  turningReversePageSide,
+  underneathPageSide,
 })
 
 export function readerPageTurnPlan({
@@ -140,6 +146,9 @@ export function readerPageTurnPlan({
           targetPageIndex: sourcePageIndex + 2,
           sourcePageSide: trailing,
           targetPageSide: leading,
+          turningFrontPageSide: trailing,
+          turningReversePageSide: leading,
+          underneathPageSide: trailing,
         }
       : {
           kind: ReaderPageTurnLandscapeLeaf,
@@ -151,6 +160,9 @@ export function readerPageTurnPlan({
           targetPageIndex: sourcePageIndex - 2,
           sourcePageSide: leading,
           targetPageSide: leading,
+          turningFrontPageSide: leading,
+          turningReversePageSide: trailing,
+          underneathPageSide: leading,
         }
     if (
       !pageIndexExists(plan.turningFrontPageIndex, normalizedCount) ||
@@ -190,5 +202,8 @@ export function readerPageTurnPlan({
     targetPageIndex,
     sourcePageSide: currentPageSide,
     targetPageSide: oppositePhysicalSide(currentPageSide),
+    turningFrontPageSide: currentPageSide,
+    turningReversePageSide: oppositePhysicalSide(currentPageSide),
+    underneathPageSide: currentPageSide,
   })
 }
