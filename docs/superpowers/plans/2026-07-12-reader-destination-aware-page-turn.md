@@ -240,7 +240,7 @@ git commit -m "feat(reader): navigate page turns to exact targets"
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt`
 - Modify: `tools/reader-harness/src/reader-trace-assertions.mjs`
 
-- [ ] **Step 1: Write failing isolation guards**
+- [x] **Step 1: Write failing isolation guards**
 
 Assert the passive renderer:
 
@@ -250,7 +250,7 @@ Assert the passive renderer:
 - has no live `relocate`, history, selection, highlight, progress, or overlay-post listener
 - closes and removes itself on publication close
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [x] **Step 2: Run focused test and verify RED**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest"
@@ -258,7 +258,7 @@ Assert the passive renderer:
 
 Expected: FAIL because the passive renderer module is absent.
 
-- [ ] **Step 3: Implement passive renderer lifecycle**
+- [x] **Step 3: Implement passive renderer lifecycle**
 
 Export a focused mixin with these methods:
 
@@ -273,20 +273,20 @@ destroyPageTurnPreviewRenderer(reason)
 
 Use one generation per preparation. Apply current settings and layout before and after navigation. Ready state is emitted only after the target relocation and two animation frames have produced stable page geometry; the frames are readiness observations, not time-based cancellation.
 
-- [ ] **Step 4: Add a debug-only bridge feasibility path**
+- [x] **Step 4: Add a debug-only bridge feasibility path**
 
 Expose synchronous bridge methods that start preparation and query state. Do not connect them to production gestures yet.
 
-- [ ] **Step 5: Build readerdev once for the feasibility gate**
+- [x] **Step 5: Build readerdev once for the feasibility gate**
 
 ```powershell
-.\gradlew.bat :composeApp:assembleReaderdevDebug
-adb -s emulator-5554 install -r composeApp/build/outputs/apk/readerdev/debug/composeApp-readerdev-debug.apk
+.\gradlew.bat :androidApp:assembleReaderDev
+adb -s emulator-5554 install -r androidApp/build/outputs/apk/readerDev/Navic.apk
 ```
 
 Expected: build and install exit `0`.
 
-- [ ] **Step 6: Prove visual parity on emulator**
+- [x] **Step 6: Prove visual parity on emulator**
 
 With Alcatraz open in tablet landscape:
 
@@ -307,7 +307,9 @@ Acceptance:
 
 Store evidence under `captures/page-turn-destination-aware/feasibility/`.
 
-- [ ] **Step 7: Run tests and commit only if the gate passes**
+Measured 2026-07-12 on `emulator-5554` with Alcatraz visual page index 5: the live and decorated passive 2960 x 1848 captures differed in 0.4125% of pixels with mean absolute RGB error below 0.38, attributable to independent WebView text antialiasing. Page geometry, text, paper, edges, gutter, back-cover slivers, and page numbers matched. Raw captures remain local under `.codex-evidence/page-turn-preview/` to avoid committing roughly 14 MB of redundant PNG data.
+
+- [x] **Step 7: Run tests and commit only if the gate passes**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest"
@@ -447,7 +449,7 @@ The controller starts bundle preparation on the first gesture update, stores lat
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnNativeSourceTest"
-.\gradlew.bat :composeApp:assembleReaderdevDebug
+.\gradlew.bat :androidApp:assembleReaderDev
 ```
 
 - [ ] **Step 6: Validate landscape on emulator**
@@ -609,8 +611,8 @@ Expected: smoke scenarios pass, including the page-turn migration and navigation
 - [ ] **Step 5: Build and install final readerdev candidate**
 
 ```powershell
-.\gradlew.bat :composeApp:assembleReaderdevDebug
-adb -s emulator-5554 install -r composeApp/build/outputs/apk/readerdev/debug/composeApp-readerdev-debug.apk
+.\gradlew.bat :androidApp:assembleReaderDev
+adb -s emulator-5554 install -r androidApp/build/outputs/apk/readerDev/androidApp-readerDev.apk
 ```
 
 - [ ] **Step 6: Capture final visual matrix**

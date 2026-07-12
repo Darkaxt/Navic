@@ -167,6 +167,7 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 import { NavicReaderPageTurnMethods } from './navic-reader-page-turns.js'
+import { NavicReaderPageTurnPreviewMethods } from './navic-reader-page-turn-preview.js'
 import { NavicReaderContentInteractionMethods } from './navic-reader-content-interactions.js'
 import { NavicReaderPaginationMethods } from './navic-reader-pagination.js'
 import { NavicReaderAppearanceMethods } from './navic-reader-appearance.js'
@@ -370,6 +371,13 @@ class NavicReaderRuntime {
   nativePageTurnSettledToken = null
   pendingExactPageTurnSettlement = null
   nativePageTurnSettledState = null
+  pageTurnPreviewView = null
+  pageTurnPreviewPublicationUrl = ''
+  pageTurnPreviewGeneration = 0
+  pageTurnPreviewStateValue = null
+  pageTurnPreviewExposedToken = ''
+  pageTurnPreviewLiveVisibility = ''
+  pageTurnPreviewLiveOpacity = ''
   deferredReflowablePageTurn = null
   deferredReflowablePageTurnToken = 0
   recentPageTurnDirection = null
@@ -654,6 +662,7 @@ class NavicReaderRuntime {
   }
 
   close() {
+    this.destroyPageTurnPreviewRenderer('reader-close')
     this.clearOverlay()
     this.clearShellCover()
     this.detachSurfacePaperTextureScrollSync()
@@ -1531,6 +1540,7 @@ Object.assign(NavicReaderRuntime.prototype,
   NavicReaderViewportMethods,
   NavicReaderLocationMethods,
   NavicReaderPageTurnMethods,
+  NavicReaderPageTurnPreviewMethods,
   NavicReaderContentInteractionMethods,
   NavicReaderPaginationMethods,
   NavicReaderAppearanceMethods
@@ -1565,6 +1575,12 @@ window.NavicReaderBridge = {
   },
   nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
   nativePageTurnSettledState: () => runtime.nativePageTurnSettledState,
+  beginPageTurnPreviewPreparation: (token, pageIndex) =>
+    runtime.beginPageTurnPreviewPreparation(token, pageIndex),
+  pageTurnPreviewState: token => runtime.pageTurnPreviewState(token),
+  pageTurnPreviewContext: () => runtime.pageTurnPreviewContext(),
+  exposePageTurnPreviewFinal: token => runtime.exposePageTurnPreviewFinal(token),
+  restorePageTurnLiveComposition: token => runtime.restorePageTurnLiveComposition(token),
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
