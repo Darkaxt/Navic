@@ -39,6 +39,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.librarySyncDeletionPlan
 import paige.navic.util.core.Logger
 import kotlin.coroutines.cancellation.CancellationException
 import dev.zt64.subsonic.api.model.Album as ApiAlbum
@@ -256,8 +257,13 @@ class DbRepository(
 			}
 		}
 
-		albumDao.deleteObsoleteAlbums(allValidAlbumIds)
-		songDao.deleteObsoleteSongs(allValidSongIds)
+		val deletionPlan = librarySyncDeletionPlan(
+			authoritativeAlbumIds = allAlbumSummaries.mapTo(mutableSetOf()) { it.id },
+			fetchedAlbumIds = allValidAlbumIds,
+			fetchedSongIds = allValidSongIds
+		)
+		albumDao.deleteObsoleteAlbums(deletionPlan.albumIdsToKeep)
+		deletionPlan.songIdsToKeep?.let { songDao.deleteObsoleteSongs(it) }
 
 		Logger.i(
 			"DbRepository",
