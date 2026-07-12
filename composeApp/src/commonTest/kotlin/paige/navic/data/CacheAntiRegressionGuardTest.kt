@@ -11,6 +11,21 @@ import kotlin.test.assertTrue
  */
 class CacheAntiRegressionGuardTest {
 	@Test
+	fun rawAlbumRelationQueriesUseOneDatabaseSnapshot() {
+		val src = File("src/commonMain/kotlin/paige/navic/data/database/dao/AlbumDao.kt").readText()
+		assertTrue(
+			Regex("""@Transaction\s+@RawQuery\s+suspend fun getAlbumsByQuery\(""")
+				.containsMatchIn(src),
+			"Raw AlbumWithSongs reads must be transactional so parent albums and related songs come from one database snapshot."
+		)
+		assertTrue(
+			Regex("""@Transaction\s+@RawQuery\(observedEntities\s*=\s*\[AlbumEntity::class,\s*SongEntity::class\]\)\s+fun getAlbumsByQueryFlow\(""")
+				.containsMatchIn(src),
+			"The reactive AlbumWithSongs query must be transactional; otherwise Room can rebuild its relation map while albums are being synchronized."
+		)
+	}
+
+	@Test
 	fun librarySectionRefreshesAreGatedOnAlreadyLoadedNotReentry() {
 		val src = File("src/commonMain/kotlin/paige/navic/ui/screens/library/LibraryScreen.kt").readText()
 		assertTrue(
