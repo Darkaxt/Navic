@@ -10,21 +10,21 @@ import paige.navic.ui.screens.reader.readerPageTurnPixelsContainForeground
 
 class ReaderPageTurnNativeSourceTest {
 	@Test
-	fun liveDragUsesPhysicalPageWidthAfterHalfResolutionCapture() {
+	fun liveDragUsesPhysicalSurfaceWidthAfterHalfResolutionCapture() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val pageAxisWidth = controller
 			.substringAfter("private fun pageAxisWidth(viewWidth: Int): Int =")
 			.substringBefore("\n\n")
 
-		assertContains(pageAxisWidth, "bundle.turningFront.width * bundle.renderScaleX")
-		assertContains(pageAxisWidth, "if (state.spread) viewWidth / 2f else viewWidth.toFloat()")
+		assertContains(pageAxisWidth, "bundle.currentBase.width * bundle.renderScaleX")
+		assertContains(pageAxisWidth, "viewWidth.coerceAtLeast(1)")
 	}
 
 	@Test
 	fun commitAnimationDurationTracksOnlyTheUnfinishedFoldDistance() {
-		assertTrue(readerPageTurnRemainingAnimationDuration(0f, 2f, 350L) == 350L)
-		assertTrue(readerPageTurnRemainingAnimationDuration(1f, 2f, 350L) == 175L)
-		assertTrue(readerPageTurnRemainingAnimationDuration(2f, 2f, 350L) == 0L)
+		assertTrue(readerPageTurnRemainingAnimationDuration(0f, 1f, 350L) == 350L)
+		assertTrue(readerPageTurnRemainingAnimationDuration(0.5f, 1f, 350L) == 175L)
+		assertTrue(readerPageTurnRemainingAnimationDuration(1f, 1f, 350L) == 0L)
 	}
 	@Test
 	fun runtimeExposesResolvedPageRectanglesWithoutMovingFoliate() {
@@ -191,7 +191,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "pointerY: Float")
 		assertContains(controller, "setGestureY")
 		assertContains(controller, "pageAxisWidth(viewWidth)")
-		assertContains(controller, "bundle.turningFront.width * bundle.renderScaleX")
+		assertContains(controller, "bundle.currentBase.width * bundle.renderScaleX")
 	}
 
 	@Test
@@ -246,7 +246,7 @@ class ReaderPageTurnNativeSourceTest {
 	@Test
 	fun committedTurnAnimatesContinuouslyThenShowsFinalBaseWhileFoliateSettles() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+		val renderer = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
 		val stateMachine = readerCommonFile("ReaderPageTurnStateMachine.kt").readText()
 		val animationFinished = stateMachine
 			.substringAfter("fun animationFinished()")
@@ -255,12 +255,12 @@ class ReaderPageTurnNativeSourceTest {
 			.substringAfter("private fun beginTerminalAnimation(")
 			.substringBefore("private fun finishCommitIfReady(")
 
-		assertContains(controller, "CommitEndProgress = 2f")
+		assertContains(controller, "CommitEndProgress = 1f")
 		assertContains(controller, "readerPageTurnRemainingAnimationDuration(")
 		assertContains(controller, "to = CommitEndProgress")
 		assertContains(controller, "ReaderPageTurnEffect.ShowFinalBase")
 		assertContains(renderer, "showFinalBase")
-		assertContains(renderer, "MaxTurnProgress = 2f")
+		assertContains(renderer, "progress.coerceIn(0f, 1f)")
 		assertFalse(terminalAnimation.contains("ReaderPageTurnEffect.Commit(direction)"))
 		assertTrue(
 			animationFinished.indexOf("ReaderPageTurnEffect.ShowFinalBase") <

@@ -166,7 +166,7 @@ class ReaderPageTurnStateMachine(
 	private fun updateMotion(deltaAxis: Float, axisSize: Int, timestampMs: Long) {
 		if (axisSize <= 0) return
 		val motionFraction = (abs(deltaAxis) / axisSize.toFloat()).coerceIn(0f, 1f)
-		progress = motionFraction * CompletedTurnProgress
+		progress = motionFraction
 		peakMotionFraction = maxOf(peakMotionFraction, motionFraction)
 		lastTimestampMs?.let { previousTimestamp ->
 			val elapsedMs = timestampMs - previousTimestamp
@@ -195,7 +195,4 @@ class ReaderPageTurnStateMachine(
 		targetPageIndex = null
 	}
 
-	private companion object {
-		const val CompletedTurnProgress = 2f
-	}
 }
