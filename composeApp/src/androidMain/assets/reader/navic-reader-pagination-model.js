@@ -3,6 +3,12 @@ import {
   stableHash,
 } from './navic-reader-identity.js'
 
+export {
+  readerPageLocatorForVisualIndex,
+  readerPageTurnPlan,
+  readerPhysicalPageSide,
+} from './navic-reader-page-turn-model.js'
+
 export const ReaderPaginationProfileVersion = 'navic-pagination-v1'
 
 const readerPaginationNumber = (value, fallback = null) => {
