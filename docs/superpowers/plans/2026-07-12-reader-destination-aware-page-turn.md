@@ -611,13 +611,15 @@ npm --prefix tools/reader-harness run test:page-turn-model
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderRuntimeNavigationFlowTest"
 ```
 
-- [ ] **Step 3: Run complete Android host suite**
+- [x] **Step 3: Run complete Android host suite**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest
 ```
 
 Expected: no new failures compared with the theta92 baseline. Any environmental/reference failures are listed exactly rather than described as green.
+
+Final merged-tree result: 2,195 tests executed with 29 pre-existing baseline/environment failures and no destination-aware or paper-surface failures. The remaining set is three unmocked Android `BitmapFactory` calls, one existing Foliate known-gap assertion, five missing Komikku reference-file cases, eighteen missing Komikku common-UI reference cases, one existing ADB texture-probe assertion, and one missing Anx paginator reference.
 
 - [x] **Step 4: Run reader harness**
 

@@ -170,7 +170,7 @@ class ReaderRuntimePaperSurfaceTest {
 
 	@Test
 	fun landscapeDecorationUsesExplicitOuterEdgesAndCoverTint() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val helperText = readerPaperSurfaceContractText()
 		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
 		val shellCoverText = readerAssetRoot().resolve("navic-reader-shell-cover.js").readText()
 		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
@@ -223,7 +223,7 @@ class ReaderRuntimePaperSurfaceTest {
 	fun landscapeContentMarginsDoNotWidenBackCoverReveal() {
 		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
 		val viewportText = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val helperText = readerPaperSurfaceContractText()
 		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val probeText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
 
@@ -249,7 +249,7 @@ class ReaderRuntimePaperSurfaceTest {
 
 	@Test
 	fun portraitPaperCompositionDoesNotInheritLandscapeGeometry() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val helperText = readerPaperSurfaceContractText()
 		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
 		val previewText = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val typographyText = readerAssetRoot().resolve("navic-reader-typography.js").readText()
@@ -416,7 +416,7 @@ class ReaderRuntimePaperSurfaceTest {
 	fun androidReaderSplitsPageEffectOverlaysForIndependentSettings() {
 		val root = readerAssetRoot()
 		val bridgeText = readerBridgeText(root)
-		val helperText = root.resolve("navic-reader-helpers.js").readText()
+		val helperText = readerPaperSurfaceContractText(root)
 		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
 		val protocolText = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
 
@@ -463,7 +463,7 @@ class ReaderRuntimePaperSurfaceTest {
 
 	@Test
 	fun androidReaderUsesDistinctTextureVariantSeedSuffixesAndSpreadModeGate() {
-		val helperText = readerAssetRoot().resolve("navic-reader-helpers.js").readText()
+		val helperText = readerPaperSurfaceContractText()
 		val appearanceText = readerAssetRoot().resolve("navic-reader-appearance.js").readText()
 
 		assertContains(helperText, "\${key}|paper-base")

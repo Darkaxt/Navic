@@ -185,8 +185,10 @@ export const readerReadableCoverTintChannels = value => {
   const sourceSaturation = delta === 0
     ? 0
     : delta / (1 - Math.abs(2 * sourceLightness - 1))
-  const lightness = Math.min(0.46, Math.max(0.22, sourceLightness))
-  const saturation = Math.min(0.72, Math.max(0.38, sourceSaturation))
+  const minimumLightness = 0.22
+  const minimumSaturation = 0.38
+  const lightness = Math.min(0.46, Math.max(minimumLightness, sourceLightness))
+  const saturation = Math.min(0.72, Math.max(minimumSaturation, sourceSaturation))
   const q = lightness < 0.5
     ? lightness * (1 + saturation)
     : lightness + saturation - lightness * saturation
