@@ -12,8 +12,7 @@ const {
   ReaderDirectionRtl,
   ReaderLogicalDirectionNext,
   ReaderLogicalDirectionPrevious,
-  ReaderPageTurnLandscapeLeaf,
-  ReaderPageTurnPortraitLeaf,
+  ReaderPageTurnLandscapeSpreadSlide,
   ReaderPageTurnPortraitSlide,
   ReaderPhysicalPageCenter,
   ReaderPhysicalPageLeft,
@@ -105,7 +104,7 @@ test('fallback page parity anchors the first readable page opposite the cover', 
   }), ReaderPhysicalPageRight)
 })
 
-test('landscape next turns one physical leaf and advances two pages', () => {
+test('landscape next slides one complete spread and advances two pages', () => {
   assert.deepEqual(readerPageTurnPlan({
     currentPageIndex: 16,
     pageCount: 40,
@@ -114,22 +113,16 @@ test('landscape next turns one physical leaf and advances two pages', () => {
     currentPageSide: ReaderPhysicalPageLeft,
     readerDirection: ReaderDirectionLtr,
   }), {
-    kind: ReaderPageTurnLandscapeLeaf,
+    kind: ReaderPageTurnLandscapeSpreadSlide,
     logicalDirection: ReaderLogicalDirectionNext,
     sourcePageIndex: 16,
-    turningFrontPageIndex: 17,
-    turningReversePageIndex: 18,
-    underneathPageIndex: 19,
     targetPageIndex: 18,
-    sourcePageSide: ReaderPhysicalPageRight,
+    sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageLeft,
-    turningFrontPageSide: ReaderPhysicalPageRight,
-    turningReversePageSide: ReaderPhysicalPageLeft,
-    underneathPageSide: ReaderPhysicalPageRight,
   })
 })
 
-test('landscape previous mirrors one physical leaf and advances two pages', () => {
+test('landscape previous slides one complete spread and retreats two pages', () => {
   assert.deepEqual(readerPageTurnPlan({
     currentPageIndex: 16,
     pageCount: 40,
@@ -138,22 +131,16 @@ test('landscape previous mirrors one physical leaf and advances two pages', () =
     currentPageSide: ReaderPhysicalPageLeft,
     readerDirection: ReaderDirectionLtr,
   }), {
-    kind: ReaderPageTurnLandscapeLeaf,
+    kind: ReaderPageTurnLandscapeSpreadSlide,
     logicalDirection: ReaderLogicalDirectionPrevious,
     sourcePageIndex: 16,
-    turningFrontPageIndex: 16,
-    turningReversePageIndex: 15,
-    underneathPageIndex: 14,
     targetPageIndex: 14,
     sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageLeft,
-    turningFrontPageSide: ReaderPhysicalPageLeft,
-    turningReversePageSide: ReaderPhysicalPageRight,
-    underneathPageSide: ReaderPhysicalPageLeft,
   })
 })
 
-test('RTL landscape mirrors physical page roles without changing logical ordinals', () => {
+test('RTL landscape preserves logical ordinals and mirrors spread anchor side', () => {
   const plan = readerPageTurnPlan({
     currentPageIndex: 16,
     pageCount: 40,
@@ -162,18 +149,14 @@ test('RTL landscape mirrors physical page roles without changing logical ordinal
     currentPageSide: ReaderPhysicalPageRight,
     readerDirection: ReaderDirectionRtl,
   })
-  assert.equal(plan.turningFrontPageIndex, 17)
-  assert.equal(plan.turningReversePageIndex, 18)
-  assert.equal(plan.underneathPageIndex, 19)
-  assert.equal(plan.sourcePageSide, ReaderPhysicalPageLeft)
+  assert.equal(plan.sourcePageIndex, 16)
+  assert.equal(plan.targetPageIndex, 18)
+  assert.equal(plan.sourcePageSide, ReaderPhysicalPageRight)
   assert.equal(plan.targetPageSide, ReaderPhysicalPageRight)
-  assert.equal(plan.turningFrontPageSide, ReaderPhysicalPageLeft)
-  assert.equal(plan.turningReversePageSide, ReaderPhysicalPageRight)
-  assert.equal(plan.underneathPageSide, ReaderPhysicalPageLeft)
 })
 
-test('portrait LTR next alternates slide then leaf', () => {
-  const slide = readerPageTurnPlan({
+test('portrait LTR next always slides one adjacent visual page', () => {
+  const fromLeft = readerPageTurnPlan({
     currentPageIndex: 6,
     pageCount: 20,
     layoutMode: 'single',
@@ -181,22 +164,16 @@ test('portrait LTR next alternates slide then leaf', () => {
     currentPageSide: ReaderPhysicalPageLeft,
     readerDirection: ReaderDirectionLtr,
   })
-  assert.deepEqual(slide, {
+  assert.deepEqual(fromLeft, {
     kind: ReaderPageTurnPortraitSlide,
     logicalDirection: ReaderLogicalDirectionNext,
     sourcePageIndex: 6,
-    turningFrontPageIndex: 6,
-    turningReversePageIndex: null,
-    underneathPageIndex: null,
     targetPageIndex: 7,
     sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageRight,
-    turningFrontPageSide: ReaderPhysicalPageLeft,
-    turningReversePageSide: null,
-    underneathPageSide: null,
   })
 
-  const leaf = readerPageTurnPlan({
+  const fromRight = readerPageTurnPlan({
     currentPageIndex: 7,
     pageCount: 20,
     layoutMode: 'single',
@@ -204,24 +181,18 @@ test('portrait LTR next alternates slide then leaf', () => {
     currentPageSide: ReaderPhysicalPageRight,
     readerDirection: ReaderDirectionLtr,
   })
-  assert.deepEqual(leaf, {
-    kind: ReaderPageTurnPortraitLeaf,
+  assert.deepEqual(fromRight, {
+    kind: ReaderPageTurnPortraitSlide,
     logicalDirection: ReaderLogicalDirectionNext,
     sourcePageIndex: 7,
-    turningFrontPageIndex: 7,
-    turningReversePageIndex: 8,
-    underneathPageIndex: 9,
     targetPageIndex: 8,
     sourcePageSide: ReaderPhysicalPageRight,
     targetPageSide: ReaderPhysicalPageLeft,
-    turningFrontPageSide: ReaderPhysicalPageRight,
-    turningReversePageSide: ReaderPhysicalPageLeft,
-    underneathPageSide: ReaderPhysicalPageRight,
   })
 })
 
-test('portrait previous mirrors slide and leaf behavior', () => {
-  const slide = readerPageTurnPlan({
+test('portrait previous always slides one adjacent visual page', () => {
+  const fromRight = readerPageTurnPlan({
     currentPageIndex: 7,
     pageCount: 20,
     layoutMode: 'single',
@@ -229,10 +200,10 @@ test('portrait previous mirrors slide and leaf behavior', () => {
     currentPageSide: ReaderPhysicalPageRight,
     readerDirection: ReaderDirectionLtr,
   })
-  assert.equal(slide.kind, ReaderPageTurnPortraitSlide)
-  assert.equal(slide.targetPageIndex, 6)
+  assert.equal(fromRight.kind, ReaderPageTurnPortraitSlide)
+  assert.equal(fromRight.targetPageIndex, 6)
 
-  const leaf = readerPageTurnPlan({
+  const fromLeft = readerPageTurnPlan({
     currentPageIndex: 6,
     pageCount: 20,
     layoutMode: 'single',
@@ -240,17 +211,14 @@ test('portrait previous mirrors slide and leaf behavior', () => {
     currentPageSide: ReaderPhysicalPageLeft,
     readerDirection: ReaderDirectionLtr,
   })
-  assert.equal(leaf.kind, ReaderPageTurnPortraitLeaf)
-  assert.equal(leaf.turningReversePageIndex, 5)
-  assert.equal(leaf.underneathPageIndex, 4)
-  assert.equal(leaf.targetPageIndex, 5)
-  assert.equal(leaf.turningFrontPageSide, ReaderPhysicalPageLeft)
-  assert.equal(leaf.turningReversePageSide, ReaderPhysicalPageRight)
-  assert.equal(leaf.underneathPageSide, ReaderPhysicalPageLeft)
+  assert.equal(fromLeft.kind, ReaderPageTurnPortraitSlide)
+  assert.equal(fromLeft.targetPageIndex, 5)
+  assert.equal(fromLeft.sourcePageSide, ReaderPhysicalPageLeft)
+  assert.equal(fromLeft.targetPageSide, ReaderPhysicalPageRight)
 })
 
-test('portrait RTL mirrors which physical side performs the leaf', () => {
-  const leaf = readerPageTurnPlan({
+test('portrait RTL still slides exactly one logical page', () => {
+  const slide = readerPageTurnPlan({
     currentPageIndex: 7,
     pageCount: 20,
     layoutMode: 'single',
@@ -258,15 +226,30 @@ test('portrait RTL mirrors which physical side performs the leaf', () => {
     currentPageSide: ReaderPhysicalPageLeft,
     readerDirection: ReaderDirectionRtl,
   })
-  assert.equal(leaf.kind, ReaderPageTurnPortraitLeaf)
-  assert.equal(leaf.targetPageIndex, 8)
-  assert.equal(leaf.targetPageSide, ReaderPhysicalPageRight)
-  assert.equal(leaf.turningFrontPageSide, ReaderPhysicalPageLeft)
-  assert.equal(leaf.turningReversePageSide, ReaderPhysicalPageRight)
-  assert.equal(leaf.underneathPageSide, ReaderPhysicalPageLeft)
+  assert.equal(slide.kind, ReaderPageTurnPortraitSlide)
+  assert.equal(slide.targetPageIndex, 8)
+  assert.equal(slide.targetPageSide, ReaderPhysicalPageRight)
 })
 
-test('planner rejects incomplete physical bundles at publication boundaries', () => {
+test('planner accepts terminal landscape spread when its target start exists', () => {
+  assert.deepEqual(readerPageTurnPlan({
+    currentPageIndex: 8,
+    pageCount: 12,
+    layoutMode: 'spread',
+    logicalDirection: ReaderLogicalDirectionNext,
+    currentPageSide: ReaderPhysicalPageLeft,
+    readerDirection: ReaderDirectionLtr,
+  }), {
+    kind: ReaderPageTurnLandscapeSpreadSlide,
+    logicalDirection: ReaderLogicalDirectionNext,
+    sourcePageIndex: 8,
+    targetPageIndex: 10,
+    sourcePageSide: ReaderPhysicalPageLeft,
+    targetPageSide: ReaderPhysicalPageLeft,
+  })
+})
+
+test('planner rejects targets outside publication boundaries', () => {
   assert.equal(readerPageTurnPlan({
     currentPageIndex: 10,
     pageCount: 12,
@@ -285,7 +268,7 @@ test('planner rejects incomplete physical bundles at publication boundaries', ()
   }), null)
 })
 
-test('single-page boundaries and center pages fall back without fabricating leaves', () => {
+test('single-page boundaries reject navigation without fabricating pages', () => {
   assert.equal(readerPageTurnPlan({
     currentPageIndex: 0,
     pageCount: 1,
@@ -294,17 +277,24 @@ test('single-page boundaries and center pages fall back without fabricating leav
     currentPageSide: ReaderPhysicalPageLeft,
     readerDirection: ReaderDirectionLtr,
   }), null)
-  assert.equal(readerPageTurnPlan({
+  assert.deepEqual(readerPageTurnPlan({
     currentPageIndex: 4,
     pageCount: 12,
     layoutMode: 'single',
     logicalDirection: ReaderLogicalDirectionNext,
     currentPageSide: ReaderPhysicalPageCenter,
     readerDirection: ReaderDirectionLtr,
-  }), null)
+  }), {
+    kind: ReaderPageTurnPortraitSlide,
+    logicalDirection: ReaderLogicalDirectionNext,
+    sourcePageIndex: 4,
+    targetPageIndex: 5,
+    sourcePageSide: ReaderPhysicalPageCenter,
+    targetPageSide: ReaderPhysicalPageCenter,
+  })
 })
 
-test('RTL portrait previous mirrors one-page ordinal and physical leaf roles', () => {
+test('RTL portrait previous preserves one-page ordinal', () => {
   const plan = readerPageTurnPlan({
     currentPageIndex: 8,
     pageCount: 20,
@@ -313,9 +303,26 @@ test('RTL portrait previous mirrors one-page ordinal and physical leaf roles', (
     currentPageSide: ReaderPhysicalPageRight,
     readerDirection: ReaderDirectionRtl,
   })
-  assert.equal(plan.kind, ReaderPageTurnPortraitLeaf)
+  assert.equal(plan.kind, ReaderPageTurnPortraitSlide)
   assert.equal(plan.targetPageIndex, 7)
-  assert.equal(plan.turningFrontPageSide, ReaderPhysicalPageRight)
-  assert.equal(plan.turningReversePageSide, ReaderPhysicalPageLeft)
-  assert.equal(plan.underneathPageSide, ReaderPhysicalPageRight)
+  assert.equal(plan.sourcePageSide, ReaderPhysicalPageRight)
+  assert.equal(plan.targetPageSide, ReaderPhysicalPageLeft)
+})
+
+test('slide plans expose no curl or reverse-face roles', () => {
+  const plan = readerPageTurnPlan({
+    currentPageIndex: 6,
+    pageCount: 20,
+    layoutMode: 'single',
+    logicalDirection: ReaderLogicalDirectionNext,
+    currentPageSide: ReaderPhysicalPageLeft,
+    readerDirection: ReaderDirectionLtr,
+  })
+
+  assert.equal('turningFrontPageIndex' in plan, false)
+  assert.equal('turningReversePageIndex' in plan, false)
+  assert.equal('underneathPageIndex' in plan, false)
+  assert.equal('turningFrontPageSide' in plan, false)
+  assert.equal('turningReversePageSide' in plan, false)
+  assert.equal('underneathPageSide' in plan, false)
 })

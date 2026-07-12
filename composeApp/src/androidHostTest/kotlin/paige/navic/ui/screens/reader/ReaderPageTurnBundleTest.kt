@@ -6,57 +6,57 @@ import kotlin.test.assertNull
 
 class ReaderPageTurnBundleTest {
 	@Test
-	fun parsesEveryExplicitLandscapeBitmapRole() {
+	fun parsesSimplifiedLandscapeSpreadSlidePlan() {
 		val plan = ReaderPageTurnTransitionPlan.parseOrThrow(
 			encoded = """
 				{
-				  "kind": "landscape-leaf",
+				  "kind": "landscape-spread-slide",
 				  "logicalDirection": "next",
 				  "sourcePageIndex": 16,
-				  "turningFrontPageIndex": 17,
-				  "turningReversePageIndex": 18,
-				  "underneathPageIndex": 19,
 				  "targetPageIndex": 18,
-				  "sourcePageSide": "right",
-				  "targetPageSide": "left",
-				  "turningFrontPageSide": "right",
-				  "turningReversePageSide": "left",
-				  "underneathPageSide": "right"
+				  "sourcePageSide": "left",
+				  "targetPageSide": "left"
 				}
 			""".trimIndent(),
 			token = "turn-16-18",
 			generation = 7L
 		)
 
-		assertEquals(ReaderPageTurnTransitionKind.LandscapeLeaf, plan.kind)
+		assertEquals(ReaderPageTurnTransitionKind.LandscapeSpreadSlide, plan.kind)
 		assertEquals(ReaderPageTurnLogicalDirection.Next, plan.logicalDirection)
-		assertEquals(ReaderPageTurnPhysicalSide.Right, plan.turningFrontPageSide)
-		assertEquals(ReaderPageTurnPhysicalSide.Left, plan.turningReversePageSide)
-		assertEquals(ReaderPageTurnPhysicalSide.Right, plan.underneathPageSide)
 		assertEquals(18, plan.targetPageIndex)
+		assertEquals(16, plan.sourcePageIndex)
 		assertEquals(7L, plan.generation)
 	}
 
 	@Test
-	fun rejectsPlanBeforeAllocationWhenARequiredRoleIsMissing() {
+	fun parsesSimplifiedPortraitSlideWithoutCurlRoles() {
 		val plan = ReaderPageTurnTransitionPlan.parse(
 			encoded = """
 				{
-				  "kind": "landscape-leaf",
+				  "kind": "portrait-slide",
 				  "logicalDirection": "next",
-				  "sourcePageIndex": 16,
-				  "turningFrontPageIndex": 17,
-				  "turningReversePageIndex": 18,
-				  "underneathPageIndex": 19,
-				  "targetPageIndex": 18,
-				  "sourcePageSide": "right",
-				  "targetPageSide": "left",
-				  "turningFrontPageSide": "right",
-				  "underneathPageSide": "right"
+				  "sourcePageIndex": 6,
+				  "targetPageIndex": 7,
+				  "sourcePageSide": "left",
+				  "targetPageSide": "right"
 				}
 			""".trimIndent(),
-			token = "invalid",
+			token = "portrait-6-7",
 			generation = 8L
+		)
+
+		assertEquals(ReaderPageTurnTransitionKind.PortraitSlide, plan?.kind)
+		assertEquals(6, plan?.sourcePageIndex)
+		assertEquals(7, plan?.targetPageIndex)
+	}
+
+	@Test
+	fun rejectsUnknownTransitionKind() {
+		val plan = ReaderPageTurnTransitionPlan.parse(
+			encoded = """{"kind":"curl","logicalDirection":"next","sourcePageIndex":6,"targetPageIndex":7,"sourcePageSide":"left","targetPageSide":"right"}""",
+			token = "invalid",
+			generation = 9L
 		)
 
 		assertNull(plan)

@@ -13,6 +13,7 @@ import paige.navic.reader.ReaderPageTurnPageRole
 
 internal enum class ReaderPageTurnTransitionKind {
 	LandscapeLeaf,
+	LandscapeSpreadSlide,
 	PortraitLeaf,
 	PortraitSlide
 }
@@ -51,7 +52,8 @@ internal data class ReaderPageTurnTransitionPlan(
 		get() = "$kind:$sourcePageIndex:$targetPageIndex:$sourcePageSide:$targetPageSide"
 
 	fun matchesLayout(spread: Boolean): Boolean =
-		(kind == ReaderPageTurnTransitionKind.LandscapeLeaf) == spread
+		(kind == ReaderPageTurnTransitionKind.LandscapeLeaf ||
+			kind == ReaderPageTurnTransitionKind.LandscapeSpreadSlide) == spread
 
 	companion object {
 		fun parse(encoded: String?, token: String, generation: Long): ReaderPageTurnTransitionPlan? =
@@ -66,10 +68,27 @@ internal data class ReaderPageTurnTransitionPlan(
 				raw
 			}
 			val json = Json.parseToJsonElement(jsonText).jsonObject
+			val kind = json.requiredKind("kind")
+			val logicalDirection = json.requiredLogicalDirection("logicalDirection")
+			val sourcePageIndex = json.requiredIndex("sourcePageIndex")
+			val targetPageIndex = json.requiredIndex("targetPageIndex")
+			val sourcePageSide = json.requiredSide("sourcePageSide")
+			val targetPageSide = json.requiredSide("targetPageSide")
+			val legacyRoles = legacyBitmapRoles(
+				kind = kind,
+				logicalDirection = logicalDirection,
+				sourcePageIndex = sourcePageIndex,
+				targetPageIndex = targetPageIndex,
+				sourcePageSide = sourcePageSide
+			)
 			val turningReversePageIndex = json.optionalIndex("turningReversePageIndex")
+				?: legacyRoles.turningReversePageIndex
 			val underneathPageIndex = json.optionalIndex("underneathPageIndex")
+				?: legacyRoles.underneathPageIndex
 			val turningReversePageSide = json.optionalSide("turningReversePageSide")
+				?: legacyRoles.turningReversePageSide
 			val underneathPageSide = json.optionalSide("underneathPageSide")
+				?: legacyRoles.underneathPageSide
 			require((turningReversePageIndex == null) == (turningReversePageSide == null)) {
 				"Reverse page index and side must be supplied together"
 			}
@@ -79,21 +98,78 @@ internal data class ReaderPageTurnTransitionPlan(
 			return ReaderPageTurnTransitionPlan(
 				token = token,
 				generation = generation,
-				kind = json.requiredKind("kind"),
-				logicalDirection = json.requiredLogicalDirection("logicalDirection"),
-				sourcePageIndex = json.requiredIndex("sourcePageIndex"),
-				turningFrontPageIndex = json.requiredIndex("turningFrontPageIndex"),
+				kind = kind,
+				logicalDirection = logicalDirection,
+				sourcePageIndex = sourcePageIndex,
+				turningFrontPageIndex = json.optionalIndex("turningFrontPageIndex")
+					?: legacyRoles.turningFrontPageIndex,
 				turningReversePageIndex = turningReversePageIndex,
 				underneathPageIndex = underneathPageIndex,
-				targetPageIndex = json.requiredIndex("targetPageIndex"),
-				sourcePageSide = json.requiredSide("sourcePageSide"),
-				targetPageSide = json.requiredSide("targetPageSide"),
-				turningFrontPageSide = json.requiredSide("turningFrontPageSide"),
+				targetPageIndex = targetPageIndex,
+				sourcePageSide = sourcePageSide,
+				targetPageSide = targetPageSide,
+				turningFrontPageSide = json.optionalSide("turningFrontPageSide")
+					?: legacyRoles.turningFrontPageSide,
 				turningReversePageSide = turningReversePageSide,
 				underneathPageSide = underneathPageSide
 			)
 		}
 	}
+}
+
+private data class LegacyBitmapRoles(
+	val turningFrontPageIndex: Int,
+	val turningReversePageIndex: Int?,
+	val underneathPageIndex: Int?,
+	val turningFrontPageSide: ReaderPageTurnPhysicalSide,
+	val turningReversePageSide: ReaderPageTurnPhysicalSide?,
+	val underneathPageSide: ReaderPageTurnPhysicalSide?
+)
+
+private fun legacyBitmapRoles(
+	kind: ReaderPageTurnTransitionKind,
+	logicalDirection: ReaderPageTurnLogicalDirection,
+	sourcePageIndex: Int,
+	targetPageIndex: Int,
+	sourcePageSide: ReaderPageTurnPhysicalSide
+): LegacyBitmapRoles {
+	if (kind != ReaderPageTurnTransitionKind.LandscapeSpreadSlide) {
+		return LegacyBitmapRoles(
+			turningFrontPageIndex = sourcePageIndex,
+			turningReversePageIndex = null,
+			underneathPageIndex = null,
+			turningFrontPageSide = sourcePageSide,
+			turningReversePageSide = null,
+			underneathPageSide = null
+		)
+	}
+
+	val oppositeSide = sourcePageSide.opposite()
+	return if (logicalDirection == ReaderPageTurnLogicalDirection.Next) {
+		LegacyBitmapRoles(
+			turningFrontPageIndex = sourcePageIndex + 1,
+			turningReversePageIndex = targetPageIndex,
+			underneathPageIndex = targetPageIndex + 1,
+			turningFrontPageSide = oppositeSide,
+			turningReversePageSide = sourcePageSide,
+			underneathPageSide = oppositeSide
+		)
+	} else {
+		LegacyBitmapRoles(
+			turningFrontPageIndex = sourcePageIndex,
+			turningReversePageIndex = sourcePageIndex - 1,
+			underneathPageIndex = targetPageIndex,
+			turningFrontPageSide = sourcePageSide,
+			turningReversePageSide = oppositeSide,
+			underneathPageSide = sourcePageSide
+		)
+	}
+}
+
+private fun ReaderPageTurnPhysicalSide.opposite(): ReaderPageTurnPhysicalSide = when (this) {
+	ReaderPageTurnPhysicalSide.Left -> ReaderPageTurnPhysicalSide.Right
+	ReaderPageTurnPhysicalSide.Right -> ReaderPageTurnPhysicalSide.Left
+	ReaderPageTurnPhysicalSide.Center -> ReaderPageTurnPhysicalSide.Center
 }
 
 internal class ReaderPageTurnBitmapBundle(
@@ -136,6 +212,7 @@ private fun JsonObject.optionalIndex(key: String): Int? =
 
 private fun JsonObject.requiredKind(key: String): ReaderPageTurnTransitionKind = when (requiredString(key)) {
 	"landscape-leaf" -> ReaderPageTurnTransitionKind.LandscapeLeaf
+	"landscape-spread-slide" -> ReaderPageTurnTransitionKind.LandscapeSpreadSlide
 	"portrait-leaf" -> ReaderPageTurnTransitionKind.PortraitLeaf
 	"portrait-slide" -> ReaderPageTurnTransitionKind.PortraitSlide
 	else -> error("Unsupported page-turn kind: ${get(key)}")

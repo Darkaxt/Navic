@@ -125,7 +125,8 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 				return
 			}
 			ReaderPageTurnTransitionKind.PortraitLeaf,
-			ReaderPageTurnTransitionKind.LandscapeLeaf -> Unit
+			ReaderPageTurnTransitionKind.LandscapeLeaf,
+			ReaderPageTurnTransitionKind.LandscapeSpreadSlide -> Unit
 		}
 		canvas.drawBitmap(currentBase, 0f, 0f, bitmapPaint)
 		if (underneath != null && underneathRect != null) {

@@ -8,8 +8,7 @@ export const ReaderPhysicalPageLeft = 'left'
 export const ReaderPhysicalPageRight = 'right'
 export const ReaderPhysicalPageCenter = 'center'
 
-export const ReaderPageTurnLandscapeLeaf = 'landscape-leaf'
-export const ReaderPageTurnPortraitLeaf = 'portrait-leaf'
+export const ReaderPageTurnLandscapeSpreadSlide = 'landscape-spread-slide'
 export const ReaderPageTurnPortraitSlide = 'portrait-slide'
 
 const normalizedPageIndex = value => {
@@ -92,28 +91,16 @@ const frozenPlan = ({
   kind,
   logicalDirection,
   sourcePageIndex,
-  turningFrontPageIndex,
-  turningReversePageIndex = null,
-  underneathPageIndex = null,
   targetPageIndex,
   sourcePageSide,
   targetPageSide,
-  turningFrontPageSide = sourcePageSide,
-  turningReversePageSide = null,
-  underneathPageSide = null,
 }) => Object.freeze({
   kind,
   logicalDirection,
   sourcePageIndex,
-  turningFrontPageIndex,
-  turningReversePageIndex,
-  underneathPageIndex,
   targetPageIndex,
   sourcePageSide,
   targetPageSide,
-  turningFrontPageSide,
-  turningReversePageSide,
-  underneathPageSide,
 })
 
 export function readerPageTurnPlan({
@@ -133,77 +120,31 @@ export function readerPageTurnPlan({
   }
 
   const leading = leadingPageSide(readerDirection)
-  const trailing = trailingPageSide(readerDirection)
   if (layoutMode === 'spread') {
-    const plan = next
-      ? {
-          kind: ReaderPageTurnLandscapeLeaf,
-          logicalDirection,
-          sourcePageIndex,
-          turningFrontPageIndex: sourcePageIndex + 1,
-          turningReversePageIndex: sourcePageIndex + 2,
-          underneathPageIndex: sourcePageIndex + 3,
-          targetPageIndex: sourcePageIndex + 2,
-          sourcePageSide: trailing,
-          targetPageSide: leading,
-          turningFrontPageSide: trailing,
-          turningReversePageSide: leading,
-          underneathPageSide: trailing,
-        }
-      : {
-          kind: ReaderPageTurnLandscapeLeaf,
-          logicalDirection,
-          sourcePageIndex,
-          turningFrontPageIndex: sourcePageIndex,
-          turningReversePageIndex: sourcePageIndex - 1,
-          underneathPageIndex: sourcePageIndex - 2,
-          targetPageIndex: sourcePageIndex - 2,
-          sourcePageSide: leading,
-          targetPageSide: leading,
-          turningFrontPageSide: leading,
-          turningReversePageSide: trailing,
-          underneathPageSide: leading,
-        }
-    if (
-      !pageIndexExists(plan.turningFrontPageIndex, normalizedCount) ||
-      !pageIndexExists(plan.turningReversePageIndex, normalizedCount) ||
-      !pageIndexExists(plan.underneathPageIndex, normalizedCount) ||
-      !pageIndexExists(plan.targetPageIndex, normalizedCount)
-    ) return null
-    return frozenPlan(plan)
-  }
-
-  if (!validPhysicalSide(currentPageSide) || currentPageSide === ReaderPhysicalPageCenter) return null
-  const step = next ? 1 : -1
-  const targetPageIndex = sourcePageIndex + step
-  if (!pageIndexExists(targetPageIndex, normalizedCount)) return null
-  const leaf = next ? currentPageSide === trailing : currentPageSide === leading
-  if (!leaf) {
+    const targetPageIndex = sourcePageIndex + (next ? 2 : -2)
+    if (!pageIndexExists(targetPageIndex, normalizedCount)) return null
     return frozenPlan({
-      kind: ReaderPageTurnPortraitSlide,
+      kind: ReaderPageTurnLandscapeSpreadSlide,
       logicalDirection,
       sourcePageIndex,
-      turningFrontPageIndex: sourcePageIndex,
       targetPageIndex,
-      sourcePageSide: currentPageSide,
-      targetPageSide: oppositePhysicalSide(currentPageSide),
+      sourcePageSide: leading,
+      targetPageSide: leading,
     })
   }
 
-  const underneathPageIndex = targetPageIndex + step
-  if (!pageIndexExists(underneathPageIndex, normalizedCount)) return null
+  const step = next ? 1 : -1
+  const targetPageIndex = sourcePageIndex + step
+  if (!pageIndexExists(targetPageIndex, normalizedCount)) return null
+  const sourcePageSide = validPhysicalSide(currentPageSide)
+    ? currentPageSide
+    : ReaderPhysicalPageCenter
   return frozenPlan({
-    kind: ReaderPageTurnPortraitLeaf,
+    kind: ReaderPageTurnPortraitSlide,
     logicalDirection,
     sourcePageIndex,
-    turningFrontPageIndex: sourcePageIndex,
-    turningReversePageIndex: targetPageIndex,
-    underneathPageIndex,
     targetPageIndex,
-    sourcePageSide: currentPageSide,
-    targetPageSide: oppositePhysicalSide(currentPageSide),
-    turningFrontPageSide: currentPageSide,
-    turningReversePageSide: oppositePhysicalSide(currentPageSide),
-    underneathPageSide: currentPageSide,
+    sourcePageSide,
+    targetPageSide: oppositePhysicalSide(sourcePageSide),
   })
 }
