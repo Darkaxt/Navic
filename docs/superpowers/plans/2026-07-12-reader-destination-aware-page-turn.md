@@ -653,7 +653,7 @@ Save under `captures/page-turn-destination-aware/final/` and inspect frame conti
 
 Validated on `emulator-5554` at tablet landscape and portrait resolutions. Forward and reverse landscape leaves, portrait slide and leaf transitions, cross-section relocation, cancel, slow drag, fast flick, rotation, and background/foreground restoration all retained real destination content. The terminal fold remained frame-continuous, `finalBase` covered exact relocation, cancellation emitted no relocation, and lifecycle invalidation rebuilt only layout-compatible adjacent bundles. Large recordings and frame sheets remain local under `.codex-evidence/capture-readiness/` rather than being committed.
 
-- [ ] **Step 7: Run diff and worktree checks**
+- [x] **Step 7: Run diff and worktree checks**
 
 ```powershell
 git diff --check
@@ -663,7 +663,7 @@ git log --oneline master..HEAD
 
 Expected: clean diff check, only intentional evidence or source changes before final commit.
 
-- [ ] **Step 8: Commit verification evidence**
+- [x] **Step 8: Commit verification evidence**
 
 ```powershell
 git add captures/page-turn-destination-aware docs/superpowers
@@ -675,7 +675,7 @@ git commit -m "test(reader): verify destination-aware page turns"
 **Files:**
 - Modify release/version files following the repository's current theta release procedure.
 
-- [ ] **Step 1: Fetch and integrate current master**
+- [x] **Step 1: Fetch and integrate current master**
 
 ```powershell
 git fetch --all --prune
@@ -684,7 +684,7 @@ git merge fork/master
 
 Resolve conflicts by preserving newer master behavior and reapplying the destination-aware contract. Re-run Task 9 after any conflict resolution.
 
-- [ ] **Step 2: Merge the feature into local master**
+- [x] **Step 2: Merge the feature into local master**
 
 From the authoritative master worktree:
 
@@ -692,7 +692,7 @@ From the authoritative master worktree:
 git merge --no-ff feat/destination-aware-page-turns
 ```
 
-- [ ] **Step 3: Prepare the next theta version**
+- [x] **Step 3: Prepare the next theta version**
 
 Increment from the current public release using the next numeric theta suffix. Update release notes with:
 
