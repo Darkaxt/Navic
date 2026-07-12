@@ -39,6 +39,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
@@ -70,7 +71,6 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
-import paige.navic.domain.manager.AudioPlaybackArbitrator
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PlaybackOriginCredit
@@ -79,7 +79,6 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.AurralFlowSongIdPrefix
-import paige.navic.domain.models.AudioPlaybackOwner
 import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainExplicitStatus
@@ -111,7 +110,6 @@ import paige.navic.domain.models.shouldAutoFillQueue
 import paige.navic.domain.models.shouldAdvanceMedleyMode
 import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
 import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
-import paige.navic.domain.models.shouldPauseForAudioPlaybackClaim
 import paige.navic.domain.models.shouldFadePlaybackCommand
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
@@ -624,7 +622,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 
 	private inner class PlaybackSessionCallback(
-		private val player: Player
+		private val player: ExoPlayer
 	) : MediaSession.Callback {
 		override fun onConnect(
 			session: MediaSession,
@@ -634,6 +632,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				.buildUpon()
 				.add(toggleShuffleCommand)
 				.add(toggleRepeatCommand)
+				.add(restoreShuffleOrderCommand)
 				.build()
 
 			return MediaSession.ConnectionResult.accept(
@@ -650,6 +649,17 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		): ListenableFuture<SessionResult> {
 			when (customCommand.customAction) {
 				ACTION_TOGGLE_SHUFFLE -> player.shuffleModeEnabled = !player.shuffleModeEnabled
+				ACTION_RESTORE_SHUFFLE_ORDER -> {
+					val order = args.getIntArray(EXTRA_SHUFFLE_ORDER)
+					if (
+						order == null ||
+						order.size != player.mediaItemCount ||
+						order.toSet() != (0 until player.mediaItemCount).toSet()
+					) {
+						return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+					}
+					player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(order, 0L))
+				}
 				ACTION_TOGGLE_REPEAT -> {
 					player.repeatMode = when (player.repeatMode) {
 						Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
@@ -674,16 +684,29 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			"paige.navic.shared.action.TOGGLE_SHUFFLE"
 		private const val ACTION_TOGGLE_REPEAT =
 			"paige.navic.shared.action.TOGGLE_REPEAT"
+		private const val ACTION_RESTORE_SHUFFLE_ORDER =
+			"paige.navic.shared.action.RESTORE_SHUFFLE_ORDER"
+		private const val EXTRA_SHUFFLE_ORDER =
+			"paige.navic.shared.extra.SHUFFLE_ORDER"
 		private const val EXTRA_REPLAY_GAIN_LOUDNESS_ENABLED =
 			"paige.navic.shared.extra.REPLAY_GAIN_LOUDNESS_ENABLED"
 		private const val EXTRA_REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB =
 			"paige.navic.shared.extra.REPLAY_GAIN_LOUDNESS_TARGET_GAIN_MB"
 		private val toggleShuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
 		private val toggleRepeatCommand = SessionCommand(ACTION_TOGGLE_REPEAT, Bundle.EMPTY)
+		private val restoreShuffleOrderCommand = SessionCommand(ACTION_RESTORE_SHUFFLE_ORDER, Bundle.EMPTY)
 
 		fun newSessionToken(context: Context): SessionToken {
 			return SessionToken(context, ComponentName(context, PlaybackService::class.java))
 		}
+
+		fun restoreShuffleOrder(
+			controller: MediaController,
+			order: List<Int>
+		): ListenableFuture<SessionResult> = controller.sendCustomCommand(
+			restoreShuffleOrderCommand,
+			Bundle().apply { putIntArray(EXTRA_SHUFFLE_ORDER, order.toIntArray()) }
+		)
 
 		fun refreshAudioEffects(context: Context) {
 			context.startService(

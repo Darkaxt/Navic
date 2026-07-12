@@ -37,7 +37,11 @@ class ReadaloudAudioControllerTest {
 			"ReadaloudPlaybackService must be declared in AndroidManifest.xml so Media3 can resolve its SessionToken."
 		)
 		assertEquals("true", service.androidAttribute("enabled"))
-		assertEquals("true", service.androidAttribute("exported"))
+		assertEquals(
+			"false",
+			service.androidAttribute("exported"),
+			"Readaloud playback is app-internal and must not expose a second external Media3 service."
+		)
 		assertEquals("mediaPlayback", service.androidAttribute("foregroundServiceType"))
 		assertEquals("\${applicationId}.permission.PLAYBACK_SERVICE", service.androidAttribute("permission"))
 		assertTrue(
@@ -65,6 +69,16 @@ class ReadaloudAudioControllerTest {
 		val releaseBody = source.substringAfter("fun release()").substringBefore("\n\t}")
 
 		assertContains(releaseBody, "publishPosition()")
+	}
+
+	@Test
+	fun readaloudControllerUsesSharedConnectionOwnerAndHandlesDisconnects() {
+		val source = readaloudAudioControllerSourceFile().readText()
+
+		assertContains(source, "FutureConnectionOwner<MediaController>")
+		assertContains(source, "MediaController.Listener")
+		assertContains(source, "connectionOwner.disconnect(disconnectedController)")
+		assertContains(source, "connectionOwner.close()")
 	}
 
 	private fun androidManifestServices() = DocumentBuilderFactory

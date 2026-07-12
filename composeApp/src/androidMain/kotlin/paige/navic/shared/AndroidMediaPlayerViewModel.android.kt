@@ -46,8 +46,8 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -71,7 +71,8 @@ import paige.navic.data.database.dao.SongDao
 import paige.navic.data.database.mappers.toEntity
 import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
-import paige.navic.domain.manager.AudioPlaybackArbitrator
+import paige.navic.domain.manager.AudioPlaybackOwnershipClaim
+import paige.navic.domain.manager.AudioPlaybackOwnershipCoordinator
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
@@ -98,6 +99,7 @@ import paige.navic.domain.models.mediaNotificationActions
 import paige.navic.domain.models.playbackVolumeMultiplier
 import paige.navic.domain.models.replayGainLoudnessBoostMillibels
 import paige.navic.domain.models.replayGainVolumeMultiplier
+import paige.navic.domain.models.restoredShuffleOrder
 import paige.navic.domain.models.shouldEnableBassBoost
 import paige.navic.domain.models.shouldEnableAudioReverb
 import paige.navic.domain.models.shouldAdvanceMedleyMode
@@ -140,7 +142,7 @@ class AndroidMediaPlayerViewModel(
 	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val playbackOriginRepository: PlaybackOriginRepository,
-	private val audioPlaybackArbitrator: AudioPlaybackArbitrator,
+	private val audioPlaybackOwnershipCoordinator: AudioPlaybackOwnershipCoordinator,
 	private val preferenceManager: PreferenceManager,
 	private val snackBarManager: SnackBarManager
 ) : MediaPlayerViewModel(
@@ -150,7 +152,30 @@ class AndroidMediaPlayerViewModel(
 	preferenceManager = preferenceManager
 ) {
 	private var controller: MediaController? = null
-	private var controllerFuture: ListenableFuture<MediaController>? = null
+	private var playbackClaim: AudioPlaybackOwnershipClaim? = null
+	private val connectionOwner = FutureConnectionOwner<MediaController>(
+		onConnected = { connectedController ->
+			controller = connectedController
+			Logger.i("MediaPlayer", "Media controller connected")
+			setupController()
+		},
+		onConnectionFailed = { error ->
+			controller = null
+			Logger.e("MediaPlayer", "Failed to connect media controller", error)
+		},
+		onDisconnected = { disconnectedController ->
+			if (controller === disconnectedController) controller = null
+			Logger.w("MediaPlayer", "Media controller disconnected; reconnecting")
+			releaseMusicPlayback()
+			connectToService()
+		},
+		releaseFuture = MediaController::releaseFuture
+	)
+	private val connectionListener = object : MediaController.Listener {
+		override fun onDisconnected(disconnectedController: MediaController) {
+			connectionOwner.disconnect(disconnectedController)
+		}
+	}
 
 	private var loadingCollectionId: String? = null
 
@@ -242,15 +267,17 @@ class AndroidMediaPlayerViewModel(
 
 	private fun observeAudioPlaybackClaims() {
 		viewModelScope.launch {
-			audioPlaybackArbitrator.claims.collectLatest { claimedOwner ->
-				val player = controller ?: return@collectLatest
+			audioPlaybackOwnershipCoordinator.activeClaim.collectLatest { claim ->
+				val claimedOwner = claim?.owner ?: return@collectLatest
+				if (controller == null) return@collectLatest
 				if (
 					shouldPauseForAudioPlaybackClaim(
 						currentOwner = AudioPlaybackOwner.Music,
 						claimedOwner = claimedOwner,
-						isPlaying = player.isPlaying
+						isPlaying = playbackClaim != null
 					)
 				) {
+					playbackClaim = null
 					pause()
 				}
 			}
@@ -258,18 +285,20 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	private fun claimMusicPlayback() {
-		audioPlaybackArbitrator.claim(AudioPlaybackOwner.Music)
+		playbackClaim = audioPlaybackOwnershipCoordinator.claim(AudioPlaybackOwner.Music)
+	}
+
+	private fun releaseMusicPlayback() {
+		playbackClaim?.let(audioPlaybackOwnershipCoordinator::release)
+		playbackClaim = null
 	}
 
 	private fun connectToService() {
-		viewModelScope.launch {
-			val sessionToken = PlaybackService.newSessionToken(application)
-			controllerFuture = MediaController.Builder(application, sessionToken).buildAsync()
-			controllerFuture?.addListener({
-				controller = controllerFuture?.get()
-				setupController()
-			}, MoreExecutors.directExecutor())
-		}
+		val sessionToken = PlaybackService.newSessionToken(application)
+		val future = MediaController.Builder(application, sessionToken)
+			.setListener(connectionListener)
+			.buildAsync()
+		if (!connectionOwner.connect(future)) MediaController.releaseFuture(future)
 	}
 
 	private fun getStreamUrl(id: String): Uri {
@@ -331,6 +360,7 @@ class AndroidMediaPlayerViewModel(
 
 					override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
 						_uiState.update { it.copy(isPaused = !playWhenReady) }
+						if (!playWhenReady) releaseMusicPlayback()
 						playbackDiagnostics.onPlayWhenReadyChanged(this@apply, playWhenReady, reason, _uiState.value.currentSong, null)
 					}
 
@@ -349,6 +379,7 @@ class AndroidMediaPlayerViewModel(
 						if (playbackState == Player.STATE_READY) {
 							queueAutoFiller.maybeAutoFillQueue()
 						}
+						if (playbackState == Player.STATE_ENDED) releaseMusicPlayback()
 					}
 
 					override fun onPlayerError(error: PlaybackException) {
@@ -673,8 +704,6 @@ class AndroidMediaPlayerViewModel(
 			}
 
 			player.setMediaItems(mediaItems)
-
-			player.shuffleModeEnabled = state.isShuffleEnabled
 			player.repeatMode = state.repeatMode
 			player.playbackParameters = PlaybackParameters(state.playbackSpeed, state.playbackPitch)
 
@@ -688,12 +717,52 @@ class AndroidMediaPlayerViewModel(
 				0L
 			}
 
-			player.seekTo(index, position)
-			player.prepare()
-			if (!state.isPaused) {
-				claimMusicPlayback()
-				player.play()
+			val shuffleOrder = if (state.isShuffleEnabled) {
+				restoredShuffleOrder(
+					itemCount = mediaItems.size,
+					currentIndex = index,
+					upcomingIndexes = state.upcomingIndexes
+				)
+			} else {
+				null
 			}
+			if (shuffleOrder == null) {
+				completePlayerStateRestore(player, state, index, position)
+			} else {
+				Futures.addCallback(
+					PlaybackService.restoreShuffleOrder(player, shuffleOrder),
+					object : FutureCallback<SessionResult> {
+						override fun onSuccess(result: SessionResult?) {
+							if (result?.resultCode != SessionResult.RESULT_SUCCESS) {
+								Logger.w("MediaPlayer", "Persisted shuffle order was rejected; using a new order")
+							}
+							completePlayerStateRestore(player, state, index, position)
+						}
+
+						override fun onFailure(error: Throwable) {
+							Logger.w("MediaPlayer", "Failed to restore persisted shuffle order", error)
+							completePlayerStateRestore(player, state, index, position)
+						}
+					},
+					MoreExecutors.directExecutor()
+				)
+			}
+		}
+	}
+
+	private fun completePlayerStateRestore(
+		player: MediaController,
+		state: PlayerUiState,
+		index: Int,
+		position: Long
+	) {
+		if (controller !== player) return
+		player.shuffleModeEnabled = state.isShuffleEnabled
+		player.seekTo(index, position)
+		player.prepare()
+		if (!state.isPaused) {
+			claimMusicPlayback()
+			player.play()
 		}
 	}
 
@@ -1143,6 +1212,7 @@ class AndroidMediaPlayerViewModel(
 				)
 			) {
 				player.pause()
+				releaseMusicPlayback()
 				return@launch
 			}
 
@@ -1155,6 +1225,7 @@ class AndroidMediaPlayerViewModel(
 				restoreVolumeOnCancel = originalVolume,
 				onEnd = {
 					player.pause()
+					releaseMusicPlayback()
 					player.volume = effectivePlaybackVolume(originalVolume)
 				}
 			)
@@ -1262,12 +1333,12 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun onCleared() {
-		viewModelScope.launch {
-			playbackVolumeFader.cancel(controller)
-			queueAutoFiller.cancel()
-			super.onCleared()
-			controllerFuture?.let { MediaController.releaseFuture(it) }
-		}
+		playbackVolumeFader.cancel(controller)
+		queueAutoFiller.cancel()
+		releaseMusicPlayback()
+		connectionOwner.close()
+		controller = null
+		super.onCleared()
 	}
 
 	override fun setPlaybackSpeed(value: Float) {

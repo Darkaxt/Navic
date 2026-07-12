@@ -65,7 +65,7 @@
 		<service
 			android:name="paige.navic.reader.ReadaloudPlaybackService"
 			android:enabled="true"
-			android:exported="true"
+			android:exported="false"
 			android:foregroundServiceType="mediaPlayback"
 			android:permission="${applicationId}.permission.PLAYBACK_SERVICE">
 			<intent-filter>

@@ -66,7 +66,7 @@ Every tranche uses the following pipeline:
 4. Implement in dependency order, committing each behavior boundary separately.
 5. Rebase onto current `master`; rerun the tranche test matrix and Android APK build.
 6. Fast-forward `master` without staging any unrelated worktree changes.
-7. Publish the next unused theta tag through GitHub Actions.
+7. Publish the next unused release tag through GitHub Actions. Tranche 1 starts the `iota` series at `v1.0.11-iota1`.
 8. Verify workflow, release asset digest, APK signature, embedded version, install, launch, and tranche-specific device behavior.
 9. Record release evidence in the audit/plan, push the evidence commit, then remove the worktree, branch, and downloaded verification artifact.
 

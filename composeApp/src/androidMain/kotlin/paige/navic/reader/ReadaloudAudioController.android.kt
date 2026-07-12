@@ -8,8 +8,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
+import paige.navic.shared.FutureConnectionOwner
 import paige.navic.util.core.Logger
 
 class ReadaloudAudioController(
@@ -17,7 +16,6 @@ class ReadaloudAudioController(
 	private val onPositionChanged: (ReadaloudPlaybackPosition) -> Unit = {}
 ) {
 	private var controller: MediaController? = null
-	private var controllerFuture: ListenableFuture<MediaController>? = null
 	private var activePlan: ReadaloudPlaybackPlan? = null
 	private var pendingLoad: PendingLoad? = null
 	private val positionPulse = ReadaloudPositionPulse(
@@ -25,6 +23,36 @@ class ReadaloudAudioController(
 		publishPosition = ::publishPosition,
 		schedule = ::schedulePositionPulse
 	)
+	private val connectionOwner = FutureConnectionOwner<MediaController>(
+		onConnected = { connectedController ->
+			controller = connectedController
+			Logger.i(ReadaloudPlaybackLogTag, "Readaloud controller connected")
+			connectedController.addListener(listener)
+			pendingLoad?.let { pending ->
+				pendingLoad = null
+				load(pending.plan, pending.playWhenReady)
+			}
+		},
+		onConnectionFailed = { error ->
+			controller = null
+			Logger.e(ReadaloudPlaybackLogTag, "Failed to connect readaloud controller", error)
+		},
+		onDisconnected = { disconnectedController ->
+			if (controller === disconnectedController) controller = null
+			Logger.w(ReadaloudPlaybackLogTag, "Readaloud controller disconnected; reconnecting")
+			positionPulse.stop()
+			activePlan?.let { plan ->
+				if (pendingLoad == null) pendingLoad = PendingLoad(plan, playWhenReady = false)
+				connect()
+			}
+		},
+		releaseFuture = MediaController::releaseFuture
+	)
+	private val connectionListener = object : MediaController.Listener {
+		override fun onDisconnected(disconnectedController: MediaController) {
+			connectionOwner.disconnect(disconnectedController)
+		}
+	}
 
 	private val listener = object : Player.Listener {
 		override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -137,42 +165,18 @@ class ReadaloudAudioController(
 		positionPulse.stop()
 		controller?.removeListener(listener)
 		controller = null
-		controllerFuture?.let(MediaController::releaseFuture)
-		controllerFuture = null
+		connectionOwner.close()
 		pendingLoad = null
 		activePlan = null
 	}
 
 	private fun connect() {
-		if (controller != null || controllerFuture != null) return
+		if (controller != null) return
 		val sessionToken = ReadaloudPlaybackService.newSessionToken(context)
-		controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-		controllerFuture?.addListener(
-			{
-				runCatching {
-					controllerFuture?.get()
-				}.fold(
-					onSuccess = { connectedController ->
-						if (connectedController != null) {
-							controller = connectedController
-							connectedController.addListener(listener)
-							pendingLoad?.let { pending ->
-								pendingLoad = null
-								load(pending.plan, pending.playWhenReady)
-							}
-						}
-					},
-					onFailure = { error ->
-						Logger.e(
-							ReadaloudPlaybackLogTag,
-							"Failed to connect readaloud controller",
-							error
-						)
-					}
-				)
-			},
-			MoreExecutors.directExecutor()
-		)
+		val future = MediaController.Builder(context, sessionToken)
+			.setListener(connectionListener)
+			.buildAsync()
+		if (!connectionOwner.connect(future)) MediaController.releaseFuture(future)
 	}
 
 	private fun MediaController.applyPlan(plan: ReadaloudPlaybackPlan, playWhenReady: Boolean) {

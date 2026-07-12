@@ -50,7 +50,7 @@ actual val platformModule = module {
 	single<AudiobookPlaybackManager> {
 		AndroidAudiobookPlaybackManager(
 			application = androidApplication(),
-			audioPlaybackArbitrator = get()
+			audioPlaybackOwnershipCoordinator = get()
 		)
 	}
 
@@ -69,7 +69,7 @@ actual val platformModule = module {
 			artistPhotoCacheDao = get(),
 			musicBrainzArtworkRepository = get(),
 			playbackOriginRepository = get(),
-			audioPlaybackArbitrator = get(),
+			audioPlaybackOwnershipCoordinator = get(),
 			preferenceManager = get(),
 			snackBarManager = get()
 		)

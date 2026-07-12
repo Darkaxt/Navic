@@ -7,7 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import paige.navic.domain.manager.AudioPlaybackArbitrator
+import paige.navic.domain.manager.AudioPlaybackOwnershipClaim
+import paige.navic.domain.manager.AudioPlaybackOwnershipCoordinator
 import paige.navic.domain.models.AudioPlaybackOwner
 import paige.navic.domain.models.shouldPauseForAudioPlaybackClaim
 import paige.navic.reader.ReadaloudAudioController
@@ -21,7 +22,7 @@ import paige.navic.ui.core.AudiobookMiniPlayerUiState
 
 class AndroidAudiobookPlaybackManager(
 	application: Application,
-	private val audioPlaybackArbitrator: AudioPlaybackArbitrator
+	private val audioPlaybackOwnershipCoordinator: AudioPlaybackOwnershipCoordinator
 ) : AudiobookPlaybackManager {
 	private val scope = MainScope()
 	private val controller = ReadaloudAudioController(application, ::publishPosition)
@@ -35,17 +36,20 @@ class AndroidAudiobookPlaybackManager(
 	private var activeCoverUrl: String? = null
 	private var activeCoverCacheKey: String? = null
 	private var activeImageRequestHeaders: Map<String, String> = emptyMap()
+	private var playbackClaim: AudioPlaybackOwnershipClaim? = null
 
 	init {
 		scope.launch {
-			audioPlaybackArbitrator.claims.collectLatest { claimedOwner ->
+			audioPlaybackOwnershipCoordinator.activeClaim.collectLatest { claim ->
+				val claimedOwner = claim?.owner ?: return@collectLatest
 				if (
 					shouldPauseForAudioPlaybackClaim(
 						currentOwner = AudioPlaybackOwner.Audiobook,
 						claimedOwner = claimedOwner,
-						isPlaying = _uiState.value.isPlaying
+						isPlaying = playbackClaim != null
 					)
 				) {
+					playbackClaim = null
 					controller.pause()
 				}
 			}
@@ -63,6 +67,8 @@ class AndroidAudiobookPlaybackManager(
 		playWhenReady: Boolean
 	) {
 		if (playbackPlan == null) {
+			releasePlaybackClaim()
+			controller.stopAndReset()
 			_uiState.value = AudiobookMiniPlayerUiState()
 			activePlan = null
 			activeBookId = null
@@ -97,9 +103,7 @@ class AndroidAudiobookPlaybackManager(
 		activeBookId = bookId
 		activeBookTitle = bookTitle
 		activeVersionRowId = versionRowId
-		if (playWhenReady) {
-			audioPlaybackArbitrator.claim(AudioPlaybackOwner.Audiobook)
-		}
+		if (playWhenReady) claimPlayback() else releasePlaybackClaim()
 		controller.load(playbackPlan, playWhenReady = playWhenReady)
 		_uiState.value = playbackPlan.initialUiState(
 			bookId = bookId,
@@ -115,11 +119,17 @@ class AndroidAudiobookPlaybackManager(
 	override fun dispatch(command: ReaderReadaloudPlaybackCommand) {
 		when (command) {
 			ReaderReadaloudPlaybackCommand.Play -> {
-				audioPlaybackArbitrator.claim(AudioPlaybackOwner.Audiobook)
+				claimPlayback()
 				controller.play()
 			}
-			ReaderReadaloudPlaybackCommand.Pause -> controller.pause()
-			ReaderReadaloudPlaybackCommand.StopAndReset -> controller.stopAndReset()
+			ReaderReadaloudPlaybackCommand.Pause -> {
+				controller.pause()
+				releasePlaybackClaim()
+			}
+			ReaderReadaloudPlaybackCommand.StopAndReset -> {
+				controller.stopAndReset()
+				releasePlaybackClaim()
+			}
 			is ReaderReadaloudPlaybackCommand.SeekTo -> controller.seekTo(command.positionMs)
 			is ReaderReadaloudPlaybackCommand.SeekToTrack -> controller.seekTo(command.trackIndex, command.positionMs)
 			is ReaderReadaloudPlaybackCommand.SetSpeed -> {
@@ -127,9 +137,21 @@ class AndroidAudiobookPlaybackManager(
 				_uiState.value = _uiState.value.copy(playbackSpeed = normalizedReadaloudPlaybackSpeed(command.speed))
 			}
 			is ReaderReadaloudPlaybackCommand.SetSyncEnabled -> {
-				if (!command.enabled) controller.stopAndReset()
+				if (!command.enabled) {
+					controller.stopAndReset()
+					releasePlaybackClaim()
+				}
 			}
 		}
+	}
+
+	private fun claimPlayback() {
+		playbackClaim = audioPlaybackOwnershipCoordinator.claim(AudioPlaybackOwner.Audiobook)
+	}
+
+	private fun releasePlaybackClaim() {
+		playbackClaim?.let(audioPlaybackOwnershipCoordinator::release)
+		playbackClaim = null
 	}
 
 	private fun publishPosition(position: ReadaloudPlaybackPosition) {
