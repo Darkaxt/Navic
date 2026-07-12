@@ -112,6 +112,15 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 			canvas.restoreToCount(restoreCount)
 			return
 		}
+		when (bundle.plan.kind) {
+			ReaderPageTurnTransitionKind.PortraitSlide -> {
+				drawPortraitSlide(canvas, bundle)
+				canvas.restoreToCount(restoreCount)
+				return
+			}
+			ReaderPageTurnTransitionKind.PortraitLeaf,
+			ReaderPageTurnTransitionKind.LandscapeLeaf -> Unit
+		}
 		canvas.drawBitmap(currentBase, 0f, 0f, bitmapPaint)
 		if (underneath != null && underneathRect != null) {
 			canvas.drawBitmap(underneath, null, android.graphics.RectF(underneathRect), bitmapPaint)
@@ -130,6 +139,29 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		drawCrease(canvas, pageWidth)
 		drawEdgeHighlight(canvas)
 		canvas.restoreToCount(restoreCount)
+	}
+
+	private fun drawPortraitSlide(canvas: Canvas, bundle: ReaderPageTurnBitmapBundle) {
+		val current = bundle.currentBase
+		val target = bundle.finalBase
+		val width = current.width.toFloat()
+		val height = current.height.toFloat()
+		if (width <= 0f || height <= 0f) return
+		val fraction = (progress / MaxTurnProgress).coerceIn(0f, 1f)
+		val towardNext = bundle.plan.logicalDirection == ReaderPageTurnLogicalDirection.Next
+		val currentOffset = if (towardNext) -width * fraction else width * fraction
+		val targetOffset = if (towardNext) width + currentOffset else -width + currentOffset
+		val clip = canvas.save()
+		canvas.clipRect(0f, 0f, width, height)
+		val currentRestore = canvas.save()
+		canvas.translate(currentOffset, 0f)
+		canvas.drawBitmap(current, 0f, 0f, bitmapPaint)
+		canvas.restoreToCount(currentRestore)
+		val targetRestore = canvas.save()
+		canvas.translate(targetOffset, 0f)
+		canvas.drawBitmap(target, 0f, 0f, bitmapPaint)
+		canvas.restoreToCount(targetRestore)
+		canvas.restoreToCount(clip)
 	}
 
 	private fun geometry(pageWidth: Float, pageHeight: Float): ReaderPageTurnEdgeFoldGeometry {

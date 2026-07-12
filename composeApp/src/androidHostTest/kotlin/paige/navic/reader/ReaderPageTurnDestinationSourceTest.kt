@@ -266,4 +266,16 @@ class ReaderPageTurnDestinationSourceTest {
 		assertFalse(source.contains("postDelayed"))
 		assertFalse(source.contains("setTimeout"))
 	}
+
+	@Test
+	fun portraitLeafStagesItsUnderneathPageSeparatelyFromTheFinalPage() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+
+		assertContains(source, "ReaderPageTurnTransitionKind.PortraitLeaf")
+		assertContains(source, "plan.underneathPageIndex")
+		assertContains(source, "beginPageTurnPreviewPreparation")
+		assertContains(source, "capturePortraitUnderneath")
+		assertContains(source, "webView.postOnAnimation")
+		assertFalse(source.contains("postDelayed"))
+	}
 }

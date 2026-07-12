@@ -86,23 +86,113 @@ internal class ReaderPageTurnBundleSource(
 						onPrepared(null)
 						return@captureStagedSurface
 					}
-					val bundle = buildBundle(webView, plan, current, finalBase)
-					if (bundle == null) {
-						current.bitmap.takeUnless { it.isRecycled }?.recycle()
-						finalBase.takeUnless { it.isRecycled }?.recycle()
-						onPrepared(null)
-						return@captureStagedSurface
+					if (
+						plan.kind == ReaderPageTurnTransitionKind.PortraitLeaf &&
+						plan.underneathPageIndex != null
+					) {
+						capturePortraitUnderneath(webView, plan, current) { underneathBase ->
+							if (underneathBase == null) {
+								current.bitmap.takeUnless { it.isRecycled }?.recycle()
+								finalBase.takeUnless { it.isRecycled }?.recycle()
+								onPrepared(null)
+							} else {
+								completeBundleCapture(webView, plan, current, finalBase, underneathBase, onPrepared)
+							}
+						}
+					} else {
+						completeBundleCapture(webView, plan, current, finalBase, null, onPrepared)
 					}
-					if (generation != activeGeneration) {
-						bundle.recycle()
-						onPrepared(null)
-						return@captureStagedSurface
-					}
-					put(bundle)
-					onPrepared(bundle)
 				}
 			}
 		}
+	}
+
+	private fun capturePortraitUnderneath(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		current: ReaderPageTurnCaptureResult,
+		onCaptured: (Bitmap?) -> Unit
+	) {
+		val pageIndex = plan.underneathPageIndex ?: run {
+			onCaptured(null)
+			return
+		}
+		val quotedToken = JSONObject.quote(plan.token)
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.($quotedToken, $pageIndex)"
+		) {
+			waitForPortraitUnderneathReady(webView, plan, current, onCaptured)
+		}
+	}
+
+	private fun waitForPortraitUnderneathReady(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		current: ReaderPageTurnCaptureResult,
+		onCaptured: (Bitmap?) -> Unit
+	) {
+		if (plan.generation != activeGeneration || !webView.isAttachedToWindow) {
+			onCaptured(null)
+			return
+		}
+		val quotedToken = JSONObject.quote(plan.token)
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.pageTurnPreviewState?.($quotedToken)?.status ?? 'missing'"
+		) { encodedStatus ->
+			if (plan.generation != activeGeneration || !webView.isAttachedToWindow) {
+				onCaptured(null)
+				return@evaluateJavascript
+			}
+			when (encodedStatus.javascriptString()) {
+				"ready" -> webView.evaluateJavascript(
+					"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
+				) { encodedExposed ->
+					if (plan.generation != activeGeneration || !encodedExposed.isJavascriptTrue()) {
+						restoreLiveComposition(webView, plan.token)
+						onCaptured(null)
+						return@evaluateJavascript
+					}
+					webView.postOnAnimation {
+						captureStagedSurface(webView, current.geometry, current.sourceRectInWindow) { underneathBase ->
+							restoreLiveComposition(webView, plan.token)
+							onCaptured(underneathBase)
+						}
+					}
+				}
+				"failed", "missing" -> {
+					restoreLiveComposition(webView, plan.token)
+					onCaptured(null)
+				}
+				else -> webView.postOnAnimation {
+					waitForPortraitUnderneathReady(webView, plan, current, onCaptured)
+				}
+			}
+		}
+	}
+
+	private fun completeBundleCapture(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		current: ReaderPageTurnCaptureResult,
+		finalBase: Bitmap,
+		underneathBase: Bitmap?,
+		onPrepared: (ReaderPageTurnBitmapBundle?) -> Unit
+	) {
+		val bundle = buildBundle(webView, plan, current, finalBase, underneathBase)
+		underneathBase?.takeUnless { it.isRecycled }?.recycle()
+		if (bundle == null) {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			finalBase.takeUnless { it.isRecycled }?.recycle()
+			onPrepared(null)
+			return
+		}
+		if (plan.generation != activeGeneration) {
+			bundle.recycle()
+			onPrepared(null)
+			return
+		}
+		put(bundle)
+		onPrepared(bundle)
 	}
 
 	internal fun captureStagedSurface(
@@ -152,7 +242,8 @@ internal class ReaderPageTurnBundleSource(
 		webView: WebView,
 		plan: ReaderPageTurnTransitionPlan,
 		current: ReaderPageTurnCaptureResult,
-		finalBase: Bitmap
+		finalBase: Bitmap,
+		underneathBase: Bitmap?
 	): ReaderPageTurnBitmapBundle? {
 		val front = cropPage(webView, current.bitmap, current.geometry, current.sourceRectInWindow, plan.turningFrontPageSide)
 			?: return null
@@ -163,7 +254,13 @@ internal class ReaderPageTurnBundleSource(
 			null
 		}
 		val underneath = if (plan.underneathPageSide != null) {
-			cropPage(webView, finalBase, current.geometry, current.sourceRectInWindow, plan.underneathPageSide)
+			cropPage(
+				webView,
+				underneathBase ?: finalBase,
+				current.geometry,
+				current.sourceRectInWindow,
+				plan.underneathPageSide
+			)
 				?: return null
 		} else {
 			null
@@ -243,3 +340,7 @@ private fun Bitmap.mirroredHorizontally(): Bitmap {
 private fun String?.isJavascriptTrue(): Boolean = runCatching {
 	JSONTokener(orEmpty()).nextValue() as? Boolean == true
 }.getOrDefault(false)
+
+private fun String?.javascriptString(): String? = runCatching {
+	JSONTokener(orEmpty()).nextValue() as? String
+}.getOrNull()

@@ -483,33 +483,35 @@ git commit -m "feat(reader): render destination-aware landscape leaves"
 - Modify: `composeApp/src/androidMain/assets/reader/navic-reader-appearance.js`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt`
 
-- [ ] **Step 1: Write failing portrait source guards**
+- [x] **Step 1: Write failing portrait source guards**
 
 Assert portrait distinguishes `portrait-slide` and `portrait-leaf`, advances one ordinal, never creates a landscape gutter, and applies binding/reveal side from the same target-side plan.
 
-- [ ] **Step 2: Run focused test and verify RED**
+- [x] **Step 2: Run focused test and verify RED**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest"
 ```
 
-- [ ] **Step 3: Implement virtual camera slide**
+- [x] **Step 3: Implement virtual camera slide**
 
 For left-to-right LTR movement, draw source and target pages on a virtual two-page canvas and translate the camera smoothly between them. No fold geometry is active.
 
-- [ ] **Step 4: Implement portrait leaf and camera return**
+- [x] **Step 4: Implement portrait leaf and camera return**
 
 For right-to-next-left LTR movement, render current right as front, target left as reverse, following right as underneath, then settle the camera on target left. Previous and RTL use the planner's mirrored roles.
 
-- [ ] **Step 5: Alternate decoration side**
+- [x] **Step 5: Alternate decoration side**
 
 Drive the portrait binding hint and thin cover reveal from `sourcePageSide` during drag and `targetPageSide` after settlement. The cover reveal stays on the outer edge and preserves its accepted thin width.
 
-- [ ] **Step 6: Validate portrait on emulator**
+- [x] **Step 6: Validate portrait on emulator**
 
 Use a portrait tablet-sized readerdev viewport and record four consecutive forward and four previous actions. Acceptance: transitions alternate slide/leaf, text is correct, decoration swaps sides, and no landscape gutter appears.
 
-- [ ] **Step 7: Run tests and commit**
+Validated the production planner and renderer on `emulator-5554` at 1848 x 2960. Consecutive forward drags reported `PortraitSlide` then `PortraitLeaf`, advanced exactly one visual page each, and the leaf bundle used distinct reverse and underneath captures. The portrait decoration now follows the same physical-side calculation as the transition plan; a live null-to-zero coercion found during validation was fixed and guarded. The cold-bundle recordings also measured a 2.6-second slide preparation and 4.3-second leaf preparation, which is intentionally carried into Task 8 as a blocking lifecycle/performance defect: Task 8 must prewarm adjacent bundles and use immediate exact navigation when a released gesture has no ready bundle.
+
+- [x] **Step 7: Run tests and commit**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest"

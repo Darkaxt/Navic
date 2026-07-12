@@ -218,4 +218,27 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(reverse, "Color.TRANSPARENT")
 		assertFalse(reverse.contains("intArrayOf(darken(reverseFaceColor"))
 	}
+
+	@Test
+	fun portraitRendererUsesCameraSlideOnlyForSlidePlans() {
+		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+
+		assertContains(renderer, "ReaderPageTurnTransitionKind.PortraitSlide")
+		assertContains(renderer, "drawPortraitSlide")
+		assertContains(renderer, "bundle.currentBase")
+		assertContains(renderer, "bundle.finalBase")
+		assertContains(renderer, "canvas.translate(currentOffset, 0f)")
+		assertContains(renderer, "canvas.translate(targetOffset, 0f)")
+	}
+
+	@Test
+	fun portraitLeafKeepsRealReverseAndDistinctUnderneathSurfaces() {
+		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+
+		assertContains(renderer, "ReaderPageTurnTransitionKind.PortraitLeaf")
+		assertContains(renderer, "bundle.turningReverse")
+		assertContains(renderer, "bundle.underneath")
+		assertContains(source, "underneathBase ?: finalBase")
+	}
 }

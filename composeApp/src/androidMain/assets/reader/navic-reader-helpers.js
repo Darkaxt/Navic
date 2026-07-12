@@ -49,6 +49,9 @@ import {
   readerThemeUsesWarmPaperTreatment,
 } from './navic-reader-settings-core.js'
 import {
+  ReaderPhysicalPageLeft,
+} from './navic-reader-page-turn-model.js'
+import {
   closestElement,
   komikkuNavigationRegions,
   readerMediaSelector,
@@ -640,18 +643,29 @@ export const readerPaperLayoutProfile = ({
   width = null,
   height = null,
   spreadMode = '',
+  pageSide = '',
 } = {}) => {
   const mode = spreadMode || readerSurfaceSpreadMode({ flowMode, width, height })
-  const backCoverEdge = flowMode === ReaderFlowPaged ? 'right' : 'none'
+  const leftPage = pageSide === ReaderPhysicalPageLeft
+  const paged = flowMode === ReaderFlowPaged
   return mode === 'spread'
     ? { mode: 'spread', bindingEdge: 'center' }
-    : { mode: 'single', bindingEdge: 'left', backCoverEdge }
+    : {
+        mode: 'single',
+        bindingEdge: leftPage ? 'right' : 'left',
+        backCoverEdge: paged ? (leftPage ? 'left' : 'right') : 'none',
+      }
 }
 
 export const readerPortraitBindingHintBoxShadow = (settings, profile) => {
-  if (profile?.mode !== 'single' || profile?.bindingEdge !== 'left') return 'none'
+  if (profile?.mode !== 'single') return 'none'
   if (settings?.pageEdgesEnabled === false) return 'none'
-  return 'inset 18px 0 24px -22px rgba(67, 42, 20, .52)'
+  if (profile?.bindingEdge === 'right') {
+    return 'inset -18px 0 24px -22px rgba(67, 42, 20, .52)'
+  }
+  return profile?.bindingEdge === 'left'
+    ? 'inset 18px 0 24px -22px rgba(67, 42, 20, .52)'
+    : 'none'
 }
 
 export const readerSurfaceSpreadGutterVisible = ({
@@ -690,11 +704,11 @@ export const readerSurfacePageDecorationGeometry = ({
   const boundedSpread = gapPercent > 0
   const portraitSingle = spreadMode !== 'spread' &&
     layoutProfile?.mode === 'single' &&
-    layoutProfile?.backCoverEdge === 'right'
+    (layoutProfile?.backCoverEdge === 'left' || layoutProfile?.backCoverEdge === 'right')
   const portraitRevealPercent = portraitSingle ? 1 : 0
   const backCoverRevealPercent = boundedSpread ? outerInsetPercent : portraitRevealPercent
   const backCoverStartPercent = 0
-  const backCoverEdge = boundedSpread ? 'both' : portraitSingle ? 'right' : 'none'
+  const backCoverEdge = boundedSpread ? 'both' : portraitSingle ? layoutProfile.backCoverEdge : 'none'
   return {
     boundedSpread,
     gapPercent,
@@ -706,7 +720,7 @@ export const readerSurfacePageDecorationGeometry = ({
     backCoverVisible: backCoverEdge !== 'none' && shellCoverVisible !== true,
     pages: {
       full: {
-        left: '0px',
+        left: portraitSingle && backCoverEdge === 'left' ? readerPercentValue(portraitRevealPercent) : '0px',
         width: portraitSingle ? readerPercentValue(100 - portraitRevealPercent) : '100%',
       },
       left: {
@@ -827,6 +841,12 @@ export const readerSurfaceBackCoverBackground = (settings, geometry) => {
     const highlightEnd = revealStart + Math.min(0.12, reveal * 0.12)
     const transitionStart = 100 - Math.min(reveal, Math.min(0.35, reveal * 0.4))
     return `linear-gradient(to right, transparent 0%, transparent ${readerPercentValue(revealStart)}, ${readerRgba(coverPalette.highlight, 0.72)} ${readerPercentValue(revealStart)}, ${readerRgba(coverPalette.edge, 0.96)} ${readerPercentValue(highlightEnd)}, ${readerRgba(coverPalette.base, 0.90)} ${readerPercentValue(transitionStart)}, ${readerRgba(coverPalette.middle, 0.94)} ${readerPercentValue(99.82)}, ${readerRgba(coverPalette.outer, 0.98)} 100%)`
+  }
+  if (geometry.backCoverEdge === 'left') {
+    const reveal = Math.min(4, Math.max(0, geometry.backCoverRevealPercent))
+    const highlightStart = Math.max(0, reveal - Math.min(0.12, reveal * 0.12))
+    const transitionEnd = Math.min(reveal, Math.min(0.35, reveal * 0.4))
+    return `linear-gradient(to right, ${readerRgba(coverPalette.outer, 0.98)} 0%, ${readerRgba(coverPalette.middle, 0.94)} 0.18%, ${readerRgba(coverPalette.base, 0.90)} ${readerPercentValue(transitionEnd)}, ${readerRgba(coverPalette.edge, 0.96)} ${readerPercentValue(highlightStart)}, ${readerRgba(coverPalette.highlight, 0.72)} ${readerPercentValue(reveal)}, transparent ${readerPercentValue(reveal)}, transparent 100%)`
   }
   const reverseCoverStart = 100 - coverStart
   const reverseFade = 100 - fade

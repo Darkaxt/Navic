@@ -172,6 +172,9 @@ import {
   flattenTocItems,
   tocLabel
 } from './navic-reader-helpers.js'
+import {
+  readerPhysicalPageSide,
+} from './navic-reader-page-turn-model.js'
 
 const ReaderRootFontFaceStyleId = 'navic-reader-root-font-face'
 
@@ -552,11 +555,19 @@ function renderSurfacePaperTextureLayers() {
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   const viewport = readerViewportSize()
   const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings)
+  const previewDecorationPageIndex = this.pageTurnPreviewDecorationPageIndex
+  const decorationPageIndex = previewDecorationPageIndex != null && Number.isFinite(Number(previewDecorationPageIndex))
+    ? Number(previewDecorationPageIndex)
+    : Number(this.currentPagePosition?.pageIndex)
   this.surfacePaperLayoutProfile = readerPaperLayoutProfile({
     flowMode: this.readerFlowModeValue,
     width: viewport.width,
     height: viewport.height,
     spreadMode: this.surfaceSpreadMode,
+    pageSide: readerPhysicalPageSide({
+      pageIndex: decorationPageIndex,
+      readerDirection,
+    }),
   })
   this.surfacePageDecorationGeometry = readerSurfacePageDecorationGeometry({
     settings: this.readerSettings,

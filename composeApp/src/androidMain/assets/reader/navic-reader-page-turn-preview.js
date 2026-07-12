@@ -165,11 +165,13 @@ function exposePageTurnPreviewFinal(token = '') {
   this.pageTurnPreviewLiveVisibility = this.view.style.getPropertyValue('visibility')
   this.pageTurnPreviewLiveOpacity = this.view.style.getPropertyValue('opacity')
   this.pageTurnPreviewLivePagePosition = this.currentPagePosition
+  this.pageTurnPreviewDecorationPageIndex = state.pageIndex
   const previewPagePosition = Object.freeze({
     ...(this.currentPagePosition || {}),
     pageIndex: state.pageIndex,
   })
   this.updateReaderPageNumberLayer(previewPagePosition)
+  this.renderSurfacePaperTextureLayers()
   setStylesImportant(this.view, {
     visibility: 'hidden',
     opacity: '0',
@@ -222,6 +224,8 @@ function restorePageTurnLiveComposition(token = '') {
   this.pageTurnPreviewLiveOpacity = ''
   this.pageTurnPreviewExposedToken = ''
   this.pageTurnPreviewLivePagePosition = null
+  this.pageTurnPreviewDecorationPageIndex = null
+  this.renderSurfacePaperTextureLayers()
   readerTrace('page-turn-preview:restored', { token: requestedToken })
   return true
 }
