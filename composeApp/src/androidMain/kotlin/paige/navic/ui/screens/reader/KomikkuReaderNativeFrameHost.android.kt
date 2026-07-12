@@ -45,6 +45,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHost"
+private const val PageTurnPrewarmRequiredStableFrames = 2
 
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
@@ -455,10 +456,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnCanvasEnabled: Boolean = false
 	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
 	private var shellCoverVisible: Boolean = false
-	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
+	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
+	private var pageTurnPrewarmLayoutSignature: Long? = null
+	private var pageTurnPrewarmStableFrameCount: Int = 0
 	private val pageTurnController = ReaderPageTurnController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
+		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		onCommitTurn = { direction ->
 			when (direction) {
 				ReaderPageTurnPhysicalDirection.TowardLeft -> onAction(KomikkuNavigationRegion.RIGHT)
@@ -526,30 +530,62 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private fun requestPageTurnPrewarmWhenReady() {
 		if (!pageTurnCanvasEnabled || !isAttachedToWindow) return
 		if (shellCoverView?.visibility == VISIBLE) return
-		val webViewReady = viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
-		if (webViewReady && pageTurnController.prewarmAdjacent()) {
-			removePageTurnPrewarmLayoutListener()
-			return
-		}
+		pageTurnPrewarmLayoutSignature = null
+		pageTurnPrewarmStableFrameCount = 0
 		if (pageTurnPrewarmLayoutListener != null) return
-		val listener = ViewTreeObserver.OnGlobalLayoutListener {
+		val listener = ViewTreeObserver.OnPreDrawListener {
 			if (!pageTurnCanvasEnabled || !isAttachedToWindow) {
 				removePageTurnPrewarmLayoutListener()
-				return@OnGlobalLayoutListener
+				return@OnPreDrawListener true
 			}
-			val ready = viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
-			if (ready && pageTurnController.prewarmAdjacent()) {
+			if (shellCoverView?.visibility == VISIBLE) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnPreDrawListener true
+			}
+			val webView = viewerContentContainer.findDescendantWebView()
+			if (
+				webView == null ||
+				!webView.isAttachedToWindow ||
+				width <= 0 ||
+				height <= 0 ||
+				webView.width <= 0 ||
+				webView.height <= 0 ||
+				isLayoutRequested ||
+				webView.isLayoutRequested
+			) return@OnPreDrawListener true
+			val signature = pageTurnPrewarmLayoutSignature(webView)
+			if (signature == pageTurnPrewarmLayoutSignature) {
+				pageTurnPrewarmStableFrameCount += 1
+			} else {
+				pageTurnPrewarmLayoutSignature = signature
+				pageTurnPrewarmStableFrameCount = 1
+			}
+			if (pageTurnPrewarmStableFrameCount < PageTurnPrewarmRequiredStableFrames) {
+				return@OnPreDrawListener true
+			}
+			if (pageTurnController.prewarmAdjacent()) {
 				removePageTurnPrewarmLayoutListener()
 			}
+			true
 		}
 		pageTurnPrewarmLayoutListener = listener
-		viewTreeObserver.addOnGlobalLayoutListener(listener)
+		viewTreeObserver.addOnPreDrawListener(listener)
+	}
+
+	private fun pageTurnPrewarmLayoutSignature(webView: WebView): Long {
+		var signature = width.toLong()
+		signature = signature * 31L + height
+		signature = signature * 31L + webView.width
+		signature = signature * 31L + webView.height
+		return signature
 	}
 
 	private fun removePageTurnPrewarmLayoutListener() {
 		val listener = pageTurnPrewarmLayoutListener ?: return
 		pageTurnPrewarmLayoutListener = null
-		if (viewTreeObserver.isAlive) viewTreeObserver.removeOnGlobalLayoutListener(listener)
+		pageTurnPrewarmLayoutSignature = null
+		pageTurnPrewarmStableFrameCount = 0
+		if (viewTreeObserver.isAlive) viewTreeObserver.removeOnPreDrawListener(listener)
 	}
 
 	override fun onAttachedToWindow() {
@@ -931,6 +967,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (visibility == VISIBLE) {
 			requestPageTurnPrewarmWhenReady()
 		} else {
+			removePageTurnPrewarmLayoutListener()
 			pageTurnController.invalidate("window-hidden")
 		}
 	}

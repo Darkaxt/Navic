@@ -14,7 +14,7 @@ import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.util.core.Logger
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
-private const val MaxCachedBundles = 3
+private const val MaxCachedBundles = 2
 
 internal class ReaderPageTurnBundleSource(
 	private val bitmapSource: ReaderPageTurnBitmapSource = ReaderPageTurnBitmapSource(),
@@ -34,7 +34,12 @@ internal class ReaderPageTurnBundleSource(
 		activeGeneration += 1
 	}
 
-	fun cached(plan: ReaderPageTurnTransitionPlan): ReaderPageTurnBitmapBundle? = cache[plan.cacheKey]
+	fun cached(plan: ReaderPageTurnTransitionPlan): ReaderPageTurnBitmapBundle? = cache[plan.cacheKey].also { bundle ->
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Page-turn bundle cache ${if (bundle == null) "miss" else "hit"} key=${plan.cacheKey} entries=${cache.keys}"
+		)
+	}
 
 	fun captureCurrentSurface(
 		webView: WebView,
@@ -317,6 +322,10 @@ internal class ReaderPageTurnBundleSource(
 			cache.remove(eldest.key)
 			eldest.value.recycle()
 		}
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Page-turn bundle cached key=${bundle.plan.cacheKey} entries=${cache.keys}"
+		)
 	}
 
 	private fun restoreLiveComposition(webView: WebView, token: String) {

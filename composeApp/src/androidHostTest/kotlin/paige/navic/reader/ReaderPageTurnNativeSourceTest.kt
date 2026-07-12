@@ -261,9 +261,52 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "commitColdFallback")
 		assertContains(controller, "type: 'goToVisualPage'")
 		assertContains(host, "requestPageTurnPrewarmWhenReady")
-		assertContains(host, "ViewTreeObserver.OnGlobalLayoutListener")
+		assertContains(host, "ViewTreeObserver.OnPreDrawListener")
+		assertContains(host, "pageTurnPrewarmStableFrameCount")
+		assertContains(host, "PageTurnPrewarmRequiredStableFrames")
+		assertContains(host, "if (pageTurnPrewarmStableFrameCount < PageTurnPrewarmRequiredStableFrames)")
 		assertFalse(controller.contains("postDelayed"))
 		assertFalse(prewarmMethod.contains("postDelayed"))
+	}
+
+	@Test
+	fun releasedGestureConsumesWarmBundleBeforeColdFallback() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val release = controller.substringAfter("fun release(").substringBefore("private fun pageAxisWidth")
+		val callback = controller
+			.substringAfter("val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, bundleGeneration)")
+			.substringBefore("fun prewarmAdjacent()")
+		val cacheLookup = callback.indexOf("bundleSource.cached(plan)")
+		val coldRelease = callback.indexOf("if (releasedWhilePreparing)")
+
+		assertTrue(cacheLookup >= 0, "Gesture planning must check the adjacent bundle cache")
+		assertTrue(coldRelease >= 0, "Gesture planning must retain the released-cold fallback")
+		assertTrue(
+			cacheLookup < coldRelease,
+			"A released gesture must consume an already-warm bundle before falling back to direct navigation"
+		)
+		assertContains(release, "releasedWhilePreparing && activePlan != null")
+	}
+
+	@Test
+	fun prewarmRendererIsReleasedAfterCaptureAndEveryLifecycleInvalidation() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val finishPrewarm = controller
+			.substringAfter("private fun finishPrewarm()")
+			.substringBefore("private fun cancelPrewarm()")
+		val cancelPrewarm = controller
+			.substringAfter("private fun cancelPrewarm()")
+			.substringBefore("private fun prepareBundle(")
+
+		assertContains(controller, "onRequestPrewarm")
+		assertContains(finishPrewarm, "destroyPageTurnPreviewRenderer")
+		assertContains(cancelPrewarm, "destroyPageTurnPreviewRenderer")
+		assertFalse(controller.contains("postOnAnimation { prewarmAdjacent() }"))
+		assertContains(source, "private const val MaxCachedBundles = 2")
+		assertContains(preview, "previewView.close?.()")
+		assertContains(preview, "previewView.remove?.()")
 	}
 
 	@Test
