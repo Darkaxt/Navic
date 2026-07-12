@@ -66,6 +66,8 @@ Stage 1 was integrated into `master` and publicly released in `v1.0.11-theta94` 
 
 The severity table remains the original audit snapshot. C1, C5, and C8 are closed at the implementation/release level; the remaining findings are not implied to be resolved by this stage.
 
+The complete current disposition, dependency design, and staged deployment gates are maintained in `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`.
+
 ---
 
 ## Executive risk shortlist
