@@ -621,6 +621,8 @@ Expected: no new failures compared with the theta92 baseline. Any environmental/
 
 Final merged-tree result: 2,195 tests executed with 29 pre-existing baseline/environment failures and no destination-aware or paper-surface failures. The remaining set is three unmocked Android `BitmapFactory` calls, one existing Foliate known-gap assertion, five missing Komikku reference-file cases, eighteen missing Komikku common-UI reference cases, one existing ADB texture-probe assertion, and one missing Anx paginator reference.
 
+Theta94 stabilization re-ran the complete host suite after the destination-aware implementation grew additional regression coverage: 2,205 tests executed with the same 29 baseline/environment failure categories and no page-turn, geometry, settlement, or album-cache failures. Focused page-turn/cache suites, all reader JavaScript syntax checks, and the 13-case page-turn model suite passed.
+
 - [x] **Step 4: Run reader harness**
 
 ```powershell
@@ -652,6 +654,8 @@ Capture screenshots and recordings for:
 Save under `captures/page-turn-destination-aware/final/` and inspect frame continuity, text identity, page-number progression, and absence of blink.
 
 Validated on `emulator-5554` at tablet landscape and portrait resolutions. Forward and reverse landscape leaves, portrait slide and leaf transitions, cross-section relocation, cancel, slow drag, fast flick, rotation, and background/foreground restoration all retained real destination content. The terminal fold remained frame-continuous, `finalBase` covered exact relocation, cancellation emitted no relocation, and lifecycle invalidation rebuilt only layout-compatible adjacent bundles. Large recordings and frame sheets remain local under `.codex-evidence/capture-readiness/` rather than being committed.
+
+Theta94 stabilization additionally validated the exact Alcatraz Foreword seam at tablet landscape resolution on `emulator-5554`: forward settled from visual page 5 to Chapter 1 visual page 7 and previous settled back to page 5. Animation bitmaps were retained at half resolution (`1450 x 924` for a `2900 x 1848` surface), reverse-page text followed the fold plane in both directions, folded-source masking removed free-edge mesh streaks, and no Chromium tile-memory warning appeared. Physical Tab S9 Ultra validation remains a release gate and is not represented as complete until the unlocked device reproduces the same matrix.
 
 - [x] **Step 7: Run diff and worktree checks**
 
