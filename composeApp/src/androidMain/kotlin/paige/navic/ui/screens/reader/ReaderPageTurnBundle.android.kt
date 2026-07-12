@@ -203,6 +203,80 @@ internal class ReaderPageTurnBitmapBundle(
 	}
 }
 
+internal data class ReaderPageSlideSnapshotKey(
+	val visualPageIndex: Int,
+	val kind: ReaderPageTurnTransitionKind,
+	val bitmapWidth: Int,
+	val bitmapHeight: Int,
+	val surfaceWidth: Int,
+	val surfaceHeight: Int
+)
+
+internal class ReaderPageSlideSnapshot(
+	val key: ReaderPageSlideSnapshotKey,
+	val bitmap: Bitmap,
+	val surfaceRectInWindow: Rect,
+	val reverseFaceColor: Int
+) {
+	private var cacheOwned = true
+	private var retainCount = 0
+	private var recycled = false
+
+	@Synchronized
+	fun retain() {
+		check(!recycled) { "Cannot retain a recycled page snapshot" }
+		retainCount += 1
+	}
+
+	@Synchronized
+	fun release() {
+		check(retainCount > 0) { "Page snapshot released without a matching retain" }
+		retainCount -= 1
+		recycleIfUnowned()
+	}
+
+	@Synchronized
+	fun releaseCacheOwnership() {
+		if (!cacheOwned) return
+		cacheOwned = false
+		recycleIfUnowned()
+	}
+
+	private fun recycleIfUnowned() {
+		if (cacheOwned || retainCount > 0 || recycled) return
+		recycled = true
+		if (!bitmap.isRecycled) bitmap.recycle()
+	}
+}
+
+internal class ReaderPageSlideTransition(
+	val plan: ReaderPageTurnTransitionPlan,
+	val source: ReaderPageSlideSnapshot,
+	val destination: ReaderPageSlideSnapshot
+) {
+	private var closed = false
+
+	init {
+		source.retain()
+		destination.retain()
+	}
+
+	val surfaceRectInWindow: Rect
+		get() = source.surfaceRectInWindow
+	val renderScaleX: Float
+		get() = surfaceRectInWindow.width() / source.bitmap.width.toFloat()
+	val renderScaleY: Float
+		get() = surfaceRectInWindow.height() / source.bitmap.height.toFloat()
+
+	@Synchronized
+	fun close() {
+		if (closed) return
+		closed = true
+		source.release()
+		destination.release()
+	}
+}
+
 private fun JsonObject.requiredIndex(key: String): Int =
 	get(key)?.jsonPrimitive?.intOrNull?.takeUnless { it < 0 }
 		?: error("Missing page-turn index: $key")

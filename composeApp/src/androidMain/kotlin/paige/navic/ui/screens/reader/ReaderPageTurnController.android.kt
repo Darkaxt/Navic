@@ -49,7 +49,7 @@ internal class ReaderPageTurnController(
 	private val onCommitTurn: (ReaderPageTurnPhysicalDirection) -> Unit
 ) {
 	private val state = ReaderPageTurnStateMachine()
-	private var activeBundle: ReaderPageTurnBitmapBundle? = null
+	private var activeTransition: ReaderPageSlideTransition? = null
 	private var activePlan: ReaderPageTurnTransitionPlan? = null
 	private var activeStateGeneration = 0L
 	private var slideView: ReaderPageTurnSlideView? = null
@@ -106,8 +106,8 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun pageAxisWidth(viewWidth: Int): Int =
-		activeBundle?.let { bundle ->
-			(bundle.currentBase.width * bundle.renderScaleX).roundToInt().coerceAtLeast(1)
+		activeTransition?.let { transition ->
+			(transition.source.bitmap.width * transition.renderScaleX).roundToInt().coerceAtLeast(1)
 		} ?: viewWidth.coerceAtLeast(1)
 
 	private fun setGestureY(edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
@@ -134,6 +134,7 @@ internal class ReaderPageTurnController(
 		destroyed = true
 		activeSettleToken = null
 		cancelPrewarm()
+		destroyPageTurnPreviewRenderer("controller-destroyed")
 		cancelPreparation()
 		state.cancel()
 		animation?.cancel()
@@ -147,6 +148,7 @@ internal class ReaderPageTurnController(
 		if (destroyed) return
 		activeSettleToken = null
 		cancelPrewarm()
+		destroyPageTurnPreviewRenderer(reason)
 		cancelPreparation()
 		removePreparationShield()
 		state.cancel()
@@ -185,7 +187,8 @@ internal class ReaderPageTurnController(
 			}
 			activePlan = plan
 			bundleSource.cached(plan)?.let { cached ->
-				activeBundle = cached
+				activeTransition?.close()
+				activeTransition = cached
 				handleEffects(state.captureSucceeded(activeStateGeneration))
 				return@evaluateJavascript
 			}
@@ -252,7 +255,7 @@ internal class ReaderPageTurnController(
 		val generation = bundleSource.beginGeneration()
 		val token = "navic-page-turn-prewarm-${++settleGeneration}"
 		val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, generation)
-		if (plan == null || bundleSource.cached(plan) != null) {
+		if (plan == null || bundleSource.isCached(plan)) {
 			prewarmNext(webView, session)
 			return
 		}
@@ -311,16 +314,18 @@ internal class ReaderPageTurnController(
 					plan = plan,
 					current = current,
 					onStagingStarted = { attachPreparationShield(current) }
-				) { bundle ->
+				) { transition ->
 					removePreparationShield()
 					if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+						transition?.close()
 						activePrewarmPlan = null
 						return@captureBundle
 					}
 					activePrewarmPlan = null
-					if (bundle == null) {
+					if (transition == null) {
 						Logger.w(ReaderPageTurnControllerTag, "Page-turn prewarm failed target=${plan.targetPageIndex}")
 					}
+					transition?.close()
 					prewarmNext(webView, session)
 				}
 				"failed", "missing" -> {
@@ -348,7 +353,6 @@ internal class ReaderPageTurnController(
 		prewarmRetryBudget.clear()
 		prewarmInProgress = false
 		removePreparationShield()
-		destroyPageTurnPreviewRenderer("prewarm-complete")
 	}
 
 	private fun cancelPrewarm() {
@@ -359,7 +363,6 @@ internal class ReaderPageTurnController(
 		prewarmInProgress = false
 		bundleSource.cancelActivePreparation()
 		removePreparationShield()
-		destroyPageTurnPreviewRenderer("prewarm-cancelled")
 	}
 
 	private fun destroyPageTurnPreviewRenderer(reason: String) {
@@ -416,13 +419,15 @@ internal class ReaderPageTurnController(
 				plan = plan,
 				current = current,
 				onStagingStarted = { attachPreparationShield(current) }
-			) { bundle ->
+			) { transition ->
 					removePreparationShield()
-					if (bundle == null || !isPreparationActive(plan, stateGeneration)) {
+					if (transition == null || !isPreparationActive(plan, stateGeneration)) {
+						transition?.close()
 						markPreparationUnavailable(stateGeneration, "destination-bundle-unavailable")
 						return@captureBundle
 					}
-					activeBundle = bundle
+					activeTransition?.close()
+					activeTransition = transition
 					handleEffects(state.captureSucceeded(stateGeneration))
 				}
 				"failed", "missing" -> {
@@ -514,7 +519,8 @@ internal class ReaderPageTurnController(
 		) { }
 		removePreparationShield()
 		activePlan = null
-		activeBundle = null
+		activeTransition?.close()
+		activeTransition = null
 		activeStateGeneration = 0L
 		releasedWhilePreparing = false
 		if (webView == null || !webView.isAttachedToWindow) {
@@ -652,18 +658,18 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun attachOverlay() {
-		val bundle = activeBundle ?: return
+		val transition = activeTransition ?: return
 		val hostLocation = IntArray(2)
 		host.getLocationInWindow(hostLocation)
-		val left = bundle.surfaceRectInWindow.left - hostLocation[0]
-		val top = bundle.surfaceRectInWindow.top - hostLocation[1]
+		val left = transition.surfaceRectInWindow.left - hostLocation[0]
+		val top = transition.surfaceRectInWindow.top - hostLocation[1]
 		val view = ReaderPageTurnSlideView(host.context).apply {
 			layoutParams = FrameLayout.LayoutParams(
 				FrameLayout.LayoutParams.MATCH_PARENT,
 				FrameLayout.LayoutParams.MATCH_PARENT
 			)
-			setBundle(
-				bundle = bundle,
+			setTransition(
+				transition = transition,
 				direction = state.direction,
 				surfaceLeft = left,
 				surfaceTop = top
@@ -673,8 +679,8 @@ internal class ReaderPageTurnController(
 		slideView = view
 		Logger.i(
 			ReaderPageTurnControllerTag,
-			"Page-turn overlay attached kind=${bundle.plan.kind} target=${bundle.plan.targetPageIndex} " +
-				"left=$left top=$top size=${bundle.currentBase.width}x${bundle.currentBase.height}"
+			"Page-turn overlay attached kind=${transition.plan.kind} target=${transition.plan.targetPageIndex} " +
+				"left=$left top=$top size=${transition.source.bitmap.width}x${transition.source.bitmap.height}"
 		)
 	}
 
@@ -732,9 +738,10 @@ internal class ReaderPageTurnController(
 		slideView = null
 		if (view != null) {
 			(view.parent as? ViewGroup)?.removeView(view)
-			view.clearBundle()
+			view.clearTransition()
 		}
-		activeBundle = null
+		activeTransition?.close()
+		activeTransition = null
 		activePlan = null
 		activeStateGeneration = 0L
 		releasedWhilePreparing = false

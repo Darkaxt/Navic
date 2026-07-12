@@ -279,13 +279,13 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun bitmapBundleCacheIsBoundedAndRecyclesEvictedEntries() {
+	fun snapshotCacheIsBoundedAndReleasesEvictedEntries() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
-		assertContains(source, "LinkedHashMap<String, ReaderPageTurnBitmapBundle>(0, 0.75f, true)")
-		assertContains(source, "private const val MaxCachedBundles = 2")
-		assertContains(source, "eldest.value.recycle()")
-		assertContains(source, "cache.clear()")
+		assertContains(source, "LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)")
+		assertContains(source, "private const val MaxCachedSnapshots = 5")
+		assertContains(source, "eldest.value.releaseCacheOwnership()")
+		assertContains(source, "snapshotCache.clear()")
 	}
 
 	@Test
@@ -295,7 +295,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(source, "captureSurface(")
 		assertContains(source, "captureStagedSurface(")
 		assertContains(source, "if (generation != activeGeneration)")
-		assertContains(source, "bundle.recycle()")
+		assertContains(source, "staleSnapshot?.releaseCacheOwnership()")
 		assertContains(source, "webView.draw(canvas)")
 		assertFalse(source.contains("postDelayed"))
 		assertFalse(source.contains("setTimeout"))
@@ -316,13 +316,13 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun portraitLeafStagesItsUnderneathPageSeparatelyFromTheFinalPage() {
+	fun flatSlideStagesOnlyOneDestinationSnapshot() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
-		assertContains(source, "ReaderPageTurnTransitionKind.PortraitLeaf")
-		assertContains(source, "plan.underneathPageIndex")
-		assertContains(source, "beginPageTurnPreviewPreparation")
-		assertContains(source, "capturePortraitUnderneath")
+		assertContains(source, "exposePageTurnPreviewFinal")
+		assertContains(source, "ReaderPageSlideSnapshot(")
+		assertFalse(source.contains("capturePortraitUnderneath"))
+		assertFalse(source.contains("underneathPageIndex"))
 		assertContains(source, "webView.postOnAnimation")
 		assertFalse(source.contains("postDelayed"))
 	}

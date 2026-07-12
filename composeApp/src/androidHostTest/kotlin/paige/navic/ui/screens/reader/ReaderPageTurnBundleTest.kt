@@ -1,7 +1,10 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.readerAndroidFile
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class ReaderPageTurnBundleTest {
@@ -60,5 +63,32 @@ class ReaderPageTurnBundleTest {
 		)
 
 		assertNull(plan)
+	}
+
+	@Test
+	fun slideTransitionsBorrowCacheOwnedSnapshotsWithoutCurlBitmaps() {
+		val source = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
+		val snapshot = source
+			.substringAfter("internal class ReaderPageSlideSnapshot(")
+			.substringBefore("internal class ReaderPageSlideTransition(")
+		val transition = source
+			.substringAfter("internal class ReaderPageSlideTransition(")
+			.substringBefore("private fun JsonObject.requiredIndex")
+
+		assertContains(source, "internal data class ReaderPageSlideSnapshotKey(")
+		assertContains(snapshot, "val bitmap: Bitmap")
+		assertContains(snapshot, "val surfaceRectInWindow: Rect")
+		assertContains(snapshot, "fun retain()")
+		assertContains(snapshot, "fun releaseCacheOwnership()")
+		assertContains(transition, "val source: ReaderPageSlideSnapshot")
+		assertContains(transition, "val destination: ReaderPageSlideSnapshot")
+		assertContains(transition, "source.retain()")
+		assertContains(transition, "destination.retain()")
+		assertContains(transition, "fun close()")
+		assertContains(transition, "source.release()")
+		assertContains(transition, "destination.release()")
+		assertFalse(transition.contains("bitmap.recycle()"))
+		assertFalse(transition.contains("turningReverse"))
+		assertFalse(transition.contains("underneath"))
 	}
 }

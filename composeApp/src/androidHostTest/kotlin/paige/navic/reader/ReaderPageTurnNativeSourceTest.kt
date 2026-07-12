@@ -16,7 +16,7 @@ class ReaderPageTurnNativeSourceTest {
 			.substringAfter("private fun pageAxisWidth(viewWidth: Int): Int =")
 			.substringBefore("\n\n")
 
-		assertContains(pageAxisWidth, "bundle.currentBase.width * bundle.renderScaleX")
+		assertContains(pageAxisWidth, "transition.source.bitmap.width * transition.renderScaleX")
 		assertContains(pageAxisWidth, "viewWidth.coerceAtLeast(1)")
 	}
 
@@ -138,7 +138,7 @@ class ReaderPageTurnNativeSourceTest {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val captureCallback = controller.substringAfter("captureCurrentSurface")
 		val validationIndex = captureCallback.indexOf("isPreparationActive(plan, stateGeneration)")
-		val assignmentIndex = captureCallback.indexOf("activeBundle = bundle")
+		val assignmentIndex = captureCallback.indexOf("activeTransition = transition")
 
 		assertTrue(validationIndex >= 0, "The controller must validate the preparation generation first.")
 		assertTrue(
@@ -191,7 +191,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "pointerY: Float")
 		assertContains(controller, "setGestureY")
 		assertContains(controller, "pageAxisWidth(viewWidth)")
-		assertContains(controller, "bundle.currentBase.width * bundle.renderScaleX")
+		assertContains(controller, "transition.source.bitmap.width * transition.renderScaleX")
 	}
 
 	@Test
@@ -399,14 +399,13 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun portraitLeafKeepsRealReverseAndDistinctUnderneathSurfaces() {
-		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+	fun flatSlidePathDoesNotCaptureReverseOrUnderneathSurfaces() {
+		val renderer = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
-		assertContains(renderer, "ReaderPageTurnTransitionKind.PortraitLeaf")
-		assertContains(renderer, "bundle.turningReverse")
-		assertContains(renderer, "bundle.underneath")
-		assertContains(source, "underneathBase ?: finalBase")
+		assertFalse(renderer.contains("turningReverse"))
+		assertFalse(renderer.contains("underneath"))
+		assertFalse(source.contains("capturePortraitUnderneath"))
 	}
 
 	@Test
@@ -453,7 +452,7 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun prewarmRendererIsReleasedAfterCaptureAndEveryLifecycleInvalidation() {
+	fun prewarmRendererPersistsUntilExplicitLifecycleInvalidation() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
@@ -462,13 +461,21 @@ class ReaderPageTurnNativeSourceTest {
 			.substringBefore("private fun cancelPrewarm()")
 		val cancelPrewarm = controller
 			.substringAfter("private fun cancelPrewarm()")
-			.substringBefore("private fun prepareBundle(")
+			.substringBefore("private fun destroyPageTurnPreviewRenderer(")
+		val destroy = controller
+			.substringAfter("fun destroy()")
+			.substringBefore("fun invalidate(")
+		val invalidate = controller
+			.substringAfter("fun invalidate(reason: String)")
+			.substringBefore("private fun begin(")
 
 		assertContains(controller, "onRequestPrewarm")
-		assertContains(finishPrewarm, "destroyPageTurnPreviewRenderer")
-		assertContains(cancelPrewarm, "destroyPageTurnPreviewRenderer")
+		assertFalse(finishPrewarm.contains("destroyPageTurnPreviewRenderer"))
+		assertFalse(cancelPrewarm.contains("destroyPageTurnPreviewRenderer"))
+		assertContains(destroy, "destroyPageTurnPreviewRenderer(\"controller-destroyed\")")
+		assertContains(invalidate, "destroyPageTurnPreviewRenderer(reason)")
 		assertFalse(controller.contains("postOnAnimation { prewarmAdjacent() }"))
-		assertContains(source, "private const val MaxCachedBundles = 2")
+		assertContains(source, "private const val MaxCachedSnapshots = 5")
 		assertContains(preview, "previewView.close?.()")
 		assertContains(preview, "previewView.remove?.()")
 	}

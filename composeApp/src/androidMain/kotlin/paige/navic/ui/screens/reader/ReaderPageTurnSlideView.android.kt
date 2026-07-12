@@ -12,7 +12,7 @@ internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 	private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 	private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 	private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-	private var bundle: ReaderPageTurnBitmapBundle? = null
+	private var transition: ReaderPageSlideTransition? = null
 	private var direction = ReaderPageTurnPhysicalDirection.TowardLeft
 	private var progress = 0f
 	private var surfaceLeft = 0f
@@ -25,13 +25,13 @@ internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 		setLayerType(LAYER_TYPE_HARDWARE, null)
 	}
 
-	fun setBundle(
-		bundle: ReaderPageTurnBitmapBundle,
+	fun setTransition(
+		transition: ReaderPageSlideTransition,
 		direction: ReaderPageTurnPhysicalDirection,
 		surfaceLeft: Int,
 		surfaceTop: Int
 	) {
-		this.bundle = bundle
+		this.transition = transition
 		this.direction = direction
 		this.surfaceLeft = surfaceLeft.toFloat()
 		this.surfaceTop = surfaceTop.toFloat()
@@ -49,22 +49,22 @@ internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 		invalidate()
 	}
 
-	fun clearBundle() {
-		bundle = null
+	fun clearTransition() {
+		transition = null
 		invalidate()
 	}
 
 	override fun onDraw(canvas: Canvas) {
-		val bundle = bundle ?: return
-		val current = bundle.currentBase
-		val destination = bundle.finalBase
+		val transition = transition ?: return
+		val current = transition.source.bitmap
+		val destination = transition.destination.bitmap
 		val width = current.width.toFloat()
 		val height = current.height.toFloat()
 		if (width <= 0f || height <= 0f) return
 
 		val restore = canvas.save()
 		canvas.translate(surfaceLeft, surfaceTop)
-		canvas.scale(bundle.renderScaleX, bundle.renderScaleY)
+		canvas.scale(transition.renderScaleX, transition.renderScaleY)
 		if (showFinalBase) {
 			canvas.drawBitmap(destination, 0f, 0f, bitmapPaint)
 			canvas.restoreToCount(restore)
