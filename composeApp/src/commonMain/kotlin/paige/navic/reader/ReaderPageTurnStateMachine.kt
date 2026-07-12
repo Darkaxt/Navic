@@ -30,7 +30,7 @@ class ReaderPageTurnStateMachine(
 		get() = pendingCommit
 
 	private var generation: Long = 0
-	private var peakProgress: Float = 0f
+	private var peakMotionFraction: Float = 0f
 	private var lastDeltaAxis: Float = 0f
 	private var lastTimestampMs: Long? = null
 	private var velocityPxPerSecond: Float = 0f
@@ -51,7 +51,7 @@ class ReaderPageTurnStateMachine(
 		phase = ReaderPageTurnPhase.Preparing
 		this.targetPageIndex = targetPageIndex
 		progress = 0f
-		peakProgress = 0f
+		peakMotionFraction = 0f
 		lastDeltaAxis = 0f
 		lastTimestampMs = null
 		velocityPxPerSecond = 0f
@@ -78,7 +78,7 @@ class ReaderPageTurnStateMachine(
 	fun release(deltaAxis: Float, axisSize: Int, timestampMs: Long): List<ReaderPageTurnEffect> {
 		if (phase != ReaderPageTurnPhase.Preparing && phase != ReaderPageTurnPhase.Deforming) return emptyList()
 		updateMotion(deltaAxis, axisSize, timestampMs)
-		val commit = peakProgress >= distanceCommitThreshold || velocityPxPerSecond >= velocityCommitThresholdPxPerSecond
+		val commit = peakMotionFraction >= distanceCommitThreshold || velocityPxPerSecond >= velocityCommitThresholdPxPerSecond
 		if (phase == ReaderPageTurnPhase.Preparing) {
 			pendingCommit = commit
 			return emptyList()
@@ -165,8 +165,9 @@ class ReaderPageTurnStateMachine(
 
 	private fun updateMotion(deltaAxis: Float, axisSize: Int, timestampMs: Long) {
 		if (axisSize <= 0) return
-		progress = (abs(deltaAxis) / axisSize.toFloat()).coerceIn(0f, 1f)
-		peakProgress = maxOf(peakProgress, progress)
+		val motionFraction = (abs(deltaAxis) / axisSize.toFloat()).coerceIn(0f, 1f)
+		progress = motionFraction * CompletedTurnProgress
+		peakMotionFraction = maxOf(peakMotionFraction, motionFraction)
 		lastTimestampMs?.let { previousTimestamp ->
 			val elapsedMs = timestampMs - previousTimestamp
 			if (elapsedMs > 0) {
@@ -184,7 +185,7 @@ class ReaderPageTurnStateMachine(
 		if (invalidateGeneration) generation += 1
 		phase = ReaderPageTurnPhase.Idle
 		progress = 0f
-		peakProgress = 0f
+		peakMotionFraction = 0f
 		lastTimestampMs = null
 		velocityPxPerSecond = 0f
 		pendingCommit = null
@@ -192,5 +193,9 @@ class ReaderPageTurnStateMachine(
 		commitAnimationFinished = false
 		destinationSettled = false
 		targetPageIndex = null
+	}
+
+	private companion object {
+		const val CompletedTurnProgress = 2f
 	}
 }

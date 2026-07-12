@@ -5,9 +5,27 @@ import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import paige.navic.ui.screens.reader.ReaderPageTurnPrewarmRetryBudget
+import paige.navic.ui.screens.reader.readerPageTurnRemainingAnimationDuration
 import paige.navic.ui.screens.reader.readerPageTurnPixelsContainForeground
 
 class ReaderPageTurnNativeSourceTest {
+	@Test
+	fun liveDragUsesPhysicalPageWidthAfterHalfResolutionCapture() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val pageAxisWidth = controller
+			.substringAfter("private fun pageAxisWidth(viewWidth: Int): Int =")
+			.substringBefore("\n\n")
+
+		assertContains(pageAxisWidth, "bundle.turningFront.width * bundle.renderScaleX")
+		assertContains(pageAxisWidth, "if (state.spread) viewWidth / 2f else viewWidth.toFloat()")
+	}
+
+	@Test
+	fun commitAnimationDurationTracksOnlyTheUnfinishedFoldDistance() {
+		assertTrue(readerPageTurnRemainingAnimationDuration(0f, 2f, 350L) == 350L)
+		assertTrue(readerPageTurnRemainingAnimationDuration(1f, 2f, 350L) == 175L)
+		assertTrue(readerPageTurnRemainingAnimationDuration(2f, 2f, 350L) == 0L)
+	}
 	@Test
 	fun runtimeExposesResolvedPageRectanglesWithoutMovingFoliate() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
@@ -173,7 +191,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "pointerY: Float")
 		assertContains(controller, "setGestureY")
 		assertContains(controller, "pageAxisWidth(viewWidth)")
-		assertContains(controller, "activeBundle?.turningFront?.width")
+		assertContains(controller, "bundle.turningFront.width * bundle.renderScaleX")
 	}
 
 	@Test
@@ -238,7 +256,8 @@ class ReaderPageTurnNativeSourceTest {
 			.substringBefore("private fun finishCommitIfReady(")
 
 		assertContains(controller, "CommitEndProgress = 2f")
-		assertContains(controller, "animate(fromProgress, CommitEndProgress, CommitAnimationDurationMs)")
+		assertContains(controller, "readerPageTurnRemainingAnimationDuration(")
+		assertContains(controller, "to = CommitEndProgress")
 		assertContains(controller, "ReaderPageTurnEffect.ShowFinalBase")
 		assertContains(renderer, "showFinalBase")
 		assertContains(renderer, "MaxTurnProgress = 2f")

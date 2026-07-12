@@ -700,7 +700,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		val handled = super.dispatchTouchEvent(event)
 		handleSwipeTouchEvent(event)
-		if (!horizontalSwipeDispatched && !nativeSwipeIntercepted) {
+		if (!horizontalSwipeDispatched && !nativeSwipeIntercepted && !nativeTapCancelledByDrag) {
 			gestureDetector.onTouchEvent(event)
 		}
 		val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched
@@ -724,7 +724,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				if (!horizontalSwipeDispatched) {
 					val dx = event.x - swipeStartX
 					val dy = event.y - swipeStartY
-					cancelPendingLongTapForDrag(dx, dy)
+					cancelPendingLongTapForDrag(dx, dy, event)
 					logReaderDragCandidate(dx, dy)
 					if (nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
 						nativeTapCancelledByDrag = true
@@ -745,7 +745,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				if (!horizontalSwipeDispatched) {
 					val dx = event.x - swipeStartX
 					val dy = event.y - swipeStartY
-					cancelPendingLongTapForDrag(dx, dy)
+					cancelPendingLongTapForDrag(dx, dy, event)
 					logReaderDragCandidate(dx, dy)
 					if (nativeTapCancelledByDrag || nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
 						val shellCoverVisible = shellCoverView?.visibility == VISIBLE
@@ -895,10 +895,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		)
 	}
 
-	private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float) {
+	private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float, event: MotionEvent) {
 		if (abs(deltaX) <= touchSlopPx && abs(deltaY) <= touchSlopPx) return
-		gestureDetector.cancelPendingLongTap()
+		if (!nativeTapCancelledByDrag) gestureDetector.cancelForDrag(event)
 		nativeTapCandidate = false
+		nativeTapCancelledByDrag = true
 	}
 
 	private fun nativeTapMovedBeyondSlop(x: Float, y: Float): Boolean =
@@ -915,9 +916,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			readableSwipeAction(
 				deltaX = x - swipeStartX,
 				deltaY = y - swipeStartY,
-				thresholdPx = readablePageDragSlopPx
+				thresholdPx = readableDragActivationSlopPx()
 			) != null
 		}
+
+	private fun readableDragActivationSlopPx(): Float = when {
+		pageTurnCanvasEnabled && !verticalPageDragPreview -> touchSlopPx
+		else -> readablePageDragSlopPx
+	}
 
 	private fun readableSwipeAction(
 		deltaX: Float,
@@ -1006,6 +1012,15 @@ private class KomikkuGestureDetectorWithLongTap(
 
 	fun cancelPendingLongTap() {
 		handler.removeCallbacks(longTapFn)
+	}
+
+	fun cancelForDrag(event: MotionEvent) {
+		handler.removeCallbacks(longTapFn)
+		lastDownEvent?.recycle()
+		lastDownEvent = null
+		val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+		super.onTouchEvent(cancel)
+		cancel.recycle()
 	}
 
 	override fun onTouchEvent(ev: MotionEvent): Boolean {

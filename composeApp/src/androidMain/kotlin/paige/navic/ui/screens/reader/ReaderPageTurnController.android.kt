@@ -18,6 +18,9 @@ import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderPageTurnStateMachine
 import paige.navic.util.core.Logger
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 private const val ReaderPageTurnControllerTag = "ReaderPageTurnController"
 
@@ -103,8 +106,9 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun pageAxisWidth(viewWidth: Int): Int =
-		activeBundle?.turningFront?.width
-			?: if (state.spread) (viewWidth / 2).coerceAtLeast(1) else viewWidth
+		activeBundle?.let { bundle ->
+			(bundle.turningFront.width * bundle.renderScaleX).roundToInt().coerceAtLeast(1)
+		} ?: (if (state.spread) viewWidth / 2f else viewWidth.toFloat()).roundToInt().coerceAtLeast(1)
 
 	private fun setGestureY(edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
 		gestureHostHeight = viewHeight.coerceAtLeast(1)
@@ -690,7 +694,15 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun animateCommit(fromProgress: Float) {
-		animate(fromProgress, CommitEndProgress, CommitAnimationDurationMs) {
+		animate(
+			from = fromProgress,
+			to = CommitEndProgress,
+			durationMs = readerPageTurnRemainingAnimationDuration(
+				from = fromProgress,
+				to = CommitEndProgress,
+				fullDurationMs = CommitAnimationDurationMs
+			)
+		) {
 			handleEffects(state.animationFinished())
 		}
 	}
@@ -751,6 +763,18 @@ internal class ReaderPageTurnController(
 		const val CommitEndProgress = 2f
 		const val RelaxAnimationDurationMs = 160L
 	}
+}
+
+internal fun readerPageTurnRemainingAnimationDuration(
+	from: Float,
+	to: Float,
+	fullDurationMs: Long
+): Long {
+	if (fullDurationMs <= 0L) return 0L
+	val fullDistance = abs(to)
+	if (fullDistance <= 0.001f) return 0L
+	val remainingFraction = (abs(to - from) / fullDistance).coerceIn(0f, 1f)
+	return (fullDurationMs * remainingFraction).roundToLong()
 }
 
 private fun String?.javascriptString(): String? = runCatching {

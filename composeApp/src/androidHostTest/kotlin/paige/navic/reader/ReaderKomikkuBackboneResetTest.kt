@@ -2016,18 +2016,18 @@ class ReaderKomikkuBackboneResetTest {
 			"The native top manager needs an explicit long-tap cancellation hook for drag motion observed outside child ownership."
 		)
 		assertTrue(
-			moveBranch.contains("cancelPendingLongTapForDrag(dx, dy)") &&
-				viewerContainerBody.contains("private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float)") &&
-				viewerContainerBody.contains("gestureDetector.cancelPendingLongTap()"),
-			"Any drag crossing touch slop must cancel the pending native long tap before cover swipe dispatch or readable drag delegation."
+			moveBranch.contains("cancelPendingLongTapForDrag(dx, dy, event)") &&
+				viewerContainerBody.contains("private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float, event: MotionEvent)") &&
+				viewerContainerBody.contains("gestureDetector.cancelForDrag(event)"),
+			"Any drag crossing touch slop must cancel the complete native tap gesture before cover swipe dispatch or readable drag delegation."
 		)
 		assertTrue(
-			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy)") <
+			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy, event)") <
 				moveBranch.indexOf("dispatchHorizontalSwipeViewerAction("),
 			"A cover swipe must not dispatch while the old long-tap callback is still armed."
 		)
 		assertTrue(
-			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy)") <
+			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy, event)") <
 				moveBranch.indexOf("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)"),
 			"A readable EPUB/PDF drag must cancel native long-tap detection before the renderer preview keeps the drag stream."
 		)

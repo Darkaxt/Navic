@@ -624,7 +624,7 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeReadableDragPreviewUsesPagingSlopWithoutRestoringCandidateTapGuard() {
+	fun nativeCanvasDragUsesTapSlopWhileNonCanvasPreviewKeepsPagingSlop() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val singleTap = nativeFrameHostText
 			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
@@ -654,10 +654,13 @@ class ReaderRuntimeShellProgressTest {
 			"thresholdPx = touchSlopPx",
 			message = "Native cover drags should remain responsive at normal tap slop."
 		)
+		assertContains(nativeFrameHostText, "private fun readableDragActivationSlopPx(): Float")
+		assertContains(nativeFrameHostText, "pageTurnCanvasEnabled && !verticalPageDragPreview -> touchSlopPx")
+		assertContains(nativeFrameHostText, "else -> readablePageDragSlopPx")
 		assertContains(
 			nativeHorizontalSwipe,
-			"thresholdPx = readablePageDragSlopPx",
-			message = "Readable-page drag preview must not use normal tap slop, because that reclassifies small center-tap drift as a page drag."
+			"thresholdPx = readableDragActivationSlopPx()",
+			message = "Canvas must claim a deliberate horizontal drag at normal touch slop; the non-canvas preview may retain paging slop."
 		)
 		assertContains(
 			dispatchHorizontalSwipe,
@@ -678,6 +681,26 @@ class ReaderRuntimeShellProgressTest {
 			singleTap.contains("if (!nativeTapCandidate) return false"),
 			"Do not reintroduce the eta73 fix: it kills confirmed center taps because GestureDetector may confirm after ACTION_UP lifecycle flags changed."
 		)
+	}
+
+	@Test
+	fun nativeDragCancelsTheWholeGestureDetectorSequenceBeforeTapConfirmation() {
+		val nativeFrameHostText = readerNativeFrameHostFile().readText()
+		val dispatchTouch = nativeFrameHostText
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+		val cancelForDrag = nativeFrameHostText
+			.substringAfter("private fun cancelPendingLongTapForDrag(")
+			.substringBefore("\n\tprivate fun nativeTapMovedBeyondSlop")
+		val detector = nativeFrameHostText
+			.substringAfter("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+
+		assertContains(dispatchTouch, "!nativeTapCancelledByDrag")
+		assertContains(cancelForDrag, "nativeTapCancelledByDrag = true")
+		assertContains(cancelForDrag, "gestureDetector.cancelForDrag(event)")
+		assertContains(detector, "fun cancelForDrag(event: MotionEvent)")
+		assertContains(detector, "MotionEvent.ACTION_CANCEL")
 	}
 
 	@Test

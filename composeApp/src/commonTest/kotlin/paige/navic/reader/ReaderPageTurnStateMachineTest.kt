@@ -29,7 +29,32 @@ class ReaderPageTurnStateMachineTest {
 
 		val render = machine.captureSucceeded(generation).filterIsInstance<ReaderPageTurnEffect.Render>().single()
 
-		assertEquals(0.18f, render.progress)
+		assertEquals(0.36f, render.progress)
+	}
+
+	@Test
+	fun fullPageDragCanReachTheCompletedTurnFrameBeforeRelease() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
+		machine.captureSucceeded(generation)
+
+		val render = machine.update(-1000f, 1000, 100).single()
+
+		assertEquals(2f, assertIs<ReaderPageTurnEffect.Render>(render).progress)
+		assertEquals(ReaderPageTurnPhase.Deforming, machine.phase)
+	}
+
+	@Test
+	fun renderProgressScalingDoesNotChangeThePhysicalCommitThreshold() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
+		machine.captureSucceeded(generation)
+
+		assertEquals(
+			0.66f,
+			assertIs<ReaderPageTurnEffect.Render>(machine.update(-330f, 1000, 100).single()).progress
+		)
+		assertIs<ReaderPageTurnEffect.AnimateRelax>(machine.release(-330f, 1000, 160).single())
 	}
 
 	@Test
