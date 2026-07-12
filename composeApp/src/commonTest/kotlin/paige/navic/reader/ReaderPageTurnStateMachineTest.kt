@@ -11,13 +11,25 @@ class ReaderPageTurnStateMachineTest {
 	fun captureMustFinishBeforeOverlayAttaches() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)
-		assertEquals(ReaderPageTurnPhase.Capturing, machine.phase)
+		assertEquals(ReaderPageTurnPhase.Preparing, machine.phase)
 		assertTrue(machine.update(deltaAxis = -250f, axisSize = 1000, timestampMs = 10).isEmpty())
 
 		val effects = machine.captureSucceeded(generation)
 		assertIs<ReaderPageTurnEffect.AttachOverlay>(effects.first())
 		assertIs<ReaderPageTurnEffect.Render>(effects.last())
 		assertEquals(ReaderPageTurnPhase.Deforming, machine.phase)
+	}
+
+	@Test
+	fun latestPointerReplacesEarlierPointerWhilePreparing() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)
+		machine.update(-420f, 1000, 10)
+		machine.update(-180f, 1000, 20)
+
+		val render = machine.captureSucceeded(generation).filterIsInstance<ReaderPageTurnEffect.Render>().single()
+
+		assertEquals(0.18f, render.progress)
 	}
 
 	@Test
@@ -42,9 +54,13 @@ class ReaderPageTurnStateMachineTest {
 	}
 
 	@Test
-	fun distanceCommitNavigatesAtCommitStartAndDetachesAfterBothConditions() {
+	fun animationCompletionShowsFinalBaseWithoutWaitingForDestination() {
 		val machine = ReaderPageTurnStateMachine()
-		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
+		val generation = machine.begin(
+			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
+			spread = true,
+			targetPageIndex = 18
+		)
 		machine.captureSucceeded(generation)
 		machine.update(-500f, 1000, 100)
 		val release = machine.release(-500f, 1000, 180)
@@ -52,8 +68,10 @@ class ReaderPageTurnStateMachineTest {
 		assertIs<ReaderPageTurnEffect.AnimateCommit>(release.last())
 		assertEquals(ReaderPageTurnPhase.Committing, machine.phase)
 
-		assertTrue(machine.animationFinished().isEmpty())
-		val finished = machine.destinationSettled()
+		val animationFinished = machine.animationFinished()
+		assertIs<ReaderPageTurnEffect.ShowFinalBase>(animationFinished.single())
+		assertEquals(ReaderPageTurnPhase.Settling, machine.phase)
+		val finished = machine.destinationSettled(pageIndex = 18)
 		assertEquals(1, release.count { it is ReaderPageTurnEffect.Commit })
 		assertEquals(1, finished.count { it is ReaderPageTurnEffect.DetachOverlay })
 		assertTrue(machine.animationFinished().isEmpty())
@@ -62,15 +80,38 @@ class ReaderPageTurnStateMachineTest {
 	@Test
 	fun destinationMaySettleBeforeAnimationWithoutEarlyDetach() {
 		val machine = ReaderPageTurnStateMachine()
-		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)
+		val generation = machine.begin(
+			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
+			spread = false,
+			targetPageIndex = 9
+		)
 		machine.captureSucceeded(generation)
 		machine.update(-500f, 1000, 100)
 		machine.release(-500f, 1000, 180)
 
-		assertTrue(machine.destinationSettled().isEmpty())
+		assertTrue(machine.destinationSettled(pageIndex = 9).isEmpty())
 		assertEquals(ReaderPageTurnPhase.Committing, machine.phase)
-		assertIs<ReaderPageTurnEffect.DetachOverlay>(machine.animationFinished().single())
+		val finished = machine.animationFinished()
+		assertIs<ReaderPageTurnEffect.ShowFinalBase>(finished.first())
+		assertIs<ReaderPageTurnEffect.DetachOverlay>(finished.last())
 		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
+	}
+
+	@Test
+	fun wrongDestinationPageRemainsSettling() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(
+			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
+			spread = true,
+			targetPageIndex = 18
+		)
+		machine.captureSucceeded(generation)
+		machine.update(-500f, 1000, 100)
+		machine.release(-500f, 1000, 180)
+		machine.animationFinished()
+
+		assertTrue(machine.destinationSettled(pageIndex = 17).isEmpty())
+		assertEquals(ReaderPageTurnPhase.Settling, machine.phase)
 	}
 
 	@Test

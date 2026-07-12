@@ -34,8 +34,6 @@ internal class ReaderPageTurnController(
 	private var gestureHostHeight = 0
 	private var settleGeneration = 0L
 	private var activeSettleToken: String? = null
-	private var commitHoldReached = false
-	private var destinationReady = false
 
 	val isAvailable: Boolean
 		get() = enabledForSession && bitmapSource.isAvailable
@@ -66,7 +64,6 @@ internal class ReaderPageTurnController(
 
 	fun cancel() {
 		activeSettleToken = null
-		resetCommitGate()
 		val effects = state.cancel()
 		animation?.cancel()
 		animation = null
@@ -75,7 +72,6 @@ internal class ReaderPageTurnController(
 
 	fun destroy() {
 		activeSettleToken = null
-		resetCommitGate()
 		state.cancel()
 		animation?.cancel()
 		animation = null
@@ -118,10 +114,8 @@ internal class ReaderPageTurnController(
 				is ReaderPageTurnEffect.Render -> curlView?.setProgress(effect.progress)
 				is ReaderPageTurnEffect.AnimateCommit -> animateCommit(effect.fromProgress)
 				is ReaderPageTurnEffect.AnimateRelax -> animateRelax(effect.fromProgress)
-				is ReaderPageTurnEffect.Commit -> {
-					resetCommitGate()
-					commitTurn(effect.direction)
-				}
+				is ReaderPageTurnEffect.Commit -> commitTurn(effect.direction)
+				ReaderPageTurnEffect.ShowFinalBase -> curlView?.showFinalBase()
 				ReaderPageTurnEffect.DetachOverlay -> detachAfterNavigationFrame()
 			}
 		}
@@ -204,21 +198,13 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun animateCommit(fromProgress: Float) {
-		animate(fromProgress, CommitHoldProgress, CommitAnimationDurationMs) {
-			commitHoldReached = true
-			if (destinationReady) finishCommitAnimation()
+		animate(fromProgress, CommitEndProgress, CommitAnimationDurationMs) {
+			handleEffects(state.animationFinished())
 		}
 	}
 
 	private fun animateRelax(fromProgress: Float) {
 		animate(fromProgress, 0f, RelaxAnimationDurationMs) {
-			handleEffects(state.animationFinished())
-		}
-	}
-
-	private fun finishCommitAnimation() {
-		if (!commitHoldReached || !destinationReady || animation != null) return
-		animate(CommitHoldProgress, CommitEndProgress, CommitFinishAnimationDurationMs) {
 			handleEffects(state.animationFinished())
 		}
 	}
@@ -248,7 +234,6 @@ internal class ReaderPageTurnController(
 
 	private fun detachOverlay() {
 		activeSettleToken = null
-		resetCommitGate()
 		val view = curlView
 		curlView = null
 		if (view != null) {
@@ -259,21 +244,11 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun markDestinationSettled() {
-		destinationReady = true
-		curlView?.setDestinationSettled()
 		handleEffects(state.destinationSettled())
-		if (commitHoldReached && animation == null) finishCommitAnimation()
-	}
-
-	private fun resetCommitGate() {
-		commitHoldReached = false
-		destinationReady = false
 	}
 
 	private companion object {
-		const val CommitAnimationDurationMs = 210L
-		const val CommitFinishAnimationDurationMs = 140L
-		const val CommitHoldProgress = 1f
+		const val CommitAnimationDurationMs = 350L
 		const val CommitEndProgress = 2f
 		const val RelaxAnimationDurationMs = 160L
 	}

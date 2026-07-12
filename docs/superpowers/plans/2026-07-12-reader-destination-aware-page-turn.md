@@ -371,7 +371,7 @@ git commit -m "feat(reader): capture destination page bundles"
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnController.android.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnNativeSourceTest.kt`
 
-- [ ] **Step 1: Write failing state tests**
+- [x] **Step 1: Write failing state tests**
 
 Add tests for:
 
@@ -382,7 +382,7 @@ Add tests for:
 - exact destination settlement from either arrival order detaches once
 - wrong settled page index remains in `Settling`
 
-- [ ] **Step 2: Run state tests and verify RED**
+- [x] **Step 2: Run state tests and verify RED**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnStateMachineTest"
@@ -390,7 +390,7 @@ Add tests for:
 
 Expected: FAIL because `Preparing` and `Settling` do not exist and Rev 4 still holds at half fold.
 
-- [ ] **Step 3: Implement state transitions**
+- [x] **Step 3: Implement state transitions**
 
 Replace the Rev 4 hold gate with:
 
@@ -401,15 +401,15 @@ Preparing -> Relaxing -> Idle
 
 `animationFinished()` marks native completion. `destinationSettled(targetIndex)` marks exact live completion. Either may arrive first; detach emits only after both.
 
-- [ ] **Step 4: Update controller to animate continuously**
+- [x] **Step 4: Update controller to animate continuously**
 
 Remove `CommitHoldProgress`, `commitHoldReached`, and the binding pause. Animate from release progress through the fully turned final state in one `ValueAnimator`. At completion, switch the view to static `finalBase` and await exact settlement if necessary.
 
-- [ ] **Step 5: Update Rev 4 source test**
+- [x] **Step 5: Update Rev 4 source test**
 
 Replace `committedTurnHoldsTheFoldUntilFoliateSettlesThenFinishes` with assertions that no hold constant exists and delayed settlement displays `finalBase`.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnStateMachineTest"

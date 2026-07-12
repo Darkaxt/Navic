@@ -135,14 +135,16 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun spreadOverlayUsesTheWholeHostAndRevealsTheSettledDestination() {
+	fun spreadOverlayUsesTheWholeHostAndKeepsFinalNativeFrameUntilDetach() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
 
 		assertContains(controller, "FrameLayout.LayoutParams.MATCH_PARENT")
 		assertContains(controller, "pageLeft = left")
 		assertContains(controller, "pageTop = top")
-		assertContains(controller, "setDestinationSettled")
+		assertContains(controller, "ReaderPageTurnEffect.ShowFinalBase")
+		assertContains(controller, "showFinalBase")
+		assertFalse(controller.contains("curlView?.setDestinationSettled()"))
 		assertContains(renderer, "pageLeft")
 		assertContains(renderer, "pageTop")
 		assertContains(renderer, "canvas.translate(pageLeft, pageTop)")
@@ -154,17 +156,18 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun committedTurnHoldsTheFoldUntilFoliateSettlesThenFinishes() {
+	fun committedTurnAnimatesContinuouslyThenShowsFinalBaseWhileFoliateSettles() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
 
-		assertContains(controller, "CommitHoldProgress")
 		assertContains(controller, "CommitEndProgress = 2f")
-		assertContains(controller, "commitHoldReached")
-		assertContains(controller, "destinationReady")
-		assertContains(controller, "finishCommitAnimation")
+		assertContains(controller, "animate(fromProgress, CommitEndProgress, CommitAnimationDurationMs)")
+		assertContains(controller, "ReaderPageTurnEffect.ShowFinalBase")
+		assertContains(renderer, "showFinalBase")
 		assertContains(renderer, "MaxTurnProgress = 2f")
-		assertFalse(controller.contains("animate(fromProgress, 1f, CommitAnimationDurationMs)"))
+		assertFalse(controller.contains("CommitHoldProgress"))
+		assertFalse(controller.contains("commitHoldReached"))
+		assertFalse(controller.contains("finishCommitAnimation"))
 	}
 
 	@Test

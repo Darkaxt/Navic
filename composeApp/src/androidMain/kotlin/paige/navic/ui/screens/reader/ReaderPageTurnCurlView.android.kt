@@ -75,6 +75,12 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		invalidate()
 	}
 
+	fun showFinalBase() {
+		progress = MaxTurnProgress
+		invalidateGeometry()
+		invalidate()
+	}
+
 	fun setGestureY(edgeOriginY: Float, pointerY: Float) {
 		this.edgeOriginY = edgeOriginY
 		this.pointerY = pointerY
