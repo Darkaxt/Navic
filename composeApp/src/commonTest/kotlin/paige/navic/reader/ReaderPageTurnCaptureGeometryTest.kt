@@ -57,4 +57,31 @@ class ReaderPageTurnCaptureGeometryTest {
 			)
 		)
 	}
+
+	@Test
+	fun spreadSurfaceRectUnionsBothPhysicalPages() {
+		assertEquals(
+			ReaderPageTurnPixelRect(left = 38, top = 40, right = 1802, bottom = 1240),
+			spread.surfaceRectInWindow(
+				webViewWindowLeft = 20,
+				webViewWindowTop = 40,
+				webViewWidth = 1800,
+				webViewHeight = 1200
+			)
+		)
+	}
+
+	@Test
+	fun physicalPageRoleConvertsWithinTheSameWindowCoordinateSystem() {
+		assertEquals(
+			ReaderPageTurnPixelRect(left = 38, top = 40, right = 920, bottom = 1240),
+			spread.pageRectInWindow(
+				role = ReaderPageTurnPageRole.Left,
+				webViewWindowLeft = 20,
+				webViewWindowTop = 40,
+				webViewWidth = 1800,
+				webViewHeight = 1200
+			)
+		)
+	}
 }

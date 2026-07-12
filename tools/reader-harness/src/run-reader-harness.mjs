@@ -30,10 +30,10 @@ const currentFile = fileURLToPath(import.meta.url)
 const currentDir = path.dirname(currentFile)
 const repoRoot = path.resolve(currentDir, '../../..')
 const readerBridge = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader.js')
-const readerHelpers = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-helpers.js')
+const readerBridgeCore = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-bridge-core.js')
 const readerSettingsCore = path.join(repoRoot, 'composeApp/src/androidMain/assets/reader/navic-reader-settings-core.js')
 const bridgeText = fs.readFileSync(readerBridge, 'utf8')
-const helperText = fs.readFileSync(readerHelpers, 'utf8')
+const bridgeCoreText = fs.readFileSync(readerBridgeCore, 'utf8')
 
 const modeArgIndex = process.argv.indexOf('--mode')
 const modeFromFlag = modeArgIndex >= 0 ? process.argv[modeArgIndex + 1] : null
@@ -6860,8 +6860,8 @@ if (mode !== 'smoke') {
   process.exit(1)
 }
 
-if (!bridgeText.includes('readerTrace') || !helperText.includes('__navicReaderTrace')) {
-  console.error('Reader harness requires readerTrace instrumentation in the reader runtime and helpers')
+if (!bridgeText.includes('readerTrace') || !bridgeCoreText.includes('__navicReaderTrace')) {
+  console.error('Reader harness requires readerTrace instrumentation in the reader runtime and bridge core')
   process.exit(1)
 }
 

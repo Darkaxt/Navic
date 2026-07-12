@@ -2,7 +2,7 @@ package paige.navic.reader
 
 import kotlin.math.abs
 
-enum class ReaderPageTurnPhase { Idle, Capturing, Deforming, Committing, Relaxing }
+enum class ReaderPageTurnPhase { Idle, Preparing, Deforming, Committing, Settling, Relaxing }
 
 sealed interface ReaderPageTurnEffect {
 	data object AttachOverlay : ReaderPageTurnEffect
@@ -10,6 +10,7 @@ sealed interface ReaderPageTurnEffect {
 	data class AnimateCommit(val fromProgress: Float) : ReaderPageTurnEffect
 	data class AnimateRelax(val fromProgress: Float) : ReaderPageTurnEffect
 	data class Commit(val direction: ReaderPageTurnPhysicalDirection) : ReaderPageTurnEffect
+	data object ShowFinalBase : ReaderPageTurnEffect
 	data object DetachOverlay : ReaderPageTurnEffect
 }
 
@@ -25,6 +26,8 @@ class ReaderPageTurnStateMachine(
 		private set
 	var progress: Float = 0f
 		private set
+	val pendingReleaseCommit: Boolean?
+		get() = pendingCommit
 
 	private var generation: Long = 0
 	private var peakProgress: Float = 0f
@@ -35,12 +38,18 @@ class ReaderPageTurnStateMachine(
 	private var overlayAttached: Boolean = false
 	private var commitAnimationFinished = false
 	private var destinationSettled = false
+	private var targetPageIndex: Int? = null
 
-	fun begin(direction: ReaderPageTurnPhysicalDirection, spread: Boolean): Long {
+	fun begin(
+		direction: ReaderPageTurnPhysicalDirection,
+		spread: Boolean,
+		targetPageIndex: Int? = null
+	): Long {
 		generation += 1
 		this.direction = direction
 		this.spread = spread
-		phase = ReaderPageTurnPhase.Capturing
+		phase = ReaderPageTurnPhase.Preparing
+		this.targetPageIndex = targetPageIndex
 		progress = 0f
 		peakProgress = 0f
 		lastDeltaAxis = 0f
@@ -52,7 +61,12 @@ class ReaderPageTurnStateMachine(
 	}
 
 	fun update(deltaAxis: Float, axisSize: Int, timestampMs: Long): List<ReaderPageTurnEffect> {
-		if (phase == ReaderPageTurnPhase.Idle || phase == ReaderPageTurnPhase.Committing || phase == ReaderPageTurnPhase.Relaxing) return emptyList()
+		if (
+			phase == ReaderPageTurnPhase.Idle ||
+			phase == ReaderPageTurnPhase.Committing ||
+			phase == ReaderPageTurnPhase.Settling ||
+			phase == ReaderPageTurnPhase.Relaxing
+		) return emptyList()
 		updateMotion(deltaAxis, axisSize, timestampMs)
 		return if (phase == ReaderPageTurnPhase.Deforming) {
 			listOf(ReaderPageTurnEffect.Render(progress))
@@ -62,10 +76,10 @@ class ReaderPageTurnStateMachine(
 	}
 
 	fun release(deltaAxis: Float, axisSize: Int, timestampMs: Long): List<ReaderPageTurnEffect> {
-		if (phase != ReaderPageTurnPhase.Capturing && phase != ReaderPageTurnPhase.Deforming) return emptyList()
+		if (phase != ReaderPageTurnPhase.Preparing && phase != ReaderPageTurnPhase.Deforming) return emptyList()
 		updateMotion(deltaAxis, axisSize, timestampMs)
 		val commit = peakProgress >= distanceCommitThreshold || velocityPxPerSecond >= velocityCommitThresholdPxPerSecond
-		if (phase == ReaderPageTurnPhase.Capturing) {
+		if (phase == ReaderPageTurnPhase.Preparing) {
 			pendingCommit = commit
 			return emptyList()
 		}
@@ -73,7 +87,7 @@ class ReaderPageTurnStateMachine(
 	}
 
 	fun captureSucceeded(captureGeneration: Long): List<ReaderPageTurnEffect> {
-		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Capturing) return emptyList()
+		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Preparing) return emptyList()
 		overlayAttached = true
 		val effects = mutableListOf<ReaderPageTurnEffect>(
 			ReaderPageTurnEffect.AttachOverlay,
@@ -88,8 +102,14 @@ class ReaderPageTurnStateMachine(
 		return effects
 	}
 
+	fun setTargetPageIndex(preparationGeneration: Long, pageIndex: Int): Boolean {
+		if (preparationGeneration != generation || phase != ReaderPageTurnPhase.Preparing || pageIndex < 0) return false
+		targetPageIndex = pageIndex
+		return true
+	}
+
 	fun captureFailed(captureGeneration: Long): Boolean {
-		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Capturing) return false
+		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Preparing) return false
 		reset(invalidateGeneration = true)
 		return true
 	}
@@ -104,7 +124,11 @@ class ReaderPageTurnStateMachine(
 	fun animationFinished(): List<ReaderPageTurnEffect> = when (phase) {
 		ReaderPageTurnPhase.Committing -> {
 			commitAnimationFinished = true
-			finishCommitIfReady()
+			phase = ReaderPageTurnPhase.Settling
+			listOf(
+				ReaderPageTurnEffect.ShowFinalBase,
+				ReaderPageTurnEffect.Commit(direction)
+			)
 		}
 		ReaderPageTurnPhase.Relaxing -> {
 			reset(invalidateGeneration = true)
@@ -113,8 +137,9 @@ class ReaderPageTurnStateMachine(
 		else -> emptyList()
 	}
 
-	fun destinationSettled(): List<ReaderPageTurnEffect> {
-		if (phase != ReaderPageTurnPhase.Committing) return emptyList()
+	fun destinationSettled(pageIndex: Int? = null): List<ReaderPageTurnEffect> {
+		if (phase != ReaderPageTurnPhase.Settling) return emptyList()
+		if (targetPageIndex != null && pageIndex != targetPageIndex) return emptyList()
 		destinationSettled = true
 		return finishCommitIfReady()
 	}
@@ -125,7 +150,7 @@ class ReaderPageTurnStateMachine(
 			phase = ReaderPageTurnPhase.Committing
 			commitAnimationFinished = false
 			destinationSettled = false
-			listOf(ReaderPageTurnEffect.Commit(direction), ReaderPageTurnEffect.AnimateCommit(progress))
+			listOf(ReaderPageTurnEffect.AnimateCommit(progress))
 		} else {
 			phase = ReaderPageTurnPhase.Relaxing
 			listOf(ReaderPageTurnEffect.AnimateRelax(progress))
@@ -166,5 +191,6 @@ class ReaderPageTurnStateMachine(
 		overlayAttached = false
 		commitAnimationFinished = false
 		destinationSettled = false
+		targetPageIndex = null
 	}
 }

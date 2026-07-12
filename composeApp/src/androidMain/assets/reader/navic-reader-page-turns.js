@@ -156,6 +156,8 @@ import {
   flattenTocItems,
   tocLabel
 } from './navic-reader-helpers.js'
+import { readerPageLocatorForVisualIndex } from './navic-reader-page-turn-model.js'
+import { readerGoToExactVisualPage } from './navic-reader-page-turn-preview.js'
 
 const ViewportScrollStepRatio = 0.75
 
@@ -293,6 +295,80 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
   } catch (error) {
     reportError(error, 'navigation_failed')
   }
+}
+
+async function goToVisualPage(pageIndex, settleToken = '') {
+  if (!this.view) return null
+  const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
+  if (!locator) throw new Error(`Visual page ${pageIndex} is unavailable`)
+  const token = String(settleToken || '')
+  this.pendingExactPageTurnSettlement = token
+    ? {
+        token,
+        pageIndex: locator.pageIndex,
+        spineIndex: locator.spineIndex,
+        chapterPageIndex: locator.chapterPageIndex,
+        paginationProfile: this.paginationProfile,
+      }
+    : null
+  this.nativePageTurnSettledState = null
+  this.nativePageTurnSettledToken = null
+  try {
+    this.beginControlledRelocation('page-turn:exact')
+    await readerGoToExactVisualPage(this.view, locator)
+    this.view.history?.pushState?.({
+      href: locator.href,
+      chapterPageIndex: locator.chapterPageIndex,
+      chapterPageCount: locator.chapterPageCount,
+    })
+    this.scheduleControlledRelocationFallback('page-turn:exact')
+    this.applyReaderViewportLayout('page-turn:exact')
+    this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)
+    return locator
+  } catch (error) {
+    if (this.pendingExactPageTurnSettlement?.token === token) {
+      this.pendingExactPageTurnSettlement = null
+    }
+    throw error
+  }
+}
+
+function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePosition) {
+  const pending = this.pendingExactPageTurnSettlement
+  if (!pending) return false
+  const pageIndex = Number(pagePosition?.pageIndex)
+  const spineIndex = Number(pagePosition?.spineIndex)
+  const chapterPageIndex = Number(pagePosition?.chapterPageIndex)
+  if (
+    !Number.isFinite(pageIndex) ||
+    Math.floor(pageIndex) !== pending.pageIndex ||
+    Math.floor(spineIndex) !== pending.spineIndex ||
+    Math.floor(chapterPageIndex) !== pending.chapterPageIndex
+  ) {
+    readerTrace('page-turn:exact-settle-pending', {
+      token: pending.token,
+      requestedPageIndex: pending.pageIndex,
+      actualPageIndex: Number.isFinite(pageIndex) ? Math.floor(pageIndex) : null,
+      requestedSpineIndex: pending.spineIndex,
+      actualSpineIndex: Number.isFinite(spineIndex) ? Math.floor(spineIndex) : null,
+      requestedChapterPageIndex: pending.chapterPageIndex,
+      actualChapterPageIndex: Number.isFinite(chapterPageIndex) ? Math.floor(chapterPageIndex) : null,
+    })
+    return false
+  }
+  const settleToken = pending.token
+  const settledPageIndex = Math.floor(pageIndex)
+  this.nativePageTurnSettledState = Object.freeze({
+    token: settleToken,
+    pageIndex: settledPageIndex,
+  })
+  this.nativePageTurnSettledToken = settleToken
+  this.pendingExactPageTurnSettlement = null
+  readerTrace('page-turn:exact-settled', {
+    token: settleToken,
+    pageIndex: settledPageIndex,
+  })
+  return true
 }
 
 function nextPage() {
@@ -2390,6 +2466,8 @@ export const NavicReaderPageTurnMethods = {
   fixedLayoutAdjacentPageTarget,
   goToProgress,
   goToChapterProgress,
+  goToVisualPage,
+  maybeCompleteNativePageTurnSettlement,
   nextPage,
   previousPage,
   currentLoadedSectionIndex,

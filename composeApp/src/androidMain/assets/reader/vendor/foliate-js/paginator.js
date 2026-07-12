@@ -1230,6 +1230,14 @@ export class Paginator extends HTMLElement {
         const resolved = await target
         if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
     }
+    async goToTextPage(index, pageIndex, reason = 'navigation') {
+        if (this.#locked || !this.#canGoToIndex(index)) return
+        const requestedPageIndex = Math.max(0, Math.floor(Number(pageIndex) || 0))
+        if (index !== this.#index) await this.#goTo({ index, anchor: 0 })
+        const textPageCount = Math.max(1, this.pages - 2)
+        const textPageIndex = Math.min(textPageCount - 1, requestedPageIndex)
+        return this.#scrollToPage(textPageIndex + 1, reason)
+    }
     #scrollPrev(distance) {
         if (!this.#view) return true
         if (this.scrolled) {

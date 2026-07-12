@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "smoke": "node src/run-reader-harness.mjs --mode smoke"
+    "smoke": "node src/run-reader-harness.mjs --mode smoke",
+    "test:page-turn-model": "node --test src/page-turn-model.test.mjs"
   },
   "dependencies": {
     "playwright": "^1.44.0"
