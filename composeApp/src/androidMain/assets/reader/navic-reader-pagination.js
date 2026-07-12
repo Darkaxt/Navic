@@ -722,6 +722,15 @@ function readerBuildPaginationProfileFromSectionPosition(detail, sectionPosition
 function readerEnsurePaginationProfile(detail, sectionPosition) {
   if (this.view?.isFixedLayout === true) return null
   const fingerprint = this.readerPaginationRenderFingerprint()
+  const exactTurnProfile = this.pendingExactPageTurnSettlement?.paginationProfile
+  if (
+    exactTurnProfile?.chapters?.length &&
+    exactTurnProfile.fingerprint === fingerprint
+  ) {
+    this.paginationFingerprint = fingerprint
+    this.paginationProfile = exactTurnProfile
+    return exactTurnProfile
+  }
   if (this.paginationFingerprint !== fingerprint) {
     this.paginationFingerprint = fingerprint
     const cachedProfile = this.readCachedPaginationProfile(fingerprint)
@@ -799,7 +808,11 @@ function readerPaginationProfilePosition(detail, sectionPosition = this.reflowab
       chapterPageCount: position.chapterPageCount,
       pageCountSource: 'pagination-profile',
     })
-    return this.normalizedReflowablePagePosition(position, detail)
+    return this.normalizedReflowablePagePosition({
+      ...position,
+      spineIndex: Math.max(0, Math.floor(sectionIndex)),
+      href: sectionHref,
+    }, detail)
   }
   return null
 }
@@ -944,6 +957,22 @@ function detailSectionKey(detail) {
 function committedPageTurnPosition(pagePosition, detail, reason) {
   if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
   if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
+  const pendingExact = this.pendingExactPageTurnSettlement
+  const candidateSpineIndex = Number(pagePosition.spineIndex)
+  const candidateChapterPageIndex = Number(pagePosition.chapterPageIndex)
+  if (
+    pendingExact &&
+    Number.isFinite(candidateSpineIndex) &&
+    Number.isFinite(candidateChapterPageIndex) &&
+    candidateSpineIndex === pendingExact.spineIndex &&
+    candidateChapterPageIndex === pendingExact.chapterPageIndex
+  ) {
+    return {
+      ...pagePosition,
+      pageIndex: pendingExact.pageIndex,
+      pageCountSource: pagePosition.pageCountSource || 'page-turn:exact',
+    }
+  }
   const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)
   const candidateSectionKey = this.detailSectionKey(detail)
   const sameSection = Boolean(currentSectionKey && currentSectionKey === candidateSectionKey)

@@ -21,11 +21,13 @@ private const val ReaderPageTurnControllerTag = "ReaderPageTurnController"
 internal class ReaderPageTurnController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
-	private val bitmapSource: ReaderPageTurnBitmapSource = ReaderPageTurnBitmapSource(),
+	private val bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
 	private val onCommitTurn: (ReaderPageTurnPhysicalDirection) -> Unit
 ) {
 	private val state = ReaderPageTurnStateMachine()
-	private var captureResult: ReaderPageTurnCaptureResult? = null
+	private var activeBundle: ReaderPageTurnBitmapBundle? = null
+	private var activePlan: ReaderPageTurnTransitionPlan? = null
+	private var activeStateGeneration = 0L
 	private var curlView: ReaderPageTurnCurlView? = null
 	private var animation: ValueAnimator? = null
 	private var enabledForSession = true
@@ -36,7 +38,7 @@ internal class ReaderPageTurnController(
 	private var activeSettleToken: String? = null
 
 	val isAvailable: Boolean
-		get() = enabledForSession && bitmapSource.isAvailable
+		get() = enabledForSession && bundleSource.isAvailable
 
 	fun update(deltaX: Float, viewWidth: Int, edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
 		if (!isAvailable || viewWidth <= 0) return
@@ -52,7 +54,7 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun pageAxisWidth(viewWidth: Int): Int =
-		captureResult?.bitmap?.width
+		activeBundle?.turningFront?.width
 			?: if (state.spread) (viewWidth / 2).coerceAtLeast(1) else viewWidth
 
 	private fun setGestureY(edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
@@ -64,6 +66,7 @@ internal class ReaderPageTurnController(
 
 	fun cancel() {
 		activeSettleToken = null
+		cancelPreparation()
 		val effects = state.cancel()
 		animation?.cancel()
 		animation = null
@@ -72,10 +75,12 @@ internal class ReaderPageTurnController(
 
 	fun destroy() {
 		activeSettleToken = null
+		cancelPreparation()
 		state.cancel()
 		animation?.cancel()
 		animation = null
 		detachOverlay()
+		bundleSource.invalidate("destroy")
 	}
 
 	private fun begin(deltaX: Float) {
@@ -88,23 +93,104 @@ internal class ReaderPageTurnController(
 			enabledForSession = false
 			return
 		}
-		val generation = state.begin(direction, spread = webView.width >= webView.height * 1.12f)
-		bitmapSource.capturePage(webView, direction) { result ->
-			if (result == null) {
-				if (state.captureFailed(generation)) {
-					Logger.w(ReaderPageTurnControllerTag, "Page-turn capture unavailable; disabling Canvas animation for session")
-					enabledForSession = false
+		activeStateGeneration = state.begin(direction, spread = webView.width >= webView.height * 1.12f)
+		val bundleGeneration = bundleSource.beginGeneration()
+		val token = "navic-page-turn-preview-${++settleGeneration}"
+		val physicalDirection = if (direction == ReaderPageTurnPhysicalDirection.TowardLeft) "toward-left" else "toward-right"
+		webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.pageTurnTransitionPlan?.('$physicalDirection') ?? null)"
+		) { encodedPlan ->
+			val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, bundleGeneration)
+			if (plan == null || !state.setTargetPageIndex(activeStateGeneration, plan.targetPageIndex)) {
+				failPreparation(activeStateGeneration, "transition-plan-unavailable")
+				return@evaluateJavascript
+			}
+			activePlan = plan
+			bundleSource.cached(plan)?.let { cached ->
+				activeBundle = cached
+				handleEffects(state.captureSucceeded(activeStateGeneration))
+				return@evaluateJavascript
+			}
+			prepareBundle(webView, plan, activeStateGeneration)
+		}
+	}
+
+	private fun prepareBundle(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		stateGeneration: Long
+	) {
+		val quotedToken = JSONObject.quote(plan.token)
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.($quotedToken, ${plan.targetPageIndex})"
+		) { }
+		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
+			if (current == null || !isPreparationActive(plan, stateGeneration)) {
+				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+				failPreparation(stateGeneration, "current-surface-unavailable")
+				return@captureCurrentSurface
+			}
+			waitForPreviewReady(webView, plan, stateGeneration, current)
+		}
+	}
+
+	private fun waitForPreviewReady(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		stateGeneration: Long,
+		current: ReaderPageTurnCaptureResult
+	) {
+		if (!isPreparationActive(plan, stateGeneration) || !webView.isAttachedToWindow) {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			return
+		}
+		val quotedToken = JSONObject.quote(plan.token)
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.pageTurnPreviewState?.($quotedToken)?.status ?? 'missing'"
+		) { encodedStatus ->
+			if (!isPreparationActive(plan, stateGeneration)) {
+				current.bitmap.takeUnless { it.isRecycled }?.recycle()
+				return@evaluateJavascript
+			}
+			when (encodedStatus.javascriptString()) {
+				"ready" -> bundleSource.captureBundle(webView, plan, current) { bundle ->
+					if (bundle == null || !isPreparationActive(plan, stateGeneration)) {
+						failPreparation(stateGeneration, "destination-bundle-unavailable")
+						return@captureBundle
+					}
+					activeBundle = bundle
+					handleEffects(state.captureSucceeded(stateGeneration))
 				}
-			} else {
-				val effects = state.captureSucceeded(generation)
-				if (effects.isEmpty()) {
-					result.bitmap.takeUnless { it.isRecycled }?.recycle()
-				} else {
-					captureResult = result
-					handleEffects(effects)
+				"failed", "missing" -> {
+					current.bitmap.takeUnless { it.isRecycled }?.recycle()
+					failPreparation(stateGeneration, "destination-preview-${encodedStatus.javascriptString()}")
+				}
+				else -> webView.postOnAnimation {
+					waitForPreviewReady(webView, plan, stateGeneration, current)
 				}
 			}
 		}
+	}
+
+	private fun isPreparationActive(plan: ReaderPageTurnTransitionPlan, stateGeneration: Long): Boolean =
+		activePlan === plan && activeStateGeneration == stateGeneration
+
+	private fun failPreparation(stateGeneration: Long, reason: String) {
+		if (state.captureFailed(stateGeneration)) {
+			Logger.w(ReaderPageTurnControllerTag, "Page-turn preparation failed reason=$reason")
+		}
+		cancelPreparation()
+	}
+
+	private fun cancelPreparation() {
+		bundleSource.cancelActivePreparation()
+		activePlan?.let { plan ->
+			webViewProvider()?.evaluateJavascript(
+				"window.NavicReaderBridge?.restorePageTurnLiveComposition?.(${JSONObject.quote(plan.token)})"
+			) { }
+		}
+		activePlan = null
+		activeStateGeneration = 0L
 	}
 
 	private fun handleEffects(effects: List<ReaderPageTurnEffect>) {
@@ -128,15 +214,42 @@ internal class ReaderPageTurnController(
 			markDestinationSettled()
 			return
 		}
-		val token = "navic-page-turn-${++settleGeneration}"
+		val plan = activePlan
+		val token = plan?.token ?: "navic-page-turn-${++settleGeneration}"
 		activeSettleToken = token
 		val quotedToken = JSONObject.quote(token)
+		if (plan != null) {
+			webView.evaluateJavascript(
+				"window.NavicReaderBridge?.dispatch?.({ type: 'goToVisualPage', pageIndex: ${plan.targetPageIndex}, settleToken: $quotedToken })"
+			) {
+				if (activeSettleToken == token) pollExactPageTurnSettle(webView, plan)
+			}
+			return
+		}
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.armNativePageTurnSettle?.($quotedToken)"
 		) {
 			if (activeSettleToken != token) return@evaluateJavascript
 			onCommitTurn(direction)
 			pollNativePageTurnSettle(webView, token)
+		}
+	}
+
+	private fun pollExactPageTurnSettle(webView: WebView, plan: ReaderPageTurnTransitionPlan) {
+		if (activeSettleToken != plan.token || !webView.isAttachedToWindow) return
+		webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.nativePageTurnSettledState?.() ?? null)"
+		) { encoded ->
+			if (activeSettleToken != plan.token) return@evaluateJavascript
+			val settled = encoded.javascriptObject()
+			val settledToken = settled?.optString("token")
+			val settledPageIndex = settled?.optInt("pageIndex", -1) ?: -1
+			if (settledToken == plan.token && settledPageIndex == plan.targetPageIndex) {
+				activeSettleToken = null
+				markDestinationSettled(settledPageIndex)
+			} else {
+				webView.postOnAnimation { pollExactPageTurnSettle(webView, plan) }
+			}
 		}
 	}
 
@@ -157,22 +270,22 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun attachOverlay() {
-		val result = captureResult ?: return
+		val bundle = activeBundle ?: return
 		val hostLocation = IntArray(2)
 		host.getLocationInWindow(hostLocation)
-		val left = result.sourceRectInWindow.left - hostLocation[0]
-		val top = result.sourceRectInWindow.top - hostLocation[1]
+		val left = bundle.surfaceRectInWindow.left - hostLocation[0]
+		val top = bundle.surfaceRectInWindow.top - hostLocation[1]
 		val view = ReaderPageTurnCurlView(host.context).apply {
 			layoutParams = FrameLayout.LayoutParams(
 				FrameLayout.LayoutParams.MATCH_PARENT,
 				FrameLayout.LayoutParams.MATCH_PARENT
 			)
-			setPage(
-				bitmap = result.bitmap,
+			setBundle(
+				bundle = bundle,
 				direction = state.direction,
-				reverseFaceColor = result.geometry.reverseFaceColorArgb?.toInt() ?: Color.rgb(234, 217, 174),
-				pageLeft = left,
-				pageTop = top
+				reverseFaceColor = Color.rgb(234, 217, 174),
+				surfaceLeft = left,
+				surfaceTop = top
 			)
 		}
 		host.addView(view)
@@ -180,17 +293,17 @@ internal class ReaderPageTurnController(
 		applyGestureYToOverlay()
 		Logger.i(
 			ReaderPageTurnControllerTag,
-			"Page-turn overlay attached mode=${result.geometry.mode} role=${result.geometry.pageFor(state.direction)?.role} " +
-				"left=$left top=$top size=${result.bitmap.width}x${result.bitmap.height}"
+			"Page-turn overlay attached kind=${bundle.plan.kind} target=${bundle.plan.targetPageIndex} " +
+				"left=$left top=$top size=${bundle.currentBase.width}x${bundle.currentBase.height}"
 		)
 	}
 
 	private fun applyGestureYToOverlay() {
-		val result = captureResult ?: return
+		val bundle = activeBundle ?: return
 		val view = curlView ?: return
 		val hostLocation = IntArray(2)
 		host.getLocationInWindow(hostLocation)
-		val pageTopInHost = result.sourceRectInWindow.top - hostLocation[1]
+		val pageTopInHost = bundle.surfaceRectInWindow.top - hostLocation[1] + bundle.turningFrontRectInSurface.top
 		view.setGestureY(
 			edgeOriginY = edgeOriginY - pageTopInHost,
 			pointerY = pointerY - pageTopInHost
@@ -238,13 +351,15 @@ internal class ReaderPageTurnController(
 		curlView = null
 		if (view != null) {
 			(view.parent as? ViewGroup)?.removeView(view)
-			view.releaseBitmap()?.takeUnless { it.isRecycled }?.recycle()
+			view.clearBundle()
 		}
-		captureResult = null
+		activeBundle = null
+		activePlan = null
+		activeStateGeneration = 0L
 	}
 
-	private fun markDestinationSettled() {
-		handleEffects(state.destinationSettled())
+	private fun markDestinationSettled(pageIndex: Int? = null) {
+		handleEffects(state.destinationSettled(pageIndex))
 	}
 
 	private companion object {
@@ -253,3 +368,15 @@ internal class ReaderPageTurnController(
 		const val RelaxAnimationDurationMs = 160L
 	}
 }
+
+private fun String?.javascriptString(): String? = runCatching {
+	JSONTokener(orEmpty()).nextValue() as? String
+}.getOrNull()
+
+private fun String?.javascriptObject(): JSONObject? = runCatching {
+	when (val decoded = JSONTokener(orEmpty()).nextValue()) {
+		is JSONObject -> decoded
+		is String -> JSONObject(decoded)
+		else -> null
+	}
+}.getOrNull()

@@ -1,4 +1,11 @@
-import { readerPageLocatorForVisualIndex } from './navic-reader-page-turn-model.js'
+import {
+  ReaderDirectionRtl,
+  ReaderLogicalDirectionNext,
+  ReaderLogicalDirectionPrevious,
+  readerPageLocatorForVisualIndex,
+  readerPageTurnPlan,
+  readerPhysicalPageSide,
+} from './navic-reader-page-turn-model.js'
 import {
   readerRoot,
   readerTrace,
@@ -6,6 +13,15 @@ import {
 } from './navic-reader-helpers.js'
 
 const nextAnimationFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
+
+export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact') {
+  const renderer = view?.renderer
+  if (typeof renderer?.goToTextPage !== 'function') {
+    throw new Error('Exact paginated text navigation is unavailable')
+  }
+  await renderer.goToTextPage(locator.spineIndex, locator.chapterPageIndex, reason)
+  return locator
+}
 
 async function ensurePageTurnPreviewRenderer() {
   if (
@@ -71,6 +87,27 @@ function pageTurnPreviewContext() {
   })
 }
 
+function pageTurnTransitionPlan(physicalDirection = '') {
+  const geometry = this.pageTurnCaptureGeometry()
+  const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
+  const towardLeft = physicalDirection === 'toward-left'
+  const logicalDirection = readerDirection === ReaderDirectionRtl
+    ? towardLeft ? ReaderLogicalDirectionPrevious : ReaderLogicalDirectionNext
+    : towardLeft ? ReaderLogicalDirectionNext : ReaderLogicalDirectionPrevious
+  const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
+  return readerPageTurnPlan({
+    currentPageIndex: this.currentPagePosition?.pageIndex,
+    pageCount: this.currentPagePosition?.pageCount,
+    layoutMode: geometry.mode,
+    logicalDirection,
+    currentPageSide: readerPhysicalPageSide({
+      pageIndex: currentPageIndex,
+      readerDirection,
+    }),
+    readerDirection,
+  })
+}
+
 function beginPageTurnPreviewPreparation(token, pageIndex) {
   const requestedToken = String(token || '')
   const generation = ++this.pageTurnPreviewGeneration
@@ -91,10 +128,7 @@ async function preparePageTurnPreview(generation, token, pageIndex) {
     const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
     if (!locator) throw new Error(`Passive preview page ${pageIndex} is unavailable`)
     this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-    await previewView.renderer.goTo({
-      index: locator.spineIndex,
-      anchor: locator.anchor,
-    })
+    await readerGoToExactVisualPage(previewView, locator, 'page-turn-preview')
     if (generation !== this.pageTurnPreviewGeneration) return
     this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
     await nextAnimationFrame()
@@ -130,6 +164,12 @@ function exposePageTurnPreviewFinal(token = '') {
   if (state.status !== 'ready' || !previewView || !this.view) return false
   this.pageTurnPreviewLiveVisibility = this.view.style.getPropertyValue('visibility')
   this.pageTurnPreviewLiveOpacity = this.view.style.getPropertyValue('opacity')
+  this.pageTurnPreviewLivePagePosition = this.currentPagePosition
+  const previewPagePosition = Object.freeze({
+    ...(this.currentPagePosition || {}),
+    pageIndex: state.pageIndex,
+  })
+  this.updateReaderPageNumberLayer(previewPagePosition)
   setStylesImportant(this.view, {
     visibility: 'hidden',
     opacity: '0',
@@ -163,6 +203,9 @@ function restorePageTurnLiveComposition(token = '') {
   ) return false
   const previewView = this.pageTurnPreviewView
   if (previewView) this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
+  if (this.pageTurnPreviewLivePagePosition) {
+    this.updateReaderPageNumberLayer(this.pageTurnPreviewLivePagePosition)
+  }
   if (this.view) {
     if (this.pageTurnPreviewLiveVisibility) {
       this.view.style.setProperty('visibility', this.pageTurnPreviewLiveVisibility, 'important')
@@ -178,6 +221,7 @@ function restorePageTurnLiveComposition(token = '') {
   this.pageTurnPreviewLiveVisibility = ''
   this.pageTurnPreviewLiveOpacity = ''
   this.pageTurnPreviewExposedToken = ''
+  this.pageTurnPreviewLivePagePosition = null
   readerTrace('page-turn-preview:restored', { token: requestedToken })
   return true
 }
@@ -202,6 +246,7 @@ export const NavicReaderPageTurnPreviewMethods = {
   preparePageTurnPreview,
   pageTurnPreviewState,
   pageTurnPreviewContext,
+  pageTurnTransitionPlan,
   exposePageTurnPreviewFinal,
   restorePageTurnLiveComposition,
   destroyPageTurnPreviewRenderer,

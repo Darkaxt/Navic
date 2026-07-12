@@ -45,47 +45,39 @@ class ReaderPageTurnNativeSourceTest {
 	@Test
 	fun staleCaptureResultIsRecycledBeforeItCanReachTheOverlay() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val captureCallback = controller.substringAfter("capturePage(webView, direction)")
-		val effectsIndex = captureCallback.indexOf("val effects = state.captureSucceeded(generation)")
-		val assignmentIndex = captureCallback.indexOf("captureResult = result")
+		val captureCallback = controller.substringAfter("captureCurrentSurface")
+		val validationIndex = captureCallback.indexOf("isPreparationActive(plan, stateGeneration)")
+		val assignmentIndex = captureCallback.indexOf("activeBundle = bundle")
 
-		assertTrue(effectsIndex >= 0, "The controller must validate the capture generation first.")
+		assertTrue(validationIndex >= 0, "The controller must validate the preparation generation first.")
 		assertTrue(
-			effectsIndex < assignmentIndex,
+			validationIndex < assignmentIndex,
 			"A stale capture must not become the active capture result."
 		)
-		assertContains(captureCallback, "if (effects.isEmpty())")
-		assertContains(captureCallback, "result.bitmap.takeUnless { it.isRecycled }?.recycle()")
+		assertContains(captureCallback, "current.bitmap.takeUnless { it.isRecycled }?.recycle()")
 	}
 
 	@Test
-	fun staleCaptureFailureCannotDisableCanvasForTheSession() {
+	fun stalePreparationFailureCannotDisableCanvasForTheSession() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val failureBranch = controller.substringAfter("if (result == null)").substringBefore("} else {")
+		val failureBranch = controller.substringAfter("private fun failPreparation(").substringBefore("\n\t}")
 
-		assertContains(failureBranch, "if (state.captureFailed(generation))")
-		assertTrue(
-			failureBranch.indexOf("if (state.captureFailed(generation))") <
-				failureBranch.indexOf("enabledForSession = false"),
-			"Only a failure from the active capture generation may disable Canvas mode."
-		)
+		assertContains(failureBranch, "if (state.captureFailed(stateGeneration))")
+		assertFalse(failureBranch.contains("enabledForSession = false"))
 	}
 
 	@Test
-	fun rendererUsesNeutralReverseFaceAndCompletesAnimations() {
+	fun rendererUsesRealDestinationSurfacesAndCompletesAnimations() {
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		assertContains(renderer, "reverseFaceColor")
-		assertFalse(renderer.contains("setBitmaps(front, front)"))
+		assertContains(renderer, "bundle.underneath")
+		assertContains(renderer, "bundle.turningReverse")
 		assertTrue(
 			renderer.indexOf("canvas.drawBitmapMesh") < renderer.indexOf("drawReverseFace(canvas"),
-			"The neutral reverse face must cover the folded-away front pixels instead of sitting behind them."
+			"The real reverse face must cover the folded-away front pixels instead of sitting behind them."
 		)
-		assertContains(renderer, "canvas.drawRect(")
-		assertTrue(
-			renderer.indexOf("canvas.drawRect(") < renderer.indexOf("canvas.drawBitmapMesh"),
-			"The uncovered turn area must reveal neutral paper rather than duplicate live-page text."
-		)
+		assertFalse(renderer.contains("underlayPaint"))
 		assertContains(renderer, "drawEdgeHighlight")
 		assertContains(controller, "animateCommit")
 		assertContains(controller, "animateRelax")
@@ -102,7 +94,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "pointerY: Float")
 		assertContains(controller, "setGestureY")
 		assertContains(controller, "pageAxisWidth(viewWidth)")
-		assertContains(controller, "captureResult?.bitmap?.width")
+		assertContains(controller, "activeBundle?.turningFront?.width")
 	}
 
 	@Test
@@ -140,15 +132,14 @@ class ReaderPageTurnNativeSourceTest {
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
 
 		assertContains(controller, "FrameLayout.LayoutParams.MATCH_PARENT")
-		assertContains(controller, "pageLeft = left")
-		assertContains(controller, "pageTop = top")
+		assertContains(controller, "surfaceLeft = left")
+		assertContains(controller, "surfaceTop = top")
 		assertContains(controller, "ReaderPageTurnEffect.ShowFinalBase")
 		assertContains(controller, "showFinalBase")
 		assertFalse(controller.contains("curlView?.setDestinationSettled()"))
-		assertContains(renderer, "pageLeft")
-		assertContains(renderer, "pageTop")
-		assertContains(renderer, "canvas.translate(pageLeft, pageTop)")
-		assertContains(renderer, "if (!destinationSettled)")
+		assertContains(renderer, "surfaceLeft")
+		assertContains(renderer, "surfaceTop")
+		assertContains(renderer, "canvas.translate(surfaceLeft, surfaceTop)")
 		assertFalse(
 			controller.contains("FrameLayout.LayoutParams(result.bitmap.width, result.bitmap.height)"),
 			"A selected-page-sized overlay clips the folded sheet at the gutter."
@@ -182,5 +173,49 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(geometry, "curlBand")
 		assertFalse(renderer.contains("curlBulge"))
 		assertFalse(renderer.contains("canvas.drawRect(crease - radius, 0f, crease + radius, pageHeight"))
+	}
+
+	@Test
+	fun landscapeControllerPreparesAndCommitsOneExactDestinationBundle() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+
+		assertContains(controller, "ReaderPageTurnBundleSource")
+		assertContains(controller, "pageTurnTransitionPlan")
+		assertContains(controller, "beginPageTurnPreviewPreparation")
+		assertContains(controller, "captureCurrentSurface")
+		assertContains(controller, "captureBundle")
+		assertContains(controller, "setTargetPageIndex")
+		assertContains(controller, "plan.targetPageIndex")
+		assertContains(controller, "type: 'goToVisualPage'")
+		assertContains(controller, "pageIndex: ${'$'}{plan.targetPageIndex}")
+		assertFalse(controller.contains("bitmapSource.capturePage(webView, direction)"))
+	}
+
+	@Test
+	fun destinationRendererComposesAllSurfacesAndKeepsFinalBaseOpaque() {
+		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+
+		assertContains(renderer, "fun setBundle(")
+		assertContains(renderer, "bundle.currentBase")
+		assertContains(renderer, "bundle.underneath")
+		assertContains(renderer, "bundle.turningFront")
+		assertContains(renderer, "bundle.turningReverse")
+		assertContains(renderer, "bundle.finalBase")
+		assertTrue(
+			renderer.indexOf("bundle.underneath") < renderer.indexOf("bundle.turningFront"),
+			"The underneath page must be painted before the deforming front leaf."
+		)
+		assertContains(renderer, "if (showFinalBase)")
+	}
+
+	@Test
+	fun reversePageShadingPreservesCapturedText() {
+		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+		val reverse = renderer.substringAfter("private fun drawReverseFace(").substringBefore("\n\t}")
+
+		assertContains(reverse, "canvas.drawBitmapMesh(reverse")
+		assertContains(reverse, "Color.argb(")
+		assertContains(reverse, "Color.TRANSPARENT")
+		assertFalse(reverse.contains("intArrayOf(darken(reverseFaceColor"))
 	}
 }

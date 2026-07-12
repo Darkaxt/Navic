@@ -427,32 +427,32 @@ git commit -m "fix(reader): keep committed page turns continuous"
 - Modify: `composeApp/src/androidMain/assets/reader/navic-reader.js`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnNativeSourceTest.kt`
 
-- [ ] **Step 1: Write failing native composition guards**
+- [x] **Step 1: Write failing native composition guards**
 
 Assert the renderer receives five bundle surfaces, draws underneath before front/reverse, draws `finalBase` after native completion, and the controller dispatches target page index instead of a relative action for landscape Canvas commits.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnNativeSourceTest"
 ```
 
-- [ ] **Step 3: Render real surfaces**
+- [x] **Step 3: Render real surfaces**
 
 Keep current-base as the stable background. Replace only the source-side page with underneath. Map turning-front and turning-reverse bitmaps through the accepted edge-fold geometry. Once progress reaches the final state, draw final-base without a mesh.
 
-- [ ] **Step 4: Wire controller preparation and exact commit**
+- [x] **Step 4: Wire controller preparation and exact commit**
 
 The controller starts bundle preparation on the first gesture update, stores latest pointer state, attaches only after a valid bundle, and sends `goToVisualPage(targetPageIndex, token)` exactly once at commit start.
 
-- [ ] **Step 5: Run focused tests and readerdev build**
+- [x] **Step 5: Run focused tests and readerdev build**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnNativeSourceTest"
 .\gradlew.bat :androidApp:assembleReaderDev
 ```
 
-- [ ] **Step 6: Validate landscape on emulator**
+- [x] **Step 6: Validate landscape on emulator**
 
 Record Alcatraz transitions:
 
@@ -465,7 +465,9 @@ Record Alcatraz transitions:
 
 Acceptance: correct reverse and underneath text, final spread advances two page ordinals, no half-fold freeze, no final blink, and one live relocation.
 
-- [ ] **Step 7: Commit accepted landscape integration**
+Validated 2026-07-12 on `emulator-5554` with Alcatraz. Same-chapter forward, cross-chapter forward, previous, short-drag cancel, slow drag, and fast flick all used real destination/reverse surfaces. Committed turns reported the exact requested visual index, cancel emitted no relocation, and the native overlay detached after exact spine/chapter-page settlement. The frame contact sheet is retained locally under `.codex-evidence/page-turn-preview/settlement-fix-contact.png`.
+
+- [x] **Step 7: Commit accepted landscape integration**
 
 ```powershell
 git add composeApp/src/androidMain composeApp/src/androidHostTest captures/page-turn-destination-aware/landscape

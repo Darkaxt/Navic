@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
+import android.graphics.Rect
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -94,6 +95,9 @@ internal data class ReaderPageTurnTransitionPlan(
 
 internal class ReaderPageTurnBitmapBundle(
 	val plan: ReaderPageTurnTransitionPlan,
+	val surfaceRectInWindow: Rect,
+	val turningFrontRectInSurface: Rect,
+	val underneathRectInSurface: Rect?,
 	val currentBase: Bitmap,
 	val turningFront: Bitmap,
 	val turningReverse: Bitmap?,

@@ -19,7 +19,6 @@ import kotlin.math.sin
 internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 	private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 	private val reversePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-	private val underlayPaint = Paint()
 	private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
 		style = Paint.Style.STROKE
 		strokeCap = Paint.Cap.ROUND
@@ -33,15 +32,15 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 	private val reversePath = Path()
 	private val foldBoundaryPath = Path()
 	private val foldedRegionPath = Path()
-	private var bitmap: Bitmap? = null
+	private var bundle: ReaderPageTurnBitmapBundle? = null
 	private var direction: ReaderPageTurnPhysicalDirection = ReaderPageTurnPhysicalDirection.TowardLeft
 	private var progress: Float = 0f
 	private var edgeOriginY: Float = 0f
 	private var pointerY: Float = 0f
 	private var reverseFaceColor: Int = Color.rgb(234, 217, 174)
-	private var pageLeft = 0f
-	private var pageTop = 0f
-	private var destinationSettled = false
+	private var surfaceLeft = 0f
+	private var surfaceTop = 0f
+	private var showFinalBase = false
 	private val vertices = FloatArray((MeshColumns + 1) * (MeshRows + 1) * 2)
 	private var cachedGeometry: ReaderPageTurnEdgeFoldGeometry? = null
 	private var cachedWidth = 0f
@@ -53,30 +52,25 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		setLayerType(LAYER_TYPE_HARDWARE, null)
 	}
 
-	fun setPage(
-		bitmap: Bitmap,
+	fun setBundle(
+		bundle: ReaderPageTurnBitmapBundle,
 		direction: ReaderPageTurnPhysicalDirection,
 		reverseFaceColor: Int,
-		pageLeft: Int,
-		pageTop: Int
+		surfaceLeft: Int,
+		surfaceTop: Int
 	) {
-		this.bitmap = bitmap
+		this.bundle = bundle
 		this.direction = direction
 		this.reverseFaceColor = reverseFaceColor
-		this.pageLeft = pageLeft.toFloat()
-		this.pageTop = pageTop.toFloat()
-		this.destinationSettled = false
+		this.surfaceLeft = surfaceLeft.toFloat()
+		this.surfaceTop = surfaceTop.toFloat()
+		this.showFinalBase = false
 		invalidateGeometry()
 		invalidate()
 	}
 
-	fun setDestinationSettled() {
-		destinationSettled = true
-		invalidate()
-	}
-
 	fun showFinalBase() {
-		progress = MaxTurnProgress
+		showFinalBase = true
 		invalidateGeometry()
 		invalidate()
 	}
@@ -94,21 +88,36 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		invalidate()
 	}
 
-	fun releaseBitmap(): Bitmap? = bitmap.also { bitmap = null }
+	fun clearBundle() {
+		bundle = null
+		invalidateGeometry()
+	}
 
 	override fun onDraw(canvas: Canvas) {
-		val source = bitmap ?: return
+		val bundle = bundle ?: return
+		val currentBase = bundle.currentBase
+		val underneath = bundle.underneath
+		val source = bundle.turningFront
+		val reverse = bundle.turningReverse
+		val finalBase = bundle.finalBase
+		val pageRect = bundle.turningFrontRectInSurface
+		val underneathRect = bundle.underneathRectInSurface
 		val pageWidth = source.width.toFloat()
 		val pageHeight = source.height.toFloat()
 		if (pageWidth <= 0f || pageHeight <= 0f) return
-		if (!destinationSettled) {
-			underlayPaint.color = reverseFaceColor
-			canvas.drawRect(pageLeft, pageTop, pageLeft + pageWidth, pageTop + pageHeight, underlayPaint)
-		}
 		val restoreCount = canvas.save()
-		canvas.translate(pageLeft, pageTop)
+		canvas.translate(surfaceLeft, surfaceTop)
+		if (showFinalBase) {
+			canvas.drawBitmap(finalBase, 0f, 0f, bitmapPaint)
+			canvas.restoreToCount(restoreCount)
+			return
+		}
+		canvas.drawBitmap(currentBase, 0f, 0f, bitmapPaint)
+		if (underneath != null && underneathRect != null) {
+			canvas.drawBitmap(underneath, null, android.graphics.RectF(underneathRect), bitmapPaint)
+		}
+		canvas.translate(pageRect.left.toFloat(), pageRect.top.toFloat())
 		if (progress <= 0.001f) {
-			canvas.drawBitmap(source, null, android.graphics.RectF(0f, 0f, pageWidth, pageHeight), bitmapPaint)
 			canvas.restoreToCount(restoreCount)
 			return
 		}
@@ -117,7 +126,7 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		buildMesh(pageWidth, pageHeight, geometry)
 		canvas.drawBitmapMesh(source, MeshColumns, MeshRows, vertices, 0, null, 0, bitmapPaint)
 		buildFoldPaths(geometry)
-		drawReverseFace(canvas, pageWidth, pageHeight, geometry)
+		drawReverseFace(canvas, reverse, pageWidth, pageHeight, geometry)
 		drawCrease(canvas, pageWidth)
 		drawEdgeHighlight(canvas)
 		canvas.restoreToCount(restoreCount)
@@ -177,6 +186,7 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 
 	private fun drawReverseFace(
 		canvas: Canvas,
+		reverse: Bitmap?,
 		pageWidth: Float,
 		pageHeight: Float,
 		geometry: ReaderPageTurnEdgeFoldGeometry
@@ -186,17 +196,30 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		val freeEdgeX = if (direction == ReaderPageTurnPhysicalDirection.TowardLeft) pageWidth else 0f
 		val outerX = geometry.map(ReaderPageTurnPoint(freeEdgeX, centerY)).x
 		if (kotlin.math.abs(outerX - creaseX) <= 0.5f) return
+		val reverseRestore = canvas.save()
+		canvas.clipPath(reversePath)
+		if (reverse != null) {
+			canvas.drawBitmapMesh(reverse, MeshColumns, MeshRows, vertices, 0, null, 0, bitmapPaint)
+		} else {
+			reversePaint.color = reverseFaceColor
+			canvas.drawPath(reversePath, reversePaint)
+		}
 		reversePaint.shader = LinearGradient(
 			creaseX,
 			centerY,
 			outerX,
 			centerY,
-			intArrayOf(darken(reverseFaceColor, 0.72f), reverseFaceColor, lighten(reverseFaceColor, 0.12f)),
+			intArrayOf(
+				Color.argb(82, 28, 18, 8),
+				Color.TRANSPARENT,
+				Color.argb(34, 255, 252, 240)
+			),
 			floatArrayOf(0f, 0.66f, 1f),
 			Shader.TileMode.CLAMP
 		)
 		canvas.drawPath(reversePath, reversePaint)
 		reversePaint.shader = null
+		canvas.restoreToCount(reverseRestore)
 	}
 
 	private fun drawCrease(canvas: Canvas, pageWidth: Float) {

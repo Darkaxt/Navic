@@ -21,31 +21,96 @@ class ReaderPageTurnDestinationSourceTest {
 	@Test
 	fun exactVisualPageNavigationUsesOneRendererTarget() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val exactNavigation = turns
 			.substringAfter("async function goToVisualPage(")
 			.substringBefore("\n}\n")
 
-		assertContains(exactNavigation, "this.view.renderer.goTo({")
-		assertContains(exactNavigation, "index: locator.spineIndex")
-		assertContains(exactNavigation, "anchor: locator.anchor")
+		assertContains(exactNavigation, "readerGoToExactVisualPage(this.view, locator)")
+		assertContains(preview, "export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact')")
+		assertContains(preview, "renderer.goToTextPage(locator.spineIndex, locator.chapterPageIndex, reason)")
+		assertContains(paginator, "async goToTextPage(index, pageIndex, reason = 'navigation')")
+		assertContains(paginator, "this.#scrollToPage(textPageIndex + 1, reason)")
 		assertContains(exactNavigation, "this.view.history?.pushState?.(")
+		assertFalse(exactNavigation.contains("anchor: locator.anchor"))
 		assertFalse(exactNavigation.contains("this.view?.next?.("))
 		assertFalse(exactNavigation.contains("this.view?.prev?.("))
+	}
+
+	@Test
+	fun passiveAndLiveDestinationRenderingShareExactPageNavigation() {
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val prepare = preview
+			.substringAfter("async function preparePageTurnPreview(")
+			.substringBefore("\n}\n")
+
+		assertContains(turns, "readerGoToExactVisualPage(this.view, locator)")
+		assertContains(prepare, "readerGoToExactVisualPage(previewView, locator, 'page-turn-preview')")
+		assertFalse(prepare.contains("anchor: locator.anchor"))
 	}
 
 	@Test
 	fun settlementRequiresTokenAndExactVisualPage() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val exactNavigation = turns
+			.substringAfter("async function goToVisualPage(")
+			.substringBefore("\n}\n")
 
 		assertContains(runtime, "nativePageTurnSettledState")
 		assertContains(runtime, "nativePageTurnSettledState: () => runtime.nativePageTurnSettledState")
 		assertContains(turns, "token: settleToken")
 		assertContains(turns, "pageIndex: settledPageIndex")
+		assertContains(turns, "spineIndex: locator.spineIndex")
+		assertContains(turns, "chapterPageIndex: locator.chapterPageIndex")
+		assertContains(turns, "paginationProfile: this.paginationProfile")
+		assertContains(turns, "Math.floor(spineIndex) !== pending.spineIndex")
+		assertContains(turns, "Math.floor(chapterPageIndex) !== pending.chapterPageIndex")
+		assertContains(turns, "readerTrace('page-turn:exact-settle-pending'")
+		assertContains(turns, "requestedSpineIndex: pending.spineIndex")
+		assertContains(turns, "actualSpineIndex: Number.isFinite(spineIndex) ? Math.floor(spineIndex) : null")
 		assertTrue(
-			turns.indexOf("await this.view.renderer.goTo") < turns.indexOf("this.nativePageTurnSettledState ="),
+			exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)") <
+				exactNavigation.indexOf("this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)"),
 			"Settlement must be published only after the exact renderer navigation resolves."
 		)
+	}
+
+	@Test
+	fun runtimeExposesPendingExactSettlementIdentityForDiagnostics() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+
+		assertContains(
+			runtime,
+			"nativePageTurnPendingState: () => runtime.pendingExactPageTurnSettlement"
+		)
+	}
+
+	@Test
+	fun exactTurnFreezesItsPaginationProfileUntilStableDestinationSettles() {
+		val pagination = readerAssetRoot().resolve("navic-reader-pagination.js").readText()
+		val ensureProfile = pagination
+			.substringAfter("function readerEnsurePaginationProfile(")
+			.substringBefore("\n}\n")
+
+		assertContains(ensureProfile, "this.pendingExactPageTurnSettlement?.paginationProfile")
+		assertContains(ensureProfile, "this.paginationProfile = exactTurnProfile")
+		assertContains(ensureProfile, "return exactTurnProfile")
+	}
+
+	@Test
+	fun exactCommittedPositionUsesPendingTargetWhenPhysicalIdentityMatches() {
+		val pagination = readerAssetRoot().resolve("navic-reader-pagination.js").readText()
+		val committedPosition = pagination
+			.substringAfter("function committedPageTurnPosition(")
+			.substringBefore("\n}\n")
+
+		assertContains(committedPosition, "this.pendingExactPageTurnSettlement")
+		assertContains(committedPosition, "candidateSpineIndex === pendingExact.spineIndex")
+		assertContains(committedPosition, "candidateChapterPageIndex === pendingExact.chapterPageIndex")
+		assertContains(committedPosition, "pageIndex: pendingExact.pageIndex")
 	}
 
 	@Test
@@ -135,6 +200,32 @@ class ReaderPageTurnDestinationSourceTest {
 
 		assertContains(expose, "'z-index': '1'")
 		assertFalse(expose.contains("'z-index': '2147483638'"))
+	}
+
+	@Test
+	fun exposedDestinationStagesAndRestoresExactPageNumberLabels() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val expose = preview.substringAfter("function exposePageTurnPreviewFinal(").substringBefore("\n}")
+		val restore = preview.substringAfter("function restorePageTurnLiveComposition(").substringBefore("\n}")
+
+		assertContains(expose, "pageTurnPreviewLivePagePosition")
+		assertContains(expose, "pageIndex: state.pageIndex")
+		assertContains(expose, "this.updateReaderPageNumberLayer(previewPagePosition)")
+		assertContains(restore, "this.updateReaderPageNumberLayer(this.pageTurnPreviewLivePagePosition)")
+	}
+
+	@Test
+	fun runtimeExposesExactPhysicalTransitionPlanForNativeCapture() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+
+		assertContains(runtime, "pageTurnTransitionPlan: physicalDirection =>")
+		assertContains(preview, "function pageTurnTransitionPlan(")
+		assertContains(preview, "readerPageTurnPlan({")
+		assertContains(preview, "currentPageIndex: this.currentPagePosition?.pageIndex")
+		assertContains(preview, "pageCount: this.currentPagePosition?.pageCount")
+		assertContains(preview, "layoutMode: geometry.mode")
+		assertContains(preview, "readerDirection")
 	}
 
 	@Test

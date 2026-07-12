@@ -157,6 +157,7 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 import { readerPageLocatorForVisualIndex } from './navic-reader-page-turn-model.js'
+import { readerGoToExactVisualPage } from './navic-reader-page-turn-preview.js'
 
 const ViewportScrollStepRatio = 0.75
 
@@ -302,16 +303,19 @@ async function goToVisualPage(pageIndex, settleToken = '') {
   if (!locator) throw new Error(`Visual page ${pageIndex} is unavailable`)
   const token = String(settleToken || '')
   this.pendingExactPageTurnSettlement = token
-    ? { token, pageIndex: locator.pageIndex }
+    ? {
+        token,
+        pageIndex: locator.pageIndex,
+        spineIndex: locator.spineIndex,
+        chapterPageIndex: locator.chapterPageIndex,
+        paginationProfile: this.paginationProfile,
+      }
     : null
   this.nativePageTurnSettledState = null
   this.nativePageTurnSettledToken = null
   try {
     this.beginControlledRelocation('page-turn:exact')
-    await this.view.renderer.goTo({
-      index: locator.spineIndex,
-      anchor: locator.anchor,
-    })
+    await readerGoToExactVisualPage(this.view, locator)
     this.view.history?.pushState?.({
       href: locator.href,
       chapterPageIndex: locator.chapterPageIndex,
@@ -333,7 +337,25 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   const pending = this.pendingExactPageTurnSettlement
   if (!pending) return false
   const pageIndex = Number(pagePosition?.pageIndex)
-  if (!Number.isFinite(pageIndex) || Math.floor(pageIndex) !== pending.pageIndex) return false
+  const spineIndex = Number(pagePosition?.spineIndex)
+  const chapterPageIndex = Number(pagePosition?.chapterPageIndex)
+  if (
+    !Number.isFinite(pageIndex) ||
+    Math.floor(pageIndex) !== pending.pageIndex ||
+    Math.floor(spineIndex) !== pending.spineIndex ||
+    Math.floor(chapterPageIndex) !== pending.chapterPageIndex
+  ) {
+    readerTrace('page-turn:exact-settle-pending', {
+      token: pending.token,
+      requestedPageIndex: pending.pageIndex,
+      actualPageIndex: Number.isFinite(pageIndex) ? Math.floor(pageIndex) : null,
+      requestedSpineIndex: pending.spineIndex,
+      actualSpineIndex: Number.isFinite(spineIndex) ? Math.floor(spineIndex) : null,
+      requestedChapterPageIndex: pending.chapterPageIndex,
+      actualChapterPageIndex: Number.isFinite(chapterPageIndex) ? Math.floor(chapterPageIndex) : null,
+    })
+    return false
+  }
   const settleToken = pending.token
   const settledPageIndex = Math.floor(pageIndex)
   this.nativePageTurnSettledState = Object.freeze({

@@ -33,6 +33,22 @@ class ReaderPageTurnStateMachineTest {
 	}
 
 	@Test
+	fun preparationCanAssignExactTargetBeforeRelease() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
+
+		assertTrue(machine.setTargetPageIndex(generation, pageIndex = 18))
+		machine.captureSucceeded(generation)
+		machine.update(-500f, 1000, 100)
+		machine.release(-500f, 1000, 180)
+		machine.animationFinished()
+
+		assertTrue(machine.destinationSettled(pageIndex = 17).isEmpty())
+		assertEquals(ReaderPageTurnPhase.Settling, machine.phase)
+		assertIs<ReaderPageTurnEffect.DetachOverlay>(machine.destinationSettled(pageIndex = 18).single())
+	}
+
+	@Test
 	fun staleCaptureCallbackAfterCancelIsIgnored() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)

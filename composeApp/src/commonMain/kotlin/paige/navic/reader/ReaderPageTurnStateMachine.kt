@@ -100,6 +100,12 @@ class ReaderPageTurnStateMachine(
 		return effects
 	}
 
+	fun setTargetPageIndex(preparationGeneration: Long, pageIndex: Int): Boolean {
+		if (preparationGeneration != generation || phase != ReaderPageTurnPhase.Preparing || pageIndex < 0) return false
+		targetPageIndex = pageIndex
+		return true
+	}
+
 	fun captureFailed(captureGeneration: Long): Boolean {
 		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Preparing) return false
 		reset(invalidateGeneration = true)

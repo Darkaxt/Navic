@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
@@ -21,10 +22,16 @@ internal class ReaderPageTurnBundleSource(
 ) {
 	private var activeGeneration = 0L
 	private val cache = LinkedHashMap<String, ReaderPageTurnBitmapBundle>(0, 0.75f, true)
+	val isAvailable: Boolean
+		get() = bitmapSource.isAvailable
 
 	fun beginGeneration(): Long {
 		activeGeneration += 1
 		return activeGeneration
+	}
+
+	fun cancelActivePreparation() {
+		activeGeneration += 1
 	}
 
 	fun cached(plan: ReaderPageTurnTransitionPlan): ReaderPageTurnBitmapBundle? = cache[plan.cacheKey]
@@ -149,7 +156,7 @@ internal class ReaderPageTurnBundleSource(
 	): ReaderPageTurnBitmapBundle? {
 		val front = cropPage(webView, current.bitmap, current.geometry, current.sourceRectInWindow, plan.turningFrontPageSide)
 			?: return null
-		val reverse = if (plan.turningReversePageSide != null) {
+		val reverseCapture = if (plan.turningReversePageSide != null) {
 			cropPage(webView, finalBase, current.geometry, current.sourceRectInWindow, plan.turningReversePageSide)
 				?: return null
 		} else {
@@ -163,10 +170,13 @@ internal class ReaderPageTurnBundleSource(
 		}
 		return ReaderPageTurnBitmapBundle(
 			plan = plan,
+			surfaceRectInWindow = Rect(current.sourceRectInWindow),
+			turningFrontRectInSurface = front.rectInSurface,
+			underneathRectInSurface = underneath?.rectInSurface,
 			currentBase = current.bitmap,
-			turningFront = front,
-			turningReverse = reverse,
-			underneath = underneath,
+			turningFront = front.bitmap,
+			turningReverse = reverseCapture?.bitmap?.mirroredHorizontally(),
+			underneath = underneath?.bitmap,
 			finalBase = finalBase
 		)
 	}
@@ -177,7 +187,7 @@ internal class ReaderPageTurnBundleSource(
 		geometry: ReaderPageTurnCaptureGeometry,
 		surfaceRectInWindow: Rect,
 		side: ReaderPageTurnPhysicalSide
-	): Bitmap? {
+	): ReaderPageTurnPageCapture? {
 		val location = IntArray(2)
 		webView.getLocationInWindow(location)
 		val role = side.toPageRole().takeUnless {
@@ -195,7 +205,10 @@ internal class ReaderPageTurnBundleSource(
 		val right = (page.right - surfaceRectInWindow.left).coerceIn(left, base.width)
 		val bottom = (page.bottom - surfaceRectInWindow.top).coerceIn(top, base.height)
 		if (right <= left || bottom <= top) return null
-		return Bitmap.createBitmap(base, left, top, right - left, bottom - top)
+		return ReaderPageTurnPageCapture(
+			bitmap = Bitmap.createBitmap(base, left, top, right - left, bottom - top),
+			rectInSurface = Rect(left, top, right, bottom)
+		)
 	}
 
 	private fun put(bundle: ReaderPageTurnBitmapBundle) {
@@ -212,6 +225,18 @@ internal class ReaderPageTurnBundleSource(
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.restorePageTurnLiveComposition?.($quotedToken)"
 		) { }
+	}
+}
+
+private data class ReaderPageTurnPageCapture(
+	val bitmap: Bitmap,
+	val rectInSurface: Rect
+)
+
+private fun Bitmap.mirroredHorizontally(): Bitmap {
+	val matrix = Matrix().apply { setScale(-1f, 1f, width / 2f, height / 2f) }
+	return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true).also {
+		if (it !== this && !isRecycled) recycle()
 	}
 }
 
