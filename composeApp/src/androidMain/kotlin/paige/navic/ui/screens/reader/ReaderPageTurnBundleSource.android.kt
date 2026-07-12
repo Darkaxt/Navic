@@ -55,6 +55,7 @@ internal class ReaderPageTurnBundleSource(
 		webView: WebView,
 		plan: ReaderPageTurnTransitionPlan,
 		current: ReaderPageTurnCaptureResult,
+		onStagingStarted: () -> Unit = {},
 		onPrepared: (ReaderPageTurnBitmapBundle?) -> Unit
 	) {
 		val generation = plan.generation
@@ -69,6 +70,7 @@ internal class ReaderPageTurnBundleSource(
 			return
 		}
 		val quotedToken = JSONObject.quote(plan.token)
+		onStagingStarted()
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
 		) { encoded ->

@@ -530,7 +530,7 @@ git commit -m "feat(reader): alternate portrait slide and leaf turns"
 - Modify: `tools/reader-harness/src/page-turn-model.test.mjs`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt`
 
-- [ ] **Step 1: Add failing edge-case tests**
+- [x] **Step 1: Add failing edge-case tests**
 
 Cover:
 
@@ -544,22 +544,22 @@ Cover:
 - stale passive readiness after settings change
 - memory pressure recycling
 
-- [ ] **Step 2: Run focused model and host tests and verify RED**
+- [x] **Step 2: Run focused model and host tests and verify RED**
 
 ```powershell
 npm --prefix tools/reader-harness run test:page-turn-model
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnDestinationSourceTest"
 ```
 
-- [ ] **Step 3: Implement explicit fallbacks**
+- [x] **Step 3: Implement explicit fallbacks**
 
 If a valid complete bundle cannot be produced, restore live composition and send the correct direct exact target navigation. Do not display a neutral reverse page or disable all later animation for a role-specific failure.
 
-- [ ] **Step 4: Wire lifecycle generations**
+- [x] **Step 4: Wire lifecycle generations**
 
 Increment generation and recycle transient bundles on size change, settings fingerprint change, pause, detach, destroy, publication change, and memory pressure. Late callbacks compare generation before storing any bitmap or changing UI.
 
-- [ ] **Step 5: Run focused and full source guards**
+- [x] **Step 5: Run focused and full source guards**
 
 ```powershell
 npm --prefix tools/reader-harness run test:page-turn-model
@@ -567,12 +567,20 @@ npm --prefix tools/reader-harness run test:page-turn-model
 .\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderPageTurnNativeSourceTest"
 ```
 
-- [ ] **Step 6: Commit safeguards**
+- [x] **Step 6: Commit safeguards**
 
 ```powershell
 git add composeApp tools/reader-harness
 git commit -m "fix(reader): harden destination page-turn lifecycle"
 ```
+
+Evidence recorded before commit:
+
+- the page-turn model suite passed all 13 cases, including RTL portrait previous and single-page/center fallbacks;
+- `ReaderPageTurnNativeSourceTest` and `ReaderPageTurnStateMachineTest` passed together;
+- readerdev portrait leaf validation logged drag preview at `10:56:43.548` and overlay attachment at `10:56:43.562`;
+- frame capture showed continuous deformation into the real incoming page without the former half-fold hold;
+- shell-cover visibility now invalidates and suppresses prewarm, preventing native cover pixels from contaminating a resumed text-page bundle.
 
 ## Task 9: Full Verification and Visual Acceptance
 

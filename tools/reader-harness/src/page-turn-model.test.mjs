@@ -284,3 +284,38 @@ test('planner rejects incomplete physical bundles at publication boundaries', ()
     readerDirection: ReaderDirectionLtr,
   }), null)
 })
+
+test('single-page boundaries and center pages fall back without fabricating leaves', () => {
+  assert.equal(readerPageTurnPlan({
+    currentPageIndex: 0,
+    pageCount: 1,
+    layoutMode: 'single',
+    logicalDirection: ReaderLogicalDirectionNext,
+    currentPageSide: ReaderPhysicalPageLeft,
+    readerDirection: ReaderDirectionLtr,
+  }), null)
+  assert.equal(readerPageTurnPlan({
+    currentPageIndex: 4,
+    pageCount: 12,
+    layoutMode: 'single',
+    logicalDirection: ReaderLogicalDirectionNext,
+    currentPageSide: ReaderPhysicalPageCenter,
+    readerDirection: ReaderDirectionLtr,
+  }), null)
+})
+
+test('RTL portrait previous mirrors one-page ordinal and physical leaf roles', () => {
+  const plan = readerPageTurnPlan({
+    currentPageIndex: 8,
+    pageCount: 20,
+    layoutMode: 'single',
+    logicalDirection: ReaderLogicalDirectionPrevious,
+    currentPageSide: ReaderPhysicalPageRight,
+    readerDirection: ReaderDirectionRtl,
+  })
+  assert.equal(plan.kind, ReaderPageTurnPortraitLeaf)
+  assert.equal(plan.targetPageIndex, 7)
+  assert.equal(plan.turningFrontPageSide, ReaderPhysicalPageRight)
+  assert.equal(plan.turningReversePageSide, ReaderPhysicalPageLeft)
+  assert.equal(plan.underneathPageSide, ReaderPhysicalPageRight)
+})

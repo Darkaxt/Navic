@@ -129,6 +129,7 @@ internal fun KomikkuReaderRoot(
 					controllerState.chrome.settings.flowMode,
 					controllerState.chrome.settings.paged
 				) == ReaderFlowPaged,
+			pageTurnSnapshotKey = controllerState.chrome.settings.hashCode(),
 			onViewerAction = { action ->
 				onViewerAction(
 					if (controllerState.shellCoverVisible) {

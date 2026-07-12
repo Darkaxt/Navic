@@ -60,9 +60,12 @@ class ReaderPageTurnNativeSourceTest {
 	@Test
 	fun stalePreparationFailureCannotDisableCanvasForTheSession() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val failureBranch = controller.substringAfter("private fun failPreparation(").substringBefore("\n\t}")
+		val failureBranch = controller
+			.substringAfter("private fun markPreparationUnavailable(")
+			.substringBefore("private fun attachPreparationShield")
 
-		assertContains(failureBranch, "if (state.captureFailed(stateGeneration))")
+		assertContains(failureBranch, "activeStateGeneration != stateGeneration")
+		assertFalse(failureBranch.contains("state.captureFailed"))
 		assertFalse(failureBranch.contains("enabledForSession = false"))
 	}
 
@@ -240,5 +243,78 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(renderer, "bundle.turningReverse")
 		assertContains(renderer, "bundle.underneath")
 		assertContains(source, "underneathBase ?: finalBase")
+	}
+
+	@Test
+	fun adjacentBundlesPrewarmBeforeGestureAndColdReleaseNeverWaitsForCapture() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val prewarmMethod = host
+			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("private fun removePageTurnPrewarmLayoutListener()")
+
+		assertContains(controller, "fun prewarmAdjacent()")
+		assertContains(controller, "ReaderPageTurnPhysicalDirection.TowardLeft")
+		assertContains(controller, "ReaderPageTurnPhysicalDirection.TowardRight")
+		assertContains(controller, "bundleSource.cached(plan)")
+		assertContains(controller, "releasedWhilePreparing")
+		assertContains(controller, "commitColdFallback")
+		assertContains(controller, "type: 'goToVisualPage'")
+		assertContains(host, "requestPageTurnPrewarmWhenReady")
+		assertContains(host, "ViewTreeObserver.OnGlobalLayoutListener")
+		assertFalse(controller.contains("postDelayed"))
+		assertFalse(prewarmMethod.contains("postDelayed"))
+	}
+
+	@Test
+	fun unavailablePlanOrCaptureFallsBackOnlyAfterTheReleaseDecision() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val release = controller.substringAfter("fun release(").substringBefore("private fun pageAxisWidth")
+		val resolve = controller.substringAfter("private fun resolveColdRelease()").substringBefore("private fun commitColdFallback")
+		val unavailable = controller
+			.substringAfter("private fun markPreparationUnavailable(")
+			.substringBefore("private fun attachPreparationShield")
+
+		assertContains(release, "resolveColdRelease()")
+		assertContains(resolve, "activePlan?.let(::commitColdFallback) ?: commitRelativeColdFallback(state.direction)")
+		assertContains(controller, "markPreparationUnavailable(activeStateGeneration, \"transition-plan-unavailable\")")
+		assertContains(controller, "markPreparationUnavailable(stateGeneration, \"current-surface-unavailable\")")
+		assertContains(controller, "markPreparationUnavailable(stateGeneration, \"destination-bundle-unavailable\")")
+		assertFalse(unavailable.contains("state.captureFailed"))
+		assertContains(unavailable, "releasedWhilePreparing")
+		assertContains(unavailable, "resolveColdRelease()")
+	}
+
+	@Test
+	fun passiveStagingIsHiddenByTheCurrentImmutableSurface() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+
+		assertContains(source, "onStagingStarted")
+		assertContains(controller, "attachPreparationShield")
+		assertContains(controller, "removePreparationShield")
+		assertContains(controller, "ImageView")
+		assertContains(controller, "current.bitmap")
+	}
+
+	@Test
+	fun pageTurnSnapshotsInvalidateAcrossSettingsLayoutLifecycleAndMemoryPressure() {
+		val platform = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val root = readerCommonUiFile("ReaderRoot.kt").readText()
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+
+		assertContains(platform, "pageTurnSnapshotKey: Int")
+		assertContains(root, "pageTurnSnapshotKey = controllerState.chrome.settings.hashCode()")
+		assertContains(host, "setPageTurnSnapshotKey")
+		assertContains(host, "pageTurnController.invalidate(\"settings-changed\")")
+		assertContains(host, "pageTurnController.invalidate(\"size-changed\")")
+		assertContains(host, "pageTurnController.invalidate(\"window-hidden\")")
+		assertContains(host, "setShellCoverVisible(visible)")
+		assertContains(host, "pageTurnController.invalidate(\"shell-cover-visible\")")
+		assertContains(host, "if (shellCoverView?.visibility == VISIBLE) return")
+		assertContains(controller, "ComponentCallbacks2")
+		assertContains(controller, "invalidate(\"memory-pressure\")")
+		assertContains(controller, "unregisterComponentCallbacks")
 	}
 }

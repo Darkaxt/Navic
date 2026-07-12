@@ -26,6 +26,8 @@ class ReaderPageTurnStateMachine(
 		private set
 	var progress: Float = 0f
 		private set
+	val pendingReleaseCommit: Boolean?
+		get() = pendingCommit
 
 	private var generation: Long = 0
 	private var peakProgress: Float = 0f

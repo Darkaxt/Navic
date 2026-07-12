@@ -3,11 +3,15 @@ package paige.navic.ui.screens.reader
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.SystemClock
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
+import android.widget.ImageView
 import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnEffect
@@ -36,6 +40,31 @@ internal class ReaderPageTurnController(
 	private var gestureHostHeight = 0
 	private var settleGeneration = 0L
 	private var activeSettleToken: String? = null
+	private var releasedWhilePreparing = false
+	private var prewarmSession = 0L
+	private var prewarmInProgress = false
+	private val prewarmPlans = ArrayDeque<String>()
+	private var activePrewarmPlan: ReaderPageTurnTransitionPlan? = null
+	private var preparationShield: ImageView? = null
+	private var destroyed = false
+	private val applicationContext = host.context.applicationContext
+	private val memoryCallbacks = object : ComponentCallbacks2 {
+		override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+		override fun onLowMemory() {
+			host.post { invalidate("memory-pressure") }
+		}
+
+		override fun onTrimMemory(level: Int) {
+			if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+				host.post { invalidate("memory-pressure") }
+			}
+		}
+	}
+
+	init {
+		applicationContext.registerComponentCallbacks(memoryCallbacks)
+	}
 
 	val isAvailable: Boolean
 		get() = enabledForSession && bundleSource.isAvailable
@@ -50,7 +79,9 @@ internal class ReaderPageTurnController(
 	fun release(deltaX: Float, viewWidth: Int, edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
 		if (!isAvailable || viewWidth <= 0) return
 		setGestureY(edgeOriginY, pointerY, viewHeight)
+		releasedWhilePreparing = state.phase == paige.navic.reader.ReaderPageTurnPhase.Preparing
 		handleEffects(state.release(deltaX, pageAxisWidth(viewWidth), SystemClock.uptimeMillis()))
+		if (releasedWhilePreparing) resolveColdRelease()
 	}
 
 	private fun pageAxisWidth(viewWidth: Int): Int =
@@ -66,7 +97,10 @@ internal class ReaderPageTurnController(
 
 	fun cancel() {
 		activeSettleToken = null
+		cancelPrewarm()
 		cancelPreparation()
+		removePreparationShield()
+		releasedWhilePreparing = false
 		val effects = state.cancel()
 		animation?.cancel()
 		animation = null
@@ -74,16 +108,35 @@ internal class ReaderPageTurnController(
 	}
 
 	fun destroy() {
+		if (destroyed) return
+		destroyed = true
 		activeSettleToken = null
+		cancelPrewarm()
 		cancelPreparation()
 		state.cancel()
 		animation?.cancel()
 		animation = null
 		detachOverlay()
 		bundleSource.invalidate("destroy")
+		applicationContext.unregisterComponentCallbacks(memoryCallbacks)
+	}
+
+	fun invalidate(reason: String) {
+		if (destroyed) return
+		activeSettleToken = null
+		cancelPrewarm()
+		cancelPreparation()
+		removePreparationShield()
+		state.cancel()
+		animation?.cancel()
+		animation = null
+		detachOverlay(schedulePrewarm = false)
+		bundleSource.invalidate(reason)
 	}
 
 	private fun begin(deltaX: Float) {
+		cancelPrewarm()
+		releasedWhilePreparing = false
 		val direction = if (deltaX < 0f) {
 			ReaderPageTurnPhysicalDirection.TowardLeft
 		} else {
@@ -101,11 +154,18 @@ internal class ReaderPageTurnController(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnTransitionPlan?.('$physicalDirection') ?? null)"
 		) { encodedPlan ->
 			val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, bundleGeneration)
-			if (plan == null || !state.setTargetPageIndex(activeStateGeneration, plan.targetPageIndex)) {
-				failPreparation(activeStateGeneration, "transition-plan-unavailable")
+			if (plan == null) {
+				markPreparationUnavailable(activeStateGeneration, "transition-plan-unavailable")
+				return@evaluateJavascript
+			}
+			if (!state.setTargetPageIndex(activeStateGeneration, plan.targetPageIndex)) {
 				return@evaluateJavascript
 			}
 			activePlan = plan
+			if (releasedWhilePreparing) {
+				resolveColdRelease()
+				return@evaluateJavascript
+			}
 			bundleSource.cached(plan)?.let { cached ->
 				activeBundle = cached
 				handleEffects(state.captureSucceeded(activeStateGeneration))
@@ -113,6 +173,151 @@ internal class ReaderPageTurnController(
 			}
 			prepareBundle(webView, plan, activeStateGeneration)
 		}
+	}
+
+	fun prewarmAdjacent(): Boolean {
+		if (prewarmInProgress) return true
+		if (
+			destroyed ||
+			!isAvailable ||
+			state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle ||
+			curlView != null
+		) return false
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
+		prewarmInProgress = true
+		val session = ++prewarmSession
+		queryAdjacentPrewarmPlans(webView, session)
+		return true
+	}
+
+	private fun queryAdjacentPrewarmPlans(webView: WebView, session: Long) {
+		if (!isPrewarmActive(webView, session)) return
+		webView.evaluateJavascript(
+			"JSON.stringify({" +
+				"context: window.NavicReaderBridge?.pageTurnPreviewContext?.() ?? null," +
+				"towardLeft: window.NavicReaderBridge?.pageTurnTransitionPlan?.('toward-left') ?? null," +
+				"towardRight: window.NavicReaderBridge?.pageTurnTransitionPlan?.('toward-right') ?? null" +
+			"})"
+		) { encoded ->
+			if (!isPrewarmActive(webView, session)) return@evaluateJavascript
+			val payload = encoded.javascriptObject()
+			val context = payload?.optJSONObject("context")
+			val pageIndex = context?.optInt("pageIndex", -1) ?: -1
+			val pageCount = context?.optInt("pageCount", 0) ?: 0
+			if (pageIndex < 0 || pageCount <= 0) {
+				webView.postOnAnimation { queryAdjacentPrewarmPlans(webView, session) }
+				return@evaluateJavascript
+			}
+			prewarmPlans.clear()
+			payload?.optJSONObject("towardLeft")?.toString()?.let(prewarmPlans::addLast)
+			payload?.optJSONObject("towardRight")?.toString()?.let(prewarmPlans::addLast)
+			prewarmNext(webView, session)
+		}
+	}
+
+	private fun prewarmNext(webView: WebView, session: Long) {
+		if (!isPrewarmActive(webView, session)) return
+		val encodedPlan = prewarmPlans.removeFirstOrNull()
+		if (encodedPlan == null) {
+			finishPrewarm()
+			return
+		}
+		val generation = bundleSource.beginGeneration()
+		val token = "navic-page-turn-prewarm-${++settleGeneration}"
+		val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, generation)
+		if (plan == null || bundleSource.cached(plan) != null) {
+			prewarmNext(webView, session)
+			return
+		}
+		activePrewarmPlan = plan
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.(${JSONObject.quote(token)}, ${plan.targetPageIndex})"
+		) { }
+		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
+			if (current == null || !isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+				activePrewarmPlan = null
+				prewarmNext(webView, session)
+				return@captureCurrentSurface
+			}
+			waitForPrewarmPreviewReady(webView, session, plan, current)
+		}
+	}
+
+	private fun waitForPrewarmPreviewReady(
+		webView: WebView,
+		session: Long,
+		plan: ReaderPageTurnTransitionPlan,
+		current: ReaderPageTurnCaptureResult
+	) {
+		if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			return
+		}
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.pageTurnPreviewState?.(${JSONObject.quote(plan.token)})?.status ?? 'missing'"
+		) { encodedStatus ->
+			if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+				current.bitmap.takeUnless { it.isRecycled }?.recycle()
+				return@evaluateJavascript
+			}
+			when (encodedStatus.javascriptString()) {
+				"ready" -> bundleSource.captureBundle(
+					webView = webView,
+					plan = plan,
+					current = current,
+					onStagingStarted = { attachPreparationShield(current) }
+				) { bundle ->
+					removePreparationShield()
+					if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+						activePrewarmPlan = null
+						return@captureBundle
+					}
+					activePrewarmPlan = null
+					if (bundle == null) {
+						Logger.w(ReaderPageTurnControllerTag, "Page-turn prewarm failed target=${plan.targetPageIndex}")
+					}
+					prewarmNext(webView, session)
+				}
+				"failed", "missing" -> {
+					current.bitmap.takeUnless { it.isRecycled }?.recycle()
+					activePrewarmPlan = null
+					prewarmNext(webView, session)
+				}
+				else -> webView.postOnAnimation {
+					waitForPrewarmPreviewReady(webView, session, plan, current)
+				}
+			}
+		}
+	}
+
+	private fun isPrewarmActive(webView: WebView, session: Long): Boolean =
+		prewarmInProgress &&
+			prewarmSession == session &&
+			!destroyed &&
+			webView.isAttachedToWindow &&
+			state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle
+
+	private fun finishPrewarm() {
+		activePrewarmPlan = null
+		prewarmPlans.clear()
+		prewarmInProgress = false
+		removePreparationShield()
+	}
+
+	private fun cancelPrewarm() {
+		if (!prewarmInProgress && activePrewarmPlan == null) return
+		prewarmSession += 1
+		activePrewarmPlan?.let { plan ->
+			webViewProvider()?.evaluateJavascript(
+				"window.NavicReaderBridge?.restorePageTurnLiveComposition?.(${JSONObject.quote(plan.token)})"
+			) { }
+		}
+		activePrewarmPlan = null
+		prewarmPlans.clear()
+		prewarmInProgress = false
+		bundleSource.cancelActivePreparation()
+		removePreparationShield()
 	}
 
 	private fun prepareBundle(
@@ -127,7 +332,7 @@ internal class ReaderPageTurnController(
 		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
 			if (current == null || !isPreparationActive(plan, stateGeneration)) {
 				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
-				failPreparation(stateGeneration, "current-surface-unavailable")
+				markPreparationUnavailable(stateGeneration, "current-surface-unavailable")
 				return@captureCurrentSurface
 			}
 			waitForPreviewReady(webView, plan, stateGeneration, current)
@@ -153,9 +358,15 @@ internal class ReaderPageTurnController(
 				return@evaluateJavascript
 			}
 			when (encodedStatus.javascriptString()) {
-				"ready" -> bundleSource.captureBundle(webView, plan, current) { bundle ->
+			"ready" -> bundleSource.captureBundle(
+				webView = webView,
+				plan = plan,
+				current = current,
+				onStagingStarted = { attachPreparationShield(current) }
+			) { bundle ->
+					removePreparationShield()
 					if (bundle == null || !isPreparationActive(plan, stateGeneration)) {
-						failPreparation(stateGeneration, "destination-bundle-unavailable")
+						markPreparationUnavailable(stateGeneration, "destination-bundle-unavailable")
 						return@captureBundle
 					}
 					activeBundle = bundle
@@ -163,7 +374,10 @@ internal class ReaderPageTurnController(
 				}
 				"failed", "missing" -> {
 					current.bitmap.takeUnless { it.isRecycled }?.recycle()
-					failPreparation(stateGeneration, "destination-preview-${encodedStatus.javascriptString()}")
+					markPreparationUnavailable(
+						stateGeneration,
+						"destination-preview-${encodedStatus.javascriptString()}"
+					)
 				}
 				else -> webView.postOnAnimation {
 					waitForPreviewReady(webView, plan, stateGeneration, current)
@@ -175,11 +389,118 @@ internal class ReaderPageTurnController(
 	private fun isPreparationActive(plan: ReaderPageTurnTransitionPlan, stateGeneration: Long): Boolean =
 		activePlan === plan && activeStateGeneration == stateGeneration
 
-	private fun failPreparation(stateGeneration: Long, reason: String) {
-		if (state.captureFailed(stateGeneration)) {
-			Logger.w(ReaderPageTurnControllerTag, "Page-turn preparation failed reason=$reason")
+	private fun markPreparationUnavailable(stateGeneration: Long, reason: String) {
+		if (
+			activeStateGeneration != stateGeneration ||
+			state.phase != paige.navic.reader.ReaderPageTurnPhase.Preparing
+		) return
+		bundleSource.cancelActivePreparation()
+		activePlan?.let { plan ->
+			webViewProvider()?.evaluateJavascript(
+				"window.NavicReaderBridge?.restorePageTurnLiveComposition?.(${JSONObject.quote(plan.token)})"
+			) { }
 		}
+		removePreparationShield()
+		Logger.w(ReaderPageTurnControllerTag, "Page-turn preparation unavailable reason=$reason")
+		if (releasedWhilePreparing) resolveColdRelease()
+	}
+
+	private fun attachPreparationShield(current: ReaderPageTurnCaptureResult) {
+		removePreparationShield()
+		val hostLocation = IntArray(2)
+		host.getLocationInWindow(hostLocation)
+		val rect = current.sourceRectInWindow
+		val shield = ImageView(host.context).apply {
+			setImageBitmap(current.bitmap)
+			scaleType = ImageView.ScaleType.FIT_XY
+			isClickable = false
+			isFocusable = false
+			importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+			layoutParams = FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
+				leftMargin = rect.left - hostLocation[0]
+				topMargin = rect.top - hostLocation[1]
+			}
+		}
+		host.addView(shield)
+		preparationShield = shield
+	}
+
+	private fun removePreparationShield() {
+		val shield = preparationShield ?: return
+		preparationShield = null
+		shield.setImageDrawable(null)
+		(shield.parent as? ViewGroup)?.removeView(shield)
+	}
+
+	private fun cancelColdPreparation() {
+		val generation = activeStateGeneration
+		if (generation != 0L) state.captureFailed(generation)
 		cancelPreparation()
+		removePreparationShield()
+		releasedWhilePreparing = false
+		host.postOnAnimation { prewarmAdjacent() }
+	}
+
+	private fun resolveColdRelease() {
+		when (state.pendingReleaseCommit) {
+			true -> activePlan?.let(::commitColdFallback) ?: commitRelativeColdFallback(state.direction)
+			false -> cancelColdPreparation()
+			null -> Unit
+		}
+	}
+
+	private fun commitColdFallback(plan: ReaderPageTurnTransitionPlan) {
+		if (activePlan !== plan) return
+		val direction = state.direction
+		val generation = activeStateGeneration
+		if (generation != 0L) state.captureFailed(generation)
+		val webView = webViewProvider()
+		bundleSource.cancelActivePreparation()
+		webView?.evaluateJavascript(
+			"window.NavicReaderBridge?.restorePageTurnLiveComposition?.(${JSONObject.quote(plan.token)})"
+		) { }
+		removePreparationShield()
+		activePlan = null
+		activeBundle = null
+		activeStateGeneration = 0L
+		releasedWhilePreparing = false
+		if (webView == null || !webView.isAttachedToWindow) {
+			onCommitTurn(direction)
+			return
+		}
+		activeSettleToken = plan.token
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.dispatch?.({ type: 'goToVisualPage', pageIndex: ${plan.targetPageIndex}, settleToken: ${JSONObject.quote(plan.token)} })"
+		) {
+			if (activeSettleToken == plan.token) pollExactPageTurnSettle(webView, plan)
+		}
+		Logger.i(
+			ReaderPageTurnControllerTag,
+			"Page-turn cold fallback target=${plan.targetPageIndex} kind=${plan.kind}"
+		)
+	}
+
+	private fun commitRelativeColdFallback(direction: ReaderPageTurnPhysicalDirection) {
+		val generation = activeStateGeneration
+		if (generation != 0L) state.captureFailed(generation)
+		cancelPreparation()
+		removePreparationShield()
+		val webView = webViewProvider()
+		if (webView == null || !webView.isAttachedToWindow) {
+			onCommitTurn(direction)
+			host.postOnAnimation { prewarmAdjacent() }
+			return
+		}
+		val token = "navic-page-turn-cold-${++settleGeneration}"
+		activeSettleToken = token
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.armNativePageTurnSettle?.(${JSONObject.quote(token)})"
+		) {
+			if (activeSettleToken != token) return@evaluateJavascript
+			onCommitTurn(direction)
+			pollNativePageTurnSettle(webView, token)
+		}
+		Logger.i(ReaderPageTurnControllerTag, "Page-turn cold relative fallback direction=$direction")
 	}
 
 	private fun cancelPreparation() {
@@ -191,6 +512,7 @@ internal class ReaderPageTurnController(
 		}
 		activePlan = null
 		activeStateGeneration = 0L
+		releasedWhilePreparing = false
 	}
 
 	private fun handleEffects(effects: List<ReaderPageTurnEffect>) {
@@ -246,7 +568,11 @@ internal class ReaderPageTurnController(
 			val settledPageIndex = settled?.optInt("pageIndex", -1) ?: -1
 			if (settledToken == plan.token && settledPageIndex == plan.targetPageIndex) {
 				activeSettleToken = null
-				markDestinationSettled(settledPageIndex)
+				if (state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle) {
+					host.postOnAnimation { prewarmAdjacent() }
+				} else {
+					markDestinationSettled(settledPageIndex)
+				}
 			} else {
 				webView.postOnAnimation { pollExactPageTurnSettle(webView, plan) }
 			}
@@ -345,8 +671,9 @@ internal class ReaderPageTurnController(
 		}
 	}
 
-	private fun detachOverlay() {
+	private fun detachOverlay(schedulePrewarm: Boolean = true) {
 		activeSettleToken = null
+		removePreparationShield()
 		val view = curlView
 		curlView = null
 		if (view != null) {
@@ -356,6 +683,10 @@ internal class ReaderPageTurnController(
 		activeBundle = null
 		activePlan = null
 		activeStateGeneration = 0L
+		releasedWhilePreparing = false
+		if (schedulePrewarm && !destroyed) {
+			host.postOnAnimation { prewarmAdjacent() }
+		}
 	}
 
 	private fun markDestinationSettled(pageIndex: Int? = null) {

@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
@@ -59,6 +60,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
+	pageTurnSnapshotKey: Int,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
@@ -83,6 +85,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				setVerticalPageDragPreview(verticalPageDragPreview)
 				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+				setPageTurnSnapshotKey(pageTurnSnapshotKey)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
 				setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
 					currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
@@ -98,6 +101,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 			root.setVerticalPageDragPreview(verticalPageDragPreview)
 			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -169,6 +173,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	fun setShellCover(visible: Boolean, coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
 		shellCoverView.setShellCover(coverUrl = coverUrl, title = title, coverBackdropEnabled = coverBackdropEnabled)
 		shellCoverView.visibility = if (visible) VISIBLE else GONE
+		viewerContainer.setShellCoverVisible(visible)
 	}
 
 	fun setViewerLayerPaint(grayscaleEnabled: Boolean, invertedColors: Boolean) {
@@ -196,6 +201,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		viewerContainer.setPageTurnCanvasEnabled(enabled)
+	}
+
+	fun setPageTurnSnapshotKey(snapshotKey: Int) {
+		viewerContainer.setPageTurnSnapshotKey(snapshotKey)
 	}
 
 	fun setOnReadableDragPreview(
@@ -444,6 +453,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeSwipeIntercepted: Boolean = false
 	private var pageTurnCanvasEnabled: Boolean = false
+	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
+	private var shellCoverVisible: Boolean = false
+	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
 	private val pageTurnController = ReaderPageTurnController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
@@ -473,18 +485,76 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun replaceViewerContent(viewerView: View) {
-		pageTurnController.cancel()
+		pageTurnController.invalidate("viewer-replaced")
 		viewerContentContainer.removeAllViews()
 		viewerContentContainer.addView(
 			viewerView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
+		requestPageTurnPrewarmWhenReady()
 	}
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		if (pageTurnCanvasEnabled == enabled) return
 		pageTurnCanvasEnabled = enabled
-		if (!enabled) pageTurnController.cancel()
+		if (enabled) {
+			requestPageTurnPrewarmWhenReady()
+		} else {
+			removePageTurnPrewarmLayoutListener()
+			pageTurnController.invalidate("canvas-disabled")
+		}
+	}
+
+	fun setPageTurnSnapshotKey(snapshotKey: Int) {
+		if (pageTurnSnapshotKey == snapshotKey) return
+		pageTurnSnapshotKey = snapshotKey
+		pageTurnController.invalidate("settings-changed")
+		requestPageTurnPrewarmWhenReady()
+	}
+
+	fun setShellCoverVisible(visible: Boolean) {
+		if (shellCoverVisible == visible) return
+		shellCoverVisible = visible
+		if (visible) {
+			removePageTurnPrewarmLayoutListener()
+			pageTurnController.invalidate("shell-cover-visible")
+		} else {
+			requestPageTurnPrewarmWhenReady()
+		}
+	}
+
+	private fun requestPageTurnPrewarmWhenReady() {
+		if (!pageTurnCanvasEnabled || !isAttachedToWindow) return
+		if (shellCoverView?.visibility == VISIBLE) return
+		val webViewReady = viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
+		if (webViewReady && pageTurnController.prewarmAdjacent()) {
+			removePageTurnPrewarmLayoutListener()
+			return
+		}
+		if (pageTurnPrewarmLayoutListener != null) return
+		val listener = ViewTreeObserver.OnGlobalLayoutListener {
+			if (!pageTurnCanvasEnabled || !isAttachedToWindow) {
+				removePageTurnPrewarmLayoutListener()
+				return@OnGlobalLayoutListener
+			}
+			val ready = viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
+			if (ready && pageTurnController.prewarmAdjacent()) {
+				removePageTurnPrewarmLayoutListener()
+			}
+		}
+		pageTurnPrewarmLayoutListener = listener
+		viewTreeObserver.addOnGlobalLayoutListener(listener)
+	}
+
+	private fun removePageTurnPrewarmLayoutListener() {
+		val listener = pageTurnPrewarmLayoutListener ?: return
+		pageTurnPrewarmLayoutListener = null
+		if (viewTreeObserver.isAlive) viewTreeObserver.removeOnGlobalLayoutListener(listener)
+	}
+
+	override fun onAttachedToWindow() {
+		super.onAttachedToWindow()
+		requestPageTurnPrewarmWhenReady()
 	}
 
 	private val gestureDetector = KomikkuGestureDetectorWithLongTap(
@@ -850,11 +920,23 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
 		if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh)) {
-			pageTurnController.cancel()
+			pageTurnController.invalidate("size-changed")
+			requestPageTurnPrewarmWhenReady()
+		}
+	}
+
+	override fun onWindowVisibilityChanged(visibility: Int) {
+		super.onWindowVisibilityChanged(visibility)
+		if (!pageTurnCanvasEnabled) return
+		if (visibility == VISIBLE) {
+			requestPageTurnPrewarmWhenReady()
+		} else {
+			pageTurnController.invalidate("window-hidden")
 		}
 	}
 
 	override fun onDetachedFromWindow() {
+		removePageTurnPrewarmLayoutListener()
 		pageTurnController.destroy()
 		super.onDetachedFromWindow()
 	}
