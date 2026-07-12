@@ -156,6 +156,7 @@ import {
   flattenTocItems,
   tocLabel
 } from './navic-reader-helpers.js'
+import { readerPageLocatorForVisualIndex } from './navic-reader-page-turn-model.js'
 
 const ViewportScrollStepRatio = 0.75
 
@@ -293,6 +294,59 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
   } catch (error) {
     reportError(error, 'navigation_failed')
   }
+}
+
+async function goToVisualPage(pageIndex, settleToken = '') {
+  if (!this.view) return null
+  const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
+  if (!locator) throw new Error(`Visual page ${pageIndex} is unavailable`)
+  const token = String(settleToken || '')
+  this.pendingExactPageTurnSettlement = token
+    ? { token, pageIndex: locator.pageIndex }
+    : null
+  this.nativePageTurnSettledState = null
+  this.nativePageTurnSettledToken = null
+  try {
+    this.beginControlledRelocation('page-turn:exact')
+    await this.view.renderer.goTo({
+      index: locator.spineIndex,
+      anchor: locator.anchor,
+    })
+    this.view.history?.pushState?.({
+      href: locator.href,
+      chapterPageIndex: locator.chapterPageIndex,
+      chapterPageCount: locator.chapterPageCount,
+    })
+    this.scheduleControlledRelocationFallback('page-turn:exact')
+    this.applyReaderViewportLayout('page-turn:exact')
+    this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)
+    return locator
+  } catch (error) {
+    if (this.pendingExactPageTurnSettlement?.token === token) {
+      this.pendingExactPageTurnSettlement = null
+    }
+    throw error
+  }
+}
+
+function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePosition) {
+  const pending = this.pendingExactPageTurnSettlement
+  if (!pending) return false
+  const pageIndex = Number(pagePosition?.pageIndex)
+  if (!Number.isFinite(pageIndex) || Math.floor(pageIndex) !== pending.pageIndex) return false
+  const settleToken = pending.token
+  const settledPageIndex = Math.floor(pageIndex)
+  this.nativePageTurnSettledState = Object.freeze({
+    token: settleToken,
+    pageIndex: settledPageIndex,
+  })
+  this.nativePageTurnSettledToken = settleToken
+  this.pendingExactPageTurnSettlement = null
+  readerTrace('page-turn:exact-settled', {
+    token: settleToken,
+    pageIndex: settledPageIndex,
+  })
+  return true
 }
 
 function nextPage() {
@@ -2390,6 +2444,8 @@ export const NavicReaderPageTurnMethods = {
   fixedLayoutAdjacentPageTarget,
   goToProgress,
   goToChapterProgress,
+  goToVisualPage,
+  maybeCompleteNativePageTurnSettlement,
   nextPage,
   previousPage,
   currentLoadedSectionIndex,

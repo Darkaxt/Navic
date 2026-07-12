@@ -368,6 +368,8 @@ class NavicReaderRuntime {
   pageTurnDirection = null
   pendingNativePageTurnSettleToken = null
   nativePageTurnSettledToken = null
+  pendingExactPageTurnSettlement = null
+  nativePageTurnSettledState = null
   deferredReflowablePageTurn = null
   deferredReflowablePageTurnToken = 0
   recentPageTurnDirection = null
@@ -413,6 +415,8 @@ class NavicReaderRuntime {
           command.chapterPageIndex,
           command.chapterPageCount
         )
+      case 'goToVisualPage':
+        return this.goToVisualPage(command.pageIndex, command.settleToken)
       case 'nextPage':
         readerTrace('dispatch:nextPage', {
           hasPromise: Boolean(this.pageTurnPromise),
@@ -1556,8 +1560,11 @@ window.NavicReaderBridge = {
   armNativePageTurnSettle: token => {
     runtime.pendingNativePageTurnSettleToken = String(token || '') || null
     runtime.nativePageTurnSettledToken = null
+    runtime.pendingExactPageTurnSettlement = null
+    runtime.nativePageTurnSettledState = null
   },
   nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
+  nativePageTurnSettledState: () => runtime.nativePageTurnSettledState,
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,

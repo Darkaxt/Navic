@@ -1153,6 +1153,7 @@ function updateReaderPageNumberSpreadSlots(layer, pageNumberPosition) {
 function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
   const pageNumberPosition = readerPageNumberPositionWithPageCount(pagePosition, this.currentPagePosition?.pageCount)
   this.currentPagePosition = pageNumberPosition || null
+  this.maybeCompleteNativePageTurnSettlement?.(this.currentPagePosition)
   if (pageNumberPosition?.pageCountSource === 'fixed-layout') {
     this.syncFixedLayoutNavigationPageIndex(pageNumberPosition)
   }
