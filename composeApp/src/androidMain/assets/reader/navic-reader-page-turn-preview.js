@@ -82,6 +82,7 @@ function pageTurnPreviewContext() {
   return Object.freeze({
     pageIndex: Number(this.currentPagePosition?.pageIndex),
     pageCount: Number(this.currentPagePosition?.pageCount),
+    layoutMode: this.pageTurnCaptureGeometry().mode,
     previewGeneration: this.pageTurnPreviewGeneration,
     previewState: this.pageTurnPreviewStateValue,
   })

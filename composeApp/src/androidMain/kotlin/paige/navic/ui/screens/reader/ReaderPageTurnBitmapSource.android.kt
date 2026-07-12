@@ -20,8 +20,13 @@ import paige.navic.reader.ReaderPageTurnPageRect
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.util.core.Logger
+import kotlin.math.abs
 
 private const val ReaderPageTurnBitmapSourceTag = "ReaderPageTurnBitmapSource"
+private const val PageTurnCaptureSampleColumns = 48
+private const val PageTurnCaptureSampleRows = 32
+private const val PageTurnCaptureMinimumLuminanceRange = 32
+private const val PageTurnCaptureForegroundDistance = 24
 
 internal data class ReaderPageTurnCaptureResult(
 	val bitmap: Bitmap,
@@ -33,6 +38,8 @@ internal data class ReaderPageTurnCaptureResult(
 internal class ReaderPageTurnBitmapSource(
 	private val mainHandler: Handler = Handler(Looper.getMainLooper())
 ) {
+	private var visualStateRequestId = 0L
+
 	val isAvailable: Boolean
 		get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
 
@@ -81,12 +88,39 @@ internal class ReaderPageTurnBitmapSource(
 				onCaptured(null)
 				return@evaluateJavascript
 			}
+			val requestId = ++visualStateRequestId
+			webView.postVisualStateCallback(requestId, object : WebView.VisualStateCallback() {
+				override fun onComplete(requestId: Long) {
+					if (!webView.isAttachedToWindow) {
+						onCaptured(null)
+						return
+					}
+					webView.postOnAnimation {
+						captureVisualState(webView, geometry, window, startedAt, onCaptured, resolveRect)
+					}
+				}
+			})
+		}
+	}
+
+	private fun captureVisualState(
+		webView: WebView,
+		geometry: ReaderPageTurnCaptureGeometry,
+		window: android.view.Window,
+		startedAt: Long,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
+	) {
+		if (!webView.isAttachedToWindow) {
+			onCaptured(null)
+			return
+		}
 			val location = IntArray(2)
 			webView.getLocationInWindow(location)
 			val pixelRect = resolveRect(geometry, location)
 			if (pixelRect == null) {
 				onCaptured(null)
-				return@evaluateJavascript
+				return
 			}
 			val sourceRect = Rect(pixelRect.left, pixelRect.top, pixelRect.right, pixelRect.bottom)
 			val bitmap = runCatching {
@@ -94,7 +128,7 @@ internal class ReaderPageTurnBitmapSource(
 			}.getOrElse { error ->
 				Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn bitmap allocation failed", error)
 				onCaptured(null)
-				return@evaluateJavascript
+				return
 			}
 			try {
 				PixelCopy.request(
@@ -102,13 +136,20 @@ internal class ReaderPageTurnBitmapSource(
 					sourceRect,
 					bitmap,
 					{ result ->
-						if (result == PixelCopy.SUCCESS) {
+						if (result == PixelCopy.SUCCESS && bitmap.containsRenderableForeground()) {
 							val elapsedMs = SystemClock.uptimeMillis() - startedAt
 							Logger.i(
 								ReaderPageTurnBitmapSourceTag,
 								"Page-turn capture success rect=$sourceRect bitmap=${bitmap.width}x${bitmap.height} elapsedMs=$elapsedMs"
 							)
 							onCaptured(ReaderPageTurnCaptureResult(bitmap, sourceRect, geometry, elapsedMs))
+						} else if (result == PixelCopy.SUCCESS) {
+							bitmap.recycle()
+							Logger.i(
+								ReaderPageTurnBitmapSourceTag,
+								"Page-turn capture rejected unpainted surface rect=$sourceRect"
+							)
+							onCaptured(null)
 						} else {
 							bitmap.recycle()
 							Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn PixelCopy failed result=$result rect=$sourceRect")
@@ -122,7 +163,6 @@ internal class ReaderPageTurnBitmapSource(
 				Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn PixelCopy threw", error)
 				onCaptured(null)
 			}
-		}
 	}
 
 	internal fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? = runCatching {
@@ -165,6 +205,42 @@ internal class ReaderPageTurnBitmapSource(
 			)
 		}
 	}
+}
+
+private fun Bitmap.containsRenderableForeground(): Boolean {
+	val columns = PageTurnCaptureSampleColumns.coerceAtMost(width)
+	val rows = PageTurnCaptureSampleRows.coerceAtMost(height)
+	if (columns <= 0 || rows <= 0) return false
+	val pixels = ArrayList<Int>(columns * rows)
+	for (row in 0 until rows) {
+		val y = ((row + 0.5f) * height / rows).toInt().coerceIn(0, height - 1)
+		if (y < height * 0.06f || y > height * 0.94f) continue
+		for (column in 0 until columns) {
+			val xFraction = (column + 0.5f) / columns
+			if (xFraction < 0.06f || xFraction > 0.94f || xFraction in 0.47f..0.53f) continue
+			val x = ((column + 0.5f) * width / columns).toInt().coerceIn(0, width - 1)
+			pixels += getPixel(x, y)
+		}
+	}
+	return readerPageTurnPixelsContainForeground(pixels.toIntArray())
+}
+
+internal fun readerPageTurnPixelsContainForeground(pixels: IntArray): Boolean {
+	if (pixels.isEmpty()) return false
+	val luminance = IntArray(pixels.size) { index ->
+		val color = pixels[index]
+		val red = color ushr 16 and 0xff
+		val green = color ushr 8 and 0xff
+		val blue = color and 0xff
+		(red * 54 + green * 183 + blue * 19) ushr 8
+	}
+	val sorted = luminance.sortedArray()
+	val baseline = sorted[sorted.size / 2]
+	val range = sorted.last() - sorted.first()
+	if (range < PageTurnCaptureMinimumLuminanceRange) return false
+	val requiredForegroundSamples = maxOf(4, pixels.size / 256)
+	return luminance.count { value -> abs(value - baseline) >= PageTurnCaptureForegroundDistance } >=
+		requiredForegroundSamples
 }
 
 private tailrec fun Context.findActivityOrNull(): Activity? = when (this) {

@@ -377,9 +377,9 @@ Add tests for:
 
 - latest pointer replaces prior pending pointer during preparation
 - release during preparation records exactly one commit or relax decision
-- commit animation completion does not wait for Foliate
-- completed animation enters `Settling` with `finalBase` visible
-- exact destination settlement from either arrival order detaches once
+- commit animation completes before Foliate navigation begins
+- completed animation enters `Settling` with `finalBase` visible, then starts exact navigation on the next rendered frame
+- exact destination settlement after navigation detaches once; premature settlement is ignored
 - wrong settled page index remains in `Settling`
 
 - [x] **Step 2: Run state tests and verify RED**
@@ -399,11 +399,11 @@ Preparing -> Deforming -> Committing -> Settling -> Idle
 Preparing -> Relaxing -> Idle
 ```
 
-`animationFinished()` marks native completion. `destinationSettled(targetIndex)` marks exact live completion. Either may arrive first; detach emits only after both.
+`animationFinished()` marks native completion, emits `ShowFinalBase`, and then requests exact navigation. `destinationSettled(targetIndex)` marks exact live completion only after that request; detach emits once after settlement.
 
 - [x] **Step 4: Update controller to animate continuously**
 
-Remove `CommitHoldProgress`, `commitHoldReached`, and the binding pause. Animate from release progress through the fully turned final state in one `ValueAnimator`. At completion, switch the view to static `finalBase` and await exact settlement if necessary.
+Remove `CommitHoldProgress`, `commitHoldReached`, and the binding pause. Animate from release progress through the fully turned final state in one `ValueAnimator`. At completion, switch the view to static `finalBase`, render that opaque frame, then start exact Foliate navigation behind it and await settlement.
 
 - [x] **Step 5: Update Rev 4 source test**
 
@@ -582,12 +582,19 @@ Evidence recorded before commit:
 - frame capture showed continuous deformation into the real incoming page without the former half-fold hold;
 - shell-cover visibility now invalidates and suppresses prewarm, preventing native cover pixels from contaminating a resumed text-page bundle.
 
+Follow-up live validation closed two compositor/lifecycle gaps:
+
+- staged destination capture now waits for `WebView.postVisualStateCallback` and one animation frame, preventing portrait `finalBase` from retaining the outgoing page;
+- rotation prewarm now waits until native dimensions and JavaScript `layoutMode` agree, preventing stale landscape bundles in portrait and stale portrait bundles in landscape;
+- background/foreground invalidation returned to the same spread and rebuilt both adjacent bundles asynchronously;
+- a slow sub-threshold edge drag attached a warm overlay, relaxed to the identical spread, and emitted no exact navigation.
+
 ## Task 9: Full Verification and Visual Acceptance
 
 **Files:**
 - Modify only if verification exposes a regression.
 
-- [ ] **Step 1: Run JavaScript syntax checks**
+- [x] **Step 1: Run JavaScript syntax checks**
 
 ```powershell
 Get-ChildItem composeApp/src/androidMain/assets/reader -Filter 'navic-reader*.js' | ForEach-Object { node --check $_.FullName }
@@ -595,7 +602,7 @@ Get-ChildItem composeApp/src/androidMain/assets/reader -Filter 'navic-reader*.js
 
 Expected: every command exits `0`.
 
-- [ ] **Step 2: Run focused model and host suites**
+- [x] **Step 2: Run focused model and host suites**
 
 ```powershell
 npm --prefix tools/reader-harness run test:page-turn-model
@@ -612,7 +619,7 @@ npm --prefix tools/reader-harness run test:page-turn-model
 
 Expected: no new failures compared with the theta92 baseline. Any environmental/reference failures are listed exactly rather than described as green.
 
-- [ ] **Step 4: Run reader harness**
+- [x] **Step 4: Run reader harness**
 
 ```powershell
 npm --prefix tools/reader-harness run smoke
@@ -620,14 +627,14 @@ npm --prefix tools/reader-harness run smoke
 
 Expected: smoke scenarios pass, including the page-turn migration and navigation assertions.
 
-- [ ] **Step 5: Build and install final readerdev candidate**
+- [x] **Step 5: Build and install final readerdev candidate**
 
 ```powershell
 .\gradlew.bat :androidApp:assembleReaderDev
 adb -s emulator-5554 install -r androidApp/build/outputs/apk/readerDev/androidApp-readerDev.apk
 ```
 
-- [ ] **Step 6: Capture final visual matrix**
+- [x] **Step 6: Capture final visual matrix**
 
 Capture screenshots and recordings for:
 
@@ -641,6 +648,8 @@ Capture screenshots and recordings for:
 - rotate during preparation
 
 Save under `captures/page-turn-destination-aware/final/` and inspect frame continuity, text identity, page-number progression, and absence of blink.
+
+Validated on `emulator-5554` at tablet landscape and portrait resolutions. Forward and reverse landscape leaves, portrait slide and leaf transitions, cross-section relocation, cancel, slow drag, fast flick, rotation, and background/foreground restoration all retained real destination content. The terminal fold remained frame-continuous, `finalBase` covered exact relocation, cancellation emitted no relocation, and lifecycle invalidation rebuilt only layout-compatible adjacent bundles. Large recordings and frame sheets remain local under `.codex-evidence/capture-readiness/` rather than being committed.
 
 - [ ] **Step 7: Run diff and worktree checks**
 

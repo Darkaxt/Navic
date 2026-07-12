@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import paige.navic.ui.screens.reader.ReaderPageTurnPrewarmRetryBudget
+import paige.navic.ui.screens.reader.readerPageTurnPixelsContainForeground
 
 class ReaderPageTurnNativeSourceTest {
 	@Test
@@ -27,6 +29,57 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(source, "PixelCopy.request")
 		assertContains(source, "window")
 		assertFalse(source.contains("Rect(0, 0, host.width, host.height)"))
+	}
+
+	@Test
+	fun currentSurfaceCaptureWaitsForVisualStateAndRejectsUnpaintedPixels() {
+		val source = readerAndroidFile("ReaderPageTurnBitmapSource.android.kt").readText()
+
+		assertContains(source, "postVisualStateCallback")
+		assertContains(source, "VisualStateCallback")
+		assertContains(source, "containsRenderableForeground")
+		assertContains(source, "Page-turn capture rejected unpainted surface")
+	}
+
+	@Test
+	fun renderableForegroundRequiresVisibleContrastRatherThanPaperNoise() {
+		val blankPaper = IntArray(48 * 32) { index ->
+			val level = 248 + (index % 8)
+			(0xff shl 24) or (level shl 16) or (level shl 8) or level
+		}
+		val textPage = blankPaper.copyOf().also { pixels ->
+			for (index in 0 until pixels.size step 31) pixels[index] = 0xff202020.toInt()
+		}
+		val darkPage = IntArray(48 * 32) { 0xff181818.toInt() }.also { pixels ->
+			for (index in 0 until pixels.size step 29) pixels[index] = 0xffeeeeee.toInt()
+		}
+
+		assertFalse(readerPageTurnPixelsContainForeground(blankPaper))
+		assertTrue(readerPageTurnPixelsContainForeground(textPage))
+		assertTrue(readerPageTurnPixelsContainForeground(darkPage))
+	}
+
+	@Test
+	fun prewarmRetryBudgetAllowsOneEventDrivenRetryPerAdjacentDirection() {
+		val budget = ReaderPageTurnPrewarmRetryBudget()
+
+		assertTrue(budget.consume("forward"))
+		assertFalse(budget.consume("forward"))
+		assertTrue(budget.consume("previous"))
+		budget.clear()
+		assertTrue(budget.consume("forward"))
+	}
+
+	@Test
+	fun rejectedPrewarmCaptureReturnsToTheQueueWithoutAClockDelay() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val prewarm = controller
+			.substringAfter("private fun prewarmNext(")
+			.substringBefore("private fun waitForPrewarmPreviewReady(")
+
+		assertContains(prewarm, "prewarmRetryBudget.consume(plan.cacheKey)")
+		assertContains(prewarm, "prewarmPlans.addLast(encodedPlan)")
+		assertFalse(prewarm.contains("postDelayed"))
 	}
 
 	@Test
@@ -73,11 +126,14 @@ class ReaderPageTurnNativeSourceTest {
 	fun rendererUsesRealDestinationSurfacesAndCompletesAnimations() {
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val draw = renderer
+			.substringAfter("override fun onDraw(canvas: Canvas)")
+			.substringBefore("private fun drawPortraitSlide")
 		assertContains(renderer, "reverseFaceColor")
 		assertContains(renderer, "bundle.underneath")
 		assertContains(renderer, "bundle.turningReverse")
 		assertTrue(
-			renderer.indexOf("canvas.drawBitmapMesh") < renderer.indexOf("drawReverseFace(canvas"),
+			draw.indexOf("drawFrontFace(canvas, source)") < draw.indexOf("drawReverseFace(canvas"),
 			"The real reverse face must cover the folded-away front pixels instead of sitting behind them."
 		)
 		assertFalse(renderer.contains("underlayPaint"))
@@ -153,12 +209,26 @@ class ReaderPageTurnNativeSourceTest {
 	fun committedTurnAnimatesContinuouslyThenShowsFinalBaseWhileFoliateSettles() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+		val stateMachine = readerCommonFile("ReaderPageTurnStateMachine.kt").readText()
+		val animationFinished = stateMachine
+			.substringAfter("fun animationFinished()")
+			.substringBefore("fun destinationSettled(")
+		val terminalAnimation = stateMachine
+			.substringAfter("private fun beginTerminalAnimation(")
+			.substringBefore("private fun finishCommitIfReady(")
 
 		assertContains(controller, "CommitEndProgress = 2f")
 		assertContains(controller, "animate(fromProgress, CommitEndProgress, CommitAnimationDurationMs)")
 		assertContains(controller, "ReaderPageTurnEffect.ShowFinalBase")
 		assertContains(renderer, "showFinalBase")
 		assertContains(renderer, "MaxTurnProgress = 2f")
+		assertFalse(terminalAnimation.contains("ReaderPageTurnEffect.Commit(direction)"))
+		assertTrue(
+			animationFinished.indexOf("ReaderPageTurnEffect.ShowFinalBase") <
+				animationFinished.indexOf("ReaderPageTurnEffect.Commit(direction)"),
+			"The opaque final bitmap must be shown before live Foliate navigation starts"
+		)
+		assertContains(controller, "host.postOnAnimation { commitTurn(effect.direction) }")
 		assertFalse(controller.contains("CommitHoldProgress"))
 		assertFalse(controller.contains("commitHoldReached"))
 		assertFalse(controller.contains("finishCommitAnimation"))
@@ -195,6 +265,28 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun liveSurfaceCapturePrecedesEveryDestinationPreviewMutation() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val prewarm = controller
+			.substringAfter("private fun prewarmNext(")
+			.substringBefore("private fun waitForPrewarmPreviewReady(")
+		val gesture = controller
+			.substringAfter("private fun prepareBundle(")
+			.substringBefore("private fun waitForPreviewReady(")
+
+		for (path in listOf(prewarm, gesture)) {
+			val capture = path.indexOf("captureCurrentSurface")
+			val preview = path.indexOf("beginPageTurnPreviewPreparation")
+			assertTrue(capture >= 0, "Page-turn preparation must capture the live surface")
+			assertTrue(preview >= 0, "Page-turn preparation must initialize the destination preview")
+			assertTrue(
+				capture < preview,
+				"Destination preview mutation must not hide live pages before currentBase is captured"
+			)
+		}
+	}
+
+	@Test
 	fun destinationRendererComposesAllSurfacesAndKeepsFinalBaseOpaque() {
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
 
@@ -220,6 +312,34 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(reverse, "Color.argb(")
 		assertContains(reverse, "Color.TRANSPARENT")
 		assertFalse(reverse.contains("intArrayOf(darken(reverseFaceColor"))
+	}
+
+	@Test
+	fun frontFaceExcludesTheFoldedRegionBeforeReverseFaceIsPainted() {
+		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+		val draw = renderer.substringAfter("override fun onDraw(canvas: Canvas)").substringBefore("private fun drawPortraitSlide")
+		val front = renderer.substringAfter("private fun drawFrontFace(").substringBefore("private fun drawReverseFace(")
+
+		assertTrue(
+			draw.indexOf("buildFoldPaths(geometry)") < draw.indexOf("drawFrontFace(canvas, source)"),
+			"The folded polygon must be known before front-face clipping"
+		)
+		assertTrue(
+			draw.indexOf("drawFrontFace(canvas, source)") < draw.indexOf("drawReverseFace(canvas"),
+			"The reverse face must cover the clipped front face"
+		)
+		assertContains(front, "clipOutPath(foldedRegionPath)")
+		assertContains(front, "canvas.drawBitmapMesh(source")
+	}
+
+	@Test
+	fun overlayAttachmentNeverEncodesDiagnosticBitmapsOnTheMainThread() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val attach = controller.substringAfter("private fun attachOverlay()").substringBefore("private fun applyGestureYToOverlay")
+
+		assertFalse(attach.contains("Bitmap.compress"))
+		assertFalse(attach.contains("page-turn-diagnostic"))
+		assertFalse(attach.contains("dumpBundleForReaderdev"))
 	}
 
 	@Test
@@ -359,5 +479,23 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "ComponentCallbacks2")
 		assertContains(controller, "invalidate(\"memory-pressure\")")
 		assertContains(controller, "unregisterComponentCallbacks")
+	}
+
+	@Test
+	fun rotationPrewarmWaitsForNativeAndJsLayoutModesToAgree() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
+		val query = controller
+			.substringAfter("private fun queryAdjacentPrewarmPlans(")
+			.substringBefore("private fun prewarmNext(")
+		val begin = controller
+			.substringAfter("private fun begin(deltaX: Float)")
+			.substringBefore("fun prewarmAdjacent()")
+
+		assertContains(bundle, "fun matchesLayout(spread: Boolean)")
+		assertContains(query, "expectedLayoutMode(webView)")
+		assertContains(query, "context?.optString(\"layoutMode\")")
+		assertContains(query, "webView.postOnAnimation { queryAdjacentPrewarmPlans(webView, session) }")
+		assertContains(begin, "!plan.matchesLayout(state.spread)")
 	}
 }

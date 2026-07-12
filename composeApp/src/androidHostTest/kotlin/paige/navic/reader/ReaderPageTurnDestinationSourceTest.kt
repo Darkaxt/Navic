@@ -229,6 +229,16 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun previewContextReportsTheResolvedLayoutModeForNativeRotationHandshake() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val context = preview
+			.substringAfter("function pageTurnPreviewContext()")
+			.substringBefore("function pageTurnTransitionPlan(")
+
+		assertContains(context, "layoutMode: this.pageTurnCaptureGeometry().mode")
+	}
+
+	@Test
 	fun immutableBitmapBundleOwnsEveryDestinationSurfaceExactlyOnce() {
 		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
 
@@ -249,7 +259,7 @@ class ReaderPageTurnDestinationSourceTest {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
 		assertContains(source, "LinkedHashMap<String, ReaderPageTurnBitmapBundle>(0, 0.75f, true)")
-		assertContains(source, "private const val MaxCachedBundles = 3")
+		assertContains(source, "private const val MaxCachedBundles = 2")
 		assertContains(source, "eldest.value.recycle()")
 		assertContains(source, "cache.clear()")
 	}
@@ -265,6 +275,20 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(source, "webView.draw(canvas)")
 		assertFalse(source.contains("postDelayed"))
 		assertFalse(source.contains("setTimeout"))
+	}
+
+	@Test
+	fun stagedDestinationCaptureWaitsForTheExposedPreviewToBeComposited() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source
+			.substringAfter("internal fun captureStagedSurface(")
+			.substringBefore("fun invalidate(")
+
+		assertContains(capture, "webView.postVisualStateCallback")
+		assertContains(capture, "WebView.VisualStateCallback")
+		assertContains(capture, "else webView.postOnAnimation(draw)")
+		assertFalse(capture.contains("Looper.getMainLooper()) draw()"))
+		assertFalse(capture.contains("postDelayed"))
 	}
 
 	@Test

@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.webkit.WebView
+import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
@@ -21,6 +22,7 @@ internal class ReaderPageTurnBundleSource(
 	private val mainHandler: Handler = Handler(Looper.getMainLooper())
 ) {
 	private var activeGeneration = 0L
+	private val visualStateRequestId = AtomicLong()
 	private val cache = LinkedHashMap<String, ReaderPageTurnBitmapBundle>(0, 0.75f, true)
 	val isAvailable: Boolean
 		get() = bitmapSource.isAvailable
@@ -235,7 +237,22 @@ internal class ReaderPageTurnBundleSource(
 				}
 			}
 		}
-		if (Looper.myLooper() == Looper.getMainLooper()) draw() else mainHandler.post(draw)
+		val awaitCompositedPreview = {
+			if (!webView.isAttachedToWindow) {
+				onCaptured(null)
+			} else {
+				webView.postVisualStateCallback(
+					visualStateRequestId.incrementAndGet(),
+					object : WebView.VisualStateCallback() {
+						override fun onComplete(requestId: Long) {
+							if (!webView.isAttachedToWindow) onCaptured(null)
+							else webView.postOnAnimation(draw)
+						}
+					}
+				)
+			}
+		}
+		if (Looper.myLooper() == Looper.getMainLooper()) awaitCompositedPreview() else mainHandler.post(awaitCompositedPreview)
 	}
 
 	fun invalidate(reason: String) {

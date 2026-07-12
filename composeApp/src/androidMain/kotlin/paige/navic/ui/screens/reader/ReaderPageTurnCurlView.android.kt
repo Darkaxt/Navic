@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Region
+import android.os.Build
 import android.graphics.Shader
 import android.view.View
 import paige.navic.reader.ReaderPageTurnEdgeFoldGeometry
@@ -133,8 +135,8 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 
 		val geometry = geometry(pageWidth, pageHeight)
 		buildMesh(pageWidth, pageHeight, geometry)
-		canvas.drawBitmapMesh(source, MeshColumns, MeshRows, vertices, 0, null, 0, bitmapPaint)
 		buildFoldPaths(geometry)
+		drawFrontFace(canvas, source)
 		drawReverseFace(canvas, reverse, pageWidth, pageHeight, geometry)
 		drawCrease(canvas, pageWidth)
 		drawEdgeHighlight(canvas)
@@ -214,6 +216,18 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		}
 		foldedRegionPath.close()
 		reversePath.close()
+	}
+
+	private fun drawFrontFace(canvas: Canvas, source: Bitmap) {
+		val frontRestore = canvas.save()
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+			canvas.clipOutPath(foldedRegionPath)
+		} else {
+			@Suppress("DEPRECATION")
+			canvas.clipPath(foldedRegionPath, Region.Op.DIFFERENCE)
+		}
+		canvas.drawBitmapMesh(source, MeshColumns, MeshRows, vertices, 0, null, 0, bitmapPaint)
+		canvas.restoreToCount(frontRestore)
 	}
 
 	private fun drawReverseFace(

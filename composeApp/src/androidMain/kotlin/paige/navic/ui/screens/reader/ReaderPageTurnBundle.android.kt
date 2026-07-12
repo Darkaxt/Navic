@@ -50,6 +50,9 @@ internal data class ReaderPageTurnTransitionPlan(
 	val cacheKey: String
 		get() = "$kind:$sourcePageIndex:$targetPageIndex:$sourcePageSide:$targetPageSide"
 
+	fun matchesLayout(spread: Boolean): Boolean =
+		(kind == ReaderPageTurnTransitionKind.LandscapeLeaf) == spread
+
 	companion object {
 		fun parse(encoded: String?, token: String, generation: Long): ReaderPageTurnTransitionPlan? =
 			runCatching { parseOrThrow(encoded, token, generation) }.getOrNull()

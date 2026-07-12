@@ -125,10 +125,10 @@ class ReaderPageTurnStateMachine(
 		ReaderPageTurnPhase.Committing -> {
 			commitAnimationFinished = true
 			phase = ReaderPageTurnPhase.Settling
-			buildList {
-				add(ReaderPageTurnEffect.ShowFinalBase)
-				if (destinationSettled) addAll(finishCommitIfReady())
-			}
+			listOf(
+				ReaderPageTurnEffect.ShowFinalBase,
+				ReaderPageTurnEffect.Commit(direction)
+			)
 		}
 		ReaderPageTurnPhase.Relaxing -> {
 			reset(invalidateGeneration = true)
@@ -138,7 +138,7 @@ class ReaderPageTurnStateMachine(
 	}
 
 	fun destinationSettled(pageIndex: Int? = null): List<ReaderPageTurnEffect> {
-		if (phase != ReaderPageTurnPhase.Committing && phase != ReaderPageTurnPhase.Settling) return emptyList()
+		if (phase != ReaderPageTurnPhase.Settling) return emptyList()
 		if (targetPageIndex != null && pageIndex != targetPageIndex) return emptyList()
 		destinationSettled = true
 		return finishCommitIfReady()
@@ -150,7 +150,7 @@ class ReaderPageTurnStateMachine(
 			phase = ReaderPageTurnPhase.Committing
 			commitAnimationFinished = false
 			destinationSettled = false
-			listOf(ReaderPageTurnEffect.Commit(direction), ReaderPageTurnEffect.AnimateCommit(progress))
+			listOf(ReaderPageTurnEffect.AnimateCommit(progress))
 		} else {
 			phase = ReaderPageTurnPhase.Relaxing
 			listOf(ReaderPageTurnEffect.AnimateRelax(progress))

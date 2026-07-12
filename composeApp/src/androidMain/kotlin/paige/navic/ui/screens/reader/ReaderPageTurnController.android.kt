@@ -22,6 +22,23 @@ import paige.navic.util.core.Logger
 
 private const val ReaderPageTurnControllerTag = "ReaderPageTurnController"
 
+internal class ReaderPageTurnPrewarmRetryBudget(
+	private val maxRetriesPerKey: Int = 1
+) {
+	private val retriesByKey = mutableMapOf<String, Int>()
+
+	fun consume(key: String): Boolean {
+		val retries = retriesByKey[key] ?: 0
+		if (retries >= maxRetriesPerKey) return false
+		retriesByKey[key] = retries + 1
+		return true
+	}
+
+	fun clear() {
+		retriesByKey.clear()
+	}
+}
+
 internal class ReaderPageTurnController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
@@ -45,6 +62,7 @@ internal class ReaderPageTurnController(
 	private var prewarmSession = 0L
 	private var prewarmInProgress = false
 	private val prewarmPlans = ArrayDeque<String>()
+	private val prewarmRetryBudget = ReaderPageTurnPrewarmRetryBudget()
 	private var activePrewarmPlan: ReaderPageTurnTransitionPlan? = null
 	private var preparationShield: ImageView? = null
 	private var destroyed = false
@@ -155,7 +173,7 @@ internal class ReaderPageTurnController(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnTransitionPlan?.('$physicalDirection') ?? null)"
 		) { encodedPlan ->
 			val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, bundleGeneration)
-			if (plan == null) {
+			if (plan == null || !plan.matchesLayout(state.spread)) {
 				markPreparationUnavailable(activeStateGeneration, "transition-plan-unavailable")
 				return@evaluateJavascript
 			}
@@ -205,16 +223,21 @@ internal class ReaderPageTurnController(
 			val context = payload?.optJSONObject("context")
 			val pageIndex = context?.optInt("pageIndex", -1) ?: -1
 			val pageCount = context?.optInt("pageCount", 0) ?: 0
-			if (pageIndex < 0 || pageCount <= 0) {
+			val layoutMode = context?.optString("layoutMode")
+			if (pageIndex < 0 || pageCount <= 0 || layoutMode != expectedLayoutMode(webView)) {
 				webView.postOnAnimation { queryAdjacentPrewarmPlans(webView, session) }
 				return@evaluateJavascript
 			}
 			prewarmPlans.clear()
+			prewarmRetryBudget.clear()
 			payload?.optJSONObject("towardLeft")?.toString()?.let(prewarmPlans::addLast)
 			payload?.optJSONObject("towardRight")?.toString()?.let(prewarmPlans::addLast)
 			prewarmNext(webView, session)
 		}
 	}
+
+	private fun expectedLayoutMode(webView: WebView): String =
+		if (webView.width >= webView.height * 1.12f) "spread" else "single"
 
 	private fun prewarmNext(webView: WebView, session: Long) {
 		if (!isPrewarmActive(webView, session)) return
@@ -231,17 +254,34 @@ internal class ReaderPageTurnController(
 			return
 		}
 		activePrewarmPlan = plan
-		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.(${JSONObject.quote(token)}, ${plan.targetPageIndex})"
-		) { }
 		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
-			if (current == null || !isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+			if (current == null) {
+				if (
+					isPrewarmActive(webView, session) &&
+					activePrewarmPlan === plan &&
+					prewarmRetryBudget.consume(plan.cacheKey)
+				) {
+					prewarmPlans.addLast(encodedPlan)
+				}
 				activePrewarmPlan = null
 				prewarmNext(webView, session)
 				return@captureCurrentSurface
 			}
-			waitForPrewarmPreviewReady(webView, session, plan, current)
+			if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+				current.bitmap.takeUnless { it.isRecycled }?.recycle()
+				activePrewarmPlan = null
+				prewarmNext(webView, session)
+				return@captureCurrentSurface
+			}
+			webView.evaluateJavascript(
+				"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.(${JSONObject.quote(token)}, ${plan.targetPageIndex})"
+			) {
+				if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+					current.bitmap.takeUnless { it.isRecycled }?.recycle()
+					return@evaluateJavascript
+				}
+				waitForPrewarmPreviewReady(webView, session, plan, current)
+			}
 		}
 	}
 
@@ -302,6 +342,7 @@ internal class ReaderPageTurnController(
 	private fun finishPrewarm() {
 		activePrewarmPlan = null
 		prewarmPlans.clear()
+		prewarmRetryBudget.clear()
 		prewarmInProgress = false
 		removePreparationShield()
 		destroyPageTurnPreviewRenderer("prewarm-complete")
@@ -311,6 +352,7 @@ internal class ReaderPageTurnController(
 		prewarmSession += 1
 		activePrewarmPlan = null
 		prewarmPlans.clear()
+		prewarmRetryBudget.clear()
 		prewarmInProgress = false
 		bundleSource.cancelActivePreparation()
 		removePreparationShield()
@@ -329,16 +371,21 @@ internal class ReaderPageTurnController(
 		stateGeneration: Long
 	) {
 		val quotedToken = JSONObject.quote(plan.token)
-		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.($quotedToken, ${plan.targetPageIndex})"
-		) { }
 		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
 			if (current == null || !isPreparationActive(plan, stateGeneration)) {
 				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
 				markPreparationUnavailable(stateGeneration, "current-surface-unavailable")
 				return@captureCurrentSurface
 			}
-			waitForPreviewReady(webView, plan, stateGeneration, current)
+			webView.evaluateJavascript(
+				"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.($quotedToken, ${plan.targetPageIndex})"
+			) {
+				if (!isPreparationActive(plan, stateGeneration)) {
+					current.bitmap.takeUnless { it.isRecycled }?.recycle()
+					return@evaluateJavascript
+				}
+				waitForPreviewReady(webView, plan, stateGeneration, current)
+			}
 		}
 	}
 
@@ -525,7 +572,7 @@ internal class ReaderPageTurnController(
 				is ReaderPageTurnEffect.Render -> curlView?.setProgress(effect.progress)
 				is ReaderPageTurnEffect.AnimateCommit -> animateCommit(effect.fromProgress)
 				is ReaderPageTurnEffect.AnimateRelax -> animateRelax(effect.fromProgress)
-				is ReaderPageTurnEffect.Commit -> commitTurn(effect.direction)
+				is ReaderPageTurnEffect.Commit -> host.postOnAnimation { commitTurn(effect.direction) }
 				ReaderPageTurnEffect.ShowFinalBase -> curlView?.showFinalBase()
 				ReaderPageTurnEffect.DetachOverlay -> detachAfterNavigationFrame()
 			}

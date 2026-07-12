@@ -183,6 +183,8 @@ At capture time:
 6. After all required role bitmaps are captured, JavaScript restores the live WebView composition beneath the still-opaque native overlay.
 7. The latest stored drag position is applied and visible deformation begins.
 
+Exposing a staged page is not equivalent to having composited pixels. Native capture must wait for `WebView.postVisualStateCallback`, then schedule the draw on the following animation frame. A staged draw taken before that acknowledgement is invalid even when the JavaScript relocation promise has resolved.
+
 This capture sequence must pass a feasibility gate on readerdev before the animated integration proceeds.
 
 ### 5.3 Capture fidelity gate
@@ -229,11 +231,10 @@ The existing edge-origin fold geometry remains the initial renderer. This revisi
 
 - Release threshold is evaluated by the pure state machine.
 - A committed leaf turn targets the next or previous spread start, two visual page ordinals away.
-- Navigation starts at commit-animation start and runs concurrently with the uninterrupted native fold.
-- The native fold crosses the binding and completes at the captured final spread without waiting for Foliate.
-- If Foliate is still settling when native motion completes, the overlay holds the fully rendered `finalBase`, never the half-folded sheet.
+- The immutable native fold crosses the binding and completes before live Foliate navigation starts. Foliate must not compete with the terminal animation for the WebView compositor or main thread.
+- At native completion the overlay switches to the fully rendered opaque `finalBase`. Exact Foliate navigation starts on the next rendered frame behind that bitmap.
 - The native overlay remains opaque until Foliate reports the same target page index.
-- Detachment occurs on frame completion plus exact target settlement, in either arrival order.
+- Detachment occurs only after exact target settlement. Settlement received before navigation starts is ignored because it cannot confirm the requested destination.
 
 ### 7.3 Cancel
 
@@ -303,6 +304,8 @@ Invalidation occurs on:
 
 Every invalidation increments a generation. Late JavaScript readiness, draw completion, image completion, or navigation settlement from an older generation is ignored and its bitmap recycled.
 
+After viewport or orientation changes, adjacent prewarm may begin only when native dimensions and the JavaScript preview context report the same resolved layout mode (`single` or `spread`). A stale pre-rotation preview context is retried on animation frames rather than captured into a bundle for the new viewport.
+
 ## 10. Gesture State Machine
 
 States:
@@ -321,10 +324,10 @@ Rules:
 3. Pointer updates during preparation only replace the latest pending pointer state.
 4. Deformation starts only with a valid bundle.
 5. Release during preparation records the release decision; it does not start an incorrect animation.
-6. Commit emits one exact target navigation.
+6. Commit animation completion emits one exact target navigation after `finalBase` has been presented for a frame.
 7. Relax emits no navigation.
-8. Commit animation proceeds continuously to its final visual state independently of Foliate settlement.
-9. Settlement requires native completion and exact Foliate target confirmation. A completed native animation waits by displaying `finalBase`.
+8. Commit animation proceeds continuously to its final visual state before live Foliate navigation starts.
+9. Settlement requires native completion followed by exact Foliate target confirmation. `finalBase` remains visible while navigation settles.
 10. Cancel, rotation, backgrounding, destruction, or generation change clears all transient state synchronously.
 
 ## 11. Failure Behavior
