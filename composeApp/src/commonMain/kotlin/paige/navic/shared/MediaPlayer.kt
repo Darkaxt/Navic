@@ -10,9 +10,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -25,6 +27,7 @@ import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.ui.core.PlayerUiState
+import paige.navic.ui.core.durablePlayerStateKey
 import paige.navic.ui.core.restoredPlayerStateForPreferences
 import paige.navic.util.core.Logger
 import kotlin.time.Duration.Companion.seconds
@@ -153,21 +156,26 @@ abstract class MediaPlayerViewModel(
 	@OptIn(FlowPreview::class)
 	private fun observeAndSaveState() {
 		viewModelScope.launch {
-			_uiState
-				.debounce(1.seconds)
-				.collect { state ->
-					try {
-						if (!preferenceManager.persistentQueue) {
-							stateRepository.clearState()
-							return@collect
-						}
+			val structuralSnapshots = _uiState.distinctUntilChangedBy {
+				it.durablePlayerStateKey()
+			}
+			val progressSnapshots = _uiState.sample(5.seconds)
 
-						val jsonString = Json.encodeToString(state)
-						stateRepository.saveState(jsonString)
-					} catch (e: Exception) {
-						Logger.e("MediaPlayerViewModel", "Failed to save state!", e)
-					}
-				}
+			merge(structuralSnapshots, progressSnapshots).collect(::persistState)
+		}
+	}
+
+	private suspend fun persistState(state: PlayerUiState) {
+		try {
+			if (!preferenceManager.persistentQueue) {
+				stateRepository.clearState()
+				return
+			}
+
+			val jsonString = Json.encodeToString(state)
+			stateRepository.saveState(jsonString)
+		} catch (e: Exception) {
+			Logger.e("MediaPlayerViewModel", "Failed to save state!", e)
 		}
 	}
 }
