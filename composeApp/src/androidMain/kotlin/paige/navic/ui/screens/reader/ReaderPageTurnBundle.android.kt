@@ -101,12 +101,18 @@ internal class ReaderPageTurnBitmapBundle(
 	val surfaceRectInWindow: Rect,
 	val turningFrontRectInSurface: Rect,
 	val underneathRectInSurface: Rect?,
+	val reverseFaceColor: Int,
 	val currentBase: Bitmap,
 	val turningFront: Bitmap,
 	val turningReverse: Bitmap?,
 	val underneath: Bitmap?,
 	val finalBase: Bitmap
 ) {
+	val renderScaleX: Float
+		get() = surfaceRectInWindow.width() / currentBase.width.toFloat()
+	val renderScaleY: Float
+		get() = surfaceRectInWindow.height() / currentBase.height.toFloat()
+
 	private var recycled = false
 
 	@Synchronized

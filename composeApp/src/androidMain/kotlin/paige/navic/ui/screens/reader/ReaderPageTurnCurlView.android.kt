@@ -44,6 +44,8 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 	private var surfaceTop = 0f
 	private var showFinalBase = false
 	private val vertices = FloatArray((MeshColumns + 1) * (MeshRows + 1) * 2)
+	private val reverseVertices = FloatArray((MeshColumns + 1) * (MeshRows + 1) * 2)
+	private val reverseColors = IntArray((MeshColumns + 1) * (MeshRows + 1))
 	private var cachedGeometry: ReaderPageTurnEdgeFoldGeometry? = null
 	private var cachedWidth = 0f
 	private var cachedHeight = 0f
@@ -78,8 +80,9 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 	}
 
 	fun setGestureY(edgeOriginY: Float, pointerY: Float) {
-		this.edgeOriginY = edgeOriginY
-		this.pointerY = pointerY
+		val bundle = bundle
+		this.edgeOriginY = if (bundle == null) edgeOriginY else edgeOriginY / bundle.renderScaleY
+		this.pointerY = if (bundle == null) pointerY else pointerY / bundle.renderScaleY
 		invalidateGeometry()
 		invalidate()
 	}
@@ -109,6 +112,7 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		if (pageWidth <= 0f || pageHeight <= 0f) return
 		val restoreCount = canvas.save()
 		canvas.translate(surfaceLeft, surfaceTop)
+		canvas.scale(bundle.renderScaleX, bundle.renderScaleY)
 		if (showFinalBase) {
 			canvas.drawBitmap(finalBase, 0f, 0f, bitmapPaint)
 			canvas.restoreToCount(restoreCount)
@@ -135,6 +139,7 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 
 		val geometry = geometry(pageWidth, pageHeight)
 		buildMesh(pageWidth, pageHeight, geometry)
+		buildReverseMesh(pageWidth, pageHeight, geometry)
 		buildFoldPaths(geometry)
 		drawFrontFace(canvas, source)
 		drawReverseFace(canvas, reverse, pageWidth, pageHeight, geometry)
@@ -197,6 +202,23 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		}
 	}
 
+	private fun buildReverseMesh(
+		pageWidth: Float,
+		pageHeight: Float,
+		geometry: ReaderPageTurnEdgeFoldGeometry
+	) {
+		for (row in 0..MeshRows) {
+			val y = pageHeight * row / MeshRows
+			for (column in 0..MeshColumns) {
+				val x = pageWidth * column / MeshColumns
+				val index = (row * (MeshColumns + 1) + column) * 2
+				geometry.mapReverseFaceInto(x, y, reverseVertices, index)
+				reverseColors[row * (MeshColumns + 1) + column] =
+					if (geometry.isReverseFacePixelVisible(x, y)) Color.WHITE else Color.TRANSPARENT
+			}
+		}
+	}
+
 	private fun buildFoldPaths(geometry: ReaderPageTurnEdgeFoldGeometry) {
 		foldBoundaryPath.reset()
 		foldedRegionPath.reset()
@@ -244,11 +266,11 @@ internal class ReaderPageTurnCurlView(context: Context) : View(context) {
 		if (kotlin.math.abs(outerX - creaseX) <= 0.5f) return
 		val reverseRestore = canvas.save()
 		canvas.clipPath(reversePath)
+		reversePaint.color = reverseFaceColor
+		reversePaint.shader = null
+		canvas.drawPath(reversePath, reversePaint)
 		if (reverse != null) {
-			canvas.drawBitmapMesh(reverse, MeshColumns, MeshRows, vertices, 0, null, 0, bitmapPaint)
-		} else {
-			reversePaint.color = reverseFaceColor
-			canvas.drawPath(reversePath, reversePaint)
+			canvas.drawBitmapMesh(reverse, MeshColumns, MeshRows, reverseVertices, 0, reverseColors, 0, bitmapPaint)
 		}
 		reversePaint.shader = LinearGradient(
 			creaseX,

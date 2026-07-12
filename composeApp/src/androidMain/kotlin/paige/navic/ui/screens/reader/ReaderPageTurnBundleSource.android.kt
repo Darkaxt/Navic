@@ -2,7 +2,7 @@ package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Matrix
+import android.graphics.Color
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
@@ -13,9 +13,11 @@ import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.util.core.Logger
+import kotlin.math.roundToInt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedBundles = 2
+private const val ReaderPageTurnAnimationBitmapScale = 0.5f
 
 internal class ReaderPageTurnBundleSource(
 	private val bitmapSource: ReaderPageTurnBitmapSource = ReaderPageTurnBitmapSource(),
@@ -83,33 +85,33 @@ internal class ReaderPageTurnBundleSource(
 		) { encoded ->
 			if (generation != activeGeneration || !encoded.isJavascriptTrue()) {
 				current.bitmap.takeUnless { it.isRecycled }?.recycle()
-				restoreLiveComposition(webView, plan.token)
-				onPrepared(null)
+				restoreLiveComposition(webView, plan.token) { onPrepared(null) }
 				return@evaluateJavascript
 			}
 			webView.postOnAnimation {
 				captureStagedSurface(webView, current.geometry, current.sourceRectInWindow) { finalBase ->
-					restoreLiveComposition(webView, plan.token)
-					if (finalBase == null) {
-						current.bitmap.takeUnless { it.isRecycled }?.recycle()
-						onPrepared(null)
-						return@captureStagedSurface
-					}
-					if (
-						plan.kind == ReaderPageTurnTransitionKind.PortraitLeaf &&
-						plan.underneathPageIndex != null
-					) {
-						capturePortraitUnderneath(webView, plan, current) { underneathBase ->
-							if (underneathBase == null) {
-								current.bitmap.takeUnless { it.isRecycled }?.recycle()
-								finalBase.takeUnless { it.isRecycled }?.recycle()
-								onPrepared(null)
-							} else {
-								completeBundleCapture(webView, plan, current, finalBase, underneathBase, onPrepared)
-							}
+					restoreLiveComposition(webView, plan.token) {
+						if (finalBase == null) {
+							current.bitmap.takeUnless { it.isRecycled }?.recycle()
+							onPrepared(null)
+							return@restoreLiveComposition
 						}
-					} else {
-						completeBundleCapture(webView, plan, current, finalBase, null, onPrepared)
+						if (
+							plan.kind == ReaderPageTurnTransitionKind.PortraitLeaf &&
+							plan.underneathPageIndex != null
+						) {
+							capturePortraitUnderneath(webView, plan, current) { underneathBase ->
+								if (underneathBase == null) {
+									current.bitmap.takeUnless { it.isRecycled }?.recycle()
+									finalBase.takeUnless { it.isRecycled }?.recycle()
+									onPrepared(null)
+								} else {
+									completeBundleCapture(webView, plan, current, finalBase, underneathBase, onPrepared)
+								}
+							}
+						} else {
+							completeBundleCapture(webView, plan, current, finalBase, null, onPrepared)
+						}
 					}
 				}
 			}
@@ -157,20 +159,17 @@ internal class ReaderPageTurnBundleSource(
 					"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
 				) { encodedExposed ->
 					if (plan.generation != activeGeneration || !encodedExposed.isJavascriptTrue()) {
-						restoreLiveComposition(webView, plan.token)
-						onCaptured(null)
+						restoreLiveComposition(webView, plan.token) { onCaptured(null) }
 						return@evaluateJavascript
 					}
 					webView.postOnAnimation {
 						captureStagedSurface(webView, current.geometry, current.sourceRectInWindow) { underneathBase ->
-							restoreLiveComposition(webView, plan.token)
-							onCaptured(underneathBase)
+							restoreLiveComposition(webView, plan.token) { onCaptured(underneathBase) }
 						}
 					}
 				}
 				"failed", "missing" -> {
-					restoreLiveComposition(webView, plan.token)
-					onCaptured(null)
+					restoreLiveComposition(webView, plan.token) { onCaptured(null) }
 				}
 				else -> webView.postOnAnimation {
 					waitForPortraitUnderneathReady(webView, plan, current, onCaptured)
@@ -216,7 +215,11 @@ internal class ReaderPageTurnBundleSource(
 		}
 		val draw = {
 			val bitmap = runCatching {
-				Bitmap.createBitmap(sourceRectInWindow.width(), sourceRectInWindow.height(), Bitmap.Config.ARGB_8888)
+				Bitmap.createBitmap(
+					readerPageTurnAnimationBitmapDimension(sourceRectInWindow.width()),
+					readerPageTurnAnimationBitmapDimension(sourceRectInWindow.height()),
+					Bitmap.Config.ARGB_8888
+				)
 			}.getOrNull()
 			if (bitmap == null) {
 				onCaptured(null)
@@ -224,6 +227,11 @@ internal class ReaderPageTurnBundleSource(
 				val location = IntArray(2)
 				webView.getLocationInWindow(location)
 				val canvas = Canvas(bitmap)
+				canvas.drawColor(readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb))
+				canvas.scale(
+					bitmap.width / sourceRectInWindow.width().toFloat(),
+					bitmap.height / sourceRectInWindow.height().toFloat()
+				)
 				canvas.translate(
 					-(sourceRectInWindow.left - location[0]).toFloat(),
 					-(sourceRectInWindow.top - location[1]).toFloat()
@@ -294,9 +302,10 @@ internal class ReaderPageTurnBundleSource(
 			surfaceRectInWindow = Rect(current.sourceRectInWindow),
 			turningFrontRectInSurface = front.rectInSurface,
 			underneathRectInSurface = underneath?.rectInSurface,
+			reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb),
 			currentBase = current.bitmap,
 			turningFront = front.bitmap,
-			turningReverse = reverseCapture?.bitmap?.mirroredHorizontally(),
+			turningReverse = reverseCapture?.bitmap,
 			underneath = underneath?.bitmap,
 			finalBase = finalBase
 		)
@@ -321,10 +330,12 @@ internal class ReaderPageTurnBundleSource(
 			webViewWidth = webView.width,
 			webViewHeight = webView.height
 		) ?: return null
-		val left = (page.left - surfaceRectInWindow.left).coerceIn(0, base.width)
-		val top = (page.top - surfaceRectInWindow.top).coerceIn(0, base.height)
-		val right = (page.right - surfaceRectInWindow.left).coerceIn(left, base.width)
-		val bottom = (page.bottom - surfaceRectInWindow.top).coerceIn(top, base.height)
+		val scaleX = base.width / surfaceRectInWindow.width().toFloat()
+		val scaleY = base.height / surfaceRectInWindow.height().toFloat()
+		val left = ((page.left - surfaceRectInWindow.left) * scaleX).roundToInt().coerceIn(0, base.width)
+		val top = ((page.top - surfaceRectInWindow.top) * scaleY).roundToInt().coerceIn(0, base.height)
+		val right = ((page.right - surfaceRectInWindow.left) * scaleX).roundToInt().coerceIn(left, base.width)
+		val bottom = ((page.bottom - surfaceRectInWindow.top) * scaleY).roundToInt().coerceIn(top, base.height)
 		if (right <= left || bottom <= top) return null
 		return ReaderPageTurnPageCapture(
 			bitmap = Bitmap.createBitmap(base, left, top, right - left, bottom - top),
@@ -345,25 +356,48 @@ internal class ReaderPageTurnBundleSource(
 		)
 	}
 
-	private fun restoreLiveComposition(webView: WebView, token: String) {
+	private fun restoreLiveComposition(
+		webView: WebView,
+		token: String,
+		onRestored: () -> Unit = {}
+	) {
+		if (!webView.isAttachedToWindow) {
+			onRestored()
+			return
+		}
 		val quotedToken = JSONObject.quote(token)
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.restorePageTurnLiveComposition?.($quotedToken)"
-		) { }
+		) {
+			if (!webView.isAttachedToWindow) {
+				onRestored()
+				return@evaluateJavascript
+			}
+			webView.postVisualStateCallback(
+				visualStateRequestId.incrementAndGet(),
+				object : WebView.VisualStateCallback() {
+					override fun onComplete(requestId: Long) {
+						if (!webView.isAttachedToWindow) onRestored()
+						else webView.postOnAnimation(onRestored)
+					}
+				}
+			)
+		}
 	}
 }
+
+internal fun readerPageTurnOpaqueColor(argb: Long?): Int {
+	val color = argb?.toInt() ?: Color.rgb(234, 217, 174)
+	return color or Color.BLACK
+}
+
+internal fun readerPageTurnAnimationBitmapDimension(physicalPixels: Int): Int =
+	(physicalPixels * ReaderPageTurnAnimationBitmapScale).roundToInt().coerceAtLeast(1)
 
 private data class ReaderPageTurnPageCapture(
 	val bitmap: Bitmap,
 	val rectInSurface: Rect
 )
-
-private fun Bitmap.mirroredHorizontally(): Bitmap {
-	val matrix = Matrix().apply { setScale(-1f, 1f, width / 2f, height / 2f) }
-	return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true).also {
-		if (it !== this && !isRecycled) recycle()
-	}
-}
 
 private fun String?.isJavascriptTrue(): Boolean = runCatching {
 	JSONTokener(orEmpty()).nextValue() as? Boolean == true

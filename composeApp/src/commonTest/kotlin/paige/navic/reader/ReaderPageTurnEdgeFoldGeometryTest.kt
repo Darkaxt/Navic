@@ -164,6 +164,66 @@ class ReaderPageTurnEdgeFoldGeometryTest {
 		assertTrue(fold.map(ReaderPageTurnPoint(1000f, 1600f)).x <= -999f)
 	}
 
+	@Test
+	fun reverseFaceKeepsDestinationReadingOrderWhileFollowingTheFoldPlane() {
+		val fold = ReaderPageTurnEdgeFoldGeometry(
+			width = 1000f,
+			height = 1600f,
+			progress = 0.62f,
+			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
+			edgeOriginY = 260f,
+			pointerY = 720f
+		)
+
+		val first = fold.mapReverseFace(ReaderPageTurnPoint(40f, 500f))
+		val right = fold.mapReverseFace(ReaderPageTurnPoint(140f, 500f))
+		val down = fold.mapReverseFace(ReaderPageTurnPoint(40f, 600f))
+		val rightX = right.x - first.x
+		val rightY = right.y - first.y
+		val downX = down.x - first.x
+		val downY = down.y - first.y
+		val orientation = rightX * downY - rightY * downX
+
+		assertTrue(orientation > 0f, "Destination glyph orientation must be preserved on the reverse face.")
+		assertTrue(abs(rightY) > 1f, "Destination baselines must rotate with a slanted fold instead of staying horizontal.")
+	}
+
+	@Test
+	fun reverseFaceNeverLeavesTheUnfoldedHalfOfItsBitmapFlat() {
+		val fold = ReaderPageTurnEdgeFoldGeometry(
+			width = 1000f,
+			height = 1600f,
+			progress = 0.62f,
+			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
+			edgeOriginY = 260f,
+			pointerY = 720f
+		)
+		val destinationPixel = ReaderPageTurnPoint(900f, 500f)
+		val unreflectedSheetPixel = ReaderPageTurnPoint(100f, 500f)
+
+		val mapped = fold.mapReverseFace(destinationPixel)
+
+		assertTrue(
+			squaredDistance(mapped, unreflectedSheetPixel) > 1f,
+			"Every reverse-face pixel must be transformed by the fold; flat identity pixels leak straight text into the fold."
+		)
+	}
+
+	@Test
+	fun reverseFaceVisibilityExcludesDestinationPixelsOutsideTheFoldedSheetHalf() {
+		val fold = ReaderPageTurnEdgeFoldGeometry(
+			width = 1000f,
+			height = 1600f,
+			progress = 0.62f,
+			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
+			edgeOriginY = 260f,
+			pointerY = 720f
+		)
+
+		assertTrue(fold.isReverseFacePixelVisible(40f, 500f))
+		assertTrue(!fold.isReverseFacePixelVisible(900f, 500f))
+	}
+
 	private fun squaredDistance(first: ReaderPageTurnPoint, second: ReaderPageTurnPoint): Float {
 		val dx = first.x - second.x
 		val dy = first.y - second.y

@@ -62,6 +62,33 @@ class ReaderPageTurnEdgeFoldGeometry(
 		return ReaderPageTurnPoint(mapped[0], mapped[1])
 	}
 
+	/** Maps destination-page pixels onto the physical back of the turning sheet. */
+	fun mapReverseFace(point: ReaderPageTurnPoint): ReaderPageTurnPoint {
+		val mapped = FloatArray(2)
+		mapReverseFaceInto(point.x, point.y, mapped, 0)
+		return ReaderPageTurnPoint(mapped[0], mapped[1])
+	}
+
+	fun mapReverseFaceInto(x: Float, y: Float, destination: FloatArray, offset: Int) {
+		require(offset >= 0 && offset + 1 < destination.size) { "Destination must contain two writable values." }
+		val sheetX = width - x
+		if (progress <= 0f || normalLengthSquared <= Epsilon) {
+			write(destination, offset, sheetX, y)
+			return
+		}
+		val signedDistance = signedDistanceNumerator(sheetX, y) / normalLength
+		if (curlRadius > Epsilon && signedDistance in -curlBandHalfLength..curlBandHalfLength) {
+			mapCurlBandInto(sheetX, y, signedDistance, destination, offset)
+			return
+		}
+		reflectInto(sheetX, y, signedDistance, destination, offset)
+	}
+
+	fun isReverseFacePixelVisible(x: Float, y: Float): Boolean {
+		if (progress <= 0f || normalLengthSquared <= Epsilon) return false
+		return signedDistanceNumerator(width - x, y) >= -Epsilon
+	}
+
 	fun mapInto(x: Float, y: Float, destination: FloatArray, offset: Int) {
 		require(offset >= 0 && offset + 1 < destination.size) { "Destination must contain two writable values." }
 		if (progress <= 0f || x == bindingEdgeX || normalLengthSquared <= Epsilon) {
@@ -74,15 +101,35 @@ class ReaderPageTurnEdgeFoldGeometry(
 				write(destination, offset, x, y)
 				return
 			}
-			val reflectionScale = 2f * signedDistance / normalLength
-			write(
-				destination,
-				offset,
-				x - reflectionScale * normalX,
-				y - reflectionScale * normalY
-			)
+			reflectInto(x, y, signedDistance, destination, offset)
 			return
 		}
+		mapCurlBandInto(x, y, signedDistance, destination, offset)
+	}
+
+	private fun reflectInto(
+		x: Float,
+		y: Float,
+		signedDistance: Float,
+		destination: FloatArray,
+		offset: Int
+	) {
+		val reflectionScale = 2f * signedDistance / normalLength
+		write(
+			destination,
+			offset,
+			x - reflectionScale * normalX,
+			y - reflectionScale * normalY
+		)
+	}
+
+	private fun mapCurlBandInto(
+		x: Float,
+		y: Float,
+		signedDistance: Float,
+		destination: FloatArray,
+		offset: Int
+	) {
 		val relativeX = x - midpointX
 		val relativeY = y - midpointY
 		val tangentDistance = relativeX * unitTangentX + relativeY * unitTangentY

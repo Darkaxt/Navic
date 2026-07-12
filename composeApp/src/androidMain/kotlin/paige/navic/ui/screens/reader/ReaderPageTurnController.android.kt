@@ -5,7 +5,6 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.ComponentCallbacks2
 import android.content.res.Configuration
-import android.graphics.Color
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
@@ -616,7 +615,10 @@ internal class ReaderPageTurnController(
 			val settled = encoded.javascriptObject()
 			val settledToken = settled?.optString("token")
 			val settledPageIndex = settled?.optInt("pageIndex", -1) ?: -1
-			if (settledToken == plan.token && settledPageIndex == plan.targetPageIndex) {
+			if (settledToken == plan.token && settled?.optBoolean("cancelled", false) == true) {
+				activeSettleToken = null
+				markDestinationSettled()
+			} else if (settledToken == plan.token && settledPageIndex == plan.targetPageIndex) {
 				activeSettleToken = null
 				if (state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle) {
 					onRequestPrewarm()
@@ -659,7 +661,7 @@ internal class ReaderPageTurnController(
 			setBundle(
 				bundle = bundle,
 				direction = state.direction,
-				reverseFaceColor = Color.rgb(234, 217, 174),
+				reverseFaceColor = bundle.reverseFaceColor,
 				surfaceLeft = left,
 				surfaceTop = top
 			)
@@ -679,7 +681,8 @@ internal class ReaderPageTurnController(
 		val view = curlView ?: return
 		val hostLocation = IntArray(2)
 		host.getLocationInWindow(hostLocation)
-		val pageTopInHost = bundle.surfaceRectInWindow.top - hostLocation[1] + bundle.turningFrontRectInSurface.top
+		val pageTopInHost = bundle.surfaceRectInWindow.top - hostLocation[1] +
+			(bundle.turningFrontRectInSurface.top * bundle.renderScaleY)
 		view.setGestureY(
 			edgeOriginY = edgeOriginY - pageTopInHost,
 			pointerY = pointerY - pageTopInHost

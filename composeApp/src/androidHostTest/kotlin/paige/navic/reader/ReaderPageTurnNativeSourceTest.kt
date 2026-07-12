@@ -60,6 +60,26 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun halfResolutionBundlesAreScaledOnlyAtTheCanvasBoundary() {
+		val bitmapSource = readerAndroidFile("ReaderPageTurnBitmapSource.android.kt").readText()
+		val bundleSource = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
+		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+
+		assertContains(bundleSource, "private const val ReaderPageTurnAnimationBitmapScale = 0.5f")
+		assertContains(bundleSource, "internal fun readerPageTurnAnimationBitmapDimension")
+		assertContains(bitmapSource, "readerPageTurnAnimationBitmapDimension(pixelRect.width)")
+		assertContains(bitmapSource, "readerPageTurnAnimationBitmapDimension(pixelRect.height)")
+		assertContains(bundleSource, "readerPageTurnAnimationBitmapDimension(sourceRectInWindow.width())")
+		assertContains(bundleSource, "readerPageTurnAnimationBitmapDimension(sourceRectInWindow.height())")
+		assertContains(bundle, "val renderScaleX")
+		assertContains(bundle, "val renderScaleY")
+		assertContains(renderer, "canvas.scale(bundle.renderScaleX, bundle.renderScaleY)")
+		assertContains(renderer, "edgeOriginY / bundle.renderScaleY")
+		assertContains(renderer, "pointerY / bundle.renderScaleY")
+	}
+
+	@Test
 	fun prewarmRetryBudgetAllowsOneEventDrivenRetryPerAdjacentDirection() {
 		val budget = ReaderPageTurnPrewarmRetryBudget()
 
@@ -306,9 +326,14 @@ class ReaderPageTurnNativeSourceTest {
 	@Test
 	fun reversePageShadingPreservesCapturedText() {
 		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val reverse = renderer.substringAfter("private fun drawReverseFace(").substringBefore("\n\t}")
 
-		assertContains(reverse, "canvas.drawBitmapMesh(reverse")
+		assertContains(renderer, "private val reverseVertices")
+		assertContains(renderer, "private val reverseColors")
+		assertContains(renderer, "buildReverseMesh")
+		assertContains(reverse, "canvas.drawBitmapMesh(reverse, MeshColumns, MeshRows, reverseVertices, 0, reverseColors")
+		assertFalse(source.contains("mirroredHorizontally"), "Reverse-page capture must retain its reading orientation; geometry owns the fold transform.")
 		assertContains(reverse, "Color.argb(")
 		assertContains(reverse, "Color.TRANSPARENT")
 		assertFalse(reverse.contains("intArrayOf(darken(reverseFaceColor"))
@@ -458,6 +483,45 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "removePreparationShield")
 		assertContains(controller, "ImageView")
 		assertContains(controller, "current.bitmap")
+	}
+
+	@Test
+	fun stagedDestinationCaptureIsOpaqueBeforeTheWebViewIsDrawn() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source
+			.substringAfter("internal fun captureStagedSurface(")
+			.substringBefore("private fun buildBundle(")
+
+		val opaqueFill = capture.indexOf("canvas.drawColor(readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb))")
+		val webViewDraw = capture.indexOf("webView.draw(canvas)")
+		assertTrue(opaqueFill >= 0, "A transparent ARGB destination bitmap must be filled with opaque paper first.")
+		assertTrue(webViewDraw > opaqueFill, "The WebView must be composited over the opaque paper fill.")
+	}
+
+	@Test
+	fun reverseLeafAlwaysPaintsOpaquePaperBelowItsCapturedContent() {
+		val renderer = readerAndroidFile("ReaderPageTurnCurlView.android.kt").readText()
+		val reverse = renderer
+			.substringAfter("private fun drawReverseFace(")
+			.substringBefore("private fun drawCrease(")
+
+		val paperBacking = reverse.indexOf("canvas.drawPath(reversePath, reversePaint)")
+		val capturedContent = reverse.indexOf("canvas.drawBitmapMesh(reverse")
+		assertTrue(paperBacking >= 0, "The reverse face needs an opaque paper backing for mesh and capture gaps.")
+		assertTrue(capturedContent > paperBacking, "Captured reverse-page content must be drawn over the paper backing.")
+	}
+
+	@Test
+	fun previewCaptureWaitsForRestoredLiveCompositionBeforeCompleting() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val restore = source
+			.substringAfter("private fun restoreLiveComposition(")
+			.substringBefore("private fun put(")
+
+		assertContains(restore, "onRestored: () -> Unit")
+		assertContains(restore, "postVisualStateCallback")
+		assertContains(restore, "postOnAnimation")
+		assertContains(source, "restoreLiveComposition(webView, plan.token) {")
 	}
 
 	@Test

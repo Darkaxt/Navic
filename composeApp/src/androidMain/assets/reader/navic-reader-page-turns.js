@@ -371,6 +371,25 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
   return true
 }
 
+function cancelPendingExactPageTurnSettlement(reason = 'superseded') {
+  const pending = this.pendingExactPageTurnSettlement
+  if (!pending) return false
+  const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
+  this.nativePageTurnSettledState = Object.freeze({
+    token: pending.token,
+    pageIndex: Number.isFinite(currentPageIndex) ? Math.floor(currentPageIndex) : pending.pageIndex,
+    cancelled: true,
+  })
+  this.nativePageTurnSettledToken = pending.token
+  this.pendingExactPageTurnSettlement = null
+  readerTrace('page-turn:exact-cancelled', {
+    token: pending.token,
+    targetPageIndex: pending.pageIndex,
+    reason,
+  })
+  return true
+}
+
 function nextPage() {
   return this.turnPage('next')
 }
@@ -2215,6 +2234,7 @@ function startPageTurn(direction) {
     hasPromise: Boolean(this.pageTurnPromise),
     queueLength: this.pageTurnQueue.length,
   })
+  this.cancelPendingExactPageTurnSettlement('ordinary-page-turn')
   this.cancelPendingCommittedRelocation()
   this.reflowablePageTurnNavigationPromise = null
   this.pageTurnAdjacentFallbackPromise = null
@@ -2468,6 +2488,7 @@ export const NavicReaderPageTurnMethods = {
   goToChapterProgress,
   goToVisualPage,
   maybeCompleteNativePageTurnSettlement,
+  cancelPendingExactPageTurnSettlement,
   nextPage,
   previousPage,
   currentLoadedSectionIndex,

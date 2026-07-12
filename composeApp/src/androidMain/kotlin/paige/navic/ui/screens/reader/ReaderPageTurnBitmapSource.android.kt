@@ -124,7 +124,11 @@ internal class ReaderPageTurnBitmapSource(
 			}
 			val sourceRect = Rect(pixelRect.left, pixelRect.top, pixelRect.right, pixelRect.bottom)
 			val bitmap = runCatching {
-				Bitmap.createBitmap(pixelRect.width, pixelRect.height, Bitmap.Config.ARGB_8888)
+				Bitmap.createBitmap(
+					readerPageTurnAnimationBitmapDimension(pixelRect.width),
+					readerPageTurnAnimationBitmapDimension(pixelRect.height),
+					Bitmap.Config.ARGB_8888
+				)
 			}.getOrElse { error ->
 				Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn bitmap allocation failed", error)
 				onCaptured(null)

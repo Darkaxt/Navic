@@ -114,6 +114,30 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun ordinaryPageTurnCancelsAStaleExactSettlementBeforePlanningItsTarget() {
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val start = turns
+			.substringAfter("function startPageTurn(direction)")
+			.substringBefore("function startNextQueuedPageTurn()")
+
+		val cancel = start.indexOf("this.cancelPendingExactPageTurnSettlement('ordinary-page-turn')")
+		val target = start.indexOf("const currentPageIndex = Number(this.currentPagePosition?.pageIndex)")
+		assertTrue(cancel >= 0, "A stale exact destination must not survive into a normal page turn.")
+		assertTrue(cancel < target, "The stale exact destination must be cancelled before the next target is derived.")
+	}
+
+	@Test
+	fun cancelledExactSettlementIsObservableByTheNativeController() {
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+
+		assertContains(turns, "function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
+		assertContains(turns, "cancelled: true")
+		assertContains(controller, "settled?.optBoolean(\"cancelled\", false) == true")
+		assertContains(controller, "markDestinationSettled()")
+	}
+
+	@Test
 	fun destinationNavigationDoesNotUseCancellationTimeouts() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val exactNavigation = turns
