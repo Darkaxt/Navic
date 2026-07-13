@@ -138,11 +138,11 @@ git commit -m "fix(bindery): parse approved provider artwork safely"
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-13-bindery-external-fetch-security-implementation.md`
 
-- [ ] **Step 1: Set release metadata**
+- [x] **Step 1: Set release metadata**
 
 Set `versionCode` to `534` and `versionName` to `v1.0.11-kappa2`; update B18 and this plan with implementation evidence.
 
-- [ ] **Step 2: Run release gates**
+- [x] **Step 2: Run release gates**
 
 Run:
 
@@ -153,6 +153,8 @@ git diff --check
 ```
 
 Expected: tests and debug assembly pass, version verification succeeds, and `git diff --check` has no output.
+
+Actual: the B18 focused suite and Android debug assembly passed; the version verifier reported `v1.0.11-kappa2`, and `git diff --check` was clean. The full branch suite ran 2,319 tests with the same 35 unrelated failures as untouched `kappa1` (2,303 tests, same failure list), proving B18 added 16 tests and no new suite failure. `audiobookbay.lu` resolved to public IPv4 `176.97.124.219`; a live HTTPS page fetch from the laptop did not connect, so live provider content remains an unavailable, non-blocking validation rather than claimed evidence.
 
 - [ ] **Step 3: Commit, rebase, and publish**
 
@@ -165,3 +167,11 @@ Watch the GitHub Actions tag workflow through completion. Verify the uploaded `N
 - [ ] **Step 5: Record evidence and clean the isolated worktree**
 
 Commit and push final release evidence to public `master`. Confirm the branch is fully represented by `fork/master`/the release tag, remove the worktree, delete the local feature branch, and verify no B18 worktree residue remains.
+
+## Implementation evidence
+
+- The source-to-sink path now requires `ExternalTextPurpose.AudioBookBayProviderCover`; only exact `https://audiobookbay.lu:443` provider pages are accepted.
+- Android uses an OkHttp DNS adapter that resolves once, rejects empty or mixed non-public answers, and returns the same validated `InetAddress` objects used for connection attempts. Ktor redirects, OkHttp HTTP redirects, and OkHttp HTTPS redirects are all disabled.
+- The SSRF matrix covers unsupported schemes, credentials, custom ports, fragments, deceptive hosts, localhost, RFC1918, carrier-grade NAT, IPv4/IPv6 loopback, IPv4/IPv6 link-local, IPv6 unique/site-local, multicast, IPv4-mapped private IPv6, DNS host changes, mixed answers, redirects, and an approved source.
+- Ksoup `0.2.6` replaces regex extraction. Parsed cover candidates are limited to HTTPS port 443 on `image.bayimg.com` or `audiobookbay.lu`, with credentials, fragments, internal IPs, and off-domain images rejected. Generated in-app acknowledgements include the Ksoup MIT entry.
+- Existing provider fetch request/connect/socket timeout values were preserved; this implementation adds no new cancellation timeout policy.
