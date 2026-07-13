@@ -10,6 +10,31 @@ import kotlin.test.assertTrue
 
 class ReaderRuntimeAssetsTest {
 	@Test
+	fun androidReaderRuntimeAcknowledgesSuccessfulTrackedCommandsAndDeduplicatesTheirIds() {
+		val runtimeText = readerAssetRoot().resolve("navic-reader.js").readText()
+		val dispatchBlock = runtimeText
+			.substringAfter("const acknowledgedCommandIds")
+			.substringBefore("  armNativePageTurnSettle:")
+
+		assertContains(dispatchBlock, "new Set()")
+		assertContains(dispatchBlock, "const commandId = typeof command?.commandId === 'string'")
+		assertContains(dispatchBlock, "acknowledgedCommandIds.has(commandId)")
+		assertContains(dispatchBlock, "post({ type: 'commandAck', commandId })")
+		assertContains(dispatchBlock, "Promise.resolve(result)")
+		assertContains(dispatchBlock, ".then(value => {")
+		assertContains(dispatchBlock, "acknowledgedCommandIds.add(commandId)")
+		assertContains(dispatchBlock, ".finally(() => {")
+		assertTrue(
+			dispatchBlock.indexOf("runtime.dispatch(command)") < dispatchBlock.indexOf("acknowledgedCommandIds.add(commandId)"),
+			"A tracked command must be acknowledged only after its runtime dispatch completes successfully."
+		)
+		assertTrue(
+			dispatchBlock.indexOf("acknowledgedCommandIds.has(commandId)") < dispatchBlock.indexOf("runtime.dispatch(command)"),
+			"A duplicate tracked command must be acknowledged without executing its runtime command again."
+		)
+	}
+
+	@Test
 	fun androidReaderAssetsPackageFoliateRuntimeAndNavicBridge() {
 		val root = readerAssetRoot()
 		val runtimeManifest = root.resolve("runtime.json")

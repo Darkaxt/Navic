@@ -1547,9 +1547,15 @@ Object.assign(NavicReaderRuntime.prototype,
 )
 
 const runtime = new NavicReaderRuntime()
+const acknowledgedCommandIds = new Set()
 
 window.NavicReaderBridge = {
   dispatch: command => {
+    const commandId = typeof command?.commandId === 'string' ? command.commandId.trim() : ''
+    if (commandId && acknowledgedCommandIds.has(commandId)) {
+      post({ type: 'commandAck', commandId })
+      return Promise.resolve(null)
+    }
     const pageTurnCommand = command?.type === 'nextPage' || command?.type === 'previousPage'
     const settleToken = pageTurnCommand ? runtime.pendingNativePageTurnSettleToken : null
     if (settleToken) runtime.pendingNativePageTurnSettleToken = null
@@ -1560,12 +1566,17 @@ window.NavicReaderBridge = {
       if (settleToken) runtime.nativePageTurnSettledToken = settleToken
       throw error
     }
-    if (settleToken) {
-      Promise.resolve(result).finally(() => {
-        runtime.nativePageTurnSettledToken = settleToken
+    return Promise.resolve(result)
+      .then(value => {
+        if (commandId) {
+          acknowledgedCommandIds.add(commandId)
+          post({ type: 'commandAck', commandId })
+        }
+        return value
       })
-    }
-    return result
+      .finally(() => {
+        if (settleToken) runtime.nativePageTurnSettledToken = settleToken
+      })
   },
   armNativePageTurnSettle: token => {
     runtime.pendingNativePageTurnSettleToken = String(token || '') || null

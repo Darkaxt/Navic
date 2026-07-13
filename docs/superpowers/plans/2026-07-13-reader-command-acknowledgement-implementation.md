@@ -35,7 +35,7 @@ Add tests proving that `ReaderBridgeDispatchCommand(id = "reader-open-1", comman
 Run:
 
 ```powershell
-.\gradlew.bat :composeApp:allTests --tests paige.navic.reader.ReaderBridgeProtocolTest
+.\gradlew.bat :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBridgeProtocolTest
 ```
 
 Expected: compilation fails because the envelope and acknowledgement event do not exist.
@@ -84,7 +84,7 @@ Cover these exact transitions:
 Run:
 
 ```powershell
-.\gradlew.bat :composeApp:allTests --tests paige.navic.reader.ReaderWebCommandDispatchTest
+.\gradlew.bat :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderWebCommandDispatchTest
 ```
 
 - [ ] **Step 3: Implement the immutable ledger**
@@ -133,7 +133,7 @@ Assert that the shipped runtime has an acknowledged-ID set, returns an acknowled
 
 - [ ] **Step 3: Implement the JavaScript dispatcher**
 
-Keep `NavicReaderRuntime.dispatch` unchanged. At `window.NavicReaderBridge.dispatch`, require a non-empty `commandId`, return the stored acknowledgement for duplicate IDs, execute once, and use:
+Keep `NavicReaderRuntime.dispatch` unchanged. Kotlin envelopes always provide a non-empty `commandId`; direct ADB/browser harness calls without an ID remain untracked and receive no acknowledgement. At `window.NavicReaderBridge.dispatch`, return an acknowledgement for duplicate tracked IDs without re-executing them, execute new commands once, and use:
 
 ```javascript
 return Promise.resolve(result).then(value => {
@@ -169,8 +169,8 @@ On `Ready`, set readiness and dispatch against the current WebView. On `CommandA
 - [ ] **Step 4: Run protocol, ledger, asset, and host tests and confirm GREEN**
 
 ```powershell
-.\gradlew.bat :composeApp:allTests --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.ReaderWebCommandDispatchTest
-.\gradlew.bat :composeApp:androidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest --tests paige.navic.reader.ReaderCommandAcknowledgementHostContractTest
+.\gradlew.bat :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderBridgeProtocolTest --tests paige.navic.reader.ReaderWebCommandDispatchTest
+.\gradlew.bat :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest --tests paige.navic.reader.ReaderCommandAcknowledgementHostContractTest
 ```
 
 - [ ] **Step 5: Commit host integration**
