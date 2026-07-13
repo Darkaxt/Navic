@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderEngineCapability
+import paige.navic.reader.supportsReaderEngineCapability
 import paige.navic.ui.navigation.Screen
 
 internal data class ReaderWhispersyncLaunchAttachment(
@@ -11,6 +13,7 @@ internal data class ReaderWhispersyncLaunchAttachment(
 )
 
 internal fun Screen.Reader.whispersyncLaunchAttachment(): ReaderWhispersyncLaunchAttachment? {
+	if (!publicationFormat.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) return null
 	val sidecarPath = whispersyncSidecarUrl.normalizedWhispersyncRouteValue() ?: return null
 	val artifactId = whispersyncArtifactId.normalizedWhispersyncRouteValue()
 		?: sidecarPath.derivedWhispersyncArtifactId()

@@ -14,6 +14,7 @@ import paige.navic.reader.ReaderAnnotation
 import paige.navic.reader.ReaderBookmark
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderEngineCapability
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderDragAnimationCanvas
@@ -31,6 +32,7 @@ import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.readerWhispersyncPlaybackControlState
+import paige.navic.reader.supportsReaderEngineCapability
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
@@ -89,6 +91,7 @@ internal fun KomikkuReaderRoot(
 	val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }
 	val shellCoverUrl = viewer.shellCoverUrl
 	val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)
+	val mediaOverlayAvailable = controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)
 
 	DisposableEffect(viewerSlot) {
 		onDispose { viewerSlot.dispose() }
@@ -99,7 +102,7 @@ internal fun KomikkuReaderRoot(
 			status = controllerState.whispersync.status,
 			playbackState = readaloudPlaybackState
 		).let { control ->
-			if (controllerState.shellCoverVisible) control.copy(visible = false) else control
+			if (controllerState.shellCoverVisible || !mediaOverlayAvailable) control.copy(visible = false) else control
 		}
 		val overlayVisible = controllerState.hasVisibleReaderOverlay() || whispersyncPlaybackControl.visible
 		SideEffect {
@@ -196,7 +199,7 @@ internal fun KomikkuReaderRoot(
 						settingsScope = settingsScope,
 						hasBookSettings = hasBookSettings,
 						publicationFormat = publicationFormat,
-						whispersyncCapable = whispersyncCapable,
+						whispersyncCapable = whispersyncCapable && mediaOverlayAvailable,
 						listeningSettings = listeningSettings,
 						onNavigateToTocItem = onNavigateToTocItem,
 						onToggleCurrentBookmark = onToggleCurrentBookmark,
@@ -341,22 +344,24 @@ private fun KomikkuComposeOverlay(
 					.align(Alignment.BottomCenter)
 					.padding(bottom = if (controllerState.menuVisible) 92.dp else 28.dp)
 			)
-			KomikkuWhispersyncStatusBadge(
-				status = controllerState.whispersync.status,
-				onRepairMismatch = onRepairWhispersyncMismatch,
-				modifier = Modifier
-					.align(Alignment.BottomCenter)
-					.padding(bottom = if (controllerState.menuVisible) 156.dp else 76.dp)
-			)
-			KomikkuWhispersyncPlaybackControl(
-				control = whispersyncPlaybackControl,
-				readerTheme = controllerState.chrome.settings.theme,
-				onCommand = onWhispersyncPlaybackCommand,
-				onOpenPlayer = onWhispersyncPlayer,
-				modifier = Modifier
-					.align(Alignment.TopStart)
-					.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
-			)
+			if (controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+				KomikkuWhispersyncStatusBadge(
+					status = controllerState.whispersync.status,
+					onRepairMismatch = onRepairWhispersyncMismatch,
+					modifier = Modifier
+						.align(Alignment.BottomCenter)
+						.padding(bottom = if (controllerState.menuVisible) 156.dp else 76.dp)
+				)
+				KomikkuWhispersyncPlaybackControl(
+					control = whispersyncPlaybackControl,
+					readerTheme = controllerState.chrome.settings.theme,
+					onCommand = onWhispersyncPlaybackCommand,
+					onOpenPlayer = onWhispersyncPlayer,
+					modifier = Modifier
+						.align(Alignment.TopStart)
+						.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
+				)
+			}
 		}
 		when (controllerState.dialog) {
 			ReaderControllerDialog.Contents -> KomikkuReaderContentsDialog(
@@ -386,18 +391,26 @@ private fun KomikkuComposeOverlay(
 				onHideMenus = onHideMenus,
 				onDismissRequest = onDismissDialog
 			)
-			ReaderControllerDialog.Search -> KomikkuReaderSearchDialog(
-				search = controllerState.search,
-				onSearchQuery = onSearchQuery,
-				onNavigateToSearchResult = onNavigateToSearchResult,
-				onDismissSearch = onDismissSearch
-			)
-			ReaderControllerDialog.WhispersyncPlayer -> KomikkuWhispersyncPlayerDialog(
-				status = controllerState.whispersync.status,
-				playbackState = readaloudPlaybackState ?: ReaderReadaloudPlaybackUiState(),
-				onCommand = onWhispersyncPlaybackCommand,
-				onDismissRequest = onDismissDialog
-			)
+			ReaderControllerDialog.Search -> if (
+				controllerState.supportsReaderEngineCapability(ReaderEngineCapability.Search)
+			) {
+				KomikkuReaderSearchDialog(
+					search = controllerState.search,
+					onSearchQuery = onSearchQuery,
+					onNavigateToSearchResult = onNavigateToSearchResult,
+					onDismissSearch = onDismissSearch
+				)
+			}
+			ReaderControllerDialog.WhispersyncPlayer -> if (
+				controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)
+			) {
+				KomikkuWhispersyncPlayerDialog(
+					status = controllerState.whispersync.status,
+					playbackState = readaloudPlaybackState ?: ReaderReadaloudPlaybackUiState(),
+					onCommand = onWhispersyncPlaybackCommand,
+					onDismissRequest = onDismissDialog
+				)
+			}
 			null -> Unit
 		}
 		controllerState.selectionNoteDraft?.let { draft ->

@@ -188,6 +188,7 @@ data class ReaderCoordinator(
 	private fun applyEngineCommand(command: ReaderEngineCommand): ReaderCoordinator =
 		controller.state.activeEngine
 			?.let { format -> engineAdapters[format] }
+			?.takeIf { adapter -> adapter.supports(command) }
 			?.let { adapter ->
 				val adapterStep = adapter.onCommand(command)
 				copy(

@@ -1056,12 +1056,15 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(appBarsText, "Icons.Outlined.Search")
 		assertContains(appBarsText, "onSearch")
+		assertContains(appBarsText, "supportsReaderEngineCapability(ReaderEngineCapability.Search)")
+		assertContains(appBarsText, "buttons - KomikkuReaderBottomButton.Search.value")
 		assertContains(readerRootText, "KomikkuReaderSearchDialog(")
 		assertContains(readerRootText, "controllerState.search")
 		assertContains(readerRootText, "onSearchQuery = onSearchQuery")
 		assertContains(readerRootText, "onNavigateToSearchResult = onNavigateToSearchResult")
 		assertContains(readerRootText, "onDismissSearch = onDismissSearch")
-		assertContains(readerRootText, "ReaderControllerDialog.Search -> KomikkuReaderSearchDialog(")
+		assertContains(readerRootText, "ReaderControllerDialog.Search -> if (")
+		assertContains(readerRootText, "supportsReaderEngineCapability(ReaderEngineCapability.Search)")
 		assertFalse(
 			readerScreenText.contains("private fun KomikkuReaderSearchDialog(") ||
 				readerScreenText.contains("ReaderSearchState("),

@@ -72,8 +72,14 @@ sealed class FoliateWebViewEngineAdapter(
 		currentCommandKey: Long
 	): FoliateWebViewEngineAdapter
 
-	override fun onCommand(command: ReaderEngineCommand): ReaderEngineStep =
-		when (command) {
+	override fun onCommand(command: ReaderEngineCommand): ReaderEngineStep {
+		if (!supports(command)) {
+			return ReaderEngineStep(
+				engine = this,
+				viewState = currentViewState ?: ReaderEngineViewState.Empty
+			)
+		}
+		return when (command) {
 			is ReaderEngineCommand.OpenPublication -> open(command.request)
 			is ReaderEngineCommand.NavigateTo -> navigateTo(command.locator)
 			is ReaderEngineCommand.Search -> dispatch(ReaderBridgeCommand.Search(command.query))
@@ -112,14 +118,15 @@ sealed class FoliateWebViewEngineAdapter(
 			)
 			ReaderEngineCommand.ClearMediaOverlay -> dispatch(ReaderBridgeCommand.ClearOverlay)
 		}
+	}
 
 	override fun onHostEvent(event: ReaderEngineHostEvent): ReaderEngineEvent? =
 		when (event) {
 			is ReaderEngineHostEvent.FoliateBridge -> onBridgeEvent(event.event)
 		}
 
-	private fun onBridgeEvent(event: ReaderBridgeEvent): ReaderEngineEvent? =
-		when (event) {
+	private fun onBridgeEvent(event: ReaderBridgeEvent): ReaderEngineEvent? {
+		val engineEvent = when (event) {
 			ReaderBridgeEvent.PublicationReady -> ReaderEngineEvent.PublicationReady
 			is ReaderBridgeEvent.ContentTapHandled -> ReaderEngineEvent.ContentActionClaimed(event.claim)
 			is ReaderBridgeEvent.InternalLinkRequested -> ReaderEngineEvent.InternalLinkRequested(
@@ -206,6 +213,8 @@ sealed class FoliateWebViewEngineAdapter(
 			)
 			else -> null
 		}
+		return engineEvent?.takeIf(::supports)
+	}
 
 	private fun open(request: ReaderEngineOpenRequest): ReaderEngineStep {
 		val viewState = ReaderEngineViewState.WebViewPublication(

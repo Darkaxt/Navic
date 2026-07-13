@@ -2,6 +2,30 @@ package paige.navic.reader
 
 const val ReaderPullUpSourceScrolledEdgeSwipe = "scrolled-edge-swipe"
 
+enum class ReaderEngineCapability {
+	Search,
+	MediaOverlay
+}
+
+private val ReaderTextPublicationCapabilities = setOf(
+	ReaderEngineCapability.Search,
+	ReaderEngineCapability.MediaOverlay
+)
+
+val ReaderPublicationFormat.readerEngineCapabilities: Set<ReaderEngineCapability>
+	get() = when (this) {
+		ReaderPublicationFormat.Epub,
+		ReaderPublicationFormat.Azw3,
+		ReaderPublicationFormat.Mobi,
+		ReaderPublicationFormat.Fb2 -> ReaderTextPublicationCapabilities
+
+		ReaderPublicationFormat.Pdf,
+		ReaderPublicationFormat.Cbz -> emptySet()
+	}
+
+fun ReaderPublicationFormat.supportsReaderEngineCapability(capability: ReaderEngineCapability): Boolean =
+	capability in readerEngineCapabilities
+
 data class ReaderPublicationIdentity(
 	val bookId: String,
 	val title: String = "",
@@ -50,6 +74,18 @@ sealed interface ReaderEngineCommand {
 	data class UpdateMediaOverlayProgress(val fragment: ReaderOverlayFragment) : ReaderEngineCommand
 	data object ClearMediaOverlay : ReaderEngineCommand
 }
+
+val ReaderEngineCommand.requiredCapability: ReaderEngineCapability?
+	get() = when (this) {
+		is ReaderEngineCommand.Search,
+		ReaderEngineCommand.ClearSearch -> ReaderEngineCapability.Search
+
+		is ReaderEngineCommand.ApplyMediaOverlay,
+		is ReaderEngineCommand.UpdateMediaOverlayProgress,
+		ReaderEngineCommand.ClearMediaOverlay -> ReaderEngineCapability.MediaOverlay
+
+		else -> null
+	}
 
 enum class ReaderPageTurnDirection {
 	Previous,
@@ -163,6 +199,16 @@ sealed interface ReaderEngineEvent {
 	data class Error(val message: String, val code: String? = null) : ReaderEngineEvent
 }
 
+val ReaderEngineEvent.requiredCapability: ReaderEngineCapability?
+	get() = when (this) {
+		is ReaderEngineEvent.SearchResults -> ReaderEngineCapability.Search
+		is ReaderEngineEvent.VisibleTextRange,
+		is ReaderEngineEvent.TextPoint,
+		is ReaderEngineEvent.MediaOverlayActive,
+		is ReaderEngineEvent.MediaOverlayInactive -> ReaderEngineCapability.MediaOverlay
+		else -> null
+	}
+
 enum class ReaderContentAction {
 	Generic,
 	Link,
@@ -207,9 +253,17 @@ sealed interface ReaderEngineViewState {
 
 interface ReaderEngine {
 	val format: ReaderPublicationFormat
+	val capabilities: Set<ReaderEngineCapability>
+		get() = format.readerEngineCapabilities
 	fun onCommand(command: ReaderEngineCommand): ReaderEngineStep
 	fun onHostEvent(event: ReaderEngineHostEvent): ReaderEngineEvent? = null
 }
+
+fun ReaderEngine.supports(command: ReaderEngineCommand): Boolean =
+	command.requiredCapability?.let { it in capabilities } != false
+
+fun ReaderEngine.supports(event: ReaderEngineEvent): Boolean =
+	event.requiredCapability?.let { it in capabilities } != false
 
 data class ReaderEngineStep(
 	val engine: ReaderEngine,

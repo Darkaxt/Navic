@@ -216,6 +216,9 @@ data class ReaderControllerState(
 		}
 }
 
+fun ReaderControllerState.supportsReaderEngineCapability(capability: ReaderEngineCapability): Boolean =
+	activeEngine?.supportsReaderEngineCapability(capability) != false
+
 data class ReaderControllerStep(
 	val controller: ReaderController,
 	val engineCommands: List<ReaderEngineCommand> = emptyList(),
@@ -263,10 +266,13 @@ data class ReaderController(
 					canReturnToShellCover = normalizedRequest.canReturnToShellCover,
 					menuVisible = false,
 					dialog = null,
+					search = ReaderSearchState(),
 					selection = null,
 					selectionNoteDraft = null,
 					paginationProfile = ReaderPaginationProfileStatus(),
 					whispersync = ReaderWhispersyncSessionState(),
+					activeMediaOverlay = null,
+					audioMetadataLabel = null,
 					lastContentActionClaim = null
 				)
 			),
@@ -274,8 +280,11 @@ data class ReaderController(
 		)
 	}
 
-	fun onEngineEvent(event: ReaderEngineEvent): ReaderControllerStep =
-		when (event) {
+	fun onEngineEvent(event: ReaderEngineEvent): ReaderControllerStep {
+		if (event.requiredCapability?.let(state::supportsReaderEngineCapability) == false) {
+			return ReaderControllerStep(this)
+		}
+		return when (event) {
 			ReaderEngineEvent.PublicationReady -> {
 				val decision = progressSaveGate.onEngineEvent(event)
 				ReaderControllerStep(copy(progressSaveGate = decision.state))
@@ -533,8 +542,12 @@ data class ReaderController(
 				)
 			)
 		}
+	}
 
 	fun search(query: String): ReaderControllerStep {
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.Search)) {
+			return ReaderControllerStep(this)
+		}
 		val normalized = query.trim()
 		if (normalized.isBlank()) {
 			return clearSearch()
@@ -555,7 +568,9 @@ data class ReaderController(
 	}
 
 	fun clearSearch(): ReaderControllerStep =
-		ReaderControllerStep(
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.Search)) {
+			ReaderControllerStep(this)
+		} else ReaderControllerStep(
 			controller = copy(
 				state = state.copy(search = ReaderSearchState())
 			),
@@ -635,7 +650,9 @@ data class ReaderController(
 		)
 
 	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderControllerStep =
-		ReaderControllerStep(
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			ReaderControllerStep(this)
+		} else ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
 					activeMediaOverlay = fragment,
@@ -646,7 +663,9 @@ data class ReaderController(
 		)
 
 	fun updateMediaOverlayProgress(fragment: ReaderOverlayFragment): ReaderControllerStep =
-		ReaderControllerStep(
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			ReaderControllerStep(this)
+		} else ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
 					activeMediaOverlay = fragment,
@@ -657,6 +676,9 @@ data class ReaderController(
 		)
 
 	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderControllerStep {
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			return ReaderControllerStep(this)
+		}
 		val currentWhispersync = state.whispersync
 		val baseSync = if (currentWhispersync.sync.syncEnabled == playbackState.syncEnabled) {
 			currentWhispersync.sync
@@ -771,6 +793,9 @@ data class ReaderController(
 	}
 
 	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderControllerStep {
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			return ReaderControllerStep(this)
+		}
 		val currentWhispersync = state.whispersync
 		val visibleRange = currentWhispersync.visibleTextRange
 		val baseWhispersync = ReaderWhispersyncSessionState(
@@ -815,7 +840,9 @@ data class ReaderController(
 	}
 
 	fun reportWhispersyncLoadFailure(label: String, detail: String? = null): ReaderControllerStep =
-		ReaderControllerStep(
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			ReaderControllerStep(this)
+		} else ReaderControllerStep(
 			copy(
 				state = state.copy(
 					whispersync = state.whispersync.copy(
@@ -830,6 +857,9 @@ data class ReaderController(
 		)
 
 	fun repairWhispersyncMismatch(): ReaderControllerStep {
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			return ReaderControllerStep(this)
+		}
 		val currentWhispersync = state.whispersync
 		if (!currentWhispersync.status.repairable) {
 			return ReaderControllerStep(this)
@@ -1123,6 +1153,9 @@ data class ReaderController(
 	}
 
 	fun clearMediaOverlay(fragmentId: String? = null): ReaderControllerStep {
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			return ReaderControllerStep(this)
+		}
 		val currentFragmentId = state.activeMediaOverlay?.fragmentId
 		val shouldClear = state.activeMediaOverlay != null &&
 			(fragmentId == null || fragmentId == currentFragmentId)
@@ -1245,13 +1278,21 @@ data class ReaderController(
 		openDialog(ReaderControllerDialog.Contents)
 
 	fun openSearchDialog(): ReaderControllerStep =
-		openDialog(ReaderControllerDialog.Search)
+		if (state.supportsReaderEngineCapability(ReaderEngineCapability.Search)) {
+			openDialog(ReaderControllerDialog.Search)
+		} else {
+			ReaderControllerStep(this)
+		}
 
 	fun openSettingsDialog(): ReaderControllerStep =
 		openDialog(ReaderControllerDialog.Settings)
 
 	fun openWhispersyncPlayerDialog(): ReaderControllerStep =
-		openDialog(ReaderControllerDialog.WhispersyncPlayer)
+		if (state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
+			openDialog(ReaderControllerDialog.WhispersyncPlayer)
+		} else {
+			ReaderControllerStep(this)
+		}
 
 	private fun openDialog(dialog: ReaderControllerDialog): ReaderControllerStep =
 		ReaderControllerStep(

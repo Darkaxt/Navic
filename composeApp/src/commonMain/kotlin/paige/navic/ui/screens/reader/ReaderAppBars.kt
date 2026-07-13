@@ -51,11 +51,13 @@ import paige.navic.icons.outlined.FormatListNumbered
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Settings
 import paige.navic.reader.ReaderControllerState
+import paige.navic.reader.ReaderEngineCapability
 import paige.navic.reader.ReaderDirectionRtl
 import paige.navic.reader.ReaderNavBarTypeBottom
 import paige.navic.reader.ReaderNavBarTypeVerticalLeft
 import paige.navic.reader.ReaderNavBarTypeVerticalRight
 import paige.navic.reader.normalizedReaderDirection
+import paige.navic.reader.supportsReaderEngineCapability
 import paige.navic.ui.navigation.Screen
 
 private val readerBarsSlideAnimationSpec = tween<IntOffset>(200)
@@ -86,7 +88,13 @@ internal fun KomikkuReaderAppBars(
 	}
 	val navBarType = readerEffectiveNavBarTypeFor(controllerState.chrome.settings)
 	val isRtl = normalizedReaderDirection(controllerState.chrome.settings.direction) == ReaderDirectionRtl
-	val enabledButtons = KomikkuReaderBottomButton.NAVIC_SUPPORTED_DEFAULTS
+	val enabledButtons = KomikkuReaderBottomButton.NAVIC_SUPPORTED_DEFAULTS.let { buttons ->
+		if (controllerState.supportsReaderEngineCapability(ReaderEngineCapability.Search)) {
+			buttons
+		} else {
+			buttons - KomikkuReaderBottomButton.Search.value
+		}
+	}
 	val backgroundColor = MaterialTheme.colorScheme
 		.surfaceColorAtElevation(3.dp)
 		.copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)

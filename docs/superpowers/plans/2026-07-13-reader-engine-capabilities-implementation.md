@@ -39,11 +39,13 @@ RED evidence: `:composeApp:compileAndroidHostTest` failed before production edit
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt`
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt`
 
-- [ ] Add `ReaderEngineCapability`, the format matrix, and command/event requirement predicates.
-- [ ] Gate controller actions before state mutation and clear transient capability state when opening a publication.
-- [ ] Gate Whispersync launch work and reader controls with the shared matrix.
-- [ ] Gate Foliate commands and host events without command-key changes.
-- [ ] Run focused GREEN tests and commit the implementation.
+- [x] Add `ReaderEngineCapability`, the format matrix, and command/event requirement predicates.
+- [x] Gate controller actions before state mutation and clear transient capability state when opening a publication.
+- [x] Gate Whispersync launch work and reader controls with the shared matrix.
+- [x] Gate Foliate commands and host events without command-key changes.
+- [x] Run focused GREEN tests and commit the implementation.
+
+GREEN evidence: the focused capability and launch contracts passed, then the existing Foliate, controller, coordinator, step-consumer, Whispersync sync, readaloud sync, launch-policy, and viewer suites passed 155/155 with zero failures, errors, or skips. The updated common-chrome search source contract also passed. A 195-test reader runtime/chrome batch had 21 failures on the branch versus 20 on clean public `master`; the sole branch delta was the obsolete unconditional-search source assertion, which was updated to require the B3 capability guard and then passed. The 20 remaining failures are baseline reference-fixture/source-shape issues, including the two previously documented runtime asset failures.
 
 ### Task 3: Run integrated Android validation
 
