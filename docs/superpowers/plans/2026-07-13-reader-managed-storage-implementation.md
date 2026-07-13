@@ -23,7 +23,7 @@
 
 ### Task 1: Define managed storage and migration
 
-- [ ] **Step 1: Write failing filesystem tests**
+- [x] **Step 1: Write failing filesystem tests**
 
 Add tests that construct separate temporary managed and legacy roots and assert that the missing API:
 
@@ -33,21 +33,21 @@ initializeReaderManagedStorage(managedRoot, legacyRoot)
 
 moves legacy fonts, preserves an existing valid managed font, deletes stale managed/legacy session directories, and leaves managed fonts untouched.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
 ```powershell
-.\gradlew.bat :composeApp:androidHostTest --tests paige.navic.reader.ReaderManagedStorageTest
+.\gradlew.bat :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderManagedStorageTest
 ```
 
 Expected: compilation fails because `initializeReaderManagedStorage` and the managed storage API do not exist.
 
-- [ ] **Step 3: Implement the storage layout**
+- [x] **Step 3: Implement the storage layout**
 
 Create constants for `reader`, `fonts`, `reader-publications`, and `storyteller-readaloud`; implement synchronized one-time context initialization plus an internal two-root initializer that is directly testable. Prefer directory/file rename and use copy fallback only after checking the target. Delete a legacy source only after the target is verified.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 Run the focused test until it passes, then commit the new storage component and test.
 
