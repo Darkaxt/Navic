@@ -156,15 +156,15 @@ Expected: tests and debug assembly pass, version verification succeeds, and `git
 
 Actual: the B18 focused suite and Android debug assembly passed; the version verifier reported `v1.0.11-kappa2`, and `git diff --check` was clean. The full branch suite ran 2,319 tests with the same 35 unrelated failures as untouched `kappa1` (2,303 tests, same failure list), proving B18 added 16 tests and no new suite failure. `audiobookbay.lu` resolved to public IPv4 `176.97.124.219`; a live HTTPS page fetch from the laptop did not connect, so live provider content remains an unavailable, non-blocking validation rather than claimed evidence.
 
-- [ ] **Step 3: Commit, rebase, and publish**
+- [x] **Step 3: Commit, rebase, and publish**
 
 Commit documentation/release metadata, rebase onto current `fork/master` if needed, push the branch to `master`, create annotated tag `v1.0.11-kappa2`, and push the tag. Do not touch reader/page-turn worktrees.
 
-- [ ] **Step 4: Verify the public release**
+- [x] **Step 4: Verify the public release**
 
 Watch the GitHub Actions tag workflow through completion. Verify the uploaded `Navic.apk` SHA-256, APK signature certificate, embedded version metadata, and Android-only workflow result. Install with `adb install -r`, launch, and check the process/logcat for fatal startup failures.
 
-- [ ] **Step 5: Record evidence and clean the isolated worktree**
+- [x] **Step 5: Record evidence and clean the isolated worktree**
 
 Commit and push final release evidence to public `master`. Confirm the branch is fully represented by `fork/master`/the release tag, remove the worktree, delete the local feature branch, and verify no B18 worktree residue remains.
 
@@ -175,3 +175,11 @@ Commit and push final release evidence to public `master`. Confirm the branch is
 - The SSRF matrix covers unsupported schemes, credentials, custom ports, fragments, deceptive hosts, localhost, RFC1918, carrier-grade NAT, IPv4/IPv6 loopback, IPv4/IPv6 link-local, IPv6 unique/site-local, multicast, IPv4-mapped private IPv6, DNS host changes, mixed answers, redirects, and an approved source.
 - Ksoup `0.2.6` replaces regex extraction. Parsed cover candidates are limited to HTTPS port 443 on `image.bayimg.com` or `audiobookbay.lu`, with credentials, fragments, internal IPs, and off-domain images rejected. Generated in-app acknowledgements include the Ksoup MIT entry.
 - Existing provider fetch request/connect/socket timeout values were preserved; this implementation adds no new cancellation timeout policy.
+
+## Release evidence
+
+- Tag/release: `v1.0.11-kappa2` at `8adddf436a5cca6ae8228b9728eba7c1faa58ddd`.
+- GitHub Actions: Build Navic `29229984211` succeeded; Checks `29229984192` succeeded; iOS was skipped.
+- Public APK: 46,205,488 bytes, SHA-256 `33c057cae4037e40449a1b8a7cb840f593bd7956effcd766fc0f6e3626e4029e`.
+- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=534`, `versionName=v1.0.11-kappa2`.
+- Device: signed upgrade from kappa1 to kappa2 on `emulator-5554`; PID `28330` alive after launch with no matching fatal/Koin/provider-DNS startup log.

@@ -10,6 +10,7 @@ Released Tranche 2 download slice: `v1.0.11-iota3`
 Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Released Tranche 5 network-policy slice: `v1.0.11-iota9`
 Released Tranche 5 secure-credential slice: `v1.0.11-kappa1`
+Released Tranche 5 external-fetch slice: `v1.0.11-kappa2`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -314,6 +315,15 @@ Every tranche uses the following pipeline:
 - Device migration moved `binderyApiKey=navic-b17-migration-proof` out of `darkaxt.navic_preferences.xml` into a versioned AES-GCM envelope in `navic_secure_credentials.xml`; a recursive plaintext scan of shared preferences returned no match. Plaintext deletion implies successful encrypted commit and exact decrypt-readback under the migration contract.
 - The final gate passed 69 focused Bindery/security/DI tests plus Android debug assembly. Tests cover migration success/failure/precedence, Keystore source policy, canonical origin matching, off-origin absolute paths, redirects, per-resource playback/artwork headers, optional integration behavior, and production DI fixtures.
 
+### External-fetch slice release evidence
+
+- Released `v1.0.11-kappa2` from commit `8adddf43` on 2026-07-13. GitHub Actions run `29229984211` passed the signed Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped. Checks run `29229984192` also passed.
+- Public `Navic.apk` SHA-256: `33c057cae4037e40449a1b8a7cb840f593bd7956effcd766fc0f6e3626e4029e` (46,205,488 bytes).
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=534`, `versionName=v1.0.11-kappa2`.
+- A signed in-place upgrade from `v1.0.11-kappa1` installed and launched on `emulator-5554`; the app remained alive as PID `28330` with no fatal activity, Koin startup, or provider-DNS error.
+- The final gate reran 19 focused SSRF/DNS/redirect/parser tests with zero failures and passed Android debug assembly. The full branch suite ran 2,319 tests with the exact same 35 unrelated baseline failures as untouched kappa1 (2,303 tests), proving the 16 newly added B18 tests introduced no suite regression.
+- Tests cover unsupported schemes, credentials, custom ports, fragments, deceptive/off-allowlist hosts, localhost, RFC1918, carrier-grade NAT, IPv4/IPv6 loopback and link-local, IPv6 unique/site-local, multicast, IPv4-mapped private IPv6, empty/mixed DNS answers, redirect host changes, approved sources, malformed HTML, and internal/off-domain cover candidates. Generated acknowledgements include Ksoup `0.2.6` under MIT.
+
 ### Rollout and rollback
 
 - Credential migration release precedes removal of plaintext-read compatibility by at least one public prerelease.
@@ -442,7 +452,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B15 | Medium | Pending | Tranche 3 |
 | B16 | Low | Pending | Tranche 6 |
 | B17 | Medium | Released | `v1.0.11-kappa1` |
-| B18 | Medium | Pending | Tranche 5 |
+| B18 | Medium | Released | `v1.0.11-kappa2` |
 | B19 | Medium | Pending | Tranche 4 |
 | B20 | Low | Pending | Tranche 4 |
 | B21 | Scope note | Excluded | Android-only contract |
@@ -469,9 +479,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 23 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `B17`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
+- Released findings: 24 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 32.
+- Pending implementation findings assigned to tranches: 31.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
