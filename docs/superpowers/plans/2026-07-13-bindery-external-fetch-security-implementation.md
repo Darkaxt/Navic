@@ -94,21 +94,21 @@ git commit -m "fix(bindery): constrain external provider fetches"
 - Modify: `composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/BinderyRepositoryProviderCoverTest.kt`
 - Modify: `composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/BinderyRepositoryTestFixtures.kt`
 
-- [ ] **Step 1: Add failing parser and integration cases**
+- [x] **Step 1: Add failing parser and integration cases**
 
 Require malformed but recoverable HTML, swapped/case-varied metadata attributes, encoded attribute values, and fallback `<img>` extraction to work. Require internal/off-allowlist cover image URLs and unsupported provider source origins to produce no fetched/returned cover. Assert the repository passes `AudioBookBayProviderCover` explicitly.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.BinderyRepositoryProviderCoverTest"`
 
 Expected: parser-policy cases fail against regex extraction and the old purpose-free fake API.
 
-- [ ] **Step 3: Add Ksoup and implement DOM extraction**
+- [x] **Step 3: Add Ksoup and implement DOM extraction**
 
 Add `com.fleeksoft.ksoup:ksoup:0.2.6` to `commonMain`. Parse provider HTML into a DOM, collect `og:image`/`twitter:image` metadata and image `src` attributes in priority order, resolve relative URLs, upgrade the known `image.bayimg.com` HTTP form, and retain only HTTPS URLs on exact approved cover-image hosts. Pass the explicit fetch purpose from `BinderyRepository` and update its fake client.
 
-- [ ] **Step 4: Run focused and owning tests**
+- [x] **Step 4: Run focused and owning tests**
 
 Run:
 
@@ -119,7 +119,9 @@ Run:
 
 Expected: all Android host tests pass.
 
-- [ ] **Step 5: Commit parser integration**
+Actual: the B18 focused/owning group passed. The full host suite ran 2,319 tests and retained 35 unrelated baseline failures in reader source fixtures, Android bitmap host stubs, Aurral/source-policy fixtures, and existing initialization checks; no B18 test failed. Baseline equivalence is verified separately before release.
+
+- [x] **Step 5: Commit parser integration**
 
 Run:
 

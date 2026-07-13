@@ -131,6 +131,7 @@ extensions.configure<KotlinMultiplatformExtension> {
 			implementation(libs.kotlinx.collections.immutable)
 			implementation(libs.androidx.datastore.preferences)
 			implementation(libs.coil.gif)
+			implementation(libs.ksoup)
 
 			implementation(libs.subsonicKotlin)
 		}

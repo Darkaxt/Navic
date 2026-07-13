@@ -1,5 +1,6 @@
 package paige.navic.domain.repositories
 
+import com.fleeksoft.ksoup.Ksoup
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
@@ -26,13 +27,20 @@ internal fun binderyAudioBookBayProviderCoverUrl(
 	sourceUrl: String,
 	html: String
 ): String? {
-	val candidates = (
-		AudioBookBayMetaImageRegexes.flatMap { regex ->
-			regex.findAll(html).map { match -> match.groupValues[1] }
-		} +
-			AudioBookBayImageSrcRegex.findAll(html).map { match -> match.groupValues[1] }
-		)
-		.mapNotNull { candidate -> binderyAbsoluteProviderImageUrl(sourceUrl, candidate) }
+	val approvedSource = runCatching {
+		approvedExternalTextRequest(sourceUrl, ExternalTextPurpose.AudioBookBayProviderCover)
+	}.getOrNull() ?: return null
+	val document = runCatching { Ksoup.parse(html, approvedSource.url) }.getOrNull() ?: return null
+	val metadataCandidates = document.getElementsByTag("meta").mapNotNull { element ->
+		val key = element.attr("property").ifBlank { element.attr("name") }.lowercase()
+		element.attr("content").takeIf { key == "og:image" || key == "twitter:image" }
+	}
+	val imageCandidates = document.getElementsByTag("img").mapNotNull { element ->
+		element.attr("src").takeIf(String::isNotBlank)
+	}
+	val candidates = (metadataCandidates + imageCandidates)
+		.mapNotNull { candidate -> binderyAbsoluteProviderImageUrl(approvedSource.url, candidate) }
+		.mapNotNull(String::approvedAudioBookBayCoverImageUrlOrNull)
 		.distinct()
 	return candidates.firstOrNull(String::isAudioBookBayPrimaryCoverUrl)
 		?: candidates.firstOrNull(String::isLikelyProviderCoverImageUrl)
@@ -172,20 +180,6 @@ private fun parsedBinderyUrlHostOrNull(authority: String): String? {
 private fun String.hasSupportedHttpScheme(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
 
-private val AudioBookBayMetaImageRegexes = listOf(
-	Regex(
-		"""<meta\b[^>]*(?:property|name)\s*=\s*["'](?:og:image|twitter:image)["'][^>]*content\s*=\s*["']([^"']+)["'][^>]*>""",
-		RegexOption.IGNORE_CASE
-	),
-	Regex(
-		"""<meta\b[^>]*content\s*=\s*["']([^"']+)["'][^>]*(?:property|name)\s*=\s*["'](?:og:image|twitter:image)["'][^>]*>""",
-		RegexOption.IGNORE_CASE
-	)
-)
-
-private val AudioBookBayImageSrcRegex =
-	Regex("""<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
-
 internal fun String?.isAudioBookBayProvider(): Boolean =
 	this?.trim()?.lowercase() in setOf("audiobookbay", "audio book bay", "abb")
 
@@ -257,9 +251,21 @@ private fun String.upgradeKnownProviderImageUrl(): String =
 		this
 	}
 
+private fun String.approvedAudioBookBayCoverImageUrlOrNull(): String? {
+	val trimmed = trim()
+	if ('#' in trimmed) return null
+	val parsed = runCatching { Url(trimmed) }.getOrNull() ?: return null
+	val host = parsed.host.lowercase()
+	return parsed.toString().takeIf {
+		parsed.protocol.name.equals("https", ignoreCase = true) &&
+			parsed.port == 443 &&
+			host in AudioBookBayCoverImageHosts
+	}
+}
+
 private fun String.isAudioBookBayPrimaryCoverUrl(): Boolean {
-	val normalized = lowercase()
-	return "bayimg.com/" in normalized && normalized.hasProviderImageExtension()
+	val parsed = runCatching { Url(this) }.getOrNull() ?: return false
+	return parsed.host.equals("image.bayimg.com", ignoreCase = true) && hasProviderImageExtension()
 }
 
 private fun String.isLikelyProviderCoverImageUrl(): Boolean {
@@ -282,6 +288,11 @@ private fun String.hasProviderImageExtension(): Boolean {
 		path.endsWith(".png") ||
 		path.endsWith(".webp")
 }
+
+private val AudioBookBayCoverImageHosts = setOf(
+	"audiobookbay.lu",
+	"image.bayimg.com"
+)
 
 internal fun binderyHttpErrorMessage(
 	operation: String,

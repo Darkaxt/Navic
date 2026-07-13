@@ -36,6 +36,63 @@ class BinderyRepositoryProviderCoverTest {
 	}
 
 	@Test
+	fun audiobookBayProviderCoverParserHandlesUnquotedMetadataAttributes() {
+		val html = """
+			<html>
+			  <head>
+			    <meta PROPERTY=og:image content=https://image.bayimg.com/unquoted-cover.jpg>
+			  </head>
+			  <body><div><p>Malformed tail
+		""".trimIndent()
+
+		assertEquals(
+			"https://image.bayimg.com/unquoted-cover.jpg",
+			binderyAudioBookBayProviderCoverUrl(
+				sourceUrl = "https://audiobookbay.lu/abss/the-hobbit/",
+				html = html
+			)
+		)
+	}
+
+	@Test
+	fun audiobookBayProviderCoverParserRejectsInternalAndOffDomainImages() {
+		val html = """
+			<html>
+			  <head><meta property="og:image" content="https://192.168.1.1/private-cover.jpg"></head>
+			  <body>
+			    <img src="https://evil.example/plausible-cover.jpg">
+			    <img src="https://[fd00::1]/private-cover.jpg">
+			  </body>
+			</html>
+		""".trimIndent()
+
+		assertNull(
+			binderyAudioBookBayProviderCoverUrl(
+				sourceUrl = "https://audiobookbay.lu/abss/the-hobbit/",
+				html = html
+			)
+		)
+	}
+
+	@Test
+	fun audiobookBayProviderCoverParserRejectsUnapprovedSourceOrigin() {
+		val html = """<img src="https://image.bayimg.com/otherwise-valid.jpg">"""
+
+		assertNull(
+			binderyAudioBookBayProviderCoverUrl(
+				sourceUrl = "https://evil.example/forged-provider-page",
+				html = html
+			)
+		)
+		assertNull(
+			binderyAudioBookBayProviderCoverUrl(
+				sourceUrl = "http://audiobookbay.lu/abss/the-hobbit/",
+				html = html
+			)
+		)
+	}
+
+	@Test
 	fun findingProviderCoverFetchesAudiobookBaySourceWithoutBinderyHeadersAndCachesResult() = runBlocking {
 		val apiClient = FakeBinderyApiClient(
 			externalTextByUrl = mapOf(
@@ -75,6 +132,10 @@ class BinderyRepositoryProviderCoverTest {
 		assertEquals("https://image.bayimg.com/hobbit.jpg", coverUrl)
 		assertEquals("https://image.bayimg.com/hobbit.jpg", cachedCoverUrl)
 		assertEquals(listOf("https://audiobookbay.lu/abss/the-hobbit/"), apiClient.externalTextUrls)
+		assertEquals(
+			listOf(ExternalTextPurpose.AudioBookBayProviderCover),
+			apiClient.externalTextPurposes
+		)
 		val cached = metadataCache.records.values.single()
 		assertEquals(BinderyMetadataPayloadType.ProviderCover, cached.payloadType)
 		assertEquals("https://audiobookbay.lu/abss/the-hobbit/", cached.path)
