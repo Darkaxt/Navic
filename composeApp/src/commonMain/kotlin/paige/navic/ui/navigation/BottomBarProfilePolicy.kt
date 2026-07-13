@@ -59,70 +59,28 @@ fun bottomBarProfileForScreen(
 	screen: Screen?,
 	rememberedProfile: BottomBarProfile,
 	binderyEnabled: Boolean = true
-): BottomBarProfile =
-	when (screen) {
-		is Screen.Library,
-		is Screen.AlbumList,
-		is Screen.ArtistList,
-		is Screen.GenreDetail,
-		is Screen.GenreList,
-		is Screen.PlaylistList,
-		is Screen.RadioList,
-		is Screen.SongList,
-		is Screen.Starred -> BottomBarProfile.Music
-		is Screen.Search -> when (screen.scope) {
-			SearchScope.Music -> BottomBarProfile.Music
-			SearchScope.Audiobooks -> if (binderyEnabled) BottomBarProfile.Audiobooks else BottomBarProfile.Music
-		}
-
-		Screen.Audiobooks,
-		Screen.BinderyBooks,
-		Screen.BinderyCollections,
-		Screen.BinderyAuthors,
-		is Screen.BinderyAuthor,
-		is Screen.BinderyCollection,
-		is Screen.BinderyBook,
-		is Screen.BinderyAudiobookDetail,
-		is Screen.BinderyAudiobookPlayer,
-		is Screen.BinderyFinding,
-		is Screen.BinderyCatalog -> if (binderyEnabled) BottomBarProfile.Audiobooks else rememberedProfile
-
-		else -> rememberedProfile
+): BottomBarProfile {
+	val metadata = screen?.destinationMetadata()
+	val profileHint = metadata?.let {
+		if (binderyEnabled) it.profileHint else it.profileHintWhenBinderyDisabled
 	}
+	return when (profileHint) {
+	ScreenProfileHint.Music -> BottomBarProfile.Music
+	ScreenProfileHint.Audiobooks -> BottomBarProfile.Audiobooks
+	ScreenProfileHint.Remembered,
+	null -> rememberedProfile
+	}
+}
 
 fun searchScopeForScreen(
 	screen: Screen?,
 	binderyEnabled: Boolean = true
 ): SearchScope =
-	if (binderyEnabled) {
-		when (screen) {
-			Screen.Audiobooks,
-			Screen.BinderyBooks,
-			Screen.BinderyCollections,
-			Screen.BinderyAuthors,
-			is Screen.BinderyAuthor,
-			is Screen.BinderyCollection,
-			is Screen.BinderyBook,
-			is Screen.BinderyAudiobookDetail,
-			is Screen.BinderyAudiobookPlayer,
-			is Screen.BinderyFinding,
-			is Screen.BinderyCatalog -> SearchScope.Audiobooks
-			is Screen.Search -> screen.scope
-			else -> SearchScope.Music
-		}
-	} else {
-		SearchScope.Music
-	}
+	if (binderyEnabled) screen?.destinationMetadata()?.searchScope ?: SearchScope.Music
+	else SearchScope.Music
 
 fun shouldUseSelectedTabIconFallbackMotion(destination: Screen): Boolean =
-	when (destination) {
-		Screen.Audiobooks,
-		Screen.BinderyBooks,
-		Screen.BinderyCollections,
-		Screen.BinderyAuthors -> true
-
-		else -> false
-	}
+	destination.destinationMetadata().selectedTabIconFallbackMotion
 
 fun bottomBarProfileForTabClick(
 	tabId: NavbarTab.Id,
