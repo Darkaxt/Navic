@@ -211,7 +211,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, normal local-asset cache policy shipped in `iota16`, scoped reader-dev debugging shipped in `iota17`, and publication-format capability gating shipped in `iota18`. Process-death restoration of small transient drafts remains a separate change unit.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, normal local-asset cache policy shipped in `iota16`, scoped reader-dev debugging shipped in `iota17`, publication-format capability gating shipped in `iota18`, and bounded process-state restoration shipped in `iota19`.
 
 ### Change units
 
@@ -260,10 +260,20 @@ Every tranche uses the following pipeline:
 - `navic-reader.js` deduplicates tracked IDs and posts `commandAck` after the command handler settles. Direct reader-dev harness commands remain untracked and do not alter the production acknowledgement ledger. No acknowledgement timeout or elapsed-time cancellation was introduced.
 - Protocol, processor, dispatch, Android host, runtime asset, Storyteller, Foliate adapter, controller, and coordinator tests passed 165/165. The Chromium command-ack runtime, reader smoke/trace smoke, page-turn model, 30/30 source vendor hashes, packaged governance, debug assembly, and reader-dev assembly also passed.
 - ADB renderer recovery used a non-zero Alcatraz EPUB locator. Killing only WebView renderer PID `2270` kept `darkaxt.navic.readerdev` PID `2197` alive and created renderer PID `2509`. Generation 1 replayed the same `reader-open-1` and publication key, restored `OEBPS/Text/capitancebolleta01.xhtml` at `epubcfi(/6/16!/4,/2[sigil_toc_id_4],/22/1:265)`, reached `publicationReady`, and acknowledged `reader-open-1`; AndroidRuntime emitted no fatal error.
-- This resolves B5 and the renderer-generation portion of B24. B15/B24 process-death restoration for drafts, dialogs, selection, and reconstructed search state remains pending as change unit 6.
+- This resolves B5 and the renderer-generation portion of B24. The remaining B15/B24 process-death state boundary shipped in `v1.0.11-iota19` as change unit 6.
 - Released as `v1.0.11-iota13` from commit `3703e84a`. Build/release workflow `29247528988` completed successfully; the Android APK and GitHub release jobs passed, while all iOS jobs were skipped.
 - Public `Navic.apk` is 46,208,900 bytes with SHA-256 `8800939e69566f8dcf43e7e79cabdad7a3f544e6b9d9c8fbf77387da3ea46725`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=540`, `versionName=v1.0.11-iota13`.
 - The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota12`/539 on `emulator-5554`; explicit activity start returned `Status: ok`, the app remained alive as PID `2878`, and AndroidRuntime/MediaController startup checks were clean.
+
+### B15/B24 process-state implementation and release evidence
+
+- A publication-keyed `ReaderProcessStateViewModel` stores only bounded `SavedStateHandle` state with recovery value: dialog, typed/submitted search intent, semantic selection, and selection-note anchor/text/draft. Existing persistence owns publication/locator state; coordinator, WebView hosts, derived results, TOC, popups, sidecars, playback plans, acknowledgement ledger, and coroutine scopes are reconstructed.
+- Immediate search/note input propagation prevents the latest draft from waiting for submission. Restoration validates publication identity and capabilities, applies after the durable open, reissues only submitted supported search, and clears on intentional exit. No timeout, global Navigation3 scoping change, retained WebView, or iOS implementation was added.
+- The final Android host owner batch passed 154/154 with zero failures or errors. Source vendor 30/30, verifier tamper self-test, source/package attribution, debug and reader-dev assembly, and both APK packaged vendor 30/30 gates passed. Post-bump debug APK SHA-256 is `b54831e1830d22b138fbb2c9de9ba05215d14fdedf4c12ec4221afdb424d5bb7`; reader-dev is `3316fceab47cc75b82c15c764f3abafd96e691e2d2d4fd6104f5c89efaf1ad54`.
+- On `emulator-5554`, an EPUB submitted `recoveryprobe` search restored after Android reported saved stopped activity state and process replacement, then reissued to completion. PDF restored after PID `6209 -> 6368`; CBZ restored after PID `6512 -> 6692`. Both unsupported formats emitted `publicationReady` again, exposed no Search UI, issued no search command, and produced no AndroidRuntime fatal.
+- Released as `v1.0.11-iota19` from commit `48f7e578`. Workflow `29266197700` completed successfully: Android build and GitHub release creation passed, while every iOS and IPA job was skipped.
+- Public `Navic.apk` is 46,225,284 bytes with SHA-256 `9672d597e6bce397d8ce6550489e6030aee50fff91fb9d0498d09b3a0bee0737`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=546`, `versionName=v1.0.11-iota19`.
+- The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place on `emulator-5554`; explicit cold start returned `Status: ok`, the app remained alive as PID `5674`, and targeted AndroidRuntime/Koin startup checks were clean.
 
 ### B6 implementation evidence
 
@@ -547,7 +557,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B12 | Medium | Pending | Tranche 4 |
 | B13 | Medium | Pending | Tranche 4 |
 | B14 | Medium | Superseded as written | No deployment |
-| B15 | Medium | Pending | Tranche 3 |
+| B15 | Medium | Released | `v1.0.11-iota19` |
 | B16 | Low | Pending | Tranche 6 |
 | B17 | Medium | Released | `v1.0.11-iota11` |
 | B18 | Medium | Released | `v1.0.11-iota11` |
@@ -556,7 +566,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B21 | Scope note | Excluded | Android-only contract |
 | B22 | Medium | Released | `v1.0.11-iota15` |
 | B23 | Low | Released | `v1.0.11-iota17` |
-| B24 | Medium | Renderer slice released; process state pending | `v1.0.11-iota13` + Tranche 3 |
+| B24 | Medium | Released | `v1.0.11-iota13` + `v1.0.11-iota19` |
 | C1 | Critical | Released | `v1.0.11-theta94` |
 | C2 | Medium | Released | `v1.0.11-iota06` |
 | C3 | Medium | Released | `v1.0.11-iota03` |
