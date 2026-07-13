@@ -21,7 +21,7 @@ import paige.navic.data.remote.SubsonicClientFactory
 import paige.navic.data.remote.NetworkClientFactory
 
 val managerModule = module {
-	singleOf(::ArtistPhotoSnapshotStore)
+	single { ArtistPhotoSnapshotStore(get()) }
 	singleOf(::AudioPlaybackOwnershipCoordinator)
 	singleOf(::AuthenticatedSessionLifetime)
 	single { NetworkClientFactory() }
@@ -37,5 +37,5 @@ val managerModule = module {
 	single { PreferenceManager(get(), get()) }
 	singleOf(::SnackBarManager)
 	single { ArtworkColorManager(get()) }
-	singleOf(::AppLogManager)
+	single { AppLogManager(get()) }
 }
