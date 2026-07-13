@@ -14,6 +14,9 @@ on:
       - iosApp/**
       - build.gradle.kts
       - settings.gradle.kts
+      - scripts/test-reader-vendor-assets-verifier.ps1
+      - scripts/update-reader-vendor-manifest.ps1
+      - scripts/verify-reader-vendor-assets.ps1
       - .github/workflows/build.yml
       - "!**/strings.xml"
   workflow_dispatch:
@@ -38,6 +41,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Verify reader vendor governance
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/test-reader-vendor-assets-verifier.ps1
 
       - name: Setup JDK
         uses: actions/setup-java@v5
@@ -99,6 +106,16 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           ./gradlew :androidApp:assembleDebug --stacktrace
+
+      - name: Verify packaged reader vendor assets
+        if: steps.build_release.outcome == 'success' || steps.build_debug.outcome == 'success'
+        shell: pwsh
+        run: |
+          $apk = Get-ChildItem androidApp/build/outputs/apk -Recurse -Filter *.apk | Select-Object -First 1
+          if ($null -eq $apk) {
+            throw "No APK found for reader vendor verification."
+          }
+          pwsh -NoProfile -File scripts/verify-reader-vendor-assets.ps1 -ApkPath $apk.FullName
 
       - name: Upload APK artifact
         if: steps.build_release.outcome == 'success' || steps.build_debug.outcome == 'success'

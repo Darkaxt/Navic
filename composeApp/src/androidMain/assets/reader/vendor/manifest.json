@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/update-reader-vendor-manifest.ps1",
+  "components": [
+    {
+      "id": "foliate-js",
+      "name": "foliate-js",
+      "version": "1.0.1",
+      "sourceUrl": "https://github.com/johnfactotum/foliate-js",
+      "sourceCommit": "f52d42c6127d0ad981a2c67634113541b17ae01e",
+      "packageUrl": "https://registry.npmjs.org/foliate-js/-/foliate-js-1.0.1.tgz",
+      "packageIntegrity": "sha512-Cj4h2ub5aVA+yUgbhvVhCyxwi0GPF4pyNBa6Lw9+6WKY1ReBxipItn2kEBO6u7Vu/xYXjK711R74+t+yW/0u5w==",
+      "license": "MIT",
+      "assetPaths": [
+        "foliate-js"
+      ],
+      "localChanges": "Navic reader integration and page-composition patches; review Git history after import commit c253f223."
+    },
+    {
+      "id": "pdfjs-dist",
+      "name": "pdfjs-dist",
+      "version": "3.11.174",
+      "sourceUrl": "https://github.com/mozilla/pdf.js",
+      "sourceCommit": "ce87167432819f85df49b6b16c7a78556e9a4ee0",
+      "packageUrl": "https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-3.11.174.tgz",
+      "packageIntegrity": "sha512-TdTZPf1trZ8/UFu5Cx/GXB7GZM30LT+wWUNfsi6Bq8ePLnb+woNKtDymI2mxZYBpMbonNFqKmiz684DIfnd8dA==",
+      "packageGitHead": "f287f540ed3ed393e137c9ff7a2e98f6e73ea527",
+      "license": "Apache-2.0",
+      "assetPaths": [
+        "foliate-js/vendor/pdfjs"
+      ],
+      "buildId": "ce8716743",
+      "localChanges": "Published build files with trailing whitespace removed; functional bytes are otherwise unchanged."
+    }
+  ],
+  "files": [
+    {
+      "path": "foliate-js/comic-book.js",
+      "component": "foliate-js",
+      "sha256": "d1df5e8328654e4ce0620b5ce38207a99dccfa7c9ecdd94d8608513cbaabbf5d"
+    },
+    {
+      "path": "foliate-js/dict.js",
+      "component": "foliate-js",
+      "sha256": "9c5f7d9d87ebec302594178f8960539a4573830f9ef84c8a915f599047dcc4aa"
+    },
+    {
+      "path": "foliate-js/epub.js",
+      "component": "foliate-js",
+      "sha256": "2dd3fbc208a8137ae19ab0e600854c25177e2a7845f16bd8b05f44dbf9afd7ad"
+    },
+    {
+      "path": "foliate-js/epubcfi.js",
+      "component": "foliate-js",
+      "sha256": "0fdd0e1a2041255e4d60bcc8cad4c3293cbd4d8cb4fdecbc24435e0d4195662d"
+    },
+    {
+      "path": "foliate-js/fb2.js",
+      "component": "foliate-js",
+      "sha256": "53909180c9da4c0529f05b7fcf32ad4a9c73a03cec75f469a5063af2142942fb"
+    },
+    {
+      "path": "foliate-js/fixed-layout.js",
+      "component": "foliate-js",
+      "sha256": "f706a6a958d0c8959414730593e387a6ba54c85ea2fec1d9ef4e92a8b4508bde"
+    },
+    {
+      "path": "foliate-js/footnotes.js",
+      "component": "foliate-js",
+      "sha256": "d44d823d7d82f8a801a120ead69fa78fefe21e84b1c5ff6e4f256217e4f9b303"
+    },
+    {
+      "path": "foliate-js/LICENSE",
+      "component": "foliate-js",
+      "sha256": "b621ffc351fe263bc9b09dd0bc1c9332fda9c462a3904c1e4f0b4d3236b9c28c"
+    },
+    {
+      "path": "foliate-js/mobi.js",
+      "component": "foliate-js",
+      "sha256": "ad291b8d798014724c27fae554470d654796b994f3245ec0a4d4059c78d1ec84"
+    },
+    {
+      "path": "foliate-js/opds.js",
+      "component": "foliate-js",
+      "sha256": "73120621e7c4b0b7d90d39e92e01aa655f966644fe82840e92f121c8f10b1b1f"
+    },
+    {
+      "path": "foliate-js/overlayer.js",
+      "component": "foliate-js",
+      "sha256": "2e90417ca2c02bab12dcb478dd9c78bd92e882507b806171f3b4bfa93fbe99cc"
+    },
+    {
+      "path": "foliate-js/package.json",
+      "component": "foliate-js",
+      "sha256": "f3f833c09384471c8fe66043bc18e6f76d9c752431d2f2893760326df9d77d95"
+    },
+    {
+      "path": "foliate-js/paginator.js",
+      "component": "foliate-js",
+      "sha256": "b099255744cca920b0d53cbea2f13d591a7a01b361cafada93606eb10cd68a22"
+    },
+    {
+      "path": "foliate-js/pdf.js",
+      "component": "foliate-js",
+      "sha256": "8b2d6b11653763f581d99a03fc046907a33b893ae9a6dc506890bd6889a97d89"
+    },
+    {
+      "path": "foliate-js/progress.js",
+      "component": "foliate-js",
+      "sha256": "544f5e90babc0cb31c5caf971a5f06dd6249ec06600cb62f672fa7179811fde1"
+    },
+    {
+      "path": "foliate-js/quote-image.js",
+      "component": "foliate-js",
+      "sha256": "32df52ebce383bade52d84e7510270e3c192bea51db070f4458a44d3cacf05e7"
+    },
+    {
+      "path": "foliate-js/reader.html",
+      "component": "foliate-js",
+      "sha256": "6a942154307c200a51e31ee9bd2159a2a7318db779deb1576060fc5bd6c1e144"
+    },
+    {
+      "path": "foliate-js/reader.js",
+      "component": "foliate-js",
+      "sha256": "a31da690c0deea3f4865bc00798d4b839ccaa8811fe1ede2e8cc7ee4ab41e57e"
+    },
+    {
+      "path": "foliate-js/README.md",
+      "component": "foliate-js",
+      "sha256": "56f46064f70484ac8c0014c04352a8f093091822ae1f682c5d3af76647f1f0dd"
+    },
+    {
+      "path": "foliate-js/search.js",
+      "component": "foliate-js",
+      "sha256": "e21448760ee996e6f9e0e885e26ea670be134a8022e85430cc97c0520bbf9e18"
+    },
+    {
+      "path": "foliate-js/text-walker.js",
+      "component": "foliate-js",
+      "sha256": "264382295a1ce3d99f61d59fde6f36c661b822b28466c6c574c0f7b93d538a41"
+    },
+    {
+      "path": "foliate-js/tts.js",
+      "component": "foliate-js",
+      "sha256": "a0ba198db431591d5b5ac769d5917b76bdf69575718cb3c8d83605d32713387e"
+    },
+    {
+      "path": "foliate-js/ui/menu.js",
+      "component": "foliate-js",
+      "sha256": "90795bdec271a32ad8414dd7a07ba8ffe6f810dbfd706a8c0805302360856160"
+    },
+    {
+      "path": "foliate-js/ui/tree.js",
+      "component": "foliate-js",
+      "sha256": "713134d5f242239b094e121912d07eb925d4ae20a9a5c8a7363feb7560ebbd16"
+    },
+    {
+      "path": "foliate-js/uri-template.js",
+      "component": "foliate-js",
+      "sha256": "28bd96a9960cbfb07e14d4b9e9f334f28d1c3c96cbd8d58880631dcb1387e9f6"
+    },
+    {
+      "path": "foliate-js/vendor/fflate.js",
+      "component": "foliate-js",
+      "sha256": "130855b45faa6e69c12b21180de843a3c1d714e1597d37ed92cec8d1af53b85d"
+    },
+    {
+      "path": "foliate-js/vendor/pdfjs/pdf.js",
+      "component": "pdfjs-dist",
+      "sha256": "6cc8526da1d5666f17cd465eeb8b18a5d4315857c3cdd217902cba6761743e99"
+    },
+    {
+      "path": "foliate-js/vendor/pdfjs/pdf.worker.js",
+      "component": "pdfjs-dist",
+      "sha256": "e5733446bba2bb8ac3c4eb18bbf73f44194f5e59008ceb44be6c52d3f1f4aa33"
+    },
+    {
+      "path": "foliate-js/vendor/zip.js",
+      "component": "foliate-js",
+      "sha256": "9edb29bd207345d9c26a39778f63e25795101e566d57bbd64b7ae7320b64d16d"
+    },
+    {
+      "path": "foliate-js/view.js",
+      "component": "foliate-js",
+      "sha256": "59bffad781d46df83c7abc84a8d160f089ee624721afc630745a4edc9dbd47a8"
+    }
+  ]
+}
