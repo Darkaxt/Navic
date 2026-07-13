@@ -109,7 +109,7 @@ Run reader controller/coordinator/bridge tests, JavaScript syntax and Chromium h
 
 Seed legacy font/session fixtures, install the candidate, and verify migration/cleanup under the app sandbox. Open a cached/available publication, kill only the renderer, verify exact-locator recovery and live files, then leave the reader and verify lease cleanup. Record PIDs, paths, and fatal-log checks.
 
-Validation evidence: 182/182 focused ownership tests passed, along with JavaScript/runtime/governance gates, 30/30 source and packaged vendor checks, attribution, and debug/reader-dev assembly. On `emulator-5554`, the legacy font migrated intact, stale session fixtures were removed, renderer PID `5452` was replaced by PID `5628` without replacing app PID `5403`, and the exact `OEBPS/Text/sinopsis.xhtml` / `epubcfi(/6/4!/4/2,,/4/1:586)` locator recovered. Exiting the reader removed the managed publication session while retaining the imported font; no AndroidRuntime fatal was emitted.
+Validation evidence: the post-rebase owner suite passed 184/184 and the exact storage UI/source assertions passed 10/10, along with JavaScript/runtime/governance gates, 30/30 source and packaged vendor checks, attribution, and debug/reader-dev assembly. On `emulator-5554`, the legacy font migrated intact, stale session fixtures were removed, renderer PID `5452` was replaced by PID `5628` without replacing app PID `5403`, and the exact `OEBPS/Text/sinopsis.xhtml` / `epubcfi(/6/4!/4/2,,/4/1:586)` locator recovered. Exiting the reader removed the managed publication session while retaining the imported font; no AndroidRuntime fatal was emitted.
 
 - [ ] **Step 3: Update QA evidence and prepare only `iota15`**
 
