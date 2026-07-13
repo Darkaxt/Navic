@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.ui.navigation.Screen
 
 class ReaderWhispersyncLaunchPolicyTest {
@@ -72,7 +73,36 @@ class ReaderWhispersyncLaunchPolicyTest {
 		)
 	}
 
+	@Test
+	fun readerWhispersyncLaunchAttachmentRequiresMediaOverlayCapability() {
+		listOf(
+			ReaderPublicationFormat.Epub,
+			ReaderPublicationFormat.Azw3,
+			ReaderPublicationFormat.Mobi,
+			ReaderPublicationFormat.Fb2
+		).forEach { format ->
+			val attachment = readerRoute(
+				publicationFormat = format,
+				whispersyncSidecarUrl = "/opds/books/3809/sync/8",
+				whispersyncAudiobookBookFileId = "633"
+			).whispersyncLaunchAttachment()
+
+			assertEquals("8", attachment?.artifactId, format.name)
+		}
+		listOf(ReaderPublicationFormat.Pdf, ReaderPublicationFormat.Cbz).forEach { format ->
+			assertNull(
+				readerRoute(
+					publicationFormat = format,
+					whispersyncSidecarUrl = "/opds/books/3809/sync/8",
+					whispersyncAudiobookBookFileId = "633"
+				).whispersyncLaunchAttachment(),
+				format.name
+			)
+		}
+	}
+
 	private fun readerRoute(
+		publicationFormat: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 		whispersyncSidecarUrl: String? = null,
 		whispersyncArtifactId: String? = null,
 		whispersyncAudiobookId: String? = null,
@@ -85,6 +115,7 @@ class ReaderWhispersyncLaunchPolicyTest {
 			bookId = "3816",
 			resourceHref = "/opds/books/3816/resources/ebook-435",
 			kind = ReaderPublicationKind.Ebook,
+			publicationFormat = publicationFormat,
 			whispersyncSidecarUrl = whispersyncSidecarUrl,
 			whispersyncArtifactId = whispersyncArtifactId,
 			whispersyncAudiobookId = whispersyncAudiobookId,

@@ -19,12 +19,14 @@
 - Modify: `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderCoordinatorTest.kt`
 - Modify: `composeApp/src/commonTest/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncLaunchPolicyTest.kt`
 
-- [ ] Add matrix and command-requirement tests for all six formats.
-- [ ] Add PDF/CBZ adapter tests proving search and overlay commands preserve view state and command key.
-- [ ] Add controller/coordinator tests proving unsupported actions do not mutate native state or dispatch bridge commands.
-- [ ] Add launch-policy tests proving PDF/CBZ cannot resolve Whispersync attachments while supported formats can.
-- [ ] Run the focused tests and record RED evidence before production edits.
-- [ ] Commit the failing tests.
+- [x] Add matrix and command-requirement tests for all six formats.
+- [x] Add PDF/CBZ adapter tests proving search and overlay commands preserve view state and command key.
+- [x] Add controller/coordinator tests proving unsupported actions do not mutate native state or dispatch bridge commands.
+- [x] Add launch-policy tests proving PDF/CBZ cannot resolve Whispersync attachments while supported formats can.
+- [x] Run the focused tests and record RED evidence before production edits.
+- [x] Commit the failing tests.
+
+RED evidence: `:composeApp:compileAndroidHostTest` failed before production edits because `ReaderEngineCapability`, `readerEngineCapabilities`, `requiredCapability`, and `supportsReaderEngineCapability` were unresolved in `ReaderEngineCapabilityTest`. The focused command included `ReaderEngineCapabilityTest` and `ReaderWhispersyncLaunchPolicyTest`; failure occurred at compile time after 54 seconds, before any test could pass accidentally.
 
 ### Task 2: Implement the capability matrix and behavioral gates
 
