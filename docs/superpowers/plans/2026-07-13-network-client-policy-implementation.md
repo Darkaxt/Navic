@@ -175,17 +175,17 @@ Expected: all selected tests pass, no direct production `HttpClient` constructio
 - Modify: `androidApp/build.gradle.kts`
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 
-- [x] **Step 1: Bump the prerelease**
+- [x] **Step 1: Bump the forward-repair prerelease**
 
-Increment `versionCode` from 529 to 530 and set `versionName` to `v1.0.11-iota8`.
+`v1.0.11-iota8` was published but failed independent startup verification because Koin attempted to inject the factory's optional test-engine supplier. Keep that release immutable, register the factory through an explicit zero-argument provider, increment `versionCode` to 531, and set `versionName` to `v1.0.11-iota9`.
 
-- [x] **Step 2: Run the release gate**
+- [ ] **Step 2: Run the release gate**
 
-Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota8`, and `git diff --check` after rebasing `fork/master`.
+Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota9`, and `git diff --check` after rebasing `fork/master`.
 
 - [ ] **Step 3: Publish and independently verify**
 
-Tag and publish `v1.0.11-iota8` with Android enabled and iOS skipped. Download the public APK, compare its SHA-256 with GitHub metadata, verify the established release certificate, confirm versionCode 530/versionName iota8, then upgrade and launch it on `emulator-5554` with no fatal startup exception.
+Tag and publish `v1.0.11-iota9` with Android enabled and iOS skipped. Download the public APK, compare its SHA-256 with GitHub metadata, verify the established release certificate, confirm versionCode 531/versionName iota9, then upgrade and launch it on `emulator-5554` with no fatal startup exception.
 
 - [ ] **Step 4: Record evidence and clean the worktree**
 
