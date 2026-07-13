@@ -567,11 +567,41 @@ class ReaderPageTurnNativeSourceTest {
 
 		assertContains(platform, "pageTurnVisualPageIndex: Int?")
 		assertContains(root, "pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex")
-		assertContains(host, "setPageTurnVisualPageIndex(pageTurnVisualPageIndex)")
-		assertContains(host, "pageTurnController.synchronizeVisualPageIndex(normalized)")
-		assertContains(controller, "fun synchronizeVisualPageIndex(pageIndex: Int?)")
+		assertContains(platform, "pageTurnVisualLocationReason: String?")
+		assertContains(root, "pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason")
+		assertContains(host, "setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)")
+		assertContains(host, "pageTurnController.synchronizeVisualPageIndex(normalized, reason)")
+		assertContains(controller, "fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?)")
 		assertContains(controller, "slideCoordinator?.visualPageIndex == pageIndex")
 		assertContains(controller, "ReaderPageSlideCoordinator(pageIndex)")
+	}
+
+	@Test
+	fun exactIntermediateSettlementCannotInvalidateANewerVisualTurn() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val synchronize = controller
+			.substringAfter("fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?)")
+			.substringBefore("private fun begin(")
+
+		assertContains(synchronize, "reason == \"page-turn:exact\"")
+		assertContains(synchronize, "coordinator.activeSettlementTarget == pageIndex")
+		assertContains(synchronize, "coordinator.settlementReported(")
+		assertContains(synchronize, "pageIndex != coordinator.visualPageIndex")
+		assertTrue(
+			synchronize.indexOf("coordinator.settlementReported(") <
+				synchronize.indexOf("bundleSource.invalidate(\"external-page-relocation\")"),
+			"An expected intermediate settlement must advance the coordinator before external relocation handling"
+		)
+	}
+
+	@Test
+	fun adjacentPrewarmWaitsForExactSettlement() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val prewarm = controller
+			.substringAfter("fun prewarmAdjacent(): Boolean")
+			.substringBefore("private fun queryAdjacentPrewarmPlans")
+
+		assertContains(prewarm, "slideCoordinator?.activeSettlementTarget != null")
 	}
 
 	@Test

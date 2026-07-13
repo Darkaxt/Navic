@@ -63,6 +63,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnCanvasEnabled: Boolean,
 	pageTurnSnapshotKey: Int,
 	pageTurnVisualPageIndex: Int?,
+	pageTurnVisualLocationReason: String?,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
@@ -88,7 +89,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setVerticalPageDragPreview(verticalPageDragPreview)
 				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				setPageTurnSnapshotKey(pageTurnSnapshotKey)
-				setPageTurnVisualPageIndex(pageTurnVisualPageIndex)
+				setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
 				setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
 					currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
@@ -105,7 +106,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setVerticalPageDragPreview(verticalPageDragPreview)
 			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
-			root.setPageTurnVisualPageIndex(pageTurnVisualPageIndex)
+			root.setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -211,8 +212,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.setPageTurnSnapshotKey(snapshotKey)
 	}
 
-	fun setPageTurnVisualPageIndex(pageIndex: Int?) {
-		viewerContainer.setPageTurnVisualPageIndex(pageIndex)
+	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
+		viewerContainer.setPageTurnVisualLocation(pageIndex, reason)
 	}
 
 	fun setOnReadableDragPreview(
@@ -463,6 +464,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnCanvasEnabled: Boolean = false
 	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
 	private var pageTurnVisualPageIndex: Int? = null
+	private var pageTurnVisualLocationReason: String? = null
 	private var shellCoverVisible: Boolean = false
 	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
 	private var pageTurnPrewarmLayoutSignature: Long? = null
@@ -524,11 +526,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		requestPageTurnPrewarmWhenReady()
 	}
 
-	fun setPageTurnVisualPageIndex(pageIndex: Int?) {
+	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
 		val normalized = pageIndex?.takeIf { it >= 0 }
-		if (pageTurnVisualPageIndex == normalized) return
+		if (pageTurnVisualPageIndex == normalized && pageTurnVisualLocationReason == reason) return
 		pageTurnVisualPageIndex = normalized
-		pageTurnController.synchronizeVisualPageIndex(normalized)
+		pageTurnVisualLocationReason = reason
+		pageTurnController.synchronizeVisualPageIndex(normalized, reason)
 		requestPageTurnPrewarmWhenReady()
 	}
 

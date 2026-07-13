@@ -170,8 +170,26 @@ internal class ReaderPageTurnController(
 		slideCoordinator = null
 	}
 
-	fun synchronizeVisualPageIndex(pageIndex: Int?) {
+	fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {
 		if (destroyed || pageIndex == null || pageIndex < 0) return
+		val coordinator = slideCoordinator
+		if (reason == "page-turn:exact") {
+			if (
+				coordinator != null &&
+				coordinator.activeSettlementTarget == pageIndex &&
+				pageIndex != coordinator.visualPageIndex
+			) {
+				activeSettleToken = null
+				handleCoordinatorEffects(
+					coordinator.settlementReported(
+						reportedGeneration = coordinator.generation,
+						pageIndex = pageIndex,
+						renderable = true
+					)
+				)
+			}
+			return
+		}
 		if (slideCoordinator?.visualPageIndex == pageIndex) return
 		visualCommitPending = false
 		activeSettleToken = null
@@ -237,6 +255,7 @@ internal class ReaderPageTurnController(
 			destroyed ||
 			!isAvailable ||
 			visualCommitPending ||
+			slideCoordinator?.activeSettlementTarget != null ||
 			state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle
 		) return false
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
