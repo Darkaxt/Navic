@@ -10,6 +10,47 @@ import kotlin.test.assertTrue
 
 class ReaderBridgeProtocolTest {
 	@Test
+	fun acknowledgedCommandEnvelopeCarriesStableIdBesideExistingPayload() {
+		val script = ReaderBridgeDispatchCommand(
+			id = "reader-open-1",
+			command = ReaderBridgeCommand.OpenPublication(
+				url = "https://bindery.local/books/1.epub",
+				startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)")
+			)
+		).toJavaScript()
+
+		assertContains(script, "window.NavicReaderBridge.dispatch")
+		assertContains(script, "\"commandId\":\"reader-open-1\"")
+		assertContains(script, "\"type\":\"openPublication\"")
+		assertContains(script, "\"url\":\"https://bindery.local/books/1.epub\"")
+		assertContains(script, "epubcfi(/6/2!/4/1:0)")
+	}
+
+	@Test
+	fun commandAcknowledgementDecodesOnlyWithNonBlankStableId() {
+		val decoded = decodeReaderBridgeMessage(
+			"""{"type":"commandAck","commandId":"reader-command-1-7"}"""
+		)
+
+		assertEquals(
+			ReaderBridgeDecodeResult.Decoded(
+				ReaderBridgeEvent.CommandAcknowledged("reader-command-1-7")
+			),
+			decoded
+		)
+		listOf(
+			"""{"type":"commandAck"}""",
+			"""{"type":"commandAck","commandId":""}""",
+			"""{"type":"commandAck","commandId":"   "}"""
+		).forEach { message ->
+			val rejected = assertIs<ReaderBridgeDecodeResult.Rejected>(
+				decodeReaderBridgeMessage(message)
+			)
+			assertEquals(ReaderBridgeDecodeFailure.InvalidPayload, rejected.failure)
+		}
+	}
+
+	@Test
 	fun openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge() {
 		val script = ReaderBridgeCommand.OpenPublication(
 			url = "https://bindery.local/opds/books/3693/resources/readaloud-1?title=\"Alcatraz\"",

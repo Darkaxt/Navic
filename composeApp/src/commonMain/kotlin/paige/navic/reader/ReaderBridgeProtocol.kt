@@ -448,8 +448,24 @@ sealed interface ReaderBridgeCommand {
 	}
 }
 
+data class ReaderBridgeDispatchCommand(
+	val id: String,
+	val command: ReaderBridgeCommand
+) {
+	init {
+		require(id.isNotBlank()) { "Reader bridge command ID must not be blank." }
+	}
+
+	fun toJsonObject(): JsonObject =
+		buildJsonObject {
+			put("commandId", id)
+			command.toJsonObject().forEach { (key, value) -> put(key, value) }
+		}
+}
+
 sealed interface ReaderBridgeEvent {
 	data object Ready : ReaderBridgeEvent
+	data class CommandAcknowledged(val commandId: String) : ReaderBridgeEvent
 	data object PublicationReady : ReaderBridgeEvent
 	data object CenterTap : ReaderBridgeEvent
 	data class ContentTapHandled(
@@ -547,6 +563,9 @@ sealed interface ReaderBridgeEvent {
 fun ReaderBridgeCommand.toJavaScript(): String =
 	"window.NavicReaderBridge.dispatch(${ReaderBridgeJson.encodeToString(JsonObject.serializer(), toJsonObject())});"
 
+fun ReaderBridgeDispatchCommand.toJavaScript(): String =
+	"window.NavicReaderBridge.dispatch(${ReaderBridgeJson.encodeToString(JsonObject.serializer(), toJsonObject())});"
+
 enum class ReaderBridgeDecodeFailure {
 	MalformedJson,
 	NonObjectPayload,
@@ -567,6 +586,7 @@ private const val ReaderBridgeDiagnosticRawMessageLimit = 500
 
 private val ReaderBridgeEventTypes = setOf(
 	"ready",
+	"commandAck",
 	"publicationReady",
 	"readerCenterTap",
 	"readerContentTapHandled",
@@ -634,6 +654,9 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): ReaderBridgeEvent? =
 		when (type) {
 			"ready" -> ReaderBridgeEvent.Ready
+			"commandAck" -> json.stringValue("commandId")
+				?.takeIf { it.isNotBlank() }
+				?.let(ReaderBridgeEvent::CommandAcknowledged)
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
 			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
 			"readerContentTapHandled" -> ReaderBridgeEvent.ContentTapHandled(json.toContentActionClaim())

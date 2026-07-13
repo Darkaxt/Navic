@@ -344,6 +344,7 @@ private fun ReaderBridgeCommand.engineDebugLabel(): String =
 private fun ReaderBridgeEvent.engineDebugLabel(): String =
 	when (this) {
 		ReaderBridgeEvent.Ready -> "ready"
+		is ReaderBridgeEvent.CommandAcknowledged -> "commandAck($commandId)"
 		ReaderBridgeEvent.PublicationReady -> "publicationReady"
 		ReaderBridgeEvent.CenterTap -> "readerCenterTap"
 		is ReaderBridgeEvent.ContentTapHandled -> "contentTapHandled(${action.name.lowercase()})"
