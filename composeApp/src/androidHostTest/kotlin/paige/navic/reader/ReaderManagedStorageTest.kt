@@ -32,6 +32,48 @@ class ReaderManagedStorageTest {
 		assertTrue(managedRoot.resolve("fonts").isDirectory)
 	}
 
+	@Test
+	fun sessionLeaseIsScopedAndIdempotent() {
+		val root = createTempDirectory("navic-reader-session-lease").toFile()
+		val publication = root.resolve("reader-publications/book-1")
+		val readaloud = root.resolve("storyteller-readaloud/book-1")
+		val unrelated = root.resolve("unrelated")
+		publication.resolve("publication.epub").writeFixture("EPUB")
+		readaloud.resolve("audio.mp3").writeFixture("AUDIO")
+		unrelated.resolve("keep.txt").writeFixture("KEEP")
+
+		val lease = ReaderSessionLease.of(publication, readaloud, unrelated)
+
+		assertEquals(2, lease.release())
+		assertEquals(0, lease.release())
+		assertFalse(publication.exists())
+		assertFalse(readaloud.exists())
+		assertEquals("KEEP", unrelated.resolve("keep.txt").readText())
+	}
+
+	@Test
+	fun sessionAccountingCoversManagedAndLegacyRootsButExcludesFonts() {
+		val root = createTempDirectory("navic-reader-session-accounting").toFile()
+		val managedRoot = root.resolve("managed")
+		val legacyRoot = root.resolve("legacy")
+		managedRoot.resolve("reader-publications/book/publication.epub").writeFixture("EPUB")
+		managedRoot.resolve("storyteller-readaloud/book/audio.mp3").writeFixture("AUDIO")
+		managedRoot.resolve("fonts/user.ttf").writeFixture("DURABLE_FONT")
+		legacyRoot.resolve("reader-publications/book/publication.epub").writeFixture("OLD")
+		legacyRoot.resolve("storyteller-readaloud/book/audio.mp3").writeFixture("OLD_AUDIO")
+		legacyRoot.resolve("other/keep.txt").writeFixture("KEEP")
+
+		assertEquals(
+			"EPUB".length + "AUDIO".length + "OLD".length + "OLD_AUDIO".length.toLong(),
+			readerSessionStorageSizeBytes(managedRoot, legacyRoot)
+		)
+
+		assertEquals(4, clearReaderSessionStorage(managedRoot, legacyRoot))
+		assertEquals(0L, readerSessionStorageSizeBytes(managedRoot, legacyRoot))
+		assertEquals("DURABLE_FONT", managedRoot.resolve("fonts/user.ttf").readText())
+		assertEquals("KEEP", legacyRoot.resolve("other/keep.txt").readText())
+	}
+
 	private fun java.io.File.writeFixture(content: String) {
 		parentFile?.mkdirs()
 		writeText(content)

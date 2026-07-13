@@ -53,15 +53,15 @@ Run the focused test until it passes, then commit the new storage component and 
 
 ### Task 2: Add idempotent session leases
 
-- [ ] **Step 1: Write failing lease and accounting tests**
+- [x] **Step 1: Write failing lease and accounting tests**
 
 Assert that `ReaderSessionLease.release()` deletes only its leased directories, repeated release is harmless, and `readerSessionStorageSizeBytes` / `clearReaderSessionStorage` cover both session directory names while excluding `fonts`.
 
-- [ ] **Step 2: Run RED, implement the minimal API, and run GREEN**
+- [x] **Step 2: Run RED, implement the minimal API, and run GREEN**
 
 Implement an idempotent lease with private normalized directory ownership and helpers for managed/legacy session size and clearing. Do not add an LRU or arbitrary-path deletion API.
 
-- [ ] **Step 3: Commit the storage lifecycle primitive**
+- [x] **Step 3: Commit the storage lifecycle primitive**
 
 Commit the passing lease/accounting behavior separately.
 

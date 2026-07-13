@@ -2,6 +2,7 @@ package paige.navic.reader
 
 import android.content.Context
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal const val ReaderManagedStorageDirectoryName = "reader"
 internal const val ReaderFontStorageDirectoryName = "fonts"
@@ -39,6 +40,50 @@ internal fun initializeReaderManagedStorage(
 		legacyRoot.resolve(directoryName).deleteRecursively()
 	}
 }
+
+internal class ReaderSessionLease private constructor(
+	private val directories: List<File>
+) {
+	private val released = AtomicBoolean(false)
+
+	fun release(): Int {
+		if (!released.compareAndSet(false, true)) return 0
+		return directories.count { directory ->
+			directory.exists() && directory.deleteRecursively()
+		}
+	}
+
+	operator fun plus(other: ReaderSessionLease): ReaderSessionLease =
+		ReaderSessionLease((directories + other.directories).distinctBy(File::getPath))
+
+	companion object {
+		fun of(vararg directories: File): ReaderSessionLease =
+			ReaderSessionLease(
+				directories
+					.map { directory -> directory.absoluteFile.normalize() }
+					.filter { directory -> directory.parentFile?.name in ReaderSessionStorageDirectoryNames }
+					.distinctBy(File::getPath)
+			)
+	}
+}
+
+internal fun readerSessionStorageSizeBytes(vararg roots: File): Long =
+	roots.sumOf { root ->
+		ReaderSessionStorageDirectoryNames.sumOf { directoryName ->
+			root.resolve(directoryName)
+				.walkTopDown()
+				.filter(File::isFile)
+				.sumOf { file -> file.length().coerceAtLeast(0L) }
+		}
+	}
+
+internal fun clearReaderSessionStorage(vararg roots: File): Int =
+	roots.sumOf { root ->
+		ReaderSessionStorageDirectoryNames.count { directoryName ->
+			val directory = root.resolve(directoryName)
+			directory.exists() && directory.deleteRecursively()
+		}
+	}
 
 private fun migrateReaderFontStorage(source: File, target: File) {
 	if (!source.exists()) return
