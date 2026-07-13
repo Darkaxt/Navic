@@ -111,17 +111,19 @@ Seed legacy font/session fixtures, install the candidate, and verify migration/c
 
 Validation evidence: the post-rebase owner suite passed 184/184 and the exact storage UI/source assertions passed 10/10, along with JavaScript/runtime/governance gates, 30/30 source and packaged vendor checks, attribution, and debug/reader-dev assembly. On `emulator-5554`, the legacy font migrated intact, stale session fixtures were removed, renderer PID `5452` was replaced by PID `5628` without replacing app PID `5403`, and the exact `OEBPS/Text/sinopsis.xhtml` / `epubcfi(/6/4!/4/2,,/4/1:586)` locator recovered. Exiting the reader removed the managed publication session while retaining the imported font; no AndroidRuntime fatal was emitted.
 
-- [ ] **Step 3: Update QA evidence and prepare only `iota15`**
+- [x] **Step 3: Update QA evidence and prepare only `iota15`**
 
 Set `versionCode=542`, `versionName=v1.0.11-iota15`; update B22 and the roadmap while preserving all remaining findings. Verify no `kappa`/`lambda` refs.
 
-- [ ] **Step 4: Integrate public master, tag, publish, and verify**
+- [x] **Step 4: Integrate public master, tag, publish, and verify**
 
 Fetch/rebase only this isolated branch if required, rerun affected gates, push public `master`, create annotated `v1.0.11-iota15`, and run the Android-only publisher. Download the public APK and independently verify digest, v2 certificate, embedded version, packaged governance, and in-place startup. All iOS jobs must remain skipped.
 
-- [ ] **Step 5: Record immutable evidence and clean**
+- [x] **Step 5: Record immutable evidence and clean**
 
 Push the evidence commit, verify public master/tag/release refs, then remove only `.codex-temp/navic-qa-tranche-3-reader-storage` and local `fix/qa-tranche-3-reader-storage`. Do not modify any ebook worktree.
+
+Release evidence: `v1.0.11-iota15` points to commit `717d6a06`; workflow `29253137133` passed Android build/release creation with every iOS job skipped. Public `Navic.apk` is 46,225,284 bytes with SHA-256 `bc177713403631004eb8dce1a7ba8901167f83d5584f2a734050bcaa874dbf04`, established v2 certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, and metadata `542 / v1.0.11-iota15`. It upgraded the public emulator package from iota14, resumed as PID `6475`, and produced no fatal or targeted startup errors.
 
 ## Self-Review
 

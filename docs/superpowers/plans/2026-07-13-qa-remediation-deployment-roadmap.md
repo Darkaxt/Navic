@@ -9,6 +9,8 @@ Released Tranche 2 storage slice: `v1.0.11-iota02`
 Released Tranche 2 download slice: `v1.0.11-iota03`
 Released Tranche 5 session-client slice: `v1.0.11-iota07`
 Released Tranche 5 network-policy slice: `v1.0.11-iota09`
+
+Release naming correction (2026-07-13): the nine public records originally named `v1.0.11-iota1` through `v1.0.11-iota9` were retitled in place as `v1.0.11-iota01` through `v1.0.11-iota09`. Their release IDs, APK asset IDs/sizes, publication timestamps, notes, and target commits were preserved; obsolete unpadded tags were removed. Historical APK metadata remains recorded as built. No `kappa` or `lambda` release/tag exists, and subsequent releases continue the same `iota##` sequence.
 Released Tranche 5 consolidated delivery: `v1.0.11-iota11`
 Released Tranche 3 bridge-diagnostics slice: `v1.0.11-iota12`
 Released Tranche 3 command-acknowledgement slice: `v1.0.11-iota13`
@@ -208,7 +210,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, and generation-scoped JavaScript bridge ownership shipped in `iota14`. Managed reader storage is implemented for `iota15`; cache policy, capability gating, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, and managed reader storage shipped in `iota15`. Cache policy, capability gating, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
 
 ### Change units
 
@@ -261,7 +263,7 @@ Every tranche uses the following pipeline:
 - Public `Navic.apk` is 46,225,284 bytes with SHA-256 `1c71c22c77fe8f904cbb48db4f71b780e689df4e6b2ab846345cc73a761fbd8f`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=541`, `versionName=v1.0.11-iota14`.
 - The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota13`/540 on `emulator-5554`; explicit `MainActivity` start resumed successfully, the app remained alive as PID `4453`, and AndroidRuntime/MediaController startup checks were clean.
 
-### B22 candidate evidence
+### B22 implementation and release evidence
 
 - Android reader storage is initialized under `filesDir/reader`: `fonts/` is durable, while `reader-publications/<key>` and `storyteller-readaloud/<key>` are reconstructable session trees. The synchronized process initializer migrates legacy fonts and removes stale legacy or managed sessions.
 - Publication and read-aloud resolvers return path-constrained, idempotent leases. Android runtime hosts retain those leases across WebView renderer generations and release them on host disposal; storage size/clear covers sessions and excludes imported fonts. The existing `/reader-cache/` virtual URL contract remains unchanged.
@@ -269,6 +271,9 @@ Every tranche uses the following pipeline:
 - The post-bump debug APK is 74,988,172 bytes with SHA-256 `cb829fe90d7a4a91bf9cc993e5fc1986bf56c4dcb41f16a86dbe6c6711786083`; the reader-dev APK is 74,988,184 bytes with SHA-256 `7438e1aa55407c25efe39dfc8f766a9a7282e4c3f3f57bf5ee881d7a1a2bc823`. Both embed `versionCode=542`, `versionName=v1.0.11-iota15`.
 - On `emulator-5554`, `cache/reader/fonts/b22-proof.ttf` migrated to `files/reader/fonts/b22-proof.ttf` with `LEGACY_FONT_B22` intact; seeded legacy and managed stale sessions were removed. A live EPUB resolved at `files/reader/reader-publications/reader-f68e0c4a3b1732fc3e64c84d/publication.epub`.
 - Killing only renderer PID `5452` kept app PID `5403` alive and created renderer PID `5628`. Generation 1 restored `OEBPS/Text/sinopsis.xhtml` at `epubcfi(/6/4!/4/2,,/4/1:586)`, reached `publicationReady`, and acknowledged `reader-open-1`. Leaving the reader removed the publication session immediately while retaining the migrated font; AndroidRuntime emitted no fatal error.
+- Released as `v1.0.11-iota15` from commit `717d6a06`. Workflow `29253137133` completed successfully: signed Android build and GitHub release creation passed, while the iOS build and IPA attachment jobs were skipped.
+- Public `Navic.apk` is 46,225,284 bytes with SHA-256 `bc177713403631004eb8dce1a7ba8901167f83d5584f2a734050bcaa874dbf04`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=542`, `versionName=v1.0.11-iota15`.
+- The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota14`/541 on `emulator-5554`; explicit `MainActivity` start returned `Status: ok`, the app remained resumed as PID `6475`, and AndroidRuntime/MediaController/Koin/Room startup checks were clean.
 
 ### Rollout and rollback
 
@@ -513,7 +518,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B19 | Medium | Pending | Tranche 4 |
 | B20 | Low | Pending | Tranche 4 |
 | B21 | Scope note | Excluded | Android-only contract |
-| B22 | Medium | Candidate validated | `v1.0.11-iota15` candidate |
+| B22 | Medium | Released | `v1.0.11-iota15` |
 | B23 | Low | Pending | Tranche 3 |
 | B24 | Medium | Renderer slice released; process state pending | `v1.0.11-iota13` + Tranche 3 |
 | C1 | Critical | Released | `v1.0.11-theta94` |
