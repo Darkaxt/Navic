@@ -18,6 +18,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.NavMetadataKey
+import androidx.navigation3.runtime.get
+import androidx.navigation3.runtime.metadata
 import androidx.navigation3.scene.OverlayScene
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.scene.SceneStrategy
@@ -84,24 +87,18 @@ internal class NowPlayingScene<T : Any>(
 class NowPlayingSceneStrategy<T : Any> : SceneStrategy<T> {
 
 	override fun SceneStrategyScope<T>.calculateScene(entries: List<NavEntry<T>>): Scene<T>? {
-		val lastEntry = entries.lastOrNull()
-		val bottomSheetProperties =
-			lastEntry?.metadata?.get(PROPERTIES_KEY) as? ModalBottomSheetProperties
-		val sheetMaxWidth = lastEntry?.metadata?.get(MAX_WIDTH_KEY) as? Dp
-		val isTransparent = lastEntry?.metadata?.get(IS_TRANSPARENT_KEY) as? Boolean ?: false
-		return bottomSheetProperties?.let { properties ->
-			@Suppress("UNCHECKED_CAST")
-			NowPlayingScene(
-				key = lastEntry.contentKey as T,
+		val lastEntry = entries.lastOrNull() ?: return null
+		val metadata = lastEntry.metadata[MetadataKey] ?: return null
+		return NowPlayingScene(
+				key = lastEntry.sceneKey(),
 				previousEntries = entries.dropLast(1),
 				overlaidEntries = entries.dropLast(1),
 				entry = lastEntry,
-				modalBottomSheetProperties = properties,
-				sheetMaxWidth = sheetMaxWidth ?: BottomSheetDefaults.SheetMaxWidth,
+				modalBottomSheetProperties = metadata.properties,
+				sheetMaxWidth = metadata.maxWidth,
 				onBack = onBack,
-				isTransparent = isTransparent
+				isTransparent = metadata.isTransparent
 			)
-		}
 	}
 
 	companion object {
@@ -117,17 +114,27 @@ class NowPlayingSceneStrategy<T : Any> : SceneStrategy<T> {
 			modalBottomSheetProperties: ModalBottomSheetProperties = ModalBottomSheetProperties(),
 			maxWidth: Dp = BottomSheetDefaults.SheetMaxWidth,
 			isTransparent: Boolean = false
-		): Map<String, Any> = mapOf(
-			PROPERTIES_KEY to modalBottomSheetProperties,
-			MAX_WIDTH_KEY to maxWidth,
-			IS_TRANSPARENT_KEY to isTransparent
-		)
+		) = metadata {
+			put(
+				MetadataKey,
+				NowPlayingBottomSheetMetadata(
+					properties = modalBottomSheetProperties,
+					maxWidth = maxWidth,
+					isTransparent = isTransparent
+				)
+			)
+		}
 
-		internal const val PROPERTIES_KEY = "properties"
-		internal const val MAX_WIDTH_KEY = "max_width"
-		internal const val IS_TRANSPARENT_KEY = "is_transparent"
+		object MetadataKey : NavMetadataKey<NowPlayingBottomSheetMetadata>
 	}
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+data class NowPlayingBottomSheetMetadata(
+	val properties: ModalBottomSheetProperties,
+	val maxWidth: Dp,
+	val isTransparent: Boolean
+)
 
 @Composable
 private fun colorSchemeForCurrentSong(): ColorScheme? {

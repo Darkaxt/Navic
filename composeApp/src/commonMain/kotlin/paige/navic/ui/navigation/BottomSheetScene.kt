@@ -34,8 +34,7 @@ class BottomSheetSceneStrategy<T : Any> : SceneStrategy<T> {
 		val properties = entry.metadata[MetadataKey] ?: return null
 
 		return object : OverlayScene<T> {
-			@Suppress("UNCHECKED_CAST")
-			override val key = entry.contentKey as T
+			override val key = entry.sceneKey()
 			override val entries = listOf(entry)
 			override val previousEntries = entries.dropLast(1)
 			override val overlaidEntries = entries.dropLast(1)
