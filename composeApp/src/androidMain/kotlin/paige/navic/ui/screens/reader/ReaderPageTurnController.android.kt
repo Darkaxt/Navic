@@ -166,6 +166,22 @@ internal class ReaderPageTurnController(
 		slideCoordinator = null
 	}
 
+	fun synchronizeVisualPageIndex(pageIndex: Int?) {
+		if (destroyed || pageIndex == null || pageIndex < 0) return
+		if (slideCoordinator?.visualPageIndex == pageIndex) return
+		activeSettleToken = null
+		cancelPrewarm()
+		cancelPreparation()
+		removePreparationShield()
+		state.cancel()
+		animation?.cancel()
+		animation = null
+		detachOverlay(schedulePrewarm = false)
+		bundleSource.invalidate("external-page-relocation")
+		slideCoordinator = ReaderPageSlideCoordinator(pageIndex)
+		Logger.i(ReaderPageTurnControllerTag, "Page-turn visual index synchronized page=$pageIndex")
+	}
+
 	private fun begin(deltaX: Float) {
 		cancelPrewarm()
 		releasedWhilePreparing = false

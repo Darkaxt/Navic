@@ -506,6 +506,22 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun authoritativeReaderLocationReanchorsTheNativeSlideCoordinator() {
+		val platform = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val root = readerCommonUiFile("ReaderRoot.kt").readText()
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+
+		assertContains(platform, "pageTurnVisualPageIndex: Int?")
+		assertContains(root, "pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex")
+		assertContains(host, "setPageTurnVisualPageIndex(pageTurnVisualPageIndex)")
+		assertContains(host, "pageTurnController.synchronizeVisualPageIndex(normalized)")
+		assertContains(controller, "fun synchronizeVisualPageIndex(pageIndex: Int?)")
+		assertContains(controller, "slideCoordinator?.visualPageIndex == pageIndex")
+		assertContains(controller, "ReaderPageSlideCoordinator(pageIndex)")
+	}
+
+	@Test
 	fun rotationPrewarmWaitsForNativeAndJsLayoutModesToAgree() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
