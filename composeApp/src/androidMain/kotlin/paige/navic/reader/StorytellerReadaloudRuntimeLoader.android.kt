@@ -11,9 +11,10 @@ data class StorytellerReadaloudRuntime(
 	val sessionLease: ReaderSessionLease
 )
 
-class StorytellerReadaloudRuntimeLoader(
+class StorytellerReadaloudRuntimeLoader internal constructor(
 	private val fetchResourceBytes: suspend (String) -> ByteArray,
-	private val cacheRoot: File
+	private val cacheRoot: File,
+	private val archiveReadObserver: (StorytellerArchiveReadMetrics) -> Unit = {}
 ) {
 	suspend fun load(request: ReaderPublicationResourceRequest): StorytellerReadaloudRuntime {
 		require(request.kind == ReaderPublicationKind.Readaloud) {
@@ -23,14 +24,22 @@ class StorytellerReadaloudRuntimeLoader(
 			fetchResourceBytes = fetchResourceBytes,
 			cacheRoot = cacheRoot
 		).resolve(request)
-		val epubBytes = resolved.publicationFile.readBytes()
-		val readaloudPackage = StorytellerMediaOverlayParser.parsePackage(epubBytes)
-		val cache = StorytellerReadaloudAudioCache.materialize(
-			sessionId = resolved.cacheKey,
-			epubBytes = epubBytes,
-			readaloudPackage = readaloudPackage,
-			cacheRoot = cacheRoot
-		)
+		val archiveMetrics = StorytellerArchiveReadMetrics()
+		val (readaloudPackage, cache) = try {
+			StorytellerEpubArchive.open(resolved.publicationFile, archiveMetrics).use { archive ->
+				val parsed = StorytellerMediaOverlayParser.parsePackage(archive)
+				parsed to StorytellerReadaloudAudioCache.materialize(
+					sessionId = resolved.cacheKey,
+					archive = archive,
+					publicationFile = resolved.publicationFile,
+					publicationUrl = resolved.publicationUrl,
+					readaloudPackage = parsed,
+					cacheRoot = cacheRoot
+				)
+			}
+		} finally {
+			archiveReadObserver(archiveMetrics)
+		}
 		val session = readaloudPackage.toReadaloudAudioSession(
 			id = request.bookId,
 			title = request.title,

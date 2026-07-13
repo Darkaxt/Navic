@@ -5,8 +5,7 @@ import org.w3c.dom.Element
 import org.w3c.dom.Node
 import org.w3c.dom.NodeList
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.util.zip.ZipInputStream
+import java.nio.file.Files
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.roundToLong
 
@@ -14,10 +13,12 @@ object StorytellerMediaOverlayParser {
 	fun parse(epubBytes: ByteArray): MediaOverlayTimeline =
 		parsePackage(epubBytes).timeline
 
-	fun parsePackage(epubBytes: ByteArray): StorytellerReadaloudPackage {
-		val entries = epubEntries(epubBytes)
-		val opfPath = opfPath(entries)
-		val opf = entries[opfPath]?.parseXml()
+	fun parsePackage(epubBytes: ByteArray): StorytellerReadaloudPackage =
+		withTemporaryArchive(epubBytes) { archive -> parsePackage(archive) }
+
+	internal fun parsePackage(archive: StorytellerEpubArchive): StorytellerReadaloudPackage {
+		val opfPath = opfPath(archive)
+		val opf = archive.readMetadata(opfPath)?.parseXml()
 			?: return StorytellerReadaloudPackage(MediaOverlayTimeline(emptyList()))
 		val manifestItems = opf.elements("item")
 			.mapNotNull { item ->
@@ -34,19 +35,29 @@ object StorytellerMediaOverlayParser {
 		val durationMsByRef = opf.mediaDurationMsByRef()
 		val packageAudioMetadata = opf.audioMetadata()
 		val audioMetadataByRef = opf.audioMetadataByRef()
-		val textDocuments = entries.textDocuments()
 		val referencedSmilIds = manifestItems.mapNotNull(OpfManifestItem::mediaOverlay).toSet()
 		val smilItems = if (referencedSmilIds.isNotEmpty()) {
 			referencedSmilIds.mapNotNull(manifestById::get)
 		} else {
 			manifestItems.filter { item -> item.mediaType.equals("application/smil+xml", ignoreCase = true) }
 		}
-		val clips = smilItems.flatMap { item ->
-			parseSmilClips(
+		val parsedClips = smilItems.flatMap { item ->
+			parseSmilClipSeeds(
 				smilPath = item.href,
-				smil = entries[item.href]?.parseXml() ?: return@flatMap emptyList(),
-				textDocuments = textDocuments
+				smil = archive.readMetadata(item.href)?.parseXml() ?: return@flatMap emptyList()
 			)
+		}
+		val textDocuments = parsedClips
+			.map(ParsedMediaOverlayClip::textResource)
+			.distinct()
+			.mapNotNull { textPath ->
+				runCatching { archive.readMetadata(textPath)?.parseXml() }
+					.getOrNull()
+					?.let { document -> normalizedMediaOverlayResource(textPath) to document }
+			}
+			.toMap()
+		val clips = parsedClips.map { parsed ->
+			parsed.toMediaOverlayClip(textDocuments)
 		}.sortedWith(
 			compareBy<MediaOverlayClip> { clip -> clip.audioResource }
 				.thenBy { clip -> clip.startSeconds }
@@ -97,11 +108,10 @@ object StorytellerMediaOverlayParser {
 		)
 	}
 
-	private fun parseSmilClips(
+	private fun parseSmilClipSeeds(
 		smilPath: String,
-		smil: Document,
-		textDocuments: Map<String, Document>
-	): List<MediaOverlayClip> =
+		smil: Document
+	): List<ParsedMediaOverlayClip> =
 		smil.elements("par").mapNotNull { par ->
 			val text = par.childElement("text") ?: return@mapNotNull null
 			val audio = par.childElement("audio") ?: return@mapNotNull null
@@ -110,43 +120,39 @@ object StorytellerMediaOverlayParser {
 			val (textResource, fragmentId) = splitResourceFragment(resolveRelativePath(smilPath, textSrc))
 			val startSeconds = audio.attr("clipBegin")?.let(::parseClockSeconds) ?: return@mapNotNull null
 			val endSeconds = audio.attr("clipEnd")?.let(::parseClockSeconds) ?: return@mapNotNull null
-			MediaOverlayClip(
+			ParsedMediaOverlayClip(
 				audioResource = resolveRelativePath(smilPath, audioSrc),
 				textResource = textResource,
 				fragmentId = fragmentId,
 				startSeconds = startSeconds,
 				endSeconds = endSeconds,
-				label = textDocuments.fragmentLabel(textResource, fragmentId)
-					?: par.attr("id")
-					?: fragmentId
+				fallbackLabel = par.attr("id") ?: fragmentId
 			)
 		}
 
-	private fun epubEntries(epubBytes: ByteArray): Map<String, ByteArray> =
-		buildMap {
-			ZipInputStream(ByteArrayInputStream(epubBytes)).use { zip ->
-				while (true) {
-					val entry = zip.nextEntry ?: break
-					if (!entry.isDirectory) {
-						val output = ByteArrayOutputStream()
-						zip.copyTo(output)
-						put(normalizedMediaOverlayResource(entry.name), output.toByteArray())
-					}
-					zip.closeEntry()
-				}
-			}
-		}
-
-	private fun opfPath(entries: Map<String, ByteArray>): String {
-		val container = entries["META-INF/container.xml"]?.parseXml()
+	private fun opfPath(archive: StorytellerEpubArchive): String {
+		val container = archive.readMetadata("META-INF/container.xml")?.parseXml()
 		val rootFilePath = container
 			?.elements("rootfile")
 			?.firstOrNull()
 			?.attr("full-path")
 			?.let(::normalizedMediaOverlayResource)
 		return rootFilePath
-			?: entries.keys.firstOrNull { it.endsWith(".opf", ignoreCase = true) }
+			?: archive.entryNames.firstOrNull { it.endsWith(".opf", ignoreCase = true) }
 			.orEmpty()
+	}
+
+	private inline fun <T> withTemporaryArchive(
+		epubBytes: ByteArray,
+		block: (StorytellerEpubArchive) -> T
+	): T {
+		val temporaryFile = Files.createTempFile("navic-storyteller-parser-", ".epub").toFile()
+		return try {
+			temporaryFile.outputStream().use { output -> output.write(epubBytes) }
+			StorytellerEpubArchive.open(temporaryFile).use(block)
+		} finally {
+			temporaryFile.delete()
+		}
 	}
 
 	private fun ByteArray.parseXml(): Document =
@@ -181,14 +187,6 @@ object StorytellerMediaOverlayParser {
 
 	private fun Element.attr(name: String): String? =
 		getAttribute(name).trim().takeIf { it.isNotEmpty() }
-
-	private fun Map<String, ByteArray>.textDocuments(): Map<String, Document> =
-		mapNotNull { (path, bytes) ->
-			path.takeIf { it.endsWith(".xhtml", ignoreCase = true) || it.endsWith(".html", ignoreCase = true) }
-				?.let { textPath ->
-					runCatching { bytes.parseXml() }.getOrNull()?.let { document -> textPath to document }
-				}
-		}.toMap()
 
 	private fun Map<String, Document>.fragmentLabel(
 		textResource: String,
@@ -339,6 +337,25 @@ object StorytellerMediaOverlayParser {
 		val mediaType: String?,
 		val mediaOverlay: String?
 	)
+
+	private data class ParsedMediaOverlayClip(
+		val audioResource: String,
+		val textResource: String,
+		val fragmentId: String?,
+		val startSeconds: Double,
+		val endSeconds: Double,
+		val fallbackLabel: String?
+	) {
+		fun toMediaOverlayClip(textDocuments: Map<String, Document>): MediaOverlayClip =
+			MediaOverlayClip(
+				audioResource = audioResource,
+				textResource = textResource,
+				fragmentId = fragmentId,
+				startSeconds = startSeconds,
+				endSeconds = endSeconds,
+				label = textDocuments.fragmentLabel(textResource, fragmentId) ?: fallbackLabel
+			)
+	}
 
 	private data class StorytellerOpfAudioMetadata(
 		val chapterLabel: String? = null,

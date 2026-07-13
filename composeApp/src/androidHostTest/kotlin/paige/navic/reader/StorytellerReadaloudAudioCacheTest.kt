@@ -6,6 +6,9 @@ import java.util.zip.ZipOutputStream
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class StorytellerReadaloudAudioCacheTest {
@@ -14,26 +17,111 @@ class StorytellerReadaloudAudioCacheTest {
 		val epubBytes = storytellerEpubWithAudioFixture()
 		val readaloudPackage = StorytellerMediaOverlayParser.parsePackage(epubBytes)
 		val cacheRoot = createTempDirectory("navic-readaloud-cache").toFile()
+		val publicationFile = cacheRoot.resolve("reader-publications/book/publication.epub")
+		publicationFile.parentFile?.mkdirs()
+		publicationFile.writeBytes(epubBytes)
+		val publicationUrl = "https://appassets.androidplatform.net/reader-cache/reader-publications/book/publication.epub"
 
-		val cache = StorytellerReadaloudAudioCache.materialize(
-			sessionId = "book/3693",
-			epubBytes = epubBytes,
-			readaloudPackage = readaloudPackage,
-			cacheRoot = cacheRoot
-		)
+		val cache = StorytellerEpubArchive.open(publicationFile).use { archive ->
+			StorytellerReadaloudAudioCache.materialize(
+				sessionId = "book/3693",
+				archive = archive,
+				publicationFile = publicationFile,
+				publicationUrl = publicationUrl,
+				readaloudPackage = readaloudPackage,
+				cacheRoot = cacheRoot
+			)
+		}
 
 		val uri = cache.audioHrefResolver("EPUB/Audio/chapter1.mp3")
 		assertTrue(uri.startsWith("file:"))
-		assertTrue(cache.publicationUri.startsWith("https://appassets.androidplatform.net/reader-cache/storyteller-readaloud/"))
+		assertEquals(publicationUrl, cache.publicationUri)
+		assertSame(publicationFile, cache.publicationFile)
 		assertTrue(cache.publicationFile.exists())
 		assertEquals(epubBytes.size.toLong(), cache.publicationFile.length())
 		val cachedFile = cache.cachedAudioFiles.single()
 		assertTrue(cachedFile.exists())
+		assertEquals("v2", cachedFile.parentFile?.name)
 		assertEquals("AUDIO_BYTES", cachedFile.readText())
 		assertEquals(cachedFile.toURI().toString(), uri)
-		val sessionDirectory = cache.publicationFile.parentFile!!
+		val sessionDirectory = cachedFile.parentFile!!.parentFile!!
 		assertEquals(1, cache.sessionLease.release())
 		assertTrue(!sessionDirectory.exists())
+		assertTrue(publicationFile.exists())
+	}
+
+	@Test
+	fun promotesVersionedCacheCleansLegacyAndReusesAudioWithoutRestreaming() {
+		val root = createTempDirectory("navic-readaloud-version").toFile()
+		val publicationFile = root.resolve("reader-publications/book/publication.epub")
+		publicationFile.parentFile?.mkdirs()
+		publicationFile.writeBytes(storytellerEpubWithAudioFixture())
+		val sessionDirectory = root.resolve("storyteller-readaloud/book")
+		val legacyAudio = sessionDirectory.resolve("legacy-audio.mp3")
+		legacyAudio.parentFile?.mkdirs()
+		legacyAudio.writeText("LEGACY")
+		val firstMetrics = StorytellerArchiveReadMetrics()
+
+		val first = StorytellerEpubArchive.open(publicationFile, firstMetrics).use { archive ->
+			val readaloudPackage = StorytellerMediaOverlayParser.parsePackage(archive)
+			StorytellerReadaloudAudioCache.materialize(
+				sessionId = "book",
+				archive = archive,
+				publicationFile = publicationFile,
+				publicationUrl = "https://appassets.androidplatform.net/reader-cache/reader-publications/book/publication.epub",
+				readaloudPackage = readaloudPackage,
+				cacheRoot = root
+			)
+		}
+
+		assertFalse(legacyAudio.exists())
+		assertEquals(listOf("EPUB/Audio/chapter1.mp3"), firstMetrics.streamedEntryNames)
+		assertEquals("v2", first.cachedAudioFiles.single().parentFile?.name)
+		val secondMetrics = StorytellerArchiveReadMetrics()
+		val second = StorytellerEpubArchive.open(publicationFile, secondMetrics).use { archive ->
+			val readaloudPackage = StorytellerMediaOverlayParser.parsePackage(archive)
+			StorytellerReadaloudAudioCache.materialize(
+				sessionId = "book",
+				archive = archive,
+				publicationFile = publicationFile,
+				publicationUrl = first.publicationUrl,
+				readaloudPackage = readaloudPackage,
+				cacheRoot = root
+			)
+		}
+
+		assertEquals(first.cachedAudioFiles.single(), second.cachedAudioFiles.single())
+		assertEquals(emptyList(), secondMetrics.streamedEntryNames)
+	}
+
+	@Test
+	fun failedExtractionKeepsLegacyCacheAndRemovesPendingOutput() {
+		val root = createTempDirectory("navic-readaloud-failure").toFile()
+		val publicationFile = root.resolve("reader-publications/book/publication.epub")
+		publicationFile.parentFile?.mkdirs()
+		publicationFile.writeBytes(storytellerEpubWithAudioFixture())
+		val sessionDirectory = root.resolve("storyteller-readaloud/book")
+		val legacyAudio = sessionDirectory.resolve("legacy-audio.mp3")
+		legacyAudio.parentFile?.mkdirs()
+		legacyAudio.writeText("LEGACY")
+		val archive = StorytellerEpubArchive.open(publicationFile)
+		val readaloudPackage = StorytellerMediaOverlayParser.parsePackage(archive)
+		archive.close()
+
+		assertFails {
+			StorytellerReadaloudAudioCache.materialize(
+				sessionId = "book",
+				archive = archive,
+				publicationFile = publicationFile,
+				publicationUrl = "https://appassets.androidplatform.net/reader-cache/reader-publications/book/publication.epub",
+				readaloudPackage = readaloudPackage,
+				cacheRoot = root
+			)
+		}
+
+		assertEquals("LEGACY", legacyAudio.readText())
+		assertFalse(sessionDirectory.resolve("v2").exists())
+		assertTrue(sessionDirectory.listFiles().orEmpty().none { it.name.startsWith("v2.pending-") })
 	}
 
 	private fun storytellerEpubWithAudioFixture(): ByteArray {

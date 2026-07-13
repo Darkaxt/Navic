@@ -14,6 +14,7 @@ class StorytellerReadaloudRuntimeLoaderTest {
 	@Test
 	fun opensStorytellerGeneratedReadaloudEpubAsLocalReaderPublicationAndMedia3Plan() = runBlocking {
 		val fetchedPaths = mutableListOf<String>()
+		val archiveMetrics = mutableListOf<StorytellerArchiveReadMetrics>()
 		val epubBytes = storytellerEpubWithSyncedAudioFixture()
 		val cacheRoot = createTempDirectory("navic-storyteller-open").toFile()
 		val loader = StorytellerReadaloudRuntimeLoader(
@@ -21,7 +22,8 @@ class StorytellerReadaloudRuntimeLoaderTest {
 				fetchedPaths += path
 				epubBytes
 			},
-			cacheRoot = cacheRoot
+			cacheRoot = cacheRoot,
+			archiveReadObserver = archiveMetrics::add
 		)
 		val request = ReaderPublicationResourceRequest(
 			bookId = "3693",
@@ -45,7 +47,9 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		)
 
 		assertEquals(listOf("/opds/books/3693/resources/readaloud-1"), fetchedPaths)
-		assertTrue(runtime.publicationUrl.startsWith("https://appassets.androidplatform.net/reader-cache/storyteller-readaloud/"))
+		assertEquals(1, archiveMetrics.single().archiveOpenCount)
+		assertEquals(listOf("EPUB/Audio/chapter1.mp3"), archiveMetrics.single().streamedEntryNames)
+		assertTrue(runtime.publicationUrl.startsWith("https://appassets.androidplatform.net/reader-cache/reader-publications/"))
 		assertNotEquals(request.sourceUrl, runtime.publicationUrl)
 		assertEquals(2, runtime.timeline.clips.size)
 		assertEquals(ReaderPublicationKind.Readaloud, runtime.playbackPlan.kind)
@@ -92,21 +96,25 @@ class StorytellerReadaloudRuntimeLoaderTest {
 			),
 			openStep.commands.map { it.command }
 		)
+		assertEquals(1, cacheRoot.walkTopDown().count { file -> file.isFile && file.extension == "epub" })
 		assertEquals(2, runtime.sessionLease.release())
 		assertTrue(!cacheRoot.resolve("reader-publications/${runtime.cacheKey}").exists())
 		assertTrue(!cacheRoot.resolve("storyteller-readaloud/${runtime.cacheKey}").exists())
+		assertEquals(0, cacheRoot.walkTopDown().count { file -> file.isFile && file.extension == "epub" })
 	}
 
 	@Test
 	fun reusesCachedStorytellerReadaloudPackageWithoutFetchingAgain() = runBlocking {
 		var fetchCount = 0
+		val archiveMetrics = mutableListOf<StorytellerArchiveReadMetrics>()
 		val epubBytes = storytellerEpubWithSyncedAudioFixture()
 		val loader = StorytellerReadaloudRuntimeLoader(
 			fetchResourceBytes = {
 				fetchCount += 1
 				epubBytes
 			},
-			cacheRoot = createTempDirectory("navic-storyteller-cache").toFile()
+			cacheRoot = createTempDirectory("navic-storyteller-cache").toFile(),
+			archiveReadObserver = archiveMetrics::add
 		)
 		val request = ReaderPublicationResourceRequest(
 			bookId = "3693",
@@ -121,6 +129,11 @@ class StorytellerReadaloudRuntimeLoaderTest {
 		val second = loader.load(request)
 
 		assertEquals(1, fetchCount)
+		assertEquals(2, archiveMetrics.size)
+		assertEquals(1, archiveMetrics[0].archiveOpenCount)
+		assertEquals(1, archiveMetrics[1].archiveOpenCount)
+		assertEquals(listOf("EPUB/Audio/chapter1.mp3"), archiveMetrics[0].streamedEntryNames)
+		assertEquals(emptyList(), archiveMetrics[1].streamedEntryNames)
 		assertEquals(false, first.fromCache)
 		assertEquals(true, second.fromCache)
 		assertEquals(first.publicationUrl, second.publicationUrl)
