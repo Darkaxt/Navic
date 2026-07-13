@@ -233,6 +233,8 @@ Fetch `fork/master`. If it advanced, rebase this isolated branch, inspect every 
 
 Integration evidence: the version verifier accepted `v1.0.11-iota16`; `git diff --check` passed; no malformed iota, kappa, or lambda tag exists; `v1.0.11-iota16` was absent remotely. After fetching, the branch was 3 commits ahead and 0 behind `fork/master`, so no rebase was required.
 
+Post-bump evidence: the focused cache contract and both Android assemblies passed. Debug APK SHA-256 is `c06e985af060692af93819c6e3e64d8e2b9f74f99066ad0fdeca8979d747cdfa`; reader-dev APK SHA-256 is `519340e17b6dfa81fd532cd7aee5120888e1f0faa384a6798496ee7c6fdea983`. Both report `543 / v1.0.11-iota16` and pass packaged vendor 30/30 plus attribution.
+
 - [ ] **Step 4: Commit and publish Android only**
 
 Push the integrated candidate to public `master`, create annotated tag `v1.0.11-iota16`, and invoke `scripts/publish-github-release.ps1` with `-AllowPublicRelease`, a B8 readiness note, and `-SkipPush`. The hyphenated prerelease tag must leave all iOS jobs skipped.
