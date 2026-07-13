@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -23,6 +24,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.binderyApiKeyHeaders
+import paige.navic.domain.repositories.binderyRequestHeadersForUrl
 import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider
@@ -48,9 +50,15 @@ class ReadaloudPlaybackService : MediaSessionService(), KoinComponent {
 		val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
 			.build()
 			.apply { setSmallIcon(resourceProvider.icNavic) }
-		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-			.setDefaultRequestProperties(binderyApiKeyHeaders(preferenceManager.binderyApiKey))
-		val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
+		val baseDataSourceFactory = DefaultDataSource.Factory(this, DefaultHttpDataSource.Factory())
+		val dataSourceFactory = ResolvingDataSource.Factory(baseDataSourceFactory) { dataSpec ->
+			val headers = binderyRequestHeadersForUrl(
+				baseUrl = preferenceManager.binderyOpdsBaseUrl,
+				url = dataSpec.uri.toString(),
+				requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+			)
+			dataSpec.withAdditionalHeaders(headers)
+		}
 		val player = ExoPlayer.Builder(this)
 			.setLoadControl(loadControl)
 			.setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
@@ -82,7 +90,15 @@ class ReadaloudPlaybackService : MediaSessionService(), KoinComponent {
 		exoPlayer = player
 		val mediaSessionBuilder = MediaSession.Builder(this, player)
 			.setId(sessionId)
-			.setBitmapLoader(CoilBitmapLoader(this, { binderyApiKeyHeaders(preferenceManager.binderyApiKey) }))
+			.setBitmapLoader(
+				CoilBitmapLoader(this) { uri ->
+					binderyRequestHeadersForUrl(
+						baseUrl = preferenceManager.binderyOpdsBaseUrl,
+						url = uri.toString(),
+						requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+					)
+				}
+			)
 		sessionPendingIntent()?.let(mediaSessionBuilder::setSessionActivity)
 		mediaSession = mediaSessionBuilder.build()
 	}

@@ -13,6 +13,7 @@ import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.domain.repositories.binderyRequestHeadersForUrl
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReadaloudMediaItemDescriptor
 import paige.navic.reader.ReadaloudPlaybackPosition
@@ -149,8 +150,18 @@ fun binderyAudiobookPlaybackPlan(
 		readingOrder = absoluteReadingOrder,
 		kind = ReaderPublicationKind.Readaloud
 	).toReadaloudPlaybackPlan(
-		requestHeaders = requestHeaders,
 		playbackSpeed = playbackSpeed
+	)
+	val scopedPlan = basePlan.copy(
+		mediaItems = basePlan.mediaItems.map { item ->
+			item.copy(
+				requestHeaders = binderyRequestHeadersForUrl(
+					baseUrl = opdsBaseUrl,
+					url = item.uri,
+					requestHeaders = requestHeaders
+				)
+			)
+		}
 	)
 	val progressBookIds = listOfNotNull(
 		manifest.id?.trim()?.takeIf { it.isNotEmpty() },
@@ -158,13 +169,13 @@ fun binderyAudiobookPlaybackPlan(
 	).toSet()
 	val start = resumeProgress
 		?.takeIf { progress -> progress.bookId in progressBookIds && progress.versionRowId == versionRowId }
-		?.let { progress -> binderyAudiobookStartPosition(progress, basePlan.mediaItems) }
+		?.let { progress -> binderyAudiobookStartPosition(progress, scopedPlan.mediaItems) }
 	return start?.let { target ->
-		basePlan.copy(
+		scopedPlan.copy(
 			startTrackIndex = target.trackIndex,
 			startPositionMs = target.positionMs
 		)
-	} ?: basePlan
+	} ?: scopedPlan
 }
 
 fun selectedBinderyAudiobookReadingOrder(

@@ -14,6 +14,29 @@ import paige.navic.reader.ReadaloudPlaybackPosition
 
 class BinderyAudiobookPlayerPolicyTest {
 	@Test
+	fun playbackPlanScopesApiKeyHeadersToEachResolvedTrackOrigin() {
+		val headers = mapOf("X-Api-Key" to "secret")
+		val manifest = BinderyManifest(
+			id = "book-1",
+			title = "Book",
+			readingOrder = listOf(
+				audioItem("chapters/one.mp3", "Chapter 1", "file-one"),
+				audioItem("https://cdn.example.net/two.mp3", "Chapter 2", "file-one")
+			)
+		)
+
+		val plan = binderyAudiobookPlaybackPlan(
+			manifest = manifest,
+			versionRowId = "audiobook:file-one",
+			opdsBaseUrl = "https://bindery.example.com/opds",
+			requestHeaders = headers
+		)
+
+		assertEquals(headers, plan.mediaItems[0].requestHeaders)
+		assertEquals(emptyMap(), plan.mediaItems[1].requestHeaders)
+	}
+
+	@Test
 	fun mainTransportUsesTimeSkipsAroundPlayPause() {
 		assertEquals(
 			listOf(

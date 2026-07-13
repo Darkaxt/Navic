@@ -23,7 +23,7 @@ import paige.navic.util.core.toNetworkHeaders
 @UnstableApi
 class CoilBitmapLoader(
 	context: Context,
-	private val requestHeaders: () -> Map<String, String> = { emptyMap() }
+	private val requestHeaders: (Uri) -> Map<String, String> = { emptyMap() }
 ) : BitmapLoader {
 	private val applicationContext = context.applicationContext
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -48,7 +48,7 @@ class CoilBitmapLoader(
 			val result = runCatching {
 				val request = ImageRequest.Builder(applicationContext)
 					.data(uri)
-					.httpHeaders(requestHeaders().toNetworkHeaders())
+					.httpHeaders(requestHeaders(uri).toNetworkHeaders())
 					.apply {
 						uri.getQueryParameter("cacheKey")?.let { key ->
 							memoryCacheKey(key)
