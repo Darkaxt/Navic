@@ -17,6 +17,25 @@ interface BinderyMetadataCacheDao {
 	@Query("DELETE FROM BinderyMetadataCacheEntity WHERE baseUrl = :baseUrl")
 	suspend fun clearBaseUrl(baseUrl: String)
 
+	@Query(
+		"""
+		DELETE FROM BinderyMetadataCacheEntity
+		WHERE baseUrl = :baseUrl
+		  AND payloadType = :payloadType
+		  AND (
+		    :path IS NULL
+		    OR (:pathPrefix = 0 AND path = :path)
+		    OR (:pathPrefix = 1 AND substr(path, 1, length(:path)) = :path)
+		  )
+		"""
+	)
+	suspend fun clearPayload(
+		baseUrl: String,
+		payloadType: String,
+		path: String?,
+		pathPrefix: Boolean
+	)
+
 	@Query("DELETE FROM BinderyMetadataCacheEntity")
 	suspend fun clearAll()
 }

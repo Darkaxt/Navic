@@ -156,12 +156,13 @@ class BinderyRepositoryProgressCacheTest {
 	@Test
 	fun progressSaveUsesConfiguredOpdsUrlAndPreservesReadaloudResourcePosition() = runBlocking {
 		val apiClient = FakeBinderyApiClient()
+		val metadataCache = RecordingBinderyMetadataCache()
 		val preferences = PreferenceManager(MapSettings()).apply {
 			binderyEnabled = true
 			binderyOpdsBaseUrl = " https://bindery.example.com/opds/ "
 			binderyApiKey = " secret "
 		}
-		val repository = BinderyRepository(preferences, apiClient)
+		val repository = BinderyRepository(preferences, apiClient, metadataCache)
 		val progress = BinderyReadingProgress(
 			bookId = "3693",
 			alias = "darko",
@@ -179,6 +180,16 @@ class BinderyRepositoryProgressCacheTest {
 		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.progressPutBaseUrls)
 		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.progressPutHeaders)
 		assertEquals(listOf(progress), apiClient.progressPutPayloads)
+		assertEquals(
+			listOf<Triple<String, String, String?>>(
+				Triple(
+					"https://bindery.example.com/opds",
+					BinderyMetadataPayloadType.BookSync,
+					"3693"
+				)
+			),
+			metadataCache.clearedPayloads
+		)
 	}
 
 	@Test

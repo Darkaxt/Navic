@@ -77,6 +77,13 @@ private class FakeBinderyMetadataCacheDao : BinderyMetadataCacheDao {
 
 	override suspend fun upsert(entity: BinderyMetadataCacheEntity) = Unit
 
+	override suspend fun clearPayload(
+		baseUrl: String,
+		payloadType: String,
+		path: String?,
+		pathPrefix: Boolean
+	) = Unit
+
 	override suspend fun clearBaseUrl(baseUrl: String) = Unit
 
 	override suspend fun clearAll() = Unit

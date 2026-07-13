@@ -22,6 +22,12 @@ internal object BinderyMetadataPayloadType {
 interface BinderyMetadataCache {
 	suspend fun get(cacheKey: String): BinderyMetadataCacheRecord?
 	suspend fun put(record: BinderyMetadataCacheRecord)
+	suspend fun clearPayload(
+		baseUrl: String,
+		payloadType: String,
+		path: String? = null,
+		pathPrefix: Boolean = false
+	)
 	suspend fun clearBaseUrl(baseUrl: String)
 }
 
@@ -37,6 +43,12 @@ data class BinderyMetadataCacheRecord(
 object NoOpBinderyMetadataCache : BinderyMetadataCache {
 	override suspend fun get(cacheKey: String): BinderyMetadataCacheRecord? = null
 	override suspend fun put(record: BinderyMetadataCacheRecord) = Unit
+	override suspend fun clearPayload(
+		baseUrl: String,
+		payloadType: String,
+		path: String?,
+		pathPrefix: Boolean
+	) = Unit
 	override suspend fun clearBaseUrl(baseUrl: String) = Unit
 }
 
@@ -48,6 +60,15 @@ class RoomBinderyMetadataCache(
 
 	override suspend fun put(record: BinderyMetadataCacheRecord) {
 		dao.upsert(record.toEntity())
+	}
+
+	override suspend fun clearPayload(
+		baseUrl: String,
+		payloadType: String,
+		path: String?,
+		pathPrefix: Boolean
+	) {
+		dao.clearPayload(baseUrl, payloadType, path, pathPrefix)
 	}
 
 	override suspend fun clearBaseUrl(baseUrl: String) {

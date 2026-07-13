@@ -263,12 +263,27 @@ internal class FakeBinderyApiClient(
 internal class RecordingBinderyMetadataCache : BinderyMetadataCache {
 	val records = linkedMapOf<String, BinderyMetadataCacheRecord>()
 	val clearedBaseUrls = mutableListOf<String>()
+	val clearedPayloads = mutableListOf<Triple<String, String, String?>>()
 
 	override suspend fun get(cacheKey: String): BinderyMetadataCacheRecord? =
 		records[cacheKey]
 
 	override suspend fun put(record: BinderyMetadataCacheRecord) {
 		records[record.cacheKey] = record
+	}
+
+	override suspend fun clearPayload(
+		baseUrl: String,
+		payloadType: String,
+		path: String?,
+		pathPrefix: Boolean
+	) {
+		clearedPayloads += Triple(baseUrl, payloadType, path)
+		records.entries.removeAll { (_, record) ->
+			record.baseUrl == baseUrl &&
+				record.payloadType == payloadType &&
+				(path == null || if (pathPrefix) record.path.startsWith(path) else record.path == path)
+		}
 	}
 
 	override suspend fun clearBaseUrl(baseUrl: String) {

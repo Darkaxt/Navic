@@ -408,6 +408,7 @@ class BinderyRepository(
 	suspend fun putReadingProgress(progress: BinderyReadingProgress): Result<Unit> =
 		withConfiguredClient { baseUrl, headers ->
 			apiClient.putReadingProgress(baseUrl, headers, progress)
+			invalidateBinderyProgressMutation(baseUrl, progress.bookId)
 		}
 
 	suspend fun getBookFindings(bookId: String): Result<BinderyCatalog> =
@@ -517,7 +518,7 @@ class BinderyRepository(
 		Logger.i(TAG, "Bindery action request path=$label")
 		return withConfiguredClient { baseUrl, headers ->
 			apiClient.performAction(baseUrl, headers, path)
-			metadataCache.clearBaseUrl(baseUrl)
+			invalidateBinderyAction(baseUrl, path)
 			Logger.i(TAG, "Bindery action completed path=$label")
 		}.onFailure { error ->
 			Logger.w(TAG, "Bindery action failed path=$label", error)
@@ -655,6 +656,48 @@ class BinderyRepository(
 
 	private fun configuredBinderyCacheFingerprint(): String =
 		binderyApiKeyFingerprint(preferenceManager.binderyApiKey)
+
+	private suspend fun invalidateBinderyProgressMutation(baseUrl: String, bookId: String) {
+		val normalizedBookId = bookId.trim().takeIf { it.isNotEmpty() }
+		if (normalizedBookId == null) {
+			metadataCache.clearBaseUrl(baseUrl)
+			return
+		}
+		metadataCache.clearPayload(
+			baseUrl = baseUrl,
+			payloadType = BinderyMetadataPayloadType.BookSync,
+			path = normalizedBookId
+		)
+	}
+
+	private suspend fun invalidateBinderyAction(baseUrl: String, path: String) {
+		val bookId = path.substringBefore('?')
+			.trim('/')
+			.split('/')
+			.let { segments ->
+				segments.getOrNull(2).takeIf {
+					segments.getOrNull(0) == "opds" && segments.getOrNull(1) == "books"
+				}
+			}
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+		if (bookId == null) {
+			metadataCache.clearBaseUrl(baseUrl)
+			return
+		}
+
+		metadataCache.clearPayload(baseUrl, BinderyMetadataPayloadType.Catalog)
+		metadataCache.clearPayload(baseUrl, BinderyMetadataPayloadType.BookFindings)
+		metadataCache.clearPayload(baseUrl, BinderyMetadataPayloadType.Manifest, bookId)
+		metadataCache.clearPayload(baseUrl, BinderyMetadataPayloadType.Resources, bookId)
+		metadataCache.clearPayload(baseUrl, BinderyMetadataPayloadType.BookSync, bookId)
+		metadataCache.clearPayload(
+			baseUrl = baseUrl,
+			payloadType = BinderyMetadataPayloadType.AudiobookVersions,
+			path = "book:$bookId:",
+			pathPrefix = true
+		)
+	}
 
 	private fun acceptCachedWhispersyncSidecar(sidecar: WhispersyncSidecar): Boolean {
 		val rangedSegments = sidecar.timeline.segments.filter { segment ->

@@ -237,6 +237,31 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun bookActionInvalidatesOwnedMetadataWithoutPurgingTheBaseUrl() = runBlocking {
+		val metadataCache = RecordingBinderyMetadataCache()
+		val repository = configuredBinderyRepository(
+			apiClient = FakeBinderyApiClient(),
+			metadataCache = metadataCache,
+			currentTimeMillis = { 1_000L }
+		)
+
+		repository.performAction("/opds/books/3816/monitor").getOrThrow()
+
+		assertEquals(emptyList(), metadataCache.clearedBaseUrls)
+		assertEquals(
+			listOf(
+				Triple("https://bindery.example.com/opds", BinderyMetadataPayloadType.Catalog, null),
+				Triple("https://bindery.example.com/opds", BinderyMetadataPayloadType.BookFindings, null),
+				Triple("https://bindery.example.com/opds", BinderyMetadataPayloadType.Manifest, "3816"),
+				Triple("https://bindery.example.com/opds", BinderyMetadataPayloadType.Resources, "3816"),
+				Triple("https://bindery.example.com/opds", BinderyMetadataPayloadType.BookSync, "3816"),
+				Triple("https://bindery.example.com/opds", BinderyMetadataPayloadType.AudiobookVersions, "book:3816:")
+			),
+			metadataCache.clearedPayloads
+		)
+	}
+
+	@Test
 	fun resourceBytesUseConfiguredOpdsUrlAndApiKeyHeader() = runBlocking {
 		val apiClient = FakeBinderyApiClient(
 			resourceBytes = "epub bytes".encodeToByteArray()
