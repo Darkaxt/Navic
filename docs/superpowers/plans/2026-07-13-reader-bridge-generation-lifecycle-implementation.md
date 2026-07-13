@@ -22,7 +22,7 @@
 
 ### Task 1: Define bridge deactivation behavior
 
-- [ ] **Step 1: Write the failing bridge lifecycle test**
+- [x] **Step 1: Write the failing bridge lifecycle test**
 
 Add this test to `ReaderJavascriptBridgeTest`:
 
@@ -45,7 +45,7 @@ fun deactivatedBridgeDropsEventsAndRejections() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run:
 
@@ -55,7 +55,7 @@ Run:
 
 Expected: compilation fails because `ReaderJavascriptBridge.deactivate()` does not exist.
 
-- [ ] **Step 3: Implement minimal deactivation**
+- [x] **Step 3: Implement minimal deactivation**
 
 In `ReaderJavascriptBridge`, add an active flag and guard message processing:
 
@@ -76,11 +76,11 @@ fun postMessage(message: String) {
 
 This is a lifetime gate, not retry/cancellation logic. It must not add a timeout.
 
-- [ ] **Step 4: Run the focused test and confirm GREEN**
+- [x] **Step 4: Run the focused test and confirm GREEN**
 
 Run the command from Step 2. Expected: both `ReaderJavascriptBridgeTest` tests pass.
 
-- [ ] **Step 5: Commit the bridge lifetime primitive**
+- [x] **Step 5: Commit the bridge lifetime primitive**
 
 ```powershell
 git add composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderJavascriptBridgeTest.kt
@@ -89,7 +89,7 @@ git commit -m "fix(reader): deactivate retired javascript bridges"
 
 ### Task 2: Bind the bridge to the keyed WebView generation
 
-- [ ] **Step 1: Write the failing Android host contract**
+- [x] **Step 1: Write the failing Android host contract**
 
 Create `ReaderBridgeGenerationLifecycleHostContractTest.kt`. Read `ReaderEngineWebViewHost.android.kt` with `readerEngineWebViewHostFile()` and assert all of these conditions:
 
@@ -112,7 +112,7 @@ assertFalse(rendererGoneBlock.contains("view.destroy()"))
 
 The test must isolate `generationBlock`, `disposalBlock`, `effectBlock`, and `rendererGoneBlock` with `substringAfter`/`substringBefore` so ordering assertions apply to the intended code only.
 
-- [ ] **Step 2: Run host contracts and confirm RED**
+- [x] **Step 2: Run host contracts and confirm RED**
 
 Run:
 
@@ -122,7 +122,7 @@ Run:
 
 Expected: the new contract fails because bridge creation and `DisposableEffect(Unit)` currently sit outside `key(webViewGeneration)` and no interface removal exists.
 
-- [ ] **Step 3: Implement generation-local bridge ownership**
+- [x] **Step 3: Implement generation-local bridge ownership**
 
 Inside `key(webViewGeneration)`, create:
 
@@ -150,7 +150,7 @@ val bridge = remember(generation) {
 
 Add `java.util.concurrent.atomic.AtomicBoolean` and `AtomicReference` imports. Remove the old process-wide `remember`ed bridge and the fallback that called `handleReaderBridgeEvent` without a live view.
 
-- [ ] **Step 4: Implement one ordered, idempotent disposal path**
+- [x] **Step 4: Implement one ordered, idempotent disposal path**
 
 Still inside the keyed generation, define a local `disposeGeneration` function/lambda that returns whether it performed first disposal:
 
@@ -179,7 +179,7 @@ if (disposeGeneration(view) && generation == webViewGeneration) {
 
 Keep `readerRuntimeReady = false`, the existing typed renderer-loss event, and acknowledgement ledger retention unchanged.
 
-- [ ] **Step 5: Run host contracts and bridge tests and confirm GREEN**
+- [x] **Step 5: Run host contracts and bridge tests and confirm GREEN**
 
 Run:
 
@@ -189,7 +189,7 @@ Run:
 
 Expected: all tests pass and no existing acknowledgement assertion regresses.
 
-- [ ] **Step 6: Commit the generation lifecycle**
+- [x] **Step 6: Commit the generation lifecycle**
 
 ```powershell
 git add composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderBridgeGenerationLifecycleHostContractTest.kt
@@ -198,15 +198,15 @@ git commit -m "fix(android): scope reader bridge to webview generation"
 
 ### Task 3: Validate the owning reader surface
 
-- [ ] **Step 1: Run focused owning suites**
+- [x] **Step 1: Run focused owning suites**
 
 Run bridge protocol/processor, command dispatch, bridge lifecycle, host contract, runtime asset, Storyteller, Foliate adapter, controller, and coordinator tests. Record exact test counts and failures from JUnit XML.
 
-- [ ] **Step 2: Run JavaScript and governance gates**
+- [x] **Step 2: Run JavaScript and governance gates**
 
 Run `node --check` for `navic-reader.js`, the Chromium command-ack runtime, reader smoke/trace smoke, page-turn model tests, source vendor verification, vendor-verifier self-test, and source attribution verification.
 
-- [ ] **Step 3: Assemble Android candidates**
+- [x] **Step 3: Assemble Android candidates**
 
 Run:
 
@@ -216,7 +216,7 @@ Run:
 
 Verify the debug APK's 30 packaged vendor hashes and packaged acknowledgements.
 
-- [ ] **Step 4: Validate renderer recovery through ADB**
+- [x] **Step 4: Validate renderer recovery through ADB**
 
 Install `readerDev` on `emulator-5554`, open an EPUB at a non-zero locator, capture app and isolated renderer PIDs, clear logcat, and kill only the renderer. Prove:
 
@@ -229,17 +229,19 @@ Install `readerDev` on `emulator-5554`, open an EPUB at a non-zero locator, capt
 
 ### Task 4: Document, release, and clean
 
-- [ ] **Step 1: Record B6 implementation evidence**
+- [x] **Step 1: Record B6 implementation evidence**
 
 Update the QA analysis and roadmap with source, test, and device evidence. Mark B6 as validated candidate while preserving all remaining Tranche 3 work.
 
-- [ ] **Step 2: Prepare only `iota14`**
+- [x] **Step 2: Prepare only `iota14`**
 
 Set `androidApp/build.gradle.kts` to `versionCode=541` and `versionName=v1.0.11-iota14`. Run `scripts/verify-android-release-version.ps1` and prove no `kappa`/`lambda` refs or release names exist.
 
-- [ ] **Step 3: Re-fetch and integrate current public master**
+- [x] **Step 3: Re-fetch and integrate current public master**
 
 Fetch `fork`, run `git rev-list --left-right --count HEAD...fork/master`, and rebase this isolated branch only if public master advanced. Preserve concurrent ebook changes and rerun the owning gates after any rebase.
+
+Validation evidence: focused owner suites passed 168/168; JavaScript, Chromium, governance, package, assembly, and ADB renderer-recovery gates passed. The debug APK SHA-256 is `ef28d2e6c4ab0b578bfa90f053dd3db4d2d156a2e69cb5d56c390b2625cfb02c`. A fresh fetch reported `3 0` against unchanged `fork/master`, so no rebase was required. Release metadata is exactly `v1.0.11-iota14` / `541`, with no local/public `kappa` or `lambda` refs.
 
 - [ ] **Step 4: Publish and verify the Android release**
 
