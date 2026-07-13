@@ -15,12 +15,13 @@ class StorytellerReadaloudRuntimeLoaderTest {
 	fun opensStorytellerGeneratedReadaloudEpubAsLocalReaderPublicationAndMedia3Plan() = runBlocking {
 		val fetchedPaths = mutableListOf<String>()
 		val epubBytes = storytellerEpubWithSyncedAudioFixture()
+		val cacheRoot = createTempDirectory("navic-storyteller-open").toFile()
 		val loader = StorytellerReadaloudRuntimeLoader(
 			fetchResourceBytes = { path ->
 				fetchedPaths += path
 				epubBytes
 			},
-			cacheRoot = createTempDirectory("navic-storyteller-open").toFile()
+			cacheRoot = cacheRoot
 		)
 		val request = ReaderPublicationResourceRequest(
 			bookId = "3693",
@@ -91,6 +92,9 @@ class StorytellerReadaloudRuntimeLoaderTest {
 			),
 			openStep.commands.map { it.command }
 		)
+		assertEquals(2, runtime.sessionLease.release())
+		assertTrue(!cacheRoot.resolve("reader-publications/${runtime.cacheKey}").exists())
+		assertTrue(!cacheRoot.resolve("storyteller-readaloud/${runtime.cacheKey}").exists())
 	}
 
 	@Test

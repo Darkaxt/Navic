@@ -9,6 +9,7 @@ data class MaterializedStorytellerReadaloudAudio(
 	val publicationFile: File,
 	val publicationUrl: String,
 	val cachedAudioFiles: List<File>,
+	val sessionLease: ReaderSessionLease,
 	private val uriByResource: Map<String, String>
 ) {
 	val publicationUri: String
@@ -48,6 +49,7 @@ object StorytellerReadaloudAudioCache {
 			publicationFile = publicationFile,
 			publicationUrl = readerPublicationAssetUrl("$sessionDirectoryName/publication.epub"),
 			cachedAudioFiles = cachedFiles,
+			sessionLease = ReaderSessionLease.of(sessionDirectory),
 			uriByResource = uriByResource
 		)
 	}

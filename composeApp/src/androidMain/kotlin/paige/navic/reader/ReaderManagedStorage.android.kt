@@ -41,7 +41,7 @@ internal fun initializeReaderManagedStorage(
 	}
 }
 
-internal class ReaderSessionLease private constructor(
+class ReaderSessionLease private constructor(
 	private val directories: List<File>
 ) {
 	private val released = AtomicBoolean(false)

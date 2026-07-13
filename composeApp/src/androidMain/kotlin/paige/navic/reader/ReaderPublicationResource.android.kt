@@ -35,6 +35,7 @@ data class ReaderPublicationResourceRequest(
 data class ReaderResolvedPublicationResource(
 	val publicationUrl: String,
 	val publicationFile: File,
+	val sessionLease: ReaderSessionLease,
 	val resourceHref: String,
 	val sourceUrl: String,
 	val cacheKey: String,
@@ -168,6 +169,7 @@ private fun ReaderPublicationResourceRequest.resolvedPublicationResource(
 			"$ReaderPublicationCachePublicationDirectory/$cacheKey/publication.$publicationExtension"
 		),
 		publicationFile = publicationFile,
+		sessionLease = ReaderSessionLease.of(publicationFile.parentFile!!),
 		resourceHref = resourceHref,
 		sourceUrl = sourceUrl,
 		cacheKey = cacheKey,

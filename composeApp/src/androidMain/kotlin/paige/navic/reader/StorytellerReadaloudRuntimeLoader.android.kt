@@ -7,7 +7,8 @@ data class StorytellerReadaloudRuntime(
 	val playbackPlan: ReadaloudPlaybackPlan,
 	val timeline: MediaOverlayTimeline,
 	val cacheKey: String,
-	val fromCache: Boolean
+	val fromCache: Boolean,
+	val sessionLease: ReaderSessionLease
 )
 
 class StorytellerReadaloudRuntimeLoader(
@@ -40,7 +41,8 @@ class StorytellerReadaloudRuntimeLoader(
 			playbackPlan = session.toReadaloudPlaybackPlan(),
 			timeline = readaloudPackage.timeline,
 			cacheKey = resolved.cacheKey,
-			fromCache = resolved.fromCache
+			fromCache = resolved.fromCache,
+			sessionLease = resolved.sessionLease + cache.sessionLease
 		)
 	}
 }

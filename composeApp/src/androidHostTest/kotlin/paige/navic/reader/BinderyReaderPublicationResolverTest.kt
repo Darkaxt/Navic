@@ -12,6 +12,29 @@ import java.util.zip.ZipOutputStream
 
 class BinderyReaderPublicationResolverTest {
 	@Test
+	fun resolvedPublicationOwnsItsSessionDirectory() = runBlocking {
+		val cacheRoot = createTempDirectory("navic-reader-publication-lease").toFile()
+		val resolved = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { "EPUB_BYTES".encodeToByteArray() },
+			cacheRoot = cacheRoot
+		).resolve(
+			ReaderPublicationResourceRequest(
+				bookId = "lease-book",
+				title = "Lease Book",
+				resourceHref = "/opds/books/lease-book/resources/epub",
+				sourceUrl = "https://bindery.local/lease-book.epub",
+				kind = ReaderPublicationKind.Ebook,
+				mediaOverlayEnabled = false
+			)
+		)
+
+		val sessionDirectory = resolved.publicationFile.parentFile!!
+		assertTrue(sessionDirectory.isDirectory)
+		assertEquals(1, resolved.sessionLease.release())
+		assertTrue(!sessionDirectory.exists())
+	}
+
+	@Test
 	fun resolvesAuthenticatedBinderyResourceToLocalPublicationUriForWebView() = runBlocking {
 		val fetchedPaths = mutableListOf<String>()
 		val resolver = BinderyReaderPublicationResolver(

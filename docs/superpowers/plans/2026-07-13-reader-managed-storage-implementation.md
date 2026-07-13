@@ -67,15 +67,15 @@ Commit the passing lease/accounting behavior separately.
 
 ### Task 3: Attach leases to publication and read-aloud resolution
 
-- [ ] **Step 1: Extend resolver/Storyteller tests first**
+- [x] **Step 1: Extend resolver/Storyteller tests first**
 
 Add assertions that a resolved publication exposes a live lease, Storyteller combines the resolver and extracted-audio directories, and release removes both trees. Run the exact resolver, Storyteller cache, and loader tests and observe the expected missing-property failures.
 
-- [ ] **Step 2: Implement resolver lease propagation**
+- [x] **Step 2: Implement resolver lease propagation**
 
 Add the publication-directory lease to `ReaderResolvedPublicationResource`, the extracted directory lease to `MaterializedStorytellerReadaloudAudio`, and the combined lease to `StorytellerReadaloudRuntime`.
 
-- [ ] **Step 3: Run owning tests and commit**
+- [x] **Step 3: Run owning tests and commit**
 
 Run `BinderyReaderPublicationResolverTest`, `StorytellerReadaloudAudioCacheTest`, and `StorytellerReadaloudRuntimeLoaderTest`; commit only after all pass.
 

@@ -31,6 +31,9 @@ class StorytellerReadaloudAudioCacheTest {
 		assertTrue(cachedFile.exists())
 		assertEquals("AUDIO_BYTES", cachedFile.readText())
 		assertEquals(cachedFile.toURI().toString(), uri)
+		val sessionDirectory = cache.publicationFile.parentFile!!
+		assertEquals(1, cache.sessionLease.release())
+		assertTrue(!sessionDirectory.exists())
 	}
 
 	private fun storytellerEpubWithAudioFixture(): ByteArray {
