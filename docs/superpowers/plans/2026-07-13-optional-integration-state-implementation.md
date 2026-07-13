@@ -147,7 +147,7 @@ Run all new C14 tests, affected Aurral/Bindery suites, Android debug assembly, v
 
 Publish Android only. Verify workflow success, public SHA-256, established signing certificate, embedded version, signed upgrade from iota9, live process, and absence of fatal/Koin startup errors.
 
-- [ ] **Step 4: Record and clean**
+- [x] **Step 4: Record and clean**
 
 Mark only C14 released, update roadmap accounting from 21/34 to 22/33, push evidence, remove temporary APKs, then remove this worktree and branch after proving all commits are on `fork/master`.
 
