@@ -67,11 +67,20 @@ object ReaderWebRuntime {
 
 class ReaderJavascriptBridge(
 	private val onEvent: (ReaderBridgeEvent) -> Unit,
-	private val onRawMessage: (String) -> Unit = {}
+	private val onRejected: (ReaderBridgeDecodeResult.Rejected) -> Unit = { rejection ->
+		Logger.w(
+			ReaderWebRuntimeTag,
+			"Reader bridge message rejected: failure=${rejection.failure} raw=${rejection.rawMessage}"
+		)
+	}
 ) {
+	private val messageProcessor = ReaderBridgeMessageProcessor(
+		onEvent = onEvent,
+		onRejected = onRejected
+	)
+
 	@JavascriptInterface
 	fun postMessage(message: String) {
-		onRawMessage(message)
-		decodeReaderBridgeEvent(message)?.let(onEvent)
+		messageProcessor.process(message)
 	}
 }

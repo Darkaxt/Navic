@@ -138,9 +138,6 @@ actual fun ReaderEngineWebViewHost(
 		ReaderJavascriptBridge(
 			onEvent = { event ->
 				webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
-			},
-			onRawMessage = { message ->
-				Logger.i(ReaderEngineWebViewHostTag, "Reader bridge raw: ${message.take(500)}")
 			}
 		)
 	}

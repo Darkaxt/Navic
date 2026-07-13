@@ -31,12 +31,12 @@
 
 ### Task 2: Log Failure Episodes And Surface Persistent Failure
 
-- [ ] Add failing processor tests proving one rejection logs once without an error event, a valid event resets the episode, three consecutive rejections emit exactly one error with code `reader_bridge_protocol`, and a later valid event permits a new episode.
-- [ ] Run `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderBridgeMessageProcessorTest"` and confirm the processor is absent.
-- [ ] Implement `ReaderBridgeMessageProcessor` with a three-consecutive-failure threshold and no timeout.
-- [ ] Make `ReaderJavascriptBridge` log the first typed rejection at warning level and forward processor events; remove unconditional raw-message logging from the WebView host.
-- [ ] Rerun both focused test classes and the existing reader controller/adapter tests.
-- [ ] Commit as `fix(android): surface persistent reader bridge failures`.
+- [x] Add failing processor tests proving one rejection logs once without an error event, a valid event resets the episode, three consecutive rejections emit exactly one error with code `reader_bridge_protocol`, and a later valid event permits a new episode.
+- [x] Run `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderBridgeMessageProcessorTest"` and confirm the processor is absent.
+- [x] Implement `ReaderBridgeMessageProcessor` with a three-consecutive-failure threshold and no timeout.
+- [x] Make `ReaderJavascriptBridge` log the first typed rejection at warning level and forward processor events; remove unconditional raw-message logging from the WebView host.
+- [x] Rerun both focused test classes and the existing reader controller/adapter tests.
+- [x] Commit as `fix(android): surface persistent reader bridge failures`.
 
 ### Task 3: Validate And Publish Iota12
 
