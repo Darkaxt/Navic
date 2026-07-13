@@ -55,10 +55,12 @@ GREEN evidence: the focused capability and launch contracts passed, then the exi
 - Verify: `scripts/verify-reader-vendor-assets.ps1`
 - Verify: `scripts/verify-third-party-attributions.ps1`
 
-- [ ] Run full capability-owner, controller, coordinator, Foliate adapter, Whispersync launch, common chrome, and reader runtime host suites.
-- [ ] Run `git diff --check`, vendor verification, verifier self-test, and attribution verification.
-- [ ] Assemble Android debug and inspect packaged metadata/assets. Do not run iOS tasks.
-- [ ] Record exact test counts, APK digest, and any baseline failures separately.
+- [x] Run full capability-owner, controller, coordinator, Foliate adapter, Whispersync launch, common chrome, and reader runtime host suites.
+- [x] Run `git diff --check`, vendor verification, verifier self-test, and attribution verification.
+- [x] Assemble Android debug and inspect packaged metadata/assets. Do not run iOS tasks.
+- [x] Record exact test counts, APK digest, and any baseline failures separately.
+
+Integrated evidence: the B3 owner batch passed 156/156 with zero failures, errors, or skips. `git diff --check`, source vendor verification (30/30), verifier tamper self-test, and generated attribution passed. Android debug assembly succeeded without invoking an iOS task. The candidate debug APK is 74,988,168 bytes with SHA-256 `ddacb6e569b5a106fa55998362c4e808425a8d65bff795fcbf99bfc90c7c0b72`, package `darkaxt.navic.debug`, and pre-release metadata `544 / v1.0.11-iota17`; all 30 packaged vendor files and packaged attribution passed. The broad 195-test runtime/chrome batch's remaining 20 failures reproduced exactly on clean public `master` and are not B3 regressions; the detached baseline worktree was removed.
 
 ### Task 4: Publish `v1.0.11-iota18`
 
