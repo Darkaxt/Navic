@@ -126,22 +126,6 @@ actual fun ReaderEngineWebViewHost(
 	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
 	var readerRuntimeReady by remember { mutableStateOf(false) }
 
-	fun handleReaderBridgeEvent(event: ReaderBridgeEvent) {
-		Logger.i(ReaderEngineWebViewHostTag, "Reader bridge event: ${event.engineDebugLabel()}")
-		if (event == ReaderBridgeEvent.Ready) {
-			readerRuntimeReady = true
-		}
-		currentOnEvent(ReaderEngineHostEvent.FoliateBridge(event))
-	}
-
-	val bridge = remember {
-		ReaderJavascriptBridge(
-			onEvent = { event ->
-				webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
-			}
-		)
-	}
-
 	fun WebView.dispatchReadyReaderCommands() {
 		if (
 			!shouldDispatchReaderCommandsToWebRuntime(
@@ -173,6 +157,34 @@ actual fun ReaderEngineWebViewHost(
 			)
 			evaluateJavascript(ReaderWebRuntime.commandScript(dispatch), null)
 		}
+	}
+
+	fun handleReaderBridgeEvent(event: ReaderBridgeEvent) {
+		Logger.i(ReaderEngineWebViewHostTag, "Reader bridge event: ${event.engineDebugLabel()}")
+		when (event) {
+			ReaderBridgeEvent.Ready -> {
+				readerRuntimeReady = true
+				webView?.dispatchReadyReaderCommands()
+			}
+			is ReaderBridgeEvent.CommandAcknowledged -> {
+				commandDispatchState = commandDispatchState.acknowledge(event.commandId)
+				webView?.dispatchReadyReaderCommands()
+				return
+			}
+			is ReaderBridgeEvent.LocationChanged -> {
+				commandDispatchState = commandDispatchState.observeLocator(event.locator)
+			}
+			else -> Unit
+		}
+		currentOnEvent(ReaderEngineHostEvent.FoliateBridge(event))
+	}
+
+	val bridge = remember {
+		ReaderJavascriptBridge(
+			onEvent = { event ->
+				webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
+			}
+		)
 	}
 
 	DisposableEffect(Unit) {
@@ -262,7 +274,6 @@ actual fun ReaderEngineWebViewHost(
 									"publication=${currentPublicationKey.hashCode()}"
 							)
 							if (webView === view) webView = null
-							commandDispatchState = ReaderWebCommandDispatchState()
 							readerRuntimeReady = false
 							currentOnEvent(
 								ReaderEngineHostEvent.FoliateBridge(

@@ -21,7 +21,7 @@ class ReaderWebCommandDispatchTest {
 	}
 
 	@Test
-	fun firstReadyDispatchesStableOpenAndCurrentCommandIdsInOrder() {
+	fun firstReadyDispatchesOpenAndQueuesCurrentCommandBehindItsAcknowledgement() {
 		val locator = ReaderBridgeCommand.GoToCfi("epubcfi(/6/4!/4/1:0)")
 
 		val first = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
@@ -32,10 +32,13 @@ class ReaderWebCommandDispatchTest {
 			commandKey = 7L
 		)
 
-		assertEquals(listOf("reader-open-1", "reader-command-1-7"), first.commands.map { it.id })
-		assertEquals(listOf(firstOpen, locator), first.commands.map { it.command })
-		assertEquals(first.commands, first.state.pendingCommands.map { it.dispatch })
-		assertEquals(listOf(0, 0), first.state.pendingCommands.map { it.lastDispatchedGeneration })
+		assertEquals(listOf("reader-open-1"), first.commands.map { it.id })
+		assertEquals(listOf(firstOpen), first.commands.map { it.command })
+		assertEquals(
+			listOf("reader-open-1", "reader-command-1-7"),
+			first.state.pendingCommands.map { it.dispatch.id }
+		)
+		assertEquals(listOf(0, null), first.state.pendingCommands.map { it.lastDispatchedGeneration })
 	}
 
 	@Test
@@ -77,7 +80,15 @@ class ReaderWebCommandDispatchTest {
 		assertEquals(openAcknowledged, openAcknowledged.acknowledge("reader-open-1"))
 		assertEquals(openAcknowledged, openAcknowledged.acknowledge("unknown-command"))
 
-		val allAcknowledged = openAcknowledged.acknowledge("reader-command-1-3")
+		val commandStep = openAcknowledged.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = ReaderBridgeCommand.ClearOverlay,
+			commandKey = 3L
+		)
+		assertEquals(listOf("reader-command-1-3"), commandStep.commands.map { it.id })
+		val allAcknowledged = commandStep.state.acknowledge("reader-command-1-3")
 		assertEquals(emptyList(), allAcknowledged.pendingCommands)
 		assertEquals(3L, allAcknowledged.lastCommandKey)
 	}
@@ -91,9 +102,16 @@ class ReaderWebCommandDispatchTest {
 			command = ReaderBridgeCommand.NextPage,
 			commandKey = 1L
 		)
-		val acknowledged = first.commands.fold(first.state) { state, dispatch ->
-			state.acknowledge(dispatch.id)
-		}
+		val commandStep = first.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 0,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				command = ReaderBridgeCommand.NextPage,
+				commandKey = 1L
+			)
+		val acknowledged = commandStep.state.acknowledge("reader-command-1-1")
 
 		val next = acknowledged.commandsForReadyReaderRuntime(
 			runtimeGeneration = 0,
@@ -108,7 +126,28 @@ class ReaderWebCommandDispatchTest {
 	}
 
 	@Test
-	fun rendererGenerationReplaysOpenThenLatestCommandWithSameStableIds() {
+	fun observedLocatorIsRetainedWithoutChangingPendingCommandState() {
+		val active = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		).state
+		val currentLocator = ReaderLocator(
+			cfi = "epubcfi(/6/12!/4/1:0)",
+			href = "chapter-5.xhtml",
+			progress = 0.72
+		)
+
+		val observed = active.observeLocator(currentLocator)
+
+		assertEquals(currentLocator, observed.lastKnownLocator)
+		assertEquals(active.pendingCommands, observed.pendingCommands)
+	}
+
+	@Test
+	fun rendererGenerationReopensAtLatestLocatorWithoutReplayingAcknowledgedCommand() {
 		val latestLocator = ReaderBridgeCommand.GoToProgress(0.72)
 		val first = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
 			runtimeGeneration = 0,
@@ -117,9 +156,23 @@ class ReaderWebCommandDispatchTest {
 			command = latestLocator,
 			commandKey = 8L
 		)
-		val acknowledged = first.commands.fold(first.state) { state, dispatch ->
-			state.acknowledge(dispatch.id)
-		}
+		val firstCommand = first.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 0,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				command = latestLocator,
+				commandKey = 8L
+			)
+		val observedLocator = ReaderLocator(
+			cfi = "epubcfi(/6/12!/4/1:0)",
+			href = "chapter-5.xhtml",
+			progress = 0.72
+		)
+		val acknowledged = firstCommand.state
+			.acknowledge("reader-command-1-8")
+			.observeLocator(observedLocator)
 
 		val replay = acknowledged.commandsForReadyReaderRuntime(
 			runtimeGeneration = 1,
@@ -129,9 +182,13 @@ class ReaderWebCommandDispatchTest {
 			commandKey = 8L
 		)
 
-		assertEquals(first.commands, replay.commands)
-		assertEquals(listOf(firstOpen, latestLocator), replay.commands.map { it.command })
-		val duplicateReady = replay.state.commandsForReadyReaderRuntime(
+		assertEquals(listOf("reader-open-1"), replay.commands.map { it.id })
+		assertEquals(
+			observedLocator,
+			(replay.commands.single().command as ReaderBridgeCommand.OpenPublication).startLocator
+		)
+		val openAcknowledged = replay.state.acknowledge("reader-open-1")
+		val duplicateReady = openAcknowledged.commandsForReadyReaderRuntime(
 			runtimeGeneration = 1,
 			publicationKey = "book-1",
 			openCommand = firstOpen,
@@ -158,7 +215,8 @@ class ReaderWebCommandDispatchTest {
 			commandKey = 2L
 		)
 
-		val replay = newer.state.commandsForReadyReaderRuntime(
+		val observedLocator = ReaderLocator(cfi = "epubcfi(/6/10!/4/1:0)", progress = 0.6)
+		val replay = newer.state.observeLocator(observedLocator).commandsForReadyReaderRuntime(
 			runtimeGeneration = 1,
 			publicationKey = "book-1",
 			openCommand = firstOpen,
@@ -166,9 +224,23 @@ class ReaderWebCommandDispatchTest {
 			commandKey = 2L
 		)
 
-		assertEquals(listOf("reader-open-1", "reader-command-1-2"), replay.commands.map { it.id })
-		assertEquals(listOf(firstOpen, ReaderBridgeCommand.GoToProgress(0.64)), replay.commands.map { it.command })
+		assertEquals(listOf("reader-open-1"), replay.commands.map { it.id })
+		assertEquals(
+			observedLocator,
+			(replay.commands.single().command as ReaderBridgeCommand.OpenPublication).startLocator
+		)
 		assertEquals(2, replay.state.pendingCommands.size)
+		val replayLatest = replay.state
+			.acknowledge("reader-open-1")
+			.commandsForReadyReaderRuntime(
+				runtimeGeneration = 1,
+				publicationKey = "book-1",
+				openCommand = firstOpen,
+				command = ReaderBridgeCommand.GoToProgress(0.64),
+				commandKey = 2L
+			)
+		assertEquals(listOf("reader-command-1-2"), replayLatest.commands.map { it.id })
+		assertEquals(listOf(ReaderBridgeCommand.GoToProgress(0.64)), replayLatest.commands.map { it.command })
 	}
 
 	@Test
@@ -193,8 +265,12 @@ class ReaderWebCommandDispatchTest {
 			commandKey = 4L
 		)
 
-		assertEquals(listOf("reader-open-2", "reader-command-2-4"), reopened.commands.map { it.id })
-		assertEquals(listOf(secondOpen, ReaderBridgeCommand.ClearOverlay), reopened.commands.map { it.command })
+		assertEquals(listOf("reader-open-2"), reopened.commands.map { it.id })
+		assertEquals(listOf(secondOpen), reopened.commands.map { it.command })
+		assertEquals(
+			listOf("reader-open-2", "reader-command-2-4"),
+			reopened.state.pendingCommands.map { it.dispatch.id }
+		)
 		assertEquals("book-2", reopened.state.publicationKey)
 		assertEquals(2L, reopened.state.publicationSequence)
 	}

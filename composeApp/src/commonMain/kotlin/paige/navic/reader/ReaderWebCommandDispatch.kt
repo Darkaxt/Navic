@@ -10,8 +10,12 @@ data class ReaderWebCommandDispatchState(
 	val publicationSequence: Long = 0L,
 	val runtimeGeneration: Int? = null,
 	val lastCommandKey: Long? = null,
+	val lastKnownLocator: ReaderLocator? = null,
 	val pendingCommands: List<ReaderWebPendingCommand> = emptyList()
 ) {
+	fun observeLocator(locator: ReaderLocator): ReaderWebCommandDispatchState =
+		copy(lastKnownLocator = locator)
+
 	fun acknowledge(commandId: String): ReaderWebCommandDispatchState {
 		val retainedCommands = pendingCommands.filterNot { it.dispatch.id == commandId }
 		return if (retainedCommands.size == pendingCommands.size) {
@@ -43,15 +47,18 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 ): ReaderWebCommandDispatchStep {
 	val publicationChanged = this.publicationKey != publicationKey
 	val generationChanged = this.runtimeGeneration != runtimeGeneration
+	val currentCommandId = "reader-command-$publicationSequence-$commandKey"
+	val currentCommandWasPending = command != null &&
+		pendingCommands.any { it.dispatch.id == currentCommandId }
 	var nextState = when {
 		publicationChanged -> ReaderWebCommandDispatchState(
 			publicationKey = publicationKey,
 			publicationSequence = publicationSequence + 1L,
-			runtimeGeneration = runtimeGeneration
+			runtimeGeneration = runtimeGeneration,
+			lastKnownLocator = openCommand.startLocator
 		)
 		generationChanged -> copy(
 			runtimeGeneration = runtimeGeneration,
-			lastCommandKey = null,
 			pendingCommands = emptyList()
 		)
 		else -> this
@@ -63,28 +70,37 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 				ReaderWebPendingCommand(
 					dispatch = ReaderBridgeDispatchCommand(
 						id = "reader-open-${nextState.publicationSequence}",
-						command = openCommand
+						command = openCommand.copy(
+							startLocator = nextState.lastKnownLocator ?: openCommand.startLocator
+						)
 					)
 				)
 			)
 		)
 	}
 
-	if (command != null && nextState.lastCommandKey != commandKey) {
+	val shouldQueueCurrentCommand = command != null && when {
+		publicationChanged -> true
+		generationChanged -> currentCommandWasPending || lastCommandKey != commandKey
+		else -> nextState.lastCommandKey != commandKey
+	}
+	if (shouldQueueCurrentCommand) {
 		nextState = nextState.copy(
 			lastCommandKey = commandKey,
 			pendingCommands = nextState.pendingCommands + ReaderWebPendingCommand(
 				dispatch = ReaderBridgeDispatchCommand(
 					id = "reader-command-${nextState.publicationSequence}-$commandKey",
-					command = command
+					command = checkNotNull(command)
 				)
 			)
 		)
 	}
 
 	val commands = nextState.pendingCommands
-		.filter { it.lastDispatchedGeneration != runtimeGeneration }
-		.map { it.dispatch }
+		.firstOrNull()
+		?.takeIf { it.lastDispatchedGeneration != runtimeGeneration }
+		?.let { listOf(it.dispatch) }
+		.orEmpty()
 	if (commands.isNotEmpty()) {
 		val dispatchedIds = commands.mapTo(mutableSetOf()) { it.id }
 		nextState = nextState.copy(

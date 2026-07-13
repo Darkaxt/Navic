@@ -4,7 +4,7 @@
 
 **Goal:** Make Android reader commands acknowledgement-driven and replay the exact retained publication plus latest locator/state command after a WebView renderer generation changes.
 
-**Architecture:** Kotlin assigns opaque, stable command IDs and keeps commands in a generation-aware pending ledger until JavaScript posts `commandAck`. The JavaScript runtime acknowledges only successful synchronous or asynchronous completion and deduplicates IDs within one runtime. A new WebView generation reuses stable IDs while rebuilding an ordered `openPublication` then current-command replay from retained host input; no elapsed-time retry or cancellation is introduced.
+**Architecture:** Kotlin assigns opaque, stable command IDs and keeps commands in a generation-aware pending ledger until JavaScript posts `commandAck`. Exactly one tracked command is in flight: an acknowledgement removes the queue head and unlocks the next entry, so `openPublication` resolves before any locator command starts. The host retains the latest observed locator; a new WebView generation reuses stable IDs, reopens directly at that locator, and replays the latest command only when it was still unacknowledged. No elapsed-time retry or cancellation is introduced.
 
 **Tech Stack:** Kotlin Multiplatform, Compose Android `WebView`, kotlinx.serialization JSON, JavaScript ES modules, kotlin.test, Android host tests, Gradle.
 
@@ -72,11 +72,11 @@ git commit -m "feat(reader): add acknowledged command protocol"
 
 Cover these exact transitions:
 
-1. Initial ready in generation 0 emits `openPublication` then the current command with stable, distinct IDs and retains both pending.
-2. A duplicate ready/update in generation 0 emits nothing while preserving pending entries.
-3. Acknowledging one ID removes only that pending entry; duplicate and unknown acknowledgements are no-ops.
+1. Initial ready in generation 0 emits `openPublication`, queues the current command behind it with a stable distinct ID, and retains both pending.
+2. A duplicate ready/update in generation 0 emits nothing while the dispatched queue head remains unacknowledged.
+3. Acknowledging the open ID removes only that pending entry and unlocks the current command; duplicate and unknown acknowledgements are no-ops.
 4. A newer `commandKey` appends and emits only the newer command.
-5. Generation 1 reconstructs `openPublication` then the latest current command, preserving their stable IDs even when generation 0 acknowledged them.
+5. Generation 1 reconstructs `openPublication` with the latest observed locator, preserving its stable ID. It replays the current command behind open only when that command was unacknowledged in generation 0.
 6. A publication change discards the old publication ledger and emits the new open command before its current command, even when its numeric `commandKey` matches the old publication.
 
 - [ ] **Step 2: Run `ReaderWebCommandDispatchTest` and confirm RED**
@@ -108,7 +108,7 @@ data class ReaderWebCommandDispatchState(
 }
 ```
 
-`commandsForReadyReaderRuntime` accepts `runtimeGeneration`. It creates IDs from the host-owned publication sequence and command key, marks entries dispatched only for the current generation, and returns `List<ReaderBridgeDispatchCommand>`. On a generation transition it rebuilds only the retained open and latest current command in that order; it does not replay superseded one-shot commands.
+`commandsForReadyReaderRuntime` accepts `runtimeGeneration`. It creates IDs from the host-owned publication sequence and command key, marks only the queue head dispatched for the current generation, and returns at most one `ReaderBridgeDispatchCommand`. `observeLocator` retains `LocationChanged` state. On a generation transition the ledger rebuilds open with that locator, then only the latest still-unacknowledged command; it does not replay superseded or already-acknowledged one-shot commands.
 
 - [ ] **Step 4: Run the state-machine tests and confirm GREEN**
 
@@ -164,7 +164,7 @@ Verify that the host passes `webViewGeneration` into the ledger, consumes `Comma
 
 - [ ] **Step 3: Implement host integration**
 
-On `Ready`, set readiness and dispatch against the current WebView. On `CommandAcknowledged`, remove the matching pending entry and keep the protocol event internal to the host. On renderer loss, set readiness false, destroy the dead view, increment generation, and retain the dispatch state. Log opaque command IDs and generation without publication URLs.
+On `Ready`, set readiness and dispatch against the current WebView. On `CommandAcknowledged`, remove the matching pending entry, dispatch the newly exposed queue head, and keep the protocol event internal to the host. On `LocationChanged`, retain the locator before forwarding it. On renderer loss, set readiness false, destroy the dead view, increment generation, and retain the dispatch state. Log opaque command IDs and generation without publication URLs.
 
 - [ ] **Step 4: Run protocol, ledger, asset, and host tests and confirm GREEN**
 
