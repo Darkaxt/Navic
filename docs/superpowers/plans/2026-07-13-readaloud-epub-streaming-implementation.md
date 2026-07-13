@@ -223,6 +223,8 @@ Expected: all B11 tests pass with zero failures and the source contract finds no
 - Emulator `readerDev` validation loaded a valid EPUB 3 media-overlay fixture and reached `publicationReady`. Runtime storage contained one 11,910-byte `reader-publications/.../publication.epub` and one 16,920-byte `storyteller-readaloud/.../v2/audio-0001-chapter1.mp3`, with no second EPUB.
 - Media3 loaded one track/one clip and played the extracted MP3 to completion (`position=4059 ms`, `buffered=4048 ms`) without a playback or Android runtime error. Normal reader exit removed both managed session trees.
 - Validation also exposed a pre-existing fatal media-button ambiguity from two discoverable `MediaSessionService` implementations. Navic now uses an explicit `PlaybackMediaButtonReceiver` for main-player restart routing while retaining both valid service declarations; the manifest/widget/source contract passes.
+- Public `v1.0.11-iota20` was published from `f5a4a719` by successful GitHub Actions run `29271201032` with all iOS jobs skipped. The 46,241,680-byte APK SHA-256 is `39a04f73189c566b227cc776ca10ebbe9d9c3efff98af36379c17a15e666e858`, matching GitHub's digest; v2 certificate SHA-256 is `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7` and embedded metadata is `547/iota20`.
+- The public APK passed all 30 packaged reader-vendor hashes and attribution verification, upgraded in place from `iota19`/546, and cold-started `MainActivity` successfully in 1,297 ms. The process remained alive and resumed with no AndroidRuntime, Koin, or Media3 error-level output.
 
 ## Task 6: Validate, Document, And Release
 
@@ -244,11 +246,11 @@ Run release-version verification for `v1.0.11-iota20`, source vendor 30/30, veri
 
 Open a readaloud EPUB through reader-dev, confirm `publicationReady`, local `file:` audio plan resources, playback start, overlay progression, session cleanup on exit, and no AndroidRuntime/Media3 fatal. Capture managed paths proving one publication file plus versioned audio output, not two EPUB copies.
 
-- [ ] **Step 4: Update B11 evidence and release metadata**
+- [x] **Step 4: Update B11 evidence and release metadata**
 
 Mark B11 released, record the bounded large-archive proof and device evidence, then set `versionCode=547` and `versionName=v1.0.11-iota20`.
 
-- [ ] **Step 5: Commit, publish, and independently validate**
+- [x] **Step 5: Commit, publish, and independently validate**
 
 Fast-forward public master, create annotated `v1.0.11-iota20`, publish Android with all iOS jobs skipped, download the public APK, verify digest/certificate/metadata/governance, upgrade and cold-start it, push the immutable evidence commit, then remove only this completed worktree and local branch.
 

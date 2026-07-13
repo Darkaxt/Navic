@@ -16,6 +16,7 @@ Released Tranche 3 bridge-diagnostics slice: `v1.0.11-iota12`
 Released Tranche 3 command-acknowledgement slice: `v1.0.11-iota13`
 Released Tranche 3 bridge-lifecycle slice: `v1.0.11-iota14`
 Released Tranche 3 engine-capability slice: `v1.0.11-iota18`
+Released Tranche 4 readaloud-streaming slice: `v1.0.11-iota20`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -346,13 +347,16 @@ Every tranche uses the following pipeline:
 - Cache invalidation tests cover base URL, API key/account, source mutation, stale fallback, and explicit refresh.
 - Resource scan rejects new hard-coded visible strings in scoped packages.
 
-### B11 implementation evidence (release pending)
+### B11 implementation and release evidence
 
 - File-backed `ZipFile` access replaces both whole-archive maps and the runtime `publicationFile.readBytes()` call. Parser and cache share one archive scope and the resolver-owned publication is not copied.
 - The 56 MiB deterministic fixture opens once, buffers less than 1 MiB of metadata, uses a 64 KiB extraction buffer, streams the referenced 24 MiB audio entry, and does not open the unreferenced 32 MiB decoy.
 - Versioned `v2` audio cache tests cover reuse, legacy preservation on failure, legacy cleanup after successful promotion, and session-lease deletion.
 - Android `readerDev` loaded a valid local media-overlay EPUB, reached `publicationReady`, stored one EPUB plus one `v2` MP3, played the MP3 to completion through Media3, and removed both managed roots on normal exit.
 - Device validation found and fixed a pre-existing Media3 media-button receiver crash caused by package-wide discovery of two session services. The custom receiver explicitly restarts only the main playback service while active sessions remain system-routed.
+- Released `v1.0.11-iota20` from commit `f5a4a719` on 2026-07-13. GitHub Actions run `29271201032` passed the signed Android build, release creation, reader-vendor checks, and attribution checks; all iOS jobs were skipped.
+- Public `Navic.apk` SHA-256 is `39a04f73189c566b227cc776ca10ebbe9d9c3efff98af36379c17a15e666e858` (46,241,680 bytes), matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=547`, `versionName=v1.0.11-iota20`.
+- The public APK upgraded `darkaxt.navic` in place from `iota19`/546 on `emulator-5554`. A cold explicit `MainActivity` launch returned `Status: ok` in 1,297 ms; PID `10636` remained alive with the activity resumed and no AndroidRuntime, Koin, or Media3 error-level output.
 
 ### Rollout and rollback
 
@@ -561,7 +565,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B8 | Low | Released | `v1.0.11-iota16` |
 | B9 | High | Released | `v1.0.11-iota01` |
 | B10 | Medium | Released | `v1.0.11-iota01` |
-| B11 | Medium | Implemented, release pending | `v1.0.11-iota20` |
+| B11 | Medium | Released | `v1.0.11-iota20` |
 | B12 | Medium | Pending | Tranche 4 |
 | B13 | Medium | Pending | Tranche 4 |
 | B14 | Medium | Superseded as written | No deployment |
@@ -595,9 +599,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 26 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `A21`, `B7`, `B9`, `B10`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
+- Released findings: 27 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `A21`, `B7`, `B9`, `B10`, `B11`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 29.
+- Pending implementation findings assigned to tranches: 28.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
