@@ -10,6 +10,7 @@ import paige.navic.data.database.dao.BinderyMetadataCacheDao
 import paige.navic.data.database.dao.PlaybackOriginDao
 import paige.navic.data.database.entities.BinderyMetadataCacheEntity
 import paige.navic.data.database.entities.PlaybackOriginEntity
+import paige.navic.data.remote.NetworkClientFactory
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.domain.repositories.LastFmRepository
@@ -45,6 +46,7 @@ class RepositoryModuleTest {
 			modules(
 				module {
 					single { PreferenceManager(MapSettings()) }
+					single { NetworkClientFactory() }
 				},
 				repositoryModule
 			)
@@ -59,6 +61,7 @@ class RepositoryModuleTest {
 			modules(
 				module {
 					single { PreferenceManager(MapSettings()) }
+					single { NetworkClientFactory() }
 					single<BinderyMetadataCacheDao> { FakeBinderyMetadataCacheDao() }
 				},
 				repositoryModule
