@@ -58,7 +58,7 @@ class BinderyAudiobookPlayerViewModel(
 			if (fullRefresh || visibleDetail == null) {
 				_detailState.value = UiState.Loading(visibleDetail)
 			}
-			repository.getAudiobookDetail(audiobookId).fold(
+			repository.getAudiobookDetail(audiobookId, forceRefresh = fullRefresh).fold(
 				onSuccess = { detail ->
 					val state = _detailState.value
 					if (state !is UiState.Success || state.data != detail) {
@@ -72,7 +72,7 @@ class BinderyAudiobookPlayerViewModel(
 					)
 				}
 			)
-			repository.getAudiobookManifest(audiobookId).fold(
+			repository.getAudiobookManifest(audiobookId, forceRefresh = fullRefresh).fold(
 				onSuccess = { manifest ->
 					val state = _manifestState.value
 					if (state !is UiState.Success || state.data != manifest) {

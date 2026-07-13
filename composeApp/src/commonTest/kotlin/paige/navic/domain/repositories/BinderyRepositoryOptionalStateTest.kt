@@ -75,6 +75,63 @@ class BinderyRepositoryOptionalStateTest {
 	}
 
 	@Test
+	fun forcedRefreshBypassesFreshCacheAndStoresLiveReplacement() = runBlocking {
+		val cache = RecordingBinderyMetadataCache()
+		configuredBinderyRepository(
+			apiClient = FakeBinderyApiClient(
+				catalog = BinderyCatalog(
+					title = "Cached",
+					publications = listOf(BinderyPublication(id = "cached", title = "Cached Book"))
+				)
+			),
+			metadataCache = cache,
+			currentTimeMillis = { 1_000L }
+		).getCatalog(path).getOrThrow()
+		val liveClient = FakeBinderyApiClient(
+			catalog = BinderyCatalog(
+				title = "Live",
+				publications = listOf(BinderyPublication(id = "live", title = "Live Book"))
+			)
+		)
+		val repository = configuredBinderyRepository(
+			apiClient = liveClient,
+			metadataCache = cache,
+			currentTimeMillis = { 1_001L }
+		)
+
+		val refreshed = repository.getCatalog(path, forceRefresh = true).getOrThrow()
+
+		assertEquals("Live Book", refreshed.publications.single().title)
+		assertEquals(listOf(path), liveClient.catalogPaths)
+	}
+
+	@Test
+	fun forcedRefreshFailureReturnsEvenFreshCacheAsStale() = runBlocking {
+		val cache = RecordingBinderyMetadataCache()
+		configuredBinderyRepository(
+			apiClient = FakeBinderyApiClient(
+				catalog = BinderyCatalog(
+					title = "Cached",
+					publications = listOf(BinderyPublication(id = "cached", title = "Cached Book"))
+				)
+			),
+			metadataCache = cache,
+			currentTimeMillis = { 1_000L }
+		).getCatalog(path).getOrThrow()
+		val repository = configuredBinderyRepository(
+			apiClient = FakeBinderyApiClient(catalogFailure = IllegalStateException("offline")),
+			metadataCache = cache,
+			currentTimeMillis = { 1_001L }
+		)
+
+		val result = repository.getCatalogOptional(path, forceRefresh = true)
+
+		val stale = assertIs<OptionalIntegrationResult.Stale<BinderyCatalog>>(result)
+		assertEquals("Cached Book", stale.data.publications.single().title)
+		assertEquals(OptionalIntegrationFailureKind.Unavailable, stale.failure.kind)
+	}
+
+	@Test
 	fun liveCatalogFailuresRemainTyped() = runBlocking {
 		val unauthorized = repository(
 			failure = BinderyApiException(HttpStatusCode.Forbidden, "Forbidden")

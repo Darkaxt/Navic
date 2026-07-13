@@ -300,7 +300,7 @@ class BinderyHubViewModel(
 	): Map<String, BinderyManifest> =
 		bookIds.mapNotNull { bookId ->
 			val manifest = if (refreshMetadata) {
-				repository.getManifest(bookId).getOrElse {
+				repository.getManifest(bookId, forceRefresh = true).getOrElse {
 					repository.getCachedManifest(bookId).getOrNull()
 				}
 			} else {
@@ -315,7 +315,7 @@ class BinderyHubViewModel(
 	): Map<String, List<BinderyAudiobookVersion>> =
 		bookIds.mapNotNull { bookId ->
 			val versions = if (refreshMetadata) {
-				repository.getAudiobookVersions(bookId).getOrElse {
+				repository.getAudiobookVersions(bookId, forceRefresh = true).getOrElse {
 					repository.getCachedAudiobookVersions(bookId).getOrNull().orEmpty()
 				}
 			} else {
@@ -329,7 +329,7 @@ class BinderyHubViewModel(
 		refreshMetadata: Boolean
 	): BinderyAudiobookVersion? =
 		if (refreshMetadata) {
-			repository.getAudiobookDetail(audiobookId).getOrElse {
+			repository.getAudiobookDetail(audiobookId, forceRefresh = true).getOrElse {
 				repository.getCachedAudiobookDetail(audiobookId).getOrNull()
 			}
 		} else {
@@ -341,7 +341,7 @@ class BinderyHubViewModel(
 		refreshMetadata: Boolean
 	): BinderyResourceCatalog? =
 		if (refreshMetadata) {
-			repository.getBookResources(bookId).getOrElse {
+			repository.getBookResources(bookId, forceRefresh = true).getOrElse {
 				repository.getCachedBookResources(bookId).getOrNull()
 			}
 		} else {
@@ -353,7 +353,7 @@ class BinderyHubViewModel(
 		refreshMetadata: Boolean
 	): BinderyBookSync? =
 		if (refreshMetadata) {
-			repository.getBookSync(bookId).getOrElse {
+			repository.getBookSync(bookId, forceRefresh = true).getOrElse {
 				repository.getCachedBookSync(bookId).getOrNull()
 			}
 		} else {

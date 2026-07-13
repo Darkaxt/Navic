@@ -153,16 +153,20 @@ class BinderyRepository(
 		}.recordBinderyAvailability()
 	}
 
-	suspend fun getCatalog(path: String): Result<BinderyCatalog> =
+	suspend fun getCatalog(path: String, forceRefresh: Boolean = false): Result<BinderyCatalog> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.Catalog,
 			path = path,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchCatalog(baseUrl, headers, path) },
 			encode = { catalog -> BinderyJson.encodeToString(catalog) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
 		)
 
-	suspend fun getCatalogOptional(path: String): OptionalIntegrationResult<BinderyCatalog> {
+	suspend fun getCatalogOptional(
+		path: String,
+		forceRefresh: Boolean = false
+	): OptionalIntegrationResult<BinderyCatalog> {
 		if (!preferenceManager.binderyEnabled) {
 			return optionalIntegrationUnavailable(
 				kind = OptionalIntegrationFailureKind.Disabled,
@@ -186,6 +190,7 @@ class BinderyRepository(
 		return withConfiguredCachedPayloadWithSource(
 			payloadType = BinderyMetadataPayloadType.Catalog,
 			path = path,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchCatalog(baseUrl, headers, path) },
 			encode = { catalog -> BinderyJson.encodeToString(catalog) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
@@ -213,10 +218,11 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
 		)
 
-	suspend fun getManifest(bookId: String): Result<BinderyManifest> =
+	suspend fun getManifest(bookId: String, forceRefresh: Boolean = false): Result<BinderyManifest> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.Manifest,
 			path = bookId,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchManifest(baseUrl, headers, bookId) },
 			encode = { manifest -> BinderyJson.encodeToString(manifest) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
@@ -229,10 +235,14 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
 		)
 
-	suspend fun getBookResources(bookId: String): Result<BinderyResourceCatalog> =
+	suspend fun getBookResources(
+		bookId: String,
+		forceRefresh: Boolean = false
+	): Result<BinderyResourceCatalog> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.Resources,
 			path = bookId,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchBookResources(baseUrl, headers, bookId) },
 			encode = { resources -> BinderyJson.encodeToString(resources) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyResourceCatalog>(json) }
@@ -247,11 +257,13 @@ class BinderyRepository(
 
 	suspend fun getAudiobookVersions(
 		bookId: String,
-		limit: Int = 100
+		limit: Int = 100,
+		forceRefresh: Boolean = false
 	): Result<List<BinderyAudiobookVersion>> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.AudiobookVersions,
 			path = "book:${bookId.trim()}:limit:${limit.coerceIn(1, 500)}",
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchAudiobookVersions(baseUrl, headers, bookId, limit) },
 			encode = { versions -> BinderyJson.encodeToString(versions) },
 			decode = { json -> BinderyJson.decodeFromString<List<BinderyAudiobookVersion>>(json) }
@@ -267,10 +279,14 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<List<BinderyAudiobookVersion>>(json) }
 		)
 
-	suspend fun getAudiobookDetail(audiobookId: String): Result<BinderyAudiobookVersion> =
+	suspend fun getAudiobookDetail(
+		audiobookId: String,
+		forceRefresh: Boolean = false
+	): Result<BinderyAudiobookVersion> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.AudiobookDetail,
 			path = audiobookId,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchAudiobookVersion(baseUrl, headers, audiobookId) },
 			encode = { version -> BinderyJson.encodeToString(version) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyAudiobookVersion>(json) }
@@ -283,19 +299,27 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyAudiobookVersion>(json) }
 		)
 
-	suspend fun getAudiobookManifest(audiobookId: String): Result<BinderyManifest> =
+	suspend fun getAudiobookManifest(
+		audiobookId: String,
+		forceRefresh: Boolean = false
+	): Result<BinderyManifest> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.AudiobookManifest,
 			path = audiobookId,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchAudiobookManifest(baseUrl, headers, audiobookId) },
 			encode = { manifest -> BinderyJson.encodeToString(manifest) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
 		)
 
-	suspend fun getAudiobookManifestPath(path: String): Result<BinderyManifest> =
+	suspend fun getAudiobookManifestPath(
+		path: String,
+		forceRefresh: Boolean = false
+	): Result<BinderyManifest> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.AudiobookManifest,
 			path = path,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchAudiobookManifestPath(baseUrl, headers, path) },
 			encode = { manifest -> BinderyJson.encodeToString(manifest) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
@@ -351,10 +375,11 @@ class BinderyRepository(
 			decode = { json -> BinderyJson.decodeFromString<BinderyManifest>(json) }
 		)
 
-	suspend fun getBookSync(bookId: String): Result<BinderyBookSync> =
+	suspend fun getBookSync(bookId: String, forceRefresh: Boolean = false): Result<BinderyBookSync> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.BookSync,
 			path = bookId,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchBookSync(baseUrl, headers, bookId) },
 			encode = { sync -> BinderyJson.encodeToString(sync) },
 			decode = { json -> decodeBinderyBookSyncJson(json) }
@@ -367,10 +392,14 @@ class BinderyRepository(
 			decode = { json -> decodeBinderyBookSyncJson(json) }
 		)
 
-	suspend fun getWhispersyncSidecar(path: String): Result<WhispersyncSidecar> =
+	suspend fun getWhispersyncSidecar(
+		path: String,
+		forceRefresh: Boolean = false
+	): Result<WhispersyncSidecar> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
 			path = path,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers ->
 				decodeWhispersyncSidecar(apiClient.fetchWhispersyncSidecarJson(baseUrl, headers, path))
 			},
@@ -411,10 +440,11 @@ class BinderyRepository(
 			invalidateBinderyProgressMutation(baseUrl, progress.bookId)
 		}
 
-	suspend fun getBookFindings(bookId: String): Result<BinderyCatalog> =
+	suspend fun getBookFindings(bookId: String, forceRefresh: Boolean = false): Result<BinderyCatalog> =
 		withConfiguredCachedPayload(
 			payloadType = BinderyMetadataPayloadType.BookFindings,
 			path = bookId,
+			forceRefresh = forceRefresh,
 			fetch = { baseUrl, headers -> apiClient.fetchBookFindings(baseUrl, headers, bookId) },
 			encode = { catalog -> BinderyJson.encodeToString(catalog) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
@@ -552,6 +582,7 @@ class BinderyRepository(
 	private suspend fun <T> withConfiguredCachedPayload(
 		payloadType: String,
 		path: String,
+		forceRefresh: Boolean = false,
 		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> T,
 		encode: (T) -> String,
 		decode: (String) -> T,
@@ -559,6 +590,7 @@ class BinderyRepository(
 	): Result<T> = withConfiguredCachedPayloadWithSource(
 		payloadType = payloadType,
 		path = path,
+		forceRefresh = forceRefresh,
 		fetch = fetch,
 		encode = encode,
 		decode = decode,
@@ -568,6 +600,7 @@ class BinderyRepository(
 	private suspend fun <T> withConfiguredCachedPayloadWithSource(
 		payloadType: String,
 		path: String,
+		forceRefresh: Boolean = false,
 		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> T,
 		encode: (T) -> String,
 		decode: (String) -> T,
@@ -582,7 +615,7 @@ class BinderyRepository(
 				apiKeyFingerprint = configuredBinderyCacheFingerprint()
 			)
 			val cached = metadataCache.get(cacheKey)
-			if (cached != null && isFresh(cached.updatedAtMillis)) {
+			if (!forceRefresh && cached != null && isFresh(cached.updatedAtMillis)) {
 				runCatching { decode(cached.payloadJson) }
 					.onSuccess { cachedPayload ->
 						if (acceptCached(cachedPayload)) {

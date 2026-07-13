@@ -51,15 +51,21 @@ class BinderyBookViewModel(
 			if (fullRefresh || visibleData == null) {
 				_bookState.value = UiState.Loading(visibleData)
 			}
-			repository.getManifest(bookId).fold(
+			repository.getManifest(bookId, forceRefresh = fullRefresh).fold(
 				onSuccess = { manifest ->
-					val audiobooks = repository.getAudiobookVersions(bookId).getOrElse {
+					val audiobooks = repository.getAudiobookVersions(
+						bookId,
+						forceRefresh = fullRefresh
+					).getOrElse {
 						emptyList()
 					}
-					val resources = repository.getBookResources(bookId).getOrElse {
+					val resources = repository.getBookResources(
+						bookId,
+						forceRefresh = fullRefresh
+					).getOrElse {
 						BinderyResourceCatalog(title = "Resources")
 					}
-					val sync = repository.getBookSync(bookId).getOrElse {
+					val sync = repository.getBookSync(bookId, forceRefresh = fullRefresh).getOrElse {
 						manifest.sync ?: BinderyBookSync(bookId = bookId.toLongOrNull())
 					}
 					val freshData =

@@ -12,24 +12,26 @@
 
 ## Task 1: Credential-Scoped Keys
 
-- [ ] Add failing tests proving different API keys produce different cache keys, equal trimmed keys are stable, base URLs remain isolated, and neither key contains plaintext.
-- [ ] Add `binderyApiKeyFingerprint` using Okio SHA-256 and require the fingerprint in `binderyMetadataCacheKey`.
-- [ ] Pass the configured fingerprint at every repository cache read/write and update seeded-cache fixtures.
-- [ ] Run focused cache-key and repository cache tests, then commit.
+- [x] Add failing tests proving different API keys produce different cache keys, equal trimmed keys are stable, base URLs remain isolated, and neither key contains plaintext.
+- [x] Add `binderyApiKeyFingerprint` using Okio SHA-256 and require the fingerprint in `binderyMetadataCacheKey`.
+- [x] Pass the configured fingerprint at every repository cache read/write and update seeded-cache fixtures.
+- [x] Run focused cache-key and repository cache tests, then commit.
 
 ## Task 2: Targeted Mutation Invalidation
 
-- [ ] Add failing tests proving progress PUT invalidates only the matching `BookSync` path, known book actions avoid a base-wide purge, and unknown actions retain a conservative base-wide fallback.
-- [ ] Add `clearPayload(baseUrl, payloadType, pathPrefix)` to the cache interface, Room DAO, no-op cache, and recording cache.
-- [ ] Implement progress and action invalidation after successful mutations only.
-- [ ] Run focused mutation tests, then commit.
+- [x] Add failing tests proving progress PUT invalidates only the matching `BookSync` path, known book actions avoid a base-wide purge, and unknown actions retain a conservative base-wide fallback.
+- [x] Add `clearPayload(baseUrl, payloadType, pathPrefix)` to the cache interface, Room DAO, no-op cache, and recording cache.
+- [x] Implement progress and action invalidation after successful mutations only.
+- [x] Run focused mutation tests, then commit.
 
 ## Task 3: Forced Refresh With Stale Fallback
 
-- [ ] Add failing tests proving `forceRefresh=true` bypasses a fresh cache and returns stale cache with failure state if the live request fails.
-- [ ] Thread `forceRefresh` through cached payload helpers and public metadata reads.
-- [ ] Pass existing view-model `fullRefresh` flags to repository calls for catalog, manifest, resources, audiobook metadata, sync, and findings.
-- [ ] Run focused repository/view-model tests, then commit.
+- [x] Add failing tests proving `forceRefresh=true` bypasses a fresh cache and returns stale cache with failure state if the live request fails.
+- [x] Thread `forceRefresh` through cached payload helpers and public metadata reads.
+- [x] Pass existing view-model `fullRefresh` flags to repository calls for catalog, manifest, resources, audiobook metadata, sync, and findings.
+- [x] Run focused repository/view-model tests, then commit.
+
+Implementation evidence: RED runs failed on the absent fingerprint/key parameter, targeted invalidation ledger, and force-refresh parameter. Focused cache, repository, optional-state, mutation, DAO/DI, and progress tests passed after implementation. The cache schema did not change; Room generated the new targeted delete query. Broad UI and Android validation remains deferred by execution order.
 
 ## Deferred Validation
 

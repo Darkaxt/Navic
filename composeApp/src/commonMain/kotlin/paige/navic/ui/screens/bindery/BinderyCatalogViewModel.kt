@@ -70,7 +70,7 @@ class BinderyCatalogViewModel(
 			if (fullRefresh || visibleData == null) {
 				_catalogState.value = UiState.Loading(visibleData)
 			}
-			repository.getCatalog(requestedPath).fold(
+			repository.getCatalog(requestedPath, forceRefresh = fullRefresh).fold(
 				onSuccess = { catalog ->
 					nextPagePath = catalog.nextPagePath()
 					_hasNextPage.value = nextPagePath != null
@@ -171,7 +171,7 @@ class BinderyCatalogViewModel(
 			if (fullRefresh || visibleData == null || visibleData.navigation.isEmpty()) {
 				_relatedCollectionsState.value = UiState.Loading(visibleData)
 			}
-			repository.getCatalog(filteredPath).fold(
+			repository.getCatalog(filteredPath, forceRefresh = fullRefresh).fold(
 				onSuccess = { catalog ->
 					val state = _relatedCollectionsState.value
 					if (state !is UiState.Success || state.data != catalog) {

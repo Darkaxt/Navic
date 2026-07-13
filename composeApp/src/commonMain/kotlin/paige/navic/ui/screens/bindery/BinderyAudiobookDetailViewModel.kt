@@ -36,7 +36,7 @@ class BinderyAudiobookDetailViewModel(
 			if (fullRefresh || visibleData == null) {
 				_detailState.value = UiState.Loading(visibleData)
 			}
-			repository.getAudiobookDetail(audiobookId).fold(
+			repository.getAudiobookDetail(audiobookId, forceRefresh = fullRefresh).fold(
 				onSuccess = { detail ->
 					val state = _detailState.value
 					if (state !is UiState.Success || state.data != detail) {
