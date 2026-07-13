@@ -42,8 +42,7 @@ class PlaylistUpdateDialogViewModel(
 			_selectedPlaylists.value = emptySet()
 			_playlistsState.value = UiState.Loading()
 			try {
-				val results =
-					sessionManager.api.getPlaylists()
+				val results = sessionManager.withApi { it.getPlaylists() }
 				_playlistsState.value =
 					UiState.Success(results.filter { it.id != playlistToExclude })
 			} catch (e: Exception) {
@@ -66,10 +65,10 @@ class PlaylistUpdateDialogViewModel(
 			try {
 				val selectedPlaylists = _selectedPlaylists.value
 				selectedPlaylists.forEach { playlist ->
-					sessionManager.api.updatePlaylist(
+					sessionManager.withApi { api -> api.updatePlaylist(
 						playlist.id,
 						songIdsToAdd = songs.map { it.id }
-					)
+					) }
 				}
 				playlistIdsToRefreshAfterMembershipUpdate(selectedPlaylists.map { it.id })
 					.forEach { playlistId ->

@@ -215,22 +215,22 @@ class SyncManager(
 		processOrderedSyncActions(
 			actions = actions,
 			execute = { action ->
-				when (action.actionType) {
-					SyncActionType.STAR -> sessionManager.api.star(action.itemId)
-					SyncActionType.UNSTAR -> sessionManager.api.unstar(action.itemId)
-					SyncActionType.DELETE_PLAYLIST -> sessionManager.api.deletePlaylist(action.itemId)
-					SyncActionType.SCROBBLE -> sessionManager.api.scrobble(
+				sessionManager.withApi { api -> when (action.actionType) {
+					SyncActionType.STAR -> api.star(action.itemId)
+					SyncActionType.UNSTAR -> api.unstar(action.itemId)
+					SyncActionType.DELETE_PLAYLIST -> api.deletePlaylist(action.itemId)
+					SyncActionType.SCROBBLE -> api.scrobble(
 						action.itemId,
 						submission = true
 					)
 
-					SyncActionType.STAR_0 -> sessionManager.api.setRating(action.itemId, 0)
-					SyncActionType.STAR_1 -> sessionManager.api.setRating(action.itemId, 1)
-					SyncActionType.STAR_2 -> sessionManager.api.setRating(action.itemId, 2)
-					SyncActionType.STAR_3 -> sessionManager.api.setRating(action.itemId, 3)
-					SyncActionType.STAR_4 -> sessionManager.api.setRating(action.itemId, 4)
-					SyncActionType.STAR_5 -> sessionManager.api.setRating(action.itemId, 5)
-				}
+					SyncActionType.STAR_0 -> api.setRating(action.itemId, 0)
+					SyncActionType.STAR_1 -> api.setRating(action.itemId, 1)
+					SyncActionType.STAR_2 -> api.setRating(action.itemId, 2)
+					SyncActionType.STAR_3 -> api.setRating(action.itemId, 3)
+					SyncActionType.STAR_4 -> api.setRating(action.itemId, 4)
+					SyncActionType.STAR_5 -> api.setRating(action.itemId, 5)
+				} }
 			},
 			onSuccess = { action ->
 				syncDao.removeAction(action.id)

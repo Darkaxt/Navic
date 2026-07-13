@@ -161,8 +161,9 @@ class DbRepository(
 
 		onProgress(0.0f, Res.string.info_syncing_albums)
 		while (true) {
-			val batch =
-				sessionManager.api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
+			val batch = sessionManager.withApi { api ->
+				api.getAlbums(ApiAlbumListType.AlphabeticalByName, pageSize, offset)
+			}
 			if (batch.isEmpty()) break
 			allAlbumSummaries.addAll(batch)
 			if (batch.size < pageSize) break
@@ -188,7 +189,7 @@ class DbRepository(
 					launch {
 						concurrentRequestLimit.withPermit {
 							try {
-								val album = sessionManager.api.getAlbum(summary.id)
+								val album = sessionManager.withApi { it.getAlbum(summary.id) }
 
 								val done = completedAlbums.incrementAndGet()
 								val fetchProgress = 0.1f + (0.8f * (done.toFloat() / totalAlbums))
@@ -281,7 +282,7 @@ class DbRepository(
 	}
 
 	suspend fun syncPlaylists(): Result<List<PlaylistEntity>> = runDbOp {
-		val remotePlaylists = sessionManager.api.getPlaylists()
+		val remotePlaylists = sessionManager.withApi { it.getPlaylists() }
 		val playlistEntities = remotePlaylists.map { it.toEntity() }
 		val validPlaylistIds = playlistEntities.map { it.playlistId }.toSet()
 
@@ -298,7 +299,7 @@ class DbRepository(
 
 	suspend fun syncPlaylistSongs(playlistId: String): Result<Int> = runDbOp {
 		val playlist = try {
-			sessionManager.api.getPlaylist(playlistId)
+			sessionManager.withApi { it.getPlaylist(playlistId) }
 		} catch (e: Exception) {
 			if (e is SerializationException) {
 				Logger.e(
@@ -344,7 +345,7 @@ class DbRepository(
 	}
 
 	suspend fun syncGenres(): Result<Unit> = runDbOp {
-		val remoteGenres = sessionManager.api.getGenres()
+		val remoteGenres = sessionManager.withApi { it.getGenres() }
 		val entities = remoteGenres.map { it.toEntity() }
 
 		entities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
@@ -356,7 +357,7 @@ class DbRepository(
 	}
 
 	suspend fun syncArtists(): Result<Unit> = runDbOp {
-		val remoteArtistsWrapper = sessionManager.api.getArtists()
+		val remoteArtistsWrapper = sessionManager.withApi { it.getArtists() }
 		val flatArtists = remoteArtistsWrapper.flatMap { indexGroup ->
 			indexGroup.artists
 		}
@@ -371,7 +372,7 @@ class DbRepository(
 	}
 
 	suspend fun syncRadios(): Result<Unit> = runDbOp {
-		val remoteRadios = sessionManager.api.getInternetRadioStations()
+		val remoteRadios = sessionManager.withApi { it.getInternetRadioStations() }
 		val entities = remoteRadios.map { it.toEntity() }
 
 		entities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
@@ -383,7 +384,7 @@ class DbRepository(
 	}
 
 	suspend fun fetchArtistMetadata(artistId: String): Result<DomainArtist> = runDbOp {
-		val artistInfo = sessionManager.api.getArtistInfo(artistId)
+		val artistInfo = sessionManager.withApi { it.getArtistInfo(artistId) }
 		val simIds = artistInfo.similarArtists.map { it.id }
 
 		val currentEntity = artistDao.getArtistById(artistId)

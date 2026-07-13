@@ -35,7 +35,7 @@ class CollectionRepository(
 	private suspend fun refreshLocalData(collectionId: String): DomainSongCollection {
 		when (val collection = getLocalData(collectionId)) {
 			is DomainAlbum -> {
-				val album = sessionManager.api.getAlbum(collection.id)
+				val album = sessionManager.withApi { it.getAlbum(collection.id) }
 				val albumEntity = album.toEntity()
 				songDao.updateSongsByAlbumId(
 					album.id,
@@ -46,7 +46,7 @@ class CollectionRepository(
 			}
 
 			is DomainPlaylist -> {
-				val playlist = sessionManager.api.getPlaylist(collection.id)
+				val playlist = sessionManager.withApi { it.getPlaylist(collection.id) }
 				playlistDao.insertPlaylist(playlist.toEntity())
 				dbRepository.syncPlaylistSongs(playlist.id).getOrThrow()
 				playlistDao.getPlaylistById(playlist.id)!!.toDomainModel()
@@ -88,7 +88,7 @@ class CollectionRepository(
 		?.toDomainModel()
 
 	suspend fun getAlbumInfo(albumId: String): ApiAlbumInfo {
-		return sessionManager.api.getAlbumInfo(albumId)
+		return sessionManager.withApi { it.getAlbumInfo(albumId) }
 	}
 }
 

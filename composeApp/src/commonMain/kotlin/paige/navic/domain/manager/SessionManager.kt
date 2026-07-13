@@ -2,11 +2,7 @@ package paige.navic.domain.manager
 
 import com.russhwolf.settings.Settings
 import com.russhwolf.settings.set
-import dev.zt64.subsonic.client.SubsonicAuth
 import dev.zt64.subsonic.client.SubsonicClient
-import io.ktor.client.plugins.UserAgent
-import io.ktor.client.plugins.defaultRequest
-import io.ktor.client.request.header
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,23 +11,24 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import paige.navic.data.database.dao.SyncActionDao
+import paige.navic.data.remote.SubsonicClientFactory
 
 class SessionManager(
 	private val settings: Settings,
 	private val preferenceManager: PreferenceManager,
 	private val syncActionDao: SyncActionDao,
-	private val sessionLifetime: AuthenticatedSessionLifetime
+	private val sessionLifetime: AuthenticatedSessionLifetime,
+	private val clientFactory: SubsonicClientFactory
 ) {
 	private val transitionMutex = Mutex()
 	private val _isLoggedIn = MutableStateFlow(false)
 	val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
-	var api: SubsonicClient = createClient(
+	private val clientSlot = SessionResourceSlot(createClient(
 		instanceUrl = storedInstanceUrl(),
 		username = settings.getString("username", ""),
 		password = settings.getString("password", ""),
-	)
-		private set
+	))
 
 	init {
 		val storedInstanceUrl = settings.getString("instanceUrl", "")
@@ -50,25 +47,11 @@ class SessionManager(
 		instanceUrl: String,
 		username: String,
 		password: String,
-	) = SubsonicClient.Companion(
-		baseUrl = instanceUrl,
-		auth = SubsonicAuth.Token(
-			username = username,
-			password = password,
-		),
-		client = "Navic",
-		clientConfig = {
-			install(UserAgent) {
-				agent = "Navic"
-			}
-
-			val serverRequestHeaders = preferenceManager.serverRequestHeadersMap()
-			if (serverRequestHeaders.isNotEmpty()) {
-				defaultRequest {
-					serverRequestHeaders.forEach { (key, value) -> header(key, value) }
-				}
-			}
-		}
+	) = clientFactory.create(
+		instanceUrl = instanceUrl,
+		username = username,
+		password = password,
+		requestHeaders = preferenceManager.serverRequestHeadersMap()
 	)
 
 	suspend fun login(
@@ -100,7 +83,7 @@ class SessionManager(
 			settings["username"] = username
 			settings["password"] = password
 
-			api = client
+			clientSlot.swap(client)
 			sessionLifetime.startSession()
 			_isLoggedIn.value = true
 		}
@@ -113,7 +96,7 @@ class SessionManager(
 				clearOutgoingSyncState()
 				settings["username"] = null
 				settings["password"] = null
-				api = createClient(storedInstanceUrl(), "", "")
+				clientSlot.swap(createClient(storedInstanceUrl(), "", ""))
 				_isLoggedIn.value = false
 			}
 		}
@@ -125,14 +108,23 @@ class SessionManager(
 	}
 
 	fun refreshClient() {
-		api = createClient(
+		clientSlot.swap(createClient(
 			instanceUrl = storedInstanceUrl(),
 			username = settings.getString("username", ""),
 			password = settings.getString("password", ""),
-		)
+		))
 	}
 
-	fun getCoverArtUrl(coverArtId: String) = api.getCoverArtUrl(
+	internal suspend fun <T> withApi(block: suspend (SubsonicClient) -> T): T =
+		clientSlot.withResource(block)
+
+	fun getStreamUrl(id: String): String =
+		clientSlot.snapshot().getStreamUrl(id)
+
+	fun getStreamUrl(id: String, bitrate: Int, container: String?): String =
+		clientSlot.snapshot().getStreamUrl(id, bitrate, container)
+
+	fun getCoverArtUrl(coverArtId: String) = clientSlot.snapshot().getCoverArtUrl(
 		coverArtId,
 		auth = true,
 		size = "${preferenceManager.coverArtQuality.value}"

@@ -618,7 +618,7 @@ class DownloadManager(
 		var lastProgress = 0f
 		var progressJob: Job? = null
 
-		val request = client.prepareRequest(sessionManager.api.getStreamUrl(song.id)) {
+		val request = client.prepareRequest(sessionManager.getStreamUrl(song.id)) {
 			method = HttpMethod.Get
 			preferenceManager.serverRequestHeadersMap().forEach { (key, value) -> header(key, value) }
 			onDownload { bytesSentTotal, contentLength ->

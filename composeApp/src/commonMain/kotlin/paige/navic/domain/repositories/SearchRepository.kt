@@ -25,7 +25,7 @@ class SearchRepository(
 	suspend fun search(query: String): List<Any> {
 		return if (isOnline.value) {
 			try {
-				val data = sessionManager.api.searchID3(query)
+				val data = sessionManager.withApi { it.searchID3(query) }
 
 				albumDao.insertAlbumsIgnoringConflicts(data.albums.map { it.toEntity() })
 				artistDao.insertArtistsIgnoringConflicts(data.artists.map { it.toEntity() })

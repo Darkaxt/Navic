@@ -104,7 +104,7 @@ class ScrobbleManager(
 		scope.launch(Dispatchers.IO) {
 			if (connectivityManager.isOnline.value) {
 				try {
-					sessionManager.api.scrobble(scrobbleSongId, submission = true)
+					sessionManager.withApi { it.scrobble(scrobbleSongId, submission = true) }
 				} catch (_: Exception) {
 					syncManager.enqueueAction(SyncActionType.SCROBBLE, scrobbleSongId)
 				}
@@ -128,7 +128,7 @@ class ScrobbleManager(
 
 		scope.launch(Dispatchers.IO) {
 			try {
-				sessionManager.api.scrobble(nowPlayingSongId, submission = false)
+				sessionManager.withApi { it.scrobble(nowPlayingSongId, submission = false) }
 			} catch (_: Exception) { }
 		}
 	}

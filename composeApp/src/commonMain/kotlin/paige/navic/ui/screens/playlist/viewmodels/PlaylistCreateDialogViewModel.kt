@@ -37,10 +37,10 @@ class PlaylistCreateDialogViewModel(
 		viewModelScope.launch {
 			creationState.value = UiState.Loading()
 			try {
-				val playlist = sessionManager.api.createPlaylist(
+				val playlist = sessionManager.withApi { api -> api.createPlaylist(
 					name = name.text.toString(),
 					songIds = songs.map { it.id }
-				)
+				) }
 				playlistDao.insertPlaylist(playlist.toEntity())
 				_events.send(
 					Event.Dismiss(

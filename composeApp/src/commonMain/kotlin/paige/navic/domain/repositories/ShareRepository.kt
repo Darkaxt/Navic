@@ -6,5 +6,5 @@ import paige.navic.domain.manager.SessionManager
 class ShareRepository(
 	private val sessionManager: SessionManager
 ) {
-	suspend fun getShares() = sessionManager.api.getShares().map { it.toDomainModel() }
+	suspend fun getShares() = sessionManager.withApi { it.getShares() }.map { it.toDomainModel() }
 }

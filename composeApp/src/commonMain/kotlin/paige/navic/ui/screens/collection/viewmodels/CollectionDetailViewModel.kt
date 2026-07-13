@@ -477,10 +477,10 @@ class CollectionDetailViewModel(
 		val songs = _collectionState.value.data?.songs ?: return
 		viewModelScope.launch(Dispatchers.IO) {
 			try {
-				sessionManager.api.updatePlaylist(
+				sessionManager.withApi { api -> api.updatePlaylist(
 					id = collectionId,
 					songIndicesToRemove = listOf(songs.indexOf(song))
-				)
+				) }
 				refreshCollection(true)
 			} catch (e: Exception) {
 				Logger.e("CollectionDetailViewModel", "Failed to remove song from playlist", e)

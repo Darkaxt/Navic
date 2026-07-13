@@ -24,9 +24,9 @@ class ShareDialogViewModel(
 			state.value = UiState.Loading()
 			try {
 				val expiration = expiry?.let { Clock.System.now() + it }
-				val url = sessionManager.api
-					.createShare(listOf(id), expiresAt = expiration)
-					.url
+				val url = sessionManager.withApi { api ->
+					api.createShare(listOf(id), expiresAt = expiration).url
+				}
 				state.value = UiState.Success(url)
 			} catch (e: Exception) {
 				state.value = UiState.Error(e)

@@ -71,7 +71,7 @@ class DeletionViewModel(
 			state.value = UiState.Loading()
 			try {
 				if (endpoint == DeletionEndpoint.SHARE) {
-					sessionManager.api.deleteShare(id)
+					sessionManager.withApi { it.deleteShare(id) }
 				} else {
 					syncManager.enqueueAction(
 						actionType = SyncActionType.DELETE_PLAYLIST,

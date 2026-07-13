@@ -310,7 +310,7 @@ class AndroidMediaPlayerViewModel(
 		}
 		val container = if (isCellular) preferenceManager.streamingQualityCellular.containerAndroid else preferenceManager.streamingQualityWifi.containerAndroid
 
-		return sessionManager.api.getStreamUrl(id, bitrate, container)
+		return sessionManager.getStreamUrl(id, bitrate, container)
 			.toUri()
 			.buildUpon()
 			.appendQueryParameter("estimateContentLength", "true")
@@ -1138,8 +1138,9 @@ class AndroidMediaPlayerViewModel(
 		limit: Int
 	): List<DomainSong> =
 		runCatching {
-			sessionManager.api
-				.getSimilarSongsID3(songId, limit.coerceAtLeast(0))
+			sessionManager.withApi { api ->
+				api.getSimilarSongsID3(songId, limit.coerceAtLeast(0))
+			}
 				.map { it.toEntity().toDomainModel() }
 		}.onFailure { error ->
 			Logger.w("MediaPlayer", "Navidrome similar-song lookup failed", error)

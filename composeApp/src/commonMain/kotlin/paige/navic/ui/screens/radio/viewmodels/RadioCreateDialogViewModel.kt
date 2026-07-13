@@ -32,11 +32,11 @@ class RadioCreateDialogViewModel(
 		viewModelScope.launch {
 			creationState.value = UiState.Loading()
 			try {
-				sessionManager.api.createInternetRadioStation(
+				sessionManager.withApi { api -> api.createInternetRadioStation(
 					name = name.text.toString(),
 					streamUrl = streamUrl.text.toString(),
 					homepageUrl = homepageUrl.text.toString().trim().takeIf { it.isNotBlank() }
-				)
+				) }
 				_events.send(Event.Dismiss)
 				creationState.value = UiState.Success(null)
 				snackBarManager.notify(Res.string.notice_created_radio, name.text.toString())
