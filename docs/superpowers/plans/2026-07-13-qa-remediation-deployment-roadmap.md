@@ -296,6 +296,14 @@ Every tranche uses the following pipeline:
 - A signed in-place upgrade from the crashing iota8 install launched successfully on `emulator-5554`; the app remained alive as PID `22640` with no fatal or Koin startup error.
 - MockEngine tests prove every factory call creates a distinct client, applies the shared User-Agent/JSON policy, and does not leak one client's authorization header into another. A source guard covers all production client construction and the explicit zero-argument Koin registration; affected repository suites and Android debug assembly passed.
 
+### Optional-integration state slice release evidence
+
+- Released `v1.0.11-iota10` from commit `6f888448` on 2026-07-13. GitHub Actions run `29225267656` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
+- Public `Navic.apk` SHA-256: `c3bcff82e0758f624e52b051566841ff62cb4966924a873e38c3c5e1b119b958`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=532`, `versionName=v1.0.11-iota10`.
+- A signed in-place upgrade from `v1.0.11-iota9` installed and launched on `emulator-5554`; the app remained alive as PID `25449` with no fatal activity or Koin startup error.
+- Repository and display-policy tests distinguish disabled, misconfigured, unauthorized, malformed, unavailable, empty, and stale states. Aurral base discovery paints before parallel supplements, Bindery row loads remain parallel without dropping failures, stale content remains interactive, affected legacy suites passed, and Android debug assembly passed after rebasing public master.
+
 ### Rollout and rollback
 
 - Credential migration release precedes removal of plaintext-read compatibility by at least one public prerelease.
@@ -444,16 +452,16 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | C11 | Medium | Released | `v1.0.11-iota1` |
 | C12 | Verified | Preserve | Regression tests only |
 | C13 | Medium | Pending | Tranche 8 |
-| C14 | Low | Pending | Tranche 5 |
+| C14 | Low | Released | `v1.0.11-iota10` |
 | C15 | Low | Released | `v1.0.11-iota5` |
 
 ## Coverage accounting
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 21 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C15`).
+- Released findings: 22 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 34.
+- Pending implementation findings assigned to tranches: 33.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).

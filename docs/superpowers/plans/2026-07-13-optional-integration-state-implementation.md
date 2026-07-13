@@ -143,7 +143,7 @@ Increment versionCode 531 to 532 and set versionName `v1.0.11-iota10`.
 
 Run all new C14 tests, affected Aurral/Bindery suites, Android debug assembly, version verification, and `git diff --check` after rebasing public master.
 
-- [ ] **Step 3: Publish and verify**
+- [x] **Step 3: Publish and verify**
 
 Publish Android only. Verify workflow success, public SHA-256, established signing certificate, embedded version, signed upgrade from iota9, live process, and absence of fatal/Koin startup errors.
 
