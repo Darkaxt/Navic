@@ -143,6 +143,7 @@ internal class ReaderPageTurnBundleSource(
 									key = destinationKey,
 									bitmap = it,
 									surfaceRectInWindow = Rect(source.surfaceRectInWindow),
+									leafGeometry = source.leafGeometry,
 									reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb)
 								)
 							})
@@ -169,6 +170,10 @@ internal class ReaderPageTurnBundleSource(
 			return null
 		}
 		val key = snapshotKey(pageIndex, kind, current.bitmap, current.sourceRectInWindow)
+		val leafGeometry = current.geometry.leafGeometry(current.bitmap.width, current.bitmap.height) ?: run {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			return null
+		}
 		snapshotCache[key]?.let { cached ->
 			snapshotCache[key]
 			if (cached.bitmap !== current.bitmap) current.bitmap.takeUnless { it.isRecycled }?.recycle()
@@ -179,6 +184,7 @@ internal class ReaderPageTurnBundleSource(
 				key = key,
 				bitmap = current.bitmap,
 				surfaceRectInWindow = Rect(current.sourceRectInWindow),
+				leafGeometry = leafGeometry,
 				reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb)
 			)
 		)

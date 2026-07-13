@@ -84,4 +84,71 @@ class ReaderPageTurnCaptureGeometryTest {
 			)
 		)
 	}
+
+	@Test
+	fun spreadLeafGeometryUsesResolvedPageSplitInsideAnimationBitmap() {
+		val geometry = ReaderPageTurnCaptureGeometry(
+			viewportWidth = 1200.0,
+			viewportHeight = 800.0,
+			mode = ReaderPageTurnLayoutMode.Spread,
+			pages = listOf(
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Left, 12.0, 0.0, 570.0, 800.0),
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Right, 618.0, 0.0, 570.0, 800.0)
+			)
+		)
+
+		assertEquals(
+			ReaderPageTurnLeafGeometry(
+				fullLeafRect = null,
+				leftLeafRect = ReaderPageTurnPixelRect(0, 0, 285, 400),
+				gutterRect = ReaderPageTurnPixelRect(285, 0, 303, 400),
+				rightLeafRect = ReaderPageTurnPixelRect(303, 0, 588, 400)
+			),
+			geometry.leafGeometry(bitmapWidth = 588, bitmapHeight = 400)
+		)
+	}
+
+	@Test
+	fun portraitLeafGeometryUsesTheResolvedFullPageWithoutInventingAGutter() {
+		val geometry = ReaderPageTurnCaptureGeometry(
+			viewportWidth = 600.0,
+			viewportHeight = 800.0,
+			mode = ReaderPageTurnLayoutMode.Single,
+			pages = listOf(
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Full, 30.0, 0.0, 540.0, 800.0)
+			)
+		)
+
+		assertEquals(
+			ReaderPageTurnLeafGeometry(
+				fullLeafRect = ReaderPageTurnPixelRect(0, 0, 270, 400),
+				leftLeafRect = null,
+				gutterRect = null,
+				rightLeafRect = null
+			),
+			geometry.leafGeometry(bitmapWidth = 270, bitmapHeight = 400)
+		)
+	}
+
+	@Test
+	fun terminalSpreadKeepsOnlyTheResolvedPhysicalLeaf() {
+		val geometry = ReaderPageTurnCaptureGeometry(
+			viewportWidth = 1200.0,
+			viewportHeight = 800.0,
+			mode = ReaderPageTurnLayoutMode.Spread,
+			pages = listOf(
+				ReaderPageTurnPageRect(ReaderPageTurnPageRole.Right, 618.0, 0.0, 570.0, 800.0)
+			)
+		)
+
+		assertEquals(
+			ReaderPageTurnLeafGeometry(
+				fullLeafRect = null,
+				leftLeafRect = null,
+				gutterRect = null,
+				rightLeafRect = ReaderPageTurnPixelRect(0, 0, 285, 400)
+			),
+			geometry.leafGeometry(bitmapWidth = 285, bitmapHeight = 400)
+		)
+	}
 }

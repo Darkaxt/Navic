@@ -8,6 +8,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import paige.navic.reader.ReaderPageTurnLeafGeometry
 
 internal enum class ReaderPageTurnTransitionKind {
 	LandscapeSpreadSlide,
@@ -84,6 +85,7 @@ internal class ReaderPageSlideSnapshot(
 	val key: ReaderPageSlideSnapshotKey,
 	val bitmap: Bitmap,
 	val surfaceRectInWindow: Rect,
+	val leafGeometry: ReaderPageTurnLeafGeometry,
 	val reverseFaceColor: Int
 ) {
 	private var cacheOwned = true
@@ -131,6 +133,8 @@ internal class ReaderPageSlideTransition(
 
 	val surfaceRectInWindow: Rect
 		get() = source.surfaceRectInWindow
+	val leafGeometry: ReaderPageTurnLeafGeometry
+		get() = source.leafGeometry
 	val renderScaleX: Float
 		get() = surfaceRectInWindow.width() / source.bitmap.width.toFloat()
 	val renderScaleY: Float
