@@ -22,12 +22,12 @@
 
 ### Task 1: Return Typed Decode Results
 
-- [ ] Add failing tests requiring malformed JSON, non-object JSON, missing type, unknown type, and invalid required fields to return distinct `ReaderBridgeDecodeFailure` values.
-- [ ] Add a failing test requiring diagnostic raw text to be at most 500 characters, replace control characters with spaces, and end a truncated value with `...`.
-- [ ] Run `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderBridgeProtocolTest"` and confirm the typed API is absent.
-- [ ] Add `ReaderBridgeDecodeResult`, `ReaderBridgeDecodeFailure`, and `decodeReaderBridgeMessage`; keep `decodeReaderBridgeEvent` as a nullable adapter.
-- [ ] Rerun `ReaderBridgeProtocolTest` and confirm green.
-- [ ] Commit as `fix(reader): return typed bridge decode failures`.
+- [x] Add failing tests requiring malformed JSON, non-object JSON, missing type, unknown type, and invalid required fields to return distinct `ReaderBridgeDecodeFailure` values.
+- [x] Add a failing test requiring diagnostic raw text to be at most 500 characters, replace control characters with spaces, and end a truncated value with `...`.
+- [x] Run `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.reader.ReaderBridgeProtocolTest"` and confirm the typed API is absent.
+- [x] Add `ReaderBridgeDecodeResult`, `ReaderBridgeDecodeFailure`, and `decodeReaderBridgeMessage`; keep `decodeReaderBridgeEvent` as a nullable adapter.
+- [x] Rerun `ReaderBridgeProtocolTest` and confirm green.
+- [x] Commit as `fix(reader): return typed bridge decode failures`.
 
 ### Task 2: Log Failure Episodes And Surface Persistent Failure
 

@@ -6,6 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReaderBridgeProtocolTest {
 	@Test
@@ -897,9 +898,52 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
-	fun bridgeEventDecodeIgnoresMalformedOrUnknownMessages() {
+	fun bridgeEventDecodeClassifiesRejectedMessages() {
+		assertEquals(
+			ReaderBridgeDecodeFailure.MalformedJson,
+			assertIs<ReaderBridgeDecodeResult.Rejected>(decodeReaderBridgeMessage("{")).failure
+		)
+		assertEquals(
+			ReaderBridgeDecodeFailure.NonObjectPayload,
+			assertIs<ReaderBridgeDecodeResult.Rejected>(decodeReaderBridgeMessage("[]")).failure
+		)
+		assertEquals(
+			ReaderBridgeDecodeFailure.MissingType,
+			assertIs<ReaderBridgeDecodeResult.Rejected>(decodeReaderBridgeMessage("{}")).failure
+		)
+		assertEquals(
+			ReaderBridgeDecodeFailure.UnknownType,
+			assertIs<ReaderBridgeDecodeResult.Rejected>(
+				decodeReaderBridgeMessage("""{"type":"unknown"}""")
+			).failure
+		)
+		assertEquals(
+			ReaderBridgeDecodeFailure.InvalidPayload,
+			assertIs<ReaderBridgeDecodeResult.Rejected>(
+				decodeReaderBridgeMessage("""{"type":"cfiChanged"}""")
+			).failure
+		)
+		assertEquals(
+			ReaderBridgeEvent.Ready,
+			assertIs<ReaderBridgeDecodeResult.Decoded>(
+				decodeReaderBridgeMessage("""{"type":"ready"}""")
+			).event
+		)
+
 		assertNull(decodeReaderBridgeEvent("not-json"))
 		assertNull(decodeReaderBridgeEvent("""{"type":"unknown"}"""))
+	}
+
+	@Test
+	fun bridgeEventDecodeBoundsAndSanitizesRejectedRawMessage() {
+		val result = assertIs<ReaderBridgeDecodeResult.Rejected>(
+			decodeReaderBridgeMessage("not-json\n\u0001" + "x".repeat(600))
+		)
+
+		assertEquals(500, result.rawMessage.length)
+		assertTrue(result.rawMessage.endsWith("..."))
+		assertFalse(result.rawMessage.contains('\n'))
+		assertFalse(result.rawMessage.contains('\u0001'))
 	}
 
 	private fun assertContentActionClaim(

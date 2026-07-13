@@ -547,10 +547,92 @@ sealed interface ReaderBridgeEvent {
 fun ReaderBridgeCommand.toJavaScript(): String =
 	"window.NavicReaderBridge.dispatch(${ReaderBridgeJson.encodeToString(JsonObject.serializer(), toJsonObject())});"
 
+enum class ReaderBridgeDecodeFailure {
+	MalformedJson,
+	NonObjectPayload,
+	MissingType,
+	UnknownType,
+	InvalidPayload
+}
+
+sealed interface ReaderBridgeDecodeResult {
+	data class Decoded(val event: ReaderBridgeEvent) : ReaderBridgeDecodeResult
+	data class Rejected(
+		val failure: ReaderBridgeDecodeFailure,
+		val rawMessage: String
+	) : ReaderBridgeDecodeResult
+}
+
+private const val ReaderBridgeDiagnosticRawMessageLimit = 500
+
+private val ReaderBridgeEventTypes = setOf(
+	"ready",
+	"publicationReady",
+	"readerCenterTap",
+	"readerContentTapHandled",
+	"internalLink",
+	"externalLink",
+	"locationChanged",
+	"cfiChanged",
+	"tocItemChanged",
+	"paginationProfileStatus",
+	"selectionChanged",
+	"selectionCleared",
+	"annotationClick",
+	"annotationDrawn",
+	"overlayCreated",
+	"loadDoc",
+	"footnoteOpen",
+	"footnoteClose",
+	"pullUp",
+	"visibleTextRange",
+	"textPoint",
+	"overlayFragmentActive",
+	"overlayFragmentInactive",
+	"searchResults",
+	"toc",
+	"error"
+)
+
+fun decodeReaderBridgeMessage(message: String): ReaderBridgeDecodeResult {
+	val rawMessage = message.toReaderBridgeDiagnosticRawMessage()
+	val element = runCatching { ReaderBridgeJson.parseToJsonElement(message) }
+		.getOrElse {
+			return ReaderBridgeDecodeResult.Rejected(
+				failure = ReaderBridgeDecodeFailure.MalformedJson,
+				rawMessage = rawMessage
+			)
+		}
+	val json = element as? JsonObject
+		?: return ReaderBridgeDecodeResult.Rejected(
+			failure = ReaderBridgeDecodeFailure.NonObjectPayload,
+			rawMessage = rawMessage
+		)
+	val type = json.stringValue("type")
+		?: return ReaderBridgeDecodeResult.Rejected(
+			failure = ReaderBridgeDecodeFailure.MissingType,
+			rawMessage = rawMessage
+		)
+	if (type !in ReaderBridgeEventTypes) {
+		return ReaderBridgeDecodeResult.Rejected(
+			failure = ReaderBridgeDecodeFailure.UnknownType,
+			rawMessage = rawMessage
+		)
+	}
+	val event = runCatching { decodeReaderBridgeEventPayload(json, type) }
+		.getOrNull()
+		?: return ReaderBridgeDecodeResult.Rejected(
+			failure = ReaderBridgeDecodeFailure.InvalidPayload,
+			rawMessage = rawMessage
+		)
+	return ReaderBridgeDecodeResult.Decoded(event)
+}
+
 fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
-	runCatching {
-		val json = ReaderBridgeJson.parseToJsonElement(message).jsonObject
-		when (json.stringValue("type")) {
+	(decodeReaderBridgeMessage(message) as? ReaderBridgeDecodeResult.Decoded)?.event
+
+private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): ReaderBridgeEvent? =
+		when (type) {
 			"ready" -> ReaderBridgeEvent.Ready
 			"publicationReady" -> ReaderBridgeEvent.PublicationReady
 			"readerCenterTap" -> ReaderBridgeEvent.CenterTap
@@ -665,7 +747,17 @@ fun decodeReaderBridgeEvent(message: String): ReaderBridgeEvent? =
 			}
 			else -> null
 		}
-	}.getOrNull()
+
+private fun String.toReaderBridgeDiagnosticRawMessage(): String {
+	val sanitized = take(ReaderBridgeDiagnosticRawMessageLimit)
+		.map { character -> if (character.isISOControl()) ' ' else character }
+		.joinToString(separator = "")
+	return if (length > ReaderBridgeDiagnosticRawMessageLimit) {
+		sanitized.dropLast(3) + "..."
+	} else {
+		sanitized
+	}
+}
 
 private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange? {
 	val textHref = stringValue("textHref") ?: stringValue("href") ?: return null
