@@ -38,7 +38,7 @@ val managerModule = module {
 	singleOf(::LidaClipCacheManager)
 	singleOf(::LidaClipDownloadManager)
 	singleOf(::SessionManager)
-	singleOf(::PreferenceManager)
+	single { PreferenceManager(get(), get()) }
 	singleOf(::SnackBarManager)
 	singleOf(::ArtworkColorManager)
 	single(createdAtStart = true) { AppLogManager(get()) }

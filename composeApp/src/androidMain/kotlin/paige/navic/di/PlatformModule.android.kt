@@ -12,6 +12,8 @@ import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
 import paige.navic.data.database.DownloadDatabase
 import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.AndroidKeystoreCredentialStore
+import paige.navic.domain.manager.CredentialStore
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.QueueNotificationManager
 import paige.navic.domain.manager.ShareManager
@@ -23,6 +25,8 @@ import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.MediaPlayerViewModel
 
 actual val platformModule = module {
+	single<CredentialStore> { AndroidKeystoreCredentialStore(androidApplication()) }
+
 	single<DownloadDatabase> {
 		val dbPath = androidApplication()
 			.getDatabasePath("downloads.db")

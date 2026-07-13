@@ -9,10 +9,12 @@ import org.koin.dsl.module
 import paige.navic.data.database.CacheDatabase
 import paige.navic.data.database.DownloadDatabase
 import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.domain.manager.CredentialStore
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.QueueNotificationManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
+import paige.navic.domain.manager.SettingsCredentialStore
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.IOSMediaPlayerViewModel
@@ -24,6 +26,8 @@ import platform.Foundation.NSUserDomainMask
 import coil3.PlatformContext as CoilPlatformContext
 
 actual val platformModule = module {
+	single<CredentialStore> { SettingsCredentialStore(get()) }
+
 	single<CacheDatabase> {
 		val dbPath = documentDirectory() + "/cache.db"
 		Room
