@@ -17,8 +17,6 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import paige.navic.util.ui.SheetHideMotionSpec
-import paige.navic.util.ui.SheetShowMotionSpec
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,9 +58,7 @@ fun ModalBottomSheet(
 		content = content,
 	)
 
-	@Suppress("INVISIBLE_REFERENCE")
-	LaunchedEffect(Unit) {
-		sheetState.showMotionSpec = SheetShowMotionSpec
-		sheetState.hideMotionSpec = SheetHideMotionSpec
+	LaunchedEffect(sheetState) {
+		sheetState.applyNavicSheetMotionSpecs()
 	}
 }
