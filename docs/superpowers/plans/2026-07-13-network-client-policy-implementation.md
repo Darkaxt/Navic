@@ -183,7 +183,7 @@ Expected: all selected tests pass, no direct production `HttpClient` constructio
 
 Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota9`, and `git diff --check` after rebasing `fork/master`.
 
-- [ ] **Step 3: Publish and independently verify**
+- [x] **Step 3: Publish and independently verify**
 
 Tag and publish `v1.0.11-iota9` with Android enabled and iOS skipped. Download the public APK, compare its SHA-256 with GitHub metadata, verify the established release certificate, confirm versionCode 531/versionName iota9, then upgrade and launch it on `emulator-5554` with no fatal startup exception.
 

@@ -8,6 +8,7 @@ Released Tranche 1: `v1.0.11-iota1`
 Released Tranche 2 storage slice: `v1.0.11-iota2`
 Released Tranche 2 download slice: `v1.0.11-iota3`
 Released Tranche 5 session-client slice: `v1.0.11-iota7`
+Released Tranche 5 network-policy slice: `v1.0.11-iota9`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -286,6 +287,15 @@ Every tranche uses the following pipeline:
 - A signed in-place upgrade from `v1.0.11-iota6` installed and launched on `emulator-5554`; the app process remained alive with no fatal startup exception.
 - Tests prove each operation observes one atomic client snapshot while replacement can proceed, prevent public mutable API access, and preserve session logout ordering. Android debug assembly passed after rebasing public master.
 
+### Network-policy slice release evidence
+
+- `v1.0.11-iota8` from commit `302eccb3` was published by GitHub Actions run `29222385870`, but independent startup verification found a Koin constructor-injection failure for `NetworkClientFactory`; the immutable release was superseded by the forward repair below and is not the accepted A16 delivery.
+- Released `v1.0.11-iota9` from commit `6987e497` on 2026-07-13. GitHub Actions run `29222872454` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
+- Public iota9 `Navic.apk` SHA-256: `76bbc8cd9ba66a50b1482b46c80db67d214fd35dd4475b85614c67db7e643cb3`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=531`, `versionName=v1.0.11-iota9`.
+- A signed in-place upgrade from the crashing iota8 install launched successfully on `emulator-5554`; the app remained alive as PID `22640` with no fatal or Koin startup error.
+- MockEngine tests prove every factory call creates a distinct client, applies the shared User-Agent/JSON policy, and does not leak one client's authorization header into another. A source guard covers all production client construction and the explicit zero-argument Koin registration; affected repository suites and Android debug assembly passed.
+
 ### Rollout and rollback
 
 - Credential migration release precedes removal of plaintext-read compatibility by at least one public prerelease.
@@ -391,7 +401,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A13 | Medium | Released | `v1.0.11-iota5` |
 | A14 | Medium | Released | `v1.0.11-iota3` |
 | A15 | Low | Released | `v1.0.11-iota3` |
-| A16 | Medium | Pending | Tranche 5 |
+| A16 | Medium | Released | `v1.0.11-iota9` |
 | A17 | Medium | Released | `v1.0.11-iota7` |
 | A18 | Medium | Released | `v1.0.11-iota2` |
 | A19 | Medium | Released | `v1.0.11-iota2` |
@@ -441,9 +451,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 20 (`A13`, `A14`, `A15`, `A17`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C15`).
+- Released findings: 21 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 35.
+- Pending implementation findings assigned to tranches: 34.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
