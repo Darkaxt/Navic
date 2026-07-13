@@ -229,18 +229,21 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
-	fun androidReaderWebViewRuntimeBypassesCachedBundledAssets() {
+	fun androidReaderWebViewRuntimeUsesNormalCacheForBundledAssets() {
 		val runtimeText = readerWebRuntimeFile().readText()
 
 		assertContains(
 			runtimeText,
-			"cacheMode = WebSettings.LOAD_NO_CACHE",
-			message = "Reader WebView must not keep serving stale appassets reader JS after APK updates."
+			"cacheMode = WebSettings.LOAD_DEFAULT",
+			message = "APK-backed appassets should use normal WebView caching across renderer generations."
 		)
-		assertContains(
-			runtimeText,
-			"webView.clearCache(true)",
-			message = "Reader WebView should clear its HTTP cache before loading the bundled runtime."
+		assertFalse(
+			runtimeText.contains("WebSettings.LOAD_NO_CACHE"),
+			"Reader configuration must not force every local asset request to bypass WebView cache."
+		)
+		assertFalse(
+			runtimeText.contains("webView.clearCache(true)"),
+			"Reader configuration must not clear process-global WebView cache."
 		)
 	}
 

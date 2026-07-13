@@ -31,13 +31,12 @@ object ReaderWebRuntime {
 		setWebContentsDebuggingEnabled(enableDebugging)
 		webView.settings.javaScriptEnabled = true
 		webView.settings.domStorageEnabled = true
-		webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+		webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
 		webView.settings.useWideViewPort = true
 		webView.settings.loadWithOverviewMode = false
 		webView.settings.textZoom = 100
 		webView.settings.allowFileAccess = LocalPublicationFileAccessEnabled
 		webView.settings.allowContentAccess = false
-		webView.clearCache(true)
 		webView.addJavascriptInterface(bridge, AndroidBridgeName)
 		webView.loadUrl(entrypointUrl)
 	}

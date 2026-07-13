@@ -16,7 +16,7 @@
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt`
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt`
 
-- [ ] **Step 1: Write the failing cache-policy contract**
+- [x] **Step 1: Write the failing cache-policy contract**
 
 Replace `androidReaderWebViewRuntimeBypassesCachedBundledAssets` with:
 
@@ -41,7 +41,7 @@ fun androidReaderWebViewRuntimeUsesNormalCacheForBundledAssets() {
 }
 ```
 
-- [ ] **Step 2: Run RED and confirm the expected failure**
+- [x] **Step 2: Run RED and confirm the expected failure**
 
 Run:
 
@@ -51,7 +51,7 @@ Run:
 
 Expected: FAIL because `ReaderWebRuntime.kt` still contains `LOAD_NO_CACHE` and does not contain `LOAD_DEFAULT`.
 
-- [ ] **Step 3: Implement the minimal runtime change**
+- [x] **Step 3: Implement the minimal runtime change**
 
 In `ReaderWebRuntime.configure()`, replace the cache assignment and remove the clear call:
 
@@ -61,7 +61,7 @@ webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
 
 Do not change any other WebView setting, bridge call, or load URL.
 
-- [ ] **Step 4: Run GREEN and adjacent runtime contracts**
+- [x] **Step 4: Run GREEN and adjacent runtime contracts**
 
 Run:
 
@@ -77,7 +77,9 @@ Run:
 
 Expected: all selected tests pass with zero failures or errors.
 
-- [ ] **Step 5: Commit the cache policy**
+Validation evidence: RED failed at `ReaderRuntimeAssetsTest.kt:235` because unchanged production code did not contain `LOAD_DEFAULT`. After the minimal runtime edit, all 5 selected cache/entrypoint/viewport/acknowledgement/generation tests passed with zero failures or errors.
+
+- [x] **Step 5: Commit the cache policy**
 
 ```powershell
 git add composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt
