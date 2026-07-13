@@ -268,6 +268,8 @@ Fetch `fork/master`. If it advanced, rebase this isolated branch, inspect incomi
 
 Integration evidence: after fetching, the branch was 4 commits ahead and 0 behind public `master` at `46a8a208`, so no rebase or concurrent-path integration was required.
 
+Post-bump evidence: the focused registry/build/lifecycle set passed 5/5. Debug APK is 74,988,168 bytes with SHA-256 `47d7b4aaddb941e1a9d43779b77fbfa16b96850f3333c84a2c625552f376db11`; reader-dev is 74,988,184 bytes with SHA-256 `9c35e308424c9767eeddfe36dcb45cf401636123b4cfb5f02a713a7b894a2fb8`. Both report `544 / v1.0.11-iota17` and pass packaged vendor 30/30 plus attribution.
+
 - [ ] **Step 4: Publish Android only**
 
 Push the integrated candidate to public `master`, create annotated tag `v1.0.11-iota17`, and invoke `scripts/publish-github-release.ps1` with `-AllowPublicRelease`, `-SkipPush`, and a B23 readiness note. Every iOS job must remain skipped.
