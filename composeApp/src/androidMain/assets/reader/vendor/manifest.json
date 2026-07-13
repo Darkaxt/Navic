@@ -30,6 +30,13 @@
         "foliate-js/vendor/pdfjs"
       ],
       "buildId": "ce8716743",
+      "securityReview": {
+        "reviewedOn": "2026-07-13",
+        "advisories": [
+          "GHSA-wgrm-67xf-hhpq / CVE-2024-4367"
+        ],
+        "mitigation": "Navic's only getDocument call sets isEvalSupported to false, the upstream advisory's documented workaround."
+      },
       "localChanges": "Published build files with trailing whitespace removed; functional bytes are otherwise unchanged."
     }
   ],

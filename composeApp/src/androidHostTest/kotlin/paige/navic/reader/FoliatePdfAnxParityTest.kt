@@ -4,7 +4,6 @@ import java.io.File
 import kotlin.io.path.exists
 import kotlin.test.Test
 import kotlin.test.assertContains
-import kotlin.test.assertTrue
 
 class FoliatePdfAnxParityTest {
 
@@ -81,10 +80,10 @@ class FoliatePdfAnxParityTest {
 			"rendition: { layout: 'pre-paginated'",
 			message = "PDF books must remain pre-paginated so the Komikku shell can treat each page as a fixed page."
 		)
-		assertTrue(
-			navicPdfText.contains("pdfjs.getDocument({ data, isEvalSupported: false }).promise") ||
-				navicPdfText.contains("pdfjsLib.getDocument({ data }).promise"),
-			"Navic PDF runtime must still load the PDF through PDF.js getDocument."
+		assertContains(
+			navicPdfText,
+			"pdfjs.getDocument({ data, isEvalSupported: false }).promise",
+			message = "Navic must disable PDF.js eval support when parsing untrusted PDFs (CVE-2024-4367)."
 		)
 	}
 }

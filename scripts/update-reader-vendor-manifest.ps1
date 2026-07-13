@@ -45,6 +45,6 @@ $manifest.files = @(
 		Sort-Object path
 )
 
-$json = $manifest | ConvertTo-Json -Depth 10
+$json = ($manifest | ConvertTo-Json -Depth 10).Replace("`r`n", "`n")
 [System.IO.File]::WriteAllText($resolvedManifestPath, "$json`n", [System.Text.UTF8Encoding]::new($false))
 Write-Output "Updated reader vendor manifest with $($manifest.files.Count) files."

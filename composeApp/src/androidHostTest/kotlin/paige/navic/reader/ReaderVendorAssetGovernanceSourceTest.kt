@@ -18,6 +18,8 @@ class ReaderVendorAssetGovernanceSourceTest {
 		assertContains(manifest, "\"version\": \"3.11.174\"")
 		assertContains(manifest, "ce87167432819f85df49b6b16c7a78556e9a4ee0")
 		assertContains(manifest, "f287f540ed3ed393e137c9ff7a2e98f6e73ea527")
+		assertContains(manifest, "GHSA-wgrm-67xf-hhpq / CVE-2024-4367")
+		assertContains(manifest, "isEvalSupported to false")
 		assertEquals(
 			vendorFileCount,
 			Regex("\\\"sha256\\\": \\\"[0-9a-f]{64}\\\"").findAll(manifest).count(),

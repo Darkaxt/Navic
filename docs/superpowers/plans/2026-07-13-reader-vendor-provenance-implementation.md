@@ -18,34 +18,35 @@
   - npm package git head: `f287f540ed3ed393e137c9ff7a2e98f6e73ea527`
   - embedded build id: `ce8716743`
   - import proof: the two Navic bundles differ from the npm `build/` files only by stripped trailing whitespace.
+  - security review: `GHSA-wgrm-67xf-hhpq` / `CVE-2024-4367` affects this version when eval support is enabled. Navic's only `getDocument` call already sets `isEvalSupported: false`, the upstream advisory's documented workaround; the parity test now requires that exact secure call and no longer allows an insecure fallback.
 - Navic intentionally modifies Foliate after import. The manifest therefore records upstream provenance while SHA-256 entries describe the exact current Navic bytes.
 
 ## Task 1: Define failing governance proof
 
-- [ ] Add a PowerShell verifier self-test that requires the manifest and verifier.
-- [ ] Prove the self-test fails before implementation.
-- [ ] Require valid-tree success, hash-tamper rejection, and unmanifested-file rejection.
+- [x] Add a PowerShell verifier self-test that requires the manifest and verifier.
+- [x] Prove the self-test fails before implementation.
+- [x] Require valid-tree success, hash-tamper rejection, and unmanifested-file rejection.
 
 ## Task 2: Ship exact provenance and file hashes
 
-- [ ] Add `reader/vendor/manifest.json` with immutable component provenance and one SHA-256 entry for every vendored file.
-- [ ] Add a deterministic manifest hash updater that changes only the file inventory.
-- [ ] Add a verifier that rejects invalid metadata, unsafe/duplicate paths, missing files, extra files, and hash mismatches.
-- [ ] Support verification of both source assets and `assets/reader/vendor/**` entries inside a built APK.
+- [x] Add `reader/vendor/manifest.json` with immutable component provenance and one SHA-256 entry for every vendored file.
+- [x] Add a deterministic manifest hash updater that changes only the file inventory.
+- [x] Add a verifier that rejects invalid metadata, unsafe/duplicate paths, missing files, extra files, and hash mismatches.
+- [x] Support verification of both source assets and `assets/reader/vendor/**` entries inside a built APK.
 
 ## Task 3: Make verification continuous
 
-- [ ] Run the verifier self-test and source verification before Android builds in GitHub Actions.
-- [ ] Verify the produced release/debug APK before artifact upload.
-- [ ] Document the update, upstream-diff, security-review, local-patch review, validation, and manifest regeneration procedure.
-- [ ] Add a host source guard for the manifest and workflow contracts.
+- [x] Run the verifier self-test and source verification before Android builds in GitHub Actions.
+- [x] Verify the produced release/debug APK before artifact upload.
+- [x] Document the update, upstream-diff, security-review, local-patch review, validation, and manifest regeneration procedure.
+- [x] Add a host source guard for the manifest and workflow contracts.
 
 ## Task 4: Validate and publish
 
-- [ ] Run focused PowerShell and Android host tests.
-- [ ] Build the Android debug APK and verify its packaged assets.
-- [ ] Run the broader owning test group and compare any failures with the existing baseline.
-- [ ] Set `versionCode=535` and `versionName=v1.0.11-kappa3`; update B7 and the roadmap.
+- [x] Run focused PowerShell and Android host tests.
+- [x] Build the Android debug APK and verify its packaged assets.
+- [x] Run the broader owning test group and compare any failures with the existing baseline.
+- [x] Set `versionCode=535` and `versionName=v1.0.11-kappa3`; update B7 and the roadmap.
 - [ ] Commit, push public `master`, create and push annotated tag `v1.0.11-kappa3`.
 - [ ] Verify GitHub Actions, signature, public APK metadata/hash, and emulator upgrade.
 - [ ] Commit final release evidence, remove this worktree, and delete the local feature branch.

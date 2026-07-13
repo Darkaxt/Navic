@@ -11,6 +11,7 @@ Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Released Tranche 5 network-policy slice: `v1.0.11-iota9`
 Released Tranche 5 secure-credential slice: `v1.0.11-kappa1`
 Released Tranche 5 external-fetch slice: `v1.0.11-kappa2`
+Released Tranche 5 reader-vendor provenance slice: `v1.0.11-kappa3`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -324,6 +325,14 @@ Every tranche uses the following pipeline:
 - The final gate reran 19 focused SSRF/DNS/redirect/parser tests with zero failures and passed Android debug assembly. The full branch suite ran 2,319 tests with the exact same 35 unrelated baseline failures as untouched kappa1 (2,303 tests), proving the 16 newly added B18 tests introduced no suite regression.
 - Tests cover unsupported schemes, credentials, custom ports, fragments, deceptive/off-allowlist hosts, localhost, RFC1918, carrier-grade NAT, IPv4/IPv6 loopback and link-local, IPv6 unique/site-local, multicast, IPv4-mapped private IPv6, empty/mixed DNS answers, redirect host changes, approved sources, malformed HTML, and internal/off-domain cover candidates. Generated acknowledgements include Ksoup `0.2.6` under MIT.
 
+### Reader-vendor provenance slice implementation evidence
+
+- `reader/vendor/manifest.json` records immutable source/package provenance for Foliate `1.0.1` and PDF.js `3.11.174`, including source commits, npm integrity, PDF.js package Git head/build id, licenses, component ownership, and SHA-256 hashes for all 30 shipped vendor files.
+- The advisory review identified `GHSA-wgrm-67xf-hhpq` / `CVE-2024-4367` for the pinned PDF.js version. Navic already applies the advisory's `isEvalSupported: false` workaround at its only `getDocument` call; the prior parity test's insecure fallback allowance was removed so this mitigation is now mandatory.
+- The deterministic updater is idempotent. The verifier self-test proves the valid tree passes while modified bytes and unmanifested files fail. The same verifier passed against all 30 `assets/reader/vendor/**` files in the assembled Android debug APK.
+- GitHub Actions now runs the self-test before every Android build and verifies the final APK before upload. The documented update process requires upstream release/advisory review, immutable artifact validation, upstream diff review, deliberate Navic-patch reapplication, reader tests, and packaged-APK proof.
+- The full host suite ran 2,321 tests with the exact same 35 pre-existing failure names as kappa2; both new B7 host tests passed. No vendored JavaScript or reader runtime behavior changed in this slice.
+
 ### Rollout and rollback
 
 - Credential migration release precedes removal of plaintext-read compatibility by at least one public prerelease.
@@ -441,7 +450,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B4 | High | Pending | Tranche 3 |
 | B5 | High | Partially improved; ack pending | Tranche 3 |
 | B6 | Medium | Pending | Tranche 3 |
-| B7 | Medium | Pending | Tranche 5 |
+| B7 | Medium | Released | `v1.0.11-kappa3` |
 | B8 | Low | Pending | Tranche 3 |
 | B9 | High | Released | `v1.0.11-iota1` |
 | B10 | Medium | Released | `v1.0.11-iota1` |
@@ -479,9 +488,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 24 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
+- Released findings: 25 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B7`, `B9`, `B10`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 31.
+- Pending implementation findings assigned to tranches: 30.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).

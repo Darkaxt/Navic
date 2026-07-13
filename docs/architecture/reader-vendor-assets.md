@@ -12,6 +12,8 @@ Navic ships Foliate and PDF.js as Android WebView assets because the reader must
 
 The manifest is packaged in the APK. `scripts/verify-reader-vendor-assets.ps1` rejects missing, extra, renamed, or modified source files and can apply the same checks to the final APK.
 
+The 2026-07-13 baseline review found PDF.js `3.11.174` in the affected range for `GHSA-wgrm-67xf-hhpq` / `CVE-2024-4367`. Navic's only `getDocument` call explicitly sets `isEvalSupported: false`, which is the upstream advisory's documented workaround. `FoliatePdfAnxParityTest` prevents that mitigation from being removed while this PDF.js line remains shipped.
+
 ## Review And Update Procedure
 
 1. Create an isolated worktree from current public `master`. Do not update vendored reader assets in a page-turn or feature worktree.
