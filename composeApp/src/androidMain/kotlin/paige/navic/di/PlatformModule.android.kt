@@ -30,6 +30,7 @@ actual val platformModule = module {
 		Room
 			.databaseBuilder<DownloadDatabase>(get(), dbPath)
 			.setDriver(BundledSQLiteDriver())
+			.addMigrations(DownloadDatabaseMigration4To5)
 			.build()
 	}
 

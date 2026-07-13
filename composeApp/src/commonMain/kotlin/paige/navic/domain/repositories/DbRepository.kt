@@ -64,6 +64,11 @@ internal fun albumSyncSongArtistOverrides(
 	}
 }
 
+// Bound remote fan-out below database write batches so one sync cannot saturate I/O.
+private const val LIBRARY_SYNC_NETWORK_CONCURRENCY = 8
+private const val LIBRARY_DB_WRITE_BATCH_SIZE = 500
+private const val LIBRARY_SONG_ACCUMULATION_LIMIT = 1_500
+
 class DbRepository(
 	private val albumDao: AlbumDao,
 	private val playlistDao: PlaylistDao,
@@ -75,9 +80,7 @@ class DbRepository(
 	private val syncDao: SyncActionDao,
 	private val sessionManager: SessionManager
 ) {
-	private val concurrentRequestLimit = Semaphore(20)
-
-	private val dbChunkSize = 500 // should be enough
+	private val concurrentRequestLimit = Semaphore(LIBRARY_SYNC_NETWORK_CONCURRENCY)
 
 	private suspend fun <T> runDbOp(block: suspend () -> T): Result<T> =
 		withContext(Dispatchers.IO) {
@@ -239,7 +242,10 @@ class DbRepository(
 						allValidSongIds.add(songEntity.songId)
 					}
 
-					if (albumBatch.size >= dbChunkSize || songBatch.size >= 1500) {
+					if (
+						albumBatch.size >= LIBRARY_DB_WRITE_BATCH_SIZE ||
+						songBatch.size >= LIBRARY_SONG_ACCUMULATION_LIMIT
+					) {
 						albumDao.insertAlbums(albumBatch)
 						songDao.insertSongs(songBatch)
 
@@ -279,7 +285,7 @@ class DbRepository(
 		val playlistEntities = remotePlaylists.map { it.toEntity() }
 		val validPlaylistIds = playlistEntities.map { it.playlistId }.toSet()
 
-		playlistEntities.chunked(dbChunkSize).forEach { chunk ->
+		playlistEntities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
 			playlistDao.insertPlaylists(chunk)
 		}
 
@@ -320,7 +326,7 @@ class DbRepository(
 		playlistDao.deletePlaylistSongCrossRefs(playlistId)
 
 		if (songEntities.isNotEmpty()) {
-			songEntities.chunked(dbChunkSize).forEach { chunk ->
+			songEntities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
 				songDao.insertSongs(chunk)
 			}
 
@@ -328,7 +334,7 @@ class DbRepository(
 				PlaylistSongCrossRef(playlistId = playlistId, songId = it.songId, position = index)
 			}
 
-			crossRefs.chunked(dbChunkSize).forEach { chunk ->
+			crossRefs.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
 				playlistDao.insertPlaylistSongCrossRefs(chunk)
 			}
 		}
@@ -341,7 +347,7 @@ class DbRepository(
 		val remoteGenres = sessionManager.api.getGenres()
 		val entities = remoteGenres.map { it.toEntity() }
 
-		entities.chunked(dbChunkSize).forEach { chunk ->
+		entities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
 			genreDao.insertGenres(chunk)
 		}
 		genreDao.deleteObsoleteGenres(entities.map { it.genreName }.toSet())
@@ -356,7 +362,7 @@ class DbRepository(
 		}
 		val entities = flatArtists.map { it.toEntity() }
 
-		entities.chunked(dbChunkSize).forEach { chunk ->
+		entities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
 			artistDao.insertArtists(chunk)
 		}
 		artistDao.deleteObsoleteArtists(entities.map { it.artistId }.toSet())
@@ -368,7 +374,7 @@ class DbRepository(
 		val remoteRadios = sessionManager.api.getInternetRadioStations()
 		val entities = remoteRadios.map { it.toEntity() }
 
-		entities.chunked(dbChunkSize).forEach { chunk ->
+		entities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
 			radioDao.insertRadios(chunk)
 		}
 		radioDao.deleteObsoleteRadios(entities.map { it.radioId }.toSet())

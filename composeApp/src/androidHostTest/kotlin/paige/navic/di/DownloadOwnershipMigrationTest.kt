@@ -80,6 +80,40 @@ class DownloadOwnershipMigrationTest {
 		}
 	}
 
+	@Test
+	fun downloadMigrationAddsDurableIntentColumnsAndPreservesRows() {
+		runBlocking {
+			val file = temporaryDatabaseFile()
+			val driver = JdbcSQLiteDriver()
+			driver.open(file.absolutePath).use { connection ->
+				connection.execute(
+					"CREATE TABLE DownloadEntity (" +
+						"songId TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, " +
+						"progress REAL NOT NULL, filePath TEXT)"
+				)
+				connection.execute(
+					"INSERT INTO DownloadEntity VALUES ('queued', 'QUEUED', 0.5, NULL)"
+				)
+
+				DownloadDatabaseMigration4To5.migrate(connection)
+
+				connection.prepare(
+					"SELECT status, progress, intentGeneration, queuedAtEpochMs, cancelled " +
+						"FROM DownloadEntity WHERE songId = 'queued'"
+				).use { statement ->
+					assertTrue(statement.step())
+					assertEquals("QUEUED", statement.getText(0))
+					assertEquals(0.5, statement.getDouble(1))
+					assertEquals(0L, statement.getLong(2))
+					assertEquals(0L, statement.getLong(3))
+					assertEquals(0L, statement.getLong(4))
+				}
+				assertTrue(connection.hasIndex("index_DownloadEntity_status_cancelled_queuedAtEpochMs"))
+			}
+			file.delete()
+		}
+	}
+
 	private fun temporaryDatabaseFile(): File =
 		File.createTempFile("navic-download-migration-", ".db").apply { delete() }
 }
@@ -90,6 +124,12 @@ private fun androidx.sqlite.SQLiteConnection.execute(sql: String) {
 
 private fun androidx.sqlite.SQLiteConnection.hasTable(name: String): Boolean =
 	prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").use { statement ->
+		statement.bindText(1, name)
+		statement.step()
+	}
+
+private fun androidx.sqlite.SQLiteConnection.hasIndex(name: String): Boolean =
+	prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").use { statement ->
 		statement.bindText(1, name)
 		statement.step()
 	}

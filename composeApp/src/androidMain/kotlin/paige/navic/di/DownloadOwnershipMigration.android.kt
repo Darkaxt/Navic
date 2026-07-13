@@ -15,6 +15,24 @@ internal object CacheDatabaseMigration20To21 : Migration(20, 21) {
 	}
 }
 
+internal object DownloadDatabaseMigration4To5 : Migration(4, 5) {
+	override suspend fun migrate(connection: SQLiteConnection) {
+		connection.execute(
+			"ALTER TABLE DownloadEntity ADD COLUMN intentGeneration INTEGER NOT NULL DEFAULT 0"
+		)
+		connection.execute(
+			"ALTER TABLE DownloadEntity ADD COLUMN queuedAtEpochMs INTEGER NOT NULL DEFAULT 0"
+		)
+		connection.execute(
+			"ALTER TABLE DownloadEntity ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0"
+		)
+		connection.execute(
+			"CREATE INDEX IF NOT EXISTS index_DownloadEntity_status_cancelled_queuedAtEpochMs " +
+				"ON DownloadEntity(status, cancelled, queuedAtEpochMs)"
+		)
+	}
+}
+
 internal suspend fun migrateLegacyDownloadRegistry(
 	cacheDatabasePath: String,
 	downloadDao: DownloadDao,
