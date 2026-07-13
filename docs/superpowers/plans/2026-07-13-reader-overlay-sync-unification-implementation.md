@@ -188,7 +188,7 @@ Run the reducer test class without the source test. Expected: all reducer tests 
 
 GREEN evidence: `ReaderOverlaySyncReducerTest` passed 4/4 with zero failures, errors, or skips. The test covers static apply/clear deduplication, progressive update deduplication, repeated reader-target policy, and disabled-sync suppression.
 
-- [ ] **Step 4: Commit the reducer**
+- [x] **Step 4: Commit the reducer**
 
 ```powershell
 git add composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderOverlaySync.kt composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderOverlaySyncReducerTest.kt
@@ -205,7 +205,7 @@ git commit -m "refactor(reader): add shared overlay sync reducer"
 - Delete after migration: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderMediaOverlaySync.kt`
 - Delete after migration: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderReadaloudSyncCoordinator.kt`
 
-- [ ] **Step 1: Change the existing tests to require the adapter-backed state**
+- [x] **Step 1: Change the existing tests to require the adapter-backed state**
 
 Use `ReaderReadaloudSyncState()` as the only state constructor. Preserve assertions for first apply, duplicate suppression, out-of-clip clear, bridge-event seek target, repeated bridge-event suppression, track-index lookup, disabled sync, and stable command keys. Add:
 
@@ -217,11 +217,13 @@ assertEquals("frag-2", assertIs<ReaderEngineCommand.ApplyMediaOverlay>(seek.stat
 
 Prefer direct command/target assertions over depending on a key's internal delimiter.
 
-- [ ] **Step 2: Run the changed media/readaloud tests and record RED**
+- [x] **Step 2: Run the changed media/readaloud tests and record RED**
 
 Run both adapter/readaloud test classes. Expected: failure because the adapter and `ReaderReadaloudSyncState` alias are absent.
 
-- [ ] **Step 3: Implement `MediaOverlaySyncAdapter`**
+RED evidence: host-test compilation failed with unresolved `MediaOverlaySyncAdapter` and `MediaOverlayPlaybackInput`, while the migrated coordinator assertions could not resolve `syncEnabled` or `activeCueKey` on the old nested readaloud state.
+
+- [x] **Step 3: Implement `MediaOverlaySyncAdapter`**
 
 ```kotlin
 typealias ReaderReadaloudSyncState = ReaderOverlaySyncState
@@ -251,11 +253,11 @@ class MediaOverlaySyncAdapter(
 
 Keep normalization and stable-key construction private to this adapter file. Add `ReaderReadaloudReaderEventStep`, `onPlaybackPosition`, and `onReaderEvent` entry points in this file; each creates the adapter and delegates to the reducer. A null timeline remains a no-op. A present timeline with no active clip delegates `null` to `followPlaybackCue` so an old overlay clears.
 
-- [ ] **Step 4: Migrate the Android host and remove duplicate files**
+- [x] **Step 4: Migrate the Android host and remove duplicate files**
 
 Initialize `ReaderReadaloudSyncState(syncEnabled = readaloudSyncEnabled)`, read `syncState.syncEnabled`, and dispatch `syncState.engineCommand`/`engineCommandKey` directly. Remove all `ReaderMediaOverlaySyncState` imports and nested `overlayState` references. Delete the two old production files only after `rg` proves no remaining production call site needs their declarations.
 
-- [ ] **Step 5: Run media-overlay/readaloud GREEN**
+- [x] **Step 5: Run media-overlay/readaloud GREEN**
 
 Run:
 
@@ -264,6 +266,8 @@ Run:
 ```
 
 Expected: every migrated readaloud test passes with zero failures.
+
+GREEN evidence: `ReaderMediaOverlaySyncAdapterTest` passed 3/3 and `ReaderReadaloudSyncCoordinatorTest` passed 3/3 with zero failures, errors, or skips. The Android host compiled with direct `ReaderReadaloudSyncState`; production has no `ReaderMediaOverlaySyncState` reference.
 
 - [ ] **Step 6: Commit the media-overlay migration**
 

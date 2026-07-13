@@ -15,7 +15,6 @@ import paige.navic.reader.ReadaloudAudioController
 import paige.navic.reader.ReadaloudPlaybackLogTag
 import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineHostEvent
-import paige.navic.reader.ReaderMediaOverlaySyncState
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -52,7 +51,7 @@ actual fun ReaderReadaloudRuntimeHost(
 	val repository = koinInject<BinderyRepository>()
 	var runtime by remember(reader.resourceHref) { mutableStateOf<StorytellerReadaloudRuntime?>(null) }
 	var syncState by remember(reader.resourceHref) {
-		mutableStateOf(ReaderReadaloudSyncState(overlayState = ReaderMediaOverlaySyncState(readaloudSyncEnabled)))
+		mutableStateOf(ReaderReadaloudSyncState(syncEnabled = readaloudSyncEnabled))
 	}
 	val currentRuntime by rememberUpdatedState(runtime)
 	val currentSyncState by rememberUpdatedState(syncState)
@@ -71,7 +70,7 @@ actual fun ReaderReadaloudRuntimeHost(
 						position = position
 					),
 					activeAudioMetadata = activeRuntime.playbackPlan.metadataLabelsForPlaybackPosition(position),
-					syncEnabled = currentSyncState.overlayState.syncEnabled
+					syncEnabled = currentSyncState.syncEnabled
 				)
 			)
 			val nextState = currentSyncState.onPlaybackPosition(
@@ -97,9 +96,7 @@ actual fun ReaderReadaloudRuntimeHost(
 
 	LaunchedEffect(reader.bookId, reader.resourceHref, reader.title) {
 		runtime = null
-		syncState = ReaderReadaloudSyncState(
-			overlayState = ReaderMediaOverlaySyncState(readaloudSyncEnabled)
-		)
+		syncState = ReaderReadaloudSyncState(syncEnabled = readaloudSyncEnabled)
 		Logger.i(
 			ReadaloudPlaybackLogTag,
 			"Preparing readaloud publication bookId=${reader.bookId} " +
@@ -148,7 +145,7 @@ actual fun ReaderReadaloudRuntimeHost(
 				onPlaybackState(
 					ReaderReadaloudPlaybackUiState(
 						isAvailable = true,
-						syncEnabled = syncState.overlayState.syncEnabled
+						syncEnabled = syncState.syncEnabled
 					)
 				)
 				onPublicationReady(loadedRuntime.publicationUrl)

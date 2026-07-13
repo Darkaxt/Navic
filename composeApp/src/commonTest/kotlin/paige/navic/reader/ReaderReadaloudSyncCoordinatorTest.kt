@@ -11,6 +11,7 @@ class ReaderReadaloudSyncCoordinatorTest {
 		val timeline = mediaOverlayTimeline()
 		val plan = readaloudPlaybackPlan()
 		val initial = ReaderReadaloudSyncState()
+		assertIs<ReaderOverlaySyncState>(initial)
 
 		val first = initial.onPlaybackPosition(
 			plan = plan,
@@ -88,8 +89,8 @@ class ReaderReadaloudSyncCoordinatorTest {
 
 		val disabled = active.setSyncEnabled(false)
 
-		assertEquals(false, disabled.overlayState.syncEnabled)
-		assertNull(disabled.overlayState.activeClipKey)
+		assertEquals(false, disabled.syncEnabled)
+		assertNull(disabled.activeCueKey)
 		assertEquals(ReaderEngineCommand.ClearMediaOverlay, disabled.engineCommand)
 		assertEquals(2L, disabled.engineCommandKey)
 	}
