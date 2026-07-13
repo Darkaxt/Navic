@@ -35,6 +35,8 @@ import paige.navic.reader.commandsForReadyReaderRuntime
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderEngineWebViewHostTag = "ReaderEngineWebViewHost"
 
@@ -179,27 +181,51 @@ actual fun ReaderEngineWebViewHost(
 		currentOnEvent(ReaderEngineHostEvent.FoliateBridge(event))
 	}
 
-	val bridge = remember {
-		ReaderJavascriptBridge(
-			onEvent = { event ->
-				webView?.post { handleReaderBridgeEvent(event) } ?: handleReaderBridgeEvent(event)
-			}
-		)
-	}
-
-	DisposableEffect(Unit) {
-		onDispose {
-			webView?.destroy()
-			webView = null
-		}
-	}
-
 	key(webViewGeneration) {
+		val generation = webViewGeneration
+		val generationDisposed = remember(generation) { AtomicBoolean(false) }
+		val generationWebView = remember(generation) { AtomicReference<WebView?>(null) }
+		val bridge = remember(generation) {
+			ReaderJavascriptBridge(
+				onEvent = bridgeEvent@{ event ->
+					val targetView = generationWebView.get() ?: return@bridgeEvent
+					targetView.post {
+						if (
+							!generationDisposed.get() &&
+							generation == webViewGeneration &&
+							webView === targetView
+						) {
+							handleReaderBridgeEvent(event)
+						}
+					}
+				}
+			)
+		}
+		val disposeGeneration: (WebView?) -> Boolean = { requestedView ->
+			if (!generationDisposed.compareAndSet(false, true)) {
+				false
+			} else {
+				bridge.deactivate()
+				val targetView = generationWebView.getAndSet(null) ?: requestedView
+				targetView?.removeJavascriptInterface(ReaderWebRuntime.AndroidBridgeName)
+				if (webView === targetView) webView = null
+				targetView?.destroy()
+				true
+			}
+		}
+
+		DisposableEffect(bridge, generation) {
+			onDispose {
+				disposeGeneration(generationWebView.get())
+			}
+		}
+
 		AndroidView(
 			modifier = modifier,
 			factory = {
 				WebView(context).apply {
 					webView = this
+					generationWebView.set(this)
 					isLongClickable = false
 					setOnLongClickListener {
 						Logger.i(
@@ -273,7 +299,6 @@ actual fun ReaderEngineWebViewHost(
 									"priorityAtExit=${detail.rendererPriorityAtExit()} " +
 									"publication=${currentPublicationKey.hashCode()}"
 							)
-							if (webView === view) webView = null
 							readerRuntimeReady = false
 							currentOnEvent(
 								ReaderEngineHostEvent.FoliateBridge(
@@ -283,8 +308,9 @@ actual fun ReaderEngineWebViewHost(
 									)
 								)
 							)
-							view.destroy()
-							webViewGeneration += 1
+							if (disposeGeneration(view) && generation == webViewGeneration) {
+								webViewGeneration += 1
+							}
 							return true
 						}
 					}
