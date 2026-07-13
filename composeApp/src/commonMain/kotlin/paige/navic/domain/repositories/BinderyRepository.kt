@@ -466,7 +466,10 @@ class BinderyRepository(
 			}
 
 			runCatching {
-				val html = apiClient.fetchExternalText(sourceUrl)
+				val html = apiClient.fetchExternalText(
+					sourceUrl,
+					ExternalTextPurpose.AudioBookBayProviderCover
+				)
 				binderyAudioBookBayProviderCoverUrl(sourceUrl = sourceUrl, html = html)
 			}.fold(
 				onSuccess = { coverUrl ->

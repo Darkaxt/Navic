@@ -104,7 +104,7 @@ interface BinderyApiClient {
 		bookId: String
 	): BinderyCatalog
 
-	suspend fun fetchExternalText(url: String): String
+	suspend fun fetchExternalText(url: String, purpose: ExternalTextPurpose): String
 
 	suspend fun performAction(
 		baseUrl: String,
@@ -114,7 +114,8 @@ interface BinderyApiClient {
 }
 
 internal class KtorBinderyApiClient(
-	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory(),
+	private val externalTextClient: SecureExternalTextClient = SecureExternalTextClient(platformExternalTextTransport())
 ) : BinderyApiClient {
 	private val client = networkClientFactory.create(json = BinderyJson) {
 		followRedirects = false
@@ -350,18 +351,8 @@ internal class KtorBinderyApiClient(
 		return fetchCatalog(baseUrl, requestHeaders, "books/${encodeUrlPathSegment(safeBookId)}/findings")
 	}
 
-	override suspend fun fetchExternalText(url: String): String {
-		val safeUrl = url.trim().takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
-			?: throw IllegalStateException("Provider source URL must be absolute.")
-		val response = client.get(safeUrl) {
-			header("User-Agent", "Navic/1.0 provider-cover-resolver")
-			accept(ContentType.Text.Html)
-		}
-		if (!response.status.isSuccess()) {
-			throw BinderyApiException(response.status, binderyHttpErrorMessage("Provider source page", response.status))
-		}
-		return response.bodyAsText()
-	}
+	override suspend fun fetchExternalText(url: String, purpose: ExternalTextPurpose): String =
+		externalTextClient.fetch(url, purpose)
 
 	override suspend fun performAction(
 		baseUrl: String,

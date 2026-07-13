@@ -2,7 +2,7 @@ package paige.navic.domain.repositories
 
 import io.ktor.http.Url
 
-internal enum class ExternalTextPurpose {
+enum class ExternalTextPurpose {
 	AudioBookBayProviderCover
 }
 

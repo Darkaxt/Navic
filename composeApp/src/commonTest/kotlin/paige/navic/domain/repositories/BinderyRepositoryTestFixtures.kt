@@ -76,6 +76,7 @@ internal class FakeBinderyApiClient(
 	val progressPutHeaders = mutableListOf<Map<String, String>>()
 	val progressPutPayloads = mutableListOf<BinderyReadingProgress>()
 	val externalTextUrls = mutableListOf<String>()
+	val externalTextPurposes = mutableListOf<ExternalTextPurpose>()
 
 	override suspend fun fetchRootCatalog(
 		baseUrl: String,
@@ -239,8 +240,9 @@ internal class FakeBinderyApiClient(
 		return bookFindings
 	}
 
-	override suspend fun fetchExternalText(url: String): String {
+	override suspend fun fetchExternalText(url: String, purpose: ExternalTextPurpose): String {
 		externalTextUrls += url
+		externalTextPurposes += purpose
 		return externalTextByUrl[url] ?: throw BinderyApiException(
 			HttpStatusCode.NotFound,
 			"Provider source page returned HTTP 404"

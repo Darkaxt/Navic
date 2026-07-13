@@ -49,32 +49,33 @@ git commit -m "test(bindery): define external fetch security boundary"
 
 **Files:**
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyApiClient.kt`
+- Create: `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyExternalTextClient.kt`
 - Create: `composeApp/src/androidMain/kotlin/paige/navic/domain/repositories/BinderyExternalTextTransport.android.kt`
 - Create: `composeApp/src/iosMain/kotlin/paige/navic/domain/repositories/BinderyExternalTextTransport.ios.kt`
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/BinderyExternalTextClientTest.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/domain/repositories/BinderyExternalTextDnsTest.kt`
 
-- [ ] **Step 1: Write failing redirect, approved-source, and DNS tests**
+- [x] **Step 1: Write failing redirect, approved-source, and DNS tests**
 
 Use a fake common transport to prove an approved page returns its body, a 3xx response is rejected without a second request, and policy rejection happens before transport. Test the Android DNS adapter with fake DNS answers: exact approved host plus public addresses succeeds; changed hosts, empty answers, RFC1918, IPv4 loopback/link-local, IPv6 loopback/link-local/unique-local, and mixed public/private answers fail.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.BinderyExternalTextClientTest" --tests "paige.navic.domain.repositories.BinderyExternalTextDnsTest"`
 
 Expected: compilation failure because the secure client, platform transport, and DNS adapter do not exist.
 
-- [ ] **Step 3: Implement the secure client and Android transport**
+- [x] **Step 3: Implement the secure client and Android transport**
 
 Change `BinderyApiClient.fetchExternalText` to require `ExternalTextPurpose`. Route it through a common secure response policy. On Android, use a dedicated Ktor OkHttp client with Ktor and OkHttp redirects disabled; install the existing provider-fetch timeout values without adding new cancellation policy. Configure OkHttp with a DNS adapter that delegates once, rejects any non-public answer, and returns that same validated list to OkHttp. Add an iOS compile-only transport that reports the feature unavailable.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run: `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.BinderyExternalTextClientTest" --tests "paige.navic.domain.repositories.BinderyExternalTextDnsTest"`
 
 Expected: approved-source and DNS controls pass; redirects produce one request and an exception.
 
-- [ ] **Step 5: Commit the transport**
+- [x] **Step 5: Commit the transport**
 
 Run:
 
