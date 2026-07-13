@@ -15,7 +15,7 @@
 - Android is the product target. The iOS source set receives only a plaintext compatibility provider so the existing KMP build graph remains compilable; this is not iOS secure-storage support.
 - Do not add `androidx.security:security-crypto`: Android officially deprecated `EncryptedSharedPreferences` and `MasterKey` in favor of direct Android Keystore/JCA use.
 - Keep `X-Api-Key` because changing the server authentication contract is outside this client-only tranche.
-- New or edited values are never written to plaintext settings. Plaintext reads exist only to migrate installations predating `v1.0.11-kappa1`.
+- New or edited values are never written to plaintext settings. Plaintext reads exist only to migrate installations predating the secure-credential migration.
 - If secure migration cannot commit and read back the value, preserve the legacy value for a future retry. Never delete the only working credential.
 - Do not add cancellation timeouts. Existing unrelated timeout policy is unchanged.
 
@@ -85,15 +85,15 @@
 - [x] Rerun focused playback, player-policy, and source-contract tests.
 - [x] Commit as `fix(bindery): scope playback authentication per resource`.
 
-### Task 5: Validate Migration And Publish Kappa1
+### Task 5: Validate Migration And Publish Iota11
 
 - [x] Rebase onto current `fork/master` without touching reader-animation worktrees. No rebase commit was needed: `HEAD...fork/master` was `7 0` before integration.
 - [x] Run all new tests plus existing Bindery repository, optional-state, player-policy, and DI tests. The final matrix executed 69 tests successfully.
-- [x] Run `./gradlew :androidApp:assembleDebug`, `./scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-kappa1`, and `git diff --check`.
-- [x] On `emulator-5554`, install `v1.0.11-iota10`, seed a legacy plaintext Bindery key, then install the signed `kappa1` candidate in place.
+- [x] Run `./gradlew :androidApp:assembleDebug`, `./scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota11`, and `git diff --check`.
+- [x] On `emulator-5554`, install the preceding public build, seed a legacy plaintext Bindery key, then install the signed migration candidate in place.
 - [x] Verify the key remains usable, the legacy preference entry is gone, the encrypted envelope does not contain the plaintext, and the app launches without fatal/Koin/Keystore errors.
-- [x] Fast-forward public `master`, tag `v1.0.11-kappa1`, push, and wait for the Android release workflow; iOS remains skipped.
-- [x] Download the public APK and verify GitHub digest, APK SHA-256, established signing certificate, `versionCode=533`, `versionName=v1.0.11-kappa1`, signed upgrade, and clean startup.
+- [x] Consolidate the completed tranche on public `master`, tag `v1.0.11-iota11`, push, and wait for the Android release workflow; iOS remains skipped.
+- [x] Download the public APK and verify GitHub digest, APK SHA-256, established signing certificate, `versionCode=538`, `versionName=v1.0.11-iota11`, signed upgrade, and clean startup.
 - [x] Record B17 and release evidence in this plan, the QA analysis, and the remediation roadmap; keep plaintext-read compatibility explicitly pending removal after at least one public prerelease.
 - [x] Push the evidence commit, remove the B17 worktree/branch and downloaded APK, and confirm unrelated reader worktrees are unchanged.
 
@@ -105,12 +105,13 @@
 
 ## Release Evidence
 
-- Public release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-kappa1`
-- Release commit: `ae5ed8bf`
-- Build workflow: `29227165112` (Android release/signature/artifact/release passed; iOS skipped)
-- Checks workflow: `29227165121` (passed)
-- Public APK SHA-256: `d0bc4940b661bc18d5914f33bfb9589aa115b6b97bd3cd3b8c4880417cfe7df3`
+- Public release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota11`
+- Release commit: `4f5dfbe7a46b51de022931098e958afc8bcb2f44`
+- Build workflow: `29235127291` (Android release/signature/artifact/release passed; iOS skipped)
+- Checks workflow: `29235127286` (passed)
+- Public APK: 46,208,784 bytes, SHA-256 `14a8fae5c3321e222f59b4fb1fc1548920601f33dc80ea3d3cfd10cbe88e8daa`
 - Signing certificate SHA-256: `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`
-- Embedded identity: `versionCode=533`, `versionName=v1.0.11-kappa1`
-- Emulator proof: signed upgrade from iota10; migrated legacy key removed; encrypted envelope present; plaintext scan empty; PID `26779`; no fatal/Koin/Keystore startup error.
+- Embedded identity: `versionCode=538`, `versionName=v1.0.11-iota11`
+- Migration proof: the legacy key was removed after an in-place signed upgrade, the encrypted envelope was present, and the plaintext scan was empty.
+- Consolidated release proof: signed upgrade on `emulator-5554`; PID `30458`; no AndroidRuntime startup error.
 - Compatibility note: remove the legacy plaintext-read path only after at least one later public prerelease, as required by the staged rollout.

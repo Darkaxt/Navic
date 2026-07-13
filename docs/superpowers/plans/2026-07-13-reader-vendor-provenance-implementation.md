@@ -4,7 +4,7 @@
 
 **Scope:** Governance and build verification only. Do not update Foliate or PDF.js, alter reader behavior, or modify any reader/page-turn implementation.
 
-**Release:** `v1.0.11-kappa3`, `versionCode=535`.
+**Release:** Consolidated in `v1.0.11-iota11`, `versionCode=538`.
 
 ## Provenance Baseline
 
@@ -46,17 +46,17 @@
 - [x] Run focused PowerShell and Android host tests.
 - [x] Build the Android debug APK and verify its packaged assets.
 - [x] Run the broader owning test group and compare any failures with the existing baseline.
-- [x] Set `versionCode=535` and `versionName=v1.0.11-kappa3`; update B7 and the roadmap.
-- [x] Commit, push public `master`, create and push annotated tag `v1.0.11-kappa3`.
+- [x] Set consolidated release metadata to `versionCode=538` and `versionName=v1.0.11-iota11`; update B7 and the roadmap.
+- [x] Commit, push public `master`, create and push annotated tag `v1.0.11-iota11`.
 - [x] Verify GitHub Actions, signature, public APK metadata/hash, and emulator upgrade.
 - [x] Commit final release evidence, remove this worktree, and delete the local feature branch.
 
 ## Release Evidence
 
-- Release/tag commit: `2b9db5780c33592de05421c660f03d2d07df7924`.
-- GitHub Actions: build/release run `29231979895` and checks run `29231979929` succeeded; the Android job passed both source and packaged vendor verification, while iOS was skipped.
-- Public APK: 46,208,196 bytes, SHA-256 `1ebd28ae743c3c7153fa44fa7dea11915505ec04491e26784783d5347fefc231`.
-- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=535`, `versionName=v1.0.11-kappa3`.
+- Release/tag commit: `4f5dfbe7a46b51de022931098e958afc8bcb2f44`.
+- GitHub Actions: build/release run `29235127291` and checks run `29235127286` succeeded; the Android job passed both source and packaged vendor verification, while iOS was skipped.
+- Public APK: 46,208,784 bytes, SHA-256 `14a8fae5c3321e222f59b4fb1fc1548920601f33dc80ea3d3cfd10cbe88e8daa`.
+- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=538`, `versionName=v1.0.11-iota11`.
 - Vendor proof: the downloaded public APK contains the exact shipped manifest and all 30 source-matched vendor hashes.
-- Device: signed upgrade from kappa2 to kappa3 on `emulator-5554`; app PID `29006` remained alive with no fatal startup log.
-- Suite proof: 2,321 Android host tests ran with the same 35 pre-existing failure names as kappa2; both new B7 tests passed. Focused governance/PDF mitigation tests and Android debug assembly passed again after rebasing the concurrent public reader commit.
+- Device: signed upgrade on `emulator-5554`; app PID `30458` remained alive with no AndroidRuntime startup error.
+- Suite proof: 2,321 Android host tests ran with the same 35 pre-existing failure names as the pre-vendor baseline; both new B7 tests passed. Focused governance/PDF mitigation tests and Android debug assembly passed again after rebasing the concurrent public reader commit.

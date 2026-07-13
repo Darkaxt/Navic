@@ -68,19 +68,18 @@
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-13-third-party-attribution-implementation.md`
 
-- [x] Set `versionCode=536` and `versionName=v1.0.11-kappa4`.
+- [x] Set consolidated release metadata to `versionCode=538` and `versionName=v1.0.11-iota11`.
 - [x] Run focused tests, attribution verification, Android debug assembly, packaged verification, `git diff --check`, and the established full-suite baseline comparison.
-- [x] Rebase the current public `master`, rerun the final gate, commit, push `master`, and push annotated tag `v1.0.11-kappa4`.
+- [x] Rebase the current public `master`, rerun the final gate, commit, push `master`, and push annotated tag `v1.0.11-iota11`.
 - [x] Verify GitHub Actions, public release metadata/hash/signature, and an ADB in-place emulator upgrade with no fatal startup error.
 - [x] Record release evidence, push it, remove this worktree, and delete the local feature branch without touching ebook/page-turn worktrees.
 
 ## Release Evidence
 
-- Release/tag commit: `1b142cda8a50c03322e1997c1f78240cb75d6902`.
-- GitHub Actions: build/release run `29233682795` and checks run `29233682740` succeeded; the Android job passed both source and packaged governance checks, while iOS was skipped.
-- Public APK: 46,208,788 bytes, SHA-256 `c4bc0997e2456ff46be14cea6f8e7d3b64c08a8e743c580263c0fe486cb9046b`.
-- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=536`, `versionName=v1.0.11-kappa4`.
+- Release/tag commit: `4f5dfbe7a46b51de022931098e958afc8bcb2f44`.
+- GitHub Actions: build/release run `29235127291` and checks run `29235127286` succeeded; the Android job passed both source and packaged governance checks, while iOS was skipped.
+- Public APK: 46,208,784 bytes, SHA-256 `14a8fae5c3321e222f59b4fb1fc1548920601f33dc80ea3d3cfd10cbe88e8daa`.
+- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=538`, `versionName=v1.0.11-iota11`.
 - Governance proof: the public APK passed all 30 reader-vendor hashes and contains exact Anx Reader, foliate-js, and PDF.js acknowledgement records. A deliberate missing-library mutation failed verification.
-- Device: signed upgrade from kappa3 to kappa4 on `emulator-5554`; PID `29490` remained the resumed activity with no AndroidRuntime or fatal startup error.
-- Suite proof: 2,326 Android host tests ran with the same 35 pre-existing failure names as kappa3; all three new attribution tests passed.
-- Version successor: `v1.0.11-lambda1` from commit `4c3e300b` carries the identical attribution implementation with `versionCode=537`; build/release run `29234287982`, checks run `29234287872`, public APK SHA-256 `3310b0d7325ccaab32aa9bf0cc5617aa30e806862d9510e6b3e0780d7fd57d55`, and ADB upgrade verification all passed.
+- Device: signed upgrade on `emulator-5554`; PID `30458` remained the resumed activity with no AndroidRuntime or fatal startup error.
+- Suite proof: 2,326 Android host tests ran with the same 35 pre-existing failure names as the pre-attribution baseline; all three new attribution tests passed.

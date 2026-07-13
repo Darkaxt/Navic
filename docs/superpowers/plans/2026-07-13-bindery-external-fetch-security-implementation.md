@@ -130,7 +130,7 @@ git add gradle/libs.versions.toml composeApp/build.gradle.kts composeApp/src/com
 git commit -m "fix(bindery): parse approved provider artwork safely"
 ```
 
-### Task 4: Validate and publish `v1.0.11-kappa2`
+### Task 4: Validate and publish `v1.0.11-iota11`
 
 **Files:**
 - Modify: `gradle/libs.versions.toml`
@@ -140,7 +140,7 @@ git commit -m "fix(bindery): parse approved provider artwork safely"
 
 - [x] **Step 1: Set release metadata**
 
-Set `versionCode` to `534` and `versionName` to `v1.0.11-kappa2`; update B18 and this plan with implementation evidence.
+Set the consolidated release metadata to `versionCode=538` and `versionName=v1.0.11-iota11`; update B18 and this plan with implementation evidence.
 
 - [x] **Step 2: Run release gates**
 
@@ -148,17 +148,17 @@ Run:
 
 ```powershell
 ./gradlew.bat :composeApp:testAndroidHostTest :androidApp:assembleDebug
-./scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-kappa2
+./scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota11
 git diff --check
 ```
 
 Expected: tests and debug assembly pass, version verification succeeds, and `git diff --check` has no output.
 
-Actual: the B18 focused suite and Android debug assembly passed; the version verifier reported `v1.0.11-kappa2`, and `git diff --check` was clean. The full branch suite ran 2,319 tests with the same 35 unrelated failures as untouched `kappa1` (2,303 tests, same failure list), proving B18 added 16 tests and no new suite failure. `audiobookbay.lu` resolved to public IPv4 `176.97.124.219`; a live HTTPS page fetch from the laptop did not connect, so live provider content remains an unavailable, non-blocking validation rather than claimed evidence.
+Actual: the B18 focused suite and Android debug assembly passed, and `git diff --check` was clean. The full branch suite ran 2,319 tests with the same 35 unrelated failures as the pre-B18 baseline (2,303 tests, same failure list), proving B18 added 16 tests and no new suite failure. The consolidated release verifier reported `v1.0.11-iota11`. `audiobookbay.lu` resolved to public IPv4 `176.97.124.219`; a live HTTPS page fetch from the laptop did not connect, so live provider content remains an unavailable, non-blocking validation rather than claimed evidence.
 
 - [x] **Step 3: Commit, rebase, and publish**
 
-Commit documentation/release metadata, rebase onto current `fork/master` if needed, push the branch to `master`, create annotated tag `v1.0.11-kappa2`, and push the tag. Do not touch reader/page-turn worktrees.
+Commit documentation/release metadata, rebase onto current `fork/master` if needed, push the branch to `master`, create annotated tag `v1.0.11-iota11`, and push the tag. Do not touch reader/page-turn worktrees.
 
 - [x] **Step 4: Verify the public release**
 
@@ -178,8 +178,8 @@ Commit and push final release evidence to public `master`. Confirm the branch is
 
 ## Release evidence
 
-- Tag/release: `v1.0.11-kappa2` at `8adddf436a5cca6ae8228b9728eba7c1faa58ddd`.
-- GitHub Actions: Build Navic `29229984211` succeeded; Checks `29229984192` succeeded; iOS was skipped.
-- Public APK: 46,205,488 bytes, SHA-256 `33c057cae4037e40449a1b8a7cb840f593bd7956effcd766fc0f6e3626e4029e`.
-- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=534`, `versionName=v1.0.11-kappa2`.
-- Device: signed upgrade from kappa1 to kappa2 on `emulator-5554`; PID `28330` alive after launch with no matching fatal/Koin/provider-DNS startup log.
+- Tag/release: `v1.0.11-iota11` at `4f5dfbe7a46b51de022931098e958afc8bcb2f44`.
+- GitHub Actions: Build Navic `29235127291` succeeded; Checks `29235127286` succeeded; iOS was skipped.
+- Public APK: 46,208,784 bytes, SHA-256 `14a8fae5c3321e222f59b4fb1fc1548920601f33dc80ea3d3cfd10cbe88e8daa`.
+- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=538`, `versionName=v1.0.11-iota11`.
+- Device: signed upgrade on `emulator-5554`; PID `30458` alive after launch with no AndroidRuntime startup error.

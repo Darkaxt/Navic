@@ -9,11 +9,7 @@ Released Tranche 2 storage slice: `v1.0.11-iota2`
 Released Tranche 2 download slice: `v1.0.11-iota3`
 Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Released Tranche 5 network-policy slice: `v1.0.11-iota9`
-Released Tranche 5 secure-credential slice: `v1.0.11-kappa1`
-Released Tranche 5 external-fetch slice: `v1.0.11-kappa2`
-Released Tranche 5 reader-vendor provenance slice: `v1.0.11-kappa3`
-Released Tranche 5 attribution-governance slice: `v1.0.11-kappa4`
-Current public Android prerelease: `v1.0.11-lambda1` (version-only successor to `kappa4`)
+Released Tranche 5 consolidated delivery: `v1.0.11-iota11`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -76,7 +72,7 @@ Every tranche uses the following pipeline:
 4. Implement in dependency order, committing each behavior boundary separately.
 5. Rebase onto current `master`; rerun the tranche test matrix and Android APK build.
 6. Fast-forward `master` without staging any unrelated worktree changes.
-7. Publish the next unused release tag through GitHub Actions. Tranche 1 starts the `iota` series at `v1.0.11-iota1`; after `v1.0.11-iota10`, continue with `v1.0.11-kappa1`.
+7. Publish the next unused release tag through GitHub Actions. Keep the `{letter}{number}` series monotonic; after `v1.0.11-iota10`, continue with `v1.0.11-iota11` unless the user explicitly advances the letter.
 8. Verify workflow, release asset digest, APK signature, embedded version, install, launch, and tranche-specific device behavior.
 9. Record release evidence in the audit/plan, push the evidence commit, then remove the worktree, branch, and downloaded verification artifact.
 
@@ -309,46 +305,38 @@ Every tranche uses the following pipeline:
 - A signed in-place upgrade from `v1.0.11-iota9` installed and launched on `emulator-5554`; the app remained alive as PID `25449` with no fatal activity or Koin startup error.
 - Repository and display-policy tests distinguish disabled, misconfigured, unauthorized, malformed, unavailable, empty, and stale states. Aurral base discovery paints before parallel supplements, Bindery row loads remain parallel without dropping failures, stale content remains interactive, affected legacy suites passed, and Android debug assembly passed after rebasing public master.
 
-### Secure-credential slice release evidence
+### Consolidated Tranche 5 release evidence
 
-- Released `v1.0.11-kappa1` from commit `ae5ed8bf` on 2026-07-13. GitHub Actions run `29227165112` passed the signed Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped. Checks run `29227165121` also passed.
-- Public `Navic.apk` SHA-256: `d0bc4940b661bc18d5914f33bfb9589aa115b6b97bd3cd3b8c4880417cfe7df3`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=533`, `versionName=v1.0.11-kappa1`.
-- A signed in-place upgrade from `v1.0.11-iota10` installed and launched on `emulator-5554`. The app remained alive as PID `26779` with no fatal activity, Koin startup, or Keystore error.
+- Released `v1.0.11-iota11` from commit `4f5dfbe7` on 2026-07-13. GitHub Actions build/release run `29235127291` passed the signed Android release build, signature verification, reader-vendor source and packaged verification, attribution verification, artifact upload, and release creation; iOS was skipped. Checks run `29235127286` passed wrapper validation.
+- Public `Navic.apk` SHA-256: `14a8fae5c3321e222f59b4fb1fc1548920601f33dc80ea3d3cfd10cbe88e8daa` (46,208,784 bytes). APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=538`, `versionName=v1.0.11-iota11`.
+- The public APK independently passed all 30 reader-vendor hashes and the packaged acknowledgement check. A signed in-place upgrade installed and launched on `emulator-5554`; the app remained alive as PID `30458` with no AndroidRuntime startup error.
+- The mistakenly advanced later-letter releases and tags were withdrawn after `iota11` passed all public gates. The supported public sequence now continues directly from `iota10` to `iota11`.
+
+### Secure-credential slice implementation evidence
+
 - Device migration moved `binderyApiKey=navic-b17-migration-proof` out of `darkaxt.navic_preferences.xml` into a versioned AES-GCM envelope in `navic_secure_credentials.xml`; a recursive plaintext scan of shared preferences returned no match. Plaintext deletion implies successful encrypted commit and exact decrypt-readback under the migration contract.
 - The final gate passed 69 focused Bindery/security/DI tests plus Android debug assembly. Tests cover migration success/failure/precedence, Keystore source policy, canonical origin matching, off-origin absolute paths, redirects, per-resource playback/artwork headers, optional integration behavior, and production DI fixtures.
 
-### External-fetch slice release evidence
+### External-fetch slice implementation evidence
 
-- Released `v1.0.11-kappa2` from commit `8adddf43` on 2026-07-13. GitHub Actions run `29229984211` passed the signed Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped. Checks run `29229984192` also passed.
-- Public `Navic.apk` SHA-256: `33c057cae4037e40449a1b8a7cb840f593bd7956effcd766fc0f6e3626e4029e` (46,205,488 bytes).
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=534`, `versionName=v1.0.11-kappa2`.
-- A signed in-place upgrade from `v1.0.11-kappa1` installed and launched on `emulator-5554`; the app remained alive as PID `28330` with no fatal activity, Koin startup, or provider-DNS error.
-- The final gate reran 19 focused SSRF/DNS/redirect/parser tests with zero failures and passed Android debug assembly. The full branch suite ran 2,319 tests with the exact same 35 unrelated baseline failures as untouched kappa1 (2,303 tests), proving the 16 newly added B18 tests introduced no suite regression.
+- The final gate reran 19 focused SSRF/DNS/redirect/parser tests with zero failures and passed Android debug assembly. The full branch suite ran 2,319 tests with the exact same 35 unrelated baseline failures as the pre-B18 baseline (2,303 tests), proving the 16 newly added B18 tests introduced no suite regression.
 - Tests cover unsupported schemes, credentials, custom ports, fragments, deceptive/off-allowlist hosts, localhost, RFC1918, carrier-grade NAT, IPv4/IPv6 loopback and link-local, IPv6 unique/site-local, multicast, IPv4-mapped private IPv6, empty/mixed DNS answers, redirect host changes, approved sources, malformed HTML, and internal/off-domain cover candidates. Generated acknowledgements include Ksoup `0.2.6` under MIT.
 
-### Reader-vendor provenance slice release evidence
+### Reader-vendor provenance slice implementation evidence
 
-- Released `v1.0.11-kappa3` from commit `2b9db578` on 2026-07-13. GitHub Actions run `29231979895` passed source-governance verification, the signed Android release build, signature verification, packaged-vendor verification, artifact upload, and release creation; iOS was skipped. Checks run `29231979929` passed wrapper validation.
-- Public `Navic.apk` SHA-256: `1ebd28ae743c3c7153fa44fa7dea11915505ec04491e26784783d5347fefc231` (46,208,196 bytes). APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=535`, `versionName=v1.0.11-kappa3`.
-- The public APK independently passed all 30 packaged vendor hashes. A signed in-place upgrade from `v1.0.11-kappa2` installed and launched on `emulator-5554`; the app remained alive as PID `29006` with no fatal startup error.
 - `reader/vendor/manifest.json` records immutable source/package provenance for Foliate `1.0.1` and PDF.js `3.11.174`, including source commits, npm integrity, PDF.js package Git head/build id, licenses, component ownership, and SHA-256 hashes for all 30 shipped vendor files.
 - The advisory review identified `GHSA-wgrm-67xf-hhpq` / `CVE-2024-4367` for the pinned PDF.js version. Navic already applies the advisory's `isEvalSupported: false` workaround at its only `getDocument` call; the prior parity test's insecure fallback allowance was removed so this mitigation is now mandatory.
 - The deterministic updater is idempotent. The verifier self-test proves the valid tree passes while modified bytes and unmanifested files fail. The same verifier passed against all 30 `assets/reader/vendor/**` files in the assembled Android debug APK.
 - GitHub Actions now runs the self-test before every Android build and verifies the final APK before upload. The documented update process requires upstream release/advisory review, immutable artifact validation, upstream diff review, deliberate Navic-patch reapplication, reader tests, and packaged-APK proof.
-- The full host suite ran 2,321 tests with the exact same 35 pre-existing failure names as kappa2; both new B7 host tests passed. No vendored JavaScript or reader runtime behavior changed in this slice.
+- The full host suite ran 2,321 tests with the exact same 35 pre-existing failure names as the pre-vendor baseline; both new B7 host tests passed. No vendored JavaScript or reader runtime behavior changed in this slice.
 
-### Attribution-governance slice release evidence
+### Attribution-governance slice implementation evidence
 
-- Version-only successor `v1.0.11-lambda1` was released from commit `4c3e300b` on 2026-07-13. GitHub Actions build/release run `29234287982` and checks run `29234287872` passed. Its public APK is 46,208,788 bytes with SHA-256 `3310b0d7325ccaab32aa9bf0cc5617aa30e806862d9510e6b3e0780d7fd57d55`, retains the release certificate and all packaged governance proofs, and embeds `versionCode=537`, `versionName=v1.0.11-lambda1`. The signed upgrade from kappa4 launched on `emulator-5554` as PID `29954` with no AndroidRuntime startup error.
-- Released `v1.0.11-kappa4` from commit `1b142cda` on 2026-07-13. GitHub Actions run `29233682795` passed reader-vendor source verification, the signed Android release build, signature verification, packaged reader-vendor and attribution verification, artifact upload, and release creation; iOS was skipped. Checks run `29233682740` passed wrapper validation.
-- Public `Navic.apk` SHA-256: `c4bc0997e2456ff46be14cea6f8e7d3b64c08a8e743c580263c0fe486cb9046b` (46,208,788 bytes). APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=536`, `versionName=v1.0.11-kappa4`.
-- The public APK independently passed all 30 reader-vendor hashes and the packaged acknowledgement check. A signed in-place upgrade from `v1.0.11-kappa3` installed and launched on `emulator-5554`; the app remained the resumed activity as PID `29490` with no AndroidRuntime or fatal startup error.
 - `THIRD_PARTY.md` records Navic's GNU GPL version 3 license and immutable source revisions for Anx Reader, foliate-js `1.0.1`, and PDF.js `3.11.174`. Exact upstream MIT and Apache-2.0 license files are retained under `third_party/licenses`.
 - Exact-source verification corrected the audit's Anx copyleft premise: pinned Anx Reader commit `107f4fa74db0e7247c846c49d6211df3edf9887c` is MIT-licensed. Its real copyright and permission notice are preserved instead of claiming nonexistent Anx copyleft obligations.
 - AboutLibraries custom records feed the copied components into the existing Acknowledgements screen. The structural verifier checks component identity, version/commit, source URL, copyright, license ID, and MIT text in both the generated Compose resource and the assembled APK.
 - The assembled Android debug APK passed all 30 existing reader-vendor hashes and the new packaged-attribution check. A deliberate generated-JSON tamper was rejected.
-- The full host suite ran 2,326 tests with the same 35 pre-existing failure names as kappa3; all three new attribution tests and the existing reader-vendor governance tests passed.
+- The full host suite ran 2,326 tests with the same 35 pre-existing failure names as the pre-attribution baseline; all three new attribution tests and the existing reader-vendor governance tests passed.
 
 ### Rollout and rollback
 
@@ -460,14 +448,14 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A18 | Medium | Released | `v1.0.11-iota2` |
 | A19 | Medium | Released | `v1.0.11-iota2` |
 | A20 | Scope note | Excluded | Android-only contract |
-| A21 | Medium (governance) | Released | `v1.0.11-kappa4` |
+| A21 | Medium (governance) | Released | `v1.0.11-iota11` |
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
 | B2 | Low | Pending | Tranche 7 |
 | B3 | Low | Pending | Tranche 3 |
 | B4 | High | Pending | Tranche 3 |
 | B5 | High | Partially improved; ack pending | Tranche 3 |
 | B6 | Medium | Pending | Tranche 3 |
-| B7 | Medium | Released | `v1.0.11-kappa3` |
+| B7 | Medium | Released | `v1.0.11-iota11` |
 | B8 | Low | Pending | Tranche 3 |
 | B9 | High | Released | `v1.0.11-iota1` |
 | B10 | Medium | Released | `v1.0.11-iota1` |
@@ -477,8 +465,8 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B14 | Medium | Superseded as written | No deployment |
 | B15 | Medium | Pending | Tranche 3 |
 | B16 | Low | Pending | Tranche 6 |
-| B17 | Medium | Released | `v1.0.11-kappa1` |
-| B18 | Medium | Released | `v1.0.11-kappa2` |
+| B17 | Medium | Released | `v1.0.11-iota11` |
+| B18 | Medium | Released | `v1.0.11-iota11` |
 | B19 | Medium | Pending | Tranche 4 |
 | B20 | Low | Pending | Tranche 4 |
 | B21 | Scope note | Excluded | Android-only contract |
