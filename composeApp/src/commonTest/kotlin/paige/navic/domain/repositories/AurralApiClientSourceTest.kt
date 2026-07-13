@@ -1,5 +1,7 @@
 package paige.navic.domain.repositories
 
+import paige.navic.data.remote.aurral.*
+
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -8,7 +10,7 @@ import kotlin.test.assertFalse
 class AurralApiClientSourceTest {
 	@Test
 	fun aurralClientDoesNotAbortLongRunningAcquisitionRequestsWithLocalHttpTimeout() {
-		val source = File("src/commonMain/kotlin/paige/navic/domain/repositories/AurralApiClient.kt").readText()
+		val source = File("src/commonMain/kotlin/paige/navic/data/remote/aurral/AurralApiClient.kt").readText()
 
 		assertFalse(
 			"HttpTimeout" in source || "requestTimeoutMillis" in source,
@@ -19,7 +21,7 @@ class AurralApiClientSourceTest {
 
 	@Test
 	fun fullDiscoveryLoadsIndependentSupplementsInParallelWithoutFalseEmptyFallbacks() {
-		val source = File("src/commonMain/kotlin/paige/navic/domain/repositories/AurralApiClient.kt").readText()
+		val source = File("src/commonMain/kotlin/paige/navic/data/remote/aurral/AurralApiClient.kt").readText()
 		val fetchDiscovery = source.substringAfter("override suspend fun fetchDiscovery(")
 			.substringBefore("override suspend fun fetchDiscoveryBase(")
 

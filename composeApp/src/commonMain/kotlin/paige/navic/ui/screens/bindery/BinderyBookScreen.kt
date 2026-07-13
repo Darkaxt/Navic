@@ -74,8 +74,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
-import paige.navic.domain.repositories.binderyApiKeyHeaders
-import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.data.remote.bindery.binderyEndpoint
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Audiobooks

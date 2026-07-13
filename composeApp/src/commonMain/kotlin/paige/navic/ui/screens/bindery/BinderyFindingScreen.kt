@@ -56,8 +56,8 @@ import paige.navic.domain.repositories.BinderyFindingFile
 import paige.navic.domain.repositories.BinderyFindingMapping
 import paige.navic.domain.repositories.BinderyFindingMetadata
 import paige.navic.domain.repositories.BinderyLink
-import paige.navic.domain.repositories.binderyApiKeyHeaders
-import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.data.remote.bindery.binderyEndpoint
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Book
 import paige.navic.ui.components.common.BinderyIntegrationServices

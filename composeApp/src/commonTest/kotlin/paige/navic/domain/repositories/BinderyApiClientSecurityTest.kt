@@ -1,5 +1,7 @@
 package paige.navic.domain.repositories
 
+import paige.navic.data.remote.bindery.*
+
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData

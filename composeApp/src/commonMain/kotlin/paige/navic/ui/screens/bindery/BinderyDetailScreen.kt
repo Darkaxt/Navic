@@ -54,8 +54,8 @@ import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.BinderyCatalog
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyPublication
-import paige.navic.domain.repositories.binderyApiKeyHeaders
-import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.data.remote.bindery.binderyEndpoint
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.BinderyIntegrationServices

@@ -23,7 +23,7 @@ import paige.navic.domain.models.lidaClipDownloadQueueDownloads
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 import paige.navic.ui.core.UiState
 
 class ActivityViewModel(

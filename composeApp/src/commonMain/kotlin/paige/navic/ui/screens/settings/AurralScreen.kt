@@ -88,7 +88,7 @@ import paige.navic.domain.models.settings.ArtworkSourcePriority
 import paige.navic.domain.repositories.AurralConnectionResult
 import paige.navic.domain.repositories.AurralAcquisitionQueueItem
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow

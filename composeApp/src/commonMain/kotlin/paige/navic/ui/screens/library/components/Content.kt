@@ -52,8 +52,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralRepository
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 import paige.navic.ui.navigation.Screen
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum

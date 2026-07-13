@@ -1,38 +1,16 @@
 package paige.navic.domain.repositories
 
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.accept
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.put
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
-import io.ktor.http.encodeURLQueryComponent
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.SerialName
+import paige.navic.data.remote.bindery.*
+
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.CachedPayload
 import paige.navic.domain.models.CachedPayloadSource
 import paige.navic.domain.models.OptionalIntegrationFailureKind
+import paige.navic.domain.models.OptionalIntegrationHttpFailure
 import paige.navic.domain.models.OptionalIntegrationResult
 import paige.navic.domain.models.optionalIntegrationFailure
 import paige.navic.domain.models.optionalIntegrationResult
@@ -89,12 +67,12 @@ class BinderyRepository(
 				)
 			},
 			onFailure = { error ->
-				when ((error as? BinderyApiException)?.status) {
-					HttpStatusCode.Unauthorized -> {
+				when ((error as? OptionalIntegrationHttpFailure)?.statusCode) {
+					401 -> {
 						preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
 						BinderyConnectionResult.Unauthorized
 					}
-					HttpStatusCode.Forbidden -> {
+					403 -> {
 						preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
 						BinderyConnectionResult.Forbidden
 					}

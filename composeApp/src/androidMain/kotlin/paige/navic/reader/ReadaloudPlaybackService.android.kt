@@ -23,8 +23,8 @@ import androidx.media3.session.SessionToken
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.repositories.binderyApiKeyHeaders
-import paige.navic.domain.repositories.binderyRequestHeadersForUrl
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.data.remote.bindery.binderyRequestHeadersForUrl
 import paige.navic.ui.components.common.CoilBitmapLoader
 import paige.navic.util.core.Logger
 import paige.navic.util.core.ResourceProvider

@@ -78,7 +78,7 @@ import paige.navic.domain.models.aurralPreviewTracksForReleaseGroup
 import paige.navic.domain.models.sortedByAlbumYearDescending
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralRepository
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
+import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Check

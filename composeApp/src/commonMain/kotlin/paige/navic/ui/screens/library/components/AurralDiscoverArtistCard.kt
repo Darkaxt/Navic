@@ -19,8 +19,8 @@ import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.AurralConfirmationQueueItem
 import paige.navic.domain.repositories.AurralDiscoverArtist
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 import paige.navic.ui.components.common.AurralArtistMonitorBadge
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.GeneratedArtworkVariant

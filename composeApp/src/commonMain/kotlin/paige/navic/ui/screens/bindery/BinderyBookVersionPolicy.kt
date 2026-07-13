@@ -16,8 +16,8 @@ import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
 import paige.navic.domain.repositories.BinderyResourceCatalog
 import paige.navic.domain.repositories.BinderySyncPair
-import paige.navic.domain.repositories.binderyEndpoint
-import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
+import paige.navic.data.remote.bindery.binderyEndpoint
+import paige.navic.data.remote.bindery.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.repositories.hasReadyWhispersyncArtifact
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.reader.ReaderPublicationFormat

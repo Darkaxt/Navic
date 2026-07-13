@@ -4,8 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.IntegrationService
-import paige.navic.domain.repositories.configuredAurralBaseUrl
-import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
+import paige.navic.data.remote.bindery.configuredBinderyOpdsBaseUrl
 import paige.navic.domain.repositories.configuredLidaClipsBaseUrl
 
 val MusicIntegrationServices = setOf(

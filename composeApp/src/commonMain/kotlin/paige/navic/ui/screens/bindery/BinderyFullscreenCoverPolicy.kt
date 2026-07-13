@@ -4,7 +4,7 @@ import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPropertyBag
 import paige.navic.domain.repositories.BinderyPropertyValue
-import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.data.remote.bindery.binderyEndpoint
 import paige.navic.ui.screens.bindery.versionpolicy.firstNonBlankValue
 import kotlin.math.abs
 

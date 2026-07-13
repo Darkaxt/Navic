@@ -1,5 +1,7 @@
 package paige.navic.domain.repositories
 
+import paige.navic.data.remote.aurral.*
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

@@ -12,8 +12,8 @@ import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
 import paige.navic.domain.repositories.BinderyPublication
 import paige.navic.domain.repositories.BinderyReadingOrderItem
-import paige.navic.domain.repositories.binderyEndpoint
-import paige.navic.domain.repositories.binderyRequestHeadersForUrl
+import paige.navic.data.remote.bindery.binderyEndpoint
+import paige.navic.data.remote.bindery.binderyRequestHeadersForUrl
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReadaloudMediaItemDescriptor
 import paige.navic.reader.ReadaloudPlaybackPosition

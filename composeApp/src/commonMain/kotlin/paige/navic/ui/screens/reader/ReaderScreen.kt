@@ -32,7 +32,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
-import paige.navic.domain.repositories.binderyApiKeyHeaders
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState

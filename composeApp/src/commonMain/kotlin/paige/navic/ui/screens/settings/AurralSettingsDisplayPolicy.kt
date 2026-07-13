@@ -2,7 +2,7 @@ package paige.navic.ui.screens.settings
 
 import paige.navic.domain.repositories.AurralConnectionResult
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 
 internal sealed interface AurralConnectionStatusDisplay {
 	data object MissingUrl : AurralConnectionStatusDisplay

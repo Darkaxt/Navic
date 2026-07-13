@@ -1,5 +1,7 @@
 package paige.navic.domain.manager
 
+import paige.navic.data.remote.aurral.aurralBasicAuthHeaders
+
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import paige.navic.domain.manager.base.BasePreferenceManager
@@ -460,7 +462,7 @@ class PreferenceManager(
 		paige.navic.domain.repositories.lidaClipsRequestHeaders(lidaClipsApiKey)
 
 	fun aurralRequestHeadersMap(): Map<String, String> =
-		paige.navic.domain.repositories.aurralBasicAuthHeaders(aurralUsername, aurralPassword)
+		aurralBasicAuthHeaders(aurralUsername, aurralPassword)
 
 	fun clearMusicBrainzArtworkCache() {
 		musicBrainzArtworkCacheJson = ""

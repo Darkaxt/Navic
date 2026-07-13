@@ -25,8 +25,8 @@ import paige.navic.domain.models.PlaybackArtistPhotoCacheEntry
 import paige.navic.domain.models.PlaybackArtworkSource
 import paige.navic.domain.models.resolvedPlaybackArtistPhoto
 import paige.navic.domain.models.resolvedPlaybackArtwork
-import paige.navic.domain.repositories.aurralAbsoluteImageUrl
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
+import paige.navic.data.remote.aurral.aurralAbsoluteImageUrl
+import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
 
 @Immutable
 data class PlaybackArtworkUiState(

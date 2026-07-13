@@ -8,7 +8,7 @@ import paige.navic.domain.models.PlaybackArtworkResolution
 import paige.navic.domain.models.resolvedPlaybackArtistPhoto
 import paige.navic.domain.models.resolvedPlaybackArtwork
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
-import paige.navic.domain.repositories.aurralAbsoluteImageUrl
+import paige.navic.data.remote.aurral.aurralAbsoluteImageUrl
 
 internal class AndroidPlaybackArtworkResolver(
 	private val preferenceManager: PreferenceManager,

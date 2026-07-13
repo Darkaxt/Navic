@@ -39,8 +39,8 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyLink
-import paige.navic.domain.repositories.binderyApiKeyHeaders
-import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.data.remote.bindery.binderyEndpoint
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.BinderyIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip

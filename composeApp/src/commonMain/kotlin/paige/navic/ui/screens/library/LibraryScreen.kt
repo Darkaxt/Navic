@@ -45,7 +45,7 @@ import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.QueueDuplicateAction
 import paige.navic.domain.models.duplicateQueueActionFor
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip

@@ -42,7 +42,7 @@ class BinderyWhispersyncSchemaContractTest {
 			.resolve("composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyModels.kt")
 			.readText()
 		val binderyMappings = root
-			.resolve("composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyDtoMapping.kt")
+			.resolve("composeApp/src/commonMain/kotlin/paige/navic/data/remote/bindery/BinderyDtoMapping.kt")
 			.readText()
 		val bookSyncJsonTest = root
 			.resolve("composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/BinderyBookSyncJsonTest.kt")
@@ -162,10 +162,10 @@ class BinderyWhispersyncSchemaContractTest {
 			.resolve("composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyRepository.kt")
 			.readText()
 		val apiClient = root
-			.resolve("composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyApiClient.kt")
+			.resolve("composeApp/src/commonMain/kotlin/paige/navic/data/remote/bindery/BinderyApiClient.kt")
 			.readText()
 		val urlPolicy = root
-			.resolve("composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/BinderyUrlPolicy.kt")
+			.resolve("composeApp/src/commonMain/kotlin/paige/navic/data/remote/bindery/BinderyUrlPolicy.kt")
 			.readText()
 		val repositoryTest = root
 			.resolve("composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/BinderyRepositoryTest.kt")

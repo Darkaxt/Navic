@@ -1,5 +1,7 @@
 package paige.navic.domain.repositories
 
+import paige.navic.data.remote.bindery.*
+
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

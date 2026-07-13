@@ -1,7 +1,8 @@
-package paige.navic.domain.repositories
+package paige.navic.data.remote.aurral
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
+import paige.navic.domain.repositories.AurralConnectionResult
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 

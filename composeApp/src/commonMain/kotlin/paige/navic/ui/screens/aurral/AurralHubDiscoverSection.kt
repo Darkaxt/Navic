@@ -113,8 +113,8 @@ import paige.navic.domain.repositories.AurralFlowActionResult
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Add

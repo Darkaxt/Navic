@@ -7,7 +7,7 @@ import paige.navic.domain.models.isStationPlaylist
 import paige.navic.domain.models.stationDisplayName
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralServiceStatus
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 
 @Immutable
 enum class AurralHubSection {

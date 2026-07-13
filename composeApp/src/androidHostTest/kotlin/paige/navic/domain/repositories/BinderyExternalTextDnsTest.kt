@@ -1,5 +1,7 @@
 package paige.navic.domain.repositories
 
+import paige.navic.data.remote.bindery.*
+
 import okhttp3.Dns
 import java.net.InetAddress
 import java.net.UnknownHostException

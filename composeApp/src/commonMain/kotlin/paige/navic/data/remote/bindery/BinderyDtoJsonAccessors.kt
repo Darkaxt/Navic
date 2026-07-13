@@ -1,4 +1,4 @@
-package paige.navic.domain.repositories
+package paige.navic.data.remote.bindery
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import paige.navic.domain.repositories.BinderyAvailabilityCombination
 
 internal fun Map<String, JsonElement>.jsonArray(key: String): JsonArray =
 	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }?.value as? JsonArray

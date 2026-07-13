@@ -1,4 +1,6 @@
-package paige.navic.domain.repositories
+package paige.navic.data.remote.bindery
+
+import paige.navic.domain.repositories.*
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess

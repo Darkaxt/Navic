@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 class AurralFirstArtistPageSourceTest {
 	@Test
 	fun artistDetailsDtoCarriesProfileImageAliases() {
-		val source = sourceFile("domain/repositories/AurralDtos.kt").readText()
+		val source = sourceFile("data/remote/aurral/AurralDtos.kt").readText()
 		val dtoBody = source.substringAfter("internal data class AurralArtistDetailsDto(")
 			.substringBefore("\n)")
 
@@ -20,7 +20,7 @@ class AurralFirstArtistPageSourceTest {
 
 	@Test
 	fun artistEnrichmentMapsImageFromDetailsBeforeSearchFallback() {
-		val mapping = sourceFile("domain/repositories/AurralServiceDtoMapping.kt").readText()
+		val mapping = sourceFile("data/remote/aurral/AurralServiceDtoMapping.kt").readText()
 		val model = sourceFile("domain/models/AurralArtistEnrichmentPolicy.kt").readText()
 
 		assertTrue("val imageUrl: String? = null" in model, "AurralArtistEnrichment must carry profile artwork.")
@@ -29,7 +29,7 @@ class AurralFirstArtistPageSourceTest {
 
 	@Test
 	fun previewAndSimilarNonSuccessResponsesThrowInsteadOfReturningEmpty() {
-		val source = sourceFile("domain/repositories/AurralApiClient.kt").readText()
+		val source = sourceFile("data/remote/aurral/AurralApiClient.kt").readText()
 		val previewBody = functionBody(source, "private suspend fun fetchArtistPreview")
 		val similarBody = functionBody(source, "private suspend fun fetchSimilarArtists")
 

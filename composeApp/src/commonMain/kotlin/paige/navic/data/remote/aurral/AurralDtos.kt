@@ -1,4 +1,4 @@
-package paige.navic.domain.repositories
+package paige.navic.data.remote.aurral
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

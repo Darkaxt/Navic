@@ -1,4 +1,4 @@
-package paige.navic.domain.repositories
+package paige.navic.data.remote.bindery
 
 internal actual fun platformExternalTextTransport(): ExternalTextTransport =
 	object : ExternalTextTransport {

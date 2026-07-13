@@ -83,7 +83,7 @@ import paige.navic.domain.models.BinderyMaxBookGridColumns
 import paige.navic.domain.models.BinderyMinBookGridColumns
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.repositories.BinderyServiceStatus
-import paige.navic.domain.repositories.configuredBinderyOpdsBaseUrl
+import paige.navic.data.remote.bindery.configuredBinderyOpdsBaseUrl
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow

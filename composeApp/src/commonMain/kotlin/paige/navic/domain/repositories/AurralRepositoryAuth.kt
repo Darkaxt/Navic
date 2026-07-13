@@ -1,5 +1,7 @@
 package paige.navic.domain.repositories
 
+import paige.navic.data.remote.aurral.*
+
 import paige.navic.domain.manager.PreferenceManager
 
 internal class AurralRepositoryAuth(

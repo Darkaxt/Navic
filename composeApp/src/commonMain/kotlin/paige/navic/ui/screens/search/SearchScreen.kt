@@ -115,8 +115,8 @@ import paige.navic.ui.screens.search.components.SearchScreenTopBar
 import paige.navic.ui.screens.search.viewmodels.SearchViewModel
 import paige.navic.ui.screens.search.viewmodels.visibleSearchHistory
 import paige.navic.domain.repositories.AurralRepository
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 
 enum class SearchCategory(val res: StringResource) {
 	ALL(Res.string.title_all),

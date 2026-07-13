@@ -3,7 +3,7 @@ package paige.navic.ui.screens.settings
 import androidx.compose.runtime.Immutable
 import paige.navic.domain.repositories.BinderyConnectionResult
 import paige.navic.domain.repositories.BinderyServiceStatus
-import paige.navic.domain.repositories.binderyOpdsBaseUrlConfigurationError
+import paige.navic.data.remote.bindery.binderyOpdsBaseUrlConfigurationError
 
 @Immutable
 sealed interface BinderyConnectionState {

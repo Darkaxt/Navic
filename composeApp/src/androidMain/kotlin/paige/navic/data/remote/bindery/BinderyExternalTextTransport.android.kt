@@ -1,4 +1,4 @@
-package paige.navic.domain.repositories
+package paige.navic.data.remote.bindery
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp

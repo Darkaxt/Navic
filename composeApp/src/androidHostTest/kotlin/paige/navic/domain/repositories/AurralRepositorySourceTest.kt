@@ -1,5 +1,7 @@
 package paige.navic.domain.repositories
 
+import paige.navic.data.remote.aurral.*
+
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains

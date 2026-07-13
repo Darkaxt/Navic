@@ -26,7 +26,7 @@ import paige.navic.domain.repositories.SongRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.repositories.configuredAurralBaseUrl
+import paige.navic.data.remote.aurral.configuredAurralBaseUrl
 import paige.navic.ui.core.UiState
 import paige.navic.ui.screens.search.combinedSearchResults
 import kotlin.time.Duration.Companion.milliseconds

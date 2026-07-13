@@ -110,7 +110,7 @@ import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.repositories.AurralConfirmationStatus
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.aurralArtistMonitoringConfirmationItem
-import paige.navic.domain.repositories.aurralRequestHeadersForUrl
+import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.common.AurralAcquisitionProgressBar

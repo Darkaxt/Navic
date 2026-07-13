@@ -70,8 +70,8 @@ import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.OptionalIntegrationFailure
 import paige.navic.domain.models.OptionalIntegrationFailureKind
 import paige.navic.domain.models.OptionalIntegrationResult
-import paige.navic.domain.repositories.binderyApiKeyHeaders
-import paige.navic.domain.repositories.binderyEndpoint
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.data.remote.bindery.binderyEndpoint
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Author
 import paige.navic.icons.outlined.Book
