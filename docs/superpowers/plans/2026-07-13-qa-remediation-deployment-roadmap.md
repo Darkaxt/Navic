@@ -10,6 +10,7 @@ Released Tranche 2 download slice: `v1.0.11-iota3`
 Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Released Tranche 5 network-policy slice: `v1.0.11-iota9`
 Released Tranche 5 consolidated delivery: `v1.0.11-iota11`
+Released Tranche 3 bridge-diagnostics slice: `v1.0.11-iota12`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -229,10 +230,12 @@ Every tranche uses the following pipeline:
 
 ### B4 implementation evidence
 
-- Prepared for `v1.0.11-iota12`. `ReaderBridgeDecodeResult` classifies malformed JSON, non-object payloads, missing event types, unknown event types, invalid known payloads, and successful events without throwing across the JavaScript interface.
+- Released in `v1.0.11-iota12`. `ReaderBridgeDecodeResult` classifies malformed JSON, non-object payloads, missing event types, unknown event types, invalid known payloads, and successful events without throwing across the JavaScript interface.
 - Rejected messages retain only a control-sanitized diagnostic snapshot capped at 500 characters. The Android bridge no longer logs every raw message; it warning-logs only the first rejection in each consecutive-failure episode.
 - `ReaderBridgeMessageProcessor` resets the episode on any decoded event and emits one `ReaderBridgeEvent.Error(code="reader_bridge_protocol")` after three consecutive rejections. The existing adapter/controller/viewer path makes that persistent protocol failure UI-visible; no elapsed-time cancellation or acknowledgement timeout was added.
-- Protocol, processor, Android JavaScript bridge, Foliate adapter, and reader controller tests passed 124/124 with zero failures or errors. Public release, APK, signature, and device validation remain pending.
+- Protocol, processor, Android JavaScript bridge, Foliate adapter, and reader controller tests passed 124/124 with zero failures or errors.
+- Release commit `a94ad4b2` passed build/release run `29237439257` and checks run `29237439171`; iOS was skipped. The public APK is 46,208,788 bytes with SHA-256 `316ea9d1afa4c8ac5a65c738fe414a3d1dda60befc6a18c4db1e932afcbf5f3d`, established signing certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=539`, and `versionName=v1.0.11-iota12`.
+- The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. A signed in-place upgrade from `iota11` installed on `emulator-5554`; explicit activity start returned `Status: ok`, the app remained alive as PID `31000`, and AndroidRuntime reported no startup error.
 
 ### Rollout and rollback
 
@@ -459,7 +462,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
 | B2 | Low | Pending | Tranche 7 |
 | B3 | Low | Pending | Tranche 3 |
-| B4 | High | Implemented; release validation pending | `v1.0.11-iota12` candidate |
+| B4 | High | Released | `v1.0.11-iota12` |
 | B5 | High | Partially improved; ack pending | Tranche 3 |
 | B6 | Medium | Pending | Tranche 3 |
 | B7 | Medium | Released | `v1.0.11-iota11` |
