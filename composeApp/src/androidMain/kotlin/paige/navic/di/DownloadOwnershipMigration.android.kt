@@ -33,6 +33,28 @@ internal object DownloadDatabaseMigration4To5 : Migration(4, 5) {
 	}
 }
 
+internal object CacheDatabaseMigration21To22 : Migration(21, 22) {
+	override suspend fun migrate(connection: SQLiteConnection) {
+		connection.execute(
+			"ALTER TABLE SyncActionEntity ADD COLUMN createdAtEpochMs INTEGER NOT NULL DEFAULT 0"
+		)
+		connection.execute(
+			"ALTER TABLE SyncActionEntity ADD COLUMN attemptCount INTEGER NOT NULL DEFAULT 0"
+		)
+		connection.execute(
+			"ALTER TABLE SyncActionEntity ADD COLUMN nextAttemptAtEpochMs INTEGER NOT NULL DEFAULT 0"
+		)
+		connection.execute("ALTER TABLE SyncActionEntity ADD COLUMN lastError TEXT")
+		connection.execute(
+			"ALTER TABLE SyncActionEntity ADD COLUMN deadLettered INTEGER NOT NULL DEFAULT 0"
+		)
+		connection.execute(
+			"CREATE INDEX IF NOT EXISTS index_SyncActionEntity_deadLettered_nextAttemptAtEpochMs_id " +
+				"ON SyncActionEntity(deadLettered, nextAttemptAtEpochMs, id)"
+		)
+	}
+}
+
 internal suspend fun migrateLegacyDownloadRegistry(
 	cacheDatabasePath: String,
 	downloadDao: DownloadDao,

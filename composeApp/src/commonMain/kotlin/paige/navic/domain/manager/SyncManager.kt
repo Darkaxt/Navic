@@ -1,10 +1,14 @@
 package paige.navic.domain.manager
 
+import dev.zt64.subsonic.api.model.SubsonicException
+import io.ktor.client.plugins.ResponseException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +25,9 @@ import paige.navic.data.database.dao.SyncActionDao
 import paige.navic.data.database.entities.SyncActionEntity
 import paige.navic.data.database.entities.SyncActionType
 import paige.navic.domain.repositories.DbRepository
+import paige.navic.domain.models.afterSyncFailure
+import paige.navic.domain.models.classifySyncFailure
+import paige.navic.domain.models.processOrderedSyncActions
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
@@ -30,7 +37,8 @@ import kotlin.time.Instant
 data class SyncState(
 	val isSyncing: Boolean = false,
 	val progress: Float = 0f,
-	val message: StringResource = Res.string.info_status_idle
+	val message: StringResource = Res.string.info_status_idle,
+	val deadLetterCount: Int = 0
 )
 
 class SyncManager(
@@ -43,7 +51,10 @@ class SyncManager(
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private var syncJob: Job? = null
-	private val syncMutex = Mutex()
+	private var retryWakeJob: Job? = null
+	private val syncWakeups = Channel<Unit>(capacity = 1)
+	private val requestMutex = Mutex()
+	private var fullSyncRequested = false
 
 	private val fullSyncThreshold = 1.hours
 
@@ -52,10 +63,27 @@ class SyncManager(
 
 	init {
 		scope.launch {
-			connectivityManager.isOnline.collect { isOnline ->
-				if (!syncMutex.isLocked && isOnline) {
-					syncMutex.withLock { processQueue() }
+			for (ignored in syncWakeups) {
+				val forceFull = requestMutex.withLock {
+					fullSyncRequested.also { fullSyncRequested = false }
 				}
+				try {
+					runSyncCycle(forceFull)
+				} catch (error: CancellationException) {
+					throw error
+				} catch (error: Throwable) {
+					Logger.e("SyncManager", "Sync cycle failed; actor remains available.", error)
+				}
+			}
+		}
+		scope.launch {
+			syncDao.observeDeadLetterCount().collect { count ->
+				syncState.update { it.copy(deadLetterCount = count) }
+			}
+		}
+		scope.launch {
+			connectivityManager.isOnline.collect { isOnline ->
+				if (isOnline) requestSync()
 			}
 		}
 	}
@@ -69,23 +97,20 @@ class SyncManager(
 				|| preferenceManager.lastFullSyncTime <= 0L
 			) {
 				Logger.i("SyncManager", "Syncing now because we haven't synced before")
-				runSyncCycle()
+				requestSync(forceFull = true)
 			}
 		}
 
 		syncJob = scope.launch {
 			while (isActive) {
-				runSyncCycle()
+				requestSync()
 				delay(15.minutes)
 			}
 		}
 	}
 
 	fun triggerManualSync() {
-		scope.launch {
-			preferenceManager.lastFullSyncTime = 0
-			runSyncCycle()
-		}
+		requestSync(forceFull = true)
 	}
 
 	fun stopPeriodicSync() {
@@ -95,49 +120,75 @@ class SyncManager(
 
 	fun enqueueAction(actionType: SyncActionType, itemId: String) {
 		scope.launch {
-			syncDao.enqueue(SyncActionEntity(actionType = actionType, itemId = itemId))
-			if (!syncMutex.isLocked) {
-				syncMutex.withLock { processQueue() }
-			}
+			syncDao.enqueue(
+				SyncActionEntity(
+					actionType = actionType,
+					itemId = itemId,
+					createdAtEpochMs = Clock.System.now().toEpochMilliseconds()
+				)
+			)
+			requestSync()
 		}
 	}
 
-	private suspend fun runSyncCycle() {
-		syncMutex.withLock {
-			processQueue()
+	private fun requestSync(forceFull: Boolean = false) {
+		scope.launch {
+			requestMutex.withLock {
+				fullSyncRequested = fullSyncRequested || forceFull
+			}
+			syncWakeups.trySend(Unit)
+		}
+	}
 
-			val currentTime = Clock.System.now()
-			if (currentTime - Instant.fromEpochMilliseconds(preferenceManager.lastFullSyncTime) > fullSyncThreshold) {
+	private suspend fun runSyncCycle(forceFull: Boolean) {
+		processDueQueueActions()
+		scheduleNextRetryWakeup()
+
+		val currentTime = Clock.System.now()
+		if (forceFull || currentTime - Instant.fromEpochMilliseconds(preferenceManager.lastFullSyncTime) > fullSyncThreshold) {
 				Logger.i("SyncManager", "Starting full library pull...")
 
 				syncState.update {
 					it.copy(isSyncing = true)
 				}
 
-				val result = repository.syncEverything { progress, message ->
+				try {
+					val result = repository.syncEverything { progress, message ->
+						syncState.update {
+							it.copy(isSyncing = true, progress = progress, message = message)
+						}
+					}
+
+					if (result.isSuccess) {
+						preferenceManager.lastFullSyncTime = currentTime.toEpochMilliseconds()
+						Logger.i("SyncManager", "Full library sync complete.")
+					}
+
+				} finally {
 					syncState.update {
-						it.copy(isSyncing = true, progress = progress, message = message)
+						it.copy(isSyncing = false, message = Res.string.info_status_idle)
 					}
 				}
-
-				if (result.isSuccess) {
-					preferenceManager.lastFullSyncTime = currentTime.toEpochMilliseconds()
-					Logger.i("SyncManager", "Full library sync complete.")
-				}
-
-				syncState.update {
-					it.copy(isSyncing = false, message = Res.string.info_status_idle)
-				}
-			}
 		}
 	}
 
-	private suspend fun processQueue() {
-		val actions = syncDao.getPendingActions()
+	private suspend fun scheduleNextRetryWakeup() {
+		retryWakeJob?.cancel()
+		val nowEpochMs = Clock.System.now().toEpochMilliseconds()
+		val nextRetryEpochMs = syncDao.getNextRetryEpochMs(nowEpochMs) ?: return
+		retryWakeJob = scope.launch {
+			delay((nextRetryEpochMs - Clock.System.now().toEpochMilliseconds()).coerceAtLeast(0L))
+			requestSync()
+		}
+	}
+
+	private suspend fun processDueQueueActions() {
+		val actions = syncDao.getDueActions(Clock.System.now().toEpochMilliseconds())
 		if (actions.isEmpty()) return
 
-		for (action in actions) {
-			try {
+		processOrderedSyncActions(
+			actions = actions,
+			execute = { action ->
 				when (action.actionType) {
 					SyncActionType.STAR -> sessionManager.api.star(action.itemId)
 					SyncActionType.UNSTAR -> sessionManager.api.unstar(action.itemId)
@@ -154,17 +205,32 @@ class SyncManager(
 					SyncActionType.STAR_4 -> sessionManager.api.setRating(action.itemId, 4)
 					SyncActionType.STAR_5 -> sessionManager.api.setRating(action.itemId, 5)
 				}
-
+			},
+			onSuccess = { action ->
 				syncDao.removeAction(action.id)
 				Logger.i(
 					"SyncManager",
 					"Successfully synced ${action.actionType} for ${action.itemId}"
 				)
-
-			} catch (e: Exception) {
-				Logger.e("SyncManager", "Network failed. Action left in queue.", e)
-				break
+			},
+			onFailure = { action, error ->
+				if (error is CancellationException) throw error
+				val disposition = classifySyncFailure(
+					httpStatus = (error as? ResponseException)?.response?.status?.value,
+					subsonicErrorCode = (error as? SubsonicException)?.code
+				)
+				val failedAction = action.afterSyncFailure(
+					disposition = disposition,
+					nowEpochMs = Clock.System.now().toEpochMilliseconds(),
+					errorSummary = (error.message ?: error::class.simpleName ?: "Unknown error").take(500)
+				)
+				syncDao.updateAction(failedAction)
+				Logger.e(
+					"SyncManager",
+					"Failed ${action.actionType} for ${action.itemId}; disposition=$disposition",
+					error
+				)
 			}
-		}
+		)
 	}
 }

@@ -114,6 +114,39 @@ class DownloadOwnershipMigrationTest {
 		}
 	}
 
+	@Test
+	fun syncMigrationAddsRetryAndDeadLetterState() {
+		runBlocking {
+			val file = temporaryDatabaseFile()
+			val driver = JdbcSQLiteDriver()
+			driver.open(file.absolutePath).use { connection ->
+				connection.execute(
+					"CREATE TABLE SyncActionEntity (" +
+						"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+						"actionType TEXT NOT NULL, itemId TEXT NOT NULL)"
+				)
+				connection.execute(
+					"INSERT INTO SyncActionEntity(actionType, itemId) VALUES ('STAR', 'song')"
+				)
+
+				CacheDatabaseMigration21To22.migrate(connection)
+
+				connection.prepare(
+					"SELECT attemptCount, nextAttemptAtEpochMs, lastError, deadLettered " +
+						"FROM SyncActionEntity WHERE itemId = 'song'"
+				).use { statement ->
+					assertTrue(statement.step())
+					assertEquals(0L, statement.getLong(0))
+					assertEquals(0L, statement.getLong(1))
+					assertTrue(statement.isNull(2))
+					assertEquals(0L, statement.getLong(3))
+				}
+				assertTrue(connection.hasIndex("index_SyncActionEntity_deadLettered_nextAttemptAtEpochMs_id"))
+			}
+			file.delete()
+		}
+	}
+
 	private fun temporaryDatabaseFile(): File =
 		File.createTempFile("navic-download-migration-", ".db").apply { delete() }
 }

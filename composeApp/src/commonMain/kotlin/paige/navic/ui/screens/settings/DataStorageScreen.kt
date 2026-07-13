@@ -89,6 +89,7 @@ import navic.composeapp.generated.resources.subtitle_musicbrainz_artwork_fallbac
 import navic.composeapp.generated.resources.subtitle_offline_mode
 import navic.composeapp.generated.resources.subtitle_pause_search_history
 import navic.composeapp.generated.resources.subtitle_pending_actions
+import navic.composeapp.generated.resources.subtitle_pending_actions_with_failures
 import navic.composeapp.generated.resources.subtitle_rebuild_database
 import navic.composeapp.generated.resources.subtitle_trigger_sync
 import navic.composeapp.generated.resources.title_cache_management
@@ -385,10 +386,18 @@ fun SettingsDataStorageScreen() {
 						Column(Modifier.weight(1f)) {
 							Text(stringResource(Res.string.option_pending_actions))
 							Text(
-								stringResource(
-									Res.string.subtitle_pending_actions,
-									pendingActionCount
-								),
+								if (syncState.deadLetterCount > 0) {
+									stringResource(
+										Res.string.subtitle_pending_actions_with_failures,
+										pendingActionCount,
+										syncState.deadLetterCount
+									)
+								} else {
+									stringResource(
+										Res.string.subtitle_pending_actions,
+										pendingActionCount
+									)
+								},
 								style = MaterialTheme.typography.bodyMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)

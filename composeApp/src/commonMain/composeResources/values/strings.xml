@@ -146,6 +146,7 @@
 	<string name="subtitle_data_storage">Manage sync, network usage, and cache</string>
 	<string name="subtitle_trigger_sync">Forces a full library pull immediately</string>
 	<string name="subtitle_pending_actions">%1$d items waiting for network</string>
+	<string name="subtitle_pending_actions_with_failures">%1$d items waiting; %2$d require attention</string>
 	<string name="subtitle_developer">Debugging, testing</string>
 	<string name="subtitle_about">App info, version, licenses</string>
 	<string name="subtitle_playlist">Playlist</string>
