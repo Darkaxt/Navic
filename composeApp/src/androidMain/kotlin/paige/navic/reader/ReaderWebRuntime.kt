@@ -74,13 +74,21 @@ class ReaderJavascriptBridge(
 		)
 	}
 ) {
+	@Volatile
+	private var active = true
+
 	private val messageProcessor = ReaderBridgeMessageProcessor(
 		onEvent = onEvent,
 		onRejected = onRejected
 	)
 
+	fun deactivate() {
+		active = false
+	}
+
 	@JavascriptInterface
 	fun postMessage(message: String) {
+		if (!active) return
 		messageProcessor.process(message)
 	}
 }
