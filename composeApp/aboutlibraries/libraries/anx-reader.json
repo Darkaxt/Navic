@@ -1,0 +1,16 @@
+{
+  "uniqueId": "anx-reader",
+  "artifactVersion": "107f4fa74db0e7247c846c49d6211df3edf9887c",
+  "name": "Anx Reader",
+  "description": "Reader integration and interaction behavior adapted from the pinned Anx Reader source. Copyright (c) 2025 Anxcye.",
+  "website": "https://github.com/Anxcye/anx-reader/commit/107f4fa74db0e7247c846c49d6211df3edf9887c",
+  "developers": [
+    {
+      "name": "Anxcye",
+      "organisationUrl": "https://github.com/Anxcye"
+    }
+  ],
+  "licenses": [
+    "anx-reader-mit"
+  ]
+}

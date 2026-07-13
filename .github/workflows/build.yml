@@ -107,7 +107,7 @@ jobs:
         run: |
           ./gradlew :androidApp:assembleDebug --stacktrace
 
-      - name: Verify packaged reader vendor assets
+      - name: Verify packaged reader governance
         if: steps.build_release.outcome == 'success' || steps.build_debug.outcome == 'success'
         shell: pwsh
         run: |
@@ -116,6 +116,7 @@ jobs:
             throw "No APK found for reader vendor verification."
           }
           pwsh -NoProfile -File scripts/verify-reader-vendor-assets.ps1 -ApkPath $apk.FullName
+          pwsh -NoProfile -File scripts/verify-third-party-attributions.ps1 -ApkPath $apk.FullName
 
       - name: Upload APK artifact
         if: steps.build_release.outcome == 'success' || steps.build_debug.outcome == 'success'

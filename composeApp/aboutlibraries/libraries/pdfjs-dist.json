@@ -1,0 +1,16 @@
+{
+  "uniqueId": "pdfjs-dist",
+  "artifactVersion": "3.11.174",
+  "name": "PDF.js",
+  "description": "PDF display runtime distributed as pdfjs-dist. Copyright 2023 Mozilla Foundation.",
+  "website": "https://github.com/mozilla/pdf.js/commit/ce87167432819f85df49b6b16c7a78556e9a4ee0",
+  "developers": [
+    {
+      "name": "Mozilla Foundation",
+      "organisationUrl": "https://mozilla.org"
+    }
+  ],
+  "licenses": [
+    "Apache-2.0"
+  ]
+}

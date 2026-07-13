@@ -1,0 +1,16 @@
+{
+  "uniqueId": "foliate-js",
+  "artifactVersion": "1.0.1",
+  "name": "foliate-js",
+  "description": "Locally modified reader runtime. Copyright (c) 2022 John Factotum.",
+  "website": "https://github.com/johnfactotum/foliate-js/commit/f52d42c6127d0ad981a2c67634113541b17ae01e",
+  "developers": [
+    {
+      "name": "John Factotum",
+      "organisationUrl": "https://github.com/johnfactotum"
+    }
+  ],
+  "licenses": [
+    "foliate-js-mit"
+  ]
+}
