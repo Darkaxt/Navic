@@ -210,7 +210,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, and normal local-asset cache policy shipped in `iota16`. Scoped reader-dev debugging is candidate-validated for `iota17`; capability gating and process-death restoration of small transient drafts remain separate change units.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, normal local-asset cache policy shipped in `iota16`, and scoped reader-dev debugging shipped in `iota17`. Capability gating and process-death restoration of small transient drafts remain separate change units.
 
 ### Change units
 
@@ -286,7 +286,7 @@ Every tranche uses the following pipeline:
 - Public `Navic.apk` is 46,225,284 bytes with SHA-256 `bc177713403631004eb8dce1a7ba8901167f83d5584f2a734050bcaa874dbf04`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=542`, `versionName=v1.0.11-iota15`.
 - The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota14`/541 on `emulator-5554`; explicit `MainActivity` start returned `Status: ok`, the app remained resumed as PID `6475`, and AndroidRuntime/MediaController/Koin/Room startup checks were clean.
 
-### B23 candidate evidence
+### B23 implementation and release evidence
 
 - `ReaderWebDebuggingForceRegistry` synchronizes enabled-owner acquisition and returns idempotent leases. Disabled builds receive a no-op lease; the first enabled owner forces debugging, overlapping owners share the force, and the final release restores the default false state. `MainActivity` owns one lease for its lifecycle instead of setting a process-lifetime Boolean.
 - The Android release block now explicitly compiles `NAVIC_READER_DEV=false`; generated debug BuildConfig was also false, while generated reader-dev BuildConfig was true. The existing developer setting remains available and is not conflated with the reader-dev force path.
@@ -294,6 +294,9 @@ Every tranche uses the following pipeline:
 - Source vendor 30/30, verifier tamper self-test, attribution, debug/reader-dev assembly, and both APK vendor/attribution gates passed. Pre-bump debug APK is 74,988,172 bytes with SHA-256 `1a88a425551d84d1379cf2e7676fe03aa73c774df754388eab7bbfa376d36dcc`; reader-dev is 74,988,184 bytes with SHA-256 `80a7f7fe81e5a9406f9c5b98b6470cfee76991bbecd81ed9407a145804102b79`. Both retain `543 / v1.0.11-iota16` before the release bump.
 - Post-bump focused tests passed 5/5. Debug APK is 74,988,168 bytes with SHA-256 `47d7b4aaddb941e1a9d43779b77fbfa16b96850f3333c84a2c625552f376db11`; reader-dev is 74,988,184 bytes with SHA-256 `9c35e308424c9767eeddfe36dcb45cf401636123b4cfb5f02a713a7b894a2fb8`. Both embed `544 / v1.0.11-iota17` and pass all 30 packaged vendor checks plus attribution.
 - On `emulator-5554`, reader-dev PID `8739` exposed `webview_devtools_remote_8739` while its activity owned the lease. Normal back/task exit kept PID `8739` cached and emitted `WebView debugging enabled=false`, proving final-owner release without a process restart; targeted error-level startup logs were clean. The temporary port-8877 fixture server and capture were removed.
+- Released as `v1.0.11-iota17` from commit `81626087`. Workflow `29257940670` completed successfully: the signed Android build and GitHub release creation passed, while the iOS build and IPA attachment jobs were skipped.
+- Public `Navic.apk` is 46,225,284 bytes with SHA-256 `a8bf54f5ff598e22da416dd9850797b811c42594091b94b13d451391da9aa81d`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=544`, `versionName=v1.0.11-iota17`.
+- The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota16`/543 on `emulator-5554`; explicit `MainActivity` start returned `Status: ok`, the app remained resumed as PID `10075`, error-level AndroidRuntime/MediaController/Koin/Room checks were clean, and no reader-dev forced-debug enable log appeared.
 
 ### Rollout and rollback
 
@@ -539,7 +542,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B20 | Low | Pending | Tranche 4 |
 | B21 | Scope note | Excluded | Android-only contract |
 | B22 | Medium | Released | `v1.0.11-iota15` |
-| B23 | Low | Candidate validated | `v1.0.11-iota17` candidate |
+| B23 | Low | Released | `v1.0.11-iota17` |
 | B24 | Medium | Renderer slice released; process state pending | `v1.0.11-iota13` + Tranche 3 |
 | C1 | Critical | Released | `v1.0.11-theta94` |
 | C2 | Medium | Released | `v1.0.11-iota06` |

@@ -270,11 +270,11 @@ Integration evidence: after fetching, the branch was 4 commits ahead and 0 behin
 
 Post-bump evidence: the focused registry/build/lifecycle set passed 5/5. Debug APK is 74,988,168 bytes with SHA-256 `47d7b4aaddb941e1a9d43779b77fbfa16b96850f3333c84a2c625552f376db11`; reader-dev is 74,988,184 bytes with SHA-256 `9c35e308424c9767eeddfe36dcb45cf401636123b4cfb5f02a713a7b894a2fb8`. Both report `544 / v1.0.11-iota17` and pass packaged vendor 30/30 plus attribution.
 
-- [ ] **Step 4: Publish Android only**
+- [x] **Step 4: Publish Android only**
 
 Push the integrated candidate to public `master`, create annotated tag `v1.0.11-iota17`, and invoke `scripts/publish-github-release.ps1` with `-AllowPublicRelease`, `-SkipPush`, and a B23 readiness note. Every iOS job must remain skipped.
 
-- [ ] **Step 5: Independently verify the public APK**
+- [x] **Step 5: Independently verify the public APK**
 
 Download public `Navic.apk`. Verify GitHub digest equals local SHA-256, APK Signature Scheme v2 uses certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, metadata is `544 / v1.0.11-iota17`, and packaged vendor/attribution checks pass. Upgrade `darkaxt.navic` in place from iota16, launch `MainActivity`, confirm a live PID/resumed activity, and scan error-level AndroidRuntime/MediaController/Koin/Room logs.
 
@@ -285,9 +285,11 @@ Download public `Navic.apk`. Verify GitHub digest equals local SHA-256, APK Sign
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-13-reader-web-debugging-scope-implementation.md`
 
-- [ ] **Step 1: Record release evidence**
+- [x] **Step 1: Record release evidence**
 
 Add release commit, workflow ID, public APK size/digest, certificate, metadata, iOS skip state, and in-place startup evidence. Mark B23 Released while leaving B3 and B15/B24 pending.
+
+Release evidence: `v1.0.11-iota17` points to commit `81626087`; workflow `29257940670` passed signed Android build and release creation with both iOS jobs skipped. Public `Navic.apk` is 46,225,284 bytes with SHA-256 `a8bf54f5ff598e22da416dd9850797b811c42594091b94b13d451391da9aa81d`, established v2 certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, and metadata `544 / v1.0.11-iota17`. It passed all 30 packaged vendor hashes and attribution, upgraded the public emulator package from iota16, resumed as PID `10075`, and produced no targeted error-level or forced reader-dev debugging startup log.
 
 - [ ] **Step 2: Push and verify immutable refs**
 
