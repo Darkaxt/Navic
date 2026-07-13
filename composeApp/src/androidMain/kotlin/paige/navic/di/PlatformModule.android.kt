@@ -1,7 +1,11 @@
 package paige.navic.di
 
 import androidx.room3.Room
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import okio.Path.Companion.toPath
 import org.koin.android.ext.koin.androidApplication
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
@@ -19,16 +23,6 @@ import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.MediaPlayerViewModel
 
 actual val platformModule = module {
-	single<CacheDatabase> {
-		val dbPath = androidApplication()
-			.getDatabasePath("cache.db")
-			.absolutePath
-		Room
-			.databaseBuilder<CacheDatabase>(get(), dbPath)
-			.setDriver(BundledSQLiteDriver())
-			.build()
-	}
-
 	single<DownloadDatabase> {
 		val dbPath = androidApplication()
 			.getDatabasePath("downloads.db")
@@ -39,12 +33,35 @@ actual val platformModule = module {
 			.build()
 	}
 
+	single<CacheDatabase>(createdAtStart = true) {
+		val dbPath = androidApplication()
+			.getDatabasePath("cache.db")
+			.absolutePath
+		val downloadDatabase = get<DownloadDatabase>()
+		runBlocking(Dispatchers.IO) {
+			migrateLegacyDownloadRegistry(dbPath, downloadDatabase.downloadDao())
+		}
+		val cacheDatabase = Room
+			.databaseBuilder<CacheDatabase>(get(), dbPath)
+			.setDriver(BundledSQLiteDriver())
+			.addMigrations(CacheDatabaseMigration20To21)
+			.build()
+		runBlocking(Dispatchers.IO) {
+			cacheDatabase.albumDao().getAlbumCount()
+		}
+		cacheDatabase
+	}
+
 	single<PlayerStateRepository> {
 		val context = androidApplication()
 		val producePath = {
 			context.filesDir.resolve(PlayerStateRepository.DATASTORE_FILE_NAME).absolutePath
 		}
-		PlayerStateRepository(PlayerStateRepository.getInstance(producePath))
+		PlayerStateRepository(
+			PreferenceDataStoreFactory.createWithPath(
+				produceFile = { producePath().toPath() }
+			)
+		)
 	}
 
 	single<AudiobookPlaybackManager> {

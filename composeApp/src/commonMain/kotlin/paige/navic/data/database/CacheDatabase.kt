@@ -11,7 +11,6 @@ import paige.navic.data.database.dao.ArtistDao
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.dao.AurralMetadataCacheDao
 import paige.navic.data.database.dao.BinderyMetadataCacheDao
-import paige.navic.data.database.dao.DownloadDao
 import paige.navic.data.database.dao.GenreDao
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.dao.PlaybackOriginDao
@@ -25,7 +24,6 @@ import paige.navic.data.database.entities.ArtistEntity
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
 import paige.navic.data.database.entities.AurralMetadataCacheEntity
 import paige.navic.data.database.entities.BinderyMetadataCacheEntity
-import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.GenreEntity
 import paige.navic.data.database.entities.LyricEntity
 import paige.navic.data.database.entities.PlaybackOriginEntity
@@ -36,7 +34,7 @@ import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.entities.SyncActionEntity
 
 @Database(
-	version = 20,
+	version = 21,
 	entities = [
 		AlbumEntity::class,
 		GenreEntity::class,
@@ -47,7 +45,6 @@ import paige.navic.data.database.entities.SyncActionEntity
 		RadioEntity::class,
 		LyricEntity::class,
 		SyncActionEntity::class,
-		DownloadEntity::class,
 		PlaybackOriginEntity::class,
 		ArtistPhotoCacheEntity::class,
 		AurralMetadataCacheEntity::class,
@@ -60,7 +57,6 @@ import paige.navic.data.database.entities.SyncActionEntity
 abstract class CacheDatabase : RoomDatabase() {
 	abstract fun albumDao(): AlbumDao
 	abstract fun genreDao(): GenreDao
-	abstract fun downloadDao(): DownloadDao
 	abstract fun playlistDao(): PlaylistDao
 	abstract fun songDao(): SongDao
 	abstract fun artistDao(): ArtistDao

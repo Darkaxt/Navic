@@ -146,6 +146,12 @@ extensions.configure<KotlinMultiplatformExtension> {
 			implementation(libs.bundles.media3)
 		}
 
+		named("androidHostTest") {
+			dependencies {
+				implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+			}
+		}
+
 		iosMain.dependencies {
 			implementation(libs.bundles.ktor.ios)
 		}

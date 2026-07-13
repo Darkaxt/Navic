@@ -1,0 +1,160 @@
+package paige.navic.di
+
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.SQLiteDriver
+import androidx.sqlite.SQLiteStatement
+import java.io.File
+import java.sql.Connection
+import java.sql.DriverManager
+import java.sql.PreparedStatement
+import java.sql.ResultSet
+import kotlinx.coroutines.runBlocking
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import paige.navic.data.database.entities.DownloadEntity
+import paige.navic.data.database.entities.DownloadStatus
+
+class DownloadOwnershipMigrationTest {
+	@Test
+	fun readsLegacyDownloadRowsFromARealCacheDatabaseFixture() {
+		val file = temporaryDatabaseFile()
+		val driver = JdbcSQLiteDriver()
+		driver.open(file.absolutePath).use { connection ->
+			connection.execute(
+				"CREATE TABLE DownloadEntity (" +
+					"songId TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, " +
+					"progress REAL NOT NULL, filePath TEXT)"
+			)
+			connection.execute(
+				"INSERT INTO DownloadEntity VALUES " +
+					"('cached-song', 'DOWNLOADED', 1.0, '/music/cached.flac'), " +
+					"('queued-song', 'QUEUED', 0.25, NULL)"
+			)
+		}
+
+		val rows = readLegacyDownloadRegistry(file.absolutePath, driver)
+
+		assertEquals(
+			listOf(
+				DownloadEntity("cached-song", DownloadStatus.DOWNLOADED, 1f, "/music/cached.flac"),
+				DownloadEntity("queued-song", DownloadStatus.QUEUED, 0.25f, null)
+			),
+			rows
+		)
+		file.delete()
+	}
+
+	@Test
+	fun currentDownloadDatabaseRowsWinOverLegacyRows() {
+		val legacy = listOf(
+			DownloadEntity("same", DownloadStatus.FAILED, 0f, null),
+			DownloadEntity("legacy-only", DownloadStatus.DOWNLOADED, 1f, "/legacy.flac")
+		)
+		val current = listOf(
+			DownloadEntity("same", DownloadStatus.DOWNLOADED, 1f, "/current.flac")
+		)
+
+		assertEquals(
+			listOf(legacy[1]),
+			downloadsMissingFromDestination(legacy, current)
+		)
+	}
+
+	@Test
+	fun cacheMigrationDropsOnlyTheDuplicateDownloadTable() {
+		runBlocking {
+			val file = temporaryDatabaseFile()
+			val driver = JdbcSQLiteDriver()
+			driver.open(file.absolutePath).use { connection ->
+				connection.execute("CREATE TABLE DownloadEntity (songId TEXT NOT NULL PRIMARY KEY)")
+				connection.execute("CREATE TABLE SongEntity (songId TEXT NOT NULL PRIMARY KEY)")
+
+				CacheDatabaseMigration20To21.migrate(connection)
+
+				assertFalse(connection.hasTable("DownloadEntity"))
+				assertTrue(connection.hasTable("SongEntity"))
+			}
+			file.delete()
+		}
+	}
+
+	private fun temporaryDatabaseFile(): File =
+		File.createTempFile("navic-download-migration-", ".db").apply { delete() }
+}
+
+private fun androidx.sqlite.SQLiteConnection.execute(sql: String) {
+	prepare(sql).use { statement -> statement.step() }
+}
+
+private fun androidx.sqlite.SQLiteConnection.hasTable(name: String): Boolean =
+	prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").use { statement ->
+		statement.bindText(1, name)
+		statement.step()
+	}
+
+private class JdbcSQLiteDriver : SQLiteDriver {
+	override fun open(fileName: String): SQLiteConnection =
+		JdbcSQLiteConnection(DriverManager.getConnection("jdbc:sqlite:$fileName"))
+}
+
+private class JdbcSQLiteConnection(
+	private val connection: Connection
+) : SQLiteConnection {
+	override fun prepare(sql: String): SQLiteStatement =
+		JdbcSQLiteStatement(connection.prepareStatement(sql))
+
+	override fun close() {
+		connection.close()
+	}
+}
+
+private class JdbcSQLiteStatement(
+	private val statement: PreparedStatement
+) : SQLiteStatement {
+	private var executed = false
+	private var resultSet: ResultSet? = null
+
+	override fun bindBlob(index: Int, value: ByteArray) = statement.setBytes(index, value)
+	override fun bindDouble(index: Int, value: Double) = statement.setDouble(index, value)
+	override fun bindLong(index: Int, value: Long) = statement.setLong(index, value)
+	override fun bindText(index: Int, value: String) = statement.setString(index, value)
+	override fun bindNull(index: Int) = statement.setObject(index, null)
+	override fun getBlob(index: Int): ByteArray = result().getBytes(index + 1)
+	override fun getDouble(index: Int): Double = result().getDouble(index + 1)
+	override fun getLong(index: Int): Long = result().getLong(index + 1)
+	override fun getText(index: Int): String = result().getString(index + 1)
+	override fun isNull(index: Int): Boolean {
+		result().getObject(index + 1)
+		return result().wasNull()
+	}
+
+	override fun getColumnCount(): Int = result().metaData.columnCount
+	override fun getColumnName(index: Int): String = result().metaData.getColumnName(index + 1)
+	override fun getColumnType(index: Int): Int = result().metaData.getColumnType(index + 1)
+
+	override fun step(): Boolean {
+		if (!executed) {
+			executed = true
+			if (!statement.execute()) return false
+			resultSet = statement.resultSet
+		}
+		return resultSet?.next() == true
+	}
+
+	override fun reset() {
+		resultSet?.close()
+		resultSet = null
+		executed = false
+	}
+
+	override fun clearBindings() = statement.clearParameters()
+
+	override fun close() {
+		resultSet?.close()
+		statement.close()
+	}
+
+	private fun result(): ResultSet = checkNotNull(resultSet) { "Statement has no active result row" }
+}
