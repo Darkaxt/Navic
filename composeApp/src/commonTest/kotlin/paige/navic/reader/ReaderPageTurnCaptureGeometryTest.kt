@@ -151,4 +151,23 @@ class ReaderPageTurnCaptureGeometryTest {
 			geometry.leafGeometry(bitmapWidth = 285, bitmapHeight = 400)
 		)
 	}
+
+	@Test
+	fun activeLeafSelectionMirrorsPhysicalDragDirection() {
+		val geometry = ReaderPageTurnLeafGeometry(
+			fullLeafRect = null,
+			leftLeafRect = ReaderPageTurnPixelRect(0, 0, 285, 400),
+			gutterRect = ReaderPageTurnPixelRect(285, 0, 303, 400),
+			rightLeafRect = ReaderPageTurnPixelRect(303, 0, 588, 400)
+		)
+
+		assertEquals(
+			geometry.rightLeafRect,
+			geometry.activeLeafRect(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
+		)
+		assertEquals(
+			geometry.leftLeafRect,
+			geometry.activeLeafRect(ReaderPageTurnPhysicalDirection.TowardRight, spread = true)
+		)
+	}
 }

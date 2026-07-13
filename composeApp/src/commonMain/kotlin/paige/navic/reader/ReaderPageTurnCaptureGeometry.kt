@@ -31,7 +31,19 @@ data class ReaderPageTurnLeafGeometry(
 	val leftLeafRect: ReaderPageTurnPixelRect?,
 	val gutterRect: ReaderPageTurnPixelRect?,
 	val rightLeafRect: ReaderPageTurnPixelRect?
-)
+) {
+	fun activeLeafRect(
+		direction: ReaderPageTurnPhysicalDirection,
+		spread: Boolean
+	): ReaderPageTurnPixelRect? = if (spread) {
+		when (direction) {
+			ReaderPageTurnPhysicalDirection.TowardLeft -> rightLeafRect
+			ReaderPageTurnPhysicalDirection.TowardRight -> leftLeafRect
+		}
+	} else {
+		fullLeafRect
+	}
+}
 
 data class ReaderPageTurnCaptureGeometry(
 	val viewportWidth: Double,

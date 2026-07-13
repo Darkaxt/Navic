@@ -109,7 +109,7 @@ internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 		destination: Bitmap
 	) {
 		canvas.drawBitmap(destination, 0f, 0f, bitmapPaint)
-		val activeLeaf = activeLeafRect(transition) ?: run {
+		val activeLeaf = transition.activeLeafRect(direction) ?: run {
 			canvas.drawBitmap(current, 0f, 0f, bitmapPaint)
 			return
 		}
@@ -137,7 +137,7 @@ internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 		destination: Bitmap
 	) {
 		canvas.drawBitmap(current, 0f, 0f, bitmapPaint)
-		val activeLeaf = activeLeafRect(transition) ?: return
+		val activeLeaf = transition.activeLeafRect(direction) ?: return
 		drawActiveLeaf(
 			canvas = canvas,
 			bitmap = destination,
@@ -160,17 +160,6 @@ internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 			)
 		}
 	}
-
-	private fun activeLeafRect(transition: ReaderPageSlideTransition): ReaderPageTurnPixelRect? =
-		if (transition.plan.kind == ReaderPageTurnTransitionKind.LandscapeSpreadSlide) {
-			if (direction == ReaderPageTurnPhysicalDirection.TowardLeft) {
-				transition.leafGeometry.rightLeafRect
-			} else {
-				transition.leafGeometry.leftLeafRect
-			}
-		} else {
-			transition.leafGeometry.fullLeafRect
-		}
 
 	private fun drawActiveLeaf(
 		canvas: Canvas,

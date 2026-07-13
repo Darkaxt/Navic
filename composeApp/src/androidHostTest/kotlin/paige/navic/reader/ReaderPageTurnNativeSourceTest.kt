@@ -10,13 +10,15 @@ import paige.navic.ui.screens.reader.readerPageTurnPixelsContainForeground
 
 class ReaderPageTurnNativeSourceTest {
 	@Test
-	fun liveDragUsesPhysicalSurfaceWidthAfterHalfResolutionCapture() {
+	fun liveDragUsesPhysicalActiveLeafWidthAfterHalfResolutionCapture() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val pageAxisWidth = controller
 			.substringAfter("private fun pageAxisWidth(viewWidth: Int): Int =")
-			.substringBefore("\n\n")
+			.substringBefore("private fun setGestureY(")
 
-		assertContains(pageAxisWidth, "transition.source.bitmap.width * transition.renderScaleX")
+		assertContains(pageAxisWidth, "activeLeafRect(state.direction)")
+		assertContains(pageAxisWidth, "leaf.width * transition.renderScaleX")
+		assertContains(pageAxisWidth, "activeLeafAxisWidth")
 		assertContains(pageAxisWidth, "viewWidth.coerceAtLeast(1)")
 	}
 
@@ -186,7 +188,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "pointerY: Float")
 		assertContains(controller, "setGestureY")
 		assertContains(controller, "pageAxisWidth(viewWidth)")
-		assertContains(controller, "transition.source.bitmap.width * transition.renderScaleX")
+		assertContains(controller, "leaf.width * transition.renderScaleX")
 	}
 
 	@Test
@@ -341,6 +343,17 @@ class ReaderPageTurnNativeSourceTest {
 		assertFalse(renderer.contains("canvas.translate(-width * progress, 0f)"))
 		assertFalse(renderer.contains("canvas.translate(-width + width * progress, 0f)"))
 		assertFalse(renderer.contains("Camera"))
+	}
+
+	@Test
+	fun controllerNormalizesDragProgressAgainstTheResolvedActiveLeaf() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val axisWidth = controller.substringAfter("private fun pageAxisWidth(").substringBefore("private fun setGestureY(")
+
+		assertContains(controller, "activeLeafAxisWidth")
+		assertContains(controller, "state.rebaseAxisSize(")
+		assertContains(axisWidth, "activeLeafRect(state.direction")
+		assertFalse(axisWidth.contains("transition.source.bitmap.width"))
 	}
 
 	@Test

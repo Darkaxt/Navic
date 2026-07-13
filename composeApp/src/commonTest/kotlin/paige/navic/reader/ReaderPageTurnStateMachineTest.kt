@@ -8,6 +8,23 @@ import kotlin.test.assertTrue
 
 class ReaderPageTurnStateMachineTest {
 	@Test
+	fun resolvedLeafWidthRebasesAReleasedPreparingGestureBeforeCaptureCompletes() {
+		val machine = ReaderPageTurnStateMachine()
+		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
+
+		machine.update(deltaAxis = -300f, axisSize = 1200, timestampMs = 0)
+		machine.release(deltaAxis = -300f, axisSize = 1200, timestampMs = 100)
+		assertEquals(false, machine.pendingReleaseCommit)
+
+		machine.rebaseAxisSize(axisSize = 600)
+
+		assertEquals(0.5f, machine.progress)
+		assertEquals(true, machine.pendingReleaseCommit)
+		val effects = machine.captureSucceeded(generation)
+		assertEquals(ReaderPageTurnEffect.AnimateCommit(0.5f), effects.last())
+	}
+
+	@Test
 	fun captureMustFinishBeforeOverlayAttaches() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = false)

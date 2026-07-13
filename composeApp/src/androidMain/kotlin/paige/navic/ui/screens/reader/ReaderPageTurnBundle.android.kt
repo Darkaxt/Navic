@@ -9,6 +9,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.reader.ReaderPageTurnLeafGeometry
+import paige.navic.reader.ReaderPageTurnPhysicalDirection
 
 internal enum class ReaderPageTurnTransitionKind {
 	LandscapeSpreadSlide,
@@ -135,6 +136,10 @@ internal class ReaderPageSlideTransition(
 		get() = source.surfaceRectInWindow
 	val leafGeometry: ReaderPageTurnLeafGeometry
 		get() = source.leafGeometry
+	fun activeLeafRect(direction: ReaderPageTurnPhysicalDirection) = leafGeometry.activeLeafRect(
+		direction = direction,
+		spread = plan.kind == ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+	)
 	val renderScaleX: Float
 		get() = surfaceRectInWindow.width() / source.bitmap.width.toFloat()
 	val renderScaleY: Float

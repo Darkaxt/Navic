@@ -72,12 +72,25 @@ class ReaderPageTurnStateMachine(
 	fun release(deltaAxis: Float, axisSize: Int, timestampMs: Long): List<ReaderPageTurnEffect> {
 		if (phase != ReaderPageTurnPhase.Preparing && phase != ReaderPageTurnPhase.Deforming) return emptyList()
 		updateMotion(deltaAxis, axisSize, timestampMs)
-		val commit = peakMotionFraction >= distanceCommitThreshold || velocityPxPerSecond >= velocityCommitThresholdPxPerSecond
+		val commit = shouldCommit()
 		if (phase == ReaderPageTurnPhase.Preparing) {
 			pendingCommit = commit
 			return emptyList()
 		}
 		return beginTerminalAnimation(commit)
+	}
+
+	fun rebaseAxisSize(axisSize: Int): List<ReaderPageTurnEffect> {
+		if (axisSize <= 0 || (phase != ReaderPageTurnPhase.Preparing && phase != ReaderPageTurnPhase.Deforming)) {
+			return emptyList()
+		}
+		updateProgress(lastDeltaAxis, axisSize)
+		if (pendingCommit != null) pendingCommit = shouldCommit()
+		return if (phase == ReaderPageTurnPhase.Deforming) {
+			listOf(ReaderPageTurnEffect.Render(progress))
+		} else {
+			emptyList()
+		}
 	}
 
 	fun captureSucceeded(captureGeneration: Long): List<ReaderPageTurnEffect> {
@@ -138,9 +151,7 @@ class ReaderPageTurnStateMachine(
 
 	private fun updateMotion(deltaAxis: Float, axisSize: Int, timestampMs: Long) {
 		if (axisSize <= 0) return
-		val motionFraction = (abs(deltaAxis) / axisSize.toFloat()).coerceIn(0f, 1f)
-		progress = motionFraction
-		peakMotionFraction = maxOf(peakMotionFraction, motionFraction)
+		updateProgress(deltaAxis, axisSize)
 		lastTimestampMs?.let { previousTimestamp ->
 			val elapsedMs = timestampMs - previousTimestamp
 			if (elapsedMs > 0) {
@@ -153,6 +164,16 @@ class ReaderPageTurnStateMachine(
 		lastDeltaAxis = deltaAxis
 		lastTimestampMs = timestampMs
 	}
+
+	private fun updateProgress(deltaAxis: Float, axisSize: Int) {
+		val motionFraction = (abs(deltaAxis) / axisSize.toFloat()).coerceIn(0f, 1f)
+		progress = motionFraction
+		peakMotionFraction = maxOf(peakMotionFraction, motionFraction)
+	}
+
+	private fun shouldCommit(): Boolean =
+		peakMotionFraction >= distanceCommitThreshold ||
+			velocityPxPerSecond >= velocityCommitThresholdPxPerSecond
 
 	private fun reset(invalidateGeneration: Boolean) {
 		if (invalidateGeneration) generation += 1

@@ -54,6 +54,7 @@ internal class ReaderPageTurnController(
 	private var activeTransition: ReaderPageSlideTransition? = null
 	private var activePlan: ReaderPageTurnTransitionPlan? = null
 	private var activeStateGeneration = 0L
+	private var activeLeafAxisWidth: Int? = null
 	private var slideView: ReaderPageTurnSlideView? = null
 	private var animation: ValueAnimator? = null
 	private var enabledForSession = true
@@ -112,10 +113,14 @@ internal class ReaderPageTurnController(
 		if (releasedWhilePreparing && preparationUnavailable) resolveColdRelease()
 	}
 
-	private fun pageAxisWidth(viewWidth: Int): Int =
-		activeTransition?.let { transition ->
-			(transition.source.bitmap.width * transition.renderScaleX).roundToInt().coerceAtLeast(1)
-		} ?: viewWidth.coerceAtLeast(1)
+	private fun pageAxisWidth(viewWidth: Int): Int = activeTransition
+		?.let(::transitionLeafAxisWidth)
+		?: activeLeafAxisWidth
+		?: viewWidth.coerceAtLeast(1)
+
+	private fun transitionLeafAxisWidth(transition: ReaderPageSlideTransition): Int? = transition
+		.activeLeafRect(state.direction)
+		?.let { leaf -> (leaf.width * transition.renderScaleX).roundToInt().coerceAtLeast(1) }
 
 	private fun setGestureY(edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
 		gestureHostHeight = viewHeight.coerceAtLeast(1)
@@ -218,6 +223,7 @@ internal class ReaderPageTurnController(
 
 	private fun begin(deltaX: Float) {
 		cancelPrewarm()
+		activeLeafAxisWidth = null
 		releasedWhilePreparing = false
 		preparationUnavailable = false
 		val direction = if (deltaX < 0f) {
@@ -253,6 +259,8 @@ internal class ReaderPageTurnController(
 			bundleSource.cached(plan)?.let { cached ->
 				activeTransition?.close()
 				activeTransition = cached
+				activeLeafAxisWidth = transitionLeafAxisWidth(cached)
+				activeLeafAxisWidth?.let { handleEffects(state.rebaseAxisSize(it)) }
 				handleEffects(state.captureSucceeded(activeStateGeneration))
 				return@evaluateJavascript
 			}
@@ -366,6 +374,15 @@ internal class ReaderPageTurnController(
 				prewarmNext(webView, session)
 				return@captureCurrentSurface
 			}
+			activeLeafAxisWidth = current.geometry
+				.leafGeometry(current.bitmap.width, current.bitmap.height)
+				?.activeLeafRect(state.direction, state.spread)
+				?.let { leaf ->
+					(leaf.width * current.sourceRectInWindow.width() / current.bitmap.width.toFloat())
+						.roundToInt()
+						.coerceAtLeast(1)
+				}
+			activeLeafAxisWidth?.let { handleEffects(state.rebaseAxisSize(it)) }
 			webView.evaluateJavascript(
 				"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.(${JSONObject.quote(token)}, ${plan.targetPageIndex})"
 			) {
@@ -525,6 +542,8 @@ internal class ReaderPageTurnController(
 					preparationUnavailable = false
 					activeTransition?.close()
 					activeTransition = transition
+					activeLeafAxisWidth = transitionLeafAxisWidth(transition)
+					activeLeafAxisWidth?.let { handleEffects(state.rebaseAxisSize(it)) }
 					handleEffects(state.captureSucceeded(stateGeneration))
 				}
 				"failed", "missing" -> {
@@ -820,7 +839,7 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun applyGestureYToOverlay() {
-		// Flat slides do not deform vertically; Y is retained only for gesture diagnostics.
+		// The bounded wave is deterministic for now; preserve Y for diagnostics and later touch anchoring.
 	}
 
 	private fun animateCommit(fromProgress: Float) {
@@ -879,6 +898,7 @@ internal class ReaderPageTurnController(
 		activeTransition = null
 		activePlan = null
 		activeStateGeneration = 0L
+		activeLeafAxisWidth = null
 		releasedWhilePreparing = false
 		preparationUnavailable = false
 		if (schedulePrewarm && !destroyed) {
