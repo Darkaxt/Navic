@@ -15,6 +15,7 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.http.encodeURLQueryComponent
 import paige.navic.data.remote.NetworkClientFactory
+import paige.navic.domain.models.OptionalIntegrationHttpFailure
 
 
 interface BinderyApiClient {
@@ -381,7 +382,9 @@ internal class KtorBinderyApiClient(
 class BinderyApiException(
 	val status: HttpStatusCode,
 	message: String
-) : IllegalStateException(message)
+) : IllegalStateException(message), OptionalIntegrationHttpFailure {
+	override val statusCode: Int = status.value
+}
 
 internal fun io.ktor.client.request.HttpRequestBuilder.binderyJsonRequest(headers: Map<String, String>) {
 	headers.forEach { (key, value) -> header(key, value) }

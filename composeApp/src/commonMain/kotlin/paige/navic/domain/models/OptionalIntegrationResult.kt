@@ -15,6 +15,18 @@ data class OptionalIntegrationFailure(
 	val message: String
 )
 
+internal enum class CachedPayloadSource {
+	Live,
+	FreshCache,
+	StaleCache
+}
+
+internal data class CachedPayload<T>(
+	val data: T,
+	val source: CachedPayloadSource,
+	val staleFailure: OptionalIntegrationFailure? = null
+)
+
 sealed interface OptionalIntegrationResult<out T> {
 	data class Available<T>(val data: T) : OptionalIntegrationResult<T>
 	data object Empty : OptionalIntegrationResult<Nothing>

@@ -73,19 +73,19 @@ The mapper must inspect the throwable cause chain for HTTP 401/403 and `Serializ
 - Test: `composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/AurralRepositoryOptionalStateTest.kt`
 - Test: `composeApp/src/commonTest/kotlin/paige/navic/domain/repositories/BinderyRepositoryOptionalStateTest.kt`
 
-- [ ] **Step 1: Write failing repository tests**
+- [x] **Step 1: Write failing repository tests**
 
 Cover these exact outcomes for both repositories: disabled/missing configuration returns typed Unavailable; live empty payload returns Empty; live data returns Available; failed live request with decodable cache returns Stale with the cached data; 401/403 returns Unauthorized when no cache exists; malformed JSON returns Malformed; network failure returns Unavailable.
 
-- [ ] **Step 2: Introduce typed HTTP exceptions**
+- [x] **Step 2: Introduce typed HTTP exceptions**
 
 Make `AurralApiException` and `BinderyApiException` implement the shared HTTP status contract. Aurral discovery/recent/library methods must throw on 401/403 rather than returning `emptyList()`. A genuine successful empty response remains empty; unsupported 404 endpoints return a typed unavailable failure instead of pretending the library is empty.
 
-- [ ] **Step 3: Return cache provenance from hub-facing helpers**
+- [x] **Step 3: Return cache provenance from hub-facing helpers**
 
 Add an internal `CachedPayload<T>(data, source)` where source is Live, FreshCache, or StaleCache. Keep compatibility methods returning `Result<T>` by mapping to `.data`, and add `getDiscoveryOptional(...)` plus `getCatalogOptional(path)` that return `OptionalIntegrationResult<T>` with explicit stale provenance.
 
-- [ ] **Step 4: Run repository tests**
+- [x] **Step 4: Run repository tests**
 
 Run the two new suites plus existing `AurralRepositoryTest`, `AurralRepositoryArtistEnrichmentTest`, `BinderyRepositoryTest`, and `BinderyRepositoryResourceJsonTest`.
 
@@ -96,15 +96,15 @@ Run the two new suites plus existing `AurralRepositoryTest`, `AurralRepositoryAr
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyHubViewModel.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/OptionalIntegrationViewModelSourceTest.kt`
 
-- [ ] **Step 1: Write failing source contracts**
+- [x] **Step 1: Write failing source contracts**
 
 Require both ViewModels to expose `StateFlow<OptionalIntegrationResult<...>?>`, call the typed repository methods, retain stale data in their existing `UiState`, and avoid `.getOrNull()` for hub row network loads.
 
-- [ ] **Step 2: Wire Aurral availability**
+- [x] **Step 2: Wire Aurral availability**
 
 Map Available/Empty/Stale/Unavailable into the existing discovery data flow while publishing the typed result separately. Incremental discovery supplements must update their section only on success and publish a typed failure instead of silently doing nothing.
 
-- [ ] **Step 3: Wire Bindery availability**
+- [x] **Step 3: Wire Bindery availability**
 
 Aggregate row loads without `.getOrNull()`: preserve successfully resolved rows, but publish Stale or Unavailable when any required hub request fails. Cached root/rows remain visible through the Stale result.
 
@@ -117,15 +117,15 @@ Aggregate row loads without `.getOrNull()`: preserve successfully resolved rows,
 - Modify: `composeApp/src/commonMain/composeResources/values/strings.xml`
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/ui/components/common/OptionalIntegrationStatusPolicyTest.kt`
 
-- [ ] **Step 1: Write failing display-policy tests**
+- [x] **Step 1: Write failing display-policy tests**
 
 Map Disabled, Misconfigured, Unauthorized, Malformed, Unavailable, Empty, and Stale to distinct resource keys and severity. Stale is a warning while keeping content visible; Unauthorized/Malformed/Unavailable are errors; Empty is neutral.
 
-- [ ] **Step 2: Add resource-backed status content**
+- [x] **Step 2: Add resource-backed status content**
 
 Use concise status messages: disabled, configuration required, credentials rejected, response unreadable, service unavailable, no content, and showing cached content. Do not expose exception stack traces or credentials.
 
-- [ ] **Step 3: Render status without replacing valid cached content**
+- [x] **Step 3: Render status without replacing valid cached content**
 
 Show the status as an unframed full-width grid/list item. Stale data remains interactive below the warning; Unavailable without data uses the existing `ContentUnavailable`/error presentation; successful empty uses the existing integration-specific empty message.
 

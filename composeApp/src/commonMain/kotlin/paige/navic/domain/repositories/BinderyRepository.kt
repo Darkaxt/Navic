@@ -30,6 +30,13 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.IntegrationService
+import paige.navic.domain.models.CachedPayload
+import paige.navic.domain.models.CachedPayloadSource
+import paige.navic.domain.models.OptionalIntegrationFailureKind
+import paige.navic.domain.models.OptionalIntegrationResult
+import paige.navic.domain.models.optionalIntegrationFailure
+import paige.navic.domain.models.optionalIntegrationResult
+import paige.navic.domain.models.optionalIntegrationUnavailable
 import paige.navic.reader.WhispersyncSidecar
 import paige.navic.reader.decodeWhispersyncSidecar
 import paige.navic.reader.encodeWhispersyncSidecar
@@ -154,6 +161,50 @@ class BinderyRepository(
 			encode = { catalog -> BinderyJson.encodeToString(catalog) },
 			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
 		)
+
+	suspend fun getCatalogOptional(path: String): OptionalIntegrationResult<BinderyCatalog> {
+		if (!preferenceManager.binderyEnabled) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Disabled,
+				message = "Bindery is disabled."
+			)
+		}
+		val urlError = binderyOpdsBaseUrlConfigurationError(preferenceManager.binderyOpdsBaseUrl)
+		if (urlError != null) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = urlError
+			)
+		}
+		if (preferenceManager.binderyApiKey.trim().isEmpty()) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = BINDERY_API_KEY_REQUIRED_MESSAGE
+			)
+		}
+
+		return withConfiguredCachedPayloadWithSource(
+			payloadType = BinderyMetadataPayloadType.Catalog,
+			path = path,
+			fetch = { baseUrl, headers -> apiClient.fetchCatalog(baseUrl, headers, path) },
+			encode = { catalog -> BinderyJson.encodeToString(catalog) },
+			decode = { json -> BinderyJson.decodeFromString<BinderyCatalog>(json) }
+		).fold(
+			onSuccess = { payload ->
+				optionalIntegrationResult(
+					result = Result.success(payload.data),
+					staleFailure = payload.staleFailure,
+					isEmpty = BinderyCatalog::isOptionalIntegrationEmpty
+				)
+			},
+			onFailure = { error ->
+				optionalIntegrationResult(
+					result = Result.failure(error),
+					isEmpty = BinderyCatalog::isOptionalIntegrationEmpty
+				)
+			}
+		)
+	}
 
 	suspend fun getCachedCatalog(path: String): Result<BinderyCatalog?> =
 		getConfiguredCachedPayload(
@@ -495,7 +546,23 @@ class BinderyRepository(
 		encode: (T) -> String,
 		decode: (String) -> T,
 		acceptCached: (T) -> Boolean = { true }
-	): Result<T> =
+	): Result<T> = withConfiguredCachedPayloadWithSource(
+		payloadType = payloadType,
+		path = path,
+		fetch = fetch,
+		encode = encode,
+		decode = decode,
+		acceptCached = acceptCached
+	).map { payload -> payload.data }
+
+	private suspend fun <T> withConfiguredCachedPayloadWithSource(
+		payloadType: String,
+		path: String,
+		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> T,
+		encode: (T) -> String,
+		decode: (String) -> T,
+		acceptCached: (T) -> Boolean = { true }
+	): Result<CachedPayload<T>> =
 		withConfiguredClientAvailability { baseUrl, headers ->
 			val cachePath = path.trim()
 			val cacheKey = binderyMetadataCacheKey(baseUrl, payloadType, cachePath)
@@ -504,7 +571,9 @@ class BinderyRepository(
 				runCatching { decode(cached.payloadJson) }
 					.onSuccess { cachedPayload ->
 						if (acceptCached(cachedPayload)) {
-							return@withConfiguredClientAvailability Result.success(cachedPayload)
+							return@withConfiguredClientAvailability Result.success(
+								CachedPayload(cachedPayload, CachedPayloadSource.FreshCache)
+							)
 						}
 						Logger.i(
 							TAG,
@@ -535,7 +604,7 @@ class BinderyRepository(
 						"Bindery metadata fetched type=$payloadType path=${readerPublicationResourceLogLabel(cachePath)}"
 					)
 					preferenceManager.markIntegrationServiceAvailable(IntegrationService.Bindery)
-					Result.success(live)
+					Result.success(CachedPayload(live, CachedPayloadSource.Live))
 				},
 				onFailure = { error ->
 					Logger.w(
@@ -551,7 +620,11 @@ class BinderyRepository(
 							}
 							.mapCatching { cachedPayload ->
 								if (acceptCached(cachedPayload)) {
-									cachedPayload
+									CachedPayload(
+										data = cachedPayload,
+										source = CachedPayloadSource.StaleCache,
+										staleFailure = optionalIntegrationFailure(error)
+									)
 								} else {
 									throw IllegalStateException("Cached Bindery payload is stale")
 								}
@@ -610,3 +683,6 @@ class BinderyRepository(
 			preferenceManager.markIntegrationServiceDown(IntegrationService.Bindery)
 		}
 }
+
+private fun BinderyCatalog.isOptionalIntegrationEmpty(): Boolean =
+	publications.isEmpty() && navigation.isEmpty()

@@ -14,6 +14,13 @@ import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.IntegrationService
+import paige.navic.domain.models.CachedPayload
+import paige.navic.domain.models.CachedPayloadSource
+import paige.navic.domain.models.OptionalIntegrationFailureKind
+import paige.navic.domain.models.OptionalIntegrationResult
+import paige.navic.domain.models.optionalIntegrationFailure
+import paige.navic.domain.models.optionalIntegrationResult
+import paige.navic.domain.models.optionalIntegrationUnavailable
 import paige.navic.util.core.Logger
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -185,6 +192,70 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun getDiscoveryOptional(
+		hydrateMissingImages: Boolean = true
+	): OptionalIntegrationResult<AurralDiscoverySummary> {
+		if (!preferenceManager.aurralEnabled) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Disabled,
+				message = AURRAL_DISABLED_MESSAGE
+			)
+		}
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = baseUrlError
+			)
+		}
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = AURRAL_BASE_URL_REQUIRED_MESSAGE
+			)
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			val payload = cachedAurralPayloadWithSource<AurralDiscoverySummary>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.Discovery,
+				path = if (hydrateMissingImages) "summary" else "summary-base",
+				operation = "Aurral discovery"
+			) {
+				if (hydrateMissingImages) {
+					apiClient.fetchDiscovery(baseUrl, requestHeaders)
+				} else {
+					apiClient.fetchDiscoveryBase(baseUrl, requestHeaders)
+				}
+			}
+			val discovery = localState.withLibraryArtists(
+				discovery = payload.data,
+				libraryArtists = getCachedLibraryArtists(baseUrl, requestHeaders)
+			).let { summary ->
+				if (hydrateMissingImages) {
+					hydrateMissingDiscoveryArtistImages(baseUrl, requestHeaders, summary)
+				} else {
+					summary
+				}
+			}
+			payload.copy(data = discovery)
+		}.fold(
+			onSuccess = { payload ->
+				optionalIntegrationResult(
+					result = Result.success(payload.data),
+					staleFailure = payload.staleFailure,
+					isEmpty = AurralDiscoverySummary::isOptionalIntegrationEmpty
+				)
+			},
+			onFailure = { error ->
+				optionalIntegrationResult(
+					result = Result.failure(error),
+					isEmpty = AurralDiscoverySummary::isOptionalIntegrationEmpty
+				)
+			}
+		)
+	}
+
 	suspend fun getLibraryDiscovery(): Result<AurralDiscoverySummary> =
 		getDiscovery(hydrateMissingImages = false)
 
@@ -242,6 +313,45 @@ class AurralRepository(
 		}
 	}
 
+	suspend fun getDiscoveryRecentlyAddedOptional(): OptionalIntegrationResult<List<AurralDiscoverArtist>> {
+		if (!preferenceManager.aurralEnabled) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Disabled,
+				message = AURRAL_DISABLED_MESSAGE
+			)
+		}
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = baseUrlError
+			)
+		}
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = AURRAL_BASE_URL_REQUIRED_MESSAGE
+			)
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			val payload = cachedAurralPayloadWithSource<List<AurralDiscoverArtist>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.Discovery,
+				path = "recently-added",
+				operation = "Aurral recently added artists"
+			) {
+				apiClient.fetchRecentlyAddedArtists(baseUrl, requestHeaders)
+			}
+			payload.copy(
+				data = localState.withLibraryArtists(
+					discovery = AurralDiscoverySummary(recentlyAdded = payload.data),
+					libraryArtists = getCachedLibraryArtists(baseUrl, requestHeaders)
+				).recentlyAdded
+			)
+		}.toOptionalIntegrationResult(List<AurralDiscoverArtist>::isEmpty)
+	}
+
 	suspend fun getDiscoveryRecentReleases(): Result<List<AurralAlbumSearchItem>> {
 		if (!preferenceManager.aurralEnabled) return Result.success(emptyList())
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
@@ -262,6 +372,39 @@ class AurralRepository(
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral recent releases discovery failed", error)
 		}
+	}
+
+	suspend fun getDiscoveryRecentReleasesOptional(): OptionalIntegrationResult<List<AurralAlbumSearchItem>> {
+		if (!preferenceManager.aurralEnabled) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Disabled,
+				message = AURRAL_DISABLED_MESSAGE
+			)
+		}
+		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)
+		if (baseUrlError != null) {
+			return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = baseUrlError
+			)
+		}
+		val baseUrl = configuredAurralBaseUrl(preferenceManager.aurralBaseUrl)
+			?: return optionalIntegrationUnavailable(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = AURRAL_BASE_URL_REQUIRED_MESSAGE
+			)
+		val requestHeaders = aurralApiRequestHeaders(baseUrl)
+
+		return runCatching {
+			cachedAurralPayloadWithSource<List<AurralAlbumSearchItem>>(
+				baseUrl = baseUrl,
+				payloadType = AurralMetadataPayloadType.Discovery,
+				path = "recent-releases",
+				operation = "Aurral recent releases"
+			) {
+				apiClient.fetchRecentReleases(baseUrl, requestHeaders)
+			}
+		}.toOptionalIntegrationResult(List<AurralAlbumSearchItem>::isEmpty)
 	}
 
 	suspend fun refreshLibraryArtistMonitorStates(): Result<Map<String, Boolean?>> {
@@ -1125,7 +1268,23 @@ class AurralRepository(
 		operation: String,
 		useFreshCache: Boolean = true,
 		crossinline fetch: suspend () -> T
-	): T {
+	): T = cachedAurralPayloadWithSource(
+		baseUrl = baseUrl,
+		payloadType = payloadType,
+		path = path,
+		operation = operation,
+		useFreshCache = useFreshCache,
+		fetch = fetch
+	).data
+
+	private suspend inline fun <reified T> cachedAurralPayloadWithSource(
+		baseUrl: String,
+		payloadType: String,
+		path: String,
+		operation: String,
+		useFreshCache: Boolean = true,
+		crossinline fetch: suspend () -> T
+	): CachedPayload<T> {
 		val cacheKey = aurralMetadataCacheKey(baseUrl, payloadType, path)
 		val currentTime = nowMillis()
 		val cached = runCatching { metadataCache.get(cacheKey) }
@@ -1135,11 +1294,11 @@ class AurralRepository(
 			cached
 				?.takeIf { it.isFreshAurralMetadata(currentTime) }
 				?.decodeAurralMetadata<T>(operation)
-				?.let { return it }
+				?.let { return CachedPayload(it, CachedPayloadSource.FreshCache) }
 		}
 
 		return try {
-			fetch().also { payload ->
+			val payload = fetch().also { payload ->
 				preferenceManager.markIntegrationServiceAvailable(IntegrationService.Aurral)
 				runCatching {
 					metadataCache.put(
@@ -1156,13 +1315,18 @@ class AurralRepository(
 					Logger.w(TAG, "Aurral metadata cache write failed for $operation", error)
 				}
 			}
+			CachedPayload(payload, CachedPayloadSource.Live)
 		} catch (error: Exception) {
 			preferenceManager.markIntegrationServiceDown(IntegrationService.Aurral)
 			cached
 				?.decodeAurralMetadata<T>(operation)
 				?.let { payload ->
 					Logger.w(TAG, "$operation failed; using stale Aurral metadata cache", error)
-					return payload
+					return CachedPayload(
+						data = payload,
+						source = CachedPayloadSource.StaleCache,
+						staleFailure = optionalIntegrationFailure(error)
+					)
 				}
 			throw error
 		}
@@ -1323,3 +1487,30 @@ class AurralRepository(
 	}
 
 }
+
+internal fun AurralDiscoverySummary.isOptionalIntegrationEmpty(): Boolean =
+	recentlyAdded.isEmpty() &&
+		recommendations.isEmpty() &&
+		globalTop.isEmpty() &&
+		basedOn.isEmpty() &&
+		libraryArtists.isEmpty() &&
+		recentReleases.isEmpty() &&
+		fallbackGenres.isEmpty()
+
+private fun <T> Result<CachedPayload<T>>.toOptionalIntegrationResult(
+	isEmpty: (T) -> Boolean
+): OptionalIntegrationResult<T> = fold(
+	onSuccess = { payload ->
+		optionalIntegrationResult(
+			result = Result.success(payload.data),
+			staleFailure = payload.staleFailure,
+			isEmpty = isEmpty
+		)
+	},
+	onFailure = { error ->
+		optionalIntegrationResult(
+			result = Result.failure(error),
+			isEmpty = isEmpty
+		)
+	}
+)

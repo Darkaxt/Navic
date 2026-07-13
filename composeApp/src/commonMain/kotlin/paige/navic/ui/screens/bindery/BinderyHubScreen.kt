@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -62,6 +63,9 @@ import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
+import paige.navic.domain.models.OptionalIntegrationFailure
+import paige.navic.domain.models.OptionalIntegrationFailureKind
+import paige.navic.domain.models.OptionalIntegrationResult
 import paige.navic.domain.repositories.binderyApiKeyHeaders
 import paige.navic.domain.repositories.binderyEndpoint
 import paige.navic.icons.Icons
@@ -73,6 +77,7 @@ import paige.navic.ui.components.common.ErrorSnackbar
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.BinderyIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.OptionalIntegrationStatus
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.ArtGridItem
@@ -94,6 +99,7 @@ import kotlin.math.roundToInt
 fun BinderyHubScreen() {
 	val viewModel = koinViewModel<BinderyHubViewModel>()
 	val hubState by viewModel.hubState.collectAsStateWithLifecycle()
+	val hubAvailability by viewModel.hubAvailability.collectAsStateWithLifecycle()
 	val collectionArtworkByPath by viewModel.collectionArtworkByPath.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
@@ -104,6 +110,21 @@ fun BinderyHubScreen() {
 		opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 		apiKey = preferenceManager.binderyApiKey
 	)
+	val displayedHubAvailability = when {
+		!preferenceManager.binderyEnabled -> OptionalIntegrationResult.Unavailable(
+			OptionalIntegrationFailure(
+				kind = OptionalIntegrationFailureKind.Disabled,
+				message = "Bindery is disabled."
+			)
+		)
+		!binderyConfigured -> OptionalIntegrationResult.Unavailable(
+			OptionalIntegrationFailure(
+				kind = OptionalIntegrationFailureKind.Misconfigured,
+				message = "Bindery configuration is required."
+			)
+		)
+		else -> hubAvailability
+	}
 	val binderyIndicators = integrationLoadingIndicators(
 		binderyLoading = binderyConfigured && hubState is UiState.Loading
 	)
@@ -172,6 +193,14 @@ fun BinderyHubScreen() {
 					verticalArrangement = Arrangement.spacedBy(5.dp),
 					horizontalArrangement = Arrangement.spacedBy(5.dp)
 				) {
+					displayedHubAvailability?.let { availability ->
+						item(span = { GridItemSpan(maxLineSpan) }) {
+							OptionalIntegrationStatus(
+								result = availability,
+								modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+							)
+						}
+					}
 					if (binderyConfigured) {
 						libraryScreenOverviewButton(
 							icon = Icons.Outlined.Book,

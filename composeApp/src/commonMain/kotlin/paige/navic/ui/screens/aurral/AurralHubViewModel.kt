@@ -15,6 +15,7 @@ import paige.navic.domain.repositories.AurralAlbumSearchResult
 import paige.navic.domain.repositories.AurralDiscoverArtist
 import paige.navic.domain.repositories.AurralDiscoverySummary
 import paige.navic.domain.models.AurralFlowSongIdPrefix
+import paige.navic.domain.models.OptionalIntegrationResult
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainPlaylistListType
 import paige.navic.domain.models.stationPlaylists
@@ -23,6 +24,7 @@ import paige.navic.domain.repositories.AurralFlowActionResult
 import paige.navic.domain.repositories.AurralFlowSummary
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.domain.repositories.AurralServiceStatus
+import paige.navic.domain.repositories.isOptionalIntegrationEmpty
 import paige.navic.domain.repositories.PlaylistRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
@@ -38,6 +40,9 @@ class AurralHubViewModel(
 
 	private val _discovery = MutableStateFlow<UiState<AurralDiscoverySummary?>>(UiState.Success(null))
 	val discovery = _discovery.asStateFlow()
+	private val _discoveryAvailability =
+		MutableStateFlow<OptionalIntegrationResult<AurralDiscoverySummary>?>(null)
+	val discoveryAvailability = _discoveryAvailability.asStateFlow()
 	private var discoveryConfigurationKey: String? = null
 
 	private val _libraryCollectionRows =
@@ -71,6 +76,7 @@ class AurralHubViewModel(
 	fun clearServiceStatus() {
 		_serviceStatus.value = UiState.Success(null)
 		_discovery.value = UiState.Success(null)
+		_discoveryAvailability.value = null
 		discoveryConfigurationKey = null
 		_libraryCollectionRows.value = UiState.Success(emptyList())
 		_artistSearchQuery.value = ""
@@ -317,19 +323,38 @@ class AurralHubViewModel(
 		configurationKey: String? = repository.discoveryConfigurationKey(hydrateMissingImages)
 	) {
 		_discovery.value = UiState.Loading(_discovery.value.data)
-		val result = if (hydrateMissingImages) {
-			repository.getDiscovery()
+		val repositoryResult = repository.getDiscoveryOptional(hydrateMissingImages)
+		val result = if (
+			repositoryResult is OptionalIntegrationResult.Unavailable &&
+			_discovery.value.data != null
+		) {
+			OptionalIntegrationResult.Stale(
+				data = requireNotNull(_discovery.value.data),
+				failure = repositoryResult.failure
+			)
 		} else {
-			repository.getDiscoveryBase()
+			repositoryResult
 		}
-		_discovery.value = result.fold(
-			onSuccess = {
+		_discoveryAvailability.value = result
+		_discovery.value = when (result) {
+			is OptionalIntegrationResult.Available -> {
 				discoveryConfigurationKey = configurationKey
-				UiState.Success(it)
-			},
-			onFailure = { UiState.Error(Exception(it), _discovery.value.data) }
-		)
-		if (!hydrateMissingImages && result.isSuccess) {
+				UiState.Success(result.data)
+			}
+			OptionalIntegrationResult.Empty -> {
+				discoveryConfigurationKey = configurationKey
+				UiState.Success(AurralDiscoverySummary())
+			}
+			is OptionalIntegrationResult.Stale -> {
+				discoveryConfigurationKey = configurationKey
+				UiState.Success(result.data)
+			}
+			is OptionalIntegrationResult.Unavailable -> UiState.Error(
+				error = IllegalStateException(result.failure.message),
+				data = _discovery.value.data
+			)
+		}
+		if (!hydrateMissingImages && result !is OptionalIntegrationResult.Unavailable) {
 			loadDiscoverySupplement(configurationKey)
 		}
 	}
@@ -337,22 +362,76 @@ class AurralHubViewModel(
 	private fun loadDiscoverySupplement(configurationKey: String?) {
 		viewModelScope.launch(Dispatchers.IO) {
 			launch {
-				repository.getDiscoveryRecentlyAdded()
-					.onSuccess { recentlyAdded ->
-						mergeDiscoverySupplement(configurationKey) { discovery ->
-							discovery.copy(recentlyAdded = recentlyAdded)
-						}
-					}
+				publishDiscoverySupplement(
+					configurationKey = configurationKey,
+					result = repository.getDiscoveryRecentlyAddedOptional(),
+					emptyData = emptyList()
+				) { discovery, recentlyAdded ->
+					discovery.copy(recentlyAdded = recentlyAdded)
+				}
 			}
 			launch {
-				repository.getDiscoveryRecentReleases()
-					.onSuccess { recentReleases ->
-						mergeDiscoverySupplement(configurationKey) { discovery ->
-							discovery.copy(recentReleases = recentReleases)
-						}
-					}
+				publishDiscoverySupplement(
+					configurationKey = configurationKey,
+					result = repository.getDiscoveryRecentReleasesOptional(),
+					emptyData = emptyList()
+				) { discovery, recentReleases ->
+					discovery.copy(recentReleases = recentReleases)
+				}
 			}
 		}
+	}
+
+	private fun <T> publishDiscoverySupplement(
+		configurationKey: String?,
+		result: OptionalIntegrationResult<T>,
+		emptyData: T,
+		transform: (AurralDiscoverySummary, T) -> AurralDiscoverySummary
+	) {
+		when (result) {
+			is OptionalIntegrationResult.Available -> {
+				mergeDiscoverySupplement(configurationKey) { discovery ->
+					transform(discovery, result.data)
+				}
+				publishSuccessfulDiscoverySupplement()
+			}
+			OptionalIntegrationResult.Empty -> {
+				mergeDiscoverySupplement(configurationKey) { discovery ->
+					transform(discovery, emptyData)
+				}
+				publishSuccessfulDiscoverySupplement()
+			}
+			is OptionalIntegrationResult.Stale -> {
+				mergeDiscoverySupplement(configurationKey) { discovery ->
+					transform(discovery, result.data)
+				}
+				publishDiscoverySupplementFailure(result.failure)
+			}
+			is OptionalIntegrationResult.Unavailable ->
+				publishDiscoverySupplementFailure(result.failure)
+		}
+	}
+
+	private fun publishSuccessfulDiscoverySupplement() {
+		if (_discoveryAvailability.value is OptionalIntegrationResult.Stale ||
+			_discoveryAvailability.value is OptionalIntegrationResult.Unavailable
+		) {
+			return
+		}
+		val data = _discovery.value.data ?: return
+		_discoveryAvailability.value = if (data.isOptionalIntegrationEmpty()) {
+			OptionalIntegrationResult.Empty
+		} else {
+			OptionalIntegrationResult.Available(data)
+		}
+	}
+
+	private fun publishDiscoverySupplementFailure(
+		failure: paige.navic.domain.models.OptionalIntegrationFailure
+	) {
+		_discoveryAvailability.value = _discovery.value.data?.let { data ->
+			OptionalIntegrationResult.Stale(data, failure)
+		} ?: OptionalIntegrationResult.Unavailable(failure)
 	}
 
 	private fun mergeDiscoverySupplement(

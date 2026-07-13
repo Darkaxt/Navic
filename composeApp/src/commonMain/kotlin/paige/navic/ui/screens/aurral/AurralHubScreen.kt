@@ -105,6 +105,7 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.AurralOwnershipStatus
 import paige.navic.domain.models.DomainArtistListType
 import paige.navic.domain.models.DomainPlaylist
+import paige.navic.domain.models.OptionalIntegrationResult
 import paige.navic.domain.models.settings.BottomBarVisibilityMode
 import paige.navic.domain.repositories.AurralAlbumSearchItem
 import paige.navic.domain.repositories.AurralAlbumSearchResult
@@ -135,6 +136,7 @@ import paige.navic.ui.components.common.FormRow
 import paige.navic.ui.components.common.BackToTopScrollHandler
 import paige.navic.ui.components.common.AurralIntegrationServices
 import paige.navic.ui.components.common.IntegrationLoadingIndicatorStrip
+import paige.navic.ui.components.common.OptionalIntegrationStatus
 import paige.navic.ui.components.common.integrationFailedIndicators
 import paige.navic.ui.components.common.integrationLoadingIndicators
 import paige.navic.ui.components.layouts.NestedTopBar
@@ -159,6 +161,7 @@ fun AurralHubScreen() {
 	val viewModel = koinViewModel<AurralHubViewModel>()
 	val serviceStatus by viewModel.serviceStatus.collectAsStateWithLifecycle()
 	val discovery by viewModel.discovery.collectAsStateWithLifecycle()
+	val discoveryAvailability by viewModel.discoveryAvailability.collectAsStateWithLifecycle()
 	val artistSearchQuery by viewModel.artistSearchQuery.collectAsStateWithLifecycle()
 	val artistSearch by viewModel.artistSearch.collectAsStateWithLifecycle()
 	val albumSearch by viewModel.albumSearch.collectAsStateWithLifecycle()
@@ -276,6 +279,7 @@ fun AurralHubScreen() {
 					else -> AurralHubContent(
 						state = serviceStatus,
 						discoveryState = discovery,
+						discoveryAvailability = discoveryAvailability,
 						artistSearchQuery = artistSearchQuery,
 						artistSearchState = artistSearch,
 						albumSearchState = albumSearch,
@@ -349,6 +353,7 @@ private fun AurralHubConfigurationMessage(
 private fun AurralHubContent(
 	state: UiState<AurralServiceStatus?>,
 	discoveryState: UiState<AurralDiscoverySummary?>,
+	discoveryAvailability: OptionalIntegrationResult<AurralDiscoverySummary>?,
 	artistSearchQuery: String,
 	artistSearchState: UiState<AurralArtistSearchResult?>,
 	albumSearchState: UiState<AurralAlbumSearchResult?>,
@@ -453,6 +458,10 @@ private fun AurralHubContent(
 		onMonitorArtist = onMonitorDiscoverArtist,
 		onOpenArtist = onOpenDiscoverArtist,
 		onOpenAlbum = onOpenSearchAlbum
+	)
+	OptionalIntegrationStatus(
+		result = discoveryAvailability.takeUnless { it is OptionalIntegrationResult.Empty },
+		modifier = Modifier.padding(vertical = 8.dp)
 	)
 
 	AurralHubDiscoverSection(

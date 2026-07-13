@@ -22,6 +22,7 @@ import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtist
+import paige.navic.domain.models.OptionalIntegrationHttpFailure
 import paige.navic.data.remote.NetworkClientFactory
 import paige.navic.util.core.Logger
 
@@ -269,20 +270,14 @@ internal class KtorAurralApiClient(
 		requestHeaders: Map<String, String>
 	): AurralDiscoverySummary {
 		val discovery = fetchDiscoveryBase(baseUrl, requestHeaders)
-		val recentlyAdded = runCatching {
-			fetchRecentlyAddedArtists(baseUrl, requestHeaders)
-		}.onFailure { error ->
-			Logger.w(TAG, "Aurral recently added failed", error)
-		}.getOrDefault(emptyList())
-		val recentReleases = runCatching {
-			fetchRecentReleases(baseUrl, requestHeaders)
-		}.onFailure { error ->
-			Logger.w(TAG, "Aurral recent releases failed", error)
-		}.getOrDefault(emptyList())
-		return discovery.copy(
-			recentlyAdded = recentlyAdded,
-			recentReleases = recentReleases
-		)
+		return coroutineScope {
+			val recentlyAdded = async { fetchRecentlyAddedArtists(baseUrl, requestHeaders) }
+			val recentReleases = async { fetchRecentReleases(baseUrl, requestHeaders) }
+			discovery.copy(
+				recentlyAdded = recentlyAdded.await(),
+				recentReleases = recentReleases.await()
+			)
+		}
 	}
 
 	override suspend fun fetchDiscoveryBase(
@@ -292,9 +287,10 @@ internal class KtorAurralApiClient(
 		val response = client.get(aurralEndpoint(baseUrl, "api/discover")) {
 			aurralJsonRequest(requestHeaders)
 		}
-		if (!response.status.isSuccess()) {
-			error(aurralHttpErrorMessage("Aurral Discover", response.status))
-		}
+		if (!response.status.isSuccess()) throw AurralApiException(
+			response.status,
+			aurralHttpErrorMessage("Aurral Discover", response.status)
+		)
 		val discovery = response.body<AurralDiscoveryResponseDto>()
 		return aurralDiscoverySummary(
 			baseUrl = baseUrl,
@@ -316,10 +312,10 @@ internal class KtorAurralApiClient(
 				baseUrl = baseUrl,
 				response = response.body()
 			)
-			response.status == HttpStatusCode.Unauthorized -> emptyList()
-			response.status == HttpStatusCode.Forbidden -> emptyList()
-			response.status == HttpStatusCode.NotFound -> emptyList()
-			else -> error(aurralHttpErrorMessage("Aurral recently added", response.status))
+			else -> throw AurralApiException(
+				response.status,
+				aurralHttpErrorMessage("Aurral recently added", response.status)
+			)
 		}
 	}
 
@@ -335,10 +331,10 @@ internal class KtorAurralApiClient(
 				baseUrl = baseUrl,
 				response = response.body()
 			)
-			response.status == HttpStatusCode.Unauthorized -> emptyList()
-			response.status == HttpStatusCode.Forbidden -> emptyList()
-			response.status == HttpStatusCode.NotFound -> emptyList()
-			else -> error(aurralHttpErrorMessage("Aurral library artists", response.status))
+			else -> throw AurralApiException(
+				response.status,
+				aurralHttpErrorMessage("Aurral library artists", response.status)
+			)
 		}
 	}
 
@@ -354,10 +350,10 @@ internal class KtorAurralApiClient(
 				baseUrl = baseUrl,
 				response = response.body()
 			)
-			response.status == HttpStatusCode.Unauthorized -> emptyList()
-			response.status == HttpStatusCode.Forbidden -> emptyList()
-			response.status == HttpStatusCode.NotFound -> emptyList()
-			else -> error(aurralHttpErrorMessage("Aurral recent releases", response.status))
+			else -> throw AurralApiException(
+				response.status,
+				aurralHttpErrorMessage("Aurral recent releases", response.status)
+			)
 		}
 	}
 
@@ -877,6 +873,13 @@ internal class KtorAurralApiClient(
 			else -> null
 		}
 	}
+}
+
+class AurralApiException(
+	val status: HttpStatusCode,
+	message: String
+) : IllegalStateException(message), OptionalIntegrationHttpFailure {
+	override val statusCode: Int = status.value
 }
 
 private fun HttpRequestBuilder.aurralJsonRequest(

@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.OptionalIntegrationResult
+import paige.navic.domain.models.failureOrNull
 import paige.navic.domain.repositories.BinderyAudiobookVersion
 import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyCatalog
@@ -74,6 +76,8 @@ class BinderyHubViewModel(
 ) : ViewModel() {
 	private val _hubState = MutableStateFlow<UiState<BinderyHubState>>(UiState.Loading())
 	val hubState = _hubState.asStateFlow()
+	private val _hubAvailability = MutableStateFlow<OptionalIntegrationResult<BinderyHubState>?>(null)
+	val hubAvailability = _hubAvailability.asStateFlow()
 
 	val gridState = LazyGridState()
 	private var hubJob: Job? = null
@@ -102,20 +106,40 @@ class BinderyHubViewModel(
 			if (fullRefresh || visibleData == null) {
 				_hubState.value = UiState.Loading(visibleData)
 			}
-			loadHub(languageFilter).fold(
-				onSuccess = { state ->
+			val repositoryResult = loadHub(languageFilter)
+			val result = if (
+				repositoryResult is OptionalIntegrationResult.Unavailable &&
+				visibleData != null
+			) {
+				OptionalIntegrationResult.Stale(
+					data = visibleData,
+					failure = repositoryResult.failure
+				)
+			} else {
+				repositoryResult
+			}
+			_hubAvailability.value = result
+			when (result) {
+				is OptionalIntegrationResult.Available -> {
+					val state = result.data
 					val currentState = _hubState.value
 					if (currentState !is UiState.Success || currentState.data != state) {
 						_hubState.value = UiState.Success(state)
 					}
-				},
-				onFailure = { error ->
+				}
+				OptionalIntegrationResult.Empty -> {
+					_hubState.value = UiState.Success(emptyBinderyHubState())
+				}
+				is OptionalIntegrationResult.Stale -> {
+					_hubState.value = UiState.Success(result.data)
+				}
+				is OptionalIntegrationResult.Unavailable -> {
 					_hubState.value = UiState.Error(
-						error = error as? Exception ?: Exception(error),
+						error = IllegalStateException(result.failure.message),
 						data = visibleData
 					)
 				}
-			)
+			}
 		}
 	}
 
@@ -123,6 +147,7 @@ class BinderyHubViewModel(
 		hubJob?.cancel()
 		hubJob = null
 		collectionArtworkResolver.clear()
+		_hubAvailability.value = null
 		_hubState.value = UiState.Success(
 			BinderyHubState(
 				root = BinderyCatalog(title = ""),
@@ -164,42 +189,48 @@ class BinderyHubViewModel(
 		)
 	}
 
-	private suspend fun loadHub(languageFilter: String?): Result<BinderyHubState> {
-		val rootResult = repository.getCatalog("/")
-		return rootResult.fold(
-			onSuccess = { rootCatalog ->
-				runCatching {
-					val rows = binderyHubRows(rootCatalog)
-					val catalogs = coroutineScope {
-						rows.map { row ->
-							async {
-								repository.getCatalog(
-									binderyAvailabilityFilteredCatalogPath(
-										path = row.catalogPath,
-										languageFilter = languageFilter,
-										mode = BinderyAvailabilityQueryMode.List
-									)
-								).getOrNull()?.let { catalog ->
-									BinderyHubCatalogRow(row, catalog)
-								}
-							}
-						}.awaitAll().filterNotNull()
-					}
-					BinderyHubState(
-						root = rootCatalog,
-						rows = catalogs,
-						continueListening = loadContinueListening(refreshMetadata = true),
-						continueReading = loadContinueReading(
-							refreshMetadata = true,
-							languageFilter = languageFilter
+	private suspend fun loadHub(languageFilter: String?): OptionalIntegrationResult<BinderyHubState> {
+		val rootResult = repository.getCatalogOptional("/")
+		val rootCatalog = when (rootResult) {
+			is OptionalIntegrationResult.Available -> rootResult.data
+			is OptionalIntegrationResult.Stale -> rootResult.data
+			OptionalIntegrationResult.Empty -> return OptionalIntegrationResult.Empty
+			is OptionalIntegrationResult.Unavailable -> return rootResult
+		}
+		val rowResults = coroutineScope {
+			binderyHubRows(rootCatalog).map { row ->
+				async {
+					row to repository.getCatalogOptional(
+						binderyAvailabilityFilteredCatalogPath(
+							path = row.catalogPath,
+							languageFilter = languageFilter,
+							mode = BinderyAvailabilityQueryMode.List
 						)
 					)
 				}
-			},
-			onFailure = { error ->
-				Result.failure(error)
+			}.awaitAll()
+		}
+		val catalogs = rowResults.mapNotNull { (row, result) ->
+			when (result) {
+				is OptionalIntegrationResult.Available -> BinderyHubCatalogRow(row, result.data)
+				is OptionalIntegrationResult.Stale -> BinderyHubCatalogRow(row, result.data)
+				OptionalIntegrationResult.Empty,
+				is OptionalIntegrationResult.Unavailable -> null
 			}
+		}
+		val state = BinderyHubState(
+			root = rootCatalog,
+			rows = catalogs,
+			continueListening = loadContinueListening(refreshMetadata = true),
+			continueReading = loadContinueReading(
+				refreshMetadata = true,
+				languageFilter = languageFilter
+			)
 		)
+		val failure = rootResult.failureOrNull()
+			?: rowResults.firstNotNullOfOrNull { (_, result) -> result.failureOrNull() }
+		return failure?.let { OptionalIntegrationResult.Stale(state, it) }
+			?: OptionalIntegrationResult.Available(state)
 	}
 
 	private suspend fun loadContinueListening(
@@ -332,3 +363,8 @@ class BinderyHubViewModel(
 
 private fun String.safeProgressToken(): String? =
 	trim().takeIf { it.isNotEmpty() }
+
+private fun emptyBinderyHubState(): BinderyHubState = BinderyHubState(
+	root = BinderyCatalog(title = ""),
+	rows = emptyList()
+)

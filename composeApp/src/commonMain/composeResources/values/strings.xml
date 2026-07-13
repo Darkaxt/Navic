@@ -788,6 +788,13 @@
 	<string name="info_aurral_album_search_failed">Album search failed: %1$s</string>
 	<string name="info_aurral_discover_empty">No Aurral recommendations ready yet</string>
 	<string name="info_aurral_discover_failed">Discovery failed: %1$s</string>
+	<string name="info_optional_integration_disabled">This integration is disabled.</string>
+	<string name="info_optional_integration_misconfigured">Integration configuration is required.</string>
+	<string name="info_optional_integration_unauthorized">The integration rejected the configured credentials.</string>
+	<string name="info_optional_integration_malformed">The integration response could not be read.</string>
+	<string name="info_optional_integration_unavailable">The integration service is unavailable.</string>
+	<string name="info_optional_integration_empty">No content is available yet.</string>
+	<string name="info_optional_integration_stale">Showing cached content while the integration reconnects.</string>
 	<string name="info_aurral_discover_monitor_added">Artist sent to Aurral monitoring</string>
 	<string name="info_aurral_discover_monitor_failed">Could not monitor artist: %1$s</string>
 	<string name="info_aurral_acquisition_queue_empty">No album acquisitions in progress</string>
