@@ -136,7 +136,7 @@ internal enum class KomikkuSettingsTab(val label: String, val compactLabel: Stri
 	CustomFilter("Custom filter", "Filter")
 }
 
-private data class KomikkuReadingModeOption(
+internal data class KomikkuReadingModeOption(
 	val label: String,
 	val flowMode: String,
 	val paged: Boolean,
@@ -182,7 +182,7 @@ private val KomikkuReadingModeOptions = listOf(
 	)
 )
 
-private val KomikkuTapZoneOptions = listOf(
+internal val KomikkuTapZoneOptions = listOf(
 	ReaderTapZoneDefault to "Default",
 	ReaderTapZoneLShaped to "L shaped",
 	ReaderTapZoneKindle to "Kindle-ish",
@@ -191,21 +191,21 @@ private val KomikkuTapZoneOptions = listOf(
 	ReaderTapZoneDisabled to "Disabled"
 )
 
-private val KomikkuTapZoneInvertOptions = listOf(
+internal val KomikkuTapZoneInvertOptions = listOf(
 	ReaderTapZoneInvertNone to "None",
 	ReaderTapZoneInvertHorizontal to "Horizontal",
 	ReaderTapZoneInvertVertical to "Vertical",
 	ReaderTapZoneInvertBoth to "Both"
 )
 
-private val ReaderWhispersyncSpeedOptions = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+internal val ReaderWhispersyncSpeedOptions = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 
-private data class ReaderWhispersyncHighlightColorOption(
+internal data class ReaderWhispersyncHighlightColorOption(
 	val label: String,
 	val argb: Int
 )
 
-private val ReaderWhispersyncHighlightColorOptions = listOf(
+internal val ReaderWhispersyncHighlightColorOptions = listOf(
 	ReaderWhispersyncHighlightColorOption("Amber", 0x66F6C343),
 	ReaderWhispersyncHighlightColorOption("Yellow", 0x66FDE047),
 	ReaderWhispersyncHighlightColorOption("Green", 0x665BE49B),
@@ -282,513 +282,31 @@ internal fun KomikkuReaderSettingsDialog(
 					.verticalScroll(settingsScrollState)
 			) {
 				when (tabs[page]) {
-					KomikkuSettingsTab.Reading -> KomikkuSettingsDialogPage(
-						title = "For this book"
-					) {
-						SettingsSelectableChipRow(
-							title = "Scope",
-							options = ReaderSupportedSettingsScopes.map { scope -> scope.name to readerSettingsScopeLabel(scope) },
-							selectedValue = settingsScope.name,
-							onSelect = { scopeName ->
-								ReaderSettingsScope.entries
-									.firstOrNull { scope -> scope.name == scopeName }
-									?.let(onSettingsScopeChange)
-							}
-						)
-						if (hasBookSettings) {
-							TextButton(onClick = onResetBookSettings) {
-								Text("Reset book")
-							}
-						}
-						KomikkuSettingsReadingModeRow(
-							settings = settings,
-							onSelect = { option ->
-								onSettingsChange(settings.copy(
-									flowMode = option.flowMode,
-									paged = option.paged,
-									direction = option.direction
-								))
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Direction",
-							options = ReaderSupportedDirections.map { direction -> direction to readerDirectionShortLabel(direction) },
-							selectedValue = normalizedReaderDirection(settings.direction),
-							onSelect = { direction ->
-								onSettingsChange(settings.copy(direction = direction))
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Progress rail",
-							options = ReaderSupportedNavBarTypes.map { navBarType ->
-								navBarType to readerNavBarTypeShortLabel(navBarType)
-							},
-							selectedValue = normalizedReaderNavBarType(settings.navBarType),
-							onSelect = { navBarType ->
-								onSettingsChange(settings.copy(navBarType = navBarType))
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Page turn",
-							options = ReaderSupportedDragAnimationModes.map { mode ->
-								mode to readerDragAnimationModeShortLabel(mode)
-							},
-							selectedValue = normalizedReaderDragAnimationMode(settings.dragAnimationMode),
-							onSelect = { mode ->
-								onSettingsChange(settings.copy(dragAnimationMode = mode))
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Tap zones",
-							options = KomikkuTapZoneOptions,
-							selectedValue = normalizedReaderTapZone(settings.tapZone),
-							onSelect = { tapZone ->
-								onSettingsChange(settings.copy(tapZone = tapZone))
-							}
-						)
-						if (normalizedReaderTapZone(settings.tapZone) != ReaderTapZoneDisabled) {
-							SettingsSelectableChipRow(
-								title = "Tapping inversion",
-								options = KomikkuTapZoneInvertOptions,
-								selectedValue = normalizedReaderTapZoneInvertMode(settings.tapZoneInvertMode),
-								onSelect = { tapZoneInvertMode ->
-									onSettingsChange(settings.copy(tapZoneInvertMode = tapZoneInvertMode))
-								}
-							)
-						}
-						CheckboxItem(
-							label = "Smaller tap zones",
-							checked = settings.smallerTapZone == true,
-							onClick = {
-								onSettingsChange(settings.copy(smallerTapZone = settings.smallerTapZone != true))
-							}
-						)
-					}
-					KomikkuSettingsTab.Listening -> KomikkuSettingsDialogPage(
-						title = "Listening mode"
-					) {
-						CheckboxItem(
-							label = "Whispersync",
-							checked = listeningSettings.listeningEnabled,
-							onClick = {
-								val nextEnabled = !listeningSettings.listeningEnabled
-								onListeningSettingsChange(listeningSettings.copy(listeningEnabled = nextEnabled))
-								onWhispersyncPlaybackCommand(
-									if (nextEnabled) {
-										ReaderReadaloudPlaybackCommand.Play
-									} else {
-										ReaderReadaloudPlaybackCommand.StopAndReset
-									}
-								)
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Playback speed",
-							options = ReaderWhispersyncSpeedOptions.map { speed ->
-								speed.toString() to readerReadaloudPlaybackSpeedLabel(speed)
-							},
-							selectedValue = listeningSettings.playbackSpeed.toString(),
-							onSelect = { selected ->
-								val speed = selected.toFloatOrNull() ?: return@SettingsSelectableChipRow
-								onListeningSettingsChange(listeningSettings.copy(playbackSpeed = speed))
-								onWhispersyncPlaybackCommand(ReaderReadaloudPlaybackCommand.SetSpeed(speed))
-							}
-						)
-						SliderItem(
-							label = "Whispersync lead",
-							value = normalizedReaderWhispersyncHighlightLeadMs(listeningSettings.highlightLeadMs),
-							valueRange = MinReaderWhispersyncHighlightLeadMs..MaxReaderWhispersyncHighlightLeadMs,
-							steps = 5,
-							valueString = readerMillisecondsAsSecondsString(
-								normalizedReaderWhispersyncHighlightLeadMs(listeningSettings.highlightLeadMs)
-							),
-							onChange = { highlightLeadMs ->
-								onListeningSettingsChange(listeningSettings.copy(highlightLeadMs = highlightLeadMs))
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Highlight color",
-							options = ReaderWhispersyncHighlightColorOptions.map { option ->
-								option.argb.toString() to option.label
-							},
-							selectedValue = listeningSettings.highlightColorArgb.toString(),
-							onSelect = { selected ->
-								selected.toIntOrNull()?.let { color ->
-									onListeningSettingsChange(listeningSettings.copy(highlightColorArgb = color))
-								}
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Highlight loading",
-							options = listOf(
-								ReaderWhispersyncHighlightLoading.CurrentCue.value to "Current cue",
-								ReaderWhispersyncHighlightLoading.PersistentPlayedText.value to "Persistent played text"
-							),
-							selectedValue = listeningSettings.highlightLoading.value,
-							onSelect = { loading ->
-								ReaderWhispersyncHighlightLoading.entries
-									.firstOrNull { it.value == loading }
-									?.let { onListeningSettingsChange(listeningSettings.copy(highlightLoading = it)) }
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Highlight style",
-							options = listOf(
-								ReaderWhispersyncHighlightStyle.Selection.value to "Selection",
-								ReaderWhispersyncHighlightStyle.Marker.value to "Marker"
-							),
-							selectedValue = listeningSettings.highlightStyle.value,
-							onSelect = { style ->
-								ReaderWhispersyncHighlightStyle.entries
-									.firstOrNull { it.value == style }
-									?.let { onListeningSettingsChange(listeningSettings.copy(highlightStyle = it)) }
-							}
-						)
-						SettingsSelectableChipRow(
-							title = "Page boundary",
-							options = listOf("pause-at-visible-page-end" to "Pause at page end"),
-							selectedValue = listeningSettings.pageBoundaryBehavior.value,
-							onSelect = {}
-						)
-						SettingsSelectableChipRow(
-							title = "Long press",
-							options = listOf("seek-audio-to-text" to "Seek audio to text"),
-							selectedValue = listeningSettings.longPressBehavior.value,
-							onSelect = {}
-						)
-					}
-					KomikkuSettingsTab.General -> KomikkuSettingsDialogPage(
-						title = "General"
-					) {
-						SettingsSection(title = "Typography") {
-							SettingsSelectableChipRow(
-								title = "Font",
-								options = ReaderSupportedFontFamilies.map { fontFamily ->
-									fontFamily to readerFontFamilyShortLabel(fontFamily)
-								},
-								selectedValue = normalizedReaderFontFamily(settings.fontFamily),
-								onSelect = { fontFamily ->
-									onSettingsChange(settings.copy(fontFamily = fontFamily))
-								}
-							)
-							SettingsSelectableChipRow(
-								title = "Font source",
-								options = ReaderSupportedFontSources.map { fontSource ->
-									fontSource to readerFontSourceShortLabel(fontSource)
-								},
-								selectedValue = normalizedReaderFontSource(settings.fontSource),
-								onSelect = { fontSource ->
-									onSettingsChange(settings.copy(fontSource = fontSource))
-								}
-							)
-							SliderItem(
-								label = "Font size",
-								value = settings.fontSizePercent ?: DefaultReaderFontSizePercent,
-								valueRange = 80..180,
-								valueString = "${settings.fontSizePercent ?: DefaultReaderFontSizePercent}%",
-								onChange = { fontSizePercent ->
-									onSettingsChange(settings.copy(fontSizePercent = fontSizePercent))
-								}
-							)
-							SliderItem(
-								label = "Font weight",
-								value = (settings.fontWeight ?: 400.0).roundToInt(),
-								valueRange = 100..900,
-								steps = 7,
-								valueString = "${(settings.fontWeight ?: 400.0).roundToInt()}",
-								onChange = { fontWeight ->
-									onSettingsChange(settings.copy(fontWeight = fontWeight.toDouble()))
-								}
-							)
-							SliderItem(
-								label = "Heading size",
-								value = (((settings.headingFontSize ?: 1.0) * 10.0).roundToInt()),
-								valueRange = 5..20,
-								steps = 14,
-								valueString = readerTenthsString(settings.headingFontSize ?: 1.0),
-								onChange = { headingFontSize ->
-									onSettingsChange(settings.copy(headingFontSize = headingFontSize / 10.0))
-								}
-							)
-							CheckboxItem(
-								label = "Publisher styles",
-								checked = settings.publisherStyles == true,
-								onClick = {
-									onSettingsChange(settings.copy(publisherStyles = settings.publisherStyles != true))
-								}
-							)
-						}
-						SettingsSection(title = "Spacing") {
-							val lineHeightPercent = ((settings.lineHeight ?: DefaultReaderLineHeight) * 100.0).roundToInt()
-							SliderItem(
-								label = "Line height",
-								value = lineHeightPercent,
-								valueRange = 120..220,
-								valueString = readerPercentAsDecimalString(lineHeightPercent),
-								onChange = { nextLineHeightPercent ->
-									onSettingsChange(settings.copy(lineHeight = nextLineHeightPercent / 100.0))
-								}
-							)
-							SliderItem(
-								label = "Paragraph spacing",
-								value = settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent,
-								valueRange = 0..200,
-								valueString = "${settings.paragraphSpacingPercent ?: DefaultReaderParagraphSpacingPercent}%",
-								onChange = { paragraphSpacingPercent ->
-									onSettingsChange(settings.copy(paragraphSpacingPercent = paragraphSpacingPercent))
-								}
-							)
-							SliderItem(
-								label = "Letter spacing",
-								value = (((settings.letterSpacing ?: 0.0) * 10.0).roundToInt()),
-								valueRange = -30..70,
-								steps = 9,
-								valueString = readerTenthsString(settings.letterSpacing ?: 0.0),
-								onChange = { letterSpacing ->
-									onSettingsChange(settings.copy(letterSpacing = letterSpacing / 10.0))
-								}
-							)
-							SliderItem(
-								label = "Word spacing",
-								value = (((settings.wordSpacing ?: 0.0) * 10.0).roundToInt()),
-								valueRange = -40..120,
-								steps = 15,
-								valueString = readerTenthsString(settings.wordSpacing ?: 0.0),
-								onChange = { wordSpacing ->
-									onSettingsChange(settings.copy(wordSpacing = wordSpacing / 10.0))
-								}
-							)
-							SliderItem(
-								label = "Indent",
-								value = (((settings.indent ?: 0.0) * 10.0).roundToInt()),
-								valueRange = -5..80,
-								steps = 16,
-								valueString = readerTenthsString(settings.indent ?: 0.0),
-								onChange = { indent ->
-									onSettingsChange(settings.copy(indent = indent / 10.0))
-								}
-							)
-						}
-						SettingsSection(title = "Page layout") {
-							SliderItem(
-								label = "Side margin",
-								value = (((settings.sideMargin ?: 6.0) * 10.0).roundToInt()),
-								valueRange = 0..200,
-								steps = 19,
-								valueString = readerTenthsString(settings.sideMargin ?: 6.0),
-								onChange = { sideMargin ->
-									onSettingsChange(settings.copy(sideMargin = sideMargin / 10.0))
-								}
-							)
-							SliderItem(
-								label = "Top margin",
-								value = (settings.topMargin ?: 90.0).roundToInt(),
-								valueRange = 0..200,
-								steps = 9,
-								valueString = "${(settings.topMargin ?: 90.0).roundToInt()}px",
-								onChange = { topMargin ->
-									onSettingsChange(settings.copy(topMargin = topMargin.toDouble()))
-								}
-							)
-							SliderItem(
-								label = "Bottom margin",
-								value = (settings.bottomMargin ?: 50.0).roundToInt(),
-								valueRange = 0..200,
-								steps = 9,
-								valueString = "${(settings.bottomMargin ?: 50.0).roundToInt()}px",
-								onChange = { bottomMargin ->
-									onSettingsChange(settings.copy(bottomMargin = bottomMargin.toDouble()))
-								}
-							)
-							SettingsSelectableChipRow(
-								title = "Columns",
-								options = listOf(
-									"0" to "Auto",
-									"1" to "Single",
-									"2" to "Double"
-								),
-								selectedValue = (settings.maxColumnCount ?: 0).toString(),
-								onSelect = { maxColumnCount ->
-									onSettingsChange(settings.copy(maxColumnCount = maxColumnCount.toIntOrNull() ?: 0))
-								}
-							)
-							SliderItem(
-								label = "Column threshold",
-								value = (settings.columnThreshold ?: 720.0).roundToInt(),
-								valueRange = 400..1200,
-								steps = 39,
-								valueString = "${(settings.columnThreshold ?: 720.0).roundToInt()}px",
-								onChange = { columnThreshold ->
-									onSettingsChange(settings.copy(columnThreshold = columnThreshold.toDouble()))
-								}
-							)
-						}
-						SettingsSection(title = "Theme and device") {
-							SettingsSelectableChipRow(
-								title = "Theme",
-								options = ReaderSupportedThemes.map { theme -> theme to readerThemeShortLabel(theme) },
-								selectedValue = normalizedReaderTheme(settings.theme),
-								onSelect = { theme ->
-									onSettingsChange(settings.copy(theme = theme))
-								}
-							)
-							SettingsSelectableChipRow(
-								title = "Rotation",
-								options = ReaderSupportedOrientations.map { orientation ->
-									orientation to readerOrientationShortLabel(orientation)
-								},
-								selectedValue = normalizedReaderOrientation(settings.orientation),
-								onSelect = { orientation ->
-									onSettingsChange(settings.copy(orientation = orientation))
-								}
-							)
-							CheckboxItem(
-								label = "Paper texture",
-								checked = settings.paperTextureEnabled != false,
-								onClick = {
-									onSettingsChange(settings.copy(paperTextureEnabled = settings.paperTextureEnabled == false))
-								}
-							)
-							CheckboxItem(
-								label = "Page edges",
-								checked = settings.pageEdgesEnabled != false,
-								onClick = {
-									onSettingsChange(settings.copy(pageEdgesEnabled = settings.pageEdgesEnabled == false))
-								}
-							)
-							CheckboxItem(
-								label = "Paper stains",
-								checked = settings.paperStainsEnabled != false,
-								onClick = {
-									onSettingsChange(settings.copy(paperStainsEnabled = settings.paperStainsEnabled == false))
-								}
-							)
-							CheckboxItem(
-								label = "Cover backdrop",
-								checked = settings.coverBackdropEnabled != false,
-								onClick = {
-									onSettingsChange(settings.copy(coverBackdropEnabled = settings.coverBackdropEnabled == false))
-								}
-							)
-							CheckboxItem(
-								label = "Fullscreen",
-								checked = settings.fullscreen == true,
-								onClick = {
-									onSettingsChange(settings.copy(fullscreen = settings.fullscreen != true))
-								}
-							)
-							CheckboxItem(
-								label = "Keep screen on",
-								checked = settings.keepScreenOn == true,
-								onClick = {
-									onSettingsChange(settings.copy(keepScreenOn = settings.keepScreenOn != true))
-								}
-							)
-							CheckboxItem(
-								label = "Volume keys",
-								checked = settings.volumeKeyPageTurns == true,
-								onClick = {
-									onSettingsChange(settings.copy(volumeKeyPageTurns = settings.volumeKeyPageTurns != true))
-								}
-							)
-						}
-					}
-					KomikkuSettingsTab.PdfImage -> KomikkuSettingsDialogPage(
-						title = "PDF/Image"
-					) {
-						SettingsSelectableChipRow(
-							title = "Page fit",
-							options = ReaderSupportedPdfFitModes.map { fitMode ->
-								fitMode to readerPdfFitShortLabel(fitMode)
-							},
-							selectedValue = normalizedReaderPdfFitMode(settings.pdfFitMode),
-							onSelect = { fitMode ->
-								onSettingsChange(settings.copy(pdfFitMode = fitMode))
-							}
-						)
-						CheckboxItem(
-							label = "Crop borders",
-							checked = settings.pdfCropBorders == true,
-							onClick = {
-								onSettingsChange(settings.copy(pdfCropBorders = settings.pdfCropBorders != true))
-							}
-						)
-						SliderItem(
-							label = "Page gap",
-							value = settings.pdfPageGapPercent ?: 0,
-							valueRange = 0..48,
-							valueString = "${settings.pdfPageGapPercent ?: 0}%",
-							onChange = { pdfPageGapPercent ->
-								onSettingsChange(settings.copy(pdfPageGapPercent = pdfPageGapPercent))
-							}
-						)
-					}
-					KomikkuSettingsTab.CustomFilter -> KomikkuSettingsDialogPage(
-						title = "Custom filter"
-					) {
-						SliderItem(
-							label = "Dim overlay",
-							value = settings.dimOverlayPercent ?: 0,
-							valueRange = 0..80,
-							valueString = "${settings.dimOverlayPercent ?: 0}%",
-							onChange = { dimOverlayPercent ->
-								onSettingsChange(settings.copy(dimOverlayPercent = dimOverlayPercent))
-							}
-						)
-						CheckboxItem(
-							label = "Color filter",
-							checked = settings.colorFilterEnabled == true,
-							onClick = {
-								onSettingsChange(settings.copy(colorFilterEnabled = settings.colorFilterEnabled != true))
-							}
-						)
-						if (settings.colorFilterEnabled == true) {
-							ReaderColorFilterChannel.entries.forEach { channel ->
-								val channelValue = readerColorFilterChannelIntValue(settings.colorFilterArgb, channel)
-								SliderItem(
-									label = channel.label,
-									value = channelValue,
-									valueRange = 0..255,
-									valueString = "$channelValue",
-									onChange = { value ->
-										onSettingsChange(
-											settings.copy(
-												colorFilterArgb = setReaderColorFilterChannel(
-													settings.colorFilterArgb,
-													channel,
-													value
-												)
-											)
-										)
-									}
-								)
-							}
-							SettingsSelectableChipRow(
-								title = "Mode",
-								options = ReaderSupportedColorFilterModes.map { mode ->
-									mode to readerColorFilterModeShortLabel(mode)
-								},
-								selectedValue = settings.colorFilterMode ?: ReaderColorFilterModeSrcOver,
-								onSelect = { colorFilterMode ->
-									onSettingsChange(settings.copy(colorFilterMode = colorFilterMode))
-								}
-							)
-						}
-						CheckboxItem(
-							label = "Grayscale",
-							checked = settings.grayscaleEnabled == true,
-							onClick = {
-								onSettingsChange(settings.copy(grayscaleEnabled = settings.grayscaleEnabled != true))
-							}
-						)
-						CheckboxItem(
-							label = "Inverted colors",
-							checked = settings.invertedColors == true,
-							onClick = {
-								onSettingsChange(settings.copy(invertedColors = settings.invertedColors != true))
-							}
-						)
-					}
+					KomikkuSettingsTab.Reading -> KomikkuReadingSettingsPage(
+						settings = settings,
+						settingsScope = settingsScope,
+						hasBookSettings = hasBookSettings,
+						onSettingsChange = onSettingsChange,
+						onSettingsScopeChange = onSettingsScopeChange,
+						onResetBookSettings = onResetBookSettings
+					)
+					KomikkuSettingsTab.Listening -> KomikkuListeningSettingsPage(
+						listeningSettings = listeningSettings,
+						onListeningSettingsChange = onListeningSettingsChange,
+						onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand
+					)
+					KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(
+						settings = settings,
+						onSettingsChange = onSettingsChange
+					)
+					KomikkuSettingsTab.PdfImage -> KomikkuPdfImageSettingsPage(
+						settings = settings,
+						onSettingsChange = onSettingsChange
+					)
+					KomikkuSettingsTab.CustomFilter -> KomikkuCustomFilterSettingsPage(
+						settings = settings,
+						onSettingsChange = onSettingsChange
+					)
 				}
 			}
 		}
@@ -902,7 +420,7 @@ private fun KomikkuSettingsTabRow(
 }
 
 @Composable
-private fun KomikkuSettingsDialogPage(
+internal fun KomikkuSettingsDialogPage(
 	title: String,
 	content: @Composable () -> Unit
 ) {
@@ -913,7 +431,7 @@ private fun KomikkuSettingsDialogPage(
 }
 
 @Composable
-private fun SettingsSection(
+internal fun SettingsSection(
 	title: String,
 	content: @Composable () -> Unit
 ) {
@@ -933,7 +451,7 @@ internal fun KomikkuSettingsDialogLine(text: String) {
 }
 
 @Composable
-private fun KomikkuSettingsReadingModeRow(
+internal fun KomikkuSettingsReadingModeRow(
 	settings: ReaderSettings,
 	onSelect: (KomikkuReadingModeOption) -> Unit
 ) {
@@ -968,7 +486,7 @@ private fun komikkuReadingModeOptionFor(settings: ReaderSettings): KomikkuReadin
 	}
 }
 
-private enum class ReaderColorFilterChannel(
+internal enum class ReaderColorFilterChannel(
 	val label: String,
 	val shift: Int,
 	val mask: Int
@@ -979,7 +497,7 @@ private enum class ReaderColorFilterChannel(
 	Alpha("Alpha", 24, -0x1000000)
 }
 
-private fun setReaderColorFilterChannel(
+internal fun setReaderColorFilterChannel(
 	argb: Int?,
 	channel: ReaderColorFilterChannel,
 	value: Int
@@ -989,23 +507,23 @@ private fun setReaderColorFilterChannel(
 	return (color and channel.mask.inv()) or (next shl channel.shift)
 }
 
-private fun readerColorFilterChannelIntValue(
+internal fun readerColorFilterChannelIntValue(
 	argb: Int?,
 	channel: ReaderColorFilterChannel
 ): Int =
 	((argb ?: 0) ushr channel.shift) and 0xFF
 
-private fun readerPercentAsDecimalString(value: Int): String {
+internal fun readerPercentAsDecimalString(value: Int): String {
 	val whole = value / 100
 	val fraction = (value % 100).toString().padStart(2, '0')
 	return "$whole.$fraction"
 }
 
-private fun readerTenthsString(value: Double): String =
+internal fun readerTenthsString(value: Double): String =
 	((value * 10.0).roundToInt() / 10.0).toString()
 
 @Composable
-private fun SettingsSelectableChipRow(
+internal fun SettingsSelectableChipRow(
 	title: String,
 	options: List<Pair<String, String>>,
 	selectedValue: String,
@@ -1082,7 +600,7 @@ private fun SettingsChipRow(
 }
 
 @Composable
-private fun CheckboxItem(label: String, checked: Boolean, onClick: () -> Unit) {
+internal fun CheckboxItem(label: String, checked: Boolean, onClick: () -> Unit) {
 	BaseSettingsItem(
 		label = label,
 		widget = {
@@ -1122,7 +640,7 @@ private fun BaseSettingsItem(
 }
 
 @Composable
-private fun SliderItem(
+internal fun SliderItem(
 	label: String,
 	value: Int,
 	valueRange: IntRange,
@@ -1211,7 +729,7 @@ private fun BaseSliderItem(
 
 private fun settingSliderContentDescription(title: String): String = "Reader setting slider $title"
 
-private fun readerMillisecondsAsSecondsString(value: Int): String {
+internal fun readerMillisecondsAsSecondsString(value: Int): String {
 	val normalized = normalizedReaderWhispersyncHighlightLeadMs(value)
 	val sign = if (normalized < 0) "-" else ""
 	val absolute = kotlin.math.abs(normalized)
