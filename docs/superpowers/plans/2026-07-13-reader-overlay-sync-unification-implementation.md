@@ -342,11 +342,11 @@ Commit message: `refactor(reader): adapt whispersync overlay sync`.
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderOverlaySyncContractTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderOverlaySyncSourceTest.kt`
 
-- [ ] **Step 1: Build two real adapter harnesses**
+- [x] **Step 1: Build two real adapter harnesses**
 
 Define a private test harness with operations for first playback, repeated playback, second cue, outside cue, first reader target, and repeated reader target. Implement one harness with a two-segment `WhispersyncTimeline` and one with a two-clip `MediaOverlayTimeline` plus a two-item `ReadaloudPlaybackPlan`. Do not mock either production adapter.
 
-- [ ] **Step 2: Execute the same scenarios in a loop**
+- [x] **Step 2: Execute the same scenarios in a loop**
 
 ```kotlin
 @Test
@@ -372,15 +372,19 @@ fun bothTimelineAdaptersHonorTheOverlaySyncContract() {
 
 Add a second loop that activates a cue, disables sync, proves one clear, and proves subsequent adapter playback is ignored.
 
-- [ ] **Step 3: Make the source guard pass**
+- [x] **Step 3: Make the source guard pass**
 
 Verify one state declaration, one command-key increment, both adapter constructions, no duplicate old declarations, and absence of both deleted files. Also scan production call sites and record their exact owners in the implementation evidence section.
 
-- [ ] **Step 4: Run the focused B12 suite**
+Source evidence: `ReaderWhispersyncSyncCoordinator.kt` constructs `WhispersyncOverlaySyncAdapter`; `ReaderMediaOverlaySyncAdapter.kt` owns the readaloud adapter-backed entry points; and `ReaderReadaloudRuntimeHost.android.kt` owns the Android readaloud state. Both format names are aliases to `ReaderOverlaySyncState`. The source guard proves one state declaration, one command-key increment, and no legacy reducer files.
+
+- [x] **Step 4: Run the focused B12 suite**
 
 Run reducer, contract, both adapter/coordinator suites, controller, diagnostics, and source contract. Record exact JUnit test/failure/error/skip counts.
 
-- [ ] **Step 5: Commit the contract proof**
+Focused evidence: 135 tests passed with zero failures, errors, or skips across reducer 5, shared adapter contract 2, media adapter 3, readaloud coordinator 3, Whispersync coordinator 9, reader controller 81, playback policy 12, launch policy 3, progress-highlight source 14, diagnostics source 1, and source ownership 2.
+
+- [x] **Step 5: Commit the contract proof**
 
 Commit message: `test(reader): enforce overlay adapter parity`.
 
