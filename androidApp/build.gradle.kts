@@ -115,6 +115,7 @@ extensions.configure<ApplicationExtension> {
 		}
 
 		getByName("release") {
+			buildConfigField("boolean", "NAVIC_READER_DEV", "false")
 			isMinifyEnabled = true
 			isDebuggable = false
 			isProfileable = false

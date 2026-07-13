@@ -34,10 +34,12 @@ class MainActivity : ComponentActivity(), KoinComponent {
 	private val preferenceManager: PreferenceManager by inject()
 	private val player: MediaPlayerViewModel by inject()
 	private var readerDevInitialScreen by mutableStateOf<Screen?>(null)
+	private var readerDevWebDebuggingLease: AutoCloseable? = null
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
-		ReaderWebRuntime.setForceWebContentsDebuggingEnabled(BuildConfig.NAVIC_READER_DEV)
+		readerDevWebDebuggingLease =
+			ReaderWebRuntime.acquireForcedWebContentsDebugging(BuildConfig.NAVIC_READER_DEV)
 		applyReaderDevIntentSeed(intent)
 		enableEdgeToEdge()
 		requestNotificationPermissionIfNeeded()
@@ -48,6 +50,12 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		super.onNewIntent(intent)
 		setIntent(intent)
 		applyReaderDevIntentSeed(intent)
+	}
+
+	override fun onDestroy() {
+		readerDevWebDebuggingLease?.close()
+		readerDevWebDebuggingLease = null
+		super.onDestroy()
 	}
 
 	override fun dispatchKeyEvent(event: KeyEvent): Boolean {
