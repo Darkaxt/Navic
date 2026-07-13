@@ -147,6 +147,57 @@ class DownloadOwnershipMigrationTest {
 		}
 	}
 
+	@Test
+	fun artistIdentityMigrationMakesIdsNullableAndRemovesOnlyLegacySentinels() = runBlocking {
+		val file = temporaryDatabaseFile()
+		val driver = JdbcSQLiteDriver()
+		driver.open(file.absolutePath).use { connection ->
+			connection.execute(
+				"CREATE TABLE AlbumEntity (albumId TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', " +
+					"artistName TEXT NOT NULL DEFAULT '', artistId TEXT NOT NULL, year INTEGER, " +
+					"coverArtId TEXT NOT NULL DEFAULT '', genre TEXT, genres TEXT NOT NULL DEFAULT '', " +
+					"songCount INTEGER NOT NULL DEFAULT 0, duration INTEGER, createdAt INTEGER NOT NULL DEFAULT 0, " +
+					"starredAt INTEGER, lastPlayedAt INTEGER, playCount INTEGER NOT NULL DEFAULT 0, " +
+					"userRating INTEGER, version TEXT, musicBrainzId TEXT)"
+			)
+			connection.execute(
+				"CREATE TABLE SongEntity (songId TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', " +
+					"artistName TEXT NOT NULL DEFAULT '', artistId TEXT NOT NULL, albumTitle TEXT, " +
+					"belongsToAlbumId TEXT, parentId TEXT, comment TEXT, trackNumber INTEGER, discNumber INTEGER, " +
+					"isrc TEXT NOT NULL DEFAULT '', year INTEGER, genre TEXT, genres TEXT NOT NULL DEFAULT '', " +
+					"moods TEXT NOT NULL DEFAULT '', duration INTEGER NOT NULL DEFAULT 0, bpm INTEGER, " +
+					"contributors TEXT NOT NULL DEFAULT '', playCount INTEGER NOT NULL DEFAULT 0, userRating INTEGER, " +
+					"averageRating REAL, bitRate INTEGER, bitDepth INTEGER, sampleRate INTEGER, " +
+					"audioChannelCount INTEGER, replayGain TEXT, fileSize INTEGER NOT NULL DEFAULT 0, " +
+					"fileExtension TEXT NOT NULL DEFAULT '', mimeType TEXT NOT NULL DEFAULT '', filePath TEXT, " +
+					"starredAt INTEGER, coverArtId TEXT, musicBrainzId TEXT, explicitStatus INTEGER NOT NULL DEFAULT 0)"
+			)
+			connection.execute("INSERT INTO AlbumEntity(albumId, artistId) VALUES ('missing', 'unknown artist'), ('real', 'artist-1')")
+			connection.execute("INSERT INTO SongEntity(songId, artistId) VALUES ('missing', ' UNKNOWN ARTIST '), ('real', 'artist-1')")
+
+			CacheDatabaseMigration22To23.migrate(connection)
+
+			listOf("AlbumEntity", "SongEntity").forEach { table ->
+				connection.prepare("SELECT artistId FROM $table ORDER BY ${if (table == "AlbumEntity") "albumId" else "songId"}").use { statement ->
+					assertTrue(statement.step())
+					assertTrue(statement.isNull(0))
+					assertTrue(statement.step())
+					assertEquals("artist-1", statement.getText(0))
+				}
+				connection.prepare("PRAGMA table_info($table)").use { statement ->
+					var nullableArtistId = false
+					while (statement.step()) {
+						if (statement.getText(1) == "artistId") {
+							nullableArtistId = statement.getLong(3) == 0L
+						}
+					}
+					assertTrue(nullableArtistId)
+				}
+			}
+		}
+		file.delete()
+	}
+
 	private fun temporaryDatabaseFile(): File =
 		File.createTempFile("navic-download-migration-", ".db").apply { delete() }
 }

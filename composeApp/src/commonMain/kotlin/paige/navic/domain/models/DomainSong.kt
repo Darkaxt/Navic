@@ -11,7 +11,7 @@ data class DomainSong(
 	val id: String,
 	val title: String,
 	val artistName: String,
-	val artistId: String,
+	val artistId: String?,
 	val albumTitle: String?,
 	val albumId: String?,
 	val parentId: String?,

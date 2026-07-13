@@ -4,6 +4,7 @@ import paige.navic.data.database.entities.AlbumEntity
 import paige.navic.data.database.relations.AlbumWithSongs
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumInfo
+import paige.navic.domain.models.resolveArtistId
 import dev.zt64.subsonic.api.model.Album as ApiAlbum
 import dev.zt64.subsonic.api.model.AlbumInfo as ApiAlbumInfo
 
@@ -13,8 +14,7 @@ fun ApiAlbum.toEntity(
 ) = AlbumEntity(
 	albumId = this.id,
 	name = this.name,
-	// TODO: figure out why this can be null and how to handle it
-	artistId = artistIdOverride ?: this.artistId ?: "unknown artist",
+	artistId = resolveArtistId(artistIdOverride, this.artistId),
 	artistName = artistNameOverride ?: this.artistName,
 	coverArtId = this.coverArtId,
 	songCount = this.songCount,

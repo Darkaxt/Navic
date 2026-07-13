@@ -55,6 +55,48 @@ internal object CacheDatabaseMigration21To22 : Migration(21, 22) {
 	}
 }
 
+internal object CacheDatabaseMigration22To23 : Migration(22, 23) {
+	override suspend fun migrate(connection: SQLiteConnection) {
+		connection.execute(
+			"CREATE TABLE AlbumEntity_new (" +
+				"albumId TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, artistName TEXT NOT NULL, " +
+				"artistId TEXT, year INTEGER, coverArtId TEXT NOT NULL, genre TEXT, genres TEXT NOT NULL, " +
+				"songCount INTEGER NOT NULL, duration INTEGER, createdAt INTEGER NOT NULL, starredAt INTEGER, " +
+				"lastPlayedAt INTEGER, playCount INTEGER NOT NULL, userRating INTEGER, version TEXT, musicBrainzId TEXT)"
+		)
+		connection.execute(
+			"INSERT INTO AlbumEntity_new SELECT albumId, name, artistName, " +
+				"CASE WHEN lower(trim(artistId)) = 'unknown artist' THEN NULL ELSE artistId END, " +
+				"year, coverArtId, genre, genres, songCount, duration, createdAt, starredAt, lastPlayedAt, " +
+				"playCount, userRating, version, musicBrainzId FROM AlbumEntity"
+		)
+		connection.execute("DROP TABLE AlbumEntity")
+		connection.execute("ALTER TABLE AlbumEntity_new RENAME TO AlbumEntity")
+
+		connection.execute(
+			"CREATE TABLE SongEntity_new (" +
+				"songId TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, artistName TEXT NOT NULL, artistId TEXT, " +
+				"albumTitle TEXT, belongsToAlbumId TEXT, parentId TEXT, comment TEXT, trackNumber INTEGER, " +
+				"discNumber INTEGER, isrc TEXT NOT NULL, year INTEGER, genre TEXT, genres TEXT NOT NULL, " +
+				"moods TEXT NOT NULL, duration INTEGER NOT NULL, bpm INTEGER, contributors TEXT NOT NULL, " +
+				"playCount INTEGER NOT NULL, userRating INTEGER, averageRating REAL, bitRate INTEGER, " +
+				"bitDepth INTEGER, sampleRate INTEGER, audioChannelCount INTEGER, replayGain TEXT, " +
+				"fileSize INTEGER NOT NULL, fileExtension TEXT NOT NULL, mimeType TEXT NOT NULL, filePath TEXT, " +
+				"starredAt INTEGER, coverArtId TEXT, musicBrainzId TEXT, explicitStatus INTEGER NOT NULL)"
+		)
+		connection.execute(
+			"INSERT INTO SongEntity_new SELECT songId, title, artistName, " +
+				"CASE WHEN lower(trim(artistId)) = 'unknown artist' THEN NULL ELSE artistId END, " +
+				"albumTitle, belongsToAlbumId, parentId, comment, trackNumber, discNumber, isrc, year, genre, " +
+				"genres, moods, duration, bpm, contributors, playCount, userRating, averageRating, bitRate, " +
+				"bitDepth, sampleRate, audioChannelCount, replayGain, fileSize, fileExtension, mimeType, " +
+				"filePath, starredAt, coverArtId, musicBrainzId, explicitStatus FROM SongEntity"
+		)
+		connection.execute("DROP TABLE SongEntity")
+		connection.execute("ALTER TABLE SongEntity_new RENAME TO SongEntity")
+	}
+}
+
 internal suspend fun migrateLegacyDownloadRegistry(
 	cacheDatabasePath: String,
 	downloadDao: DownloadDao,

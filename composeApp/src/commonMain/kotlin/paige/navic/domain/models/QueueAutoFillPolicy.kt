@@ -132,7 +132,7 @@ private fun queueAutoFillSimilarityScore(
 	if (currentSong == null || currentSong.id == candidateSong.id) return 0
 
 	var score = 0
-	if (currentSong.artistId.isNotBlank() && currentSong.artistId == candidateSong.artistId) {
+	if (currentSong.artistId != null && currentSong.artistId == candidateSong.artistId) {
 		score += 30
 	}
 	if (currentSong.albumId != null && currentSong.albumId == candidateSong.albumId) {

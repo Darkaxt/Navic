@@ -10,7 +10,7 @@ data class AlbumEntity(
 	@PrimaryKey val albumId: String,
 	val name: String,
 	val artistName: String,
-	val artistId: String,
+	val artistId: String?,
 	val year: Int?,
 	val coverArtId: String,
 	val genre: String?,

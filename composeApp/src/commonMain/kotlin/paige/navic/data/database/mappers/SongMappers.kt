@@ -6,6 +6,7 @@ import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainReplayGain
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.songCoverArtIdWithAlbumFallback
+import paige.navic.domain.models.resolveArtistId
 import kotlin.time.Duration.Companion.seconds
 import dev.zt64.subsonic.api.model.Song as ApiSong
 
@@ -17,8 +18,7 @@ fun ApiSong.toEntity(
 	songId = this.id,
 	title = this.title,
 	artistName = artistNameOverride ?: this.artistName,
-	// TODO: figure out why this can be null and how to handle it
-	artistId = artistIdOverride ?: this.artistId ?: "unknown artist",
+	artistId = resolveArtistId(artistIdOverride, this.artistId),
 	albumTitle = this.albumTitle,
 	belongsToAlbumId = this.albumId,
 	coverArtId = songCoverArtIdWithAlbumFallback(this.coverArtId, albumCoverArtId),

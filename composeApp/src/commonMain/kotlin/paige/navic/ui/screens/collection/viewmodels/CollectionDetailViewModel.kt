@@ -99,7 +99,7 @@ class CollectionDetailViewModel(
 			old?.artistId == new?.artistId && old?.id == new?.id
 		}
 		.flatMapLatest { album ->
-			if (album == null) {
+			if (album?.artistId == null) {
 				flowOf(emptyList())
 			} else {
 				repository.getOtherAlbums(album.artistId, album.id)
@@ -362,7 +362,7 @@ class CollectionDetailViewModel(
 		match: AurralAlbumSearchItem
 	) {
 		val artist = DomainArtist(
-			id = match.artistMbid.takeIf { it.isNotBlank() } ?: album.artistId,
+			id = match.artistMbid.takeIf { it.isNotBlank() } ?: album.artistId ?: album.artistName,
 			name = match.artistName.takeIf { it.isNotBlank() } ?: album.artistName,
 			musicBrainzId = match.artistMbid.takeIf { it.isNotBlank() }
 		)
@@ -372,7 +372,9 @@ class CollectionDetailViewModel(
 					_aurralMoreByArtistRows.value = emptyList()
 					return@onSuccess
 				}
-				val localAlbums = repository.getOtherAlbums(album.artistId, album.id).first()
+				val localAlbums = album.artistId?.let { artistId ->
+					repository.getOtherAlbums(artistId, album.id).first()
+				}.orEmpty()
 				_aurralMoreByArtistRows.value = withContext(Dispatchers.Default) {
 					val ownershipRows = aurralArtistOwnershipAlbumRows(
 						enrichment = enrichment,

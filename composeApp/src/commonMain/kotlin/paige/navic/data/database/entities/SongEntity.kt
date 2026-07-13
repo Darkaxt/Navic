@@ -15,7 +15,7 @@ data class SongEntity(
 	@PrimaryKey val songId: String,
 	val title: String,
 	val artistName: String,
-	val artistId: String,
+	val artistId: String?,
 	val albumTitle: String?,
 	val belongsToAlbumId: String?,
 	val parentId: String?,

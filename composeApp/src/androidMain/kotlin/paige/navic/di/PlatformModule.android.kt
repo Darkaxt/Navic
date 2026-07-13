@@ -45,7 +45,11 @@ actual val platformModule = module {
 		val cacheDatabase = Room
 			.databaseBuilder<CacheDatabase>(get(), dbPath)
 			.setDriver(BundledSQLiteDriver())
-			.addMigrations(CacheDatabaseMigration20To21, CacheDatabaseMigration21To22)
+			.addMigrations(
+				CacheDatabaseMigration20To21,
+				CacheDatabaseMigration21To22,
+				CacheDatabaseMigration22To23
+			)
 			.build()
 		runBlocking(Dispatchers.IO) {
 			cacheDatabase.albumDao().getAlbumCount()

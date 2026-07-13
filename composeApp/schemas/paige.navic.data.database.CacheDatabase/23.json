@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 22,
-    "identityHash": "b44cf255284683e5bf439d82b4a75251",
+    "version": 23,
+    "identityHash": "85ee814e2958b7ca258fa62e137af7fc",
     "entities": [
       {
         "tableName": "AlbumEntity",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artistName` TEXT NOT NULL, `artistId` TEXT NOT NULL, `year` INTEGER, `coverArtId` TEXT NOT NULL, `genre` TEXT, `genres` TEXT NOT NULL, `songCount` INTEGER NOT NULL, `duration` INTEGER, `createdAt` INTEGER NOT NULL, `starredAt` INTEGER, `lastPlayedAt` INTEGER, `playCount` INTEGER NOT NULL, `userRating` INTEGER, `version` TEXT, `musicBrainzId` TEXT, PRIMARY KEY(`albumId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`albumId` TEXT NOT NULL, `name` TEXT NOT NULL, `artistName` TEXT NOT NULL, `artistId` TEXT, `year` INTEGER, `coverArtId` TEXT NOT NULL, `genre` TEXT, `genres` TEXT NOT NULL, `songCount` INTEGER NOT NULL, `duration` INTEGER, `createdAt` INTEGER NOT NULL, `starredAt` INTEGER, `lastPlayedAt` INTEGER, `playCount` INTEGER NOT NULL, `userRating` INTEGER, `version` TEXT, `musicBrainzId` TEXT, PRIMARY KEY(`albumId`))",
         "fields": [
           {
             "fieldPath": "albumId",
@@ -29,8 +29,7 @@
           {
             "fieldPath": "artistId",
             "columnName": "artistId",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "year",
@@ -294,7 +293,7 @@
       },
       {
         "tableName": "SongEntity",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`songId` TEXT NOT NULL, `title` TEXT NOT NULL, `artistName` TEXT NOT NULL, `artistId` TEXT NOT NULL, `albumTitle` TEXT, `belongsToAlbumId` TEXT, `parentId` TEXT, `comment` TEXT, `trackNumber` INTEGER, `discNumber` INTEGER, `isrc` TEXT NOT NULL, `year` INTEGER, `genre` TEXT, `genres` TEXT NOT NULL, `moods` TEXT NOT NULL, `duration` INTEGER NOT NULL, `bpm` INTEGER, `contributors` TEXT NOT NULL, `playCount` INTEGER NOT NULL, `userRating` INTEGER, `averageRating` REAL, `bitRate` INTEGER, `bitDepth` INTEGER, `sampleRate` INTEGER, `audioChannelCount` INTEGER, `replayGain` TEXT, `fileSize` INTEGER NOT NULL, `fileExtension` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `filePath` TEXT, `starredAt` INTEGER, `coverArtId` TEXT, `musicBrainzId` TEXT, `explicitStatus` INTEGER NOT NULL, PRIMARY KEY(`songId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`songId` TEXT NOT NULL, `title` TEXT NOT NULL, `artistName` TEXT NOT NULL, `artistId` TEXT, `albumTitle` TEXT, `belongsToAlbumId` TEXT, `parentId` TEXT, `comment` TEXT, `trackNumber` INTEGER, `discNumber` INTEGER, `isrc` TEXT NOT NULL, `year` INTEGER, `genre` TEXT, `genres` TEXT NOT NULL, `moods` TEXT NOT NULL, `duration` INTEGER NOT NULL, `bpm` INTEGER, `contributors` TEXT NOT NULL, `playCount` INTEGER NOT NULL, `userRating` INTEGER, `averageRating` REAL, `bitRate` INTEGER, `bitDepth` INTEGER, `sampleRate` INTEGER, `audioChannelCount` INTEGER, `replayGain` TEXT, `fileSize` INTEGER NOT NULL, `fileExtension` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `filePath` TEXT, `starredAt` INTEGER, `coverArtId` TEXT, `musicBrainzId` TEXT, `explicitStatus` INTEGER NOT NULL, PRIMARY KEY(`songId`))",
         "fields": [
           {
             "fieldPath": "songId",
@@ -317,8 +316,7 @@
           {
             "fieldPath": "artistId",
             "columnName": "artistId",
-            "affinity": "TEXT",
-            "notNull": true
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "albumTitle",
@@ -1033,7 +1031,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b44cf255284683e5bf439d82b4a75251')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '85ee814e2958b7ca258fa62e137af7fc')"
     ]
   }
 }

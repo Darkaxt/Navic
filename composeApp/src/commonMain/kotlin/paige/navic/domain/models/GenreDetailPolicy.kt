@@ -5,7 +5,7 @@ import kotlin.time.Duration.Companion.ZERO
 
 fun genreArtists(genre: DomainGenre): List<DomainArtist> {
 	val albumsByArtist = genreAlbums(genre).groupBy { album ->
-		album.artistId.ifBlank { album.artistName }
+		album.artistId?.takeIf { it.isNotBlank() } ?: album.artistName
 	}
 
 	return albumsByArtist.map { (artistId, albums) ->

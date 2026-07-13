@@ -53,7 +53,7 @@ internal data class AlbumSyncSongArtistOverrides(
 internal fun albumSyncSongArtistOverrides(
 	songArtistId: String?,
 	songArtistName: String?,
-	albumArtistId: String,
+	albumArtistId: String?,
 	albumArtistName: String
 ): AlbumSyncSongArtistOverrides {
 	val hasSongArtist = !songArtistId.isNullOrBlank() || !songArtistName.isNullOrBlank()
