@@ -1,14 +1,16 @@
-# Reader Snapshot-Slide Implementation Plan
+# Reader Snapshot-Wave Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` or `executing-plans` to implement this plan task-by-task. Every production change follows RED/GREEN/REFACTOR and every completed task is committed before starting the next one.
 
-**Goal:** Replace the curl/reverse-face Canvas page turn with a Google Play Books-style flat snapshot slide that supports immediate consecutive portrait page turns and landscape spread turns while Foliate settles exact targets in the background.
+**Goal:** Replace the curl/reverse-face Canvas page turn with a Google Play Books-style snapshot wave that supports immediate consecutive portrait page turns and page-aware landscape spread turns while Foliate settles exact targets in the background.
 
-**Architecture:** Reuse the existing exact visual-page locator, passive Foliate renderer, half-resolution capture, generation invalidation, and exact relocation. Replace transition bundles with reusable page/spread snapshots, replace the curl mesh with a two-bitmap translate renderer, keep the passive renderer alive, maintain a five-snapshot rolling cache around the visual target, and serialize/coalesce live Foliate settlement independently of visible animation.
+**Architecture:** Reuse the existing exact visual-page locator, passive Foliate renderer, half-resolution capture, generation invalidation, exact relocation, five-snapshot rolling cache, and serialized settlement. Compose source/destination snapshots through one bounded reusable front-leaf mesh. Portrait treats the page as one leaf. Landscape keeps complete-spread snapshots for cache/final shields but splits composition at the resolved gutter so only the active physical leaf deforms.
 
 **Tech Stack:** Kotlin Multiplatform, Android View/Canvas, Android WebView, Foliate JavaScript, Node test runner, Kotlin test, Gradle Android host tests, readerdev emulator, ADB, Chrome DevTools Protocol.
 
-**Release rule:** Debug and readerdev APKs are allowed throughout implementation. Do not publish a final release until Tasks 10-12 pass and the user accepts the visual result.
+**Release rule:** Debug and readerdev APKs are allowed throughout implementation. Do not publish a final release until the corrective Tasks 13-17 pass and the user accepts the visual result. The earlier rigid-renderer evidence from Tasks 8-12 is not a release gate.
+
+**Rev 2 correction (2026-07-13):** Emulator acceptance rejected the Task 3 rigid translation and Task 9 full-spread moving-card behavior. Tasks 1-7 and 10 remain valid foundation. The rendering portions of Tasks 3, 8, and 9 are superseded by Tasks 13-17 below. No release gate may use the old rigid renderer as evidence.
 
 ---
 
@@ -36,7 +38,7 @@
 - `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderPageSlideCoordinatorTest.kt`
   - pure coordinator behavior and multi-turn settlement tests
 - `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideView.android.kt`
-  - persistent flat two-snapshot Canvas renderer
+  - persistent two-snapshot Canvas renderer with one reusable active-leaf wave mesh
 - `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideViewSourceTest.kt`
   - draw-order, progress-contract, and no-curl source guards
 - `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnSlidePerformanceSourceTest.kt`
@@ -180,60 +182,21 @@ git add composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPa
 git commit -m "refactor(reader): model page turns as reusable snapshots"
 ```
 
-## Task 3: Add The Flat Native Renderer
+## Task 3: Add The Snapshot Renderer Foundation (Rigid Drawing Superseded By Task 14)
+
+**Status:** Completed as historical foundation. Do not reimplement its rejected rigid drawing path. Task 14 replaces production drawing while retaining the persistent view, bitmap ownership, physical surface rectangles, and allocation guards established here.
 
 **Files:**
 - Create: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideView.android.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideViewSourceTest.kt`
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt`
 
-- [ ] **Step 1: Write failing source and geometry tests**
-
-Guard these formulas:
-
-```text
-forward source x = -width * progress
-forward destination x = 0
-backward source x = 0
-backward destination x = -width + width * progress
-```
-
-Assert one `0..1` clamp, bitmap destination rectangles based on the physical surface rect, and no `ReaderPageTurnEdgeFoldGeometry` dependency.
-
-- [ ] **Step 2: Run and verify RED**
-
-```powershell
-.\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.reader.ReaderPageTurnSlideViewSourceTest"
-```
-
-- [ ] **Step 3: Implement `ReaderPageTurnSlideView`**
-
-The view:
-
-- stays attached for the reader session
-- draws two flat snapshots
-- draws only a narrow moving-edge highlight and shadow
-- uses `Canvas.save()`, `translate()`, `clipRect()`, `drawBitmap()`, and `restore()`
-- allocates no bitmap, JSON object, shader, or path inside `onDraw`
-- accepts live progress all the way to either endpoint while the finger remains down
-
-- [ ] **Step 4: Wire a readerdev-only comparison switch**
-
-Keep production `canvas` unchanged temporarily. Add one internal/debug flag that lets readerdev route the existing controller output to the new view.
-
-- [ ] **Step 5: Run and verify GREEN**
-
-```powershell
-.\gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.ui.screens.reader.ReaderPageTurnSlideViewSourceTest"
-.\gradlew.bat :composeApp:compileDebugKotlinAndroid
-```
-
-- [ ] **Step 6: Commit**
-
-```powershell
-git add composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideView.android.kt composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideViewSourceTest.kt composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt
-git commit -m "feat(reader): add flat snapshot slide renderer"
-```
+- [x] Add one persistent renderer view for the reader session.
+- [x] Draw source and destination snapshots in physical surface rectangles.
+- [x] Keep progress normalized to `0..1` and reachable at both endpoints while the finger remains down.
+- [x] Allocate no bitmap, JSON object, shader, path, or vertex buffer inside `onDraw`.
+- [x] Route readerdev `canvas` mode through the snapshot renderer.
+- [ ] Replace the rejected complete-surface translation with the bounded leaf mesh in Task 14.
 
 ## Task 4: Convert Capture Into A Five-Snapshot Rolling Cache
 
@@ -441,7 +404,7 @@ git add composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuR
 git commit -m "fix(reader): keep claimed page drags out of tap fallback"
 ```
 
-## Task 8: Complete Portrait Behavior
+## Task 8: Complete Portrait Snapshot/Caching Behavior (Rendering Superseded By Task 15)
 
 **Files:**
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnController.android.kt`
@@ -477,7 +440,7 @@ git add composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPa
 git commit -m "feat(reader): complete portrait snapshot page slides"
 ```
 
-## Task 9: Complete Landscape Spread Behavior
+## Task 9: Complete Landscape Spread Identity (Rigid Rendering Superseded By Task 16)
 
 **Files:**
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnBundleSource.android.kt`
@@ -605,7 +568,8 @@ Record forward and backward videos covering:
 Required evidence:
 
 - destination visible during drag
-- flat, upright text
+- correctly oriented text that deforms only with its paper surface
+- visible intermediate wave curvature with flat endpoint geometry
 - no midpoint freeze
 - no tap fallback
 - no post-release blink
@@ -615,7 +579,7 @@ Required evidence:
 
 Set the emulator to the tablet landscape dimensions used by readerdev and repeat forward, backward, rapid, boundary, and rotation tests.
 
-Verify one gesture changes a complete spread and preserves the gutter and page decoration.
+Verify one gesture settles one complete spread while only the active physical leaf deforms. The gutter must stay fixed, the inactive leaf must not translate with the active leaf, and page decoration must deform with its text.
 
 - [ ] **Step 4: Measure diagnostics**
 
@@ -653,7 +617,7 @@ Check touch latency, directional layering, consecutive turns, app task switching
 
 - [ ] **Step 3: Validate Tab S9 Ultra landscape**
 
-Check complete-spread movement, high-resolution rendering, memory, repeated turns, rotation, and Whispersync playback/highlight coexistence.
+Check gutter-bounded leaf deformation, high-resolution rendering, memory, repeated turns, rotation, and Whispersync playback/highlight coexistence.
 
 - [ ] **Step 4: Run final repository verification**
 
@@ -687,6 +651,144 @@ git push fork master
 ```
 
 Then follow the repository's standard version/tag/release workflow. The exact theta number is chosen from current release state at that time, not hardcoded in this plan.
+
+## Task 13: Replace The Rigid Renderer Contract With Leaf Geometry
+
+**Files:**
+- Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnBundle.android.kt`
+- Modify: `composeApp/src/androidMain/assets/reader/navic-reader-page-turn-model.js`
+- Modify: `tools/reader-harness/src/page-turn-model.test.mjs`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnNativeSourceTest.kt`
+
+- [ ] **Step 1: Write failing geometry-contract tests**
+
+Assert that portrait transitions expose one full-page leaf and landscape transitions expose `leftLeafRect`, `rightLeafRect`, and `gutterRect`. Assert that the gutter comes from resolved page geometry, remains within the snapshot surface, and is not inferred from the device screen.
+
+- [ ] **Step 2: Verify RED**
+
+Run only the page-turn model and destination/native source tests. The tests must fail because the current transition carries only complete-spread snapshots.
+
+- [ ] **Step 3: Add immutable leaf geometry**
+
+Add normalized or bitmap-relative leaf rectangles to the transition. Preserve complete-spread snapshot keys and ownership. Terminal one-page spreads expose one leaf and an absent opposite leaf; they never invent a second page.
+
+- [ ] **Step 4: Verify GREEN and commit**
+
+Run the same focused tests, `node --check`, and `git diff --check`, then commit the geometry contract separately.
+
+## Task 14: Add A Reusable Front-Leaf Wave Mesh
+
+**Files:**
+- Create: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnWaveGeometry.android.kt`
+- Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnWaveGeometryTest.kt`
+- Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideView.android.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideViewSourceTest.kt`
+
+- [ ] **Step 1: Write failing pure geometry tests**
+
+Lock these invariants:
+
+- binding vertices never move
+- outer-edge displacement follows normalized progress
+- intermediate progress has non-zero curvature
+- progress `0` and `1` have no residual wave curvature
+- mirrored direction uses the same geometry function
+- vertices stay inside the active leaf plus the bounded shadow allowance
+- no vertex or index arrays are allocated from `onDraw`
+
+- [ ] **Step 2: Verify RED**
+
+Run the new geometry test and renderer source test. They must fail because the current renderer calls `canvas.translate()` on the complete bitmap.
+
+- [ ] **Step 3: Implement the minimal mesh**
+
+Use one reusable strip/grid mesh over the front bitmap only. Start with a bounded 16-column mesh and increase only if emulator evidence shows visible faceting. Use `Canvas.drawBitmapMesh` or the equivalent reusable vertex path. Do not add a reverse surface, third snapshot, WebView call, or draw-time allocation.
+
+- [ ] **Step 4: Remove rigid production translation**
+
+The production landscape path must not translate the complete spread. Retain a debug-only flat fallback only until wave acceptance; it cannot satisfy the release gate.
+
+- [ ] **Step 5: Verify GREEN and commit**
+
+Run the geometry and renderer tests, then commit the reusable mesh independently.
+
+## Task 15: Integrate Portrait Snapshot Waves
+
+**Files:**
+- Modify: `ReaderPageTurnSlideView.android.kt`
+- Modify: `ReaderPageTurnController.android.kt`
+- Modify: `ReaderPageTurnStateMachine.kt`
+- Modify corresponding focused tests
+
+- [ ] **Step 1: Write failing portrait draw-order tests**
+
+Forward retracts the source over a stationary destination. Backward expands the destination over a stationary source. Both use the same mirrored wave field and one normalized `0..1` progress.
+
+- [ ] **Step 2: Implement and verify**
+
+Progress follows the active page width, reaches both endpoints while the finger is down, and cannot fall through to tap after claim. Keep current cache and settlement behavior unchanged.
+
+- [ ] **Step 3: ReaderDev portrait gate**
+
+Capture start, quarter, midpoint, three-quarter, and end frames in both directions. Reject straight rigid translation, mirrored text, transparent paper, endpoint residue, tap fallback, and post-settlement blink.
+
+- [ ] **Step 4: Commit accepted portrait behavior**
+
+## Task 16: Integrate Gutter-Bounded Landscape Waves
+
+**Files:**
+- Modify: `ReaderPageTurnSlideView.android.kt`
+- Modify: `ReaderPageTurnBundleSource.android.kt`
+- Modify: `ReaderPageTurnController.android.kt`
+- Modify corresponding focused tests
+
+- [ ] **Step 1: Write failing landscape composition tests**
+
+Forward retracts only the source right leaf toward the gutter. Backward expands only the destination left leaf from the gutter. The inactive leaf is separately composed and never translated. The gutter x-coordinate is invariant for every progress sample.
+
+- [ ] **Step 2: Add the late inactive-leaf handoff**
+
+Blend only the inactive source leaf to the inactive destination leaf during the late portion of the gesture. At `progress = 1`, the composed frame must be pixel-equivalent to the destination spread so the final shield cannot blink.
+
+- [ ] **Step 3: Preserve spread identity and exact settlement**
+
+Visual and settled indices still move by two in normal landscape spreads. Snapshot cache keys and final shields remain complete-spread based. No reverse-face capture is introduced.
+
+- [ ] **Step 4: ReaderDev landscape gate**
+
+At tablet resolution capture both directions and verify:
+
+- complete spread never moves as one card
+- active deformation stops at the gutter
+- inactive leaf remains stationary until its explicit handoff
+- text and paper share the same deformation
+- no transparent gap, stale shield, or destination blink
+- rapid consecutive gestures remain accepted
+
+- [ ] **Step 5: Commit accepted landscape behavior**
+
+## Task 17: Corrective Performance And Release Gate
+
+- [ ] **Step 1: Measure wave draw cost**
+
+Record frame skips and draw timing with diagnostics enabled. The mesh must not trigger new WebView capture, bitmap allocation, or passive-renderer rebuilds.
+
+- [ ] **Step 2: Re-run cache and settlement acceptance**
+
+Repeat the full prewarm-window pixel sampling after forward/backward/rapid turns. Confirm the live spread remains stable while distant snapshots are prepared.
+
+- [ ] **Step 3: Run focused and broad verification once**
+
+Run the page-turn model, geometry, state-machine, coordinator, native source, destination source, renderer, and runtime asset tests. Run the full Gradle verification only after visual behavior converges.
+
+- [ ] **Step 4: Physical-device decision**
+
+Use the Tab S9 Ultra if emulator GPU composition, touch latency, or mesh filtering differs materially. Do not block code-only stages on device availability.
+
+- [ ] **Step 5: Release decision**
+
+Do not publish while any rigid spread movement, missing wave deformation, gesture dead zone, or destination blink remains. ReaderDev/debug artifacts are allowed.
 
 ---
 

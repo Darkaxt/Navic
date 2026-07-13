@@ -1,21 +1,24 @@
-# Reader Snapshot-Slide Page-Turn Design
+# Reader Snapshot-Wave Page-Turn Design
 
-**Status:** Approved for staged implementation
+**Status:** Rev 2 approved for staged correction after emulator rejection of the rigid spread slide
 
 **Date:** 2026-07-13
 
-**Baseline:** `master` at `8074d22e`
+**Baseline:** `master` at `e0306bc7`
+
+**Rev 2 correction:** The snapshot cache, passive renderer, visual/settled position split, and serialized Foliate settlement remain accepted. The flat full-spread translation is rejected. Rendering now uses a lightweight page-aware wave over the active physical leaf.
 
 **Supersedes:** The curl, folded reverse-face, and alternating portrait-leaf portions of `2026-07-12-reader-destination-aware-page-turn-design.md`. The exact visual-page locator, passive-renderer isolation, half-resolution capture, generation invalidation, and exact Foliate settlement remain valid and are reused.
 
 ## 1. Objective
 
-Replace Navic's curl-based Canvas page turn with the flat, responsive page-slide interaction observed in Google Play Books:
+Replace Navic's curl-based Canvas page turn with the responsive snapshot-wave interaction observed in Google Play Books:
 
 - portrait moves one visual page at a time
-- landscape moves one complete visible spread at a time
+- landscape settles one complete visible spread at a time but animates relative to the physical page split and center binding
 - the destination page or spread is visible during the drag
-- text remains flat, upright, and readable throughout the transition
+- paper, text, texture, stains, and edge decoration deform together as one bitmap surface
+- no reverse face, mirrored text, or simulated page-back content is rendered
 - the visible animation follows the finger continuously and may reach either endpoint before release
 - the next gesture becomes available when the visible animation completes, not when Foliate finishes background relocation
 
@@ -36,7 +39,7 @@ The destination-aware curl implementation proved several useful primitives, but 
 7. Rebuilding the passive renderer and both adjacent transition bundles took approximately 13-15 seconds.
 8. Android's delayed gesture detector could reinterpret an intended drag as a tap when preparation was slow.
 
-The replacement keeps the successful capture and exact-navigation work while removing the mesh, reverse face, and multi-surface leaf simulation entirely.
+The replacement keeps the successful capture and exact-navigation work while removing the reverse face and multi-surface curl simulation. Rev 2 reintroduces only a bounded front-surface mesh: a cheap strip/mesh warp of one already-captured page leaf, with no extra WebView capture and no page-back rendering.
 
 ## 3. Reference Behavior
 
@@ -45,26 +48,31 @@ The accepted visual reference is Google Play Books on Android.
 ### 3.1 Portrait forward
 
 - The destination page is stationary underneath.
-- The current page translates left with the finger.
-- A narrow shadow and edge highlight remain attached to the trailing edge of the current page.
+- The current page retracts toward the fixed inner edge while following the finger.
+- Deformation is zero at the fixed edge and grows smoothly toward the dragged outer edge.
+- A narrow curved shadow and edge highlight follow the deformed boundary.
 - Releasing beyond the commit threshold completes the translation.
 - Releasing before the threshold returns the current page to its origin.
 
 ### 3.2 Portrait backward
 
 - The current page remains stationary underneath.
-- The previous page translates in from the left with the finger.
-- A narrow shadow and edge highlight remain attached to the leading edge of the incoming page.
+- The previous page expands from its fixed inner edge toward the outer edge with the finger.
+- The same wave field is mirrored; it is not a separate animation implementation.
+- A narrow curved shadow and edge highlight remain attached to the expanding boundary.
 - Commit and cancel use the same release rules as forward.
 
 ### 3.3 Landscape
 
-Landscape uses a complete spread as the visual unit. A physically correct single-leaf turn would require a reverse face, which this design intentionally removes.
+Landscape uses a complete spread for identity, caching, and exact settlement, but not as one rigid moving card.
 
-- Forward: the current spread translates left over a stationary destination spread.
-- Backward: the previous spread translates in from the left over the stationary current spread.
-- The gutter, page texture, edge decoration, and cover reveal are baked consistently into each spread snapshot.
-- One committed gesture advances or reverses by two visual page ordinals, clamped at publication boundaries.
+- The center gutter is the fixed binding axis and is read from resolved reader geometry.
+- Forward: only the source right leaf retracts from the outer-right edge toward the gutter. The destination spread is already underneath. The source left leaf hands off to the destination left leaf late in the gesture so final completion is continuous.
+- Backward: the destination left leaf expands from the gutter toward the outer-left edge over the source spread. The source right leaf hands off to the destination right leaf late in the gesture.
+- Wave displacement is zero at the gutter and increases toward the active outer edge.
+- The non-active leaf never translates as part of the active mesh.
+- The gutter itself remains stationary and is not duplicated inside the moving leaf.
+- One committed gesture still advances or reverses by two visual page ordinals, clamped at publication boundaries.
 
 RTL mirrors physical direction while preserving logical next/previous behavior.
 
@@ -76,7 +84,7 @@ RTL mirrors physical direction while preserving logical next/previous behavior.
 4. Cancel never navigates.
 5. Every committed visual target is eventually settled with exact visual-page relocation.
 6. Portrait targets one adjacent visual page; landscape targets one adjacent complete spread.
-7. Text is never warped, mirrored, reversed, or drawn as a simulated back face.
+7. Text may be geometrically warped only as part of the same front-surface bitmap as its paper. It is never mirrored, reversed, redrawn independently, or used as a simulated back face.
 8. Visible progress uses one normalized `0..1` contract in JavaScript, Kotlin, tests, and rendering.
 9. A claimed drag can never fall through to the tap page-turn path.
 10. The destination snapshot is visible before or during motion; there is no post-animation destination blink.
@@ -85,6 +93,8 @@ RTL mirrors physical direction while preserving logical next/previous behavior.
 13. No timeout cancels capture, rendering, navigation, or settlement. Obsolete work is invalidated with generation tokens and lifecycle events.
 14. No page-turn path changes Foliate's text geometry or recreates a synthetic reader shell.
 15. Snapshot memory is explicitly bounded and recycled.
+16. Landscape deformation is bounded to one resolved leaf rectangle; the complete spread is never translated as one surface.
+17. The binding coordinate remains stationary throughout a landscape gesture.
 
 ## 5. Public Preference Contract
 
@@ -146,7 +156,7 @@ The bitmap is captured at `0.5` physical resolution for animation. The surface r
 
 ### 7.2 Transition
 
-A `ReaderPageSlideTransition` references two snapshots:
+A `ReaderPageSlideTransition` references two snapshots and resolved leaf geometry:
 
 ```text
 sourceSnapshot
@@ -156,9 +166,13 @@ physicalDirection
 sourceVisualPageIndex
 targetVisualPageIndex
 layoutMode
+surfaceRect
+leftLeafRect
+rightLeafRect
+gutterRect
 ```
 
-There is no `turningFront`, `turningReverse`, `underneath`, reverse-face color, fold mesh, or curl geometry.
+There is no `turningReverse`, reverse-face color, page-back snapshot, or curl geometry. The active front leaf is a crop of the source or destination spread snapshot and is warped through a reusable bounded mesh.
 
 ### 7.3 Snapshot composition
 
@@ -176,25 +190,58 @@ Touch controls, selection handles, transient menus, Whispersync controls, and ap
 
 ## 8. Rendering Contract
 
-`ReaderPageTurnSlideView` is a persistent native overlay view. It performs only bitmap composition and edge-shadow drawing.
+`ReaderPageTurnSlideView` is a persistent native overlay view. It performs bitmap composition, one bounded front-leaf mesh warp, and edge-shadow drawing. Mesh vertices and draw buffers are allocated when geometry changes, not in `onDraw`.
 
 ### 8.1 Forward rendering
 
+Portrait:
+
 ```text
 draw destinationSnapshot at rest
-translate sourceSnapshot from x = 0 to x = -surfaceWidth * progress
-draw trailing-edge highlight and shadow at translated source edge
+warp sourceSnapshot toward its fixed inner edge
+draw curved boundary highlight and shadow
+```
+
+Landscape:
+
+```text
+draw destination spread at rest
+draw source left leaf at rest with late handoff alpha
+warp source right leaf inside rightLeafRect toward gutterRect
+draw curved boundary highlight and shadow inside rightLeafRect
 ```
 
 ### 8.2 Backward rendering
 
+Portrait:
+
 ```text
 draw sourceSnapshot at rest
-translate destinationSnapshot from x = -surfaceWidth to x = -surfaceWidth + surfaceWidth * progress
-draw leading-edge highlight and shadow at translated destination edge
+expand destinationSnapshot from its fixed inner edge
+draw curved boundary highlight and shadow
 ```
 
-`progress` is always clamped to `0..1`. It is derived from signed drag displacement divided by the page or spread width. The moving surface follows the finger one-to-one after touch slop; it is not artificially held at a midpoint.
+Landscape:
+
+```text
+draw source spread at rest
+draw destination right leaf with late handoff alpha
+expand destination left leaf inside leftLeafRect from gutterRect
+draw curved boundary highlight and shadow inside leftLeafRect
+```
+
+`progress` is always clamped to `0..1`. It is derived from signed drag displacement divided by the active **leaf** width, never the complete spread width in landscape. The dragged outer boundary follows the finger after touch slop and may reach the binding before release.
+
+The wave field is monotonic and cheap:
+
+```text
+u = distanceFromBinding / leafWidth
+edgeWeight = smoothstep(0, 1, u)
+primaryDisplacement = signedProgress * leafWidth * edgeWeight
+waveAmplitude = maxAmplitude * progress * (1 - progress) * edgeWeight
+```
+
+The binding row/column has `edgeWeight = 0`; the outer edge has `edgeWeight = 1`. The same vertices transform the complete front bitmap, so text cannot remain straight while paper bends.
 
 ### 8.3 Release animation
 
@@ -303,7 +350,7 @@ Pause, configuration change, reader close, resource switch, or memory pressure i
 
 ## 14. Portrait And Landscape Separation
 
-Portrait and landscape share caching, gesture ownership, settlement, and the flat slide renderer, but not page-step assumptions.
+Portrait and landscape share caching, gesture ownership, settlement, wave math, and bitmap ownership, but not leaf geometry or page-step assumptions.
 
 ### 14.1 Portrait
 
@@ -311,12 +358,16 @@ Portrait and landscape share caching, gesture ownership, settlement, and the fla
 - one gesture changes the visual index by one
 - forward and backward use the asymmetric Google Play Books layering described in Section 3
 - no gutter or synthetic second page is added
+- the fixed edge is the edge opposite the active dragged boundary
+- the entire visible page is one active leaf
 
 ### 14.2 Landscape
 
-- the complete Foliate spread is captured as one bitmap
+- the complete Foliate spread is captured as one bitmap for cache and final-shield continuity
 - one gesture changes the visual index by two
-- the spread's gutter and page decorations are already present in the bitmap
+- resolved left/right leaf rectangles and the gutter are stored with the transition
+- only the active leaf crop is warped; the other leaf is composed separately
+- the spread's gutter and page decorations remain present but the gutter is excluded from active-leaf warping
 - no per-leaf reverse content is fabricated
 - terminal one-page spreads remain centered according to Foliate's resolved layout
 
@@ -327,7 +378,7 @@ Landscape rules must not be copied into portrait by inferring a hidden second pa
 1. Touch slop is evaluated before claiming the gesture.
 2. After claim, horizontal drag remains owned by the page-turn controller until release or cancel.
 3. Vertical movement beyond the direction-lock ratio cancels page-turn claim before deformation begins.
-4. Progress is based on the relevant page/spread surface width, not full-screen width when those differ.
+4. Progress is based on the relevant leaf width, not full-screen or full-spread width when those differ.
 5. The moving surface can reach `progress = 1` while the finger remains down.
 6. Release at `progress = 1` commits immediately; release at `progress = 0` cancels immediately.
 7. Opposite-direction movement reverses progress naturally within `0..1`.
@@ -370,11 +421,16 @@ visual completion -> live settlement
 - Animation bitmaps remain at half physical resolution unless device evidence proves a lower safe size.
 - Maximum cached window is five snapshots plus at most one in-flight capture bitmap.
 - Draw performs no WebView calls, JSON parsing, database work, or network work.
+- Mesh buffers are reused and bounded to the active leaf; `onDraw` allocates no bitmap, path, array, shader, or JSON object.
+- Landscape uses the same two cached spread snapshots as the rejected rigid slide; no extra reverse-face capture is introduced.
 
 ### Visual
 
 - no mirrored or backward text
 - no transparent moving page
+- no rigid complete-spread translation in landscape
+- no deformation crossing the center binding
+- no straight text over visibly bent paper
 - no midpoint freeze
 - no post-release tap animation
 - no destination blink after animation
@@ -394,15 +450,15 @@ When reduced motion is explicitly requested by Navic settings, the same source/d
 - Add source guards forbidding curl/reverse-face surfaces in the production slide path.
 - Lock normalized progress, one-page portrait steps, and spread landscape steps in tests.
 
-### Stage 1: Flat renderer behind debug
+### Stage 1: Snapshot renderer foundation behind debug
 
 - Add the simplified snapshot and transition models.
 - Implement `ReaderPageTurnSlideView` behind a debug comparison flag.
-- Prove forward/backward portrait draw order with synthetic bitmaps.
+- Prove source/destination draw order with synthetic bitmaps.
 
 ### Stage 2: Portrait integration
 
-- Route `canvas` to the flat slide in readerdev only.
+- Route `canvas` to the snapshot-wave renderer in readerdev only.
 - Prove finger tracking, endpoint reach, commit/cancel, no tap leak, and destination visibility.
 
 ### Stage 3: Persistent preview and rolling cache
@@ -417,10 +473,18 @@ When reduced motion is explicitly requested by Navic settings, the same source/d
 - Add serialized/coalesced exact settlement and final shield.
 - Prove multiple consecutive visual turns while live Foliate catches up.
 
-### Stage 5: Landscape spread integration
+### Stage 5: Landscape spread identity integration
 
 - Capture complete current and destination spreads.
 - Prove `+/-2` exact navigation, gutter continuity, RTL mirroring, and terminal boundaries.
+
+### Stage 5A: Page-aware wave correction
+
+- Replace rigid translation with reusable bounded mesh deformation.
+- Add resolved leaf/gutter geometry to transitions.
+- Prove portrait front-surface wave behavior.
+- Prove forward right-leaf retraction and backward left-leaf expansion in landscape.
+- Prove the inactive leaf does not translate and the final spread does not blink.
 
 ### Stage 6: Failure and lifecycle hardening
 
@@ -447,11 +511,11 @@ When reduced motion is explicitly requested by Navic settings, the same source/d
 
 The implementation is complete only when all of the following are true:
 
-1. Portrait forward and backward visually match the Google Play Books layering model.
-2. Landscape advances complete spreads without reverse-face simulation.
+1. Portrait forward and backward visually match the Google Play Books wave/layering model.
+2. Landscape advances complete spreads without reverse-face simulation while visibly respecting the center binding and physical leaf split.
 3. The destination is visible during every ready transition.
-4. Text remains flat and correctly oriented.
-5. The moving page or spread follows the finger through the full width.
+4. Text remains correctly oriented and deforms only with its paper surface.
+5. The active page leaf follows the finger through its full width; the complete landscape spread never moves as one card.
 6. Release never freezes at a midpoint.
 7. Claimed drags never trigger tap navigation.
 8. Repeated turns remain responsive while Foliate settles in the background.
@@ -459,4 +523,5 @@ The implementation is complete only when all of the following are true:
 10. The overlay hides only after the latest visual target is live and renderable.
 11. Memory remains bounded and stale snapshots are recycled.
 12. No final release is published before emulator and physical-device evidence is accepted.
-
+13. Emulator frame evidence shows the landscape gutter at one invariant x-coordinate from gesture start through completion.
+14. Emulator frame evidence shows non-zero wave curvature at intermediate progress and zero curvature at both endpoints.
