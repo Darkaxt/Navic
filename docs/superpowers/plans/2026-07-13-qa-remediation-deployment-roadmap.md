@@ -5,6 +5,7 @@ Baseline: `master` @ `2de204a1` (`feat(reader): coordinate visual and settled sl
 Source audit: `docs/superpowers/plans/2026-07-12-qa-analysis.md`
 Released foundation: `v1.0.11-theta94`
 Released Tranche 1: `v1.0.11-iota1`
+Released Tranche 2 storage slice: `v1.0.11-iota2`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -150,6 +151,15 @@ Every tranche uses the following pipeline:
 - Release database ownership migration separately from sync behavior if the migration changes both DB versions.
 - Before tagging, install over the previous public APK with populated download/sync fixtures.
 - Never downgrade schemas. Any migration defect receives a forward repair release.
+
+### Storage slice release evidence
+
+- Released `v1.0.11-iota2` from commit `2e63e7aa` on 2026-07-13.
+- GitHub Actions run `29214968632` passed release build, APK signature verification, artifact upload, and release creation; checks run `29214968629` passed.
+- Public `Navic.apk` SHA-256: `874b0ecbff1925b7f428cc6c3167cb9673c5b7ce5986becd35ce580b5926daed`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=524`, `versionName=v1.0.11-iota2`.
+- A signed upgrade over a populated `v1.0.11-iota1` install migrated cache schema `20→21`, removed cache `DownloadEntity`, copied a legacy-only row, retained the conflicting current `downloads.db` row, and cold-launched successfully on `emulator-5554`.
+- Fixture-backed SQLite tests cover legacy-row reads, destination-wins conflict handling, and migration removal of only the duplicate table. Storage ownership is documented in `docs/architecture/storage-ownership.md`.
 
 ## Tranche 3 — Reader bridge and process recovery
 
@@ -336,8 +346,8 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A15 | Low | Pending | Tranche 2 |
 | A16 | Medium | Pending | Tranche 5 |
 | A17 | Medium | Pending | Tranche 5 |
-| A18 | Medium | Pending | Tranche 2 |
-| A19 | Medium | Pending | Tranche 2 |
+| A18 | Medium | Released | `v1.0.11-iota2` |
+| A19 | Medium | Released | `v1.0.11-iota2` |
 | A20 | Scope note | Excluded | Android-only contract |
 | A21 | Medium (governance) | Pending | Tranche 5 |
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
@@ -370,7 +380,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | C4 | Medium | Pending | Tranche 2 |
 | C5 | High | Released | `v1.0.11-theta94` |
 | C6 | Medium | Pending | Tranche 2 |
-| C7 | Medium | Pending | Tranche 2 |
+| C7 | Medium | Released | `v1.0.11-iota2` |
 | C8 | High | Released | `v1.0.11-theta94` |
 | C9 | Medium | Released | `v1.0.11-iota1` |
 | C10 | Medium | Released | `v1.0.11-iota1` |
@@ -384,9 +394,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 8 (`B9`, `B10`, `C1`, `C5`, `C8`, `C9`, `C10`, `C11`).
+- Released findings: 11 (`A18`, `A19`, `B9`, `B10`, `C1`, `C5`, `C7`, `C8`, `C9`, `C10`, `C11`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 47.
+- Pending implementation findings assigned to tranches: 44.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
