@@ -35,6 +35,13 @@ internal class ReaderPageTurnWaveGeometry(
 		val width = leafRect.width.toFloat()
 		val height = leafRect.height.toFloat()
 		val waveEnvelope = 4f * resolvedOpenness * (1f - resolvedOpenness)
+		val movingEdgeDistance = width * resolvedOpenness
+		val deformationBand = (width * MaxDeformationBandFraction).coerceAtMost(movingEdgeDistance)
+		val rigidDistance = (movingEdgeDistance - deformationBand).coerceAtLeast(0f)
+		val textureIntake = (deformationBand * EdgeTextureIntakeFraction)
+			.coerceAtMost((width - movingEdgeDistance).coerceAtLeast(0f))
+		val deformationSourceEnd = movingEdgeDistance + textureIntake
+		val deformationSourceSpan = (deformationSourceEnd - rigidDistance).coerceAtLeast(0f)
 
 		for (row in 0..rows) {
 			val vertical = row / rows.toFloat()
@@ -42,9 +49,24 @@ internal class ReaderPageTurnWaveGeometry(
 			val verticalWave = sin(PI * vertical).toFloat()
 			for (column in 0..columns) {
 				val distanceFromBinding = column / columns.toFloat()
-				val textureX = bindingX + direction * width * distanceFromBinding
-				val baseX = bindingX + direction * width * distanceFromBinding * resolvedOpenness
-				val waveX = direction * width * MaxWaveFraction * waveEnvelope * distanceFromBinding * verticalWave
+				val textureDistance = width * distanceFromBinding
+				val textureX = bindingX + direction * textureDistance
+				val mappedDistance = when {
+					deformationBand <= 0f -> 0f
+					textureDistance <= rigidDistance -> textureDistance
+					textureDistance >= deformationSourceEnd -> movingEdgeDistance
+					else -> {
+						val local = (textureDistance - rigidDistance) / deformationSourceSpan
+						rigidDistance + deformationBand * local
+					}
+				}
+				val edgeWeight = if (deformationBand <= 0f) {
+					0f
+				} else {
+					((mappedDistance - rigidDistance) / deformationBand).coerceIn(0f, 1f)
+				}
+				val baseX = bindingX + direction * mappedDistance
+				val waveX = direction * width * MaxWaveFraction * waveEnvelope * edgeWeight * verticalWave
 				val coordinateIndex = coordinateIndex(column, row)
 				vertices[coordinateIndex] = baseX + waveX
 				vertices[coordinateIndex + 1] = y
@@ -82,7 +104,9 @@ internal class ReaderPageTurnWaveGeometry(
 	}
 
 	companion object {
-		const val MaxWaveFraction = 0.055f
+		const val MaxWaveFraction = 0.028f
+		const val MaxDeformationBandFraction = 0.2f
+		const val EdgeTextureIntakeFraction = 0.75f
 		private const val DefaultColumns = 16
 		private const val DefaultRows = 8
 		private const val CoordinatesPerVertex = 2

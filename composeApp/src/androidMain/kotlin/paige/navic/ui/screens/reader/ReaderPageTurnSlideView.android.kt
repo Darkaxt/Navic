@@ -16,8 +16,8 @@ import kotlin.math.roundToInt
 
 internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 	private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
-	private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-	private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+	private val softShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+	private val paperEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
 	private val sourceWavePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 	private val destinationWavePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 	private val handoffPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
@@ -204,23 +204,25 @@ internal class ReaderPageTurnSlideView(context: Context) : View(context) {
 	}
 
 	private fun drawMovingEdge(canvas: Canvas) {
+		val edgeShadowEnvelope = 4f * progress * (1f - progress)
+		if (edgeShadowEnvelope <= 0f) return
 		val density = resources.displayMetrics.density
-		val shadowWidth = max(5f, 8f * density)
-		val highlightWidth = max(1f, 0.8f * density)
-		shadowPaint.color = Color.argb(58, 18, 14, 10)
-		highlightPaint.color = Color.argb(112, 255, 252, 244)
-		shadowPaint.style = Paint.Style.STROKE
-		shadowPaint.strokeWidth = shadowWidth
-		highlightPaint.style = Paint.Style.STROKE
-		highlightPaint.strokeWidth = highlightWidth
+		val shadowWidth = max(4f, 5f * density)
+		val edgeWidth = max(1f, 0.9f * density)
+		softShadowPaint.color = Color.argb((28f * edgeShadowEnvelope).roundToInt(), 38, 31, 24)
+		paperEdgePaint.color = Color.argb((54f * edgeShadowEnvelope).roundToInt(), 92, 80, 67)
+		softShadowPaint.style = Paint.Style.STROKE
+		softShadowPaint.strokeWidth = shadowWidth
+		paperEdgePaint.style = Paint.Style.STROKE
+		paperEdgePaint.strokeWidth = edgeWidth
 		movingEdgePath.rewind()
 		for (row in 0..waveGeometry.rows) {
 			val x = waveGeometry.vertexX(waveGeometry.columns, row)
 			val y = waveGeometry.vertexY(waveGeometry.columns, row)
 			if (row == 0) movingEdgePath.moveTo(x, y) else movingEdgePath.lineTo(x, y)
 		}
-		canvas.drawPath(movingEdgePath, shadowPaint)
-		canvas.drawPath(movingEdgePath, highlightPaint)
+		canvas.drawPath(movingEdgePath, softShadowPaint)
+		canvas.drawPath(movingEdgePath, paperEdgePaint)
 	}
 
 	private companion object {

@@ -1,12 +1,14 @@
 # Reader Snapshot-Wave Page-Turn Design
 
-**Status:** Rev 2 approved for staged correction after emulator rejection of the rigid spread slide
+**Status:** Rev 3 approved for staged correction after emulator rejection of rigid spread motion and uniform leaf compression
 
 **Date:** 2026-07-13
 
 **Baseline:** `master` at `e0306bc7`
 
 **Rev 2 correction:** The snapshot cache, passive renderer, visual/settled position split, and serialized Foliate settlement remain accepted. The flat full-spread translation is rejected. Rendering now uses a lightweight page-aware wave over the active physical leaf.
+
+**Rev 3 correction:** Google Play Books does not uniformly squeeze the complete page into the remaining width. Most visible paper and text remain at 1:1 scale; compression and curvature are confined to a bounded strip beside the moving edge. Retired source texture collapses at that boundary. The boundary uses one soft warm shadow plus a subtle paper edge, not a dark/white double stroke.
 
 **Supersedes:** The curl, folded reverse-face, and alternating portrait-leaf portions of `2026-07-12-reader-destination-aware-page-turn-design.md`. The exact visual-page locator, passive-renderer isolation, half-resolution capture, generation invalidation, and exact Foliate settlement remain valid and are reused.
 
@@ -49,8 +51,9 @@ The accepted visual reference is Google Play Books on Android.
 
 - The destination page is stationary underneath.
 - The current page retracts toward the fixed inner edge while following the finger.
-- Deformation is zero at the fixed edge and grows smoothly toward the dragged outer edge.
-- A narrow curved shadow and edge highlight follow the deformed boundary.
+- The stable interior remains at 1:1 scale; deformation and compression are confined to the moving-edge band.
+- Content beyond the retreating edge disappears at that boundary instead of being squeezed across the remaining page.
+- One soft curved shadow and a subtle paper edge follow the deformed boundary.
 - Releasing beyond the commit threshold completes the translation.
 - Releasing before the threshold returns the current page to its origin.
 
@@ -59,7 +62,8 @@ The accepted visual reference is Google Play Books on Android.
 - The current page remains stationary underneath.
 - The previous page expands from its fixed inner edge toward the outer edge with the finger.
 - The same wave field is mirrored; it is not a separate animation implementation.
-- A narrow curved shadow and edge highlight remain attached to the expanding boundary.
+- Stable revealed content remains at 1:1 scale while only the expanding boundary band compresses.
+- One soft curved shadow and a subtle paper edge remain attached to the expanding boundary.
 - Commit and cancel use the same release rules as forward.
 
 ### 3.3 Landscape
@@ -95,6 +99,8 @@ RTL mirrors physical direction while preserving logical next/previous behavior.
 15. Snapshot memory is explicitly bounded and recycled.
 16. Landscape deformation is bounded to one resolved leaf rectangle; the complete spread is never translated as one surface.
 17. The binding coordinate remains stationary throughout a landscape gesture.
+18. Visible page content outside the bounded edge band remains at 1:1 horizontal scale.
+19. The moving boundary never uses a white highlight plus dark shadow double stroke.
 
 ## 5. Public Preference Contract
 
@@ -235,13 +241,23 @@ draw curved boundary highlight and shadow inside leftLeafRect
 The wave field is monotonic and cheap:
 
 ```text
-u = distanceFromBinding / leafWidth
-edgeWeight = smoothstep(0, 1, u)
-primaryDisplacement = signedProgress * leafWidth * edgeWeight
-waveAmplitude = maxAmplitude * progress * (1 - progress) * edgeWeight
+movingEdge = openness * leafWidth
+bandWidth = min(0.20 * leafWidth, movingEdge)
+rigidLimit = movingEdge - bandWidth
+sourceEnd = movingEdge + min(0.75 * bandWidth, leafWidth - movingEdge)
+
+if sourceDistance <= rigidLimit:
+    mappedDistance = sourceDistance
+else if sourceDistance < sourceEnd:
+    mappedDistance = map(sourceDistance, rigidLimit..sourceEnd, rigidLimit..movingEdge)
+else:
+    mappedDistance = movingEdge
+
+edgeWeight = clamp((mappedDistance - rigidLimit) / bandWidth, 0, 1)
+waveAmplitude = maxAmplitude * openness * (1 - openness) * edgeWeight
 ```
 
-The binding row/column has `edgeWeight = 0`; the outer edge has `edgeWeight = 1`. The same vertices transform the complete front bitmap, so text cannot remain straight while paper bends.
+The stable interior is not rescaled. Only source texture entering the bounded deformation band is compressed; retired texture produces degenerate boundary triangles and is no longer visible. The same vertices transform paper and text, so text cannot remain straight while paper bends.
 
 ### 8.3 Release animation
 

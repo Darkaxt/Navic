@@ -4,7 +4,7 @@
 
 **Goal:** Replace the curl/reverse-face Canvas page turn with a Google Play Books-style snapshot wave that supports immediate consecutive portrait page turns and page-aware landscape spread turns while Foliate settles exact targets in the background.
 
-**Architecture:** Reuse the existing exact visual-page locator, passive Foliate renderer, half-resolution capture, generation invalidation, exact relocation, five-snapshot rolling cache, and serialized settlement. Compose source/destination snapshots through one bounded reusable front-leaf mesh. Portrait treats the page as one leaf. Landscape keeps complete-spread snapshots for cache/final shields but splits composition at the resolved gutter so only the active physical leaf deforms.
+**Architecture:** Reuse the existing exact visual-page locator, passive Foliate renderer, half-resolution capture, generation invalidation, exact relocation, five-snapshot rolling cache, and serialized settlement. Compose source/destination snapshots through one bounded reusable front-leaf mesh whose stable interior stays at 1:1 scale and whose deformation is localized beside the moving edge. Portrait treats the page as one leaf. Landscape keeps complete-spread snapshots for cache/final shields but splits composition at the resolved gutter so only the active physical leaf deforms.
 
 **Tech Stack:** Kotlin Multiplatform, Android View/Canvas, Android WebView, Foliate JavaScript, Node test runner, Kotlin test, Gradle Android host tests, readerdev emulator, ADB, Chrome DevTools Protocol.
 
@@ -695,6 +695,8 @@ Lock these invariants:
 - progress `0` and `1` have no residual wave curvature
 - mirrored direction uses the same geometry function
 - vertices stay inside the active leaf plus the bounded shadow allowance
+- stable interior vertices remain at their source x-coordinate
+- compression is confined to the moving-edge band and retired texture collapses at the boundary
 - no vertex or index arrays are allocated from `onDraw`
 
 - [ ] **Step 2: Verify RED**
@@ -703,7 +705,7 @@ Run the new geometry test and renderer source test. They must fail because the c
 
 - [ ] **Step 3: Implement the minimal mesh**
 
-Use one reusable strip/grid mesh over the front bitmap only. Start with a bounded 16-column mesh and increase only if emulator evidence shows visible faceting. Use `Canvas.drawBitmapMesh` or the equivalent reusable vertex path. Do not add a reverse surface, third snapshot, WebView call, or draw-time allocation.
+Use one reusable strip/grid mesh over the front bitmap only. Start with a bounded 16-column mesh and increase only if emulator evidence shows visible faceting. Preserve source coordinates before the rigid limit, compress only the bounded source intake beside the moving edge, and collapse retired source columns at the edge. Use `Canvas.drawBitmapMesh` or the equivalent reusable vertex path. Do not add a reverse surface, third snapshot, WebView call, or draw-time allocation.
 
 - [ ] **Step 4: Remove rigid production translation**
 
@@ -731,7 +733,7 @@ Progress follows the active page width, reaches both endpoints while the finger 
 
 - [ ] **Step 3: ReaderDev portrait gate**
 
-Capture start, quarter, midpoint, three-quarter, and end frames in both directions. Reject straight rigid translation, mirrored text, transparent paper, endpoint residue, tap fallback, and post-settlement blink.
+Capture start, quarter, midpoint, three-quarter, and end frames in both directions. Reject straight rigid translation, uniform whole-page text compression, mirrored text, transparent paper, endpoint residue, tap fallback, a white/dark double edge stroke, and post-settlement blink.
 
 - [ ] **Step 4: Commit accepted portrait behavior**
 
@@ -763,6 +765,7 @@ At tablet resolution capture both directions and verify:
 - active deformation stops at the gutter
 - inactive leaf remains stationary until its explicit handoff
 - text and paper share the same deformation
+- visible text outside the moving-edge band remains at 1:1 scale
 - no transparent gap, stale shield, or destination blink
 - rapid consecutive gestures remain accepted
 

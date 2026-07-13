@@ -52,6 +52,45 @@ class ReaderPageTurnWaveGeometryTest {
 	}
 
 	@Test
+	fun intermediateCompressionIsLimitedToTheMovingEdgeBand() {
+		val geometry = ReaderPageTurnWaveGeometry(columns = 20, rows = 8)
+		geometry.update(leaf, ReaderPageTurnFixedEdge.Left, openness = 0.6f)
+
+		val interiorColumn = 4
+		val interiorTextureX = leaf.left + leaf.width * (interiorColumn / geometry.columns.toFloat())
+		assertEquals(
+			interiorTextureX,
+			geometry.vertexX(interiorColumn, geometry.rows / 2),
+			absoluteTolerance = 0.001f,
+			message = "The stable page interior must remain at 1:1 scale."
+		)
+
+		val edgeBandColumn = 10
+		val edgeBandTextureX = leaf.left + leaf.width * (edgeBandColumn / geometry.columns.toFloat())
+		assertTrue(
+			geometry.vertexX(edgeBandColumn, geometry.rows / 2) < edgeBandTextureX - 1f,
+			"Only the strip approaching the moving edge should compress."
+		)
+	}
+
+	@Test
+	fun retiredTextureColumnsCollapseAtTheMovingBoundaryInsteadOfCompressingAcrossTheLeaf() {
+		val geometry = ReaderPageTurnWaveGeometry(columns = 20, rows = 8)
+		geometry.update(leaf, ReaderPageTurnFixedEdge.Left, openness = 0.5f)
+
+		val movingEdgeX = leaf.left + leaf.width * 0.5f
+		val collapsedFromColumn = 13
+		for (column in collapsedFromColumn..geometry.columns) {
+			assertEquals(
+				movingEdgeX,
+				geometry.vertexX(column, 0),
+				absoluteTolerance = 0.001f
+			)
+		}
+		assertEquals(movingEdgeX, geometry.vertexX(geometry.columns, 0), absoluteTolerance = 0.001f)
+	}
+
+	@Test
 	fun rightFixedGeometryMirrorsLeftFixedGeometry() {
 		val leftFixed = ReaderPageTurnWaveGeometry(columns = 16, rows = 8)
 		val rightFixed = ReaderPageTurnWaveGeometry(columns = 16, rows = 8)

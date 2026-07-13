@@ -55,6 +55,18 @@ class ReaderPageTurnSlideViewSourceTest {
 	}
 
 	@Test
+	fun movingBoundaryUsesOneSoftShadowAndNoWhiteHighlightStroke() {
+		val source = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
+		val movingEdge = source.substringAfter("private fun drawMovingEdge(").substringBefore("private companion object")
+
+		assertContains(movingEdge, "edgeShadowEnvelope")
+		assertContains(movingEdge, "softShadowPaint")
+		assertContains(movingEdge, "paperEdgePaint")
+		assertFalse(movingEdge.contains("highlightPaint"))
+		assertFalse(movingEdge.contains("255, 252, 244"))
+	}
+
+	@Test
 	fun controllerAttachesTheSnapshotWaveRenderer() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 
