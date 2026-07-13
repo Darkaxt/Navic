@@ -210,7 +210,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, normal local-asset cache policy shipped in `iota16`, and scoped reader-dev debugging shipped in `iota17`. Capability gating and process-death restoration of small transient drafts remain separate change units.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, normal local-asset cache policy shipped in `iota16`, and scoped reader-dev debugging shipped in `iota17`. Capability gating is candidate-validated for `iota18`; process-death restoration of small transient drafts remains a separate change unit.
 
 ### Change units
 
@@ -231,6 +231,15 @@ Every tranche uses the following pipeline:
 - Process-death test restores durable/saved state and intentionally reconstructs derived state.
 - Format capability tests prevent unsupported commands for CBZ/PDF/etc.
 - Device tests for EPUB/PDF/CBZ, background/foreground, renderer kill, and process recreation.
+
+### B3 candidate evidence
+
+- `ReaderEngineCapability` and one format-owned matrix make search/media-overlay support explicit: EPUB/AZW3/MOBI/FB2 support both; PDF/CBZ support neither.
+- Controller gates prevent unsupported search, overlay, Whispersync, dialog, seek, and playback state before mutation. Opening a publication clears transient capability state. Whispersync launch resolution and Compose search/player/status/settings surfaces use the same capability source.
+- Coordinator and Foliate adapter gates reject unsupported commands without changing bridge view state or command key. Unsupported search/overlay host events are ignored, while navigation remains available.
+- RED failed because the new capability symbols were unresolved. The integrated B3 owner batch passed 156/156. A broad 195-test runtime/chrome batch's 20 remaining failures reproduced on clean public `master`; the one B3 source-contract delta was corrected and passed.
+- Source vendor 30/30, tamper self-test, attribution, Android debug assembly, packaged vendor 30/30, and packaged attribution passed. Pre-bump debug APK is 74,988,168 bytes with SHA-256 `ddacb6e569b5a106fa55998362c4e808425a8d65bff795fcbf99bfc90c7c0b72`. No iOS task ran.
+- Post-bump owner tests remained 156/156. The debug APK is 74,988,172 bytes with SHA-256 `45d46cddbe80072cb52951c4f9bc5f2d97908a5674af8f634417c50278935d3c`, package `darkaxt.navic.debug`, and metadata `545 / v1.0.11-iota18`; packaged vendor 30/30 and attribution passed.
 
 ### B4 implementation evidence
 
@@ -522,7 +531,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A21 | Medium (governance) | Released | `v1.0.11-iota11` |
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
 | B2 | Low | Pending | Tranche 7 |
-| B3 | Low | Pending | Tranche 3 |
+| B3 | Low | Candidate validated | `v1.0.11-iota18` |
 | B4 | High | Released | `v1.0.11-iota12` |
 | B5 | High | Released | `v1.0.11-iota13` |
 | B6 | Medium | Released | `v1.0.11-iota14` |

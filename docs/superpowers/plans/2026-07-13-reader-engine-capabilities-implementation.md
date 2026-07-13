@@ -70,14 +70,16 @@ Integrated evidence: the B3 owner batch passed 156/156 with zero failures, error
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-13-reader-engine-capabilities-implementation.md`
 
-- [ ] Record candidate evidence and mark B3 candidate-validated.
-- [ ] Set `versionCode=545` and `versionName="v1.0.11-iota18"` only after code validation.
-- [ ] Verify the version, naming continuity, and absence of unpadded iota/kappa/lambda refs.
-- [ ] Rebase on current public master if it advanced and rerun affected validation.
+- [x] Record candidate evidence and mark B3 candidate-validated.
+- [x] Set `versionCode=545` and `versionName="v1.0.11-iota18"` only after code validation.
+- [x] Verify the version, naming continuity, and absence of unpadded iota/kappa/lambda refs.
+- [x] Rebase on current public master if it advanced and rerun affected validation.
 - [ ] Push the integrated candidate, create the annotated tag, and publish Android only.
 - [ ] Verify GitHub Actions succeeded with both iOS jobs skipped.
 - [ ] Download and independently verify the signed public APK, metadata, digest, certificate, vendor assets, and attribution.
 - [ ] Upgrade `darkaxt.navic` in place with ADB and verify resumed startup plus targeted error logs.
+
+Release-candidate evidence: `verify-android-release-version.ps1` accepted `v1.0.11-iota18`; source metadata is `545 / v1.0.11-iota18`; `git diff --check` passed; `iota18` was absent from remote tags and releases; and no unpadded iota, kappa, or lambda remote ref existed. The branch was four commits ahead and zero behind public `master` at `4cb276b2`, so no rebase was required. Post-bump owner tests remained 156/156. Android debug assembly succeeded; the 74,988,172-byte APK has SHA-256 `45d46cddbe80072cb52951c4f9bc5f2d97908a5674af8f634417c50278935d3c`, package `darkaxt.navic.debug`, metadata `545 / v1.0.11-iota18`, all 30 packaged vendor files, and complete packaged attribution.
 
 ### Task 5: Record immutable evidence and clean
 
