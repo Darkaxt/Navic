@@ -27,7 +27,7 @@
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/StorytellerReadaloudStreamingTest.kt`
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/StorytellerReadaloudRuntimeLoaderTest.kt`
 
-- [ ] **Step 1: Add a large on-disk EPUB fixture without creating a large audio byte array**
+- [x] **Step 1: Add a large on-disk EPUB fixture without creating a large audio byte array**
 
 Write ZIP entries through a reusable 64 KiB generated block. Include valid container/OPF/SMIL/XHTML metadata, a 24 MiB manifest audio entry, and a 32 MiB unreferenced decoy entry.
 
@@ -45,7 +45,7 @@ private fun writeGeneratedEntry(zip: ZipOutputStream, path: String, byteCount: L
 }
 ```
 
-- [ ] **Step 2: Add failing assertions for the production memory contract**
+- [x] **Step 2: Add failing assertions for the production memory contract**
 
 ```kotlin
 assertEquals(1, metrics.archiveOpenCount)
@@ -56,11 +56,11 @@ assertEquals(listOf("EPUB/Audio/chapter1.mp3"), metrics.streamedEntryNames)
 assertFalse(metrics.openedEntryNames.contains("EPUB/Unused/decoy.bin"))
 ```
 
-- [ ] **Step 3: Add a source contract that rejects whole-publication materialization**
+- [x] **Step 3: Add a source contract that rejects whole-publication materialization**
 
 Read the runtime, parser, and cache production sources and reject `resolved.publicationFile.readBytes()`, `epubEntries`, and `Map<String, ByteArray>` archive storage.
 
-- [ ] **Step 4: Run the focused tests and record RED**
+- [x] **Step 4: Run the focused tests and record RED**
 
 Run:
 
@@ -76,7 +76,7 @@ Expected: compilation fails because `StorytellerArchiveReadMetrics` and the file
 - Create: `composeApp/src/androidMain/kotlin/paige/navic/reader/StorytellerEpubArchive.android.kt`
 - Test: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/StorytellerReadaloudStreamingTest.kt`
 
-- [ ] **Step 1: Add deterministic metrics and the archive lifecycle**
+- [x] **Step 1: Add deterministic metrics and the archive lifecycle**
 
 ```kotlin
 internal data class StorytellerArchiveReadMetrics(
@@ -100,15 +100,15 @@ internal class StorytellerEpubArchive private constructor(
 
 Index entries by `normalizedMediaOverlayResource`, reject duplicate normalized paths, and increment `archiveOpenCount` exactly once after `ZipFile` opens.
 
-- [ ] **Step 2: Add bounded metadata reads**
+- [x] **Step 2: Add bounded metadata reads**
 
 `readMetadata(path)` must reject entries larger than 8 MiB using both declared size and a bounded streaming count. It records the normalized path and peak retained metadata bytes, then returns only that entry's bytes.
 
-- [ ] **Step 3: Add direct streamed extraction**
+- [x] **Step 3: Add direct streamed extraction**
 
 `copyEntryTo(path, target)` uses one 64 KiB buffer and `FileOutputStream`; it never returns audio bytes. Record streamed path, byte count, and maximum buffer size. Return `false` for missing or external entries without creating a target.
 
-- [ ] **Step 4: Run the archive contract test**
+- [x] **Step 4: Run the archive contract test**
 
 Run the Task 1 focused command. Expected: archive-level tests compile; loader/source-contract assertions remain RED until Tasks 3-4.
 
@@ -118,19 +118,19 @@ Run the Task 1 focused command. Expected: archive-level tests compile; loader/so
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/reader/StorytellerMediaOverlayParser.android.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/StorytellerMediaOverlayParserTest.kt`
 
-- [ ] **Step 1: Move package parsing to `StorytellerEpubArchive`**
+- [x] **Step 1: Move package parsing to `StorytellerEpubArchive`**
 
 Add `internal fun parsePackage(archive: StorytellerEpubArchive)` and make production parsing use it. Resolve container and OPF through bounded reads; use archive entry names only for OPF fallback.
 
-- [ ] **Step 2: Split SMIL decoding from label enrichment**
+- [x] **Step 2: Split SMIL decoding from label enrichment**
 
 Parse SMIL into an internal value carrying audio path, text path, fragment, clip bounds, and fallback label. Collect distinct referenced text paths, read only those XHTML documents, then construct `MediaOverlayClip` values with the existing label precedence.
 
-- [ ] **Step 3: Preserve byte-array compatibility without archive maps**
+- [x] **Step 3: Preserve byte-array compatibility without archive maps**
 
 The existing `parse(ByteArray)` and `parsePackage(ByteArray)` wrappers write a temporary EPUB, call the file-backed parser, and delete the temporary file. Remove `epubEntries`, `ZipInputStream`, and `ByteArrayOutputStream` from production parser code.
 
-- [ ] **Step 4: Run parser tests**
+- [x] **Step 4: Run parser tests**
 
 Run:
 
@@ -146,23 +146,23 @@ Expected: all existing clip, label, metadata, and playback-plan assertions pass 
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/reader/StorytellerReadaloudAudioCache.android.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/StorytellerReadaloudAudioCacheTest.kt`
 
-- [ ] **Step 1: Change materialization inputs**
+- [x] **Step 1: Change materialization inputs**
 
 Replace `epubBytes` with `archive`, `publicationFile`, and `publicationUrl`. Return the resolver-owned publication unchanged and extract only `readaloudPackage.audioResources` with archive entries.
 
-- [ ] **Step 2: Add collision-free deterministic audio names**
+- [x] **Step 2: Add collision-free deterministic audio names**
 
 Use the package order plus sanitized leaf name, for example `audio-0001-chapter1.mp3`, and keep URI lookup keyed by normalized resource href.
 
-- [ ] **Step 3: Stage and promote cache layout `v2`**
+- [x] **Step 3: Stage and promote cache layout `v2`**
 
 Build under `storyteller-readaloud/<session>/v2.pending`, then move to `v2` with NIO atomic move when supported and same-filesystem replacement otherwise. On failure, remove only pending output and leave legacy/root files readable. After successful promotion, remove every legacy child except `v2`.
 
-- [ ] **Step 4: Test success, failure, and reuse**
+- [x] **Step 4: Test success, failure, and reuse**
 
 Verify the publication file is not copied, only referenced audio is present, the second materialization reuses complete `v2` files, failed extraction preserves a seeded legacy file, successful extraction removes it, and lease release removes the session root.
 
-- [ ] **Step 5: Run cache tests**
+- [x] **Step 5: Run cache tests**
 
 Run:
 
@@ -178,7 +178,7 @@ Expected: all versioning, extraction, fallback, and cleanup assertions pass.
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/reader/StorytellerReadaloudRuntimeLoader.android.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/StorytellerReadaloudRuntimeLoaderTest.kt`
 
-- [ ] **Step 1: Remove the whole-publication byte read**
+- [x] **Step 1: Remove the whole-publication byte read**
 
 Open `resolved.publicationFile` once and perform parser plus cache work inside the same `use` block.
 
@@ -197,15 +197,15 @@ val (readaloudPackage, cache) = StorytellerEpubArchive.open(resolved.publication
 }
 ```
 
-- [ ] **Step 2: Expose metrics through an optional observer callback**
+- [x] **Step 2: Expose metrics through an optional observer callback**
 
 Use `archiveReadObserver: (StorytellerArchiveReadMetrics) -> Unit = {}` and invoke it after the archive closes. This is observation only; it does not alter control flow or introduce a timeout.
 
-- [ ] **Step 3: Update runtime assertions**
+- [x] **Step 3: Update runtime assertions**
 
 Expect the runtime publication URL to remain under `reader-publications`, the source resource to fetch once, the archive to open once per load, the second load to reuse resolver and audio caches, and the combined leases to remove both managed session roots.
 
-- [ ] **Step 4: Run the integrated B11 tests**
+- [x] **Step 4: Run the integrated B11 tests**
 
 Run:
 
@@ -215,6 +215,15 @@ Run:
 
 Expected: all B11 tests pass with zero failures and the source contract finds no archive materialization pattern.
 
+## Implementation And Validation Evidence
+
+- The initial focused run failed on the missing archive metrics/type and new cache inputs, recording the required RED state before production implementation.
+- The integrated parser/cache/loader/streaming suite passed 10/10. The adjacent owner batch passed 154/154 after excluding four failures reproduced unchanged on the clean public baseline; the post-device-fix parser/cache/loader/streaming/controller batch passed 16/16.
+- The generated 56 MiB large EPUB proof opened the archive once, retained less than 1 MiB of metadata, used a 64 KiB audio copy buffer, streamed only the referenced 24 MiB audio entry, and never opened the unreferenced 32 MiB decoy.
+- Emulator `readerDev` validation loaded a valid EPUB 3 media-overlay fixture and reached `publicationReady`. Runtime storage contained one 11,910-byte `reader-publications/.../publication.epub` and one 16,920-byte `storyteller-readaloud/.../v2/audio-0001-chapter1.mp3`, with no second EPUB.
+- Media3 loaded one track/one clip and played the extracted MP3 to completion (`position=4059 ms`, `buffered=4048 ms`) without a playback or Android runtime error. Normal reader exit removed both managed session trees.
+- Validation also exposed a pre-existing fatal media-button ambiguity from two discoverable `MediaSessionService` implementations. Navic now uses an explicit `PlaybackMediaButtonReceiver` for main-player restart routing while retaining both valid service declarations; the manifest/widget/source contract passes.
+
 ## Task 6: Validate, Document, And Release
 
 **Files:**
@@ -223,15 +232,15 @@ Expected: all B11 tests pass with zero failures and the source contract finds no
 - Modify: `docs/superpowers/plans/2026-07-13-readaloud-epub-streaming-implementation.md`
 - Modify: `androidApp/build.gradle.kts`
 
-- [ ] **Step 1: Run adjacent owner tests**
+- [x] **Step 1: Run adjacent owner tests**
 
 Include publication resolver, managed storage, parser, cache, runtime loader, reader runtime navigation, readaloud sync, media-overlay sync, controller, and coordinator tests. Record exact XML counts.
 
-- [ ] **Step 2: Run Android governance and assembly gates**
+- [x] **Step 2: Run Android governance and assembly gates**
 
 Run release-version verification for `v1.0.11-iota20`, source vendor 30/30, verifier tamper self-test, attribution, Android debug and reader-dev assembly, then packaged vendor/attribution for both APKs. Do not invoke iOS tasks.
 
-- [ ] **Step 3: Run Android readaloud smoke validation**
+- [x] **Step 3: Run Android readaloud smoke validation**
 
 Open a readaloud EPUB through reader-dev, confirm `publicationReady`, local `file:` audio plan resources, playback start, overlay progression, session cleanup on exit, and no AndroidRuntime/Media3 fatal. Capture managed paths proving one publication file plus versioned audio output, not two EPUB copies.
 

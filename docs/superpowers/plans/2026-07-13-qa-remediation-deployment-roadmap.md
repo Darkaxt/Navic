@@ -346,6 +346,14 @@ Every tranche uses the following pipeline:
 - Cache invalidation tests cover base URL, API key/account, source mutation, stale fallback, and explicit refresh.
 - Resource scan rejects new hard-coded visible strings in scoped packages.
 
+### B11 implementation evidence (release pending)
+
+- File-backed `ZipFile` access replaces both whole-archive maps and the runtime `publicationFile.readBytes()` call. Parser and cache share one archive scope and the resolver-owned publication is not copied.
+- The 56 MiB deterministic fixture opens once, buffers less than 1 MiB of metadata, uses a 64 KiB extraction buffer, streams the referenced 24 MiB audio entry, and does not open the unreferenced 32 MiB decoy.
+- Versioned `v2` audio cache tests cover reuse, legacy preservation on failure, legacy cleanup after successful promotion, and session-lease deletion.
+- Android `readerDev` loaded a valid local media-overlay EPUB, reached `publicationReady`, stored one EPUB plus one `v2` MP3, played the MP3 to completion through Media3, and removed both managed roots on normal exit.
+- Device validation found and fixed a pre-existing Media3 media-button receiver crash caused by package-wide discovery of two session services. The custom receiver explicitly restarts only the main playback service while active sessions remain system-routed.
+
 ### Rollout and rollback
 
 - Streamed extraction uses a versioned managed cache directory; old cache remains readable for one release and is cleaned after successful regeneration.
@@ -553,7 +561,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B8 | Low | Released | `v1.0.11-iota16` |
 | B9 | High | Released | `v1.0.11-iota01` |
 | B10 | Medium | Released | `v1.0.11-iota01` |
-| B11 | Medium | Pending | Tranche 4 |
+| B11 | Medium | Implemented, release pending | `v1.0.11-iota20` |
 | B12 | Medium | Pending | Tranche 4 |
 | B13 | Medium | Pending | Tranche 4 |
 | B14 | Medium | Superseded as written | No deployment |
