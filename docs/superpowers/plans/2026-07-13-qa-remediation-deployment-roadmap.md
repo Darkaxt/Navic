@@ -227,6 +227,13 @@ Every tranche uses the following pipeline:
 - Format capability tests prevent unsupported commands for CBZ/PDF/etc.
 - Device tests for EPUB/PDF/CBZ, background/foreground, renderer kill, and process recreation.
 
+### B4 implementation evidence
+
+- Prepared for `v1.0.11-iota12`. `ReaderBridgeDecodeResult` classifies malformed JSON, non-object payloads, missing event types, unknown event types, invalid known payloads, and successful events without throwing across the JavaScript interface.
+- Rejected messages retain only a control-sanitized diagnostic snapshot capped at 500 characters. The Android bridge no longer logs every raw message; it warning-logs only the first rejection in each consecutive-failure episode.
+- `ReaderBridgeMessageProcessor` resets the episode on any decoded event and emits one `ReaderBridgeEvent.Error(code="reader_bridge_protocol")` after three consecutive rejections. The existing adapter/controller/viewer path makes that persistent protocol failure UI-visible; no elapsed-time cancellation or acknowledgement timeout was added.
+- Protocol, processor, Android JavaScript bridge, Foliate adapter, and reader controller tests passed 124/124 with zero failures or errors. Public release, APK, signature, and device validation remain pending.
+
 ### Rollout and rollback
 
 - Ship protocol changes with Kotlin and packaged JS in one commit/release; never deploy one side independently.
@@ -452,7 +459,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
 | B2 | Low | Pending | Tranche 7 |
 | B3 | Low | Pending | Tranche 3 |
-| B4 | High | Pending | Tranche 3 |
+| B4 | High | Implemented; release validation pending | `v1.0.11-iota12` candidate |
 | B5 | High | Partially improved; ack pending | Tranche 3 |
 | B6 | Medium | Pending | Tranche 3 |
 | B7 | Medium | Released | `v1.0.11-iota11` |

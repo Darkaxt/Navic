@@ -40,8 +40,8 @@
 
 ### Task 3: Validate And Publish Iota12
 
-- [ ] Update B4 and the roadmap with implementation evidence; set `versionCode=539` and `versionName=v1.0.11-iota12`.
-- [ ] Run focused bridge tests, the owning reader test group, Android debug assembly, release-version verification, and `git diff --check`.
+- [x] Update B4 and the roadmap with implementation evidence; set `versionCode=539` and `versionName=v1.0.11-iota12`.
+- [x] Run focused bridge tests, the owning reader test group, Android debug assembly, release-version verification, and `git diff --check`.
 - [ ] Rebase onto current `fork/master`, rerun the final gate, commit, push public `master`, and push annotated tag `v1.0.11-iota12`.
 - [ ] Verify GitHub Actions, public APK hash/signature/embedded identity, and an ADB in-place emulator upgrade with no AndroidRuntime startup error.
 - [ ] Record public release evidence, push it, remove this worktree and local branch, and verify unrelated ebook/page-turn worktrees are unchanged.
