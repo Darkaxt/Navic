@@ -71,6 +71,7 @@ internal class ReaderPageTurnController(
 	private var activePrewarmPlan: ReaderPageTurnTransitionPlan? = null
 	private var activePrewarmLivePageIndex: Int? = null
 	private var slideCoordinator: ReaderPageSlideCoordinator? = null
+	private var visualCommitPending = false
 	private var preparationShield: ImageView? = null
 	private var preparationShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var destroyed = false
@@ -124,6 +125,7 @@ internal class ReaderPageTurnController(
 	}
 
 	fun cancel() {
+		visualCommitPending = false
 		activeSettleToken = null
 		cancelPrewarm()
 		cancelPreparation()
@@ -138,6 +140,7 @@ internal class ReaderPageTurnController(
 	fun destroy() {
 		if (destroyed) return
 		destroyed = true
+		visualCommitPending = false
 		activeSettleToken = null
 		cancelPrewarm()
 		destroyPageTurnPreviewRenderer("controller-destroyed")
@@ -153,6 +156,7 @@ internal class ReaderPageTurnController(
 
 	fun invalidate(reason: String) {
 		if (destroyed) return
+		visualCommitPending = false
 		activeSettleToken = null
 		cancelPrewarm()
 		destroyPageTurnPreviewRenderer(reason)
@@ -169,6 +173,7 @@ internal class ReaderPageTurnController(
 	fun synchronizeVisualPageIndex(pageIndex: Int?) {
 		if (destroyed || pageIndex == null || pageIndex < 0) return
 		if (slideCoordinator?.visualPageIndex == pageIndex) return
+		visualCommitPending = false
 		activeSettleToken = null
 		cancelPrewarm()
 		cancelPreparation()
@@ -231,6 +236,7 @@ internal class ReaderPageTurnController(
 		if (
 			destroyed ||
 			!isAvailable ||
+			visualCommitPending ||
 			state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle
 		) return false
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
@@ -629,7 +635,10 @@ internal class ReaderPageTurnController(
 				is ReaderPageTurnEffect.Render -> slideView?.setProgress(effect.progress)
 				is ReaderPageTurnEffect.AnimateCommit -> animateCommit(effect.fromProgress)
 				is ReaderPageTurnEffect.AnimateRelax -> animateRelax(effect.fromProgress)
-				is ReaderPageTurnEffect.Commit -> host.postOnAnimation { commitTurn(effect.direction) }
+				is ReaderPageTurnEffect.Commit -> {
+					visualCommitPending = true
+					host.postOnAnimation { commitTurn(effect.direction) }
+				}
 				ReaderPageTurnEffect.ShowFinalBase -> slideView?.showFinalBase()
 				ReaderPageTurnEffect.DetachOverlay -> {
 					if (slideCoordinator?.activeSettlementTarget == null) detachAfterNavigationFrame()
@@ -641,6 +650,7 @@ internal class ReaderPageTurnController(
 	private fun commitTurn(direction: ReaderPageTurnPhysicalDirection) {
 		val webView = webViewProvider()
 		if (webView == null || !webView.isAttachedToWindow) {
+			visualCommitPending = false
 			onCommitTurn(direction)
 			detachAfterNavigationFrame()
 			return
@@ -651,10 +661,12 @@ internal class ReaderPageTurnController(
 				slideCoordinator = it
 			}
 			handleCoordinatorEffects(coordinator.visualCommitted(plan.targetPageIndex))
+			visualCommitPending = false
 			onRequestPrewarm()
 			return
 		}
 		val token = "navic-page-turn-${++settleGeneration}"
+		visualCommitPending = false
 		activeSettleToken = token
 		val quotedToken = JSONObject.quote(token)
 		webView.evaluateJavascript(

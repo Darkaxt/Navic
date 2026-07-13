@@ -577,6 +577,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				pageTurnPrewarmStableFrameCount = 1
 			}
 			if (pageTurnPrewarmStableFrameCount < PageTurnPrewarmRequiredStableFrames) {
+				postInvalidateOnAnimation()
 				return@OnPreDrawListener true
 			}
 			if (pageTurnController.prewarmAdjacent()) {
@@ -586,6 +587,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 		pageTurnPrewarmLayoutListener = listener
 		viewTreeObserver.addOnPreDrawListener(listener)
+		postInvalidateOnAnimation()
 	}
 
 	private fun pageTurnPrewarmLayoutSignature(webView: WebView): Long {

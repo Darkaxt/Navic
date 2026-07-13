@@ -376,6 +376,45 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun adjacentPrewarmWaitsUntilTheQueuedVisualCommitIsApplied() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val prewarm = controller
+			.substringAfter("fun prewarmAdjacent()")
+			.substringBefore("private fun queryAdjacentPrewarmPlans")
+		val effects = controller
+			.substringAfter("private fun handleEffects(")
+			.substringBefore("private fun commitTurn(")
+		val commit = controller
+			.substringAfter("private fun commitTurn(")
+			.substringBefore("private fun settleExactVisualPage(")
+
+		assertContains(controller, "private var visualCommitPending = false")
+		assertContains(prewarm, "visualCommitPending")
+		assertContains(effects, "visualCommitPending = true")
+		assertContains(commit, "visualCommitPending = false")
+	}
+
+	@Test
+	fun stableFramePrewarmGateRequestsItsOwnSecondFrame() {
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val prewarm = host
+			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("private fun pageTurnPrewarmLayoutSignature")
+
+		assertContains(
+			prewarm,
+			"if (pageTurnPrewarmStableFrameCount < PageTurnPrewarmRequiredStableFrames) {"
+		)
+		assertContains(prewarm, "postInvalidateOnAnimation()")
+		assertContains(prewarm, "viewTreeObserver.addOnPreDrawListener(listener)")
+		assertTrue(
+			prewarm.lastIndexOf("postInvalidateOnAnimation()") >
+				prewarm.indexOf("viewTreeObserver.addOnPreDrawListener(listener)"),
+			"Registering the stable-frame listener must schedule the first observed frame"
+		)
+	}
+
+	@Test
 	fun releasedGestureConsumesWarmSnapshotOrWaitsForInFlightCapture() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val release = controller.substringAfter("fun release(").substringBefore("private fun pageAxisWidth")
