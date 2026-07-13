@@ -9,6 +9,7 @@ Released Tranche 2 storage slice: `v1.0.11-iota2`
 Released Tranche 2 download slice: `v1.0.11-iota3`
 Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Released Tranche 5 network-policy slice: `v1.0.11-iota9`
+Next release series: `v1.0.11-kappa1` (`versionCode=533`)
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -71,7 +72,7 @@ Every tranche uses the following pipeline:
 4. Implement in dependency order, committing each behavior boundary separately.
 5. Rebase onto current `master`; rerun the tranche test matrix and Android APK build.
 6. Fast-forward `master` without staging any unrelated worktree changes.
-7. Publish the next unused release tag through GitHub Actions. Tranche 1 starts the `iota` series at `v1.0.11-iota1`.
+7. Publish the next unused release tag through GitHub Actions. Tranche 1 starts the `iota` series at `v1.0.11-iota1`; after `v1.0.11-iota10`, continue with `v1.0.11-kappa1`.
 8. Verify workflow, release asset digest, APK signature, embedded version, install, launch, and tranche-specific device behavior.
 9. Record release evidence in the audit/plan, push the evidence commit, then remove the worktree, branch, and downloaded verification artifact.
 
