@@ -94,16 +94,16 @@ class PerformanceAntiRegressionGuardTest {
 	}
 
 	@Test
-	fun artistPhotoCacheIsCollectedOnceViaCompositionLocalNotPerRow() {
+	fun artistPhotoCacheIsSharedByAnExplicitHotStoreNotCollectedPerRow() {
 		val state = File("src/commonMain/kotlin/paige/navic/ui/components/common/PlaybackArtworkState.kt").readText()
 		assertTrue(
-			"LocalArtistPhotoEntries.current?.let { return it }" in state,
-			"rememberPlaybackArtistPhotoCacheEntries must read the shared LocalArtistPhotoEntries snapshot before falling back to collecting."
+			"koinInject<ArtistPhotoSnapshotStore>()" in state,
+			"Playback artwork must read the shared artist-photo snapshot store."
 		)
-		val app = File("src/commonMain/kotlin/paige/navic/App.kt").readText()
+		val store = File("src/commonMain/kotlin/paige/navic/data/database/ArtistPhotoSnapshotStore.kt").readText()
 		assertTrue(
-			"LocalArtistPhotoEntries provides artistPhotoEntries" in app,
-			"App must provide the artist-photo snapshot once via LocalArtistPhotoEntries."
+			"stateIn(scope, SharingStarted.Lazily, emptyList())" in store,
+			"ArtistPhotoSnapshotStore must expose one shared hot database snapshot."
 		)
 	}
 

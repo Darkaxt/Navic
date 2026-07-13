@@ -69,9 +69,7 @@ import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.snackbars.NavicSnackbar
-import paige.navic.ui.components.common.LocalArtistPhotoEntries
 import paige.navic.ui.components.common.ShakeToSkipEffect
-import paige.navic.ui.components.common.rememberArtistPhotoEntriesSnapshot
 import paige.navic.ui.components.sheets.ChangelogSheet
 import paige.navic.ui.components.sheets.shouldRunUpdateCheck
 import paige.navic.ui.navigation.BottomSheetSceneStrategy
@@ -209,8 +207,6 @@ fun App(initialScreenOverride: Screen? = null) {
 	val scrollManager = remember {
 		BottomBarScrollManager(with(density) { 50.dp.toPx() })
 	}
-	val artistPhotoEntries = rememberArtistPhotoEntriesSnapshot()
-
 	SharedTransitionLayout {
 		CompositionLocalProvider(
 			LocalPlatformContext provides platformContext,
@@ -218,8 +214,7 @@ fun App(initialScreenOverride: Screen? = null) {
 			LocalSnackbarState provides snackbarState,
 			LocalUpdateCheckRequester provides { forceUpdateCheckRequests += 1 },
 			LocalSharedTransitionScope provides this@SharedTransitionLayout,
-			LocalBottomBarScrollManager provides scrollManager,
-			LocalArtistPhotoEntries provides artistPhotoEntries
+			LocalBottomBarScrollManager provides scrollManager
 		) {
 			NavicTheme {
 				if (isLoggedIn) {

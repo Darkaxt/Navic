@@ -2,6 +2,7 @@ package paige.navic.di
 
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
+import paige.navic.data.database.ArtistPhotoSnapshotStore
 import paige.navic.domain.manager.ArtworkColorManager
 import paige.navic.domain.manager.AuthenticatedSessionLifetime
 import paige.navic.domain.manager.AudioPlaybackOwnershipCoordinator
@@ -19,6 +20,7 @@ import paige.navic.data.remote.SubsonicClientFactory
 import paige.navic.data.remote.NetworkClientFactory
 
 val managerModule = module {
+	singleOf(::ArtistPhotoSnapshotStore)
 	singleOf(::AudioPlaybackOwnershipCoordinator)
 	singleOf(::AuthenticatedSessionLifetime)
 	single { NetworkClientFactory() }

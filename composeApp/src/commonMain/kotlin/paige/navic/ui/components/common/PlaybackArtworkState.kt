@@ -2,7 +2,6 @@ package paige.navic.ui.components.common
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -16,7 +15,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
-import paige.navic.data.database.dao.ArtistPhotoCacheDao
+import paige.navic.data.database.ArtistPhotoSnapshotStore
 import paige.navic.data.database.entities.ArtistPhotoCacheEntity
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainArtist
@@ -199,31 +198,12 @@ fun rememberAurralFirstArtistArtworkUiState(
 	)
 }
 
-/**
- * Artist-photo snapshot shared across the composition tree. Provided once at a high level
- * (App) so every per-row artwork composable reads the same snapshot instead of each opening
- * its own [ArtistPhotoCacheDao.observeArtistPhotoCache] collector. `null` (the default) means
- * "not provided"; callers then fall back to collecting themselves, preserving prior behaviour
- * for surfaces outside the provider (tests/previews).
- */
-val LocalArtistPhotoEntries = compositionLocalOf<List<PlaybackArtistPhotoCacheEntry>?> { null }
-
-/** Collect + map the artist photo cache once, for a high-level provider (e.g. App). */
-@Composable
-fun rememberArtistPhotoEntriesSnapshot(): List<PlaybackArtistPhotoCacheEntry> {
-	val preferenceManager = koinInject<PreferenceManager>()
-	val aurralBaseUrl = preferenceManager.aurralBaseUrl
-	return rememberPlaybackArtistPhotoCacheEntries(aurralBaseUrl)
-}
-
 @Composable
 private fun rememberPlaybackArtistPhotoCacheEntries(
 	aurralBaseUrl: String
 ): List<PlaybackArtistPhotoCacheEntry> {
-	LocalArtistPhotoEntries.current?.let { return it }
-	val artistPhotoCacheDao = koinInject<ArtistPhotoCacheDao>()
-	val cachedArtistPhotos by artistPhotoCacheDao.observeArtistPhotoCache()
-		.collectAsStateWithLifecycle(emptyList())
+	val snapshotStore = koinInject<ArtistPhotoSnapshotStore>()
+	val cachedArtistPhotos by snapshotStore.entries.collectAsStateWithLifecycle()
 	val artistPhotoEntries by produceState<List<PlaybackArtistPhotoCacheEntry>>(
 		initialValue = emptyList(),
 		cachedArtistPhotos,
