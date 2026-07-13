@@ -117,6 +117,7 @@ internal class KtorBinderyApiClient(
 	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) : BinderyApiClient {
 	private val client = networkClientFactory.create(json = BinderyJson) {
+		followRedirects = false
 		install(HttpTimeout) {
 			requestTimeoutMillis = 45_000
 			connectTimeoutMillis = 10_000
@@ -136,7 +137,7 @@ internal class KtorBinderyApiClient(
 		path: String
 	): BinderyCatalog {
 		val response = client.get(binderyEndpoint(baseUrl, path)) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType("application", "opds+json"))
 		}
 		if (!response.status.isSuccess()) {
@@ -153,7 +154,7 @@ internal class KtorBinderyApiClient(
 		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery book id is required.")
 		val response = client.get(binderyEndpoint(baseUrl, "books/${encodeUrlPathSegment(safeBookId)}/manifest")) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType("application", "audiobook+json"))
 		}
 		if (!response.status.isSuccess()) {
@@ -170,7 +171,7 @@ internal class KtorBinderyApiClient(
 		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery book id is required.")
 		val response = client.get(binderyEndpoint(baseUrl, "books/${encodeUrlPathSegment(safeBookId)}/resources")) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType("application", "opds+json"))
 		}
 		if (!response.status.isSuccess()) {
@@ -194,7 +195,7 @@ internal class KtorBinderyApiClient(
 				"audiobooks?bookId=${safeBookId.encodeURLQueryComponent()}&limit=$safeLimit"
 			)
 		) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 		}
 		if (!response.status.isSuccess()) {
@@ -211,7 +212,7 @@ internal class KtorBinderyApiClient(
 		val safeAudiobookId = audiobookId.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery audiobook id is required.")
 		val response = client.get(binderyApiEndpoint(baseUrl, "audiobooks/${encodeUrlPathSegment(safeAudiobookId)}")) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 		}
 		if (!response.status.isSuccess()) {
@@ -228,7 +229,7 @@ internal class KtorBinderyApiClient(
 		val safeAudiobookId = audiobookId.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery audiobook id is required.")
 		val response = client.get(binderyEndpoint(baseUrl, "audiobooks/${encodeUrlPathSegment(safeAudiobookId)}")) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType("application", "audiobook+json"))
 		}
 		if (!response.status.isSuccess()) {
@@ -245,7 +246,7 @@ internal class KtorBinderyApiClient(
 		val safePath = path.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery audiobook manifest path is required.")
 		val response = client.get(binderyEndpoint(baseUrl, safePath)) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType("application", "audiobook+json"))
 		}
 		if (!response.status.isSuccess()) {
@@ -262,7 +263,7 @@ internal class KtorBinderyApiClient(
 		val safeBookId = bookId.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery book id is required.")
 		val response = client.get(binderyEndpoint(baseUrl, "books/${encodeUrlPathSegment(safeBookId)}/sync")) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 		}
 		if (!response.status.isSuccess()) {
@@ -279,7 +280,7 @@ internal class KtorBinderyApiClient(
 		val safePath = path.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery Whispersync sidecar path is required.")
 		val response = client.get(binderyEndpoint(baseUrl, safePath)) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 		}
 		if (!response.status.isSuccess()) {
@@ -296,7 +297,7 @@ internal class KtorBinderyApiClient(
 		val safePath = path.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery resource path is required.")
 		val response = client.get(binderyEndpoint(baseUrl, safePath)) {
-			requestHeaders.forEach { (key, value) -> header(key, value) }
+			binderyScopedHeaders(baseUrl, requestHeaders)
 			accept(ContentType.Application.OctetStream)
 		}
 		if (!response.status.isSuccess()) {
@@ -313,7 +314,7 @@ internal class KtorBinderyApiClient(
 	): BinderyReadingProgress {
 		val path = binderyReadingProgressPath(bookId, alias)
 		val response = client.get(binderyEndpoint(baseUrl, path)) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 		}
 		if (!response.status.isSuccess()) {
@@ -329,7 +330,7 @@ internal class KtorBinderyApiClient(
 	) {
 		val path = binderyReadingProgressPath(progress.bookId, progress.alias)
 		val response = client.put(binderyEndpoint(baseUrl, path)) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 			contentType(ContentType.Application.Json)
 			setBody(progress)
@@ -370,7 +371,7 @@ internal class KtorBinderyApiClient(
 		val safePath = path.trim().takeIf { it.isNotEmpty() }
 			?: throw IllegalStateException("Bindery action path is required.")
 		val response = client.post(binderyEndpoint(baseUrl, safePath)) {
-			binderyJsonRequest(requestHeaders)
+			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 		}
 		if (!response.status.isSuccess()) {
@@ -386,7 +387,18 @@ class BinderyApiException(
 	override val statusCode: Int = status.value
 }
 
-internal fun io.ktor.client.request.HttpRequestBuilder.binderyJsonRequest(headers: Map<String, String>) {
-	headers.forEach { (key, value) -> header(key, value) }
+internal fun io.ktor.client.request.HttpRequestBuilder.binderyJsonRequest(
+	baseUrl: String,
+	headers: Map<String, String>
+) {
+	binderyScopedHeaders(baseUrl, headers)
 	contentType(ContentType.Application.Json)
+}
+
+private fun io.ktor.client.request.HttpRequestBuilder.binderyScopedHeaders(
+	baseUrl: String,
+	headers: Map<String, String>
+) {
+	binderyRequestHeadersForUrl(baseUrl, url.buildString(), headers)
+		.forEach { (key, value) -> header(key, value) }
 }

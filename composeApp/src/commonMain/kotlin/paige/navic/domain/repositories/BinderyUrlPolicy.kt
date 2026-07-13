@@ -2,6 +2,7 @@ package paige.navic.domain.repositories
 
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import io.ktor.http.encodeURLQueryComponent
 
 internal fun binderyApiKeyHeaders(apiKey: String): Map<String, String> {
@@ -14,11 +15,11 @@ internal fun binderyRequestHeadersForUrl(
 	url: String?,
 	requestHeaders: Map<String, String>
 ): Map<String, String> {
-	val imageOrigin = url?.httpUrlOriginOrNull() ?: return emptyMap()
-	val binderyOrigin = runCatching { binderyOrigin(normalizeBinderyOpdsBaseUrl(baseUrl)) }.getOrNull()
-		?.lowercase()
+	val requestOrigin = url?.canonicalHttpOriginOrNull() ?: return emptyMap()
+	val configuredOrigin = configuredBinderyOpdsBaseUrl(baseUrl)
+		?.canonicalHttpOriginOrNull()
 		?: return emptyMap()
-	return if (imageOrigin == binderyOrigin) requestHeaders else emptyMap()
+	return if (requestOrigin == configuredOrigin) requestHeaders else emptyMap()
 }
 
 internal fun binderyAudioBookBayProviderCoverUrl(
@@ -188,15 +189,30 @@ private val AudioBookBayImageSrcRegex =
 internal fun String?.isAudioBookBayProvider(): Boolean =
 	this?.trim()?.lowercase() in setOf("audiobookbay", "audio book bay", "abb")
 
-private fun String.httpUrlOriginOrNull(): String? {
+private data class CanonicalHttpOrigin(
+	val scheme: String,
+	val host: String,
+	val port: Int
+)
+
+private fun String.canonicalHttpOriginOrNull(): CanonicalHttpOrigin? {
 	val trimmed = trim()
 	val schemeSeparator = trimmed.indexOf("://")
 	if (schemeSeparator <= 0) return null
-	val scheme = trimmed.substring(0, schemeSeparator).lowercase()
-	if (scheme != "http" && scheme != "https") return null
 	val afterScheme = trimmed.drop(schemeSeparator + 3)
 	val authority = afterScheme.takeWhile { it != '/' }.takeIf { it.isNotBlank() } ?: return null
-	return "$scheme://${authority.lowercase()}"
+	if ('@' in authority) return null
+	val parsed = runCatching { Url(trimmed) }.getOrNull() ?: return null
+	val scheme = parsed.protocol.name.lowercase()
+	if (scheme != "http" && scheme != "https") return null
+	val host = parsed.host.trim().trimEnd('.').lowercase().takeIf { it.isNotEmpty() } ?: return null
+	return CanonicalHttpOrigin(scheme = scheme, host = host, port = parsed.port)
+}
+
+private fun String.httpUrlOriginOrNull(): String? = canonicalHttpOriginOrNull()?.let { origin ->
+	val defaultPort = if (origin.scheme == "https") 443 else 80
+	val authority = if (origin.port == defaultPort) origin.host else "${origin.host}:${origin.port}"
+	"${origin.scheme}://$authority"
 }
 
 private fun binderyAbsoluteProviderImageUrl(baseUrl: String, candidate: String): String? {

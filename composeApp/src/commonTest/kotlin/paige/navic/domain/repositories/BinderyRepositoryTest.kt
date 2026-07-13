@@ -67,6 +67,57 @@ class BinderyRepositoryTest {
 	}
 
 	@Test
+	fun binderyHeaderOriginCanonicalizesHostsAndDefaultPorts() {
+		val headers = mapOf("X-Api-Key" to "secret")
+
+		assertEquals(
+			headers,
+			binderyRequestHeadersForUrl(
+				baseUrl = "https://BINDERY.example.com/opds",
+				url = "https://bindery.EXAMPLE.com:443/audio/chapter.mp3",
+				requestHeaders = headers
+			)
+		)
+		assertEquals(
+			headers,
+			binderyRequestHeadersForUrl(
+				baseUrl = "http://bindery.example.com:80/opds",
+				url = "http://bindery.example.com/audio/chapter.mp3",
+				requestHeaders = headers
+			)
+		)
+		assertEquals(
+			emptyMap(),
+			binderyRequestHeadersForUrl(
+				baseUrl = "https://bindery.example.com:8443/opds",
+				url = "https://bindery.example.com/audio/chapter.mp3",
+				requestHeaders = headers
+			)
+		)
+	}
+
+	@Test
+	fun binderyHeaderOriginRejectsCredentialsUnsupportedSchemesAndMissingUrls() {
+		val headers = mapOf("X-Api-Key" to "secret")
+
+		listOf(
+			"https://user:pass@bindery.example.com/audio.mp3",
+			"file:///data/local/audio.mp3",
+			"content://bindery/audio/1",
+			null
+		).forEach { url ->
+			assertEquals(
+				emptyMap(),
+				binderyRequestHeadersForUrl(
+					baseUrl = "https://bindery.example.com/opds",
+					url = url,
+					requestHeaders = headers
+				)
+			)
+		}
+	}
+
+	@Test
 	fun binderyEndpointRequiresHttpOrHttpsOpdsUrlWithoutCredentialsQueryOrFragment() {
 		assertNull(configuredBinderyOpdsBaseUrl("bindery.example.com/opds"))
 		assertNull(configuredBinderyOpdsBaseUrl("https:///opds"))
