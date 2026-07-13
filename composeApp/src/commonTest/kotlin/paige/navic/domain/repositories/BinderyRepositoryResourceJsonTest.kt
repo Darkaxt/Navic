@@ -41,7 +41,8 @@ class BinderyRepositoryResourceJsonTest {
 					cacheKey = binderyMetadataCacheKey(
 						baseUrl = "https://bindery.example.com/opds",
 						payloadType = BinderyMetadataPayloadType.BookFindings,
-						path = "3913"
+						path = "3913",
+						apiKeyFingerprint = binderyApiKeyFingerprint("secret")
 					),
 					baseUrl = "https://bindery.example.com/opds",
 					payloadType = BinderyMetadataPayloadType.BookFindings,
@@ -74,7 +75,8 @@ class BinderyRepositoryResourceJsonTest {
 					cacheKey = binderyMetadataCacheKey(
 						baseUrl = "https://bindery.example.com/opds",
 						payloadType = BinderyMetadataPayloadType.BookFindings,
-						path = "3913"
+						path = "3913",
+						apiKeyFingerprint = binderyApiKeyFingerprint("secret")
 					),
 					baseUrl = "https://bindery.example.com/opds",
 					payloadType = BinderyMetadataPayloadType.BookFindings,

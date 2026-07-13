@@ -2,6 +2,7 @@ package paige.navic.domain.repositories
 
 import paige.navic.data.database.dao.BinderyMetadataCacheDao
 import paige.navic.data.database.entities.BinderyMetadataCacheEntity
+import okio.ByteString.Companion.encodeUtf8
 
 internal const val BINDERY_METADATA_CACHE_FRESH_MILLIS = 6L * 60L * 60L * 1000L
 
@@ -57,10 +58,20 @@ class RoomBinderyMetadataCache(
 internal fun binderyMetadataCacheKey(
 	baseUrl: String,
 	payloadType: String,
-	path: String
+	path: String,
+	apiKeyFingerprint: String
 ): String =
-	listOf("bindery", payloadType, baseUrl.trim().trimEnd('/'), path.trim())
+	listOf(
+		"bindery",
+		payloadType,
+		baseUrl.trim().trimEnd('/'),
+		path.trim(),
+		"credential:${apiKeyFingerprint.trim()}"
+	)
 		.joinToString("|")
+
+internal fun binderyApiKeyFingerprint(apiKey: String): String =
+	apiKey.trim().encodeUtf8().sha256().hex().take(24)
 
 private fun BinderyMetadataCacheEntity.toRecord(): BinderyMetadataCacheRecord =
 	BinderyMetadataCacheRecord(

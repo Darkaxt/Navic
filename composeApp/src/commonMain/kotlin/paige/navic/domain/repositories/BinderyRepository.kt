@@ -448,7 +448,8 @@ class BinderyRepository(
 			val cacheKey = binderyMetadataCacheKey(
 				baseUrl = baseUrl,
 				payloadType = BinderyMetadataPayloadType.ProviderCover,
-				path = sourceUrl
+				path = sourceUrl,
+				apiKeyFingerprint = configuredBinderyCacheFingerprint()
 			)
 			val cached = metadataCache.get(cacheKey)
 			if (cached != null && isFresh(cached.updatedAtMillis)) {
@@ -530,7 +531,12 @@ class BinderyRepository(
 	): Result<T?> =
 		withConfiguredClientAvailability { baseUrl, _ ->
 			val cachePath = path.trim()
-			val cacheKey = binderyMetadataCacheKey(baseUrl, payloadType, cachePath)
+			val cacheKey = binderyMetadataCacheKey(
+				baseUrl = baseUrl,
+				payloadType = payloadType,
+				path = cachePath,
+				apiKeyFingerprint = configuredBinderyCacheFingerprint()
+			)
 			val cached = metadataCache.get(cacheKey)
 				?: return@withConfiguredClientAvailability Result.success(null)
 			runCatching { decode(cached.payloadJson) }
@@ -568,7 +574,12 @@ class BinderyRepository(
 	): Result<CachedPayload<T>> =
 		withConfiguredClientAvailability { baseUrl, headers ->
 			val cachePath = path.trim()
-			val cacheKey = binderyMetadataCacheKey(baseUrl, payloadType, cachePath)
+			val cacheKey = binderyMetadataCacheKey(
+				baseUrl = baseUrl,
+				payloadType = payloadType,
+				path = cachePath,
+				apiKeyFingerprint = configuredBinderyCacheFingerprint()
+			)
 			val cached = metadataCache.get(cacheKey)
 			if (cached != null && isFresh(cached.updatedAtMillis)) {
 				runCatching { decode(cached.payloadJson) }
@@ -641,6 +652,9 @@ class BinderyRepository(
 
 	private fun isFresh(updatedAtMillis: Long): Boolean =
 		currentTimeMillis() - updatedAtMillis <= BINDERY_METADATA_CACHE_FRESH_MILLIS
+
+	private fun configuredBinderyCacheFingerprint(): String =
+		binderyApiKeyFingerprint(preferenceManager.binderyApiKey)
 
 	private fun acceptCachedWhispersyncSidecar(sidecar: WhispersyncSidecar): Boolean {
 		val rangedSegments = sidecar.timeline.segments.filter { segment ->

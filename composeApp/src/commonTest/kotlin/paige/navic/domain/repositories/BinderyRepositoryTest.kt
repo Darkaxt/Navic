@@ -336,7 +336,8 @@ class BinderyRepositoryTest {
 		val staleCacheKey = binderyMetadataCacheKey(
 			baseUrl = "https://bindery.example.com/opds",
 			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
-			path = path
+			path = path,
+			apiKeyFingerprint = binderyApiKeyFingerprint("secret")
 		)
 		val metadataCache = RecordingBinderyMetadataCache().apply {
 			runBlocking {
@@ -408,7 +409,8 @@ class BinderyRepositoryTest {
 		val staleCacheKey = binderyMetadataCacheKey(
 			baseUrl = "https://bindery.example.com/opds",
 			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
-			path = path
+			path = path,
+			apiKeyFingerprint = binderyApiKeyFingerprint("secret")
 		)
 		val metadataCache = RecordingBinderyMetadataCache().apply {
 			runBlocking {

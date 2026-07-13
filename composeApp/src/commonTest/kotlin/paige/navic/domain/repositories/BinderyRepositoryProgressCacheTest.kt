@@ -216,7 +216,8 @@ class BinderyRepositoryProgressCacheTest {
 					cacheKey = binderyMetadataCacheKey(
 						baseUrl = "https://bindery.example.com/opds",
 						payloadType = BinderyMetadataPayloadType.Catalog,
-						path = "/opds/books?owned=1"
+						path = "/opds/books?owned=1",
+						apiKeyFingerprint = binderyApiKeyFingerprint("secret")
 					),
 					baseUrl = "https://bindery.example.com/opds",
 					payloadType = BinderyMetadataPayloadType.Catalog,
@@ -272,7 +273,8 @@ class BinderyRepositoryProgressCacheTest {
 					cacheKey = binderyMetadataCacheKey(
 						baseUrl = "https://bindery.example.com/opds",
 						payloadType = BinderyMetadataPayloadType.Catalog,
-						path = "/opds/books?owned=1"
+						path = "/opds/books?owned=1",
+						apiKeyFingerprint = binderyApiKeyFingerprint("secret")
 					),
 					baseUrl = "https://bindery.example.com/opds",
 					payloadType = BinderyMetadataPayloadType.Catalog,
@@ -457,7 +459,8 @@ private suspend fun RecordingBinderyMetadataCache.putBookDetailCacheRecord(
 			cacheKey = binderyMetadataCacheKey(
 				baseUrl = "https://bindery.example.com/opds",
 				payloadType = payloadType,
-				path = path
+				path = path,
+				apiKeyFingerprint = binderyApiKeyFingerprint("secret")
 			),
 			baseUrl = "https://bindery.example.com/opds",
 			payloadType = payloadType,
