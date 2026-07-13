@@ -7,6 +7,7 @@ Released foundation: `v1.0.11-theta94`
 Released Tranche 1: `v1.0.11-iota1`
 Released Tranche 2 storage slice: `v1.0.11-iota2`
 Released Tranche 2 download slice: `v1.0.11-iota3`
+Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -276,6 +277,15 @@ Every tranche uses the following pipeline:
 - Optional integration UI distinguishes unavailable, unauthorized, malformed, empty, and stale-fallback states.
 - Vendored asset manifest hashes match packaged files.
 
+### Session-client slice release evidence
+
+- Released `v1.0.11-iota7` from commit `7c518ea6` on 2026-07-13.
+- GitHub Actions run `29221266585` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
+- Public `Navic.apk` SHA-256: `f09d1cf8ad6e745c95b23dd0eb6d09e8dc1e5b13a70e4bb42596b822e0b53d6b`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=529`, `versionName=v1.0.11-iota7`.
+- A signed in-place upgrade from `v1.0.11-iota6` installed and launched on `emulator-5554`; the app process remained alive with no fatal startup exception.
+- Tests prove each operation observes one atomic client snapshot while replacement can proceed, prevent public mutable API access, and preserve session logout ordering. Android debug assembly passed after rebasing public master.
+
 ### Rollout and rollback
 
 - Credential migration release precedes removal of plaintext-read compatibility by at least one public prerelease.
@@ -382,7 +392,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A14 | Medium | Released | `v1.0.11-iota3` |
 | A15 | Low | Released | `v1.0.11-iota3` |
 | A16 | Medium | Pending | Tranche 5 |
-| A17 | Medium | Pending | Tranche 5 |
+| A17 | Medium | Released | `v1.0.11-iota7` |
 | A18 | Medium | Released | `v1.0.11-iota2` |
 | A19 | Medium | Released | `v1.0.11-iota2` |
 | A20 | Scope note | Excluded | Android-only contract |
@@ -431,9 +441,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 19 (`A13`, `A14`, `A15`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C15`).
+- Released findings: 20 (`A13`, `A14`, `A15`, `A17`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 36.
+- Pending implementation findings assigned to tranches: 35.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
