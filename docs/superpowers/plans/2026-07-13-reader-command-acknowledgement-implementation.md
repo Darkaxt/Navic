@@ -21,6 +21,7 @@
 - Rewrite `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderWebCommandDispatchTest.kt`: verify send, duplicate-ready, ack, generation death/replay, publication replacement, and ordering.
 - Modify `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt`: verify packaged JS acknowledgement/deduplication semantics.
 - Modify `composeApp/src/androidHostTest/kotlin/paige/navic/reader/StorytellerReadaloudRuntimeLoaderTest.kt`: adapt the existing dispatch assertion to envelopes.
+- Create `tools/reader-harness/src/command-ack-runtime.test.mjs` and modify `tools/reader-harness/package.json`: execute tracked, duplicate, and untracked commands in Chromium.
 - Modify `docs/superpowers/plans/2026-07-12-qa-analysis.md` and `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`: record B5/B24 implementation and release evidence after validation.
 - Modify version metadata files selected by `scripts/prepare-release-version.sh`: prepare `v1.0.11-iota13`, Android `versionCode=540`.
 
@@ -128,7 +129,8 @@ Assert that the shipped runtime has an acknowledged-ID set, returns an acknowled
 - [ ] **Step 2: Run the focused host test and confirm RED**
 
 ```powershell
-.\gradlew.bat :composeApp:androidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest
+.\gradlew.bat :composeApp:testAndroidHostTest --tests paige.navic.reader.ReaderRuntimeAssetsTest
+npm --prefix tools/reader-harness run test:command-ack-runtime
 ```
 
 - [ ] **Step 3: Implement the JavaScript dispatcher**
@@ -150,7 +152,7 @@ Do not acknowledge the rejection path. Preserve native page-turn settlement clea
 - [ ] **Step 5: Commit Kotlin and JavaScript together**
 
 ```powershell
-git add composeApp/src/androidMain/assets/reader/navic-reader.js composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt
+git add composeApp/src/androidMain/assets/reader/navic-reader.js composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderRuntimeAssetsTest.kt tools/reader-harness/package.json tools/reader-harness/src/command-ack-runtime.test.mjs
 git commit -m "feat(reader): acknowledge successful web commands"
 ```
 
