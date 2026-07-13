@@ -34,14 +34,7 @@ internal class ReaderPageTurnBundleSource(
 	val isAvailable: Boolean
 		get() = bitmapSource.isAvailable
 
-	fun beginGeneration(): Long {
-		activeGeneration += 1
-		return activeGeneration
-	}
-
-	fun cancelActivePreparation() {
-		activeGeneration += 1
-	}
+	fun currentGeneration(): Long = activeGeneration
 
 	fun cached(plan: ReaderPageTurnTransitionPlan): ReaderPageSlideTransition? {
 		val source = cachedSnapshot(plan.sourcePageIndex, plan.kind)
@@ -62,6 +55,9 @@ internal class ReaderPageTurnBundleSource(
 	fun isCached(plan: ReaderPageTurnTransitionPlan): Boolean =
 		cachedSnapshot(plan.sourcePageIndex, plan.kind) != null &&
 			cachedSnapshot(plan.targetPageIndex, plan.kind) != null
+
+	fun hasCachedSnapshot(pageIndex: Int, kind: ReaderPageTurnTransitionKind): Boolean =
+		cachedSnapshot(pageIndex, kind) != null
 
 	fun captureCurrentSurface(
 		webView: WebView,
@@ -126,28 +122,98 @@ internal class ReaderPageTurnBundleSource(
 				source.release()
 			}
 		}) { complete ->
-			val quotedToken = JSONObject.quote(plan.token)
-			onStagingStarted(currentSnapshot ?: source)
-			webView.evaluateJavascript(
-				"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
-			) { encoded ->
-				if (generation != activeGeneration || !encoded.isJavascriptTrue()) {
-					restoreLiveComposition(webView, plan.token) { complete(null) }
-					return@evaluateJavascript
-				}
-				webView.postOnAnimation {
-					captureStagedSurface(webView, current.geometry, source.surfaceRectInWindow) { bitmap ->
-						restoreLiveComposition(webView, plan.token) {
-							complete(bitmap?.let {
-								ReaderPageSlideSnapshot(
-									key = destinationKey,
-									bitmap = it,
-									surfaceRectInWindow = Rect(source.surfaceRectInWindow),
-									leafGeometry = source.leafGeometry,
-									reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb)
-								)
-							})
-						}
+			capturePreparedDestination(
+				webView = webView,
+				plan = plan,
+				source = source,
+				destinationKey = destinationKey,
+				onStagingStarted = { onStagingStarted(currentSnapshot ?: source) },
+				onCaptured = complete
+			)
+		}
+	}
+
+	fun capturePreparedBundle(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		shieldPageIndex: Int?,
+		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
+		onPrepared: (ReaderPageSlideTransition?) -> Unit
+	) {
+		val generation = plan.generation
+		if (generation != activeGeneration || !webView.isAttachedToWindow) {
+			onPrepared(null)
+			return
+		}
+		val source = cachedSnapshot(plan.sourcePageIndex, plan.kind) ?: run {
+			onPrepared(null)
+			return
+		}
+		cached(plan)?.let { cached ->
+			onPrepared(cached)
+			return
+		}
+		val shield = shieldPageIndex?.let { cachedSnapshot(shieldPageIndex, plan.kind) } ?: run {
+			onPrepared(null)
+			return
+		}
+		val destinationKey = snapshotKey(
+			plan.targetPageIndex,
+			plan.kind,
+			source.bitmap,
+			source.surfaceRectInWindow
+		)
+		source.retain()
+		if (shield !== source) shield.retain()
+		requestSnapshot(destinationKey, generation, onPrepared = { destination ->
+			try {
+				onPrepared(destination?.let { ReaderPageSlideTransition(plan, source, it) })
+			} finally {
+				if (shield !== source) shield.release()
+				source.release()
+			}
+		}) { complete ->
+			capturePreparedDestination(
+				webView = webView,
+				plan = plan,
+				source = source,
+				destinationKey = destinationKey,
+				onStagingStarted = { onStagingStarted(shield) },
+				onCaptured = complete
+			)
+		}
+	}
+
+	private fun capturePreparedDestination(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		source: ReaderPageSlideSnapshot,
+		destinationKey: ReaderPageSlideSnapshotKey,
+		onStagingStarted: () -> Unit,
+		onCaptured: (ReaderPageSlideSnapshot?) -> Unit
+	) {
+		val generation = plan.generation
+		val quotedToken = JSONObject.quote(plan.token)
+		onStagingStarted()
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
+		) { encoded ->
+			if (generation != activeGeneration || !encoded.isJavascriptTrue()) {
+				restoreLiveComposition(webView, plan.token) { onCaptured(null) }
+				return@evaluateJavascript
+			}
+			webView.postOnAnimation {
+				capturePreparedSurface(webView, source) { bitmap ->
+					restoreLiveComposition(webView, plan.token) {
+						onCaptured(bitmap?.let {
+							ReaderPageSlideSnapshot(
+								key = destinationKey,
+								bitmap = it,
+								surfaceRectInWindow = Rect(source.surfaceRectInWindow),
+								leafGeometry = source.leafGeometry,
+								reverseFaceColor = source.reverseFaceColor
+							)
+						})
 					}
 				}
 			}
@@ -268,6 +334,35 @@ internal class ReaderPageTurnBundleSource(
 		sourceRectInWindow: Rect,
 		onCaptured: (Bitmap?) -> Unit
 	) {
+		if (geometry.pages.isEmpty()) {
+			onCaptured(null)
+			return
+		}
+		captureCompositedSurface(
+			webView = webView,
+			sourceRectInWindow = sourceRectInWindow,
+			backgroundColor = readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb),
+			onCaptured = onCaptured
+		)
+	}
+
+	private fun capturePreparedSurface(
+		webView: WebView,
+		source: ReaderPageSlideSnapshot,
+		onCaptured: (Bitmap?) -> Unit
+	) = captureCompositedSurface(
+		webView = webView,
+		sourceRectInWindow = source.surfaceRectInWindow,
+		backgroundColor = source.reverseFaceColor,
+		onCaptured = onCaptured
+	)
+
+	private fun captureCompositedSurface(
+		webView: WebView,
+		sourceRectInWindow: Rect,
+		backgroundColor: Int,
+		onCaptured: (Bitmap?) -> Unit
+	) {
 		if (!webView.isAttachedToWindow || sourceRectInWindow.width() <= 0 || sourceRectInWindow.height() <= 0) {
 			onCaptured(null)
 			return
@@ -286,7 +381,7 @@ internal class ReaderPageTurnBundleSource(
 				val location = IntArray(2)
 				webView.getLocationInWindow(location)
 				val canvas = Canvas(bitmap)
-				canvas.drawColor(readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb))
+				canvas.drawColor(backgroundColor)
 				canvas.scale(
 					bitmap.width / sourceRectInWindow.width().toFloat(),
 					bitmap.height / sourceRectInWindow.height().toFloat()
@@ -296,12 +391,7 @@ internal class ReaderPageTurnBundleSource(
 					-(sourceRectInWindow.top - location[1]).toFloat()
 				)
 				webView.draw(canvas)
-				if (geometry.pages.isEmpty()) {
-					bitmap.recycle()
-					onCaptured(null)
-				} else {
-					onCaptured(bitmap)
-				}
+				onCaptured(bitmap)
 			}
 		}
 		val awaitCompositedPreview = {

@@ -2,9 +2,11 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import paige.navic.ui.screens.reader.ReaderPageTurnPrewarmRetryBudget
+import paige.navic.ui.screens.reader.readerPageTurnCanStartPassivePrewarm
 import paige.navic.ui.screens.reader.readerPageTurnRemainingAnimationDuration
 import paige.navic.ui.screens.reader.readerPageTurnPixelsContainForeground
 
@@ -114,8 +116,8 @@ class ReaderPageTurnNativeSourceTest {
 	fun rejectedPrewarmCaptureReturnsToTheQueueWithoutAClockDelay() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val prewarm = controller
-			.substringAfter("private fun prewarmNext(")
-			.substringBefore("private fun waitForPrewarmPreviewReady(")
+			.substringAfter("private fun capturePreparedPrewarmWhenSettled(")
+			.substringBefore("private fun isPrewarmActive(")
 
 		assertContains(prewarm, "prewarmRetryBudget.consume(plan.cacheKey)")
 		assertContains(prewarm, "prewarmPlans.addLast(encodedPlan)")
@@ -288,25 +290,50 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun liveSurfaceCapturePrecedesEveryDestinationPreviewMutation() {
+	fun passivePrewarmReusesTheCachedSourceAndCapturesOnlyThePreparedDestination() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val prewarm = controller
-			.substringAfter("private fun prewarmNext(")
-			.substringBefore("private fun waitForPrewarmPreviewReady(")
+			.substringAfter("private fun captureCachedPrewarm(")
+			.substringBefore("private fun seedInitialPrewarmSnapshot(")
 		val gesture = controller
 			.substringAfter("private fun prepareBundle(")
 			.substringBefore("private fun waitForPreviewReady(")
 
-		for (path in listOf(prewarm, gesture)) {
-			val capture = path.indexOf("captureCurrentSurface")
-			val preview = path.indexOf("beginPageTurnPreviewPreparation")
-			assertTrue(capture >= 0, "Page-turn preparation must capture the live surface")
-			assertTrue(preview >= 0, "Page-turn preparation must initialize the destination preview")
-			assertTrue(
-				capture < preview,
-				"Destination preview mutation must not hide live pages before currentBase is captured"
-			)
-		}
+		val destinationCapture = prewarm.indexOf("capturePreparedBundle")
+		assertTrue(destinationCapture >= 0, "Rolling prewarm must capture the prepared passive destination")
+		assertFalse(
+			prewarm.contains("captureCurrentSurface"),
+			"Rolling prewarm must reuse its cached source instead of PixelCopying the live WebView"
+		)
+
+		val gestureCapture = gesture.indexOf("captureCurrentSurface")
+		val gesturePreview = gesture.indexOf("beginPageTurnPreviewPreparation")
+		assertTrue(gestureCapture >= 0 && gestureCapture < gesturePreview)
+	}
+
+	@Test
+	fun initialPrewarmSeedsTheCurrentVisualSnapshotExactlyOnceAfterCacheReset() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val dispatcher = controller
+			.substringAfter("private fun capturePreparedPrewarm(")
+			.substringBefore("private fun captureCachedPrewarm(")
+		val seed = controller
+			.substringAfter("private fun seedInitialPrewarmSnapshot(")
+			.substringBefore("private fun completePreparedPrewarm(")
+
+		assertContains(source, "fun hasCachedSnapshot(")
+		assertContains(dispatcher, "bundleSource.hasCachedSnapshot(plan.sourcePageIndex, plan.kind)")
+		assertContains(dispatcher, "bundleSource.hasCachedSnapshot(visualPageIndex, plan.kind)")
+		assertContains(dispatcher, "plan.sourcePageIndex == visualPageIndex")
+		assertContains(dispatcher, "captureCachedPrewarm(")
+		assertContains(dispatcher, "seedInitialPrewarmSnapshot(")
+		assertFalse(dispatcher.contains("captureCurrentSurface"))
+
+		assertEquals(1, Regex("bundleSource\\.captureCurrentSurface\\(").findAll(seed).count())
+		assertContains(seed, "currentPageIndex = visualPageIndex")
+		assertContains(seed, "currentCanRepresentSource = true")
+		assertContains(seed, "bundleSource.captureBundle(")
 	}
 
 	@Test
@@ -517,10 +544,10 @@ class ReaderPageTurnNativeSourceTest {
 	fun stagedDestinationCaptureIsOpaqueBeforeTheWebViewIsDrawn() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val capture = source
-			.substringAfter("internal fun captureStagedSurface(")
-			.substringBefore("private fun buildBundle(")
+			.substringAfter("private fun captureCompositedSurface(")
+			.substringBefore("fun invalidatePage(")
 
-		val opaqueFill = capture.indexOf("canvas.drawColor(readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb))")
+		val opaqueFill = capture.indexOf("canvas.drawColor(backgroundColor)")
 		val webViewDraw = capture.indexOf("webView.draw(canvas)")
 		assertTrue(opaqueFill >= 0, "A transparent ARGB destination bitmap must be filled with opaque paper first.")
 		assertTrue(webViewDraw > opaqueFill, "The WebView must be composited over the opaque paper fill.")
@@ -604,21 +631,22 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun backgroundPrewarmShieldsWithTheLivePageInsteadOfADistantPlanSource() {
+	fun backgroundPrewarmShieldsWithTheCachedVisualPageInsteadOfADistantPlanSource() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val prewarmCapture = controller
-			.substringAfter("\"ready\" -> bundleSource.captureBundle(")
+			.substringAfter("private fun captureCachedPrewarm(")
+			.substringAfter("bundleSource.capturePreparedBundle(")
 			.substringBefore(") { transition ->")
 		val bundleCapture = source
-			.substringAfter("fun captureBundle(")
+			.substringAfter("fun capturePreparedBundle(")
 			.substringBefore("fun cacheCurrentSnapshot(")
 
-		assertContains(prewarmCapture, "currentPageIndex = activePrewarmLivePageIndex")
-		assertContains(bundleCapture, "val currentSnapshot = currentPageIndex?.let")
-		assertContains(bundleCapture, "onStagingStarted(currentSnapshot ?: source)")
+		assertContains(prewarmCapture, "shieldPageIndex = visualPageIndex")
+		assertContains(bundleCapture, "cachedSnapshot(shieldPageIndex, plan.kind)")
+		assertContains(bundleCapture, "onStagingStarted(shield)")
 		assertFalse(
-			bundleCapture.contains("onStagingStarted(source)"),
+			bundleCapture.contains("onStagingStarted = { onStagingStarted(source) }"),
 			"Prewarming a distant target must not replace the visible reader with that plan's stale source page."
 		)
 	}
@@ -642,31 +670,67 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun exactIntermediateSettlementCannotInvalidateANewerVisualTurn() {
+	fun exactLocationEventsCompleteSettlementWithoutPollingTheWebView() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val synchronize = controller
 			.substringAfter("fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?)")
 			.substringBefore("private fun begin(")
+		val dispatch = controller
+			.substringAfter("private fun dispatchExactSettlement(")
+			.substringBefore("private fun pollNativePageTurnSettle(")
 
 		assertContains(synchronize, "reason == \"page-turn:exact\"")
 		assertContains(synchronize, "coordinator.activeSettlementTarget == pageIndex")
 		assertContains(synchronize, "coordinator.settlementReported(")
-		assertContains(synchronize, "pageIndex != coordinator.visualPageIndex")
+		assertFalse(synchronize.contains("pageIndex != coordinator.visualPageIndex"))
+		assertContains(synchronize, "onRequestPrewarm()")
+		assertFalse(controller.contains("pollExactPageTurnSettle"))
+		assertFalse(dispatch.contains("postOnAnimation"))
 		assertTrue(
 			synchronize.indexOf("coordinator.settlementReported(") <
 				synchronize.indexOf("bundleSource.invalidate(\"external-page-relocation\")"),
-			"An expected intermediate settlement must advance the coordinator before external relocation handling"
+			"An expected exact settlement must advance the coordinator before external relocation handling"
 		)
 	}
 
 	@Test
-	fun adjacentPrewarmWaitsForExactSettlement() {
+	fun passiveAdjacentPrewarmMayStartDuringExactSettlement() {
+		assertTrue(
+			readerPageTurnCanStartPassivePrewarm(
+				destroyed = false,
+				available = true,
+				visualCommitPending = false,
+				idle = true
+			)
+		)
+		assertFalse(
+			readerPageTurnCanStartPassivePrewarm(
+				destroyed = false,
+				available = true,
+				visualCommitPending = true,
+				idle = true
+			)
+		)
+
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val prewarm = controller
 			.substringAfter("fun prewarmAdjacent(): Boolean")
 			.substringBefore("private fun queryAdjacentPrewarmPlans")
 
-		assertContains(prewarm, "slideCoordinator?.activeSettlementTarget != null")
+		assertFalse(prewarm.contains("slideCoordinator?.activeSettlementTarget != null"))
+		assertContains(prewarm, "readerPageTurnCanStartPassivePrewarm")
+	}
+
+	@Test
+	fun preparedAdjacentCaptureUsesThePassiveRendererDuringExactSettlement() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val preparedCapture = controller
+			.substringAfter("private fun captureCachedPrewarm(")
+			.substringBefore("private fun seedInitialPrewarmSnapshot(")
+
+		assertContains(preparedCapture, "bundleSource.capturePreparedBundle")
+		assertFalse(preparedCapture.contains("activeSettlementTarget"))
+		assertFalse(preparedCapture.contains("bundleSource.captureCurrentSurface"))
 	}
 
 	@Test

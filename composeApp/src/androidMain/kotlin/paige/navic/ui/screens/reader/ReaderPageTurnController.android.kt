@@ -43,6 +43,13 @@ internal class ReaderPageTurnPrewarmRetryBudget(
 	}
 }
 
+internal fun readerPageTurnCanStartPassivePrewarm(
+	destroyed: Boolean,
+	available: Boolean,
+	visualCommitPending: Boolean,
+	idle: Boolean
+): Boolean = !destroyed && available && !visualCommitPending && idle
+
 internal class ReaderPageTurnController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
@@ -192,8 +199,7 @@ internal class ReaderPageTurnController(
 		if (reason == "page-turn:exact") {
 			if (
 				coordinator != null &&
-				coordinator.activeSettlementTarget == pageIndex &&
-				pageIndex != coordinator.visualPageIndex
+				coordinator.activeSettlementTarget == pageIndex
 			) {
 				activeSettleToken = null
 				handleCoordinatorEffects(
@@ -203,6 +209,7 @@ internal class ReaderPageTurnController(
 						renderable = true
 					)
 				)
+				onRequestPrewarm()
 			}
 			return
 		}
@@ -222,7 +229,6 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun begin(deltaX: Float) {
-		cancelPrewarm()
 		activeLeafAxisWidth = null
 		releasedWhilePreparing = false
 		preparationUnavailable = false
@@ -236,7 +242,7 @@ internal class ReaderPageTurnController(
 			return
 		}
 		activeStateGeneration = state.begin(direction, spread = webView.width >= webView.height * 1.12f)
-		val bundleGeneration = bundleSource.beginGeneration()
+		val bundleGeneration = bundleSource.currentGeneration()
 		val token = "navic-page-turn-preview-${++settleGeneration}"
 		val physicalDirection = if (direction == ReaderPageTurnPhysicalDirection.TowardLeft) "toward-left" else "toward-right"
 		val visualPageIndex = slideCoordinator?.visualPageIndex?.toString() ?: "null"
@@ -257,26 +263,71 @@ internal class ReaderPageTurnController(
 			}
 			activePlan = plan
 			bundleSource.cached(plan)?.let { cached ->
-				activeTransition?.close()
-				activeTransition = cached
-				activeLeafAxisWidth = transitionLeafAxisWidth(cached)
-				activeLeafAxisWidth?.let { handleEffects(state.rebaseAxisSize(it)) }
-				handleEffects(state.captureSucceeded(activeStateGeneration))
+				activatePreparedTransition(plan, activeStateGeneration, cached)
 				return@evaluateJavascript
 			}
+			if (prewarmInProgress && activePrewarmPlan?.sameTransitionAs(plan) == true) {
+				waitForActivePrewarmBundle(
+					webView = webView,
+					plan = plan,
+					stateGeneration = activeStateGeneration,
+					matchingPrewarmSession = prewarmSession
+				)
+				return@evaluateJavascript
+			}
+			if (prewarmInProgress) cancelPrewarm()
 			prepareBundle(webView, plan, activeStateGeneration)
 		}
 	}
 
+	private fun waitForActivePrewarmBundle(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		stateGeneration: Long,
+		matchingPrewarmSession: Long
+	) {
+		if (!isPreparationActive(plan, stateGeneration) || !webView.isAttachedToWindow) return
+		bundleSource.cached(plan)?.let { cached ->
+			activatePreparedTransition(plan, stateGeneration, cached)
+			return
+		}
+		val matchingPrewarmStillActive =
+			prewarmInProgress &&
+				prewarmSession == matchingPrewarmSession &&
+				activePrewarmPlan?.sameTransitionAs(plan) == true
+		if (!matchingPrewarmStillActive) {
+			markPreparationUnavailable(stateGeneration, "matching-prewarm-unavailable")
+			return
+		}
+		webView.postOnAnimation {
+			waitForActivePrewarmBundle(webView, plan, stateGeneration, matchingPrewarmSession)
+		}
+	}
+
+	private fun activatePreparedTransition(
+		plan: ReaderPageTurnTransitionPlan,
+		stateGeneration: Long,
+		transition: ReaderPageSlideTransition
+	) {
+		if (!isPreparationActive(plan, stateGeneration)) {
+			transition.close()
+			return
+		}
+		activeTransition?.close()
+		activeTransition = transition
+		activeLeafAxisWidth = transitionLeafAxisWidth(transition)
+		activeLeafAxisWidth?.let { handleEffects(state.rebaseAxisSize(it)) }
+		handleEffects(state.captureSucceeded(stateGeneration))
+	}
+
 	fun prewarmAdjacent(): Boolean {
 		if (prewarmInProgress) return true
-		if (
-			destroyed ||
-			!isAvailable ||
-			visualCommitPending ||
-			slideCoordinator?.activeSettlementTarget != null ||
-			state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle
-		) return false
+		if (!readerPageTurnCanStartPassivePrewarm(
+			destroyed = destroyed,
+			available = isAvailable,
+			visualCommitPending = visualCommitPending,
+			idle = state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle
+		)) return false
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
 		prewarmInProgress = true
 		val session = ++prewarmSession
@@ -342,12 +393,16 @@ internal class ReaderPageTurnController(
 
 	private fun prewarmNext(webView: WebView, session: Long) {
 		if (!isPrewarmActive(webView, session)) return
+		if (state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle) {
+			finishPrewarm()
+			return
+		}
 		val encodedPlan = prewarmPlans.removeFirstOrNull()
 		if (encodedPlan == null) {
 			finishPrewarm()
 			return
 		}
-		val generation = bundleSource.beginGeneration()
+		val generation = bundleSource.currentGeneration()
 		val token = "navic-page-turn-prewarm-${++settleGeneration}"
 		val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, generation)
 		if (plan == null || bundleSource.isCached(plan)) {
@@ -355,43 +410,13 @@ internal class ReaderPageTurnController(
 			return
 		}
 		activePrewarmPlan = plan
-		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
-			if (current == null) {
-				if (
-					isPrewarmActive(webView, session) &&
-					activePrewarmPlan === plan &&
-					prewarmRetryBudget.consume(plan.cacheKey)
-				) {
-					prewarmPlans.addLast(encodedPlan)
-				}
-				activePrewarmPlan = null
-				prewarmNext(webView, session)
-				return@captureCurrentSurface
-			}
+		webView.evaluateJavascript(
+			"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.(${JSONObject.quote(token)}, ${plan.targetPageIndex})"
+		) {
 			if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-				current.bitmap.takeUnless { it.isRecycled }?.recycle()
-				activePrewarmPlan = null
-				prewarmNext(webView, session)
-				return@captureCurrentSurface
+				return@evaluateJavascript
 			}
-			activeLeafAxisWidth = current.geometry
-				.leafGeometry(current.bitmap.width, current.bitmap.height)
-				?.activeLeafRect(state.direction, state.spread)
-				?.let { leaf ->
-					(leaf.width * current.sourceRectInWindow.width() / current.bitmap.width.toFloat())
-						.roundToInt()
-						.coerceAtLeast(1)
-				}
-			activeLeafAxisWidth?.let { handleEffects(state.rebaseAxisSize(it)) }
-			webView.evaluateJavascript(
-				"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.(${JSONObject.quote(token)}, ${plan.targetPageIndex})"
-			) {
-				if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-					current.bitmap.takeUnless { it.isRecycled }?.recycle()
-					return@evaluateJavascript
-				}
-				waitForPrewarmPreviewReady(webView, session, plan, current)
-			}
+			waitForPrewarmPreviewReady(webView, session, plan, encodedPlan)
 		}
 	}
 
@@ -399,59 +424,136 @@ internal class ReaderPageTurnController(
 		webView: WebView,
 		session: Long,
 		plan: ReaderPageTurnTransitionPlan,
-		current: ReaderPageTurnCaptureResult
+		encodedPlan: String
 	) {
 		if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-			current.bitmap.takeUnless { it.isRecycled }?.recycle()
 			return
 		}
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.pageTurnPreviewState?.(${JSONObject.quote(plan.token)})?.status ?? 'missing'"
 		) { encodedStatus ->
 			if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-				current.bitmap.takeUnless { it.isRecycled }?.recycle()
 				return@evaluateJavascript
 			}
 			when (encodedStatus.javascriptString()) {
-				"ready" -> bundleSource.captureBundle(
-					webView = webView,
-					plan = plan,
-					current = current,
-					currentPageIndex = activePrewarmLivePageIndex,
-					currentCanRepresentSource = plan.sourcePageIndex == activePrewarmLivePageIndex,
-					onStagingStarted = ::attachPreparationShield
-				) { transition ->
-					removePreparationShield()
-					if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-						transition?.close()
-						activePrewarmPlan = null
-						return@captureBundle
-					}
-					activePrewarmPlan = null
-					if (transition == null) {
-						Logger.w(ReaderPageTurnControllerTag, "Page-turn prewarm failed target=${plan.targetPageIndex}")
-					}
-					transition?.close()
-					prewarmNext(webView, session)
-				}
+				"ready" -> capturePreparedPrewarm(webView, session, plan, encodedPlan)
 				"failed", "missing" -> {
-					current.bitmap.takeUnless { it.isRecycled }?.recycle()
 					activePrewarmPlan = null
 					prewarmNext(webView, session)
 				}
 				else -> webView.postOnAnimation {
-					waitForPrewarmPreviewReady(webView, session, plan, current)
+					waitForPrewarmPreviewReady(webView, session, plan, encodedPlan)
 				}
 			}
 		}
+	}
+
+	private fun capturePreparedPrewarm(
+		webView: WebView,
+		session: Long,
+		plan: ReaderPageTurnTransitionPlan,
+		encodedPlan: String
+	) {
+		if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) return
+		val visualPageIndex = slideCoordinator?.visualPageIndex
+		if (visualPageIndex == null) {
+			completePreparedPrewarm(webView, session, plan, encodedPlan, null)
+			return
+		}
+		val sourceCached = bundleSource.hasCachedSnapshot(plan.sourcePageIndex, plan.kind)
+		val shieldCached = bundleSource.hasCachedSnapshot(visualPageIndex, plan.kind)
+		when {
+			sourceCached && shieldCached ->
+				captureCachedPrewarm(webView, session, plan, encodedPlan, visualPageIndex)
+			plan.sourcePageIndex == visualPageIndex ->
+				seedInitialPrewarmSnapshot(webView, session, plan, encodedPlan, visualPageIndex)
+			else -> {
+				Logger.w(
+					ReaderPageTurnControllerTag,
+					"Page-turn rolling prewarm cache unavailable source=${plan.sourcePageIndex} " +
+						"visual=$visualPageIndex target=${plan.targetPageIndex}"
+				)
+				completePreparedPrewarm(webView, session, plan, encodedPlan, null)
+			}
+		}
+	}
+
+	private fun captureCachedPrewarm(
+		webView: WebView,
+		session: Long,
+		plan: ReaderPageTurnTransitionPlan,
+		encodedPlan: String,
+		visualPageIndex: Int
+	) {
+		bundleSource.capturePreparedBundle(
+			webView = webView,
+			plan = plan,
+			shieldPageIndex = visualPageIndex,
+			onStagingStarted = ::attachPreparationShield
+		) { transition ->
+			completePreparedPrewarm(webView, session, plan, encodedPlan, transition)
+		}
+	}
+
+	private fun seedInitialPrewarmSnapshot(
+		webView: WebView,
+		session: Long,
+		plan: ReaderPageTurnTransitionPlan,
+		encodedPlan: String,
+		visualPageIndex: Int
+	) {
+		Logger.i(
+			ReaderPageTurnControllerTag,
+			"Page-turn initial prewarm seed page=$visualPageIndex target=${plan.targetPageIndex}"
+		)
+		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
+			if (current == null || !isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+				completePreparedPrewarm(webView, session, plan, encodedPlan, null)
+				return@captureCurrentSurface
+			}
+			bundleSource.captureBundle(
+				webView = webView,
+				plan = plan,
+				current = current,
+				currentPageIndex = visualPageIndex,
+				currentCanRepresentSource = true,
+				onStagingStarted = ::attachPreparationShield
+			) { transition ->
+				completePreparedPrewarm(webView, session, plan, encodedPlan, transition)
+			}
+		}
+	}
+
+	private fun completePreparedPrewarm(
+		webView: WebView,
+		session: Long,
+		plan: ReaderPageTurnTransitionPlan,
+		encodedPlan: String,
+		transition: ReaderPageSlideTransition?
+	) {
+		removePreparationShield()
+		if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+			transition?.close()
+			if (activePrewarmPlan === plan) activePrewarmPlan = null
+			return
+		}
+		activePrewarmPlan = null
+		if (transition == null) {
+			if (prewarmRetryBudget.consume(plan.cacheKey)) {
+				prewarmPlans.addLast(encodedPlan)
+			}
+			Logger.w(ReaderPageTurnControllerTag, "Page-turn prewarm failed target=${plan.targetPageIndex}")
+		}
+		transition?.close()
+		prewarmNext(webView, session)
 	}
 
 	private fun isPrewarmActive(webView: WebView, session: Long): Boolean =
 		prewarmInProgress &&
 			prewarmSession == session &&
 			!destroyed &&
-			webView.isAttachedToWindow &&
-			state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle
+			webView.isAttachedToWindow
 
 	private fun finishPrewarm() {
 		activePrewarmPlan = null
@@ -469,7 +571,6 @@ internal class ReaderPageTurnController(
 		prewarmPlans.clear()
 		prewarmRetryBudget.clear()
 		prewarmInProgress = false
-		bundleSource.cancelActivePreparation()
 		removePreparationShield()
 	}
 
@@ -568,7 +669,6 @@ internal class ReaderPageTurnController(
 			activeStateGeneration != stateGeneration ||
 			state.phase != paige.navic.reader.ReaderPageTurnPhase.Preparing
 		) return
-		bundleSource.cancelActivePreparation()
 		preparationUnavailable = true
 		activePlan?.let { plan ->
 			webViewProvider()?.evaluateJavascript(
@@ -640,7 +740,6 @@ internal class ReaderPageTurnController(
 		val generation = activeStateGeneration
 		if (generation != 0L) state.captureFailed(generation)
 		val webView = webViewProvider()
-		bundleSource.cancelActivePreparation()
 		activePlan = null
 		activeTransition?.close()
 		activeTransition = null
@@ -666,7 +765,6 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun cancelPreparation() {
-		bundleSource.cancelActivePreparation()
 		activePlan?.let { plan ->
 			webViewProvider()?.evaluateJavascript(
 				"window.NavicReaderBridge?.restorePageTurnLiveComposition?.(${JSONObject.quote(plan.token)})"
@@ -732,8 +830,8 @@ internal class ReaderPageTurnController(
 		for (effect in effects) {
 			when (effect) {
 				is ReaderPageSlideCoordinatorEffect.SettleExact -> {
-					val coordinator = slideCoordinator ?: continue
-				dispatchExactSettlement(effect.pageIndex, coordinator.generation)
+					if (slideCoordinator == null) continue
+					dispatchExactSettlement(effect.pageIndex)
 				}
 				ReaderPageSlideCoordinatorEffect.RemoveFinalShield -> {
 					if (state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle) detachAfterNavigationFrame()
@@ -742,57 +840,14 @@ internal class ReaderPageTurnController(
 		}
 	}
 
-	private fun dispatchExactSettlement(pageIndex: Int, coordinatorGeneration: Long) {
+	private fun dispatchExactSettlement(pageIndex: Int) {
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return
 		val token = "navic-page-slide-settle-${++settleGeneration}"
 		activeSettleToken = token
 		val quotedToken = JSONObject.quote(token)
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.dispatch?.({ type: 'goToVisualPage', pageIndex: $pageIndex, settleToken: $quotedToken })"
-		) {
-			if (activeSettleToken == token) {
-				pollExactPageTurnSettle(webView, token, pageIndex, coordinatorGeneration)
-			}
-		}
-	}
-
-	private fun pollExactPageTurnSettle(
-		webView: WebView,
-		token: String,
-		targetPageIndex: Int,
-		coordinatorGeneration: Long
-	) {
-		if (activeSettleToken != token || !webView.isAttachedToWindow) return
-		webView.evaluateJavascript(
-			"JSON.stringify(window.NavicReaderBridge?.nativePageTurnSettledState?.() ?? null)"
-		) { encoded ->
-			if (activeSettleToken != token) return@evaluateJavascript
-			val settled = encoded.javascriptObject()
-			val settledToken = settled?.optString("token")
-			val settledPageIndex = settled?.optInt("pageIndex", -1) ?: -1
-			if (settledToken == token && settled?.optBoolean("cancelled", false) == true) {
-				activeSettleToken = null
-				slideCoordinator = null
-				detachOverlay()
-			} else if (settledToken == token && settledPageIndex == targetPageIndex) {
-				activeSettleToken = null
-				val coordinator = slideCoordinator
-				if (coordinator != null) {
-					handleCoordinatorEffects(
-						coordinator.settlementReported(
-							reportedGeneration = coordinatorGeneration,
-							pageIndex = settledPageIndex,
-							renderable = true
-						)
-					)
-				}
-				onRequestPrewarm()
-			} else {
-				webView.postOnAnimation {
-					pollExactPageTurnSettle(webView, token, targetPageIndex, coordinatorGeneration)
-				}
-			}
-		}
+		) { }
 	}
 
 	private fun pollNativePageTurnSettle(webView: WebView, token: String) {
@@ -912,6 +967,9 @@ internal class ReaderPageTurnController(
 		const val RelaxAnimationDurationMs = 160L
 	}
 }
+
+private fun ReaderPageTurnTransitionPlan.sameTransitionAs(other: ReaderPageTurnTransitionPlan): Boolean =
+	cacheKey == other.cacheKey
 
 internal fun readerPageTurnRemainingAnimationDuration(
 	from: Float,

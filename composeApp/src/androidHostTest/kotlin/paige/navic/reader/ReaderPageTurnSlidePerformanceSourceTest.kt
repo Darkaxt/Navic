@@ -50,6 +50,60 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 	}
 
 	@Test
+	fun routineGesturesAndPrewarmShareOneSnapshotCacheEpoch() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val begin = controller
+			.substringAfter("private fun begin(deltaX: Float)")
+			.substringBefore("fun prewarmAdjacent()")
+		val prewarm = controller
+			.substringAfter("private fun prewarmNext(")
+			.substringBefore("private fun waitForPrewarmPreviewReady(")
+
+		assertContains(source, "fun currentGeneration(): Long = activeGeneration")
+		assertFalse(source.contains("fun beginGeneration()"))
+		assertFalse(source.contains("fun cancelActivePreparation()"))
+		assertContains(begin, "bundleSource.currentGeneration()")
+		assertContains(prewarm, "bundleSource.currentGeneration()")
+		assertFalse(
+			begin.substringBefore("webView.evaluateJavascript(").contains("cancelPrewarm()"),
+			"Resolving a routine gesture must not invalidate an in-flight passive snapshot"
+		)
+	}
+
+	@Test
+	fun gestureAdoptsMatchingPassivePrewarmInsteadOfRecapturingTheLiveWebView() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val begin = controller
+			.substringAfter("private fun begin(deltaX: Float)")
+			.substringBefore("fun prewarmAdjacent()")
+		val adoption = controller
+			.substringAfter("private fun waitForActivePrewarmBundle(")
+			.substringBefore("fun prewarmAdjacent()")
+
+		assertContains(begin, "activePrewarmPlan?.sameTransitionAs(plan) == true")
+		assertContains(begin, "waitForActivePrewarmBundle(")
+		assertContains(adoption, "bundleSource.cached(plan)")
+		assertContains(adoption, "webView.postOnAnimation")
+		assertFalse(adoption.contains("captureCurrentSurface"))
+	}
+
+	@Test
+	fun startedPassivePrewarmMayFinishWhileTheGestureIsPreparing() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val activeCheck = controller
+			.substringAfter("private fun isPrewarmActive(")
+			.substringBefore("private fun finishPrewarm()")
+		val next = controller
+			.substringAfter("private fun prewarmNext(")
+			.substringBefore("private fun waitForPrewarmPreviewReady(")
+
+		assertFalse(activeCheck.contains("state.phase"))
+		assertContains(next, "state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle")
+		assertContains(next, "finishPrewarm()")
+	}
+
+	@Test
 	fun controllerPlansFromVisualPositionAndSerializesLiveSettlement() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 
@@ -96,11 +150,22 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 	fun liveWebViewCaptureCannotBeMislabelledAsAnUnsettledVisualPage() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val prepareBundle = controller
+			.substringAfter("private fun prepareBundle(")
+			.substringBefore("private fun settlePreparedBundle(")
+		val preparedPrewarm = controller
+			.substringAfter("private fun captureCachedPrewarm(")
+			.substringBefore("private fun seedInitialPrewarmSnapshot(")
+		val initialSeed = controller
+			.substringAfter("private fun seedInitialPrewarmSnapshot(")
+			.substringBefore("private fun completePreparedPrewarm(")
 
 		assertContains(source, "currentCanRepresentSource: Boolean")
 		assertContains(source, "cachedSnapshot(plan.sourcePageIndex, plan.kind)")
-		assertContains(controller, "plan.sourcePageIndex == activePrewarmLivePageIndex")
-		assertContains(controller, "plan.sourcePageIndex == slideCoordinator?.settledPageIndex")
+		assertContains(prepareBundle, "plan.sourcePageIndex == slideCoordinator?.settledPageIndex")
+		assertFalse(preparedPrewarm.contains("captureCurrentSurface"))
+		assertContains(initialSeed, "currentPageIndex = visualPageIndex")
+		assertContains(initialSeed, "currentCanRepresentSource = true")
 	}
 
 	@Test
