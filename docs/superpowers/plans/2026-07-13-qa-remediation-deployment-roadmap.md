@@ -13,6 +13,7 @@ Released Tranche 5 secure-credential slice: `v1.0.11-kappa1`
 Released Tranche 5 external-fetch slice: `v1.0.11-kappa2`
 Released Tranche 5 reader-vendor provenance slice: `v1.0.11-kappa3`
 Released Tranche 5 attribution-governance slice: `v1.0.11-kappa4`
+Current public Android prerelease: `v1.0.11-lambda1` (version-only successor to `kappa4`)
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -339,6 +340,7 @@ Every tranche uses the following pipeline:
 
 ### Attribution-governance slice release evidence
 
+- Version-only successor `v1.0.11-lambda1` was released from commit `4c3e300b` on 2026-07-13. GitHub Actions build/release run `29234287982` and checks run `29234287872` passed. Its public APK is 46,208,788 bytes with SHA-256 `3310b0d7325ccaab32aa9bf0cc5617aa30e806862d9510e6b3e0780d7fd57d55`, retains the release certificate and all packaged governance proofs, and embeds `versionCode=537`, `versionName=v1.0.11-lambda1`. The signed upgrade from kappa4 launched on `emulator-5554` as PID `29954` with no AndroidRuntime startup error.
 - Released `v1.0.11-kappa4` from commit `1b142cda` on 2026-07-13. GitHub Actions run `29233682795` passed reader-vendor source verification, the signed Android release build, signature verification, packaged reader-vendor and attribution verification, artifact upload, and release creation; iOS was skipped. Checks run `29233682740` passed wrapper validation.
 - Public `Navic.apk` SHA-256: `c4bc0997e2456ff46be14cea6f8e7d3b64c08a8e743c580263c0fe486cb9046b` (46,208,788 bytes). APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=536`, `versionName=v1.0.11-kappa4`.
 - The public APK independently passed all 30 reader-vendor hashes and the packaged acknowledgement check. A signed in-place upgrade from `v1.0.11-kappa3` installed and launched on `emulator-5554`; the app remained the resumed activity as PID `29490` with no AndroidRuntime or fatal startup error.

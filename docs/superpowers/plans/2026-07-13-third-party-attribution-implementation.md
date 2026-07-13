@@ -83,3 +83,4 @@
 - Governance proof: the public APK passed all 30 reader-vendor hashes and contains exact Anx Reader, foliate-js, and PDF.js acknowledgement records. A deliberate missing-library mutation failed verification.
 - Device: signed upgrade from kappa3 to kappa4 on `emulator-5554`; PID `29490` remained the resumed activity with no AndroidRuntime or fatal startup error.
 - Suite proof: 2,326 Android host tests ran with the same 35 pre-existing failure names as kappa3; all three new attribution tests passed.
+- Version successor: `v1.0.11-lambda1` from commit `4c3e300b` carries the identical attribution implementation with `versionCode=537`; build/release run `29234287982`, checks run `29234287872`, public APK SHA-256 `3310b0d7325ccaab32aa9bf0cc5617aa30e806862d9510e6b3e0780d7fd57d55`, and ADB upgrade verification all passed.
