@@ -1,16 +1,10 @@
 package paige.navic.di
 
-import androidx.room3.Room
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import okio.Path.Companion.toPath
 import org.koin.android.ext.koin.androidApplication
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
-import paige.navic.data.database.CacheDatabase
-import paige.navic.data.database.DownloadDatabase
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.AndroidKeystoreCredentialStore
 import paige.navic.domain.manager.CredentialStore
@@ -26,40 +20,6 @@ import paige.navic.shared.MediaPlayerViewModel
 
 actual val platformModule = module {
 	single<CredentialStore> { AndroidKeystoreCredentialStore(androidApplication()) }
-
-	single<DownloadDatabase> {
-		val dbPath = androidApplication()
-			.getDatabasePath("downloads.db")
-			.absolutePath
-		Room
-			.databaseBuilder<DownloadDatabase>(get(), dbPath)
-			.setDriver(BundledSQLiteDriver())
-			.addMigrations(DownloadDatabaseMigration4To5)
-			.build()
-	}
-
-	single<CacheDatabase>(createdAtStart = true) {
-		val dbPath = androidApplication()
-			.getDatabasePath("cache.db")
-			.absolutePath
-		val downloadDatabase = get<DownloadDatabase>()
-		runBlocking(Dispatchers.IO) {
-			migrateLegacyDownloadRegistry(dbPath, downloadDatabase.downloadDao())
-		}
-		val cacheDatabase = Room
-			.databaseBuilder<CacheDatabase>(get(), dbPath)
-			.setDriver(BundledSQLiteDriver())
-			.addMigrations(
-				CacheDatabaseMigration20To21,
-				CacheDatabaseMigration21To22,
-				CacheDatabaseMigration22To23
-			)
-			.build()
-		runBlocking(Dispatchers.IO) {
-			cacheDatabase.albumDao().getAlbumCount()
-		}
-		cacheDatabase
-	}
 
 	single<PlayerStateRepository> {
 		val context = androidApplication()

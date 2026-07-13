@@ -1,25 +1,5 @@
 package paige.navic.di
 
-import org.koin.dsl.module
-import paige.navic.data.database.CacheDatabase
-import paige.navic.data.database.DownloadDatabase
+import org.koin.core.module.Module
 
-val databaseModule = module {
-	// CacheDatabase is initialised inside PlatformModule since we need Context on android
-	// TODO: find a less shitty workaround for that^
-	single { get<CacheDatabase>().albumDao() }
-	single { get<CacheDatabase>().genreDao() }
-	single { get<CacheDatabase>().playlistDao() }
-	single { get<CacheDatabase>().songDao() }
-	single { get<CacheDatabase>().artistDao() }
-	single { get<CacheDatabase>().radioDao() }
-	single { get<CacheDatabase>().lyricDao() }
-	single { get<CacheDatabase>().syncActionDao() }
-	single { get<CacheDatabase>().playbackOriginDao() }
-	single { get<CacheDatabase>().artistPhotoCacheDao() }
-	single { get<CacheDatabase>().aurralMetadataCacheDao() }
-	single { get<CacheDatabase>().binderyMetadataCacheDao() }
-	single { get<CacheDatabase>().artworkColorDao() }
-	single { get<DownloadDatabase>().downloadDao() }
-	single { get<DownloadDatabase>().lidaClipDownloadDao() }
-}
+expect val databaseModule: Module

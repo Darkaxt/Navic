@@ -34,12 +34,18 @@ class DatabaseOwnershipSourceTest {
 
 	@Test
 	fun cacheOwnershipMigrationRunsEagerlyAndForcesRoomValidation() {
-		val platformSource = sourceFile(
-			"composeApp/src/androidMain/kotlin/paige/navic/di/PlatformModule.android.kt"
+		val databaseSource = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/di/DatabaseModule.android.kt"
+		).readText()
+		val commonSource = sourceFile(
+			"composeApp/src/commonMain/kotlin/paige/navic/di/DatabaseModule.kt"
 		).readText()
 
-		assertContains(platformSource, "single<CacheDatabase>(createdAtStart = true)")
-		assertContains(platformSource, "cacheDatabase.albumDao().getAlbumCount()")
+		assertContains(commonSource, "expect val databaseModule: Module")
+		assertFalse(commonSource.contains("albumDao()"))
+		assertContains(databaseSource, "single<CacheDatabase>(createdAtStart = true)")
+		assertContains(databaseSource, "cacheDatabase.albumDao().getAlbumCount()")
+		assertContains(databaseSource, "registerDatabaseDaos()")
 	}
 
 	private fun sourceFile(path: String): File = listOf(

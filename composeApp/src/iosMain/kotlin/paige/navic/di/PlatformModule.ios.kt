@@ -1,13 +1,9 @@
 package paige.navic.di
 
-import androidx.room3.Room
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.cinterop.ExperimentalForeignApi
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
-import paige.navic.data.database.CacheDatabase
-import paige.navic.data.database.DownloadDatabase
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.CredentialStore
 import paige.navic.domain.manager.LogManager
@@ -27,24 +23,6 @@ import coil3.PlatformContext as CoilPlatformContext
 
 actual val platformModule = module {
 	single<CredentialStore> { SettingsCredentialStore(get()) }
-
-	single<CacheDatabase> {
-		val dbPath = documentDirectory() + "/cache.db"
-		Room
-			.databaseBuilder<CacheDatabase>(dbPath)
-			.setDriver(BundledSQLiteDriver())
-			.fallbackToDestructiveMigration(true)
-			.build()
-	}
-
-	single<DownloadDatabase> {
-		val dbPath = documentDirectory() + "/downloads.db"
-		Room
-			.databaseBuilder<DownloadDatabase>(dbPath)
-			.setDriver(BundledSQLiteDriver())
-			.fallbackToDestructiveMigration(true)
-			.build()
-	}
 
 	single<PlayerStateRepository> {
 		val producePath = {
@@ -88,7 +66,7 @@ actual val platformModule = module {
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun documentDirectory(): String {
+internal fun documentDirectory(): String {
 	val documentDirectory = NSFileManager.defaultManager.URLForDirectory(
 		directory = NSDocumentDirectory,
 		inDomain = NSUserDomainMask,
