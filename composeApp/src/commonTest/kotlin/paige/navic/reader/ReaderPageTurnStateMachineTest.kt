@@ -58,18 +58,16 @@ class ReaderPageTurnStateMachineTest {
 	}
 
 	@Test
-	fun preparationCanAssignExactTargetBeforeRelease() {
+	fun visualCompletionDoesNotWaitForAnExactTargetSettlement() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
 
-		assertTrue(machine.setTargetPageIndex(generation, pageIndex = 18))
 		machine.captureSucceeded(generation)
 		machine.update(-500f, 1000, 100)
 		machine.release(-500f, 1000, 180)
 		machine.animationFinished()
 
 		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
-		assertTrue(machine.destinationSettled(pageIndex = 18).isEmpty())
 	}
 
 	@Test
@@ -98,8 +96,7 @@ class ReaderPageTurnStateMachineTest {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(
 			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
-			spread = true,
-			targetPageIndex = 18
+			spread = true
 		)
 		machine.captureSucceeded(generation)
 		machine.update(-500f, 1000, 100)
@@ -111,31 +108,27 @@ class ReaderPageTurnStateMachineTest {
 		assertIs<ReaderPageTurnEffect.ShowFinalBase>(animationFinished.first())
 		assertIs<ReaderPageTurnEffect.Commit>(animationFinished.last())
 		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
-		val finished = machine.destinationSettled(pageIndex = 18)
 		assertEquals(1, animationFinished.count { it is ReaderPageTurnEffect.Commit })
-		assertTrue(finished.isEmpty())
 		assertTrue(machine.animationFinished().isEmpty())
 	}
 
 	@Test
-	fun destinationSettlementBeforeNavigationCommitIsIgnored() {
+	fun repeatedAnimationCompletionCannotCommitTwice() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(
 			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
-			spread = false,
-			targetPageIndex = 9
+			spread = false
 		)
 		machine.captureSucceeded(generation)
 		machine.update(-500f, 1000, 100)
 		machine.release(-500f, 1000, 180)
 
-		assertTrue(machine.destinationSettled(pageIndex = 9).isEmpty())
 		assertEquals(ReaderPageTurnPhase.Committing, machine.phase)
 		val finished = machine.animationFinished()
 		assertIs<ReaderPageTurnEffect.ShowFinalBase>(finished.first())
 		assertIs<ReaderPageTurnEffect.Commit>(finished.last())
 		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
-		assertTrue(machine.destinationSettled(pageIndex = 9).isEmpty())
+		assertTrue(machine.animationFinished().isEmpty())
 	}
 
 	@Test
@@ -143,8 +136,7 @@ class ReaderPageTurnStateMachineTest {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(
 			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
-			spread = true,
-			targetPageIndex = 18
+			spread = true
 		)
 		machine.captureSucceeded(generation)
 		machine.update(-500f, 1000, 100)
@@ -152,7 +144,7 @@ class ReaderPageTurnStateMachineTest {
 		machine.animationFinished()
 
 		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
-		machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true, targetPageIndex = 20)
+		machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true)
 		assertEquals(ReaderPageTurnPhase.Preparing, machine.phase)
 	}
 

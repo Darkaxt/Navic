@@ -199,9 +199,6 @@ internal class ReaderPageTurnController(
 				markPreparationUnavailable(activeStateGeneration, "visual-source-mismatch")
 				return@evaluateJavascript
 			}
-			if (!state.setTargetPageIndex(activeStateGeneration, plan.targetPageIndex)) {
-				return@evaluateJavascript
-			}
 			activePlan = plan
 			bundleSource.cached(plan)?.let { cached ->
 				activeTransition?.close()
@@ -629,7 +626,7 @@ internal class ReaderPageTurnController(
 		val webView = webViewProvider()
 		if (webView == null || !webView.isAttachedToWindow) {
 			onCommitTurn(direction)
-			markDestinationSettled()
+			detachAfterNavigationFrame()
 			return
 		}
 		val plan = activePlan
@@ -681,15 +678,11 @@ internal class ReaderPageTurnController(
 		}
 	}
 
-	private fun pollExactPageTurnSettle(webView: WebView, plan: ReaderPageTurnTransitionPlan) {
-		pollExactPageTurnSettle(webView, plan.token, plan.targetPageIndex, coordinatorGeneration = null)
-	}
-
 	private fun pollExactPageTurnSettle(
 		webView: WebView,
 		token: String,
 		targetPageIndex: Int,
-		coordinatorGeneration: Long?
+		coordinatorGeneration: Long
 	) {
 		if (activeSettleToken != token || !webView.isAttachedToWindow) return
 		webView.evaluateJavascript(
@@ -705,23 +698,17 @@ internal class ReaderPageTurnController(
 				detachOverlay()
 			} else if (settledToken == token && settledPageIndex == targetPageIndex) {
 				activeSettleToken = null
-				if (coordinatorGeneration != null) {
-					val coordinator = slideCoordinator
-					if (coordinator != null) {
-						handleCoordinatorEffects(
-							coordinator.settlementReported(
-								reportedGeneration = coordinatorGeneration,
-								pageIndex = settledPageIndex,
-								renderable = true
-							)
+				val coordinator = slideCoordinator
+				if (coordinator != null) {
+					handleCoordinatorEffects(
+						coordinator.settlementReported(
+							reportedGeneration = coordinatorGeneration,
+							pageIndex = settledPageIndex,
+							renderable = true
 						)
-					}
-					onRequestPrewarm()
-				} else if (state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle) {
-					onRequestPrewarm()
-				} else {
-					markDestinationSettled(settledPageIndex)
+					)
 				}
+				onRequestPrewarm()
 			} else {
 				webView.postOnAnimation {
 					pollExactPageTurnSettle(webView, token, targetPageIndex, coordinatorGeneration)
@@ -739,7 +726,7 @@ internal class ReaderPageTurnController(
 			val settledToken = runCatching { JSONTokener(encoded.orEmpty()).nextValue() as? String }.getOrNull()
 			if (settledToken == token) {
 				activeSettleToken = null
-				markDestinationSettled()
+				detachAfterNavigationFrame()
 			} else {
 				webView.postOnAnimation { pollNativePageTurnSettle(webView, token) }
 			}
@@ -838,10 +825,6 @@ internal class ReaderPageTurnController(
 		if (schedulePrewarm && !destroyed) {
 			onRequestPrewarm()
 		}
-	}
-
-	private fun markDestinationSettled(pageIndex: Int? = null) {
-		handleEffects(state.destinationSettled(pageIndex))
 	}
 
 	private companion object {

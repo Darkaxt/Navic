@@ -2,7 +2,7 @@ package paige.navic.reader
 
 import kotlin.math.abs
 
-enum class ReaderPageTurnPhase { Idle, Preparing, Deforming, Committing, Settling, Relaxing }
+enum class ReaderPageTurnPhase { Idle, Preparing, Deforming, Committing, Relaxing }
 
 sealed interface ReaderPageTurnEffect {
 	data object AttachOverlay : ReaderPageTurnEffect
@@ -36,20 +36,15 @@ class ReaderPageTurnStateMachine(
 	private var velocityPxPerSecond: Float = 0f
 	private var pendingCommit: Boolean? = null
 	private var overlayAttached: Boolean = false
-	private var commitAnimationFinished = false
-	private var destinationSettled = false
-	private var targetPageIndex: Int? = null
 
 	fun begin(
 		direction: ReaderPageTurnPhysicalDirection,
-		spread: Boolean,
-		targetPageIndex: Int? = null
+		spread: Boolean
 	): Long {
 		generation += 1
 		this.direction = direction
 		this.spread = spread
 		phase = ReaderPageTurnPhase.Preparing
-		this.targetPageIndex = targetPageIndex
 		progress = 0f
 		peakMotionFraction = 0f
 		lastDeltaAxis = 0f
@@ -64,7 +59,6 @@ class ReaderPageTurnStateMachine(
 		if (
 			phase == ReaderPageTurnPhase.Idle ||
 			phase == ReaderPageTurnPhase.Committing ||
-			phase == ReaderPageTurnPhase.Settling ||
 			phase == ReaderPageTurnPhase.Relaxing
 		) return emptyList()
 		updateMotion(deltaAxis, axisSize, timestampMs)
@@ -102,12 +96,6 @@ class ReaderPageTurnStateMachine(
 		return effects
 	}
 
-	fun setTargetPageIndex(preparationGeneration: Long, pageIndex: Int): Boolean {
-		if (preparationGeneration != generation || phase != ReaderPageTurnPhase.Preparing || pageIndex < 0) return false
-		targetPageIndex = pageIndex
-		return true
-	}
-
 	fun captureFailed(captureGeneration: Long): Boolean {
 		if (captureGeneration != generation || phase != ReaderPageTurnPhase.Preparing) return false
 		reset(invalidateGeneration = true)
@@ -137,30 +125,15 @@ class ReaderPageTurnStateMachine(
 		else -> emptyList()
 	}
 
-	fun destinationSettled(pageIndex: Int? = null): List<ReaderPageTurnEffect> {
-		if (phase != ReaderPageTurnPhase.Settling) return emptyList()
-		if (targetPageIndex != null && pageIndex != targetPageIndex) return emptyList()
-		destinationSettled = true
-		return finishCommitIfReady()
-	}
-
 	private fun beginTerminalAnimation(commit: Boolean): List<ReaderPageTurnEffect> {
 		pendingCommit = null
 		return if (commit) {
 			phase = ReaderPageTurnPhase.Committing
-			commitAnimationFinished = false
-			destinationSettled = false
 			listOf(ReaderPageTurnEffect.AnimateCommit(progress))
 		} else {
 			phase = ReaderPageTurnPhase.Relaxing
 			listOf(ReaderPageTurnEffect.AnimateRelax(progress))
 		}
-	}
-
-	private fun finishCommitIfReady(): List<ReaderPageTurnEffect> {
-		if (!commitAnimationFinished || !destinationSettled) return emptyList()
-		reset(invalidateGeneration = true)
-		return listOf(ReaderPageTurnEffect.DetachOverlay)
 	}
 
 	private fun updateMotion(deltaAxis: Float, axisSize: Int, timestampMs: Long) {
@@ -190,9 +163,6 @@ class ReaderPageTurnStateMachine(
 		velocityPxPerSecond = 0f
 		pendingCommit = null
 		overlayAttached = false
-		commitAnimationFinished = false
-		destinationSettled = false
-		targetPageIndex = null
 	}
 
 }

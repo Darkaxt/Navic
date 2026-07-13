@@ -102,4 +102,14 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 		assertContains(controller, "plan.sourcePageIndex == activePrewarmLivePageIndex")
 		assertContains(controller, "plan.sourcePageIndex == slideCoordinator?.settledPageIndex")
 	}
+
+	@Test
+	fun gestureMachineDoesNotRetainTheObsoleteLiveSettlementPhase() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val stateMachine = readerCommonFile("ReaderPageTurnStateMachine.kt").readText()
+
+		assertFalse(stateMachine.contains("Settling"))
+		assertFalse(stateMachine.contains("destinationSettled"))
+		assertFalse(controller.contains("markDestinationSettled"))
+	}
 }

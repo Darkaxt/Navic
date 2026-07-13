@@ -134,7 +134,9 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(turns, "function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
 		assertContains(turns, "cancelled: true")
 		assertContains(controller, "settled?.optBoolean(\"cancelled\", false) == true")
-		assertContains(controller, "markDestinationSettled()")
+		assertContains(controller, "activeSettleToken = null")
+		assertContains(controller, "slideCoordinator = null")
+		assertContains(controller, "detachOverlay()")
 	}
 
 	@Test
@@ -277,19 +279,18 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun immutableBitmapBundleOwnsEveryDestinationSurfaceExactlyOnce() {
+	fun cacheOwnedSnapshotsAreBorrowedAndReleasedExactlyOnceByTransitions() {
 		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
 
 		assertContains(bundle, "data class ReaderPageTurnTransitionPlan")
-		assertContains(bundle, "class ReaderPageTurnBitmapBundle")
-		assertContains(bundle, "val currentBase: Bitmap")
-		assertContains(bundle, "val turningFront: Bitmap")
-		assertContains(bundle, "val turningReverse: Bitmap?")
-		assertContains(bundle, "val underneath: Bitmap?")
-		assertContains(bundle, "val finalBase: Bitmap")
-		assertContains(bundle, "if (recycled) return")
-		assertContains(bundle, "fun recycle()")
-		assertContains(bundle, "distinctBy { System.identityHashCode(it) }")
+		assertContains(bundle, "class ReaderPageSlideSnapshot")
+		assertContains(bundle, "class ReaderPageSlideTransition")
+		assertContains(bundle, "source.retain()")
+		assertContains(bundle, "destination.retain()")
+		assertContains(bundle, "if (closed) return")
+		assertContains(bundle, "source.release()")
+		assertContains(bundle, "destination.release()")
+		assertFalse(bundle.contains("ReaderPageTurnBitmapBundle"))
 	}
 
 	@Test

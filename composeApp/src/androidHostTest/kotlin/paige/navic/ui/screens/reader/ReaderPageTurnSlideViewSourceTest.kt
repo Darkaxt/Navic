@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import java.io.File
 import paige.navic.reader.readerAndroidFile
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -56,5 +57,26 @@ class ReaderPageTurnSlideViewSourceTest {
 
 		assertContains(controller, "ReaderPageTurnSlideView")
 		assertFalse(controller.contains("ReaderPageTurnCurlView"))
+	}
+
+	@Test
+	fun retiredNativeCurlAndLegacyBitmapBundleAreRemoved() {
+		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
+
+		assertFalse(
+			listOf(
+				File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnCurlView.android.kt"),
+				File("composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnCurlView.android.kt")
+			).any(File::exists)
+		)
+		assertFalse(
+			listOf(
+				File("src/commonMain/kotlin/paige/navic/reader/ReaderPageTurnEdgeFoldGeometry.kt"),
+				File("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderPageTurnEdgeFoldGeometry.kt")
+			).any(File::exists)
+		)
+		assertFalse(bundle.contains("ReaderPageTurnBitmapBundle"))
+		assertFalse(bundle.contains("turningReverse"))
+		assertFalse(bundle.contains("underneath"))
 	}
 }
