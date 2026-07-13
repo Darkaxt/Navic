@@ -1,9 +1,7 @@
 package paige.navic.domain.repositories
 
-import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -16,7 +14,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.http.encodeURLQueryComponent
-import io.ktor.serialization.kotlinx.json.json
+import paige.navic.data.remote.NetworkClientFactory
 
 
 interface BinderyApiClient {
@@ -114,15 +112,14 @@ interface BinderyApiClient {
 	)
 }
 
-internal class KtorBinderyApiClient : BinderyApiClient {
-	private val client = HttpClient {
+internal class KtorBinderyApiClient(
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
+) : BinderyApiClient {
+	private val client = networkClientFactory.create(json = BinderyJson) {
 		install(HttpTimeout) {
 			requestTimeoutMillis = 45_000
 			connectTimeoutMillis = 10_000
 			socketTimeoutMillis = 45_000
-		}
-		install(ContentNegotiation) {
-			json(BinderyJson)
 		}
 	}
 

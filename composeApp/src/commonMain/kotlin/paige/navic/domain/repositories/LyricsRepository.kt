@@ -1,7 +1,6 @@
 package paige.navic.domain.repositories
 
 import com.russhwolf.settings.Settings
-import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
@@ -9,9 +8,10 @@ import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.isSuccess
-import kotlinx.serialization.json.Json
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.entities.LyricEntity
+import paige.navic.data.remote.NetworkClientFactory
+import paige.navic.data.remote.NetworkJson
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.lyrics.LyricsConfig
@@ -26,17 +26,18 @@ import kotlin.time.Duration.Companion.milliseconds
 class LyricsRepository(
 	private val lyricDao: LyricDao,
 	private val settings: Settings,
-	private val sessionManager: SessionManager
+	private val sessionManager: SessionManager,
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) {
 
-	private val client = HttpClient {
+	private val client = networkClientFactory.create {
 		install(HttpTimeout) {
 			requestTimeoutMillis = 40000
 			connectTimeoutMillis = 40000
 			socketTimeoutMillis = 40000
 		}
 	}
-	private val json = Json { ignoreUnknownKeys = true }
+	private val json = NetworkJson.compatible
 
 	private fun getConfig(): LyricsConfig {
 		val raw = settings.getStringOrNull(LyricsConfig.KEY)

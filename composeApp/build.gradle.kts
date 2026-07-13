@@ -137,6 +137,7 @@ extensions.configure<KotlinMultiplatformExtension> {
 
 		commonTest.dependencies {
 			implementation(kotlin("test"))
+			implementation(libs.ktor.client.mock)
 			implementation("com.russhwolf:multiplatform-settings-test:1.3.0")
 		}
 

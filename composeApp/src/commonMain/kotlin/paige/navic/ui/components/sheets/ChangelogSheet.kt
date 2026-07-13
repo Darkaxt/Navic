@@ -28,19 +28,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.kyant.capsule.ContinuousCapsule
-import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlin.math.roundToInt
 import navic.composeapp.generated.resources.Res
+import paige.navic.data.remote.NetworkClientFactory
+import paige.navic.data.remote.NetworkJson
 import navic.composeapp.generated.resources.action_downloading_update
 import navic.composeapp.generated.resources.action_downloading_update_percent
 import navic.composeapp.generated.resources.action_dont_show_again
@@ -216,7 +214,8 @@ internal fun normalizedUpdateInstallProgressPercent(progress: Float?): Int? =
 		?.let { (it * 100f).roundToInt() }
 
 class ChangelogViewModel(
-	platformContext: PlatformContext
+	platformContext: PlatformContext,
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) : ViewModel() {
 	private val _release = MutableStateFlow<GitHubRelease?>(null)
 	val release = _release.asStateFlow()
@@ -229,11 +228,7 @@ class ChangelogViewModel(
 	private val _updateCheckNotice = MutableStateFlow<UpdateCheckNotice?>(null)
 	internal val updateCheckNotice = _updateCheckNotice.asStateFlow()
 
-	private val updateClient = HttpClient {
-		install(ContentNegotiation) {
-			json(Json { ignoreUnknownKeys = true })
-		}
-	}
+	private val updateClient = networkClientFactory.create(json = NetworkJson.compatible)
 
 	fun checkForUpdates(currentVersion: String, manualCheck: Boolean = false) {
 		viewModelScope.launch {

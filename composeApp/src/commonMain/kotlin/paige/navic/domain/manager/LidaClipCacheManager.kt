@@ -1,6 +1,5 @@
 package paige.navic.domain.manager
 
-import io.ktor.client.HttpClient
 import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
@@ -16,15 +15,17 @@ import paige.navic.domain.models.lidaClipCachePrunePlan
 import paige.navic.domain.models.lidaClipVideoCacheSizeBytes
 import paige.navic.domain.models.shouldUseCachedLidaClipVideo
 import paige.navic.domain.models.shouldUseOfflineLidaClipVideo
+import paige.navic.data.remote.NetworkClientFactory
 import paige.navic.util.core.Logger
 
 private const val TAG = "LidaClipCacheManager"
 
 class LidaClipCacheManager(
 	private val storageManager: StorageManager,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) {
-	private val client = HttpClient()
+	private val client = networkClientFactory.create()
 	private val locksGuard = Mutex()
 	private val clipLocks = mutableMapOf<Int, Mutex>()
 

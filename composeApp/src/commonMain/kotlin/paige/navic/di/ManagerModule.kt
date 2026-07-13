@@ -16,10 +16,12 @@ import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.data.remote.SubsonicClientFactory
+import paige.navic.data.remote.NetworkClientFactory
 
 val managerModule = module {
 	singleOf(::AudioPlaybackOwnershipCoordinator)
 	singleOf(::AuthenticatedSessionLifetime)
+	singleOf(::NetworkClientFactory)
 	singleOf(::SubsonicClientFactory)
 	singleOf(::SleepTimerManager)
 	single(createdAtStart = true) {

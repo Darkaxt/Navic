@@ -1,9 +1,7 @@
 package paige.navic.domain.repositories
 
-import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -11,7 +9,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +16,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import paige.navic.data.remote.NetworkClientFactory
+import paige.navic.data.remote.NetworkJson
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.PreferenceManager
@@ -49,12 +47,10 @@ private val MUSICBRAINZ_ARTWORK_MISSING_MAX_AGE_MILLIS = 14.days.inWholeMillisec
 class MusicBrainzArtworkRepository(
 	private val preferenceManager: PreferenceManager,
 	private val albumDao: AlbumDao,
-	private val connectivityManager: ConnectivityManager
+	private val connectivityManager: ConnectivityManager,
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) {
-	private val json = Json {
-		ignoreUnknownKeys = true
-		isLenient = true
-	}
+	private val json = NetworkJson.tolerant
 	private val cacheLock = Any()
 	private val serverCoverFailureLock = Any()
 	private val resolvingSongIdsLock = Any()
@@ -66,14 +62,14 @@ class MusicBrainzArtworkRepository(
 	val resolvingMusicBrainzSongIds = _resolvingSongIds.asStateFlow()
 	private val requestThrottle = Mutex()
 	private var lastRequestMillis = 0L
-	private val client = HttpClient {
+	private val client = networkClientFactory.create(
+		json = json,
+		userAgent = MUSICBRAINZ_USER_AGENT
+	) {
 		install(HttpTimeout) {
 			requestTimeoutMillis = 20000
 			connectTimeoutMillis = 20000
 			socketTimeoutMillis = 20000
-		}
-		install(ContentNegotiation) {
-			json(json)
 		}
 	}
 

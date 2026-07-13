@@ -18,11 +18,11 @@
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/data/remote/NetworkClientFactoryTest.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/data/remote/NetworkClientPolicySourceTest.kt`
 
-- [ ] **Step 1: Add MockEngine only to the common-test dependency set**
+- [x] **Step 1: Add MockEngine only to the common-test dependency set**
 
 Add `ktor-client-mock` at the existing Ktor version and reference it from `commonTest`; do not add a production dependency.
 
-- [ ] **Step 2: Write failing behavior tests**
+- [x] **Step 2: Write failing behavior tests**
 
 Specify the desired API before production code exists:
 
@@ -50,7 +50,7 @@ assertNull(requests[1].headers[HttpHeaders.Authorization])
 
 Add a source-contract test that fails while production files outside `NetworkClientFactory.kt` still contain `HttpClient {` or `HttpClient()` and while `SubsonicClientFactory` does not call the common baseline configurator.
 
-- [ ] **Step 3: Run the focused tests and verify RED**
+- [x] **Step 3: Run the focused tests and verify RED**
 
 Run:
 
@@ -67,7 +67,7 @@ Expected: compilation/source-contract failure because `NetworkClientFactory`, `N
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/data/remote/SubsonicClientFactory.kt`
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/di/ManagerModule.kt`
 
-- [ ] **Step 1: Implement JSON profiles and fresh-client construction**
+- [x] **Step 1: Implement JSON profiles and fresh-client construction**
 
 Create one factory whose production path invokes `HttpClient` for every call and whose test-only engine supplier also produces a fresh engine:
 
@@ -97,15 +97,15 @@ internal class NetworkClientFactory(
 
 The shared baseline installs only `UserAgent`. It must not install auth, redirects, retries, logging of sensitive data, or `HttpTimeout`.
 
-- [ ] **Step 2: Reuse the baseline in Subsonic construction**
+- [x] **Step 2: Reuse the baseline in Subsonic construction**
 
 Replace Subsonic's duplicate `UserAgent` installation with `installNavicNetworkBaseline()`. Keep custom server headers inside `SubsonicClientFactory` so they cannot become global factory state.
 
-- [ ] **Step 3: Register the factory**
+- [x] **Step 3: Register the factory**
 
 Add `singleOf(::NetworkClientFactory)` next to `SubsonicClientFactory` in `ManagerModule.kt`.
 
-- [ ] **Step 4: Run the behavior test**
+- [x] **Step 4: Run the behavior test**
 
 Run the two tests from Task 1. Expected: the MockEngine behavior test passes; the source-contract test still fails on unmigrated clients.
 
@@ -121,19 +121,19 @@ Run the two tests from Task 1. Expected: the MockEngine behavior test passes; th
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/domain/repositories/MusicBrainzArtworkRepository.kt`
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/di/RepositoryModule.kt`
 
-- [ ] **Step 1: Inject `NetworkClientFactory` into each Ktor API client**
+- [x] **Step 1: Inject `NetworkClientFactory` into each Ktor API client**
 
 Use `factory.create(json = NetworkJson.tolerant) { ...existing service-local plugins... }`. Preserve request-level header application and status handling exactly. MusicBrainz passes its required descriptive user agent through the `userAgent` argument.
 
-- [ ] **Step 2: Point service JSON aliases at the shared profile**
+- [x] **Step 2: Point service JSON aliases at the shared profile**
 
 Keep `AURRAL_JSON` and `BinderyJson` as compatibility aliases if call sites use them for DTO decoding, but assign both to `NetworkJson.tolerant` instead of constructing duplicate `Json` instances.
 
-- [ ] **Step 3: Wire API interfaces through Koin**
+- [x] **Step 3: Wire API interfaces through Koin**
 
 Register distinct `AurralApiClient`, `BinderyApiClient`, `LastFmApiClient`, and `LidaClipsApiClient` instances, each constructed with the factory. Pass those instances explicitly into repositories. Preserve constructor defaults used by isolated repository tests.
 
-- [ ] **Step 4: Run repository-focused regression tests**
+- [x] **Step 4: Run repository-focused regression tests**
 
 Run:
 
@@ -151,15 +151,15 @@ Expected: all selected tests pass with no auth or DTO behavior changes.
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/domain/manager/LidaClipCacheManager.kt`
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/ui/components/sheets/ChangelogSheet.kt`
 
-- [ ] **Step 1: Inject the factory as the final constructor dependency**
+- [x] **Step 1: Inject the factory as the final constructor dependency**
 
 Replace each direct client with `networkClientFactory.create(...)`. Keep download and clip clients uncredentialed by default; continue applying headers only on the individual request that needs them. Use `NetworkJson.compatible` for the GitHub update DTO and local lyrics configuration.
 
-- [ ] **Step 2: Preserve existing service-local behavior**
+- [x] **Step 2: Preserve existing service-local behavior**
 
 Move existing timeout plugin blocks unchanged into the factory configure lambda. This slice neither introduces new timeouts nor converts existing service behavior. Do not add global retries.
 
-- [ ] **Step 3: Run source and compilation gates**
+- [x] **Step 3: Run source and compilation gates**
 
 Run:
 

@@ -1,8 +1,6 @@
 package paige.navic.domain.repositories
 
-import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.accept
 import io.ktor.client.request.delete
@@ -16,7 +14,6 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
@@ -25,6 +22,7 @@ import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
 import paige.navic.domain.models.AurralPreviewTrack
 import paige.navic.domain.models.AurralSimilarArtist
+import paige.navic.data.remote.NetworkClientFactory
 import paige.navic.util.core.Logger
 
 private const val TAG = "AurralApiClient"
@@ -211,12 +209,10 @@ interface AurralApiClient {
 	): AurralStreamTokenDto? = null
 }
 
-internal class KtorAurralApiClient : AurralApiClient {
-	private val client = HttpClient {
-		install(ContentNegotiation) {
-			json(AURRAL_JSON)
-		}
-	}
+internal class KtorAurralApiClient(
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
+) : AurralApiClient {
+	private val client = networkClientFactory.create(json = AURRAL_JSON)
 
 	override suspend fun testConnection(
 		baseUrl: String,

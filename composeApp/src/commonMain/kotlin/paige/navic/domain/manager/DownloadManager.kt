@@ -4,7 +4,6 @@ import coil3.SingletonImageLoader
 import coil3.network.httpHeaders
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import io.ktor.client.HttpClient
 import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
@@ -41,6 +40,7 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.entities.LyricEntity
 import paige.navic.data.database.mappers.toDomainModel
+import paige.navic.data.remote.NetworkClientFactory
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.cancelPendingDownloadSongIds
@@ -73,13 +73,14 @@ class DownloadManager(
 	private val preferenceManager: PreferenceManager,
 	private val lidaClipsRepository: LidaClipsRepository,
 	private val lidaClipDownloadManager: LidaClipDownloadManager,
-	private val sessionLifetime: AuthenticatedSessionLifetime
+	private val sessionLifetime: AuthenticatedSessionLifetime,
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) {
 	private val applicationScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 	private val inactiveSessionScope = CoroutineScope(Dispatchers.IO + Job().apply { cancel() })
 	private val scope: CoroutineScope
 		get() = sessionLifetime.currentScope() ?: inactiveSessionScope
-	private val client = HttpClient()
+	private val client = networkClientFactory.create()
 	private val activeDownloadsMutex = Mutex()
 	private val activeDownloads = mutableMapOf<String, Job>()
 	private val runningDownloadSlotsMutex = Mutex()

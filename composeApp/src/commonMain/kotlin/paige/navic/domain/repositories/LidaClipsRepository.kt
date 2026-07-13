@@ -1,9 +1,7 @@
 package paige.navic.domain.repositories
 
-import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
@@ -13,10 +11,10 @@ import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import paige.navic.data.remote.NetworkClientFactory
+import paige.navic.data.remote.NetworkJson
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DomainLidaClip
 import paige.navic.domain.models.DomainSong
@@ -237,20 +235,14 @@ interface LidaClipsApiClient {
 	): Result<DomainLidaClip?>
 }
 
-private class KtorLidaClipsApiClient : LidaClipsApiClient {
-	private val client = HttpClient {
+internal class KtorLidaClipsApiClient(
+	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
+) : LidaClipsApiClient {
+	private val client = networkClientFactory.create(json = NetworkJson.tolerant) {
 		install(HttpTimeout) {
 			requestTimeoutMillis = 30000
 			connectTimeoutMillis = 30000
 			socketTimeoutMillis = 30000
-		}
-		install(ContentNegotiation) {
-			json(
-				Json {
-					ignoreUnknownKeys = true
-					isLenient = true
-				}
-			)
 		}
 	}
 

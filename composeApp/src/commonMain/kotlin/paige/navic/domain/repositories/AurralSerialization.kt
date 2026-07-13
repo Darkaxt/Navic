@@ -1,8 +1,5 @@
 package paige.navic.domain.repositories
 
-import kotlinx.serialization.json.Json
+import paige.navic.data.remote.NetworkJson
 
-internal val AURRAL_JSON = Json {
-	ignoreUnknownKeys = true
-	isLenient = true
-}
+internal val AURRAL_JSON = NetworkJson.tolerant
