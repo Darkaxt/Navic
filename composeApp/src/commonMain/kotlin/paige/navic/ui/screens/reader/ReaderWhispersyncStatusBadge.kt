@@ -32,6 +32,9 @@ import paige.navic.icons.outlined.Headset
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.ReaderWhispersyncStatus
+import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_resync
+import org.jetbrains.compose.resources.stringResource
 
 private val readerWhispersyncBadgeFadeAnimationSpec = tween<Float>(150)
 
@@ -46,6 +49,7 @@ internal fun KomikkuWhispersyncPlaybackControl(
 	val latestControl = rememberUpdatedState(control)
 	val latestOnCommand = rememberUpdatedState(onCommand)
 	val latestOnOpenPlayer = rememberUpdatedState(onOpenPlayer)
+	val contentDescription = control.contentDescription.localizedDescription()
 	AnimatedVisibility(
 		visible = control.visible,
 		enter = fadeIn(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
@@ -69,7 +73,7 @@ internal fun KomikkuWhispersyncPlaybackControl(
 		) {
 			Icon(
 				imageVector = Icons.Outlined.Headset,
-				contentDescription = control.contentDescription,
+				contentDescription = contentDescription,
 				tint = glyphColor,
 				modifier = Modifier.size(22.dp)
 			)
@@ -98,6 +102,8 @@ internal fun KomikkuWhispersyncStatusBadge(
 	onRepairMismatch: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
+	val label = status.localizedLabel()
+	val detail = status.localizedDetail()
 	AnimatedVisibility(
 		visible = status.requiresAttention,
 		enter = fadeIn(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
@@ -116,14 +122,14 @@ internal fun KomikkuWhispersyncStatusBadge(
 				verticalArrangement = Arrangement.spacedBy(4.dp)
 			) {
 				Text(
-					text = status.label ?: "Whispersync",
+					text = label,
 					style = MaterialTheme.typography.labelLarge,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis
 				)
-				status.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+				detail?.let {
 					Text(
-						text = detail,
+						text = it,
 						style = MaterialTheme.typography.labelSmall,
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis
@@ -131,7 +137,7 @@ internal fun KomikkuWhispersyncStatusBadge(
 				}
 				if (status.repairable) {
 					TextButton(onClick = onRepairMismatch) {
-						Text(text = "Resync")
+						Text(text = stringResource(Res.string.action_resync))
 					}
 				}
 			}

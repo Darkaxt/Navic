@@ -503,7 +503,7 @@ data class ReaderController(
 									audioSeekTarget = target,
 									status = ReaderWhispersyncStatus(
 										kind = ReaderWhispersyncStatusKind.SeekingAudio,
-										label = "Syncing audiobook",
+										message = ReaderWhispersyncStatusMessage.SeekingAudio,
 										detail = target.segment.label,
 										audioResource = target.audioResource,
 										positionMs = target.positionMs
@@ -754,7 +754,7 @@ data class ReaderController(
 							),
 							status = ReaderWhispersyncStatus(
 								kind = ReaderWhispersyncStatusKind.NoActiveCue,
-								label = "End of visible page",
+								message = ReaderWhispersyncStatusMessage.VisiblePageEnded,
 								detail = overlayFragment.label,
 								audioResource = playbackState.audioResource,
 								positionMs = playbackState.positionMs
@@ -855,7 +855,10 @@ data class ReaderController(
 		)
 	}
 
-	fun reportWhispersyncLoadFailure(label: String, detail: String? = null): ReaderControllerStep =
+	fun reportWhispersyncLoadFailure(
+		message: ReaderWhispersyncStatusMessage,
+		detail: String? = null
+	): ReaderControllerStep =
 		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)) {
 			ReaderControllerStep(this)
 		} else ReaderControllerStep(
@@ -864,7 +867,7 @@ data class ReaderController(
 					whispersync = state.whispersync.copy(
 						status = ReaderWhispersyncStatus(
 							kind = ReaderWhispersyncStatusKind.LoadFailed,
-							label = label.trim().takeIf { it.isNotEmpty() } ?: "Whispersync unavailable",
+							message = message,
 							detail = detail?.trim()?.takeIf { it.isNotEmpty() }
 						)
 					)

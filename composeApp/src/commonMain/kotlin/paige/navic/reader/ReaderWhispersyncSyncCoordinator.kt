@@ -39,10 +39,23 @@ enum class ReaderWhispersyncStatusKind {
 	LoadFailed
 }
 
+enum class ReaderWhispersyncStatusMessage {
+	Ready,
+	Paused,
+	SeekingAudio,
+	Playing,
+	NoActiveCue,
+	VisiblePageEnded,
+	Mismatch,
+	Unavailable,
+	AudioUnavailable
+}
+
 data class ReaderWhispersyncStatus(
 	val kind: ReaderWhispersyncStatusKind = ReaderWhispersyncStatusKind.Unavailable,
-	val label: String? = null,
+	val message: ReaderWhispersyncStatusMessage? = null,
 	val detail: String? = null,
+	val syncedSegmentCount: Int? = null,
 	val audioResource: String? = null,
 	val positionMs: Long? = null
 ) {
@@ -98,7 +111,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			state = this,
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SyncDisabled,
-				label = "Whispersync paused"
+				message = ReaderWhispersyncStatusMessage.Paused
 			)
 		)
 	}
@@ -126,7 +139,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 				state = clearOverlayIfNeeded(),
 				status = ReaderWhispersyncStatus(
 					kind = ReaderWhispersyncStatusKind.NoActiveCue,
-					label = "No synced text here",
+					message = ReaderWhispersyncStatusMessage.NoActiveCue,
 					detail = audioResource,
 					audioResource = audioResource,
 					positionMs = positionMs
@@ -158,7 +171,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 		state = nextState,
 		status = ReaderWhispersyncStatus(
 			kind = ReaderWhispersyncStatusKind.Playing,
-			label = "Whispersync playing",
+			message = ReaderWhispersyncStatusMessage.Playing,
 			detail = segment.label,
 			audioResource = segment.audioResource,
 			positionMs = positionMs
@@ -180,7 +193,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPausedStep(
 		state = nextState,
 		status = ReaderWhispersyncStatus(
 			kind = ReaderWhispersyncStatusKind.SyncDisabled,
-			label = "Whispersync paused",
+			message = ReaderWhispersyncStatusMessage.Paused,
 			audioResource = audioResource?.trim()?.takeIf { it.isNotEmpty() },
 			positionMs = positionMs
 		)
@@ -219,7 +232,7 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 			state = this,
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SyncDisabled,
-				label = "Whispersync paused"
+				message = ReaderWhispersyncStatusMessage.Paused
 			)
 		)
 	}
@@ -241,7 +254,7 @@ fun ReaderWhispersyncSyncState.onVisibleTextRange(
 		audioSeekTarget = target,
 		status = ReaderWhispersyncStatus(
 			kind = ReaderWhispersyncStatusKind.SeekingAudio,
-			label = "Syncing audiobook",
+			message = ReaderWhispersyncStatusMessage.SeekingAudio,
 			detail = target.segment.label,
 			audioResource = target.audioResource,
 			positionMs = target.positionMs
@@ -279,7 +292,7 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 			state = this,
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SyncDisabled,
-				label = "Whispersync paused"
+				message = ReaderWhispersyncStatusMessage.Paused
 			)
 		)
 	}
@@ -299,7 +312,7 @@ fun ReaderWhispersyncSyncState.onTextPoint(
 		audioSeekTarget = step.seekTarget,
 		status = ReaderWhispersyncStatus(
 			kind = ReaderWhispersyncStatusKind.SeekingAudio,
-			label = "Syncing audiobook",
+			message = ReaderWhispersyncStatusMessage.SeekingAudio,
 			detail = target.segment.label,
 			audioResource = target.audioResource,
 			positionMs = target.positionMs
@@ -312,8 +325,8 @@ fun readerWhispersyncReadyStatus(timeline: WhispersyncTimeline?): ReaderWhispers
 	return if (count > 0) {
 		ReaderWhispersyncStatus(
 			kind = ReaderWhispersyncStatusKind.Ready,
-			label = "Whispersync ready",
-			detail = "$count synced ${if (count == 1) "segment" else "segments"}"
+			message = ReaderWhispersyncStatusMessage.Ready,
+			syncedSegmentCount = count
 		)
 	} else {
 		ReaderWhispersyncStatus()

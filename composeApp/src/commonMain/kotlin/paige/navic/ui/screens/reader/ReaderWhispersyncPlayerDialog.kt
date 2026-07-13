@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToLong
+import navic.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Forward10
 import paige.navic.icons.filled.Pause
@@ -98,18 +100,17 @@ private fun KomikkuWhispersyncPlayerHeader(
 	val metadata = playbackState.activeAudioMetadata
 	val title = metadata?.chapterLabel
 		?: playbackState.activeAudioLabel
-		?: status.label
-		?: "Whispersync audiobook"
+		?: status.localizedLabel()
 	val detail = listOfNotNull(
 		metadata?.sectionLabel,
 		metadata?.narratorLabel,
 		metadata?.formatLabel
 	).firstOrNull { it.isNotBlank() }
-		?: status.detail
+		?: status.localizedDetail()
 		?: if (playbackState.isAvailable) {
-			"Track ${playbackState.trackIndex + 1}"
+			stringResource(Res.string.info_audiobook_track, playbackState.trackIndex + 1)
 		} else {
-			"Audio not loaded"
+			stringResource(Res.string.info_audio_not_loaded)
 		}
 
 	Row(
@@ -133,7 +134,7 @@ private fun KomikkuWhispersyncPlayerHeader(
 			)
 		}
 		IconButton(onClick = onDismissRequest) {
-			Icon(Icons.Outlined.Close, contentDescription = "Close")
+			Icon(Icons.Outlined.Close, contentDescription = stringResource(Res.string.action_close))
 		}
 	}
 }
@@ -195,7 +196,10 @@ private fun KomikkuWhispersyncTransportRow(
 			onClick = { onCommand(ReaderReadaloudPlaybackCommand.SeekTo(playbackState.positionMs - 10_000L)) },
 			enabled = playbackState.isAvailable
 		) {
-			Icon(Icons.Filled.Replay10, contentDescription = "Seek back 10 seconds")
+			Icon(
+				Icons.Filled.Replay10,
+				contentDescription = stringResource(Res.string.action_seek_back_seconds, 10)
+			)
 		}
 		Surface(
 			onClick = {
@@ -216,7 +220,13 @@ private fun KomikkuWhispersyncTransportRow(
 			Box(contentAlignment = Alignment.Center) {
 				Icon(
 					imageVector = if (playbackState.isPlaying) Icons.Filled.Pause else Icons.Filled.Play,
-					contentDescription = if (playbackState.isPlaying) "Pause audiobook" else "Play audiobook"
+					contentDescription = stringResource(
+						if (playbackState.isPlaying) {
+							Res.string.action_pause_audiobook
+						} else {
+							Res.string.action_play_audiobook
+						}
+					)
 				)
 			}
 		}
@@ -224,7 +234,10 @@ private fun KomikkuWhispersyncTransportRow(
 			onClick = { onCommand(ReaderReadaloudPlaybackCommand.SeekTo(playbackState.positionMs + 10_000L)) },
 			enabled = playbackState.isAvailable
 		) {
-			Icon(Icons.Filled.Forward10, contentDescription = "Seek forward 10 seconds")
+			Icon(
+				Icons.Filled.Forward10,
+				contentDescription = stringResource(Res.string.action_seek_forward_seconds, 10)
+			)
 		}
 		KomikkuWhispersyncSeekButton(
 			label = "+30",
@@ -258,7 +271,7 @@ private fun KomikkuWhispersyncSpeedRow(
 
 	Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 		Text(
-			text = "Speed",
+			text = stringResource(Res.string.option_speed),
 			style = MaterialTheme.typography.labelLarge,
 			fontWeight = FontWeight.SemiBold
 		)
@@ -290,12 +303,18 @@ private fun KomikkuWhispersyncSyncRow(
 	) {
 		Column(modifier = Modifier.weight(1f)) {
 			Text(
-				text = "Audio sync",
+				text = stringResource(Res.string.option_audio_sync),
 				style = MaterialTheme.typography.labelLarge,
 				fontWeight = FontWeight.SemiBold
 			)
 			Text(
-				text = if (playbackState.syncEnabled) "Following the ebook page" else "Playback detached from page turns",
+				text = stringResource(
+					if (playbackState.syncEnabled) {
+						Res.string.info_audio_sync_following_page
+					} else {
+						Res.string.info_audio_sync_detached
+					}
+				),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant
 			)
@@ -304,7 +323,13 @@ private fun KomikkuWhispersyncSyncRow(
 			selected = playbackState.syncEnabled,
 			onClick = { playbackState.toggleSyncCommand()?.let(onCommand) },
 			enabled = playbackState.isAvailable,
-			label = { Text(if (playbackState.syncEnabled) "On" else "Off") }
+			label = {
+				Text(
+					stringResource(
+						if (playbackState.syncEnabled) Res.string.option_on else Res.string.option_off
+					)
+				)
+			}
 		)
 	}
 }

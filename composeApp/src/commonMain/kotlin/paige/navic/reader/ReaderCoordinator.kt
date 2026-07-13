@@ -100,8 +100,11 @@ data class ReaderCoordinator(
 	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderCoordinatorStep =
 		applyControllerStep(controller.loadWhispersyncSidecar(sidecar))
 
-	fun reportWhispersyncLoadFailure(label: String, detail: String? = null): ReaderCoordinatorStep =
-		applyControllerStep(controller.reportWhispersyncLoadFailure(label = label, detail = detail))
+	fun reportWhispersyncLoadFailure(
+		message: ReaderWhispersyncStatusMessage,
+		detail: String? = null
+	): ReaderCoordinatorStep =
+		applyControllerStep(controller.reportWhispersyncLoadFailure(message = message, detail = detail))
 
 	fun repairWhispersyncMismatch(): ReaderCoordinatorStep =
 		applyControllerStep(controller.repairWhispersyncMismatch())

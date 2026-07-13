@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.info_narrated_by
+import navic.composeapp.generated.resources.title_book
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -254,7 +256,7 @@ private fun BinderyAudiobookDetailHero(
 				}
 				detail.narrator?.trim()?.takeIf { it.isNotEmpty() }?.let { narrator ->
 					Text(
-						text = "Narrated by $narrator",
+						text = stringResource(Res.string.info_narrated_by, narrator),
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						maxLines = 4,
@@ -298,7 +300,7 @@ private fun BinderyAudiobookDetailHero(
 			}
 			OutlinedButton(onClick = onOpenBook) {
 				Icon(Icons.Outlined.Book, contentDescription = null, modifier = Modifier.size(18.dp))
-				Text("Book", modifier = Modifier.padding(start = 8.dp))
+				Text(stringResource(Res.string.title_book), modifier = Modifier.padding(start = 8.dp))
 			}
 			if (!detail.audibleSourceUrl.isNullOrBlank()) {
 				OutlinedButton(onClick = onOpenAudible) {

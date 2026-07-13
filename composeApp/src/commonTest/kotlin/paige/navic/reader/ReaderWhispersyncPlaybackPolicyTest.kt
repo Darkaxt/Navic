@@ -258,7 +258,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Ready,
-				label = "Whispersync ready"
+				message = ReaderWhispersyncStatusMessage.Ready
 			),
 			playbackState = ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
@@ -279,7 +279,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.NoActiveCue,
-				label = "No synced text here"
+				message = ReaderWhispersyncStatusMessage.NoActiveCue
 			),
 			playbackState = ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
@@ -300,7 +300,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SeekingAudio,
-				label = "Syncing audiobook",
+				message = ReaderWhispersyncStatusMessage.SeekingAudio,
 				audioResource = "Audio/chapter01.m4b",
 				positionMs = 42_000L
 			),
@@ -319,7 +319,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Playing,
-				label = "Whispersync playing"
+				message = ReaderWhispersyncStatusMessage.Playing
 			),
 			playbackState = ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
@@ -340,7 +340,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SyncDisabled,
-				label = "Whispersync paused"
+				message = ReaderWhispersyncStatusMessage.Paused
 			),
 			playbackState = ReaderReadaloudPlaybackUiState(
 				isAvailable = true,

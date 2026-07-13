@@ -48,15 +48,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
+import navic.composeapp.generated.resources.action_done
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
 import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.action_open
 import navic.composeapp.generated.resources.ic_whispersync
 import navic.composeapp.generated.resources.info_bindery_no_versions
 import navic.composeapp.generated.resources.title_audiobook_ebooks
 import navic.composeapp.generated.resources.title_audiobooks
 import navic.composeapp.generated.resources.title_audiobook_subjects
+import navic.composeapp.generated.resources.title_open_with_audiobook
+import navic.composeapp.generated.resources.title_whispersync_matches
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -636,7 +641,7 @@ private fun BinderyBookVersionListItem(
 						) {
 							Icon(
 								painter = painterResource(Res.drawable.ic_whispersync),
-								contentDescription = "Whispersync matches",
+								contentDescription = stringResource(Res.string.title_whispersync_matches),
 								tint = Color.Unspecified,
 								modifier = Modifier.size(26.dp)
 							)
@@ -685,7 +690,7 @@ private fun BinderyBookVersionListItem(
 				) {
 					Icon(
 						imageVector = Icons.Outlined.Audiobooks,
-						contentDescription = "Open with audiobook",
+						contentDescription = stringResource(Res.string.title_open_with_audiobook),
 						tint = MaterialTheme.colorScheme.primary
 					)
 				}
@@ -730,7 +735,7 @@ private fun BinderyWhispersyncMatchesSheet(
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
 			Text(
-				text = "Whispersync matches",
+				text = stringResource(Res.string.title_whispersync_matches),
 				style = MaterialTheme.typography.titleMedium,
 				fontWeight = FontWeight.SemiBold
 			)
@@ -786,7 +791,7 @@ private fun BinderyWhispersyncMatchesSheet(
 							},
 							enabled = destination != null
 						) {
-							Text("Open")
+							Text(stringResource(Res.string.action_open))
 						}
 					}
 				}
@@ -795,7 +800,7 @@ private fun BinderyWhispersyncMatchesSheet(
 				onClick = onDismissRequest,
 				modifier = Modifier.align(Alignment.End)
 			) {
-				Text("Done")
+				Text(stringResource(Res.string.action_done))
 			}
 		}
 	}
@@ -821,7 +826,7 @@ private fun BinderyWhispersyncLaunchSheet(
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
 			Text(
-				text = "Open with audiobook",
+				text = stringResource(Res.string.title_open_with_audiobook),
 				style = MaterialTheme.typography.titleMedium,
 				fontWeight = FontWeight.SemiBold
 			)
@@ -877,7 +882,7 @@ private fun BinderyWhispersyncLaunchSheet(
 							},
 							enabled = destination != null
 						) {
-							Text("Open")
+							Text(stringResource(Res.string.action_open))
 						}
 					}
 				}
@@ -886,7 +891,7 @@ private fun BinderyWhispersyncLaunchSheet(
 				onClick = onDismissRequest,
 				modifier = Modifier.align(Alignment.End)
 			) {
-				Text("Cancel")
+				Text(stringResource(Res.string.action_cancel))
 			}
 		}
 	}

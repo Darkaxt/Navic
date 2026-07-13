@@ -52,6 +52,7 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
+import paige.navic.reader.ReaderWhispersyncStatusMessage
 import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.WhispersyncSyncLogTag
 import paige.navic.reader.applyReaderCoordinatorStep
@@ -434,7 +435,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 						onFailure = { error ->
 							applyCoordinatorStep(
 								coordinator.reportWhispersyncLoadFailure(
-									label = "Whispersync unavailable",
+									message = ReaderWhispersyncStatusMessage.Unavailable,
 									detail = "artifact=${attachment.artifactId}"
 								)
 							)
@@ -496,7 +497,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 							whispersyncPlaybackPlan = null
 							applyCoordinatorStep(
 								coordinator.reportWhispersyncLoadFailure(
-									label = "Whispersync audio unavailable",
+									message = ReaderWhispersyncStatusMessage.AudioUnavailable,
 									detail = "audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId}"
 								)
 							)

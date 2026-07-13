@@ -798,7 +798,7 @@ class ReaderCoordinatorTest {
 					whispersync = controller.state.whispersync.copy(
 						status = ReaderWhispersyncStatus(
 							kind = ReaderWhispersyncStatusKind.Mismatch,
-							label = "Whispersync mismatch",
+							message = ReaderWhispersyncStatusMessage.Mismatch,
 							detail = "Audio/chapter99.m4b",
 							audioResource = "Audio/chapter99.m4b",
 							positionMs = 5_500L

@@ -1,11 +1,19 @@
 package paige.navic.reader
 
+enum class ReaderWhispersyncPlaybackControlDescription {
+	Audiobook,
+	Loading,
+	Reset,
+	Play
+}
+
 data class ReaderWhispersyncPlaybackControlState(
 	val visible: Boolean = false,
 	val loading: Boolean = false,
 	val crossed: Boolean = true,
 	val enabled: Boolean = false,
-	val contentDescription: String = "Whispersync audiobook",
+	val contentDescription: ReaderWhispersyncPlaybackControlDescription =
+		ReaderWhispersyncPlaybackControlDescription.Audiobook,
 	val command: ReaderReadaloudPlaybackCommand? = null
 )
 
@@ -22,7 +30,7 @@ fun readerWhispersyncPlaybackControlState(
 			loading = status.kind != ReaderWhispersyncStatusKind.LoadFailed,
 			crossed = true,
 			enabled = false,
-			contentDescription = "Whispersync audiobook loading"
+			contentDescription = ReaderWhispersyncPlaybackControlDescription.Loading
 		)
 	val command = availablePlayback.whispersyncHeadsetCommand()
 	val crossed = !availablePlayback.isPlaying || !availablePlayback.syncEnabled
@@ -32,9 +40,9 @@ fun readerWhispersyncPlaybackControlState(
 		crossed = crossed,
 		enabled = command != null,
 		contentDescription = if (availablePlayback.isPlaying) {
-			"Reset Whispersync audiobook"
+			ReaderWhispersyncPlaybackControlDescription.Reset
 		} else {
-			"Play Whispersync audiobook"
+			ReaderWhispersyncPlaybackControlDescription.Play
 		},
 		command = command
 	)

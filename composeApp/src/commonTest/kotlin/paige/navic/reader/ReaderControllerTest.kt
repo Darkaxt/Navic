@@ -1748,8 +1748,8 @@ class ReaderControllerTest {
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Ready,
-				label = "Whispersync ready",
-				detail = "2 synced segments"
+				message = ReaderWhispersyncStatusMessage.Ready,
+				syncedSegmentCount = 2
 			),
 			step.controller.state.whispersync.status
 		)
@@ -1760,14 +1760,14 @@ class ReaderControllerTest {
 		val step = ReaderController()
 			.open(hobbitOpenRequest()).controller
 			.reportWhispersyncLoadFailure(
-				label = "Whispersync audio unavailable",
+				message = ReaderWhispersyncStatusMessage.AudioUnavailable,
 				detail = "audiobook=69"
 			)
 
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.LoadFailed,
-				label = "Whispersync audio unavailable",
+				message = ReaderWhispersyncStatusMessage.AudioUnavailable,
 				detail = "audiobook=69"
 			),
 			step.controller.state.whispersync.status
@@ -1794,7 +1794,7 @@ class ReaderControllerTest {
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SeekingAudio,
-				label = "Syncing audiobook",
+				message = ReaderWhispersyncStatusMessage.SeekingAudio,
 				detail = "Second sentence",
 				audioResource = "Audio/chapter01.m4b",
 				positionMs = 5_000L
@@ -1829,8 +1829,8 @@ class ReaderControllerTest {
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Ready,
-				label = "Whispersync ready",
-				detail = "2 synced segments"
+				message = ReaderWhispersyncStatusMessage.Ready,
+				syncedSegmentCount = 2
 			),
 			step.controller.state.whispersync.status
 		)
@@ -1861,7 +1861,7 @@ class ReaderControllerTest {
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.NoActiveCue,
-				label = "No synced text here",
+				message = ReaderWhispersyncStatusMessage.NoActiveCue,
 				detail = "Audio/chapter99.m4b",
 				audioResource = "Audio/chapter99.m4b",
 				positionMs = 5_500L
@@ -1895,7 +1895,7 @@ class ReaderControllerTest {
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SeekingAudio,
-				label = "Syncing audiobook",
+				message = ReaderWhispersyncStatusMessage.SeekingAudio,
 				detail = "Second sentence",
 				audioResource = "Audio/chapter01.m4b",
 				positionMs = 5_000L
@@ -1942,7 +1942,7 @@ class ReaderControllerTest {
 				)
 			).controller
 		val failed = visible.reportWhispersyncLoadFailure(
-			label = "Whispersync audio unavailable",
+			message = ReaderWhispersyncStatusMessage.AudioUnavailable,
 			detail = "audiobook=69"
 		).controller
 
@@ -2069,7 +2069,7 @@ class ReaderControllerTest {
 		assertEquals(
 			ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SyncDisabled,
-				label = "Whispersync paused",
+				message = ReaderWhispersyncStatusMessage.Paused,
 				audioResource = "Audio/chapter01.m4b",
 				positionMs = 5_500L
 			),
@@ -2150,7 +2150,10 @@ class ReaderControllerTest {
 		assertNull(step.controller.state.activeMediaOverlay)
 		assertNull(step.controller.state.audioMetadataLabel)
 		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, step.controller.state.whispersync.status.kind)
-		assertEquals("End of visible page", step.controller.state.whispersync.status.label)
+		assertEquals(
+			ReaderWhispersyncStatusMessage.VisiblePageEnded,
+			step.controller.state.whispersync.status.message
+		)
 	}
 
 	@Test
@@ -2648,7 +2651,7 @@ class ReaderControllerTest {
 				whispersync = state.whispersync.copy(
 					status = ReaderWhispersyncStatus(
 						kind = ReaderWhispersyncStatusKind.Mismatch,
-						label = "Whispersync mismatch",
+						message = ReaderWhispersyncStatusMessage.Mismatch,
 						detail = "Audio/chapter99.m4b",
 						audioResource = "Audio/chapter99.m4b",
 						positionMs = 5_500L

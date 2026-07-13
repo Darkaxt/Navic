@@ -40,6 +40,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_cancel
+import navic.composeapp.generated.resources.action_open
+import navic.composeapp.generated.resources.option_ebook_only
+import navic.composeapp.generated.resources.title_open_with_whispersync
 import navic.composeapp.generated.resources.title_audiobook_authors
 import navic.composeapp.generated.resources.title_audiobook_books
 import navic.composeapp.generated.resources.title_audiobook_collections
@@ -634,7 +638,7 @@ private fun BinderyContinueWhispersyncSheet(
 			verticalArrangement = Arrangement.spacedBy(12.dp)
 		) {
 			Text(
-				text = "Open with Whispersync?",
+				text = stringResource(Res.string.title_open_with_whispersync),
 				style = MaterialTheme.typography.titleMedium,
 				fontWeight = FontWeight.SemiBold
 			)
@@ -649,7 +653,7 @@ private fun BinderyContinueWhispersyncSheet(
 				onClick = { onOpenReader(decision.ebookDestination) },
 				modifier = Modifier.fillMaxWidth()
 			) {
-				Text("Ebook only")
+				Text(stringResource(Res.string.option_ebook_only))
 			}
 			decision.matches.forEach { match ->
 				val destination = binderyContinueReadingWhispersyncDestination(
@@ -694,7 +698,7 @@ private fun BinderyContinueWhispersyncSheet(
 							},
 							enabled = destination != null
 						) {
-							Text("Open")
+							Text(stringResource(Res.string.action_open))
 						}
 					}
 				}
@@ -703,7 +707,7 @@ private fun BinderyContinueWhispersyncSheet(
 				onClick = onDismissRequest,
 				modifier = Modifier.align(Alignment.End)
 			) {
-				Text("Cancel")
+				Text(stringResource(Res.string.action_cancel))
 			}
 		}
 	}
