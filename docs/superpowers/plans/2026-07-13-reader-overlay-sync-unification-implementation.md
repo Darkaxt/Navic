@@ -33,7 +33,7 @@
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderOverlaySyncReducerTest.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderOverlaySyncSourceTest.kt`
 
-- [ ] **Step 1: Add reducer tests against the wished-for API**
+- [x] **Step 1: Add reducer tests against the wished-for API**
 
 Use one static cue and one progressive cue. The complete reducer contract is:
 
@@ -99,7 +99,7 @@ class ReaderOverlaySyncReducerTest {
 }
 ```
 
-- [ ] **Step 2: Add a source contract that rejects the current duplicate design**
+- [x] **Step 2: Add a source contract that rejects the current duplicate design**
 
 Resolve the repository root using the existing upward `androidApp/build.gradle.kts` search. Read all production reader Kotlin files and assert:
 
@@ -115,7 +115,7 @@ assertFalse(root.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/Re
 assertFalse(root.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderReadaloudSyncCoordinator.kt").exists())
 ```
 
-- [ ] **Step 3: Run RED and record the exact failure reason**
+- [x] **Step 3: Run RED and record the exact failure reason**
 
 Run:
 
@@ -125,13 +125,15 @@ Run:
 
 Expected: compilation fails because `ReaderOverlaySyncState`, `ReaderOverlayCue`, and `ReaderOverlayReaderTarget` do not exist; the source contract also describes the duplicate declarations still present. Do not modify production code before capturing this RED result.
 
+RED evidence: `:composeApp:compileAndroidHostTest` failed on 2026-07-13 with unresolved references to `ReaderOverlayCue`, `ReaderOverlaySyncState`, and `ReaderOverlayReaderTarget` in `ReaderOverlaySyncReducerTest`. No production B12 type existed during that run.
+
 ## Task 2: Implement The Single Overlay Reducer
 
 **Files:**
 - Create: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderOverlaySync.kt`
 - Test: `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderOverlaySyncReducerTest.kt`
 
-- [ ] **Step 1: Add the domain-neutral types**
+- [x] **Step 1: Add the domain-neutral types**
 
 ```kotlin
 data class ReaderOverlaySyncState(
@@ -165,7 +167,7 @@ interface ReaderOverlayTimelineAdapter<PlaybackInput, ReaderInput, SeekTarget> {
 }
 ```
 
-- [ ] **Step 2: Implement reducer transitions**
+- [x] **Step 2: Implement reducer transitions**
 
 `setSyncEnabled(false)` clears an active cue once. `followPlaybackCue(null)` clears only when enabled and active. A new cue publishes `ApplyMediaOverlay`; the same cue with a changed non-null progress marker publishes `UpdateMediaOverlayProgress`; all other repeats preserve the state and key. `followReaderTarget` uses the same activation transition and emits its seek target only for a changed cue or `repeatSeek=true`.
 
@@ -180,9 +182,11 @@ private fun ReaderOverlaySyncState.withEngineCommand(
 )
 ```
 
-- [ ] **Step 3: Run GREEN for the reducer only**
+- [x] **Step 3: Run GREEN for the reducer only**
 
 Run the reducer test class without the source test. Expected: all reducer tests pass with zero failures.
+
+GREEN evidence: `ReaderOverlaySyncReducerTest` passed 4/4 with zero failures, errors, or skips. The test covers static apply/clear deduplication, progressive update deduplication, repeated reader-target policy, and disabled-sync suppression.
 
 - [ ] **Step 4: Commit the reducer**
 
