@@ -175,7 +175,7 @@ Expected: all selected tests pass, no direct production `HttpClient` constructio
 - Modify: `androidApp/build.gradle.kts`
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 
-- [ ] **Step 1: Bump the prerelease**
+- [x] **Step 1: Bump the prerelease**
 
 Increment `versionCode` from 529 to 530 and set `versionName` to `v1.0.11-iota8`.
 
