@@ -256,13 +256,17 @@ Add release commit, workflow ID, public APK size/digest, signing certificate, me
 
 Release evidence: `v1.0.11-iota16` points to commit `a2424f42`; workflow `29255331455` passed the signed Android build and release creation with every iOS job skipped. Public `Navic.apk` is 46,225,284 bytes with SHA-256 `1d630864e5aff35b08e35fbe991eb5e266e323055042966b206a7a3f24340f6f`, established v2 certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, and metadata `543 / v1.0.11-iota16`. It passed all 30 packaged vendor hashes and attribution, upgraded the public emulator package from iota15, resumed as PID `8028`, and produced no error-level AndroidRuntime/MediaController/Koin/Room startup findings.
 
-- [ ] **Step 2: Push and verify immutable refs**
+- [x] **Step 2: Push and verify immutable refs**
 
 Push the evidence commit and verify public `master`, the peeled `v1.0.11-iota16` tag commit, release record, and asset digest independently.
 
-- [ ] **Step 3: Remove only this worktree and branch**
+Immutable-ref evidence: public `master` and local HEAD both resolve to evidence commit `b65c14dc`; the annotated tag object is `5e9c6782` and peels to release-code commit `a2424f42`. The published release remains non-draft and non-prerelease, and its 46,225,284-byte asset still advertises SHA-256 `1d630864e5aff35b08e35fbe991eb5e266e323055042966b206a7a3f24340f6f`.
+
+- [x] **Step 3: Remove only this worktree and branch**
 
 After proving the branch is on public `master`, remove `C:/Users/darka/Documents/Projects/Android/.codex-temp/navic-qa-tranche-3-reader-cache-policy` and local branch `fix/qa-tranche-3-reader-cache-policy`. Verify the primary animation checkout, `navic-playlist-pattern-fix`, `navic-page-turn-animation-rev4`, and `navic-destination-aware-page-turns` remain registered and unchanged.
+
+Cleanup boundary: the target worktree is clean at `b65c14dc`, already published to public `master`. Before removal, the four protected worktrees were recorded at `8340a4b8`, `4bc24e1a`, `5a1ed120`, and `b83092b9` respectively; their pre-existing tracked/untracked state is outside this unit and must remain untouched.
 
 ## Self-Review
 
