@@ -24,22 +24,14 @@ val managerModule = module {
 	single { NetworkClientFactory() }
 	singleOf(::SubsonicClientFactory)
 	singleOf(::SleepTimerManager)
-	single(createdAtStart = true) {
-		SyncManager(get(), get(), get(), get(), get(), get(), get()).apply {
-			startPeriodicSync()
-		}
-	}
+	singleOf(::SyncManager)
 	singleOf(::DownloadManager)
-	single(createdAtStart = true) {
-		DownloadQueueNotificationCoordinator(get(), get(), get()).apply {
-			start()
-		}
-	}
+	singleOf(::DownloadQueueNotificationCoordinator)
 	singleOf(::LidaClipCacheManager)
 	singleOf(::LidaClipDownloadManager)
 	singleOf(::SessionManager)
 	single { PreferenceManager(get(), get()) }
 	singleOf(::SnackBarManager)
 	singleOf(::ArtworkColorManager)
-	single(createdAtStart = true) { AppLogManager(get()) }
+	singleOf(::AppLogManager)
 }

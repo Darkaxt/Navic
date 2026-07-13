@@ -21,10 +21,13 @@ class AppLogManager(
 	}
 	private var store = restoreStore()
 	private val _entries = MutableStateFlow(store.entries)
+	private var started = false
 
 	val entries: StateFlow<List<AppLogEntry>> = _entries.asStateFlow()
 
-	init {
+	fun start() {
+		if (started) return
+		started = true
 		Logger.configureIssueLogSink(::record)
 	}
 

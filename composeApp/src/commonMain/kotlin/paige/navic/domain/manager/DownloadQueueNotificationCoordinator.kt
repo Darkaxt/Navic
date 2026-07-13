@@ -4,6 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
@@ -22,35 +24,40 @@ class DownloadQueueNotificationCoordinator(
 	private val queueNotificationManager: QueueNotificationManager
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+	private var startJob: Job? = null
 
 	fun start() {
-		scope.launch {
-			downloadManager.allDownloads.collectLatest { downloads ->
-				publishQueueState(
-					id = QueueNotificationIds.MUSIC_DOWNLOADS,
-					title = getString(Res.string.title_music_downloads),
-					rows = downloads.map { download ->
-						DownloadQueueNotificationRow(
-							status = download.status,
-							progress = download.progress
-						)
-					}
-				)
+		if (startJob?.isActive == true) return
+		startJob = scope.launch {
+			launch {
+				downloadManager.allDownloads.collectLatest { downloads ->
+					publishQueueState(
+						id = QueueNotificationIds.MUSIC_DOWNLOADS,
+						title = getString(Res.string.title_music_downloads),
+						rows = downloads.map { download ->
+							DownloadQueueNotificationRow(
+								status = download.status,
+								progress = download.progress
+							)
+						}
+					)
+				}
 			}
-		}
-		scope.launch {
-			lidaClipDownloadManager.allDownloads.collectLatest { downloads ->
-				publishQueueState(
-					id = QueueNotificationIds.LIDA_CLIP_DOWNLOADS,
-					title = getString(Res.string.title_lida_clip_downloads),
-					rows = downloads.map { download ->
-						DownloadQueueNotificationRow(
-							status = download.status,
-							progress = download.progress
-						)
-					}
-				)
+			launch {
+				lidaClipDownloadManager.allDownloads.collectLatest { downloads ->
+					publishQueueState(
+						id = QueueNotificationIds.LIDA_CLIP_DOWNLOADS,
+						title = getString(Res.string.title_lida_clip_downloads),
+						rows = downloads.map { download ->
+							DownloadQueueNotificationRow(
+								status = download.status,
+								progress = download.progress
+							)
+						}
+					)
+				}
 			}
+			awaitCancellation()
 		}
 	}
 

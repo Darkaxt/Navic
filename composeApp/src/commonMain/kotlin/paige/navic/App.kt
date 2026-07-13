@@ -61,9 +61,12 @@ import org.jetbrains.compose.resources.getString
 import org.koin.compose.koinInject
 import paige.navic.di.InstallSingletonImageLoaderFactory
 import paige.navic.domain.manager.BottomBarScrollManager
+import paige.navic.domain.manager.AppLogManager
+import paige.navic.domain.manager.DownloadQueueNotificationCoordinator
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.manager.SyncManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.snackbars.NavicSnackbar
 import paige.navic.ui.components.common.LocalArtistPhotoEntries
@@ -169,6 +172,9 @@ fun App(initialScreenOverride: Screen? = null) {
 	val platformContext = rememberPlatformContext()
 	val sessionManager = koinInject<SessionManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
+	val appLogManager = koinInject<AppLogManager>()
+	val syncManager = koinInject<SyncManager>()
+	val downloadQueueNotificationCoordinator = koinInject<DownloadQueueNotificationCoordinator>()
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
 	val snackBarManager = koinInject<SnackBarManager>()
 	val backStack = rememberNavBackStack(
@@ -180,6 +186,17 @@ fun App(initialScreenOverride: Screen? = null) {
 	)
 	val snackbarState = remember { SnackbarHostState() }
 	var forceUpdateCheckRequests by remember { mutableIntStateOf(0) }
+
+	LaunchedEffect(appLogManager) {
+		appLogManager.start()
+	}
+
+	LaunchedEffect(isLoggedIn, syncManager, downloadQueueNotificationCoordinator) {
+		if (isLoggedIn) {
+			syncManager.startPeriodicSync()
+			downloadQueueNotificationCoordinator.start()
+		}
+	}
 
 	LaunchedEffect(snackBarManager) {
 		snackBarManager.events.collectLatest { event ->

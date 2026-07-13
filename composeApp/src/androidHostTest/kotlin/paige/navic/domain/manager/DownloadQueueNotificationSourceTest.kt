@@ -26,11 +26,12 @@ class DownloadQueueNotificationSourceTest {
 		val androidModule = sourceFile("composeApp/src/androidMain/kotlin/paige/navic/di/PlatformModule.android.kt").readText()
 		val iosModule = sourceFile("composeApp/src/iosMain/kotlin/paige/navic/di/PlatformModule.ios.kt").readText()
 		val managerModule = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/di/ManagerModule.kt").readText()
+		val app = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/App.kt").readText()
 
 		assertContains(androidModule, "singleOf(::QueueNotificationManager)")
 		assertContains(iosModule, "singleOf(::QueueNotificationManager)")
 		assertContains(managerModule, "DownloadQueueNotificationCoordinator")
-		assertContains(managerModule, "start()")
+		assertContains(app, "downloadQueueNotificationCoordinator.start()")
 	}
 
 	@Test
