@@ -16,6 +16,7 @@ import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.manager.SyncManager
+import paige.navic.domain.interactors.PlaybackQueueInteractor
 import paige.navic.data.remote.SubsonicClientFactory
 import paige.navic.data.remote.NetworkClientFactory
 
@@ -31,6 +32,7 @@ val managerModule = module {
 	singleOf(::DownloadQueueNotificationCoordinator)
 	singleOf(::LidaClipCacheManager)
 	singleOf(::LidaClipDownloadManager)
+	singleOf(::PlaybackQueueInteractor)
 	singleOf(::SessionManager)
 	single { PreferenceManager(get(), get()) }
 	singleOf(::SnackBarManager)

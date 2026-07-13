@@ -13,14 +13,13 @@ import paige.navic.domain.models.queueAutoFillAppendCount
 import paige.navic.domain.models.queueAutoFillCandidateSongs
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.shouldAutoFillQueue
-import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
 
 internal class AndroidQueueAutoFiller(
 	private val scope: CoroutineScope,
 	private val preferenceManager: PreferenceManager,
-	private val songRepository: SongRepository,
+	private val loadLibrarySongs: suspend () -> List<DomainSong>,
 	private val mediaItemFactory: AndroidMediaItemFactory,
 	private val controller: () -> MediaController?,
 	private val state: () -> PlayerUiState,
@@ -39,7 +38,7 @@ internal class AndroidQueueAutoFiller(
 		autoFillQueueJob = scope.launch {
 			try {
 				val allSongs = withContext(Dispatchers.IO) {
-					songRepository.getAllSongs()
+					loadLibrarySongs()
 				}.shuffled()
 
 				val currentPlayer = controller() ?: return@launch

@@ -1,56 +1,20 @@
 package paige.navic.shared
 
 import android.app.Application
-import android.app.PendingIntent
-import android.content.ActivityNotFoundException
-import android.media.AudioDeviceCallback
-import android.media.AudioDeviceInfo
-import android.media.AudioManager
-import android.media.audiofx.AudioEffect
-import android.media.audiofx.BassBoost
-import android.media.audiofx.LoudnessEnhancer
-import android.media.audiofx.PresetReverb
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.database.ContentObserver
 import android.net.Uri
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.AuxEffectInfo
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
-import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.session.CommandButton
-import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaController
-import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.FutureCallback
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.snapshotFlow
@@ -60,17 +24,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
 import paige.navic.data.database.dao.ArtistPhotoCacheDao
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.data.database.dao.AlbumDao
-import paige.navic.data.database.dao.PlaylistDao
-import paige.navic.data.database.dao.SongDao
-import paige.navic.data.database.mappers.toEntity
 import paige.navic.data.database.mappers.toDomainModel
-import paige.navic.domain.manager.AndroidScrobbleManager
+import paige.navic.domain.interactors.DefaultPlaybackQueueStateReducer
+import paige.navic.domain.interactors.PlaybackQueueInteractor
 import paige.navic.domain.manager.AudioPlaybackOwnershipClaim
 import paige.navic.domain.manager.AudioPlaybackOwnershipCoordinator
 import paige.navic.domain.manager.ConnectivityManager
@@ -78,7 +38,6 @@ import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
-import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.AudioPlaybackOwner
 import paige.navic.domain.models.CollectionShuffleQueueOrder
 import paige.navic.domain.models.DomainAlbum
@@ -86,43 +45,21 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.collectionShufflePlaybackPlan
-import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.PlaybackOrigin
-import paige.navic.domain.models.audioReverbPresetValue
 import paige.navic.domain.models.audioFadeDurationMs
-import paige.navic.domain.models.bassBoostStrengthPermille
-import paige.navic.domain.models.medleyModeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
-import paige.navic.domain.models.pauseBetweenSongsDelayMs
-import paige.navic.domain.models.mediaNotificationActions
-import paige.navic.domain.models.playbackVolumeMultiplier
-import paige.navic.domain.models.replayGainLoudnessBoostMillibels
-import paige.navic.domain.models.replayGainVolumeMultiplier
-import paige.navic.domain.models.restoredShuffleOrder
-import paige.navic.domain.models.shouldEnableBassBoost
-import paige.navic.domain.models.shouldEnableAudioReverb
-import paige.navic.domain.models.shouldAdvanceMedleyMode
-import paige.navic.domain.models.shouldPauseBetweenSongsAfterTransition
-import paige.navic.domain.models.shouldPausePlaybackWhenVolumeZero
 import paige.navic.domain.models.shouldPauseForAudioPlaybackClaim
 import paige.navic.domain.models.shouldFadePlaybackCommand
 import paige.navic.domain.models.shouldHandlePlaybackErrorVisibly
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
-import paige.navic.domain.models.shouldResumePlaybackWhenAudioDeviceAdded
-import paige.navic.domain.models.shouldResumePlaybackAfterVolumeRestored
-import paige.navic.domain.models.songRadioQueue
 import paige.navic.domain.models.SongRadioQueueDefaultSize
-import paige.navic.domain.models.settings.MediaNotificationAction
-import paige.navic.domain.models.systemEqualizerAudioSessionId
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
-import paige.navic.domain.repositories.SongRepository
 import paige.navic.ui.core.PlayerUiState
 import paige.navic.util.core.Logger
-import paige.navic.util.core.ResourceProvider
 import java.io.File
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
@@ -132,13 +69,11 @@ class AndroidMediaPlayerViewModel(
 	private val application: Application,
 	stateRepository: PlayerStateRepository,
 	private val albumDao: AlbumDao,
-	private val playlistDao: PlaylistDao,
-	private val songDao: SongDao,
+	private val playbackQueueInteractor: PlaybackQueueInteractor,
 	downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
 	private val platformContext: CoilPlatformContext,
-	private val songRepository: SongRepository,
 	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
 	private val musicBrainzArtworkRepository: MusicBrainzArtworkRepository,
 	private val playbackOriginRepository: PlaybackOriginRepository,
@@ -153,7 +88,8 @@ class AndroidMediaPlayerViewModel(
 ) {
 	private var controller: MediaController? = null
 	private var playbackClaim: AudioPlaybackOwnershipClaim? = null
-	private val connectionOwner = FutureConnectionOwner<MediaController>(
+	private val mediaControllerConnection: AndroidMediaControllerConnection = DefaultAndroidMediaControllerConnection(
+		application = application,
 		onConnected = { connectedController ->
 			controller = connectedController
 			Logger.i("MediaPlayer", "Media controller connected")
@@ -167,19 +103,11 @@ class AndroidMediaPlayerViewModel(
 			if (controller === disconnectedController) controller = null
 			Logger.w("MediaPlayer", "Media controller disconnected; reconnecting")
 			releaseMusicPlayback()
-			connectToService()
-		},
-		releaseFuture = MediaController::releaseFuture
-	)
-	private val connectionListener = object : MediaController.Listener {
-		override fun onDisconnected(disconnectedController: MediaController) {
-			connectionOwner.disconnect(disconnectedController)
 		}
-	}
+	)
 
 	private var loadingCollectionId: String? = null
 
-	private var pendingSyncState: PlayerUiState? = null
 	private var pendingPlayIndex: Int? = null
 	private var latestDownloadsById: Map<String, DownloadEntity> = emptyMap()
 	private var nowPlayingVideoClipAudioActive = false
@@ -189,6 +117,8 @@ class AndroidMediaPlayerViewModel(
 	)
 	private val playbackErrorNotifier = AndroidPlaybackErrorNotifier(snackBarManager)
 	private val playbackDiagnostics = AndroidPlaybackDiagnosticsLogger()
+	private val audioEffectsController: AndroidAudioEffectsController =
+		DefaultAndroidAudioEffectsController(application, preferenceManager)
 	private val mediaItemFactory = AndroidMediaItemFactory(
 		sessionManager = sessionManager,
 		downloadManager = downloadManager,
@@ -205,6 +135,19 @@ class AndroidMediaPlayerViewModel(
 		notifyPlaybackError = playbackErrorNotifier::notify,
 		clearRecoveryUi = ::clearPlaybackRecoveryUi
 	)
+	private val downloadedMediaRecovery: AndroidDownloadedMediaRecovery =
+		DefaultAndroidDownloadedMediaRecovery(
+			downloadManager = downloadManager,
+			diagnostics = playbackDiagnostics,
+			claimMusicPlayback = ::claimMusicPlayback
+		)
+	private val playbackStateSynchronizer: AndroidPlaybackStateSynchronizer =
+		DefaultAndroidPlaybackStateSynchronizer(
+			scope = viewModelScope,
+			controller = { controller },
+			mediaItemForSong = mediaItemFactory::toMediaItem,
+			claimMusicPlayback = ::claimMusicPlayback
+		)
 	private val nowPlayingBroadcaster = AndroidNowPlayingBroadcaster(
 		application = application,
 		sessionManager = sessionManager,
@@ -231,15 +174,16 @@ class AndroidMediaPlayerViewModel(
 	)
 	private val playbackOriginRecorder = AndroidPlaybackOriginRecorder(viewModelScope, playbackOriginRepository)
 	private val radioMediaItemFactory = AndroidRadioMediaItemFactory()
+	private val queueStateReducer = DefaultPlaybackQueueStateReducer
 	private val queueAutoFiller = AndroidQueueAutoFiller(
 		scope = viewModelScope,
 		preferenceManager = preferenceManager,
-		songRepository = songRepository,
+		loadLibrarySongs = playbackQueueInteractor::librarySongs,
 		mediaItemFactory = mediaItemFactory,
 		controller = { controller },
 		state = { _uiState.value },
 		isAvailable = { songId -> isAvailable(songId) },
-		fetchServerSimilarSongs = ::fetchServerSimilarSongs,
+		fetchServerSimilarSongs = playbackQueueInteractor::serverSimilarSongs,
 		appendSongs = { songs ->
 			_uiState.update { state -> state.copy(queue = state.queue + songs) }
 		}
@@ -247,7 +191,7 @@ class AndroidMediaPlayerViewModel(
 
 	init {
 		observePlaybackArtworkCache()
-		connectToService()
+		mediaControllerConnection.connect()
 		observeAudioPlaybackClaims()
 	}
 
@@ -291,14 +235,6 @@ class AndroidMediaPlayerViewModel(
 	private fun releaseMusicPlayback() {
 		playbackClaim?.let(audioPlaybackOwnershipCoordinator::release)
 		playbackClaim = null
-	}
-
-	private fun connectToService() {
-		val sessionToken = PlaybackService.newSessionToken(application)
-		val future = MediaController.Builder(application, sessionToken)
-			.setListener(connectionListener)
-			.buildAsync()
-		if (!connectionOwner.connect(future)) MediaController.releaseFuture(future)
 	}
 
 	private fun getStreamUrl(id: String): Uri {
@@ -407,7 +343,7 @@ class AndroidMediaPlayerViewModel(
 							}
 							return
 						}
-						if (recoverCurrentMediaItemFromDownloadedFile(this@apply)) {
+						if (downloadedMediaRecovery.recover(this@apply)) {
 							return
 						}
 						playbackRecovery.handlePlayerError(this@apply, currentUiState, error)
@@ -439,10 +375,7 @@ class AndroidMediaPlayerViewModel(
 				playPendingIndexIfAvailable(this)
 
 				downloadManager.allDownloads.first()
-				pendingSyncState?.let { state ->
-					syncPlayerWithState(state)
-					pendingSyncState = null
-				}
+				playbackStateSynchronizer.onControllerReady()
 
 				combine(
 					downloadManager.allDownloads,
@@ -505,20 +438,19 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun refreshAudioEffects() {
-		runCatching {
-			applyReplayGain()
-			PlaybackService.refreshAudioEffects(application)
-		}.onFailure { error ->
-			Logger.w("MediaPlayer", "Failed to refresh audio effects", error)
-		}
+		audioEffectsController.refresh(
+			player = controller,
+			song = _uiState.value.currentSong,
+			forceMuted = nowPlayingVideoClipAudioActive
+		)
 	}
 
 	override fun refreshPlaybackVolume() {
-		runCatching {
-			applyReplayGain()
-		}.onFailure { error ->
-			Logger.w("MediaPlayer", "Failed to refresh playback volume", error)
-		}
+		audioEffectsController.refreshVolume(
+			player = controller,
+			song = _uiState.value.currentSong,
+			forceMuted = nowPlayingVideoClipAudioActive
+		)
 	}
 
 	override fun setNowPlayingVideoClipAudioActive(active: Boolean) {
@@ -575,7 +507,7 @@ class AndroidMediaPlayerViewModel(
 				repeatMode = controller.repeatMode
 			)
 		}
-		applyReplayGain()
+		refreshPlaybackVolume()
 		playbackAssetPrefetcher.prefetchCurrentSongArtwork(currentSong, isPlaying = controller.isPlaying)
 		playbackAssetPrefetcher.prefetchUpcomingPlaybackAssets(_uiState.value, isPlaying = controller.isPlaying)
 		updateProgress()
@@ -613,31 +545,6 @@ class AndroidMediaPlayerViewModel(
 		return indexes
 	}
 
-	private fun recoverCurrentMediaItemFromDownloadedFile(player: MediaController): Boolean {
-		val mediaId = player.currentMediaItem?.mediaId ?: return false
-		val localPath = downloadManager.getDownloadedFilePath(mediaId) ?: return false
-		val currentItem = player.currentMediaItem ?: return false
-		if (currentItem.localConfiguration?.uri?.scheme == "file") return false
-
-		val positionMs = player.currentPosition.coerceAtLeast(0L)
-		val shouldResume = player.playWhenReady
-		val index = player.currentMediaItemIndex
-		player.replaceMediaItem(
-			index,
-			currentItem.buildUpon()
-				.setUri(File(localPath).toUri())
-				.build()
-		)
-		player.seekTo(index, positionMs)
-		playbackDiagnostics.onRecoveryLocalFileReady(mediaId, positionMs, shouldResume, "player-error")
-		player.prepare()
-		if (shouldResume) {
-			claimMusicPlayback()
-			player.play()
-		}
-		return true
-	}
-
 	private fun updatePlaybackDownloadProgress() {
 		val songId = _uiState.value.currentSong?.id
 		val shouldShowProgress = _uiState.value.isLoading
@@ -665,105 +572,8 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	private fun applyReplayGain() {
-		val replayGain = _uiState.value.currentSong?.replayGain
-		val replayGainMode = preferenceManager.replayGainMode
-		val loudnessBoostEnabled = preferenceManager.replayGainLoudnessBoost
-		controller?.volume = playbackVolumeMultiplier(
-			playbackVolumePercent = preferenceManager.playbackVolumePercent,
-			replayGainVolumeMultiplier = replayGainVolumeMultiplier(
-				replayGain = replayGain,
-				mode = replayGainMode,
-				loudnessBoostEnabled = loudnessBoostEnabled
-			),
-			forceMuted = nowPlayingVideoClipAudioActive
-		)
-		PlaybackService.setReplayGainLoudnessBoost(
-			application,
-			replayGainLoudnessBoostMillibels(
-				replayGain = replayGain,
-				mode = replayGainMode,
-				loudnessBoostEnabled = loudnessBoostEnabled
-			)
-		)
-	}
-
 	override fun syncPlayerWithState(state: PlayerUiState) {
-		viewModelScope.launch {
-			val player = controller
-
-			if (player == null) {
-				pendingSyncState = state
-				return@launch
-			}
-
-			if (state.queue.isEmpty() || player.mediaItemCount > 0) return@launch
-
-			val mediaItems = withContext(Dispatchers.Default) {
-				state.queue.map { it.toMediaItem() }
-			}
-
-			player.setMediaItems(mediaItems)
-			player.repeatMode = state.repeatMode
-			player.playbackParameters = PlaybackParameters(state.playbackSpeed, state.playbackPitch)
-
-			val index = if (state.currentIndex in mediaItems.indices) state.currentIndex else 0
-
-			val songDurationMs = state.queue.getOrNull(index)?.duration?.inWholeMilliseconds ?: 0L
-
-			val position = if (songDurationMs > 0) {
-				(state.progress * songDurationMs).toLong()
-			} else {
-				0L
-			}
-
-			val shuffleOrder = if (state.isShuffleEnabled) {
-				restoredShuffleOrder(
-					itemCount = mediaItems.size,
-					currentIndex = index,
-					upcomingIndexes = state.upcomingIndexes
-				)
-			} else {
-				null
-			}
-			if (shuffleOrder == null) {
-				completePlayerStateRestore(player, state, index, position)
-			} else {
-				Futures.addCallback(
-					PlaybackService.restoreShuffleOrder(player, shuffleOrder),
-					object : FutureCallback<SessionResult> {
-						override fun onSuccess(result: SessionResult?) {
-							if (result?.resultCode != SessionResult.RESULT_SUCCESS) {
-								Logger.w("MediaPlayer", "Persisted shuffle order was rejected; using a new order")
-							}
-							completePlayerStateRestore(player, state, index, position)
-						}
-
-						override fun onFailure(error: Throwable) {
-							Logger.w("MediaPlayer", "Failed to restore persisted shuffle order", error)
-							completePlayerStateRestore(player, state, index, position)
-						}
-					},
-					MoreExecutors.directExecutor()
-				)
-			}
-		}
-	}
-
-	private fun completePlayerStateRestore(
-		player: MediaController,
-		state: PlayerUiState,
-		index: Int,
-		position: Long
-	) {
-		if (controller !== player) return
-		player.shuffleModeEnabled = state.isShuffleEnabled
-		player.seekTo(index, position)
-		player.prepare()
-		if (!state.isPaused) {
-			claimMusicPlayback()
-			player.play()
-		}
+		playbackStateSynchronizer.sync(state)
 	}
 
 	private fun startProgressLoop() {
@@ -818,14 +628,7 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			val player = controller
 			player?.addMediaItem(withContext(Dispatchers.Default) { song.toMediaItem() })
-			_uiState.update { state ->
-				val newQueue = state.queue + song
-				state.copy(
-					queue = newQueue,
-					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
-					currentSong = if (state.currentIndex == -1) song else state.currentSong
-				)
-			}
+			_uiState.update { state -> queueStateReducer.append(state, listOf(song)) }
 			player?.let(::playPendingIndexIfAvailable)
 			if (notify) snackBarManager.notifyAddedToQueue()
 		}
@@ -845,14 +648,7 @@ class AndroidMediaPlayerViewModel(
 			val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
 			val player = controller
 			player?.addMediaItems(items)
-			_uiState.update { state ->
-				val newQueue = state.queue + songs
-				state.copy(
-					queue = newQueue,
-					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
-					currentSong = if (state.currentIndex == -1) songs.firstOrNull() else state.currentSong
-				)
-			}
+			_uiState.update { state -> queueStateReducer.append(state, songs) }
 			player?.let(::playPendingIndexIfAvailable)
 			if (notify) snackBarManager.notifyAddedToQueue()
 		}
@@ -861,22 +657,7 @@ class AndroidMediaPlayerViewModel(
 	override fun removeFromQueue(index: Int) {
 		viewModelScope.launch {
 			controller?.removeMediaItem(index)
-			_uiState.update { state ->
-				val newQueue = state.queue.toMutableList().apply { removeAt(index) }
-				val newIndex = when {
-					index < state.currentIndex -> state.currentIndex - 1
-					index == state.currentIndex -> if (newQueue.isEmpty()) -1 else state.currentIndex.coerceAtMost(
-						newQueue.size - 1
-					)
-
-					else -> state.currentIndex
-				}
-				state.copy(
-					queue = newQueue,
-					currentIndex = newIndex,
-					currentSong = if (newIndex == -1) null else newQueue[newIndex]
-				)
-			}
+			_uiState.update { state -> queueStateReducer.removeAt(state, index) }
 		}
 	}
 
@@ -888,26 +669,16 @@ class AndroidMediaPlayerViewModel(
 				return@launch
 			}
 
-			val candidateIds = initialState.queue
-				.drop(initialState.currentIndex + 1)
-				.map { it.id }
-				.filterNot { it.startsWith("radio_") }
-				.distinct()
-			if (candidateIds.isEmpty()) {
-				onComplete(0)
-				return@launch
-			}
-
-			val knownSongIds = withContext(Dispatchers.IO) {
-				songDao.getStarredSongIds(candidateIds).toSet() +
-					playlistDao.getPlaylistSongIds(candidateIds)
+			val initialRemovalIndexes = withContext(Dispatchers.IO) {
+				playbackQueueInteractor.discoverRemovalIndexes(
+					queue = initialState.queue,
+					currentIndex = initialState.currentIndex
+				)
 			}
 			val state = _uiState.value
-			val removalIndexes = discoverQueueRemovalIndexes(
-				queueSongIds = state.queue.map { it.id },
-				currentIndex = state.currentIndex,
-				knownSongIds = knownSongIds
-			)
+			val removalIndexes = if (state === initialState) initialRemovalIndexes else withContext(Dispatchers.IO) {
+				playbackQueueInteractor.discoverRemovalIndexes(state.queue, state.currentIndex)
+			}
 			if (removalIndexes.isEmpty()) {
 				onComplete(0)
 				return@launch
@@ -938,23 +709,7 @@ class AndroidMediaPlayerViewModel(
 	override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
 		viewModelScope.launch {
 			controller?.moveMediaItem(fromIndex, toIndex)
-			_uiState.update { state ->
-				val newQueue = state.queue.toMutableList().apply {
-					val item = removeAt(fromIndex)
-					add(toIndex, item)
-				}
-				val newIndex = when (state.currentIndex) {
-					fromIndex -> toIndex
-					in (fromIndex + 1)..toIndex -> state.currentIndex - 1
-					in toIndex until fromIndex -> state.currentIndex + 1
-					else -> state.currentIndex
-				}
-				state.copy(
-					queue = newQueue,
-					currentIndex = newIndex,
-					currentSong = if (newIndex == -1) null else newQueue[newIndex]
-				)
-			}
+			_uiState.update { state -> queueStateReducer.move(state, fromIndex, toIndex) }
 		}
 	}
 
@@ -1039,18 +794,7 @@ class AndroidMediaPlayerViewModel(
 				_uiState.value.currentIndex + 1,
 				withContext(Dispatchers.Default) { song.toMediaItem() }
 			)
-			_uiState.update { state ->
-				val newQueue =
-					if (state.queue.isEmpty())
-						state.queue + song
-					else
-						state.queue.slice(0..state.currentIndex) + song + state.queue.slice(state.currentIndex+1..<state.queue.size)
-				state.copy(
-					queue = newQueue,
-					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
-					currentSong = if (state.currentIndex == -1) song else state.currentSong
-				)
-			}
+			_uiState.update { state -> queueStateReducer.insertNext(state, listOf(song)) }
 			snackBarManager.notifyPlayNext()
 		}
 	}
@@ -1065,20 +809,7 @@ class AndroidMediaPlayerViewModel(
 				newCollection.map { it.toMediaItem() } to newCollection
 			}
 			controller?.addMediaItems(_uiState.value.currentIndex + 1, items)
-			_uiState.update { state ->
-				val newQueue = 
-					if (state.queue.isEmpty()) 
-						state.queue + newCollection
-					else
-						state.queue.slice(0..state.currentIndex) + newCollection + state.queue.slice(
-							state.currentIndex+1..<state.queue.size
-						)
-				state.copy(
-					queue = newQueue,
-					currentIndex = if (state.currentIndex == -1) 0 else state.currentIndex,
-					currentSong = if (state.currentIndex == -1) newCollection.firstOrNull() else state.currentSong
-				)
-			}
+			_uiState.update { state -> queueStateReducer.insertNext(state, newCollection) }
 			snackBarManager.notifyPlayNext()
 		}
 	}
@@ -1087,21 +818,13 @@ class AndroidMediaPlayerViewModel(
 		viewModelScope.launch {
 			playbackOriginRecorder.setOriginNow(null)
 			try {
-				val serverSimilarSongs = withContext(Dispatchers.IO) {
-					fetchServerSimilarSongs(
-						songId = song.id,
-						limit = SongRadioQueueDefaultSize
+				val radioQueue = withContext(Dispatchers.IO) {
+					playbackQueueInteractor.songRadio(
+						seedSong = song,
+						limit = SongRadioQueueDefaultSize,
+						isAvailable = ::isAvailable
 					)
-				}.filter { isAvailable(it.id) }
-				val songs = withContext(Dispatchers.IO) {
-					songRepository.getAllSongs()
-				}.filter { isAvailable(it.id) }.shuffled()
-				val radioQueue = songRadioQueue(
-					seedSong = song,
-					candidateSongs = serverSimilarSongs + songs,
-					limit = SongRadioQueueDefaultSize,
-					preferredSongIds = serverSimilarSongs.map { it.id }
-				)
+				}
 				if (radioQueue.isEmpty()) return@launch
 
 				val mediaItems = withContext(Dispatchers.Default) {
@@ -1132,19 +855,6 @@ class AndroidMediaPlayerViewModel(
 			}
 		}
 	}
-
-	private suspend fun fetchServerSimilarSongs(
-		songId: String,
-		limit: Int
-	): List<DomainSong> =
-		runCatching {
-			sessionManager.withApi { api ->
-				api.getSimilarSongsID3(songId, limit.coerceAtLeast(0))
-			}
-				.map { it.toEntity().toDomainModel() }
-		}.onFailure { error ->
-			Logger.w("MediaPlayer", "Navidrome similar-song lookup failed", error)
-		}.getOrDefault(emptyList())
 
 	override fun playRadio(radio: DomainRadio) {
 		viewModelScope.launch {
@@ -1249,13 +959,8 @@ class AndroidMediaPlayerViewModel(
 				return@launch
 			}
 
-			val targetVolume = playbackVolumeMultiplier(
-				playbackVolumePercent = preferenceManager.playbackVolumePercent,
-				replayGainVolumeMultiplier = replayGainVolumeMultiplier(
-					replayGain = _uiState.value.currentSong?.replayGain,
-					mode = preferenceManager.replayGainMode,
-					loudnessBoostEnabled = preferenceManager.replayGainLoudnessBoost
-				),
+			val targetVolume = audioEffectsController.targetVolume(
+				song = _uiState.value.currentSong,
 				forceMuted = nowPlayingVideoClipAudioActive
 			)
 			playbackVolumeFader.start(
@@ -1337,7 +1042,7 @@ class AndroidMediaPlayerViewModel(
 		playbackVolumeFader.cancel(controller)
 		queueAutoFiller.cancel()
 		releaseMusicPlayback()
-		connectionOwner.close()
+		mediaControllerConnection.close()
 		controller = null
 		super.onCleared()
 	}
@@ -1359,22 +1064,7 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	override fun openSystemEqualizer(): Boolean {
-		val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
-			systemEqualizerAudioSessionId(controller?.audioSessionId)?.let { audioSessionId ->
-				putExtra(AudioEffect.EXTRA_AUDIO_SESSION, audioSessionId)
-			}
-			putExtra(AudioEffect.EXTRA_PACKAGE_NAME, application.packageName)
-			putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
-			addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-		}
-
-		return try {
-			application.startActivity(intent)
-			true
-		} catch (error: ActivityNotFoundException) {
-			Logger.w("MediaPlayer", "System equalizer not available", error)
-			false
-		}
+		return audioEffectsController.openSystemEqualizer(controller)
 	}
 
 	private fun DomainSong.toMediaItem(): MediaItem =
