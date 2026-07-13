@@ -291,13 +291,17 @@ Add release commit, workflow ID, public APK size/digest, certificate, metadata, 
 
 Release evidence: `v1.0.11-iota17` points to commit `81626087`; workflow `29257940670` passed signed Android build and release creation with both iOS jobs skipped. Public `Navic.apk` is 46,225,284 bytes with SHA-256 `a8bf54f5ff598e22da416dd9850797b811c42594091b94b13d451391da9aa81d`, established v2 certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, and metadata `544 / v1.0.11-iota17`. It passed all 30 packaged vendor hashes and attribution, upgraded the public emulator package from iota16, resumed as PID `10075`, and produced no targeted error-level or forced reader-dev debugging startup log.
 
-- [ ] **Step 2: Push and verify immutable refs**
+- [x] **Step 2: Push and verify immutable refs**
 
 Push the evidence commit and verify public `master`, the peeled `v1.0.11-iota17` tag commit, release record, asset digest, and contiguous `iota01` through `iota17` naming independently.
 
-- [ ] **Step 3: Remove only this worktree and branch**
+Immutable-ref evidence: local HEAD and public `master` both resolve to evidence commit `e8cdbdf8`; annotated tag object `9f1a0d1e` peels to release-code commit `81626087`. The release remains public, non-draft, and non-prerelease with the same 46,225,284-byte asset and SHA-256 `a8bf54f5ff598e22da416dd9850797b811c42594091b94b13d451391da9aa81d`. Public naming is contiguous `iota01` through `iota17`, with no unpadded iota, kappa, or lambda release/tag.
+
+- [x] **Step 3: Remove only this worktree and branch**
 
 After proving the branch is on public `master`, remove `C:/Users/darka/Documents/Projects/Android/.codex-temp/navic-qa-tranche-3-reader-web-debug-scope` and local branch `fix/qa-tranche-3-reader-web-debug-scope`. Verify the primary animation checkout, `navic-playlist-pattern-fix`, `navic-page-turn-animation-rev4`, and `navic-destination-aware-page-turns` retain their captured heads and dirty states.
+
+Cleanup boundary: the target is clean at `e8cdbdf8` and published. Protected worktree heads are primary `8340a4b8`, playlist `4bc24e1a`, rev4 `5a1ed120`, destination-aware `b83092b9`, plus ebook-owned detached `navic-page-wave-baseline` at `4bc24e1a`; all existing tracked/untracked states are outside B23 and must remain untouched.
 
 ## Self-Review
 
