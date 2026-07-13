@@ -8,9 +8,8 @@ import kotlin.test.assertTrue
 import java.io.File
 import paige.navic.ui.screens.reader.KomikkuNavigationRegion
 import paige.navic.ui.screens.reader.PagedPublicationReaderViewer
-import paige.navic.ui.screens.reader.ReaderViewerMode
+import paige.navic.ui.screens.reader.ScrolledPublicationReaderViewer
 import paige.navic.ui.screens.reader.VerticalPagedPublicationReaderViewer
-import paige.navic.ui.screens.reader.WebtoonPublicationReaderViewer
 import paige.navic.ui.screens.reader.readerShellCoverViewerActionFor
 import paige.navic.ui.screens.reader.readerEffectiveNavBarTypeFor
 import paige.navic.ui.screens.reader.readerViewerKeyFor
@@ -33,9 +32,16 @@ class ReaderViewerTest {
 		val scrolled = paged.copy(
 			settings = paged.settings.copy(flowMode = ReaderFlowScrolled, paged = false)
 		)
+		val verticalPaged = paged.copy(
+			settings = paged.settings.copy(flowMode = ReaderFlowPagedVertical, paged = true)
+		)
 
-		assertEquals(ReaderViewerMode.Paged, readerViewerKeyFor(paged).mode)
-		assertEquals(ReaderViewerMode.Scrolled, readerViewerKeyFor(scrolled).mode)
+		assertEquals(ReaderNavigationMode.Paged, readerViewerKeyFor(paged).mode)
+		assertEquals(ReaderNavigationMode.Scrolled, readerViewerKeyFor(scrolled).mode)
+		assertEquals(ReaderNavigationMode.Paged, readerViewerKeyFor(verticalPaged).mode)
+		assertFalse(readerViewerKeyFor(paged).verticalPagination)
+		assertTrue(readerViewerKeyFor(verticalPaged).verticalPagination)
+		assertNotEquals(readerViewerKeyFor(paged), readerViewerKeyFor(verticalPaged))
 		assertNotEquals(
 			readerViewerKeyFor(paged),
 			readerViewerKeyFor(scrolled),
@@ -52,8 +58,8 @@ class ReaderViewerTest {
 
 		assertTrue(readerViewerFor(paged) is PagedPublicationReaderViewer)
 		assertTrue(readerViewerFor(verticalPaged) is VerticalPagedPublicationReaderViewer)
-		assertTrue(readerViewerFor(scrolled) is WebtoonPublicationReaderViewer)
-		assertTrue(readerViewerFor(scrolledGaps) is WebtoonPublicationReaderViewer)
+		assertTrue(readerViewerFor(scrolled) is ScrolledPublicationReaderViewer)
+		assertTrue(readerViewerFor(scrolledGaps) is ScrolledPublicationReaderViewer)
 	}
 
 	@Test

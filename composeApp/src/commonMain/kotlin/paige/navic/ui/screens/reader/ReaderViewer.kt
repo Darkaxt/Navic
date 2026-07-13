@@ -13,6 +13,7 @@ import paige.navic.reader.ReaderFlowScrolledGaps
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderNavBarTypeBottom
+import paige.navic.reader.ReaderNavigationMode
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderTapZoneAction
@@ -20,6 +21,7 @@ import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderViewportScrollDirection
 import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.normalizedReaderNavBarType
+import paige.navic.reader.readerNavigationModeFor
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
 
 enum class ReaderViewerKind {
@@ -27,8 +29,7 @@ enum class ReaderViewerKind {
 	WebViewPublication
 }
 
-enum class ReaderViewerMode {
-	Empty,
+private enum class ReaderViewerImplementation {
 	Paged,
 	PagedVertical,
 	Scrolled
@@ -37,7 +38,8 @@ enum class ReaderViewerMode {
 data class ReaderViewerKey(
 	val kind: ReaderViewerKind,
 	val identity: String = "",
-	val mode: ReaderViewerMode = ReaderViewerMode.Empty
+	val mode: ReaderNavigationMode? = null,
+	val verticalPagination: Boolean = false
 )
 
 interface ReaderViewer {
@@ -99,12 +101,14 @@ data class EmptyReaderViewer(
 
 sealed class WebViewPublicationReaderViewer(
 	override val viewState: ReaderEngineViewState.WebViewPublication,
-	private val viewerMode: ReaderViewerMode
+	private val navigationMode: ReaderNavigationMode,
+	private val verticalPagination: Boolean = false
 ) : ReaderViewer {
 	override val key: ReaderViewerKey = ReaderViewerKey(
 		kind = ReaderViewerKind.WebViewPublication,
 		identity = viewState.publicationUrl,
-		mode = viewerMode
+		mode = navigationMode,
+		verticalPagination = verticalPagination
 	)
 	override val engineRenderer: ReaderEngineRenderer = ReaderEngineRenderer.FoliatePublication.from(viewState)
 	override val shellCoverUrl: String? = viewState.nativeShellCoverUrl
@@ -131,7 +135,7 @@ sealed class WebViewPublicationReaderViewer(
 
 class PagedPublicationReaderViewer(
 	viewState: ReaderEngineViewState.WebViewPublication
-) : WebViewPublicationReaderViewer(viewState, ReaderViewerMode.Paged) {
+) : WebViewPublicationReaderViewer(viewState, ReaderNavigationMode.Paged) {
 	override fun withPublicationViewState(
 		viewState: ReaderEngineViewState.WebViewPublication
 	): WebViewPublicationReaderViewer = PagedPublicationReaderViewer(viewState)
@@ -139,18 +143,22 @@ class PagedPublicationReaderViewer(
 
 class VerticalPagedPublicationReaderViewer(
 	viewState: ReaderEngineViewState.WebViewPublication
-) : WebViewPublicationReaderViewer(viewState, ReaderViewerMode.PagedVertical) {
+) : WebViewPublicationReaderViewer(
+	viewState = viewState,
+	navigationMode = ReaderNavigationMode.Paged,
+	verticalPagination = true
+) {
 	override fun withPublicationViewState(
 		viewState: ReaderEngineViewState.WebViewPublication
 	): WebViewPublicationReaderViewer = VerticalPagedPublicationReaderViewer(viewState)
 }
 
-class WebtoonPublicationReaderViewer(
+class ScrolledPublicationReaderViewer(
 	viewState: ReaderEngineViewState.WebViewPublication
-) : WebViewPublicationReaderViewer(viewState, ReaderViewerMode.Scrolled) {
+) : WebViewPublicationReaderViewer(viewState, ReaderNavigationMode.Scrolled) {
 	override fun withPublicationViewState(
 		viewState: ReaderEngineViewState.WebViewPublication
-	): WebViewPublicationReaderViewer = WebtoonPublicationReaderViewer(viewState)
+	): WebViewPublicationReaderViewer = ScrolledPublicationReaderViewer(viewState)
 
 	override fun viewerActionFor(region: KomikkuNavigationRegion): ReaderViewerAction =
 		when (region) {
@@ -168,36 +176,36 @@ fun readerViewerKeyFor(viewState: ReaderEngineViewState): ReaderViewerKey =
 		is ReaderEngineViewState.WebViewPublication -> ReaderViewerKey(
 			kind = ReaderViewerKind.WebViewPublication,
 			identity = viewState.publicationUrl,
-			mode = readerViewerModeFor(viewState.settings)
+			mode = readerNavigationModeFor(viewState.settings),
+			verticalPagination = readerViewerImplementationFor(viewState.settings) ==
+				ReaderViewerImplementation.PagedVertical
 		)
 	}
 
 fun readerViewerFor(viewState: ReaderEngineViewState): ReaderViewer =
 	when (viewState) {
 		ReaderEngineViewState.Empty -> EmptyReaderViewer()
-		is ReaderEngineViewState.WebViewPublication -> when (readerViewerModeFor(viewState.settings)) {
-			ReaderViewerMode.Paged -> PagedPublicationReaderViewer(viewState)
-			ReaderViewerMode.PagedVertical -> VerticalPagedPublicationReaderViewer(viewState)
-			ReaderViewerMode.Scrolled -> WebtoonPublicationReaderViewer(viewState)
-			ReaderViewerMode.Empty -> EmptyReaderViewer()
+		is ReaderEngineViewState.WebViewPublication -> when (readerViewerImplementationFor(viewState.settings)) {
+			ReaderViewerImplementation.Paged -> PagedPublicationReaderViewer(viewState)
+			ReaderViewerImplementation.PagedVertical -> VerticalPagedPublicationReaderViewer(viewState)
+			ReaderViewerImplementation.Scrolled -> ScrolledPublicationReaderViewer(viewState)
 		}
 	}
 
-fun readerViewerModeFor(settings: ReaderSettings): ReaderViewerMode =
+private fun readerViewerImplementationFor(settings: ReaderSettings): ReaderViewerImplementation =
 	when (normalizedReaderFlowMode(settings.flowMode, settings.paged)) {
-		ReaderFlowPagedVertical -> ReaderViewerMode.PagedVertical
+		ReaderFlowPagedVertical -> ReaderViewerImplementation.PagedVertical
 		ReaderFlowScrolled,
-		ReaderFlowScrolledGaps -> ReaderViewerMode.Scrolled
-		else -> ReaderViewerMode.Paged
+		ReaderFlowScrolledGaps -> ReaderViewerImplementation.Scrolled
+		else -> ReaderViewerImplementation.Paged
 	}
 
 fun readerEffectiveNavBarTypeFor(settings: ReaderSettings): String {
 	val requested = normalizedReaderNavBarType(settings.navBarType)
-	return when (readerViewerModeFor(settings)) {
-		ReaderViewerMode.PagedVertical,
-		ReaderViewerMode.Scrolled -> requested
-		ReaderViewerMode.Empty,
-		ReaderViewerMode.Paged -> ReaderNavBarTypeBottom
+	return when (readerViewerImplementationFor(settings)) {
+		ReaderViewerImplementation.PagedVertical,
+		ReaderViewerImplementation.Scrolled -> requested
+		ReaderViewerImplementation.Paged -> ReaderNavBarTypeBottom
 	}
 }
 
