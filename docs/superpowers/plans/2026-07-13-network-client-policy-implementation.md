@@ -187,7 +187,7 @@ Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verif
 
 Tag and publish `v1.0.11-iota9` with Android enabled and iOS skipped. Download the public APK, compare its SHA-256 with GitHub metadata, verify the established release certificate, confirm versionCode 531/versionName iota9, then upgrade and launch it on `emulator-5554` with no fatal startup exception.
 
-- [ ] **Step 4: Record evidence and clean the worktree**
+- [x] **Step 4: Record evidence and clean the worktree**
 
 Mark only `A16` released, update roadmap counts from 20/35 to 21/34, commit and push evidence, remove the temporary APK, then remove this isolated worktree and branch after proving both commits are on `fork/master`.
 
