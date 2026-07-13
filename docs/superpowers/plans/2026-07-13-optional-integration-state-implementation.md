@@ -16,7 +16,7 @@
 - Create: `composeApp/src/commonMain/kotlin/paige/navic/domain/models/OptionalIntegrationResult.kt`
 - Create: `composeApp/src/commonTest/kotlin/paige/navic/domain/models/OptionalIntegrationResultTest.kt`
 
-- [ ] **Step 1: Write failing classification tests**
+- [x] **Step 1: Write failing classification tests**
 
 Specify the result states before production code:
 
@@ -37,11 +37,11 @@ assertEquals(
 
 Also cover disabled, misconfigured, unavailable, fresh data, and stale empty data.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run `./gradlew.bat :composeApp:testAndroidHostTest --tests "paige.navic.domain.models.OptionalIntegrationResultTest"` and expect unresolved result types.
 
-- [ ] **Step 3: Implement the minimal sealed result model**
+- [x] **Step 3: Implement the minimal sealed result model**
 
 Create:
 
