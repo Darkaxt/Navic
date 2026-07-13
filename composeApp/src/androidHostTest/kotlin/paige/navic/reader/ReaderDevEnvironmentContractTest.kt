@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderDevEnvironmentContractTest {
@@ -30,6 +31,10 @@ class ReaderDevEnvironmentContractTest {
 		val readerRuntime = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt"
 		).readText()
+		val releaseBlock = androidBuild
+			.substringAfter("getByName(\"release\")")
+			.substringBefore("getByName(\"debug\")")
+		val readerDevBlock = androidBuild.substringAfter("create(\"readerDev\")")
 
 		assertTrue(
 			androidBuild.contains("create(\"readerDev\")"),
@@ -46,12 +51,25 @@ class ReaderDevEnvironmentContractTest {
 			"readerDev must be inspectable and avoid release shrinking while preserving release-like runtime code."
 		)
 		assertTrue(
-			androidBuild.contains("buildConfigField(\"boolean\", \"NAVIC_READER_DEV\", \"true\")"),
+			releaseBlock.contains("buildConfigField(\"boolean\", \"NAVIC_READER_DEV\", \"false\")"),
+			"release must explicitly compile out the reader-dev force path."
+		)
+		assertTrue(
+			readerDevBlock.contains("buildConfigField(\"boolean\", \"NAVIC_READER_DEV\", \"true\")"),
 			"readerDev must expose a BuildConfig flag so the app can force reader diagnostics."
 		)
 		assertTrue(
-			mainActivity.contains("ReaderWebRuntime.setForceWebContentsDebuggingEnabled(BuildConfig.NAVIC_READER_DEV)"),
-			"MainActivity must force WebView debugging for readerDev before the reader surface is mounted."
+			mainActivity.contains("ReaderWebRuntime.acquireForcedWebContentsDebugging(BuildConfig.NAVIC_READER_DEV)"),
+			"MainActivity must acquire scoped WebView debugging for readerDev before the reader surface is mounted."
+		)
+		assertTrue(
+			mainActivity.contains("override fun onDestroy()") &&
+				mainActivity.contains("readerDevWebDebuggingLease?.close()"),
+			"MainActivity must release its reader-dev WebView debugging lease when disposed."
+		)
+		assertFalse(
+			mainActivity.contains("setForceWebContentsDebuggingEnabled"),
+			"Reader-dev debugging must not use an unscoped process-lifetime setter."
 		)
 		assertTrue(
 			mainActivity.contains("readerDevInitialScreen") &&
@@ -87,9 +105,9 @@ class ReaderDevEnvironmentContractTest {
 			"App must accept a dev initial screen so the emulator can bypass library interaction and open an ebook."
 		)
 		assertTrue(
-			readerRuntime.contains("setForceWebContentsDebuggingEnabled") &&
-				readerRuntime.contains("forceWebContentsDebuggingEnabled || enableDebugging"),
-			"ReaderWebRuntime must honor the forced dev diagnostic flag even if user settings are false."
+			readerRuntime.contains("acquireForcedWebContentsDebugging") &&
+				readerRuntime.contains("webContentsDebuggingForceRegistry.isForced() || enableDebugging"),
+			"ReaderWebRuntime must honor live forced dev leases even if user settings are false."
 		)
 	}
 
