@@ -17,6 +17,7 @@ Released Tranche 3 command-acknowledgement slice: `v1.0.11-iota13`
 Released Tranche 3 bridge-lifecycle slice: `v1.0.11-iota14`
 Released Tranche 3 engine-capability slice: `v1.0.11-iota18`
 Released Tranche 4 readaloud-streaming slice: `v1.0.11-iota20`
+Released Tranches 4, 6, 7, and 8 consolidated delivery: `v1.0.11-iota21`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -358,6 +359,14 @@ Every tranche uses the following pipeline:
 - Public `Navic.apk` SHA-256 is `39a04f73189c566b227cc776ca10ebbe9d9c3efff98af36379c17a15e666e858` (46,241,680 bytes), matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=547`, `versionName=v1.0.11-iota20`.
 - The public APK upgraded `darkaxt.navic` in place from `iota19`/546 on `emulator-5554`. A cold explicit `MainActivity` launch returned `Status: ok` in 1,297 ms; PID `10636` remained alive with the activity resumed and no AndroidRuntime, Koin, or Media3 error-level output.
 
+### Consolidated Tranche 4 release evidence
+
+- One shared overlay reducer now owns the common readaloud and Whispersync state transitions; both adapters pass the same contract scenarios while retaining their source-specific resource identity (`B12`).
+- Start-locator selection is timestamp-aware and retains both candidates plus the decision reason when progress diverges, including reread and missing-timestamp cases (`B13`).
+- Bindery metadata cache identity includes credentials, mutation paths invalidate affected entries, explicit refresh bypasses retained content, and ordinary failures can preserve stale content (`B19`).
+- Visible Whispersync and Bindery labels in the remediated reader surface use Compose resources (`B20`).
+- The focused Tranche 4 reducer, adapter, progress, cache, and localization tests are included in the 98-test consolidated owner gate recorded under `iota21`; no new failure appeared in the broader reader comparison against its pre-change baseline.
+
 ### Rollout and rollback
 
 - Streamed extraction uses a versioned managed cache directory; old cache remains readable for one release and is cleaned after successful regeneration.
@@ -469,6 +478,12 @@ Every tranche uses the following pipeline:
 - Sheet and custom-scene screenshot/smoke tests across phone/tablet.
 - Reader settings source and Compose tests prove section extraction preserves controls and state.
 
+### Release evidence
+
+- Authenticated workers now start after session readiness instead of as an eager DI side effect (`A4`). Destination metadata has one owner, scene metadata casts are isolated behind a typed boundary, and route contracts are source-tested (`A6`, `A7`).
+- The Material3 internal motion dependency is isolated behind one compatibility file and guard (`A8`). Reader settings are split into stable tab sections without moving preference ownership, and the public reader taxonomy exposes paged/scrolled navigation while retaining internal implementation modes (`A11`, `B16`).
+- Navigation, startup, sheet-compatibility, settings-extraction, and taxonomy owner tests passed in the consolidated gate. Long-running overlay screenshot matrices were deliberately not repeated because this release changed ownership boundaries rather than reader animation behavior; the Android cold-start and signed-upgrade gates passed.
+
 ### Rollout and rollback
 
 - Separate startup-worker ownership from navigation/UI refactors if either changes runtime behavior; each can ship as its own prerelease.
@@ -494,6 +509,12 @@ Every tranche uses the following pipeline:
 - DI graph starts and affected feature tests pass after every move.
 - No large one-shot package migration; each commit compiles and is mechanically reversible.
 
+### Release evidence
+
+- Integration transport types moved from pure domain packages to feature-owned remote packages with dependency guards (`A1`). Platform database graph ownership is explicit and covered by migration/DI tests (`A2`).
+- `PlaybackQueueInteractor` owns the multi-repository queue workflow introduced during playback decomposition (`A3`). Artwork state no longer depends on a state-bearing CompositionLocal (`A5`). Tiny UI policies are consolidated by feature responsibility (`A12`).
+- `ReaderCoordinator` now retains only real cross-component dispatch responsibilities while concern reducers own local state transitions (`B2`). The owner suite and Android startup gate also caught and fixed default-only Koin constructor registration for the artwork cache, issue log, and artist-photo snapshot store before release.
+
 ### Rollout and rollback
 
 - Package moves ship only after rebasing all active feature branches that touch the moved files, avoiding prolonged dual-package compatibility shims.
@@ -518,6 +539,21 @@ Every tranche uses the following pipeline:
 - Constructor dependency count and file-size targets are measured, but no extraction is accepted solely for reducing lines.
 - Artwork color tests cover changed URL, expired entry, logout, and bounded cleanup.
 
+### Release evidence
+
+- `AndroidMediaPlayerViewModel` was reduced from 1,382 to 1,072 lines by extracting connection ownership, audio effects, downloaded recovery, playback synchronization, queue interaction, and queue-state reduction (`A9`).
+- `ReaderController` was reduced from 1,700 to 622 lines and `ReaderCoordinator` from 212 to 90 lines. Selection, annotations, progress, overlays, search, and Whispersync now have concern-owned reducers with dispatch-based orchestration (`A10`).
+- Artwork colors now bind to source identity, expire after a defined TTL, prune persistent and memory state to a bounded size, and clear across account changes; schema 24 migration tests preserve existing rows without trusting legacy identity/timestamps (`C13`).
+- The final owner gate passed 98 tests across 24 classes, followed by three focused Koin resolution regressions. The broad reader suite finished with the same 50 known failure names as the exact pre-decomposition baseline; those stale harness/source-shape failures are not claimed green.
+
+### Consolidated public release evidence
+
+- Released `v1.0.11-iota21` from commit `0ef7c59f` on 2026-07-14. The tag contains public `master` commit `9c619f10` and all 32 remediation commits.
+- GitHub Actions run `29292539561` passed the signed Android build, APK signature verification, packaged vendor/attribution checks, artifact upload, and GitHub release creation. The iOS build and IPA attachment jobs were skipped.
+- Public `Navic.apk` is 46,274,944 bytes with SHA-256 `405bfb2808abfc9edaca31954d0aee9b4840b083cf5f6b1efb974d1ed60e8767`, matching GitHub asset `476022660`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=548`, `versionName=v1.0.11-iota21`. All 30 packaged reader-vendor hashes and generated acknowledgements passed independent verification.
+- The public APK upgraded `darkaxt.navic` in place from `iota20`/547 on `emulator-5554`. Explicit cold `MainActivity` launch returned `Status: ok`, PID `17084` remained alive, and targeted AndroidRuntime, Koin, Room, and MediaController error checks were clean.
+
 ### Rollout and rollback
 
 - Media and reader decomposition ship in separate prereleases and only after active reader-animation work has merged or stopped touching the same files.
@@ -534,18 +570,18 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 | ID | Audit severity | Current disposition | Delivery |
 | --- | --- | --- | --- |
-| A1 | Medium | Pending | Tranche 7 |
-| A2 | Medium | Pending | Tranche 7 |
-| A3 | Medium | Pending | Tranche 7 |
-| A4 | Low | Pending | Tranche 6 |
-| A5 | Medium | Pending | Tranche 7 |
-| A6 | Medium | Pending | Tranche 6 |
-| A7 | Medium | Pending | Tranche 6 |
-| A8 | Medium | Pending | Tranche 6 |
-| A9 | High | Pending | Tranche 8 |
-| A10 | High | Pending | Tranche 8 |
-| A11 | Medium | Pending | Tranche 6 |
-| A12 | Low | Pending | Tranche 7 |
+| A1 | Medium | Released | `v1.0.11-iota21` |
+| A2 | Medium | Released | `v1.0.11-iota21` |
+| A3 | Medium | Released | `v1.0.11-iota21` |
+| A4 | Low | Released | `v1.0.11-iota21` |
+| A5 | Medium | Released | `v1.0.11-iota21` |
+| A6 | Medium | Released | `v1.0.11-iota21` |
+| A7 | Medium | Released | `v1.0.11-iota21` |
+| A8 | Medium | Released | `v1.0.11-iota21` |
+| A9 | High | Released | `v1.0.11-iota21` |
+| A10 | High | Released | `v1.0.11-iota21` |
+| A11 | Medium | Released | `v1.0.11-iota21` |
+| A12 | Low | Released | `v1.0.11-iota21` |
 | A13 | Medium | Released | `v1.0.11-iota05` |
 | A14 | Medium | Released | `v1.0.11-iota03` |
 | A15 | Low | Released | `v1.0.11-iota03` |
@@ -555,8 +591,8 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A19 | Medium | Released | `v1.0.11-iota02` |
 | A20 | Scope note | Excluded | Android-only contract |
 | A21 | Medium (governance) | Released | `v1.0.11-iota11` |
-| B1 | Cross-reference | Counted as A10 | Tranche 8 |
-| B2 | Low | Pending | Tranche 7 |
+| B1 | Cross-reference | Counted as A10 | `v1.0.11-iota21` |
+| B2 | Low | Released | `v1.0.11-iota21` |
 | B3 | Low | Released | `v1.0.11-iota18` |
 | B4 | High | Released | `v1.0.11-iota12` |
 | B5 | High | Released | `v1.0.11-iota13` |
@@ -566,15 +602,15 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B9 | High | Released | `v1.0.11-iota01` |
 | B10 | Medium | Released | `v1.0.11-iota01` |
 | B11 | Medium | Released | `v1.0.11-iota20` |
-| B12 | Medium | Pending | Tranche 4 |
-| B13 | Medium | Pending | Tranche 4 |
+| B12 | Medium | Released | `v1.0.11-iota21` |
+| B13 | Medium | Released | `v1.0.11-iota21` |
 | B14 | Medium | Superseded as written | No deployment |
 | B15 | Medium | Released | `v1.0.11-iota19` |
-| B16 | Low | Pending | Tranche 6 |
+| B16 | Low | Released | `v1.0.11-iota21` |
 | B17 | Medium | Released | `v1.0.11-iota11` |
 | B18 | Medium | Released | `v1.0.11-iota11` |
-| B19 | Medium | Pending | Tranche 4 |
-| B20 | Low | Pending | Tranche 4 |
+| B19 | Medium | Released | `v1.0.11-iota21` |
+| B20 | Low | Released | `v1.0.11-iota21` |
 | B21 | Scope note | Excluded | Android-only contract |
 | B22 | Medium | Released | `v1.0.11-iota15` |
 | B23 | Low | Released | `v1.0.11-iota17` |
@@ -591,7 +627,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | C10 | Medium | Released | `v1.0.11-iota01` |
 | C11 | Medium | Released | `v1.0.11-iota01` |
 | C12 | Verified | Preserve | Regression tests only |
-| C13 | Medium | Pending | Tranche 8 |
+| C13 | Medium | Released | `v1.0.11-iota21` |
 | C14 | Low | Released | `v1.0.11-iota10` |
 | C15 | Low | Released | `v1.0.11-iota05` |
 
@@ -599,11 +635,11 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 27 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `A21`, `B7`, `B9`, `B10`, `B11`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
+- Released findings: 55 (all actionable findings except superseded `B14`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 28.
+- Pending implementation findings assigned to tranches: 0.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
 
-No actionable finding is unassigned. Completion of this roadmap means all eight tranches have shipped or a later evidence-backed revision explicitly changes a finding's disposition.
+All eight tranches have shipped. No actionable finding remains unassigned or pending.
