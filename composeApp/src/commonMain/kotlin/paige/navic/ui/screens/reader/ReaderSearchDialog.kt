@@ -51,6 +51,7 @@ import paige.navic.reader.ReaderSearchState
 @Composable
 internal fun KomikkuReaderSearchDialog(
 	search: ReaderSearchState,
+	onSearchInputChange: (String) -> Unit,
 	onSearchQuery: (String) -> Unit,
 	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
 	onDismissSearch: () -> Unit
@@ -92,7 +93,10 @@ internal fun KomikkuReaderSearchDialog(
 				}
 				TextField(
 					value = queryText,
-					onValueChange = { queryText = it },
+					onValueChange = { value ->
+						queryText = value
+						onSearchInputChange(value)
+					},
 					singleLine = true,
 					keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
 					keyboardActions = KeyboardActions(onSearch = { onSearchQuery(queryText) }),

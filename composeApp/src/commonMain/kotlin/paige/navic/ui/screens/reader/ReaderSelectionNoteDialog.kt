@@ -31,6 +31,7 @@ import paige.navic.reader.ReaderSelectionNoteDraft
 @Composable
 internal fun KomikkuReaderSelectionNoteDialog(
 	draft: ReaderSelectionNoteDraft,
+	onSelectionNoteDraftChange: (String) -> Unit,
 	onSaveSelectionNote: (String) -> Unit,
 	onDismissSelectionNote: () -> Unit
 ) {
@@ -60,7 +61,10 @@ internal fun KomikkuReaderSelectionNoteDialog(
 				)
 				OutlinedTextField(
 					value = noteText,
-					onValueChange = { noteText = it },
+					onValueChange = { value ->
+						noteText = value
+						onSelectionNoteDraftChange(value)
+					},
 					label = { Text("Annotation") },
 					minLines = 3,
 					maxLines = 6,

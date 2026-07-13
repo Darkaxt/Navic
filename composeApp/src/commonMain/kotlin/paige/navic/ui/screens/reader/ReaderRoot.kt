@@ -59,6 +59,7 @@ internal fun KomikkuReaderRoot(
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
 	onWhispersyncPlayer: () -> Unit,
+	onSearchInputChange: (String) -> Unit,
 	onSearchQuery: (String) -> Unit,
 	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
 	onDismissSearch: () -> Unit,
@@ -73,6 +74,7 @@ internal fun KomikkuReaderRoot(
 	onHighlightSelection: () -> Unit,
 	onCopySelection: (String) -> Unit,
 	onStartSelectionNote: () -> Unit,
+	onSelectionNoteDraftChange: (String) -> Unit,
 	onSaveSelectionNote: (String) -> Unit,
 	onDismissSelectionNote: () -> Unit,
 	onDismissAnnotationPopup: () -> Unit,
@@ -189,6 +191,7 @@ internal fun KomikkuReaderRoot(
 						onContents = onContents,
 						onSearch = onSearch,
 						onWhispersyncPlayer = onWhispersyncPlayer,
+						onSearchInputChange = onSearchInputChange,
 						onSearchQuery = onSearchQuery,
 						onNavigateToSearchResult = onNavigateToSearchResult,
 						onDismissSearch = onDismissSearch,
@@ -206,6 +209,7 @@ internal fun KomikkuReaderRoot(
 						onHighlightSelection = onHighlightSelection,
 						onCopySelection = onCopySelection,
 						onStartSelectionNote = onStartSelectionNote,
+						onSelectionNoteDraftChange = onSelectionNoteDraftChange,
 						onSaveSelectionNote = onSaveSelectionNote,
 						onDismissSelectionNote = onDismissSelectionNote,
 						onDismissAnnotationPopup = onDismissAnnotationPopup,
@@ -262,6 +266,7 @@ private fun KomikkuComposeOverlay(
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
 	onWhispersyncPlayer: () -> Unit,
+	onSearchInputChange: (String) -> Unit,
 	onSearchQuery: (String) -> Unit,
 	onNavigateToSearchResult: (ReaderSearchResult) -> Unit,
 	onDismissSearch: () -> Unit,
@@ -281,6 +286,7 @@ private fun KomikkuComposeOverlay(
 	onHighlightSelection: () -> Unit,
 	onCopySelection: (String) -> Unit,
 	onStartSelectionNote: () -> Unit,
+	onSelectionNoteDraftChange: (String) -> Unit,
 	onSaveSelectionNote: (String) -> Unit,
 	onDismissSelectionNote: () -> Unit,
 	onDismissAnnotationPopup: () -> Unit,
@@ -396,6 +402,7 @@ private fun KomikkuComposeOverlay(
 			) {
 				KomikkuReaderSearchDialog(
 					search = controllerState.search,
+					onSearchInputChange = onSearchInputChange,
 					onSearchQuery = onSearchQuery,
 					onNavigateToSearchResult = onNavigateToSearchResult,
 					onDismissSearch = onDismissSearch
@@ -416,6 +423,7 @@ private fun KomikkuComposeOverlay(
 		controllerState.selectionNoteDraft?.let { draft ->
 			KomikkuReaderSelectionNoteDialog(
 				draft = draft,
+				onSelectionNoteDraftChange = onSelectionNoteDraftChange,
 				onSaveSelectionNote = onSaveSelectionNote,
 				onDismissSelectionNote = onDismissSelectionNote
 			)

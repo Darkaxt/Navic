@@ -4,6 +4,7 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 import paige.navic.domain.models.DomainSong
+import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.ui.components.dialogs.DeletionViewModel
 import paige.navic.ui.components.sheets.ChangelogViewModel
 import paige.navic.ui.screens.activity.ActivityViewModel
@@ -45,6 +46,7 @@ import paige.navic.ui.screens.song.viewmodels.SongDetailViewModel
 import paige.navic.ui.screens.song.viewmodels.SongListViewModel
 
 val viewModelModule = module {
+	viewModelOf(::ReaderProcessStateViewModel)
 	viewModelOf(::ArtistDetailViewModel)
 
 	viewModel { (song: DomainSong?) ->

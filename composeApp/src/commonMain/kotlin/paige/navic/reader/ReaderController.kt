@@ -567,6 +567,22 @@ data class ReaderController(
 		)
 	}
 
+	fun updateSearchInput(query: String): ReaderControllerStep {
+		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.Search)) {
+			return ReaderControllerStep(this)
+		}
+		if (state.search.query == query && !state.search.active) {
+			return ReaderControllerStep(this)
+		}
+		return ReaderControllerStep(
+			copy(
+				state = state.copy(
+					search = ReaderSearchState(query = query)
+				)
+			)
+		)
+	}
+
 	fun clearSearch(): ReaderControllerStep =
 		if (!state.supportsReaderEngineCapability(ReaderEngineCapability.Search)) {
 			ReaderControllerStep(this)
@@ -1120,6 +1136,14 @@ data class ReaderController(
 
 	fun dismissSelectionNote(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(selectionNoteDraft = null)))
+
+	fun updateSelectionNoteDraft(note: String): ReaderControllerStep {
+		val draft = state.selectionNoteDraft ?: return ReaderControllerStep(this)
+		if (draft.note == note) return ReaderControllerStep(this)
+		return ReaderControllerStep(
+			copy(state = state.copy(selectionNoteDraft = draft.copy(note = note)))
+		)
+	}
 
 	fun dismissAnnotationPopup(): ReaderControllerStep =
 		ReaderControllerStep(copy(state = state.copy(annotationPopup = null)))

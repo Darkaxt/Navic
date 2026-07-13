@@ -28,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.repositories.BinderyRepository
@@ -41,9 +42,11 @@ import paige.navic.reader.ReaderCoordinatorStep
 import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineEvent
 import paige.navic.reader.ReaderEngineHostEvent
+import paige.navic.reader.ReaderEngineOpenRequest
 import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSettings
@@ -82,6 +85,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val binderyRepository = koinInject<BinderyRepository>()
 	val audiobookPlaybackManager = koinInject<AudiobookPlaybackManager>()
+	val processStateViewModel = koinViewModel<ReaderProcessStateViewModel>(
+		key = reader.readerProcessStateViewModelKey()
+	)
 	val audiobookMiniPlayerState by audiobookPlaybackManager.uiState.collectAsState()
 	val backStack = LocalNavStack.current
 	val uriHandler = LocalUriHandler.current
@@ -196,7 +202,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 		komikkuNavigatorForReaderSettings(settings)
 	}
 
-	fun applyCoordinatorStep(step: ReaderCoordinatorStep) {
+	fun applyCoordinatorStep(
+		step: ReaderCoordinatorStep,
+		retainProcessState: Boolean = true
+	) {
 		val previousControllerState = coordinator.controller.state
 		applyReaderCoordinatorStep(
 			step = step,
@@ -206,6 +215,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 					next = nextCoordinator.controller.state
 				)
 				coordinator = nextCoordinator
+				if (retainProcessState) {
+					processStateViewModel.retain(nextCoordinator.controller.state)
+				}
 			},
 			saveProgress = { progress ->
 				val updatedAtMs = Clock.System.now().toEpochMilliseconds()
@@ -263,9 +275,21 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 	}
 
+	fun openReaderPublication(request: ReaderEngineOpenRequest) {
+		val retainedState = processStateViewModel.restore(request.publication)
+		applyCoordinatorStep(
+			step = coordinator.open(request),
+			retainProcessState = false
+		)
+		retainedState?.let { snapshot ->
+			applyCoordinatorStep(coordinator.restoreProcessState(snapshot))
+		}
+	}
+
 	fun applyReaderBackStep(step: ReaderCoordinatorBackStep) {
 		if (step.handled) {
 			coordinator = step.coordinator
+			processStateViewModel.retain(step.coordinator.controller.state)
 			step.readaloudPlaybackCommand?.let { command ->
 				Logger.i(
 					WhispersyncSyncLogTag,
@@ -274,6 +298,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 				audiobookPlaybackManager.dispatch(command)
 			}
 		} else {
+			processStateViewModel.clear()
 			backStack.performNavicBack()
 		}
 	}
@@ -370,16 +395,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 				resourceHref = reader.resourceHref,
 				kind = reader.kind
 			)
-			applyCoordinatorStep(
-				coordinator.open(
-					reader.toReaderEngineOpenRequest(
-						publicationUrl = publicationUrl,
-						shellCoverUrl = shellCoverUrl,
-						shellCoverTint = shellCoverTint,
-						savedProgress = savedProgress,
-						localStartLocator = localStartLocator,
-						settings = runtimeSettings
-					)
+			openReaderPublication(
+				reader.toReaderEngineOpenRequest(
+					publicationUrl = publicationUrl,
+					shellCoverUrl = shellCoverUrl,
+					shellCoverTint = shellCoverTint,
+					savedProgress = savedProgress,
+					localStartLocator = localStartLocator,
+					settings = runtimeSettings
 				)
 			)
 			reader.whispersyncLaunchAttachment()?.let { attachment ->
@@ -495,15 +518,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readerHostEvent = lastReaderEngineHostEvent,
 		readerHostEventKey = readerEngineHostEventKey,
 		onPublicationReady = { publicationUrl ->
-			applyCoordinatorStep(
-				coordinator.open(
-					reader.toReaderEngineOpenRequest(
-						publicationUrl = publicationUrl,
-						shellCoverUrl = null,
-						shellCoverTint = null,
-						savedProgress = null,
-						settings = runtimeSettings
-					)
+			openReaderPublication(
+				reader.toReaderEngineOpenRequest(
+					publicationUrl = publicationUrl,
+					shellCoverUrl = null,
+					shellCoverTint = null,
+					savedProgress = null,
+					settings = runtimeSettings
 				)
 			)
 		},
@@ -587,6 +608,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onWhispersyncPlayer = {
 			applyCoordinatorStep(coordinator.openWhispersyncPlayerDialog())
 		},
+		onSearchInputChange = { query ->
+			applyCoordinatorStep(coordinator.updateSearchInput(query))
+		},
 		onSearchQuery = { query ->
 			applyCoordinatorStep(coordinator.search(query))
 		},
@@ -636,6 +660,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onStartSelectionNote = {
 			applyCoordinatorStep(coordinator.startSelectionNote())
+		},
+		onSelectionNoteDraftChange = { note ->
+			applyCoordinatorStep(coordinator.updateSelectionNoteDraft(note))
 		},
 		onSaveSelectionNote = { note ->
 			Logger.i(ReaderScreenTag, "Reader selection note save length=${note.length}")
@@ -705,6 +732,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 			}
 	)
 }
+
+private fun Screen.Reader.readerProcessStateViewModelKey(): String =
+	"reader-process:${bookId.length}:$bookId:${resourceHref.length}:$resourceHref:${kind.name}:${publicationFormat.name}"
 
 private fun AudiobookMiniPlayerUiState.toWhispersyncReadaloudPlaybackUiState(
 	playbackPlan: ReadaloudPlaybackPlan?,

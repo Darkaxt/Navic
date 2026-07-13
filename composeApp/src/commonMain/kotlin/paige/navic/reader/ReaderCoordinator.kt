@@ -53,6 +53,9 @@ data class ReaderCoordinator(
 	fun search(query: String): ReaderCoordinatorStep =
 		applyControllerStep(controller.search(query))
 
+	fun updateSearchInput(query: String): ReaderCoordinatorStep =
+		applyControllerStep(controller.updateSearchInput(query))
+
 	fun clearSearch(): ReaderCoordinatorStep =
 		applyControllerStep(controller.clearSearch())
 
@@ -120,6 +123,12 @@ data class ReaderCoordinator(
 
 	fun dismissSelectionNote(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissSelectionNote())
+
+	fun updateSelectionNoteDraft(note: String): ReaderCoordinatorStep =
+		applyControllerStep(controller.updateSelectionNoteDraft(note))
+
+	fun restoreProcessState(snapshot: ReaderProcessStateSnapshot): ReaderCoordinatorStep =
+		applyControllerStep(controller.restoreProcessState(snapshot))
 
 	fun dismissAnnotationPopup(): ReaderCoordinatorStep =
 		applyControllerStep(controller.dismissAnnotationPopup())
