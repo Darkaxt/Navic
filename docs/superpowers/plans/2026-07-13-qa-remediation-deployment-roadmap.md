@@ -189,6 +189,15 @@ Every tranche uses the following pipeline:
 - A signed in-place upgrade from `v1.0.11-iota4` installed and launched on `emulator-5554`; the app process remained alive with no fatal, Room, or Koin startup error.
 - Tests prove session cancellation joins old work before replacement, repeating workers restart in the new child, post-login full sync is actor-owned and awaitable, enqueue cannot race after logout, and logout orders joined cancellation before sync queue/timestamp and credential clearing. Android debug assembly passed.
 
+### Nullable artist identity slice release evidence
+
+- Released `v1.0.11-iota6` from commit `c50a35e2` on 2026-07-13.
+- GitHub Actions run `29220154972` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
+- Public `Navic.apk` SHA-256: `070a674582039c57e897c5650de2104a7f39797c16a115ee1d9190bad8323301`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=528`, `versionName=v1.0.11-iota6`.
+- A signed in-place upgrade from `v1.0.11-iota5` installed and launched on `emulator-5554`. Direct SQLite inspection confirmed cache schema 23, nullable `artistId` columns in both `AlbumEntity` and `SongEntity`, and zero remaining legacy `unknown artist` sentinel rows.
+- Tests cover nullable identity resolution, real-ID preservation, mixed-case/whitespace sentinel conversion, physical column nullability, and explicit behavior for artist grouping, queue scoring, artist queries, and collection UI fallbacks. Android debug assembly passed.
+
 ## Tranche 3 — Reader bridge and process recovery
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
@@ -403,7 +412,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B23 | Low | Pending | Tranche 3 |
 | B24 | Medium | Partially improved; process state pending | Tranche 3 |
 | C1 | Critical | Released | `v1.0.11-theta94` |
-| C2 | Medium | Pending | Tranche 2 |
+| C2 | Medium | Released | `v1.0.11-iota6` |
 | C3 | Medium | Released | `v1.0.11-iota3` |
 | C4 | Medium | Released | `v1.0.11-iota4` |
 | C5 | High | Released | `v1.0.11-theta94` |
@@ -422,9 +431,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 18 (`A13`, `A14`, `A15`, `A18`, `A19`, `B9`, `B10`, `C1`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C15`).
+- Released findings: 19 (`A13`, `A14`, `A15`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 37.
+- Pending implementation findings assigned to tranches: 36.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
