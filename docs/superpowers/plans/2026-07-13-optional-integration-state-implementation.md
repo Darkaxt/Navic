@@ -135,11 +135,11 @@ Show the status as an unframed full-width grid/list item. Stale data remains int
 - Modify: `androidApp/build.gradle.kts`
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 
-- [ ] **Step 1: Prepare `v1.0.11-iota10`**
+- [x] **Step 1: Prepare `v1.0.11-iota10`**
 
 Increment versionCode 531 to 532 and set versionName `v1.0.11-iota10`.
 
-- [ ] **Step 2: Run release gates**
+- [x] **Step 2: Run release gates**
 
 Run all new C14 tests, affected Aurral/Bindery suites, Android debug assembly, version verification, and `git diff --check` after rebasing public master.
 
