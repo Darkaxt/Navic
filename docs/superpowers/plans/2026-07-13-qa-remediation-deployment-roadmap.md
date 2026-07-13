@@ -6,6 +6,7 @@ Source audit: `docs/superpowers/plans/2026-07-12-qa-analysis.md`
 Released foundation: `v1.0.11-theta94`
 Released Tranche 1: `v1.0.11-iota1`
 Released Tranche 2 storage slice: `v1.0.11-iota2`
+Released Tranche 2 download slice: `v1.0.11-iota3`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -160,6 +161,15 @@ Every tranche uses the following pipeline:
 - APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=524`, `versionName=v1.0.11-iota2`.
 - A signed upgrade over a populated `v1.0.11-iota1` install migrated cache schema `20→21`, removed cache `DownloadEntity`, copied a legacy-only row, retained the conflicting current `downloads.db` row, and cold-launched successfully on `emulator-5554`.
 - Fixture-backed SQLite tests cover legacy-row reads, destination-wins conflict handling, and migration removal of only the duplicate table. Storage ownership is documented in `docs/architecture/storage-ownership.md`.
+
+### Download slice release evidence
+
+- Released `v1.0.11-iota3` from commit `4ab721b4` on 2026-07-13.
+- GitHub Actions run `29216297092` passed release build, APK signature verification, artifact upload, and release creation; checks run `29216297093` passed.
+- Public `Navic.apk` SHA-256: `f55fe6141eba92bc1028ccc49ba809b98b6c34df06d7bed85c339396d1f5c78e`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=525`, `versionName=v1.0.11-iota3`.
+- A signed upgrade over populated download schema 4 migrated to schema 5, preserved a downloaded row, recovered a queued missing-song row into a generation-1 cancellation tombstone, and cold-launched successfully on `emulator-5554`.
+- Tests cover cancel-vs-retry generations, stale completion rejection, 100,000 enqueue wakeups remaining bounded to one in-memory signal, one-row-at-a-time restart recovery, migration fixtures, and named sync concurrency/batch limits.
 
 ## Tranche 3 — Reader bridge and process recovery
 
@@ -342,8 +352,8 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A11 | Medium | Pending | Tranche 6 |
 | A12 | Low | Pending | Tranche 7 |
 | A13 | Medium | Pending | Tranche 2 |
-| A14 | Medium | Pending | Tranche 2 |
-| A15 | Low | Pending | Tranche 2 |
+| A14 | Medium | Released | `v1.0.11-iota3` |
+| A15 | Low | Released | `v1.0.11-iota3` |
 | A16 | Medium | Pending | Tranche 5 |
 | A17 | Medium | Pending | Tranche 5 |
 | A18 | Medium | Released | `v1.0.11-iota2` |
@@ -376,7 +386,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B24 | Medium | Partially improved; process state pending | Tranche 3 |
 | C1 | Critical | Released | `v1.0.11-theta94` |
 | C2 | Medium | Pending | Tranche 2 |
-| C3 | Medium | Pending | Tranche 2 |
+| C3 | Medium | Released | `v1.0.11-iota3` |
 | C4 | Medium | Pending | Tranche 2 |
 | C5 | High | Released | `v1.0.11-theta94` |
 | C6 | Medium | Pending | Tranche 2 |
@@ -394,9 +404,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 11 (`A18`, `A19`, `B9`, `B10`, `C1`, `C5`, `C7`, `C8`, `C9`, `C10`, `C11`).
+- Released findings: 14 (`A14`, `A15`, `A18`, `A19`, `B9`, `B10`, `C1`, `C3`, `C5`, `C7`, `C8`, `C9`, `C10`, `C11`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 44.
+- Pending implementation findings assigned to tranches: 41.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
