@@ -253,7 +253,12 @@ private fun String.upgradeKnownProviderImageUrl(): String =
 
 private fun String.approvedAudioBookBayCoverImageUrlOrNull(): String? {
 	val trimmed = trim()
-	if ('#' in trimmed) return null
+	val schemeSeparator = trimmed.indexOf("://")
+	if (schemeSeparator <= 0 || '#' in trimmed) return null
+	val authority = trimmed.drop(schemeSeparator + 3).takeWhile { character ->
+		character != '/' && character != '?' && character != '#'
+	}
+	if (authority.isEmpty() || '@' in authority) return null
 	val parsed = runCatching { Url(trimmed) }.getOrNull() ?: return null
 	val host = parsed.host.lowercase()
 	return parsed.toString().takeIf {

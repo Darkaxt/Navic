@@ -60,6 +60,7 @@ class BinderyRepositoryProviderCoverTest {
 			<html>
 			  <head><meta property="og:image" content="https://192.168.1.1/private-cover.jpg"></head>
 			  <body>
+			    <img src="https://user:password@image.bayimg.com/credentialed-cover.jpg">
 			    <img src="https://evil.example/plausible-cover.jpg">
 			    <img src="https://[fd00::1]/private-cover.jpg">
 			  </body>

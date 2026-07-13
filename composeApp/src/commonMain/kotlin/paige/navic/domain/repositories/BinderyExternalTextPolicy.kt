@@ -93,6 +93,7 @@ private fun isPublicIpv6Address(address: ByteArray): Boolean {
 	return when {
 		first and 0xfe == 0xfc -> false
 		first == 0xfe && second and 0xc0 == 0x80 -> false
+		first == 0xfe && second and 0xc0 == 0xc0 -> false
 		first == 0xff -> false
 		else -> true
 	}
