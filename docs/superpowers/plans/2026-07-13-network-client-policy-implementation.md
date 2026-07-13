@@ -179,7 +179,7 @@ Expected: all selected tests pass, no direct production `HttpClient` constructio
 
 `v1.0.11-iota8` was published but failed independent startup verification because Koin attempted to inject the factory's optional test-engine supplier. Keep that release immutable, register the factory through an explicit zero-argument provider, increment `versionCode` to 531, and set `versionName` to `v1.0.11-iota9`.
 
-- [ ] **Step 2: Run the release gate**
+- [x] **Step 2: Run the release gate**
 
 Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota9`, and `git diff --check` after rebasing `fork/master`.
 
