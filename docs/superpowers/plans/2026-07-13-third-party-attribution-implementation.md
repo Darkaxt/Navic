@@ -70,6 +70,16 @@
 
 - [x] Set `versionCode=536` and `versionName=v1.0.11-kappa4`.
 - [x] Run focused tests, attribution verification, Android debug assembly, packaged verification, `git diff --check`, and the established full-suite baseline comparison.
-- [ ] Rebase the current public `master`, rerun the final gate, commit, push `master`, and push annotated tag `v1.0.11-kappa4`.
-- [ ] Verify GitHub Actions, public release metadata/hash/signature, and an ADB in-place emulator upgrade with no fatal startup error.
-- [ ] Record release evidence, push it, remove this worktree, and delete the local feature branch without touching ebook/page-turn worktrees.
+- [x] Rebase the current public `master`, rerun the final gate, commit, push `master`, and push annotated tag `v1.0.11-kappa4`.
+- [x] Verify GitHub Actions, public release metadata/hash/signature, and an ADB in-place emulator upgrade with no fatal startup error.
+- [x] Record release evidence, push it, remove this worktree, and delete the local feature branch without touching ebook/page-turn worktrees.
+
+## Release Evidence
+
+- Release/tag commit: `1b142cda8a50c03322e1997c1f78240cb75d6902`.
+- GitHub Actions: build/release run `29233682795` and checks run `29233682740` succeeded; the Android job passed both source and packaged governance checks, while iOS was skipped.
+- Public APK: 46,208,788 bytes, SHA-256 `c4bc0997e2456ff46be14cea6f8e7d3b64c08a8e743c580263c0fe486cb9046b`.
+- Signature/version: APK Signature Scheme v2, certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=536`, `versionName=v1.0.11-kappa4`.
+- Governance proof: the public APK passed all 30 reader-vendor hashes and contains exact Anx Reader, foliate-js, and PDF.js acknowledgement records. A deliberate missing-library mutation failed verification.
+- Device: signed upgrade from kappa3 to kappa4 on `emulator-5554`; PID `29490` remained the resumed activity with no AndroidRuntime or fatal startup error.
+- Suite proof: 2,326 Android host tests ran with the same 35 pre-existing failure names as kappa3; all three new attribution tests passed.

@@ -337,12 +337,15 @@ Every tranche uses the following pipeline:
 - GitHub Actions now runs the self-test before every Android build and verifies the final APK before upload. The documented update process requires upstream release/advisory review, immutable artifact validation, upstream diff review, deliberate Navic-patch reapplication, reader tests, and packaged-APK proof.
 - The full host suite ran 2,321 tests with the exact same 35 pre-existing failure names as kappa2; both new B7 host tests passed. No vendored JavaScript or reader runtime behavior changed in this slice.
 
-### Attribution-governance slice implementation evidence
+### Attribution-governance slice release evidence
 
+- Released `v1.0.11-kappa4` from commit `1b142cda` on 2026-07-13. GitHub Actions run `29233682795` passed reader-vendor source verification, the signed Android release build, signature verification, packaged reader-vendor and attribution verification, artifact upload, and release creation; iOS was skipped. Checks run `29233682740` passed wrapper validation.
+- Public `Navic.apk` SHA-256: `c4bc0997e2456ff46be14cea6f8e7d3b64c08a8e743c580263c0fe486cb9046b` (46,208,788 bytes). APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=536`, `versionName=v1.0.11-kappa4`.
+- The public APK independently passed all 30 reader-vendor hashes and the packaged acknowledgement check. A signed in-place upgrade from `v1.0.11-kappa3` installed and launched on `emulator-5554`; the app remained the resumed activity as PID `29490` with no AndroidRuntime or fatal startup error.
 - `THIRD_PARTY.md` records Navic's GNU GPL version 3 license and immutable source revisions for Anx Reader, foliate-js `1.0.1`, and PDF.js `3.11.174`. Exact upstream MIT and Apache-2.0 license files are retained under `third_party/licenses`.
 - Exact-source verification corrected the audit's Anx copyleft premise: pinned Anx Reader commit `107f4fa74db0e7247c846c49d6211df3edf9887c` is MIT-licensed. Its real copyright and permission notice are preserved instead of claiming nonexistent Anx copyleft obligations.
 - AboutLibraries custom records feed the copied components into the existing Acknowledgements screen. The structural verifier checks component identity, version/commit, source URL, copyright, license ID, and MIT text in both the generated Compose resource and the assembled APK.
-- The assembled Android debug APK passed all 30 existing reader-vendor hashes and the new packaged-attribution check with embedded `versionCode=536`, `versionName=v1.0.11-kappa4`. A deliberate generated-JSON tamper was rejected.
+- The assembled Android debug APK passed all 30 existing reader-vendor hashes and the new packaged-attribution check. A deliberate generated-JSON tamper was rejected.
 - The full host suite ran 2,326 tests with the same 35 pre-existing failure names as kappa3; all three new attribution tests and the existing reader-vendor governance tests passed.
 
 ### Rollout and rollback
