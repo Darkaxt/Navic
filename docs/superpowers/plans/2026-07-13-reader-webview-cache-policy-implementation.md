@@ -94,7 +94,7 @@ git commit -m "perf(android): retain reader WebView cache"
 - Verify: `scripts/verify-reader-vendor-assets.ps1`
 - Verify: `scripts/verify-third-party-attributions.ps1`
 
-- [ ] **Step 1: Run the focused Kotlin owner suite**
+- [x] **Step 1: Run the focused Kotlin owner suite**
 
 Run:
 
@@ -124,7 +124,7 @@ Run:
 
 Record exact test, failure, error, and skip counts from `composeApp/build/test-results/testAndroidHostTest/*.xml`.
 
-- [ ] **Step 2: Run JavaScript and source-governance gates**
+- [x] **Step 2: Run JavaScript and source-governance gates**
 
 Run:
 
@@ -144,7 +144,7 @@ pwsh -NoProfile -File scripts\verify-third-party-attributions.ps1
 
 Expected: command acknowledgement 1/1, page-turn model 15/15, smoke and trace-smoke pass, source vendor verification 30/30, tamper self-test passes, and source attribution passes.
 
-- [ ] **Step 3: Assemble Android candidates**
+- [x] **Step 3: Assemble Android candidates**
 
 Run:
 
@@ -154,9 +154,11 @@ Run:
 
 Expected: BUILD SUCCESSFUL. Do not invoke an iOS task.
 
-- [ ] **Step 4: Verify both APKs**
+- [x] **Step 4: Verify both APKs**
 
 For `androidApp/build/outputs/apk/debug/Navic.apk` and `androidApp/build/outputs/apk/readerDev/Navic.apk`, record size and SHA-256, run packaged vendor and attribution verification, and inspect metadata with the latest installed SDK `aapt.exe`. Before the version bump, both APKs must still report the current public metadata; after Task 4 they must report `543 / v1.0.11-iota16`.
+
+Validation evidence: the integrated Kotlin owner suite passed 185/185 with zero failures, errors, or skips. JavaScript syntax, command acknowledgement 1/1, page-turn model 15/15, smoke/trace smoke, source vendor 30/30, tamper self-test, attribution, and both Android assemblies passed. Pre-bump debug and reader-dev APKs retained `542 / v1.0.11-iota15`, passed packaged governance, and produced SHA-256 `64d04c982e72f43ae03a7543b5b6ffc1baa0fd121306a1f291a9d0bca195f0e1` and `590f36d16f18fd9f7611cbbc1650e0b4ec603c6d3e5a7548c737ae257ed84f73` respectively.
 
 ### Task 3: Prove renderer recovery on Android
 
@@ -165,11 +167,11 @@ For `androidApp/build/outputs/apk/debug/Navic.apk` and `androidApp/build/outputs
 - Use: `D:/Downloads/Trash/01 - The Hobbit The Hobbit (illustrated Edition by Alan Lee).epub`
 - Use: `scripts/install-reader-dev.ps1`
 
-- [ ] **Step 1: Prepare a local reader fixture and server**
+- [x] **Step 1: Prepare a local reader fixture and server**
 
 Copy the known EPUB to `captures/reader-cache-device/publication.epub`. Start a hidden Python HTTP server on port `8876` rooted at that capture directory and verify the owning process command line contains `http.server 8876`. Do not add the fixture or server logs to Git.
 
-- [ ] **Step 2: Install and open reader-dev**
+- [x] **Step 2: Install and open reader-dev**
 
 Run `scripts/install-reader-dev.ps1` with the existing primary checkout's `bindery-debug.env`, `-NoBuild`, `-NoDiscoverPublication`, `-RequireReaderLaunch`, and these explicit values:
 
@@ -184,11 +186,11 @@ ReaderFormat=epub
 
 Wait for the existing script's foreground and `publicationReady` checks. Confirm the app reaches `commandAck(reader-open-1)` and record a non-empty href and CFI from the latest `locationChanged` event.
 
-- [ ] **Step 3: Kill only the WebView renderer**
+- [x] **Step 3: Kill only the WebView renderer**
 
 Resolve the reader-dev app PID with `adb shell pidof darkaxt.navic.readerdev`. Resolve the current renderer PID from `adb shell ps -A -o PID,PPID,NAME` by selecting `webview:sandboxed_process`. Clear logcat, kill only that renderer PID, and wait for the host's existing `render process gone` recovery sequence to complete.
 
-- [ ] **Step 4: Verify exact replay and process continuity**
+- [x] **Step 4: Verify exact replay and process continuity**
 
 Confirm:
 
@@ -200,6 +202,8 @@ Confirm:
 
 Stop only the verified `http.server 8876` process after the checks complete.
 
+Validation evidence: the 24,147,454-byte Hobbit fixture was served only from the ignored capture directory. Reader-dev opened at `OEBPS/Text/1.html`, `epubcfi(/6/2!/4,/2,/126)`, and acknowledged `reader-open-1`. Killing renderer PID `7216` preserved app PID `7074`, created renderer PID `7484`, and generation 1 restored the exact href/CFI, reached `publicationReady`, and acknowledged the same command ID. AndroidRuntime emitted no fatal error. The verified `http.server 8876` process was stopped and no listener remains.
+
 ### Task 4: Document and publish `v1.0.11-iota16`
 
 **Files:**
@@ -208,11 +212,11 @@ Stop only the verified `http.server 8876` process after the checks complete.
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-13-reader-webview-cache-policy-implementation.md`
 
-- [ ] **Step 1: Record candidate evidence and update B8**
+- [x] **Step 1: Record candidate evidence and update B8**
 
 Mark B8 as candidate-validated, add the exact Kotlin/JavaScript/build/ADB evidence, preserve all other finding dispositions, and update the Tranche 3 nuance so B3, B15/B24, and B23 remain pending.
 
-- [ ] **Step 2: Bump only the next iota release**
+- [x] **Step 2: Bump only the next iota release**
 
 Set:
 
@@ -223,9 +227,11 @@ versionName = "v1.0.11-iota16"
 
 Run the Android version verifier, `git diff --check`, and searches proving there are no unpadded iota tags and no `kappa`/`lambda` tags or release references.
 
-- [ ] **Step 3: Integrate current public master**
+- [x] **Step 3: Integrate current public master**
 
 Fetch `fork/master`. If it advanced, rebase this isolated branch, inspect every incoming path for overlap, and rerun the focused owner, governance, build, packaged APK, and version gates on the integrated tree.
+
+Integration evidence: the version verifier accepted `v1.0.11-iota16`; `git diff --check` passed; no malformed iota, kappa, or lambda tag exists; `v1.0.11-iota16` was absent remotely. After fetching, the branch was 3 commits ahead and 0 behind `fork/master`, so no rebase was required.
 
 - [ ] **Step 4: Commit and publish Android only**
 

@@ -210,7 +210,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, and managed reader storage shipped in `iota15`. Cache policy, capability gating, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, and managed reader storage shipped in `iota15`. Normal local-asset cache policy is implemented for `iota16`; capability gating, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
 
 ### Change units
 
@@ -262,6 +262,13 @@ Every tranche uses the following pipeline:
 - Released as `v1.0.11-iota14` from commit `6d6cbfec`. Build/release workflow `29249483437` completed successfully: the Android APK and GitHub release jobs passed, while every iOS job was skipped.
 - Public `Navic.apk` is 46,225,284 bytes with SHA-256 `1c71c22c77fe8f904cbb48db4f71b780e689df4e6b2ab846345cc73a761fbd8f`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=541`, `versionName=v1.0.11-iota14`.
 - The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota13`/540 on `emulator-5554`; explicit `MainActivity` start resumed successfully, the app remained alive as PID `4453`, and AndroidRuntime/MediaController startup checks were clean.
+
+### B8 candidate evidence
+
+- `ReaderWebRuntime.configure()` uses `WebSettings.LOAD_DEFAULT` for APK-backed appassets and no longer clears process-global WebView cache during each configuration. All existing origin, access, bridge, URL, storage, and renderer-generation behavior remains unchanged.
+- The cache-policy contract failed first at `ReaderRuntimeAssetsTest.kt:235` because unchanged production code did not contain `LOAD_DEFAULT`. After the minimal runtime edit, 5/5 immediate adjacent tests and the integrated reader owner suite passed 185/185 with zero failures, errors, or skips.
+- JavaScript syntax, Chromium command acknowledgement 1/1, page-turn model 15/15, reader smoke/trace smoke, source vendor 30/30, verifier tamper self-test, attribution, debug/reader-dev assembly, and packaged vendor/attribution checks passed. Pre-bump debug APK SHA-256 is `64d04c982e72f43ae03a7543b5b6ffc1baa0fd121306a1f291a9d0bca195f0e1`; reader-dev APK SHA-256 is `590f36d16f18fd9f7611cbbc1650e0b4ec603c6d3e5a7548c737ae257ed84f73`.
+- On `emulator-5554`, the Hobbit EPUB opened at `OEBPS/Text/1.html`, `epubcfi(/6/2!/4,/2,/126)`. Killing only renderer PID `7216` kept app PID `7074` alive and created renderer PID `7484`; generation 1 replayed the same `reader-open-1`, restored the exact href/CFI through the cached pagination profile, reached `publicationReady`, and acknowledged the command. AndroidRuntime emitted no fatal error.
 
 ### B22 implementation and release evidence
 
@@ -504,7 +511,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B5 | High | Released | `v1.0.11-iota13` |
 | B6 | Medium | Released | `v1.0.11-iota14` |
 | B7 | Medium | Released | `v1.0.11-iota11` |
-| B8 | Low | Pending | Tranche 3 |
+| B8 | Low | Candidate validated | `v1.0.11-iota16` candidate |
 | B9 | High | Released | `v1.0.11-iota01` |
 | B10 | Medium | Released | `v1.0.11-iota01` |
 | B11 | Medium | Pending | Tranche 4 |
