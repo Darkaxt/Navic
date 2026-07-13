@@ -538,23 +538,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (visible) {
 			removePageTurnPrewarmLayoutListener()
 			pageTurnController.invalidate("shell-cover-visible")
-		} else {
-			requestPageTurnPrewarmWhenReady()
 		}
+		requestPageTurnPrewarmWhenReady()
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
 		if (!pageTurnCanvasEnabled || !isAttachedToWindow) return
-		if (shellCoverView?.visibility == VISIBLE) return
 		pageTurnPrewarmLayoutSignature = null
 		pageTurnPrewarmStableFrameCount = 0
 		if (pageTurnPrewarmLayoutListener != null) return
 		val listener = ViewTreeObserver.OnPreDrawListener {
 			if (!pageTurnCanvasEnabled || !isAttachedToWindow) {
-				removePageTurnPrewarmLayoutListener()
-				return@OnPreDrawListener true
-			}
-			if (shellCoverView?.visibility == VISIBLE) {
 				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}

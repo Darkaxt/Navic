@@ -538,10 +538,24 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(host, "pageTurnController.invalidate(\"window-hidden\")")
 		assertContains(host, "setShellCoverVisible(visible)")
 		assertContains(host, "pageTurnController.invalidate(\"shell-cover-visible\")")
-		assertContains(host, "if (shellCoverView?.visibility == VISIBLE) return")
 		assertContains(controller, "ComponentCallbacks2")
 		assertContains(controller, "invalidate(\"memory-pressure\")")
 		assertContains(controller, "unregisterComponentCallbacks")
+	}
+
+	@Test
+	fun passiveSnapshotsWarmWhileTheShellCoverHidesTheReader() {
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val shellVisibility = host
+			.substringAfter("fun setShellCoverVisible(visible: Boolean)")
+			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
+		val prewarm = host
+			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("private fun pageTurnPrewarmLayoutSignature")
+
+		assertContains(shellVisibility, "pageTurnController.invalidate(\"shell-cover-visible\")")
+		assertContains(shellVisibility, "requestPageTurnPrewarmWhenReady()")
+		assertFalse(prewarm.contains("shellCoverView?.visibility == VISIBLE"))
 	}
 
 	@Test

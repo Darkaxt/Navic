@@ -9,9 +9,9 @@ import kotlin.test.assertNull
 
 class ReaderPageTurnBundleTest {
 	@Test
-	fun snapshotWindowOrdersNearestPortraitPagesBeforeSecondNeighbors() {
+	fun snapshotWindowWarmsForwardReadingBeforeBackwardHistory() {
 		assertEquals(
-			listOf(6, 5, 7, 4, 8),
+			listOf(6, 7, 8, 5, 4),
 			readerPageSlideSnapshotWindow(centerPageIndex = 6, step = 1, pageCount = 12)
 		)
 	}
@@ -19,7 +19,7 @@ class ReaderPageTurnBundleTest {
 	@Test
 	fun snapshotWindowUsesSpreadStepsAndClipsBookBoundaries() {
 		assertEquals(
-			listOf(2, 0, 4, 6),
+			listOf(2, 4, 6, 0),
 			readerPageSlideSnapshotWindow(centerPageIndex = 2, step = 2, pageCount = 8)
 		)
 		assertEquals(

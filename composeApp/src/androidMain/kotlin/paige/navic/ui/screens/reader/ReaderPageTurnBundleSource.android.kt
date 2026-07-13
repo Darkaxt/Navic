@@ -360,10 +360,10 @@ internal fun readerPageSlideSnapshotWindow(
 	pageCount: Int
 ): List<Int> = listOf(
 	centerPageIndex,
-	centerPageIndex - step,
 	centerPageIndex + step,
-	centerPageIndex - (2 * step),
-	centerPageIndex + (2 * step)
+	centerPageIndex + (2 * step),
+	centerPageIndex - step,
+	centerPageIndex - (2 * step)
 ).filter { it in 0 until pageCount }.distinct()
 
 private fun String?.isJavascriptTrue(): Boolean = runCatching {
