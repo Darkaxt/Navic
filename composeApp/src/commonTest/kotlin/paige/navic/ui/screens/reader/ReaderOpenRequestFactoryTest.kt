@@ -7,6 +7,8 @@ import paige.navic.domain.repositories.BinderyReadingProgressKind
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
+import paige.navic.reader.ReaderStartLocatorSelectionPolicy
+import paige.navic.reader.ReaderStartLocatorSource
 import paige.navic.reader.defaultReaderSettings
 import paige.navic.ui.navigation.Screen
 
@@ -88,6 +90,57 @@ class ReaderOpenRequestFactoryTest {
 	}
 
 	@Test
+	fun openRequestUsesNewerLocalRereadAndRetainsDivergentCandidates() {
+		val remote = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-1",
+			textHref = "EPUB/Text/chapter-28.xhtml",
+			progressFraction = 0.8,
+			updatedAt = "2026-07-13T10:00:00Z"
+		)
+		val local = BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-1",
+			textHref = "EPUB/Text/chapter-05.xhtml",
+			progressFraction = 0.2,
+			updatedAt = "2026-07-13T11:00:00Z"
+		)
+
+		val request = hobbitReader().toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = null,
+			settings = defaultReaderSettings(),
+			savedProgress = remote,
+			localProgress = local
+		)
+
+		assertEquals(local.toExpectedLocator(), request.startLocator)
+		assertEquals(ReaderStartLocatorSource.Local, request.startLocatorConflict?.selectedSource)
+		assertEquals(ReaderStartLocatorSelectionPolicy.NewerTimestamp, request.startLocatorConflict?.policy)
+		assertEquals(remote.toExpectedLocator(), request.startLocatorConflict?.remoteCandidate?.locator)
+		assertEquals(local.toExpectedLocator(), request.startLocatorConflict?.localCandidate?.locator)
+	}
+
+	@Test
+	fun explicitRouteLocatorBypassesFallbackConflictDiagnostics() {
+		val remote = readerProgress(progress = 0.8, updatedAt = "2026-07-13T10:00:00Z")
+		val local = readerProgress(progress = 0.2, updatedAt = "2026-07-13T11:00:00Z")
+
+		val request = hobbitReader(startProgress = 0.4).toReaderEngineOpenRequest(
+			publicationUrl = "https://appassets.androidplatform.net/reader-cache/3693/publication.epub",
+			shellCoverUrl = null,
+			settings = defaultReaderSettings(),
+			savedProgress = remote,
+			localProgress = local
+		)
+
+		assertEquals(ReaderLocator(progress = 0.4), request.startLocator)
+		assertEquals(null, request.startLocatorConflict)
+	}
+
+	@Test
 	fun openRequestCarriesExplicitRouteProgressForReaderDevResumeValidation() {
 		val request = hobbitReader(
 			startProgress = 0.37
@@ -160,4 +213,18 @@ class ReaderOpenRequestFactoryTest {
 			startProgress = startProgress,
 			skipNativeShellCover = skipNativeShellCover
 		)
+
+	private fun readerProgress(progress: Double, updatedAt: String): BinderyReadingProgress =
+		BinderyReadingProgress(
+			bookId = "3693",
+			kind = BinderyReadingProgressKind.Ebook,
+			resourceHref = "/opds/books/3693/resources/ebook-1",
+			progressFraction = progress,
+			updatedAt = updatedAt
+		)
+
+	private fun BinderyReadingProgress.toExpectedLocator(): ReaderLocator = ReaderLocator(
+		href = textHref,
+		progress = progressFraction
+	)
 }

@@ -276,6 +276,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	fun openReaderPublication(request: ReaderEngineOpenRequest) {
+		request.startLocatorConflict?.let { conflict ->
+			Logger.i(
+				ReaderScreenTag,
+				"Reader progress conflict selected=${conflict.selectedSource} policy=${conflict.policy} " +
+					"remoteProgress=${conflict.remoteCandidate.locator.progress} " +
+					"remoteUpdatedAt=${conflict.remoteCandidate.updatedAt} " +
+					"localProgress=${conflict.localCandidate.locator.progress} " +
+					"localUpdatedAt=${conflict.localCandidate.updatedAt}"
+			)
+		}
 		val retainedState = processStateViewModel.restore(request.publication)
 		applyCoordinatorStep(
 			step = coordinator.open(request),
@@ -388,9 +398,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 	ReaderPublicationRuntimeHost(
 		reader = reader,
 		onPublicationReady = { publicationUrl, shellCoverUrl, shellCoverTint, savedProgress ->
-			val localStartLocator = ReaderReadingProgressState(
+			val localProgress = ReaderReadingProgressState(
 				decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
-			).startLocatorFor(
+			).startProgressFor(
 				bookId = reader.bookId,
 				resourceHref = reader.resourceHref,
 				kind = reader.kind
@@ -401,7 +411,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 					shellCoverUrl = shellCoverUrl,
 					shellCoverTint = shellCoverTint,
 					savedProgress = savedProgress,
-					localStartLocator = localStartLocator,
+					localProgress = localProgress,
 					settings = runtimeSettings
 				)
 			)

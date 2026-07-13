@@ -5,7 +5,9 @@ import paige.navic.reader.ReaderEngineOpenRequest
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPublicationIdentity
 import paige.navic.reader.ReaderSettings
-import paige.navic.reader.bestReaderStartLocator
+import paige.navic.reader.ReaderStartLocatorCandidate
+import paige.navic.reader.ReaderStartLocatorSource
+import paige.navic.reader.resolveReaderStartLocator
 import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.navigation.Screen
 
@@ -15,6 +17,7 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 	settings: ReaderSettings,
 	shellCoverTint: String? = null,
 	savedProgress: BinderyReadingProgress? = null,
+	localProgress: BinderyReadingProgress? = null,
 	localStartLocator: ReaderLocator? = null
 ): ReaderEngineOpenRequest {
 	val hasShellCover = !skipNativeShellCover && !shellCoverUrl.isNullOrBlank()
@@ -28,10 +31,28 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 		resourceHref = resourceHref,
 		kind = kind
 	)
-	val fallbackStartLocator = bestReaderStartLocator(
-		remoteStartLocator = savedStartLocator,
-		localStartLocator = localStartLocator
-	)?.normalizedReaderStartLocator()
+	val localProgressStartLocator = localProgress?.toReaderStartLocatorForReader(
+		bookId = bookId,
+		resourceHref = resourceHref,
+		kind = kind
+	)
+	val startLocatorDecision = resolveReaderStartLocator(
+		remoteCandidate = savedStartLocator?.let { locator ->
+			ReaderStartLocatorCandidate(
+				source = ReaderStartLocatorSource.Remote,
+				locator = locator,
+				updatedAt = savedProgress.updatedAt
+			)
+		},
+		localCandidate = (localProgressStartLocator ?: localStartLocator)?.let { locator ->
+			ReaderStartLocatorCandidate(
+				source = ReaderStartLocatorSource.Local,
+				locator = locator,
+				updatedAt = localProgress?.updatedAt
+			)
+		}
+	)
+	val fallbackStartLocator = startLocatorDecision.selectedLocator?.normalizedReaderStartLocator()
 	return ReaderEngineOpenRequest(
 		publication = ReaderPublicationIdentity(
 			bookId = bookId,
@@ -48,7 +69,8 @@ internal fun Screen.Reader.toReaderEngineOpenRequest(
 		settings = settings,
 		nativeShellCoverUrl = shellCoverUrl.takeIf { hasShellCover },
 		nativeShellCoverTint = shellCoverTint,
-		canReturnToShellCover = hasShellCover
+		canReturnToShellCover = hasShellCover,
+		startLocatorConflict = startLocatorDecision.conflict.takeIf { routeStartLocator == null }
 	)
 }
 

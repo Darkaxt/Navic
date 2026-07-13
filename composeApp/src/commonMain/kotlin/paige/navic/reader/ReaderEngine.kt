@@ -44,7 +44,8 @@ data class ReaderEngineOpenRequest(
 	val settings: ReaderSettings = defaultReaderSettings(),
 	val nativeShellCoverUrl: String? = null,
 	val nativeShellCoverTint: String? = null,
-	val canReturnToShellCover: Boolean = false
+	val canReturnToShellCover: Boolean = false,
+	val startLocatorConflict: ReaderStartLocatorConflict? = null
 )
 
 sealed interface ReaderEngineCommand {
