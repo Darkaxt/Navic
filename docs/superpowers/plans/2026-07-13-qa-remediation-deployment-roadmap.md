@@ -206,7 +206,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Renderer-death handling now resets `ReaderWebCommandDispatchState`, so generation replay is partially improved. Commands are still considered consumed before JS acknowledgement, decode failures remain untyped, and the bridge lifetime remains outside the WebView generation.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`. The `iota13` candidate makes commands acknowledgement-driven and preserves publication plus latest locator across renderer generations. Bridge lifetime, cache policy, capability gating, managed session storage, and process-death restoration of small transient drafts remain separate change units.
 
 ### Change units
 
@@ -236,6 +236,14 @@ Every tranche uses the following pipeline:
 - Protocol, processor, Android JavaScript bridge, Foliate adapter, and reader controller tests passed 124/124 with zero failures or errors.
 - Release commit `a94ad4b2` passed build/release run `29237439257` and checks run `29237439171`; iOS was skipped. The public APK is 46,208,788 bytes with SHA-256 `316ea9d1afa4c8ac5a65c738fe414a3d1dda60befc6a18c4db1e932afcbf5f3d`, established signing certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, `versionCode=539`, and `versionName=v1.0.11-iota12`.
 - The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. A signed in-place upgrade from `iota11` installed on `emulator-5554`; explicit activity start returned `Status: ok`, the app remained alive as PID `31000`, and AndroidRuntime reported no startup error.
+
+### B5/B24 renderer implementation evidence
+
+- `ReaderBridgeDispatchCommand` carries stable opaque IDs; `ReaderBridgeEvent.CommandAcknowledged` rejects blank/missing IDs. `ReaderWebCommandDispatchState` retains a single in-flight queue head until acknowledgement, suppresses duplicate-ready redispatch, replaces state on publication changes, and deterministically rebuilds the open command with the latest observed locator on generation changes.
+- `navic-reader.js` deduplicates tracked IDs and posts `commandAck` after the command handler settles. Direct reader-dev harness commands remain untracked and do not alter the production acknowledgement ledger. No acknowledgement timeout or elapsed-time cancellation was introduced.
+- Protocol, processor, dispatch, Android host, runtime asset, Storyteller, Foliate adapter, controller, and coordinator tests passed 165/165. The Chromium command-ack runtime, reader smoke/trace smoke, page-turn model, 30/30 source vendor hashes, packaged governance, debug assembly, and reader-dev assembly also passed.
+- ADB renderer recovery used a non-zero Alcatraz EPUB locator. Killing only WebView renderer PID `2270` kept `darkaxt.navic.readerdev` PID `2197` alive and created renderer PID `2509`. Generation 1 replayed the same `reader-open-1` and publication key, restored `OEBPS/Text/capitancebolleta01.xhtml` at `epubcfi(/6/16!/4,/2[sigil_toc_id_4],/22/1:265)`, reached `publicationReady`, and acknowledged `reader-open-1`; AndroidRuntime emitted no fatal error.
+- This resolves B5 and the renderer-generation portion of B24. B15/B24 process-death restoration for drafts, dialogs, selection, and reconstructed search state remains pending as change unit 6.
 
 ### Rollout and rollback
 
@@ -463,7 +471,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B2 | Low | Pending | Tranche 7 |
 | B3 | Low | Pending | Tranche 3 |
 | B4 | High | Released | `v1.0.11-iota12` |
-| B5 | High | Partially improved; ack pending | Tranche 3 |
+| B5 | High | Validated; `iota13` candidate | Tranche 3 |
 | B6 | Medium | Pending | Tranche 3 |
 | B7 | Medium | Released | `v1.0.11-iota11` |
 | B8 | Low | Pending | Tranche 3 |
@@ -482,7 +490,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B21 | Scope note | Excluded | Android-only contract |
 | B22 | Medium | Pending | Tranche 3 |
 | B23 | Low | Pending | Tranche 3 |
-| B24 | Medium | Partially improved; process state pending | Tranche 3 |
+| B24 | Medium | Renderer slice validated; process state pending | Tranche 3 |
 | C1 | Critical | Released | `v1.0.11-theta94` |
 | C2 | Medium | Released | `v1.0.11-iota6` |
 | C3 | Medium | Released | `v1.0.11-iota3` |
