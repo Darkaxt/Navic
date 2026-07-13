@@ -101,13 +101,15 @@ Validation evidence: 25/25 exact storage-owned and adjacent Android host tests p
 
 ### Task 5: Validate, document, and release Android
 
-- [ ] **Step 1: Run broad reader/governance/build gates**
+- [x] **Step 1: Run broad reader/governance/build gates**
 
 Run reader controller/coordinator/bridge tests, JavaScript syntax and Chromium harnesses, all 30 source and packaged vendor checks, attribution checks, and `:androidApp:assembleDebug :androidApp:assembleReaderDev`.
 
-- [ ] **Step 2: Validate managed storage with ADB**
+- [x] **Step 2: Validate managed storage with ADB**
 
 Seed legacy font/session fixtures, install the candidate, and verify migration/cleanup under the app sandbox. Open a cached/available publication, kill only the renderer, verify exact-locator recovery and live files, then leave the reader and verify lease cleanup. Record PIDs, paths, and fatal-log checks.
+
+Validation evidence: 182/182 focused ownership tests passed, along with JavaScript/runtime/governance gates, 30/30 source and packaged vendor checks, attribution, and debug/reader-dev assembly. On `emulator-5554`, the legacy font migrated intact, stale session fixtures were removed, renderer PID `5452` was replaced by PID `5628` without replacing app PID `5403`, and the exact `OEBPS/Text/sinopsis.xhtml` / `epubcfi(/6/4!/4/2,,/4/1:586)` locator recovered. Exiting the reader removed the managed publication session while retaining the imported font; no AndroidRuntime fatal was emitted.
 
 - [ ] **Step 3: Update QA evidence and prepare only `iota15`**
 

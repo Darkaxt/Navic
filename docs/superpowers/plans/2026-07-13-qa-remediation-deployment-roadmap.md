@@ -4,11 +4,11 @@ Date: 2026-07-13
 Baseline: `master` @ `2de204a1` (`feat(reader): coordinate visual and settled slide targets`)
 Source audit: `docs/superpowers/plans/2026-07-12-qa-analysis.md`
 Released foundation: `v1.0.11-theta94`
-Released Tranche 1: `v1.0.11-iota1`
-Released Tranche 2 storage slice: `v1.0.11-iota2`
-Released Tranche 2 download slice: `v1.0.11-iota3`
-Released Tranche 5 session-client slice: `v1.0.11-iota7`
-Released Tranche 5 network-policy slice: `v1.0.11-iota9`
+Released Tranche 1: `v1.0.11-iota01`
+Released Tranche 2 storage slice: `v1.0.11-iota02`
+Released Tranche 2 download slice: `v1.0.11-iota03`
+Released Tranche 5 session-client slice: `v1.0.11-iota07`
+Released Tranche 5 network-policy slice: `v1.0.11-iota09`
 Released Tranche 5 consolidated delivery: `v1.0.11-iota11`
 Released Tranche 3 bridge-diagnostics slice: `v1.0.11-iota12`
 Released Tranche 3 command-acknowledgement slice: `v1.0.11-iota13`
@@ -119,11 +119,11 @@ Every tranche uses the following pipeline:
 
 ### Release evidence
 
-- Released `v1.0.11-iota1` from commit `790028f2` on 2026-07-13.
+- Released `v1.0.11-iota01` from commit `790028f2` on 2026-07-13. The original unpadded public release record was corrected in place without replacing its APK asset.
 - GitHub Actions run `29213897610` passed release build, APK signature verification, artifact upload, and release creation; checks run `29213897640` passed wrapper validation.
 - Public `Navic.apk` SHA-256: `8c15e411766dfeb8a5c5733a0840eb9e302b3975a8b117b3ee36f668133d95e2`.
 - APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7` (`CN=Darkaxt Navic Release`).
-- Downloaded APK embeds `versionCode=523` and `versionName=v1.0.11-iota1`; signed APK installed and launched on `emulator-5554` with no fatal or MediaController connection error during startup smoke testing.
+- Downloaded APK embeds the historical `versionCode=523` and `versionName=v1.0.11-iota1`; signed APK installed and launched on `emulator-5554` with no fatal or MediaController connection error during startup smoke testing.
 - Focused host tests cover concurrent/replayable/stale ownership claims, failed and disconnected controller futures, synchronous release, readaloud service visibility, and exact persisted shuffle-order reconstruction.
 
 ## Tranche 2 — Session, sync, and download integrity
@@ -161,54 +161,54 @@ Every tranche uses the following pipeline:
 
 ### Storage slice release evidence
 
-- Released `v1.0.11-iota2` from commit `2e63e7aa` on 2026-07-13.
+- Released `v1.0.11-iota02` from commit `2e63e7aa` on 2026-07-13. The original unpadded public release record was corrected in place without replacing its APK asset.
 - GitHub Actions run `29214968632` passed release build, APK signature verification, artifact upload, and release creation; checks run `29214968629` passed.
 - Public `Navic.apk` SHA-256: `874b0ecbff1925b7f428cc6c3167cb9673c5b7ce5986becd35ce580b5926daed`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=524`, `versionName=v1.0.11-iota2`.
-- A signed upgrade over a populated `v1.0.11-iota1` install migrated cache schema `20→21`, removed cache `DownloadEntity`, copied a legacy-only row, retained the conflicting current `downloads.db` row, and cold-launched successfully on `emulator-5554`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is the historical `versionCode=524`, `versionName=v1.0.11-iota2`.
+- A signed upgrade over a populated historical `v1.0.11-iota1` install migrated cache schema `20→21`, removed cache `DownloadEntity`, copied a legacy-only row, retained the conflicting current `downloads.db` row, and cold-launched successfully on `emulator-5554`.
 - Fixture-backed SQLite tests cover legacy-row reads, destination-wins conflict handling, and migration removal of only the duplicate table. Storage ownership is documented in `docs/architecture/storage-ownership.md`.
 
 ### Download slice release evidence
 
-- Released `v1.0.11-iota3` from commit `4ab721b4` on 2026-07-13.
+- Released `v1.0.11-iota03` from commit `4ab721b4` on 2026-07-13. The original unpadded public release record was corrected in place without replacing its APK asset.
 - GitHub Actions run `29216297092` passed release build, APK signature verification, artifact upload, and release creation; checks run `29216297093` passed.
 - Public `Navic.apk` SHA-256: `f55fe6141eba92bc1028ccc49ba809b98b6c34df06d7bed85c339396d1f5c78e`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=525`, `versionName=v1.0.11-iota3`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is the historical `versionCode=525`, `versionName=v1.0.11-iota3`.
 - A signed upgrade over populated download schema 4 migrated to schema 5, preserved a downloaded row, recovered a queued missing-song row into a generation-1 cancellation tombstone, and cold-launched successfully on `emulator-5554`.
 - Tests cover cancel-vs-retry generations, stale completion rejection, 100,000 enqueue wakeups remaining bounded to one in-memory signal, one-row-at-a-time restart recovery, migration fixtures, and named sync concurrency/batch limits.
 
 ### Sync slice release evidence
 
-- Released `v1.0.11-iota4` from commit `be60c548` on 2026-07-13.
+- Released `v1.0.11-iota04` from commit `be60c548` on 2026-07-13. The original unpadded public release record was corrected in place without replacing its APK asset.
 - GitHub Actions run `29217711517` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
 - Public `Navic.apk` SHA-256: `1a6d6886be896e98b5be3088a90c8267bf488e6a5b67e2da915a4384dfaed276`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=526`, `versionName=v1.0.11-iota4`.
-- A signed in-place upgrade from `v1.0.11-iota3` launched successfully on `emulator-5554` with a live app process and no fatal or Room migration error. Direct SQLite inspection confirmed cache schema 22, all retry/dead-letter columns, and `index_SyncActionEntity_deadLettered_nextAttemptAtEpochMs_id`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is the historical `versionCode=526`, `versionName=v1.0.11-iota4`.
+- A signed in-place upgrade from historical `v1.0.11-iota3` launched successfully on `emulator-5554` with a live app process and no fatal or Room migration error. Direct SQLite inspection confirmed cache schema 22, all retry/dead-letter columns, and `index_SyncActionEntity_deadLettered_nextAttemptAtEpochMs_id`.
 - Focused tests cover bounded actor ownership, migration defaults/index creation, terminal/transient classification, bounded exponential retry, and poison-action continuation. Android debug assembly passed. The broad host suite still has 32 unrelated source-contract failures in concurrently changing reader/player tests and is not claimed green by this slice.
 
 ### Session lifetime slice release evidence
 
-- Released `v1.0.11-iota5` from commit `8481a4cf` on 2026-07-13.
+- Released `v1.0.11-iota05` from commit `8481a4cf` on 2026-07-13. The original unpadded public release record was corrected in place without replacing its APK asset.
 - GitHub Actions run `29219295227` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
 - Public `Navic.apk` SHA-256: `20712b85f757ff08ff96d0e1582c1ea8db884c1d5fe9ad579e0aa0e6b82e525b`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=527`, `versionName=v1.0.11-iota5`.
-- A signed in-place upgrade from `v1.0.11-iota4` installed and launched on `emulator-5554`; the app process remained alive with no fatal, Room, or Koin startup error.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is the historical `versionCode=527`, `versionName=v1.0.11-iota5`.
+- A signed in-place upgrade from historical `v1.0.11-iota4` installed and launched on `emulator-5554`; the app process remained alive with no fatal, Room, or Koin startup error.
 - Tests prove session cancellation joins old work before replacement, repeating workers restart in the new child, post-login full sync is actor-owned and awaitable, enqueue cannot race after logout, and logout orders joined cancellation before sync queue/timestamp and credential clearing. Android debug assembly passed.
 
 ### Nullable artist identity slice release evidence
 
-- Released `v1.0.11-iota6` from commit `c50a35e2` on 2026-07-13.
+- Released `v1.0.11-iota06` from commit `c50a35e2` on 2026-07-13. The original unpadded public release record was corrected in place without replacing its APK asset.
 - GitHub Actions run `29220154972` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
 - Public `Navic.apk` SHA-256: `070a674582039c57e897c5650de2104a7f39797c16a115ee1d9190bad8323301`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=528`, `versionName=v1.0.11-iota6`.
-- A signed in-place upgrade from `v1.0.11-iota5` installed and launched on `emulator-5554`. Direct SQLite inspection confirmed cache schema 23, nullable `artistId` columns in both `AlbumEntity` and `SongEntity`, and zero remaining legacy `unknown artist` sentinel rows.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is the historical `versionCode=528`, `versionName=v1.0.11-iota6`.
+- A signed in-place upgrade from historical `v1.0.11-iota5` installed and launched on `emulator-5554`. Direct SQLite inspection confirmed cache schema 23, nullable `artistId` columns in both `AlbumEntity` and `SongEntity`, and zero remaining legacy `unknown artist` sentinel rows.
 - Tests cover nullable identity resolution, real-ID preservation, mixed-case/whitespace sentinel conversion, physical column nullability, and explicit behavior for artist grouping, queue scoring, artist queries, and collection UI fallbacks. Android debug assembly passed.
 
 ## Tranche 3 — Reader bridge and process recovery
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, and generation-scoped JavaScript bridge ownership shipped in `iota14`. Cache policy, capability gating, managed session storage, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, and generation-scoped JavaScript bridge ownership shipped in `iota14`. Managed reader storage is implemented for `iota15`; cache policy, capability gating, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
 
 ### Change units
 
@@ -260,6 +260,15 @@ Every tranche uses the following pipeline:
 - Released as `v1.0.11-iota14` from commit `6d6cbfec`. Build/release workflow `29249483437` completed successfully: the Android APK and GitHub release jobs passed, while every iOS job was skipped.
 - Public `Navic.apk` is 46,225,284 bytes with SHA-256 `1c71c22c77fe8f904cbb48db4f71b780e689df4e6b2ab846345cc73a761fbd8f`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=541`, `versionName=v1.0.11-iota14`.
 - The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota13`/540 on `emulator-5554`; explicit `MainActivity` start resumed successfully, the app remained alive as PID `4453`, and AndroidRuntime/MediaController startup checks were clean.
+
+### B22 candidate evidence
+
+- Android reader storage is initialized under `filesDir/reader`: `fonts/` is durable, while `reader-publications/<key>` and `storyteller-readaloud/<key>` are reconstructable session trees. The synchronized process initializer migrates legacy fonts and removes stale legacy or managed sessions.
+- Publication and read-aloud resolvers return path-constrained, idempotent leases. Android runtime hosts retain those leases across WebView renderer generations and release them on host disposal; storage size/clear covers sessions and excludes imported fonts. The existing `/reader-cache/` virtual URL contract remains unchanged.
+- Managed-storage, resolver, font, Storyteller, bridge, host, controller, and coordinator tests passed 182/182 with zero failures, errors, or skips. The exact Android host/storage slice passed 25/25. JavaScript syntax, Chromium command acknowledgement, page-turn model 15/15, reader smoke/trace smoke, source vendor 30/30, tamper self-test, attribution, debug/reader-dev assembly, and both packaged vendor/attribution gates passed.
+- Debug APK SHA-256 is `7159fffcc986776a8c16e386497a484c119549eed0601f4565ee7a46042b67a9`; reader-dev APK SHA-256 is `e1ee77034b8db7734cc2b620ccef6e92fe52cdcad2f1c0439351da06c7d96a0d`.
+- On `emulator-5554`, `cache/reader/fonts/b22-proof.ttf` migrated to `files/reader/fonts/b22-proof.ttf` with `LEGACY_FONT_B22` intact; seeded legacy and managed stale sessions were removed. A live EPUB resolved at `files/reader/reader-publications/reader-f68e0c4a3b1732fc3e64c84d/publication.epub`.
+- Killing only renderer PID `5452` kept app PID `5403` alive and created renderer PID `5628`. Generation 1 restored `OEBPS/Text/sinopsis.xhtml` at `epubcfi(/6/4!/4/2,,/4/1:586)`, reached `publicationReady`, and acknowledged `reader-open-1`. Leaving the reader removed the publication session immediately while retaining the migrated font; AndroidRuntime emitted no fatal error.
 
 ### Rollout and rollback
 
@@ -315,20 +324,20 @@ Every tranche uses the following pipeline:
 
 ### Session-client slice release evidence
 
-- Released `v1.0.11-iota7` from commit `7c518ea6` on 2026-07-13.
+- Released `v1.0.11-iota07` from commit `7c518ea6` on 2026-07-13. The original unpadded public release record was corrected in place without replacing its APK asset.
 - GitHub Actions run `29221266585` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
 - Public `Navic.apk` SHA-256: `f09d1cf8ad6e745c95b23dd0eb6d09e8dc1e5b13a70e4bb42596b822e0b53d6b`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=529`, `versionName=v1.0.11-iota7`.
-- A signed in-place upgrade from `v1.0.11-iota6` installed and launched on `emulator-5554`; the app process remained alive with no fatal startup exception.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is the historical `versionCode=529`, `versionName=v1.0.11-iota7`.
+- A signed in-place upgrade from historical `v1.0.11-iota6` installed and launched on `emulator-5554`; the app process remained alive with no fatal startup exception.
 - Tests prove each operation observes one atomic client snapshot while replacement can proceed, prevent public mutable API access, and preserve session logout ordering. Android debug assembly passed after rebasing public master.
 
 ### Network-policy slice release evidence
 
-- `v1.0.11-iota8` from commit `302eccb3` was published by GitHub Actions run `29222385870`, but independent startup verification found a Koin constructor-injection failure for `NetworkClientFactory`; the immutable release was superseded by the forward repair below and is not the accepted A16 delivery.
-- Released `v1.0.11-iota9` from commit `6987e497` on 2026-07-13. GitHub Actions run `29222872454` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
-- Public iota9 `Navic.apk` SHA-256: `76bbc8cd9ba66a50b1482b46c80db67d214fd35dd4475b85614c67db7e643cb3`.
-- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=531`, `versionName=v1.0.11-iota9`.
-- A signed in-place upgrade from the crashing iota8 install launched successfully on `emulator-5554`; the app remained alive as PID `22640` with no fatal or Koin startup error.
+- `v1.0.11-iota08` from commit `302eccb3` was published by GitHub Actions run `29222385870`, but independent startup verification found a Koin constructor-injection failure for `NetworkClientFactory`; the release was superseded by the forward repair below and is not the accepted A16 delivery. Its original unpadded public release record was corrected in place without replacing its APK asset.
+- Released `v1.0.11-iota09` from commit `6987e497` on 2026-07-13. GitHub Actions run `29222872454` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped. The original unpadded public release record was corrected in place without replacing its APK asset.
+- Public iota09 `Navic.apk` SHA-256: `76bbc8cd9ba66a50b1482b46c80db67d214fd35dd4475b85614c67db7e643cb3`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is the historical `versionCode=531`, `versionName=v1.0.11-iota9`.
+- A signed in-place upgrade from the crashing historical iota8 install launched successfully on `emulator-5554`; the app remained alive as PID `22640` with no fatal or Koin startup error.
 - MockEngine tests prove every factory call creates a distinct client, applies the shared User-Agent/JSON policy, and does not leak one client's authorization header into another. A source guard covers all production client construction and the explicit zero-argument Koin registration; affected repository suites and Android debug assembly passed.
 
 ### Optional-integration state slice release evidence
@@ -336,7 +345,7 @@ Every tranche uses the following pipeline:
 - Released `v1.0.11-iota10` from commit `6f888448` on 2026-07-13. GitHub Actions run `29225267656` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
 - Public `Navic.apk` SHA-256: `c3bcff82e0758f624e52b051566841ff62cb4966924a873e38c3c5e1b119b958`.
 - APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=532`, `versionName=v1.0.11-iota10`.
-- A signed in-place upgrade from `v1.0.11-iota9` installed and launched on `emulator-5554`; the app remained alive as PID `25449` with no fatal activity or Koin startup error.
+- A signed in-place upgrade from historical `v1.0.11-iota9` installed and launched on `emulator-5554`; the app remained alive as PID `25449` with no fatal activity or Koin startup error.
 - Repository and display-policy tests distinguish disabled, misconfigured, unauthorized, malformed, unavailable, empty, and stale states. Aurral base discovery paints before parallel supplements, Bindery row loads remain parallel without dropping failures, stale content remains interactive, affected legacy suites passed, and Android debug assembly passed after rebasing public master.
 
 ### Consolidated Tranche 5 release evidence
@@ -474,13 +483,13 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A10 | High | Pending | Tranche 8 |
 | A11 | Medium | Pending | Tranche 6 |
 | A12 | Low | Pending | Tranche 7 |
-| A13 | Medium | Released | `v1.0.11-iota5` |
-| A14 | Medium | Released | `v1.0.11-iota3` |
-| A15 | Low | Released | `v1.0.11-iota3` |
-| A16 | Medium | Released | `v1.0.11-iota9` |
-| A17 | Medium | Released | `v1.0.11-iota7` |
-| A18 | Medium | Released | `v1.0.11-iota2` |
-| A19 | Medium | Released | `v1.0.11-iota2` |
+| A13 | Medium | Released | `v1.0.11-iota05` |
+| A14 | Medium | Released | `v1.0.11-iota03` |
+| A15 | Low | Released | `v1.0.11-iota03` |
+| A16 | Medium | Released | `v1.0.11-iota09` |
+| A17 | Medium | Released | `v1.0.11-iota07` |
+| A18 | Medium | Released | `v1.0.11-iota02` |
+| A19 | Medium | Released | `v1.0.11-iota02` |
 | A20 | Scope note | Excluded | Android-only contract |
 | A21 | Medium (governance) | Released | `v1.0.11-iota11` |
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
@@ -491,8 +500,8 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B6 | Medium | Released | `v1.0.11-iota14` |
 | B7 | Medium | Released | `v1.0.11-iota11` |
 | B8 | Low | Pending | Tranche 3 |
-| B9 | High | Released | `v1.0.11-iota1` |
-| B10 | Medium | Released | `v1.0.11-iota1` |
+| B9 | High | Released | `v1.0.11-iota01` |
+| B10 | Medium | Released | `v1.0.11-iota01` |
 | B11 | Medium | Pending | Tranche 4 |
 | B12 | Medium | Pending | Tranche 4 |
 | B13 | Medium | Pending | Tranche 4 |
@@ -504,24 +513,24 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B19 | Medium | Pending | Tranche 4 |
 | B20 | Low | Pending | Tranche 4 |
 | B21 | Scope note | Excluded | Android-only contract |
-| B22 | Medium | Pending | Tranche 3 |
+| B22 | Medium | Candidate validated | `v1.0.11-iota15` candidate |
 | B23 | Low | Pending | Tranche 3 |
 | B24 | Medium | Renderer slice released; process state pending | `v1.0.11-iota13` + Tranche 3 |
 | C1 | Critical | Released | `v1.0.11-theta94` |
-| C2 | Medium | Released | `v1.0.11-iota6` |
-| C3 | Medium | Released | `v1.0.11-iota3` |
-| C4 | Medium | Released | `v1.0.11-iota4` |
+| C2 | Medium | Released | `v1.0.11-iota06` |
+| C3 | Medium | Released | `v1.0.11-iota03` |
+| C4 | Medium | Released | `v1.0.11-iota04` |
 | C5 | High | Released | `v1.0.11-theta94` |
-| C6 | Medium | Released | `v1.0.11-iota4` |
-| C7 | Medium | Released | `v1.0.11-iota2` |
+| C6 | Medium | Released | `v1.0.11-iota04` |
+| C7 | Medium | Released | `v1.0.11-iota02` |
 | C8 | High | Released | `v1.0.11-theta94` |
-| C9 | Medium | Released | `v1.0.11-iota1` |
-| C10 | Medium | Released | `v1.0.11-iota1` |
-| C11 | Medium | Released | `v1.0.11-iota1` |
+| C9 | Medium | Released | `v1.0.11-iota01` |
+| C10 | Medium | Released | `v1.0.11-iota01` |
+| C11 | Medium | Released | `v1.0.11-iota01` |
 | C12 | Verified | Preserve | Regression tests only |
 | C13 | Medium | Pending | Tranche 8 |
 | C14 | Low | Released | `v1.0.11-iota10` |
-| C15 | Low | Released | `v1.0.11-iota5` |
+| C15 | Low | Released | `v1.0.11-iota05` |
 
 ## Coverage accounting
 

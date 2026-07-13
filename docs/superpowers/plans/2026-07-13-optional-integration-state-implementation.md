@@ -145,7 +145,7 @@ Run all new C14 tests, affected Aurral/Bindery suites, Android debug assembly, v
 
 - [x] **Step 3: Publish and verify**
 
-Publish Android only. Verify workflow success, public SHA-256, established signing certificate, embedded version, signed upgrade from iota9, live process, and absence of fatal/Koin startup errors.
+Publish Android only. Verify workflow success, public SHA-256, established signing certificate, embedded version, signed upgrade from the historical unpadded iota9 build, live process, and absence of fatal/Koin startup errors.
 
 - [x] **Step 4: Record and clean**
 

@@ -177,15 +177,15 @@ Expected: all selected tests pass, no direct production `HttpClient` constructio
 
 - [x] **Step 1: Bump the forward-repair prerelease**
 
-`v1.0.11-iota8` was published but failed independent startup verification because Koin attempted to inject the factory's optional test-engine supplier. Keep that release immutable, register the factory through an explicit zero-argument provider, increment `versionCode` to 531, and set `versionName` to `v1.0.11-iota9`.
+`v1.0.11-iota08` was published but failed independent startup verification because Koin attempted to inject the factory's optional test-engine supplier. Keep its APK immutable, register the factory through an explicit zero-argument provider, increment `versionCode` to 531, and set the historical APK `versionName` to `v1.0.11-iota9`.
 
 - [x] **Step 2: Run the release gate**
 
-Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota9`, and `git diff --check` after rebasing `fork/master`.
+Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota9`, and `git diff --check` after rebasing `fork/master`. The public release record was later corrected to `v1.0.11-iota09` without replacing this historical APK.
 
 - [x] **Step 3: Publish and independently verify**
 
-Tag and publish `v1.0.11-iota9` with Android enabled and iOS skipped. Download the public APK, compare its SHA-256 with GitHub metadata, verify the established release certificate, confirm versionCode 531/versionName iota9, then upgrade and launch it on `emulator-5554` with no fatal startup exception.
+Tag and publish the release now identified as `v1.0.11-iota09` with Android enabled and iOS skipped. Download the public APK, compare its SHA-256 with GitHub metadata, verify the established release certificate, confirm historical versionCode 531/versionName iota9, then upgrade and launch it on `emulator-5554` with no fatal startup exception.
 
 - [x] **Step 4: Record evidence and clean the worktree**
 
