@@ -156,7 +156,7 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			activeText.contains("coordinator.onReadaloudEngineCommand(command)") &&
-				activeText.contains("coordinator.onReadaloudPlaybackState(playbackState)"),
+				activeText.contains("coordinator.dispatch { onReadaloudPlaybackState(playbackState) }"),
 			"Readaloud overlay and playback outputs must route through ReaderCoordinator/ReaderController."
 		)
 		assertTrue(
@@ -180,9 +180,9 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			controllerText.contains("fun onReadaloudPlaybackState(") &&
-				coordinatorText.contains("fun onReadaloudPlaybackState(") &&
+				coordinatorText.contains("fun dispatch(action: ReaderController.() -> ReaderControllerStep)") &&
 				coordinatorText.contains("fun onReadaloudEngineCommand("),
-			"Readaloud state and sync commands must have explicit controller/coordinator entry points."
+			"Readaloud state must use controller dispatch while engine commands retain coordinator orchestration."
 		)
 	}
 
@@ -319,7 +319,7 @@ class ReaderKomikkuBackboneResetTest {
 			.substringBefore("\n}\n\n@Composable\nprivate fun KomikkuReaderBottomBar(")
 
 		assertTrue(activeText.contains("onToggleCurrentBookmark = {"))
-		assertTrue(activeText.contains("coordinator.toggleCurrentBookmark()"))
+		assertTrue(activeText.contains("coordinator.dispatch { toggleCurrentBookmark() }"))
 		assertTrue(topBarBody.contains("bookmarked: Boolean"))
 		assertTrue(topBarBody.contains("canBookmark: Boolean"))
 		assertTrue(topBarBody.contains("onToggleBookmarked: () -> Unit"))
@@ -391,7 +391,7 @@ class ReaderKomikkuBackboneResetTest {
 
 		assertTrue(
 			activeText.contains("onGoToChapterPage = { pageIndex ->") &&
-				activeText.contains("coordinator.navigateToChapterPage(pageIndex)"),
+				activeText.contains("coordinator.dispatch { navigateToChapterPage(pageIndex) }"),
 			"ReaderScreen must route Komikku rail seeks through a controller-owned chapter-page action."
 		)
 		assertTrue(
@@ -1139,8 +1139,8 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderController must execute movement through the viewer-owned action contract."
 		)
 		assertTrue(
-			coordinatorText.contains("fun onViewerAction(action: ReaderViewerAction): ReaderCoordinatorStep"),
-			"ReaderCoordinator must expose viewer-owned movement to the shell."
+			coordinatorText.contains("fun dispatch(action: ReaderController.() -> ReaderControllerStep)"),
+			"ReaderCoordinator must expose one controller-action dispatch boundary to the shell."
 		)
 		assertTrue(
 			readerRootText.contains("readerShellCoverViewerActionFor(action)") &&
@@ -1418,15 +1418,18 @@ class ReaderKomikkuBackboneResetTest {
 		val controllerText = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt"
 		).readText()
+		val controllerStateText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderControllerState.kt"
+		).readText()
 
 		assertTrue(
-			controllerText.contains("enum class ReaderControllerDialog") &&
-				controllerText.contains("Settings"),
+			controllerStateText.contains("enum class ReaderControllerDialog") &&
+				controllerStateText.contains("Settings"),
 			"Reader dialogs must be controller-owned state, mirroring Komikku ReaderViewModel.Dialog.Settings."
 		)
 		assertTrue(
 			readerScreenText.contains("onSettings = {") &&
-				readerScreenText.contains("coordinator.openSettingsDialog()"),
+				readerScreenText.contains("coordinator.dispatch { openSettingsDialog() }"),
 			"The Komikku bottom settings button must open a controller-owned settings dialog instead of using an empty callback."
 		)
 		assertTrue(
@@ -1909,7 +1912,7 @@ class ReaderKomikkuBackboneResetTest {
 			"ReaderRoot must route Whispersync mismatch repair through the Komikku overlay boundary."
 		)
 		assertTrue(
-			readerScreenText.contains("coordinator.repairWhispersyncMismatch()"),
+			readerScreenText.contains("coordinator.dispatch { repairWhispersyncMismatch() }"),
 			"ReaderScreen must route mismatch repair back through ReaderCoordinator, not directly to the audio player."
 		)
 	}

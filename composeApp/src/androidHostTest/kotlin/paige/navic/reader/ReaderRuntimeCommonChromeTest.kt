@@ -777,8 +777,8 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(appBarsText, "onNextChapter: () -> Unit")
 		assertContains(readerRootText, "onPreviousChapter: () -> Unit")
 		assertContains(readerRootText, "onNextChapter: () -> Unit")
-		assertContains(readerScreenText, "coordinator.navigateToPreviousChapter()")
-		assertContains(readerScreenText, "coordinator.navigateToNextChapter()")
+		assertContains(readerScreenText, "coordinator.dispatch { navigateToPreviousChapter() }")
+		assertContains(readerScreenText, "coordinator.dispatch { navigateToNextChapter() }")
 		assertContains(appBarsBody, "enabledNext = controllerState.canNavigateToNextChapter")
 		assertContains(appBarsBody, "enabledPrevious = controllerState.canNavigateToPreviousChapter")
 		assertFalse(
@@ -795,7 +795,7 @@ class ReaderRuntimeCommonChromeTest {
 			.substringAfter("onNavigateBack = {")
 			.substringBefore("\n\t\t},\n\t\tonSettings")
 
-		assertContains(navigateBackHandler, "applyReaderBackStep(coordinator.onNavigateBack())")
+		assertContains(navigateBackHandler, "applyReaderBackStep(coordinator.dispatchBack { onNavigateBack() })")
 		assertFalse(
 			navigateBackHandler.contains("backStack.performNavicBack()"),
 			"The reader app-bar back affordance must use the reader controller navigation-back path so cover return and blocking overlays happen before the route can leave."
@@ -1088,10 +1088,10 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(searchDialogText, "contentDescription = searchResultContentDescription(index)")
 		assertContains(searchDialogText, "onSearchQuery(queryText)")
 		assertContains(searchDialogText, "onNavigateToSearchResult(result)")
-		assertContains(readerScreenText, "coordinator.openSearchDialog()")
-		assertContains(readerScreenText, "coordinator.search(query)")
-		assertContains(readerScreenText, "coordinator.navigateToSearchResult(result)")
-		assertContains(readerScreenText, "coordinator.closeSearchDialog()")
+		assertContains(readerScreenText, "coordinator.dispatch { openSearchDialog() }")
+		assertContains(readerScreenText, "coordinator.dispatch { search(query) }")
+		assertContains(readerScreenText, "coordinator.dispatch { navigateToSearchResult(result) }")
+		assertContains(readerScreenText, "coordinator.dispatch { closeSearchDialog() }")
 	}
 
 	@Test
@@ -1132,12 +1132,12 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(readerScreenText, "LocalClipboardManager.current")
 		assertContains(readerScreenText, "AnnotatedString(text)")
 		assertContains(readerScreenText, "Logger.i(ReaderScreenTag, \"Reader selection copied length=")
-		assertContains(readerScreenText, "coordinator.dismissSelectionActions()")
+		assertContains(readerScreenText, "coordinator.dispatch { dismissSelectionActions() }")
 		assertContains(readerScreenText, "Logger.i(ReaderScreenTag, \"Reader selection note save length=")
-		assertContains(readerScreenText, "coordinator.addSelectionHighlight()")
-		assertContains(readerScreenText, "coordinator.startSelectionNote()")
-		assertContains(readerScreenText, "coordinator.saveSelectionNote(note)")
-		assertContains(readerScreenText, "coordinator.dismissSelectionNote()")
+		assertContains(readerScreenText, "coordinator.dispatch { addSelectionHighlight() }")
+		assertContains(readerScreenText, "coordinator.dispatch { startSelectionNote() }")
+		assertContains(readerScreenText, "coordinator.dispatch { saveSelectionNote(note) }")
+		assertContains(readerScreenText, "coordinator.dispatch { dismissSelectionNote() }")
 		assertContains(engineHostText, "isLongClickable = false")
 		assertContains(engineHostText, "setOnLongClickListener")
 		assertContains(engineHostText, "native frame owns selection actions")
@@ -1178,7 +1178,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(annotationDialogText, "ReaderAnnotationPopupState")
 		assertContains(annotationDialogText, "BasicAlertDialog(")
 		assertContains(annotationDialogText, "onDismissAnnotationPopup")
-		assertContains(readerScreenText, "coordinator.dismissAnnotationPopup()")
+		assertContains(readerScreenText, "coordinator.dispatch { dismissAnnotationPopup() }")
 	}
 
 	@Test
@@ -1221,7 +1221,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(footnoteDialogText, "ReaderFootnotePopupState")
 		assertContains(footnoteDialogText, "BasicAlertDialog(")
 		assertContains(footnoteDialogText, "onDismissFootnotePopup")
-		assertContains(readerScreenText, "coordinator.dismissFootnotePopup()")
+		assertContains(readerScreenText, "coordinator.dispatch { dismissFootnotePopup() }")
 	}
 
 	@Test
@@ -1246,7 +1246,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(externalLinkDialogText, "onDismissExternalLinkPrompt")
 		assertContains(readerScreenText, "LocalUriHandler.current")
 		assertContains(readerScreenText, "uriHandler.openUri(url)")
-		assertContains(readerScreenText, "coordinator.dismissExternalLinkPrompt()")
+		assertContains(readerScreenText, "coordinator.dispatch { dismissExternalLinkPrompt() }")
 	}
 
 	@Test
@@ -1690,9 +1690,9 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(settingsDialogBody, "onHideMenus()")
 		assertContains(settingsDialogBody, "onShowMenus()")
 		assertContains(readerScreenText, "onShowMenus = {")
-		assertContains(readerScreenText, "coordinator.showMenus()")
+		assertContains(readerScreenText, "coordinator.dispatch { showMenus() }")
 		assertContains(readerScreenText, "onHideMenus = {")
-		assertContains(readerScreenText, "coordinator.hideMenus()")
+		assertContains(readerScreenText, "coordinator.dispatch { hideMenus() }")
 	}
 
 	@Test
@@ -2015,7 +2015,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(runtimeHostText, "setSyncEnabled")
 		assertContains(readerScreenText, "ReaderReadaloudRuntimeHost(")
 		assertContains(readerScreenText, "coordinator.onReadaloudEngineCommand(command)")
-		assertContains(readerScreenText, "coordinator.onReadaloudPlaybackState(playbackState)")
+		assertContains(readerScreenText, "coordinator.dispatch { onReadaloudPlaybackState(playbackState) }")
 		assertFalse(
 			runtimeHostText.contains("toLegacyReaderBridgeCommand"),
 			"The active Komikku reader must not reattach readaloud by converting sync commands back to legacy bridge ownership."

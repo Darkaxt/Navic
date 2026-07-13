@@ -204,7 +204,8 @@ class ReaderRuntimeImageLinkTest {
 			message = "Publication preparation should pass the resolved shell-cover URL into the controller open request once."
 		)
 		assertContains(readerScreenText, "toReaderEngineOpenRequest(")
-		assertContains(coordinatorText, "fun open(request: ReaderEngineOpenRequest): ReaderCoordinatorStep")
+		assertContains(coordinatorText, "fun dispatch(action: ReaderController.() -> ReaderControllerStep)")
+		assertContains(readerScreenText, "coordinator.dispatch { open(request) }")
 		assertContains(controllerText, "state = state.copy(")
 		assertContains(controllerText, "nativeShellCoverUrl = normalizedRequest.nativeShellCoverUrl")
 		assertContains(controllerText, "canReturnToShellCover = normalizedRequest.canReturnToShellCover")

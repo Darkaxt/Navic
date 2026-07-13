@@ -27,150 +27,28 @@ data class ReaderCoordinator(
 	),
 	val viewState: ReaderEngineViewState = ReaderEngineViewState.Empty
 ) {
-	fun open(request: ReaderEngineOpenRequest): ReaderCoordinatorStep =
-		applyControllerStep(controller.open(request))
+	fun dispatch(action: ReaderController.() -> ReaderControllerStep): ReaderCoordinatorStep =
+		applyControllerStep(controller.action())
 
-	fun onViewerAction(action: ReaderViewerAction): ReaderCoordinatorStep =
-		applyControllerStep(controller.onViewerAction(action))
-
-	fun onBack(): ReaderCoordinatorBackStep =
-		applyControllerBackStep(controller.onBack())
-
-	fun onNavigateBack(): ReaderCoordinatorBackStep =
-		applyControllerBackStep(controller.onNavigateBack())
-
-	fun onEngineEvent(event: ReaderEngineEvent): ReaderCoordinatorStep =
-		applyControllerStep(controller.onEngineEvent(event))
+	fun dispatchBack(action: ReaderController.() -> ReaderControllerBackStep): ReaderCoordinatorBackStep =
+		applyControllerBackStep(controller.action())
 
 	fun onEngineHostEvent(event: ReaderEngineHostEvent): ReaderCoordinatorStep {
 		val engineEvent = controller.state.activeEngine
 			?.let { format -> engineAdapters[format] }
 			?.onHostEvent(event)
 			?: return ReaderCoordinatorStep(this)
-		return onEngineEvent(engineEvent)
+		return dispatch { onEngineEvent(engineEvent) }
 	}
-
-	fun search(query: String): ReaderCoordinatorStep =
-		applyControllerStep(controller.search(query))
-
-	fun updateSearchInput(query: String): ReaderCoordinatorStep =
-		applyControllerStep(controller.updateSearchInput(query))
-
-	fun clearSearch(): ReaderCoordinatorStep =
-		applyControllerStep(controller.clearSearch())
-
-	fun navigateToSearchResult(result: ReaderSearchResult): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateToSearchResult(result))
-
-	fun navigateToBookmark(bookmark: ReaderBookmark): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateToBookmark(bookmark))
-
-	fun navigateToAnnotation(annotation: ReaderAnnotation): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateToAnnotation(annotation))
-
-	fun navigateTo(locator: ReaderLocator): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateTo(locator))
-
-	fun navigateToChapterPage(pageIndex: Int): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateToChapterPage(pageIndex))
-
-	fun navigateToPreviousChapter(): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateToPreviousChapter())
-
-	fun navigateToNextChapter(): ReaderCoordinatorStep =
-		applyControllerStep(controller.navigateToNextChapter())
-
-	fun applyMediaOverlay(fragment: ReaderOverlayFragment): ReaderCoordinatorStep =
-		applyControllerStep(controller.applyMediaOverlay(fragment))
-
-	fun updateMediaOverlayProgress(fragment: ReaderOverlayFragment): ReaderCoordinatorStep =
-		applyControllerStep(controller.updateMediaOverlayProgress(fragment))
 
 	fun onReadaloudEngineCommand(command: ReaderEngineCommand): ReaderCoordinatorStep =
 		when (command) {
-			is ReaderEngineCommand.ApplyMediaOverlay -> applyMediaOverlay(command.fragment)
-			is ReaderEngineCommand.UpdateMediaOverlayProgress -> updateMediaOverlayProgress(command.fragment)
-			ReaderEngineCommand.ClearMediaOverlay -> clearMediaOverlay()
+			is ReaderEngineCommand.ApplyMediaOverlay -> dispatch { applyMediaOverlay(command.fragment) }
+			is ReaderEngineCommand.UpdateMediaOverlayProgress ->
+				dispatch { updateMediaOverlayProgress(command.fragment) }
+			ReaderEngineCommand.ClearMediaOverlay -> dispatch { clearMediaOverlay() }
 			else -> ReaderCoordinatorStep(this)
 		}
-
-	fun onReadaloudPlaybackState(playbackState: ReaderReadaloudPlaybackUiState): ReaderCoordinatorStep =
-		applyControllerStep(controller.onReadaloudPlaybackState(playbackState))
-
-	fun loadWhispersyncSidecar(sidecar: WhispersyncSidecar): ReaderCoordinatorStep =
-		applyControllerStep(controller.loadWhispersyncSidecar(sidecar))
-
-	fun reportWhispersyncLoadFailure(
-		message: ReaderWhispersyncStatusMessage,
-		detail: String? = null
-	): ReaderCoordinatorStep =
-		applyControllerStep(controller.reportWhispersyncLoadFailure(message = message, detail = detail))
-
-	fun repairWhispersyncMismatch(): ReaderCoordinatorStep =
-		applyControllerStep(controller.repairWhispersyncMismatch())
-
-	fun openWhispersyncPlayerDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.openWhispersyncPlayerDialog())
-
-	fun addSelectionHighlight(color: String = DefaultReaderHighlightColor): ReaderCoordinatorStep =
-		applyControllerStep(controller.addSelectionHighlight(color))
-
-	fun startSelectionNote(): ReaderCoordinatorStep =
-		applyControllerStep(controller.startSelectionNote())
-
-	fun saveSelectionNote(note: String): ReaderCoordinatorStep =
-		applyControllerStep(controller.saveSelectionNote(note))
-
-	fun dismissSelectionActions(): ReaderCoordinatorStep =
-		applyControllerStep(controller.dismissSelectionActions())
-
-	fun dismissSelectionNote(): ReaderCoordinatorStep =
-		applyControllerStep(controller.dismissSelectionNote())
-
-	fun updateSelectionNoteDraft(note: String): ReaderCoordinatorStep =
-		applyControllerStep(controller.updateSelectionNoteDraft(note))
-
-	fun restoreProcessState(snapshot: ReaderProcessStateSnapshot): ReaderCoordinatorStep =
-		applyControllerStep(controller.restoreProcessState(snapshot))
-
-	fun dismissAnnotationPopup(): ReaderCoordinatorStep =
-		applyControllerStep(controller.dismissAnnotationPopup())
-
-	fun dismissFootnotePopup(): ReaderCoordinatorStep =
-		applyControllerStep(controller.dismissFootnotePopup())
-
-	fun dismissExternalLinkPrompt(): ReaderCoordinatorStep =
-		applyControllerStep(controller.dismissExternalLinkPrompt())
-
-	fun toggleCurrentBookmark(): ReaderCoordinatorStep =
-		applyControllerStep(controller.toggleCurrentBookmark())
-
-	fun clearMediaOverlay(fragmentId: String? = null): ReaderCoordinatorStep =
-		applyControllerStep(controller.clearMediaOverlay(fragmentId))
-
-	fun applySettings(settings: ReaderSettings): ReaderCoordinatorStep =
-		applyControllerStep(controller.applySettings(settings))
-
-	fun openContentsDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.openContentsDialog())
-
-	fun openSearchDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.openSearchDialog())
-
-	fun openSettingsDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.openSettingsDialog())
-
-	fun showMenus(): ReaderCoordinatorStep =
-		applyControllerStep(controller.showMenus())
-
-	fun hideMenus(): ReaderCoordinatorStep =
-		applyControllerStep(controller.hideMenus())
-
-	fun closeDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.closeDialog())
-
-	fun closeSearchDialog(): ReaderCoordinatorStep =
-		applyControllerStep(controller.closeSearchDialog())
 
 	private fun applyControllerStep(step: ReaderControllerStep): ReaderCoordinatorStep {
 		var next = copy(controller = step.controller)

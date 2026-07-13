@@ -53,6 +53,7 @@ import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncStatusMessage
+import paige.navic.reader.restoreProcessState
 import paige.navic.reader.ReadaloudPlaybackPlan
 import paige.navic.reader.WhispersyncSyncLogTag
 import paige.navic.reader.applyReaderCoordinatorStep
@@ -289,11 +290,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 		val retainedState = processStateViewModel.restore(request.publication)
 		applyCoordinatorStep(
-			step = coordinator.open(request),
+			step = coordinator.dispatch { open(request) },
 			retainProcessState = false
 		)
 		retainedState?.let { snapshot ->
-			applyCoordinatorStep(coordinator.restoreProcessState(snapshot))
+			applyCoordinatorStep(coordinator.dispatch { restoreProcessState(snapshot) })
 		}
 	}
 
@@ -332,14 +333,14 @@ fun ReaderScreen(reader: Screen.Reader) {
 			scope = readerSettingsScope,
 			settings = nextSettings
 		)
-		applyCoordinatorStep(coordinator.applySettings(normalized))
+		applyCoordinatorStep(coordinator.dispatch { applySettings(normalized) })
 	}
 
 	fun applyReaderListeningSettings(nextSettings: ReaderListeningSettings) {
 		val normalized = nextSettings.normalizedReaderListeningSettings()
 		listeningSettings = normalized
 		preferenceManager.setReaderListeningSettings(normalized)
-		applyCoordinatorStep(coordinator.applySettings(settings.withReaderListeningSettings(normalized)))
+		applyCoordinatorStep(coordinator.dispatch { applySettings(settings.withReaderListeningSettings(normalized)) })
 		audiobookPlaybackManager.dispatch(ReaderReadaloudPlaybackCommand.SetSpeed(normalized.playbackSpeed))
 		if (!normalized.listeningEnabled) {
 			Logger.i(
@@ -358,15 +359,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 			scope = scope,
 			hasBookSettings = hasReaderBookSettings
 		)
-		applyCoordinatorStep(coordinator.applySettings(nextSettings))
+		applyCoordinatorStep(coordinator.dispatch { applySettings(nextSettings) })
 	}
 
 	fun resetReaderBookSettings() {
 		readerSettingsScope = ReaderSettingsScope.Global
 		applyCoordinatorStep(
-			coordinator.applySettings(
+			coordinator.dispatch { applySettings(
 				preferenceManager.resetReaderBookSettingsToGlobal(reader.bookId)
-			)
+			) }
 		)
 	}
 
@@ -382,7 +383,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		readaloudSyncEnabled
 	) {
 		whispersyncReadaloudPlaybackState?.let { playbackState ->
-			applyCoordinatorStep(coordinator.onReadaloudPlaybackState(playbackState))
+			applyCoordinatorStep(coordinator.dispatch { onReadaloudPlaybackState(playbackState) })
 		}
 	}
 
@@ -429,15 +430,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 									"bookFile=${attachment.audiobookBookFileId} " +
 									"segments=${sidecar.timeline.segments.size}"
 							)
-							applyCoordinatorStep(coordinator.loadWhispersyncSidecar(sidecar))
+							applyCoordinatorStep(coordinator.dispatch { loadWhispersyncSidecar(sidecar) })
 							sidecar
 						},
 						onFailure = { error ->
 							applyCoordinatorStep(
-								coordinator.reportWhispersyncLoadFailure(
+								coordinator.dispatch { reportWhispersyncLoadFailure(
 									message = ReaderWhispersyncStatusMessage.Unavailable,
 									detail = "artifact=${attachment.artifactId}"
-								)
+								) }
 							)
 							Logger.w(
 								ReaderScreenTag,
@@ -496,10 +497,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 						onFailure = { error ->
 							whispersyncPlaybackPlan = null
 							applyCoordinatorStep(
-								coordinator.reportWhispersyncLoadFailure(
+								coordinator.dispatch { reportWhispersyncLoadFailure(
 									message = ReaderWhispersyncStatusMessage.AudioUnavailable,
 									detail = "audiobook=${whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId}"
-								)
+								) }
 							)
 							Logger.w(
 								ReaderScreenTag,
@@ -513,12 +514,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onError = { message ->
 			applyCoordinatorStep(
-				coordinator.onEngineEvent(
+				coordinator.dispatch { onEngineEvent(
 					ReaderEngineEvent.Error(
 						message = message,
 						code = "publication_runtime"
 					)
-				)
+				) }
 			)
 		}
 	)
@@ -545,16 +546,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 		playbackCommand = readaloudCommand,
 		playbackCommandKey = readaloudCommandKey,
 		onPlaybackState = { playbackState ->
-			applyCoordinatorStep(coordinator.onReadaloudPlaybackState(playbackState))
+			applyCoordinatorStep(coordinator.dispatch { onReadaloudPlaybackState(playbackState) })
 		},
 		onError = { message ->
 			applyCoordinatorStep(
-				coordinator.onEngineEvent(
+				coordinator.dispatch { onEngineEvent(
 					ReaderEngineEvent.Error(
 						message = message,
 						code = "readaloud_runtime"
 					)
-				)
+				) }
 			)
 		}
 	)
@@ -568,7 +569,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		state = rememberNavigationEventState(NavigationEventInfo.None),
 		isBackEnabled = true,
 		onBackCompleted = {
-			applyReaderBackStep(coordinator.onBack())
+			applyReaderBackStep(coordinator.dispatchBack { onBack() })
 		}
 	)
 
@@ -586,7 +587,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible
-			val step = coordinator.onViewerAction(action)
+			val step = coordinator.dispatch { onViewerAction(action) }
 			Logger.i(
 				ReaderScreenTag,
 				"Reader viewer action=$action menuVisible=$beforeMenuVisible->${step.coordinator.controller.state.menuVisible} " +
@@ -602,98 +603,98 @@ fun ReaderScreen(reader: Screen.Reader) {
 			audiobookPlaybackManager.dispatch(command)
 		},
 		onPreviousChapter = {
-			applyCoordinatorStep(coordinator.navigateToPreviousChapter())
+			applyCoordinatorStep(coordinator.dispatch { navigateToPreviousChapter() })
 		},
 		onNextChapter = {
-			applyCoordinatorStep(coordinator.navigateToNextChapter())
+			applyCoordinatorStep(coordinator.dispatch { navigateToNextChapter() })
 		},
 		onGoToChapterPage = { pageIndex ->
-			applyCoordinatorStep(coordinator.navigateToChapterPage(pageIndex))
+			applyCoordinatorStep(coordinator.dispatch { navigateToChapterPage(pageIndex) })
 		},
 		onContents = {
-			applyCoordinatorStep(coordinator.openContentsDialog())
+			applyCoordinatorStep(coordinator.dispatch { openContentsDialog() })
 		},
 		onSearch = {
-			applyCoordinatorStep(coordinator.openSearchDialog())
+			applyCoordinatorStep(coordinator.dispatch { openSearchDialog() })
 		},
 		onWhispersyncPlayer = {
-			applyCoordinatorStep(coordinator.openWhispersyncPlayerDialog())
+			applyCoordinatorStep(coordinator.dispatch { openWhispersyncPlayerDialog() })
 		},
 		onSearchInputChange = { query ->
-			applyCoordinatorStep(coordinator.updateSearchInput(query))
+			applyCoordinatorStep(coordinator.dispatch { updateSearchInput(query) })
 		},
 		onSearchQuery = { query ->
-			applyCoordinatorStep(coordinator.search(query))
+			applyCoordinatorStep(coordinator.dispatch { search(query) })
 		},
 		onNavigateToSearchResult = { result ->
-			val navigateStep = coordinator.navigateToSearchResult(result)
+			val navigateStep = coordinator.dispatch { navigateToSearchResult(result) }
 			applyCoordinatorStep(navigateStep)
-			applyCoordinatorStep(navigateStep.coordinator.closeDialog())
+			applyCoordinatorStep(navigateStep.coordinator.dispatch { closeDialog() })
 		},
 		onDismissSearch = {
-			applyCoordinatorStep(coordinator.closeSearchDialog())
+			applyCoordinatorStep(coordinator.dispatch { closeSearchDialog() })
 		},
 		onNavigateBack = {
-			applyReaderBackStep(coordinator.onNavigateBack())
+			applyReaderBackStep(coordinator.dispatchBack { onNavigateBack() })
 		},
 		onSettings = {
-			applyCoordinatorStep(coordinator.openSettingsDialog())
+			applyCoordinatorStep(coordinator.dispatch { openSettingsDialog() })
 		},
 		onShowMenus = {
-			applyCoordinatorStep(coordinator.showMenus())
+			applyCoordinatorStep(coordinator.dispatch { showMenus() })
 		},
 		onHideMenus = {
-			applyCoordinatorStep(coordinator.hideMenus())
+			applyCoordinatorStep(coordinator.dispatch { hideMenus() })
 		},
 		onNavigateToTocItem = { tocItem ->
 			tocItem.href?.let { href ->
-				val navigateStep = coordinator.navigateTo(ReaderLocator(href = href))
+				val navigateStep = coordinator.dispatch { navigateTo(ReaderLocator(href = href)) }
 				applyCoordinatorStep(navigateStep)
-				applyCoordinatorStep(navigateStep.coordinator.closeDialog())
+				applyCoordinatorStep(navigateStep.coordinator.dispatch { closeDialog() })
 			}
 		},
 		onNavigateToBookmark = { bookmark ->
-			applyCoordinatorStep(coordinator.navigateToBookmark(bookmark))
+			applyCoordinatorStep(coordinator.dispatch { navigateToBookmark(bookmark) })
 		},
 		onNavigateToAnnotation = { annotation ->
-			applyCoordinatorStep(coordinator.navigateToAnnotation(annotation))
+			applyCoordinatorStep(coordinator.dispatch { navigateToAnnotation(annotation) })
 		},
 		onToggleCurrentBookmark = {
-			applyCoordinatorStep(coordinator.toggleCurrentBookmark())
+			applyCoordinatorStep(coordinator.dispatch { toggleCurrentBookmark() })
 		},
 		onHighlightSelection = {
-			applyCoordinatorStep(coordinator.addSelectionHighlight())
+			applyCoordinatorStep(coordinator.dispatch { addSelectionHighlight() })
 		},
 		onCopySelection = { text ->
 			clipboard.setText(AnnotatedString(text))
 			Logger.i(ReaderScreenTag, "Reader selection copied length=${text.length}")
-			applyCoordinatorStep(coordinator.dismissSelectionActions())
+			applyCoordinatorStep(coordinator.dispatch { dismissSelectionActions() })
 		},
 		onStartSelectionNote = {
-			applyCoordinatorStep(coordinator.startSelectionNote())
+			applyCoordinatorStep(coordinator.dispatch { startSelectionNote() })
 		},
 		onSelectionNoteDraftChange = { note ->
-			applyCoordinatorStep(coordinator.updateSelectionNoteDraft(note))
+			applyCoordinatorStep(coordinator.dispatch { updateSelectionNoteDraft(note) })
 		},
 		onSaveSelectionNote = { note ->
 			Logger.i(ReaderScreenTag, "Reader selection note save length=${note.length}")
-			applyCoordinatorStep(coordinator.saveSelectionNote(note))
+			applyCoordinatorStep(coordinator.dispatch { saveSelectionNote(note) })
 		},
 		onDismissSelectionNote = {
-			applyCoordinatorStep(coordinator.dismissSelectionNote())
+			applyCoordinatorStep(coordinator.dispatch { dismissSelectionNote() })
 		},
 		onDismissAnnotationPopup = {
-			applyCoordinatorStep(coordinator.dismissAnnotationPopup())
+			applyCoordinatorStep(coordinator.dispatch { dismissAnnotationPopup() })
 		},
 		onDismissFootnotePopup = {
-			applyCoordinatorStep(coordinator.dismissFootnotePopup())
+			applyCoordinatorStep(coordinator.dispatch { dismissFootnotePopup() })
 		},
 		onOpenExternalLink = { url ->
 			uriHandler.openUri(url)
-			applyCoordinatorStep(coordinator.dismissExternalLinkPrompt())
+			applyCoordinatorStep(coordinator.dispatch { dismissExternalLinkPrompt() })
 		},
 		onDismissExternalLinkPrompt = {
-			applyCoordinatorStep(coordinator.dismissExternalLinkPrompt())
+			applyCoordinatorStep(coordinator.dispatch { dismissExternalLinkPrompt() })
 		},
 		onSettingsChange = { settings ->
 			applyReaderSettings(settings)
@@ -705,13 +706,13 @@ fun ReaderScreen(reader: Screen.Reader) {
 			resetReaderBookSettings()
 		},
 		onRepairWhispersyncMismatch = {
-			applyCoordinatorStep(coordinator.repairWhispersyncMismatch())
+			applyCoordinatorStep(coordinator.dispatch { repairWhispersyncMismatch() })
 		},
 		onListeningSettingsChange = { nextSettings ->
 			applyReaderListeningSettings(nextSettings)
 		},
 		onDismissDialog = {
-			applyCoordinatorStep(coordinator.closeDialog())
+			applyCoordinatorStep(coordinator.dispatch { closeDialog() })
 		},
 		modifier = Modifier
 			.fillMaxSize()
@@ -724,17 +725,17 @@ fun ReaderScreen(reader: Screen.Reader) {
 				when (event.key) {
 					Key.VolumeUp -> {
 						applyCoordinatorStep(
-							coordinator.onViewerAction(
+							coordinator.dispatch { onViewerAction(
 								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Previous)
-							)
+							) }
 						)
 						true
 					}
 					Key.VolumeDown -> {
 						applyCoordinatorStep(
-							coordinator.onViewerAction(
+							coordinator.dispatch { onViewerAction(
 								ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
-							)
+							) }
 						)
 						true
 					}

@@ -102,6 +102,10 @@ class FoliateAnxParityTest {
 		readerCommonFile("ReaderController.kt").readText()
 	}
 
+	private val readerSelectionReducerText: String by lazy {
+		readerCommonFile("ReaderSelectionReducer.kt").readText()
+	}
+
 	private val readerAppBarsText: String by lazy {
 		readerCommonUiFile("ReaderAppBars.kt").readText()
 	}
@@ -167,7 +171,7 @@ class FoliateAnxParityTest {
 		"handleBookmark" to GapStatus.ProductDivergence(
 			navicRoute = listOf(
 				RouteStop(readerCommonUiFile("ReaderAppBars.kt"), "onToggleBookmarked"),
-				RouteStop(readerCommonFile("ReaderController.kt"), "currentLocationBookmarked"),
+				RouteStop(readerCommonFile("ReaderControllerState.kt"), "currentLocationBookmarked"),
 				RouteStop(readerCommonFile("ReaderController.kt"), "toggleCurrentBookmark")
 			),
 			rationale = "Komikku owns bookmark UI/control. No WebView annotation. Behavior (bookmark toggle at current location) is parity."
@@ -193,7 +197,7 @@ class FoliateAnxParityTest {
 			"LocationChanged with Anx relocation payload parity",
 			controllerTest("engineRelocationFeedsControllerChromeWithoutEmittingEngineCommands"),
 			coordinatorTest("relocationsRouteProgressSaveIntentThroughControllerWithoutEngineBridgeCommands"),
-			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom")
+			routeStop("ReaderProgressReducer.kt", "chapterProgress = state.chapterProgress.updatedFrom")
 		),
 		"onSetToc" to exists(
 			"Toc",
@@ -216,14 +220,14 @@ class FoliateAnxParityTest {
 			"locationChanged with Anx relocation payload parity",
 			controllerTest("engineRelocationFeedsControllerChromeWithoutEmittingEngineCommands"),
 			coordinatorTest("relocationsRouteProgressSaveIntentThroughControllerWithoutEngineBridgeCommands"),
-			routeStop("ReaderController.kt", "chrome = nextChrome")
+			routeStop("ReaderProgressReducer.kt", "chrome = nextChrome")
 		),
 		"onLoadEnd" to exists(
 			"LoadDoc event with serializable payload",
 			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
 			controllerTest("loadedDocumentBecomesChapterNavigationAnchorBeforeRelocationCatchesUp"),
-			routeStop("ReaderController.kt", "loadedDocument = document"),
-			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom(document)")
+			routeStop("ReaderProgressReducer.kt", "loadedDocument = document"),
+			routeStop("ReaderProgressReducer.kt", "chapterProgress = controller.state.chapterProgress.updatedFrom(document)")
 		),
 		"onExternalLink" to exists(
 			"ExternalLink distinct event",
@@ -248,13 +252,13 @@ class FoliateAnxParityTest {
 			controllerTest("footnoteOpenShowsControllerOwnedFootnotePopupAndCloseClearsIt"),
 			readerUiRoute("ReaderFootnoteDialog.kt", "KomikkuReaderFootnoteDialog"),
 			readerUiRoute("ReaderRoot.kt", "controllerState.footnotePopup"),
-			routeStop("ReaderController.kt", "footnotePopup ="),
+			routeStop("ReaderOverlayReducer.kt", "footnotePopup ="),
 			routeStop("navic-reader-content-interactions.js", "type: 'footnoteOpen'"),
 			routeStop("navic-reader-content-interactions.js", "readerResolvedFootnoteOpenPayload"),
 			routeStop("navic-reader-content-interactions.js", "book?.resolveHref"),
 			routeStop("navic-reader-content-interactions.js", "section.load"),
 			routeStop("composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt", "footnoteOpen("),
-			routeStop("ReaderController.kt", "ReaderOverlayInteraction.FootnoteClosed")
+			routeStop("ReaderOverlayReducer.kt", "ReaderOverlayInteraction.FootnoteClosed")
 		),
 		"onPullUp" to exists(
 			"PullUp event from scroll-end hook without implicit reader chrome toggling",
@@ -272,8 +276,8 @@ class FoliateAnxParityTest {
 			"LoadDoc event",
 			controllerTest("loadedDocumentEventsFeedControllerStateWithoutNavigationCommands"),
 			controllerTest("loadedDocumentPreventsChapterPageSeekFromTargetingPreviousSection"),
-			routeStop("ReaderController.kt", "loadedDocument = document"),
-			routeStop("ReaderController.kt", "chapterProgress = state.chapterProgress.updatedFrom(document)")
+			routeStop("ReaderProgressReducer.kt", "loadedDocument = document"),
+			routeStop("ReaderProgressReducer.kt", "chapterProgress = controller.state.chapterProgress.updatedFrom(document)")
 		),
 		"external-link" to exists(
 			"ExternalLink event",
@@ -284,7 +288,7 @@ class FoliateAnxParityTest {
 			"AnnotationDrawn event",
 			controllerTest("anxBridgeEventsFeedControllerStateInsteadOfBeingDiscarded"),
 			routeStop("navic-reader.js", "Overlayer.highlight"),
-			routeStop("ReaderController.kt", "ReaderAnnotationInteractionKind.Drawn")
+			routeStop("ReaderAnnotationReducer.kt", "ReaderAnnotationInteractionKind.Drawn")
 		),
 		"show-annotation" to exists(
 			"AnnotationClick event",
@@ -817,7 +821,7 @@ class FoliateAnxParityTest {
 			assertTrue(
 				readerBridgeProtocolText.contains("\"$field\"") &&
 					foliateEpubEngineAdapterText.contains("$field = event.$field") &&
-					readerControllerText.contains("$field = event.$field"),
+					readerSelectionReducerText.contains("$field = event.$field"),
 				"Selection field '$field' must decode through bridge, adapter, and controller."
 			)
 		}

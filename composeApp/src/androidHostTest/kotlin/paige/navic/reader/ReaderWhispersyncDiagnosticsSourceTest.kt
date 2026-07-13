@@ -25,12 +25,15 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 		val syncCoordinator = root
 			.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderWhispersyncSyncCoordinator.kt")
 			.readText()
+		val reducer = root
+			.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderWhispersyncReducer.kt")
+			.readText()
 		val readerScreen = root
 			.resolve("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderScreen.kt")
 			.readText()
 
 		assertContainsAll(
-			controller + syncCoordinator + readerScreen,
+			controller + reducer + syncCoordinator + readerScreen,
 			"WhispersyncSyncLogTag",
 			"Whispersync visible range",
 			"Whispersync text point",

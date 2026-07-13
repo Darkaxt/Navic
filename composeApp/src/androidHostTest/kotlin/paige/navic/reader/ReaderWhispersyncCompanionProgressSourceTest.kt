@@ -36,7 +36,7 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 
 		assertContains(
 			readerScreen,
-			"coordinator.reportWhispersyncLoadFailure(",
+			"coordinator.dispatch { reportWhispersyncLoadFailure(",
 			message = "Whispersync sidecar or paired-audiobook load failures must surface through controller-owned native status, not only logs."
 		)
 	}

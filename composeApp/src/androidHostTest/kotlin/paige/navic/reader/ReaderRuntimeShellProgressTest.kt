@@ -108,8 +108,8 @@ class ReaderRuntimeShellProgressTest {
 			bridgeText.contains("this.view.goTo({ href: targetHref, fraction })"),
 			"Foliate treats an object with fraction as a whole-book fraction target; chapter rail seeks must resolve href to a section index and use a section-local anchor."
 		)
-		assertContains(readerScreenText, "coordinator.navigateTo(")
-		assertContains(readerScreenText, "coordinator.navigateToChapterPage(pageIndex)")
+		assertContains(readerScreenText, "coordinator.dispatch { navigateTo(")
+		assertContains(readerScreenText, "coordinator.dispatch { navigateToChapterPage(pageIndex) }")
 		assertFalse(
 			readerScreenText.contains("ReaderBridgeCommand.GoToProgress"),
 			"The Komikku reader shell must ask the controller to navigate, not dispatch raw Foliate bridge progress commands."
@@ -240,11 +240,11 @@ class ReaderRuntimeShellProgressTest {
 	fun androidReaderShowsPaginationProfilingStatusInKomikkuOverlay() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val profileBadgeText = readerCommonUiFile("ReaderPaginationProfileBadge.kt").readText()
-		val controllerText = readerCommonFile("ReaderController.kt").readText()
+		val controllerStateText = readerCommonFile("ReaderControllerState.kt").readText()
 		val bridgeText = readerCommonFile("ReaderBridgeProtocol.kt").readText()
 
 		assertContains(bridgeText, "PaginationProfileStatusChanged")
-		assertContains(controllerText, "paginationProfile: ReaderPaginationProfileStatus")
+		assertContains(controllerStateText, "paginationProfile: ReaderPaginationProfileStatus")
 		assertContains(readerRootText, "KomikkuPaginationProfileStatusBadge(")
 		assertContains(readerRootText, "controllerState.paginationProfile")
 		assertContains(profileBadgeText, "LinearProgressIndicator(")

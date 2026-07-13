@@ -169,7 +169,7 @@ class ReaderViewerTest {
 			"The Whispersync player must be a controller-owned reader dialog, not a WebView-owned popup."
 		)
 		assertTrue(
-			screenSource.contains("coordinator.openWhispersyncPlayerDialog()"),
+			screenSource.contains("coordinator.dispatch { openWhispersyncPlayerDialog() }"),
 			"The reader screen must route the audiobook action through the controller."
 		)
 		assertFalse(
@@ -203,8 +203,8 @@ class ReaderViewerTest {
 			"ReaderRoot must filter saved marks to the current book before showing them in the contents sheet."
 		)
 		assertTrue(
-			screenSource.contains("coordinator.navigateToBookmark(bookmark)") &&
-				screenSource.contains("coordinator.navigateToAnnotation(annotation)"),
+			screenSource.contains("coordinator.dispatch { navigateToBookmark(bookmark) }") &&
+				screenSource.contains("coordinator.dispatch { navigateToAnnotation(annotation) }"),
 			"Saved mark navigation must be controller-owned, not a WebView-only side effect."
 		)
 	}
