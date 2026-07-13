@@ -69,7 +69,7 @@
 - Modify: `docs/superpowers/plans/2026-07-13-third-party-attribution-implementation.md`
 
 - [x] Set `versionCode=536` and `versionName=v1.0.11-kappa4`.
-- [ ] Run focused tests, attribution verification, Android debug assembly, packaged verification, `git diff --check`, and the established full-suite baseline comparison.
+- [x] Run focused tests, attribution verification, Android debug assembly, packaged verification, `git diff --check`, and the established full-suite baseline comparison.
 - [ ] Rebase the current public `master`, rerun the final gate, commit, push `master`, and push annotated tag `v1.0.11-kappa4`.
 - [ ] Verify GitHub Actions, public release metadata/hash/signature, and an ADB in-place emulator upgrade with no fatal startup error.
 - [ ] Record release evidence, push it, remove this worktree, and delete the local feature branch without touching ebook/page-turn worktrees.

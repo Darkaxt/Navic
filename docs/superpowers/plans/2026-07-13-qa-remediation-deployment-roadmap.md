@@ -12,6 +12,7 @@ Released Tranche 5 network-policy slice: `v1.0.11-iota9`
 Released Tranche 5 secure-credential slice: `v1.0.11-kappa1`
 Released Tranche 5 external-fetch slice: `v1.0.11-kappa2`
 Released Tranche 5 reader-vendor provenance slice: `v1.0.11-kappa3`
+Released Tranche 5 attribution-governance slice: `v1.0.11-kappa4`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -336,6 +337,14 @@ Every tranche uses the following pipeline:
 - GitHub Actions now runs the self-test before every Android build and verifies the final APK before upload. The documented update process requires upstream release/advisory review, immutable artifact validation, upstream diff review, deliberate Navic-patch reapplication, reader tests, and packaged-APK proof.
 - The full host suite ran 2,321 tests with the exact same 35 pre-existing failure names as kappa2; both new B7 host tests passed. No vendored JavaScript or reader runtime behavior changed in this slice.
 
+### Attribution-governance slice implementation evidence
+
+- `THIRD_PARTY.md` records Navic's GNU GPL version 3 license and immutable source revisions for Anx Reader, foliate-js `1.0.1`, and PDF.js `3.11.174`. Exact upstream MIT and Apache-2.0 license files are retained under `third_party/licenses`.
+- Exact-source verification corrected the audit's Anx copyleft premise: pinned Anx Reader commit `107f4fa74db0e7247c846c49d6211df3edf9887c` is MIT-licensed. Its real copyright and permission notice are preserved instead of claiming nonexistent Anx copyleft obligations.
+- AboutLibraries custom records feed the copied components into the existing Acknowledgements screen. The structural verifier checks component identity, version/commit, source URL, copyright, license ID, and MIT text in both the generated Compose resource and the assembled APK.
+- The assembled Android debug APK passed all 30 existing reader-vendor hashes and the new packaged-attribution check with embedded `versionCode=536`, `versionName=v1.0.11-kappa4`. A deliberate generated-JSON tamper was rejected.
+- The full host suite ran 2,326 tests with the same 35 pre-existing failure names as kappa3; all three new attribution tests and the existing reader-vendor governance tests passed.
+
 ### Rollout and rollback
 
 - Credential migration release precedes removal of plaintext-read compatibility by at least one public prerelease.
@@ -446,7 +455,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A18 | Medium | Released | `v1.0.11-iota2` |
 | A19 | Medium | Released | `v1.0.11-iota2` |
 | A20 | Scope note | Excluded | Android-only contract |
-| A21 | Medium (governance) | Pending | Tranche 5 |
+| A21 | Medium (governance) | Released | `v1.0.11-kappa4` |
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
 | B2 | Low | Pending | Tranche 7 |
 | B3 | Low | Pending | Tranche 3 |
@@ -491,9 +500,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 25 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B7`, `B9`, `B10`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
+- Released findings: 26 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `A21`, `B7`, `B9`, `B10`, `B17`, `B18`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 30.
+- Pending implementation findings assigned to tranches: 29.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
