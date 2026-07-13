@@ -171,6 +171,15 @@ Every tranche uses the following pipeline:
 - A signed upgrade over populated download schema 4 migrated to schema 5, preserved a downloaded row, recovered a queued missing-song row into a generation-1 cancellation tombstone, and cold-launched successfully on `emulator-5554`.
 - Tests cover cancel-vs-retry generations, stale completion rejection, 100,000 enqueue wakeups remaining bounded to one in-memory signal, one-row-at-a-time restart recovery, migration fixtures, and named sync concurrency/batch limits.
 
+### Sync slice release evidence
+
+- Released `v1.0.11-iota4` from commit `be60c548` on 2026-07-13.
+- GitHub Actions run `29217711517` passed the Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped.
+- Public `Navic.apk` SHA-256: `1a6d6886be896e98b5be3088a90c8267bf488e6a5b67e2da915a4384dfaed276`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=526`, `versionName=v1.0.11-iota4`.
+- A signed in-place upgrade from `v1.0.11-iota3` launched successfully on `emulator-5554` with a live app process and no fatal or Room migration error. Direct SQLite inspection confirmed cache schema 22, all retry/dead-letter columns, and `index_SyncActionEntity_deadLettered_nextAttemptAtEpochMs_id`.
+- Focused tests cover bounded actor ownership, migration defaults/index creation, terminal/transient classification, bounded exponential retry, and poison-action continuation. Android debug assembly passed. The broad host suite still has 32 unrelated source-contract failures in concurrently changing reader/player tests and is not claimed green by this slice.
+
 ## Tranche 3 — Reader bridge and process recovery
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
@@ -387,9 +396,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | C1 | Critical | Released | `v1.0.11-theta94` |
 | C2 | Medium | Pending | Tranche 2 |
 | C3 | Medium | Released | `v1.0.11-iota3` |
-| C4 | Medium | Pending | Tranche 2 |
+| C4 | Medium | Released | `v1.0.11-iota4` |
 | C5 | High | Released | `v1.0.11-theta94` |
-| C6 | Medium | Pending | Tranche 2 |
+| C6 | Medium | Released | `v1.0.11-iota4` |
 | C7 | Medium | Released | `v1.0.11-iota2` |
 | C8 | High | Released | `v1.0.11-theta94` |
 | C9 | Medium | Released | `v1.0.11-iota1` |
@@ -404,9 +413,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 14 (`A14`, `A15`, `A18`, `A19`, `B9`, `B10`, `C1`, `C3`, `C5`, `C7`, `C8`, `C9`, `C10`, `C11`).
+- Released findings: 16 (`A14`, `A15`, `A18`, `A19`, `B9`, `B10`, `C1`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 41.
+- Pending implementation findings assigned to tranches: 39.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
