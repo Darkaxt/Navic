@@ -55,7 +55,8 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 class PreferenceManager(
-	settings: KmpSettings
+	settings: KmpSettings,
+	private val credentialStore: CredentialStore = SettingsCredentialStore(settings)
 ) : BasePreferenceManager(settings) {
 	var font by preference(FontOption.GoogleSans)
 	var fontPath by preference("")
@@ -202,7 +203,26 @@ class PreferenceManager(
 			assign = { binderyEnabledPreference = it }
 	)
 	var binderyOpdsBaseUrl by preference("")
-	var binderyApiKey by preference("")
+	private var legacyBinderyApiKey by preference("binderyApiKey", "")
+	var binderyApiKey: String
+		get() {
+			val secureValue = credentialStore.get(BinderyApiKeyCredential)
+			if (secureValue != null) {
+				clearLegacyBinderyApiKey()
+				return secureValue
+			}
+			return migrateLegacyBinderyApiKey()
+		}
+		set(value) {
+			if (value.isEmpty()) {
+				credentialStore.remove(BinderyApiKeyCredential)
+				clearLegacyBinderyApiKey()
+				return
+			}
+			if (credentialStore.put(BinderyApiKeyCredential, value)) {
+				clearLegacyBinderyApiKey()
+			}
+		}
 	var binderyLanguageFilter by preference("eng")
 	var binderyBookGridColumns by preference(BinderyDefaultBookGridColumns)
 	var binderyAudiobookProgressJson by preference("")
@@ -233,6 +253,23 @@ class PreferenceManager(
 	var pauseBetweenSongsSeconds by preference(0)
 	var medleyModeSeconds by preference(0)
 	var playbackVolumePercent by preference(100)
+
+	private fun migrateLegacyBinderyApiKey(): String {
+		val legacyValue = legacyBinderyApiKey
+		if (legacyValue.isEmpty()) return ""
+		if (credentialStore.put(BinderyApiKeyCredential, legacyValue) &&
+			credentialStore.get(BinderyApiKeyCredential) == legacyValue
+		) {
+			clearLegacyBinderyApiKey()
+		}
+		return credentialStore.get(BinderyApiKeyCredential) ?: legacyValue
+	}
+
+	private fun clearLegacyBinderyApiKey() {
+		settings.remove("binderyApiKey")
+		legacyBinderyApiKey = ""
+		settings.remove("binderyApiKey")
+	}
 	var autoFillQueue by preference(false)
 	var autoFillQueueTargetSize by preference(25)
 	var autoFillQueueSource by preference(AutoFillQueueSource.RecentGenres)
