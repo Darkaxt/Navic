@@ -9,7 +9,7 @@ Released Tranche 2 storage slice: `v1.0.11-iota2`
 Released Tranche 2 download slice: `v1.0.11-iota3`
 Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Released Tranche 5 network-policy slice: `v1.0.11-iota9`
-Next release series: `v1.0.11-kappa1` (`versionCode=533`)
+Released Tranche 5 secure-credential slice: `v1.0.11-kappa1`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -21,7 +21,7 @@ Provide a complete disposition and deployment path for every numbered QA-audit e
 - 1 duplicate cross-reference (`B1` → `A10`).
 - 1 verified non-bug (`C12`).
 
-`v1.0.11-theta94` released fixes for `C1`, `C5`, and `C8`. Current-source review supersedes `B14` as written because `ReaderProgressSaveGate` no longer matches relocation-reason strings. This leaves **52 pending implementation findings**, all assigned below.
+`v1.0.11-theta94` released fixes for `C1`, `C5`, and `C8`. Current-source review supersedes `B14` as written because `ReaderProgressSaveGate` no longer matches relocation-reason strings. This initially left **52 pending implementation findings**; current delivery accounting is maintained below.
 
 ## Delivery principles
 
@@ -305,6 +305,15 @@ Every tranche uses the following pipeline:
 - A signed in-place upgrade from `v1.0.11-iota9` installed and launched on `emulator-5554`; the app remained alive as PID `25449` with no fatal activity or Koin startup error.
 - Repository and display-policy tests distinguish disabled, misconfigured, unauthorized, malformed, unavailable, empty, and stale states. Aurral base discovery paints before parallel supplements, Bindery row loads remain parallel without dropping failures, stale content remains interactive, affected legacy suites passed, and Android debug assembly passed after rebasing public master.
 
+### Secure-credential slice release evidence
+
+- Released `v1.0.11-kappa1` from commit `ae5ed8bf` on 2026-07-13. GitHub Actions run `29227165112` passed the signed Android release build, APK signature verification, artifact upload, and release creation; iOS was skipped. Checks run `29227165121` also passed.
+- Public `Navic.apk` SHA-256: `d0bc4940b661bc18d5914f33bfb9589aa115b6b97bd3cd3b8c4880417cfe7df3`.
+- APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=533`, `versionName=v1.0.11-kappa1`.
+- A signed in-place upgrade from `v1.0.11-iota10` installed and launched on `emulator-5554`. The app remained alive as PID `26779` with no fatal activity, Koin startup, or Keystore error.
+- Device migration moved `binderyApiKey=navic-b17-migration-proof` out of `darkaxt.navic_preferences.xml` into a versioned AES-GCM envelope in `navic_secure_credentials.xml`; a recursive plaintext scan of shared preferences returned no match. Plaintext deletion implies successful encrypted commit and exact decrypt-readback under the migration contract.
+- The final gate passed 69 focused Bindery/security/DI tests plus Android debug assembly. Tests cover migration success/failure/precedence, Keystore source policy, canonical origin matching, off-origin absolute paths, redirects, per-resource playback/artwork headers, optional integration behavior, and production DI fixtures.
+
 ### Rollout and rollback
 
 - Credential migration release precedes removal of plaintext-read compatibility by at least one public prerelease.
@@ -432,7 +441,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B14 | Medium | Superseded as written | No deployment |
 | B15 | Medium | Pending | Tranche 3 |
 | B16 | Low | Pending | Tranche 6 |
-| B17 | Medium | Pending | Tranche 5 |
+| B17 | Medium | Released | `v1.0.11-kappa1` |
 | B18 | Medium | Pending | Tranche 5 |
 | B19 | Medium | Pending | Tranche 4 |
 | B20 | Low | Pending | Tranche 4 |
@@ -460,9 +469,9 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 
 - Numbered audit entries: 60.
 - Original actionable findings: 56.
-- Released findings: 22 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
+- Released findings: 23 (`A13`, `A14`, `A15`, `A16`, `A17`, `A18`, `A19`, `B9`, `B10`, `B17`, `C1`, `C2`, `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`, `C11`, `C14`, `C15`).
 - Superseded findings: 1 (`B14`).
-- Pending implementation findings assigned to tranches: 33.
+- Pending implementation findings assigned to tranches: 32.
 - Scope notes: 2 (`A20`, `B21`).
 - Cross-reference: 1 (`B1`).
 - Verified numbered non-bug: 1 (`C12`).
