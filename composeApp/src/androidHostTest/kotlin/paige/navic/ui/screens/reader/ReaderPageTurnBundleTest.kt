@@ -9,6 +9,26 @@ import kotlin.test.assertNull
 
 class ReaderPageTurnBundleTest {
 	@Test
+	fun snapshotWindowOrdersNearestPortraitPagesBeforeSecondNeighbors() {
+		assertEquals(
+			listOf(6, 5, 7, 4, 8),
+			readerPageSlideSnapshotWindow(centerPageIndex = 6, step = 1, pageCount = 12)
+		)
+	}
+
+	@Test
+	fun snapshotWindowUsesSpreadStepsAndClipsBookBoundaries() {
+		assertEquals(
+			listOf(2, 0, 4, 6),
+			readerPageSlideSnapshotWindow(centerPageIndex = 2, step = 2, pageCount = 8)
+		)
+		assertEquals(
+			listOf(6, 4, 2),
+			readerPageSlideSnapshotWindow(centerPageIndex = 6, step = 2, pageCount = 8)
+		)
+	}
+
+	@Test
 	fun parsesSimplifiedLandscapeSpreadSlidePlan() {
 		val plan = ReaderPageTurnTransitionPlan.parseOrThrow(
 			encoded = """

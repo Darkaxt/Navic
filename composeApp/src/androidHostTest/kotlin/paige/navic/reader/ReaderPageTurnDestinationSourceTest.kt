@@ -243,10 +243,11 @@ class ReaderPageTurnDestinationSourceTest {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 
-		assertContains(runtime, "pageTurnTransitionPlan: physicalDirection =>")
+		assertContains(runtime, "pageTurnTransitionPlan: (physicalDirection, currentPageIndexOverride = null) =>")
+		assertContains(runtime, "runtime.pageTurnTransitionPlan(physicalDirection, currentPageIndexOverride)")
 		assertContains(preview, "function pageTurnTransitionPlan(")
 		assertContains(preview, "readerPageTurnPlan({")
-		assertContains(preview, "currentPageIndex: this.currentPagePosition?.pageIndex")
+		assertContains(preview, "currentPageIndex: currentPageIndex")
 		assertContains(preview, "pageCount: this.currentPagePosition?.pageCount")
 		assertContains(preview, "layoutMode: geometry.mode")
 		assertContains(preview, "readerDirection")
@@ -260,6 +261,19 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("function pageTurnTransitionPlan(")
 
 		assertContains(context, "layoutMode: this.pageTurnCaptureGeometry().mode")
+	}
+
+	@Test
+	fun transitionPlannerAcceptsTheNativeVisualPageOverride() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val planner = preview
+			.substringAfter("function pageTurnTransitionPlan(")
+			.substringBefore("function beginPageTurnPreviewPreparation(")
+
+		assertContains(planner, "currentPageIndexOverride = null")
+		assertContains(planner, "Number.isFinite(Number(currentPageIndexOverride))")
+		assertContains(planner, "currentPageIndex: currentPageIndex")
+		assertContains(planner, "pageIndex: currentPageIndex")
 	}
 
 	@Test

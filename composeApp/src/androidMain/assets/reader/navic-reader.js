@@ -1580,7 +1580,8 @@ window.NavicReaderBridge = {
     runtime.beginPageTurnPreviewPreparation(token, pageIndex),
   pageTurnPreviewState: token => runtime.pageTurnPreviewState(token),
   pageTurnPreviewContext: () => runtime.pageTurnPreviewContext(),
-  pageTurnTransitionPlan: physicalDirection => runtime.pageTurnTransitionPlan(physicalDirection),
+  pageTurnTransitionPlan: (physicalDirection, currentPageIndexOverride = null) =>
+    runtime.pageTurnTransitionPlan(physicalDirection, currentPageIndexOverride),
   exposePageTurnPreviewFinal: token => runtime.exposePageTurnPreviewFinal(token),
   restorePageTurnLiveComposition: token => runtime.restorePageTurnLiveComposition(token),
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),

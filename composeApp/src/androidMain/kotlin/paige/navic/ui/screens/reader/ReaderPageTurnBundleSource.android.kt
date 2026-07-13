@@ -82,7 +82,8 @@ internal class ReaderPageTurnBundleSource(
 		webView: WebView,
 		plan: ReaderPageTurnTransitionPlan,
 		current: ReaderPageTurnCaptureResult,
-		onStagingStarted: () -> Unit = {},
+		currentCanRepresentSource: Boolean = true,
+		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
 		onPrepared: (ReaderPageSlideTransition?) -> Unit
 	) {
 		val generation = plan.generation
@@ -92,14 +93,18 @@ internal class ReaderPageTurnBundleSource(
 			return
 		}
 
-		val source = putSnapshot(
-			ReaderPageSlideSnapshot(
-				key = snapshotKey(plan.sourcePageIndex, plan.kind, current.bitmap, current.sourceRectInWindow),
-				bitmap = current.bitmap,
-				surfaceRectInWindow = Rect(current.sourceRectInWindow),
-				reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb)
-			)
-		)
+		val cachedSource = cachedSnapshot(plan.sourcePageIndex, plan.kind)
+		val source = cachedSource?.also {
+			if (it.bitmap !== current.bitmap) current.bitmap.takeUnless { bitmap -> bitmap.isRecycled }?.recycle()
+		} ?: if (currentCanRepresentSource) {
+			cacheCurrentSnapshot(plan, current)
+		} else {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			null
+		} ?: run {
+			onPrepared(null)
+			return
+		}
 		cached(plan)?.let { cached ->
 			onPrepared(cached)
 			return
@@ -108,8 +113,8 @@ internal class ReaderPageTurnBundleSource(
 		val destinationKey = snapshotKey(
 			plan.targetPageIndex,
 			plan.kind,
-			current.bitmap,
-			current.sourceRectInWindow
+			source.bitmap,
+			source.surfaceRectInWindow
 		)
 		source.retain()
 		requestSnapshot(destinationKey, generation, onPrepared = { destination ->
@@ -120,7 +125,7 @@ internal class ReaderPageTurnBundleSource(
 			}
 		}) { complete ->
 			val quotedToken = JSONObject.quote(plan.token)
-			onStagingStarted()
+			onStagingStarted(source)
 			webView.evaluateJavascript(
 				"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
 			) { encoded ->
@@ -129,13 +134,13 @@ internal class ReaderPageTurnBundleSource(
 					return@evaluateJavascript
 				}
 				webView.postOnAnimation {
-					captureStagedSurface(webView, current.geometry, current.sourceRectInWindow) { bitmap ->
+					captureStagedSurface(webView, current.geometry, source.surfaceRectInWindow) { bitmap ->
 						restoreLiveComposition(webView, plan.token) {
 							complete(bitmap?.let {
 								ReaderPageSlideSnapshot(
 									key = destinationKey,
 									bitmap = it,
-									surfaceRectInWindow = Rect(current.sourceRectInWindow),
+									surfaceRectInWindow = Rect(source.surfaceRectInWindow),
 									reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb)
 								)
 							})
@@ -144,6 +149,30 @@ internal class ReaderPageTurnBundleSource(
 				}
 			}
 		}
+	}
+
+	fun cacheCurrentSnapshot(
+		plan: ReaderPageTurnTransitionPlan,
+		current: ReaderPageTurnCaptureResult
+	): ReaderPageSlideSnapshot? {
+		if (plan.generation != activeGeneration) {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			return null
+		}
+		val key = snapshotKey(plan.sourcePageIndex, plan.kind, current.bitmap, current.sourceRectInWindow)
+		snapshotCache[key]?.let { cached ->
+			snapshotCache[key]
+			if (cached.bitmap !== current.bitmap) current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			return cached
+		}
+		return putSnapshot(
+			ReaderPageSlideSnapshot(
+				key = key,
+				bitmap = current.bitmap,
+				surfaceRectInWindow = Rect(current.sourceRectInWindow),
+				reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb)
+			)
+		)
 	}
 
 	private fun requestSnapshot(

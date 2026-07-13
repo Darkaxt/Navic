@@ -88,16 +88,19 @@ function pageTurnPreviewContext() {
   })
 }
 
-function pageTurnTransitionPlan(physicalDirection = '') {
+function pageTurnTransitionPlan(physicalDirection = '', currentPageIndexOverride = null) {
   const geometry = this.pageTurnCaptureGeometry()
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   const towardLeft = physicalDirection === 'toward-left'
   const logicalDirection = readerDirection === ReaderDirectionRtl
     ? towardLeft ? ReaderLogicalDirectionPrevious : ReaderLogicalDirectionNext
     : towardLeft ? ReaderLogicalDirectionNext : ReaderLogicalDirectionPrevious
-  const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
+  const overridePageIndex = Number(currentPageIndexOverride)
+  const currentPageIndex = Number.isFinite(Number(currentPageIndexOverride))
+    ? overridePageIndex
+    : Number(this.currentPagePosition?.pageIndex)
   return readerPageTurnPlan({
-    currentPageIndex: this.currentPagePosition?.pageIndex,
+    currentPageIndex: currentPageIndex,
     pageCount: this.currentPagePosition?.pageCount,
     layoutMode: geometry.mode,
     logicalDirection,

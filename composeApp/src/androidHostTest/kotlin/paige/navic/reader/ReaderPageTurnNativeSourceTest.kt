@@ -298,8 +298,9 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "captureBundle")
 		assertContains(controller, "setTargetPageIndex")
 		assertContains(controller, "plan.targetPageIndex")
+		assertContains(controller, "dispatchExactSettlement")
 		assertContains(controller, "type: 'goToVisualPage'")
-		assertContains(controller, "pageIndex: ${'$'}{plan.targetPageIndex}")
+		assertContains(controller, "pageIndex: ${'$'}pageIndex")
 		assertFalse(controller.contains("bitmapSource.capturePage(webView, direction)"))
 	}
 
@@ -409,7 +410,7 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun adjacentBundlesPrewarmBeforeGestureAndColdReleaseNeverWaitsForCapture() {
+	fun adjacentSnapshotsPrewarmBeforeGestureWithoutTapOrRelativeFallback() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
 		val prewarmMethod = host
@@ -421,8 +422,9 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "ReaderPageTurnPhysicalDirection.TowardRight")
 		assertContains(controller, "bundleSource.cached(plan)")
 		assertContains(controller, "releasedWhilePreparing")
-		assertContains(controller, "commitColdFallback")
+		assertContains(controller, "commitShieldedColdFallback")
 		assertContains(controller, "type: 'goToVisualPage'")
+		assertFalse(controller.contains("commitRelativeColdFallback"))
 		assertContains(host, "requestPageTurnPrewarmWhenReady")
 		assertContains(host, "ViewTreeObserver.OnPreDrawListener")
 		assertContains(host, "pageTurnPrewarmStableFrameCount")
@@ -433,22 +435,23 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun releasedGestureConsumesWarmBundleBeforeColdFallback() {
+	fun releasedGestureConsumesWarmSnapshotOrWaitsForInFlightCapture() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val release = controller.substringAfter("fun release(").substringBefore("private fun pageAxisWidth")
 		val callback = controller
 			.substringAfter("val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, bundleGeneration)")
 			.substringBefore("fun prewarmAdjacent()")
 		val cacheLookup = callback.indexOf("bundleSource.cached(plan)")
-		val coldRelease = callback.indexOf("if (releasedWhilePreparing)")
+		val coldPreparation = callback.indexOf("prepareBundle(webView, plan, activeStateGeneration)")
 
 		assertTrue(cacheLookup >= 0, "Gesture planning must check the adjacent bundle cache")
-		assertTrue(coldRelease >= 0, "Gesture planning must retain the released-cold fallback")
+		assertTrue(coldPreparation >= 0, "A cold gesture must continue preparing after release")
 		assertTrue(
-			cacheLookup < coldRelease,
-			"A released gesture must consume an already-warm bundle before falling back to direct navigation"
+			cacheLookup < coldPreparation,
+			"A released gesture must consume an already-warm snapshot before waiting for capture"
 		)
-		assertContains(release, "releasedWhilePreparing && activePlan != null")
+		assertFalse(callback.contains("if (releasedWhilePreparing)"))
+		assertContains(release, "releasedWhilePreparing && preparationUnavailable")
 	}
 
 	@Test
@@ -481,20 +484,23 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun unavailablePlanOrCaptureFallsBackOnlyAfterTheReleaseDecision() {
+	fun unavailableCaptureFallsBackOnlyAfterReleaseAndOnlyBehindAShield() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val release = controller.substringAfter("fun release(").substringBefore("private fun pageAxisWidth")
-		val resolve = controller.substringAfter("private fun resolveColdRelease()").substringBefore("private fun commitColdFallback")
+		val resolve = controller.substringAfter("private fun resolveColdRelease()").substringBefore("private fun commitShieldedColdFallback")
 		val unavailable = controller
 			.substringAfter("private fun markPreparationUnavailable(")
 			.substringBefore("private fun attachPreparationShield")
 
-		assertContains(release, "resolveColdRelease()")
-		assertContains(resolve, "activePlan?.let(::commitColdFallback) ?: commitRelativeColdFallback(state.direction)")
+		assertContains(release, "releasedWhilePreparing && preparationUnavailable")
+		assertContains(resolve, "preparationShieldSnapshot")
+		assertContains(resolve, "commitShieldedColdFallback")
+		assertFalse(resolve.contains("commitRelativeColdFallback"))
 		assertContains(controller, "markPreparationUnavailable(activeStateGeneration, \"transition-plan-unavailable\")")
 		assertContains(controller, "markPreparationUnavailable(stateGeneration, \"current-surface-unavailable\")")
 		assertContains(controller, "markPreparationUnavailable(stateGeneration, \"destination-bundle-unavailable\")")
 		assertFalse(unavailable.contains("state.captureFailed"))
+		assertContains(unavailable, "preparationUnavailable = true")
 		assertContains(unavailable, "releasedWhilePreparing")
 		assertContains(unavailable, "resolveColdRelease()")
 	}
@@ -508,7 +514,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(controller, "attachPreparationShield")
 		assertContains(controller, "removePreparationShield")
 		assertContains(controller, "ImageView")
-		assertContains(controller, "current.bitmap")
+		assertContains(controller, "snapshot.bitmap")
 	}
 
 	@Test

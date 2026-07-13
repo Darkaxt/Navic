@@ -123,12 +123,12 @@ class ReaderPageTurnStateMachine(
 
 	fun animationFinished(): List<ReaderPageTurnEffect> = when (phase) {
 		ReaderPageTurnPhase.Committing -> {
-			commitAnimationFinished = true
-			phase = ReaderPageTurnPhase.Settling
-			listOf(
+			val effects = listOf(
 				ReaderPageTurnEffect.ShowFinalBase,
 				ReaderPageTurnEffect.Commit(direction)
 			)
+			reset(invalidateGeneration = true)
+			effects
 		}
 		ReaderPageTurnPhase.Relaxing -> {
 			reset(invalidateGeneration = true)

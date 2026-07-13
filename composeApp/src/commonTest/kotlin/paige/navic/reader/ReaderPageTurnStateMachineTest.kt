@@ -68,9 +68,8 @@ class ReaderPageTurnStateMachineTest {
 		machine.release(-500f, 1000, 180)
 		machine.animationFinished()
 
-		assertTrue(machine.destinationSettled(pageIndex = 17).isEmpty())
-		assertEquals(ReaderPageTurnPhase.Settling, machine.phase)
-		assertIs<ReaderPageTurnEffect.DetachOverlay>(machine.destinationSettled(pageIndex = 18).single())
+		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
+		assertTrue(machine.destinationSettled(pageIndex = 18).isEmpty())
 	}
 
 	@Test
@@ -111,10 +110,10 @@ class ReaderPageTurnStateMachineTest {
 		val animationFinished = machine.animationFinished()
 		assertIs<ReaderPageTurnEffect.ShowFinalBase>(animationFinished.first())
 		assertIs<ReaderPageTurnEffect.Commit>(animationFinished.last())
-		assertEquals(ReaderPageTurnPhase.Settling, machine.phase)
+		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
 		val finished = machine.destinationSettled(pageIndex = 18)
 		assertEquals(1, animationFinished.count { it is ReaderPageTurnEffect.Commit })
-		assertEquals(1, finished.count { it is ReaderPageTurnEffect.DetachOverlay })
+		assertTrue(finished.isEmpty())
 		assertTrue(machine.animationFinished().isEmpty())
 	}
 
@@ -135,13 +134,12 @@ class ReaderPageTurnStateMachineTest {
 		val finished = machine.animationFinished()
 		assertIs<ReaderPageTurnEffect.ShowFinalBase>(finished.first())
 		assertIs<ReaderPageTurnEffect.Commit>(finished.last())
-		assertEquals(ReaderPageTurnPhase.Settling, machine.phase)
-		assertIs<ReaderPageTurnEffect.DetachOverlay>(machine.destinationSettled(pageIndex = 9).single())
 		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
+		assertTrue(machine.destinationSettled(pageIndex = 9).isEmpty())
 	}
 
 	@Test
-	fun wrongDestinationPageRemainsSettling() {
+	fun nextGestureCanBeginBeforeDestinationSettlement() {
 		val machine = ReaderPageTurnStateMachine()
 		val generation = machine.begin(
 			direction = ReaderPageTurnPhysicalDirection.TowardLeft,
@@ -153,8 +151,9 @@ class ReaderPageTurnStateMachineTest {
 		machine.release(-500f, 1000, 180)
 		machine.animationFinished()
 
-		assertTrue(machine.destinationSettled(pageIndex = 17).isEmpty())
-		assertEquals(ReaderPageTurnPhase.Settling, machine.phase)
+		assertEquals(ReaderPageTurnPhase.Idle, machine.phase)
+		machine.begin(ReaderPageTurnPhysicalDirection.TowardLeft, spread = true, targetPageIndex = 20)
+		assertEquals(ReaderPageTurnPhase.Preparing, machine.phase)
 	}
 
 	@Test
