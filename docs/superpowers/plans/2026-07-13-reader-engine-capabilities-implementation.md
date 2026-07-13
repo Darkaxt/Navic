@@ -74,12 +74,14 @@ Integrated evidence: the B3 owner batch passed 156/156 with zero failures, error
 - [x] Set `versionCode=545` and `versionName="v1.0.11-iota18"` only after code validation.
 - [x] Verify the version, naming continuity, and absence of unpadded iota/kappa/lambda refs.
 - [x] Rebase on current public master if it advanced and rerun affected validation.
-- [ ] Push the integrated candidate, create the annotated tag, and publish Android only.
-- [ ] Verify GitHub Actions succeeded with both iOS jobs skipped.
-- [ ] Download and independently verify the signed public APK, metadata, digest, certificate, vendor assets, and attribution.
-- [ ] Upgrade `darkaxt.navic` in place with ADB and verify resumed startup plus targeted error logs.
+- [x] Push the integrated candidate, create the annotated tag, and publish Android only.
+- [x] Verify GitHub Actions succeeded with both iOS jobs skipped.
+- [x] Download and independently verify the signed public APK, metadata, digest, certificate, vendor assets, and attribution.
+- [x] Upgrade `darkaxt.navic` in place with ADB and verify resumed startup plus targeted error logs.
 
 Release-candidate evidence: `verify-android-release-version.ps1` accepted `v1.0.11-iota18`; source metadata is `545 / v1.0.11-iota18`; `git diff --check` passed; `iota18` was absent from remote tags and releases; and no unpadded iota, kappa, or lambda remote ref existed. The branch was four commits ahead and zero behind public `master` at `4cb276b2`, so no rebase was required. Post-bump owner tests remained 156/156. Android debug assembly succeeded; the 74,988,172-byte APK has SHA-256 `45d46cddbe80072cb52951c4f9bc5f2d97908a5674af8f634417c50278935d3c`, package `darkaxt.navic.debug`, metadata `545 / v1.0.11-iota18`, all 30 packaged vendor files, and complete packaged attribution.
+
+Release evidence: release-code commit `922fbddb` is tagged `v1.0.11-iota18`. Workflow `29261226228` completed successfully with Android build and release creation successful, and both iOS jobs plus IPA attachment skipped. Public `Navic.apk` is 46,225,284 bytes with SHA-256 `62e210ab7536e8448366a141970bcc07ef0a67d3dd09de7706856bbb42ed410c`, matching GitHub's digest; APK Signature Scheme v2 uses certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; metadata is `545 / v1.0.11-iota18`; and packaged vendor 30/30 plus attribution passed. The emulator upgraded public `darkaxt.navic` in place from `iota17`, resumed `MainActivity` as PID `15663`, and had no targeted error-level startup logs.
 
 ### Task 5: Record immutable evidence and clean
 
@@ -88,7 +90,7 @@ Release-candidate evidence: `verify-android-release-version.ps1` accepted `v1.0.
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-13-reader-engine-capabilities-implementation.md`
 
-- [ ] Record release commit, workflow, public APK, certificate, metadata, iOS skip state, and ADB evidence.
+- [x] Record release commit, workflow, public APK, certificate, metadata, iOS skip state, and ADB evidence.
 - [ ] Push the evidence commit and independently verify public master, tag peel, release, and contiguous naming.
 - [ ] Remove only this isolated worktree and branch after proving all commits are public.
 - [ ] Recheck every protected Navic worktree head and dirty state.

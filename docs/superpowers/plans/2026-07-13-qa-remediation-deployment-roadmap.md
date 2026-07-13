@@ -15,6 +15,7 @@ Released Tranche 5 consolidated delivery: `v1.0.11-iota11`
 Released Tranche 3 bridge-diagnostics slice: `v1.0.11-iota12`
 Released Tranche 3 command-acknowledgement slice: `v1.0.11-iota13`
 Released Tranche 3 bridge-lifecycle slice: `v1.0.11-iota14`
+Released Tranche 3 engine-capability slice: `v1.0.11-iota18`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -210,7 +211,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, normal local-asset cache policy shipped in `iota16`, and scoped reader-dev debugging shipped in `iota17`. Capability gating is candidate-validated for `iota18`; process-death restoration of small transient drafts remains a separate change unit.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, generation-scoped JavaScript bridge ownership shipped in `iota14`, managed reader storage shipped in `iota15`, normal local-asset cache policy shipped in `iota16`, scoped reader-dev debugging shipped in `iota17`, and publication-format capability gating shipped in `iota18`. Process-death restoration of small transient drafts remains a separate change unit.
 
 ### Change units
 
@@ -240,6 +241,9 @@ Every tranche uses the following pipeline:
 - RED failed because the new capability symbols were unresolved. The integrated B3 owner batch passed 156/156. A broad 195-test runtime/chrome batch's 20 remaining failures reproduced on clean public `master`; the one B3 source-contract delta was corrected and passed.
 - Source vendor 30/30, tamper self-test, attribution, Android debug assembly, packaged vendor 30/30, and packaged attribution passed. Pre-bump debug APK is 74,988,168 bytes with SHA-256 `ddacb6e569b5a106fa55998362c4e808425a8d65bff795fcbf99bfc90c7c0b72`. No iOS task ran.
 - Post-bump owner tests remained 156/156. The debug APK is 74,988,172 bytes with SHA-256 `45d46cddbe80072cb52951c4f9bc5f2d97908a5674af8f634417c50278935d3c`, package `darkaxt.navic.debug`, and metadata `545 / v1.0.11-iota18`; packaged vendor 30/30 and attribution passed.
+- Released as `v1.0.11-iota18` from commit `922fbddb`. Workflow `29261226228` completed successfully: signed Android build and GitHub release creation passed, while both iOS jobs and the IPA attachment were skipped.
+- Public `Navic.apk` is 46,225,284 bytes with SHA-256 `62e210ab7536e8448366a141970bcc07ef0a67d3dd09de7706856bbb42ed410c`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=545`, `versionName=v1.0.11-iota18`.
+- The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota17`/544 on `emulator-5554`; explicit `MainActivity` start returned `Status: ok`, the app remained resumed as PID `15663`, and targeted AndroidRuntime/MediaController/Koin/Room error checks were clean.
 
 ### B4 implementation evidence
 
@@ -531,7 +535,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | A21 | Medium (governance) | Released | `v1.0.11-iota11` |
 | B1 | Cross-reference | Counted as A10 | Tranche 8 |
 | B2 | Low | Pending | Tranche 7 |
-| B3 | Low | Candidate validated | `v1.0.11-iota18` |
+| B3 | Low | Released | `v1.0.11-iota18` |
 | B4 | High | Released | `v1.0.11-iota12` |
 | B5 | High | Released | `v1.0.11-iota13` |
 | B6 | Medium | Released | `v1.0.11-iota14` |
