@@ -4,6 +4,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class NetworkClientPolicySourceTest {
 	@Test
@@ -31,6 +32,9 @@ class NetworkClientPolicySourceTest {
 			File(sourceRoot, "data/remote/SubsonicClientFactory.kt").readText(),
 			"installNavicNetworkBaseline"
 		)
+		val managerModule = File(sourceRoot, "di/ManagerModule.kt").readText()
+		assertContains(managerModule, "single { NetworkClientFactory() }")
+		assertFalse("singleOf(::NetworkClientFactory)" in managerModule)
 	}
 
 	private fun sourceRoot(): File = listOf(

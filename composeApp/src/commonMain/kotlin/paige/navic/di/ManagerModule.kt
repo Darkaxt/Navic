@@ -21,7 +21,7 @@ import paige.navic.data.remote.NetworkClientFactory
 val managerModule = module {
 	singleOf(::AudioPlaybackOwnershipCoordinator)
 	singleOf(::AuthenticatedSessionLifetime)
-	singleOf(::NetworkClientFactory)
+	single { NetworkClientFactory() }
 	singleOf(::SubsonicClientFactory)
 	singleOf(::SleepTimerManager)
 	single(createdAtStart = true) {
