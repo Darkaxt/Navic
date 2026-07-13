@@ -8,14 +8,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.AuthenticatedSessionLifetime
 import paige.navic.domain.manager.SessionManager
+import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.repositories.DbRepository
 import paige.navic.ui.core.LoginUiState
 
 class LoginViewModel(
 	private val repository: DbRepository,
-	private val sessionManager: SessionManager
+	private val sessionManager: SessionManager,
+	private val sessionLifetime: AuthenticatedSessionLifetime,
+	private val syncManager: SyncManager
 ) : ViewModel() {
 	val loginState: StateFlow<LoginUiState>
 		field = MutableStateFlow<LoginUiState>(LoginUiState.Idle)
@@ -84,14 +90,29 @@ class LoginViewModel(
 					passwordState.text.toString()
 				)
 
-				repository.syncEverything { progress, message ->
-					loginState.value = LoginUiState.Syncing(progress, message)
-				}.onSuccess {
+				val result = sessionLifetime.runInSession {
+					val progressJob = launch {
+						syncManager.syncState.collect { state ->
+							if (state.isSyncing) {
+								loginState.value = LoginUiState.Syncing(state.progress, state.message)
+							}
+						}
+					}
+					try {
+						syncManager.syncNow()
+					} finally {
+						progressJob.cancel()
+					}
+				}
+				result.onSuccess {
 					loginState.value = LoginUiState.Success
 				}.onFailure { e ->
 					loginState.value = LoginUiState.Error(e as Exception)
 				}
 
+			} catch (e: CancellationException) {
+				if (sessionManager.isLoggedIn.value) throw e
+				loginState.value = LoginUiState.Idle
 			} catch (e: Exception) {
 				loginState.value = LoginUiState.Error(e)
 			}
@@ -101,10 +122,10 @@ class LoginViewModel(
 	}
 
 	fun logout() {
-		loginState.value = LoginUiState.Idle
-		sessionManager.logout()
 		viewModelScope.launch {
+			sessionManager.logout()
 			repository.removeEverything()
+			loginState.value = LoginUiState.Idle
 		}
 	}
 }

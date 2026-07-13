@@ -18,7 +18,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import paige.navic.data.database.dao.AlbumDao
@@ -69,16 +72,20 @@ class DownloadManager(
 	private val sessionManager: SessionManager,
 	private val preferenceManager: PreferenceManager,
 	private val lidaClipsRepository: LidaClipsRepository,
-	private val lidaClipDownloadManager: LidaClipDownloadManager
+	private val lidaClipDownloadManager: LidaClipDownloadManager,
+	private val sessionLifetime: AuthenticatedSessionLifetime
 ) {
-	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+	private val applicationScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+	private val inactiveSessionScope = CoroutineScope(Dispatchers.IO + Job().apply { cancel() })
+	private val scope: CoroutineScope
+		get() = sessionLifetime.currentScope() ?: inactiveSessionScope
 	private val client = HttpClient()
 	private val activeDownloadsMutex = Mutex()
 	private val activeDownloads = mutableMapOf<String, Job>()
 	private val runningDownloadSlotsMutex = Mutex()
 	private val runningDownloadSlots = mutableSetOf<String>()
 	private val downloadWakeups = Channel<Unit>(capacity = 1)
-	private val startupQueueRecovery = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+	private val startupQueueRecovery = applicationScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
 		recoverQueuedDownloads()
 	}
 
@@ -104,7 +111,7 @@ class DownloadManager(
 
 	init {
 		startupQueueRecovery.start()
-		scope.launch {
+		applicationScope.launch {
 			allDownloads.collectLatest { downloads ->
 				_downloadedSongs.value = downloads
 					.mapNotNull { download ->
@@ -116,12 +123,20 @@ class DownloadManager(
 					.toMap()
 			}
 		}
-		repeat(downloadSchedulerWorkerCount()) {
-			scope.launch(Dispatchers.IO) {
-				processSongDownloadQueueWorker()
+		sessionLifetime.repeatInSession {
+			try {
+				recoverQueuedDownloads()
+				repeat(downloadSchedulerWorkerCount()) {
+					launch(Dispatchers.IO) {
+						processSongDownloadQueueWorker()
+					}
+				}
+				downloadWakeups.trySend(Unit)
+				awaitCancellation()
+			} finally {
+				withContext(NonCancellable) { cleanupSessionWork() }
 			}
 		}
-		downloadWakeups.trySend(Unit)
 	}
 
 	fun getDownloadedFilePath(songId: String): String? {
@@ -313,6 +328,16 @@ class DownloadManager(
 	private suspend fun recoverQueuedDownloads() {
 		downloadDao.recoverInterruptedDownloads()
 		downloadWakeups.trySend(Unit)
+	}
+
+	private suspend fun cleanupSessionWork() {
+		val jobs = activeDownloadsMutex.withLock {
+			activeDownloads.values.toList().also { activeDownloads.clear() }
+		}
+		jobs.forEach { it.cancel() }
+		jobs.forEach { it.join() }
+		runningDownloadSlotsMutex.withLock { runningDownloadSlots.clear() }
+		resetLibraryDownloadState()
 	}
 
 	private fun resetLibraryDownloadState() {

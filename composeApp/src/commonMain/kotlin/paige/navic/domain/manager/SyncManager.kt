@@ -3,11 +3,13 @@ package paige.navic.domain.manager
 import dev.zt64.subsonic.api.model.SubsonicException
 import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +49,8 @@ class SyncManager(
 	private val albumDao: AlbumDao,
 	private val connectivityManager: ConnectivityManager,
 	private val sessionManager: SessionManager,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val sessionLifetime: AuthenticatedSessionLifetime
 ) {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private var syncJob: Job? = null
@@ -55,6 +58,7 @@ class SyncManager(
 	private val syncWakeups = Channel<Unit>(capacity = 1)
 	private val requestMutex = Mutex()
 	private var fullSyncRequested = false
+	private val pendingSyncWaiters = mutableListOf<CompletableDeferred<Result<Unit>>>()
 
 	private val fullSyncThreshold = 1.hours
 
@@ -62,28 +66,36 @@ class SyncManager(
 		field = MutableStateFlow(SyncState())
 
 	init {
-		scope.launch {
-			for (ignored in syncWakeups) {
-				val forceFull = requestMutex.withLock {
-					fullSyncRequested.also { fullSyncRequested = false }
-				}
-				try {
-					runSyncCycle(forceFull)
-				} catch (error: CancellationException) {
-					throw error
-				} catch (error: Throwable) {
-					Logger.e("SyncManager", "Sync cycle failed; actor remains available.", error)
+		sessionLifetime.repeatInSession {
+			launch {
+				for (ignored in syncWakeups) {
+					val (forceFull, waiters) = requestMutex.withLock {
+						val request = fullSyncRequested to pendingSyncWaiters.toList()
+						fullSyncRequested = false
+						pendingSyncWaiters.clear()
+						request
+					}
+					val result = try {
+						runSyncCycle(forceFull)
+					} catch (error: CancellationException) {
+						throw error
+					} catch (error: Throwable) {
+						Logger.e("SyncManager", "Sync cycle failed; actor remains available.", error)
+						Result.failure(error)
+					}
+					waiters.forEach { it.complete(result) }
 				}
 			}
+			launch {
+				connectivityManager.isOnline.collect { isOnline ->
+					if (isOnline) requestSync()
+				}
+			}
+			awaitCancellation()
 		}
 		scope.launch {
 			syncDao.observeDeadLetterCount().collect { count ->
 				syncState.update { it.copy(deadLetterCount = count) }
-			}
-		}
-		scope.launch {
-			connectivityManager.isOnline.collect { isOnline ->
-				if (isOnline) requestSync()
 			}
 		}
 	}
@@ -93,8 +105,9 @@ class SyncManager(
 		if (syncJob?.isActive == true) return
 
 		scope.launch {
-			if (albumDao.getAlbumCount() == 0
+			if (sessionLifetime.currentScope() != null && (albumDao.getAlbumCount() == 0
 				|| preferenceManager.lastFullSyncTime <= 0L
+				)
 			) {
 				Logger.i("SyncManager", "Syncing now because we haven't synced before")
 				requestSync(forceFull = true)
@@ -103,7 +116,7 @@ class SyncManager(
 
 		syncJob = scope.launch {
 			while (isActive) {
-				requestSync()
+				if (sessionLifetime.currentScope() != null) requestSync()
 				delay(15.minutes)
 			}
 		}
@@ -113,13 +126,19 @@ class SyncManager(
 		requestSync(forceFull = true)
 	}
 
+	suspend fun syncNow(): Result<Unit> {
+		val completion = CompletableDeferred<Result<Unit>>()
+		requestSync(forceFull = true, completion = completion)
+		return completion.await()
+	}
+
 	fun stopPeriodicSync() {
 		syncJob?.cancel()
 		syncState.value = SyncState(isSyncing = false)
 	}
 
 	fun enqueueAction(actionType: SyncActionType, itemId: String) {
-		scope.launch {
+		sessionLifetime.currentScope()?.launch {
 			syncDao.enqueue(
 				SyncActionEntity(
 					actionType = actionType,
@@ -131,20 +150,25 @@ class SyncManager(
 		}
 	}
 
-	private fun requestSync(forceFull: Boolean = false) {
+	private fun requestSync(
+		forceFull: Boolean = false,
+		completion: CompletableDeferred<Result<Unit>>? = null
+	) {
 		scope.launch {
 			requestMutex.withLock {
 				fullSyncRequested = fullSyncRequested || forceFull
+				completion?.let(pendingSyncWaiters::add)
 			}
 			syncWakeups.trySend(Unit)
 		}
 	}
 
-	private suspend fun runSyncCycle(forceFull: Boolean) {
+	private suspend fun runSyncCycle(forceFull: Boolean): Result<Unit> {
 		processDueQueueActions()
 		scheduleNextRetryWakeup()
 
 		val currentTime = Clock.System.now()
+		var cycleResult = Result.success(Unit)
 		if (forceFull || currentTime - Instant.fromEpochMilliseconds(preferenceManager.lastFullSyncTime) > fullSyncThreshold) {
 				Logger.i("SyncManager", "Starting full library pull...")
 
@@ -163,6 +187,7 @@ class SyncManager(
 						preferenceManager.lastFullSyncTime = currentTime.toEpochMilliseconds()
 						Logger.i("SyncManager", "Full library sync complete.")
 					}
+					cycleResult = result
 
 				} finally {
 					syncState.update {
@@ -170,6 +195,7 @@ class SyncManager(
 					}
 				}
 		}
+		return cycleResult
 	}
 
 	private suspend fun scheduleNextRetryWakeup() {

@@ -10,11 +10,19 @@ import io.ktor.client.request.header
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import paige.navic.data.database.dao.SyncActionDao
 
 class SessionManager(
 	private val settings: Settings,
-	private val preferenceManager: PreferenceManager
+	private val preferenceManager: PreferenceManager,
+	private val syncActionDao: SyncActionDao,
+	private val sessionLifetime: AuthenticatedSessionLifetime
 ) {
+	private val transitionMutex = Mutex()
 	private val _isLoggedIn = MutableStateFlow(false)
 	val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
@@ -32,6 +40,7 @@ class SessionManager(
 			settings["instanceUrl"] = normalizedInstanceUrl
 		}
 		_isLoggedIn.value = settings.getStringOrNull("username") != null
+		if (_isLoggedIn.value) sessionLifetime.activateInitialSession()
 	}
 
 	private fun storedInstanceUrl(): String =
@@ -79,18 +88,40 @@ class SessionManager(
 			)
 		}
 
-		settings["instanceUrl"] = normalizedInstanceUrl
-		settings["username"] = username
-		settings["password"] = password
+		transitionMutex.withLock {
+			val accountChanged = _isLoggedIn.value && (
+				storedInstanceUrl() != normalizedInstanceUrl ||
+					settings.getString("username", "") != username
+				)
+			sessionLifetime.endSession()
+			if (accountChanged) clearOutgoingSyncState()
 
-		api = client
-		_isLoggedIn.value = true
+			settings["instanceUrl"] = normalizedInstanceUrl
+			settings["username"] = username
+			settings["password"] = password
+
+			api = client
+			sessionLifetime.startSession()
+			_isLoggedIn.value = true
+		}
 	}
 
-	fun logout() {
-		settings["username"] = null
-		settings["password"] = null
-		_isLoggedIn.value = false
+	suspend fun logout() {
+		withContext(NonCancellable) {
+			transitionMutex.withLock {
+				sessionLifetime.endSession()
+				clearOutgoingSyncState()
+				settings["username"] = null
+				settings["password"] = null
+				api = createClient(storedInstanceUrl(), "", "")
+				_isLoggedIn.value = false
+			}
+		}
+	}
+
+	private suspend fun clearOutgoingSyncState() {
+		syncActionDao.clearAllActions()
+		preferenceManager.lastFullSyncTime = 0L
 	}
 
 	fun refreshClient() {
