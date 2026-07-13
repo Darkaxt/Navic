@@ -43,7 +43,8 @@ data class ReadaloudAudioTrack(
 	val sourceReleaseLabel: String? = null,
 	val sourceUrl: String? = null,
 	val findingId: String? = null,
-	val findingHref: String? = null
+	val findingHref: String? = null,
+	val overlayResourceHref: String? = null
 ) {
 	val subtitleLabel: String?
 		get() = listOfNotNull(
@@ -81,7 +82,8 @@ data class ReadaloudMediaItemDescriptor(
 	val bitrateKbps: Int? = null,
 	val sampleRateHz: Long? = null,
 	val channels: Int? = null,
-	val durationMs: Long? = null
+	val durationMs: Long? = null,
+	val overlayResourceHref: String? = null
 )
 
 data class ReadaloudMediaExtras(
@@ -174,6 +176,7 @@ fun ReadaloudAudioTrack.toReadaloudMediaItemDescriptor(
 		version = version,
 		findingId = findingId,
 		findingHref = findingHref,
+		overlayResourceHref = overlayResourceHref,
 		codec = codec,
 		bitrateKbps = bitrateKbps,
 		sampleRateHz = sampleRateHz,

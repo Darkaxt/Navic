@@ -76,6 +76,7 @@ class StorytellerMediaOverlayParserTest {
 		)
 		val track = session.tracks.single()
 		assertEquals("audio1", track.resourceKey)
+		assertEquals("EPUB/Audio/chapter1.mp3", track.overlayResourceHref)
 		assertEquals("file:///cache/EPUB/Audio/chapter1.mp3", track.href)
 		assertEquals("Storyteller Chapter 1", track.displayTitle)
 		assertEquals("An Unexpected Party", track.sectionLabel)

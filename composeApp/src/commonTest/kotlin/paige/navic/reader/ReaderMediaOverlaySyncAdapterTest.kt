@@ -43,6 +43,26 @@ class ReaderMediaOverlaySyncAdapterTest {
 	}
 
 	@Test
+	fun playbackPositionUsesOverlayResourceWhenMediaUriWasMaterialized() {
+		val timeline = mediaOverlayTimeline()
+		val plan = readaloudPlaybackPlan().copy(
+			mediaItems = listOf(
+				readaloudPlaybackPlan().mediaItems.single().copy(
+					uri = "file:///data/user/0/darkaxt.navic.readerdev/files/reader/storyteller-readaloud/book-1/v2/audio-0001-chapter1.mp3",
+					overlayResourceHref = "EPUB/Audio/chapter1.mp3"
+				)
+			)
+		)
+		val adapter = MediaOverlaySyncAdapter(plan, timeline)
+
+		val cue = adapter.playbackCue(
+			MediaOverlayPlaybackInput(playbackPosition(positionMs = 1_500))
+		)
+
+		assertEquals("frag-1", cue?.fragment?.fragmentId)
+	}
+
+	@Test
 	fun readerNavigationToSyncedFragmentBuildsMedia3SeekTargetAndSuppressesOverlayLoop() {
 		val timeline = mediaOverlayTimeline()
 		val plan = readaloudPlaybackPlan()

@@ -137,6 +137,7 @@ fun StorytellerReadaloudPackage.toReadaloudAudioSession(
 				id = resourceKey,
 				resourceKey = resourceKey,
 				href = audioHrefResolver(resource.href),
+				overlayResourceHref = normalizedMediaOverlayResource(resource.href),
 				title = displayTitle,
 				displayTitle = displayTitle,
 				sectionLabel = resource.sectionLabel ?: resource.label,

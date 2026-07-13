@@ -84,15 +84,18 @@ private fun MediaOverlayClip.toOverlayCue(): ReaderOverlayCue =
 private fun ReadaloudPlaybackPlan.audioResourceForOverlay(
 	position: ReadaloudPlaybackPosition
 ): String? =
-	mediaItems.getOrNull(position.trackIndex)?.uri
+	mediaItems.getOrNull(position.trackIndex)?.overlayResourceHref
+		?: mediaItems.getOrNull(position.trackIndex)?.uri
 		?: position.mediaId?.let { mediaId ->
-			mediaItems.firstOrNull { item -> item.mediaId == mediaId }?.uri
+			mediaItems.firstOrNull { item -> item.mediaId == mediaId }
+				?.let { item -> item.overlayResourceHref ?: item.uri }
 		}
 
 private fun ReadaloudPlaybackPlan.trackIndexForOverlayAudio(audioResource: String): Int? {
 	val normalized = normalizedMediaOverlayResource(audioResource)
 	return mediaItems.indexOfFirst { item ->
-		normalizedMediaOverlayResource(item.uri) == normalized || item.mediaId == audioResource
+		normalizedMediaOverlayResource(item.overlayResourceHref ?: item.uri) == normalized ||
+			item.mediaId == audioResource
 	}.takeIf { index -> index >= 0 }
 }
 
