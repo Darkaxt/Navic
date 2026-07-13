@@ -103,7 +103,7 @@
 
 		<!-- needed for widgets to control playback -->
 		<receiver
-			android:name="androidx.media3.session.MediaButtonReceiver"
+			android:name="paige.navic.shared.PlaybackMediaButtonReceiver"
 			android:exported="true">
 			<intent-filter>
 				<action android:name="android.intent.action.MEDIA_BUTTON" />
