@@ -33,6 +33,7 @@ class StorytellerReadaloudRuntimeLoaderTest {
 
 		val runtime = loader.load(request)
 		val openStep = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
 			publicationKey = runtime.publicationUrl,
 			openCommand = ReaderBridgeCommand.OpenPublication(
 				url = runtime.publicationUrl,
@@ -88,7 +89,7 @@ class StorytellerReadaloudRuntimeLoaderTest {
 					mediaOverlayEnabled = true
 				)
 			),
-			openStep.commands
+			openStep.commands.map { it.command }
 		)
 	}
 

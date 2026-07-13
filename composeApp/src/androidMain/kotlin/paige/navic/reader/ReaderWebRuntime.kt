@@ -61,7 +61,7 @@ object ReaderWebRuntime {
 		setWebContentsDebuggingEnabled(WebContentsDebuggingDefaultEnabled)
 	}
 
-	fun commandScript(command: ReaderBridgeCommand): String =
+	fun commandScript(command: ReaderBridgeDispatchCommand): String =
 		command.toJavaScript()
 }
 

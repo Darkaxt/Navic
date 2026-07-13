@@ -157,19 +157,21 @@ actual fun ReaderEngineWebViewHost(
 			return
 		}
 		val step = commandDispatchState.commandsForReadyReaderRuntime(
+			runtimeGeneration = webViewGeneration,
 			publicationKey = currentPublicationKey,
 			openCommand = currentOpenCommand,
 			command = currentCommand,
 			commandKey = currentCommandKey
 		)
 		commandDispatchState = step.state
-		step.commands.forEach { readerCommand ->
+		step.commands.forEach { dispatch ->
 			Logger.i(
 				ReaderEngineWebViewHostTag,
-				"Dispatching reader engine command: ${readerCommand.engineDebugLabel()} " +
+				"Dispatching reader engine command: ${dispatch.command.engineDebugLabel()} " +
+					"id=${dispatch.id} generation=$webViewGeneration " +
 					"publication=${currentPublicationKey.hashCode()} key=$currentCommandKey"
 			)
-			evaluateJavascript(ReaderWebRuntime.commandScript(readerCommand), null)
+			evaluateJavascript(ReaderWebRuntime.commandScript(dispatch), null)
 		}
 	}
 
