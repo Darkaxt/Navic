@@ -17,7 +17,8 @@ data class ReaderOverlayCue(
 data class ReaderOverlayReaderTarget<T>(
 	val cue: ReaderOverlayCue,
 	val seekTarget: T,
-	val repeatSeek: Boolean = false
+	val repeatSeek: Boolean = false,
+	val updateRepeatedCue: Boolean = true
 )
 
 data class ReaderOverlayReaderStep<T>(
@@ -34,12 +35,12 @@ interface ReaderOverlayTimelineAdapter<PlaybackInput, ReaderInput, SeekTarget> {
 fun ReaderOverlaySyncState.setSyncEnabled(enabled: Boolean): ReaderOverlaySyncState {
 	if (enabled == syncEnabled) return this
 	val nextState = copy(syncEnabled = enabled)
-	return if (!enabled) nextState.clearActiveOverlay() else nextState
+	return if (!enabled) nextState.clearOverlayIfNeeded() else nextState
 }
 
 fun ReaderOverlaySyncState.followPlaybackCue(cue: ReaderOverlayCue?): ReaderOverlaySyncState {
 	if (!syncEnabled) return this
-	return if (cue == null) clearActiveOverlay() else followCue(cue)
+	return if (cue == null) clearOverlayIfNeeded() else followCue(cue)
 }
 
 fun <T> ReaderOverlaySyncState.followReaderTarget(
@@ -47,7 +48,9 @@ fun <T> ReaderOverlaySyncState.followReaderTarget(
 ): ReaderOverlayReaderStep<T> {
 	if (!syncEnabled || target == null) return ReaderOverlayReaderStep(this)
 	val repeatedCue = target.cue.key == activeCueKey
-	val nextState = followCue(target.cue)
+	val nextState =
+		if (repeatedCue && !target.updateRepeatedCue) this
+		else followCue(target.cue)
 	val commandChanged = nextState.engineCommandKey != engineCommandKey
 	return ReaderOverlayReaderStep(
 		state = nextState,
@@ -73,7 +76,7 @@ private fun ReaderOverlaySyncState.followCue(cue: ReaderOverlayCue): ReaderOverl
 		this
 	}
 
-private fun ReaderOverlaySyncState.clearActiveOverlay(): ReaderOverlaySyncState =
+internal fun ReaderOverlaySyncState.clearOverlayIfNeeded(): ReaderOverlaySyncState =
 	if (activeCueKey == null) {
 		this
 	} else {

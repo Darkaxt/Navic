@@ -749,8 +749,8 @@ data class ReaderController(
 						chrome = state.chrome.onReadaloudPlaybackState(playbackState.copy(isPlaying = false)),
 						whispersync = currentWhispersync.copy(
 							sync = syncState.copy(
-								activeSegmentKey = null,
-								activeSegmentProgressTextEnd = null
+								activeCueKey = null,
+								activeProgressTextEnd = null
 							),
 							status = ReaderWhispersyncStatus(
 								kind = ReaderWhispersyncStatusKind.NoActiveCue,
@@ -883,7 +883,7 @@ data class ReaderController(
 		val visibleRange = currentWhispersync.visibleTextRange
 			?: return ReaderControllerStep(this)
 		val syncStep = currentWhispersync.sync
-			.copy(activeSegmentKey = null)
+			.copy(activeCueKey = null)
 			.onVisibleTextRange(
 				timeline = currentWhispersync.timeline,
 				textHref = visibleRange.textHref,
@@ -944,7 +944,7 @@ data class ReaderController(
 				"audioFollow=${event.isWhispersyncAudioFollowRange()} " +
 				"href=${event.textHref.whispersyncLogValue()} " +
 				"textRange=${event.visibleStart}-${event.visibleEnd} " +
-				"active=${currentWhispersync.sync.activeSegmentKey.whispersyncLogValue(48)}"
+				"active=${currentWhispersync.sync.activeCueKey.whispersyncLogValue(48)}"
 		)
 		if (event.isWhispersyncAudioFollowRange()) {
 			return ReaderControllerStep(
@@ -1024,7 +1024,7 @@ data class ReaderController(
 			WhispersyncSyncLogTag,
 			"Whispersync text point source=${event.source.whispersyncLogValue()} " +
 				"href=${event.textHref.whispersyncLogValue()} textOffset=${event.textOffset} " +
-				"active=${currentWhispersync.sync.activeSegmentKey.whispersyncLogValue(48)}"
+				"active=${currentWhispersync.sync.activeCueKey.whispersyncLogValue(48)}"
 		)
 		val syncStep = currentWhispersync.sync.onTextPoint(
 			timeline = currentWhispersync.timeline,

@@ -78,6 +78,29 @@ class ReaderOverlaySyncReducerTest {
 	}
 
 	@Test
+	fun repeatedReaderTargetCanPreservePlaybackProgressWithoutSeeking() {
+		val activeCue = firstCue.copy(
+			fragment = firstCue.fragment.copy(textProgressEnd = 20),
+			progressTextEnd = 20
+		)
+		val active = ReaderOverlaySyncState().followPlaybackCue(activeCue)
+		val visibleRangeTarget = ReaderOverlayReaderTarget(
+			cue = firstCue.copy(
+				fragment = firstCue.fragment.copy(textProgressEnd = 10),
+				progressTextEnd = 10
+			),
+			seekTarget = "visible-range",
+			updateRepeatedCue = false
+		)
+
+		val repeated = active.followReaderTarget(visibleRangeTarget)
+
+		assertNull(repeated.seekTarget)
+		assertEquals(20, repeated.state.activeProgressTextEnd)
+		assertEquals(active.engineCommandKey, repeated.state.engineCommandKey)
+	}
+
+	@Test
 	fun disablingActiveSyncClearsExactlyOnceAndSuppressesPlayback() {
 		val active = ReaderOverlaySyncState().followPlaybackCue(firstCue)
 		val disabled = active.setSyncEnabled(false)

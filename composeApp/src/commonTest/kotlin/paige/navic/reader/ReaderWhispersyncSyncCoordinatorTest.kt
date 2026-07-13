@@ -6,8 +6,48 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReaderWhispersyncSyncCoordinatorTest {
+	@Test
+	fun typedAdapterResolvesProgressiveCueAndReaderRepeatPolicies() {
+		val adapter = WhispersyncOverlaySyncAdapter(whispersyncTimeline())
+
+		val playbackCue = assertNotNull(
+			adapter.playbackCue(
+				WhispersyncPlaybackSyncInput(
+					audioResource = "Audio/chapter01.m4b",
+					positionMs = 1_500
+				)
+			)
+		)
+		assertEquals("seg-1", playbackCue.fragment.fragmentId)
+		assertEquals(14, playbackCue.progressTextEnd)
+
+		val visibleRange = assertNotNull(
+			adapter.readerTarget(
+				WhispersyncReaderSyncInput.VisibleRange(
+					textHref = "Text/chapter1.xhtml",
+					visibleStart = 70,
+					visibleEnd = 125
+				)
+			)
+		)
+		assertFalse(visibleRange.repeatSeek)
+		assertEquals(5_000L, visibleRange.seekTarget.positionMs)
+
+		val textPoint = assertNotNull(
+			adapter.readerTarget(
+				WhispersyncReaderSyncInput.TextPoint(
+					textHref = "Text/chapter1.xhtml",
+					textOffset = 90
+				)
+			)
+		)
+		assertTrue(textPoint.repeatSeek)
+		assertEquals(5_000L, textPoint.seekTarget.positionMs)
+	}
+
 	@Test
 	fun playbackPositionUsesSidecarTrackIndexWhenPlaybackResourceDiffersFromAudioHref() {
 		val timeline = WhispersyncTimeline(
@@ -72,7 +112,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		)
 		assertEquals(ReaderEngineCommand.ClearMediaOverlay, outsideSegment.engineCommand)
 		assertEquals(3L, outsideSegment.engineCommandKey)
-		assertNull(outsideSegment.activeSegmentKey)
+		assertNull(outsideSegment.activeCueKey)
 	}
 
 	@Test
@@ -245,7 +285,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, status.kind)
 		assertFalse(status.requiresAttention)
 		assertFalse(status.repairable)
-		assertNull(gap.state.activeSegmentKey)
+		assertNull(gap.state.activeCueKey)
 	}
 
 	@Test
@@ -292,7 +332,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 		val disabled = active.setSyncEnabled(false)
 
 		assertEquals(false, disabled.syncEnabled)
-		assertNull(disabled.activeSegmentKey)
+		assertNull(disabled.activeCueKey)
 		assertEquals(ReaderEngineCommand.ClearMediaOverlay, disabled.engineCommand)
 		assertEquals(2L, disabled.engineCommandKey)
 

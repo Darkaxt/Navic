@@ -186,7 +186,7 @@ private fun ReaderOverlaySyncState.withEngineCommand(
 
 Run the reducer test class without the source test. Expected: all reducer tests pass with zero failures.
 
-GREEN evidence: `ReaderOverlaySyncReducerTest` passed 4/4 with zero failures, errors, or skips. The test covers static apply/clear deduplication, progressive update deduplication, repeated reader-target policy, and disabled-sync suppression.
+GREEN evidence: `ReaderOverlaySyncReducerTest` initially passed 4/4, then passed 5/5 after the Whispersync migration added the repeated-cue progress-preservation policy. The suite has zero failures, errors, or skips and covers static apply/clear deduplication, progressive update deduplication, repeated reader-target seek/update policies, and disabled-sync suppression.
 
 - [x] **Step 4: Commit the reducer**
 
@@ -269,7 +269,7 @@ Expected: every migrated readaloud test passes with zero failures.
 
 GREEN evidence: `ReaderMediaOverlaySyncAdapterTest` passed 3/3 and `ReaderReadaloudSyncCoordinatorTest` passed 3/3 with zero failures, errors, or skips. The Android host compiled with direct `ReaderReadaloudSyncState`; production has no `ReaderMediaOverlaySyncState` reference.
 
-- [ ] **Step 6: Commit the media-overlay migration**
+- [x] **Step 6: Commit the media-overlay migration**
 
 Commit message: `refactor(reader): adapt readaloud overlay sync`.
 
@@ -281,15 +281,17 @@ Commit message: `refactor(reader): adapt readaloud overlay sync`.
 - Modify: `composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderController.kt`
 - Modify: `composeApp/src/commonTest/kotlin/paige/navic/reader/ReaderWhispersyncSyncCoordinatorTest.kt`
 
-- [ ] **Step 1: Extend Whispersync tests before migration**
+- [x] **Step 1: Extend Whispersync tests before migration**
 
 Keep all current tests and add assertions that a repeated visible range emits neither seek nor command, while a repeated text point remains seekable when the adapter marks it `repeatSeek=true`. Add a test proving progressive playback on the same segment publishes `UpdateMediaOverlayProgress`, not a second apply.
 
-- [ ] **Step 2: Run the new tests and capture RED for the missing adapter contract**
+- [x] **Step 2: Run the new tests and capture RED for the missing adapter contract**
 
 Require `WhispersyncOverlaySyncAdapter` in the tests. Expected: compilation fails before production implementation.
 
-- [ ] **Step 3: Implement typed Whispersync inputs and adapter**
+RED evidence: host-test compilation failed with unresolved `WhispersyncOverlaySyncAdapter`, `WhispersyncPlaybackSyncInput`, and `WhispersyncReaderSyncInput`. A second reducer RED run failed solely because the requested `updateRepeatedCue` policy did not yet exist.
+
+- [x] **Step 3: Implement typed Whispersync inputs and adapter**
 
 ```kotlin
 data class WhispersyncPlaybackSyncInput(
@@ -312,7 +314,7 @@ class WhispersyncOverlaySyncAdapter(
 
 Playback resolution uses the current audio resource/track rules, visual lead, playback speed, `nextSegmentAfter`, and progressive text marker. Visible ranges return `repeatSeek=false`; text points return `repeatSeek=true` to preserve current user-initiated seeking within an already active segment.
 
-- [ ] **Step 4: Delegate coordinator transitions to the shared reducer**
+- [x] **Step 4: Delegate coordinator transitions to the shared reducer**
 
 Replace the Whispersync state declaration with:
 
@@ -324,11 +326,13 @@ Keep every existing status and log branch in `ReaderWhispersyncSyncCoordinator.k
 
 Update `ReaderController` field references from `activeSegmentKey`/`activeSegmentProgressTextEnd` to `activeCueKey`/`activeProgressTextEnd`. Do not alter the page-boundary pause, status, progress-save, repair, or audio-seek behavior.
 
-- [ ] **Step 5: Run Whispersync GREEN**
+- [x] **Step 5: Run Whispersync GREEN**
 
 Run the coordinator, controller, playback-policy, launch-policy, progress-highlight source, and diagnostics source tests. Expected: zero failures and all existing status/progressive assertions preserved.
 
-- [ ] **Step 6: Commit the Whispersync migration**
+GREEN evidence: 120 tests passed with zero failures, errors, or skips: coordinator 9, controller 81, playback policy 12, launch policy 3, progress-highlight source 14, and diagnostics source 1. The shared reducer's 5 tests and the media/readaloud 6 tests also remained green after migration.
+
+- [x] **Step 6: Commit the Whispersync migration**
 
 Commit message: `refactor(reader): adapt whispersync overlay sync`.
 
