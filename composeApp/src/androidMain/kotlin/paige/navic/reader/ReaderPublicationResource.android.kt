@@ -18,7 +18,6 @@ import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 
 internal const val ReaderPublicationCachePathPrefix = "/reader-cache/"
-private const val ReaderPublicationCacheDirectoryName = "reader"
 private const val ReaderPublicationCachePublicationDirectory = "reader-publications"
 
 data class ReaderPublicationResourceRequest(
@@ -116,7 +115,7 @@ private suspend fun ReaderPublicationResourceRequest.fetchReaderDevSourceBytes()
 	}
 
 internal fun readerPublicationCacheRoot(context: Context): File =
-	File(context.cacheDir, ReaderPublicationCacheDirectoryName)
+	readerManagedStorageRoot(context)
 
 internal fun readerPublicationAssetUrl(relativePath: String): String =
 	ReaderWebRuntime.AssetLoaderOrigin +

@@ -261,7 +261,7 @@ class ReaderRuntimeCommonChromeTest {
 
 		assertContains(fontImporterText, "val cachedFontBytes: Long")
 		assertContains(fontImporterText, "fun clearImportedFonts()")
-		assertContains(androidImporterText, "ReaderImportedFontCache(readerPublicationCacheRoot(context))")
+		assertContains(androidImporterText, "ReaderImportedFontCache(readerManagedStorageRoot(context))")
 		assertContains(androidImporterText, "fontCache.cachedFontsByteSize()")
 		assertContains(androidImporterText, "fontCache.clearImportedFonts()")
 		assertContains(ebooksScreenText, "storageSizeText(fontImporter.cachedFontBytes)")

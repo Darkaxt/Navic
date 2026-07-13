@@ -29,7 +29,7 @@ import paige.navic.reader.ReaderRemoteFontDownloadStatusFailed
 import paige.navic.reader.ReaderRemoteFontDownloadStatusNone
 import paige.navic.reader.ReaderRemoteFontDownloadStatusPaused
 import paige.navic.reader.ReaderRemoteFontManifestEntry
-import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerManagedStorageRoot
 import java.io.ByteArrayOutputStream
 import java.net.URL
 
@@ -43,7 +43,7 @@ actual fun rememberReaderFontImporter(
 	val currentOnImported by rememberUpdatedState(onImported)
 	val currentOnError by rememberUpdatedState(onError)
 	val fontCache = remember(context) {
-		ReaderImportedFontCache(readerPublicationCacheRoot(context))
+		ReaderImportedFontCache(readerManagedStorageRoot(context))
 	}
 	var cachedFontBytesState by remember(fontCache) {
 		mutableLongStateOf(fontCache.cachedFontsByteSize())

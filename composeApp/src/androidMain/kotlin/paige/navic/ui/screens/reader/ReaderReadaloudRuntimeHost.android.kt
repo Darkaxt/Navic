@@ -21,12 +21,13 @@ import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadaloudSyncState
+import paige.navic.reader.ReaderSessionLease
 import paige.navic.reader.StorytellerReadaloudRuntime
 import paige.navic.reader.StorytellerReadaloudRuntimeLoader
 import paige.navic.reader.metadataLabelsForPlaybackPosition
 import paige.navic.reader.onPlaybackPosition
 import paige.navic.reader.onReaderEvent
-import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerManagedStorageRoot
 import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.reader.setSyncEnabled
 import paige.navic.ui.navigation.Screen
@@ -58,6 +59,7 @@ actual fun ReaderReadaloudRuntimeHost(
 	val currentOnEngineCommand by rememberUpdatedState(onEngineCommand)
 	val currentOnPlaybackState by rememberUpdatedState(onPlaybackState)
 	val currentOnError by rememberUpdatedState(onError)
+	val sessionLeases = remember { mutableListOf<ReaderSessionLease>() }
 	val controller = remember(context) {
 		ReadaloudAudioController(context) { position ->
 			val activeRuntime = currentRuntime ?: return@ReadaloudAudioController
@@ -86,9 +88,10 @@ actual fun ReaderReadaloudRuntimeHost(
 		}
 	}
 
-	DisposableEffect(controller) {
+	DisposableEffect(controller, sessionLeases) {
 		onDispose {
 			controller.release()
+			sessionLeases.forEach(ReaderSessionLease::release)
 		}
 	}
 
@@ -117,7 +120,7 @@ actual fun ReaderReadaloudRuntimeHost(
 						)
 					}
 				},
-				cacheRoot = readerPublicationCacheRoot(context)
+				cacheRoot = readerManagedStorageRoot(context)
 			).load(
 				ReaderPublicationResourceRequest(
 					bookId = reader.bookId,
@@ -131,6 +134,7 @@ actual fun ReaderReadaloudRuntimeHost(
 			)
 		}.fold(
 			onSuccess = { loadedRuntime ->
+				sessionLeases += loadedRuntime.sessionLease
 				runtime = loadedRuntime
 				Logger.i(
 					ReadaloudPlaybackLogTag,

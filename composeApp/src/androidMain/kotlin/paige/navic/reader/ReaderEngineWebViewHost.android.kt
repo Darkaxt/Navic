@@ -32,7 +32,7 @@ import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.commandsForReadyReaderRuntime
-import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerManagedStorageRoot
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
 import java.util.concurrent.atomic.AtomicBoolean
@@ -68,7 +68,7 @@ actual fun ReaderEngineWebViewHost(
 			)
 			.addPathHandler(
 				ReaderPublicationCachePathPrefix,
-				WebViewAssetLoader.InternalStoragePathHandler(context, readerPublicationCacheRoot(context))
+				WebViewAssetLoader.InternalStoragePathHandler(context, readerManagedStorageRoot(context))
 			)
 			.build()
 	}

@@ -8,6 +8,8 @@ import kotlinx.coroutines.withContext
 import paige.navic.domain.models.LidaClipCacheFileInfo
 import paige.navic.domain.models.lidaClipOfflineFileName
 import paige.navic.domain.models.lidaClipOfflineFilePrefix
+import paige.navic.reader.clearReaderSessionStorage
+import paige.navic.reader.readerSessionStorageSizeBytes
 import java.io.File
 import java.io.FileOutputStream
 
@@ -77,7 +79,7 @@ actual class StorageManager(
 	}
 
 	actual fun readerPublicationCacheSizeBytes(): Long {
-		return readerPublicationCacheDir().directorySizeBytes()
+		return readerSessionStorageSizeBytes(context)
 	}
 
 	actual suspend fun saveFile(path: String, channel: ByteReadChannel) {
@@ -98,7 +100,7 @@ actual class StorageManager(
 	}
 
 	actual fun clearReaderPublicationCache() {
-		readerPublicationCacheDir().listFiles()?.forEach { it.deleteRecursively() }
+		clearReaderSessionStorage(context)
 	}
 
 	actual fun clearLidaClipOfflineFiles() {
@@ -126,12 +128,6 @@ actual class StorageManager(
 		return dir
 	}
 
-	private fun readerPublicationCacheDir(): File {
-		val dir = File(context.cacheDir, "reader/reader-publications")
-		if (!dir.exists()) dir.mkdirs()
-		return dir
-	}
-
 	private fun lidaClipOfflineDir(): File {
 		val dir = File(context.filesDir, "lida_clips")
 		if (!dir.exists()) dir.mkdirs()
@@ -151,8 +147,4 @@ actual class StorageManager(
 				)
 			}
 
-	private fun File.directorySizeBytes(): Long =
-		walkTopDown()
-			.filter { it.isFile }
-			.sumOf { file -> file.length().coerceAtLeast(0L) }
 }

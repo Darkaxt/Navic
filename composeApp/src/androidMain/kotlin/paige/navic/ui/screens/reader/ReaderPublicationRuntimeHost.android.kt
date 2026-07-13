@@ -1,9 +1,11 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import org.koin.compose.koinInject
 import paige.navic.domain.repositories.BinderyReadingProgress
@@ -12,8 +14,9 @@ import paige.navic.reader.BinderyReaderPublicationResolver
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderPublicationResourceRequest
+import paige.navic.reader.ReaderSessionLease
 import paige.navic.reader.ReaderWebRuntime
-import paige.navic.reader.readerPublicationCacheRoot
+import paige.navic.reader.readerManagedStorageRoot
 import paige.navic.reader.readerPublicationResourceLogLabel
 import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.navigation.Screen
@@ -33,6 +36,13 @@ actual fun ReaderPublicationRuntimeHost(
 	val repository = koinInject<BinderyRepository>()
 	val currentOnPublicationReady by rememberUpdatedState(onPublicationReady)
 	val currentOnError by rememberUpdatedState(onError)
+	val sessionLeases = remember { mutableListOf<ReaderSessionLease>() }
+
+	DisposableEffect(sessionLeases) {
+		onDispose {
+			sessionLeases.forEach(ReaderSessionLease::release)
+		}
+	}
 
 	LaunchedEffect(
 		reader.bookId,
@@ -84,7 +94,7 @@ actual fun ReaderPublicationRuntimeHost(
 						)
 					}
 				},
-				cacheRoot = readerPublicationCacheRoot(context)
+				cacheRoot = readerManagedStorageRoot(context)
 			).resolve(
 				ReaderPublicationResourceRequest(
 					bookId = reader.bookId,
@@ -109,6 +119,7 @@ actual fun ReaderPublicationRuntimeHost(
 			resolved
 		}.fold(
 			onSuccess = { resolved ->
+				sessionLeases += resolved.sessionLease
 				val shellCoverUrl = if (externalShellCoverHref == null) {
 					preferredShellCoverUrl ?: resolved.shellCoverUrl
 				} else {

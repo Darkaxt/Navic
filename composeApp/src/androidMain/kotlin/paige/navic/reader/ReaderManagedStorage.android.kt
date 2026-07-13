@@ -26,6 +26,21 @@ internal fun readerManagedStorageRoot(context: Context): File {
 	return managedRoot
 }
 
+internal fun readerLegacyStorageRoot(context: Context): File =
+	File(context.cacheDir, ReaderManagedStorageDirectoryName)
+
+internal fun readerSessionStorageSizeBytes(context: Context): Long =
+	readerSessionStorageSizeBytes(
+		readerManagedStorageRoot(context),
+		readerLegacyStorageRoot(context)
+	)
+
+internal fun clearReaderSessionStorage(context: Context): Int =
+	clearReaderSessionStorage(
+		readerManagedStorageRoot(context),
+		readerLegacyStorageRoot(context)
+	)
+
 internal fun initializeReaderManagedStorage(
 	managedRoot: File,
 	legacyRoot: File

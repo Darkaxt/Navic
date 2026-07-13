@@ -81,21 +81,23 @@ Run `BinderyReaderPublicationResolverTest`, `StorytellerReadaloudAudioCacheTest`
 
 ### Task 4: Bind Android hosts and storage UI to managed ownership
 
-- [ ] **Step 1: Write failing Android source-contract tests**
+- [x] **Step 1: Write failing Android source-contract tests**
 
 Prove the asset loader and font importer use `readerManagedStorageRoot`, both runtime hosts retain/release leases, read-aloud releases the controller before files, and `StorageManager` delegates size/clear to managed plus legacy session helpers.
 
-- [ ] **Step 2: Run RED and implement host/storage wiring**
+- [x] **Step 2: Run RED and implement host/storage wiring**
 
 Update Android call sites. Runtime hosts keep leases until disposal so renderer-generation recovery does not lose files. Keep common `ReaderScreen` and all ebook animation sources untouched.
 
-- [ ] **Step 3: Run focused and adjacent owner suites**
+- [x] **Step 3: Run focused and adjacent owner suites**
 
 Run managed-storage contracts, resolver/font/Storyteller suites, WebView lifecycle/ack contracts, storage UI source tests, and reader runtime navigation/chrome tests. Record exact JUnit counts.
 
-- [ ] **Step 4: Commit host ownership wiring**
+- [x] **Step 4: Commit host ownership wiring**
 
 Commit after focused tests pass with zero failures/errors.
+
+Validation evidence: 25/25 exact storage-owned and adjacent Android host tests passed with zero failures, errors, or skips. A broader 104-test source-contract run also produced 85 passes; its 19 failures are confined to unrelated common ebook component expectations owned by the concurrent animation worktrees.
 
 ### Task 5: Validate, document, and release Android
 
