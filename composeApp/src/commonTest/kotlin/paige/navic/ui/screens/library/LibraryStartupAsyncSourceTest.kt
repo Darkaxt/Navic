@@ -689,7 +689,7 @@ class LibraryStartupAsyncSourceTest {
 			"ArtworkColorDao should be available through DI."
 		)
 		assertTrue(
-			"singleOf(::ArtworkColorManager)" in managerModuleSource,
+			"single { ArtworkColorManager(get()) }" in managerModuleSource,
 			"ArtworkColorManager should be shared instead of each composable owning its own cache."
 		)
 	}

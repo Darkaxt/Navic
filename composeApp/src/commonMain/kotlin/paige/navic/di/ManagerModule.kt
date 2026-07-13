@@ -36,6 +36,6 @@ val managerModule = module {
 	singleOf(::SessionManager)
 	single { PreferenceManager(get(), get()) }
 	singleOf(::SnackBarManager)
-	singleOf(::ArtworkColorManager)
+	single { ArtworkColorManager(get()) }
 	singleOf(::AppLogManager)
 }
