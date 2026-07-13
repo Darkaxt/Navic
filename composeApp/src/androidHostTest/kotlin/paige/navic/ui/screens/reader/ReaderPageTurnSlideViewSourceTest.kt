@@ -23,10 +23,10 @@ class ReaderPageTurnSlideViewSourceTest {
 		val forward = source.substringAfter("private fun drawForward(").substringBefore("private fun drawBackward(")
 
 		assertTrue(
-			forward.indexOf("canvas.drawBitmap(destination") < forward.indexOf("canvas.translate(-width * progress"),
-			"The destination must be visible at rest before the current page moves."
+			forward.indexOf("canvas.drawBitmap(destination") < forward.indexOf("drawActiveLeaf("),
+			"The destination must be visible at rest before the current leaf deforms."
 		)
-		assertContains(forward, "canvas.drawBitmap(current")
+		assertContains(forward, "bitmap = current")
 	}
 
 	@Test
@@ -35,24 +35,27 @@ class ReaderPageTurnSlideViewSourceTest {
 		val backward = source.substringAfter("private fun drawBackward(").substringBefore("private fun drawMovingEdge(")
 
 		assertTrue(
-			backward.indexOf("canvas.drawBitmap(current") < backward.indexOf("canvas.translate(-width + width * progress"),
-			"The current page must stay at rest underneath the incoming previous page."
+			backward.indexOf("canvas.drawBitmap(current") < backward.indexOf("drawActiveLeaf("),
+			"The current page must stay at rest underneath the incoming previous leaf."
 		)
-		assertContains(backward, "canvas.drawBitmap(destination")
+		assertContains(backward, "bitmap = destination")
 	}
 
 	@Test
-	fun slideRendererHasNoCurlMeshOrReverseFace() {
+	fun slideRendererUsesTheReusableFrontLeafMeshWithoutReverseFace() {
 		val source = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
 
-		assertFalse(source.contains("drawBitmapMesh"))
+		assertContains(source, "ReaderPageTurnWaveGeometry")
+		assertContains(source, "canvas.drawVertices(")
+		assertFalse(source.contains("canvas.translate(-width * progress"))
+		assertFalse(source.contains("canvas.translate(-width + width * progress"))
 		assertFalse(source.contains("ReaderPageTurnEdgeFoldGeometry"))
 		assertFalse(source.contains("turningReverse"))
 		assertFalse(source.contains("underneath"))
 	}
 
 	@Test
-	fun controllerAttachesTheFlatRenderer() {
+	fun controllerAttachesTheSnapshotWaveRenderer() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 
 		assertContains(controller, "ReaderPageTurnSlideView")

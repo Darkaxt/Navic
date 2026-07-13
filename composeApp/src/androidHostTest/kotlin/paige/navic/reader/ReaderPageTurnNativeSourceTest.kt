@@ -169,6 +169,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(renderer, "drawForward")
 		assertContains(renderer, "drawBackward")
 		assertContains(renderer, "drawMovingEdge")
+		assertContains(renderer, "canvas.drawVertices(")
 		assertFalse(renderer.contains("drawBitmapMesh"))
 		assertContains(controller, "animateCommit")
 		assertContains(controller, "animateRelax")
@@ -313,7 +314,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(renderer, "fun setTransition(")
 		assertContains(renderer, "transition.source.bitmap")
 		assertContains(renderer, "transition.destination.bitmap")
-		assertContains(renderer, "if (showFinalBase)")
+		assertContains(renderer, "if (showFinalBase || progress >= 1f)")
 		assertContains(renderer, "canvas.drawBitmap(destination, 0f, 0f, bitmapPaint)")
 		assertFalse(renderer.contains("turningReverse"))
 		assertFalse(renderer.contains("underneath"))
@@ -330,18 +331,20 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun portraitRendererUsesTheSameFlatDirectionalSlideContract() {
+	fun portraitRendererUsesTheSameDirectionalFrontWaveContract() {
 		val renderer = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
 
 		assertContains(renderer, "drawForward")
 		assertContains(renderer, "drawBackward")
-		assertContains(renderer, "canvas.translate(-width * progress, 0f)")
-		assertContains(renderer, "canvas.translate(-width + width * progress, 0f)")
+		assertContains(renderer, "ReaderPageTurnWaveGeometry")
+		assertContains(renderer, "drawActiveLeaf(")
+		assertFalse(renderer.contains("canvas.translate(-width * progress, 0f)"))
+		assertFalse(renderer.contains("canvas.translate(-width + width * progress, 0f)"))
 		assertFalse(renderer.contains("Camera"))
 	}
 
 	@Test
-	fun flatSlidePathDoesNotCaptureReverseOrUnderneathSurfaces() {
+	fun snapshotWavePathDoesNotCaptureReverseOrUnderneathSurfaces() {
 		val renderer = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 

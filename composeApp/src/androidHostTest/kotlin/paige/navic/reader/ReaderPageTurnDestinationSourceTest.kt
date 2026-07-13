@@ -331,7 +331,7 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun flatSlideStagesOnlyOneDestinationSnapshot() {
+	fun snapshotWaveStagesOnlyOneDestinationSnapshot() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
 		assertContains(source, "exposePageTurnPreviewFinal")
