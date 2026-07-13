@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ResolvedArtworkColorSchemeTest {
 	@Test
@@ -43,6 +44,26 @@ class ResolvedArtworkColorSchemeTest {
 				coverArtId = " ",
 				imageUrl = "",
 				imageCacheKey = null
+			)
+		)
+	}
+
+	@Test
+	fun artworkSourceIdentityChangesWithUrlAndPrefersStableCacheKey() {
+		val first = artworkColorSourceIdentity("https://example.test/first.jpg", null)
+		val second = artworkColorSourceIdentity("https://example.test/second.jpg", null)
+
+		assertNotEquals(first, second)
+		val keyedIdentity = artworkColorSourceIdentity(
+			sourceUrl = "https://example.test/signed.jpg?token=secret",
+			imageCacheKey = "artist:cover:v2"
+		)
+		assertTrue(keyedIdentity?.startsWith("cache:artist:cover:v2:url:") == true)
+		assertNotEquals(
+			keyedIdentity,
+			artworkColorSourceIdentity(
+				sourceUrl = "https://example.test/replaced.jpg?token=secret",
+				imageCacheKey = "artist:cover:v2"
 			)
 		)
 	}

@@ -12,11 +12,13 @@ class SessionLogoutOrderingSourceTest {
 			.substringBefore("private suspend fun clearOutgoingSyncState()")
 		val endSession = logout.indexOf("sessionLifetime.endSession()")
 		val clearQueue = logout.indexOf("clearOutgoingSyncState()")
+		val clearArtwork = logout.indexOf("artworkColorManager.clear()")
 		val clearUsername = logout.indexOf("settings[\"username\"] = null")
 
 		assertTrue(endSession >= 0)
 		assertTrue(clearQueue > endSession)
-		assertTrue(clearUsername > clearQueue)
+		assertTrue(clearArtwork > clearQueue)
+		assertTrue(clearUsername > clearArtwork)
 		assertTrue("syncActionDao.clearAllActions()" in source)
 		assertTrue("withContext(NonCancellable)" in logout)
 	}

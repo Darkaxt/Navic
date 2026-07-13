@@ -77,6 +77,9 @@ fun rememberResolvedArtworkColorScheme(
 			imageCacheKey = imageCacheKey
 		)
 	}
+	val sourceIdentity = remember(sourceUrl, imageCacheKey) {
+		artworkColorSourceIdentity(sourceUrl = sourceUrl, imageCacheKey = imageCacheKey)
+	}
 	val requestHeaders = remember(
 		sourceUrl,
 		imageUrl,
@@ -99,16 +102,17 @@ fun rememberResolvedArtworkColorScheme(
 		initialValue = null,
 		effectiveEnabled,
 		artworkKey,
+		sourceIdentity,
 		sourceUrl,
 		requestHeaders,
 		imageCacheKey
 	) {
-		if (!effectiveEnabled || artworkKey == null || sourceUrl == null) {
+		if (!effectiveEnabled || artworkKey == null || sourceIdentity == null || sourceUrl == null) {
 			value = null
 			return@produceState
 		}
 
-		colorManager.getColor(artworkKey)?.let { cachedColor ->
+		colorManager.getColor(artworkKey, sourceIdentity)?.let { cachedColor ->
 			value = cachedColor
 			return@produceState
 		}
@@ -118,8 +122,8 @@ fun rememberResolvedArtworkColorScheme(
 				val request = ImageRequest.Builder(coilContext)
 					.data(sourceUrl)
 					.size(128)
-					.memoryCacheKey("${imageCacheKey ?: artworkKey}:color")
-					.diskCacheKey(imageCacheKey ?: artworkKey)
+					.memoryCacheKey("${imageCacheKey ?: artworkKey}:$sourceIdentity:color")
+					.diskCacheKey("${imageCacheKey ?: artworkKey}:$sourceIdentity")
 					.diskCachePolicy(CachePolicy.ENABLED)
 					.memoryCachePolicy(CachePolicy.ENABLED)
 					.apply {
@@ -139,7 +143,7 @@ fun rememberResolvedArtworkColorScheme(
 
 		extractedColor?.let { color ->
 			value = color
-			colorManager.putColor(artworkKey, color)
+			colorManager.putColor(artworkKey, sourceIdentity, color)
 		}
 	}
 
@@ -161,6 +165,23 @@ internal fun artworkColorCacheKey(
 	return when {
 		imageUrl.nonBlankOrNull() != null && externalKey != null -> "external:$externalKey"
 		coverArtId.nonBlankOrNull() != null -> "server:${coverArtId.nonBlankOrNull()}"
+		else -> null
+	}
+}
+
+internal fun artworkColorSourceIdentity(
+	sourceUrl: String?,
+	imageCacheKey: String?
+): String? {
+	val key = imageCacheKey.nonBlankOrNull()
+	val urlFingerprint = sourceUrl.nonBlankOrNull()
+		?.hashCode()
+		?.toUInt()
+		?.toString(16)
+	return when {
+		key != null && urlFingerprint != null -> "cache:$key:url:$urlFingerprint"
+		key != null -> "cache:$key"
+		urlFingerprint != null -> "url:$urlFingerprint"
 		else -> null
 	}
 }

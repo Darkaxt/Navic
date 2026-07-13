@@ -29,7 +29,8 @@ actual val databaseModule = module {
 			.addMigrations(
 				CacheDatabaseMigration20To21,
 				CacheDatabaseMigration21To22,
-				CacheDatabaseMigration22To23
+				CacheDatabaseMigration22To23,
+				CacheDatabaseMigration23To24
 			)
 			.build()
 		runBlocking(Dispatchers.IO) {

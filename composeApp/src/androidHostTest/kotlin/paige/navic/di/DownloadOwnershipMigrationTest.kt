@@ -198,6 +198,29 @@ class DownloadOwnershipMigrationTest {
 		file.delete()
 	}
 
+	@Test
+	fun artworkColorMigrationAddsIdentityAndTimestampWithoutTrustingLegacyRows() = runBlocking {
+		val file = temporaryDatabaseFile()
+		val driver = JdbcSQLiteDriver()
+		driver.open(file.absolutePath).use { connection ->
+			connection.execute(
+				"CREATE TABLE artwork_colors (artworkKey TEXT NOT NULL PRIMARY KEY, color INTEGER NOT NULL)"
+			)
+			connection.execute("INSERT INTO artwork_colors VALUES ('album:1', 123)")
+
+			CacheDatabaseMigration23To24.migrate(connection)
+
+			connection.prepare(
+				"SELECT sourceIdentity, updatedAtEpochMillis FROM artwork_colors WHERE artworkKey = 'album:1'"
+			).use { statement ->
+				assertTrue(statement.step())
+				assertEquals("", statement.getText(0))
+				assertEquals(0L, statement.getLong(1))
+			}
+		}
+		file.delete()
+	}
+
 	private fun temporaryDatabaseFile(): File =
 		File.createTempFile("navic-download-migration-", ".db").apply { delete() }
 }

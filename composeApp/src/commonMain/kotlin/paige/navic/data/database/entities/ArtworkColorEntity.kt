@@ -6,5 +6,7 @@ import androidx.room3.PrimaryKey
 @Entity(tableName = "artwork_colors")
 data class ArtworkColorEntity(
 	@PrimaryKey val artworkKey: String,
-	val color: Int
+	val sourceIdentity: String,
+	val color: Int,
+	val updatedAtEpochMillis: Long
 )

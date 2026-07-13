@@ -13,4 +13,19 @@ interface ArtworkColorDao {
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun upsertColor(color: ArtworkColorEntity)
+
+	@Query("DELETE FROM artwork_colors WHERE artworkKey = :artworkKey")
+	suspend fun deleteColor(artworkKey: String)
+
+	@Query("DELETE FROM artwork_colors WHERE updatedAtEpochMillis < :cutoffEpochMillis")
+	suspend fun deleteOlderThan(cutoffEpochMillis: Long)
+
+	@Query(
+		"DELETE FROM artwork_colors WHERE artworkKey IN (" +
+			"SELECT artworkKey FROM artwork_colors ORDER BY updatedAtEpochMillis DESC LIMIT -1 OFFSET :maxEntries)"
+	)
+	suspend fun trimToNewest(maxEntries: Int)
+
+	@Query("DELETE FROM artwork_colors")
+	suspend fun clearAll()
 }

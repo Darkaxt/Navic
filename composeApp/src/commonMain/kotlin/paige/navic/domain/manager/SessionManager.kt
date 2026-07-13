@@ -18,7 +18,8 @@ class SessionManager(
 	private val preferenceManager: PreferenceManager,
 	private val syncActionDao: SyncActionDao,
 	private val sessionLifetime: AuthenticatedSessionLifetime,
-	private val clientFactory: SubsonicClientFactory
+	private val clientFactory: SubsonicClientFactory,
+	private val artworkColorManager: ArtworkColorManager
 ) {
 	private val transitionMutex = Mutex()
 	private val _isLoggedIn = MutableStateFlow(false)
@@ -77,7 +78,10 @@ class SessionManager(
 					settings.getString("username", "") != username
 				)
 			sessionLifetime.endSession()
-			if (accountChanged) clearOutgoingSyncState()
+			if (accountChanged) {
+				clearOutgoingSyncState()
+				artworkColorManager.clear()
+			}
 
 			settings["instanceUrl"] = normalizedInstanceUrl
 			settings["username"] = username
@@ -94,6 +98,7 @@ class SessionManager(
 			transitionMutex.withLock {
 				sessionLifetime.endSession()
 				clearOutgoingSyncState()
+				artworkColorManager.clear()
 				settings["username"] = null
 				settings["password"] = null
 				clientSlot.swap(createClient(storedInstanceUrl(), "", ""))

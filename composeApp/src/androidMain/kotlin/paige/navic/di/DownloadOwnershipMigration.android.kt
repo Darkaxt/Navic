@@ -97,6 +97,17 @@ internal object CacheDatabaseMigration22To23 : Migration(22, 23) {
 	}
 }
 
+internal object CacheDatabaseMigration23To24 : Migration(23, 24) {
+	override suspend fun migrate(connection: SQLiteConnection) {
+		connection.execute(
+			"ALTER TABLE artwork_colors ADD COLUMN sourceIdentity TEXT NOT NULL DEFAULT ''"
+		)
+		connection.execute(
+			"ALTER TABLE artwork_colors ADD COLUMN updatedAtEpochMillis INTEGER NOT NULL DEFAULT 0"
+		)
+	}
+}
+
 internal suspend fun migrateLegacyDownloadRegistry(
 	cacheDatabasePath: String,
 	downloadDao: DownloadDao,
