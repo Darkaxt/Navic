@@ -12,6 +12,7 @@ Released Tranche 5 network-policy slice: `v1.0.11-iota9`
 Released Tranche 5 consolidated delivery: `v1.0.11-iota11`
 Released Tranche 3 bridge-diagnostics slice: `v1.0.11-iota12`
 Released Tranche 3 command-acknowledgement slice: `v1.0.11-iota13`
+Released Tranche 3 bridge-lifecycle slice: `v1.0.11-iota14`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -207,7 +208,7 @@ Every tranche uses the following pipeline:
 
 **Findings:** `B3`, `B4`, `B5`, `B6`, `B8`, `B15`, `B22`, `B23`, `B24`
 
-**Current nuance:** Bridge decode diagnostics shipped in `iota12`, and acknowledgement-driven renderer replay shipped in `iota13`. The `iota14` candidate binds the JavaScript bridge to one WebView generation and tears it down before destroying that view. Cache policy, capability gating, managed session storage, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
+**Current nuance:** Bridge decode diagnostics shipped in `iota12`, acknowledgement-driven renderer replay shipped in `iota13`, and generation-scoped JavaScript bridge ownership shipped in `iota14`. Cache policy, capability gating, managed session storage, scoped debugging, and process-death restoration of small transient drafts remain separate change units.
 
 ### Change units
 
@@ -256,6 +257,9 @@ Every tranche uses the following pipeline:
 - One idempotent path deactivates the bridge, removes `NavicAndroidBridge`, clears the bound reference, and destroys the view in that order. `DisposableEffect(bridge, generation)` and `onRenderProcessGone` both use it; B5's acknowledgement ledger remains outside the generation and is retained.
 - Protocol, processor, dispatch, bridge lifecycle, Android host, packaged acknowledgement source, Storyteller, Foliate adapter, controller, and coordinator tests passed 168/168 with zero failures or errors. JavaScript syntax, Chromium command acknowledgement, page-turn model 15/15, reader smoke/trace smoke, source vendor 30/30, verifier tamper self-test, source/package attribution, debug/reader-dev assembly, and packaged vendor 30/30 also passed.
 - On `emulator-5554`, cached Alcatraz opened at `OEBPS/Text/capitancebolleta01.xhtml`, `epubcfi(/6/16!/4,/2[sigil_toc_id_4],/24/3:106)`. Killing only renderer PID `4112` kept app PID `4074` alive and created renderer PID `4238`; generation 1 replayed `reader-open-1`, restored the exact href/CFI, reached `publicationReady`, and acknowledged the same ID. The page remained visibly rendered and AndroidRuntime emitted no fatal error.
+- Released as `v1.0.11-iota14` from commit `6d6cbfec`. Build/release workflow `29249483437` completed successfully: the Android APK and GitHub release jobs passed, while every iOS job was skipped.
+- Public `Navic.apk` is 46,225,284 bytes with SHA-256 `1c71c22c77fe8f904cbb48db4f71b780e689df4e6b2ab846345cc73a761fbd8f`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=541`, `versionName=v1.0.11-iota14`.
+- The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota13`/540 on `emulator-5554`; explicit `MainActivity` start resumed successfully, the app remained alive as PID `4453`, and AndroidRuntime/MediaController startup checks were clean.
 
 ### Rollout and rollback
 
@@ -484,7 +488,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B3 | Low | Pending | Tranche 3 |
 | B4 | High | Released | `v1.0.11-iota12` |
 | B5 | High | Released | `v1.0.11-iota13` |
-| B6 | Medium | Validated; `iota14` candidate | Tranche 3 |
+| B6 | Medium | Released | `v1.0.11-iota14` |
 | B7 | Medium | Released | `v1.0.11-iota11` |
 | B8 | Low | Pending | Tranche 3 |
 | B9 | High | Released | `v1.0.11-iota1` |

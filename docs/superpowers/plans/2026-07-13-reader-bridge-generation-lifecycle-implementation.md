@@ -243,11 +243,13 @@ Fetch `fork`, run `git rev-list --left-right --count HEAD...fork/master`, and re
 
 Validation evidence: focused owner suites passed 168/168; JavaScript, Chromium, governance, package, assembly, and ADB renderer-recovery gates passed. The debug APK SHA-256 is `ef28d2e6c4ab0b578bfa90f053dd3db4d2d156a2e69cb5d56c390b2625cfb02c`. A fresh fetch reported `3 0` against unchanged `fork/master`, so no rebase was required. Release metadata is exactly `v1.0.11-iota14` / `541`, with no local/public `kappa` or `lambda` refs.
 
-- [ ] **Step 4: Publish and verify the Android release**
+- [x] **Step 4: Publish and verify the Android release**
 
 Commit/push the candidate, tag `v1.0.11-iota14`, and run `scripts/publish-github-release.ps1` with public-release readiness evidence. iOS must remain skipped. Download public `Navic.apk` and independently verify GitHub digest, SHA-256, v2 certificate, `versionCode=541`, `versionName=v1.0.11-iota14`, all 30 vendor hashes, packaged acknowledgements, and an in-place emulator upgrade/startup.
 
-- [ ] **Step 5: Record immutable release evidence and clean**
+Release evidence: workflow `29249483437` succeeded with Android release jobs passing and every iOS job skipped. The public APK is 46,225,284 bytes with SHA-256 `1c71c22c77fe8f904cbb48db4f71b780e689df4e6b2ab846345cc73a761fbd8f`, matching GitHub's digest. Signature Scheme v2 verified with certificate `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; metadata is `541` / `v1.0.11-iota14`; all 30 vendor hashes and packaged notices passed. The public APK upgraded `darkaxt.navic` in place from `iota13`, resumed `MainActivity`, remained alive as PID `4453`, and emitted no AndroidRuntime/MediaController fatal.
+
+- [x] **Step 5: Record immutable release evidence and clean**
 
 Commit/push run ID, hashes, signing/version, and ADB evidence. Verify public `master` and release refs, then remove only `C:/Users/darka/Documents/Projects/Android/.codex-temp/navic-qa-tranche-3-bridge-lifecycle` and delete `fix/qa-tranche-3-bridge-lifecycle`. Do not modify or remove the ebook worktrees.
 
