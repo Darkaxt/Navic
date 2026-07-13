@@ -621,8 +621,8 @@ export const readerColumnThresholdValue = settings =>
   readerStyleNumber(settings, 'columnThreshold', 720, 400, 1200)
 
 const readerLandscapeSpreadColumnCount = (maxColumnCount, inlineViewport, blockViewport, columnThreshold) => {
-  if (inlineViewport > blockViewport && inlineViewport >= columnThreshold * 2) return 2
-  return maxColumnCount
+  if (inlineViewport <= blockViewport || maxColumnCount > 0) return maxColumnCount
+  return Math.min(2, Math.max(1, Math.ceil(inlineViewport / columnThreshold)))
 }
 
 const readerViewportSize = () => {

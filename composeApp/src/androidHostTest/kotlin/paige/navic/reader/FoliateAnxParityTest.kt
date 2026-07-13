@@ -1001,6 +1001,16 @@ class FoliateAnxParityTest {
 				!adaptivePageBoxBody.contains("readerEffectiveMaxColumnCount"),
 			"Auto column mode must stay Anx-driven for portrait/narrow surfaces, while wide landscape must resolve to a two-page spread instead of a collapsed centered column."
 		)
+		val landscapeSpreadBody = navicReaderHelpersText
+			.substringAfter("const readerLandscapeSpreadColumnCount")
+			.substringBefore("\n}\n\nconst readerViewportSize")
+		assertTrue(
+			landscapeSpreadBody.contains("Math.ceil(inlineViewport / columnThreshold)") &&
+				landscapeSpreadBody.contains("Math.max(1") &&
+				landscapeSpreadBody.contains("Math.min(2"),
+			"Landscape Auto columns must resolve with the paginator's ceil(width / threshold) rule. " +
+				"Otherwise a viewport just below twice the threshold leaves max-column-count=0 and collapses the paginator CSS grid."
+		)
 		assertTrue(
 			!adaptivePageBoxBody.contains("marginPercent") &&
 				!adaptivePageBoxBody.contains("naturalInlineReserve") &&

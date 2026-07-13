@@ -170,6 +170,17 @@ internal class ReaderPageTurnController(
 		slideCoordinator = null
 	}
 
+	fun invalidateCurrentVisualSnapshot(reason: String) {
+		if (destroyed) return
+		cancelPrewarm()
+		val pageIndex = slideCoordinator?.visualPageIndex
+		if (pageIndex == null) {
+			bundleSource.invalidate(reason)
+		} else {
+			bundleSource.invalidatePage(pageIndex, reason)
+		}
+	}
+
 	fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {
 		if (destroyed || pageIndex == null || pageIndex < 0) return
 		val coordinator = slideCoordinator
@@ -389,6 +400,7 @@ internal class ReaderPageTurnController(
 					webView = webView,
 					plan = plan,
 					current = current,
+					currentPageIndex = activePrewarmLivePageIndex,
 					currentCanRepresentSource = plan.sourcePageIndex == activePrewarmLivePageIndex,
 					onStagingStarted = ::attachPreparationShield
 				) { transition ->

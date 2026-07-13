@@ -559,6 +559,55 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun shellCoverDismissalEvictsOnlyTheOccludedCurrentSnapshotBeforeRewarming() {
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val shellVisibility = host
+			.substringAfter("fun setShellCoverVisible(visible: Boolean)")
+			.substringBefore("private fun requestPageTurnPrewarmWhenReady()")
+		val currentSnapshotInvalidation = controller
+			.substringAfter("fun invalidateCurrentVisualSnapshot(reason: String)")
+			.substringBefore("fun synchronizeVisualPageIndex(")
+		val pageInvalidation = source
+			.substringAfter("fun invalidatePage(pageIndex: Int, reason: String)")
+			.substringBefore("fun invalidate(reason: String)")
+
+		assertContains(shellVisibility, "pageTurnController.invalidateCurrentVisualSnapshot(\"shell-cover-hidden\")")
+		assertTrue(
+			shellVisibility.indexOf("pageTurnController.invalidateCurrentVisualSnapshot(\"shell-cover-hidden\")") <
+				shellVisibility.lastIndexOf("requestPageTurnPrewarmWhenReady()"),
+			"The covered source must be evicted before the uncovered page is prewarmed."
+		)
+		assertContains(currentSnapshotInvalidation, "cancelPrewarm()")
+		assertContains(currentSnapshotInvalidation, "bundleSource.invalidatePage(pageIndex, reason)")
+		assertContains(currentSnapshotInvalidation, "bundleSource.invalidate(reason)")
+		assertContains(pageInvalidation, "key.visualPageIndex == pageIndex")
+		assertContains(pageInvalidation, "releaseCacheOwnership()")
+		assertFalse(pageInvalidation.contains("snapshotCache.clear()"))
+	}
+
+	@Test
+	fun backgroundPrewarmShieldsWithTheLivePageInsteadOfADistantPlanSource() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val prewarmCapture = controller
+			.substringAfter("\"ready\" -> bundleSource.captureBundle(")
+			.substringBefore(") { transition ->")
+		val bundleCapture = source
+			.substringAfter("fun captureBundle(")
+			.substringBefore("fun cacheCurrentSnapshot(")
+
+		assertContains(prewarmCapture, "currentPageIndex = activePrewarmLivePageIndex")
+		assertContains(bundleCapture, "val currentSnapshot = currentPageIndex?.let")
+		assertContains(bundleCapture, "onStagingStarted(currentSnapshot ?: source)")
+		assertFalse(
+			bundleCapture.contains("onStagingStarted(source)"),
+			"Prewarming a distant target must not replace the visible reader with that plan's stale source page."
+		)
+	}
+
+	@Test
 	fun authoritativeReaderLocationReanchorsTheNativeSlideCoordinator() {
 		val platform = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
 		val root = readerCommonUiFile("ReaderRoot.kt").readText()

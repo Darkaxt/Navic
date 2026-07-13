@@ -541,6 +541,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (visible) {
 			removePageTurnPrewarmLayoutListener()
 			pageTurnController.invalidate("shell-cover-visible")
+		} else {
+			pageTurnController.invalidateCurrentVisualSnapshot("shell-cover-hidden")
 		}
 		requestPageTurnPrewarmWhenReady()
 	}

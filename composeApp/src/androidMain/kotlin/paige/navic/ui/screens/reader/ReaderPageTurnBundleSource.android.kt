@@ -82,6 +82,7 @@ internal class ReaderPageTurnBundleSource(
 		webView: WebView,
 		plan: ReaderPageTurnTransitionPlan,
 		current: ReaderPageTurnCaptureResult,
+		currentPageIndex: Int? = null,
 		currentCanRepresentSource: Boolean = true,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
 		onPrepared: (ReaderPageSlideTransition?) -> Unit
@@ -93,13 +94,14 @@ internal class ReaderPageTurnBundleSource(
 			return
 		}
 
+		val currentSnapshot = currentPageIndex?.let { pageIndex ->
+			cacheSnapshot(pageIndex, plan.kind, current, plan.generation)
+		}
 		val cachedSource = cachedSnapshot(plan.sourcePageIndex, plan.kind)
-		val source = cachedSource?.also {
-			if (it.bitmap !== current.bitmap) current.bitmap.takeUnless { bitmap -> bitmap.isRecycled }?.recycle()
-		} ?: if (currentCanRepresentSource) {
-			cacheCurrentSnapshot(plan, current)
+		val source = cachedSource ?: if (currentCanRepresentSource) {
+			currentSnapshot ?: cacheCurrentSnapshot(plan, current)
 		} else {
-			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			if (currentSnapshot == null) current.bitmap.takeUnless { it.isRecycled }?.recycle()
 			null
 		} ?: run {
 			onPrepared(null)
@@ -125,7 +127,7 @@ internal class ReaderPageTurnBundleSource(
 			}
 		}) { complete ->
 			val quotedToken = JSONObject.quote(plan.token)
-			onStagingStarted(source)
+			onStagingStarted(currentSnapshot ?: source)
 			webView.evaluateJavascript(
 				"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
 			) { encoded ->
@@ -154,12 +156,19 @@ internal class ReaderPageTurnBundleSource(
 	fun cacheCurrentSnapshot(
 		plan: ReaderPageTurnTransitionPlan,
 		current: ReaderPageTurnCaptureResult
+	): ReaderPageSlideSnapshot? = cacheSnapshot(plan.sourcePageIndex, plan.kind, current, plan.generation)
+
+	private fun cacheSnapshot(
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		current: ReaderPageTurnCaptureResult,
+		generation: Long
 	): ReaderPageSlideSnapshot? {
-		if (plan.generation != activeGeneration) {
+		if (generation != activeGeneration) {
 			current.bitmap.takeUnless { it.isRecycled }?.recycle()
 			return null
 		}
-		val key = snapshotKey(plan.sourcePageIndex, plan.kind, current.bitmap, current.sourceRectInWindow)
+		val key = snapshotKey(pageIndex, kind, current.bitmap, current.sourceRectInWindow)
 		snapshotCache[key]?.let { cached ->
 			snapshotCache[key]
 			if (cached.bitmap !== current.bitmap) current.bitmap.takeUnless { it.isRecycled }?.recycle()
@@ -305,6 +314,20 @@ internal class ReaderPageTurnBundleSource(
 			}
 		}
 		if (Looper.myLooper() == Looper.getMainLooper()) awaitCompositedPreview() else mainHandler.post(awaitCompositedPreview)
+	}
+
+	fun invalidatePage(pageIndex: Int, reason: String) {
+		val removed = snapshotCache.entries
+			.filter { (key, _) -> key.visualPageIndex == pageIndex }
+			.map { it.key to it.value }
+		removed.forEach { (key, snapshot) ->
+			snapshotCache.remove(key)
+			snapshot.releaseCacheOwnership()
+		}
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Page-turn snapshot page cleared page=$pageIndex reason=$reason removed=${removed.size} entries=${snapshotCache.keys}"
+		)
 	}
 
 	fun invalidate(reason: String) {

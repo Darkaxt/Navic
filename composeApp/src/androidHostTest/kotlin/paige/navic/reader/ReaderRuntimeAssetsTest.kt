@@ -1441,6 +1441,7 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidReaderRuntimeUsesDeterministicPaginationProfileForPageNumbers() {
 		val bridgeText = readerBridgeText(readerAssetRoot())
+		val paginationModel = readerAssetRoot().resolve("navic-reader-pagination-model.js").readText()
 
 		assertContains(bridgeText, "readerPaginationFingerprint")
 		assertContains(bridgeText, "readerBuildPaginationProfile")
@@ -1465,6 +1466,9 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bridgeText, "observedChapterCount")
 		assertContains(bridgeText, "source: observedPageCount ? 'observed' : 'estimated'")
 		assertContains(bridgeText, "spineIndex: index")
+		assertContains(paginationModel, "adaptivePageBox:")
+		assertContains(paginationModel, "maxColumnCount: String(input?.adaptivePageBox?.maxColumnCount")
+		assertContains(paginationModel, "columnThreshold: String(input?.adaptivePageBox?.columnThreshold")
 	}
 
 	@Test
