@@ -16,7 +16,7 @@
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderWebDebuggingForceRegistryTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt`
 
-- [ ] **Step 1: Write the lease-state tests**
+- [x] **Step 1: Write the lease-state tests**
 
 Create tests that record Boolean transitions from a `ReaderWebDebuggingForceRegistry` callback:
 
@@ -49,7 +49,7 @@ fun forcedDebuggingRemainsUntilLastEnabledLeaseCloses() {
 }
 ```
 
-- [ ] **Step 2: Replace the process-lifetime source assertion**
+- [x] **Step 2: Replace the process-lifetime source assertion**
 
 Update `androidReaderDevBuildTypeIsLocalDebuggableAndSeparateFromPublicRelease` to assert:
 
@@ -69,7 +69,7 @@ assertFalse(mainActivity.contains("setForceWebContentsDebuggingEnabled"))
 
 Retain all unrelated reader-dev assertions.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run:
 
@@ -81,7 +81,9 @@ Run:
 
 Expected: compilation fails because `ReaderWebDebuggingForceRegistry` does not exist, and the source contract would reject the current process-lifetime setter.
 
-- [ ] **Step 4: Commit the failing tests**
+RED evidence: `compileAndroidHostTest` failed at `ReaderWebDebuggingForceRegistryTest.kt:12`, `:23`, and `:39` because the registry was unresolved before production implementation.
+
+- [x] **Step 4: Commit the failing tests**
 
 ```powershell
 git add composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderWebDebuggingForceRegistryTest.kt composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt
@@ -96,7 +98,7 @@ git commit -m "test(android): require scoped reader WebView debugging"
 - Modify: `androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt`
 - Modify: `androidApp/build.gradle.kts`
 
-- [ ] **Step 1: Add the synchronized registry**
+- [x] **Step 1: Add the synchronized registry**
 
 Implement:
 
@@ -128,7 +130,7 @@ internal class ReaderWebDebuggingForceRegistry(
 }
 ```
 
-- [ ] **Step 2: Route `ReaderWebRuntime` through the registry**
+- [x] **Step 2: Route `ReaderWebRuntime` through the registry**
 
 Replace the Boolean force field and setter with:
 
@@ -144,7 +146,7 @@ fun acquireForcedWebContentsDebugging(enabled: Boolean): AutoCloseable =
 
 Compute the effective value with `webContentsDebuggingForceRegistry.isForced() || enableDebugging`. Remove `setForceWebContentsDebuggingEnabled`.
 
-- [ ] **Step 3: Bind the lease to `MainActivity`**
+- [x] **Step 3: Bind the lease to `MainActivity`**
 
 Add:
 
@@ -169,7 +171,7 @@ override fun onDestroy() {
 }
 ```
 
-- [ ] **Step 4: Make the release boundary explicit**
+- [x] **Step 4: Make the release boundary explicit**
 
 Inside `getByName("release")`, add:
 
@@ -179,7 +181,7 @@ buildConfigField("boolean", "NAVIC_READER_DEV", "false")
 
 Keep the default false field and the reader-dev true override.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run the two Task 1 tests and then:
 
@@ -198,6 +200,8 @@ git add androidApp/build.gradle.kts androidApp/src/main/kotlin/paige/navic/andro
 git commit -m "fix(android): scope reader WebView debugging"
 ```
 
+GREEN evidence: the immediate registry and build/lifecycle contract passed, followed by 13/13 registry, full reader-dev environment, developer-setting, and bridge-generation tests with zero failures, errors, or skips. Test commit `51198ae7` and implementation commit `61898fcc` preserve the RED/GREEN boundary.
+
 ### Task 3: Run integrated Android validation
 
 **Files:**
@@ -206,11 +210,11 @@ git commit -m "fix(android): scope reader WebView debugging"
 - Verify: `scripts/verify-reader-vendor-assets.ps1`
 - Verify: `scripts/verify-third-party-attributions.ps1`
 
-- [ ] **Step 1: Run the focused owner suite**
+- [x] **Step 1: Run the focused owner suite**
 
 Run the registry, full reader-dev environment, runtime asset debugging/cache/entrypoint, bridge generation, command acknowledgement, Android host, controller, and coordinator test classes. Record exact JUnit test/failure/error/skip counts from `composeApp/build/test-results/testAndroidHostTest`.
 
-- [ ] **Step 2: Run governance and Android builds**
+- [x] **Step 2: Run governance and Android builds**
 
 Run:
 
@@ -223,13 +227,15 @@ pwsh -NoProfile -File scripts\verify-third-party-attributions.ps1
 
 Do not invoke an iOS task. Verify debug and reader-dev package IDs, metadata, SHA-256, all 30 packaged vendor files, and packaged attribution.
 
-- [ ] **Step 3: Exercise reader-dev ownership on the emulator**
+- [x] **Step 3: Exercise reader-dev ownership on the emulator**
 
 Install the reader-dev APK and launch a known local EPUB through the existing reader-dev intent contract. Confirm a live `webview_devtools_remote` socket while the reader-dev activity owns the lease. Remove that task with Android activity-manager tooling and capture `ReaderWebRuntime` logging that the final owner restored `WebView debugging enabled=false`; if Android kills the cached process before the transition can be observed, rely on the deterministic lease test and record the device limitation rather than weakening the contract.
 
-- [ ] **Step 4: Verify no regression in public startup**
+- [x] **Step 4: Verify no regression in public startup**
 
 Keep the currently installed public package intact until release verification. Scan reader-dev logs for AndroidRuntime fatal errors and targeted MediaController/Koin/Room startup errors. Stop and remove only temporary local fixture/server artifacts created by this unit.
+
+Integrated evidence: the B23 owner suite passed 138/138 with zero failures, errors, or skips. The broader 197-test reader batch's only two failures were unrelated asset/harness source-shape guards and reproduced identically on clean `fork/master`; the temporary baseline worktree was removed. Source vendor 30/30, tamper self-test, attribution, both assemblies, and both packaged vendor/attribution gates passed. Debug APK SHA-256 is `1a88a425551d84d1379cf2e7676fe03aa73c774df754388eab7bbfa376d36dcc`; reader-dev is `80a7f7fe81e5a9406f9c5b98b6470cfee76991bbecd81ed9407a145804102b79`. Generated flags were false/debug and true/reader-dev. On the emulator, PID `8739` exposed DevTools while owned and logged `enabled=false` after normal task exit while the process remained alive; targeted error logs were clean. Port 8877 and the temporary fixture were removed.
 
 ### Task 4: Prepare and publish `v1.0.11-iota17`
 
@@ -239,11 +245,11 @@ Keep the currently installed public package intact until release verification. S
 - Modify: `docs/superpowers/plans/2026-07-13-qa-remediation-deployment-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-13-reader-web-debugging-scope-implementation.md`
 
-- [ ] **Step 1: Record candidate evidence and B23 disposition**
+- [x] **Step 1: Record candidate evidence and B23 disposition**
 
 Document the RED/GREEN result, integrated test counts, build/governance evidence, and emulator evidence. Mark B23 candidate-validated while leaving B3 and B15/B24 pending.
 
-- [ ] **Step 2: Bump only the next iota release**
+- [x] **Step 2: Bump only the next iota release**
 
 Set:
 
@@ -254,9 +260,13 @@ versionName = "v1.0.11-iota17"
 
 Run the Android version verifier, `git diff --check`, and remote tag/release searches proving `iota17` is unused and no unpadded iota, kappa, or lambda ref exists.
 
-- [ ] **Step 3: Integrate current public master**
+Version evidence: the verifier accepted `v1.0.11-iota17`; `git diff --check` passed; `iota17` is absent from remote tags and releases; no unpadded iota, kappa, or lambda remote tag/release exists.
+
+- [x] **Step 3: Integrate current public master**
 
 Fetch `fork/master`. If it advanced, rebase this isolated branch, inspect incoming paths for overlap, and rerun every affected owner, governance, assembly, metadata, and package check.
+
+Integration evidence: after fetching, the branch was 4 commits ahead and 0 behind public `master` at `46a8a208`, so no rebase or concurrent-path integration was required.
 
 - [ ] **Step 4: Publish Android only**
 
