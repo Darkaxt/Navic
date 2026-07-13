@@ -505,6 +505,81 @@ class ReaderProgressSyncTest {
 	}
 
 	@Test
+	fun newerLocalProgressWinsEvenWhenOlderRemoteProgressIsAhead() {
+		val remote = readerStartCandidate(
+			source = ReaderStartLocatorSource.Remote,
+			progress = 0.8,
+			updatedAt = "2026-07-13T10:00:00Z"
+		)
+		val local = readerStartCandidate(
+			source = ReaderStartLocatorSource.Local,
+			progress = 0.2,
+			updatedAt = "1783936860000"
+		)
+
+		val decision = resolveReaderStartLocator(remoteCandidate = remote, localCandidate = local)
+
+		assertEquals(local.locator, decision.selectedLocator)
+		assertEquals(ReaderStartLocatorSource.Local, decision.selectedSource)
+		assertEquals(ReaderStartLocatorSelectionPolicy.NewerTimestamp, decision.policy)
+		assertEquals(remote, decision.conflict?.remoteCandidate)
+		assertEquals(local, decision.conflict?.localCandidate)
+	}
+
+	@Test
+	fun newerRemoteRereadWinsEvenWhenOlderLocalProgressIsAhead() {
+		val remote = readerStartCandidate(
+			source = ReaderStartLocatorSource.Remote,
+			progress = 0.1,
+			updatedAt = "2026-07-13T11:01:00Z"
+		)
+		val local = readerStartCandidate(
+			source = ReaderStartLocatorSource.Local,
+			progress = 0.7,
+			updatedAt = "1783936860000"
+		)
+
+		val decision = resolveReaderStartLocator(remoteCandidate = remote, localCandidate = local)
+
+		assertEquals(remote.locator, decision.selectedLocator)
+		assertEquals(ReaderStartLocatorSource.Remote, decision.selectedSource)
+		assertEquals(ReaderStartLocatorSelectionPolicy.NewerTimestamp, decision.policy)
+	}
+
+	@Test
+	fun equalProgressTimestampsChooseRemoteDeterministically() {
+		val remote = readerStartCandidate(ReaderStartLocatorSource.Remote, 0.8, "1783936860000")
+		val local = readerStartCandidate(ReaderStartLocatorSource.Local, 0.2, "1783936860000")
+
+		val decision = resolveReaderStartLocator(remoteCandidate = remote, localCandidate = local)
+
+		assertEquals(remote.locator, decision.selectedLocator)
+		assertEquals(ReaderStartLocatorSelectionPolicy.EqualTimestampRemote, decision.policy)
+	}
+
+	@Test
+	fun missingOrMalformedTimestampUsesLegacyProgressPolicy() {
+		val remote = readerStartCandidate(ReaderStartLocatorSource.Remote, 0.2, "not-a-timestamp")
+		val local = readerStartCandidate(ReaderStartLocatorSource.Local, 0.7, null)
+
+		val decision = resolveReaderStartLocator(remoteCandidate = remote, localCandidate = local)
+
+		assertEquals(local.locator, decision.selectedLocator)
+		assertEquals(ReaderStartLocatorSelectionPolicy.LegacyMissingTimestamp, decision.policy)
+	}
+
+	@Test
+	fun divergenceAtOrBelowThresholdDoesNotRetainConflictPayload() {
+		val remote = readerStartCandidate(ReaderStartLocatorSource.Remote, 0.50, "1783936860000")
+		val local = readerStartCandidate(ReaderStartLocatorSource.Local, 0.51, "1783936920000")
+
+		val decision = resolveReaderStartLocator(remoteCandidate = remote, localCandidate = local)
+
+		assertEquals(local.locator, decision.selectedLocator)
+		assertEquals(null, decision.conflict)
+	}
+
+	@Test
 	fun localReadingProgressStateFallsBackToSameBookProgressOnlyWithoutOldHrefCfi() {
 		val state = ReaderReadingProgressState(
 			listOf(
@@ -567,4 +642,17 @@ class ReaderProgressSyncTest {
 		assertEquals(listOf(progress), decoded)
 		assertEquals(emptyList(), decodeReaderReadingProgress("not-json"))
 	}
+
+	private fun readerStartCandidate(
+		source: ReaderStartLocatorSource,
+		progress: Double,
+		updatedAt: String?
+	): ReaderStartLocatorCandidate = ReaderStartLocatorCandidate(
+		source = source,
+		locator = ReaderLocator(
+			href = "EPUB/Text/chapter-${(progress * 100).toInt()}.xhtml",
+			progress = progress
+		),
+		updatedAt = updatedAt
+	)
 }

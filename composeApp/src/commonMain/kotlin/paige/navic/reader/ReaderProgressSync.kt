@@ -5,11 +5,15 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyReadingProgressKind
+import kotlin.math.abs
+import kotlin.time.Instant
 
 private const val ReaderReadingProgressMaxEntries = 200
 private const val ReaderProgressStartThreshold = 0.005
 private const val ReaderProgressNamedStartThreshold = 0.03
 private const val ReaderProgressAdvanceThreshold = 0.01
+private const val ReaderProgressConflictThreshold = 0.01
+private const val ReaderProgressComparisonEpsilon = 0.000000001
 
 private val ReaderReadingProgressJson = Json {
 	ignoreUnknownKeys = true
@@ -71,20 +75,30 @@ data class ReaderReadingProgressState(
 		resourceHref: String,
 		kind: ReaderPublicationKind
 	): ReaderLocator? {
-		progressFor(
+		val progress = startProgressFor(
 			bookId = bookId,
 			resourceHref = resourceHref,
 			kind = kind
-		)?.toReaderStartLocatorFor(
+		) ?: return null
+		return progress.toReaderStartLocatorFor(
 			resourceHref = resourceHref,
 			kind = kind
-		)?.let { return it }
+		) ?: progress.toReaderProgressOnlyStartLocatorFor(bookId = bookId, kind = kind)
+	}
 
-		return progresses.firstNotNullOfOrNull { progress ->
-			progress.toReaderProgressOnlyStartLocatorFor(
-				bookId = bookId,
-				kind = kind
-			)
+	fun startProgressFor(
+		bookId: String,
+		resourceHref: String,
+		kind: ReaderPublicationKind
+	): BinderyReadingProgress? {
+		progressFor(bookId = bookId, resourceHref = resourceHref, kind = kind)
+			?.takeIf { progress ->
+				progress.toReaderStartLocatorFor(resourceHref = resourceHref, kind = kind) != null
+			}
+			?.let { return it }
+
+		return progresses.firstOrNull { progress ->
+			progress.toReaderProgressOnlyStartLocatorFor(bookId = bookId, kind = kind) != null
 		}
 	}
 
@@ -95,6 +109,79 @@ data class ReaderReadingProgressState(
 				.take(ReaderReadingProgressMaxEntries)
 		)
 	}
+}
+
+enum class ReaderStartLocatorSource {
+	Remote,
+	Local
+}
+
+enum class ReaderStartLocatorSelectionPolicy {
+	OnlyCandidate,
+	NewerTimestamp,
+	EqualTimestampRemote,
+	LegacyMissingTimestamp
+}
+
+data class ReaderStartLocatorCandidate(
+	val source: ReaderStartLocatorSource,
+	val locator: ReaderLocator,
+	val updatedAt: String? = null
+)
+
+data class ReaderStartLocatorConflict(
+	val remoteCandidate: ReaderStartLocatorCandidate,
+	val localCandidate: ReaderStartLocatorCandidate,
+	val selectedSource: ReaderStartLocatorSource,
+	val policy: ReaderStartLocatorSelectionPolicy
+)
+
+data class ReaderStartLocatorDecision(
+	val selectedLocator: ReaderLocator? = null,
+	val selectedSource: ReaderStartLocatorSource? = null,
+	val policy: ReaderStartLocatorSelectionPolicy? = null,
+	val conflict: ReaderStartLocatorConflict? = null
+)
+
+fun resolveReaderStartLocator(
+	remoteCandidate: ReaderStartLocatorCandidate?,
+	localCandidate: ReaderStartLocatorCandidate?
+): ReaderStartLocatorDecision {
+	if (remoteCandidate == null && localCandidate == null) return ReaderStartLocatorDecision()
+	if (remoteCandidate == null) return localCandidate.toOnlyReaderStartLocatorDecision()
+	if (localCandidate == null) return remoteCandidate.toOnlyReaderStartLocatorDecision()
+
+	val remoteTimestamp = remoteCandidate.updatedAt.readerProgressTimestampMillis()
+	val localTimestamp = localCandidate.updatedAt.readerProgressTimestampMillis()
+	val selection = when {
+		remoteTimestamp != null && localTimestamp != null && remoteTimestamp > localTimestamp ->
+			remoteCandidate to ReaderStartLocatorSelectionPolicy.NewerTimestamp
+		remoteTimestamp != null && localTimestamp != null && localTimestamp > remoteTimestamp ->
+			localCandidate to ReaderStartLocatorSelectionPolicy.NewerTimestamp
+		remoteTimestamp != null && localTimestamp != null ->
+			remoteCandidate to ReaderStartLocatorSelectionPolicy.EqualTimestampRemote
+		else -> legacyReaderStartLocatorCandidate(remoteCandidate, localCandidate) to
+			ReaderStartLocatorSelectionPolicy.LegacyMissingTimestamp
+	}
+	val (selectedCandidate, policy) = selection
+	val conflict = ReaderStartLocatorConflict(
+		remoteCandidate = remoteCandidate,
+		localCandidate = localCandidate,
+		selectedSource = selectedCandidate.source,
+		policy = policy
+	).takeIf {
+		val remoteProgress = remoteCandidate.locator.safeProgress()
+		val localProgress = localCandidate.locator.safeProgress()
+		remoteProgress != null && localProgress != null &&
+			abs(remoteProgress - localProgress) >
+			ReaderProgressConflictThreshold + ReaderProgressComparisonEpsilon
+	}
+	return ReaderStartLocatorDecision(
+		selectedLocator = selectedCandidate.locator,
+		selectedSource = selectedCandidate.source,
+		policy = policy,
+		conflict = conflict
+	)
 }
 
 fun bestReaderStartLocator(
@@ -116,6 +203,34 @@ fun bestReaderStartLocator(
 		}
 	}
 	return remoteStartLocator
+}
+
+private fun ReaderStartLocatorCandidate?.toOnlyReaderStartLocatorDecision(): ReaderStartLocatorDecision =
+	ReaderStartLocatorDecision(
+		selectedLocator = this?.locator,
+		selectedSource = this?.source,
+		policy = ReaderStartLocatorSelectionPolicy.OnlyCandidate
+	)
+
+private fun legacyReaderStartLocatorCandidate(
+	remoteCandidate: ReaderStartLocatorCandidate,
+	localCandidate: ReaderStartLocatorCandidate
+): ReaderStartLocatorCandidate =
+	if (
+		bestReaderStartLocator(
+			remoteStartLocator = remoteCandidate.locator,
+			localStartLocator = localCandidate.locator
+		) == localCandidate.locator
+	) {
+		localCandidate
+	} else {
+		remoteCandidate
+	}
+
+private fun String?.readerProgressTimestampMillis(): Long? {
+	val value = this?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+	value.toLongOrNull()?.let { return it }
+	return runCatching { Instant.parse(value).toEpochMilliseconds() }.getOrNull()
 }
 
 data class ReaderProgressSaveGate(
