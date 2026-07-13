@@ -11,6 +11,7 @@ Released Tranche 5 session-client slice: `v1.0.11-iota7`
 Released Tranche 5 network-policy slice: `v1.0.11-iota9`
 Released Tranche 5 consolidated delivery: `v1.0.11-iota11`
 Released Tranche 3 bridge-diagnostics slice: `v1.0.11-iota12`
+Released Tranche 3 command-acknowledgement slice: `v1.0.11-iota13`
 Type: **Cross-cutting remediation design and deployment roadmap.** Each tranche requires its own TDD implementation plan before production code changes.
 
 ## Objective
@@ -244,6 +245,9 @@ Every tranche uses the following pipeline:
 - Protocol, processor, dispatch, Android host, runtime asset, Storyteller, Foliate adapter, controller, and coordinator tests passed 165/165. The Chromium command-ack runtime, reader smoke/trace smoke, page-turn model, 30/30 source vendor hashes, packaged governance, debug assembly, and reader-dev assembly also passed.
 - ADB renderer recovery used a non-zero Alcatraz EPUB locator. Killing only WebView renderer PID `2270` kept `darkaxt.navic.readerdev` PID `2197` alive and created renderer PID `2509`. Generation 1 replayed the same `reader-open-1` and publication key, restored `OEBPS/Text/capitancebolleta01.xhtml` at `epubcfi(/6/16!/4,/2[sigil_toc_id_4],/22/1:265)`, reached `publicationReady`, and acknowledged `reader-open-1`; AndroidRuntime emitted no fatal error.
 - This resolves B5 and the renderer-generation portion of B24. B15/B24 process-death restoration for drafts, dialogs, selection, and reconstructed search state remains pending as change unit 6.
+- Released as `v1.0.11-iota13` from commit `3703e84a`. Build/release workflow `29247528988` completed successfully; the Android APK and GitHub release jobs passed, while all iOS jobs were skipped.
+- Public `Navic.apk` is 46,208,900 bytes with SHA-256 `8800939e69566f8dcf43e7e79cabdad7a3f544e6b9d9c8fbf77387da3ea46725`, matching GitHub's asset digest. APK Signature Scheme v2 verified with certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`; embedded metadata is `versionCode=540`, `versionName=v1.0.11-iota13`.
+- The downloaded public APK passed all 30 reader-vendor hashes and packaged attribution verification. It upgraded `darkaxt.navic` in place from `iota12`/539 on `emulator-5554`; explicit activity start returned `Status: ok`, the app remained alive as PID `2878`, and AndroidRuntime/MediaController startup checks were clean.
 
 ### Rollout and rollback
 
@@ -471,7 +475,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B2 | Low | Pending | Tranche 7 |
 | B3 | Low | Pending | Tranche 3 |
 | B4 | High | Released | `v1.0.11-iota12` |
-| B5 | High | Validated; `iota13` candidate | Tranche 3 |
+| B5 | High | Released | `v1.0.11-iota13` |
 | B6 | Medium | Pending | Tranche 3 |
 | B7 | Medium | Released | `v1.0.11-iota11` |
 | B8 | Low | Pending | Tranche 3 |
@@ -490,7 +494,7 @@ The audit's stated path is no longer present: `ReaderProgressSaveGate` now gates
 | B21 | Scope note | Excluded | Android-only contract |
 | B22 | Medium | Pending | Tranche 3 |
 | B23 | Low | Pending | Tranche 3 |
-| B24 | Medium | Renderer slice validated; process state pending | Tranche 3 |
+| B24 | Medium | Renderer slice released; process state pending | `v1.0.11-iota13` + Tranche 3 |
 | C1 | Critical | Released | `v1.0.11-theta94` |
 | C2 | Medium | Released | `v1.0.11-iota6` |
 | C3 | Medium | Released | `v1.0.11-iota3` |

@@ -202,13 +202,15 @@ Update both QA documents with test/device evidence. Set `androidApp/build.gradle
 
 Validation evidence: the owning Kotlin/Android suites passed 165/165, Chromium command acknowledgement passed, source/package governance and Android assemblies passed, and the ADB renderer-kill test restored the exact href/range CFI while preserving the app process. Fetching `fork` showed this branch at `6 0` relative to current public `master`, so no rebase rewrite was required. Release metadata is exactly `v1.0.11-iota13` / `540`; public and local `kappa`/`lambda` release refs are absent.
 
-- [ ] **Step 5: Commit, push, tag, and create the public Android release**
+- [x] **Step 5: Commit, push, tag, and create the public Android release**
 
 Push the reviewed commits to public `master`, tag the release commit `v1.0.11-iota13`, run the existing GitHub release workflow with iOS skipped, and verify checks, signature, embedded version, public APK SHA-256, and an in-place ADB upgrade/start.
 
-- [ ] **Step 6: Record release evidence and remove this worktree**
+- [x] **Step 6: Record release evidence and remove this worktree**
 
 Commit/push release evidence, verify public `master` and release state, then remove `C:/Users/darka/Documents/Projects/Android/.codex-temp/navic-qa-tranche-3-command-ack` and delete `fix/qa-tranche-3-command-ack`. Do not touch the active ebook worktrees.
+
+Release evidence: `v1.0.11-iota13` points to `3703e84a`; workflow `29247528988` succeeded with iOS skipped. Public `Navic.apk` is 46,208,900 bytes, SHA-256 `8800939e69566f8dcf43e7e79cabdad7a3f544e6b9d9c8fbf77387da3ea46725`, signed by the established certificate, and embeds `versionCode=540` / `versionName=v1.0.11-iota13`. Packaged vendor/attribution checks passed, and an in-place emulator upgrade launched cleanly as PID `2878`.
 
 ## Self-Review
 
