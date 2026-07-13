@@ -179,7 +179,7 @@ Expected: all selected tests pass, no direct production `HttpClient` constructio
 
 Increment `versionCode` from 529 to 530 and set `versionName` to `v1.0.11-iota8`.
 
-- [ ] **Step 2: Run the release gate**
+- [x] **Step 2: Run the release gate**
 
 Run focused policy/repository tests, `:androidApp:assembleDebug`, `scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-iota8`, and `git diff --check` after rebasing `fork/master`.
 
