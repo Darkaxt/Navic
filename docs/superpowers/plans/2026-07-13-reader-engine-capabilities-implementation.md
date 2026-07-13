@@ -91,9 +91,13 @@ Release evidence: release-code commit `922fbddb` is tagged `v1.0.11-iota18`. Wor
 - Modify: `docs/superpowers/plans/2026-07-13-reader-engine-capabilities-implementation.md`
 
 - [x] Record release commit, workflow, public APK, certificate, metadata, iOS skip state, and ADB evidence.
-- [ ] Push the evidence commit and independently verify public master, tag peel, release, and contiguous naming.
-- [ ] Remove only this isolated worktree and branch after proving all commits are public.
-- [ ] Recheck every protected Navic worktree head and dirty state.
+- [x] Push the evidence commit and independently verify public master, tag peel, release, and contiguous naming.
+- [x] Remove only this isolated worktree and branch after proving all commits are public.
+- [x] Recheck every protected Navic worktree head and dirty state.
+
+Immutable-ref evidence: local HEAD and public `master` resolve to release-evidence commit `d84db407`; annotated tag object `15dc93f9` peels to release-code commit `922fbddb`. The public release remains non-draft and non-prerelease with the same 46,225,284-byte APK and SHA-256 `62e210ab7536e8448366a141970bcc07ef0a67d3dd09de7706856bbb42ed410c`. Public naming is contiguous `iota01` through `iota18`, with no unpadded iota, kappa, or lambda tag/release.
+
+Cleanup boundary: this worktree is clean at `d84db407` and all commits are on public `master`. Protected heads remain primary animation `8340a4b8`, destination-aware `b83092b9`, rev4 `5a1ed120`, page-wave baseline `4bc24e1a`, and playlist/master `4cb276b2`; their existing tracked and untracked states are outside B3 and remain untouched. The disposable public-APK verification directory and detached B3 baseline worktree were removed. Only `navic-qa-tranche-3-engine-capabilities` and local branch `fix/qa-tranche-3-engine-capabilities` are eligible for final removal.
 
 ## Self-Review
 
