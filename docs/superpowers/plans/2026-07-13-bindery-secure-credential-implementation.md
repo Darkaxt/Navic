@@ -40,56 +40,56 @@
 
 ### Task 1: Lock The Credential Migration Contract
 
-- [ ] Add failing tests proving an existing plaintext `binderyApiKey` migrates once, is read back from secure storage, and is removed from `MapSettings`.
-- [ ] Add failing tests proving an existing secure key wins and stale plaintext is removed.
-- [ ] Add a failing test proving a failed secure write leaves plaintext readable and present for a later retry.
-- [ ] Add failing tests proving normal setters write only secure storage and blank values clear both locations.
-- [ ] Run `./gradlew :composeApp:testAndroidHostTest --tests "paige.navic.domain.manager.BinderyCredentialMigrationTest"` and confirm the missing `CredentialStore`/constructor contract fails.
-- [ ] Implement `CredentialStore`, the settings compatibility store, and the `PreferenceManager` migration/property behavior.
-- [ ] Rerun the focused test and confirm green.
-- [ ] Commit as `feat(bindery): migrate api key to credential store`.
+- [x] Add failing tests proving an existing plaintext `binderyApiKey` migrates once, is read back from secure storage, and is removed from `MapSettings`.
+- [x] Add failing tests proving an existing secure key wins and stale plaintext is removed.
+- [x] Add a failing test proving a failed secure write leaves plaintext readable and present for a later retry.
+- [x] Add failing tests proving normal setters write only secure storage and blank values clear both locations.
+- [x] Run `./gradlew :composeApp:testAndroidHostTest --tests "paige.navic.domain.manager.BinderyCredentialMigrationTest"` and confirm the missing `CredentialStore`/constructor contract fails.
+- [x] Implement `CredentialStore`, the settings compatibility store, and the `PreferenceManager` migration/property behavior.
+- [x] Rerun the focused test and confirm green.
+- [x] Commit as `feat(bindery): migrate api key to credential store`.
 
 ### Task 2: Add Android Keystore Persistence
 
-- [ ] Add an Android host source-contract test requiring `AndroidKeyStore`, `AES/GCM/NoPadding`, a fresh IV per write, authenticated decryption, synchronous commit verification, and no plaintext value persistence.
-- [ ] Add source-contract assertions requiring Android DI to use `AndroidKeystoreCredentialStore` and iOS DI to use only the compatibility store.
-- [ ] Run the focused source test and confirm it fails because the Android implementation does not exist.
-- [ ] Implement an Android Keystore AES key with encrypt/decrypt purposes, GCM block mode, and no padding.
-- [ ] Store a versioned Base64 IV/ciphertext envelope in private `SharedPreferences`; verify the persisted envelope decrypts to the submitted value before reporting success.
-- [ ] Register platform providers and change `ManagerModule` to explicit `PreferenceManager(get(), get())` construction.
-- [ ] Exclude the encrypted preference file from both Android backup rule formats.
-- [ ] Run focused migration/source tests and `:androidApp:assembleDebug`.
-- [ ] Commit as `feat(android): encrypt bindery credentials with keystore`.
+- [x] Add an Android host source-contract test requiring `AndroidKeyStore`, `AES/GCM/NoPadding`, a fresh IV per write, authenticated decryption, synchronous commit verification, and no plaintext value persistence.
+- [x] Add source-contract assertions requiring Android DI to use `AndroidKeystoreCredentialStore` and iOS DI to use only the compatibility store.
+- [x] Run the focused source test and confirm it fails because the Android implementation does not exist.
+- [x] Implement an Android Keystore AES key with encrypt/decrypt purposes, GCM block mode, and no padding.
+- [x] Store a versioned Base64 IV/ciphertext envelope in private `SharedPreferences`; verify the persisted envelope decrypts to the submitted value before reporting success.
+- [x] Register platform providers and change `ManagerModule` to explicit `PreferenceManager(get(), get())` construction.
+- [x] Exclude the encrypted preference file from both Android backup rule formats.
+- [x] Run focused migration/source tests and `:androidApp:assembleDebug`.
+- [x] Commit as `feat(android): encrypt bindery credentials with keystore`.
 
 ### Task 3: Scope API Headers To The Validated Bindery Origin
 
-- [ ] Add failing origin-policy tests for same-origin paths, host case, default ports, explicit non-default ports, user-info rejection, off-origin absolute URLs, unsupported schemes, and missing URLs.
-- [ ] Add a failing MockEngine test proving an absolute off-origin catalog/resource path receives no `X-Api-Key`.
-- [ ] Add a failing MockEngine redirect test proving an authenticated 3xx response does not trigger a second request.
-- [ ] Run the focused tests and confirm off-origin/redirect cases fail for the expected reason.
-- [ ] Replace string-sliced origins with Ktor `Url` parsing and canonical `(scheme, host, effectivePort)` comparison.
-- [ ] Compute each request endpoint once and pass only `binderyRequestHeadersForUrl(baseUrl, endpoint, headers)` into the request builder.
-- [ ] Set `followRedirects = false` on the isolated Bindery Ktor client so custom authentication cannot be replayed to a redirect target.
-- [ ] Rerun focused repository/API tests and confirm green.
-- [ ] Commit as `fix(bindery): constrain api key to configured origin`.
+- [x] Add failing origin-policy tests for same-origin paths, host case, default ports, explicit non-default ports, user-info rejection, off-origin absolute URLs, unsupported schemes, and missing URLs.
+- [x] Add a failing MockEngine test proving an absolute off-origin catalog/resource path receives no `X-Api-Key`.
+- [x] Add a failing MockEngine redirect test proving an authenticated 3xx response does not trigger a second request.
+- [x] Run the focused tests and confirm off-origin/redirect cases fail for the expected reason.
+- [x] Replace string-sliced origins with Ktor `Url` parsing and canonical `(scheme, host, effectivePort)` comparison.
+- [x] Compute each request endpoint once and pass only `binderyRequestHeadersForUrl(baseUrl, endpoint, headers)` into the request builder.
+- [x] Set `followRedirects = false` on the isolated Bindery Ktor client so custom authentication cannot be replayed to a redirect target.
+- [x] Rerun focused repository/API tests and confirm green.
+- [x] Commit as `fix(bindery): constrain api key to configured origin`.
 
 ### Task 4: Remove Global Playback And Artwork Authentication
 
-- [ ] Add a failing source-contract test proving `ReadaloudPlaybackService` no longer calls `setDefaultRequestProperties(binderyApiKeyHeaders(...))`.
-- [ ] Add a failing policy test proving audiobook descriptors carry headers only when their final URI matches the configured Bindery origin.
-- [ ] Add a failing source-contract test proving `CoilBitmapLoader` receives the requested URI when selecting headers.
-- [ ] Run the focused tests and confirm the current global-header behavior fails them.
-- [ ] Scope each audiobook descriptor's headers through `binderyRequestHeadersForUrl` after resolving its final URI.
-- [ ] Make the Media3 data source consume descriptor/request headers instead of installing a service-global API key.
-- [ ] Change `CoilBitmapLoader` to `(Uri) -> Map<String, String>` and filter notification artwork headers against the configured Bindery origin.
-- [ ] Rerun focused playback, player-policy, and source-contract tests.
-- [ ] Commit as `fix(bindery): scope playback authentication per resource`.
+- [x] Add a failing source-contract test proving `ReadaloudPlaybackService` no longer calls `setDefaultRequestProperties(binderyApiKeyHeaders(...))`.
+- [x] Add a failing policy test proving audiobook descriptors carry headers only when their final URI matches the configured Bindery origin.
+- [x] Add a failing source-contract test proving `CoilBitmapLoader` receives the requested URI when selecting headers.
+- [x] Run the focused tests and confirm the current global-header behavior fails them.
+- [x] Scope each audiobook descriptor's headers through `binderyRequestHeadersForUrl` after resolving its final URI.
+- [x] Make the Media3 data source resolve request headers per final resource URI instead of installing a service-global API key.
+- [x] Change `CoilBitmapLoader` to `(Uri) -> Map<String, String>` and filter notification artwork headers against the configured Bindery origin.
+- [x] Rerun focused playback, player-policy, and source-contract tests.
+- [x] Commit as `fix(bindery): scope playback authentication per resource`.
 
 ### Task 5: Validate Migration And Publish Kappa1
 
-- [ ] Rebase onto current `fork/master` without touching reader-animation worktrees.
-- [ ] Run all new tests plus existing Bindery repository, optional-state, player-policy, and DI tests.
-- [ ] Run `./gradlew :androidApp:assembleDebug`, `./scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-kappa1`, and `git diff --check`.
+- [x] Rebase onto current `fork/master` without touching reader-animation worktrees. No rebase commit was needed: `HEAD...fork/master` was `7 0` before integration.
+- [x] Run all new tests plus existing Bindery repository, optional-state, player-policy, and DI tests. The final matrix executed 69 tests successfully.
+- [x] Run `./gradlew :androidApp:assembleDebug`, `./scripts/verify-android-release-version.ps1 -ExpectedVersionName v1.0.11-kappa1`, and `git diff --check`.
 - [ ] On `emulator-5554`, install `v1.0.11-iota10`, seed a legacy plaintext Bindery key, then install the signed `kappa1` candidate in place.
 - [ ] Verify the key remains usable, the legacy preference entry is gone, the encrypted envelope does not contain the plaintext, and the app launches without fatal/Koin/Keystore errors.
 - [ ] Fast-forward public `master`, tag `v1.0.11-kappa1`, push, and wait for the Android release workflow; iOS remains skipped.
