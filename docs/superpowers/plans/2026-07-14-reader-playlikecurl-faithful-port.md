@@ -42,12 +42,12 @@ Tests that compare only equations or source strings cannot satisfy this protocol
 
 ## Tranche 2: Faithful GLES2 Demo In ReaderDev
 
-- [ ] Add the original PlayLikeCurl portrait and landscape sample textures to a ReaderDev-only asset path with MIT attribution.
-- [ ] Implement three persistent GLES2 page objects matching the reference mesh, UVs, depths, projection, and draw order.
-- [ ] Translate fixed-function matrices and client arrays to GLES2 uniforms, attributes, VBOs, and shaders without changing resulting coordinates.
-- [ ] Reproduce previous/current/next texture assignment and post-animation texture rotation.
-- [ ] Reproduce the original gesture mapping, release/fling decision, settlement duration, and interpolators.
-- [ ] Do not connect Foliate, Navic bitmaps, leaf bounds, or settlement shielding in this tranche.
+- [x] Add the original PlayLikeCurl portrait and landscape sample textures to a ReaderDev-only asset path with MIT attribution.
+- [x] Implement three persistent GLES2 page objects matching the reference mesh, UVs, depths, projection, and draw order.
+- [x] Translate fixed-function matrices and client arrays to GLES2 uniforms, attributes, VBOs, and shaders without changing resulting coordinates.
+- [x] Reproduce previous/current/next texture assignment and post-animation texture rotation.
+- [x] Reproduce the original gesture mapping, release/fling decision, settlement duration, and interpolators.
+- [x] Do not connect Foliate, Navic bitmaps, leaf bounds, or settlement shielding in this tranche.
 
 **Gate:** record the GitHub demo and ReaderDev side by side at start, 25%, 50%, 75%, and completion for forward, backward, commit, and cancel. Any unexplained difference blocks Tranche 3.
 
