@@ -97,7 +97,7 @@
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ThirdPartyAttributionSourceTest.kt`
 - Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDragAnimationMigrationSourceTest.kt`
 
-- [ ] **Step 1: Write failing attribution and migration guard tests**
+- [x] **Step 1: Write failing attribution and migration guard tests**
 
 Add assertions that the attribution catalog contains `PlayLikeCurl`, its repository URL, MIT license, and the local license file. Add a source guard that permits the historical `canvas` preference while requiring its production target to be the new OpenGL renderer after cutover.
 
@@ -110,7 +110,7 @@ fun playLikeCurlAttributionIsPackaged() {
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -120,7 +120,7 @@ Run:
 
 Expected: FAIL because the PlayLikeCurl attribution and OpenGL migration guard do not exist.
 
-- [ ] **Step 3: Add attribution and migration contract**
+- [x] **Step 3: Add attribution and migration contract**
 
 Copy the exact MIT notice from the audited reference into `third_party/licenses/playlikecurl.txt`. Record that Navic ports geometry formulas but not the obsolete GLES1 activity or lifecycle code.
 
@@ -133,7 +133,7 @@ curl -> animated OpenGL mode
 standard -> none
 ```
 
-- [ ] **Step 4: Run attribution verification and focused tests**
+- [x] **Step 4: Run attribution verification and focused tests**
 
 Run:
 
@@ -144,7 +144,7 @@ Run:
 
 Expected: both commands succeed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add THIRD_PARTY.md third_party/licenses/playlikecurl.txt composeApp/src/commonMain/composeResources/files/acknowledgements.json composeApp/src/androidHostTest/kotlin/paige/navic/reader/ThirdPartyAttributionSourceTest.kt composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDragAnimationMigrationSourceTest.kt
@@ -157,7 +157,7 @@ git commit -m "docs(reader): attribute PlayLikeCurl geometry port"
 - Create: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGeometry.android.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGeometryTest.kt`
 
-- [ ] **Step 1: Write failing geometry tests**
+- [x] **Step 1: Write failing geometry tests**
 
 Define tests for the locked constants, 26 x 26 mesh, UV bounds, finite coordinates, exact endpoints, and distinct forward/backward samples.
 
@@ -178,7 +178,7 @@ fun backwardGeometryIsNotForwardGeometryPlayedInReverse() {
 }
 ```
 
-- [ ] **Step 2: Run the geometry test and verify RED**
+- [x] **Step 2: Run the geometry test and verify RED**
 
 Run:
 
@@ -188,7 +188,7 @@ Run:
 
 Expected: FAIL because `ReaderPageCurlGeometry` is missing.
 
-- [ ] **Step 3: Implement the immutable mesh contract**
+- [x] **Step 3: Implement the immutable mesh contract**
 
 Create these public boundaries:
 
@@ -207,11 +207,11 @@ internal object ReaderPageCurlGeometry {
 
 Port the `PageFront`, `PageLeft`, and stationary `PageRight` equations directly. Clamp only normalized input progress; do not alter the equations for visual taste.
 
-- [ ] **Step 4: Add sampled parity fixtures**
+- [x] **Step 4: Add sampled parity fixtures**
 
 Record reference vertex samples at progress `0.0`, `0.25`, `0.5`, `0.75`, and `1.0` from the audited Java implementation. Assert position and UV values within `0.0001f`.
 
-- [ ] **Step 5: Run geometry tests and verify GREEN**
+- [x] **Step 5: Run geometry tests and verify GREEN**
 
 Run:
 
@@ -221,7 +221,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGeometry.android.kt composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGeometryTest.kt
