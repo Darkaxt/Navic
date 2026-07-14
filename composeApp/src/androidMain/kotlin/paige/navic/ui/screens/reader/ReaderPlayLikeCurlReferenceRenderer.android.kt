@@ -1,7 +1,6 @@
 package paige.navic.ui.screens.reader
 
-import android.content.Context
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
@@ -15,7 +14,6 @@ import javax.microedition.khronos.opengles.GL10
 
 /** GLES2 plumbing around PlayLikeCurl's original three-page model. */
 internal class ReaderPlayLikeCurlReferenceRenderer(
-	private val context: Context,
 	private val model: ReaderPlayLikeCurlReferenceModel
 ) : GLSurfaceView.Renderer {
 	private val leftPage = GpuPage(model.leftPage)
@@ -32,6 +30,8 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 	private var matrixUniform = 0
 	private var textureUniform = 0
 	private var orientation = ReaderPlayLikeCurlOrientation.Portrait
+	private var rasterDeck: ReaderPlayLikeCurlRasterDeck<Bitmap>? = null
+	private val pageTextures = mutableMapOf<Int, GpuRaster>()
 
 	override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
 		program = createProgram(VertexShader, FragmentShader)
@@ -48,6 +48,8 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 		leftPage.initializeGl()
 		frontPage.initializeGl()
 		rightPage.initializeGl()
+		pageTextures.clear()
+		uploadRasterDeck()
 	}
 
 	override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -71,9 +73,6 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 		Matrix.translateM(modelMatrix, 0, -0.5f, -0.5f, 0f)
 		Matrix.multiplyMM(mvpMatrix, 0, projectionMatrix, 0, modelMatrix, 0)
 
-		leftPage.invalidateAsset()
-		frontPage.invalidateAsset()
-		rightPage.invalidateAsset()
 	}
 
 	override fun onDrawFrame(gl: GL10?) {
@@ -87,8 +86,27 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 		drawPage(rightPage, model.rightPage)
 	}
 
+	fun installRasterDeck(deck: ReaderPlayLikeCurlRasterDeck<Bitmap>) {
+		clearPageTextures()
+		rasterDeck?.close()
+		rasterDeck = deck
+		uploadRasterDeck()
+	}
+
+	fun releaseRasterDeck() {
+		clearPageTextures()
+		rasterDeck?.close()
+		rasterDeck = null
+	}
+
 	private fun drawPage(page: GpuPage, state: ReaderPlayLikeCurlPageState) {
-		page.ensureAsset(state.pageIndex, orientation)
+		val raster = pageTextures[state.pageIndex] ?: return
+		page.ensureGeometry(
+			pageIndex = state.pageIndex,
+			requestedOrientation = orientation,
+			bitmapWidth = raster.width,
+			bitmapHeight = raster.height
+		)
 		ReaderPlayLikeCurlReferenceGeometry.update(
 			page = page.geometry,
 			curlPosition = state.curlPosition,
@@ -97,7 +115,7 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 		page.uploadPositions()
 
 		GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-		GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, page.textureId)
+		GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, raster.textureId)
 		GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, page.positionBufferId)
 		GLES20.glEnableVertexAttribArray(positionAttribute)
 		GLES20.glVertexAttribPointer(positionAttribute, 3, GLES20.GL_FLOAT, false, 0, 0)
@@ -115,6 +133,40 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 		GLES20.glDisableVertexAttribArray(textureCoordinateAttribute)
 	}
 
+	private fun uploadRasterDeck() {
+		val deck = rasterDeck ?: return
+		for (pageIndex in deck.pageIndices.sorted()) {
+			val bitmap = deck.value(pageIndex) ?: continue
+			val textureIds = IntArray(1)
+			GLES20.glGenTextures(1, textureIds, 0)
+			GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureIds[0])
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_REPEAT)
+			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_REPEAT)
+			GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+			pageTextures[pageIndex] = GpuRaster(
+				textureId = textureIds[0],
+				width = bitmap.width,
+				height = bitmap.height
+			)
+		}
+	}
+
+	private fun clearPageTextures() {
+		if (pageTextures.isNotEmpty()) {
+			val textureIds = pageTextures.values.map { raster -> raster.textureId }.toIntArray()
+			GLES20.glDeleteTextures(textureIds.size, textureIds, 0)
+			pageTextures.clear()
+		}
+	}
+
+	private data class GpuRaster(
+		val textureId: Int,
+		val width: Int,
+		val height: Int
+	)
+
 	private inner class GpuPage(
 		private val state: ReaderPlayLikeCurlPageState
 	) {
@@ -130,7 +182,6 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 		private val textureBuffer = directFloatBuffer(geometry.textureCoordinates.size)
 		private val indexBuffer = directShortBuffer(geometry.indices.size)
 		private val bufferIds = IntArray(3)
-		private val textureIds = IntArray(1)
 
 		var positionBufferId = 0
 			private set
@@ -138,20 +189,14 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 			private set
 		var indexBufferId = 0
 			private set
-		var textureId = 0
-			private set
-
-		private var uploadedPageIndex = -1
-		private var uploadedOrientation: ReaderPlayLikeCurlOrientation? = null
+		private var geometryPageIndex = -1
+		private var geometryOrientation: ReaderPlayLikeCurlOrientation? = null
 
 		fun initializeGl() {
 			GLES20.glGenBuffers(bufferIds.size, bufferIds, 0)
 			positionBufferId = bufferIds[0]
 			textureBufferId = bufferIds[1]
 			indexBufferId = bufferIds[2]
-			GLES20.glGenTextures(1, textureIds, 0)
-			textureId = textureIds[0]
-
 			textureBuffer.clear()
 			textureBuffer.put(geometry.textureCoordinates).position(0)
 			GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, textureBufferId)
@@ -179,35 +224,25 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 				null,
 				GLES20.GL_DYNAMIC_DRAW
 			)
-			invalidateAsset()
+			geometryPageIndex = -1
+			geometryOrientation = null
 		}
 
-		fun invalidateAsset() {
-			uploadedPageIndex = -1
-			uploadedOrientation = null
-		}
-
-		fun ensureAsset(pageIndex: Int, requestedOrientation: ReaderPlayLikeCurlOrientation) {
-			if (uploadedPageIndex == pageIndex && uploadedOrientation == requestedOrientation) return
-			val assetPath = "playlikecurl-reference/${requestedOrientation.assetDirectory}/page${pageIndex + 1}.png"
-			val bitmap = context.assets.open(assetPath).use(BitmapFactory::decodeStream)
-				?: error("Could not decode PlayLikeCurl reference asset $assetPath")
-
+		fun ensureGeometry(
+			pageIndex: Int,
+			requestedOrientation: ReaderPlayLikeCurlOrientation,
+			bitmapWidth: Int,
+			bitmapHeight: Int
+		) {
+			if (geometryPageIndex == pageIndex && geometryOrientation == requestedOrientation) return
 			geometry = ReaderPlayLikeCurlReferenceGeometry.createPage(
 				role = state.role,
-				bitmapWidth = bitmap.width,
-				bitmapHeight = bitmap.height,
+				bitmapWidth = bitmapWidth,
+				bitmapHeight = bitmapHeight,
 				orientation = requestedOrientation
 			)
-			GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
-			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
-			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_REPEAT)
-			GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_REPEAT)
-			GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-			bitmap.recycle()
-			uploadedPageIndex = pageIndex
-			uploadedOrientation = requestedOrientation
+			geometryPageIndex = pageIndex
+			geometryOrientation = requestedOrientation
 		}
 
 		fun uploadPositions() {
@@ -260,9 +295,6 @@ internal class ReaderPlayLikeCurlReferenceRenderer(
 		.allocateDirect(size * Short.SIZE_BYTES)
 		.order(ByteOrder.nativeOrder())
 		.asShortBuffer()
-
-	private val ReaderPlayLikeCurlOrientation.assetDirectory: String
-		get() = name.lowercase()
 
 	private fun ReaderPlayLikeCurlPageRole.isActive(activePage: ReaderPlayLikeCurlActivePage): Boolean =
 		when (this) {

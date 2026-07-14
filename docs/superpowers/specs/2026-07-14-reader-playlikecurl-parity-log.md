@@ -82,3 +82,38 @@
 - `:androidApp:assembleReaderDev`: GREEN.
 - Combined focused test/build gate: `BUILD SUCCESSFUL in 47s`.
 - Progression decision: Tranche 2 passes. Tranche 3 may add only a narrow asynchronous raster adapter; it may not reinterpret the proven renderer.
+
+## Tranche 3: Narrow Raster Adapter
+
+- Implementation base: `d08eba2c190a33994db9b2bf9efefb098441b68b` plus the staged Tranche 3 diff.
+- Reference commit: `915a5a33773b1b2534134a56cdab00303b29a442`.
+- Emulator: `sdk_gphone64_x86_64`, API 35, `1848x2960` override, locked portrait and landscape rotations.
+- The reference mode uses the original eight native-resolution assets. The diagnostic mode uses eight generated page-identity rasters at the existing `Balanced` 50% quality.
+- Both modes enter the same `ReaderPlayLikeCurlReferenceModel`, renderer, page-role lifecycle, draw order, gesture mapping, and 300 ms settlement path.
+
+### Recorded Adapter Parity
+
+- Portrait reference forward recording SHA256: `73F1854E050210496FA51B6AC6E6E64B2C5E13D2CBC1019BC109C12B5389AF1F`.
+- Portrait diagnostic forward recording SHA256: `832B4BBB027702FBF76C6672B2437DB215F41988C7B96EB0A3F3FD4A300CB1F9`.
+- Landscape reference forward recording SHA256: `7360C3DB8D1D0FEA61F900F5CAC81278FA54DB19C09D691876409B6CE9DA0F63`.
+- Landscape diagnostic forward recording SHA256: `64E8EFBC7F6A88AC0AC2403F3DFC051AF8748AE1B828B6FE835498CE327497F4`.
+- Contact sheets at progressive frames show the same deformation envelope, stationary-page exposure, role widths, and post-settlement identity rotation. The only expected differences are source pixels, native versus 50% raster resolution, and resulting video compression size.
+- No geometry, progress mapping, texture-slot rotation, draw order, gesture threshold, duration, or interpolator was changed by the adapter.
+
+### Raster Lifecycle
+
+- Duplicate page identities share one materialization.
+- Concurrent preparations share one in-flight raster.
+- Profile changes reject stale decks and release stale rasters without cancelling the loader that owns cleanup.
+- Decode and diagnostic generation run off the main thread; texture upload runs once on the GL thread before interaction is enabled.
+- `onDrawFrame` contains no bitmap decode or texture upload.
+- ReaderDev displays a cover-backed determinate preparation surface and consumes touch without invoking the page model until all required textures are uploaded.
+- No cancellation timeout is used.
+
+### Verification
+
+- `ReaderPlayLikeCurlReferenceModelTest`, `ReaderPlayLikeCurlReferenceDemoSourceTest`, `ReaderPlayLikeCurlReferencePathSourceTest`, and `ReaderPlayLikeCurlRasterAdapterTest`: GREEN.
+- `:androidApp:assembleReaderDev`: GREEN.
+- Fresh combined test/build gate with `--rerun-tasks`: `BUILD SUCCESSFUL in 4m 58s`; 71 tasks executed.
+- ReaderDev APK SHA256: `D686972505BDA98805EE39A9CEB7F654FD9849C3B7972A78EB780281EE617197`.
+- Progression decision: Tranche 3 passes after its final clean verification and commit. Tranche 4 may map Foliate page identities into this adapter but may not reinterpret renderer geometry or interaction.

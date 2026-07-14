@@ -20,6 +20,12 @@ class ReaderPlayLikeCurlReferenceDemoSourceTest {
 				"ReaderPlayLikeCurlReferenceRenderer.android.kt"
 		).readText()
 	}
+	private val bitmapSource by lazy {
+		repoFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlBitmapSource.android.kt"
+		).readText()
+	}
 
 	@Test
 	fun readerDevOwnsAStandaloneReferenceActivityAndOriginalTextureSet() {
@@ -62,6 +68,40 @@ class ReaderPlayLikeCurlReferenceDemoSourceTest {
 		assertTrue(draw.indexOf("drawPage(frontPage") < draw.indexOf("drawPage(rightPage"))
 		assertFalse(rendererSource.contains("ReaderPageCurlLeafProjection"))
 		assertFalse(rendererSource.contains("ReaderPageCurlGlRenderer"))
+	}
+
+	@Test
+	fun rendererConsumesPreparedRasterDeckWithoutFrameDecodeOrUpload() {
+		assertContains(viewSource, "ReaderPlayLikeCurlRasterAdapter")
+		assertContains(viewSource, "queueEvent")
+		assertContains(viewSource, "interactionReady")
+		assertContains(rendererSource, "installRasterDeck")
+		assertFalse(rendererSource.contains("BitmapFactory"))
+		assertFalse(rendererSource.contains("assets.open"))
+
+		val drawFrame = rendererSource
+			.substringAfter("override fun onDrawFrame")
+			.substringBefore("fun installRasterDeck")
+		assertFalse(drawFrame.contains("GLUtils.texImage2D"))
+		assertFalse(drawFrame.contains("decode"))
+	}
+
+	@Test
+	fun rasterPreparationIsBackgroundBoundedAndVisibleBeforeInteraction() {
+		val activitySource = repoFile(
+			"androidApp/src/readerDev/kotlin/paige/navic/androidApp/PlayLikeCurlReferenceActivity.kt"
+		).readText()
+
+		assertContains(bitmapSource, "withContext(Dispatchers.IO)")
+		assertContains(bitmapSource, "ReaderPageBitmapQuality.Balanced")
+		assertContains(viewSource, "SupervisorJob() + Dispatchers.Default")
+		assertContains(viewSource, "if (!interactionReady) return true")
+		assertContains(viewSource, "onPreparationProgress")
+		assertContains(viewSource, "onPreparationCoverReady")
+		assertContains(activitySource, "Preparing pages")
+		assertContains(activitySource, "progressBarStyleHorizontal")
+		assertFalse(bitmapSource.contains("withTimeout"))
+		assertFalse(viewSource.contains("withTimeout"))
 	}
 
 	private fun repoFile(path: String): File = sequenceOf(

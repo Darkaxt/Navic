@@ -53,12 +53,12 @@ Tests that compare only equations or source strings cannot satisfy this protocol
 
 ## Tranche 3: Narrow Raster Adapter
 
-- [ ] Define an adapter from Navic's cached `previous/current/next` page images to the proven renderer's three texture slots.
-- [ ] Keep renderer geometry, gesture mapping, timing, and page lifecycle unchanged.
-- [ ] Upload half-resolution cached rasters by default, using the existing configurable quality setting.
-- [ ] Keep raster capture, decode, and upload asynchronous and single-flight.
-- [ ] Show cover-backed determinate preparation instead of capturing in the foreground.
-- [ ] Preserve the proven reference-texture harness beside the adapter for regression comparison.
+- [x] Define an adapter from Navic's cached `previous/current/next` page images to the proven renderer's three texture slots.
+- [x] Keep renderer geometry, gesture mapping, timing, and page lifecycle unchanged.
+- [x] Upload half-resolution cached rasters by default, using the existing configurable quality setting.
+- [x] Keep raster capture, decode, and upload asynchronous and single-flight.
+- [x] Show cover-backed determinate preparation instead of capturing in the foreground.
+- [x] Preserve the proven reference-texture harness beside the adapter for regression comparison.
 
 **Gate:** run the same motion twice, once with reference textures and once with Navic diagnostic page images. Geometry and timing must be identical; only texture pixels may differ.
 
