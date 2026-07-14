@@ -1,10 +1,12 @@
-# Reader PlayLikeCurl OpenGL Implementation Plan
+# Reader PlayLikeCurl OpenGL Implementation Plan (Superseded Execution Order)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Navic's current Canvas page turn with a faithful modern OpenGL recreation of PlayLikeCurl, backed by an asynchronous configurable-resolution page raster cache that prevents visible capture and page-settlement blinking.
+**Status:** Superseded by `2026-07-14-reader-playlikecurl-faithful-port.md`. Tasks 2-4 and their recorded Gate A are historical evidence of the failed prototype, not accepted fidelity progress.
 
-**Architecture:** Preserve Foliate as the sole layout and navigation authority. Port only PlayLikeCurl's MIT-licensed mesh formulas into a tested first-party geometry module, render dynamic Navic page textures through a persistent GLES2 surface, and feed it from a managed multi-tier raster cache produced by the passive Foliate renderer. Keep exact target relocation and settlement shielding from the current destination-aware controller; remove the Canvas/wave production renderer after cutover.
+**Goal:** Replace Navic's current Canvas page turn with a faithful modern OpenGL port of PlayLikeCurl, backed by an asynchronous configurable-resolution page raster cache that prevents visible capture and page-settlement blinking.
+
+**Architecture correction:** Preserve Foliate as the sole final layout and navigation authority, but first port PlayLikeCurl's complete three-page model, projection, draw order, gesture mapping, settlement, and texture-identity lifecycle into GLES2 without Navic-specific geometry changes. Only after reference-demo parity may a narrow adapter feed dynamic Navic page textures from the managed raster cache. Keep exact target relocation and settlement shielding outside the renderer; remove failed Canvas/custom-curl production paths only after cutover.
 
 **Tech Stack:** Kotlin Multiplatform, Android OpenGL ES 2.0, GLSurfaceView, Android Bitmap/PNG, Foliate JavaScript, Compose Multiplatform, Kotlin test, Android host tests, Node reader harness, Gradle, ReaderDev emulator, ADB.
 

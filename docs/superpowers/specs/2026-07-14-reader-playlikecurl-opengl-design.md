@@ -1,10 +1,10 @@
 # PlayLikeCurl OpenGL Reader Page-Turn Design
 
-**Status:** Approved direction, ready for staged implementation
+**Status:** Rev 2 approved direction; renderer implementation reset for fidelity
 
 **Date:** 2026-07-14
 
-**Baseline:** `master` at `081cfc88`
+**Baseline:** `master` at `4b8b213a`
 
 **References:**
 
@@ -21,7 +21,9 @@ The page-identity, passive-renderer, exact-relocation, release-only commit, and 
 
 ## 1. Objective
 
-Replace Navic's current Canvas page-turn approximation with a faithful modern recreation of PlayLikeCurl's page deformation. The first accepted renderer must preserve the reference geometry before adding visual embellishments.
+Replace Navic's current page-turn implementation with a faithful modern port of PlayLikeCurl. "Modern" applies only to Android and OpenGL APIs. It does not permit redesigning the page model, geometry, projection, draw order, gesture mapping, direction semantics, settlement animation, or page-identity lifecycle.
+
+The renderer currently present on `master` is a failed prototype, not a partial fidelity baseline. It copied selected equations into a custom two-texture renderer, custom projection, and custom landscape projection. Those choices are not accepted as PlayLikeCurl parity and must not constrain the direct port.
 
 The reader must:
 
@@ -55,14 +57,36 @@ The design deliberately accepts a loading stage over showing incorrect pixels or
 15. No renderer path recreates the rejected synthetic reader shell or changes Foliate's text geometry.
 16. Rendering does not allocate bitmaps, vertex arrays, index arrays, or direct buffers per frame.
 17. The first fidelity gate excludes shadow and speculative geometry improvements. Reference parity comes first.
+18. The first accepted ReaderDev implementation uses the original PlayLikeCurl portrait and landscape demo textures, page roles, progress values, draw order, and gestures before any Foliate bitmap is connected.
+19. Every implementation tranche ends with a recorded comparison against the actual PlayLikeCurl reference animation. Any unexplained difference blocks the next tranche.
+20. Landscape leaf bounds may be added only after portrait and reference-demo parity. Bounds may clip or place an otherwise unchanged page model; they may not rewrite its deformation.
+
+### 2.1 Failed-prototype disposition
+
+The following current implementation choices are explicitly non-normative and must be removed or bypassed by the faithful port:
+
+- the custom two-texture source/destination renderer
+- the custom z-dependent perspective approximation
+- the custom full-viewport/active-leaf projection that changes mesh coordinates
+- diagnostic checker textures used as evidence of reference parity
+- tests that prove only sampled equations while omitting the three-page lifecycle
+- the previous Gate A conclusion that geometry parity had passed
+
+Raster caching, asynchronous capture, bitmap-quality settings, exact Foliate relocation, and settlement shielding are integration infrastructure. They may be retained only behind a narrow adapter after standalone reference parity is proven.
 
 ## 3. Reference Geometry Contract
 
 ### 3.1 Internal modern port
 
-Navic will maintain an internal, first-party modern port of PlayLikeCurl's geometry rather than depend on the archived Android library at runtime. This keeps integration, lifecycle, testing, and maintenance under Navic's control.
+Navic will maintain an internal, first-party port of PlayLikeCurl rather than depend on the archived Android library at runtime. The source page model and interaction lifecycle are the behavioral specification, not suggestions.
 
-The port must preserve the MIT attribution and license notice in Navic's third-party records. It must not copy obsolete Android activity, asset loading, fixed-function OpenGL, or page lifecycle code.
+The port must preserve the MIT attribution and license notice in Navic's third-party records. Obsolete Android activity/view plumbing and fixed-function OpenGL calls are modernized, but their observable behavior is preserved. In particular:
+
+- `PageFront`, `PageLeft`, and `PageRight` remain distinct persistent page objects
+- the original texture-slot rotation and previous/current/next identity lifecycle remain intact
+- the original draw order, stationary depths, 45-degree perspective, aspect correction, endpoint values, and 300 ms settlement behavior remain intact
+- GL1 matrix, vertex-array, and texture calls are translated to GLES2 shaders and buffers without changing geometry or interaction
+- ReaderDev replaces the sample Activity and asset loader, but not the sample's gesture or page lifecycle
 
 ### 3.2 Fidelity constants
 
@@ -76,7 +100,7 @@ RADIUS = 0.18
 
 The mesh therefore contains 26 x 26 vertices. The implementation may use indexed triangles instead of the original draw organization, but sampled vertex positions and texture coordinates must match the reference formulas within floating-point tolerance.
 
-### 3.3 Three page roles
+### 3.3 Three page roles and texture lifecycle
 
 The port retains three geometry roles:
 
@@ -85,6 +109,24 @@ The port retains three geometry roles:
 - `PageRight`: the stationary page or underneath page
 
 `PageLeft` is not `PageFront` played in reverse. It has its own vertex mapping and progress domain.
+
+The standalone parity renderer owns exactly three texture slots:
+
+```text
+previous -> PageLeft
+current  -> PageFront
+next     -> PageRight
+```
+
+At a publication boundary, the missing adjacent slot duplicates the current texture exactly as the reference does. A committed transition rotates these identities only after the 300 ms settlement animation completes. A cancelled transition restores the active page position without rotating identities.
+
+The draw order is normative:
+
+```text
+PageLeft, then PageFront, then PageRight
+```
+
+The stationary depth values are normative: `PageLeft=-0.001`, `PageFront=-0.002`, and `PageRight=-0.003`.
 
 ### 3.4 Progress domains
 
@@ -120,6 +162,23 @@ It excludes:
 
 Those may be designed after parity and performance are proven.
 
+### 3.6 Reference-demo parity gate
+
+Before Foliate bitmaps are accepted, ReaderDev must reproduce the archived demo with its original portrait and landscape page images. The gate records synchronized reference and ReaderDev frames at the same input positions and transition progress values.
+
+Parity includes:
+
+- page placement and aspect correction
+- visible deformation and texture orientation
+- previous/current/next composition
+- forward and backward direction semantics
+- drag response and release behavior
+- settlement duration and interpolation
+- page identity rotation after commit
+- cancellation without identity rotation
+
+The comparison is visual and behavioral. Numeric vertex samples alone cannot pass this gate.
+
 ## 4. Renderer Architecture
 
 ### 4.1 Persistent OpenGL surface
@@ -130,7 +189,9 @@ The surface is created with the reader host, not for every gesture. During norma
 
 ### 4.2 Renderer responsibilities
 
-The OpenGL renderer receives immutable transition state:
+The standalone parity renderer receives the original page position, active page role, viewport ratio, and three texture identities. It must not receive Navic-specific leaf projection or source/destination abstractions until the reference-demo gate passes.
+
+After parity, the Foliate adapter may translate a prepared transition into immutable state:
 
 ```kotlin
 data class ReaderPageCurlFrame(
@@ -198,6 +259,8 @@ Landscape resolves the real Foliate gutter and active leaf bounds:
 - geometry origin and texture coordinates are relative to the active leaf, not the full two-page viewport
 
 This prevents the previous failure where both columns moved as one page.
+
+Landscape composition is an integration stage after standalone parity. It must place or scissor the unchanged reference page model inside the resolved leaf bounds. `ReaderPageCurlLeafProjection`-style coordinate rewriting is forbidden because it changes the deformation being ported.
 
 ## 5. Page Identity And Texture Bundle
 
