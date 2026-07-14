@@ -14,6 +14,7 @@ import android.widget.ImageView
 import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnEffect
+import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderPageSlideCoordinator
@@ -108,6 +109,18 @@ internal class ReaderPageTurnController(
 
 	val isAvailable: Boolean
 		get() = enabledForSession && bundleSource.isAvailable
+
+	fun updateBitmapQuality(value: String?) {
+		if (!bundleSource.updateBitmapQuality(normalizeReaderPageBitmapQuality(value))) return
+		cancelPrewarm()
+		cancelPreparation()
+		removePreparationShield()
+		state.cancel()
+		animation?.cancel()
+		animation = null
+		detachOverlay(schedulePrewarm = false)
+		slideCoordinator = null
+	}
 
 	fun update(deltaX: Float, viewWidth: Int, edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
 		if (!isAvailable || viewWidth <= 0) return

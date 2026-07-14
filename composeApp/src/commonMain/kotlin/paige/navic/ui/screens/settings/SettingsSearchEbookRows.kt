@@ -27,6 +27,7 @@ import paige.navic.reader.ReaderFontSourceNavic
 import paige.navic.reader.ReaderLightTheme
 import paige.navic.reader.ReaderOrientationDefault
 import paige.navic.reader.ReaderNavBarTypeVerticalRight
+import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.ReaderPdfFitWidth
 import paige.navic.reader.ReaderSansFontFamily
 import paige.navic.reader.ReaderTapZoneDefault
@@ -236,6 +237,17 @@ internal fun settingsSearchEbookRows(context: SettingsSearchContext): List<Searc
 			label = { dragAnimationMode -> readerDragAnimationSearchLabel(dragAnimationMode) },
 			selection = readerSettings.dragAnimationMode ?: ReaderDragAnimationNone,
 			onSelect = { dragAnimationMode -> preferenceManager.readerDragAnimationMode = dragAnimationMode }
+		))
+		add(selectionRow(
+			id = "ebooks.page-animation-bitmap-quality",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_page_bitmap_quality),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_page_bitmap_quality),
+			keywords = ebookReaderSettingDescriptor("ebooks.page-animation-bitmap-quality").keywords,
+			items = readerPageBitmapQualitySearchOptions,
+			label = { quality -> readerPageBitmapQualitySearchLabel(quality) },
+			selection = normalizeReaderPageBitmapQuality(readerSettings.pageBitmapQuality).persistedValue,
+			onSelect = { quality -> preferenceManager.readerPageBitmapQuality = quality }
 		))
 		add(selectionRow(
 			id = "ebooks.pdf-fit",

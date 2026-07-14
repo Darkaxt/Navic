@@ -11,12 +11,12 @@ import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.util.core.Logger
 import kotlin.math.roundToInt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
-private const val ReaderPageTurnAnimationBitmapScale = 0.5f
 
 private data class InFlightSnapshotRequest(
 	val generation: Long,
@@ -28,11 +28,20 @@ internal class ReaderPageTurnBundleSource(
 	private val mainHandler: Handler = Handler(Looper.getMainLooper())
 ) {
 	private var activeGeneration = 0L
+	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private val visualStateRequestId = AtomicLong()
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
 	private val inFlightSnapshotRequests = mutableMapOf<ReaderPageSlideSnapshotKey, InFlightSnapshotRequest>()
 	val isAvailable: Boolean
 		get() = bitmapSource.isAvailable
+
+	fun updateBitmapQuality(quality: ReaderPageBitmapQuality): Boolean {
+		if (bitmapQuality == quality) return false
+		bitmapQuality = quality
+		bitmapSource.updateBitmapQuality(quality)
+		invalidate("bitmap-quality-${quality.persistedValue}")
+		return true
+	}
 
 	fun currentGeneration(): Long = activeGeneration
 
@@ -322,6 +331,7 @@ internal class ReaderPageTurnBundleSource(
 	): ReaderPageSlideSnapshotKey = ReaderPageSlideSnapshotKey(
 		visualPageIndex = pageIndex,
 		kind = kind,
+		bitmapQuality = bitmapQuality,
 		bitmapWidth = bitmap.width,
 		bitmapHeight = bitmap.height,
 		surfaceWidth = surfaceRectInWindow.width(),
@@ -370,8 +380,8 @@ internal class ReaderPageTurnBundleSource(
 		val draw = {
 			val bitmap = runCatching {
 				Bitmap.createBitmap(
-					readerPageTurnAnimationBitmapDimension(sourceRectInWindow.width()),
-					readerPageTurnAnimationBitmapDimension(sourceRectInWindow.height()),
+					readerPageTurnAnimationBitmapDimension(sourceRectInWindow.width(), bitmapQuality),
+					readerPageTurnAnimationBitmapDimension(sourceRectInWindow.height(), bitmapQuality),
 					Bitmap.Config.ARGB_8888
 				)
 			}.getOrNull()
@@ -470,8 +480,10 @@ internal fun readerPageTurnOpaqueColor(argb: Long?): Int {
 	return color or Color.BLACK
 }
 
-internal fun readerPageTurnAnimationBitmapDimension(physicalPixels: Int): Int =
-	(physicalPixels * ReaderPageTurnAnimationBitmapScale).roundToInt().coerceAtLeast(1)
+internal fun readerPageTurnAnimationBitmapDimension(
+	physicalPixels: Int,
+	quality: ReaderPageBitmapQuality
+): Int = (physicalPixels * quality.scale).roundToInt().coerceAtLeast(1)
 
 internal fun readerPageSlideSnapshotWindow(
 	centerPageIndex: Int,

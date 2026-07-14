@@ -82,18 +82,18 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun halfResolutionSnapshotsAreScaledOnlyAtTheCanvasBoundary() {
+	fun configuredResolutionSnapshotsAreScaledOnlyAtTheRendererBoundary() {
 		val bitmapSource = readerAndroidFile("ReaderPageTurnBitmapSource.android.kt").readText()
 		val bundleSource = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
 		val renderer = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
 
-		assertContains(bundleSource, "private const val ReaderPageTurnAnimationBitmapScale = 0.5f")
 		assertContains(bundleSource, "internal fun readerPageTurnAnimationBitmapDimension")
-		assertContains(bitmapSource, "readerPageTurnAnimationBitmapDimension(pixelRect.width)")
-		assertContains(bitmapSource, "readerPageTurnAnimationBitmapDimension(pixelRect.height)")
-		assertContains(bundleSource, "readerPageTurnAnimationBitmapDimension(sourceRectInWindow.width())")
-		assertContains(bundleSource, "readerPageTurnAnimationBitmapDimension(sourceRectInWindow.height())")
+		assertContains(bitmapSource, "readerPageTurnAnimationBitmapDimension(pixelRect.width, bitmapQuality)")
+		assertContains(bitmapSource, "readerPageTurnAnimationBitmapDimension(pixelRect.height, bitmapQuality)")
+		assertContains(bundleSource, "readerPageTurnAnimationBitmapDimension(sourceRectInWindow.width(), bitmapQuality)")
+		assertContains(bundleSource, "readerPageTurnAnimationBitmapDimension(sourceRectInWindow.height(), bitmapQuality)")
+		assertContains(bundleSource, "bitmapQuality = bitmapQuality")
 		assertContains(bundle, "val renderScaleX")
 		assertContains(bundle, "val renderScaleY")
 		assertContains(renderer, "canvas.scale(transition.renderScaleX, transition.renderScaleY)")

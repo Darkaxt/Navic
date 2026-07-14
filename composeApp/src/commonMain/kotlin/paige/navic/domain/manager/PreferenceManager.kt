@@ -327,6 +327,7 @@ class PreferenceManager(
 	var readerNavBarType by preference("vertical-right")
 	var readerFlowMode by preference("paged")
 	var readerDragAnimationMode by preference("none")
+	var readerPageBitmapQuality by preference("50")
 	var readerPaged by preference(true)
 	var readerTapZone by preference("default")
 	var readerTapZoneInvertMode by preference("none")

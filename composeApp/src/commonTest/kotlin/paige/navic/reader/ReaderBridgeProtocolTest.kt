@@ -88,6 +88,7 @@ class ReaderBridgeProtocolTest {
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
 				dragAnimationMode = ReaderDragAnimationCanvas,
+				pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue,
 				paged = false,
 				tapZone = ReaderTapZoneKindle,
 				tapZoneInvertMode = ReaderTapZoneInvertHorizontal,
@@ -128,6 +129,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"maxColumnCount\":2")
 		assertContains(script, "\"columnThreshold\":840.0")
 		assertContains(script, "\"dimOverlayPercent\":30")
+		assertContains(script, "\"pageBitmapQuality\":\"75\"")
 		assertContains(script, "\"colorFilterEnabled\":true")
 		assertContains(script, "\"colorFilterArgb\":1714644633")
 		assertContains(script, "\"colorFilterMode\":\"multiply\"")

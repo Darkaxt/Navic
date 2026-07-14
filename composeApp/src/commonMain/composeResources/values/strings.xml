@@ -258,6 +258,7 @@
 	<string name="subtitle_ebook_reader_nav_bar_type">Choose whether reader progress controls appear on the right, left, or bottom overlay.</string>
 	<string name="subtitle_ebook_reader_paged">Choose paged columns or continuous scrolling for EPUBs.</string>
 	<string name="subtitle_ebook_reader_page_turn_animation">Choose whether page drags use the native Canvas page turn.</string>
+	<string name="subtitle_ebook_reader_page_bitmap_quality">Choose the cached page image resolution used by page-turn animations. Higher values use more memory and preparation time.</string>
 	<string name="subtitle_ebook_reader_column_mode">Choose automatic, single, or double-column EPUB layout.</string>
 	<string name="subtitle_ebook_reader_column_threshold">Set the page width threshold used by automatic columns.</string>
 	<string name="subtitle_ebook_reader_tap_zone">Choose how taps navigate pages or reveal reader controls.</string>
@@ -631,6 +632,11 @@
 	<string name="option_ebook_reader_page_turn_animation">Page turn animation</string>
 	<string name="option_ebook_reader_page_turn_animation_none">None</string>
 	<string name="option_ebook_reader_page_turn_animation_canvas">Canvas</string>
+	<string name="option_ebook_reader_page_bitmap_quality">Page animation bitmap quality</string>
+	<string name="option_ebook_reader_page_bitmap_quality_25">25%</string>
+	<string name="option_ebook_reader_page_bitmap_quality_50">50%</string>
+	<string name="option_ebook_reader_page_bitmap_quality_75">75%</string>
+	<string name="option_ebook_reader_page_bitmap_quality_100">100%</string>
 	<string name="option_ebook_reader_paged">Paged</string>
 	<string name="option_ebook_reader_paged_vertical">Paged vertical</string>
 	<string name="option_ebook_reader_column_mode">Column mode</string>

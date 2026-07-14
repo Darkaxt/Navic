@@ -15,6 +15,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPageRect
 import paige.navic.reader.ReaderPageTurnPageRole
@@ -36,12 +37,17 @@ internal data class ReaderPageTurnCaptureResult(
 )
 
 internal class ReaderPageTurnBitmapSource(
-	private val mainHandler: Handler = Handler(Looper.getMainLooper())
+	private val mainHandler: Handler = Handler(Looper.getMainLooper()),
+	private var bitmapQuality: ReaderPageBitmapQuality = ReaderPageBitmapQuality.Balanced
 ) {
 	private var visualStateRequestId = 0L
 
 	val isAvailable: Boolean
 		get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+
+	fun updateBitmapQuality(quality: ReaderPageBitmapQuality) {
+		bitmapQuality = quality
+	}
 
 	fun capturePage(
 		webView: WebView,
@@ -125,8 +131,8 @@ internal class ReaderPageTurnBitmapSource(
 			val sourceRect = Rect(pixelRect.left, pixelRect.top, pixelRect.right, pixelRect.bottom)
 			val bitmap = runCatching {
 				Bitmap.createBitmap(
-					readerPageTurnAnimationBitmapDimension(pixelRect.width),
-					readerPageTurnAnimationBitmapDimension(pixelRect.height),
+					readerPageTurnAnimationBitmapDimension(pixelRect.width, bitmapQuality),
+					readerPageTurnAnimationBitmapDimension(pixelRect.height, bitmapQuality),
 					Bitmap.Config.ARGB_8888
 				)
 			}.getOrElse { error ->

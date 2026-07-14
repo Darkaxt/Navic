@@ -134,6 +134,7 @@ internal fun KomikkuReaderRoot(
 					controllerState.chrome.settings.flowMode,
 					controllerState.chrome.settings.paged
 				) == ReaderFlowPaged,
+			pageTurnBitmapQuality = controllerState.chrome.settings.pageBitmapQuality,
 			pageTurnSnapshotKey = controllerState.chrome.settings.hashCode(),
 			pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex,
 			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,

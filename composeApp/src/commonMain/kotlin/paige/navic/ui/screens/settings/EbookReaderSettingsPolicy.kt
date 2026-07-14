@@ -43,6 +43,15 @@ fun ebookReaderSettingDescriptors(): List<EbookReaderSettingDescriptor> =
 			keywords = listOf("reader", "ebook", "cover", "backdrop", "blur", "background", "paper", "appearance")
 		),
 		EbookReaderSettingDescriptor(
+			id = "ebooks.page-animation-bitmap-quality",
+			title = "Page animation bitmap quality",
+			subtitle = "Choose the cached page image resolution used by page-turn animations.",
+			keywords = listOf(
+				"reader", "ebook", "page", "animation", "bitmap", "cache", "raster", "quality",
+				"resolution", "performance", "25", "50", "75", "100"
+			)
+		),
+		EbookReaderSettingDescriptor(
 			id = "ebooks.pdf-fit",
 			title = "PDF/Image fit",
 			subtitle = "Default scaling for PDF and fixed image pages.",

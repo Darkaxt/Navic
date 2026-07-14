@@ -69,6 +69,14 @@ internal fun KomikkuReadingSettingsPage(
 			onSelect = { mode -> onSettingsChange(settings.copy(dragAnimationMode = mode)) }
 		)
 		SettingsSelectableChipRow(
+			title = "Animation quality",
+			options = ReaderPageBitmapQuality.entries.map { quality ->
+				quality.persistedValue to "${quality.persistedValue}%"
+			},
+			selectedValue = normalizeReaderPageBitmapQuality(settings.pageBitmapQuality).persistedValue,
+			onSelect = { quality -> onSettingsChange(settings.copy(pageBitmapQuality = quality)) }
+		)
+		SettingsSelectableChipRow(
 			title = "Tap zones",
 			options = KomikkuTapZoneOptions,
 			selectedValue = normalizedReaderTapZone(settings.tapZone),

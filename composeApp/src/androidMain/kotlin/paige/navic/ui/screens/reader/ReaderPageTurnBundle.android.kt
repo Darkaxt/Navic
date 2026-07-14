@@ -9,6 +9,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.reader.ReaderPageTurnLeafGeometry
+import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderPageTurnPixelRect
 
@@ -77,6 +78,7 @@ internal data class ReaderPageTurnTransitionPlan(
 internal data class ReaderPageSlideSnapshotKey(
 	val visualPageIndex: Int,
 	val kind: ReaderPageTurnTransitionKind,
+	val bitmapQuality: ReaderPageBitmapQuality,
 	val bitmapWidth: Int,
 	val bitmapHeight: Int,
 	val surfaceWidth: Int,

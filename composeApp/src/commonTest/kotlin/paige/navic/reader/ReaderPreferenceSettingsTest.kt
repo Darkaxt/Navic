@@ -380,6 +380,34 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripPageBitmapQuality() {
+		val preferences = PreferenceManager(MapSettings())
+
+		assertEquals(
+			ReaderPageBitmapQuality.Balanced.persistedValue,
+			preferences.readerDefaultSettings().pageBitmapQuality
+		)
+
+		preferences.readerPageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue
+		assertEquals(
+			ReaderPageBitmapQuality.High.persistedValue,
+			preferences.readerDefaultSettings().pageBitmapQuality
+		)
+
+		preferences.readerPageBitmapQuality = "invalid"
+		assertEquals(
+			ReaderPageBitmapQuality.Balanced.persistedValue,
+			preferences.readerDefaultSettings().pageBitmapQuality
+		)
+		assertEquals(ReaderPageBitmapQuality.Balanced.persistedValue, preferences.readerPageBitmapQuality)
+
+		preferences.setReaderDefaultSettings(
+			ReaderSettings(pageBitmapQuality = ReaderPageBitmapQuality.Native.persistedValue)
+		)
+		assertEquals(ReaderPageBitmapQuality.Native.persistedValue, preferences.readerPageBitmapQuality)
+	}
+
+	@Test
 	fun readerBookSettingsMigratesAndPersistsLegacyDragAnimationModes() {
 		val preferences = PreferenceManager(MapSettings())
 		preferences.readerBookSettingsJson =
@@ -534,14 +562,27 @@ class ReaderPreferenceSettingsTest {
 	fun readerBookSettingsOverrideIsScopedToTheRequestedBook() {
 		val preferences = PreferenceManager(MapSettings())
 		preferences.readerTheme = ReaderDarkTheme
+		preferences.readerPageBitmapQuality = ReaderPageBitmapQuality.Balanced.persistedValue
 
 		preferences.setReaderBookSettings(
 			bookId = "book-1",
-			settings = ReaderSettings(theme = ReaderSepiaTheme)
+			settings = ReaderSettings(
+				theme = ReaderSepiaTheme,
+				pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue
+			)
 		)
 
 		assertEquals(ReaderSepiaTheme, preferences.readerSettingsForBook("book-1").theme)
 		assertEquals(ReaderDarkTheme, preferences.readerSettingsForBook("book-2").theme)
+		assertEquals(
+			ReaderPageBitmapQuality.High.persistedValue,
+			preferences.readerSettingsForBook("book-1").pageBitmapQuality
+		)
+		assertEquals(
+			ReaderPageBitmapQuality.Balanced.persistedValue,
+			preferences.readerSettingsForBook("book-2").pageBitmapQuality
+		)
+		assertEquals(true, preferences.readerBookSettingsJson.contains("\"pageBitmapQuality\":\"75\""))
 		assertNull(preferences.readerBookSettings("book-2"))
 	}
 

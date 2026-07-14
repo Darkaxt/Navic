@@ -37,6 +37,10 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 	if (readerDragAnimationMode != dragAnimationMode) {
 		readerDragAnimationMode = dragAnimationMode
 	}
+	val pageBitmapQuality = normalizeReaderPageBitmapQuality(readerPageBitmapQuality).persistedValue
+	if (readerPageBitmapQuality != pageBitmapQuality) {
+		readerPageBitmapQuality = pageBitmapQuality
+	}
 
 	return normalizedReaderSettings(
 		fontFamily = readerFontFamily,
@@ -72,6 +76,7 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		coverBackdropEnabled = readerCoverBackdropEnabled,
 		navBarType = readerNavBarType,
 		dragAnimationMode = dragAnimationMode,
+		pageBitmapQuality = pageBitmapQuality,
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
@@ -128,6 +133,7 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerCoverBackdropEnabled = normalized.coverBackdropEnabled ?: true
 	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
 	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationNone
+	readerPageBitmapQuality = normalizeReaderPageBitmapQuality(normalized.pageBitmapQuality).persistedValue
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
@@ -222,6 +228,7 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		coverBackdropEnabled = override.coverBackdropEnabled ?: coverBackdropEnabled,
 		navBarType = override.navBarType ?: navBarType,
 		dragAnimationMode = override.dragAnimationMode ?: dragAnimationMode,
+		pageBitmapQuality = override.pageBitmapQuality ?: pageBitmapQuality,
 		flowMode = override.flowMode ?: flowMode,
 		paged = override.paged ?: paged,
 		tapZone = override.tapZone ?: tapZone,
@@ -278,6 +285,7 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		coverBackdropEnabled = if (coverBackdropEnabled != null) normalized.coverBackdropEnabled else null,
 		navBarType = if (navBarType != null) normalized.navBarType else null,
 		dragAnimationMode = if (dragAnimationMode != null) normalized.dragAnimationMode else null,
+		pageBitmapQuality = if (pageBitmapQuality != null) normalized.pageBitmapQuality else null,
 		flowMode = if (flowMode != null) normalized.flowMode else null,
 		paged = if (paged != null) normalized.paged else null,
 		tapZone = if (tapZone != null) normalized.tapZone else null,
@@ -373,6 +381,7 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		coverBackdropEnabled = booleanValue("coverBackdropEnabled"),
 		navBarType = stringValue("navBarType"),
 		dragAnimationMode = stringValue("dragAnimationMode"),
+		pageBitmapQuality = stringValue("pageBitmapQuality"),
 		flowMode = stringValue("flowMode"),
 		paged = booleanValue("paged"),
 		tapZone = stringValue("tapZone"),
@@ -424,9 +433,10 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		pageEdgesEnabled?.let { put("pageEdgesEnabled", it) }
 		paperStainsEnabled?.let { put("paperStainsEnabled", it) }
 		coverBackdropEnabled?.let { put("coverBackdropEnabled", it) }
-		navBarType?.let { put("navBarType", it) }
-		dragAnimationMode?.let { put("dragAnimationMode", it) }
-		flowMode?.let { put("flowMode", it) }
+	navBarType?.let { put("navBarType", it) }
+	dragAnimationMode?.let { put("dragAnimationMode", it) }
+	pageBitmapQuality?.let { put("pageBitmapQuality", it) }
+	flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }
 		tapZoneInvertMode?.let { put("tapZoneInvertMode", it) }

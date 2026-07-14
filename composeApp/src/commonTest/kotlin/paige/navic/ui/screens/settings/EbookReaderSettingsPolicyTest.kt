@@ -21,6 +21,7 @@ class EbookReaderSettingsPolicyTest {
 		assertTrue("ebooks.page-edges" in ids)
 		assertTrue("ebooks.paper-stains" in ids)
 		assertTrue("ebooks.cover-backdrop" in ids)
+		assertTrue("ebooks.page-animation-bitmap-quality" in ids)
 		assertTrue("ebooks.pdf-fit" in ids)
 		assertTrue("ebooks.pdf-crop-borders" in ids)
 		assertTrue("ebooks.pdf-page-gap" in ids)

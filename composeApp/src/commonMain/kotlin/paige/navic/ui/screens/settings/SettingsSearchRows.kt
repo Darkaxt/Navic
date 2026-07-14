@@ -56,6 +56,7 @@ import paige.navic.reader.ReaderOrientationLockedLandscape
 import paige.navic.reader.ReaderOrientationLockedPortrait
 import paige.navic.reader.ReaderOrientationPortrait
 import paige.navic.reader.ReaderOrientationReversePortrait
+import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPdfFitHeight
 import paige.navic.reader.ReaderPdfFitOriginal
 import paige.navic.reader.ReaderPdfFitPage
@@ -299,6 +300,7 @@ internal val readerDirectionSearchOptions = ReaderSupportedDirections
 internal val readerNavBarTypeSearchOptions = ReaderSupportedNavBarTypes
 internal val readerFlowSearchOptions = ReaderSupportedFlowModes
 internal val readerDragAnimationSearchOptions = ReaderSupportedDragAnimationModes
+internal val readerPageBitmapQualitySearchOptions = ReaderPageBitmapQuality.entries.map { quality -> quality.persistedValue }
 internal val readerPdfFitSearchOptions = ReaderSupportedPdfFitModes
 internal val readerPdfPageGapSearchOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
 internal val readerTapZoneSearchOptions = ReaderSupportedTapZones
@@ -380,6 +382,9 @@ internal fun readerDragAnimationSearchLabel(dragAnimationMode: String): String =
 		ReaderDragAnimationCanvas -> stringResource(Res.string.option_ebook_reader_page_turn_animation_canvas)
 		else -> stringResource(Res.string.option_ebook_reader_page_turn_animation_none)
 	}
+
+@Composable
+internal fun readerPageBitmapQualitySearchLabel(value: String): String = "$value%"
 
 @Composable
 internal fun readerPdfFitSearchLabel(pdfFitMode: String): String =

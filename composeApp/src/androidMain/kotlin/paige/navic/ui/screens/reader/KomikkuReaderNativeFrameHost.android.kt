@@ -61,6 +61,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
+	pageTurnBitmapQuality: String?,
 	pageTurnSnapshotKey: Int,
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
@@ -87,6 +88,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
 				setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				setVerticalPageDragPreview(verticalPageDragPreview)
+				setPageTurnBitmapQuality(pageTurnBitmapQuality)
 				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				setPageTurnSnapshotKey(pageTurnSnapshotKey)
 				setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
@@ -104,6 +106,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
 			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 			root.setVerticalPageDragPreview(verticalPageDragPreview)
+			root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
 			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
@@ -206,6 +209,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		viewerContainer.setPageTurnCanvasEnabled(enabled)
+	}
+
+	fun setPageTurnBitmapQuality(value: String?) {
+		viewerContainer.setPageTurnBitmapQuality(value)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
@@ -517,6 +524,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			removePageTurnPrewarmLayoutListener()
 			pageTurnController.invalidate("canvas-disabled")
 		}
+	}
+
+	fun setPageTurnBitmapQuality(value: String?) {
+		pageTurnController.updateBitmapQuality(value)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {

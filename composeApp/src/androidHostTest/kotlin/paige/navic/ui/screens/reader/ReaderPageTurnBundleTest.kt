@@ -1,13 +1,39 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.readerAndroidFile
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 
 class ReaderPageTurnBundleTest {
+	@Test
+	fun animationBitmapDimensionsFollowConfiguredQuality() {
+		assertEquals(250, readerPageTurnAnimationBitmapDimension(1_000, ReaderPageBitmapQuality.Low))
+		assertEquals(500, readerPageTurnAnimationBitmapDimension(1_000, ReaderPageBitmapQuality.Balanced))
+		assertEquals(750, readerPageTurnAnimationBitmapDimension(1_000, ReaderPageBitmapQuality.High))
+		assertEquals(1_000, readerPageTurnAnimationBitmapDimension(1_000, ReaderPageBitmapQuality.Native))
+	}
+
+	@Test
+	fun snapshotIdentityIncludesBitmapQuality() {
+		val balanced = ReaderPageSlideSnapshotKey(
+			visualPageIndex = 7,
+			kind = ReaderPageTurnTransitionKind.PortraitSlide,
+			bitmapQuality = ReaderPageBitmapQuality.Balanced,
+			bitmapWidth = 500,
+			bitmapHeight = 800,
+			surfaceWidth = 1_000,
+			surfaceHeight = 1_600
+		)
+		val high = balanced.copy(bitmapQuality = ReaderPageBitmapQuality.High)
+
+		assertNotEquals(balanced, high)
+	}
+
 	@Test
 	fun snapshotWindowWarmsForwardReadingBeforeBackwardHistory() {
 		assertEquals(
