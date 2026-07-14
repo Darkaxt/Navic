@@ -143,7 +143,7 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 			.substringAfter("private fun attachPreparationShield(")
 			.substringBefore("private fun removePreparationShield(")
 
-		assertContains(attachShield, "if (slideView != null) return")
+		assertContains(attachShield, "if (overlayAttached) return")
 	}
 
 	@Test

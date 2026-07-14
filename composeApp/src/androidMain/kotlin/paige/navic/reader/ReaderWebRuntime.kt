@@ -57,6 +57,9 @@ object ReaderWebRuntime {
 	fun acquireForcedWebContentsDebugging(enabled: Boolean): AutoCloseable =
 		webContentsDebuggingForceRegistry.acquire(enabled)
 
+	fun isWebContentsDebuggingEnabled(): Boolean =
+		currentWebContentsDebuggingEnabled == true || webContentsDebuggingForceRegistry.isForced()
+
 	fun commandScript(command: ReaderBridgeDispatchCommand): String =
 		command.toJavaScript()
 }

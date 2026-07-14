@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
+import paige.navic.reader.ReaderPageTurnPixelRect
 
 internal enum class ReaderPageTurnTransitionKind {
 	LandscapeSpreadSlide,
@@ -151,6 +152,73 @@ internal class ReaderPageSlideTransition(
 		closed = true
 		source.release()
 		destination.release()
+	}
+}
+
+internal data class ReaderPageCurlTextureSet(
+	val identity: String,
+	val sourceBitmap: Bitmap,
+	val destinationBitmap: Bitmap,
+	val direction: ReaderPageTurnPhysicalDirection,
+	val kind: ReaderPageTurnTransitionKind,
+	val surfaceLeft: Float,
+	val surfaceTop: Float,
+	val surfaceWidth: Float,
+	val surfaceHeight: Float,
+	val activeLeafRect: ReaderPageTurnPixelRect,
+	val companionLeafRect: ReaderPageTurnPixelRect?
+) {
+	val isComplete: Boolean
+		get() = !sourceBitmap.isRecycled &&
+			!destinationBitmap.isRecycled &&
+			surfaceWidth > 0f &&
+			surfaceHeight > 0f &&
+			activeLeafRect.width > 0 &&
+			activeLeafRect.height > 0
+
+	val bitmapWidth: Int get() = sourceBitmap.width
+	val bitmapHeight: Int get() = sourceBitmap.height
+	val scaleX: Float get() = surfaceWidth / bitmapWidth.toFloat()
+	val scaleY: Float get() = surfaceHeight / bitmapHeight.toFloat()
+
+	companion object {
+		fun from(
+			transition: ReaderPageSlideTransition,
+			direction: ReaderPageTurnPhysicalDirection,
+			surfaceLeft: Int,
+			surfaceTop: Int
+		): ReaderPageCurlTextureSet? {
+			val activeLeaf = transition.activeLeafRect(direction) ?: return null
+			val companionLeaf = if (transition.plan.kind == ReaderPageTurnTransitionKind.LandscapeSpreadSlide) {
+				when (direction) {
+					ReaderPageTurnPhysicalDirection.TowardLeft -> transition.leafGeometry.leftLeafRect
+					ReaderPageTurnPhysicalDirection.TowardRight -> transition.leafGeometry.rightLeafRect
+				}
+			} else {
+				null
+			}
+			return ReaderPageCurlTextureSet(
+				identity = buildString {
+					append(transition.plan.cacheKey)
+					append(':')
+					append(System.identityHashCode(transition.source.bitmap))
+					append(':')
+					append(System.identityHashCode(transition.destination.bitmap))
+					append(':')
+					append(direction)
+				},
+				sourceBitmap = transition.source.bitmap,
+				destinationBitmap = transition.destination.bitmap,
+				direction = direction,
+				kind = transition.plan.kind,
+				surfaceLeft = surfaceLeft.toFloat(),
+				surfaceTop = surfaceTop.toFloat(),
+				surfaceWidth = transition.surfaceRectInWindow.width().toFloat(),
+				surfaceHeight = transition.surfaceRectInWindow.height().toFloat(),
+				activeLeafRect = activeLeaf,
+				companionLeafRect = companionLeaf
+			)
+		}
 	}
 }
 

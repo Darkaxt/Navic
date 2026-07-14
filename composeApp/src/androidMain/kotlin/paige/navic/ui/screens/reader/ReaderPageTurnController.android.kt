@@ -19,12 +19,14 @@ import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderPageSlideCoordinator
 import paige.navic.reader.ReaderPageSlideCoordinatorEffect
 import paige.navic.reader.ReaderPageTurnStateMachine
+import paige.navic.reader.ReaderWebRuntime
 import paige.navic.util.core.Logger
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private const val ReaderPageTurnControllerTag = "ReaderPageTurnController"
+internal const val ReaderPageTurnOpenGlPrototypeEnabled = true
 
 internal class ReaderPageTurnPrewarmRetryBudget(
 	private val maxRetriesPerKey: Int = 1
@@ -63,6 +65,8 @@ internal class ReaderPageTurnController(
 	private var activeStateGeneration = 0L
 	private var activeLeafAxisWidth: Int? = null
 	private var slideView: ReaderPageTurnSlideView? = null
+	private var curlGlView: ReaderPageCurlGlView? = null
+	private var overlayAttached = false
 	private var animation: ValueAnimator? = null
 	private var enabledForSession = true
 	private var edgeOriginY = 0f
@@ -680,7 +684,7 @@ internal class ReaderPageTurnController(
 	}
 
 	private fun attachPreparationShield(snapshot: ReaderPageSlideSnapshot) {
-		if (slideView != null) return
+		if (overlayAttached) return
 		removePreparationShield()
 		snapshot.retain()
 		preparationShieldSnapshot = snapshot
@@ -780,14 +784,14 @@ internal class ReaderPageTurnController(
 		for (effect in effects) {
 			when (effect) {
 				ReaderPageTurnEffect.AttachOverlay -> attachOverlay()
-				is ReaderPageTurnEffect.Render -> slideView?.setProgress(effect.progress)
+				is ReaderPageTurnEffect.Render -> setOverlayProgress(effect.progress)
 				is ReaderPageTurnEffect.AnimateCommit -> animateCommit(effect.fromProgress)
 				is ReaderPageTurnEffect.AnimateRelax -> animateRelax(effect.fromProgress)
 				is ReaderPageTurnEffect.Commit -> {
 					visualCommitPending = true
 					host.postOnAnimation { commitTurn(effect.direction) }
 				}
-				ReaderPageTurnEffect.ShowFinalBase -> slideView?.showFinalBase()
+				ReaderPageTurnEffect.ShowFinalBase -> showOverlayFinalBase()
 				ReaderPageTurnEffect.DetachOverlay -> {
 					if (slideCoordinator?.activeSettlementTarget == null) detachAfterNavigationFrame()
 				}
@@ -858,10 +862,33 @@ internal class ReaderPageTurnController(
 			if (activeSettleToken != token) return@evaluateJavascript
 			val settledToken = runCatching { JSONTokener(encoded.orEmpty()).nextValue() as? String }.getOrNull()
 			if (settledToken == token) {
-				activeSettleToken = null
-				detachAfterNavigationFrame()
+				readNativePageTurnSettledState(webView, token)
 			} else {
 				webView.postOnAnimation { pollNativePageTurnSettle(webView, token) }
+			}
+		}
+	}
+
+	private fun readNativePageTurnSettledState(webView: WebView, token: String) {
+		if (activeSettleToken != token || !webView.isAttachedToWindow) return
+		webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.nativePageTurnSettledState?.() ?? null)"
+		) { encoded ->
+			if (activeSettleToken != token) return@evaluateJavascript
+			val settled = runCatching {
+				val jsonText = JSONTokener(encoded.orEmpty()).nextValue() as? String
+				jsonText?.let(::JSONObject)
+			}.getOrNull()
+			if (settled?.optString("token") != token) {
+				webView.postOnAnimation { pollNativePageTurnSettle(webView, token) }
+				return@evaluateJavascript
+			}
+			activeSettleToken = null
+			if (settled.optBoolean("cancelled", false)) {
+				slideCoordinator = null
+				detachOverlay()
+			} else {
+				detachAfterNavigationFrame()
 			}
 		}
 	}
@@ -872,20 +899,34 @@ internal class ReaderPageTurnController(
 		host.getLocationInWindow(hostLocation)
 		val left = transition.surfaceRectInWindow.left - hostLocation[0]
 		val top = transition.surfaceRectInWindow.top - hostLocation[1]
-		val view = slideView ?: ReaderPageTurnSlideView(host.context).also { created ->
-			created.layoutParams = FrameLayout.LayoutParams(
-				FrameLayout.LayoutParams.MATCH_PARENT,
-				FrameLayout.LayoutParams.MATCH_PARENT
+		if (ReaderPageTurnOpenGlPrototypeEnabled) {
+			val view = curlGlView ?: ReaderPageCurlGlView(host.context).also { created ->
+				created.layoutParams = FrameLayout.LayoutParams(
+					FrameLayout.LayoutParams.MATCH_PARENT,
+					FrameLayout.LayoutParams.MATCH_PARENT
+				)
+				host.addView(created)
+				curlGlView = created
+			}
+			view.setTransition(
+				transition = transition,
+				direction = state.direction,
+				surfaceLeft = left,
+				surfaceTop = top,
+				diagnosticsEnabled = ReaderWebRuntime.isWebContentsDebuggingEnabled()
 			)
-			host.addView(created)
-			slideView = created
+		} else {
+			val view = slideView ?: ReaderPageTurnSlideView(host.context).also { created ->
+				created.layoutParams = FrameLayout.LayoutParams(
+					FrameLayout.LayoutParams.MATCH_PARENT,
+					FrameLayout.LayoutParams.MATCH_PARENT
+				)
+				host.addView(created)
+				slideView = created
+			}
+			view.setTransition(transition, state.direction, left, top)
 		}
-		view.setTransition(
-			transition = transition,
-			direction = state.direction,
-			surfaceLeft = left,
-			surfaceTop = top
-		)
+		overlayAttached = true
 		Logger.i(
 			ReaderPageTurnControllerTag,
 			"Page-turn overlay attached kind=${transition.plan.kind} target=${transition.plan.targetPageIndex} " +
@@ -895,6 +936,16 @@ internal class ReaderPageTurnController(
 
 	private fun applyGestureYToOverlay() {
 		// The bounded wave is deterministic for now; preserve Y for diagnostics and later touch anchoring.
+	}
+
+	private fun setOverlayProgress(progress: Float) {
+		if (ReaderPageTurnOpenGlPrototypeEnabled) curlGlView?.setProgress(progress)
+		else slideView?.setProgress(progress)
+	}
+
+	private fun showOverlayFinalBase() {
+		if (ReaderPageTurnOpenGlPrototypeEnabled) curlGlView?.showFinalBase()
+		else slideView?.showFinalBase()
 	}
 
 	private fun animateCommit(fromProgress: Float) {
@@ -921,7 +972,7 @@ internal class ReaderPageTurnController(
 		animation?.cancel()
 		animation = ValueAnimator.ofFloat(from.coerceIn(0f, CommitEndProgress), to).apply {
 			duration = durationMs
-			addUpdateListener { animator -> slideView?.setProgress(animator.animatedValue as Float) }
+			addUpdateListener { animator -> setOverlayProgress(animator.animatedValue as Float) }
 			addListener(object : AnimatorListenerAdapter() {
 				override fun onAnimationEnd(animation: Animator) {
 					this@ReaderPageTurnController.animation = null
@@ -948,6 +999,15 @@ internal class ReaderPageTurnController(
 		if (view != null) {
 			(view.parent as? ViewGroup)?.removeView(view)
 			view.clearTransition()
+		}
+		curlGlView?.clearTransition()
+		overlayAttached = false
+		if (destroyed) {
+			curlGlView?.let { glView ->
+				(glView.parent as? ViewGroup)?.removeView(glView)
+				glView.onPause()
+			}
+			curlGlView = null
 		}
 		activeTransition?.close()
 		activeTransition = null

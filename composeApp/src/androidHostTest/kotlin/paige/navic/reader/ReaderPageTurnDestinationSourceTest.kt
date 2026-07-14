@@ -133,7 +133,7 @@ class ReaderPageTurnDestinationSourceTest {
 
 		assertContains(turns, "function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
 		assertContains(turns, "cancelled: true")
-		assertContains(controller, "settled?.optBoolean(\"cancelled\", false) == true")
+		assertContains(controller, "settled.optBoolean(\"cancelled\", false)")
 		assertContains(controller, "activeSettleToken = null")
 		assertContains(controller, "slideCoordinator = null")
 		assertContains(controller, "detachOverlay()")

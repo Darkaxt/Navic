@@ -226,17 +226,19 @@ class ReaderPageTurnNativeSourceTest {
 	@Test
 	fun spreadOverlayUsesTheWholeHostAndKeepsFinalNativeFrameUntilDetach() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val renderer = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
+		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
+		val renderer = readerAndroidFile("ReaderPageCurlGlRenderer.android.kt").readText()
 
 		assertContains(controller, "FrameLayout.LayoutParams.MATCH_PARENT")
-		assertContains(controller, "surfaceLeft = left")
-		assertContains(controller, "surfaceTop = top")
+		assertContains(controller, "view.setTransition(transition, state.direction, left, top)")
+		assertContains(bundle, "surfaceLeft = surfaceLeft.toFloat()")
+		assertContains(bundle, "surfaceTop = surfaceTop.toFloat()")
 		assertContains(controller, "ReaderPageTurnEffect.ShowFinalBase")
 		assertContains(controller, "showFinalBase")
 		assertFalse(controller.contains("setDestinationSettled()"))
-		assertContains(renderer, "surfaceLeft")
-		assertContains(renderer, "surfaceTop")
-		assertContains(renderer, "canvas.translate(surfaceLeft, surfaceTop)")
+		assertContains(renderer, "textureSet.surfaceLeft")
+		assertContains(renderer, "textureSet.surfaceTop")
+		assertContains(renderer, "GLES20.glUniform4f(rectUniform")
 		assertFalse(
 			controller.contains("FrameLayout.LayoutParams(result.bitmap.width, result.bitmap.height)"),
 			"A selected-page-sized overlay clips the folded sheet at the gutter."

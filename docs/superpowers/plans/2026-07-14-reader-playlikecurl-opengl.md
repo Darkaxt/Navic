@@ -233,11 +233,16 @@ git commit -m "feat(reader): port PlayLikeCurl geometry"
 **Files:**
 - Create: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlView.android.kt`
 - Create: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlRenderer.android.kt`
+- Create: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlDiagnosticTextureFactory.android.kt`
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlRendererSourceTest.kt`
+- Modify: `composeApp/src/androidMain/kotlin/paige/navic/reader/ReaderWebRuntime.kt`
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnBundle.android.kt`
 - Modify: `composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnController.android.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnDestinationSourceTest.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnNativeSourceTest.kt`
+- Modify: `composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderPageTurnSlidePerformanceSourceTest.kt`
 
-- [ ] **Step 1: Write failing renderer source guards**
+- [x] **Step 1: Write failing renderer source guards**
 
 Require GLES2, persistent dirty rendering, preallocated buffers, dynamic textures, no asset texture loader, no per-frame bitmap allocation, and no navigation calls.
 
@@ -252,7 +257,7 @@ fun rendererIsPersistentGles2AndPassive() {
 }
 ```
 
-- [ ] **Step 2: Run the renderer guard and verify RED**
+- [x] **Step 2: Run the renderer guard and verify RED**
 
 Run:
 
@@ -262,7 +267,9 @@ Run:
 
 Expected: FAIL because the renderer files are missing.
 
-- [ ] **Step 3: Implement the persistent view**
+Execution evidence: the five source guards failed before the renderer files existed. The diagnostic checker-texture guard subsequently failed before the scoped ReaderDev harness was added.
+
+- [x] **Step 3: Implement the persistent view**
 
 Create a single surface with:
 
@@ -283,7 +290,7 @@ internal class ReaderPageCurlGlView(context: Context) : GLSurfaceView(context) {
 
 Keep it transparent until a complete texture set is committed.
 
-- [ ] **Step 4: Implement shaders and draw order**
+- [x] **Step 4: Implement shaders and draw order**
 
 Use one texture shader with position, UV, projection, and alpha. Draw:
 
@@ -296,13 +303,13 @@ Use one texture shader with position, UV, projection, and alpha. Draw:
 
 Use VBO/IBO or preallocated direct buffers. Texture uploads occur when bundle identity changes.
 
-- [ ] **Step 5: Add a deterministic renderer harness state**
+- [x] **Step 5: Add a deterministic renderer harness state**
 
 Add an internal `ReaderPageTurnOpenGlPrototypeEnabled` branch in the controller's renderer factory. While this plan is in progress, that branch routes the existing prepared page bundle into `ReaderPageCurlGlView` but leaves the Canvas source files available for source comparison. The branch is removed in Task 9, where OpenGL becomes the only animated production renderer.
 
 Expose a deterministic texture-set factory that can supply four generated checker/text bitmaps when reader diagnostics are enabled. With diagnostics disabled, the prototype renders the real current publication bundle. This makes Gate A inspectable in ReaderDev without adding a public setting or a second navigation screen.
 
-- [ ] **Step 6: Run renderer and geometry tests**
+- [x] **Step 6: Run renderer and geometry tests**
 
 Run:
 
@@ -312,7 +319,9 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+Execution evidence: the renderer and geometry tests passed, followed by a broader 99-test gate covering renderer, geometry, bundle, native bridge, performance, and destination settlement. The cancellation path now consumes the structured JS settlement state instead of treating a cancelled exact relocation as successful navigation.
+
+- [x] **Step 7: Commit**
 
 ```powershell
 git add composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlView.android.kt composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlRenderer.android.kt composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnBundle.android.kt composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnController.android.kt composeApp/src/androidHostTest/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlRendererSourceTest.kt
