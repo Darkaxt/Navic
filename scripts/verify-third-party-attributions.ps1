@@ -72,6 +72,14 @@ function Assert-Acknowledgements {
 			license = "Apache-2.0"
 			copyright = "Copyright 2023 Mozilla Foundation"
 			licenseFile = "third_party/licenses/PDF.js-Apache-2.0.txt"
+		},
+		@{
+			id = "playlikecurl"
+			version = "915a5a33773b1b2534134a56cdab00303b29a442"
+			website = "https://github.com/karankalsi/PlayLikeCurl/commit/915a5a33773b1b2534134a56cdab00303b29a442"
+			license = "playlikecurl-mit"
+			copyright = "Reference geometry for Navic's modern GLES2 page-turn renderer"
+			licenseFile = "third_party/licenses/playlikecurl.txt"
 		}
 	)
 
@@ -115,7 +123,8 @@ foreach ($requiredText in @(
 	"GNU General Public License version 3",
 	"107f4fa74db0e7247c846c49d6211df3edf9887c",
 	"f52d42c6127d0ad981a2c67634113541b17ae01e",
-	"ce87167432819f85df49b6b16c7a78556e9a4ee0"
+	"ce87167432819f85df49b6b16c7a78556e9a4ee0",
+	"915a5a33773b1b2534134a56cdab00303b29a442"
 )) {
 	if (-not $notices.Contains($requiredText)) {
 		throw "THIRD_PARTY.md omits '$requiredText'."
@@ -132,4 +141,4 @@ if ($ApkPath) {
 
 $acknowledgements = $jsonText | ConvertFrom-Json -AsHashtable
 Assert-Acknowledgements $acknowledgements $sourceLabel $repositoryRoot
-Write-Host "$sourceLabel verified: Anx Reader, foliate-js, and PDF.js notices are complete."
+Write-Host "$sourceLabel verified: Anx Reader, foliate-js, PDF.js, and PlayLikeCurl notices are complete."

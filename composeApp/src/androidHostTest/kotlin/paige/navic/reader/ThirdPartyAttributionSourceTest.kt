@@ -29,6 +29,39 @@ class ThirdPartyAttributionSourceTest {
 	}
 
 	@Test
+	fun playLikeCurlGeometryPortHasSourceAndPackagedAttribution() {
+		val notices = repoFile("THIRD_PARTY.md").readText()
+		val generated = repoFile(
+			"composeApp/src/commonMain/composeResources/files/acknowledgements.json"
+		).readText()
+		val libraryRecord = repoFile(
+			"composeApp/aboutlibraries/libraries/playlikecurl.json"
+		).readText()
+		val licenseRecord = repoFile(
+			"composeApp/aboutlibraries/licenses/playlikecurl-mit.json"
+		).readText()
+		val license = repoFile("third_party/licenses/playlikecurl.txt").readText()
+		val verifier = repoFile("scripts/verify-third-party-attributions.ps1").readText()
+
+		assertContains(notices, "PlayLikeCurl")
+		assertContains(notices, "https://github.com/karankalsi/PlayLikeCurl")
+		assertContains(notices, "915a5a33773b1b2534134a56cdab00303b29a442")
+		assertContains(notices, "third_party/licenses/playlikecurl.txt")
+		assertContains(libraryRecord, "https://github.com/karankalsi/PlayLikeCurl")
+		assertContains(libraryRecord, "playlikecurl-mit")
+		assertContains(licenseRecord, "MIT License - PlayLikeCurl")
+		assertContains(license, "MIT License")
+		assertContains(license, "Copyright (c) [year] [fullname]")
+		assertContains(verifier, "id = \"playlikecurl\"")
+		assertContains(verifier, "third_party/licenses/playlikecurl.txt")
+		assertEquals(
+			1,
+			Regex("\\\"uniqueId\\\":\\s*\\\"playlikecurl\\\"").findAll(generated).count(),
+			"Generated acknowledgements must contain exactly one PlayLikeCurl record."
+		)
+	}
+
+	@Test
 	fun existingAcknowledgementsPipelineIncludesCopiedReaderComponents() {
 		val buildScript = repoFile("composeApp/build.gradle.kts").readText()
 		val screen = repoFile(
@@ -40,7 +73,7 @@ class ThirdPartyAttributionSourceTest {
 
 		assertContains(buildScript, "configPath = file(\"aboutlibraries\")")
 		assertContains(screen, "Res.readBytes(\"files/acknowledgements.json\")")
-		listOf("anx-reader", "foliate-js", "pdfjs-dist").forEach { id ->
+		listOf("anx-reader", "foliate-js", "pdfjs-dist", "playlikecurl").forEach { id ->
 			assertEquals(
 				1,
 				Regex("\\\"uniqueId\\\":\\s*\\\"$id\\\"").findAll(generated).count(),

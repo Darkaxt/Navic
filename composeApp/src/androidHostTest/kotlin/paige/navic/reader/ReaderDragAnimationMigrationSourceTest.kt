@@ -43,6 +43,28 @@ class ReaderDragAnimationMigrationSourceTest {
 	}
 
 	@Test
+	fun removingLegacyCanvasRequiresTheOpenGlReplacement() {
+		val legacyCanvas = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideView.android.kt"
+		)
+		val openGlRenderer = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlRenderer.android.kt"
+		)
+		val openGlView = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlView.android.kt"
+		)
+
+		if (!legacyCanvas.isFile) {
+			check(openGlRenderer.isFile) {
+				"The persisted canvas mode must target ReaderPageCurlGlRenderer after Canvas removal."
+			}
+			check(openGlView.isFile) {
+				"The animated mode requires the persistent ReaderPageCurlGlView after Canvas removal."
+			}
+		}
+	}
+
+	@Test
 	fun defaultReaderHarnessRunsTheNewModeMigrationContract() {
 		val harness = sequenceOf(
 			File("tools/reader-harness/src/run-reader-harness.mjs"),

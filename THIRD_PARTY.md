@@ -45,3 +45,15 @@ provenance and current file hashes are recorded in that vendor directory's
 Navic ships `pdf.js` and `pdf.worker.js` from this package inside the foliate-js
 vendor tree. Their exact package provenance and current hashes are recorded in
 the reader vendor manifest.
+
+## PlayLikeCurl
+
+- Upstream: <https://github.com/karankalsi/PlayLikeCurl>
+- Pinned source: <https://github.com/karankalsi/PlayLikeCurl/commit/915a5a33773b1b2534134a56cdab00303b29a442>
+- License: MIT
+- Full notice: [`third_party/licenses/playlikecurl.txt`](third_party/licenses/playlikecurl.txt)
+
+Navic ports the pinned PlayLikeCurl mesh geometry into a first-party GLES2
+renderer. It does not copy the reference application's obsolete GLES1 activity,
+asset-loading, or lifecycle implementation. The original MIT notice is
+preserved for the adapted geometry formulas.
