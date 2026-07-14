@@ -1589,8 +1589,16 @@ window.NavicReaderBridge = {
   nativePageTurnPendingState: () => runtime.pendingExactPageTurnSettlement,
   beginPageTurnPreviewPreparation: (token, pageIndex) =>
     runtime.beginPageTurnPreviewPreparation(token, pageIndex),
+  beginPageTurnPreviewBatch: (token, pageIndexes) =>
+    runtime.beginPageTurnPreviewBatch(token, pageIndexes),
+  pageTurnPreviewBatchState: token => runtime.pageTurnPreviewBatchState(token),
+  advancePageTurnPreviewBatch: (token, pageIndex) =>
+    runtime.advancePageTurnPreviewBatch(token, pageIndex),
+  cancelPageTurnPreviewBatch: token => runtime.cancelPageTurnPreviewBatch(token),
   pageTurnPreviewState: token => runtime.pageTurnPreviewState(token),
   pageTurnPreviewContext: () => runtime.pageTurnPreviewContext(),
+  pageTurnRasterDescriptor: pageIndex => runtime.pageTurnRasterDescriptor(pageIndex),
+  pageTurnRasterPreparationPlan: pageIndex => runtime.pageTurnRasterPreparationPlan(pageIndex),
   pageTurnTransitionPlan: (physicalDirection, currentPageIndexOverride = null) =>
     runtime.pageTurnTransitionPlan(physicalDirection, currentPageIndexOverride),
   exposePageTurnPreviewFinal: token => runtime.exposePageTurnPreviewFinal(token),

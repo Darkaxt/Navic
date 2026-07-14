@@ -117,6 +117,14 @@ internal class ReaderPageRasterCache<T : Any>(
 	}
 
 	@Synchronized
+	fun contains(key: ReaderPageRasterKey): Boolean {
+		if (!storageAvailable) return false
+		val entry = entries[key.digest]?.takeIf { candidate -> candidate.key.identity == key.identity } ?: return false
+		val path = root.resolve(entry.rasterFileName)
+		return path.isFile && path.length() > 0L
+	}
+
+	@Synchronized
 	fun read(key: ReaderPageRasterKey): ReaderPageRaster<T>? {
 		if (!storageAvailable) return null
 		decoded[key.digest]?.let { raster ->
@@ -141,6 +149,20 @@ internal class ReaderPageRasterCache<T : Any>(
 	}
 
 	@Synchronized
+	fun <R : Any> readCopy(
+		key: ReaderPageRasterKey,
+		copy: (T) -> R?
+	): ReaderPageRaster<R>? {
+		val wasDecoded = decoded.containsKey(key.digest)
+		val raster = read(key) ?: return null
+		return try {
+			copy(raster.value)?.let { copied -> ReaderPageRaster(key, raster.metadata, copied) }
+		} finally {
+			if (!wasDecoded && maxDecodedEntries <= 0) codec.release(raster.value)
+		}
+	}
+
+	@Synchronized
 	fun retainProfile(profile: ReaderPageRasterProfile): Int {
 		if (!storageAvailable) return 0
 		val obsolete = entries.values.filter { entry ->
@@ -159,11 +181,29 @@ internal class ReaderPageRasterCache<T : Any>(
 	}
 
 	@Synchronized
+	fun remove(key: ReaderPageRasterKey): Boolean {
+		val entry = entries[key.digest]?.takeIf { candidate -> candidate.key.identity == key.identity } ?: return false
+		entries.remove(key.digest)
+		decoded.remove(key.digest)?.let { raster -> codec.release(raster.value) }
+		deleteEntryFile(entry)
+		persistManifest()
+		return true
+	}
+
+	@Synchronized
 	fun metrics(): ReaderPageRasterCacheMetrics = ReaderPageRasterCacheMetrics(
 		diskEntries = entries.size,
 		diskBytes = entries.values.sumOf { entry -> entry.byteSize.coerceAtLeast(0L) },
 		decodedEntries = decoded.size
 	)
+
+	@Synchronized
+	fun close() {
+		decoded.values
+			.distinctBy { raster -> System.identityHashCode(raster.value) }
+			.forEach { raster -> codec.release(raster.value) }
+		decoded.clear()
+	}
 
 	internal fun pathFor(key: ReaderPageRasterKey): File =
 		entries[key.digest]?.let { entry -> root.resolve(entry.rasterFileName) }

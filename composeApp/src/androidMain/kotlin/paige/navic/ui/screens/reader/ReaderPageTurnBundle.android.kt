@@ -90,7 +90,8 @@ internal class ReaderPageSlideSnapshot(
 	val bitmap: Bitmap,
 	val surfaceRectInWindow: Rect,
 	val leafGeometry: ReaderPageTurnLeafGeometry,
-	val reverseFaceColor: Int
+	val reverseFaceColor: Int,
+	val captureMillis: Long = 0L
 ) {
 	private var cacheOwned = true
 	private var retainCount = 0

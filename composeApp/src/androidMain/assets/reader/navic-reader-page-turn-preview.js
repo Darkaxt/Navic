@@ -11,6 +11,7 @@ import {
   readerTrace,
   setStylesImportant,
 } from './navic-reader-helpers.js'
+import { stableHash } from './navic-reader-identity.js'
 
 const nextAnimationFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
 
@@ -76,6 +77,100 @@ function pageTurnPreviewState(token = '') {
     return Object.freeze({ token: requestedToken, status: 'missing' })
   }
   return state
+}
+
+function pageTurnRasterDescriptor(pageIndex) {
+  const normalizedPageIndex = Math.max(0, Math.floor(Number(pageIndex)))
+  const locator = readerPageLocatorForVisualIndex(this.paginationProfile, normalizedPageIndex)
+  if (!locator) return null
+  const geometry = this.pageTurnCaptureGeometry()
+  const render = this.paginationProfile?.render || null
+  const settings = this.readerSettings || {}
+  const layoutState = {
+    render,
+    mode: geometry.mode,
+    pages: geometry.pages,
+    viewportWidth: geometry.viewportWidth,
+    viewportHeight: geometry.viewportHeight,
+  }
+  const decorationState = {
+    theme: settings.theme || '',
+    paperTextureEnabled: settings.paperTextureEnabled !== false,
+    pageEdgesEnabled: settings.pageEdgesEnabled !== false,
+    paperStainsEnabled: settings.paperStainsEnabled !== false,
+    coverBackdropEnabled: settings.coverBackdropEnabled !== false,
+  }
+  return Object.freeze({
+    publicationUrl: String(this.publicationUrl || ''),
+    paginationFingerprint: String(this.paginationFingerprint || ''),
+    layoutFingerprint: stableHash(JSON.stringify(layoutState)),
+    decorationFingerprint: stableHash(JSON.stringify(decorationState)),
+    viewportWidth: Math.max(1, Math.round(Number(geometry.viewportWidth) || 1)),
+    viewportHeight: Math.max(1, Math.round(Number(geometry.viewportHeight) || 1)),
+    pageCount: Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1)),
+    spineIndex: locator.spineIndex,
+    href: locator.href,
+    chapterPageIndex: locator.chapterPageIndex,
+    chapterPageCount: locator.chapterPageCount,
+    visualPageOrdinal: locator.pageIndex,
+  })
+}
+
+function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
+  const geometry = this.pageTurnCaptureGeometry()
+  const layoutMode = geometry.mode
+  const step = layoutMode === 'spread' ? 2 : 1
+  const requestedCenter = Number(pageIndexOverride)
+  const pageCount = Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1))
+  const centerPageIndex = Number.isFinite(requestedCenter)
+    ? Math.max(0, Math.min(pageCount - 1, Math.floor(requestedCenter)))
+    : Math.max(0, Math.min(pageCount - 1, Math.floor(Number(this.currentPagePosition?.pageIndex) || 0)))
+  const chapters = Array.isArray(this.paginationProfile?.chapters)
+    ? this.paginationProfile.chapters
+    : []
+  const currentChapterIndex = chapters.findIndex(chapter => {
+    const pageStartIndex = Math.max(0, Math.floor(Number(chapter?.pageStartIndex) || 0))
+    const chapterPageCount = Math.max(0, Math.floor(Number(chapter?.pageCount) || 0))
+    return chapterPageCount > 0 &&
+      centerPageIndex >= pageStartIndex &&
+      centerPageIndex < pageStartIndex + chapterPageCount
+  })
+  const targets = []
+  const seen = new Set()
+  const addTarget = (pageIndex, priority) => {
+    const normalized = Math.floor(Number(pageIndex))
+    if (!Number.isFinite(normalized) || normalized < 0 || normalized >= pageCount || seen.has(normalized)) return
+    seen.add(normalized)
+    targets.push(Object.freeze({ pageIndex: normalized, priority }))
+  }
+  const addChapter = (chapter, priority) => {
+    const pageStartIndex = Math.max(0, Math.floor(Number(chapter?.pageStartIndex) || 0))
+    const chapterPageCount = Math.max(0, Math.floor(Number(chapter?.pageCount) || 0))
+    const pageEndIndex = Math.min(pageCount, pageStartIndex + chapterPageCount)
+    for (let pageIndex = pageStartIndex; pageIndex < pageEndIndex; pageIndex += 1) {
+      if (Math.abs(pageIndex - centerPageIndex) % step === 0) addTarget(pageIndex, priority)
+    }
+  }
+
+  addTarget(centerPageIndex, 'current')
+  addTarget(centerPageIndex + step, 'next-transition')
+  addTarget(centerPageIndex - step, 'previous-transition')
+  if (currentChapterIndex >= 0) {
+    addChapter(chapters[currentChapterIndex], 'current-chapter')
+    addChapter(chapters[currentChapterIndex + 1], 'next-chapter')
+    addChapter(chapters[currentChapterIndex - 1], 'previous-chapter')
+  }
+  const currentChapter = currentChapterIndex >= 0 ? chapters[currentChapterIndex] : null
+  return Object.freeze({
+    context: Object.freeze({
+      centerPageIndex,
+      pageCount,
+      layoutMode,
+      step,
+      currentChapterPageCount: Math.max(0, Math.floor(Number(currentChapter?.pageCount) || 0)),
+    }),
+    targets: Object.freeze(targets),
+  })
 }
 
 function pageTurnPreviewContext() {
@@ -162,6 +257,133 @@ async function preparePageTurnPreview(generation, token, pageIndex) {
   }
 }
 
+function pageTurnPreviewBatchState(token = '') {
+  const requestedToken = String(token || '')
+  const state = this.pageTurnPreviewBatchStateValue
+  if (!state || (requestedToken && state.token !== requestedToken)) {
+    return Object.freeze({ token: requestedToken, status: 'missing' })
+  }
+  return state
+}
+
+function beginPageTurnPreviewBatch(token, pageIndexes = []) {
+  const requestedToken = String(token || '')
+  const requestedPageIndexes = Array.from(new Set(
+    (Array.isArray(pageIndexes) ? pageIndexes : [])
+      .map(value => Number(value))
+      .filter(Number.isFinite)
+      .map(value => Math.max(0, Math.floor(value)))
+  ))
+  const generation = ++this.pageTurnPreviewGeneration
+  this.pageTurnPreviewBatchStateValue = Object.freeze({
+    token: requestedToken,
+    generation,
+    status: requestedPageIndexes.length ? 'preparing' : 'complete',
+    cursor: 0,
+    total: requestedPageIndexes.length,
+    pageIndexes: requestedPageIndexes,
+  })
+  if (requestedPageIndexes.length) {
+    void this.preparePageTurnPreviewBatchItem(generation, requestedToken, 0)
+  }
+  return this.pageTurnPreviewBatchStateValue
+}
+
+async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
+  const state = this.pageTurnPreviewBatchState(token)
+  if (state.generation !== generation || state.cursor !== cursor) return
+  const pageIndex = state.pageIndexes[cursor]
+  try {
+    const previewView = await this.ensurePageTurnPreviewRenderer()
+    if (!previewView || generation !== this.pageTurnPreviewGeneration) return
+    const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
+    if (!locator) throw new Error(`Passive raster page ${pageIndex} is unavailable`)
+    this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
+    await readerGoToExactVisualPage(previewView, locator, 'page-turn-raster-batch')
+    if (generation !== this.pageTurnPreviewGeneration) return
+    this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
+    await nextAnimationFrame()
+    await nextAnimationFrame()
+    if (generation !== this.pageTurnPreviewGeneration) return
+    const itemToken = `${token}:${generation}:${cursor}:${locator.pageIndex}`
+    const identity = Object.freeze({
+      token: itemToken,
+      generation,
+      status: 'ready',
+      pageIndex: locator.pageIndex,
+      visualPageOrdinal: locator.pageIndex,
+      spineIndex: locator.spineIndex,
+      href: locator.href,
+      chapterPageIndex: locator.chapterPageIndex,
+      chapterPageCount: locator.chapterPageCount,
+    })
+    this.pageTurnPreviewStateValue = identity
+    this.pageTurnPreviewBatchStateValue = Object.freeze({
+      ...state,
+      ...identity,
+      token,
+      itemToken,
+      cursor,
+    })
+    readerTrace('page-turn-raster-batch:ready', this.pageTurnPreviewBatchStateValue)
+  } catch (error) {
+    if (generation !== this.pageTurnPreviewGeneration) return
+    this.pageTurnPreviewBatchStateValue = Object.freeze({
+      ...state,
+      status: 'failed',
+      pageIndex,
+      message: error?.message || String(error),
+    })
+    readerTrace('page-turn-raster-batch:failed', this.pageTurnPreviewBatchStateValue)
+  }
+}
+
+function advancePageTurnPreviewBatch(token, pageIndex) {
+  const state = this.pageTurnPreviewBatchState(token)
+  const completedPageIndex = Math.max(0, Math.floor(Number(pageIndex)))
+  if (state.status !== 'ready' || state.pageIndex !== completedPageIndex) return state
+  const nextCursor = state.cursor + 1
+  if (nextCursor >= state.total) {
+    this.pageTurnPreviewBatchStateValue = Object.freeze({
+      token: state.token,
+      generation: state.generation,
+      status: 'complete',
+      cursor: nextCursor,
+      total: state.total,
+      pageIndexes: state.pageIndexes,
+    })
+  } else {
+    this.pageTurnPreviewBatchStateValue = Object.freeze({
+      token: state.token,
+      generation: state.generation,
+      status: 'preparing',
+      cursor: nextCursor,
+      total: state.total,
+      pageIndexes: state.pageIndexes,
+    })
+    void this.preparePageTurnPreviewBatchItem(state.generation, state.token, nextCursor)
+  }
+  return this.pageTurnPreviewBatchStateValue
+}
+
+function cancelPageTurnPreviewBatch(token = '') {
+  const state = this.pageTurnPreviewBatchState(token)
+  if (state.status === 'missing') return false
+  const generation = ++this.pageTurnPreviewGeneration
+  this.restorePageTurnLiveComposition()
+  this.pageTurnPreviewStateValue = null
+  this.pageTurnPreviewBatchStateValue = Object.freeze({
+    token: state.token,
+    generation,
+    status: 'cancelled',
+    cursor: state.cursor ?? 0,
+    total: state.total ?? 0,
+    pageIndexes: state.pageIndexes ?? [],
+  })
+  readerTrace('page-turn-raster-batch:cancelled', this.pageTurnPreviewBatchStateValue)
+  return true
+}
+
 function exposePageTurnPreviewFinal(token = '') {
   const state = this.pageTurnPreviewState(token)
   const previewView = this.pageTurnPreviewView
@@ -241,6 +463,7 @@ function destroyPageTurnPreviewRenderer(reason = 'destroy') {
   this.pageTurnPreviewView = null
   this.pageTurnPreviewPublicationUrl = ''
   this.pageTurnPreviewStateValue = null
+  this.pageTurnPreviewBatchStateValue = null
   if (previewView) {
     previewView.close?.()
     previewView.remove?.()
@@ -252,6 +475,13 @@ export const NavicReaderPageTurnPreviewMethods = {
   ensurePageTurnPreviewRenderer,
   beginPageTurnPreviewPreparation,
   preparePageTurnPreview,
+  pageTurnRasterDescriptor,
+  pageTurnRasterPreparationPlan,
+  beginPageTurnPreviewBatch,
+  preparePageTurnPreviewBatchItem,
+  pageTurnPreviewBatchState,
+  advancePageTurnPreviewBatch,
+  cancelPageTurnPreviewBatch,
   pageTurnPreviewState,
   pageTurnPreviewContext,
   pageTurnTransitionPlan,

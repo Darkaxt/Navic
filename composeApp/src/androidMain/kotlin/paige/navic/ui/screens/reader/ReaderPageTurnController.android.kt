@@ -15,6 +15,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnEffect
 import paige.navic.reader.normalizeReaderPageBitmapQuality
+import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderPageSlideCoordinator
@@ -28,23 +29,6 @@ import kotlin.math.roundToLong
 
 private const val ReaderPageTurnControllerTag = "ReaderPageTurnController"
 internal const val ReaderPageTurnOpenGlPrototypeEnabled = true
-
-internal class ReaderPageTurnPrewarmRetryBudget(
-	private val maxRetriesPerKey: Int = 1
-) {
-	private val retriesByKey = mutableMapOf<String, Int>()
-
-	fun consume(key: String): Boolean {
-		val retries = retriesByKey[key] ?: 0
-		if (retries >= maxRetriesPerKey) return false
-		retriesByKey[key] = retries + 1
-		return true
-	}
-
-	fun clear() {
-		retriesByKey.clear()
-	}
-}
 
 internal fun readerPageTurnCanStartPassivePrewarm(
 	destroyed: Boolean,
@@ -79,10 +63,9 @@ internal class ReaderPageTurnController(
 	private var preparationUnavailable = false
 	private var prewarmSession = 0L
 	private var prewarmInProgress = false
-	private val prewarmPlans = ArrayDeque<String>()
-	private val prewarmRetryBudget = ReaderPageTurnPrewarmRetryBudget()
-	private var activePrewarmPlan: ReaderPageTurnTransitionPlan? = null
-	private var activePrewarmLivePageIndex: Int? = null
+	private val rasterBatchController = ReaderPageRasterBatchController(bundleSource)
+	private var rasterPreparationCompleted = 0
+	private var rasterPreparationRequired = 0
 	private var slideCoordinator: ReaderPageSlideCoordinator? = null
 	private var visualCommitPending = false
 	private var preparationShield: ImageView? = null
@@ -178,7 +161,7 @@ internal class ReaderPageTurnController(
 		animation?.cancel()
 		animation = null
 		detachOverlay()
-		bundleSource.invalidate("destroy")
+		bundleSource.close()
 		slideCoordinator = null
 		applicationContext.unregisterComponentCallbacks(memoryCallbacks)
 	}
@@ -283,41 +266,8 @@ internal class ReaderPageTurnController(
 				activatePreparedTransition(plan, activeStateGeneration, cached)
 				return@evaluateJavascript
 			}
-			if (prewarmInProgress && activePrewarmPlan?.sameTransitionAs(plan) == true) {
-				waitForActivePrewarmBundle(
-					webView = webView,
-					plan = plan,
-					stateGeneration = activeStateGeneration,
-					matchingPrewarmSession = prewarmSession
-				)
-				return@evaluateJavascript
-			}
 			if (prewarmInProgress) cancelPrewarm()
 			prepareBundle(webView, plan, activeStateGeneration)
-		}
-	}
-
-	private fun waitForActivePrewarmBundle(
-		webView: WebView,
-		plan: ReaderPageTurnTransitionPlan,
-		stateGeneration: Long,
-		matchingPrewarmSession: Long
-	) {
-		if (!isPreparationActive(plan, stateGeneration) || !webView.isAttachedToWindow) return
-		bundleSource.cached(plan)?.let { cached ->
-			activatePreparedTransition(plan, stateGeneration, cached)
-			return
-		}
-		val matchingPrewarmStillActive =
-			prewarmInProgress &&
-				prewarmSession == matchingPrewarmSession &&
-				activePrewarmPlan?.sameTransitionAs(plan) == true
-		if (!matchingPrewarmStillActive) {
-			markPreparationUnavailable(stateGeneration, "matching-prewarm-unavailable")
-			return
-		}
-		webView.postOnAnimation {
-			waitForActivePrewarmBundle(webView, plan, stateGeneration, matchingPrewarmSession)
 		}
 	}
 
@@ -348,222 +298,174 @@ internal class ReaderPageTurnController(
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
 		prewarmInProgress = true
 		val session = ++prewarmSession
-		queryAdjacentPrewarmPlans(webView, session)
+		queryRasterPreparationPlan(webView, session)
 		return true
 	}
 
-	private fun queryAdjacentPrewarmPlans(webView: WebView, session: Long) {
+	private fun queryRasterPreparationPlan(webView: WebView, session: Long) {
 		if (!isPrewarmActive(webView, session)) return
 		val visualPageIndex = slideCoordinator?.visualPageIndex
-		val centerExpression = visualPageIndex?.toString()
-			?: "Number(bridge.pageTurnPreviewContext?.()?.pageIndex)"
+		val centerExpression = visualPageIndex?.toString() ?: "null"
 		webView.evaluateJavascript(
-			"JSON.stringify((() => {" +
-				"const bridge = window.NavicReaderBridge;" +
-				"const context = bridge?.pageTurnPreviewContext?.() ?? null;" +
-				"const center = $centerExpression;" +
-				"const step = context?.layoutMode === 'spread' ? 2 : 1;" +
-				"return { context, plans: [" +
-					"bridge?.pageTurnTransitionPlan?.('toward-left', center) ?? null," +
-					"bridge?.pageTurnTransitionPlan?.('toward-right', center) ?? null," +
-					"bridge?.pageTurnTransitionPlan?.('toward-left', center - step) ?? null," +
-					"bridge?.pageTurnTransitionPlan?.('toward-right', center - step) ?? null," +
-					"bridge?.pageTurnTransitionPlan?.('toward-left', center + step) ?? null," +
-					"bridge?.pageTurnTransitionPlan?.('toward-right', center + step) ?? null" +
-				"] };" +
-			"})())"
+			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(" +
+				"$centerExpression) ?? null)"
 		) { encoded ->
 			if (!isPrewarmActive(webView, session)) return@evaluateJavascript
-			val payload = encoded.javascriptObject()
-			val context = payload?.optJSONObject("context")
-			val pageIndex = context?.optInt("pageIndex", -1) ?: -1
-			val pageCount = context?.optInt("pageCount", 0) ?: 0
-			val layoutMode = context?.optString("layoutMode")
-			if (pageIndex < 0 || pageCount <= 0 || layoutMode != expectedLayoutMode(webView)) {
-				webView.postOnAnimation { queryAdjacentPrewarmPlans(webView, session) }
+			val plan = readerPageRasterPreparationPlan(encoded)
+			if (plan == null || plan.layoutMode != expectedLayoutMode(webView)) {
+				webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }
 				return@evaluateJavascript
 			}
-			prewarmPlans.clear()
-			prewarmRetryBudget.clear()
-			activePrewarmLivePageIndex = pageIndex
-			val center = slideCoordinator?.visualPageIndex ?: pageIndex
-			val step = if (layoutMode == "spread") 2 else 1
-			val desiredTargets = readerPageSlideSnapshotWindow(center, step, pageCount).drop(1)
-			val plans = payload?.optJSONArray("plans")
-			val plansByTarget = buildMap<Int, String> {
-				if (plans != null) {
-					for (index in 0 until plans.length()) {
-						val plan = plans.optJSONObject(index) ?: continue
-						val source = plan.optInt("sourcePageIndex", -1)
-						val target = plan.optInt("targetPageIndex", -1)
-						if (source >= 0 && target >= 0 && target in desiredTargets) put(target, plan.toString())
-					}
-				}
+			val coordinator = slideCoordinator ?: ReaderPageSlideCoordinator(plan.centerPageIndex).also {
+				slideCoordinator = it
 			}
-			desiredTargets.mapNotNull(plansByTarget::get).forEach(prewarmPlans::addLast)
-			prewarmNext(webView, session)
+			if (coordinator.visualPageIndex != plan.centerPageIndex) {
+				webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }
+				return@evaluateJavascript
+			}
+			val kind = if (plan.layoutMode == "spread") {
+				ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+			} else {
+				ReaderPageTurnTransitionKind.PortraitSlide
+			}
+			val calibrationTargets = readerPageRasterCalibrationTargets(plan.targets)
+			obtainRasterReference(webView, session, plan.centerPageIndex, kind) { reference ->
+				if (!isPrewarmActive(webView, session)) {
+					reference?.release()
+					return@obtainRasterReference
+				}
+				if (reference == null || calibrationTargets.isEmpty()) {
+					finishPrewarm()
+					return@obtainRasterReference
+				}
+				startRasterCalibration(webView, session, plan, kind, reference, calibrationTargets)
+			}
 		}
 	}
 
 	private fun expectedLayoutMode(webView: WebView): String =
 		if (webView.width >= webView.height * 1.12f) "spread" else "single"
 
-	private fun prewarmNext(webView: WebView, session: Long) {
-		if (!isPrewarmActive(webView, session)) return
-		if (state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle) {
+	private fun startRasterCalibration(
+		webView: WebView,
+		session: Long,
+		plan: ReaderPageRasterPreparationPlan,
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		calibrationTargets: List<ReaderPageRasterBatchTarget>
+	) {
+		rasterPreparationCompleted = 0
+		rasterPreparationRequired = calibrationTargets.size
+		startRasterBatch(
+			webView = webView,
+			session = session,
+			kind = kind,
+			reference = reference,
+			targets = calibrationTargets,
+			completedOffset = 0,
+			totalRequired = calibrationTargets.size
+		) { calibrated ->
+			if (!isPrewarmActive(webView, session)) return@startRasterBatch
+			if (!calibrated) {
+				finishPrewarm()
+				return@startRasterBatch
+			}
+			bundleSource.preparationMode(webView, plan.currentChapterPageCount) { mode ->
+				if (!isPrewarmActive(webView, session)) return@preparationMode
+				startRasterFollowUp(webView, session, plan, kind, calibrationTargets, mode)
+			}
+		}
+	}
+
+	private fun startRasterFollowUp(
+		webView: WebView,
+		session: Long,
+		plan: ReaderPageRasterPreparationPlan,
+		kind: ReaderPageTurnTransitionKind,
+		calibrationTargets: List<ReaderPageRasterBatchTarget>,
+		mode: ReaderPageRasterPreparationMode
+	) {
+		val calibratedPages = calibrationTargets.mapTo(mutableSetOf()) { target -> target.pageIndex }
+		val followUpTargets = readerPageRasterFollowUpTargets(
+			targets = plan.targets,
+			centerPageIndex = plan.centerPageIndex,
+			step = plan.step,
+			mode = mode
+		).filterNot { target -> target.pageIndex in calibratedPages }
+		if (followUpTargets.isEmpty()) {
 			finishPrewarm()
 			return
 		}
-		val encodedPlan = prewarmPlans.removeFirstOrNull()
-		if (encodedPlan == null) {
+		val reference = bundleSource.retainedSnapshot(plan.centerPageIndex, kind) ?: run {
 			finishPrewarm()
+			return
+		}
+		val completedOffset = calibrationTargets.size
+		val totalRequired = completedOffset + followUpTargets.size
+		rasterPreparationRequired = totalRequired
+		startRasterBatch(
+			webView = webView,
+			session = session,
+			kind = kind,
+			reference = reference,
+			targets = followUpTargets,
+			completedOffset = completedOffset,
+			totalRequired = totalRequired
+		) { finishPrewarm() }
+	}
+
+	private fun startRasterBatch(
+		webView: WebView,
+		session: Long,
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		targets: List<ReaderPageRasterBatchTarget>,
+		completedOffset: Int,
+		totalRequired: Int,
+		onComplete: (Boolean) -> Unit
+	) {
+		val generation = bundleSource.currentGeneration()
+		rasterBatchController.start(
+			webView = webView,
+			kind = kind,
+			reference = reference,
+			targets = targets,
+			onStagingStarted = ::attachPreparationShield,
+			onProgress = { completedCount, _ ->
+				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
+					rasterPreparationCompleted = completedOffset + completedCount
+					rasterPreparationRequired = totalRequired
+				}
+			},
+			onComplete = { success ->
+				if (!isPrewarmActive(webView, session) || generation != bundleSource.currentGeneration()) return@start
+				onComplete(success)
+			}
+		)
+	}
+
+	private fun obtainRasterReference(
+		webView: WebView,
+		session: Long,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		onResolved: (ReaderPageSlideSnapshot?) -> Unit
+	) {
+		bundleSource.retainedSnapshot(pageIndex, kind)?.let { retained ->
+			onResolved(retained)
 			return
 		}
 		val generation = bundleSource.currentGeneration()
-		val token = "navic-page-turn-prewarm-${++settleGeneration}"
-		val plan = ReaderPageTurnTransitionPlan.parse(encodedPlan, token, generation)
-		if (plan == null || bundleSource.isCached(plan)) {
-			prewarmNext(webView, session)
-			return
-		}
-		activePrewarmPlan = plan
-		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.(${JSONObject.quote(token)}, ${plan.targetPageIndex})"
-		) {
-			if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-				return@evaluateJavascript
-			}
-			waitForPrewarmPreviewReady(webView, session, plan, encodedPlan)
-		}
-	}
-
-	private fun waitForPrewarmPreviewReady(
-		webView: WebView,
-		session: Long,
-		plan: ReaderPageTurnTransitionPlan,
-		encodedPlan: String
-	) {
-		if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-			return
-		}
-		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.pageTurnPreviewState?.(${JSONObject.quote(plan.token)})?.status ?? 'missing'"
-		) { encodedStatus ->
-			if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-				return@evaluateJavascript
-			}
-			when (encodedStatus.javascriptString()) {
-				"ready" -> capturePreparedPrewarm(webView, session, plan, encodedPlan)
-				"failed", "missing" -> {
-					activePrewarmPlan = null
-					prewarmNext(webView, session)
-				}
-				else -> webView.postOnAnimation {
-					waitForPrewarmPreviewReady(webView, session, plan, encodedPlan)
-				}
-			}
-		}
-	}
-
-	private fun capturePreparedPrewarm(
-		webView: WebView,
-		session: Long,
-		plan: ReaderPageTurnTransitionPlan,
-		encodedPlan: String
-	) {
-		if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) return
-		val visualPageIndex = slideCoordinator?.visualPageIndex
-		if (visualPageIndex == null) {
-			completePreparedPrewarm(webView, session, plan, encodedPlan, null)
-			return
-		}
-		val sourceCached = bundleSource.hasCachedSnapshot(plan.sourcePageIndex, plan.kind)
-		val shieldCached = bundleSource.hasCachedSnapshot(visualPageIndex, plan.kind)
-		when {
-			sourceCached && shieldCached ->
-				captureCachedPrewarm(webView, session, plan, encodedPlan, visualPageIndex)
-			plan.sourcePageIndex == visualPageIndex ->
-				seedInitialPrewarmSnapshot(webView, session, plan, encodedPlan, visualPageIndex)
-			else -> {
-				Logger.w(
-					ReaderPageTurnControllerTag,
-					"Page-turn rolling prewarm cache unavailable source=${plan.sourcePageIndex} " +
-						"visual=$visualPageIndex target=${plan.targetPageIndex}"
-				)
-				completePreparedPrewarm(webView, session, plan, encodedPlan, null)
-			}
-		}
-	}
-
-	private fun captureCachedPrewarm(
-		webView: WebView,
-		session: Long,
-		plan: ReaderPageTurnTransitionPlan,
-		encodedPlan: String,
-		visualPageIndex: Int
-	) {
-		bundleSource.capturePreparedBundle(
-			webView = webView,
-			plan = plan,
-			shieldPageIndex = visualPageIndex,
-			onStagingStarted = ::attachPreparationShield
-		) { transition ->
-			completePreparedPrewarm(webView, session, plan, encodedPlan, transition)
-		}
-	}
-
-	private fun seedInitialPrewarmSnapshot(
-		webView: WebView,
-		session: Long,
-		plan: ReaderPageTurnTransitionPlan,
-		encodedPlan: String,
-		visualPageIndex: Int
-	) {
-		Logger.i(
-			ReaderPageTurnControllerTag,
-			"Page-turn initial prewarm seed page=$visualPageIndex target=${plan.targetPageIndex}"
-		)
-		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
-			if (current == null || !isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
+		bundleSource.captureCurrentSurface(webView, generation) { current ->
+			if (current == null || !isPrewarmActive(webView, session)) {
 				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
-				completePreparedPrewarm(webView, session, plan, encodedPlan, null)
+				onResolved(null)
 				return@captureCurrentSurface
 			}
-			bundleSource.captureBundle(
-				webView = webView,
-				plan = plan,
-				current = current,
-				currentPageIndex = visualPageIndex,
-				currentCanRepresentSource = true,
-				onStagingStarted = ::attachPreparationShield
-			) { transition ->
-				completePreparedPrewarm(webView, session, plan, encodedPlan, transition)
-			}
+			val snapshot = bundleSource.cacheCurrentSnapshot(pageIndex, kind, current, generation)
+			snapshot?.retain()
+			onResolved(snapshot)
 		}
-	}
-
-	private fun completePreparedPrewarm(
-		webView: WebView,
-		session: Long,
-		plan: ReaderPageTurnTransitionPlan,
-		encodedPlan: String,
-		transition: ReaderPageSlideTransition?
-	) {
-		removePreparationShield()
-		if (!isPrewarmActive(webView, session) || activePrewarmPlan !== plan) {
-			transition?.close()
-			if (activePrewarmPlan === plan) activePrewarmPlan = null
-			return
-		}
-		activePrewarmPlan = null
-		if (transition == null) {
-			if (prewarmRetryBudget.consume(plan.cacheKey)) {
-				prewarmPlans.addLast(encodedPlan)
-			}
-			Logger.w(ReaderPageTurnControllerTag, "Page-turn prewarm failed target=${plan.targetPageIndex}")
-		}
-		transition?.close()
-		prewarmNext(webView, session)
 	}
 
 	private fun isPrewarmActive(webView: WebView, session: Long): Boolean =
@@ -573,21 +475,19 @@ internal class ReaderPageTurnController(
 			webView.isAttachedToWindow
 
 	private fun finishPrewarm() {
-		activePrewarmPlan = null
-		activePrewarmLivePageIndex = null
-		prewarmPlans.clear()
-		prewarmRetryBudget.clear()
 		prewarmInProgress = false
+		rasterPreparationCompleted = 0
+		rasterPreparationRequired = 0
 		removePreparationShield()
 	}
 
 	private fun cancelPrewarm() {
 		prewarmSession += 1
-		activePrewarmPlan = null
-		activePrewarmLivePageIndex = null
-		prewarmPlans.clear()
-		prewarmRetryBudget.clear()
+		val wasInProgress = prewarmInProgress
 		prewarmInProgress = false
+		rasterPreparationCompleted = 0
+		rasterPreparationRequired = 0
+		if (wasInProgress) rasterBatchController.cancel()
 		removePreparationShield()
 	}
 
@@ -602,21 +502,45 @@ internal class ReaderPageTurnController(
 		plan: ReaderPageTurnTransitionPlan,
 		stateGeneration: Long
 	) {
-		val quotedToken = JSONObject.quote(plan.token)
+		if (bundleSource.hasCachedSnapshot(plan.sourcePageIndex, plan.kind)) {
+			hydrateGestureDestination(webView, plan, stateGeneration)
+			return
+		}
 		bundleSource.captureCurrentSurface(webView, plan.generation) { current ->
 			if (current == null || !isPreparationActive(plan, stateGeneration)) {
 				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
 				markPreparationUnavailable(stateGeneration, "current-surface-unavailable")
 				return@captureCurrentSurface
 			}
+			val source = bundleSource.cacheCurrentSnapshot(plan, current)
+			if (source == null) {
+				markPreparationUnavailable(stateGeneration, "current-snapshot-unavailable")
+				return@captureCurrentSurface
+			}
+			hydrateGestureDestination(webView, plan, stateGeneration)
+		}
+	}
+
+	private fun hydrateGestureDestination(
+		webView: WebView,
+		plan: ReaderPageTurnTransitionPlan,
+		stateGeneration: Long
+	) {
+		bundleSource.hydratePreparedBundle(webView, plan) { transition ->
+			if (!isPreparationActive(plan, stateGeneration)) {
+				transition?.close()
+				return@hydratePreparedBundle
+			}
+			if (transition != null) {
+				activatePreparedTransition(plan, stateGeneration, transition)
+				return@hydratePreparedBundle
+			}
+			val quotedToken = JSONObject.quote(plan.token)
 			webView.evaluateJavascript(
 				"window.NavicReaderBridge?.beginPageTurnPreviewPreparation?.($quotedToken, ${plan.targetPageIndex})"
 			) {
-				if (!isPreparationActive(plan, stateGeneration)) {
-					current.bitmap.takeUnless { it.isRecycled }?.recycle()
-					return@evaluateJavascript
-				}
-				waitForPreviewReady(webView, plan, stateGeneration, current)
+				if (!isPreparationActive(plan, stateGeneration)) return@evaluateJavascript
+				waitForPreviewReady(webView, plan, stateGeneration)
 			}
 		}
 	}
@@ -624,11 +548,9 @@ internal class ReaderPageTurnController(
 	private fun waitForPreviewReady(
 		webView: WebView,
 		plan: ReaderPageTurnTransitionPlan,
-		stateGeneration: Long,
-		current: ReaderPageTurnCaptureResult
+		stateGeneration: Long
 	) {
 		if (!isPreparationActive(plan, stateGeneration) || !webView.isAttachedToWindow) {
-			current.bitmap.takeUnless { it.isRecycled }?.recycle()
 			return
 		}
 		val quotedToken = JSONObject.quote(plan.token)
@@ -636,25 +558,23 @@ internal class ReaderPageTurnController(
 			"window.NavicReaderBridge?.pageTurnPreviewState?.($quotedToken)?.status ?? 'missing'"
 		) { encodedStatus ->
 			if (!isPreparationActive(plan, stateGeneration)) {
-				current.bitmap.takeUnless { it.isRecycled }?.recycle()
 				return@evaluateJavascript
 			}
 			when (encodedStatus.javascriptString()) {
-				"ready" -> bundleSource.captureBundle(
+				"ready" -> bundleSource.capturePreparedBundle(
 					webView = webView,
-				plan = plan,
-				current = current,
-				currentCanRepresentSource = plan.sourcePageIndex == slideCoordinator?.settledPageIndex,
-				onStagingStarted = ::attachPreparationShield
+					plan = plan,
+					shieldPageIndex = plan.sourcePageIndex,
+					onStagingStarted = ::attachPreparationShield
 				) { transition ->
 					if (transition == null) {
 						markPreparationUnavailable(stateGeneration, "destination-bundle-unavailable")
-						return@captureBundle
+						return@capturePreparedBundle
 					}
 					if (!isPreparationActive(plan, stateGeneration)) {
 						transition.close()
 						removePreparationShield()
-						return@captureBundle
+						return@capturePreparedBundle
 					}
 					removePreparationShield()
 					preparationUnavailable = false
@@ -665,14 +585,13 @@ internal class ReaderPageTurnController(
 					handleEffects(state.captureSucceeded(stateGeneration))
 				}
 				"failed", "missing" -> {
-					bundleSource.cacheCurrentSnapshot(plan, current)?.let(::attachPreparationShield)
 					markPreparationUnavailable(
 						stateGeneration,
 						"destination-preview-${encodedStatus.javascriptString()}"
 					)
 				}
 				else -> webView.postOnAnimation {
-					waitForPreviewReady(webView, plan, stateGeneration, current)
+					waitForPreviewReady(webView, plan, stateGeneration)
 				}
 			}
 		}

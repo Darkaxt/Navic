@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ReaderPageTurnSlidePerformanceSourceTest {
 	@Test
@@ -15,7 +16,8 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 		assertContains(source, "callbacks.add(onPrepared)")
 		assertContains(source, "eldest.value.releaseCacheOwnership()")
 		assertContains(source, "staleSnapshot?.releaseCacheOwnership()")
-		assertContains(source, "ReaderPageTurnAnimationBitmapScale = 0.5f")
+		assertContains(source, "readerPageTurnAnimationBitmapDimension")
+		assertContains(source, "bitmapQuality")
 		assertFalse(source.contains("postDelayed"))
 		assertFalse(source.contains("withTimeout"))
 	}
@@ -57,8 +59,8 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 			.substringAfter("private fun begin(deltaX: Float)")
 			.substringBefore("fun prewarmAdjacent()")
 		val prewarm = controller
-			.substringAfter("private fun prewarmNext(")
-			.substringBefore("private fun waitForPrewarmPreviewReady(")
+			.substringAfter("private fun startRasterBatch(")
+			.substringBefore("private fun isPrewarmActive(")
 
 		assertContains(source, "fun currentGeneration(): Long = activeGeneration")
 		assertFalse(source.contains("fun beginGeneration()"))
@@ -72,35 +74,30 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 	}
 
 	@Test
-	fun gestureAdoptsMatchingPassivePrewarmInsteadOfRecapturingTheLiveWebView() {
+	fun gestureCancelsPassiveMutationThenUsesTheSharedMemoryOrDiskCache() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val begin = controller
 			.substringAfter("private fun begin(deltaX: Float)")
 			.substringBefore("fun prewarmAdjacent()")
-		val adoption = controller
-			.substringAfter("private fun waitForActivePrewarmBundle(")
-			.substringBefore("fun prewarmAdjacent()")
 
-		assertContains(begin, "activePrewarmPlan?.sameTransitionAs(plan) == true")
-		assertContains(begin, "waitForActivePrewarmBundle(")
-		assertContains(adoption, "bundleSource.cached(plan)")
-		assertContains(adoption, "webView.postOnAnimation")
-		assertFalse(adoption.contains("captureCurrentSurface"))
+		assertContains(begin, "bundleSource.cached(plan)")
+		assertContains(begin, "if (prewarmInProgress) cancelPrewarm()")
+		assertContains(begin, "prepareBundle(webView, plan, activeStateGeneration)")
+		assertFalse(begin.contains("waitForActivePrewarmBundle"))
 	}
 
 	@Test
-	fun startedPassivePrewarmMayFinishWhileTheGestureIsPreparing() {
+	fun passiveRasterBatchStopsBeforeACompetingGestureMutatesTheReader() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val activeCheck = controller
-			.substringAfter("private fun isPrewarmActive(")
-			.substringBefore("private fun finishPrewarm()")
-		val next = controller
-			.substringAfter("private fun prewarmNext(")
-			.substringBefore("private fun waitForPrewarmPreviewReady(")
+		val begin = controller
+			.substringAfter("private fun begin(deltaX: Float)")
+			.substringBefore("fun prewarmAdjacent()")
+		val cancel = controller
+			.substringAfter("private fun cancelPrewarm()")
+			.substringBefore("private fun destroyPageTurnPreviewRenderer(")
 
-		assertFalse(activeCheck.contains("state.phase"))
-		assertContains(next, "state.phase != paige.navic.reader.ReaderPageTurnPhase.Idle")
-		assertContains(next, "finishPrewarm()")
+		assertTrue(begin.indexOf("cancelPrewarm()") < begin.indexOf("prepareBundle("))
+		assertContains(cancel, "rasterBatchController.cancel()")
 	}
 
 	@Test
@@ -121,19 +118,16 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 	}
 
 	@Test
-	fun prewarmBuildsTheFiveSnapshotWindowFromTheVisualIndex() {
+	fun prewarmBuildsTheOrderedChapterPlanFromTheVisualIndex() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val query = controller
-			.substringAfter("private fun queryAdjacentPrewarmPlans(")
+			.substringAfter("private fun queryRasterPreparationPlan(")
 			.substringBefore("private fun expectedLayoutMode(")
 
 		assertContains(query, "slideCoordinator?.visualPageIndex")
-		assertContains(query, "pageTurnTransitionPlan?.('toward-left', center)")
-		assertContains(query, "pageTurnTransitionPlan?.('toward-right', center)")
-		assertContains(query, "center - step")
-		assertContains(query, "center + step")
-		assertContains(query, "readerPageSlideSnapshotWindow(")
-		assertContains(query, "desiredTargets.mapNotNull")
+		assertContains(query, "pageTurnRasterPreparationPlan")
+		assertContains(query, "readerPageRasterPreparationPlan(encoded)")
+		assertContains(query, "readerPageRasterCalibrationTargets(plan.targets)")
 	}
 
 	@Test
@@ -152,20 +146,16 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val prepareBundle = controller
 			.substringAfter("private fun prepareBundle(")
-			.substringBefore("private fun settlePreparedBundle(")
-		val preparedPrewarm = controller
-			.substringAfter("private fun captureCachedPrewarm(")
-			.substringBefore("private fun seedInitialPrewarmSnapshot(")
-		val initialSeed = controller
-			.substringAfter("private fun seedInitialPrewarmSnapshot(")
-			.substringBefore("private fun completePreparedPrewarm(")
+			.substringBefore("private fun hydrateGestureDestination(")
+		val passiveReference = controller
+			.substringAfter("private fun obtainRasterReference(")
+			.substringBefore("private fun isPrewarmActive(")
 
 		assertContains(source, "currentCanRepresentSource: Boolean")
 		assertContains(source, "cachedSnapshot(plan.sourcePageIndex, plan.kind)")
-		assertContains(prepareBundle, "plan.sourcePageIndex == slideCoordinator?.settledPageIndex")
-		assertFalse(preparedPrewarm.contains("captureCurrentSurface"))
-		assertContains(initialSeed, "currentPageIndex = visualPageIndex")
-		assertContains(initialSeed, "currentCanRepresentSource = true")
+		assertContains(prepareBundle, "bundleSource.cacheCurrentSnapshot(plan, current)")
+		assertContains(passiveReference, "cacheCurrentSnapshot(pageIndex, kind, current, generation)")
+		assertFalse(passiveReference.contains("targetPageIndex"))
 	}
 
 	@Test

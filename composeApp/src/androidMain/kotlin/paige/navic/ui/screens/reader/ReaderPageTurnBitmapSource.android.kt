@@ -11,6 +11,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
 import android.webkit.WebView
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -21,6 +22,7 @@ import paige.navic.reader.ReaderPageTurnPageRect
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.util.core.Logger
+import kotlin.coroutines.resume
 import kotlin.math.abs
 
 private const val ReaderPageTurnBitmapSourceTag = "ReaderPageTurnBitmapSource"
@@ -74,6 +76,17 @@ internal class ReaderPageTurnBitmapSource(
 			webViewHeight = webView.height
 		)
 	}
+
+	suspend fun captureSurfaceAwait(webView: WebView): ReaderPageTurnCaptureResult? =
+		suspendCancellableCoroutine { continuation ->
+			captureSurface(webView) { result ->
+				if (continuation.isActive) {
+					continuation.resume(result)
+				} else {
+					result?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+				}
+			}
+		}
 
 	private fun capture(
 		webView: WebView,

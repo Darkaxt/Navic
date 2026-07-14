@@ -5,7 +5,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import paige.navic.ui.screens.reader.ReaderPageTurnPrewarmRetryBudget
 import paige.navic.ui.screens.reader.readerPageTurnCanStartPassivePrewarm
 import paige.navic.ui.screens.reader.readerPageTurnRemainingAnimationDuration
 import paige.navic.ui.screens.reader.readerPageTurnPixelsContainForeground
@@ -64,6 +63,49 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun rasterSchedulerCanAwaitCaptureWithoutAClockOrCancellationTimeout() {
+		val source = readerAndroidFile("ReaderPageTurnBitmapSource.android.kt").readText()
+		val awaitCapture = source
+			.substringAfter("suspend fun captureSurfaceAwait(")
+			.substringBefore("private fun capture(")
+
+		assertContains(awaitCapture, "suspendCancellableCoroutine")
+		assertContains(awaitCapture, "continuation.isActive")
+		assertContains(awaitCapture, "result?.bitmap?.takeUnless { it.isRecycled }?.recycle()")
+		assertFalse(awaitCapture.contains("withTimeout"))
+		assertFalse(awaitCapture.contains("postDelayed"))
+	}
+
+	@Test
+	fun capturedTurnSnapshotsPublishThroughTheProfileAwareRasterScheduler() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+
+		assertContains(source, "ReaderPageRasterScheduler<Bitmap>")
+		assertContains(source, "readerPageRasterStorageRoot")
+		assertContains(source, "pageTurnRasterDescriptor")
+		assertContains(source, "readerPageRasterDescriptor")
+		assertContains(source, "scheduler.activateProfile(key.profile)")
+		assertContains(source, "schedulePersistentSnapshot")
+		assertContains(source, "ReaderPageRasterPriority.Current")
+		assertContains(source, "ReaderPageRasterPriority.NextTransition")
+		assertFalse(source.contains("withTimeout"))
+		assertFalse(source.contains("timeoutMillis"))
+	}
+
+	@Test
+	fun bundleSourceOwnsAndCancelsItsRasterCoroutineLifetime() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val close = source
+			.substringAfter("fun close()")
+			.substringBefore("private fun restoreLiveComposition(")
+
+		assertContains(source, "private val rasterJob = SupervisorJob()")
+		assertContains(source, "CoroutineScope(rasterJob + Dispatchers.Main.immediate)")
+		assertContains(close, "rasterScheduler?.close()")
+		assertContains(close, "rasterJob.cancel()")
+	}
+
+	@Test
 	fun renderableForegroundRequiresVisibleContrastRatherThanPaperNoise() {
 		val blankPaper = IntArray(48 * 32) { index ->
 			val level = 248 + (index % 8)
@@ -102,26 +144,27 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun prewarmRetryBudgetAllowsOneEventDrivenRetryPerAdjacentDirection() {
-		val budget = ReaderPageTurnPrewarmRetryBudget()
+	fun passivePrewarmHasOneBatchOwnerInsteadOfPerTransitionRetryState() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 
-		assertTrue(budget.consume("forward"))
-		assertFalse(budget.consume("forward"))
-		assertTrue(budget.consume("previous"))
-		budget.clear()
-		assertTrue(budget.consume("forward"))
+		assertContains(controller, "ReaderPageRasterBatchController(bundleSource)")
+		assertFalse(controller.contains("ReaderPageTurnPrewarmRetryBudget"))
+		assertFalse(controller.contains("prewarmPlans"))
+		assertFalse(controller.contains("activePrewarmPlan"))
 	}
 
 	@Test
-	fun rejectedPrewarmCaptureReturnsToTheQueueWithoutAClockDelay() {
+	fun cancelledPassiveBatchRestoresTheLiveReaderWithoutDestroyingTheRenderer() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val prewarm = controller
-			.substringAfter("private fun capturePreparedPrewarmWhenSettled(")
-			.substringBefore("private fun isPrewarmActive(")
+		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 
-		assertContains(prewarm, "prewarmRetryBudget.consume(plan.cacheKey)")
-		assertContains(prewarm, "prewarmPlans.addLast(encodedPlan)")
-		assertFalse(prewarm.contains("postDelayed"))
+		assertContains(controller, "rasterBatchController.cancel()")
+		assertContains(batch, "cancelPageTurnPreviewBatch")
+		assertContains(preview, "function cancelPageTurnPreviewBatch(")
+		assertContains(preview, "this.restorePageTurnLiveComposition()")
+		assertFalse(batch.contains("destroyPageTurnPreviewRenderer"))
+		assertFalse(batch.contains("postDelayed"))
 	}
 
 	@Test
@@ -149,7 +192,7 @@ class ReaderPageTurnNativeSourceTest {
 			validationIndex < assignmentIndex,
 			"A stale capture must not become the active capture result."
 		)
-		assertContains(captureCallback, "current.bitmap.takeUnless { it.isRecycled }?.recycle()")
+		assertContains(captureCallback, "current?.bitmap?.takeUnless { it.isRecycled }?.recycle()")
 	}
 
 	@Test
@@ -278,12 +321,14 @@ class ReaderPageTurnNativeSourceTest {
 	@Test
 	fun landscapeControllerPreparesAndCommitsOneExactDestinationBundle() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
 
 		assertContains(controller, "ReaderPageTurnBundleSource")
 		assertContains(controller, "pageTurnTransitionPlan")
 		assertContains(controller, "beginPageTurnPreviewPreparation")
 		assertContains(controller, "captureCurrentSurface")
-		assertContains(controller, "captureBundle")
+		assertContains(controller, "hydratePreparedBundle")
+		assertContains(batch, "capturePreparedRasterPage")
 		assertContains(controller, "plan.targetPageIndex")
 		assertContains(controller, "dispatchExactSettlement")
 		assertContains(controller, "type: 'goToVisualPage'")
@@ -292,50 +337,93 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun passivePrewarmReusesTheCachedSourceAndCapturesOnlyThePreparedDestination() {
+	fun passivePrewarmDelegatesOneOrderedPreparationPlanToTheBatchController() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val prewarm = controller
-			.substringAfter("private fun captureCachedPrewarm(")
-			.substringBefore("private fun seedInitialPrewarmSnapshot(")
+			.substringAfter("fun prewarmAdjacent(): Boolean")
+			.substringBefore("private fun isPrewarmActive(")
 		val gesture = controller
 			.substringAfter("private fun prepareBundle(")
 			.substringBefore("private fun waitForPreviewReady(")
 
-		val destinationCapture = prewarm.indexOf("capturePreparedBundle")
-		assertTrue(destinationCapture >= 0, "Rolling prewarm must capture the prepared passive destination")
-		assertFalse(
-			prewarm.contains("captureCurrentSurface"),
-			"Rolling prewarm must reuse its cached source instead of PixelCopying the live WebView"
-		)
+		assertContains(prewarm, "pageTurnRasterPreparationPlan")
+		assertContains(prewarm, "readerPageRasterCalibrationTargets")
+		assertContains(prewarm, "bundleSource.preparationMode(")
+		assertContains(prewarm, "readerPageRasterFollowUpTargets")
+		assertContains(prewarm, "rasterBatchController.start(")
+		assertFalse(prewarm.contains("beginPageTurnPreviewPreparation"))
 
 		val gestureCapture = gesture.indexOf("captureCurrentSurface")
+		val gestureHydration = gesture.indexOf("hydratePreparedBundle")
 		val gesturePreview = gesture.indexOf("beginPageTurnPreviewPreparation")
-		assertTrue(gestureCapture >= 0 && gestureCapture < gesturePreview)
+		assertTrue(gestureCapture >= 0 && gestureCapture < gestureHydration)
+		assertTrue(gestureHydration >= 0 && gestureHydration < gesturePreview)
 	}
 
 	@Test
-	fun initialPrewarmSeedsTheCurrentVisualSnapshotExactlyOnceAfterCacheReset() {
+	fun passiveBatchPersistsEveryHydratedOrCapturedTargetBeforeReportingProgress() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
-		val dispatcher = controller
-			.substringAfter("private fun capturePreparedPrewarm(")
-			.substringBefore("private fun captureCachedPrewarm(")
-		val seed = controller
-			.substringAfter("private fun seedInitialPrewarmSnapshot(")
-			.substringBefore("private fun completePreparedPrewarm(")
+		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
 
-		assertContains(source, "fun hasCachedSnapshot(")
-		assertContains(dispatcher, "bundleSource.hasCachedSnapshot(plan.sourcePageIndex, plan.kind)")
-		assertContains(dispatcher, "bundleSource.hasCachedSnapshot(visualPageIndex, plan.kind)")
-		assertContains(dispatcher, "plan.sourcePageIndex == visualPageIndex")
-		assertContains(dispatcher, "captureCachedPrewarm(")
-		assertContains(dispatcher, "seedInitialPrewarmSnapshot(")
-		assertFalse(dispatcher.contains("captureCurrentSurface"))
+		assertContains(source, "fun ensurePersistentSnapshot(")
+		assertContains(batch, "bundleSource.ensurePersistentSnapshot(")
+		assertTrue(
+			batch.indexOf("ensurePersistentSnapshot") < batch.indexOf("markCompleted(session)"),
+			"A hydrated raster must be durable before it advances preparation progress."
+		)
+		assertFalse(batch.contains("postDelayed"))
+		assertFalse(batch.contains("withTimeout"))
+	}
 
-		assertEquals(1, Regex("bundleSource\\.captureCurrentSurface\\(").findAll(seed).count())
-		assertContains(seed, "currentPageIndex = visualPageIndex")
-		assertContains(seed, "currentCanRepresentSource = true")
-		assertContains(seed, "bundleSource.captureBundle(")
+	@Test
+	fun passiveRasterBatchHydratesDiskBeforeSubmittingOnlyCacheMisses() {
+		val batchFile = readerAndroidFile("ReaderPageRasterBatchController.android.kt")
+		assertTrue(batchFile.isFile, "Native passive raster batching must have one dedicated owner.")
+		val batch = batchFile.takeIf { it.isFile }?.readText().orEmpty()
+
+		val hydrate = batch.indexOf("bundleSource.hydrateSnapshot(")
+		val begin = batch.indexOf("beginPageTurnPreviewBatch")
+		assertTrue(hydrate >= 0, "Persistent cache hydration must be attempted for every requested raster.")
+		assertTrue(begin > hydrate, "Only cache misses may be submitted to the passive renderer batch.")
+		assertContains(batch, "missingTargets")
+		assertContains(batch, "ReaderPageRasterPriority.Current")
+		assertContains(batch, "ReaderPageRasterPriority.NextTransition")
+		assertContains(batch, "ReaderPageRasterPriority.PreviousTransition")
+	}
+
+	@Test
+	fun passiveRasterBatchCapturesExactReadyItemBeforeAdvancing() {
+		val batchFile = readerAndroidFile("ReaderPageRasterBatchController.android.kt")
+		assertTrue(batchFile.isFile, "Native passive raster batching must have one dedicated owner.")
+		val batch = batchFile.takeIf { it.isFile }?.readText().orEmpty()
+
+		assertContains(batch, "pageTurnPreviewBatchState")
+		assertContains(batch, "itemToken")
+		assertContains(batch, "bundleSource.capturePreparedRasterPage(")
+		assertContains(batch, "advancePageTurnPreviewBatch")
+		val capture = batch.indexOf("bundleSource.capturePreparedRasterPage(")
+		val advance = batch.indexOf("advancePageTurnPreviewBatch")
+		assertTrue(capture >= 0 && advance > capture, "The exact ready page must be captured before native advances the batch.")
+		assertContains(batch, "webView.postOnAnimation")
+		assertFalse(batch.contains("postDelayed"))
+		assertFalse(batch.contains("withTimeout"))
+		assertFalse(batch.contains("delay("))
+	}
+
+	@Test
+	fun passiveRasterBatchRejectsStaleSessionsAndReportsRealProgress() {
+		val batchFile = readerAndroidFile("ReaderPageRasterBatchController.android.kt")
+		assertTrue(batchFile.isFile, "Native passive raster batching must have one dedicated owner.")
+		val batch = batchFile.takeIf { it.isFile }?.readText().orEmpty()
+
+		assertContains(batch, "isSessionActive")
+		assertContains(batch, "completedCount")
+		assertContains(batch, "requiredCount")
+		assertContains(batch, "onProgress")
+		assertContains(batch, "onComplete")
+		assertFalse(batch.contains("SystemClock"))
+		assertFalse(batch.contains("Timer"))
 	}
 
 	@Test
@@ -565,7 +653,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(restore, "onRestored: () -> Unit")
 		assertContains(restore, "postVisualStateCallback")
 		assertContains(restore, "postOnAnimation")
-		assertContains(source, "restoreLiveComposition(webView, plan.token) {")
+		assertContains(source, "restoreLiveComposition(webView, token) {")
 	}
 
 	@Test
@@ -635,22 +723,17 @@ class ReaderPageTurnNativeSourceTest {
 	@Test
 	fun backgroundPrewarmShieldsWithTheCachedVisualPageInsteadOfADistantPlanSource() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
-		val prewarmCapture = controller
-			.substringAfter("private fun captureCachedPrewarm(")
-			.substringAfter("bundleSource.capturePreparedBundle(")
-			.substringBefore(") { transition ->")
-		val bundleCapture = source
-			.substringAfter("fun capturePreparedBundle(")
-			.substringBefore("fun cacheCurrentSnapshot(")
+		val query = controller
+			.substringAfter("private fun queryRasterPreparationPlan(")
+			.substringBefore("private fun expectedLayoutMode(")
+		val batch = controller
+			.substringAfter("private fun startRasterBatch(")
+			.substringBefore("private fun obtainRasterReference(")
 
-		assertContains(prewarmCapture, "shieldPageIndex = visualPageIndex")
-		assertContains(bundleCapture, "cachedSnapshot(shieldPageIndex, plan.kind)")
-		assertContains(bundleCapture, "onStagingStarted(shield)")
-		assertFalse(
-			bundleCapture.contains("onStagingStarted = { onStagingStarted(source) }"),
-			"Prewarming a distant target must not replace the visible reader with that plan's stale source page."
-		)
+		assertContains(query, "obtainRasterReference(webView, session, plan.centerPageIndex, kind)")
+		assertContains(batch, "reference = reference")
+		assertContains(batch, "onStagingStarted = ::attachPreparationShield")
+		assertFalse(batch.contains("plan.sourcePageIndex"))
 	}
 
 	@Test
@@ -717,7 +800,7 @@ class ReaderPageTurnNativeSourceTest {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val prewarm = controller
 			.substringAfter("fun prewarmAdjacent(): Boolean")
-			.substringBefore("private fun queryAdjacentPrewarmPlans")
+			.substringBefore("private fun queryRasterPreparationPlan")
 
 		assertFalse(prewarm.contains("slideCoordinator?.activeSettlementTarget != null"))
 		assertContains(prewarm, "readerPageTurnCanStartPassivePrewarm")
@@ -725,12 +808,12 @@ class ReaderPageTurnNativeSourceTest {
 
 	@Test
 	fun preparedAdjacentCaptureUsesThePassiveRendererDuringExactSettlement() {
-		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		val preparedCapture = controller
-			.substringAfter("private fun captureCachedPrewarm(")
-			.substringBefore("private fun seedInitialPrewarmSnapshot(")
+		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
+		val preparedCapture = batch
+			.substringAfter("private fun captureReadyItem(")
+			.substringBefore("private fun advancePageTurnPreviewBatch(")
 
-		assertContains(preparedCapture, "bundleSource.capturePreparedBundle")
+		assertContains(preparedCapture, "bundleSource.capturePreparedRasterPage")
 		assertFalse(preparedCapture.contains("activeSettlementTarget"))
 		assertFalse(preparedCapture.contains("bundleSource.captureCurrentSurface"))
 	}
@@ -740,16 +823,15 @@ class ReaderPageTurnNativeSourceTest {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
 		val query = controller
-			.substringAfter("private fun queryAdjacentPrewarmPlans(")
-			.substringBefore("private fun prewarmNext(")
+			.substringAfter("private fun queryRasterPreparationPlan(")
+			.substringBefore("private fun startRasterCalibration(")
 		val begin = controller
 			.substringAfter("private fun begin(deltaX: Float)")
 			.substringBefore("fun prewarmAdjacent()")
 
 		assertContains(bundle, "fun matchesLayout(spread: Boolean)")
-		assertContains(query, "expectedLayoutMode(webView)")
-		assertContains(query, "context?.optString(\"layoutMode\")")
-		assertContains(query, "webView.postOnAnimation { queryAdjacentPrewarmPlans(webView, session) }")
+		assertContains(query, "plan.layoutMode != expectedLayoutMode(webView)")
+		assertContains(query, "webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }")
 		assertContains(begin, "!plan.matchesLayout(state.spread)")
 	}
 }

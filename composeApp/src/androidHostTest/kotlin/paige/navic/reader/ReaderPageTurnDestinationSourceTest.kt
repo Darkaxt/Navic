@@ -195,6 +195,70 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun passiveRasterBatchStagesOneExactOrdinalUntilNativeAdvancesIt() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val batch = preview
+			.substringAfter("function beginPageTurnPreviewBatch(")
+			.substringBefore("function exposePageTurnPreviewFinal(")
+
+		assertContains(runtime, "beginPageTurnPreviewBatch: (token, pageIndexes) =>")
+		assertContains(runtime, "pageTurnPreviewBatchState: token =>")
+		assertContains(runtime, "advancePageTurnPreviewBatch: (token, pageIndex) =>")
+		assertContains(batch, "readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)")
+		assertContains(batch, "readerGoToExactVisualPage(previewView, locator, 'page-turn-raster-batch')")
+		assertContains(batch, "status: 'ready'")
+		assertContains(batch, "spineIndex: locator.spineIndex")
+		assertContains(batch, "href: locator.href")
+		assertContains(batch, "chapterPageIndex: locator.chapterPageIndex")
+		assertContains(batch, "visualPageOrdinal: locator.pageIndex")
+		assertContains(batch, "if (state.status !== 'ready' || state.pageIndex !== completedPageIndex) return state")
+		assertFalse(batch.contains("post("), "The passive raster renderer must not publish reader events.")
+		assertFalse(batch.contains("setTimeout"))
+	}
+
+	@Test
+	fun rasterPreparationPlanUsesPaginationChaptersAndStablePriorityOrder() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val plan = preview
+			.substringAfter("function pageTurnRasterPreparationPlan(")
+			.substringBefore("function pageTurnPreviewContext(")
+
+		assertContains(runtime, "pageTurnRasterPreparationPlan: pageIndex =>")
+		assertContains(plan, "this.paginationProfile?.chapters")
+		assertContains(plan, "addTarget(centerPageIndex, 'current')")
+		assertContains(plan, "addTarget(centerPageIndex + step, 'next-transition')")
+		assertContains(plan, "addTarget(centerPageIndex - step, 'previous-transition')")
+		assertContains(plan, "addChapter(chapters[currentChapterIndex], 'current-chapter')")
+		assertContains(plan, "addChapter(chapters[currentChapterIndex + 1], 'next-chapter')")
+		assertContains(plan, "addChapter(chapters[currentChapterIndex - 1], 'previous-chapter')")
+		assertContains(plan, "layoutMode === 'spread' ? 2 : 1")
+		assertContains(plan, "pageStartIndex")
+		assertContains(plan, "pageCount")
+		assertFalse(plan.contains("setTimeout"))
+	}
+
+	@Test
+	fun passiveRasterIdentityIncludesEveryCacheInvalidationDimension() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val identity = preview
+			.substringAfter("function pageTurnRasterDescriptor(")
+			.substringBefore("function pageTurnPreviewContext(")
+
+		assertContains(runtime, "pageTurnRasterDescriptor: pageIndex =>")
+		assertContains(identity, "publicationUrl: String(this.publicationUrl || '')")
+		assertContains(identity, "paginationFingerprint: String(this.paginationFingerprint || '')")
+		assertContains(identity, "layoutFingerprint: stableHash(JSON.stringify(layoutState))")
+		assertContains(identity, "decorationFingerprint: stableHash(JSON.stringify(decorationState))")
+		assertContains(identity, "readerPageLocatorForVisualIndex(this.paginationProfile, normalizedPageIndex)")
+		assertContains(identity, "spineIndex: locator.spineIndex")
+		assertContains(identity, "chapterPageIndex: locator.chapterPageIndex")
+		assertContains(identity, "visualPageOrdinal: locator.pageIndex")
+	}
+
+	@Test
 	fun passiveRendererExposesReadOnlyParityContext() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
@@ -340,5 +404,22 @@ class ReaderPageTurnDestinationSourceTest {
 		assertFalse(source.contains("underneathPageIndex"))
 		assertContains(source, "webView.postOnAnimation")
 		assertFalse(source.contains("postDelayed"))
+	}
+
+	@Test
+	fun persistentRasterHydrationCopiesDecodedBitmapAndRebindsLiveSurface() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val hydration = source
+			.substringAfter("fun hydrateSnapshot(")
+			.substringBefore("private fun capturePreparedDestination(")
+
+		assertContains(hydration, "cache.readCopy(key)")
+		assertContains(hydration, "cached.copy(Bitmap.Config.ARGB_8888, false)")
+		assertContains(hydration, "Rect(reference.surfaceRectInWindow)")
+		assertContains(hydration, "readerPageRasterLeafGeometry(")
+		assertContains(hydration, "persist = false")
+		assertContains(hydration, "generation != activeGeneration")
+		assertFalse(hydration.contains("postDelayed"))
+		assertFalse(hydration.contains("withTimeout"))
 	}
 }

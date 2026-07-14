@@ -7,6 +7,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.reader.ReaderPageBitmapQuality
@@ -142,6 +143,22 @@ class ReaderPageRasterCacheTest {
 
 		assertEquals(rasterMetadata, restored?.metadata)
 		assertContentEquals(pngBytes("persisted"), restored?.value)
+	}
+
+	@Test
+	fun copiedReadTransfersIndependentValueOwnershipToCaller() {
+		val fixture = fixture(maxDecodedEntries = 1)
+		val rasterKey = key()
+		val original = pngBytes("owned-by-cache")
+		assertTrue(fixture.cache.write(rasterKey, metadata(), original))
+
+		val copied = fixture.cache.readCopy(rasterKey) { cached -> cached.copyOf() }
+
+		assertEquals(metadata(), copied?.metadata)
+		assertContentEquals(original, copied?.value)
+		assertNotSame(original, copied?.value)
+		fixture.cache.close()
+		assertContentEquals(pngBytes("owned-by-cache"), copied?.value)
 	}
 
 	private fun fixture(
