@@ -8,6 +8,8 @@ internal const val ReaderManagedStorageDirectoryName = "reader"
 internal const val ReaderFontStorageDirectoryName = "fonts"
 internal const val ReaderPublicationSessionDirectoryName = "reader-publications"
 internal const val ReaderReadaloudSessionDirectoryName = "storyteller-readaloud"
+internal const val ReaderPageRasterStorageDirectoryName = "reader-page-rasters"
+internal const val ReaderPageRasterStorageVersion = "v1"
 
 private val readerStorageInitializationLock = Any()
 private val initializedReaderStorageRoots = mutableSetOf<String>()
@@ -28,6 +30,17 @@ internal fun readerManagedStorageRoot(context: Context): File {
 
 internal fun readerLegacyStorageRoot(context: Context): File =
 	File(context.cacheDir, ReaderManagedStorageDirectoryName)
+
+internal fun readerPageRasterStorageRoot(context: Context): File =
+	readerManagedStorageRoot(context)
+		.resolve(ReaderPageRasterStorageDirectoryName)
+		.resolve(ReaderPageRasterStorageVersion)
+		.also(File::mkdirs)
+
+internal fun clearReaderPageRasterStorage(context: Context): Int {
+	val directory = readerManagedStorageRoot(context).resolve(ReaderPageRasterStorageDirectoryName)
+	return if (directory.exists() && directory.deleteRecursively()) 1 else 0
+}
 
 internal fun readerSessionStorageSizeBytes(context: Context): Long =
 	readerSessionStorageSizeBytes(
@@ -50,9 +63,21 @@ internal fun initializeReaderManagedStorage(
 		source = legacyRoot.resolve(ReaderFontStorageDirectoryName),
 		target = managedRoot.resolve(ReaderFontStorageDirectoryName)
 	)
+	removeObsoleteReaderPageRasterSchemas(managedRoot.resolve(ReaderPageRasterStorageDirectoryName))
 	ReaderSessionStorageDirectoryNames.forEach { directoryName ->
 		managedRoot.resolve(directoryName).deleteRecursively()
 		legacyRoot.resolve(directoryName).deleteRecursively()
+	}
+}
+
+private fun removeObsoleteReaderPageRasterSchemas(root: File) {
+	root.listFiles().orEmpty().forEach { child ->
+		when {
+			child.name != ReaderPageRasterStorageVersion -> child.deleteRecursively()
+			child.isDirectory -> child.listFiles().orEmpty()
+				.filter { file -> file.name.endsWith(".tmp") }
+				.forEach(File::delete)
+		}
 	}
 }
 

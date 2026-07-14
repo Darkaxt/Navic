@@ -1,0 +1,256 @@
+package paige.navic.ui.screens.reader
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.security.MessageDigest
+
+internal const val ReaderPageRasterDiskMaxBytes = 384L * 1024L * 1024L
+internal const val ReaderPageRasterDecodedMaxEntries = 5
+
+internal interface ReaderPageRasterCodec<T : Any> {
+	fun encode(value: T, target: File): Boolean
+	fun decode(source: File): T?
+	fun release(value: T)
+}
+
+internal data class ReaderPageRaster<T : Any>(
+	val key: ReaderPageRasterKey,
+	val metadata: ReaderPageRasterMetadata,
+	val value: T
+)
+
+internal data class ReaderPageRasterCacheMetrics(
+	val diskEntries: Int,
+	val diskBytes: Long,
+	val decodedEntries: Int
+)
+
+internal class ReaderPageRasterCache<T : Any>(
+	private val root: File,
+	private val codec: ReaderPageRasterCodec<T>,
+	private val maxDiskBytes: Long = ReaderPageRasterDiskMaxBytes,
+	private val maxDecodedEntries: Int = ReaderPageRasterDecodedMaxEntries,
+	private val clock: () -> Long = System::currentTimeMillis
+) {
+	private val storageAvailable = !root.exists() || !Files.isSymbolicLink(root.toPath())
+	private val manifest = ReaderPageRasterManifest(root)
+	private val entries = linkedMapOf<String, ReaderPageRasterManifestEntry>()
+	private val decoded = LinkedHashMap<String, ReaderPageRaster<T>>(0, 0.75f, true)
+
+	init {
+		if (storageAvailable) {
+			root.mkdirs()
+			cleanupTemporaryAndSymlinkFiles()
+			manifest.read().forEach { entry ->
+				val path = root.resolve(entry.rasterFileName)
+				if (entry.key.schemaVersion == ReaderPageRasterSchemaVersion && path.isRegularRaster(entry.byteSize)) {
+					entries[entry.key.digest] = entry.copy(
+						lastAccessEpochMillis = maxOf(entry.lastAccessEpochMillis, path.lastModified())
+					)
+				}
+			}
+			deleteOrphanRasters()
+			persistManifest()
+		}
+	}
+
+	@Synchronized
+	fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean {
+		if (!storageAvailable || key.schemaVersion != ReaderPageRasterSchemaVersion || maxDiskBytes <= 0L) return false
+		root.mkdirs()
+		val temporary = root.resolve("${key.digest}.${System.nanoTime()}.tmp")
+		val encoded = runCatching { codec.encode(value, temporary) }.getOrDefault(false)
+		if (!encoded || !temporary.isFile || temporary.length() <= 0L) {
+			temporary.delete()
+			return false
+		}
+		runCatching { FileOutputStream(temporary, true).use { output -> output.fd.sync() } }
+			.getOrElse {
+				temporary.delete()
+				return false
+			}
+		val byteSize = temporary.length()
+		if (byteSize > maxDiskBytes) {
+			temporary.delete()
+			return false
+		}
+		val contentDigest = temporary.sha256().take(16)
+		val target = root.resolve("${key.digest}-$contentDigest.png")
+		val targetExisted = target.isFile
+		if (runCatching { readerPageRasterPromote(temporary, target) }.isFailure) {
+			temporary.delete()
+			return false
+		}
+
+		val entry = ReaderPageRasterManifestEntry(
+			key = key,
+			rasterFileName = target.name,
+			byteSize = byteSize,
+			lastAccessEpochMillis = clock(),
+			metadata = metadata
+		)
+		val proposed = entries.toMutableMap().apply { put(key.digest, entry) }
+		val retained = retainedWithinDiskLimit(proposed.values)
+		if (!manifest.write(retained)) {
+			if (!targetExisted) target.delete()
+			return false
+		}
+
+		val retainedIds = retained.mapTo(mutableSetOf()) { retainedEntry -> retainedEntry.key.digest }
+		val retiredEntries = entries.values.filter { existing ->
+			existing.key.digest !in retainedIds ||
+				(existing.key.digest == key.digest && existing.rasterFileName != entry.rasterFileName)
+		}
+		retiredEntries.forEach { retired ->
+			decoded.remove(retired.key.digest)?.takeIf { raster -> raster.value !== value }?.let { raster ->
+				codec.release(raster.value)
+			}
+			deleteEntryFile(retired)
+		}
+		entries.clear()
+		retained.forEach { retainedEntry -> entries[retainedEntry.key.digest] = retainedEntry }
+		putDecoded(ReaderPageRaster(key, metadata, value))
+		return key.digest in entries
+	}
+
+	@Synchronized
+	fun read(key: ReaderPageRasterKey): ReaderPageRaster<T>? {
+		if (!storageAvailable) return null
+		decoded[key.digest]?.let { raster ->
+			touch(key.digest)
+			return raster
+		}
+		val entry = entries[key.digest]?.takeIf { candidate -> candidate.key.identity == key.identity } ?: return null
+		val path = root.resolve(entry.rasterFileName)
+		if (!path.isRegularRaster(entry.byteSize)) {
+			removeEntry(key.digest)
+			return null
+		}
+		val value = runCatching { codec.decode(path) }.getOrNull()
+		if (value == null) {
+			removeEntry(key.digest)
+			return null
+		}
+		val raster = ReaderPageRaster(key, entry.metadata, value)
+		putDecoded(raster)
+		touch(key.digest)
+		return raster
+	}
+
+	@Synchronized
+	fun retainProfile(profile: ReaderPageRasterProfile): Int {
+		if (!storageAvailable) return 0
+		val obsolete = entries.values.filter { entry ->
+			entry.key.publicationHash == profile.publicationHash && entry.key.profile != profile
+		}
+		if (obsolete.isEmpty()) return 0
+		val obsoleteIds = obsolete.mapTo(mutableSetOf()) { entry -> entry.key.digest }
+		val retained = entries.values.filterNot { entry -> entry.key.digest in obsoleteIds }
+		if (!manifest.write(retained)) return 0
+		obsolete.forEach { entry ->
+			decoded.remove(entry.key.digest)?.let { raster -> codec.release(raster.value) }
+			deleteEntryFile(entry)
+			entries.remove(entry.key.digest)
+		}
+		return obsolete.size
+	}
+
+	@Synchronized
+	fun metrics(): ReaderPageRasterCacheMetrics = ReaderPageRasterCacheMetrics(
+		diskEntries = entries.size,
+		diskBytes = entries.values.sumOf { entry -> entry.byteSize.coerceAtLeast(0L) },
+		decodedEntries = decoded.size
+	)
+
+	internal fun pathFor(key: ReaderPageRasterKey): File =
+		entries[key.digest]?.let { entry -> root.resolve(entry.rasterFileName) }
+			?: root.resolve("${key.digest}.png")
+	internal fun manifestPath(): File = manifest.file
+
+	private fun retainedWithinDiskLimit(candidates: Collection<ReaderPageRasterManifestEntry>): List<ReaderPageRasterManifestEntry> {
+		val retained = candidates.sortedByDescending { entry -> entry.lastAccessEpochMillis }.toMutableList()
+		var bytes = retained.sumOf { entry -> entry.byteSize.coerceAtLeast(0L) }
+		while (bytes > maxDiskBytes && retained.isNotEmpty()) {
+			val removed = retained.removeLast()
+			bytes -= removed.byteSize.coerceAtLeast(0L)
+		}
+		return retained
+	}
+
+	private fun putDecoded(raster: ReaderPageRaster<T>) {
+		if (maxDecodedEntries <= 0) return
+		decoded.put(raster.key.digest, raster)?.takeIf { previous -> previous.value !== raster.value }?.let { previous ->
+			codec.release(previous.value)
+		}
+		while (decoded.size > maxDecodedEntries) {
+			val eldest = decoded.entries.iterator().next()
+			decoded.remove(eldest.key)
+			codec.release(eldest.value.value)
+		}
+	}
+
+	private fun touch(digest: String) {
+		val current = entries[digest] ?: return
+		val updated = current.copy(lastAccessEpochMillis = clock())
+		entries[digest] = updated
+		root.resolve(current.rasterFileName).setLastModified(updated.lastAccessEpochMillis)
+	}
+
+	private fun removeEntry(digest: String) {
+		val entry = entries.remove(digest) ?: return
+		decoded.remove(digest)?.let { raster -> codec.release(raster.value) }
+		deleteEntryFile(entry)
+		persistManifest()
+	}
+
+	private fun deleteEntryFile(entry: ReaderPageRasterManifestEntry) {
+		val path = root.resolve(entry.rasterFileName)
+		if (!Files.isSymbolicLink(path.toPath())) path.delete()
+	}
+
+	private fun cleanupTemporaryAndSymlinkFiles() {
+		root.listFiles().orEmpty().forEach { child ->
+			if (child.name.endsWith(".tmp") || Files.isSymbolicLink(child.toPath())) child.delete()
+		}
+	}
+
+	private fun deleteOrphanRasters() {
+		val registered = entries.values.mapTo(mutableSetOf()) { entry -> entry.rasterFileName }
+		root.listFiles().orEmpty()
+			.filter { file -> file.extension == "png" && file.name !in registered }
+			.forEach(File::delete)
+	}
+
+	private fun persistManifest(): Boolean = manifest.write(entries.values)
+
+	private fun File.isRegularRaster(expectedSize: Long): Boolean =
+		isFile && !Files.isSymbolicLink(toPath()) && length() == expectedSize && expectedSize > 0L
+
+
+	private fun File.sha256(): String {
+		val digest = MessageDigest.getInstance("SHA-256")
+		inputStream().use { input ->
+			val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+			while (true) {
+				val count = input.read(buffer)
+				if (count < 0) break
+				digest.update(buffer, 0, count)
+			}
+		}
+		return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+	}
+}
+
+internal object ReaderAndroidPageRasterCodec : ReaderPageRasterCodec<Bitmap> {
+	override fun encode(value: Bitmap, target: File): Boolean =
+		FileOutputStream(target).use { output -> value.compress(Bitmap.CompressFormat.PNG, 100, output) }
+
+	override fun decode(source: File): Bitmap? = BitmapFactory.decodeFile(source.path)
+
+	override fun release(value: Bitmap) {
+		if (!value.isRecycled) value.recycle()
+	}
+}

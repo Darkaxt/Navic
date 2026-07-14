@@ -17,6 +17,7 @@ class ReaderManagedStorageTest {
 		legacyRoot.resolve("fonts/imported-migrated.otf").writeFixture("MIGRATED")
 		managedRoot.resolve("reader-publications/current/publication.epub").writeFixture("STALE")
 		managedRoot.resolve("storyteller-readaloud/current/audio.mp3").writeFixture("STALE_AUDIO")
+		managedRoot.resolve("reader-page-rasters/v1/keep.png").writeFixture("DURABLE_RASTER")
 		legacyRoot.resolve("reader-publications/legacy/publication.epub").writeFixture("LEGACY_STALE")
 		legacyRoot.resolve("storyteller-readaloud/legacy/audio.mp3").writeFixture("LEGACY_AUDIO")
 
@@ -30,6 +31,7 @@ class ReaderManagedStorageTest {
 		assertFalse(legacyRoot.resolve("reader-publications").exists())
 		assertFalse(legacyRoot.resolve("storyteller-readaloud").exists())
 		assertTrue(managedRoot.resolve("fonts").isDirectory)
+		assertEquals("DURABLE_RASTER", managedRoot.resolve("reader-page-rasters/v1/keep.png").readText())
 	}
 
 	@Test
