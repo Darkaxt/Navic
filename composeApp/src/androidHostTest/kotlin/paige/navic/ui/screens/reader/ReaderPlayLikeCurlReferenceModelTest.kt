@@ -105,6 +105,22 @@ class ReaderPlayLikeCurlReferenceModelTest {
 	}
 
 	@Test
+	fun cancellationResetsThePersistentPagesWithoutRotatingIdentities() {
+		val model = ReaderPlayLikeCurlReferenceModel(pageCount = 4, initialPosition = 1)
+		val identities = model.drawOrder.map(ReaderPlayLikeCurlPageState::pageIndex)
+
+		model.beginGesture(x = 100f)
+		model.dragTo(x = 20f, width = 100f)
+		model.cancelGesture()
+
+		assertEquals(1, model.currentPosition)
+		assertEquals(identities, model.drawOrder.map(ReaderPlayLikeCurlPageState::pageIndex))
+		assertEquals(ReaderPlayLikeCurlActivePage.Current, model.activePage)
+		assertEquals(ReaderPlayLikeCurlReferenceModel.RightEndpointPosition, model.leftPage.curlPosition)
+		assertEquals(ReaderPlayLikeCurlReferenceModel.Grid.toFloat(), model.frontPage.curlPosition)
+	}
+
+	@Test
 	fun referenceGeometryPreservesBitmapAspectCorrectionAndRoleSpecificDeformation() {
 		val portrait = ReaderPlayLikeCurlReferenceGeometry.createPage(
 			role = ReaderPlayLikeCurlPageRole.Front,

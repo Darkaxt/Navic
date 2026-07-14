@@ -22,21 +22,21 @@ Tests that compare only equations or source strings cannot satisfy this protocol
 
 ## Tranche 0: Quarantine The Failed Prototype
 
-- [ ] Inventory the current custom renderer, projection, diagnostics, and tests.
-- [ ] Mark custom two-texture rendering, z perspective, and leaf-coordinate rewriting as failed-prototype code.
-- [ ] Preserve asynchronous raster cache, bitmap quality, preparation UI, Foliate relocation, and settlement shielding as orthogonal infrastructure.
-- [ ] Validate and commit any already-dirty orthogonal preparation work separately.
-- [ ] Add source guards preventing failed-prototype classes from being accepted by the reference-demo path.
+- [x] Inventory the current custom renderer, projection, diagnostics, and tests.
+- [x] Mark custom two-texture rendering, z perspective, and leaf-coordinate rewriting as failed-prototype code.
+- [x] Preserve asynchronous raster cache, bitmap quality, preparation UI, Foliate relocation, and settlement shielding as orthogonal infrastructure.
+- [x] Validate and commit any already-dirty orthogonal preparation work separately.
+- [x] Add source guards preventing failed-prototype classes from being accepted by the reference-demo path.
 
 **Gate:** code audit and tests prove that the upcoming ReaderDev reference path does not instantiate the custom renderer or `ReaderPageCurlLeafProjection`.
 
 ## Tranche 1: Lock The Complete Reference Model
 
-- [ ] Add failing tests for three persistent page roles, exact stationary depths, draw order, aspect correction, endpoint values, active-role transitions, and texture-slot rotation.
-- [ ] Add failing tests for down/move/release/fling behavior, 300 ms settlement, interpolator selection, cancellation, and boundary duplication.
-- [ ] Implement a pure `ReaderPlayLikeCurlReferenceModel` directly from the audited Java source.
-- [ ] Keep names and formulas traceable to `Page`, `PageFront`, `PageLeft`, `PageRight`, `PageRenderer`, `PageSurfaceView`, and `AnimateCounter`.
-- [ ] Remove or isolate tests that mistake custom leaf projection for reference fidelity.
+- [x] Add failing tests for three persistent page roles, exact stationary depths, draw order, aspect correction, endpoint values, active-role transitions, and texture-slot rotation.
+- [x] Add failing tests for down/move/release/fling behavior, 300 ms settlement, interpolator selection, cancellation, and boundary duplication.
+- [x] Implement a pure `ReaderPlayLikeCurlReferenceModel` directly from the audited Java source.
+- [x] Keep names and formulas traceable to `Page`, `PageFront`, `PageLeft`, `PageRight`, `PageRenderer`, `PageSurfaceView`, and `AnimateCounter`.
+- [x] Remove or isolate tests that mistake custom leaf projection for reference fidelity.
 
 **Gate:** fresh red-green test evidence plus a line-by-line model mapping to the reference source. No visual claim yet.
 

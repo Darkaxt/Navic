@@ -163,6 +163,10 @@ internal class ReaderPlayLikeCurlReferenceModel(
 		activePageState().curlPosition = Grid * valuePercent / 100f
 	}
 
+	fun cancelGesture() {
+		resetPages()
+	}
+
 	fun completeSettlement(settlement: ReaderPlayLikeCurlSettlement) {
 		resetPages()
 		currentPosition = when (settlement.pageChange) {
