@@ -333,7 +333,7 @@ git commit -m "feat(reader): add persistent PlayLikeCurl GLES2 renderer"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-14-reader-playlikecurl-opengl.md`
 
-- [ ] **Step 1: Build the ReaderDev APK once**
+- [x] **Step 1: Build the ReaderDev APK once**
 
 Run:
 
@@ -343,18 +343,18 @@ Run:
 
 Expected: `BUILD SUCCESSFUL`.
 
-- [ ] **Step 2: Install the exact build and record its hash**
+- [x] **Step 2: Install the exact build and record its hash**
 
 Run:
 
 ```powershell
-Get-FileHash androidApp\build\outputs\apk\readerDev\androidApp-readerDev.apk -Algorithm SHA256
-.\scripts\install-reader-dev.ps1 -Package darkaxt.navic.readerdev -SkipBuild
+Get-FileHash androidApp\build\outputs\apk\readerDev\Navic.apk -Algorithm SHA256
+.\scripts\install-reader-dev.ps1 -Package darkaxt.navic.readerdev -NoBuild
 ```
 
 Record the SHA256 in this task's evidence section before checking the emulator.
 
-- [ ] **Step 3: Capture the geometry harness matrix**
+- [x] **Step 3: Capture the geometry harness matrix**
 
 Open the exact Alcatraz ReaderDev publication through the existing reader intent seed and capture portrait and tablet-like landscape frames for:
 
@@ -365,11 +365,11 @@ Open the exact Alcatraz ReaderDev publication through the existing reader intent
 
 Expected: the shape matches the PlayLikeCurl reference, one landscape leaf deforms, and backward is not a reversed forward animation.
 
-- [ ] **Step 4: Reject geometry changes that lack parity evidence**
+- [x] **Step 4: Reject geometry changes that lack parity evidence**
 
 If a frame differs from the reference formulas, correct Task 2 or Task 3 and rerun this gate. Do not add shadow, perspective, or smoothing to hide a mismatch.
 
-- [ ] **Step 5: Commit the gate evidence**
+- [x] **Step 5: Commit the gate evidence**
 
 Add a concise evidence entry to the plan with APK SHA256, emulator profile, screenshot paths, and result.
 
@@ -377,6 +377,17 @@ Add a concise evidence entry to the plan with APK SHA256, emulator profile, scre
 git add docs/superpowers/plans/2026-07-14-reader-playlikecurl-opengl.md
 git commit -m "test(reader): record PlayLikeCurl geometry gate"
 ```
+
+**Execution evidence (2026-07-14):**
+
+- Exact APK: `androidApp/build/outputs/apk/readerDev/Navic.apk`
+- SHA256: `5CC9250D4F006E9F2706C6D766ACCDBF5170C6886D2398C8D45C7A817E80C5E1`
+- Installed package: `darkaxt.navic.readerdev`, version `v1.0.11-iota21` (`548`)
+- Emulator: `NavicReaderLab`, `sdk_gphone64_x86_64`, 320 dpi override, portrait `1848x2960`, landscape `2960x1848`
+- Publication: Alcatraz book `3959`, resource `/opds/books/3959/resources/ebook-3dfaf0ebad2e666212ba`
+- Captures: `captures/reader-dev/playlikecurl-gate-a/portrait-forward-{25,50,75}.png`, `portrait-backward-{25,50,75}.png`, `landscape-forward-{25,50,75}.png`, and `landscape-backward-{25,50}.png`
+- Result: portrait forward/backward use distinct PlayLikeCurl geometry; landscape forward deforms only the right leaf and backward deforms only the left leaf; the stationary source/destination leaves remain fixed.
+- Integration blocker retained for Task 9: diagnostic labels expose mirrored texture orientation on the deforming face. Geometry parity passes, but production page textures must correct front/back UV orientation before release.
 
 ### Task 5: Add Configurable Page Bitmap Quality
 
