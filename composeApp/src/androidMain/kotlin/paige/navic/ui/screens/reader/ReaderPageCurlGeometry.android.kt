@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import kotlin.math.sin
+import paige.navic.reader.ReaderPageTurnPhysicalDirection
 
 internal class ReaderPageCurlMesh internal constructor(
 	val grid: Int,
@@ -173,5 +174,25 @@ internal object ReaderPageCurlGeometry {
 	private fun requireReferenceMesh(target: ReaderPageCurlMesh) {
 		require(target.grid == Grid) { "PlayLikeCurl geometry requires a $Grid x $Grid grid" }
 		require(target.radius == Radius) { "PlayLikeCurl geometry requires radius $Radius" }
+	}
+}
+
+/** Keeps a spread curl on its own leaf after it reaches the center binding. */
+internal object ReaderPageCurlLeafProjection {
+	fun apply(mesh: ReaderPageCurlMesh, direction: ReaderPageTurnPhysicalDirection) {
+		for (index in mesh.positions.indices step 3) {
+			mesh.positions[index] = projectX(mesh.positions[index], direction)
+		}
+	}
+
+	fun projectX(
+		positionX: Float,
+		direction: ReaderPageTurnPhysicalDirection
+	): Float = when (direction) {
+		ReaderPageTurnPhysicalDirection.TowardLeft ->
+			if (positionX < 0f) -positionX else positionX
+
+		ReaderPageTurnPhysicalDirection.TowardRight ->
+			if (positionX > 1f) 2f - positionX else positionX
 	}
 }

@@ -10,6 +10,10 @@ import java.nio.FloatBuffer
 import java.nio.ShortBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderPageTurnPixelRect
 
@@ -145,6 +149,9 @@ internal class ReaderPageCurlGlRenderer : GLSurfaceView.Renderer {
 			ReaderPageCurlGeometry.backward(progress, activeMesh)
 			DestinationTexture
 		}
+		if (textureSet.kind == ReaderPageTurnTransitionKind.LandscapeSpreadSlide) {
+			ReaderPageCurlLeafProjection.apply(activeMesh, textureSet.direction)
+		}
 		meshPositionBuffer.clear()
 		meshPositionBuffer.put(activeMesh.positions).position(0)
 		updateMeshTextureCoordinates(textureSet.activeLeafRect, textureSet.bitmapWidth, textureSet.bitmapHeight)
@@ -159,7 +166,8 @@ internal class ReaderPageCurlGlRenderer : GLSurfaceView.Renderer {
 			displayTop = textureSet.surfaceTop + activeLeaf.top * textureSet.scaleY,
 			displayWidth = activeLeaf.width * textureSet.scaleX,
 			displayHeight = activeLeaf.height * textureSet.scaleY,
-			depthEnabled = true
+			depthEnabled = true,
+			clipToDisplayRect = textureSet.kind == ReaderPageTurnTransitionKind.LandscapeSpreadSlide
 		)
 	}
 
@@ -228,9 +236,16 @@ internal class ReaderPageCurlGlRenderer : GLSurfaceView.Renderer {
 		displayTop: Float,
 		displayWidth: Float,
 		displayHeight: Float,
-		depthEnabled: Boolean
+		depthEnabled: Boolean,
+		clipToDisplayRect: Boolean = false
 	) {
 		if (displayWidth <= 0f || displayHeight <= 0f) return
+		val scissorEnabled = if (clipToDisplayRect) {
+			enableScissor(displayLeft, displayTop, displayWidth, displayHeight)
+		} else {
+			false
+		}
+		if (clipToDisplayRect && !scissorEnabled) return
 		GLES20.glUseProgram(program)
 		GLES20.glUniform2f(viewportUniform, viewportWidth.toFloat(), viewportHeight.toFloat())
 		GLES20.glUniform4f(rectUniform, displayLeft, displayTop, displayWidth, displayHeight)
@@ -246,7 +261,29 @@ internal class ReaderPageCurlGlRenderer : GLSurfaceView.Renderer {
 		GLES20.glEnableVertexAttribArray(textureAttribute)
 		GLES20.glVertexAttribPointer(textureAttribute, 2, GLES20.GL_FLOAT, false, 0, textureBuffer)
 		indexBuffer.position(0)
-		GLES20.glDrawElements(GLES20.GL_TRIANGLES, indexCount, GLES20.GL_UNSIGNED_SHORT, indexBuffer)
+		try {
+			GLES20.glDrawElements(GLES20.GL_TRIANGLES, indexCount, GLES20.GL_UNSIGNED_SHORT, indexBuffer)
+		} finally {
+			if (scissorEnabled) GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
+		}
+	}
+
+	private fun enableScissor(left: Float, top: Float, width: Float, height: Float): Boolean {
+		val clippedLeft = max(0, floor(left).toInt())
+		val clippedTop = max(0, floor(top).toInt())
+		val clippedRight = min(viewportWidth, ceil(left + width).toInt())
+		val clippedBottom = min(viewportHeight, ceil(top + height).toInt())
+		val clippedWidth = clippedRight - clippedLeft
+		val clippedHeight = clippedBottom - clippedTop
+		if (clippedWidth <= 0 || clippedHeight <= 0) return false
+		GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
+		GLES20.glScissor(
+			clippedLeft,
+			viewportHeight - clippedBottom,
+			clippedWidth,
+			clippedHeight
+		)
+		return true
 	}
 
 	private fun uploadTextureSet(textureSet: ReaderPageCurlTextureSet) {

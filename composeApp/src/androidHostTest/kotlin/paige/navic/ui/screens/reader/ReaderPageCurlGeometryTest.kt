@@ -6,6 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderPageTurnPhysicalDirection
 
 class ReaderPageCurlGeometryTest {
 	@Test
@@ -80,6 +81,33 @@ class ReaderPageCurlGeometryTest {
 		val backward = ReaderPageCurlGeometry.backward(progress = 0.5f)
 
 		assertFalse(forward.positions.contentEquals(backward.positions))
+	}
+
+	@Test
+	fun landscapeFoldReflectsAtTheBindingWithoutCrossingTheSplitter() {
+		val towardLeft = ReaderPageCurlGeometry.forward(progress = 0.75f)
+		val rawTowardLeft = towardLeft.positions.copyOf()
+		val crossedBindingIndex = rawTowardLeft.indices.step(3).first { rawTowardLeft[it] < 0f }
+
+		ReaderPageCurlLeafProjection.apply(
+			mesh = towardLeft,
+			direction = ReaderPageTurnPhysicalDirection.TowardLeft
+		)
+
+		assertTrue(towardLeft.positions.indices.step(3).all { towardLeft.positions[it] in 0f..1f })
+		assertEquals(
+			-rawTowardLeft[crossedBindingIndex],
+			towardLeft.positions[crossedBindingIndex]
+		)
+
+		assertEquals(
+			0.82f,
+			ReaderPageCurlLeafProjection.projectX(
+				positionX = 1.18f,
+				direction = ReaderPageTurnPhysicalDirection.TowardRight
+			),
+			absoluteTolerance = Tolerance
+		)
 	}
 
 	@Test

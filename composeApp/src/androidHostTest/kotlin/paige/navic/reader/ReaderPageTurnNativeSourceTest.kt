@@ -289,6 +289,16 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun landscapeCurlIsHardClippedToItsActiveLeaf() {
+		val renderer = readerAndroidFile("ReaderPageCurlGlRenderer.android.kt").readText()
+
+		assertContains(renderer, "ReaderPageCurlLeafProjection.apply")
+		assertContains(renderer, "clipToDisplayRect = textureSet.kind == ReaderPageTurnTransitionKind.LandscapeSpreadSlide")
+		assertContains(renderer, "GLES20.glScissor")
+		assertContains(renderer, "GLES20.GL_SCISSOR_TEST")
+	}
+
+	@Test
 	fun committedTurnAnimatesContinuouslyThenShowsFinalBaseWhileFoliateSettles() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val renderer = readerAndroidFile("ReaderPageTurnSlideView.android.kt").readText()
