@@ -957,6 +957,8 @@
 	<string name="action_discard_failed_downloads">Discard failed downloads</string>
 	<string name="action_clear_download_queue">Clear download queue</string>
 	<string name="action_retry">Retry</string>
+	<string name="info_reader_preparing_pages">Preparing pages</string>
+	<string name="info_reader_page_preparation_failed">Page preparation failed</string>
 	<string name="action_sleep_timer">Sleep timer</string>
 	<string name="action_sleep_timer_enabled">Sleep timer - %1$s left </string>
 	<string name="action_disable_sleep_timer">Turn off timer</string>

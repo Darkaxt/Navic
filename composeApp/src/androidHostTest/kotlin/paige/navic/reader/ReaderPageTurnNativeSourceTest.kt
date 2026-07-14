@@ -583,7 +583,7 @@ class ReaderPageTurnNativeSourceTest {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val finishPrewarm = controller
-			.substringAfter("private fun finishPrewarm()")
+			.substringAfter("private fun finishPrewarm(success: Boolean)")
 			.substringBefore("private fun cancelPrewarm()")
 		val cancelPrewarm = controller
 			.substringAfter("private fun cancelPrewarm()")
@@ -843,5 +843,64 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(query, "plan.layoutMode != expectedLayoutMode(webView)")
 		assertContains(query, "webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }")
 		assertContains(begin, "!plan.matchesLayout(state.spread)")
+	}
+
+	@Test
+	fun passiveRasterPreparationPublishesInteractiveAndTotalProgress() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val calibration = controller
+			.substringAfter("private fun startRasterCalibration(")
+			.substringBefore("private fun startRasterFollowUp(")
+		val batch = controller
+			.substringAfter("private fun startRasterBatch(")
+			.substringBefore("private fun obtainRasterReference(")
+
+		assertContains(calibration, "rasterInteractiveRequired = calibrationTargets.size")
+		assertContains(calibration, "publishPreparationState(ReaderPagePreparationPhase.Preparing)")
+		assertContains(batch, "rasterInteractiveCompleted")
+		assertContains(batch, "activePreparationPageNumber")
+		assertContains(batch, "publishPreparationState(ReaderPagePreparationPhase.Preparing)")
+		assertContains(controller, "publishPreparationState(ReaderPagePreparationPhase.Ready)")
+		assertContains(controller, "ReaderPagePreparationPhase.Failed")
+	}
+
+	@Test
+	fun preparationCoverIsSeparateFromNavigationOwningShellCover() {
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val preparationVisibility = host
+			.substringAfter("fun setPagePreparationCoverVisible(visible: Boolean)")
+			.substringBefore("fun setViewerLayerPaint(")
+
+		assertContains(host, "pagePreparationCoverVisible")
+		assertContains(host, "updateNativeCoverVisibility()")
+		assertFalse(preparationVisibility.contains("setShellCoverVisible"))
+		assertFalse(preparationVisibility.contains("pageTurnController.invalidate"))
+	}
+
+	@Test
+	fun preparationConsumesGesturesBeforeTapOrSwipeDispatch() {
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val dispatch = host
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean")
+			.substringBefore("private fun handleSwipeTouchEvent(")
+
+		assertContains(host, "pagePreparationGesturesBlocked")
+		assertContains(dispatch, "if (pagePreparationGesturesBlocked)")
+		assertTrue(
+			dispatch.indexOf("if (pagePreparationGesturesBlocked)") < dispatch.indexOf("handleSwipeTouchEvent(event)"),
+			"Preparation must consume input before native tap or swipe dispatch."
+		)
+	}
+
+	@Test
+	fun readerRootOwnsAndRendersPagePreparationState() {
+		val platform = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
+		val root = readerCommonUiFile("ReaderRoot.kt").readText()
+
+		assertContains(platform, "onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit")
+		assertContains(root, "remember { mutableStateOf(ReaderPagePreparationState()) }")
+		assertContains(root, "ReaderPagePreparationOverlay(")
+		assertContains(root, "pagePreparationCoverVisible =")
+		assertContains(root, "pagePreparationGesturesBlocked =")
 	}
 }

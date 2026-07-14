@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.viewinterop.AndroidView
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
+import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderWebRuntime
@@ -65,6 +66,10 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnSnapshotKey: Int,
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
+	pagePreparationCoverVisible: Boolean,
+	pagePreparationGesturesBlocked: Boolean,
+	pagePreparationRetryKey: Int,
+	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onReadableDragPreview: (deltaX: Float, deltaY: Float, viewWidth: Int, viewHeight: Int, phase: ReaderPageDragPreviewPhase) -> Unit,
 	onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit,
@@ -77,11 +82,13 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnViewerAction by rememberUpdatedState(onViewerAction)
 	val currentOnReadableDragPreview by rememberUpdatedState(onReadableDragPreview)
 	val currentOnContentLongPress by rememberUpdatedState(onContentLongPress)
+	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
 
 	AndroidView(
 		modifier = modifier,
 		factory = { context ->
 			KomikkuReaderNativeFrameRoot(context).apply {
+				setOnPagePreparationStateChange { state -> currentOnPagePreparationStateChange(state) }
 				setViewerContent(viewerKey) { currentViewerContent() }
 				setComposeOverlay { currentComposeOverlay() }
 				setChromeOverlayVisible(chromeOverlayVisible)
@@ -92,6 +99,9 @@ actual fun KomikkuReaderNativeFrameHost(
 				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				setPageTurnSnapshotKey(pageTurnSnapshotKey)
 				setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
+				setPagePreparationCoverVisible(pagePreparationCoverVisible)
+				setPagePreparationGesturesBlocked(pagePreparationGesturesBlocked)
+				setPagePreparationRetryKey(pagePreparationRetryKey)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
 				setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
 					currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
@@ -100,6 +110,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			}
 		},
 		update = { root ->
+			root.setOnPagePreparationStateChange { state -> currentOnPagePreparationStateChange(state) }
 			root.setNavigation(navigator)
 			root.setNavigationOverlayVisible(navigationOverlayVisible)
 			root.setChromeOverlayVisible(chromeOverlayVisible)
@@ -110,6 +121,9 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
+			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
+			root.setPagePreparationGesturesBlocked(pagePreparationGesturesBlocked)
+			root.setPagePreparationRetryKey(pagePreparationRetryKey)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
 			root.setComposeOverlay { currentComposeOverlay() }
 			root.setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -129,6 +143,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private val composeOverlay = ComposeView(context)
 	private var currentViewerKey: ReaderViewerKey? = null
 	private var currentViewerComposeView: ComposeView? = null
+	private var shellCoverVisible: Boolean = false
+	private var pagePreparationCoverVisible: Boolean = false
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -180,8 +196,31 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setShellCover(visible: Boolean, coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
 		shellCoverView.setShellCover(coverUrl = coverUrl, title = title, coverBackdropEnabled = coverBackdropEnabled)
-		shellCoverView.visibility = if (visible) VISIBLE else GONE
+		shellCoverVisible = visible
 		viewerContainer.setShellCoverVisible(visible)
+		updateNativeCoverVisibility()
+	}
+
+	fun setPagePreparationCoverVisible(visible: Boolean) {
+		if (pagePreparationCoverVisible == visible) return
+		pagePreparationCoverVisible = visible
+		updateNativeCoverVisibility()
+	}
+
+	private fun updateNativeCoverVisibility() {
+		shellCoverView.visibility = if (shellCoverVisible || pagePreparationCoverVisible) VISIBLE else GONE
+	}
+
+	fun setPagePreparationGesturesBlocked(blocked: Boolean) {
+		viewerContainer.setPagePreparationGesturesBlocked(blocked)
+	}
+
+	fun setPagePreparationRetryKey(retryKey: Int) {
+		viewerContainer.setPagePreparationRetryKey(retryKey)
+	}
+
+	fun setOnPagePreparationStateChange(onChange: (ReaderPagePreparationState) -> Unit) {
+		viewerContainer.onPagePreparationStateChange = onChange
 	}
 
 	fun setViewerLayerPaint(grayscaleEnabled: Boolean, invertedColors: Boolean) {
@@ -458,6 +497,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		phase: ReaderPageDragPreviewPhase
 	) -> Unit = { _, _, _, _, _ -> }
 	var onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit = { _, _, _, _ -> }
+	var onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit = {}
 	private var shellCoverView: View? = null
 	private var swipeStartX: Float = 0f
 	private var swipeStartY: Float = 0f
@@ -473,6 +513,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnVisualPageIndex: Int? = null
 	private var pageTurnVisualLocationReason: String? = null
 	private var shellCoverVisible: Boolean = false
+	private var pagePreparationGesturesBlocked: Boolean = false
+	private var pagePreparationRetryKey: Int = Int.MIN_VALUE
 	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
 	private var pageTurnPrewarmLayoutSignature: Long? = null
 	private var pageTurnPrewarmStableFrameCount: Int = 0
@@ -480,6 +522,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		onPreparationStateChange = { state -> onPagePreparationStateChange(state) },
 		onCommitTurn = { direction ->
 			when (direction) {
 				ReaderPageTurnPhysicalDirection.TowardLeft -> onAction(KomikkuNavigationRegion.RIGHT)
@@ -558,6 +601,24 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		requestPageTurnPrewarmWhenReady()
 	}
 
+	fun setPagePreparationGesturesBlocked(blocked: Boolean) {
+		if (pagePreparationGesturesBlocked == blocked) return
+		pagePreparationGesturesBlocked = blocked
+		if (blocked) {
+			pageTurnController.cancel()
+			cancelReadableViewerDragPreview()
+			clearNativeTapState()
+			clearSwipeTouchState()
+		}
+	}
+
+	fun setPagePreparationRetryKey(retryKey: Int) {
+		if (pagePreparationRetryKey == retryKey) return
+		val shouldRetry = pagePreparationRetryKey != Int.MIN_VALUE && retryKey > pagePreparationRetryKey
+		pagePreparationRetryKey = retryKey
+		if (shouldRetry) pageTurnController.retryPreparation()
+	}
+
 	private fun requestPageTurnPrewarmWhenReady() {
 		if (!pageTurnCanvasEnabled || !isAttachedToWindow) return
 		pageTurnPrewarmLayoutSignature = null
@@ -632,7 +693,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					x = (event.x / width.toFloat()).coerceIn(0f, 1f),
 					y = (event.y / height.toFloat()).coerceIn(0f, 1f)
 				)
-				val action = if (shellCoverView?.visibility == VISIBLE) {
+				val action = if (shellCoverVisible) {
 					shellCoverNavigator.getAction(point)
 				} else {
 					navigator.getAction(point)
@@ -669,7 +730,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			onAction(action)
 			return
 		}
-		if (shellCoverView?.visibility == VISIBLE) {
+		if (shellCoverVisible) {
 			onAction(action)
 			return
 		}
@@ -685,7 +746,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				nativeSwipeIntercepted = false
 				swipeStartX = event.x
 				swipeStartY = event.y
-				if (shellCoverView?.visibility != VISIBLE) return true
+				if (!shellCoverVisible) return true
 				return false
 			}
 			MotionEvent.ACTION_MOVE -> {
@@ -693,7 +754,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					nativeTapCandidate = false
 				}
 				if (
-					shellCoverView?.visibility == VISIBLE &&
+					shellCoverVisible &&
 					!horizontalSwipeDispatched &&
 					nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)
 				) {
@@ -701,7 +762,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					return true
 				}
 				if (
-					shellCoverView?.visibility != VISIBLE &&
+					!shellCoverVisible &&
 					!horizontalSwipeDispatched &&
 					nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)
 				) {
@@ -726,6 +787,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun onTouchEvent(event: MotionEvent): Boolean = true
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+		if (pagePreparationGesturesBlocked) {
+			if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+				clearNativeTapState()
+				clearSwipeTouchState()
+			}
+			return true
+		}
 		val handled = super.dispatchTouchEvent(event)
 		handleSwipeTouchEvent(event)
 		if (!horizontalSwipeDispatched && !nativeSwipeIntercepted && !nativeTapCancelledByDrag) {
@@ -756,7 +824,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					logReaderDragCandidate(dx, dy)
 					if (nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
 						nativeTapCancelledByDrag = true
-						val shellCoverVisible = shellCoverView?.visibility == VISIBLE
 						if (shellCoverVisible) {
 							updateShellCoverDragOffset(dx)
 						} else if (usesNativePageTurnCanvas()) {
@@ -776,7 +843,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					cancelPendingLongTapForDrag(dx, dy, event)
 					logReaderDragCandidate(dx, dy)
 					if (nativeTapCancelledByDrag || nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)) {
-						val shellCoverVisible = shellCoverView?.visibility == VISIBLE
 						if (shellCoverVisible) {
 							updateShellCoverDragOffset(dx)
 							dispatchHorizontalSwipeViewerAction(
@@ -815,7 +881,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			}
 			MotionEvent.ACTION_CANCEL,
 			MotionEvent.ACTION_POINTER_DOWN -> {
-				if (shellCoverView?.visibility != VISIBLE) {
+				if (!shellCoverVisible) {
 					if (usesNativePageTurnCanvas()) {
 						pageTurnController.cancel()
 					} else {
@@ -828,7 +894,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {
-		val shellCoverVisible = shellCoverView?.visibility == VISIBLE
 		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible)
 		val action = if (shellCoverVisible) {
 			readerShellCoverSwipeAction(deltaX, deltaY, thresholdPx)
@@ -888,20 +953,20 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	private fun usesNativePageTurnCanvas(): Boolean =
 		pageTurnCanvasEnabled &&
+			!pagePreparationGesturesBlocked &&
 			!verticalPageDragPreview &&
-			shellCoverView?.visibility != VISIBLE &&
+			!shellCoverVisible &&
 			pageTurnController.isAvailable
 
 	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
-		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible = shellCoverView?.visibility == VISIBLE)
-		val magnitude = if (shellCoverView?.visibility == VISIBLE || !verticalPageDragPreview) {
+		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible = shellCoverVisible)
+		val magnitude = if (shellCoverVisible || !verticalPageDragPreview) {
 			abs(deltaX)
 		} else {
 			abs(deltaY)
 		}
 		if (shellCoverDragDiagnosticLogged || magnitude <= thresholdPx) return
 		shellCoverDragDiagnosticLogged = true
-		val shellCoverVisible = shellCoverView?.visibility == VISIBLE
 		val label = if (shellCoverVisible) {
 			"Reader shell cover drag candidate"
 		} else {
@@ -934,7 +999,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		abs(x - swipeStartX) > touchSlopPx || abs(y - swipeStartY) > touchSlopPx
 
 	private fun nativeHorizontalSwipeMovedBeyondSlop(x: Float, y: Float): Boolean =
-		if (shellCoverView?.visibility == VISIBLE) {
+		if (shellCoverVisible) {
 			readerShellCoverSwipeAction(
 				deltaX = x - swipeStartX,
 				deltaY = y - swipeStartY,

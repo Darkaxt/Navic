@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -21,6 +24,9 @@ import paige.navic.reader.ReaderDragAnimationCanvas
 import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderListeningSettings
+import paige.navic.reader.ReaderPagePreparationGestureDisposition
+import paige.navic.reader.ReaderPagePreparationPresentation
+import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -91,6 +97,8 @@ internal fun KomikkuReaderRoot(
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
 	val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }
+	var pagePreparationState by remember { mutableStateOf(ReaderPagePreparationState()) }
+	var pagePreparationRetryKey by remember { mutableStateOf(0) }
 	val shellCoverUrl = viewer.shellCoverUrl
 	val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)
 	val mediaOverlayAvailable = controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)
@@ -138,6 +146,11 @@ internal fun KomikkuReaderRoot(
 			pageTurnSnapshotKey = controllerState.chrome.settings.hashCode(),
 			pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex,
 			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
+			pagePreparationCoverVisible = pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
+			pagePreparationGesturesBlocked = pagePreparationState.gestureDisposition ==
+				ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing,
+			pagePreparationRetryKey = pagePreparationRetryKey,
+			onPagePreparationStateChange = { state -> pagePreparationState = state },
 			onViewerAction = { action ->
 				onViewerAction(
 					if (controllerState.shellCoverVisible) {
@@ -228,6 +241,11 @@ internal fun KomikkuReaderRoot(
 						modifier = Modifier.matchParentSize()
 					)
 				}
+				ReaderPagePreparationOverlay(
+					state = pagePreparationState,
+					onRetry = { pagePreparationRetryKey += 1 },
+					modifier = Modifier.matchParentSize()
+				)
 			}
 		)
 	}

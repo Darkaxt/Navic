@@ -18,10 +18,13 @@ import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
+import paige.navic.reader.ReaderPagePreparationPhase
+import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageSlideCoordinator
 import paige.navic.reader.ReaderPageSlideCoordinatorEffect
 import paige.navic.reader.ReaderPageTurnStateMachine
 import paige.navic.reader.ReaderWebRuntime
+import paige.navic.reader.readerPagePreparationState
 import paige.navic.util.core.Logger
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -42,6 +45,7 @@ internal class ReaderPageTurnController(
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
 	private val onRequestPrewarm: () -> Unit = {},
+	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
 	private val onCommitTurn: (ReaderPageTurnPhysicalDirection) -> Unit
 ) {
 	private val state = ReaderPageTurnStateMachine()
@@ -66,6 +70,10 @@ internal class ReaderPageTurnController(
 	private val rasterBatchController = ReaderPageRasterBatchController(bundleSource)
 	private var rasterPreparationCompleted = 0
 	private var rasterPreparationRequired = 0
+	private var rasterInteractiveCompleted = 0
+	private var rasterInteractiveRequired = 0
+	private var activePreparationPageNumber: Int? = null
+	private var hasPreparedBefore = false
 	private var slideCoordinator: ReaderPageSlideCoordinator? = null
 	private var visualCommitPending = false
 	private var preparationShield: ImageView? = null
@@ -93,6 +101,26 @@ internal class ReaderPageTurnController(
 	val isAvailable: Boolean
 		get() = enabledForSession && bundleSource.isAvailable
 
+	private fun publishPreparationState(
+		phase: ReaderPagePreparationPhase,
+		error: String? = null,
+		retryable: Boolean = false
+	) {
+		onPreparationStateChange(
+			readerPagePreparationState(
+				phase = phase,
+				requiredCount = rasterPreparationRequired,
+				completedCount = rasterPreparationCompleted,
+				interactiveRequiredCount = rasterInteractiveRequired,
+				interactiveCompletedCount = rasterInteractiveCompleted,
+				hasPreparedBefore = hasPreparedBefore,
+				activePageNumber = activePreparationPageNumber,
+				error = error,
+				retryable = retryable
+			)
+		)
+	}
+
 	fun updateBitmapQuality(value: String?) {
 		if (!bundleSource.updateBitmapQuality(normalizeReaderPageBitmapQuality(value))) return
 		cancelPrewarm()
@@ -103,6 +131,12 @@ internal class ReaderPageTurnController(
 		animation = null
 		detachOverlay(schedulePrewarm = false)
 		slideCoordinator = null
+		onRequestPrewarm()
+	}
+
+	fun retryPreparation() {
+		if (destroyed || prewarmInProgress) return
+		onRequestPrewarm()
 	}
 
 	fun update(deltaX: Float, viewWidth: Int, edgeOriginY: Float, pointerY: Float, viewHeight: Int) {
@@ -297,6 +331,12 @@ internal class ReaderPageTurnController(
 		)) return false
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
 		prewarmInProgress = true
+		rasterPreparationCompleted = 0
+		rasterPreparationRequired = 0
+		rasterInteractiveCompleted = 0
+		rasterInteractiveRequired = 0
+		activePreparationPageNumber = slideCoordinator?.visualPageIndex?.plus(1)
+		publishPreparationState(ReaderPagePreparationPhase.Preparing)
 		val session = ++prewarmSession
 		queryRasterPreparationPlan(webView, session)
 		return true
@@ -335,7 +375,7 @@ internal class ReaderPageTurnController(
 					return@obtainRasterReference
 				}
 				if (reference == null || calibrationTargets.isEmpty()) {
-					finishPrewarm()
+					finishPrewarm(success = false)
 					return@obtainRasterReference
 				}
 				startRasterCalibration(webView, session, plan, kind, reference, calibrationTargets)
@@ -356,6 +396,10 @@ internal class ReaderPageTurnController(
 	) {
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = calibrationTargets.size
+		rasterInteractiveCompleted = 0
+		rasterInteractiveRequired = calibrationTargets.size
+		activePreparationPageNumber = calibrationTargets.firstOrNull()?.pageIndex?.plus(1)
+		publishPreparationState(ReaderPagePreparationPhase.Preparing)
 		startRasterBatch(
 			webView = webView,
 			session = session,
@@ -367,9 +411,12 @@ internal class ReaderPageTurnController(
 		) { calibrated ->
 			if (!isPrewarmActive(webView, session)) return@startRasterBatch
 			if (!calibrated) {
-				finishPrewarm()
+				finishPrewarm(success = false)
 				return@startRasterBatch
 			}
+			rasterInteractiveCompleted = rasterInteractiveRequired
+			hasPreparedBefore = rasterInteractiveRequired > 0
+			publishPreparationState(ReaderPagePreparationPhase.Preparing)
 			bundleSource.preparationMode(webView, plan.currentChapterPageCount) { mode ->
 				if (!isPrewarmActive(webView, session)) return@preparationMode
 				startRasterFollowUp(webView, session, plan, kind, calibrationTargets, mode)
@@ -393,16 +440,17 @@ internal class ReaderPageTurnController(
 			mode = mode
 		).filterNot { target -> target.pageIndex in calibratedPages }
 		if (followUpTargets.isEmpty()) {
-			finishPrewarm()
+			finishPrewarm(success = true)
 			return
 		}
 		val reference = bundleSource.retainedSnapshot(plan.centerPageIndex, kind) ?: run {
-			finishPrewarm()
+			finishPrewarm(success = false)
 			return
 		}
 		val completedOffset = calibrationTargets.size
 		val totalRequired = completedOffset + followUpTargets.size
 		rasterPreparationRequired = totalRequired
+		publishPreparationState(ReaderPagePreparationPhase.Preparing)
 		startRasterBatch(
 			webView = webView,
 			session = session,
@@ -411,7 +459,7 @@ internal class ReaderPageTurnController(
 			targets = followUpTargets,
 			completedOffset = completedOffset,
 			totalRequired = totalRequired
-		) { finishPrewarm() }
+		) { success -> finishPrewarm(success) }
 	}
 
 	private fun startRasterBatch(
@@ -431,10 +479,24 @@ internal class ReaderPageTurnController(
 			reference = reference,
 			targets = targets,
 			onStagingStarted = ::attachPreparationShield,
+			onActiveTarget = { target ->
+				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
+					activePreparationPageNumber = target.pageIndex + 1
+					publishPreparationState(ReaderPagePreparationPhase.Preparing)
+				}
+			},
 			onProgress = { completedCount, _ ->
 				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
 					rasterPreparationCompleted = completedOffset + completedCount
 					rasterPreparationRequired = totalRequired
+					rasterInteractiveCompleted = minOf(
+						rasterPreparationCompleted,
+						rasterInteractiveRequired
+					)
+					if (rasterInteractiveCompleted >= rasterInteractiveRequired && rasterInteractiveRequired > 0) {
+						hasPreparedBefore = true
+					}
+					publishPreparationState(ReaderPagePreparationPhase.Preparing)
 				}
 			},
 			onComplete = { success ->
@@ -474,10 +536,25 @@ internal class ReaderPageTurnController(
 			!destroyed &&
 			webView.isAttachedToWindow
 
-	private fun finishPrewarm() {
+	private fun finishPrewarm(success: Boolean) {
 		prewarmInProgress = false
+		if (success) {
+			rasterPreparationCompleted = rasterPreparationRequired
+			rasterInteractiveCompleted = rasterInteractiveRequired
+			hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore
+			publishPreparationState(ReaderPagePreparationPhase.Ready)
+		} else {
+			publishPreparationState(
+				phase = ReaderPagePreparationPhase.Failed,
+				error = "Page preparation failed",
+				retryable = true
+			)
+		}
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = 0
+		rasterInteractiveCompleted = 0
+		rasterInteractiveRequired = 0
+		activePreparationPageNumber = null
 		removePreparationShield()
 	}
 
@@ -487,8 +564,14 @@ internal class ReaderPageTurnController(
 		prewarmInProgress = false
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = 0
+		rasterInteractiveCompleted = 0
+		rasterInteractiveRequired = 0
+		activePreparationPageNumber = null
 		if (wasInProgress) rasterBatchController.cancel()
 		removePreparationShield()
+		publishPreparationState(
+			if (hasPreparedBefore) ReaderPagePreparationPhase.Ready else ReaderPagePreparationPhase.Idle
+		)
 	}
 
 	private fun destroyPageTurnPreviewRenderer(reason: String) {

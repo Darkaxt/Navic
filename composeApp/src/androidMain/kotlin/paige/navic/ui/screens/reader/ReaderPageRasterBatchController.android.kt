@@ -117,6 +117,7 @@ internal class ReaderPageRasterBatchController(
 		val reference: ReaderPageSlideSnapshot,
 		val targets: List<ReaderPageRasterBatchTarget>,
 		val onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
+		val onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
 		val onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		val onComplete: (Boolean) -> Unit,
 		val missingTargets: MutableList<ReaderPageRasterBatchTarget> = mutableListOf(),
@@ -134,6 +135,7 @@ internal class ReaderPageRasterBatchController(
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
+		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit = {},
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit = { _, _ -> },
 		onComplete: (Boolean) -> Unit
 	): Boolean {
@@ -158,6 +160,7 @@ internal class ReaderPageRasterBatchController(
 			reference = reference,
 			targets = distinctTargets.values.toList(),
 			onStagingStarted = onStagingStarted,
+			onActiveTarget = onActiveTarget,
 			onProgress = onProgress,
 			onComplete = onComplete
 		)
@@ -188,6 +191,7 @@ internal class ReaderPageRasterBatchController(
 			return
 		}
 		val target = session.targets[targetIndex]
+		session.onActiveTarget(target)
 		bundleSource.hydrateSnapshot(
 			webView = session.webView,
 			pageIndex = target.pageIndex,
@@ -252,6 +256,7 @@ internal class ReaderPageRasterBatchController(
 			finish(session, false)
 			return
 		}
+		session.onActiveTarget(target)
 		bundleSource.capturePreparedRasterPage(
 			webView = session.webView,
 			pageIndex = pageIndex,
