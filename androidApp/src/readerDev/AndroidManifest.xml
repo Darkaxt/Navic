@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<application>
+		<activity
+			android:name=".PlayLikeCurlReferenceActivity"
+			android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+			android:exported="true"
+			android:theme="@style/Theme.Navic" />
+	</application>
+</manifest>
