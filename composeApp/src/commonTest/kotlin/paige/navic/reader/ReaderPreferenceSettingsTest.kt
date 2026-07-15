@@ -368,8 +368,8 @@ class ReaderPreferenceSettingsTest {
 
 		preferences.readerDragAnimationMode = "curl"
 
-		assertEquals(ReaderDragAnimationCanvas, preferences.readerDefaultSettings().dragAnimationMode)
-		assertEquals(ReaderDragAnimationCanvas, preferences.readerDragAnimationMode)
+		assertEquals(ReaderDragAnimationNone, preferences.readerDefaultSettings().dragAnimationMode)
+		assertEquals(ReaderDragAnimationNone, preferences.readerDragAnimationMode)
 
 		preferences.setReaderDefaultSettings(
 			ReaderSettings(dragAnimationMode = ReaderDragAnimationNone)
@@ -414,9 +414,9 @@ class ReaderPreferenceSettingsTest {
 			"""{"book-none":{"dragAnimationMode":"standard"},"book-canvas":{"dragAnimationMode":"curl"}}"""
 
 		assertEquals(ReaderDragAnimationNone, preferences.readerBookSettings("book-none")?.dragAnimationMode)
-		assertEquals(ReaderDragAnimationCanvas, preferences.readerBookSettings("book-canvas")?.dragAnimationMode)
+		assertEquals(ReaderDragAnimationNone, preferences.readerBookSettings("book-canvas")?.dragAnimationMode)
 		assertEquals(
-			"""{"version":1,"books":{"book-canvas":{"dragAnimationMode":"canvas"},"book-none":{"dragAnimationMode":"none"}}}""",
+			"""{"version":1,"books":{"book-canvas":{"dragAnimationMode":"none"},"book-none":{"dragAnimationMode":"none"}}}""",
 			preferences.readerBookSettingsJson
 		)
 	}

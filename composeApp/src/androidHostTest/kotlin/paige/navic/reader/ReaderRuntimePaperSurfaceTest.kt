@@ -685,15 +685,21 @@ class ReaderRuntimePaperSurfaceTest {
 		val appearanceText = root.resolve("navic-reader-appearance.js").readText()
 		val settingsText = File("src/commonMain/kotlin/paige/navic/reader/ReaderBridgeProtocol.kt").readText()
 		val chromeText = File("src/commonMain/kotlin/paige/navic/reader/ReaderChromeState.kt").readText()
-		val settingsDialogText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsDialog.kt").readText()
+		val settingsModePagesText = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderSettingsModePages.kt").readText()
 
 		assertContains(settingsText, "val dragAnimationMode: String? = null")
 		assertContains(chromeText, "const val ReaderDragAnimationNone = \"none\"")
 		assertContains(chromeText, "const val ReaderDragAnimationCanvas = \"canvas\"")
 		assertContains(chromeText, "normalizedReaderDragAnimationMode")
 		assertContains(chromeText, "dragAnimationMode = ReaderDragAnimationNone")
-		assertContains(settingsDialogText, "title = \"Page turn\"")
-		assertContains(settingsDialogText, "ReaderSupportedDragAnimationModes")
+		assertFalse(
+			settingsModePagesText.contains("title = \"Page turn\""),
+			"Production reader settings must not expose Canvas page-turn controls before PlayLikeCurl is verified."
+		)
+		assertFalse(
+			settingsModePagesText.contains("ReaderSupportedDragAnimationModes"),
+			"Production reader settings must not expose Canvas page-turn controls before PlayLikeCurl is verified."
+		)
 		assertContains(bridgeText, "\"dragAnimationMode\"")
 		assertContains(appearanceText, "this.readerDragAnimationModeValue")
 		assertContains(pageTurnsText, "readerDragAnimationModeAllowsCurl")
@@ -702,7 +708,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(
 			pageTurnsText,
 			"if (curlEnabled)",
-			message = "The retired DOM curl implementation must remain gated while the native Canvas renderer owns public Canvas mode."
+			message = "The retired DOM curl implementation must remain gated while production page turns are tap-only."
 		)
 		assertContains(
 			pageTurnsText,

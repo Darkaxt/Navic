@@ -22,12 +22,6 @@ import navic.composeapp.generated.resources.option_ebook_reader_font_source_syst
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_bottom
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_left
 import navic.composeapp.generated.resources.option_ebook_reader_nav_bar_type_right
-import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation_canvas
-import navic.composeapp.generated.resources.option_ebook_reader_page_turn_animation_none
-import navic.composeapp.generated.resources.option_ebook_reader_page_bitmap_quality_100
-import navic.composeapp.generated.resources.option_ebook_reader_page_bitmap_quality_25
-import navic.composeapp.generated.resources.option_ebook_reader_page_bitmap_quality_50
-import navic.composeapp.generated.resources.option_ebook_reader_page_bitmap_quality_75
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_default
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_free
 import navic.composeapp.generated.resources.option_ebook_reader_orientation_landscape
@@ -67,16 +61,12 @@ import paige.navic.reader.ReaderDarkTheme
 import paige.navic.reader.ReaderDirectionDefault
 import paige.navic.reader.ReaderDirectionLtr
 import paige.navic.reader.ReaderDirectionRtl
-import paige.navic.reader.ReaderDragAnimationCanvas
-import paige.navic.reader.ReaderDragAnimationNone
-import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderDuskTheme
 import paige.navic.reader.ReaderDyslexicFontFamily
 import paige.navic.reader.ReaderFlowPaged
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderFlowScrolled
 import paige.navic.reader.ReaderFlowScrolledGaps
-import paige.navic.reader.normalizedReaderDragAnimationMode
 import paige.navic.reader.ReaderFontSourceCustom
 import paige.navic.reader.ReaderFontSourceNavic
 import paige.navic.reader.ReaderFontSourcePublisher
@@ -179,35 +169,6 @@ internal enum class ReaderFlowOption(
 		fun forFlowMode(flowMode: String?, paged: Boolean?): ReaderFlowOption =
 			entries.firstOrNull { option -> option.flowMode == flowMode }
 				?: if (paged == false) Scroll else Paged
-	}
-}
-
-internal enum class ReaderDragAnimationOption(
-	val dragAnimationMode: String,
-	val title: StringResource
-) {
-	None(ReaderDragAnimationNone, Res.string.option_ebook_reader_page_turn_animation_none),
-	Canvas(ReaderDragAnimationCanvas, Res.string.option_ebook_reader_page_turn_animation_canvas);
-
-	companion object {
-		fun forDragAnimationMode(dragAnimationMode: String?): ReaderDragAnimationOption =
-			entries.firstOrNull { option -> option.dragAnimationMode == normalizedReaderDragAnimationMode(dragAnimationMode) }
-				?: None
-	}
-}
-
-internal enum class ReaderPageBitmapQualityOption(
-	val quality: ReaderPageBitmapQuality,
-	val title: StringResource
-) {
-	Low(ReaderPageBitmapQuality.Low, Res.string.option_ebook_reader_page_bitmap_quality_25),
-	Balanced(ReaderPageBitmapQuality.Balanced, Res.string.option_ebook_reader_page_bitmap_quality_50),
-	High(ReaderPageBitmapQuality.High, Res.string.option_ebook_reader_page_bitmap_quality_75),
-	Native(ReaderPageBitmapQuality.Native, Res.string.option_ebook_reader_page_bitmap_quality_100);
-
-	companion object {
-		fun forPersistedValue(value: String?): ReaderPageBitmapQualityOption =
-			entries.firstOrNull { option -> option.quality.persistedValue == value } ?: Balanced
 	}
 }
 

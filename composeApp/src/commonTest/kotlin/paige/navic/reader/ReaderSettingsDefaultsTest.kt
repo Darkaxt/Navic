@@ -157,7 +157,7 @@ class ReaderSettingsDefaultsTest {
 				coverBackdropEnabled = true,
 				navBarType = ReaderNavBarTypeBottom,
 				flowMode = ReaderFlowPaged,
-				dragAnimationMode = ReaderDragAnimationCanvas,
+				dragAnimationMode = ReaderDragAnimationNone,
 				pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
@@ -201,7 +201,7 @@ class ReaderSettingsDefaultsTest {
 				theme = ReaderSepiaTheme,
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
-				dragAnimationMode = ReaderDragAnimationCanvas,
+				dragAnimationMode = ReaderDragAnimationNone,
 				pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue,
 				paged = true,
 				tapZone = ReaderTapZoneKindle,
@@ -397,18 +397,18 @@ class ReaderSettingsDefaultsTest {
 	@Test
 	fun readerSettingsDefaultsMigrateLegacyDragAnimationModes() {
 		assertEquals(
-			listOf(ReaderDragAnimationNone, ReaderDragAnimationCanvas),
+			listOf(ReaderDragAnimationNone),
 			ReaderSupportedDragAnimationModes
 		)
 		assertEquals(ReaderDragAnimationNone, defaultReaderSettings().dragAnimationMode)
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("fold"))
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("standard"))
-		assertEquals(ReaderDragAnimationCanvas, normalizedReaderDragAnimationMode("curl"))
-		assertEquals(ReaderDragAnimationCanvas, normalizedReaderDragAnimationMode(ReaderDragAnimationCanvas))
+		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("curl"))
+		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode(ReaderDragAnimationCanvas))
 		assertEquals("None", readerDragAnimationModeShortLabel(ReaderDragAnimationNone))
-		assertEquals("Canvas", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
+		assertEquals("None", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
 		assertEquals(
-			ReaderDragAnimationCanvas,
+			ReaderDragAnimationNone,
 			normalizedReaderSettings(
 				fontFamily = ReaderSansFontFamily,
 				fontSizePercent = 100,

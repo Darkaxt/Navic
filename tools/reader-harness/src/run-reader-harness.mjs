@@ -129,9 +129,9 @@ if (mode === 'drag-animation-mode-migration') {
   const settings = await import(`${pathToFileURL(readerSettingsCore).href}?drag-animation-mode=${Date.now()}`)
   const cases = [
     { input: 'none', expected: 'none' },
-    { input: 'canvas', expected: 'canvas' },
+    { input: 'canvas', expected: 'none' },
     { input: 'standard', expected: 'none' },
-    { input: 'curl', expected: 'canvas' },
+    { input: 'curl', expected: 'none' },
     { input: 'unknown', expected: 'none' },
   ]
   for (const testCase of cases) {

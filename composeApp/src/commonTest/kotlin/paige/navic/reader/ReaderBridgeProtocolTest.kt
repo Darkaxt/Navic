@@ -87,7 +87,7 @@ class ReaderBridgeProtocolTest {
 				theme = ReaderDuskTheme,
 				direction = ReaderDirectionRtl,
 				navBarType = ReaderNavBarTypeBottom,
-				dragAnimationMode = ReaderDragAnimationCanvas,
+				dragAnimationMode = ReaderDragAnimationNone,
 				pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue,
 				paged = false,
 				tapZone = ReaderTapZoneKindle,

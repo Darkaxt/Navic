@@ -37,7 +37,6 @@ import paige.navic.reader.ReaderBookFontFamily
 import paige.navic.reader.ReaderDarkTheme
 import paige.navic.reader.ReaderDirectionLtr
 import paige.navic.reader.ReaderDirectionRtl
-import paige.navic.reader.ReaderDragAnimationCanvas
 import paige.navic.reader.ReaderDuskTheme
 import paige.navic.reader.ReaderDyslexicFontFamily
 import paige.navic.reader.ReaderFlowPagedVertical
@@ -56,7 +55,6 @@ import paige.navic.reader.ReaderOrientationLockedLandscape
 import paige.navic.reader.ReaderOrientationLockedPortrait
 import paige.navic.reader.ReaderOrientationPortrait
 import paige.navic.reader.ReaderOrientationReversePortrait
-import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPdfFitHeight
 import paige.navic.reader.ReaderPdfFitOriginal
 import paige.navic.reader.ReaderPdfFitPage
@@ -64,7 +62,6 @@ import paige.navic.reader.ReaderPublisherFontFamily
 import paige.navic.reader.ReaderSepiaTheme
 import paige.navic.reader.ReaderSerifFontFamily
 import paige.navic.reader.ReaderSupportedDirections
-import paige.navic.reader.ReaderSupportedDragAnimationModes
 import paige.navic.reader.ReaderSupportedNavBarTypes
 import paige.navic.reader.ReaderSupportedPdfFitModes
 import paige.navic.reader.ReaderSupportedFlowModes
@@ -299,8 +296,6 @@ internal val readerOrientationSearchOptions = ReaderSupportedOrientations
 internal val readerDirectionSearchOptions = ReaderSupportedDirections
 internal val readerNavBarTypeSearchOptions = ReaderSupportedNavBarTypes
 internal val readerFlowSearchOptions = ReaderSupportedFlowModes
-internal val readerDragAnimationSearchOptions = ReaderSupportedDragAnimationModes
-internal val readerPageBitmapQualitySearchOptions = ReaderPageBitmapQuality.entries.map { quality -> quality.persistedValue }
 internal val readerPdfFitSearchOptions = ReaderSupportedPdfFitModes
 internal val readerPdfPageGapSearchOptions = listOf(0, 4, 8, 12, 16, 24, 32, 48)
 internal val readerTapZoneSearchOptions = ReaderSupportedTapZones
@@ -375,16 +370,6 @@ internal fun readerFlowSearchLabel(flowMode: String): String =
 		ReaderFlowScrolledGaps -> stringResource(Res.string.option_ebook_reader_scroll_gaps)
 		else -> stringResource(Res.string.option_ebook_reader_paged)
 	}
-
-@Composable
-internal fun readerDragAnimationSearchLabel(dragAnimationMode: String): String =
-	when (dragAnimationMode) {
-		ReaderDragAnimationCanvas -> stringResource(Res.string.option_ebook_reader_page_turn_animation_canvas)
-		else -> stringResource(Res.string.option_ebook_reader_page_turn_animation_none)
-	}
-
-@Composable
-internal fun readerPageBitmapQualitySearchLabel(value: String): String = "$value%"
 
 @Composable
 internal fun readerPdfFitSearchLabel(pdfFitMode: String): String =
