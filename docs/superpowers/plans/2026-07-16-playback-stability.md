@@ -14,6 +14,28 @@ are retained in the bounded log ring independently from general issue logging.
 Kotlin coroutines/Flow, Room-backed `DownloadManager`, Gradle Android host tests,
 ADB, GitHub Actions.
 
+## Execution Status
+
+- Stage 1 committed as `c5a7e55e`: artwork pager settlements are gesture-owned
+  and queue selection carries the final playback intent atomically.
+- Stage 2 committed as `1797426b`: uncached current-item failures wait on the
+  existing download pipeline and replace the same queue item in place.
+- Stage 3 committed as `a484707b`: bounded playback diagnostics persist
+  independently from the general issue-logging toggle.
+- Candidate metadata committed as `a70f98a8`: `versionCode=550` and
+  `versionName=v1.0.11-iota23`.
+- Focused playback policy, source-wiring, recovery, and diagnostics tests pass.
+- `:androidApp:assembleDebug` passes, and the embedded APK metadata matches the
+  release target.
+- The debug candidate installed and launched on `emulator-5554` as
+  `darkaxt.navic.debug`, with process and resumed-activity state verified.
+- Reader vendor verifier, packaged vendor hashes, and third-party attribution
+  checks pass.
+- The full Android host suite currently has 75 failures in reader, Aurral, and
+  database source/parity tests outside this branch's changed files.
+- Android lint currently has three pre-existing `RestrictedApi` errors in
+  `MainActivity.dispatchKeyEvent`; this branch does not modify `MainActivity`.
+
 ---
 
 ## File Map
