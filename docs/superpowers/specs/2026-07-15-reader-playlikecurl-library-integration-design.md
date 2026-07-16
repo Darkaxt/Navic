@@ -8,11 +8,18 @@
 
 **PlayLikeCurl public audit baseline:** `e2f1d5030a0077dca3d440f057cf0fdb077e4df3`
 
-**PlayLikeCurl candidate API audit:** uncommitted work on
-`codex/playlikecurl-production-integration`; this work is evidence only until it
-is completed, committed to `master`, validated, and tagged.
+**PlayLikeCurl integration release:** tag `1.1.0`, commit
+`3d4f6428cc8a4576e014c0a148ea08cc1e05bdc2`
+
+**PlayLikeCurl production API version:** `1`
+
+**Release AAR:** `karackencurllib-release.aar`,
+`sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b`
 
 **Canonical engine:** [Darkaxt/PlayLikeCurl](https://github.com/Darkaxt/PlayLikeCurl)
+
+**Immutable release:**
+[Darkaxt/PlayLikeCurl 1.1.0](https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.0)
 
 **Related specifications:**
 
@@ -50,7 +57,7 @@ The integration is not allowed to reinterpret "faithful" as "similar". The fork 
 
 ### 2.1 What the fork already proves
 
-At the audited public commit, the maintained fork contains:
+At release `1.1.0`, the maintained fork contains:
 
 - a modern Android/Gradle toolchain
 - a GLES2 renderer replacing fixed-function GL1 calls
@@ -59,62 +66,67 @@ At the audited public commit, the maintained fork contains:
 - midpoint commit behavior for slow releases
 - a cast-shadow pass that follows the fold edge
 - unit/source guards for model roles, geometry, endpoints, texture order, and the GLES2 boundary
+- a versioned, generation-aware production bitmap-deck API
+- explicit accepted/rejected/replaced/released/disposed bitmap lease semantics
+- bounded active and pending texture ownership
+- `GL_MAX_TEXTURE_SIZE` and configurable GPU-budget enforcement
+- context-loss rehydration while the client bitmap lease remains valid
+- optional generation-bound overlay bitmaps
+- main-thread, generation-ordered listener callbacks
+- symmetric attach, detach, visibility, cancellation, release, and disposal operations
+- when-dirty rendering while idle
+- a recoverable demo and an external consumer compile module
 
 The fork's own verification command succeeds:
 
 ```powershell
-.\gradlew.bat :karackencurllib:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
+.\gradlew.bat clean `
+  :karackencurllib:testDebugUnitTest `
+  :app:testDebugUnitTest `
+  :app:assembleDebug `
+  :app:assembleRelease `
+  :consumer-smoke:compileDebugJavaWithJavac
 ```
 
-This proves that the standalone proof of concept builds and its current tests pass. It does not prove that the library is ready for production Navic bitmaps or lifecycle behavior.
+The release verification produced 76 passing tests, debug and release demo APKs,
+and a compiling external consumer. Recorded portrait and landscape forward and
+backward turns use the production bitmap API. This proves the standalone
+library contract and reference renderer. It does not prove the Navic adapter,
+Foliate settlement, or managed-raster integration.
 
-### 2.2 Fork gaps that block direct production use
+### 2.2 Fork blockers closed by release 1.1.0
 
-The public library API is still sample-oriented. A candidate production API
-exists in a dirty audit worktree, but it is not yet an importable public
-contract. The public branch and the candidate implementation together expose
-the following blockers:
+The original audit found asset-path submission, render-thread decoding,
+unbounded textures, ambiguous bitmap ownership, mixed callback affinity,
+incomplete lifecycle operations, cancellation that could promote pending work,
+missing texture-limit handling, continuous idle rendering, and a demo that
+threw on recoverable failures.
 
-1. `PageCurlAdapter` accepts `String[]` asset paths instead of client-owned page images.
-2. `PageRenderer` decodes assets with `context.getAssets().open(...)` from the render path.
-3. Texture objects are stored in an unbounded `ConcurrentHashMap`.
-4. There is no complete client-visible lease/release contract for retained
-   bitmaps. The candidate renderer keeps `PageImage<Bitmap>` references so it
-   can rehydrate after GL context loss, while Navic's cache actively recycles
-   bitmaps.
-5. Decode and shader failures throw from the renderer and can become a black surface or process crash.
-6. Rendering is continuous even when no gesture or settlement is active.
-7. Touches received during settlement are discarded without an explicit readiness or retry contract.
-8. `performClick()` is called on release even after a drag, allowing gesture/tap ambiguity.
-9. Replacing the adapter or landscape mode can reset the model to position zero.
-10. Context recreation resets GL handles but has no client page rehydration contract.
-11. There is no stable Maven publication, release API version, or immutable consumer lock.
-12. The public contract exposes asset identity, not logical page identity and generation identity.
-13. Candidate listener callbacks have mixed thread affinity: renderer callbacks
-    are posted to the main thread, while deck rejection and gesture callbacks
-    may run on the caller thread.
-14. Candidate deck replacement does not return or notify every released active,
-    pending, rejected, or disposed deck, so client bitmap ownership can leak or
-    be recycled too early.
-15. Equal-generation replacement semantics are unspecified and do not enforce a
-    monotonic generation per reader session.
-16. Candidate `attach()` resumes the GL thread, but there is no symmetric public
-    detach/pause operation. `onDetachedFromWindow()` cancels the gesture without
-    pausing the GL surface.
-17. Candidate cancellation promotes a pending deck through settlement
-    completion, conflating "cancel the current interaction" with "commit the
-    replacement generation".
-18. The renderer does not query `GL_MAX_TEXTURE_SIZE`, enforce a GPU byte budget,
-    or provide a structured quality-downgrade path for oversized page rasters.
-19. Accepted bitmap format, alpha, premultiplication, and color-space behavior
-    are not specified.
-20. Source-string guard tests exist, but runtime tests do not yet prove callback
-    ordering, resource release, context recreation, pause/resume, or replacement
-    under settlement.
-21. The candidate demo throws on renderer failure instead of demonstrating a
-    recoverable production fallback.
+Release `1.1.0` closes those blockers in the canonical fork:
 
-These gaps must be fixed in the fork before Navic consumes it. Navic must not work around them by copying the renderer again.
+1. Clients submit immutable `Bitmap` page decks with logical page and generation
+   identity; the renderer performs no asset or file decode.
+2. Every accepted generation has one explicit terminal release callback, and
+   rejected generations never transfer ownership.
+3. Active plus pending deck ownership is bounded, monotonic, and
+   generation-aware.
+4. Public mutations and listener callbacks are serialized on the Android main
+   thread.
+5. Attach, detach, visibility, cancel, release, and dispose are symmetric and
+   do not conflate cancellation with navigation.
+6. Texture dimensions and estimated GPU bytes are validated before promotion.
+7. Retained immutable bitmaps can rehydrate textures after GL context loss.
+8. Base and overlay bitmap format, opacity, alpha, and premultiplication
+   requirements are explicit.
+9. Idle rendering is when-dirty, drag and click paths are distinct, and
+   recoverable failures remain client-visible without crashing the demo.
+10. The external consumer module compiles the public API outside the library
+    package.
+
+These guarantees are now a pinned dependency contract. Navic must reject an
+import whose production API version, tag, commit, source digest, or AAR digest
+does not match this document. Navic must not reimplement a missing guarantee by
+copying the renderer.
 
 ### 2.3 Navic assets worth retaining
 
@@ -241,9 +253,12 @@ uses neither.
 ```json
 {
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "<40-character commit>",
-  "tag": "<immutable release tag>",
+  "commit": "3d4f6428cc8a4576e014c0a148ea08cc1e05bdc2",
+  "tag": "1.1.0",
+  "apiVersion": 1,
   "module": "karackencurllib",
+  "releaseArtifact": "karackencurllib-release.aar",
+  "releaseArtifactDigest": "sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b",
   "sourceDigest": "<sha256 of the normalized imported tree>",
   "licenseDigest": "<sha256 of LICENSE.txt>"
 }
@@ -432,7 +447,9 @@ Accepted page images must be:
 
 - immutable for the lease lifetime
 - `ARGB_8888`
-- premultiplied
+- opaque for base page images; opaque base pages do not need to report
+  premultiplied alpha because no translucent samples exist
+- premultiplied and alpha-bearing for optional overlay images
 - exact dimensions declared by `PageImage`
 - no larger than the GL-reported maximum texture dimension
 - composited to an opaque configured page background when the EPUB source is
@@ -956,6 +973,9 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 ### Tranche 1 - Fork production API
 
+**Status:** complete in `Darkaxt/PlayLikeCurl` release `1.1.0` at
+`3d4f6428cc8a4576e014c0a148ea08cc1e05bdc2`.
+
 1. Replace asset-string submission with generation-aware bitmap page decks.
 2. Remove asset decoding from the renderer.
 3. Add explicit bitmap lease acquisition and release callbacks for accepted,
@@ -980,7 +1000,9 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 ### Tranche 2 - Immutable fork release and Navic snapshot
 
-1. Tag the fork.
+**Status:** release/tag complete; Navic snapshot import pending.
+
+1. Tag the fork. Completed as immutable tag `1.1.0`.
 2. Implement the snapshot update script and provenance manifest.
 3. Import only the library module and license.
 4. Add the exact Android-only third-party Gradle module path.
