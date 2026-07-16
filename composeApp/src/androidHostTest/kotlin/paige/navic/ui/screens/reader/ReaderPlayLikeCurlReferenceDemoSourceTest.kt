@@ -14,16 +14,16 @@ class ReaderPlayLikeCurlReferenceDemoSourceTest {
 				"ReaderPlayLikeCurlReferenceView.android.kt"
 		).readText()
 	}
-	private val rendererSource by lazy {
-		repoFile(
-			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
-				"ReaderPlayLikeCurlReferenceRenderer.android.kt"
-		).readText()
-	}
 	private val bitmapSource by lazy {
 		repoFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPlayLikeCurlBitmapSource.android.kt"
+		).readText()
+	}
+	private val deckFactorySource by lazy {
+		repoFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlLibraryDeckFactory.android.kt"
 		).readText()
 	}
 
@@ -53,37 +53,27 @@ class ReaderPlayLikeCurlReferenceDemoSourceTest {
 	}
 
 	@Test
-	fun gles2ReferencePathUsesThreePersistentPagesAndOriginalDrawOrder() {
-		assertContains(viewSource, "setEGLContextClientVersion(2)")
-		assertContains(viewSource, "ReaderPlayLikeCurlReferenceModel")
-		assertContains(rendererSource, "GLES20.GL_DEPTH_TEST")
-		assertContains(rendererSource, "Matrix.perspectiveM")
-		assertContains(rendererSource, "45f")
-		assertContains(rendererSource, "leftPage")
-		assertContains(rendererSource, "frontPage")
-		assertContains(rendererSource, "rightPage")
-
-		val draw = rendererSource.substringAfter("override fun onDrawFrame")
-		assertTrue(draw.indexOf("drawPage(leftPage") < draw.indexOf("drawPage(frontPage"))
-		assertTrue(draw.indexOf("drawPage(frontPage") < draw.indexOf("drawPage(rightPage"))
-		assertFalse(rendererSource.contains("ReaderPageCurlLeafProjection"))
-		assertFalse(rendererSource.contains("ReaderPageCurlGlRenderer"))
+	fun readerDevUsesTheImportedProductionSurfaceAndDeckContract() {
+		assertContains(viewSource, "import karacken.curl.PageSurfaceView")
+		assertContains(viewSource, ") : PageSurfaceView(context)")
+		assertContains(viewSource, "readerPlayLikeCurlLibraryDeck")
+		assertContains(deckFactorySource, "PortraitPageDeck")
+		assertContains(deckFactorySource, "LandscapePageDeck")
+		assertContains(viewSource, "PageSurfaceListener")
+		assertContains(viewSource, "submitDeck")
+		assertFalse(viewSource.contains("ReaderPlayLikeCurlReferenceModel"))
+		assertFalse(viewSource.contains("ReaderPlayLikeCurlReferenceRenderer"))
+		assertFalse(viewSource.contains("setRenderer("))
 	}
 
 	@Test
-	fun rendererConsumesPreparedRasterDeckWithoutFrameDecodeOrUpload() {
+	fun importedSurfaceConsumesPreparedRasterDeckWithoutFrameDecodeOrUpload() {
 		assertContains(viewSource, "ReaderPlayLikeCurlRasterAdapter")
-		assertContains(viewSource, "queueEvent")
 		assertContains(viewSource, "interactionReady")
-		assertContains(rendererSource, "installRasterDeck")
-		assertFalse(rendererSource.contains("BitmapFactory"))
-		assertFalse(rendererSource.contains("assets.open"))
-
-		val drawFrame = rendererSource
-			.substringAfter("override fun onDrawFrame")
-			.substringBefore("fun installRasterDeck")
-		assertFalse(drawFrame.contains("GLUtils.texImage2D"))
-		assertFalse(drawFrame.contains("decode"))
+		assertContains(viewSource, "onDeckReleased")
+		assertFalse(viewSource.contains("GLUtils.texImage2D"))
+		assertFalse(viewSource.contains("BitmapFactory"))
+		assertFalse(viewSource.contains("assets.open"))
 	}
 
 	@Test
@@ -95,9 +85,12 @@ class ReaderPlayLikeCurlReferenceDemoSourceTest {
 		assertContains(bitmapSource, "withContext(Dispatchers.IO)")
 		assertContains(bitmapSource, "ReaderPageBitmapQuality.Balanced")
 		assertContains(viewSource, "SupervisorJob() + Dispatchers.Default")
-		assertContains(viewSource, "if (!interactionReady) return true")
+		assertContains(viewSource, "override fun onDeckPrepared")
+		assertFalse(viewSource.contains("override fun onTouchEvent"))
 		assertContains(viewSource, "onPreparationProgress")
 		assertContains(viewSource, "onPreparationCoverReady")
+		assertContains(activitySource, "reader.resumeReference()")
+		assertContains(activitySource, "reader.pauseReference()")
 		assertContains(activitySource, "Preparing pages")
 		assertContains(activitySource, "progressBarStyleHorizontal")
 		assertFalse(bitmapSource.contains("withTimeout"))

@@ -60,6 +60,8 @@ internal class ReaderPlayLikeCurlDiagnosticBitmapSource : ReaderPlayLikeCurlBitm
 			canvas.drawText("PAGE ${key.pageIndex + 1}", width / 2f, height * 0.48f, paint)
 			paint.textSize *= 0.38f
 			canvas.drawText(key.profile.orientation.name.uppercase(), width / 2f, height * 0.56f, paint)
+			bitmap.setHasAlpha(false)
+			bitmap.setPremultiplied(true)
 		}
 	}
 }
@@ -95,11 +97,31 @@ private fun Context.decodeScaledAsset(
 	} ?: return null
 	val targetWidth = (bounds.outWidth * quality.scale).roundToInt().coerceAtLeast(1)
 	val targetHeight = (bounds.outHeight * quality.scale).roundToInt().coerceAtLeast(1)
-	if (decoded.width == targetWidth && decoded.height == targetHeight) return decoded
-	return Bitmap.createScaledBitmap(decoded, targetWidth, targetHeight, true).also { scaled ->
-		if (scaled !== decoded) decoded.recycle()
+	val scaled = if (decoded.width == targetWidth && decoded.height == targetHeight) {
+		decoded
+	} else {
+		Bitmap.createScaledBitmap(decoded, targetWidth, targetHeight, true).also { result ->
+			if (result !== decoded) decoded.recycle()
+		}
 	}
+	return scaled.toOpaqueArgb8888()
 }
 
 private val ReaderPlayLikeCurlOrientation.assetDirectory: String
 	get() = name.lowercase()
+
+private fun Bitmap.toOpaqueArgb8888(): Bitmap {
+	if (config == Bitmap.Config.ARGB_8888 && !hasAlpha()) {
+		setPremultiplied(true)
+		return this
+	}
+	return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { opaque ->
+		Canvas(opaque).apply {
+			drawColor(Color.WHITE)
+			drawBitmap(this@toOpaqueArgb8888, 0f, 0f, null)
+		}
+		opaque.setHasAlpha(false)
+		opaque.setPremultiplied(true)
+		recycle()
+	}
+}

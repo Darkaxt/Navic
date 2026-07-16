@@ -10,11 +10,14 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import paige.navic.ui.screens.reader.ReaderPlayLikeCurlReferenceMode
 import paige.navic.ui.screens.reader.ReaderPlayLikeCurlReferenceView
 
 class PlayLikeCurlReferenceActivity : ComponentActivity() {
+	private lateinit var reader: ReaderPlayLikeCurlReferenceView
+
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		window.setFlags(
@@ -26,7 +29,7 @@ class PlayLikeCurlReferenceActivity : ComponentActivity() {
 		} else {
 			ReaderPlayLikeCurlReferenceMode.Reference
 		}
-		val reader = ReaderPlayLikeCurlReferenceView(this, mode)
+		reader = ReaderPlayLikeCurlReferenceView(this, mode)
 		val loadingCover = ImageView(this).apply {
 			scaleType = ImageView.ScaleType.CENTER_CROP
 			setBackgroundColor(Color.BLACK)
@@ -95,6 +98,13 @@ class PlayLikeCurlReferenceActivity : ComponentActivity() {
 		reader.onInteractionReadyChanged = { ready ->
 			loadingOverlay.visibility = if (ready) View.GONE else View.VISIBLE
 		}
+		reader.onRenderFailure = { failure ->
+			Toast.makeText(
+				this,
+				failure.message ?: "PlayLikeCurl rendering failed",
+				Toast.LENGTH_SHORT
+			).show()
+		}
 		setContentView(
 			FrameLayout(this).apply {
 				addView(
@@ -113,6 +123,21 @@ class PlayLikeCurlReferenceActivity : ComponentActivity() {
 				)
 			}
 		)
+	}
+
+	override fun onResume() {
+		super.onResume()
+		reader.resumeReference()
+	}
+
+	override fun onPause() {
+		reader.pauseReference()
+		super.onPause()
+	}
+
+	override fun onDestroy() {
+		reader.disposeReference()
+		super.onDestroy()
 	}
 
 	private companion object {

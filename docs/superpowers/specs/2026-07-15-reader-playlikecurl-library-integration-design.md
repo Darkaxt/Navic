@@ -1029,11 +1029,37 @@ upload.
 
 ### Tranche 3 - ReaderDev library parity
 
-1. Replace ReaderDev's Navic-owned reference model/renderer with the imported library.
-2. Keep the original reference assets and gesture script.
-3. Validate portrait forward/backward drag, fling, slow midpoint release, and cancel.
-4. Validate four-leaf landscape forward/backward sequences and center boundary.
-5. Validate fold shadow and transparent-region composition.
+1. Replace ReaderDev's Navic-owned reference model/renderer with the imported library. Completed.
+2. Keep the original reference assets and gesture script. Completed.
+3. Validate portrait forward/backward drag, fling, slow midpoint release, and cancel. Completed.
+4. Validate four-leaf landscape forward/backward sequences and center boundary. Completed.
+5. Validate fold shadow and transparent-region composition. Completed.
+
+Implementation evidence recorded on 2026-07-16:
+
+- `ReaderPlayLikeCurlReferenceView` subclasses the imported
+  `karacken.curl.PageSurfaceView`; it no longer instantiates the Navic reference
+  model, renderer, animator, or gesture detector.
+- `ReaderPlayLikeCurlLibraryDeckFactory` supplies bounded three-page portrait
+  decks and six-leaf landscape decks with an even current-left ordinal.
+- Imported library callbacks own preparation, settlement, replacement, and
+  bitmap-release timing. ReaderDev only prepares immutable page images and
+  reacts to the callbacks.
+- Portrait forward, backward, slow release, cancel, and fling gestures were
+  recorded on the tablet-size emulator in
+  `readerdev-portrait-parity.mp4`.
+- Landscape forward and backward gestures were recorded in
+  `readerdev-landscape-parity.mp4`. Forward deformation remained within the
+  right leaf and exposed the next right page; backward deformation remained
+  within the left leaf and exposed the previous left page. Neither fold crossed
+  the center binding.
+- The recorded portrait and landscape contact sheets showed the imported fold
+  shadow, opaque page content, correct destination-page identities, and no
+  black or transparent page regions.
+- Focused host tests passed for the imported ReaderDev source contract and all
+  portrait/landscape deck boundary mappings.
+- `:androidApp:assembleReaderDev` passed with the imported module exposed to the
+  ReaderDev application through the Android source-set API dependency.
 
 **Gate:** ReaderDev MP4s match the fork demo; no Navic geometry code participates.
 
