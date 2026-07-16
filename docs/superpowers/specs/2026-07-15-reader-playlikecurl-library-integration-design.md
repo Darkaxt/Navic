@@ -1006,8 +1006,12 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 ### Tranche 2 - Immutable fork release and Navic snapshot
 
-**Status:** implementation and local gates complete; signed/minified Navic app
-gate pending branch CI.
+**Status:** complete on Navic branch
+`codex/playlikecurl-library-integration` at `b6327afb`. GitHub Actions run
+[29519108491](https://github.com/Darkaxt/Navic/actions/runs/29519108491)
+passed the signed/minified release build, expected-certificate verification,
+packaged reader governance, third-party attribution verification, and artifact
+upload.
 
 1. Tag the fork. Completed as immutable tag `1.1.1`.
 2. Implement the snapshot update script and provenance manifest. Completed.
@@ -1018,8 +1022,8 @@ gate pending branch CI.
 7. Add digest, API-version, and anti-drift guards. Completed.
 8. Verify manifest/resource merge and minified release compilation. Debug and
    ReaderDev package merges plus the imported release AAR pass locally. The
-   signed/minified Navic app gate runs in GitHub Actions because release signing
-   credentials are intentionally unavailable in local worktrees.
+   signed/minified Navic app passed in GitHub Actions run `29519108491`; release
+   signing credentials remain intentionally unavailable in local worktrees.
 
 **Gate:** a clean Navic clone builds the imported module offline after dependencies are cached, and the snapshot digest matches the fork tag.
 
