@@ -1,12 +1,16 @@
 # PlayLikeCurl Library Integration Design
 
-**Status:** Proposed integration contract after source audit
+**Status:** Implementation-ready integration contract after source and lifecycle audit
 
-**Date:** 2026-07-15
+**Date:** 2026-07-16
 
-**Navic audit baseline:** `e582400ff4e81fffe5c8980fbf2d8e4a75cdb78a`
+**Navic audit baseline:** `b3a9fc57c268bfb659dc4742cf02ae4d0941841b`
 
-**PlayLikeCurl audit baseline:** `c0d5a3645fc6d5062b18e7866df2f04a5e7621f1`
+**PlayLikeCurl public audit baseline:** `e2f1d5030a0077dca3d440f057cf0fdb077e4df3`
+
+**PlayLikeCurl candidate API audit:** uncommitted work on
+`codex/playlikecurl-production-integration`; this work is evidence only until it
+is completed, committed to `master`, validated, and tagged.
 
 **Canonical engine:** [Darkaxt/PlayLikeCurl](https://github.com/Darkaxt/PlayLikeCurl)
 
@@ -46,7 +50,7 @@ The integration is not allowed to reinterpret "faithful" as "similar". The fork 
 
 ### 2.1 What the fork already proves
 
-At the audited commit, the fork is six commits ahead of the archived upstream project and contains:
+At the audited public commit, the maintained fork contains:
 
 - a modern Android/Gradle toolchain
 - a GLES2 renderer replacing fixed-function GL1 calls
@@ -66,12 +70,18 @@ This proves that the standalone proof of concept builds and its current tests pa
 
 ### 2.2 Fork gaps that block direct production use
 
-The current public library API is still sample-oriented:
+The public library API is still sample-oriented. A candidate production API
+exists in a dirty audit worktree, but it is not yet an importable public
+contract. The public branch and the candidate implementation together expose
+the following blockers:
 
 1. `PageCurlAdapter` accepts `String[]` asset paths instead of client-owned page images.
 2. `PageRenderer` decodes assets with `context.getAssets().open(...)` from the render path.
 3. Texture objects are stored in an unbounded `ConcurrentHashMap`.
-4. There is no complete public dispose/release contract for GL textures and retained bitmaps.
+4. There is no complete client-visible lease/release contract for retained
+   bitmaps. The candidate renderer keeps `PageImage<Bitmap>` references so it
+   can rehydrate after GL context loss, while Navic's cache actively recycles
+   bitmaps.
 5. Decode and shader failures throw from the renderer and can become a black surface or process crash.
 6. Rendering is continuous even when no gesture or settlement is active.
 7. Touches received during settlement are discarded without an explicit readiness or retry contract.
@@ -80,6 +90,29 @@ The current public library API is still sample-oriented:
 10. Context recreation resets GL handles but has no client page rehydration contract.
 11. There is no stable Maven publication, release API version, or immutable consumer lock.
 12. The public contract exposes asset identity, not logical page identity and generation identity.
+13. Candidate listener callbacks have mixed thread affinity: renderer callbacks
+    are posted to the main thread, while deck rejection and gesture callbacks
+    may run on the caller thread.
+14. Candidate deck replacement does not return or notify every released active,
+    pending, rejected, or disposed deck, so client bitmap ownership can leak or
+    be recycled too early.
+15. Equal-generation replacement semantics are unspecified and do not enforce a
+    monotonic generation per reader session.
+16. Candidate `attach()` resumes the GL thread, but there is no symmetric public
+    detach/pause operation. `onDetachedFromWindow()` cancels the gesture without
+    pausing the GL surface.
+17. Candidate cancellation promotes a pending deck through settlement
+    completion, conflating "cancel the current interaction" with "commit the
+    replacement generation".
+18. The renderer does not query `GL_MAX_TEXTURE_SIZE`, enforce a GPU byte budget,
+    or provide a structured quality-downgrade path for oversized page rasters.
+19. Accepted bitmap format, alpha, premultiplication, and color-space behavior
+    are not specified.
+20. Source-string guard tests exist, but runtime tests do not yet prove callback
+    ordering, resource release, context recreation, pause/resume, or replacement
+    under settlement.
+21. The candidate demo throws on renderer failure instead of demonstrating a
+    recoverable production fallback.
 
 These gaps must be fixed in the fork before Navic consumes it. Navic must not work around them by copying the renderer again.
 
@@ -127,6 +160,41 @@ The audited Navic master intentionally safety-disables the failed animation path
 
 This remains the release-safe default until every gate in this document passes.
 
+### 2.6 Exact Navic integration surface
+
+Navic is a Kotlin Multiplatform project. The imported renderer is an
+Android-only library and must be visible only from `composeApp`'s
+`androidMain` source set.
+
+The current Gradle graph contains only:
+
+```text
+:composeApp
+:androidApp
+```
+
+The integration adds one Android library project:
+
+```text
+:third_party:playlikecurl:karackencurllib
+```
+
+`composeApp` adds that project only to `androidMain.dependencies`. `commonMain`,
+`iosMain`, and common models must not import `karacken.curl` classes. iOS keeps
+the stable non-animated page-turn behavior and does not receive a stub copy of
+the engine.
+
+Existing Navic code also contains three overlapping renderer families that must
+not survive the production cutover:
+
+- `ReaderPlayLikeCurlReference*`
+- `ReaderPageCurl*`
+- `ReaderPageTurnWave*` and `ReaderPageTurnSlide*`
+
+The existing raster cache, scheduler, capture, page-identity, and settlement
+coordination may be retained and adapted. Geometry, shaders, page-role state,
+and curl settlement may not.
+
 ## 3. Selected Integration Approach
 
 ### 3.1 Canonical fork plus locked source snapshot
@@ -142,6 +210,31 @@ third_party/playlikecurl/
   provenance.json
 tools/update-playlikecurl.ps1
 ```
+
+The imported tree contains the library module only. The sample `app/`,
+workflows, screenshots, local Gradle caches, build outputs, and repository
+metadata are not imported.
+
+The Gradle wiring is explicit:
+
+```kotlin
+// settings.gradle.kts
+include(":third_party:playlikecurl:karackencurllib")
+project(":third_party:playlikecurl:karackencurllib").projectDir =
+    file("third_party/playlikecurl/karackencurllib")
+```
+
+```kotlin
+// composeApp/build.gradle.kts
+androidMain.dependencies {
+    implementation(projects.thirdParty.playlikecurl.karackencurllib)
+}
+```
+
+The imported module keeps its own `karacken.curl` namespace. Its manifest and
+resources must be checked for merge collisions. It must provide consumer R8
+rules if reflection or JNI is introduced; the audited implementation currently
+uses neither.
 
 `provenance.json` must contain at least:
 
@@ -268,6 +361,20 @@ Each landscape bitmap represents one half-width physical leaf. The engine must n
 
 The submission API must be generation-aware. A stale generation cannot replace a newer deck or emit callbacks into it.
 
+Generation behavior is exact:
+
+- generations are strictly monotonic within one attached reader session
+- submitting a lower generation is rejected as stale
+- submitting the same generation with byte-identical page identities is
+  idempotent and does not reacquire leases or emit duplicate readiness
+- submitting the same generation with different page identities is rejected as
+  a contract violation
+- viewport mode and deck mode must agree
+- an active deck plus at most one pending replacement deck may be retained
+- replacement of a pending deck releases the replaced deck before the
+  replacement can report prepared
+- dispose releases both active and pending decks exactly once
+
 ### 5.3 Asynchronous preparation contract
 
 Navic decodes raster files away from the UI and GL threads, then submits immutable bitmap references. The engine queues GL upload and reports one of:
@@ -276,13 +383,79 @@ Navic decodes raster files away from the UI and GL threads, then submits immutab
 prepared(generationId)
 rejected(generationId, reason)
 failed(generationId, recoverable, reason)
+released(generationId, reason)
 ```
 
 The renderer cannot become visible or accept a page-turn gesture until `prepared` has been emitted for the active generation.
 
 No asset decoding, filesystem access, HTTP access, Room access, or bitmap scaling may occur in `onDrawFrame` or a touch callback.
 
-### 5.4 Gesture input contract
+All public methods that mutate view, deck, gesture, or lifecycle state are
+main-thread methods. Every `PageSurfaceListener` callback is delivered on the
+main thread, serialized in generation order, and never from the GL thread. GL
+uploads and deletion are submitted through the surface's GL queue.
+
+For one accepted generation the observable order is:
+
+```text
+accepted
+prepared | failed
+settlement-started?
+settlement-completed?
+released
+```
+
+`rejected` is terminal and is followed by `released` only when the library had
+already acquired the submitted bitmap lease. Duplicate terminal callbacks are
+forbidden.
+
+### 5.4 Bitmap lease and texture contract
+
+Submitting a deck transfers a bounded read lease, not bitmap ownership:
+
+1. Navic owns bitmap allocation and persistent cache files.
+2. The library acquires a read lease only after accepting a deck.
+3. Navic must not mutate or recycle an acquired bitmap.
+4. The library may retain the bitmap after upload only while that generation is
+   active or pending, because GL context recreation may require re-upload.
+5. The library emits `released(generationId, reason)` only after no renderer,
+   texture entry, pending deck, or context-recovery path can read that deck.
+6. Navic decrements its deck references on `released` and may recycle only when
+   both cache ownership and all deck leases are gone.
+7. Rejected, replaced, explicitly released, failed, detached-session, and
+   disposed decks all have deterministic release paths.
+
+The library never calls `Bitmap.recycle()`. Navic's ref-counted adapter remains
+the sole authority for recycling.
+
+Accepted page images must be:
+
+- immutable for the lease lifetime
+- `ARGB_8888`
+- premultiplied
+- exact dimensions declared by `PageImage`
+- no larger than the GL-reported maximum texture dimension
+- composited to an opaque configured page background when the EPUB source is
+  transparent
+
+The renderer queries `GL_MAX_TEXTURE_SIZE` after context creation and publishes
+its capabilities before accepting a deck. A page exceeding that limit is
+rejected with `TEXTURE_TOO_LARGE`, including supported and requested dimensions.
+Navic regenerates that generation at the next lower configured quality. This is
+generation-driven fallback, not a retry loop or timeout.
+
+The renderer retains at most the unique textures referenced by active and
+pending decks. It also enforces a configurable in-process GPU estimate:
+
+```text
+sum(unique widthPx * heightPx * 4)
+```
+
+Deck acceptance fails recoverably with `GPU_BUDGET_EXCEEDED` before upload when
+the bounded estimate would be exceeded. Texture filtering is linear, wrapping
+is clamp-to-edge, and mipmaps are not generated.
+
+### 5.5 Gesture input contract
 
 Navic's frame host decides whether a touch belongs to:
 
@@ -305,12 +478,13 @@ Required behavior:
 - the next gesture can be accepted on the first frame after settlement if its deck is prepared
 - touches during settlement are either queued as one next intent or explicitly rejected to Navic; they are never silently transformed into native taps
 
-### 5.5 Render lifecycle contract
+### 5.6 Render lifecycle contract
 
 The library must expose explicit lifecycle operations equivalent to:
 
 ```text
 attach
+detach
 submitDeck
 setViewport
 setVisible
@@ -324,13 +498,24 @@ Requirements:
 - use render-when-dirty, requesting frames only for upload, drag, settlement, resize, or diagnostics
 - retain at most the active portrait or landscape deck and a bounded replacement deck
 - delete superseded GL textures with `glDeleteTextures`
-- release retained bitmap references after upload when the client contract permits it
+- retain client bitmap leases only while needed for active/pending context
+  rehydration and release them through the callback contract
 - recreate active textures after GL context loss without re-reading files on the GL thread
 - preserve logical position when the viewport, adapter, or orientation changes
 - never reset to page zero because a new deck is submitted
+- `detach` cancels input, pauses frame production, and does not promote a pending
+  deck or navigate
+- `attach` resumes the GL surface and rehydrates only the still-active generation
+- `cancelGesture` restores the active page without promoting the pending deck
+- no pending promotion occurs as a side effect of cancel, detach, pause, failure,
+  or disposal
+- promotion occurs only after committed settlement completion or an explicit
+  idle activation operation
+- process recreation restores from Navic/Foliate identity and resubmits a fresh
+  generation; library state is never persisted
 - make `dispose` idempotent
 
-### 5.6 Error contract
+### 5.7 Error contract
 
 Shader, upload, unsupported-size, and context errors must be callbacks, not uncaught renderer exceptions.
 
@@ -346,11 +531,47 @@ On a non-recoverable session error, Navic disables PlayLikeCurl for the current 
 
 There are no cancellation timeouts. Generation changes, lifecycle events, and explicit cancellation make old work obsolete.
 
+The demo application must exercise the same recoverable callback path. It may
+show an error state, but it must not throw from `PageSurfaceListener` merely
+because a deck or renderer operation failed.
+
+### 5.8 Public API stability
+
+Before tagging the integration release, the fork defines:
+
+- a numeric production API version constant
+- an immutable integration tag
+- a changelog entry for deck, lifecycle, lease, and failure contracts
+- JavaDoc for callback thread affinity and bitmap lifetime
+- source and runtime tests that compile a minimal external consumer
+
+Navic pins both tag and commit. Importing a new API version requires an explicit
+provenance update and contract-test review.
+
 ## 6. Navic Raster And Cache Contract
 
 ### 6.1 Raster ownership
 
 Navic's existing managed raster cache remains the only persistent page-image cache. The imported library receives already decoded images and holds only the bounded active texture deck.
+
+`ReaderPlayLikeCurlRasterAdapter` is the only bridge between cached rasters and
+library page images. Each cache value has:
+
+```text
+cacheOwned
+deckLeaseCount
+released
+```
+
+Creating an accepted page deck increments `deckLeaseCount`. A library
+`released` callback decrements it. The Android bitmap is recycled exactly once
+when `cacheOwned == false && deckLeaseCount == 0`. Cache invalidation removes
+cache ownership but never bypasses a live deck lease.
+
+The adapter does not hand the library a bitmap that another code path may
+eagerly recycle. Existing direct recycle sites in the old page-turn bundle and
+capture pipeline must either transfer through this adapter or be removed during
+cutover.
 
 ### 6.2 Cache key
 
@@ -421,6 +642,8 @@ When required pages are not prepared:
 - clear-reader-cache removes raster files, manifests, and in-memory decks
 - corrupted entries are deleted and regenerated, not repeatedly retried
 - no backup copy is made during routine invalidation
+- page raster files stay in app-private storage and are never included in crash
+  reports or diagnostic exports
 
 ## 7. Page Composition Requirements
 
@@ -456,6 +679,16 @@ Navic must therefore keep the base page raster stable and provide an ephemeral h
 - is discarded after Foliate settles and resumes live highlighting
 
 If an ephemeral overlay cannot be prepared, the turn remains available using the base page, but it may not show stale highlight pixels baked into an old raster.
+
+The initial library integration must expose an optional per-page overlay texture
+slot or an equivalent immutable composite input. The overlay follows the same
+page identity and generation as its base page, but it is not persisted in the
+raster cache. The renderer samples it above the base page using the same mesh
+and texture coordinates.
+
+If the overlay API is not implemented in the fork by Tranche 7, the production
+setting remains hidden. Navic must not copy the shader or draw a second
+independent deformation surface to add highlighting.
 
 ### 7.3 Cover and fixed-layout pages
 
@@ -551,6 +784,12 @@ If system or app accessibility settings request reduced motion:
 - vertical movement remains with the reader
 - long press in Whispersync mode seeks audio and never becomes a curl
 - long press in normal mode remains text selection
+- the native frame host is the first and only native gesture arbiter
+- before ownership is granted, PlayLikeCurl receives no partial move stream
+- after ownership is granted, the full synthetic down plus subsequent original
+  move/up/cancel stream is forwarded exactly once in leaf-local coordinates
+- the `GLSurfaceView` cannot independently intercept a gesture denied by the
+  native host
 
 ## 10. Lifecycle And Concurrency
 
@@ -575,6 +814,11 @@ Every asynchronous operation carries the current reader generation. Rotation, fo
 - release or retain the active GL context according to Android lifecycle events
 - rehydrate the submitted deck after context recreation
 - do not decode on resume's UI callback
+- callback delivery remains ordered across detach/attach
+- if a settlement cannot be resumed deterministically, it is cancelled without
+  navigation and the active deck is restored
+- process death discards all library generations and reconstructs from the
+  persisted Foliate location
 
 ### 10.4 Single-writer rules
 
@@ -583,6 +827,17 @@ Every asynchronous operation carries the current reader generation. Rotation, fo
 - one GL surface owns the submitted texture deck
 - one settlement token can navigate Foliate
 - duplicate callbacks are idempotent
+
+### 10.5 Surface composition
+
+The PlayLikeCurl surface is opaque only while it owns the visual turn. Its
+Android host must explicitly configure Z-order, alpha, and visibility so that:
+
+- no black default `SurfaceView` frame is exposed before the first prepared deck
+- the live WebView remains underneath the final opaque shield during relocation
+- toolbar, selection, and reader chrome layers remain in their intended order
+- hiding or detaching the renderer cannot leave a stale surface above Foliate
+- resize and rotation do not stretch an old surface frame
 
 ## 11. Performance Requirements
 
@@ -600,6 +855,9 @@ Required targets on the tablet-class validation profile:
 - no bitmap, float-array, index-array, or direct-buffer allocation per draw frame
 - no continuous GL rendering while idle
 - no full throwable logging per frame or per failed image
+- active plus pending deck GPU estimate stays within the configured byte budget
+- app-private raster cache and in-memory bitmap lease counts return to baseline
+  after reader close and cache clear
 
 Frame timing and memory evidence must be captured, not inferred from subjective smoothness.
 
@@ -621,6 +879,10 @@ Normal logging is event-based and bounded. It records:
 Per-frame geometry logging is available only under an explicit reader diagnostic flag.
 
 The crash logger must persist uncaught GL/integration failures, but the renderer should normally convert expected resource failures into callbacks before they become uncaught exceptions.
+
+Diagnostics may record page IDs, dimensions, quality, byte estimates, and
+generation state. They must not log page text, bitmap pixels, EPUB HTML, or
+Whispersync transcript content.
 
 ## 13. Settings And Migration
 
@@ -655,18 +917,28 @@ Before Navic import, `Darkaxt/PlayLikeCurl` must have:
 - a production API commit on `master`
 - all fork tests passing
 - a clean demo APK with portrait and landscape MP4 evidence
+- a demo failure path that remains usable instead of throwing
 - MIT license retained
 - a changelog describing production API and lifecycle changes
 - an immutable integration tag
+- a declared production API version
+- a clean-clone debug and minified release build
 - no open Navic-specific patches living only in a side branch
 
 ### 14.2 Navic repository
 
 - import the tagged module mechanically
-- update third-party attribution to name both the original project and the Darkaxt modernization fork
+- wire it only into `composeApp` `androidMain`
+- update the AboutLibraries third-party attribution to name both the original
+  project and the Darkaxt modernization fork
 - record repository URL, tag, commit, and digest
 - add source guards preventing edits inside the imported snapshot without a provenance update
 - add source guards preventing copied PlayLikeCurl geometry outside the imported module
+- replace the stale attribution record that points only to upstream commit
+  `915a5a3`
+- verify manifest merge, resource names, namespace, minSdk 24, compileSdk 37, and
+  release R8 behavior
+- keep common and iOS source sets free of `karacken.curl` symbols
 
 ## 15. Staged Implementation Plan
 
@@ -686,13 +958,23 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 1. Replace asset-string submission with generation-aware bitmap page decks.
 2. Remove asset decoding from the renderer.
-3. Add bounded texture ownership and explicit deletion.
-4. Switch idle rendering to when-dirty.
-5. Add readiness, failure, settlement, and disposal callbacks.
-6. Separate drag from click behavior.
-7. Preserve logical position across deck and viewport changes.
-8. Add context-loss rehydration.
-9. Add tests for every lifecycle rule.
+3. Add explicit bitmap lease acquisition and release callbacks for accepted,
+   rejected, replaced, failed, released, and disposed decks.
+4. Add bounded texture ownership, `GL_MAX_TEXTURE_SIZE` validation, GPU byte
+   budgeting, and explicit deletion.
+5. Make all public mutations main-thread operations and serialize all callbacks
+   onto the main thread.
+6. Add strict monotonic/equal-generation and active-plus-one-pending semantics.
+7. Add symmetric attach/detach/pause/resume behavior.
+8. Ensure cancel never promotes a pending deck or navigates.
+9. Switch idle rendering to when-dirty.
+10. Add readiness, failure, settlement, release, and disposal callbacks.
+11. Separate drag from click behavior.
+12. Preserve logical position across deck and viewport changes.
+13. Add context-loss rehydration while the bitmap lease remains valid.
+14. Add optional generation-bound overlay textures for Whispersync.
+15. Make the demo handle recoverable failures without throwing.
+16. Add tests for every lifecycle, callback-order, and resource-ownership rule.
 
 **Gate:** demo uses client-provided decoded bitmaps and matches baseline portrait/landscape MP4s.
 
@@ -701,8 +983,11 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 1. Tag the fork.
 2. Implement the snapshot update script and provenance manifest.
 3. Import only the library module and license.
-4. Add the third-party Gradle module.
-5. Add digest and anti-drift guards.
+4. Add the exact Android-only third-party Gradle module path.
+5. Add the dependency only to `composeApp` `androidMain`.
+6. Update attribution to the fork tag and original project.
+7. Add digest, API-version, and anti-drift guards.
+8. Verify manifest/resource merge and minified release compilation.
 
 **Gate:** a clean Navic clone builds the imported module offline after dependencies are cached, and the snapshot digest matches the fork tag.
 
@@ -722,8 +1007,12 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 2. Decode and scale on background dispatchers.
 3. Submit current/adjacent decks with generation IDs.
 4. Implement preparation progress and cover-backed loading state.
-5. Implement bounded bitmap reference ownership.
-6. Exercise cache hit, cache miss, corruption, quality change, and context recreation.
+5. Implement bounded bitmap reference ownership through library release
+   callbacks; no other path may recycle an acquired bitmap.
+6. Downgrade quality deterministically when texture dimensions or GPU budget
+   reject a generation.
+7. Exercise cache hit, cache miss, corruption, quality change, replacement,
+   release, dispose, and context recreation.
 
 **Gate:** ReaderDev runs exclusively from the managed raster cache with no visible capture or GL-thread decode.
 
@@ -754,17 +1043,23 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 1. Add ephemeral Whispersync highlight composition.
 2. Validate annotation and selection exclusions.
-3. Validate background/foreground, multi-window resize, font/theme change, and GL context loss.
-4. Validate animator scale zero and reduced motion.
-5. Run 100-turn memory and frame timing tests.
+3. Validate ordered callbacks and bitmap lease release during
+   background/foreground, detach/attach, multi-window resize, font/theme change,
+   and GL context loss.
+4. Validate process recreation from the persisted Foliate identity.
+5. Validate animator scale zero and reduced motion.
+6. Run 100-turn memory, GPU-budget, and frame timing tests.
 
 **Gate:** lifecycle matrix passes with bounded memory and no stale-generation callbacks.
 
 ### Tranche 8 - Cutover and cleanup
 
 1. Remove the failed Canvas production path.
-2. Remove Navic-owned PlayLikeCurl model, geometry, shaders, and gesture settlement code.
-3. Retain only Navic cache, adapter, coordinator, and ReaderDev integration code.
+2. Remove `ReaderPlayLikeCurlReference*`, `ReaderPageCurl*`,
+   `ReaderPageTurnWave*`, `ReaderPageTurnSlide*`, and any Navic-owned shaders,
+   deformation geometry, page-role state, or settlement controller.
+3. Retain only Navic cache, capture, raster scheduler, adapter, coordinator,
+   native gesture arbitration, settlement shield, and ReaderDev integration.
 4. Replace stale tests with dependency-boundary and production-contract tests.
 5. Expose `PlayLikeCurl` in settings.
 6. Keep production default `none` for the first release.
@@ -780,8 +1075,9 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 5. Install a debug/release-candidate APK on the real tablet when available.
 6. Validate Alcatraz and at least one image-heavy/fixed-layout book.
 7. Validate Whispersync playback while turning pages.
-8. Verify clean Git state and exact fork provenance.
-9. Only then create the public Navic release.
+8. Run the minified release build and verify launch.
+9. Verify clean Git state, exact fork provenance, API version, and public tag.
+10. Only then create the public Navic release.
 
 ## 16. Test Matrix
 
@@ -796,10 +1092,22 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 - landscape center clipping
 - cast-shadow geometry
 - generation replacement
+- strict monotonic and equal-generation behavior
 - bounded active textures
+- `GL_MAX_TEXTURE_SIZE` rejection and quality-downgrade metadata
+- GPU byte-budget rejection before upload
+- ARGB_8888, premultiplication, alpha, and exact-dimension validation
+- accepted/rejected/replaced/failed/released/disposed bitmap lease balance
+- active and pending deck release ordering
 - dispose idempotence
+- symmetric attach/detach and pause/resume
 - context recreation
+- context recreation cannot read a released or recycled bitmap
 - drag never clicks
+- cancel never promotes a pending deck
+- every public callback runs on the main thread in generation order
+- demo renderer failure is recoverable
+- optional overlay texture follows the base page mesh and generation
 - no GL-thread asset decode
 
 ### 16.2 Navic unit/host tests
@@ -814,6 +1122,12 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 - first/last page boundary
 - LTR/RTL mapping
 - bitmap quality migration
+- ref-counted bitmap release across cache eviction, deck replacement, failure,
+  context recreation, reader close, and cache clear
+- texture-limit and GPU-budget quality fallback
+- native gesture arbitration forwards exactly one granted stream
+- no library dependency from common or iOS source sets
+- Android manifest/resource merge and minified build
 - no Canvas mode exposure
 - no copied PlayLikeCurl geometry outside the imported module
 - import digest and attribution
@@ -838,8 +1152,16 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 - missing raster
 - corrupted raster
 - bitmap decode failure
+- rejected stale or conflicting equal generation
+- replaced pending generation
+- active generation explicitly released
+- oversized texture
+- GPU budget exceeded
+- bitmap recycled before submission
+- bitmap cache invalidated while leased
 - texture upload failure
 - GL context loss
+- detach and reattach during idle, drag, upload, and settlement
 - app background during drag
 - app background during settlement
 - layout generation changes during preparation
@@ -862,9 +1184,18 @@ The integration is complete only when all are true:
 10. The next prepared gesture is available within one frame after settlement.
 11. Rotation, resize, app background, and context loss do not corrupt position or resources.
 12. Memory remains bounded over the 100-turn test.
-13. Existing reader interactions, selection, annotations, and Whispersync remain functional.
-14. The production setting stays hidden until all release gates pass.
-15. A public release is created only after emulator and real-device evidence is accepted.
+13. Every accepted bitmap lease is released exactly once and no acquired bitmap
+    is recycled early.
+14. Oversized or over-budget decks downgrade quality without a crash, retry
+    loop, timeout, or black frame.
+15. Every public listener callback is main-thread, ordered, and terminally
+    consistent.
+16. Existing reader interactions, selection, annotations, and Whispersync remain functional.
+17. Android is the only platform that links the imported library; iOS behavior
+    remains unchanged.
+18. A clean clone and minified release build succeed with the pinned snapshot.
+19. The production setting stays hidden until all release gates pass.
+20. A public release is created only after emulator and real-device evidence is accepted.
 
 ## 18. Rollback
 
