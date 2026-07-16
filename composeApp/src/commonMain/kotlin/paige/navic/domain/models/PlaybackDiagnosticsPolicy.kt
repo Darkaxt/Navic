@@ -4,6 +4,9 @@ const val PlaybackDiagnosticsLogTag = "PlaybackDiagnostics"
 
 private val PlaybackDiagnosticWhitespaceRegex = Regex("\\s+")
 
+fun shouldPersistAppLogEvent(issueLoggingEnabled: Boolean, tag: String): Boolean =
+	issueLoggingEnabled || tag == PlaybackDiagnosticsLogTag
+
 fun playbackDiagnosticMessage(
 	event: String,
 	vararg fields: Pair<String, Any?>

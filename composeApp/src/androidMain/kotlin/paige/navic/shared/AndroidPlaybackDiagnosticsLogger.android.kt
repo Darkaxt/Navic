@@ -6,6 +6,7 @@ import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.PlaybackDiagnosticsLogTag
+import paige.navic.domain.models.QueueSelectionRequest
 import paige.navic.domain.models.playbackDiagnosticMessage
 import paige.navic.util.core.Logger
 
@@ -13,6 +14,20 @@ internal class AndroidPlaybackDiagnosticsLogger {
 	private var lastPlayWhenReadyReason: String? = null
 	private var lastSuppressionReason: String = "none"
 	private var lastRecoveryDownloadSignature: String? = null
+
+	fun onQueueSelection(request: QueueSelectionRequest, song: DomainSong?) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"queue-selection",
+				"origin" to request.origin.name,
+				"songId" to song?.id,
+				"title" to song?.title,
+				"index" to request.index,
+				"playWhenReady" to request.playWhenReady
+			)
+		)
+	}
 
 	fun onPlayWhenReadyChanged(
 		player: Player,

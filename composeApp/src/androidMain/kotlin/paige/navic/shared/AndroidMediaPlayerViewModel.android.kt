@@ -785,6 +785,7 @@ class AndroidMediaPlayerViewModel(
 	private fun selectQueueItemIfAvailable(player: MediaController, request: QueueSelectionRequest): Boolean {
 		if (request.index !in 0 until player.mediaItemCount) return false
 
+		playbackDiagnostics.onQueueSelection(request, _uiState.value.queue.getOrNull(request.index))
 		player.seekTo(request.index, 0L)
 		if (request.playWhenReady) claimMusicPlayback()
 		player.playWhenReady = request.playWhenReady

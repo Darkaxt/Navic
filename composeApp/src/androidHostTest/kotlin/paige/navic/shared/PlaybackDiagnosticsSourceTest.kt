@@ -20,12 +20,16 @@ class PlaybackDiagnosticsSourceTest {
 		assertContains(source, "playbackDiagnostics.onPlaybackSuppressionReasonChanged")
 		assertContains(source, "playbackDiagnostics.onIsPlayingChanged")
 		assertContains(source, "playbackDiagnostics.onPlayerError")
+		assertContains(source, "playbackDiagnostics.onQueueSelection")
 		assertContains(source, "onRecoveryLocalFileReady(")
 		assertContains(source, "onPlaybackRecoveryDecision")
 		assertContains(source, "onPlaybackRetry")
 		assertContains(source, "onHardPlaybackFailure")
 		assertContains(source, "\"retry-playback-source\"")
 		assertContains(source, "\"hard-playback-failure\"")
+		assertContains(source, "\"queue-selection\"")
+		assertContains(source, "\"recovery-terminal-held\"")
+		assertContains(source, "\"recovery-terminal-advanced\"")
 	}
 
 	@Test

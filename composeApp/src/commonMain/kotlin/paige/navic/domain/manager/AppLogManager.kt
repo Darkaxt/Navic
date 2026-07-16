@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import paige.navic.domain.models.shouldPersistAppLogEvent
 import paige.navic.util.core.AppLogLevel
 import paige.navic.util.core.Logger
 import paige.navic.util.core.LoggerEvent
@@ -34,12 +35,12 @@ class AppLogManager(
 	fun setEnabled(value: Boolean) {
 		preferenceManager.issueLoggingEnabled = value
 		if (!value) {
-			clear()
+			retainAlwaysPersistedEntries()
 		}
 	}
 
 	fun record(event: LoggerEvent) {
-		if (!preferenceManager.issueLoggingEnabled) return
+		if (!shouldPersistAppLogEvent(preferenceManager.issueLoggingEnabled, event.tag)) return
 		val entry = AppLogEntry(
 			id = store.nextId,
 			timestampMillis = clockMillis(),
@@ -61,6 +62,18 @@ class AppLogManager(
 		store = AppLogStore()
 		_entries.value = emptyList()
 		preferenceManager.issueLogJson = ""
+	}
+
+	private fun retainAlwaysPersistedEntries() {
+		val retained = store.entries.filter { entry ->
+			shouldPersistAppLogEvent(issueLoggingEnabled = false, tag = entry.tag)
+		}
+		if (retained.isEmpty()) {
+			clear()
+			return
+		}
+		store = store.copy(entries = retained)
+		persistStore()
 	}
 
 	fun exportText(): String =
