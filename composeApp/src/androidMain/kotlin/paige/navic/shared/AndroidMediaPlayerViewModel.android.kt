@@ -129,12 +129,15 @@ class AndroidMediaPlayerViewModel(
 		streamUriForSongId = ::getStreamUrl
 	)
 	private val playbackRecovery = AndroidStablePlaybackRecoveryCoordinator(
+		downloadManager = downloadManager,
 		diagnostics = playbackDiagnostics,
 		isAvailable = ::isAvailable,
 		skipMediaOnError = { preferenceManager.skipMediaOnError },
 		mediaItemForSong = mediaItemFactory::toMediaItem,
 		claimMusicPlayback = ::claimMusicPlayback,
 		notifyPlaybackError = playbackErrorNotifier::notify,
+		notifyFailedDownload = playbackErrorNotifier::notifyFailedDownload,
+		markRecoveryPending = ::markPlaybackRecoveryPending,
 		clearRecoveryUi = ::clearPlaybackRecoveryUi
 	)
 	private val downloadedMediaRecovery: AndroidDownloadedMediaRecovery =
@@ -293,23 +296,40 @@ class AndroidMediaPlayerViewModel(
 							currentSong = _uiState.value.currentSong,
 							isPlaying = isPlaying
 						)
-						playbackDiagnostics.onIsPlayingChanged(this@apply, isPlaying, _uiState.value.currentSong, null)
+						playbackDiagnostics.onIsPlayingChanged(
+							this@apply,
+							isPlaying,
+							_uiState.value.currentSong,
+							playbackRecovery.pendingSongId
+						)
 					}
 
 					override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
 						_uiState.update { it.copy(isPaused = !playWhenReady) }
 						if (!playWhenReady) releaseMusicPlayback()
-						playbackDiagnostics.onPlayWhenReadyChanged(this@apply, playWhenReady, reason, _uiState.value.currentSong, null)
+						playbackDiagnostics.onPlayWhenReadyChanged(
+							this@apply,
+							playWhenReady,
+							reason,
+							_uiState.value.currentSong,
+							playbackRecovery.pendingSongId
+						)
 					}
 
 					override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
-						playbackDiagnostics.onPlaybackSuppressionReasonChanged(this@apply, playbackSuppressionReason, _uiState.value.currentSong, null)
+						playbackDiagnostics.onPlaybackSuppressionReasonChanged(
+							this@apply,
+							playbackSuppressionReason,
+							_uiState.value.currentSong,
+							playbackRecovery.pendingSongId
+						)
 					}
 
 					override fun onPlaybackStateChanged(playbackState: Int) {
 						_uiState.update {
 							it.copy(
-								isLoading = playbackState == Player.STATE_BUFFERING
+								isLoading = playbackState == Player.STATE_BUFFERING ||
+									playbackRecovery.pendingSongId != null
 							)
 						}
 						updatePlaybackDownloadProgress()
@@ -334,7 +354,7 @@ class AndroidMediaPlayerViewModel(
 							!shouldHandlePlaybackErrorVisibly(
 								playWhenReady = playWhenReady,
 								isUiPaused = currentUiState.isPaused,
-								hasPendingSourceErrorRecovery = false
+								hasPendingSourceErrorRecovery = playbackRecovery.pendingSongId != null
 							)
 						) {
 							_uiState.update { state ->
@@ -398,6 +418,16 @@ class AndroidMediaPlayerViewModel(
 						}
 						.associate { download -> download.songId to download.filePath!! }
 					val player = controller ?: return@collectLatest
+					playbackDiagnostics.onRecoveryDownloadStatus(
+						playbackRecovery.pendingSongId,
+						playbackRecovery.pendingSongId?.let(latestDownloadsById::get),
+						playbackRecovery.pendingSongId != null
+					)
+					playbackRecovery.handleDownloadSnapshot(
+						player = player,
+						state = _uiState.value,
+						downloadsById = latestDownloadsById
+					)
 					val currentIndex = player.currentMediaItemIndex
 
 					for (i in 0 until player.mediaItemCount) {
@@ -548,13 +578,14 @@ class AndroidMediaPlayerViewModel(
 	}
 
 	private fun updatePlaybackDownloadProgress() {
-		val songId = _uiState.value.currentSong?.id
-		val shouldShowProgress = _uiState.value.isLoading
+		val recoverySongId = playbackRecovery.pendingSongId
+		val songId = recoverySongId ?: _uiState.value.currentSong?.id
+		val shouldShowProgress = recoverySongId != null || _uiState.value.isLoading
 		val download = songId?.let { latestDownloadsById[it] }
 		val progress = when (download?.status) {
 			DownloadStatus.DOWNLOADING -> download.progress.coerceIn(0f, 1f)
 			DownloadStatus.QUEUED -> 0f
-			null -> null
+			null -> if (recoverySongId != null) 0f else null
 			DownloadStatus.DOWNLOADED,
 			DownloadStatus.FAILED,
 			DownloadStatus.NOT_DOWNLOADED -> null
@@ -563,6 +594,11 @@ class AndroidMediaPlayerViewModel(
 		_uiState.update { state ->
 			state.copy(playbackDownloadProgress = progress)
 		}
+	}
+
+	private fun markPlaybackRecoveryPending() {
+		_uiState.update { state -> state.copy(isLoading = true) }
+		updatePlaybackDownloadProgress()
 	}
 
 	private fun clearPlaybackRecoveryUi() {
@@ -737,6 +773,7 @@ class AndroidMediaPlayerViewModel(
 		val request = QueueSelectionRequest(index, playWhenReady, origin)
 		viewModelScope.launch {
 			if (index < 0) return@launch
+			playbackRecovery.clear("queue-selection")
 
 			val player = controller
 			if (player == null || !selectQueueItemIfAvailable(player, request)) {
@@ -763,6 +800,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun playCollection(collection: DomainSongCollection, startSong: DomainSong) {
 		viewModelScope.launch {
+			playbackRecovery.clear("play-collection")
 			val (items, newCollection) = withContext(Dispatchers.Default) {
 				val sortedCollection = if (collection is DomainAlbum) {
 					collection.songs.sortedWith(compareBy({ it.discNumber }, { it.trackNumber }))
@@ -819,6 +857,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun startSongRadio(song: DomainSong) {
 		viewModelScope.launch {
+			playbackRecovery.clear("song-radio")
 			playbackOriginRecorder.setOriginNow(null)
 			try {
 				val radioQueue = withContext(Dispatchers.IO) {
@@ -861,6 +900,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun playRadio(radio: DomainRadio) {
 		viewModelScope.launch {
+			playbackRecovery.clear("play-radio")
 			playbackOriginRecorder.setOriginNow(null)
 			val radioItem = radioMediaItemFactory.create(radio)
 
@@ -886,6 +926,7 @@ class AndroidMediaPlayerViewModel(
 
 	override fun shufflePlay(collection: DomainSongCollection) {
 		viewModelScope.launch {
+			playbackRecovery.clear("shuffle-play")
 			val plan = collectionShufflePlaybackPlan()
 			val songs = when (plan.queueOrder) {
 				CollectionShuffleQueueOrder.Canonical -> collection.songs
@@ -917,6 +958,7 @@ class AndroidMediaPlayerViewModel(
 	override fun pause() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
+			playbackRecovery.onUserPause()
 			playbackVolumeFader.cancel(player)
 			val fadeDurationMs = preferenceManager.audioFadeDurationMs
 			if (
@@ -949,6 +991,7 @@ class AndroidMediaPlayerViewModel(
 	override fun resume() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
 			val player = controller ?: return@launch
+			if (playbackRecovery.onUserResume(player, _uiState.value)) return@launch
 			playbackVolumeFader.cancel(player)
 			val fadeDurationMs = preferenceManager.audioFadeDurationMs
 			if (
@@ -986,12 +1029,14 @@ class AndroidMediaPlayerViewModel(
 
 	override fun next() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
+			playbackRecovery.clear("next")
 			if (controller?.hasNextMediaItem() == true) controller?.seekToNextMediaItem()
 		}
 	}
 
 	override fun previous() {
 		viewModelScope.launch(Dispatchers.Main.immediate) {
+			playbackRecovery.clear("previous")
 			val controller = controller ?: return@launch
 			if (
 				shouldRestartCurrentOnPrevious(

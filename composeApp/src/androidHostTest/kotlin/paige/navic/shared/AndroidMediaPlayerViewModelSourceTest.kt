@@ -153,20 +153,26 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
-	fun playbackRecoveryRefreshesInPlaceAndNeverMutatesQueueOrder() {
+	fun playbackRecoveryWaitsForTheCurrentSongAndNeverMutatesQueueOrder() {
 		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
 
 		assertContains(viewModelText, "private val playbackRecovery = AndroidStablePlaybackRecoveryCoordinator(")
 		assertContains(viewModelText, "playbackRecovery.handlePlayerError")
+		assertContains(viewModelText, "playbackRecovery.handleDownloadSnapshot")
+		assertContains(viewModelText, "playbackRecovery.onUserPause()")
+		assertContains(viewModelText, "playbackRecovery.onUserResume(")
+		assertContains(viewModelText, "playbackRecovery.clear(\"queue-selection\")")
+		assertContains(viewModelText, "notifyFailedDownload = playbackErrorNotifier::notifyFailedDownload")
 		assertContains(recoveryText, "refreshCurrentRemoteMediaItem")
-		assertContains(recoveryText, "playbackFailureTargetIndex(")
-		assertContains(recoveryText, "skipMediaOnError()")
+		assertContains(recoveryText, "private var pending: PendingPlaybackRecovery?")
+		assertContains(recoveryText, "downloadManager.prefetchPlaybackSongs(listOf(song))")
+		assertContains(recoveryText, "playbackRecoveryResolution(")
+		assertContains(recoveryText, "PlaybackRecoveryResolution.ResumeCurrent")
+		assertContains(recoveryText, "setUri(File(localPath).toUri())")
+		assertContains(recoveryText, "notifyFailedDownload()")
 		assertFalse(viewModelText.contains("AndroidPlaybackDownloadRecoveryCoordinator"))
-		assertFalse(viewModelText.contains("prefetchPlaybackSongs"))
-		assertFalse(viewModelText.contains("promoteReadyDeferredDownloads"))
 		assertFalse(viewModelText.contains("moveUiQueueItem"))
-		assertFalse(recoveryText.contains("prefetchPlaybackSongs"))
 		assertFalse(recoveryText.contains("moveMediaItem"))
 	}
 

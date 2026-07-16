@@ -1,65 +1,165 @@
 package paige.navic.shared
 
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.session.MediaController
+import paige.navic.data.database.entities.DownloadEntity
+import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.PendingPlaybackRecovery
+import paige.navic.domain.models.PlaybackRecoveryResolution
 import paige.navic.domain.models.firstPlayableUpcomingIndex
-import paige.navic.domain.models.playbackFailureTargetIndex
+import paige.navic.domain.models.playbackRecoveryResolution
 import paige.navic.ui.core.PlayerUiState
+import java.io.File
 
 internal class AndroidStablePlaybackRecoveryCoordinator(
+	private val downloadManager: DownloadManager,
 	private val diagnostics: AndroidPlaybackDiagnosticsLogger,
 	private val isAvailable: (String) -> Boolean,
 	private val skipMediaOnError: () -> Boolean,
 	private val mediaItemForSong: (DomainSong) -> MediaItem,
 	private val claimMusicPlayback: () -> Unit,
 	private val notifyPlaybackError: (PlaybackException) -> Unit,
+	private val notifyFailedDownload: () -> Unit,
+	private val markRecoveryPending: () -> Unit,
 	private val clearRecoveryUi: () -> Unit
 ) {
 	private var refreshedRemoteSourceKey: RemoteSourceRefreshKey? = null
+	private var pending: PendingPlaybackRecovery? = null
+	private var pendingError: PlaybackException? = null
+
+	val pendingSongId: String?
+		get() = pending?.songId
 
 	fun onMediaItemTransition(mediaItem: MediaItem?, currentIndex: Int) {
 		val activeKey = mediaItem?.mediaId?.let { mediaId ->
 			RemoteSourceRefreshKey(mediaId, currentIndex)
 		}
 		refreshedRemoteSourceKey = refreshedRemoteSourceKey?.takeIf { it == activeKey }
+		pending?.let { recovery ->
+			if (mediaItem?.mediaId != recovery.songId || currentIndex != recovery.queueIndex) {
+				clear("media-item-transition")
+			}
+		}
 	}
 
 	fun handleUnavailableAutomaticTransition(player: MediaController, state: PlayerUiState) {
 		val currentIndex = player.currentMediaItemIndex
 		val song = state.queue.getOrNull(currentIndex) ?: state.currentSong
-		applyFinalPolicy(
+		beginDownloadRecovery(
 			player = player,
 			state = state,
-			song = song,
+			song = song ?: return,
 			currentIndex = currentIndex,
 			reason = "unavailable-auto-transition",
-			heldEvent = "unavailable-item-held",
-			skippedEvent = "unavailable-item-skipped"
+			error = null
 		)
 	}
 
 	fun handlePlayerError(player: MediaController, state: PlayerUiState, error: PlaybackException) {
+		val currentIndex = player.currentMediaItemIndex
+		val currentSongId = player.currentMediaItem?.mediaId
+		if (pending?.let { it.songId == currentSongId && it.queueIndex == currentIndex } == true) return
 		if (refreshCurrentRemoteMediaItem(player, state)) return
 
-		val currentIndex = player.currentMediaItemIndex
 		val song = state.queue.getOrNull(currentIndex) ?: state.currentSong
-		diagnostics.onHardPlaybackFailure(player, error, song, "remote-refresh-exhausted")
-		notifyPlaybackError(error)
-		applyFinalPolicy(
+		if (song == null) {
+			diagnostics.onHardPlaybackFailure(player, error, null, "no-recovery-song")
+			notifyPlaybackError(error)
+			clear("no-recovery-song")
+			return
+		}
+		beginDownloadRecovery(
 			player = player,
 			state = state,
 			song = song,
 			currentIndex = currentIndex,
 			reason = error.errorCodeName,
-			heldEvent = "playback-error-held",
-			skippedEvent = "playback-error-skipped"
+			error = error
 		)
 	}
 
-	fun clear() {
+	fun handleDownloadSnapshot(
+		player: MediaController,
+		state: PlayerUiState,
+		downloadsById: Map<String, DownloadEntity>
+	) {
+		val recovery = pending ?: return
+		val download = downloadsById[recovery.songId]
+		val localPath = downloadManager.getDownloadedFilePath(recovery.songId)
+		val resolution = playbackRecoveryResolution(
+			pending = recovery,
+			currentSongId = player.currentMediaItem?.mediaId,
+			currentIndex = player.currentMediaItemIndex,
+			downloadStatus = download?.status,
+			hasUsableLocalFile = localPath != null,
+			skipMediaOnError = skipMediaOnError() && recovery.shouldResume,
+			nextPlayableIndex = nextPlayableIndex(state, recovery.queueIndex, recovery.songId)
+		)
+
+		when (resolution) {
+			PlaybackRecoveryResolution.Wait -> Unit
+			PlaybackRecoveryResolution.CancelStale -> clear("stale-download-result")
+			PlaybackRecoveryResolution.ResumeCurrent -> {
+				if (localPath != null) resumeCurrentFromLocalFile(player, recovery, localPath)
+			}
+			PlaybackRecoveryResolution.HoldFailure -> finishTerminalFailure(
+				player = player,
+				state = state,
+				recovery = recovery,
+				targetIndex = null
+			)
+			is PlaybackRecoveryResolution.Advance -> finishTerminalFailure(
+				player = player,
+				state = state,
+				recovery = recovery,
+				targetIndex = resolution.targetIndex
+			)
+		}
+	}
+
+	fun onUserPause() {
+		pending = pending?.withPlaybackIntent(false)
+	}
+
+	fun onUserResume(player: MediaController, state: PlayerUiState): Boolean {
+		val recovery = pending ?: return false
+		if (
+			player.currentMediaItem?.mediaId != recovery.songId ||
+			player.currentMediaItemIndex != recovery.queueIndex
+		) {
+			clear("resume-stale-recovery")
+			return false
+		}
+
+		pending = recovery.withPlaybackIntent(true)
+		val localPath = downloadManager.getDownloadedFilePath(recovery.songId)
+		if (localPath != null) {
+			resumeCurrentFromLocalFile(player, pending ?: recovery, localPath)
+		} else {
+			markRecoveryPending()
+			diagnostics.onPlaybackRecoveryDecision(
+				event = "recovery-resume-requested",
+				song = state.queue.getOrNull(recovery.queueIndex),
+				currentIndex = recovery.queueIndex,
+				targetIndex = null,
+				reason = recovery.reason,
+				deferredCount = 1,
+				fallbackAvailable = false
+			)
+		}
+		return true
+	}
+
+	fun clear(reason: String = "cleared") {
+		val songId = pending?.songId
 		refreshedRemoteSourceKey = null
+		pending = null
+		pendingError = null
+		if (songId != null) diagnostics.onRecoveryCleared(songId, reason)
+		clearRecoveryUi()
 	}
 
 	private fun refreshCurrentRemoteMediaItem(player: MediaController, state: PlayerUiState): Boolean {
@@ -93,38 +193,102 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		return true
 	}
 
-	private fun applyFinalPolicy(
+	private fun beginDownloadRecovery(
 		player: MediaController,
 		state: PlayerUiState,
-		song: DomainSong?,
+		song: DomainSong,
 		currentIndex: Int,
 		reason: String,
-		heldEvent: String,
-		skippedEvent: String
+		error: PlaybackException?
 	) {
-		val targetIndex = playbackFailureTargetIndex(
-			skipMediaOnError = skipMediaOnError(),
-			nextPlayableIndex = nextPlayableIndex(state, currentIndex, song?.id)
+		val songDurationMs = song.duration.inWholeMilliseconds
+		val fallbackPositionMs = if (songDurationMs > 0L) {
+			(state.progress * songDurationMs).toLong()
+		} else {
+			0L
+		}
+		val recovery = PendingPlaybackRecovery(
+			songId = song.id,
+			queueIndex = currentIndex,
+			positionMs = player.currentPosition.takeIf { it > 0L }
+				?: fallbackPositionMs.coerceAtLeast(0L),
+			shouldResume = player.playWhenReady || !state.isPaused,
+			reason = reason
 		)
+		pending = recovery
+		pendingError = error
+		markRecoveryPending()
+		diagnostics.onRecoveryPending(song, recovery.positionMs, recovery.shouldResume)
+		diagnostics.onDeferredDownloadRequested(song, currentIndex, reason, 1)
+		downloadManager.prefetchPlaybackSongs(listOf(song))
+	}
+
+	private fun resumeCurrentFromLocalFile(
+		player: MediaController,
+		recovery: PendingPlaybackRecovery,
+		localPath: String
+	) {
+		val currentItem = player.currentMediaItem ?: run {
+			clear("missing-current-media-item")
+			return
+		}
+		if (
+			currentItem.mediaId != recovery.songId ||
+			player.currentMediaItemIndex != recovery.queueIndex
+		) {
+			clear("local-file-stale")
+			return
+		}
+
+		player.replaceMediaItem(
+			recovery.queueIndex,
+			currentItem.buildUpon().setUri(File(localPath).toUri()).build()
+		)
+		player.seekTo(recovery.queueIndex, recovery.positionMs)
+		diagnostics.onRecoveryLocalFileReady(
+			recovery.songId,
+			recovery.positionMs,
+			recovery.shouldResume,
+			"download-flow"
+		)
+		player.prepare()
+		if (recovery.shouldResume) {
+			claimMusicPlayback()
+			player.play()
+		}
+		clear("download-flow")
+	}
+
+	private fun finishTerminalFailure(
+		player: MediaController,
+		state: PlayerUiState,
+		recovery: PendingPlaybackRecovery,
+		targetIndex: Int?
+	) {
+		val song = state.queue.getOrNull(recovery.queueIndex)
 		diagnostics.onPlaybackRecoveryDecision(
-			event = if (targetIndex == null) heldEvent else skippedEvent,
+			event = if (targetIndex == null) "recovery-terminal-held" else "recovery-terminal-advanced",
 			song = song,
-			currentIndex = currentIndex,
+			currentIndex = recovery.queueIndex,
 			targetIndex = targetIndex,
-			reason = reason,
-			deferredCount = 0,
+			reason = recovery.reason,
+			deferredCount = 1,
 			fallbackAvailable = targetIndex != null
 		)
+		pendingError?.let(notifyPlaybackError) ?: notifyFailedDownload()
 		if (targetIndex == null) {
 			player.pause()
-			clearRecoveryUi()
+			clear("terminal-download-failure")
 			return
 		}
 
 		player.seekTo(targetIndex, 0L)
 		player.prepare()
-		claimMusicPlayback()
-		player.play()
+		if (recovery.shouldResume) {
+			claimMusicPlayback()
+			player.play()
+		}
+		clear("terminal-download-skip")
 	}
 
 	private fun nextPlayableIndex(state: PlayerUiState, currentIndex: Int, currentSongId: String?): Int? {

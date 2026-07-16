@@ -20,7 +20,7 @@ class PlaybackDiagnosticsSourceTest {
 		assertContains(source, "playbackDiagnostics.onPlaybackSuppressionReasonChanged")
 		assertContains(source, "playbackDiagnostics.onIsPlayingChanged")
 		assertContains(source, "playbackDiagnostics.onPlayerError")
-		assertContains(source, "playbackDiagnostics.onRecoveryLocalFileReady")
+		assertContains(source, "onRecoveryLocalFileReady(")
 		assertContains(source, "onPlaybackRecoveryDecision")
 		assertContains(source, "onPlaybackRetry")
 		assertContains(source, "onHardPlaybackFailure")

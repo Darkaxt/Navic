@@ -12,6 +12,10 @@ import paige.navic.domain.models.playbackErrorNotice
 internal class AndroidPlaybackErrorNotifier(
 	private val snackBarManager: SnackBarManager
 ) {
+	fun notifyFailedDownload() {
+		snackBarManager.notify(Res.string.notice_failed_download)
+	}
+
 	fun notify(error: PlaybackException) {
 		val notice = playbackErrorNotice(
 			errorCodeName = error.errorCodeName,
