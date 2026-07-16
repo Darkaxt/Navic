@@ -75,11 +75,11 @@ function Assert-Acknowledgements {
 		},
 		@{
 			id = "playlikecurl"
-			version = "915a5a33773b1b2534134a56cdab00303b29a442"
-			website = "https://github.com/karankalsi/PlayLikeCurl/commit/915a5a33773b1b2534134a56cdab00303b29a442"
+			version = "1.1.1"
+			website = "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.1"
 			license = "playlikecurl-mit"
-			copyright = "Reference geometry for Navic's modern GLES2 page-turn renderer"
-			licenseFile = "third_party/licenses/playlikecurl.txt"
+			copyright = "Originally created by Karan Kalsi; maintained fork by Darkaxt"
+			licenseFile = "third_party/playlikecurl/LICENSE.txt"
 		}
 	)
 
@@ -124,7 +124,8 @@ foreach ($requiredText in @(
 	"107f4fa74db0e7247c846c49d6211df3edf9887c",
 	"f52d42c6127d0ad981a2c67634113541b17ae01e",
 	"ce87167432819f85df49b6b16c7a78556e9a4ee0",
-	"915a5a33773b1b2534134a56cdab00303b29a442"
+	"244a492eda74cffc7681b22c39c0964a4c6b036f",
+	"https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.1"
 )) {
 	if (-not $notices.Contains($requiredText)) {
 		throw "THIRD_PARTY.md omits '$requiredText'."

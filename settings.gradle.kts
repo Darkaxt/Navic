@@ -36,3 +36,6 @@ dependencyResolutionManagement {
 
 include(":composeApp")
 include(":androidApp")
+include(":third_party:playlikecurl:karackencurllib")
+project(":third_party:playlikecurl:karackencurllib").projectDir =
+	file("third_party/playlikecurl/karackencurllib")

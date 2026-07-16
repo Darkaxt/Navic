@@ -48,12 +48,16 @@ the reader vendor manifest.
 
 ## PlayLikeCurl
 
-- Upstream: <https://github.com/karankalsi/PlayLikeCurl>
-- Pinned source: <https://github.com/karankalsi/PlayLikeCurl/commit/915a5a33773b1b2534134a56cdab00303b29a442>
+- Original project: <https://github.com/karankalsi/PlayLikeCurl>
+- Maintained fork: <https://github.com/Darkaxt/PlayLikeCurl>
+- Pinned release: <https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.1>
+- Pinned source: <https://github.com/Darkaxt/PlayLikeCurl/commit/244a492eda74cffc7681b22c39c0964a4c6b036f>
 - License: MIT
-- Full notice: [`third_party/licenses/playlikecurl.txt`](third_party/licenses/playlikecurl.txt)
+- Full notice: [`third_party/playlikecurl/LICENSE.txt`](third_party/playlikecurl/LICENSE.txt)
+- Provenance: [`third_party/playlikecurl/provenance.json`](third_party/playlikecurl/provenance.json)
 
-Navic ports the pinned PlayLikeCurl mesh geometry into a first-party GLES2
-renderer. It does not copy the reference application's obsolete GLES1 activity,
-asset-loading, or lifecycle implementation. The original MIT notice is
-preserved for the adapted geometry formulas.
+Navic vendors the fork's `karackencurllib` Android library as a mechanically
+generated, digest-locked source snapshot. The imported renderer keeps its own
+namespace and production bitmap-deck API; Navic-specific reader behavior lives
+outside the imported tree. PlayLikeCurl was originally created by Karan Kalsi,
+and the maintained GLES2/library fork is published by Darkaxt.

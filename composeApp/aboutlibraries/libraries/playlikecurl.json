@@ -1,13 +1,17 @@
 {
   "uniqueId": "playlikecurl",
-  "artifactVersion": "915a5a33773b1b2534134a56cdab00303b29a442",
+  "artifactVersion": "1.1.1",
   "name": "PlayLikeCurl",
-  "description": "Reference geometry for Navic's modern GLES2 page-turn renderer, adapted from the pinned PlayLikeCurl source.",
-  "website": "https://github.com/karankalsi/PlayLikeCurl/commit/915a5a33773b1b2534134a56cdab00303b29a442",
+  "description": "Vendored source snapshot of Darkaxt's maintained PlayLikeCurl fork (production API 1). Originally created by Karan Kalsi; maintained fork by Darkaxt.",
+  "website": "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.1",
   "developers": [
     {
       "name": "Karan Kalsi",
       "organisationUrl": "https://github.com/karankalsi"
+    },
+    {
+      "name": "Darkaxt",
+      "organisationUrl": "https://github.com/Darkaxt"
     }
   ],
   "licenses": [

@@ -149,6 +149,7 @@ extensions.configure<KotlinMultiplatformExtension> {
 			implementation(libs.bundles.ktor.android)
 			implementation(libs.bundles.androidx.android)
 			implementation(libs.bundles.media3)
+			implementation(projects.thirdParty.playlikecurl.karackencurllib)
 		}
 
 		named("androidHostTest") {

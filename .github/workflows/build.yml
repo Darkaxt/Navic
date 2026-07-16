@@ -15,8 +15,14 @@ on:
       - build.gradle.kts
       - settings.gradle.kts
       - scripts/test-reader-vendor-assets-verifier.ps1
+      - scripts/test-playlikecurl-snapshot-verifier.ps1
       - scripts/update-reader-vendor-manifest.ps1
+      - scripts/verify-playlikecurl-snapshot.ps1
       - scripts/verify-reader-vendor-assets.ps1
+      - scripts/verify-third-party-attributions.ps1
+      - third_party/playlikecurl/**
+      - tools/playlikecurl-snapshot-common.ps1
+      - tools/update-playlikecurl.ps1
       - .github/workflows/build.yml
       - "!**/strings.xml"
   workflow_dispatch:
@@ -45,6 +51,10 @@ jobs:
       - name: Verify reader vendor governance
         shell: pwsh
         run: pwsh -NoProfile -File scripts/test-reader-vendor-assets-verifier.ps1
+
+      - name: Verify PlayLikeCurl snapshot
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/test-playlikecurl-snapshot-verifier.ps1
 
       - name: Setup JDK
         uses: actions/setup-java@v5

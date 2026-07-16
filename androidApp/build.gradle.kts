@@ -137,6 +137,7 @@ extensions.configure<ApplicationExtension> {
 
 		create("readerDev") {
 			initWith(getByName("debug"))
+			matchingFallbacks += listOf("debug")
 			applicationIdSuffix = ".readerdev"
 			isDebuggable = true
 			isProfileable = false

@@ -8,8 +8,8 @@
 
 **PlayLikeCurl public audit baseline:** `e2f1d5030a0077dca3d440f057cf0fdb077e4df3`
 
-**PlayLikeCurl integration release:** tag `1.1.0`, commit
-`3d4f6428cc8a4576e014c0a148ea08cc1e05bdc2`
+**PlayLikeCurl integration release:** tag `1.1.1`, commit
+`244a492eda74cffc7681b22c39c0964a4c6b036f`
 
 **PlayLikeCurl production API version:** `1`
 
@@ -19,7 +19,7 @@
 **Canonical engine:** [Darkaxt/PlayLikeCurl](https://github.com/Darkaxt/PlayLikeCurl)
 
 **Immutable release:**
-[Darkaxt/PlayLikeCurl 1.1.0](https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.0)
+[Darkaxt/PlayLikeCurl 1.1.1](https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.1)
 
 **Related specifications:**
 
@@ -57,7 +57,7 @@ The integration is not allowed to reinterpret "faithful" as "similar". The fork 
 
 ### 2.1 What the fork already proves
 
-At release `1.1.0`, the maintained fork contains:
+At release `1.1.1`, the maintained fork contains:
 
 - a modern Android/Gradle toolchain
 - a GLES2 renderer replacing fixed-function GL1 calls
@@ -94,7 +94,7 @@ backward turns use the production bitmap API. This proves the standalone
 library contract and reference renderer. It does not prove the Navic adapter,
 Foliate settlement, or managed-raster integration.
 
-### 2.2 Fork blockers closed by release 1.1.0
+### 2.2 Fork blockers closed by release 1.1.1
 
 The original audit found asset-path submission, render-thread decoding,
 unbounded textures, ambiguous bitmap ownership, mixed callback affinity,
@@ -102,7 +102,7 @@ incomplete lifecycle operations, cancellation that could promote pending work,
 missing texture-limit handling, continuous idle rendering, and a demo that
 threw on recoverable failures.
 
-Release `1.1.0` closes those blockers in the canonical fork:
+Release `1.1.1` closes those blockers in the canonical fork:
 
 1. Clients submit immutable `Bitmap` page decks with logical page and generation
    identity; the renderer performs no asset or file decode.
@@ -253,14 +253,15 @@ uses neither.
 ```json
 {
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "3d4f6428cc8a4576e014c0a148ea08cc1e05bdc2",
-  "tag": "1.1.0",
+  "commit": "244a492eda74cffc7681b22c39c0964a4c6b036f",
+  "tag": "1.1.1",
   "apiVersion": 1,
   "module": "karackencurllib",
   "releaseArtifact": "karackencurllib-release.aar",
+  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.1/karackencurllib-release.aar",
   "releaseArtifactDigest": "sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b",
-  "sourceDigest": "<sha256 of the normalized imported tree>",
-  "licenseDigest": "<sha256 of LICENSE.txt>"
+  "sourceDigest": "sha256:0ccffd42923c252d9f93664029fd065bb542d28172cc9e5340c3f17816b39516",
+  "licenseDigest": "sha256:002c2696d92b5c8cf956c11072baa58eaf9f6ade995c031ea635c6a1ee342ad1"
 }
 ```
 
@@ -269,13 +270,18 @@ The update script must:
 1. accept an explicit tag or 40-character commit
 2. download or clone into a disposable temporary directory
 3. verify that the tag resolves to the requested commit
-4. copy only the allowlisted library module and license
-5. reject dirty or unexpected generated files
-6. compute and write the provenance digests
-7. never create symlinks, hidden sibling dependencies, or context-free backups
-8. leave reviewable Git changes in Navic
+4. download the tagged release AAR and verify its SHA-256 digest
+5. copy only the allowlisted library module and license
+6. reject dirty or unexpected generated files
+7. compute and write the provenance digests
+8. never create symlinks, hidden sibling dependencies, or context-free backups
+9. leave reviewable Git changes in Navic
 
 Navic code must never edit the imported engine directly. Any engine fix is made and validated in `Darkaxt/PlayLikeCurl`, tagged, then re-imported.
+
+The imported module's Gradle `buildDirectory` must resolve outside
+`third_party/playlikecurl/karackencurllib`. Building or testing Navic must not
+create generated files inside the provenance-governed source snapshot.
 
 ### 3.2 Why this approach is selected
 
@@ -973,8 +979,8 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 ### Tranche 1 - Fork production API
 
-**Status:** complete in `Darkaxt/PlayLikeCurl` release `1.1.0` at
-`3d4f6428cc8a4576e014c0a148ea08cc1e05bdc2`.
+**Status:** complete in `Darkaxt/PlayLikeCurl` release `1.1.1` at
+`244a492eda74cffc7681b22c39c0964a4c6b036f`.
 
 1. Replace asset-string submission with generation-aware bitmap page decks.
 2. Remove asset decoding from the renderer.
@@ -1000,16 +1006,20 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 ### Tranche 2 - Immutable fork release and Navic snapshot
 
-**Status:** release/tag complete; Navic snapshot import pending.
+**Status:** implementation and local gates complete; signed/minified Navic app
+gate pending branch CI.
 
-1. Tag the fork. Completed as immutable tag `1.1.0`.
-2. Implement the snapshot update script and provenance manifest.
-3. Import only the library module and license.
-4. Add the exact Android-only third-party Gradle module path.
-5. Add the dependency only to `composeApp` `androidMain`.
-6. Update attribution to the fork tag and original project.
-7. Add digest, API-version, and anti-drift guards.
-8. Verify manifest/resource merge and minified release compilation.
+1. Tag the fork. Completed as immutable tag `1.1.1`.
+2. Implement the snapshot update script and provenance manifest. Completed.
+3. Import only the library module and license. Completed.
+4. Add the exact Android-only third-party Gradle module path. Completed.
+5. Add the dependency only to `composeApp` `androidMain`. Completed.
+6. Update attribution to the fork tag and original project. Completed.
+7. Add digest, API-version, and anti-drift guards. Completed.
+8. Verify manifest/resource merge and minified release compilation. Debug and
+   ReaderDev package merges plus the imported release AAR pass locally. The
+   signed/minified Navic app gate runs in GitHub Actions because release signing
+   credentials are intentionally unavailable in local worktrees.
 
 **Gate:** a clean Navic clone builds the imported module offline after dependencies are cached, and the snapshot digest matches the fork tag.
 

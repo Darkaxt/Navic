@@ -22,6 +22,7 @@ buildscript {
 
 plugins {
 	alias(libs.plugins.android.application) apply false
+	alias(libs.plugins.android.library) apply false
 	alias(libs.plugins.kotlinMultiplatform) apply false
 	alias(libs.plugins.kotlinMultiplatformLibrary) apply false
 	alias(libs.plugins.composeMultiplatform) apply false
@@ -52,4 +53,8 @@ allprojects {
 	configurations.configureEach {
 		resolutionStrategy.force(securityPatchedDependencies)
 	}
+}
+
+project(":third_party:playlikecurl:karackencurllib") {
+	layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("third-party/playlikecurl/karackencurllib"))
 }

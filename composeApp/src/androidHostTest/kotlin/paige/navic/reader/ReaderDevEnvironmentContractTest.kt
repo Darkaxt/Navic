@@ -59,6 +59,10 @@ class ReaderDevEnvironmentContractTest {
 			"readerDev must expose a BuildConfig flag so the app can force reader diagnostics."
 		)
 		assertTrue(
+			readerDevBlock.contains("matchingFallbacks += listOf(\"debug\")"),
+			"readerDev must consume debug variants from reusable Android libraries without requiring Navic-specific build types."
+		)
+		assertTrue(
 			mainActivity.contains("ReaderWebRuntime.acquireForcedWebContentsDebugging(BuildConfig.NAVIC_READER_DEV)"),
 			"MainActivity must acquire scoped WebView debugging for readerDev before the reader surface is mounted."
 		)
