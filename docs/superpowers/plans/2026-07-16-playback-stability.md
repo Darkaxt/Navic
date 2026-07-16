@@ -36,6 +36,30 @@ ADB, GitHub Actions.
 - Android lint currently has three pre-existing `RestrictedApi` errors in
   `MainActivity.dispatchKeyEvent`; this branch does not modify `MainActivity`.
 
+## Final Release Evidence
+
+- Public master and tag point to release commit `651d1dc6`; the tag descends
+  from required commit `9c619f10`.
+- GitHub Actions run `29514934015` completed successfully. The Android APK and
+  GitHub release jobs passed; all iOS jobs were skipped.
+- Public release:
+  `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota23`
+- The downloaded `Navic.apk` SHA-256 is
+  `58322a9fc0241c6ca38c026de33279cc82ef03c7bd9ba04d5d4ef30647865882`,
+  matching the GitHub asset digest.
+- Independent APK inspection confirms package `darkaxt.navic`,
+  `versionCode=550`, and `versionName=v1.0.11-iota23`.
+- `apksigner` verifies one v2 signer with certificate SHA-256
+  `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`.
+- The public APK upgraded the emulator's existing production package in place,
+  preserved its `firstInstallTime`, launched successfully, and became the
+  resumed activity with a live process.
+- The emulator's production queue was empty before installation, so non-empty
+  queue preservation could not be observed there.
+- Phone `RFCY80551LT` was not attached during deployment. Physical-phone
+  installation and walking/roaming acceptance remain field validation, not a
+  claimed local result.
+
 ---
 
 ## File Map
