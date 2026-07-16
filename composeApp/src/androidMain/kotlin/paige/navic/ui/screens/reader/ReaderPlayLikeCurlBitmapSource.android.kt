@@ -71,7 +71,8 @@ internal fun ReaderPlayLikeCurlBitmapSource.profile(
 ): ReaderPlayLikeCurlRasterProfile = ReaderPlayLikeCurlRasterProfile(
 	sourceIdentity = sourceIdentity,
 	orientation = orientation,
-	quality = quality
+	quality = quality,
+	pageCount = pageCount
 )
 
 private fun Context.decodeScaledAsset(

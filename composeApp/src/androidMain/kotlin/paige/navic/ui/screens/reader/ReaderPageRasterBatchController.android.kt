@@ -22,6 +22,7 @@ internal data class ReaderPageRasterPreparationPlan(
 	val centerPageIndex: Int,
 	val pageCount: Int,
 	val layoutMode: String,
+	val readerDirection: ReaderPlayLikeCurlReaderDirection,
 	val step: Int,
 	val currentChapterPageCount: Int,
 	val targets: List<ReaderPageRasterBatchTarget>
@@ -55,6 +56,12 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 		centerPageIndex = centerPageIndex,
 		pageCount = pageCount,
 		layoutMode = layoutMode,
+		readerDirection = when (
+			context["readerDirection"]?.jsonPrimitive?.contentOrNull.orEmpty().lowercase()
+		) {
+			"rtl" -> ReaderPlayLikeCurlReaderDirection.Rtl
+			else -> ReaderPlayLikeCurlReaderDirection.Ltr
+		},
 		step = (context["step"]?.jsonPrimitive?.intOrNull ?: 1).coerceAtLeast(1),
 		currentChapterPageCount =
 			(context["currentChapterPageCount"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0),

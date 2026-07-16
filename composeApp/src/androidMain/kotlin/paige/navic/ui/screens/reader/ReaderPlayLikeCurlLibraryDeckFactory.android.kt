@@ -5,6 +5,29 @@ import karacken.curl.PageDeck
 import karacken.curl.PageImage
 import karacken.curl.PortraitPageDeck
 
+internal fun readerPlayLikeCurlLibraryDeckPageIndices(
+	orientation: ReaderPlayLikeCurlOrientation,
+	currentOrdinal: Int,
+	pageCount: Int
+): List<Int> {
+	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
+	return if (orientation == ReaderPlayLikeCurlOrientation.Landscape) {
+		val lastOrdinal = pageCount - 1
+		val lastLeft = lastOrdinal - Math.floorMod(lastOrdinal, 2)
+		val currentLeft = currentOrdinal
+			.coerceIn(0, lastLeft)
+			.let { ordinal -> ordinal - Math.floorMod(ordinal, 2) }
+		(currentLeft - 2..currentLeft + 3)
+			.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
+			.distinct()
+	} else {
+		val boundedCurrent = currentOrdinal.coerceIn(0, pageCount - 1)
+		listOf(boundedCurrent - 1, boundedCurrent, boundedCurrent + 1)
+			.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
+			.distinct()
+	}
+}
+
 internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 	orientation: ReaderPlayLikeCurlOrientation,
 	generationId: Long,

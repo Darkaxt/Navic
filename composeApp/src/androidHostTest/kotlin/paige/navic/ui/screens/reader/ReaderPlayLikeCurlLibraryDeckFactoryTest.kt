@@ -9,6 +9,50 @@ import kotlin.test.assertIs
 
 class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	@Test
+	fun portraitDeckWindowUsesPreviousCurrentAndNextLogicalPages() {
+		assertEquals(
+			listOf(3, 4, 5),
+			readerPlayLikeCurlLibraryDeckPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Portrait,
+				currentOrdinal = 4,
+				pageCount = 9
+			)
+		)
+	}
+
+	@Test
+	fun landscapeDeckWindowUsesThreeCompleteSpreads() {
+		assertEquals(
+			listOf(2, 3, 4, 5, 6, 7),
+			readerPlayLikeCurlLibraryDeckPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				currentOrdinal = 4,
+				pageCount = 10
+			)
+		)
+	}
+
+	@Test
+	fun deckWindowClampsAtPublicationBoundaries() {
+		assertEquals(
+			listOf(0, 1),
+			readerPlayLikeCurlLibraryDeckPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Portrait,
+				currentOrdinal = 0,
+				pageCount = 2
+			)
+		)
+		assertEquals(
+			listOf(0, 1, 2, 3),
+			readerPlayLikeCurlLibraryDeckPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				currentOrdinal = 0,
+				pageCount = 4
+			)
+		)
+	}
+
+	@Test
 	fun portraitMapsPreviousCurrentAndNextAroundTheRequestedOrdinal() {
 		val deck = readerPlayLikeCurlLibraryDeck(
 			orientation = ReaderPlayLikeCurlOrientation.Portrait,

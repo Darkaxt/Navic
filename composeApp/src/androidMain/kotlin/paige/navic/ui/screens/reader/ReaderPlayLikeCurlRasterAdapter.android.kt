@@ -10,7 +10,10 @@ import paige.navic.reader.ReaderPageBitmapQuality
 internal data class ReaderPlayLikeCurlRasterProfile(
 	val sourceIdentity: String,
 	val orientation: ReaderPlayLikeCurlOrientation,
-	val quality: ReaderPageBitmapQuality
+	val quality: ReaderPageBitmapQuality,
+	val pageCount: Int = 1,
+	val readerDirection: ReaderPlayLikeCurlReaderDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+	val rasterGeneration: Long = 0L
 )
 
 internal data class ReaderPlayLikeCurlRasterKey(

@@ -119,6 +119,7 @@ function pageTurnRasterDescriptor(pageIndex) {
 function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
   const geometry = this.pageTurnCaptureGeometry()
   const layoutMode = geometry.mode
+  const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   const step = layoutMode === 'spread' ? 2 : 1
   const requestedCenter = Number(pageIndexOverride)
   const pageCount = Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1))
@@ -166,6 +167,7 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
       centerPageIndex,
       pageCount,
       layoutMode,
+      readerDirection,
       step,
       currentChapterPageCount: Math.max(0, Math.floor(Number(currentChapter?.pageCount) || 0)),
     }),
