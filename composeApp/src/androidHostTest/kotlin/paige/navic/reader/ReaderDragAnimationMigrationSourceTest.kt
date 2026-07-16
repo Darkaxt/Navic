@@ -17,7 +17,8 @@ class ReaderDragAnimationMigrationSourceTest {
 		assertContains(settingsCore, "ReaderDragAnimationCanvas = 'canvas'")
 		assertContains(settingsCore, "LegacyReaderDragAnimationStandard = 'standard'")
 		assertContains(settingsCore, "LegacyReaderDragAnimationCurl = 'curl'")
-		assertContains(settingsCore, "rawMode === ReaderDragAnimationCanvas || rawMode === LegacyReaderDragAnimationCurl")
+		assertContains(settingsCore, "if (rawMode === ReaderDragAnimationCanvas) return ReaderDragAnimationCanvas")
+		assertContains(settingsCore, "if (rawMode === LegacyReaderDragAnimationCurl) return ReaderDragAnimationNone")
 		assertContains(settingsCore, "return ReaderDragAnimationNone")
 	}
 
@@ -38,11 +39,11 @@ class ReaderDragAnimationMigrationSourceTest {
 	fun nativeCanvasIsEnabledOnlyByTheCanvasMode() {
 		val readerRoot = File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderRoot.kt").readText()
 
-		assertContains(readerRoot, "pageTurnCanvasEnabled = false")
-		assertFalse(
-			readerRoot.contains("dragAnimationMode == ReaderDragAnimationCanvas"),
-			"Production reader must not re-enable the failed Canvas page-turn path before the PlayLikeCurl PoC is verified."
+		assertContains(
+			readerRoot,
+			"normalizedReaderDragAnimationMode(controllerState.chrome.settings.dragAnimationMode) =="
 		)
+		assertContains(readerRoot, "ReaderDragAnimationCanvas")
 		assertFalse(readerRoot.contains("ReaderDragAnimationCurl"))
 	}
 

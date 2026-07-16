@@ -397,18 +397,18 @@ class ReaderSettingsDefaultsTest {
 	@Test
 	fun readerSettingsDefaultsMigrateLegacyDragAnimationModes() {
 		assertEquals(
-			listOf(ReaderDragAnimationNone),
+			listOf(ReaderDragAnimationNone, ReaderDragAnimationCanvas),
 			ReaderSupportedDragAnimationModes
 		)
 		assertEquals(ReaderDragAnimationNone, defaultReaderSettings().dragAnimationMode)
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("fold"))
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("standard"))
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("curl"))
-		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode(ReaderDragAnimationCanvas))
+		assertEquals(ReaderDragAnimationCanvas, normalizedReaderDragAnimationMode(ReaderDragAnimationCanvas))
 		assertEquals("None", readerDragAnimationModeShortLabel(ReaderDragAnimationNone))
-		assertEquals("None", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
+		assertEquals("Canvas", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
 		assertEquals(
-			ReaderDragAnimationNone,
+			ReaderDragAnimationCanvas,
 			normalizedReaderSettings(
 				fontFamily = ReaderSansFontFamily,
 				fontSizePercent = 100,

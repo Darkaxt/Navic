@@ -183,7 +183,8 @@ export const readerFoliateFlow = flowMode =>
 
 export const readerDragAnimationMode = settings => {
   const rawMode = String(settings?.["dragAnimationMode"] || '').trim().toLowerCase()
-  if (rawMode === ReaderDragAnimationCanvas || rawMode === LegacyReaderDragAnimationCurl) return ReaderDragAnimationNone
+  if (rawMode === ReaderDragAnimationCanvas) return ReaderDragAnimationCanvas
+  if (rawMode === LegacyReaderDragAnimationCurl) return ReaderDragAnimationNone
   return ReaderDragAnimationNone
 }
 

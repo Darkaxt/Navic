@@ -518,11 +518,22 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
 	private var pageTurnPrewarmLayoutSignature: Long? = null
 	private var pageTurnPrewarmStableFrameCount: Int = 0
+	private val pageTurnBundleSource = ReaderPageTurnBundleSource()
+	private val playLikeCurlController = ReaderPlayLikeCurlFoliateController(
+		host = this,
+		webViewProvider = { viewerContentContainer.findDescendantWebView() },
+		bundleSource = pageTurnBundleSource,
+		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady
+	)
 	private val pageTurnController = ReaderPageTurnController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
+		bundleSource = pageTurnBundleSource,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
-		onPreparationStateChange = { state -> onPagePreparationStateChange(state) },
+		onPreparationStateChange = { state ->
+			playLikeCurlController.onPreparationStateChanged(state)
+			onPagePreparationStateChange(state)
+		},
 		onCommitTurn = { direction ->
 			when (direction) {
 				ReaderPageTurnPhysicalDirection.TowardLeft -> onAction(KomikkuNavigationRegion.RIGHT)
@@ -537,6 +548,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			viewerContentContainer,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
+		addView(
+			playLikeCurlController.surfaceView,
+			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+		)
 	}
 
 	fun setShellCoverView(shellCoverView: View) {
@@ -549,6 +564,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun replaceViewerContent(viewerView: View) {
+		playLikeCurlController.invalidate("viewer-replaced")
 		pageTurnController.invalidate("viewer-replaced")
 		viewerContentContainer.removeAllViews()
 		viewerContentContainer.addView(
@@ -561,6 +577,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		if (pageTurnCanvasEnabled == enabled) return
 		pageTurnCanvasEnabled = enabled
+		playLikeCurlController.setEnabled(enabled)
 		if (enabled) {
 			requestPageTurnPrewarmWhenReady()
 		} else {
@@ -570,12 +587,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun setPageTurnBitmapQuality(value: String?) {
+		playLikeCurlController.updateBitmapQuality(value)
 		pageTurnController.updateBitmapQuality(value)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
 		if (pageTurnSnapshotKey == snapshotKey) return
 		pageTurnSnapshotKey = snapshotKey
+		playLikeCurlController.setSnapshotKey(snapshotKey)
 		pageTurnController.invalidate("settings-changed")
 		requestPageTurnPrewarmWhenReady()
 	}
@@ -585,6 +604,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (pageTurnVisualPageIndex == normalized && pageTurnVisualLocationReason == reason) return
 		pageTurnVisualPageIndex = normalized
 		pageTurnVisualLocationReason = reason
+		playLikeCurlController.synchronizeVisualPageIndex(normalized, reason)
 		pageTurnController.synchronizeVisualPageIndex(normalized, reason)
 		requestPageTurnPrewarmWhenReady()
 	}
@@ -594,6 +614,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		shellCoverVisible = visible
 		if (visible) {
 			removePageTurnPrewarmLayoutListener()
+			playLikeCurlController.invalidate("shell-cover-visible")
 			pageTurnController.invalidate("shell-cover-visible")
 		} else {
 			pageTurnController.invalidateCurrentVisualSnapshot("shell-cover-hidden")
@@ -605,6 +626,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (pagePreparationGesturesBlocked == blocked) return
 		pagePreparationGesturesBlocked = blocked
 		if (blocked) {
+			playLikeCurlController.cancelGesture()
 			pageTurnController.cancel()
 			cancelReadableViewerDragPreview()
 			clearNativeTapState()
@@ -679,6 +701,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	override fun onAttachedToWindow() {
 		super.onAttachedToWindow()
+		playLikeCurlController.onHostAttached()
 		requestPageTurnPrewarmWhenReady()
 	}
 
@@ -795,11 +818,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			return true
 		}
 		val handled = super.dispatchTouchEvent(event)
+		val playLikeCurlHandled = if (pageTurnCanvasEnabled && !shellCoverVisible) {
+			playLikeCurlController.onPageTouchEvent(event)
+		} else {
+			false
+		}
 		handleSwipeTouchEvent(event)
 		if (!horizontalSwipeDispatched && !nativeSwipeIntercepted && !nativeTapCancelledByDrag) {
 			gestureDetector.onTouchEvent(event)
 		}
-		val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched
+		val consumed = handled || playLikeCurlHandled || nativeSwipeIntercepted || horizontalSwipeDispatched
 		if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
 			clearNativeTapState()
 		}
@@ -827,7 +855,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 						if (shellCoverVisible) {
 							updateShellCoverDragOffset(dx)
 						} else if (usesNativePageTurnCanvas()) {
-							pageTurnController.update(dx, width, swipeStartY, event.y, height)
+							playLikeCurlController.showSurfaceForGesture()
 							logReaderReadableDragPreview(dx, dy)
 						} else {
 							updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)
@@ -850,7 +878,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 								deltaY = dy
 							)
 						} else if (usesNativePageTurnCanvas()) {
-							pageTurnController.release(dx, width, swipeStartY, event.y, height)
 							horizontalSwipeDispatched = true
 							nativeTapCancelledByDrag = true
 							nativeSwipeIntercepted = true
@@ -883,7 +910,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			MotionEvent.ACTION_POINTER_DOWN -> {
 				if (!shellCoverVisible) {
 					if (usesNativePageTurnCanvas()) {
-						pageTurnController.cancel()
+						playLikeCurlController.cancelGesture()
 					} else {
 						cancelReadableViewerDragPreview()
 					}
@@ -956,7 +983,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			!pagePreparationGesturesBlocked &&
 			!verticalPageDragPreview &&
 			!shellCoverVisible &&
-			pageTurnController.isAvailable
+			playLikeCurlController.isAvailable
 
 	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
 		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible = shellCoverVisible)
@@ -1055,6 +1082,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
 		if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh)) {
+			playLikeCurlController.onHostSizeChanged()
 			pageTurnController.invalidate("size-changed")
 			requestPageTurnPrewarmWhenReady()
 		}
@@ -1067,12 +1095,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			requestPageTurnPrewarmWhenReady()
 		} else {
 			removePageTurnPrewarmLayoutListener()
+			playLikeCurlController.onHostWindowHidden()
 			pageTurnController.invalidate("window-hidden")
 		}
 	}
 
 	override fun onDetachedFromWindow() {
 		removePageTurnPrewarmLayoutListener()
+		playLikeCurlController.destroy()
 		pageTurnController.destroy()
 		super.onDetachedFromWindow()
 	}

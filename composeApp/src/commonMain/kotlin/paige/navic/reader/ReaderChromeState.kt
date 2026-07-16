@@ -138,7 +138,8 @@ val ReaderSupportedFontSources: List<String> = listOf(
 )
 
 val ReaderSupportedDragAnimationModes: List<String> = listOf(
-	ReaderDragAnimationNone
+	ReaderDragAnimationNone,
+	ReaderDragAnimationCanvas
 )
 
 val ReaderSupportedTapZones: List<String> = listOf(
@@ -278,6 +279,7 @@ fun normalizedReaderNavBarType(navBarType: String?): String =
 fun normalizedReaderDragAnimationMode(dragAnimationMode: String?): String =
 	when (dragAnimationMode?.trim()?.lowercase()) {
 		ReaderDragAnimationNone, "standard" -> ReaderDragAnimationNone
+		ReaderDragAnimationCanvas -> ReaderDragAnimationCanvas
 		else -> ReaderDragAnimationNone
 	}
 
@@ -656,6 +658,7 @@ fun readerNavBarTypeShortLabel(navBarType: String?): String =
 
 fun readerDragAnimationModeShortLabel(dragAnimationMode: String?): String =
 	when (normalizedReaderDragAnimationMode(dragAnimationMode)) {
+		ReaderDragAnimationCanvas -> "Canvas"
 		else -> "None"
 	}
 
