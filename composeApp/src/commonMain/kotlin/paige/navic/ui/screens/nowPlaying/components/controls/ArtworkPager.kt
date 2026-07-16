@@ -2,6 +2,7 @@ package paige.navic.ui.screens.nowPlaying.components.controls
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,6 +23,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.NowPlayingPagerIntentTracker
 import paige.navic.domain.models.shouldEnableNowPlayingArtworkSwipe
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.screens.nowPlaying.components.NowPlayingArtwork
@@ -39,24 +43,43 @@ fun NowPlayingArtworkPager(
 		initialPage = playerState.currentIndex.coerceAtLeast(0),
 		pageCount = { playerState.queue.size }
 	)
+	val tracker = remember { NowPlayingPagerIntentTracker() }
+	val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+	val currentIndex by rememberUpdatedState(playerState.currentIndex)
+	val queueSize by rememberUpdatedState(playerState.queue.size)
+	val isPaused by rememberUpdatedState(playerState.isPaused)
 
 	val visible = true
 	val scale by animateFloatAsState(if (visible) 1f else 0f)
 	val offset by animateDpAsState(if (visible) 0.dp else 200.dp)
 
-	LaunchedEffect(playerState.currentIndex) {
-		if (playerState.currentIndex != -1 && playerState.currentIndex != pagerState.currentPage) {
+	LaunchedEffect(playerState.currentIndex, isDragged) {
+		if (
+			!isDragged &&
+			playerState.currentIndex != -1 &&
+			playerState.currentIndex != pagerState.currentPage
+		) {
 			pagerState.animateScrollToPage(playerState.currentIndex)
 		}
 	}
 
+	LaunchedEffect(isDragged) {
+		if (isDragged) tracker.onUserDragStarted()
+	}
+
 	LaunchedEffect(pagerState) {
 		snapshotFlow { pagerState.settledPage }.collect { page ->
-			if (page == playerState.currentIndex) return@collect
-			val wasPaused = playerState.isPaused
-			player.playAt(page)
-			if (wasPaused) {
-				player.pause()
+			tracker.onSettledPage(
+				settledPage = page,
+				currentIndex = currentIndex,
+				queueSize = queueSize,
+				isPaused = isPaused
+			)?.let { request ->
+				player.selectQueueItem(
+					index = request.index,
+					playWhenReady = request.playWhenReady,
+					origin = request.origin
+				)
 			}
 		}
 	}

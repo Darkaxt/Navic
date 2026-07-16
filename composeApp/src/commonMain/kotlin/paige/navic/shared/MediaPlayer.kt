@@ -23,6 +23,7 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.QueueSelectionOrigin
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
@@ -80,7 +81,7 @@ abstract class MediaPlayerViewModel(
 	abstract fun applyDiscoverQueueFilter(onComplete: (removedCount: Int) -> Unit = {})
 	abstract fun clearQueue()
 	abstract fun setPlaybackOrigin(origin: PlaybackOrigin?)
-	abstract fun playAt(index: Int)
+	abstract fun selectQueueItem(index: Int, playWhenReady: Boolean, origin: QueueSelectionOrigin)
 	abstract fun playCollection(collection: DomainSongCollection, startSong: DomainSong)
 	abstract fun playNextSingle(song: DomainSong)
 	abstract fun playNext(collection: DomainSongCollection)
@@ -100,6 +101,14 @@ abstract class MediaPlayerViewModel(
 	abstract fun refreshAudioEffects()
 	abstract fun refreshPlaybackVolume()
 	open fun setNowPlayingVideoClipAudioActive(active: Boolean) {}
+
+	fun playAt(index: Int) {
+		selectQueueItem(
+			index = index,
+			playWhenReady = true,
+			origin = QueueSelectionOrigin.DirectPlay
+		)
+	}
 
 	fun playNow(song: DomainSong) {
 		clearQueue()

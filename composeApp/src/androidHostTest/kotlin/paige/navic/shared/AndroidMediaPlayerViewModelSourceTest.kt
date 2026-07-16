@@ -179,6 +179,33 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertFalse(viewModelText.contains("it.copy(isPaused = !isPlaying)"))
 		assertFalse(viewModelText.contains("isPaused = !controller.isPlaying"))
 	}
+
+	@Test
+	fun artworkPagerSettlementsAreOwnedByUserDrags() {
+		val pagerText = commonSourceFile(
+			"ui/screens/nowPlaying/components/controls/ArtworkPager.kt"
+		).readText()
+
+		assertContains(pagerText, "collectIsDraggedAsState")
+		assertContains(pagerText, "NowPlayingPagerIntentTracker")
+		assertContains(pagerText, "tracker.onUserDragStarted()")
+		assertContains(pagerText, "player.selectQueueItem(")
+		assertFalse(pagerText.contains("player.playAt(page)"))
+		assertFalse(pagerText.contains("player.pause()"))
+	}
+
+	@Test
+	fun queueSelectionCarriesOneFinalPlaybackIntent() {
+		val commonPlayerText = commonSourceFile("shared/MediaPlayer.kt").readText()
+		val androidPlayerText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+
+		assertContains(commonPlayerText, "abstract fun selectQueueItem(")
+		assertContains(commonPlayerText, "QueueSelectionOrigin.DirectPlay")
+		assertContains(androidPlayerText, "private var pendingQueueSelection: QueueSelectionRequest?")
+		assertContains(androidPlayerText, "override fun selectQueueItem(")
+		assertContains(androidPlayerText, "player.playWhenReady = request.playWhenReady")
+		assertFalse(androidPlayerText.contains("pendingPlayIndex"))
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =
@@ -187,3 +214,10 @@ private fun androidSharedSourceFile(fileName: String): File =
 		File("composeApp/src/androidMain/kotlin/paige/navic/shared/$fileName")
 	).firstOrNull { it.isFile }
 		?: error("Could not locate Android shared source file $fileName")
+
+private fun commonSourceFile(relativePath: String): File =
+	listOf(
+		File("src/commonMain/kotlin/paige/navic/$relativePath"),
+		File("composeApp/src/commonMain/kotlin/paige/navic/$relativePath")
+	).firstOrNull { it.isFile }
+		?: error("Could not locate common source file $relativePath")

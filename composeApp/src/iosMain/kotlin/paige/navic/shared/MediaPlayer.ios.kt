@@ -31,6 +31,7 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.QueueSelectionOrigin
 import paige.navic.domain.models.SongRadioQueueDefaultSize
 import paige.navic.domain.models.discoverQueueRemovalIndexes
 import paige.navic.domain.models.normalizedPlaybackPitch
@@ -226,7 +227,7 @@ class IOSMediaPlayerViewModel(
 		}
 	}
 
-	override fun playAt(index: Int) {
+	override fun selectQueueItem(index: Int, playWhenReady: Boolean, origin: QueueSelectionOrigin) {
 		if (isTransitioningBetweenTracks) return
 
 		val songToPlay = _uiState.value.queue.getOrNull(index) ?: return
@@ -243,13 +244,13 @@ class IOSMediaPlayerViewModel(
 			player.pause()
 			player.replaceCurrentItemWithPlayerItem(null)
 			player.replaceCurrentItemWithPlayerItem(createAVPlayerItem(url))
-			player.play()
+			if (playWhenReady) player.play()
 
 			_uiState.update {
 				it.copy(
 					currentIndex = index,
 					currentSong = songToPlay,
-					isPaused = false,
+					isPaused = !playWhenReady,
 					isLoading = false
 				)
 			}

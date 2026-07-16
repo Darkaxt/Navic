@@ -46,6 +46,8 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.collectionShufflePlaybackPlan
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.QueueSelectionOrigin
+import paige.navic.domain.models.QueueSelectionRequest
 import paige.navic.domain.models.audioFadeDurationMs
 import paige.navic.domain.models.normalizedPlaybackPitch
 import paige.navic.domain.models.normalizedPlaybackSpeed
@@ -108,7 +110,7 @@ class AndroidMediaPlayerViewModel(
 
 	private var loadingCollectionId: String? = null
 
-	private var pendingPlayIndex: Int? = null
+	private var pendingQueueSelection: QueueSelectionRequest? = null
 	private var latestDownloadsById: Map<String, DownloadEntity> = emptyMap()
 	private var nowPlayingVideoClipAudioActive = false
 	private val playbackArtworkResolver = AndroidPlaybackArtworkResolver(
@@ -372,7 +374,7 @@ class AndroidMediaPlayerViewModel(
 				updatePlaybackState()
 				updatePlaybackProperties(currentTracks)
 				refreshAudioEffects()
-				playPendingIndexIfAvailable(this)
+				playPendingQueueSelectionIfAvailable(this)
 
 				downloadManager.allDownloads.first()
 				playbackStateSynchronizer.onControllerReady()
@@ -629,7 +631,7 @@ class AndroidMediaPlayerViewModel(
 			val player = controller
 			player?.addMediaItem(withContext(Dispatchers.Default) { song.toMediaItem() })
 			_uiState.update { state -> queueStateReducer.append(state, listOf(song)) }
-			player?.let(::playPendingIndexIfAvailable)
+			player?.let(::playPendingQueueSelectionIfAvailable)
 			if (notify) snackBarManager.notifyAddedToQueue()
 		}
 	}
@@ -649,7 +651,7 @@ class AndroidMediaPlayerViewModel(
 			val player = controller
 			player?.addMediaItems(items)
 			_uiState.update { state -> queueStateReducer.append(state, songs) }
-			player?.let(::playPendingIndexIfAvailable)
+			player?.let(::playPendingQueueSelectionIfAvailable)
 			if (notify) snackBarManager.notifyAddedToQueue()
 		}
 	}
@@ -716,7 +718,7 @@ class AndroidMediaPlayerViewModel(
 	override fun clearQueue() {
 		viewModelScope.launch {
 			playbackOriginRecorder.setOriginNow(null)
-			pendingPlayIndex = null
+			pendingQueueSelection = null
 			playbackRecovery.clear()
 			queueAutoFiller.cancel()
 			_uiState.update {
@@ -731,30 +733,31 @@ class AndroidMediaPlayerViewModel(
 		}
 	}
 
-	override fun playAt(index: Int) {
+	override fun selectQueueItem(index: Int, playWhenReady: Boolean, origin: QueueSelectionOrigin) {
+		val request = QueueSelectionRequest(index, playWhenReady, origin)
 		viewModelScope.launch {
 			if (index < 0) return@launch
 
 			val player = controller
-			if (player == null || !playAtIfAvailable(player, index)) {
-				pendingPlayIndex = index
+			if (player == null || !selectQueueItemIfAvailable(player, request)) {
+				pendingQueueSelection = request
 			}
 		}
 	}
 
-	private fun playAtIfAvailable(player: MediaController, index: Int): Boolean {
-		if (index !in 0 until player.mediaItemCount) return false
+	private fun selectQueueItemIfAvailable(player: MediaController, request: QueueSelectionRequest): Boolean {
+		if (request.index !in 0 until player.mediaItemCount) return false
 
-		player.seekTo(index, 0L)
-		claimMusicPlayback()
-		player.play()
+		player.seekTo(request.index, 0L)
+		if (request.playWhenReady) claimMusicPlayback()
+		player.playWhenReady = request.playWhenReady
 		return true
 	}
 
-	private fun playPendingIndexIfAvailable(player: MediaController) {
-		val index = pendingPlayIndex ?: return
-		if (playAtIfAvailable(player, index)) {
-			pendingPlayIndex = null
+	private fun playPendingQueueSelectionIfAvailable(player: MediaController) {
+		val request = pendingQueueSelection ?: return
+		if (selectQueueItemIfAvailable(player, request)) {
+			pendingQueueSelection = null
 		}
 	}
 
@@ -830,7 +833,7 @@ class AndroidMediaPlayerViewModel(
 				val mediaItems = withContext(Dispatchers.Default) {
 					radioQueue.map { it.toMediaItem() }
 				}
-				pendingPlayIndex = null
+				pendingQueueSelection = null
 				queueAutoFiller.cancel()
 				controller?.let { player ->
 					player.shuffleModeEnabled = false
