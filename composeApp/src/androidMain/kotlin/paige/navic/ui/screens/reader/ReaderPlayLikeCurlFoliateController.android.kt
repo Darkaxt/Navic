@@ -254,6 +254,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return surfaceView.onPageTouchEvent(event)
 	}
 
+	fun turn(pageChange: PageChange): Boolean {
+		if (!isAvailable) {
+			Logger.i(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl tap turn change=$pageChange accepted=false reason=not-available"
+			)
+			return false
+		}
+		surfaceView.alpha = 1f
+		val accepted = surfaceView.turn(pageChange)
+		if (!accepted) hideSurface()
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl tap turn change=$pageChange accepted=$accepted"
+		)
+		return accepted
+	}
+
 	fun showSurfaceForGesture() {
 		if (!isAvailable) return
 		surfaceView.alpha = 1f

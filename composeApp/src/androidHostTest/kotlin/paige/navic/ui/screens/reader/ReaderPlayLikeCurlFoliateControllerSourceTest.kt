@@ -71,6 +71,44 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun edgeTapsUseThePreparedImportedDeckWithoutFallingThroughToFoliate() {
+		val controllerSource = controllerFile.readText()
+		val hostSource = hostFile.readText()
+		val dispatch = hostSource
+			.substringAfter("private fun dispatchSingleTapAction(action: KomikkuNavigationRegion)")
+			.substringBefore("override fun onInterceptTouchEvent")
+		val importedBranch = dispatch
+			.substringAfter("if (shouldRouteTapToPlayLikeCurl())")
+			.substringBefore("if (action != KomikkuNavigationRegion.MENU)")
+
+		assertContains(controllerSource, "fun turn(pageChange: PageChange): Boolean")
+		assertContains(controllerSource, "surfaceView.turn(pageChange)")
+		assertContains(controllerSource, "PlayLikeCurl tap turn")
+		assertContains(hostSource, "private fun shouldRouteTapToPlayLikeCurl()")
+		assertContains(hostSource, "private fun playLikeCurlPageChangeFor(")
+		assertContains(importedBranch, "playLikeCurlController.turn(pageChange)")
+		assertContains(importedBranch, "Reader PlayLikeCurl tap")
+		assertContains(importedBranch, "return")
+		assertFalse(
+			importedBranch.contains("onAction("),
+			"An imported tap must never fall through to an immediate Foliate relocation."
+		)
+	}
+
+	@Test
+	fun importedTapDirectionUsesTheReaderDirectionContract() {
+		val source = hostFile.readText()
+		val mapper = source
+			.substringAfter("private fun playLikeCurlPageChangeFor(")
+			.substringBefore("private fun shouldRouteTapToPlayLikeCurl()")
+
+		assertContains(source, "pageTurnReadingDirection")
+		assertContains(mapper, "readerTapZonePageTurnDirectionFor(")
+		assertContains(mapper, "ReaderPageTurnDirection.Next -> PageChange.NEXT")
+		assertContains(mapper, "ReaderPageTurnDirection.Previous -> PageChange.PREVIOUS")
+	}
+
+	@Test
 	fun settlementKeepsTheAcceptedDeckUntilFoliateConfirmsTheTargetPage() {
 		val source = controllerFile.readText()
 		val settlementStarted = source

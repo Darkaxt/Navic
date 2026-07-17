@@ -141,6 +141,7 @@ internal fun KomikkuReaderRoot(
 			pageTurnCanvasEnabled =
 				normalizedReaderDragAnimationMode(controllerState.chrome.settings.dragAnimationMode) ==
 					ReaderDragAnimationCanvas,
+			pageTurnReadingDirection = controllerState.chrome.settings.direction,
 			pageTurnBitmapQuality = controllerState.chrome.settings.pageBitmapQuality,
 			pageTurnSnapshotKey = controllerState.chrome.settings.hashCode(),
 			pageTurnContentReadyKey = readerPageTurnContentReadyKey(

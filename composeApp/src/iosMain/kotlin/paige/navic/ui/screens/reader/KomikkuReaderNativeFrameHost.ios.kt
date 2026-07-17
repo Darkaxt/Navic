@@ -20,6 +20,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
+	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
 	pageTurnSnapshotKey: Int,
 	pageTurnContentReadyKey: String?,

@@ -28,15 +28,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.viewinterop.AndroidView
+import karacken.curl.PageChange
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerShellCoverSwipeAction
+import paige.navic.reader.readerTapZonePageTurnDirectionFor
 import paige.navic.util.core.Logger
 import java.io.File
 import java.net.URLDecoder
@@ -62,6 +65,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
+	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
 	pageTurnSnapshotKey: Int,
 	pageTurnContentReadyKey: String?,
@@ -98,6 +102,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setVerticalPageDragPreview(verticalPageDragPreview)
 				setPageTurnBitmapQuality(pageTurnBitmapQuality)
 				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+				setPageTurnReadingDirection(pageTurnReadingDirection)
 				setPageTurnSnapshotKey(pageTurnSnapshotKey)
 				setPageTurnContentReadyKey(pageTurnContentReadyKey)
 				setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
@@ -121,6 +126,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setVerticalPageDragPreview(verticalPageDragPreview)
 			root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
 			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+			root.setPageTurnReadingDirection(pageTurnReadingDirection)
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
 			root.setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
@@ -262,6 +268,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		viewerContainer.setPageTurnCanvasEnabled(enabled)
+	}
+
+	fun setPageTurnReadingDirection(direction: String?) {
+		viewerContainer.setPageTurnReadingDirection(direction)
 	}
 
 	fun setPageTurnBitmapQuality(value: String?) {
@@ -528,6 +538,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeSwipeIntercepted: Boolean = false
 	private var playLikeCurlGestureOwned: Boolean = false
 	private var pageTurnCanvasEnabled: Boolean = false
+	private var pageTurnReadingDirection: String? = null
 	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
 	private var pageTurnContentReadyKey: String? = null
 	private var pageTurnVisualPageIndex: Int? = null
@@ -604,6 +615,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			removePageTurnPrewarmLayoutListener()
 			pageTurnController.invalidate("canvas-disabled")
 		}
+	}
+
+	fun setPageTurnReadingDirection(direction: String?) {
+		pageTurnReadingDirection = direction
 	}
 
 	fun setPageTurnBitmapQuality(value: String?) {
@@ -786,7 +801,44 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 	)
 
+	private fun playLikeCurlPageChangeFor(action: KomikkuNavigationRegion): PageChange? {
+		val direction = when (action) {
+			KomikkuNavigationRegion.NEXT -> ReaderPageTurnDirection.Next
+			KomikkuNavigationRegion.PREV -> ReaderPageTurnDirection.Previous
+			KomikkuNavigationRegion.RIGHT -> readerTapZonePageTurnDirectionFor(
+				ReaderTapZoneAction.Right,
+				pageTurnReadingDirection
+			)
+			KomikkuNavigationRegion.LEFT -> readerTapZonePageTurnDirectionFor(
+				ReaderTapZoneAction.Left,
+				pageTurnReadingDirection
+			)
+			KomikkuNavigationRegion.MENU -> null
+		}
+		return when (direction) {
+			ReaderPageTurnDirection.Next -> PageChange.NEXT
+			ReaderPageTurnDirection.Previous -> PageChange.PREVIOUS
+			null -> null
+		}
+	}
+
+	private fun shouldRouteTapToPlayLikeCurl(): Boolean =
+		pageTurnCanvasEnabled &&
+			!verticalPageDragPreview &&
+			!shellCoverVisible
+
 	private fun dispatchSingleTapAction(action: KomikkuNavigationRegion) {
+		if (shouldRouteTapToPlayLikeCurl()) {
+			val pageChange = playLikeCurlPageChangeFor(action)
+			if (pageChange != null) {
+				val accepted = playLikeCurlController.turn(pageChange)
+				Logger.i(
+					KomikkuReaderNativeFrameHostTag,
+					"Reader PlayLikeCurl tap action=$action change=$pageChange accepted=$accepted"
+				)
+				return
+			}
+		}
 		if (action != KomikkuNavigationRegion.MENU) {
 			onAction(action)
 			return
