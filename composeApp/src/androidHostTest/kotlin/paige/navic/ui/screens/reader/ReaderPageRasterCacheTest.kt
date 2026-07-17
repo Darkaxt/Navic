@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -13,6 +15,73 @@ import kotlin.test.assertTrue
 import paige.navic.reader.ReaderPageBitmapQuality
 
 class ReaderPageRasterCacheTest {
+	private val cacheSourceFile =
+		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageRasterCache.android.kt")
+
+	@Test
+	fun rasterEncodingAndDiskSyncHappenBeforeTheAtomicCacheCommitLock() {
+		val source = cacheSourceFile.readText()
+		val write = source
+			.substringAfter("fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean")
+			.substringBefore("private fun writeFailed(")
+		val encodeIndex = write.indexOf("codec.encode(value, temporary)")
+		val syncIndex = write.indexOf("output.fd.sync()")
+		val commitLockIndex = write.indexOf("synchronized(this)")
+
+		assertTrue(encodeIndex >= 0, "Raster writes must encode the immutable value.")
+		assertTrue(syncIndex > encodeIndex, "Disk synchronization must follow encoding.")
+		assertTrue(
+			commitLockIndex > syncIndex,
+			"PNG encoding and fsync must not hold the cache state lock needed by foreground raster reads."
+		)
+		assertFalse(
+			source.contains("@Synchronized\n\tfun write("),
+			"The whole raster write must not be synchronized."
+		)
+	}
+
+	@Test
+	fun foregroundRasterReadIsNotBlockedByBackgroundEncoding() {
+		val codec = ByteArrayRasterCodec()
+		val fixture = fixture(codec = codec)
+		val existingKey = key(chapterPageIndex = 1)
+		val writingKey = key(chapterPageIndex = 2)
+		assertTrue(fixture.cache.write(existingKey, metadata(), pngBytes("existing")))
+
+		val encodeStarted = CountDownLatch(1)
+		val releaseEncode = CountDownLatch(1)
+		val readFinished = AtomicBoolean(false)
+		codec.beforeEncode = {
+			encodeStarted.countDown()
+			releaseEncode.await()
+		}
+		val writer = Thread {
+			fixture.cache.write(writingKey, metadata(), pngBytes("writing"))
+		}
+		writer.start()
+		encodeStarted.await()
+
+		val reader = Thread {
+			val copied = fixture.cache.readCopy(existingKey) { cached -> cached.copyOf() }
+			readFinished.set(copied?.value?.contentEquals(pngBytes("existing")) == true)
+		}
+		reader.start()
+		var observationCount = 0
+		while (!readFinished.get() && observationCount < 100) {
+			Thread.sleep(5L)
+			observationCount += 1
+		}
+		val completedBeforeEncodeRelease = readFinished.get()
+		releaseEncode.countDown()
+		writer.join()
+		reader.join()
+
+		assertTrue(
+			completedBeforeEncodeRelease,
+			"A foreground raster read must not wait for background PNG encoding or fsync."
+		)
+	}
+
 	@Test
 	fun completeRasterIdentitySeparatesEveryLayoutInput() {
 		val base = key()
@@ -224,10 +293,12 @@ class ReaderPageRasterCacheTest {
 	private class ByteArrayRasterCodec(
 		private val failEncoding: Boolean = false
 	) : ReaderPageRasterCodec<ByteArray> {
+		var beforeEncode: (() -> Unit)? = null
 		var decodeCalls = 0
 			private set
 
 		override fun encode(value: ByteArray, target: File): Boolean {
+			beforeEncode?.invoke()
 			if (failEncoding) return false
 			target.writeBytes(value)
 			return true

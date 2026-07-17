@@ -673,7 +673,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
-		if (!pageTurnCanvasEnabled || !isAttachedToWindow) return
+		if (
+			!pageTurnCanvasEnabled ||
+			!isAttachedToWindow ||
+			pageTurnVisualPageIndex == null
+		) return
 		pageTurnPrewarmLayoutSignature = null
 		pageTurnPrewarmStableFrameCount = 0
 		if (pageTurnPrewarmLayoutListener != null) return

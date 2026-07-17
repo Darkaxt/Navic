@@ -69,6 +69,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private var snapshotKey = Int.MIN_VALUE
 	private var currentOrdinal = 0
+	private var authoritativeLocationReady = false
 	private var pendingExactOrdinal: Int? = null
 	private var preparationPhase = ReaderPagePreparationPhase.Idle
 	private var requestGeneration = 0L
@@ -113,15 +114,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 				targetLogicalPageId: String,
 				pageChange: PageChange
 			) {
-				val pages = generationOwners[generationId] ?: activePages ?: return
-				val targetOrdinal = targetOrdinal(pageChange, pages.profile)
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement started generation=$generationId " +
 						"source=$sourceLogicalPageId target=$targetLogicalPageId " +
-						"change=$pageChange targetOrdinal=$targetOrdinal"
+						"change=$pageChange"
 				)
-				submitLibraryDeck(pages, targetOrdinal)
 			}
 
 			override fun onSettlementCompleted(
@@ -268,6 +266,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
+		authoritativeLocationReady = true
 		if (reason == "page-turn:exact") {
 			if (pendingExactOrdinal != normalized) return
 			pendingExactOrdinal = null
@@ -320,6 +319,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			!attached -> "host-detached"
 			destroyed -> "destroyed"
 			!capabilitiesAvailable -> "capabilities-unavailable"
+			!authoritativeLocationReady -> "authoritative-location-unavailable"
 			preparationPhase == ReaderPagePreparationPhase.Preparing -> "preparation-in-progress"
 			else -> null
 		}
@@ -393,13 +393,39 @@ internal class ReaderPlayLikeCurlFoliateController(
 			currentOrdinal = centerOrdinal,
 			pageCount = profile.pageCount
 		)
-		val preparation = adapter.prepare(profile, pageIndices)
+		val startedAtNanos = System.nanoTime()
+		logActivationState(
+			event = "deck-load-started",
+			detail = "request=$request center=$centerOrdinal pages=${pageIndices.joinToString(",")}"
+		)
+		val preparation = adapter.prepare(
+			profile = profile,
+			pageIndices = pageIndices,
+			onProgress = { progress ->
+				host.post {
+					if (request == requestGeneration && enabled && !destroyed) {
+						logActivationState(
+							event = "deck-load-progress",
+							detail = "request=$request center=$centerOrdinal " +
+								"completed=${progress.completed}/${progress.total} " +
+								"elapsedMillis=${elapsedMillis(startedAtNanos)}"
+						)
+					}
+				}
+			}
+		)
 		rasterScope.launch {
 			val deck = preparation.await()
 			if (deck == null) {
 				host.post {
 					if (request == requestGeneration && enabled && !destroyed) {
 						interactionReady = false
+						logActivationState(
+							event = "deck-load-failed",
+							detail = "request=$request center=$centerOrdinal " +
+								"pages=${pageIndices.joinToString(",")} " +
+								"elapsedMillis=${elapsedMillis(startedAtNanos)}"
+						)
 						logActivationState(
 							"refresh-gated",
 							"raster-deck-unavailable phase=$preparationPhase"
@@ -414,6 +440,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 					deck.close()
 					return@post
 				}
+				logActivationState(
+					event = "deck-load-completed",
+					detail = "request=$request center=$centerOrdinal " +
+						"pages=${pageIndices.joinToString(",")} " +
+						"elapsedMillis=${elapsedMillis(startedAtNanos)}"
+				)
 				activePages?.let { previous ->
 					previous.obsolete = true
 					closeIfUnused(previous)
@@ -472,18 +504,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 			bitmap.height,
 			bitmap
 		)
-	}
-
-	private fun targetOrdinal(
-		pageChange: PageChange,
-		profile: ReaderPlayLikeCurlRasterProfile
-	): Int {
-		val step = if (profile.orientation == ReaderPlayLikeCurlOrientation.Landscape) 2 else 1
-		return when (pageChange) {
-			PageChange.PREVIOUS -> (currentOrdinal - step).coerceAtLeast(0)
-			PageChange.NEXT -> (currentOrdinal + step).coerceAtMost(profile.pageCount - 1)
-			PageChange.NONE -> currentOrdinal
-		}
 	}
 
 	private fun dispatchExactVisualPage(pageIndex: Int) {
@@ -568,4 +588,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			attached &&
 			!destroyed &&
 			webView.isAttachedToWindow
+
+	private fun elapsedMillis(startedAtNanos: Long): Long =
+		((System.nanoTime() - startedAtNanos).coerceAtLeast(0L) / 1_000_000L)
 }

@@ -260,7 +260,23 @@ internal class ReaderPageTurnController(
 					)
 				)
 				onRequestPrewarm()
+				return
 			}
+			val exactCoordinator = coordinator ?: ReaderPageSlideCoordinator(pageIndex).also {
+				slideCoordinator = it
+			}
+			if (
+				exactCoordinator.visualPageIndex != pageIndex ||
+				exactCoordinator.settledPageIndex != pageIndex
+			) {
+				cancelPrewarm()
+				exactCoordinator.invalidate(pageIndex)
+				Logger.i(
+					ReaderPageTurnControllerTag,
+					"Page-turn external exact page synchronized page=$pageIndex"
+				)
+			}
+			onRequestPrewarm()
 			return
 		}
 		if (slideCoordinator?.visualPageIndex == pageIndex) return

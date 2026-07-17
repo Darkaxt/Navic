@@ -877,6 +877,27 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun initialRasterPrewarmWaitsForTheAuthoritativeFoliateLocation() {
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val requestPrewarm = host
+			.substringAfter("private fun requestPageTurnPrewarmWhenReady()")
+			.substringBefore("private fun pageTurnPrewarmLayoutSignature")
+		val controller = readerAndroidFile("ReaderPlayLikeCurlFoliateController.android.kt").readText()
+		val refresh = controller
+			.substringAfter("private fun refreshPreparedDeck()")
+			.substringBefore("private fun prepareProfile(")
+
+		assertContains(requestPrewarm, "pageTurnVisualPageIndex == null")
+		assertContains(controller, "authoritativeLocationReady")
+		assertContains(refresh, "!authoritativeLocationReady -> \"authoritative-location-unavailable\"")
+		assertTrue(
+			requestPrewarm.indexOf("pageTurnVisualPageIndex == null") <
+				requestPrewarm.indexOf("pageTurnPrewarmLayoutListener != null"),
+			"The host must reject provisional prewarm before it installs a frame listener."
+		)
+	}
+
+	@Test
 	fun exactLocationEventsCompleteSettlementWithoutPollingTheWebView() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val synchronize = controller
@@ -897,6 +918,27 @@ class ReaderPageTurnNativeSourceTest {
 			synchronize.indexOf("coordinator.settlementReported(") <
 				synchronize.indexOf("bundleSource.invalidate(\"external-page-relocation\")"),
 			"An expected exact settlement must advance the coordinator before external relocation handling"
+		)
+	}
+
+	@Test
+	fun importedExactLocationReanchorsTheLegacyPrewarmWindow() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val synchronize = controller
+			.substringAfter("fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?)")
+			.substringBefore("private fun begin(")
+		val exactLocation = synchronize
+			.substringAfter("reason == \"page-turn:exact\"")
+			.substringBefore("if (slideCoordinator?.visualPageIndex == pageIndex)")
+
+		assertContains(exactLocation, "exactCoordinator.invalidate(pageIndex)")
+		assertContains(exactLocation, "cancelPrewarm()")
+		assertContains(exactLocation, "onRequestPrewarm()")
+		assertContains(exactLocation, "external exact page synchronized")
+		assertTrue(
+			exactLocation.indexOf("coordinator.settlementReported(") <
+				exactLocation.indexOf("exactCoordinator.invalidate(pageIndex)"),
+			"The legacy controller must complete its own matching settlement before using the imported exact fallback."
 		)
 	}
 

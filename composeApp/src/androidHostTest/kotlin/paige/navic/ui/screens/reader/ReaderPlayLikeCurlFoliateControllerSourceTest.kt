@@ -42,6 +42,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun productionControllerTracesRasterDeckLoadingProgressAndLatency() {
+		val source = controllerFile.readText()
+		val prepare = source
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("private fun submitLibraryDeck(")
+
+		assertContains(prepare, "\"deck-load-started\"")
+		assertContains(prepare, "\"deck-load-progress\"")
+		assertContains(prepare, "\"deck-load-completed\"")
+		assertContains(prepare, "\"deck-load-failed\"")
+		assertContains(prepare, "pageIndices.joinToString")
+		assertContains(prepare, "elapsedMillis")
+		assertContains(prepare, "onProgress =")
+	}
+
+	@Test
 	fun productionControllerTracesGestureOwnershipAndExactSettlementWithoutMoveSpam() {
 		val controllerSource = controllerFile.readText()
 		val hostSource = hostFile.readText()
@@ -52,6 +68,23 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(controllerSource, "PlayLikeCurl settlement cancelled")
 		assertContains(controllerSource, "PlayLikeCurl exact page dispatched")
 		assertFalse(hostSource.contains("Reader PlayLikeCurl gesture move"))
+	}
+
+	@Test
+	fun settlementKeepsTheAcceptedDeckUntilFoliateConfirmsTheTargetPage() {
+		val source = controllerFile.readText()
+		val settlementStarted = source
+			.substringAfter("override fun onSettlementStarted(")
+			.substringBefore("override fun onSettlementCompleted(")
+
+		assertFalse(
+			settlementStarted.contains("submitLibraryDeck("),
+			"A settlement must not require the next adjacency raster before the accepted animation can finish."
+		)
+		assertFalse(
+			settlementStarted.contains("interactionReady = false"),
+			"The accepted imported surface must remain ready for the entire settlement."
+		)
 	}
 
 	@Test
