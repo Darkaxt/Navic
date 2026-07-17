@@ -137,6 +137,25 @@ public class ProductionBitmapApiSourceTest {
     }
 
     @Test
+    public void preparedEdgeTapCanStartTheReferenceSettlementDirectly() throws IOException {
+        String surfaceSource = source("PageSurfaceView.java");
+        String modelSource = source("PlayLikeCurlModel.java");
+        String turnBody =
+                methodBody(surfaceSource, "public boolean turn(PageChange pageChange)");
+        String modelTurnBody =
+                methodBody(modelSource, "Settlement turn(PageChange pageChange)");
+
+        assertTrue(turnBody.contains("gestureReady()"));
+        assertTrue(turnBody.contains("PageChange.PREVIOUS"));
+        assertTrue(turnBody.contains("PageChange.NEXT"));
+        assertTrue(turnBody.contains("interaction.turn(pageChange)"));
+        assertTrue(turnBody.contains("settle(settlement)"));
+        assertFalse(turnBody.contains("performClick()"));
+        assertTrue(modelTurnBody.contains("flingTowardPrevious()"));
+        assertTrue(modelTurnBody.contains("flingTowardNext()"));
+    }
+
+    @Test
     public void rendererValidatesProductionBitmapAndGpuLimits() throws IOException {
         String source = source("PageRenderer.java");
         String budgetSource = source("TextureBudget.java");

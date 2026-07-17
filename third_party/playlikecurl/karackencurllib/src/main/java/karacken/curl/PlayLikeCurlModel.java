@@ -144,6 +144,22 @@ public final class PlayLikeCurlModel {
                 SettlementInterpolator.DECELERATE);
     }
 
+    Settlement turn(PageChange pageChange) {
+        if (pageChange == PageChange.PREVIOUS) {
+            if (!canSwipePrevious()) return release();
+            setActivePage(ActivePage.LEFT);
+            leftPage.setCurlPosition(RIGHT_ENDPOINT_POSITION);
+            return flingTowardPrevious();
+        }
+        if (pageChange == PageChange.NEXT) {
+            if (!canSwipeNext()) return release();
+            setActivePage(ActivePage.CURRENT);
+            frontPage.setCurlPosition(GRID);
+            return flingTowardNext();
+        }
+        return release();
+    }
+
     void updateSettlement(float valuePercent) {
         activePageState().setCurlPosition(GRID * valuePercent / 100f);
     }

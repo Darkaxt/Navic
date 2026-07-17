@@ -25,3 +25,10 @@ Clients attach and detach the surface explicitly, handle structured capability
 and rendering callbacks, and release rejected or obsolete decks. After OpenGL
 context recreation, retained decks are revalidated against the current texture
 limits; only decks that can no longer be uploaded are released.
+
+## Programmatic Turns
+
+`PageSurfaceView.turn(PageChange)` starts a prepared `PREVIOUS` or `NEXT` turn
+using the same deformation and settlement path as a committed edge drag. It
+returns `false` without changing pages when the surface cannot accept the turn
+or the requested direction is outside the current deck boundary.

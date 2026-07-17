@@ -103,6 +103,26 @@ public class PlayLikeCurlReferenceModelTest {
     }
 
     @Test
+    public void programmaticTurnsStartFromTheSameReferenceEndpointsAsEdgeDrags() {
+        PlayLikeCurlModel forward = new PlayLikeCurlModel(4, 1);
+        Settlement forwardSettlement = forward.turn(PageChange.NEXT);
+
+        assertEquals(ActivePage.CURRENT, forward.getActivePage());
+        assertEquals(PlayLikeCurlModel.GRID, forward.getFrontPage().getCurlPosition(), TOLERANCE);
+        assertEquals(PageChange.NEXT, forwardSettlement.getPageChange());
+
+        PlayLikeCurlModel backward = new PlayLikeCurlModel(4, 2);
+        Settlement backwardSettlement = backward.turn(PageChange.PREVIOUS);
+
+        assertEquals(ActivePage.LEFT, backward.getActivePage());
+        assertEquals(
+                PlayLikeCurlModel.RIGHT_ENDPOINT_POSITION,
+                backward.getLeftPage().getCurlPosition(),
+                TOLERANCE);
+        assertEquals(PageChange.PREVIOUS, backwardSettlement.getPageChange());
+    }
+
+    @Test
     public void slowForwardReleasePastMidpointCommitsTheNextPage() {
         PlayLikeCurlModel model = new PlayLikeCurlModel(4, 0);
         model.beginGesture(100f);

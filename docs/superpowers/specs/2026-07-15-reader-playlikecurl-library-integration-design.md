@@ -8,18 +8,18 @@
 
 **PlayLikeCurl public audit baseline:** `e2f1d5030a0077dca3d440f057cf0fdb077e4df3`
 
-**PlayLikeCurl integration release:** tag `1.1.1`, commit
-`244a492eda74cffc7681b22c39c0964a4c6b036f`
+**PlayLikeCurl integration release:** tag `1.1.2`, commit
+`2555831fcca962b2089997c4f8ea21ff5bd226fc`
 
 **PlayLikeCurl production API version:** `1`
 
 **Release AAR:** `karackencurllib-release.aar`,
-`sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b`
+`sha256:01ef07dcf19f52ce1cba37e9f9be3abcf15b228b9a7dd14d917036f85b4fe42b`
 
 **Canonical engine:** [Darkaxt/PlayLikeCurl](https://github.com/Darkaxt/PlayLikeCurl)
 
 **Immutable release:**
-[Darkaxt/PlayLikeCurl 1.1.1](https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.1)
+[Darkaxt/PlayLikeCurl 1.1.2](https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.2)
 
 **Related specifications:**
 
@@ -57,7 +57,7 @@ The integration is not allowed to reinterpret "faithful" as "similar". The fork 
 
 ### 2.1 What the fork already proves
 
-At release `1.1.1`, the maintained fork contains:
+At release `1.1.2`, the maintained fork contains:
 
 - a modern Android/Gradle toolchain
 - a GLES2 renderer replacing fixed-function GL1 calls
@@ -94,7 +94,7 @@ backward turns use the production bitmap API. This proves the standalone
 library contract and reference renderer. It does not prove the Navic adapter,
 Foliate settlement, or managed-raster integration.
 
-### 2.2 Fork blockers closed by release 1.1.1
+### 2.2 Fork blockers closed by release 1.1.2
 
 The original audit found asset-path submission, render-thread decoding,
 unbounded textures, ambiguous bitmap ownership, mixed callback affinity,
@@ -102,7 +102,7 @@ incomplete lifecycle operations, cancellation that could promote pending work,
 missing texture-limit handling, continuous idle rendering, and a demo that
 threw on recoverable failures.
 
-Release `1.1.1` closes those blockers in the canonical fork:
+Release `1.1.2` closes those blockers in the canonical fork:
 
 1. Clients submit immutable `Bitmap` page decks with logical page and generation
    identity; the renderer performs no asset or file decode.
@@ -253,13 +253,13 @@ uses neither.
 ```json
 {
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "244a492eda74cffc7681b22c39c0964a4c6b036f",
-  "tag": "1.1.1",
+  "commit": "2555831fcca962b2089997c4f8ea21ff5bd226fc",
+  "tag": "1.1.2",
   "apiVersion": 1,
   "module": "karackencurllib",
   "releaseArtifact": "karackencurllib-release.aar",
-  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.1/karackencurllib-release.aar",
-  "releaseArtifactDigest": "sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b",
+  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.2/karackencurllib-release.aar",
+  "releaseArtifactDigest": "sha256:01ef07dcf19f52ce1cba37e9f9be3abcf15b228b9a7dd14d917036f85b4fe42b",
   "sourceDigest": "sha256:0ccffd42923c252d9f93664029fd065bb542d28172cc9e5340c3f17816b39516",
   "licenseDigest": "sha256:002c2696d92b5c8cf956c11072baa58eaf9f6ade995c031ea635c6a1ee342ad1"
 }
@@ -979,8 +979,8 @@ Each tranche ends with a recorded MP4 comparison against the fork's reference de
 
 ### Tranche 1 - Fork production API
 
-**Status:** complete in `Darkaxt/PlayLikeCurl` release `1.1.1` at
-`244a492eda74cffc7681b22c39c0964a4c6b036f`.
+**Status:** complete in `Darkaxt/PlayLikeCurl` release `1.1.2` at
+`2555831fcca962b2089997c4f8ea21ff5bd226fc`.
 
 1. Replace asset-string submission with generation-aware bitmap page decks.
 2. Remove asset decoding from the renderer.
@@ -1013,7 +1013,7 @@ passed the signed/minified release build, expected-certificate verification,
 packaged reader governance, third-party attribution verification, and artifact
 upload.
 
-1. Tag the fork. Completed as immutable tag `1.1.1`.
+1. Tag the fork. Completed as immutable tag `1.1.2`.
 2. Implement the snapshot update script and provenance manifest. Completed.
 3. Import only the library module and license. Completed.
 4. Add the exact Android-only third-party Gradle module path. Completed.

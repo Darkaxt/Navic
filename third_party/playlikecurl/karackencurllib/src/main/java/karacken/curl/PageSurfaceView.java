@@ -217,6 +217,34 @@ public class PageSurfaceView extends GLSurfaceView {
         notifySettlementCancelled(cancelledSettlement);
     }
 
+    /**
+     * Starts the same reference settlement used by a completed edge drag.
+     *
+     * <p>Returns false when the prepared deck cannot accept a turn or the requested direction is
+     * outside the current deck boundary.
+     */
+    public boolean turn(PageChange pageChange) {
+        requireMainThread();
+        if (pageChange != PageChange.PREVIOUS && pageChange != PageChange.NEXT) {
+            return false;
+        }
+        if (!gestureReady()) {
+            return false;
+        }
+        PlayLikeCurlModel interaction = interactionModelOrNull();
+        if (interaction == null) {
+            return false;
+        }
+        Settlement settlement = interaction.turn(pageChange);
+        if (settlement.getPageChange() == PageChange.NONE) {
+            interaction.cancelGesture();
+            requestRender();
+            return false;
+        }
+        settle(settlement);
+        return true;
+    }
+
     /** Explicitly activates a prepared replacement after an idle generation change. */
     public void activatePendingDeck() {
         requireMainThread();

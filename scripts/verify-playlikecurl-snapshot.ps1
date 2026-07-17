@@ -5,15 +5,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 $expectedRepository = "https://github.com/Darkaxt/PlayLikeCurl"
-$expectedCommit = "244a492eda74cffc7681b22c39c0964a4c6b036f"
-$expectedTag = "1.1.1"
+$expectedCommit = "2555831fcca962b2089997c4f8ea21ff5bd226fc"
+$expectedTag = "1.1.2"
 $expectedApiVersion = 1
 $expectedModule = "karackencurllib"
 $expectedReleaseArtifact = "karackencurllib-release.aar"
 $expectedReleaseArtifactUrl =
-	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.1/karackencurllib-release.aar"
+	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.2/karackencurllib-release.aar"
 $expectedReleaseArtifactDigest =
-	"sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b"
+	"sha256:01ef07dcf19f52ce1cba37e9f9be3abcf15b228b9a7dd14d917036f85b4fe42b"
 
 $repositoryRootPath = (Resolve-Path -LiteralPath $RepositoryRoot).Path
 . (Join-Path $PSScriptRoot "../tools/playlikecurl-snapshot-common.ps1")

@@ -1,13 +1,13 @@
 {
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "244a492eda74cffc7681b22c39c0964a4c6b036f",
-  "tag": "1.1.1",
+  "commit": "2555831fcca962b2089997c4f8ea21ff5bd226fc",
+  "tag": "1.1.2",
   "apiVersion": 1,
   "module": "karackencurllib",
   "releaseArtifact": "karackencurllib-release.aar",
-  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.1/karackencurllib-release.aar",
-  "releaseArtifactDigest": "sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b",
-  "sourceDigest": "sha256:0ccffd42923c252d9f93664029fd065bb542d28172cc9e5340c3f17816b39516",
+  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.2/karackencurllib-release.aar",
+  "releaseArtifactDigest": "sha256:01ef07dcf19f52ce1cba37e9f9be3abcf15b228b9a7dd14d917036f85b4fe42b",
+  "sourceDigest": "sha256:a3b9eb1104e4fe1059b8f715c7007c36d300c7b2ab5365a4d3b7d91f875f7f05",
   "sourceFileCount": 50,
   "licenseDigest": "sha256:002c2696d92b5c8cf956c11072baa58eaf9f6ade995c031ea635c6a1ee342ad1",
   "files": [
@@ -21,7 +21,7 @@
     },
     {
       "path": "PRODUCTION_API.md",
-      "sha256": "79c1505d74164649eac0ae2efd954893e6c61b7d12b98dae44d1ff8b5a56c4dd"
+      "sha256": "59c963db766a7bd18631c008ef584a38b5f0907d6c48fce45a0286d690bcc0a3"
     },
     {
       "path": "proguard-rules.pro",
@@ -117,7 +117,7 @@
     },
     {
       "path": "src/main/java/karacken/curl/PageSurfaceView.java",
-      "sha256": "6b0f374c2dc16ca61feb8613733c98e1fe3d37ca806399fd9baba0af60836fd1"
+      "sha256": "a7180abf3d986cbafa8285db6e12331a0b1a22dddc066d5cbeaed040c152b93b"
     },
     {
       "path": "src/main/java/karacken/curl/PlayLikeCurlApi.java",
@@ -129,7 +129,7 @@
     },
     {
       "path": "src/main/java/karacken/curl/PlayLikeCurlModel.java",
-      "sha256": "0f2cf875ac8068a3ac32a680f194e8be536235df6a4e59b4a8a0cb56d3a4cb03"
+      "sha256": "fc17b9baee6dc1ff9a237486ca951f49b230622533ec4a486e240317c3f4d6b1"
     },
     {
       "path": "src/main/java/karacken/curl/PortraitPageDeck.java",
@@ -189,11 +189,11 @@
     },
     {
       "path": "src/test/java/karacken/curl/PlayLikeCurlReferenceModelTest.java",
-      "sha256": "eff957feaae78e3e580fc3cec3a4f4005ed33efe78e2f61abfbd52e743b26aff"
+      "sha256": "246232da495c01cd958f7c0d6b070888d03954cecc6c2b8d6cd62c3280dc2432"
     },
     {
       "path": "src/test/java/karacken/curl/ProductionBitmapApiSourceTest.java",
-      "sha256": "a6395692267f1b3894ecbb7c336f9acca7ba98e1a5bbf5b9534e8d72a0a03bd4"
+      "sha256": "c3551ab245077bb144e23f37890f2ff6b34c0fa47845615ec9e3fd3ff3d83ead"
     },
     {
       "path": "src/test/java/karacken/curl/RenderCapabilitiesTest.java",

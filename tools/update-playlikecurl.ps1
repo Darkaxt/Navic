@@ -1,11 +1,11 @@
 param(
-	[string] $TagOrCommit = "1.1.1",
-	[string] $ExpectedCommit = "244a492eda74cffc7681b22c39c0964a4c6b036f",
-	[string] $ReleaseTag = "1.1.1",
+	[string] $TagOrCommit = "1.1.2",
+	[string] $ExpectedCommit = "2555831fcca962b2089997c4f8ea21ff5bd226fc",
+	[string] $ReleaseTag = "1.1.2",
 	[int] $ApiVersion = 1,
 	[string] $ReleaseArtifact = "karackencurllib-release.aar",
 	[string] $ReleaseArtifactDigest =
-		"sha256:56d5e30027da6caf66b27c5bec17d73dcebb6faa5a38455046a8b59570128e1b",
+		"sha256:01ef07dcf19f52ce1cba37e9f9be3abcf15b228b9a7dd14d917036f85b4fe42b",
 	[string] $Repository = "https://github.com/Darkaxt/PlayLikeCurl",
 	[string] $RepositoryRoot = (Join-Path $PSScriptRoot "..")
 )
@@ -125,9 +125,14 @@ try {
 		licenseDigest = $licenseDigest
 		files = @($sourceMetadata.files)
 	}
-	$provenance |
-		ConvertTo-Json -Depth 8 |
-		Set-Content -LiteralPath (Join-Path $stagingRoot "provenance.json") -Encoding utf8
+	$provenanceJson = ($provenance | ConvertTo-Json -Depth 8).
+		Replace("`r`n", "`n").
+		Replace("`r", "`n")
+	[System.IO.File]::WriteAllText(
+		(Join-Path $stagingRoot "provenance.json"),
+		"$provenanceJson`n",
+		[System.Text.UTF8Encoding]::new($false)
+	)
 
 	Assert-PlayLikeCurlRemovalTarget `
 		-RepositoryRoot $repositoryRootPath `
