@@ -1,6 +1,6 @@
 # PlayLikeCurl Library Integration Design
 
-**Status:** Implementation-ready integration contract after source and lifecycle audit
+**Status:** Implemented and validated for the iota24 Android release candidate
 
 **Date:** 2026-07-16
 
@@ -52,6 +52,33 @@ The integration must:
 - retain a clear rollback path until the integrated renderer has passed ReaderDev, emulator, and device validation
 
 The integration is not allowed to reinterpret "faithful" as "similar". The fork owns deformation. Navic owns page preparation and reader settlement.
+
+## 1.1 Implementation and Release Readiness
+
+- The immutable PlayLikeCurl `1.1.2` source snapshot is imported and verified at
+  commit `2555831fcca962b2089997c4f8ea21ff5bd226fc`.
+- Navic commit `7765da40` completes the production Foliate raster adapter,
+  imported-library gesture routing, exact-once settlement, raster lifecycle,
+  and removal of the parallel Navic deformation renderer.
+- Real Alcatraz EPUB pages were validated in ReaderDev in portrait and
+  landscape. Consecutive turns, exact visual-page synchronization, and
+  landscape spread transitions completed without a Compose dialog or a stale
+  generation reset.
+- The apparent blinking dialog was the bitmap preparation shield. The lifecycle
+  now reuses the shield within one raster generation, does not attach it for
+  passive adjacent-page prewarm, and retains a valid generation across exact
+  page synchronization.
+- Reader loading diagnostics now record raster session, page, generation,
+  batch, transition kind, dimensions, bitmap identity, preparation progress,
+  shield attach/reuse/update/remove/skip, invalidation reason, and terminal
+  outcome.
+- The integrated Android host suite produced 74 failures versus 75 on the exact
+  `fork/master` baseline. There were no failures unique to the integration; the
+  removed baseline-only failure covered the deleted legacy renderer.
+- `:androidApp:assembleReaderDev`, the PlayLikeCurl snapshot verifier, generated
+  third-party attribution verifier, and Android version guard pass.
+- Candidate metadata is `versionCode=551` and
+  `versionName=v1.0.11-iota24`.
 
 ## 2. Audit Findings
 
