@@ -109,19 +109,21 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun settlementKeepsTheAcceptedDeckUntilFoliateConfirmsTheTargetPage() {
+	fun settlementSubmitsThePreparedReplacementWithoutBlockingTheAcceptedAnimation() {
 		val source = controllerFile.readText()
 		val settlementStarted = source
 			.substringAfter("override fun onSettlementStarted(")
 			.substringBefore("override fun onSettlementCompleted(")
 
-		assertFalse(
-			settlementStarted.contains("submitLibraryDeck("),
-			"A settlement must not require the next adjacency raster before the accepted animation can finish."
+		assertContains(
+			settlementStarted,
+			"submitLibraryDeck(",
+			message = "Settlement must offer the already-decoded replacement for automatic promotion."
 		)
+		assertContains(settlementStarted, "ReaderDeckSubmissionRole.Pending")
 		assertFalse(
-			settlementStarted.contains("ReaderTextureDeckState.Empty"),
-			"The accepted imported surface must remain ready for the entire settlement."
+			settlementStarted.contains("adapter.prepare("),
+			"Settlement must never decode or perform IO on the gesture frame."
 		)
 		assertContains(settlementStarted, "ReaderTextureDeckState.Settling")
 		assertContains(settlementStarted, "ReaderPageInteractionState.Settling")
@@ -168,7 +170,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun productionControllerPreparesOneDeckWindowAroundTheFoliateCenter() {
+	fun productionControllerPreparesTheProtectedWorkingSetAroundTheFoliateCenter() {
 		val source = controllerFile.readText()
 		val prepare = source
 			.substringAfter("private fun prepareProfile(")
@@ -176,9 +178,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(
 			prepare,
-			"readerPlayLikeCurlLibraryDeckPageIndices(",
+			"readerPlayLikeCurlPreparedPageIndices(",
 			ignoreCase = false,
-			"The controller should prepare exactly the page window consumed by one imported deck."
+			"The controller must prepare the active deck plus one promotion in both directions."
 		)
 		assertFalse(
 			prepare.contains("listOf(centerOrdinal - step, centerOrdinal, centerOrdinal + step)"),
@@ -187,6 +189,19 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertFalse(
 			prepare.contains(".flatMap"),
 			"The real EPUB adapter must not recursively expand adjacent deck windows."
+		)
+	}
+
+	@Test
+	fun promotedDeckCanAcceptTheNextGestureBeforeFoliateAcknowledgesTheExactPage() {
+		val source = controllerFile.readText()
+		val availability = source
+			.substringAfter("val isAvailable: Boolean")
+			.substringBefore("fun setEnabled(")
+
+		assertFalse(
+			availability.contains("pendingExactOrdinal == null"),
+			"Foliate acknowledgement must not create an interaction dead zone after deck promotion."
 		)
 	}
 

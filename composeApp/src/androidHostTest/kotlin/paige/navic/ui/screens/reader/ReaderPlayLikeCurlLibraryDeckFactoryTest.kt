@@ -9,6 +9,61 @@ import kotlin.test.assertIs
 
 class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	@Test
+	fun portraitPreparedWindowKeepsTwoPagesInEachDirection() {
+		assertEquals(
+			listOf(2, 3, 4, 5, 6),
+			readerPlayLikeCurlPreparedPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Portrait,
+				currentOrdinal = 4,
+				pageCount = 9
+			)
+		)
+	}
+
+	@Test
+	fun landscapePreparedWindowKeepsTwoCompleteSpreadsInEachDirection() {
+		assertEquals(
+			(4..13).toList(),
+			readerPlayLikeCurlPreparedPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				currentOrdinal = 8,
+				pageCount = 20
+			)
+		)
+	}
+
+	@Test
+	fun settlementTargetUsesOnePageOrOneSpreadWithoutCrossingBoundaries() {
+		assertEquals(
+			5,
+			readerPlayLikeCurlSettlementTargetOrdinal(
+				orientation = ReaderPlayLikeCurlOrientation.Portrait,
+				currentOrdinal = 4,
+				pageCount = 9,
+				pageChange = karacken.curl.PageChange.NEXT
+			)
+		)
+		assertEquals(
+			2,
+			readerPlayLikeCurlSettlementTargetOrdinal(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				currentOrdinal = 4,
+				pageCount = 9,
+				pageChange = karacken.curl.PageChange.PREVIOUS
+			)
+		)
+		assertEquals(
+			null,
+			readerPlayLikeCurlSettlementTargetOrdinal(
+				orientation = ReaderPlayLikeCurlOrientation.Portrait,
+				currentOrdinal = 0,
+				pageCount = 9,
+				pageChange = karacken.curl.PageChange.PREVIOUS
+			)
+		)
+	}
+
+	@Test
 	fun portraitDeckWindowUsesPreviousCurrentAndNextLogicalPages() {
 		assertEquals(
 			listOf(3, 4, 5),

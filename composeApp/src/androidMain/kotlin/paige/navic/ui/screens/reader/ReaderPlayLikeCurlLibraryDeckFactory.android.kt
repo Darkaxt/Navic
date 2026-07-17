@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import karacken.curl.LandscapePageDeck
+import karacken.curl.PageChange
 import karacken.curl.PageDeck
 import karacken.curl.PageImage
 import karacken.curl.PortraitPageDeck
@@ -22,6 +23,40 @@ internal fun readerPlayLikeCurlLibraryDeckPageIndices(
 			.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
 			.distinct()
 	}
+}
+
+internal fun readerPlayLikeCurlPreparedPageIndices(
+	orientation: ReaderPlayLikeCurlOrientation,
+	currentOrdinal: Int,
+	pageCount: Int
+): List<Int> {
+	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
+	val boundedCurrent = currentOrdinal.coerceIn(0, pageCount - 1)
+	val range = if (orientation == ReaderPlayLikeCurlOrientation.Landscape) {
+		boundedCurrent - 4..boundedCurrent + 5
+	} else {
+		boundedCurrent - 2..boundedCurrent + 2
+	}
+	return range
+		.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
+		.distinct()
+}
+
+internal fun readerPlayLikeCurlSettlementTargetOrdinal(
+	orientation: ReaderPlayLikeCurlOrientation,
+	currentOrdinal: Int,
+	pageCount: Int,
+	pageChange: PageChange
+): Int? {
+	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
+	val boundedCurrent = currentOrdinal.coerceIn(0, pageCount - 1)
+	val step = if (orientation == ReaderPlayLikeCurlOrientation.Landscape) 2 else 1
+	val target = when (pageChange) {
+		PageChange.PREVIOUS -> boundedCurrent - step
+		PageChange.NEXT -> boundedCurrent + step
+		PageChange.NONE -> return null
+	}
+	return target.takeIf { it in 0 until pageCount }
 }
 
 internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
