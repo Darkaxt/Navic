@@ -22,9 +22,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import paige.navic.reader.ReaderPageBitmapQuality
+import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
+import paige.navic.reader.ReaderPageRendererReadinessState
+import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.util.core.Logger
 
@@ -59,7 +62,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: String
-	) -> Unit
+	) -> Unit,
+	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {}
 ) {
 	private class PreparedPages(
 		val profile: ReaderPlayLikeCurlRasterProfile,
@@ -87,7 +91,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var enabled = false
 	private var attached = false
 	private var destroyed = false
-	private var interactionReady = false
+	private var readinessState = ReaderPageRendererReadinessState()
+	private var hasPreparedDeckBefore = false
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private var snapshotKey = Int.MIN_VALUE
 	private var currentOrdinal = 0
@@ -112,7 +117,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 			override fun onDeckPrepared(generationId: Long) {
 				if (generationOwners[generationId] === activePages) {
-					interactionReady = true
+					hasPreparedDeckBefore = true
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Ready,
+						interaction = preparedInteractionState(),
+						reason = "deck-prepared:$generationId"
+					)
 				}
 				logActivationState("deck-prepared", "generation=$generationId")
 			}
@@ -120,7 +130,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			override fun onDeckRejected(generationId: Long, reason: DeckRejectionReason) {
 				val activeRejected = generationOwners[generationId] === activePages
 				releaseGeneration(generationId)
-				if (activeRejected) interactionReady = false
+				if (activeRejected) {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Failed,
+						interaction = ReaderPageInteractionState.Failed,
+						reason = "deck-rejected:$generationId:$reason"
+					)
+				}
 				Logger.w(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl deck rejected generation=$generationId reason=$reason"
@@ -163,6 +179,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 				targetLogicalPageId: String,
 				pageChange: PageChange
 			) {
+				updateReadiness(
+					textureDeck = ReaderTextureDeckState.Settling,
+					interaction = ReaderPageInteractionState.Settling,
+					reason = "settlement-started:$gestureId"
+				)
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement started gestureId=$gestureId generation=$generationId " +
@@ -185,6 +206,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 							"page=$currentLogicalPageId ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
 					)
 					hideSurface()
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Ready,
+						interaction = preparedInteractionState(),
+						reason = "settlement-completed-none:$gestureId"
+					)
 					finishGesture(
 						gestureId,
 						ReaderPageGestureTerminalOutcome.CancelledByUser,
@@ -199,7 +225,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 				currentOrdinal = currentPageOrdinal
 				pendingExactOrdinal = currentPageOrdinal
-				interactionReady = false
 				finishGesture(
 					gestureId,
 					if (pageChange == PageChange.NEXT) {
@@ -226,11 +251,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 					ReaderPageGestureTerminalOutcome.CancelledByUser,
 					"settlement-cancelled generation=$generationId page=$currentLogicalPageId"
 				)
+				updateReadiness(
+					textureDeck = ReaderTextureDeckState.Ready,
+					interaction = preparedInteractionState(),
+					reason = "settlement-cancelled:$gestureId"
+				)
 				hideSurface()
 			}
 
 			override fun onRenderFailure(failure: RenderFailure) {
-				interactionReady = false
+				updateReadiness(
+					textureDeck = ReaderTextureDeckState.Failed,
+					interaction = ReaderPageInteractionState.Failed,
+					reason = "render-failure:${failure.generationId}:${failure.reason}"
+				)
 				finishActiveGesture(
 					ReaderPageGestureTerminalOutcome.FailedRenderer,
 					"render-failure generation=${failure.generationId} reason=${failure.reason}"
@@ -245,7 +279,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	val isAvailable: Boolean
-		get() = enabled && attached && interactionReady && pendingExactOrdinal == null
+		get() = enabled && attached && readinessState.acceptsGestures && pendingExactOrdinal == null
 
 	fun setEnabled(value: Boolean) {
 		if (enabled == value) return
@@ -263,14 +297,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val normalized = normalizeReaderPageBitmapQuality(value)
 		if (bitmapQuality == normalized) return
 		bitmapQuality = normalized
-		invalidate("bitmap-quality-${normalized.persistedValue}")
+		invalidate(
+			reason = "bitmap-quality-${normalized.persistedValue}",
+			profileRegeneration = true
+		)
 		if (enabled) onRequestPrewarm()
 	}
 
 	fun setSnapshotKey(value: Int) {
 		if (snapshotKey == value) return
 		snapshotKey = value
-		invalidate("snapshot-key")
+		invalidate(reason = "snapshot-key", profileRegeneration = true)
 		if (enabled) onRequestPrewarm()
 	}
 
@@ -288,13 +325,36 @@ internal class ReaderPlayLikeCurlFoliateController(
 		when (state.phase) {
 			ReaderPagePreparationPhase.Ready -> {
 				logActivationState("preparation-ready")
+				if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
+					updateReadiness(
+						interaction = ReaderPageInteractionState.Ready,
+						reason = "raster-preparation-ready"
+					)
+				}
 				refreshPreparedDeck()
 			}
 			ReaderPagePreparationPhase.Failed -> {
-				interactionReady = false
+				updateReadiness(
+					interaction = ReaderPageInteractionState.Failed,
+					reason = "raster-preparation-failed"
+				)
 				logActivationState("refresh-gated", "preparation-failed")
 			}
-			else -> Unit
+			ReaderPagePreparationPhase.Preparing -> {
+				if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
+					updateReadiness(
+						interaction = ReaderPageInteractionState.BackgroundPrefetch,
+						reason = "raster-background-prefetch"
+					)
+				} else {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Preparing,
+						interaction = blockingPreparationState(),
+						reason = "raster-preparation-blocking"
+					)
+				}
+			}
+			ReaderPagePreparationPhase.Idle -> Unit
 		}
 	}
 
@@ -311,7 +371,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onHostSizeChanged() {
 		if (!enabled || destroyed) return
-		invalidate("size-changed")
+		invalidate(reason = "size-changed", profileRegeneration = true)
 		onRequestPrewarm()
 	}
 
@@ -410,7 +470,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			pendingExactOrdinal = null
 			currentOrdinal = normalized
 			hideSurface()
-			interactionReady = activePages?.generations?.isNotEmpty() == true
+			if (activePages?.generations?.isNotEmpty() == true) {
+				updateReadiness(
+					textureDeck = ReaderTextureDeckState.Ready,
+					interaction = ReaderPageInteractionState.Ready,
+					reason = "foliate-exact-settlement:$normalized"
+				)
+			}
 			onRequestPrewarm()
 			refreshPreparedDeck()
 			return
@@ -421,11 +487,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) onRequestPrewarm()
 	}
 
-	fun invalidate(reason: String) {
+	fun invalidate(reason: String, profileRegeneration: Boolean = false) {
 		cancelActiveGesture()
 		requestGeneration += 1L
 		pendingExactOrdinal = null
-		interactionReady = false
+		updateReadiness(
+			textureDeck = ReaderTextureDeckState.Empty,
+			interaction = if (profileRegeneration && hasPreparedDeckBefore) {
+				ReaderPageInteractionState.BlockingProfileRegeneration
+			} else {
+				ReaderPageInteractionState.BlockingInitialPreparation
+			},
+			reason = "invalidated:$reason"
+		)
 		hideSurface()
 		generationOwners.keys.toList().forEach(surfaceView::releaseDeck)
 		activePages?.obsolete = true
@@ -557,7 +631,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 			if (deck == null) {
 				host.post {
 					if (request == requestGeneration && enabled && !destroyed) {
-						interactionReady = false
+						if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
+							updateReadiness(
+								interaction = ReaderPageInteractionState.BackgroundPrefetch,
+								reason = "deck-load-deferred:$request"
+							)
+						} else {
+							updateReadiness(
+								textureDeck = ReaderTextureDeckState.Failed,
+								interaction = ReaderPageInteractionState.Failed,
+								reason = "deck-load-failed:$request"
+							)
+						}
 						logActivationState(
 							event = "deck-load-failed",
 							detail = "request=$request center=$centerOrdinal " +
@@ -592,7 +677,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 				preparedPageSets += pages
 				activePages = pages
 				currentOrdinal = centerOrdinal.coerceIn(0, profile.pageCount - 1)
-				interactionReady = false
+				updateReadiness(
+					textureDeck = ReaderTextureDeckState.Preparing,
+					interaction = blockingPreparationState(),
+					reason = "deck-submitting:$request"
+				)
 				submitLibraryDeck(pages, currentOrdinal)
 			}
 		}
@@ -612,7 +701,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 			)
 		}.getOrElse { error ->
-			interactionReady = false
+			updateReadiness(
+				textureDeck = ReaderTextureDeckState.Failed,
+				interaction = ReaderPageInteractionState.Failed,
+				reason = "deck-build-failed:$ordinal"
+			)
 			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
 				"Failed to build PlayLikeCurl deck ordinal=$ordinal phase=$preparationPhase",
@@ -707,6 +800,40 @@ internal class ReaderPlayLikeCurlFoliateController(
 		surfaceView.alpha = 0f
 	}
 
+	private fun preparedInteractionState(): ReaderPageInteractionState =
+		if (preparationPhase == ReaderPagePreparationPhase.Preparing) {
+			ReaderPageInteractionState.BackgroundPrefetch
+		} else {
+			ReaderPageInteractionState.Ready
+		}
+
+	private fun blockingPreparationState(): ReaderPageInteractionState =
+		if (hasPreparedDeckBefore) {
+			ReaderPageInteractionState.BlockingProfileRegeneration
+		} else {
+			ReaderPageInteractionState.BlockingInitialPreparation
+		}
+
+	private fun updateReadiness(
+		textureDeck: ReaderTextureDeckState = readinessState.textureDeck,
+		interaction: ReaderPageInteractionState = readinessState.interaction,
+		reason: String
+	) {
+		val next = ReaderPageRendererReadinessState(
+			textureDeck = textureDeck,
+			interaction = interaction
+		)
+		if (next == readinessState) return
+		val previous = readinessState
+		readinessState = next
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"Readiness transition texture=${previous.textureDeck}->${next.textureDeck} " +
+				"interaction=${previous.interaction}->${next.interaction} reason=$reason"
+		)
+		onReadinessStateChange(next)
+	}
+
 	private fun requestPrewarmIfIdle(reason: String) {
 		if (preparationPhase == ReaderPagePreparationPhase.Idle) {
 			logActivationState("prewarm-requested", reason)
@@ -732,8 +859,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			append(destroyed)
 			append(" capabilities=")
 			append(capabilitiesAvailable)
-			append(" interactionReady=")
-			append(interactionReady)
+			append(" interaction=")
+			append(readinessState.interaction)
+			append(" textureDeck=")
+			append(readinessState.textureDeck)
 			append(" pendingExactOrdinal=")
 			append(pendingExactOrdinal)
 			append(" activePages=")

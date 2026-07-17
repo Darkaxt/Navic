@@ -120,9 +120,29 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"A settlement must not require the next adjacency raster before the accepted animation can finish."
 		)
 		assertFalse(
-			settlementStarted.contains("interactionReady = false"),
+			settlementStarted.contains("ReaderTextureDeckState.Empty"),
 			"The accepted imported surface must remain ready for the entire settlement."
 		)
+		assertContains(settlementStarted, "ReaderTextureDeckState.Settling")
+		assertContains(settlementStarted, "ReaderPageInteractionState.Settling")
+	}
+
+	@Test
+	fun rasterTextureAndInteractionReadinessHaveSeparateOwners() {
+		val controllerSource = controllerFile.readText()
+		val hostSource = hostFile.readText()
+
+		assertContains(controllerSource, "ReaderPageRendererReadinessState")
+		assertContains(controllerSource, "ReaderTextureDeckState")
+		assertContains(controllerSource, "ReaderPageInteractionState.BackgroundPrefetch")
+		assertFalse(
+			controllerSource.contains("private var interactionReady"),
+			"Interaction readiness must be an explicit state, not a second boolean authority."
+		)
+		assertContains(hostSource, "latestRasterPreparationState")
+		assertContains(hostSource, "latestRendererReadinessState")
+		assertContains(hostSource, "publishMergedPagePreparationState()")
+		assertContains(hostSource, "raster.readiness.copy(")
 	}
 
 	@Test

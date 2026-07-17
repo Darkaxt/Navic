@@ -8,8 +8,13 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageView
 import paige.navic.reader.ReaderPageRasterPreparationMode
+import paige.navic.reader.ReaderChapterRasterGenerationState
+import paige.navic.reader.ReaderDecodedWorkingSetState
+import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerPagePreparationState
 import paige.navic.util.core.Logger
@@ -77,13 +82,48 @@ internal class ReaderPageRasterPreparationController(
 		error: String? = null,
 		retryable: Boolean = false
 	) {
+		val interactiveRastersReady = rasterInteractiveRequired > 0 &&
+			rasterInteractiveCompleted >= rasterInteractiveRequired
+		val readiness = ReaderPageReadinessState(
+			rasterGeneration = when (phase) {
+				ReaderPagePreparationPhase.Idle -> if (hasPreparedBefore) {
+					ReaderChapterRasterGenerationState.Ready
+				} else {
+					ReaderChapterRasterGenerationState.NotScheduled
+				}
+				ReaderPagePreparationPhase.Preparing ->
+					ReaderChapterRasterGenerationState.Generating
+				ReaderPagePreparationPhase.Ready -> ReaderChapterRasterGenerationState.Ready
+				ReaderPagePreparationPhase.Failed -> ReaderChapterRasterGenerationState.Failed
+			},
+			decodedWorkingSet = when {
+				phase == ReaderPagePreparationPhase.Failed && !hasPreparedBefore ->
+					ReaderDecodedWorkingSetState.Failed
+				phase == ReaderPagePreparationPhase.Preparing && !interactiveRastersReady ->
+					ReaderDecodedWorkingSetState.Hydrating
+				hasPreparedBefore || interactiveRastersReady -> ReaderDecodedWorkingSetState.Ready
+				else -> ReaderDecodedWorkingSetState.Empty
+			},
+			textureDeck = if (hasPreparedBefore) {
+				ReaderTextureDeckState.Ready
+			} else {
+				ReaderTextureDeckState.Empty
+			},
+			interaction = when {
+				phase == ReaderPagePreparationPhase.Failed -> ReaderPageInteractionState.Failed
+				phase == ReaderPagePreparationPhase.Preparing && interactiveRastersReady ->
+					ReaderPageInteractionState.BackgroundPrefetch
+				phase == ReaderPagePreparationPhase.Ready -> ReaderPageInteractionState.Ready
+				else -> ReaderPageInteractionState.BlockingInitialPreparation
+			}
+		)
 		val state = readerPagePreparationState(
 			phase = phase,
 			requiredCount = rasterPreparationRequired,
 			completedCount = rasterPreparationCompleted,
 			interactiveRequiredCount = rasterInteractiveRequired,
 			interactiveCompletedCount = rasterInteractiveCompleted,
-			hasPreparedBefore = hasPreparedBefore,
+			readiness = readiness,
 			activePageNumber = activePreparationPageNumber,
 			error = error,
 			retryable = retryable
@@ -93,7 +133,8 @@ internal class ReaderPageRasterPreparationController(
 			append(" completed=${state.completedCount}/${state.requiredCount}")
 			append(" interactive=${state.interactiveCompletedCount}/${state.interactiveRequiredCount}")
 			append(" interactiveReady=${state.interactiveReady}")
-			append(" hasPreparedBefore=$hasPreparedBefore")
+			append(" raster=${state.readiness.rasterGeneration}")
+			append(" decoded=${state.readiness.decodedWorkingSet}")
 			append(" presentation=${state.presentation}")
 			append(" gestures=${state.gestureDisposition}")
 			state.activePageLabel?.let { append(" active=$it") }

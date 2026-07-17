@@ -34,10 +34,44 @@ data class ReaderPagePreparationState(
 	val activePageLabel: String? = null,
 	val error: String? = null,
 	val retryable: Boolean = false,
-	val interactiveReady: Boolean = false,
+	val readiness: ReaderPageReadinessState = ReaderPageReadinessState(
+		interaction = ReaderPageInteractionState.Ready
+	),
 	val progress: Float = 0f,
 	val presentation: ReaderPagePreparationPresentation = ReaderPagePreparationPresentation.Hidden,
 	val gestureDisposition: ReaderPagePreparationGestureDisposition = ReaderPagePreparationGestureDisposition.Allow
+) {
+	val interactiveReady: Boolean
+		get() = readiness.acceptsGestures
+}
+
+private fun readerPagePreparationPresentation(
+	readiness: ReaderPageReadinessState
+): ReaderPagePreparationPresentation = when (readiness.interaction) {
+	ReaderPageInteractionState.BlockingInitialPreparation,
+	ReaderPageInteractionState.BlockingProfileRegeneration -> ReaderPagePreparationPresentation.Cover
+	ReaderPageInteractionState.Failed -> if (
+		readiness.textureDeck == ReaderTextureDeckState.Ready
+	) {
+		ReaderPagePreparationPresentation.Compact
+	} else {
+		ReaderPagePreparationPresentation.Cover
+	}
+	ReaderPageInteractionState.Ready,
+	ReaderPageInteractionState.Settling,
+	ReaderPageInteractionState.BackgroundPrefetch -> ReaderPagePreparationPresentation.Hidden
+}
+
+fun ReaderPagePreparationState.withReadiness(
+	readiness: ReaderPageReadinessState
+): ReaderPagePreparationState = copy(
+	readiness = readiness,
+	presentation = readerPagePreparationPresentation(readiness),
+	gestureDisposition = if (readiness.acceptsGestures) {
+		ReaderPagePreparationGestureDisposition.Allow
+	} else {
+		ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing
+	}
 )
 
 fun readerPagePreparationState(
@@ -46,7 +80,7 @@ fun readerPagePreparationState(
 	completedCount: Int,
 	interactiveRequiredCount: Int,
 	interactiveCompletedCount: Int,
-	hasPreparedBefore: Boolean,
+	readiness: ReaderPageReadinessState,
 	activePageNumber: Int? = null,
 	error: String? = null,
 	retryable: Boolean = false
@@ -55,22 +89,6 @@ fun readerPagePreparationState(
 	val normalizedCompleted = completedCount.coerceIn(0, normalizedRequired)
 	val normalizedInteractiveRequired = interactiveRequiredCount.coerceAtLeast(0)
 	val normalizedInteractiveCompleted = interactiveCompletedCount.coerceIn(0, normalizedInteractiveRequired)
-	val interactiveReady = normalizedInteractiveRequired > 0 &&
-		normalizedInteractiveCompleted >= normalizedInteractiveRequired
-	val presentation = when (phase) {
-		ReaderPagePreparationPhase.Idle,
-		ReaderPagePreparationPhase.Ready -> ReaderPagePreparationPresentation.Hidden
-		ReaderPagePreparationPhase.Preparing -> if (!hasPreparedBefore && !interactiveReady) {
-			ReaderPagePreparationPresentation.Cover
-		} else {
-			ReaderPagePreparationPresentation.Hidden
-		}
-		ReaderPagePreparationPhase.Failed -> if (hasPreparedBefore) {
-			ReaderPagePreparationPresentation.Compact
-		} else {
-			ReaderPagePreparationPresentation.Cover
-		}
-	}
 	return ReaderPagePreparationState(
 		phase = phase,
 		requiredCount = normalizedRequired,
@@ -80,15 +98,9 @@ fun readerPagePreparationState(
 		activePageLabel = activePageNumber?.takeIf { it > 0 }?.let { page -> "Page $page" },
 		error = error,
 		retryable = retryable,
-		interactiveReady = interactiveReady,
+		readiness = readiness,
 		progress = if (normalizedRequired == 0) 0f else {
 			normalizedCompleted.toFloat() / normalizedRequired.toFloat()
 		},
-		presentation = presentation,
-		gestureDisposition = if (phase == ReaderPagePreparationPhase.Preparing && !interactiveReady) {
-			ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing
-		} else {
-			ReaderPagePreparationGestureDisposition.Allow
-		}
-	)
+	).withReadiness(readiness)
 }

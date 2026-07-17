@@ -14,7 +14,12 @@ class ReaderPagePreparationPolicyTest {
 			completedCount = 3,
 			interactiveRequiredCount = 3,
 			interactiveCompletedCount = 1,
-			hasPreparedBefore = false
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Generating,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Hydrating,
+				textureDeck = ReaderTextureDeckState.Preparing,
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
 		)
 
 		assertEquals(0.25f, state.progress)
@@ -29,7 +34,12 @@ class ReaderPagePreparationPolicyTest {
 			completedCount = 3,
 			interactiveRequiredCount = 3,
 			interactiveCompletedCount = 3,
-			hasPreparedBefore = false
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Generating,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.BackgroundPrefetch
+			)
 		)
 
 		assertTrue(state.interactiveReady)
@@ -44,7 +54,12 @@ class ReaderPagePreparationPolicyTest {
 			completedCount = 2,
 			interactiveRequiredCount = 2,
 			interactiveCompletedCount = 2,
-			hasPreparedBefore = false
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Ready,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Ready
+			)
 		)
 
 		assertTrue(state.interactiveReady)
@@ -52,21 +67,50 @@ class ReaderPagePreparationPolicyTest {
 	}
 
 	@Test
-	fun subsequentCacheOutrunKeepsStablePageWithoutForegroundProgress() {
+	fun backgroundPrefetchKeepsTheVisibleDeckInteractive() {
 		val state = readerPagePreparationState(
 			phase = ReaderPagePreparationPhase.Preparing,
 			requiredCount = 6,
 			completedCount = 0,
 			interactiveRequiredCount = 3,
 			interactiveCompletedCount = 0,
-			hasPreparedBefore = true,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Generating,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.BackgroundPrefetch
+			),
 			activePageNumber = 8
 		)
 
-		assertFalse(state.interactiveReady)
+		assertTrue(state.interactiveReady)
 		assertEquals(ReaderPagePreparationPresentation.Hidden, state.presentation)
 		assertEquals("Page 8", state.activePageLabel)
-		assertEquals(ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing, state.gestureDisposition)
+		assertEquals(ReaderPagePreparationGestureDisposition.Allow, state.gestureDisposition)
+	}
+
+	@Test
+	fun profileRegenerationIsExplicitlyBlockingEvenAfterEarlierPreparation() {
+		val state = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Preparing,
+			requiredCount = 12,
+			completedCount = 0,
+			interactiveRequiredCount = 3,
+			interactiveCompletedCount = 0,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Generating,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Hydrating,
+				textureDeck = ReaderTextureDeckState.Preparing,
+				interaction = ReaderPageInteractionState.BlockingProfileRegeneration
+			)
+		)
+
+		assertFalse(state.interactiveReady)
+		assertEquals(ReaderPagePreparationPresentation.Cover, state.presentation)
+		assertEquals(
+			ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing,
+			state.gestureDisposition
+		)
 	}
 
 	@Test
@@ -77,7 +121,12 @@ class ReaderPagePreparationPolicyTest {
 			completedCount = 1,
 			interactiveRequiredCount = 3,
 			interactiveCompletedCount = 1,
-			hasPreparedBefore = true,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Failed,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Failed
+			),
 			error = "Page preparation failed",
 			retryable = true
 		)
@@ -94,7 +143,12 @@ class ReaderPagePreparationPolicyTest {
 			completedCount = 1,
 			interactiveRequiredCount = 3,
 			interactiveCompletedCount = 1,
-			hasPreparedBefore = false,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Failed,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Failed,
+				textureDeck = ReaderTextureDeckState.Empty,
+				interaction = ReaderPageInteractionState.Failed
+			),
 			error = "Page preparation failed",
 			retryable = true
 		)

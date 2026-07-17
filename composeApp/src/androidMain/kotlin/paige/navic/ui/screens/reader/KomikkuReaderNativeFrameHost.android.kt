@@ -34,6 +34,7 @@ import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
 import paige.navic.reader.ReaderTapZoneAction
@@ -42,6 +43,7 @@ import paige.navic.reader.readerNativeReaderSwipeAction
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
+import paige.navic.reader.withReadiness
 import paige.navic.util.core.Logger
 import java.io.File
 import java.net.URLDecoder
@@ -553,13 +555,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
 	private var pageTurnPrewarmLayoutSignature: Long? = null
 	private var pageTurnPrewarmStableFrameCount: Int = 0
+	private var latestRasterPreparationState = ReaderPagePreparationState()
+	private var latestRendererReadinessState = ReaderPageRendererReadinessState()
 	private val pageTurnBundleSource = ReaderPageTurnBundleSource()
 	private val playLikeCurlController = ReaderPlayLikeCurlFoliateController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
-		onGestureTerminal = ::recordPageGestureTerminal
+		onGestureTerminal = ::recordPageGestureTerminal,
+		onReadinessStateChange = { state ->
+			latestRendererReadinessState = state
+			publishMergedPagePreparationState()
+		}
 	)
 	private val pageRasterPreparationController = ReaderPageRasterPreparationController(
 		host = this,
@@ -567,10 +575,24 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		bundleSource = pageTurnBundleSource,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		onPreparationStateChange = { state ->
+			latestRasterPreparationState = state
 			playLikeCurlController.onPreparationStateChanged(state)
-			onPagePreparationStateChange(state)
+			publishMergedPagePreparationState()
 		}
 	)
+
+	private fun publishMergedPagePreparationState() {
+		val raster = latestRasterPreparationState
+		val renderer = latestRendererReadinessState
+		onPagePreparationStateChange(
+			raster.withReadiness(
+				raster.readiness.copy(
+					textureDeck = renderer.textureDeck,
+					interaction = renderer.interaction
+				)
+			)
+		)
+	}
 
 	init {
 		descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
