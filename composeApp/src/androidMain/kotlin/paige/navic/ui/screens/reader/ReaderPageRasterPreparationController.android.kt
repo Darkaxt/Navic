@@ -62,12 +62,12 @@ internal class ReaderPageRasterPreparationController(
 		override fun onConfigurationChanged(newConfig: Configuration) = Unit
 
 		override fun onLowMemory() {
-			host.post { invalidate("memory-pressure") }
+			host.post { bundleSource.trimMemory("on-low-memory") }
 		}
 
 		override fun onTrimMemory(level: Int) {
 			if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-				host.post { invalidate("memory-pressure") }
+				host.post { bundleSource.trimMemory("on-trim-memory:$level") }
 			}
 		}
 	}
@@ -278,6 +278,11 @@ internal class ReaderPageRasterPreparationController(
 				event = "plan-accepted",
 				detail = "session=$session layout=${plan.layoutMode} center=${plan.centerPageIndex} " +
 					"targets=${plan.targets.size}"
+			)
+			bundleSource.protectDecodedWindow(
+				centerPageIndex = plan.centerPageIndex,
+				step = plan.step,
+				pageCount = plan.pageCount
 			)
 			val kind = if (plan.layoutMode == "spread") {
 				ReaderPageTurnTransitionKind.LandscapeSpreadSlide

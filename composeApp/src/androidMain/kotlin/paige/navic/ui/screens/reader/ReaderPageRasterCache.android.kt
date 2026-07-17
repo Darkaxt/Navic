@@ -41,6 +41,7 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val entries = linkedMapOf<String, ReaderPageRasterManifestEntry>()
 	private val decoded = LinkedHashMap<String, ReaderPageRaster<T>>(0, 0.75f, true)
 	private var protectedChapter: ReaderPageRasterChapterKey? = null
+	private var protectedDecodedPageIndices = emptySet<Int>()
 
 	init {
 		if (storageAvailable) {
@@ -238,6 +239,24 @@ internal class ReaderPageRasterCache<T : Any>(
 	}
 
 	@Synchronized
+	fun protectDecodedPageIndices(pageIndices: Set<Int>) {
+		protectedDecodedPageIndices = pageIndices.filterTo(mutableSetOf()) { it >= 0 }
+		trimDecodedToCapacity()
+	}
+
+	@Synchronized
+	fun trimDecodedToProtectedWindow(): Int {
+		val removed = decoded.entries
+			.filter { (_, raster) -> raster.key.visualPageOrdinal !in protectedDecodedPageIndices }
+			.map { it.key to it.value }
+		removed.forEach { (digest, raster) ->
+			decoded.remove(digest)
+			codec.release(raster.value)
+		}
+		return removed.size
+	}
+
+	@Synchronized
 	fun remove(key: ReaderPageRasterKey): Boolean {
 		val entry = entries[key.digest]?.takeIf { candidate -> candidate.key.identity == key.identity } ?: return false
 		entries.remove(key.digest)
@@ -292,10 +311,16 @@ internal class ReaderPageRasterCache<T : Any>(
 		decoded.put(raster.key.digest, raster)?.takeIf { previous -> previous.value !== raster.value }?.let { previous ->
 			codec.release(previous.value)
 		}
+		trimDecodedToCapacity()
+	}
+
+	private fun trimDecodedToCapacity() {
 		while (decoded.size > maxDecodedEntries) {
-			val eldest = decoded.entries.iterator().next()
-			decoded.remove(eldest.key)
-			codec.release(eldest.value.value)
+			val eviction = decoded.entries.firstOrNull { (_, candidate) ->
+				candidate.key.visualPageOrdinal !in protectedDecodedPageIndices
+			} ?: break
+			decoded.remove(eviction.key)
+			codec.release(eviction.value.value)
 		}
 	}
 

@@ -51,6 +51,7 @@ internal class ReaderPageTurnBundleSource(
 	private val rasterPublicationInFlight = mutableSetOf<String>()
 	private val rasterPublicationCallbacks = mutableMapOf<String, MutableList<(Boolean) -> Unit>>()
 	private val rasterPersistenceDiagnostics = linkedSetOf<String>()
+	private var protectedSnapshotPageIndices = emptySet<Int>()
 	private var rasterCache: ReaderPageRasterCache<Bitmap>? = null
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
 	private var activeWebView = WeakReference<WebView>(null)
@@ -67,6 +68,39 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	fun currentGeneration(): Long = activeGeneration
+
+	fun protectDecodedWindow(centerPageIndex: Int, step: Int, pageCount: Int) {
+		protectedSnapshotPageIndices = readerPageSlideSnapshotWindow(
+			centerPageIndex = centerPageIndex,
+			step = step,
+			pageCount = pageCount
+		).toSet()
+		trimSnapshotCacheToCapacity()
+		rasterCache?.protectDecodedPageIndices(protectedSnapshotPageIndices)
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Decoded page window protected center=$centerPageIndex step=$step " +
+				"rasters=${protectedSnapshotPageIndices.size} leaves=${protectedSnapshotPageIndices.size * step} " +
+				"pages=${protectedSnapshotPageIndices.sorted()} generation=$activeGeneration"
+		)
+	}
+
+	fun trimMemory(reason: String) {
+		val removedSnapshots = snapshotCache.entries
+			.filter { (key, _) -> key.visualPageIndex !in protectedSnapshotPageIndices }
+			.map { it.key to it.value }
+		removedSnapshots.forEach { (key, snapshot) ->
+			snapshotCache.remove(key)
+			snapshot.releaseCacheOwnership()
+		}
+		val removedDecoded = rasterCache?.trimDecodedToProtectedWindow() ?: 0
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Decoded working sets trimmed reason=$reason snapshots=${removedSnapshots.size} " +
+				"rasters=$removedDecoded protected=${protectedSnapshotPageIndices.sorted()} " +
+				"generation=$activeGeneration"
+		)
+	}
 
 	fun retainedSnapshot(
 		pageIndex: Int,
@@ -356,16 +390,22 @@ internal class ReaderPageTurnBundleSource(
 		}
 		snapshotCache[snapshot.key] = snapshot
 		if (persist) schedulePersistentSnapshot(snapshot, priority)
-		while (snapshotCache.size > MaxCachedSnapshots) {
-			val eldest = snapshotCache.entries.iterator().next()
-			snapshotCache.remove(eldest.key)
-			eldest.value.releaseCacheOwnership()
-		}
+		trimSnapshotCacheToCapacity()
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
 			"Page-turn snapshot cached key=${snapshot.key} entries=${snapshotCache.keys}"
 		)
 		return snapshot
+	}
+
+	private fun trimSnapshotCacheToCapacity() {
+		while (snapshotCache.size > MaxCachedSnapshots) {
+			val eviction = snapshotCache.entries.firstOrNull { (key, _) ->
+				key.visualPageIndex !in protectedSnapshotPageIndices
+			} ?: break
+			snapshotCache.remove(eviction.key)
+			eviction.value.releaseCacheOwnership()
+		}
 	}
 
 	private fun schedulePersistentSnapshot(
@@ -498,6 +538,7 @@ internal class ReaderPageTurnBundleSource(
 				generator = ReaderPageRasterGenerator { key -> stagedRasterGenerations.remove(key.digest) },
 				release = ReaderAndroidPageRasterCodec::release
 			).also { scheduler ->
+				cache.protectDecodedPageIndices(protectedSnapshotPageIndices)
 				rasterCache = cache
 				rasterScheduler = scheduler
 			}
@@ -637,6 +678,8 @@ internal class ReaderPageTurnBundleSource(
 
 	fun invalidate(reason: String) {
 		activeGeneration += 1
+		protectedSnapshotPageIndices = emptySet()
+		rasterCache?.protectDecodedPageIndices(emptySet())
 		inFlightRasterHydrations.values.forEach { request -> request.callbacks.forEach { it(null) } }
 		inFlightRasterHydrations.clear()
 		rasterPublicationCallbacks.values.flatten().forEach { callback -> callback(false) }

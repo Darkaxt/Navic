@@ -73,6 +73,18 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(followUp, "totalRequired = blockingTargets.size")
 		assertContains(finish, "hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore")
 	}
+
+	@Test
+	fun memoryPressureTrimsWorkingSetsWithoutInvalidatingRasterGeneration() {
+		val source = readerRasterPreparationSource()
+		val callbacks = source.substringAfter(
+			"private val memoryCallbacks = object : ComponentCallbacks2 {"
+		).substringBefore("\n\t}\n\n\tinit {")
+
+		assertContains(callbacks, "bundleSource.trimMemory(")
+		assertFalse(callbacks.contains("invalidate("))
+		assertFalse(callbacks.contains("bundleSource.invalidate("))
+	}
 }
 
 private fun readerRasterPreparationSource(): String {

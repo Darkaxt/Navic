@@ -236,6 +236,57 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun protectedDecodedWindowSurvivesFullChapterInsertion() {
+		val codec = ByteArrayRasterCodec()
+		val fixture = fixture(codec = codec, maxDecodedEntries = 2)
+		val current = key(chapterPageIndex = 1).copy(visualPageOrdinal = 10)
+		val adjacent = key(chapterPageIndex = 2).copy(visualPageOrdinal = 11)
+		fixture.cache.protectDecodedPageIndices(setOf(10, 11))
+
+		listOf(current, adjacent).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.visualPageOrdinal.toString())))
+		}
+		(12..18).forEach { ordinal ->
+			val rasterKey = key(chapterPageIndex = ordinal - 9).copy(visualPageOrdinal = ordinal)
+			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(ordinal.toString())))
+		}
+
+		val decodeCallsBeforeReads = codec.decodeCalls
+		assertContentEquals(pngBytes("10"), fixture.cache.read(current)?.value)
+		assertContentEquals(pngBytes("11"), fixture.cache.read(adjacent)?.value)
+		assertEquals(decodeCallsBeforeReads, codec.decodeCalls)
+		assertEquals(2, fixture.cache.metrics().decodedEntries)
+	}
+
+	@Test
+	fun memoryTrimDropsOnlyUnprotectedDecodedCopies() {
+		val codec = ByteArrayRasterCodec()
+		val fixture = fixture(codec = codec, maxDecodedEntries = 4)
+		val protected = listOf(
+			key(chapterPageIndex = 1).copy(visualPageOrdinal = 20),
+			key(chapterPageIndex = 2).copy(visualPageOrdinal = 21)
+		)
+		val unprotected = listOf(
+			key(chapterPageIndex = 3).copy(visualPageOrdinal = 22),
+			key(chapterPageIndex = 4).copy(visualPageOrdinal = 23)
+		)
+		fixture.cache.protectDecodedPageIndices(protected.mapTo(mutableSetOf()) { it.visualPageOrdinal })
+		(protected + unprotected).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.visualPageOrdinal.toString())))
+		}
+
+		assertEquals(2, fixture.cache.trimDecodedToProtectedWindow())
+		assertEquals(2, fixture.cache.metrics().decodedEntries)
+		assertEquals(4, fixture.cache.metrics().diskEntries)
+		val decodeCallsBeforeReads = codec.decodeCalls
+		protected.forEach { rasterKey -> fixture.cache.read(rasterKey) }
+		assertEquals(decodeCallsBeforeReads, codec.decodeCalls)
+		fixture.cache.read(unprotected.first())
+		assertEquals(decodeCallsBeforeReads + 1, codec.decodeCalls)
+		assertEquals(4, fixture.cache.metrics().diskEntries)
+	}
+
+	@Test
 	fun manifestRestoresRasterMetadataAcrossCacheInstances() {
 		val fixture = fixture(maxDecodedEntries = 0)
 		val rasterKey = key()
