@@ -7,7 +7,6 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageView
-import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderChapterRasterGenerationState
 import paige.navic.reader.ReaderDecodedWorkingSetState
 import paige.navic.reader.ReaderPageInteractionState
@@ -111,8 +110,9 @@ internal class ReaderPageRasterPreparationController(
 			},
 			interaction = when {
 				phase == ReaderPagePreparationPhase.Failed -> ReaderPageInteractionState.Failed
-				phase == ReaderPagePreparationPhase.Preparing && interactiveRastersReady ->
-					ReaderPageInteractionState.BackgroundPrefetch
+				phase == ReaderPagePreparationPhase.Preparing && !hasPreparedBefore ->
+					ReaderPageInteractionState.BlockingInitialPreparation
+				phase == ReaderPagePreparationPhase.Preparing -> ReaderPageInteractionState.BackgroundPrefetch
 				phase == ReaderPagePreparationPhase.Ready -> ReaderPageInteractionState.Ready
 				else -> ReaderPageInteractionState.BlockingInitialPreparation
 			}
@@ -352,12 +352,8 @@ internal class ReaderPageRasterPreparationController(
 				return@startRasterBatch
 			}
 			rasterInteractiveCompleted = rasterInteractiveRequired
-			hasPreparedBefore = rasterInteractiveRequired > 0
 			publishPreparationState(ReaderPagePreparationPhase.Preparing)
-			bundleSource.preparationMode(webView, plan.currentChapterPageCount) { mode ->
-				if (!isPrewarmActive(webView, session)) return@preparationMode
-				startRasterFollowUp(webView, session, plan, kind, calibrationTargets, mode)
-			}
+			startRasterFollowUp(webView, session, plan, kind, calibrationTargets)
 		}
 	}
 
@@ -366,16 +362,11 @@ internal class ReaderPageRasterPreparationController(
 		session: Long,
 		plan: ReaderPageRasterPreparationPlan,
 		kind: ReaderPageTurnTransitionKind,
-		calibrationTargets: List<ReaderPageRasterBatchTarget>,
-		mode: ReaderPageRasterPreparationMode
+		calibrationTargets: List<ReaderPageRasterBatchTarget>
 	) {
 		val calibratedPages = calibrationTargets.mapTo(mutableSetOf()) { target -> target.pageIndex }
-		val followUpTargets = readerPageRasterFollowUpTargets(
-			targets = plan.targets,
-			centerPageIndex = plan.centerPageIndex,
-			step = plan.step,
-			mode = mode
-		).filterNot { target -> target.pageIndex in calibratedPages }
+		val blockingTargets = readerPageRasterBlockingTargets(plan.targets)
+		val followUpTargets = blockingTargets.filterNot { target -> target.pageIndex in calibratedPages }
 		if (followUpTargets.isEmpty()) {
 			finishPrewarm(ReaderPageRasterBatchOutcome.Ready)
 			return
@@ -391,7 +382,7 @@ internal class ReaderPageRasterPreparationController(
 			return
 		}
 		val completedOffset = calibrationTargets.size
-		val totalRequired = completedOffset + followUpTargets.size
+		val totalRequired = blockingTargets.size
 		rasterPreparationRequired = totalRequired
 		publishPreparationState(ReaderPagePreparationPhase.Preparing)
 		startRasterBatch(
@@ -450,9 +441,6 @@ internal class ReaderPageRasterPreparationController(
 						rasterPreparationCompleted,
 						rasterInteractiveRequired
 					)
-					if (rasterInteractiveCompleted >= rasterInteractiveRequired && rasterInteractiveRequired > 0) {
-						hasPreparedBefore = true
-					}
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
 				}
 			},

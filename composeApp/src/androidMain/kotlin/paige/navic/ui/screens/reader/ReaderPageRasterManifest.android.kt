@@ -33,6 +33,12 @@ internal data class ReaderPageRasterProfile(
 	val schemaVersion: Int
 )
 
+internal data class ReaderPageRasterChapterKey(
+	val profile: ReaderPageRasterProfile,
+	val spineIndex: Int,
+	val hrefHash: String
+)
+
 internal data class ReaderPageRasterKey(
 	val publicationHash: String,
 	val paginationHash: String,
@@ -55,6 +61,13 @@ internal data class ReaderPageRasterKey(
 			decorationHash = decorationHash,
 			quality = quality,
 			schemaVersion = schemaVersion
+		)
+
+	val chapter: ReaderPageRasterChapterKey
+		get() = ReaderPageRasterChapterKey(
+			profile = profile,
+			spineIndex = spineIndex,
+			hrefHash = hrefHash
 		)
 
 	val identity: String

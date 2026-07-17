@@ -212,6 +212,8 @@ class ReaderPageRasterSchedulerTest {
 			return removed.size
 		}
 
+		override fun protectChapter(chapter: ReaderPageRasterChapterKey?) = Unit
+
 		override fun encodedBytes(key: ReaderPageRasterKey): Long = 1024
 	}
 

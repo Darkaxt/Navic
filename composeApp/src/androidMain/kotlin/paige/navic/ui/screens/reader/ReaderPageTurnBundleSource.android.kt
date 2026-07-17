@@ -22,7 +22,6 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageBitmapQuality
-import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.readerPageRasterStorageRoot
 import paige.navic.util.core.Logger
@@ -303,21 +302,6 @@ internal class ReaderPageTurnBundleSource(
 		schedulePersistentSnapshot(snapshot, priority, onPersisted)
 	}
 
-	fun preparationMode(
-		webView: WebView,
-		chapterPageCount: Int,
-		onResolved: (ReaderPageRasterPreparationMode) -> Unit
-	) {
-		if (closed || !webView.isAttachedToWindow) return
-		activeWebView = WeakReference(webView)
-		val generation = activeGeneration
-		rasterScope.launch {
-			val scheduler = rasterScheduler(webView)
-			if (closed || generation != activeGeneration || !webView.isAttachedToWindow) return@launch
-			onResolved(scheduler.preparationMode(chapterPageCount))
-		}
-	}
-
 	private fun cacheSnapshot(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
@@ -443,6 +427,9 @@ internal class ReaderPageTurnBundleSource(
 						}
 						completeRasterPublication(key.digest, false)
 						return@launch
+					}
+					if (priority == ReaderPageRasterPriority.Current) {
+						scheduler.protectChapter(key.chapter)
 					}
 					scheduler.activateProfile(key.profile)
 					val result = scheduler.request(key, priority).await()

@@ -40,6 +40,7 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val manifest = ReaderPageRasterManifest(root)
 	private val entries = linkedMapOf<String, ReaderPageRasterManifestEntry>()
 	private val decoded = LinkedHashMap<String, ReaderPageRaster<T>>(0, 0.75f, true)
+	private var protectedChapter: ReaderPageRasterChapterKey? = null
 
 	init {
 		if (storageAvailable) {
@@ -77,7 +78,7 @@ internal class ReaderPageRasterCache<T : Any>(
 				return writeFailed(key, "sync-failed-${it.javaClass.simpleName}")
 		}
 		val byteSize = temporary.length()
-		if (byteSize > maxDiskBytes) {
+		if (byteSize > maxDiskBytes && key.chapter != protectedChapter) {
 			temporary.delete()
 			return writeFailed(key, "raster-exceeds-cache-limit", byteSize)
 		}
@@ -222,6 +223,21 @@ internal class ReaderPageRasterCache<T : Any>(
 	}
 
 	@Synchronized
+	fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
+		if (!storageAvailable || protectedChapter == chapter) return
+		protectedChapter = chapter
+		val retained = retainedWithinDiskLimit(entries.values)
+		if (!manifest.write(retained)) return
+		val retainedIds = retained.mapTo(mutableSetOf()) { entry -> entry.key.digest }
+		entries.values.filter { entry -> entry.key.digest !in retainedIds }.forEach { entry ->
+			decoded.remove(entry.key.digest)?.let { raster -> codec.release(raster.value) }
+			deleteEntryFile(entry)
+		}
+		entries.clear()
+		retained.forEach { entry -> entries[entry.key.digest] = entry }
+	}
+
+	@Synchronized
 	fun remove(key: ReaderPageRasterKey): Boolean {
 		val entry = entries[key.digest]?.takeIf { candidate -> candidate.key.identity == key.identity } ?: return false
 		entries.remove(key.digest)
@@ -253,12 +269,21 @@ internal class ReaderPageRasterCache<T : Any>(
 	internal fun manifestPath(): File = manifest.file
 
 	private fun retainedWithinDiskLimit(candidates: Collection<ReaderPageRasterManifestEntry>): List<ReaderPageRasterManifestEntry> {
-		val retained = candidates.sortedByDescending { entry -> entry.lastAccessEpochMillis }.toMutableList()
-		var bytes = retained.sumOf { entry -> entry.byteSize.coerceAtLeast(0L) }
-		while (bytes > maxDiskBytes && retained.isNotEmpty()) {
-			val removed = retained.removeLast()
-			bytes -= removed.byteSize.coerceAtLeast(0L)
-		}
+		val protected = candidates
+			.filter { entry -> entry.key.chapter == protectedChapter }
+			.sortedByDescending { entry -> entry.lastAccessEpochMillis }
+		val retained = protected.toMutableList()
+		var bytes = protected.sumOf { entry -> entry.byteSize.coerceAtLeast(0L) }
+		candidates
+			.filterNot { entry -> entry.key.chapter == protectedChapter }
+			.sortedByDescending { entry -> entry.lastAccessEpochMillis }
+			.forEach { entry ->
+				val entryBytes = entry.byteSize.coerceAtLeast(0L)
+				if (bytes <= maxDiskBytes - entryBytes) {
+					retained += entry
+					bytes += entryBytes
+				}
+			}
 		return retained
 	}
 

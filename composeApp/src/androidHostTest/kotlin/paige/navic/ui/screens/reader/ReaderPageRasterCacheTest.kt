@@ -166,6 +166,40 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun protectedChapterCanTemporarilyExceedDiskLimitWithoutEvictingItself() {
+		val fixture = fixture(maxDiskBytes = 10L, maxDecodedEntries = 0)
+		val first = key(chapterPageIndex = 1)
+		val second = key(chapterPageIndex = 2)
+		val unrelated = key(chapterPageIndex = 1).copy(spineIndex = 8, hrefHash = "href-2")
+		assertTrue(fixture.cache.write(unrelated, metadata(), pngBytes("old")))
+		fixture.cache.protectChapter(first.chapter)
+
+		assertTrue(fixture.cache.write(first, metadata(), pngBytes("first")))
+		assertTrue(fixture.cache.write(second, metadata(), pngBytes("second")))
+
+		assertTrue(fixture.cache.pathFor(first).isFile)
+		assertTrue(fixture.cache.pathFor(second).isFile)
+		assertFalse(fixture.cache.pathFor(unrelated).exists())
+		assertTrue(fixture.cache.metrics().diskBytes > 10L)
+	}
+
+	@Test
+	fun replacingProtectedChapterTrimsPreviousOverflowBackToBudget() {
+		val fixture = fixture(maxDiskBytes = 10L, maxDecodedEntries = 0)
+		val first = key(chapterPageIndex = 1)
+		val second = key(chapterPageIndex = 2)
+		val nextChapter = key(chapterPageIndex = 1).copy(spineIndex = 8, hrefHash = "href-2")
+		fixture.cache.protectChapter(first.chapter)
+		assertTrue(fixture.cache.write(first, metadata(), pngBytes("first")))
+		assertTrue(fixture.cache.write(second, metadata(), pngBytes("second")))
+
+		fixture.cache.protectChapter(nextChapter.chapter)
+
+		assertTrue(fixture.cache.metrics().diskBytes <= 10L)
+		assertFalse(fixture.cache.pathFor(first).isFile && fixture.cache.pathFor(second).isFile)
+	}
+
+	@Test
 	fun activatingProfileRemovesOnlyObsoletePublicationRasters() {
 		val fixture = fixture(maxDecodedEntries = 0)
 		val active = key(chapterPageIndex = 1)

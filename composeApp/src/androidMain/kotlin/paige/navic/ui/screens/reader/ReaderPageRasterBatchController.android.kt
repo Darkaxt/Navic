@@ -10,7 +10,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
-import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.util.core.Logger
 
@@ -78,18 +77,16 @@ internal fun readerPageRasterCalibrationTargets(
 	.filter { target -> target.priority.rank <= ReaderPageRasterPriority.PreviousTransition.rank }
 	.take(3)
 
-internal fun readerPageRasterFollowUpTargets(
-	targets: List<ReaderPageRasterBatchTarget>,
-	centerPageIndex: Int,
-	step: Int,
-	mode: ReaderPageRasterPreparationMode
-): List<ReaderPageRasterBatchTarget> = when (mode) {
-	ReaderPageRasterPreparationMode.CompleteChapter -> targets
-	ReaderPageRasterPreparationMode.RollingWindow -> targets.filter { target ->
-		target.priority.rank <= ReaderPageRasterPriority.PreviousTransition.rank ||
-			(target.priority == ReaderPageRasterPriority.CurrentChapter &&
-				kotlin.math.abs(target.pageIndex - centerPageIndex) <= 2 * step.coerceAtLeast(1))
-	}
+internal fun readerPageRasterBlockingTargets(
+	targets: List<ReaderPageRasterBatchTarget>
+): List<ReaderPageRasterBatchTarget> = targets.filter { target ->
+	target.priority.rank <= ReaderPageRasterPriority.CurrentChapter.rank
+}
+
+internal fun readerPageRasterBackgroundTargets(
+	targets: List<ReaderPageRasterBatchTarget>
+): List<ReaderPageRasterBatchTarget> = targets.filter { target ->
+	target.priority.rank > ReaderPageRasterPriority.CurrentChapter.rank
 }
 
 private fun readerPageRasterPriority(value: String): ReaderPageRasterPriority? = when (value) {

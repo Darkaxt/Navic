@@ -3,7 +3,6 @@ package paige.navic.ui.screens.reader
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderPageRasterPriority
 
 class ReaderPageRasterBatchPlanTest {
@@ -53,7 +52,7 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
-	fun rollingWindowKeepsTwoTransitionsInEachDirectionWhileCompleteModeKeepsAll() {
+	fun blockingPreparationIncludesImmediateDeckAndCompleteCurrentChapterOnly() {
 		val targets = listOf(
 			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.Current),
 			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.NextTransition),
@@ -65,22 +64,25 @@ class ReaderPageRasterBatchPlanTest {
 		)
 
 		assertEquals(
-			listOf(8, 10, 6, 12, 4),
-			readerPageRasterFollowUpTargets(
-				targets = targets,
-				centerPageIndex = 8,
-				step = 2,
-				mode = ReaderPageRasterPreparationMode.RollingWindow
-			).map { it.pageIndex }
+			listOf(8, 10, 6, 12, 4, 14),
+			readerPageRasterBlockingTargets(targets).map { it.pageIndex }
 		)
+	}
+
+	@Test
+	fun adjacentChapterTargetsAreBackgroundWork() {
+		val targets = listOf(
+			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.Current),
+			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.NextTransition),
+			ReaderPageRasterBatchTarget(6, ReaderPageRasterPriority.PreviousTransition),
+			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.CurrentChapter),
+			ReaderPageRasterBatchTarget(20, ReaderPageRasterPriority.NextChapter),
+			ReaderPageRasterBatchTarget(4, ReaderPageRasterPriority.PreviousChapter)
+		)
+
 		assertEquals(
-			targets,
-			readerPageRasterFollowUpTargets(
-				targets = targets,
-				centerPageIndex = 8,
-				step = 2,
-				mode = ReaderPageRasterPreparationMode.CompleteChapter
-			)
+			listOf(20, 4),
+			readerPageRasterBackgroundTargets(targets).map { it.pageIndex }
 		)
 	}
 }

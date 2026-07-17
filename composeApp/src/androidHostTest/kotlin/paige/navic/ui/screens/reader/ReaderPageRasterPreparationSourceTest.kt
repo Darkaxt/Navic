@@ -50,6 +50,29 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(source, "if (protectForeground) {")
 		assertContains(source, "event = \"shield-skipped\"")
 	}
+
+	@Test
+	fun immediateDeckCannotPublishReadyBeforeTheCurrentChapterIsComplete() {
+		val source = readerRasterPreparationSource()
+		val initialDeck = source.substringAfter(
+			"private fun startRasterCalibration("
+		).substringBefore("\n\tprivate fun startRasterFollowUp(")
+		val followUp = source.substringAfter(
+			"private fun startRasterFollowUp("
+		).substringBefore("\n\tprivate fun startRasterBatch(")
+		val batch = source.substringAfter(
+			"private fun startRasterBatch("
+		).substringBefore("\n\tprivate fun obtainRasterReference(")
+		val finish = source.substringAfter(
+			"private fun finishPrewarm("
+		).substringBefore("\n\tprivate fun failPreparation(")
+
+		assertFalse(initialDeck.contains("hasPreparedBefore ="))
+		assertFalse(batch.contains("hasPreparedBefore ="))
+		assertContains(followUp, "readerPageRasterBlockingTargets(plan.targets)")
+		assertContains(followUp, "totalRequired = blockingTargets.size")
+		assertContains(finish, "hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore")
+	}
 }
 
 private fun readerRasterPreparationSource(): String {

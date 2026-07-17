@@ -9,10 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import paige.navic.reader.ReaderPageRasterCalibrationSample
-import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderPageRasterPriority
-import paige.navic.reader.readerPageRasterPreparationMode
 
 internal enum class ReaderPageRasterScheduleStatus {
 	Cached,
@@ -43,6 +40,7 @@ internal interface ReaderPageRasterStore<T : Any> {
 	fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean
 	fun remove(key: ReaderPageRasterKey): Boolean
 	fun retainProfile(profile: ReaderPageRasterProfile): Int
+	fun protectChapter(chapter: ReaderPageRasterChapterKey?)
 	fun encodedBytes(key: ReaderPageRasterKey): Long
 }
 
@@ -57,6 +55,7 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 	override fun remove(key: ReaderPageRasterKey): Boolean = cache.remove(key)
 
 	override fun retainProfile(profile: ReaderPageRasterProfile): Int = cache.retainProfile(profile)
+	override fun protectChapter(chapter: ReaderPageRasterChapterKey?) = cache.protectChapter(chapter)
 
 	override fun encodedBytes(key: ReaderPageRasterKey): Long = cache.pathFor(key).takeIf { file -> file.isFile }?.length() ?: 0L
 }
@@ -83,7 +82,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		compareBy<Work<T>> { work -> work.priority.rank }.thenBy { work -> work.sequence }
 	)
 	private val pending = mutableMapOf<String, Work<T>>()
-	private val calibrationSamples = mutableListOf<ReaderPageRasterCalibrationSample>()
 	private var activeProfile: ReaderPageRasterProfile? = null
 	private var activeProfileGeneration = 0L
 	private var nextSequence = 0L
@@ -166,8 +164,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		wakeups.close()
 	}
 
-	fun preparationMode(chapterPageCount: Int): ReaderPageRasterPreparationMode = synchronized(lock) {
-		readerPageRasterPreparationMode(calibrationSamples.toList(), chapterPageCount)
+
+	suspend fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
+		withContext(ioDispatcher) { store.protectChapter(chapter) }
 	}
 
 	private suspend fun drain() {
@@ -202,11 +201,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			return
 		}
 
-		val writeStarted = nanoTime()
 		val published = withContext(ioDispatcher) {
 			store.write(work.key, generated.metadata, generated.value)
 		}
-		val writeMillis = ((nanoTime() - writeStarted).coerceAtLeast(0L) / 1_000_000L)
 		if (!published) {
 			release(generated.value)
 			complete(work, ReaderPageRasterScheduleStatus.Failed)
@@ -218,16 +215,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			return
 		}
 
-		val encodedBytes = withContext(ioDispatcher) { store.encodedBytes(work.key) }
-		recordCalibration(
-			ReaderPageRasterCalibrationSample(
-				captureMillis = generated.captureMillis,
-				encodeWriteMillis = writeMillis,
-				readDecodeMillis = generated.readDecodeMillis,
-				gpuUploadMillis = generated.gpuUploadMillis,
-				encodedBytes = encodedBytes
-			)
-		)
 		complete(work, ReaderPageRasterScheduleStatus.Published)
 	}
 
@@ -244,9 +231,4 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		work.result.complete(ReaderPageRasterScheduleResult(work.key, status))
 	}
 
-	private fun recordCalibration(sample: ReaderPageRasterCalibrationSample) {
-		synchronized(lock) {
-			if (calibrationSamples.size < 3) calibrationSamples += sample
-		}
-	}
 }
