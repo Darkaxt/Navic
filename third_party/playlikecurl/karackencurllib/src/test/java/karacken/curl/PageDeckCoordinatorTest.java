@@ -227,6 +227,38 @@ public class PageDeckCoordinatorTest {
         assertNull(coordinator.getPendingDeck());
     }
 
+    @Test
+    public void oneHundredSettlementsKeepExactlyOneActiveDeckAndNoPendingGrowth() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        PortraitPageDeck<String> active = portraitDeck(1, "page-1");
+        coordinator.offer(active);
+
+        for (long generation = 2; generation <= 101; generation += 1) {
+            PortraitPageDeck<String> replacement =
+                    portraitDeck(generation, "page-" + generation);
+            coordinator.beginSettlement();
+            PageDeckCoordinator.Offer<String> offer = coordinator.offer(replacement);
+
+            assertEquals(PageDeckCoordinator.Placement.PENDING, offer.getPlacement());
+            assertSame(active, coordinator.getActiveDeck());
+            assertSame(replacement, coordinator.getPendingDeck());
+
+            PageDeckCoordinator.Promotion<String> promotion =
+                    coordinator.completeSettlement();
+
+            assertSame(replacement, promotion.getActivatedDeck());
+            assertSame(active, promotion.getReleasedDeck());
+            assertSame(replacement, coordinator.getActiveDeck());
+            assertNull(coordinator.getPendingDeck());
+            assertTrue(!coordinator.isSettling());
+            active = replacement;
+        }
+
+        List<PageDeckCoordinator.Release<String>> releases = coordinator.dispose();
+        assertEquals(1, releases.size());
+        assertSame(active, releases.get(0).getDeck());
+    }
+
     private static PortraitPageDeck<String> portraitDeck(long generationId, String prefix) {
         return new PortraitPageDeck<>(
                 image(generationId, prefix + "-previous", 0),

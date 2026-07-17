@@ -326,6 +326,65 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun classifiedImportedDragCannotFallThroughToTapNavigation() {
+		val source = hostFile.readText()
+		val dispatch = source
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean")
+			.substringBefore("private fun handleSwipeTouchEvent(event: MotionEvent)")
+		val swipe = source
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent)")
+			.substringBefore("private fun dispatchHorizontalSwipeViewerAction")
+		val cancelTap = source
+			.substringAfter("private fun cancelPendingLongTapForDrag(")
+			.substringBefore("private fun nativeTapMovedBeyondSlop")
+
+		assertContains(swipe, "cancelPendingLongTapForDrag(dx, dy, event)")
+		assertContains(swipe, "nativeTapCancelledByDrag = true")
+		assertContains(cancelTap, "gestureDetector.cancelForDrag(event)")
+		assertContains(cancelTap, "nativeTapCandidate = false")
+		assertContains(
+			dispatch,
+			"!horizontalSwipeDispatched && !nativeSwipeIntercepted && !nativeTapCancelledByDrag"
+		)
+		assertTrue(
+			dispatch.indexOf("handleSwipeTouchEvent(event)") <
+				dispatch.indexOf("gestureDetector.onTouchEvent(event)"),
+			"Drag classification must cancel tap recognition before the detector sees the move or release."
+		)
+	}
+
+	@Test
+	fun acceptedGestureFrameDoesNotStartRasterOrTexturePreparation() {
+		val controller = controllerFile.readText()
+		val touch = controller
+			.substringAfter("fun onPageTouchEvent(event: MotionEvent, gestureId: Long): Boolean {")
+			.substringBefore("fun turn(pageChange: PageChange, gestureId: Long): Boolean")
+		val host = hostFile.readText()
+		val dispatch = host
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean")
+			.substringBefore("private fun handleSwipeTouchEvent(event: MotionEvent)")
+		val gesturePath = touch + dispatch
+
+		assertContains(touch, "surfaceView.onPageTouchEvent(event, gestureId)")
+		listOf(
+			"onRequestPrewarm()",
+			"refreshPreparedDeck()",
+			"refillDecodedWorkingSet(",
+			"rasterAdapter",
+			"submitDeck(",
+			"requestPageTurnPrewarmWhenReady()",
+			"requestPageRasterRepair(",
+			"BitmapFactory",
+			"File("
+		).forEach { forbidden ->
+			assertFalse(
+				gesturePath.contains(forbidden),
+				"Gesture-frame path must not perform preparation work: $forbidden"
+			)
+		}
+	}
+
+	@Test
 	fun rendererCallbacksCarryTheOriginatingGestureIdentityToOneTerminalLedger() {
 		val controller = controllerFile.readText()
 		val host = hostFile.readText()

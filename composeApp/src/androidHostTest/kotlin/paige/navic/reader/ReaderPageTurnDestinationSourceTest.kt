@@ -239,6 +239,24 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun rasterPreparationClampsEachChapterWithoutWrappingAcrossSpineRanges() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val plan = preview
+			.substringAfter("function pageTurnRasterPreparationPlan(")
+			.substringBefore("function pageTurnPreviewContext(")
+		val addChapter = plan
+			.substringAfter("const addChapter = (chapter, priority) => {")
+			.substringBefore("\n  }\n\n  addTarget(centerPageIndex")
+
+		assertContains(addChapter, "const pageStartIndex = Math.max(0")
+		assertContains(addChapter, "const pageEndIndex = Math.min(pageCount, pageStartIndex + chapterPageCount)")
+		assertContains(addChapter, "pageIndex < pageEndIndex")
+		assertContains(addChapter, "addTarget(pageIndex, priority)")
+		assertFalse(addChapter.contains("% pageCount"))
+		assertFalse(addChapter.contains("currentChapterIndex"))
+	}
+
+	@Test
 	fun passiveRasterIdentityIncludesEveryCacheInvalidationDimension() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
@@ -342,12 +360,13 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun snapshotCacheIsBoundedAndReleasesEvictedEntries() {
+	fun snapshotCacheIsBoundedAndReleasesUnprotectedEvictedEntries() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
 		assertContains(source, "LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)")
 		assertContains(source, "private const val MaxCachedSnapshots = 5")
-		assertContains(source, "eldest.value.releaseCacheOwnership()")
+		assertContains(source, "key.visualPageIndex !in protectedSnapshotPageIndices")
+		assertContains(source, "eviction.value.releaseCacheOwnership()")
 		assertContains(source, "snapshotCache.clear()")
 	}
 
