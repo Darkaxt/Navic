@@ -1,6 +1,6 @@
 # PlayLikeCurl Library Integration Design
 
-**Status:** Implemented and validated for the iota24 Android release candidate
+**Status:** Released and independently verified in Navic v1.0.11-iota24
 
 **Date:** 2026-07-16
 
@@ -79,6 +79,22 @@ The integration is not allowed to reinterpret "faithful" as "similar". The fork 
   third-party attribution verifier, and Android version guard pass.
 - Candidate metadata is `versionCode=551` and
   `versionName=v1.0.11-iota24`.
+- Public release
+  [`v1.0.11-iota24`](https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota24)
+  was built from tagged Navic commit
+  `1d1cefd345669c43073defdcdcf37af4d965a7a7`.
+- GitHub Actions run
+  [`29571373848`](https://github.com/Darkaxt/Navic/actions/runs/29571373848)
+  completed successfully, including the Android release build, PlayLikeCurl
+  snapshot verification, release signing verification, packaged reader
+  governance verification, and GitHub release creation.
+- The published `Navic.apk` is 46,326,164 bytes with SHA-256
+  `3234c9bece6985d1aeeec859b32cc779d5a891e5319759227f8eac8e497f4db7`;
+  an independent download produced the same digest advertised by GitHub.
+- The published APK reports package `darkaxt.navic`, `versionCode=551`, and
+  `versionName=v1.0.11-iota24`. APK Signature Scheme v2 verification passes
+  with certificate SHA-256
+  `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`.
 
 ## 2. Audit Findings
 
