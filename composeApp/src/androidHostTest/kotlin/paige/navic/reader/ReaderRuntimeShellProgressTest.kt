@@ -735,6 +735,8 @@ class ReaderRuntimeShellProgressTest {
 		val dispatchTouchEvent = nativeFrameHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+		val childDispatchedTouchBranch = dispatchTouchEvent
+			.substringAfter("val handled = super.dispatchTouchEvent(event)")
 		val interceptTouchEvent = nativeFrameHostText
 			.substringAfter("override fun onInterceptTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("\n\t}\n\n\t")
@@ -750,16 +752,15 @@ class ReaderRuntimeShellProgressTest {
 			"Shell-cover taps must follow Komikku's child-first Pager dispatch; the native container must not intercept ACTION_UP just to own short taps."
 		)
 		assertTrue(
-			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)"),
+			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") >= 0,
 			"Shell-cover drags must observe the same child-dispatched stream instead of bypassing the cover renderer."
 		)
 		assertTrue(
-			dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
+			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
+				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)"),
 			"Shell-cover drag observation and reader tap detection must share the same native surface stream."
 		)
-		assertContains(dispatchTouchEvent, "handled")
+		assertContains(childDispatchedTouchBranch, "handled")
 	}
 
 	@Test

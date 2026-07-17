@@ -556,7 +556,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		bundleSource = pageTurnBundleSource,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady
 	)
-	private val pageTurnController = ReaderPageTurnController(
+	private val pageRasterPreparationController = ReaderPageRasterPreparationController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
@@ -564,12 +564,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		onPreparationStateChange = { state ->
 			playLikeCurlController.onPreparationStateChanged(state)
 			onPagePreparationStateChange(state)
-		},
-		onCommitTurn = { direction ->
-			when (direction) {
-				ReaderPageTurnPhysicalDirection.TowardLeft -> onAction(KomikkuNavigationRegion.RIGHT)
-				ReaderPageTurnPhysicalDirection.TowardRight -> onAction(KomikkuNavigationRegion.LEFT)
-			}
 		}
 	)
 
@@ -596,7 +590,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	fun replaceViewerContent(viewerView: View) {
 		playLikeCurlController.invalidate("viewer-replaced")
-		pageTurnController.invalidate("viewer-replaced")
+		pageRasterPreparationController.invalidate(
+			reason = "viewer-replaced",
+			clearVisualPageIndex = true
+		)
 		viewerContentContainer.removeAllViews()
 		viewerContentContainer.addView(
 			viewerView,
@@ -613,7 +610,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			requestPageTurnPrewarmWhenReady()
 		} else {
 			removePageTurnPrewarmLayoutListener()
-			pageTurnController.invalidate("canvas-disabled")
+			pageRasterPreparationController.invalidate("canvas-disabled")
 		}
 	}
 
@@ -623,14 +620,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	fun setPageTurnBitmapQuality(value: String?) {
 		playLikeCurlController.updateBitmapQuality(value)
-		pageTurnController.updateBitmapQuality(value)
+		pageRasterPreparationController.updateBitmapQuality(value)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
 		if (pageTurnSnapshotKey == snapshotKey) return
 		pageTurnSnapshotKey = snapshotKey
 		playLikeCurlController.setSnapshotKey(snapshotKey)
-		pageTurnController.invalidate("settings-changed")
+		pageRasterPreparationController.invalidate("settings-changed")
 		requestPageTurnPrewarmWhenReady()
 	}
 
@@ -643,7 +640,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			"Page-turn pagination content ready key=${contentReadyKey.hashCode()}"
 		)
 		playLikeCurlController.onHostContentReady()
-		pageTurnController.retryPreparation()
+		pageRasterPreparationController.retryPreparation()
 	}
 
 	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
@@ -652,7 +649,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		pageTurnVisualPageIndex = normalized
 		pageTurnVisualLocationReason = reason
 		playLikeCurlController.synchronizeVisualPageIndex(normalized, reason)
-		pageTurnController.synchronizeVisualPageIndex(normalized, reason)
+		pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
 		requestPageTurnPrewarmWhenReady()
 	}
 
@@ -662,9 +659,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (visible) {
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.invalidate("shell-cover-visible")
-			pageTurnController.invalidate("shell-cover-visible")
+			pageRasterPreparationController.invalidate("shell-cover-visible")
 		} else {
-			pageTurnController.invalidateCurrentVisualSnapshot("shell-cover-hidden")
+			pageRasterPreparationController.invalidateCurrentVisualSnapshot("shell-cover-hidden")
 		}
 		requestPageTurnPrewarmWhenReady()
 	}
@@ -684,7 +681,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (pagePreparationRetryKey == retryKey) return
 		val shouldRetry = pagePreparationRetryKey != Int.MIN_VALUE && retryKey > pagePreparationRetryKey
 		pagePreparationRetryKey = retryKey
-		if (shouldRetry) pageTurnController.retryPreparation()
+		if (shouldRetry) pageRasterPreparationController.retryPreparation()
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
@@ -726,7 +723,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			if (pageTurnPrewarmStableFrameCount == PageTurnPrewarmRequiredStableFrames) {
 				playLikeCurlController.onHostContentReady()
 			}
-			if (pageTurnController.prewarmAdjacent()) {
+			if (pageRasterPreparationController.prewarmAdjacent()) {
 				removePageTurnPrewarmLayoutListener()
 			}
 			true
@@ -1198,7 +1195,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		super.onSizeChanged(w, h, oldw, oldh)
 		if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh)) {
 			playLikeCurlController.onHostSizeChanged()
-			pageTurnController.invalidate("size-changed")
+			pageRasterPreparationController.invalidate("size-changed")
 			requestPageTurnPrewarmWhenReady()
 		}
 	}
@@ -1211,14 +1208,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		} else {
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.onHostWindowHidden()
-			pageTurnController.invalidate("window-hidden")
+			pageRasterPreparationController.invalidate("window-hidden")
 		}
 	}
 
 	override fun onDetachedFromWindow() {
 		removePageTurnPrewarmLayoutListener()
 		playLikeCurlController.destroy()
-		pageTurnController.destroy()
+		pageRasterPreparationController.destroy()
 		super.onDetachedFromWindow()
 	}
 }

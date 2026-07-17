@@ -125,6 +125,8 @@ class ReaderRuntimeSettingsBridgeTest {
 		val dispatchTouchEvent = nativeFrameHostText
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+		val childDispatchedTouchBranch = dispatchTouchEvent
+			.substringAfter("val handled = super.dispatchTouchEvent(event)")
 
 		assertContains(nativeFrameHostText, "private class KomikkuReaderNativeViewerContainer")
 		assertContains(nativeFrameHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
@@ -142,8 +144,8 @@ class ReaderRuntimeSettingsBridgeTest {
 		assertContains(nativeFrameHostText, "navigator.getAction(")
 		assertContains(nativeFrameHostText, "ViewConfiguration.get(context).scaledTouchSlop")
 		assertTrue(
-			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
+			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
+				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)"),
 			"Komikku's pager dispatches to the child/page first, then observes the same stream for confirmed reader-wide taps."
 		)
 		assertFalse(

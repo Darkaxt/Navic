@@ -524,6 +524,10 @@ class ReaderKomikkuBackboneResetTest {
 			"Android must provide a native FrameLayout reader root, not only the common Compose fallback."
 		)
 		val androidText = androidHost.readText()
+		val childDispatchedTouchBranch = androidText
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
+			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+			.substringAfter("val handled = super.dispatchTouchEvent(event)")
 
 		assertTrue(readerRootText.contains("KomikkuReaderNativeFrameHost("))
 		assertTrue(platformText.contains("expect fun KomikkuReaderNativeFrameHost("))
@@ -558,7 +562,10 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(androidText.contains("super.dispatchTouchEvent(event)"))
 		assertTrue(androidText.contains("gestureDetector.onTouchEvent(event)"))
-		assertTrue(androidText.indexOf("super.dispatchTouchEvent(event)") < androidText.indexOf("gestureDetector.onTouchEvent(event)"))
+		assertTrue(
+			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
+				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)")
+		)
 		assertFalse(
 			activeText.contains("Box(\n\t\tmodifier = Modifier\n\t\t\t.fillMaxSize()\n\t\t\t.background(Color(0xFF202329))") ||
 				readerRootText.contains("Box(\n\t\tmodifier = Modifier\n\t\t\t.fillMaxSize()\n\t\t\t.background(Color(0xFF202329))"),
@@ -619,6 +626,8 @@ class ReaderKomikkuBackboneResetTest {
 		val dispatchTouchEvent = viewerContainerBody
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("\n\tprivate val gestureDetector")
+		val childDispatchedTouchBranch = dispatchTouchEvent
+			.substringAfter("val handled = super.dispatchTouchEvent(event)")
 
 		assertTrue(
 			viewerContainerBody.contains("ViewConfiguration.get(context).scaledTouchSlop"),
@@ -636,13 +645,12 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.NEXT)"))
 		assertTrue(viewerContainerBody.contains("onAction(KomikkuNavigationRegion.PREV)"))
 		assertTrue(
-			dispatchTouchEvent.indexOf("val handled = super.dispatchTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)"),
+			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") >= 0,
 			"Swipe observation must stay child-first like Komikku's Pager.dispatchTouchEvent."
 		)
 		assertTrue(
-			dispatchTouchEvent.indexOf("handleSwipeTouchEvent(event)") <
-				dispatchTouchEvent.indexOf("gestureDetector.onTouchEvent(event)"),
+			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
+				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)"),
 			"Swipe handling should cancel tap detection before the single-tap gesture detector can open chrome."
 		)
 		assertFalse(

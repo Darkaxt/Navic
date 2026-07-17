@@ -40,20 +40,21 @@ class ThirdPartyAttributionSourceTest {
 		val licenseRecord = repoFile(
 			"composeApp/aboutlibraries/licenses/playlikecurl-mit.json"
 		).readText()
-		val license = repoFile("third_party/licenses/playlikecurl.txt").readText()
+		val license = repoFile("third_party/playlikecurl/LICENSE.txt").readText()
 		val verifier = repoFile("scripts/verify-third-party-attributions.ps1").readText()
 
 		assertContains(notices, "PlayLikeCurl")
 		assertContains(notices, "https://github.com/karankalsi/PlayLikeCurl")
-		assertContains(notices, "915a5a33773b1b2534134a56cdab00303b29a442")
-		assertContains(notices, "third_party/licenses/playlikecurl.txt")
-		assertContains(libraryRecord, "https://github.com/karankalsi/PlayLikeCurl")
+		assertContains(notices, "2555831fcca962b2089997c4f8ea21ff5bd226fc")
+		assertContains(notices, "third_party/playlikecurl/LICENSE.txt")
+		assertContains(libraryRecord, "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.2")
+		assertContains(libraryRecord, "https://github.com/karankalsi")
 		assertContains(libraryRecord, "playlikecurl-mit")
 		assertContains(licenseRecord, "MIT License - PlayLikeCurl")
 		assertContains(license, "MIT License")
 		assertContains(license, "Copyright (c) [year] [fullname]")
 		assertContains(verifier, "id = \"playlikecurl\"")
-		assertContains(verifier, "third_party/licenses/playlikecurl.txt")
+		assertContains(verifier, "third_party/playlikecurl/LICENSE.txt")
 		assertEquals(
 			1,
 			Regex("\\\"uniqueId\\\":\\s*\\\"playlikecurl\\\"").findAll(generated).count(),

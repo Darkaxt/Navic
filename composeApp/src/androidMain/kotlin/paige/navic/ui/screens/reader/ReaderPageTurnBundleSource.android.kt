@@ -31,11 +31,6 @@ import kotlin.math.roundToInt
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
 
-private data class InFlightSnapshotRequest(
-	val generation: Long,
-	val callbacks: MutableList<(ReaderPageSlideSnapshot?) -> Unit>
-)
-
 private data class InFlightRasterHydration(
 	val generation: Long,
 	val callbacks: MutableList<(ReaderPageSlideSnapshot?) -> Unit>
@@ -52,7 +47,6 @@ internal class ReaderPageTurnBundleSource(
 	private val rasterInitializationMutex = Mutex()
 	private val visualStateRequestId = AtomicLong()
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
-	private val inFlightSnapshotRequests = mutableMapOf<ReaderPageSlideSnapshotKey, InFlightSnapshotRequest>()
 	private val inFlightRasterHydrations = mutableMapOf<String, InFlightRasterHydration>()
 	private val stagedRasterGenerations = mutableMapOf<String, ReaderPageRasterGeneration<Bitmap>>()
 	private val rasterPublicationInFlight = mutableSetOf<String>()
@@ -74,29 +68,6 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	fun currentGeneration(): Long = activeGeneration
-
-	fun cached(plan: ReaderPageTurnTransitionPlan): ReaderPageSlideTransition? {
-		val source = cachedSnapshot(plan.sourcePageIndex, plan.kind)
-		val destination = cachedSnapshot(plan.targetPageIndex, plan.kind)
-		val transition = if (source != null && destination != null) {
-			ReaderPageSlideTransition(plan, source, destination)
-		} else {
-			null
-		}
-		Logger.i(
-			ReaderPageTurnBundleSourceTag,
-			"Page-turn snapshot cache ${if (transition == null) "miss" else "hit"} " +
-				"source=${plan.sourcePageIndex} target=${plan.targetPageIndex} entries=${snapshotCache.keys}"
-		)
-		return transition
-	}
-
-	fun isCached(plan: ReaderPageTurnTransitionPlan): Boolean =
-		cachedSnapshot(plan.sourcePageIndex, plan.kind) != null &&
-			cachedSnapshot(plan.targetPageIndex, plan.kind) != null
-
-	fun hasCachedSnapshot(pageIndex: Int, kind: ReaderPageTurnTransitionKind): Boolean =
-		cachedSnapshot(pageIndex, kind) != null
 
 	fun retainedSnapshot(
 		pageIndex: Int,
@@ -123,118 +94,6 @@ internal class ReaderPageTurnBundleSource(
 			} else {
 				onCaptured(result)
 			}
-		}
-	}
-
-	fun captureBundle(
-		webView: WebView,
-		plan: ReaderPageTurnTransitionPlan,
-		current: ReaderPageTurnCaptureResult,
-		currentPageIndex: Int? = null,
-		currentCanRepresentSource: Boolean = true,
-		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
-		onPrepared: (ReaderPageSlideTransition?) -> Unit
-	) {
-		activeWebView = WeakReference(webView)
-		val generation = plan.generation
-		if (generation != activeGeneration || !webView.isAttachedToWindow) {
-			current.bitmap.takeUnless { it.isRecycled }?.recycle()
-			onPrepared(null)
-			return
-		}
-
-		val currentSnapshot = currentPageIndex?.let { pageIndex ->
-			cacheSnapshot(pageIndex, plan.kind, current, plan.generation)
-		}
-		val cachedSource = cachedSnapshot(plan.sourcePageIndex, plan.kind)
-		val source = cachedSource ?: if (currentCanRepresentSource) {
-			currentSnapshot ?: cacheCurrentSnapshot(plan, current)
-		} else {
-			if (currentSnapshot == null) current.bitmap.takeUnless { it.isRecycled }?.recycle()
-			null
-		} ?: run {
-			onPrepared(null)
-			return
-		}
-		cached(plan)?.let { cached ->
-			onPrepared(cached)
-			return
-		}
-
-		val destinationKey = snapshotKey(
-			plan.targetPageIndex,
-			plan.kind,
-			source.bitmap,
-			source.surfaceRectInWindow
-		)
-		source.retain()
-		requestSnapshot(destinationKey, generation, onPrepared = { destination ->
-			try {
-				onPrepared(destination?.let { ReaderPageSlideTransition(plan, source, it) })
-			} finally {
-				source.release()
-			}
-		}) { complete ->
-			capturePreparedDestination(
-				webView = webView,
-				plan = plan,
-				source = source,
-				destinationKey = destinationKey,
-				onStagingStarted = { onStagingStarted(currentSnapshot ?: source) },
-				onCaptured = complete
-			)
-		}
-	}
-
-	fun capturePreparedBundle(
-		webView: WebView,
-		plan: ReaderPageTurnTransitionPlan,
-		shieldPageIndex: Int?,
-		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
-		onPrepared: (ReaderPageSlideTransition?) -> Unit
-	) {
-		activeWebView = WeakReference(webView)
-		val generation = plan.generation
-		if (generation != activeGeneration || !webView.isAttachedToWindow) {
-			onPrepared(null)
-			return
-		}
-		val source = cachedSnapshot(plan.sourcePageIndex, plan.kind) ?: run {
-			onPrepared(null)
-			return
-		}
-		cached(plan)?.let { cached ->
-			onPrepared(cached)
-			return
-		}
-		val shield = shieldPageIndex?.let { cachedSnapshot(shieldPageIndex, plan.kind) } ?: run {
-			onPrepared(null)
-			return
-		}
-		val destinationKey = snapshotKey(
-			plan.targetPageIndex,
-			plan.kind,
-			source.bitmap,
-			source.surfaceRectInWindow
-		)
-		source.retain()
-		if (shield !== source) shield.retain()
-		requestSnapshot(destinationKey, generation, onPrepared = { destination ->
-			try {
-				onPrepared(destination?.let { ReaderPageSlideTransition(plan, source, it) })
-			} finally {
-				if (shield !== source) shield.release()
-				source.release()
-			}
-		}) { complete ->
-			capturePreparedDestination(
-				webView = webView,
-				plan = plan,
-				source = source,
-				destinationKey = destinationKey,
-				onStagingStarted = { onStagingStarted(shield) },
-				onCaptured = complete
-			)
 		}
 	}
 
@@ -324,56 +183,6 @@ internal class ReaderPageTurnBundleSource(
 				hydration?.callbacks?.forEach { callback -> callback(cached) }
 			}
 		}
-	}
-
-	fun hydratePreparedBundle(
-		webView: WebView,
-		plan: ReaderPageTurnTransitionPlan,
-		onHydrated: (ReaderPageSlideTransition?) -> Unit
-	) {
-		if (plan.generation != activeGeneration || !webView.isAttachedToWindow) {
-			onHydrated(null)
-			return
-		}
-		cached(plan)?.let {
-			onHydrated(it)
-			return
-		}
-		val source = cachedSnapshot(plan.sourcePageIndex, plan.kind) ?: run {
-			onHydrated(null)
-			return
-		}
-		hydrateSnapshot(
-			webView = webView,
-			pageIndex = plan.targetPageIndex,
-			kind = plan.kind,
-			reference = source
-		) { destination ->
-			if (destination == null || plan.generation != activeGeneration) {
-				onHydrated(null)
-			} else {
-				onHydrated(cached(plan))
-			}
-		}
-	}
-
-	private fun capturePreparedDestination(
-		webView: WebView,
-		plan: ReaderPageTurnTransitionPlan,
-		source: ReaderPageSlideSnapshot,
-		destinationKey: ReaderPageSlideSnapshotKey,
-		onStagingStarted: () -> Unit,
-		onCaptured: (ReaderPageSlideSnapshot?) -> Unit
-	) {
-		capturePreparedPage(
-			webView = webView,
-			token = plan.token,
-			generation = plan.generation,
-			reference = source,
-			destinationKey = destinationKey,
-			onStagingStarted = onStagingStarted,
-			onCaptured = onCaptured
-		)
 	}
 
 	fun capturePreparedRasterPage(
@@ -480,16 +289,6 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	fun cacheCurrentSnapshot(
-		plan: ReaderPageTurnTransitionPlan,
-		current: ReaderPageTurnCaptureResult
-	): ReaderPageSlideSnapshot? = cacheCurrentSnapshot(
-		pageIndex = plan.sourcePageIndex,
-		kind = plan.kind,
-		current = current,
-		generation = plan.generation
-	)
-
-	fun cacheCurrentSnapshot(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
 		current: ReaderPageTurnCaptureResult,
@@ -550,38 +349,6 @@ internal class ReaderPageTurnBundleSource(
 			),
 			ReaderPageRasterPriority.Current
 		)
-	}
-
-	private fun requestSnapshot(
-		key: ReaderPageSlideSnapshotKey,
-		generation: Long,
-		onPrepared: (ReaderPageSlideSnapshot?) -> Unit,
-		capture: ((ReaderPageSlideSnapshot?) -> Unit) -> Unit
-	) {
-		snapshotCache[key]?.let {
-			onPrepared(it)
-			return
-		}
-		inFlightSnapshotRequests[key]?.takeIf { it.generation == generation }?.let { request ->
-			request.callbacks.add(onPrepared)
-			return
-		}
-
-		val callbacks = mutableListOf(onPrepared)
-		inFlightSnapshotRequests[key] = InFlightSnapshotRequest(generation, callbacks)
-		capture { captured ->
-			val request = inFlightSnapshotRequests.remove(key)
-			if (request == null || request.generation != generation || generation != activeGeneration) {
-				val staleSnapshot = captured
-				staleSnapshot?.releaseCacheOwnership()
-				request?.callbacks?.forEach { it(null) }
-				return@capture
-			}
-			val cached = captured?.let { snapshot ->
-				putSnapshot(snapshot, ReaderPageRasterPriority.NextTransition)
-			}
-			request.callbacks.forEach { it(cached) }
-		}
 	}
 
 	private fun cachedSnapshot(
@@ -883,8 +650,6 @@ internal class ReaderPageTurnBundleSource(
 
 	fun invalidate(reason: String) {
 		activeGeneration += 1
-		inFlightSnapshotRequests.values.forEach { request -> request.callbacks.forEach { it(null) } }
-		inFlightSnapshotRequests.clear()
 		inFlightRasterHydrations.values.forEach { request -> request.callbacks.forEach { it(null) } }
 		inFlightRasterHydrations.clear()
 		rasterPublicationCallbacks.values.flatten().forEach { callback -> callback(false) }
@@ -964,7 +729,3 @@ internal fun readerPageSlideSnapshotWindow(
 private fun String?.isJavascriptTrue(): Boolean = runCatching {
 	JSONTokener(orEmpty()).nextValue() as? Boolean == true
 }.getOrDefault(false)
-
-private fun String?.javascriptString(): String? = runCatching {
-	JSONTokener(orEmpty()).nextValue() as? String
-}.getOrNull()

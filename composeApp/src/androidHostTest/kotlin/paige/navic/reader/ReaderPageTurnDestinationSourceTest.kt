@@ -127,16 +127,15 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun cancelledExactSettlementIsObservableByTheNativeController() {
+	fun cancelledSettlementIsObservableByTheImportedController() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
-		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val controller = readerAndroidFile("ReaderPlayLikeCurlFoliateController.android.kt").readText()
 
 		assertContains(turns, "function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
 		assertContains(turns, "cancelled: true")
-		assertContains(controller, "settled.optBoolean(\"cancelled\", false)")
-		assertContains(controller, "activeSettleToken = null")
-		assertContains(controller, "slideCoordinator = null")
-		assertContains(controller, "detachOverlay()")
+		assertContains(controller, "override fun onSettlementCancelled(")
+		assertContains(controller, "\"PlayLikeCurl settlement cancelled")
+		assertContains(controller, "hideSurface()")
 	}
 
 	@Test
@@ -343,21 +342,6 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun cacheOwnedSnapshotsAreBorrowedAndReleasedExactlyOnceByTransitions() {
-		val bundle = readerAndroidFile("ReaderPageTurnBundle.android.kt").readText()
-
-		assertContains(bundle, "data class ReaderPageTurnTransitionPlan")
-		assertContains(bundle, "class ReaderPageSlideSnapshot")
-		assertContains(bundle, "class ReaderPageSlideTransition")
-		assertContains(bundle, "source.retain()")
-		assertContains(bundle, "destination.retain()")
-		assertContains(bundle, "if (closed) return")
-		assertContains(bundle, "source.release()")
-		assertContains(bundle, "destination.release()")
-		assertFalse(bundle.contains("ReaderPageTurnBitmapBundle"))
-	}
-
-	@Test
 	fun snapshotCacheIsBoundedAndReleasesEvictedEntries() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 
@@ -374,7 +358,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(source, "captureSurface(")
 		assertContains(source, "captureStagedSurface(")
 		assertContains(source, "if (generation != activeGeneration)")
-		assertContains(source, "staleSnapshot?.releaseCacheOwnership()")
+		assertContains(source, "current.bitmap.takeUnless { it.isRecycled }?.recycle()")
 		assertContains(source, "webView.draw(canvas)")
 		assertFalse(source.contains("postDelayed"))
 		assertFalse(source.contains("setTimeout"))
@@ -411,7 +395,7 @@ class ReaderPageTurnDestinationSourceTest {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val hydration = source
 			.substringAfter("fun hydrateSnapshot(")
-			.substringBefore("private fun capturePreparedDestination(")
+			.substringBefore("fun capturePreparedRasterPage(")
 
 		assertContains(hydration, "cache.readCopy(key)")
 		assertContains(hydration, "cached.copy(Bitmap.Config.ARGB_8888, false)")

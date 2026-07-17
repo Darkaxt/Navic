@@ -48,25 +48,24 @@ class ReaderDragAnimationMigrationSourceTest {
 	}
 
 	@Test
-	fun removingLegacyCanvasRequiresTheOpenGlReplacement() {
+	fun canvasModeUsesTheImportedPlayLikeCurlSurface() {
 		val legacyCanvas = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageTurnSlideView.android.kt"
 		)
-		val openGlRenderer = File(
+		val retiredOpenGlRenderer = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlRenderer.android.kt"
 		)
-		val openGlView = File(
+		val retiredOpenGlView = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageCurlGlView.android.kt"
 		)
+		val importedController = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt"
+		)
 
-		if (!legacyCanvas.isFile) {
-			check(openGlRenderer.isFile) {
-				"The persisted canvas mode must target ReaderPageCurlGlRenderer after Canvas removal."
-			}
-			check(openGlView.isFile) {
-				"The animated mode requires the persistent ReaderPageCurlGlView after Canvas removal."
-			}
-		}
+		check(!legacyCanvas.isFile) { "The retired Canvas slide renderer must stay removed." }
+		check(!retiredOpenGlRenderer.isFile) { "The failed custom GLES renderer must stay removed." }
+		check(!retiredOpenGlView.isFile) { "The failed custom GLES view must stay removed." }
+		check(importedController.isFile) { "Canvas mode requires the imported PlayLikeCurl Foliate controller." }
 	}
 
 	@Test
