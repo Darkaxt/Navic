@@ -22,11 +22,35 @@ public interface PageSurfaceListener {
             long generationId,
             GestureRejectionReason reason) {}
 
+    default void onGestureRejected(
+            long gestureId,
+            long generationId,
+            GestureRejectionReason reason) {
+        onGestureRejected(generationId, reason);
+    }
+
+    default void onGestureCancelled(
+            long gestureId,
+            long generationId) {}
+
     default void onSettlementStarted(
             long generationId,
             String sourceLogicalPageId,
             String targetLogicalPageId,
             PageChange pageChange) {}
+
+    default void onSettlementStarted(
+            long gestureId,
+            long generationId,
+            String sourceLogicalPageId,
+            String targetLogicalPageId,
+            PageChange pageChange) {
+        onSettlementStarted(
+                generationId,
+                sourceLogicalPageId,
+                targetLogicalPageId,
+                pageChange);
+    }
 
     default void onSettlementCompleted(
             long generationId,
@@ -34,7 +58,27 @@ public interface PageSurfaceListener {
             int currentOrdinal,
             PageChange pageChange) {}
 
+    default void onSettlementCompleted(
+            long gestureId,
+            long generationId,
+            String currentLogicalPageId,
+            int currentOrdinal,
+            PageChange pageChange) {
+        onSettlementCompleted(
+                generationId,
+                currentLogicalPageId,
+                currentOrdinal,
+                pageChange);
+    }
+
     default void onSettlementCancelled(
             long generationId,
             String currentLogicalPageId) {}
+
+    default void onSettlementCancelled(
+            long gestureId,
+            long generationId,
+            String currentLogicalPageId) {
+        onSettlementCancelled(generationId, currentLogicalPageId);
+    }
 }

@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import karacken.curl.DeckRejectionReason
 import karacken.curl.DeckReleaseReason
+import karacken.curl.GestureRejectionReason
 import karacken.curl.PageChange
 import karacken.curl.PageImage
 import karacken.curl.PageSurfaceListener
@@ -23,6 +24,7 @@ import org.json.JSONObject
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.util.core.Logger
 
@@ -52,7 +54,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource,
-	private val onRequestPrewarm: () -> Unit
+	private val onRequestPrewarm: () -> Unit,
+	private val onGestureTerminal: (
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome,
+		detail: String
+	) -> Unit
 ) {
 	private class PreparedPages(
 		val profile: ReaderPlayLikeCurlRasterProfile,
@@ -89,6 +96,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var preparationPhase = ReaderPagePreparationPhase.Idle
 	private var requestGeneration = 0L
 	private var nextDeckGeneration = 1L
+	private var activeGestureId: Long? = null
 	private var lastActivationTrace: String? = null
 
 	init {
@@ -123,7 +131,33 @@ internal class ReaderPlayLikeCurlFoliateController(
 				releaseGeneration(generationId)
 			}
 
+			override fun onGestureRejected(
+				gestureId: Long,
+				generationId: Long,
+				reason: GestureRejectionReason
+			) {
+				val outcome = when (reason) {
+					GestureRejectionReason.SETTLEMENT_RUNNING ->
+						ReaderPageGestureTerminalOutcome.RejectedSettling
+					else -> ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+				}
+				finishGesture(
+					gestureId,
+					outcome,
+					"renderer-rejected generation=$generationId reason=$reason"
+				)
+			}
+
+			override fun onGestureCancelled(gestureId: Long, generationId: Long) {
+				finishGesture(
+					gestureId,
+					ReaderPageGestureTerminalOutcome.CancelledByUser,
+					"renderer-cancelled generation=$generationId"
+				)
+			}
+
 			override fun onSettlementStarted(
+				gestureId: Long,
 				generationId: Long,
 				sourceLogicalPageId: String,
 				targetLogicalPageId: String,
@@ -131,13 +165,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 			) {
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl settlement started generation=$generationId " +
+					"PlayLikeCurl settlement started gestureId=$gestureId generation=$generationId " +
 						"source=$sourceLogicalPageId target=$targetLogicalPageId " +
 						"change=$pageChange"
 				)
 			}
 
 			override fun onSettlementCompleted(
+				gestureId: Long,
 				generationId: Long,
 				currentLogicalPageId: String,
 				currentPageOrdinal: Int,
@@ -150,6 +185,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 							"page=$currentLogicalPageId ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
 					)
 					hideSurface()
+					finishGesture(
+						gestureId,
+						ReaderPageGestureTerminalOutcome.CancelledByUser,
+						"settlement-completed change=NONE ordinal=$currentPageOrdinal"
+					)
 					return
 				}
 				Logger.i(
@@ -160,19 +200,41 @@ internal class ReaderPlayLikeCurlFoliateController(
 				currentOrdinal = currentPageOrdinal
 				pendingExactOrdinal = currentPageOrdinal
 				interactionReady = false
+				finishGesture(
+					gestureId,
+					if (pageChange == PageChange.NEXT) {
+						ReaderPageGestureTerminalOutcome.CommittedForward
+					} else {
+						ReaderPageGestureTerminalOutcome.CommittedBackward
+					},
+					"settlement-completed change=$pageChange ordinal=$currentPageOrdinal"
+				)
 				dispatchExactVisualPage(currentPageOrdinal)
 			}
 
-			override fun onSettlementCancelled(generationId: Long, currentLogicalPageId: String) {
+			override fun onSettlementCancelled(
+				gestureId: Long,
+				generationId: Long,
+				currentLogicalPageId: String
+			) {
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement cancelled generation=$generationId page=$currentLogicalPageId"
+				)
+				finishGesture(
+					gestureId,
+					ReaderPageGestureTerminalOutcome.CancelledByUser,
+					"settlement-cancelled generation=$generationId page=$currentLogicalPageId"
 				)
 				hideSurface()
 			}
 
 			override fun onRenderFailure(failure: RenderFailure) {
 				interactionReady = false
+				finishActiveGesture(
+					ReaderPageGestureTerminalOutcome.FailedRenderer,
+					"render-failure generation=${failure.generationId} reason=${failure.reason}"
+				)
 				hideSurface()
 				Logger.e(
 					ReaderPlayLikeCurlFoliateControllerTag,
@@ -261,25 +323,50 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onHostWindowHidden() {
 		hideSurface()
-		surfaceView.cancelGesture()
+		cancelActiveGesture()
 	}
 
-	fun onPageTouchEvent(event: MotionEvent): Boolean {
-		if (!isAvailable) return false
-		return surfaceView.onPageTouchEvent(event)
+	fun onPageTouchEvent(event: MotionEvent, gestureId: Long): Boolean {
+		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+			activeGestureId = gestureId
+		}
+		if (!isAvailable) {
+			finishGesture(
+				gestureId,
+				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable,
+				"touch-rejected action=${event.actionMasked} controller-unavailable"
+			)
+			return false
+		}
+		return surfaceView.onPageTouchEvent(event, gestureId)
 	}
 
-	fun turn(pageChange: PageChange): Boolean {
+	fun turn(pageChange: PageChange, gestureId: Long): Boolean {
+		activeGestureId = gestureId
 		if (!isAvailable) {
 			Logger.i(
 				ReaderPlayLikeCurlFoliateControllerTag,
 				"PlayLikeCurl tap turn change=$pageChange accepted=false reason=not-available"
 			)
+			finishGesture(
+				gestureId,
+				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable,
+				"tap-turn-rejected change=$pageChange controller-unavailable"
+			)
 			return false
 		}
 		surfaceView.alpha = 1f
-		val accepted = surfaceView.turn(pageChange)
-		if (!accepted) hideSurface()
+		val accepted = surfaceView.turn(pageChange, gestureId)
+		if (!accepted) {
+			hideSurface()
+			if (activeGestureId == gestureId) {
+				finishGesture(
+					gestureId,
+					ReaderPageGestureTerminalOutcome.RejectedBoundary,
+					"tap-turn-rejected change=$pageChange boundary"
+				)
+			}
+		}
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"PlayLikeCurl tap turn change=$pageChange accepted=$accepted"
@@ -292,9 +379,27 @@ internal class ReaderPlayLikeCurlFoliateController(
 		surfaceView.alpha = 1f
 	}
 
-	fun cancelGesture() {
-		surfaceView.cancelGesture()
+	fun cancelGesture(gestureId: Long) {
+		activeGestureId = gestureId
+		surfaceView.cancelGesture(gestureId)
+		if (activeGestureId == gestureId) {
+			finishGesture(
+				gestureId,
+				ReaderPageGestureTerminalOutcome.CancelledByUser,
+				"controller-cancel"
+			)
+		}
 		hideSurface()
+	}
+
+	fun cancelActiveGesture() {
+		val gestureId = activeGestureId
+		if (gestureId != null) {
+			cancelGesture(gestureId)
+		} else {
+			surfaceView.cancelGesture()
+			hideSurface()
+		}
 	}
 
 	fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {
@@ -317,11 +422,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	fun invalidate(reason: String) {
+		cancelActiveGesture()
 		requestGeneration += 1L
 		pendingExactOrdinal = null
 		interactionReady = false
 		hideSurface()
-		surfaceView.cancelGesture()
 		generationOwners.keys.toList().forEach(surfaceView::releaseDeck)
 		activePages?.obsolete = true
 		activePages = null
@@ -654,4 +759,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun elapsedMillis(startedAtNanos: Long): Long =
 		((System.nanoTime() - startedAtNanos).coerceAtLeast(0L) / 1_000_000L)
+
+	private fun finishGesture(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome,
+		detail: String
+	) {
+		if (activeGestureId == gestureId) activeGestureId = null
+		onGestureTerminal(gestureId, outcome, detail)
+	}
+
+	private fun finishActiveGesture(
+		outcome: ReaderPageGestureTerminalOutcome,
+		detail: String
+	) {
+		activeGestureId?.let { gestureId -> finishGesture(gestureId, outcome, detail) }
+	}
 }

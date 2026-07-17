@@ -31,6 +31,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import karacken.curl.PageChange
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
+import paige.navic.reader.ReaderPageGestureLifecycle
+import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPhysicalDirection
@@ -537,6 +539,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeSwipeIntercepted: Boolean = false
 	private var playLikeCurlGestureOwned: Boolean = false
+	private val pageGestureLifecycle = ReaderPageGestureLifecycle()
+	private var currentPageGestureId: Long? = null
 	private var pageTurnCanvasEnabled: Boolean = false
 	private var pageTurnReadingDirection: String? = null
 	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
@@ -554,7 +558,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
-		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady
+		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		onGestureTerminal = ::recordPageGestureTerminal
 	)
 	private val pageRasterPreparationController = ReaderPageRasterPreparationController(
 		host = this,
@@ -670,7 +675,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (pagePreparationGesturesBlocked == blocked) return
 		pagePreparationGesturesBlocked = blocked
 		if (blocked) {
-			playLikeCurlController.cancelGesture()
+			playLikeCurlController.cancelActiveGesture()
 			cancelReadableViewerDragPreview()
 			clearNativeTapState()
 			clearSwipeTouchState()
@@ -828,12 +833,23 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (shouldRouteTapToPlayLikeCurl()) {
 			val pageChange = playLikeCurlPageChangeFor(action)
 			if (pageChange != null) {
-				val accepted = playLikeCurlController.turn(pageChange)
+				val gestureId = currentPageGestureId ?: pageGestureLifecycle.beginGesture().also {
+					currentPageGestureId = it
+				}
+				val accepted = playLikeCurlController.turn(pageChange, gestureId)
 				Logger.i(
 					KomikkuReaderNativeFrameHostTag,
-					"Reader PlayLikeCurl tap action=$action change=$pageChange accepted=$accepted"
+					"Reader PlayLikeCurl tap gestureId=$gestureId action=$action " +
+						"change=$pageChange accepted=$accepted"
 				)
 				return
+			}
+			currentPageGestureId?.let { gestureId ->
+				recordPageGestureTerminal(
+					gestureId,
+					ReaderPageGestureTerminalOutcome.CancelledByUser,
+					"tap-action action=$action"
+				)
 			}
 		}
 		if (action != KomikkuNavigationRegion.MENU) {
@@ -897,24 +913,45 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun onTouchEvent(event: MotionEvent): Boolean = true
 
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+		if (event.actionMasked == MotionEvent.ACTION_DOWN && isPlayLikeCurlGestureSurface()) {
+			currentPageGestureId = pageGestureLifecycle.beginGesture().also { gestureId ->
+				Logger.i(
+					KomikkuReaderNativeFrameHostTag,
+					"Reader gesture begin gestureId=$gestureId x=${event.x} y=${event.y} " +
+						"preparationBlocked=$pagePreparationGesturesBlocked"
+				)
+			}
+		}
 		if (pagePreparationGesturesBlocked) {
 			if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 				playLikeCurlGestureOwned = false
 				clearNativeTapState()
 				clearSwipeTouchState()
+				currentPageGestureId?.let { gestureId ->
+					recordPageGestureTerminal(
+						gestureId,
+						ReaderPageGestureTerminalOutcome.RejectedPreparing,
+						"blocking-page-preparation"
+					)
+				}
+				currentPageGestureId = null
 			}
 			return true
 		}
 		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-			playLikeCurlGestureOwned = usesNativePageTurnCanvas()
+			playLikeCurlGestureOwned = shouldOwnPlayLikeCurlGesture()
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader PlayLikeCurl gesture owner action=down owned=$playLikeCurlGestureOwned " +
+				"Reader PlayLikeCurl gesture owner gestureId=$currentPageGestureId " +
+					"action=down owned=$playLikeCurlGestureOwned " +
 					"available=${playLikeCurlController.isAvailable} canvas=$pageTurnCanvasEnabled"
 			)
 		}
 		if (playLikeCurlGestureOwned) {
-			playLikeCurlController.onPageTouchEvent(event)
+			val gestureId = currentPageGestureId
+			if (gestureId != null) {
+				playLikeCurlController.onPageTouchEvent(event, gestureId)
+			}
 			handleSwipeTouchEvent(event)
 			if (!horizontalSwipeDispatched && !nativeSwipeIntercepted && !nativeTapCancelledByDrag) {
 				gestureDetector.onTouchEvent(event)
@@ -926,10 +963,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			) {
 				Logger.i(
 					KomikkuReaderNativeFrameHostTag,
-					"Reader PlayLikeCurl gesture terminal action=${event.actionMasked} " +
+					"Reader PlayLikeCurl pointer terminal gestureId=$gestureId " +
+						"action=${event.actionMasked} " +
 						"dragged=$nativeTapCancelledByDrag dispatched=$horizontalSwipeDispatched"
 				)
 				playLikeCurlGestureOwned = false
+				currentPageGestureId = null
 				clearNativeTapState()
 			}
 			return true
@@ -966,7 +1005,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 						nativeTapCancelledByDrag = true
 						if (shellCoverVisible) {
 							updateShellCoverDragOffset(dx)
-						} else if (usesNativePageTurnCanvas()) {
+						} else if (playLikeCurlGestureOwned) {
 							playLikeCurlController.showSurfaceForGesture()
 							logReaderReadableDragPreview(dx, dy)
 						} else {
@@ -989,7 +1028,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 								deltaX = dx,
 								deltaY = dy
 							)
-						} else if (usesNativePageTurnCanvas()) {
+						} else if (playLikeCurlGestureOwned) {
 							horizontalSwipeDispatched = true
 							nativeTapCancelledByDrag = true
 							nativeSwipeIntercepted = true
@@ -1021,8 +1060,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			MotionEvent.ACTION_CANCEL,
 			MotionEvent.ACTION_POINTER_DOWN -> {
 				if (!shellCoverVisible) {
-					if (usesNativePageTurnCanvas()) {
-						playLikeCurlController.cancelGesture()
+					if (playLikeCurlGestureOwned) {
+						currentPageGestureId?.let(playLikeCurlController::cancelGesture)
 					} else {
 						cancelReadableViewerDragPreview()
 					}
@@ -1091,11 +1130,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun usesNativePageTurnCanvas(): Boolean =
-		pageTurnCanvasEnabled &&
-			!pagePreparationGesturesBlocked &&
-			!verticalPageDragPreview &&
-			!shellCoverVisible &&
+		shouldOwnPlayLikeCurlGesture() &&
 			playLikeCurlController.isAvailable
+
+	private fun shouldOwnPlayLikeCurlGesture(): Boolean =
+		isPlayLikeCurlGestureSurface() && !pagePreparationGesturesBlocked
+
+	private fun isPlayLikeCurlGestureSurface(): Boolean =
+		pageTurnCanvasEnabled && !verticalPageDragPreview && !shellCoverVisible
 
 	private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {
 		val thresholdPx = readerSwipeThresholdPx(shellCoverVisible = shellCoverVisible)
@@ -1109,7 +1151,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		val label = if (shellCoverVisible) {
 			"Reader shell cover drag candidate"
 		} else {
-			"Reader native drag candidate"
+			"Reader native drag candidate gestureId=$currentPageGestureId"
 		}
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,
@@ -1123,8 +1165,25 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		nativeDragPreviewDiagnosticLogged = true
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,
-			"Reader native drag preview dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
+			"Reader native drag preview gestureId=$currentPageGestureId " +
+				"dx=$deltaX dy=$deltaY threshold=$touchSlopPx"
 		)
+	}
+
+	private fun recordPageGestureTerminal(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome,
+		detail: String
+	) {
+		val recorded = pageGestureLifecycle.completeGesture(gestureId, outcome)
+		val existing = pageGestureLifecycle.terminalOutcome(gestureId)
+		val message = "Reader gesture terminal gestureId=$gestureId outcome=$outcome " +
+			"recorded=$recorded detail=$detail existing=$existing"
+		if (recorded) {
+			Logger.i(KomikkuReaderNativeFrameHostTag, message)
+		} else {
+			Logger.w(KomikkuReaderNativeFrameHostTag, "Reader gesture terminal invariant $message")
+		}
 	}
 
 	private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float, event: MotionEvent) {

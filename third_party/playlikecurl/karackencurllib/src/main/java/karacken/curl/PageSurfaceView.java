@@ -26,6 +26,7 @@ import java.util.Set;
  */
 public class PageSurfaceView extends GLSurfaceView {
     private static final float FLING_THRESHOLD_PX_PER_SECOND = 200f;
+    public static final long NO_GESTURE_ID = -1L;
     private static final PageSurfaceListener NO_OP_LISTENER = new PageSurfaceListener() {};
 
     private final PageDeckCoordinator<Bitmap> deckCoordinator = new PageDeckCoordinator<>();
@@ -45,6 +46,7 @@ public class PageSurfaceView extends GLSurfaceView {
     private boolean surfaceVisible = true;
     private boolean attached;
     private boolean disposed;
+    private long activeGestureId = NO_GESTURE_ID;
     private float gestureDownX;
     private float gestureDownY;
     private OnPageChangeListener onPageChangeListener;
@@ -203,8 +205,18 @@ public class PageSurfaceView extends GLSurfaceView {
 
     /** Cancels any partial gesture or settlement without navigating. */
     public void cancelGesture() {
+        cancelGesture(activeGestureId);
+    }
+
+    /** Cancels the identified gesture or settlement without navigating. */
+    public void cancelGesture(long gestureId) {
         requireMainThread();
         SettlementContext cancelledSettlement = cancelSettlementAnimator();
+        long cancelledGestureId = activeGestureId != NO_GESTURE_ID
+                ? activeGestureId
+                : gestureId;
+        long generationId = activeGenerationId();
+        boolean cancelledGesture = gestureAccepted;
         PlayLikeCurlModel interaction = interactionModelOrNull();
         if (interaction != null) {
             interaction.cancelGesture();
@@ -215,6 +227,10 @@ public class PageSurfaceView extends GLSurfaceView {
         recycleVelocityTracker();
         requestRender();
         notifySettlementCancelled(cancelledSettlement);
+        if (cancelledSettlement == null && cancelledGesture) {
+            notifyGestureCancelled(cancelledGestureId, generationId);
+        }
+        activeGestureId = NO_GESTURE_ID;
     }
 
     /**
@@ -224,21 +240,31 @@ public class PageSurfaceView extends GLSurfaceView {
      * outside the current deck boundary.
      */
     public boolean turn(PageChange pageChange) {
+        return turn(pageChange, NO_GESTURE_ID);
+    }
+
+    public boolean turn(PageChange pageChange, long gestureId) {
         requireMainThread();
+        activeGestureId = gestureId;
         if (pageChange != PageChange.PREVIOUS && pageChange != PageChange.NEXT) {
+            activeGestureId = NO_GESTURE_ID;
             return false;
         }
         if (!gestureReady()) {
+            rejectGesture(gestureId);
+            activeGestureId = NO_GESTURE_ID;
             return false;
         }
         PlayLikeCurlModel interaction = interactionModelOrNull();
         if (interaction == null) {
+            activeGestureId = NO_GESTURE_ID;
             return false;
         }
         Settlement settlement = interaction.turn(pageChange);
         if (settlement.getPageChange() == PageChange.NONE) {
             interaction.cancelGesture();
             requestRender();
+            activeGestureId = NO_GESTURE_ID;
             return false;
         }
         settle(settlement);
@@ -336,13 +362,19 @@ public class PageSurfaceView extends GLSurfaceView {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        return handlePageTouchEvent(event, NO_GESTURE_ID);
+    }
+
+    private boolean handlePageTouchEvent(MotionEvent event, long gestureId) {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
+            activeGestureId = gestureId;
             gestureAccepted = gestureReady();
             gestureMoved = false;
             recycleVelocityTracker();
             if (!gestureAccepted) {
-                rejectGesture();
+                rejectGesture(activeGestureId);
+                activeGestureId = NO_GESTURE_ID;
                 return true;
             }
         } else if (!gestureAccepted) {
@@ -350,6 +382,7 @@ public class PageSurfaceView extends GLSurfaceView {
                 gestureAccepted = false;
                 gestureMoved = false;
                 recycleVelocityTracker();
+                activeGestureId = NO_GESTURE_ID;
             }
             return true;
         }
@@ -358,6 +391,8 @@ public class PageSurfaceView extends GLSurfaceView {
             gestureAccepted = false;
             gestureMoved = false;
             recycleVelocityTracker();
+            notifyGestureCancelled(activeGestureId, activeGenerationId());
+            activeGestureId = NO_GESTURE_ID;
             return true;
         }
 
@@ -389,6 +424,8 @@ public class PageSurfaceView extends GLSurfaceView {
                     recycleVelocityTracker();
                     requestRender();
                     performClick();
+                    notifyGestureCancelled(activeGestureId, activeGenerationId());
+                    activeGestureId = NO_GESTURE_ID;
                     return true;
                 }
                 VelocityTracker tracker = velocityTracker;
@@ -412,6 +449,8 @@ public class PageSurfaceView extends GLSurfaceView {
                 gestureMoved = false;
                 recycleVelocityTracker();
                 requestRender();
+                notifyGestureCancelled(activeGestureId, activeGenerationId());
+                activeGestureId = NO_GESTURE_ID;
                 return true;
             default:
                 return true;
@@ -420,6 +459,10 @@ public class PageSurfaceView extends GLSurfaceView {
 
     public boolean onPageTouchEvent(MotionEvent event) {
         return onTouchEvent(event);
+    }
+
+    public boolean onPageTouchEvent(MotionEvent event, long gestureId) {
+        return handlePageTouchEvent(event, gestureId);
     }
 
     @Override
@@ -513,7 +556,7 @@ public class PageSurfaceView extends GLSurfaceView {
         return active != null && preparedGenerations.contains(active.getGenerationId());
     }
 
-    private void rejectGesture() {
+    private void rejectGesture(long gestureId) {
         PageDeck<Bitmap> active = deckCoordinator.getActiveDeck();
         long generationId = active == null ? -1L : active.getGenerationId();
         GestureRejectionReason reason;
@@ -528,7 +571,7 @@ public class PageSurfaceView extends GLSurfaceView {
         } else {
             reason = GestureRejectionReason.DECK_NOT_PREPARED;
         }
-        listenerFor(generationId).onGestureRejected(generationId, reason);
+        listenerFor(generationId).onGestureRejected(gestureId, generationId, reason);
     }
 
     private void dragInteraction(float x) {
@@ -547,10 +590,12 @@ public class PageSurfaceView extends GLSurfaceView {
             return;
         }
         SettlementContext context = settlementContext(settlement.getPageChange());
+        activeGestureId = NO_GESTURE_ID;
         activeSettlementContext = context;
         deckCoordinator.beginSettlement();
         settlementRunning = true;
         listenerFor(context.generationId).onSettlementStarted(
+                context.gestureId,
                 context.generationId,
                 context.sourceLogicalPageId,
                 context.targetLogicalPageId,
@@ -618,6 +663,7 @@ public class PageSurfaceView extends GLSurfaceView {
         requestRender();
 
         listenerFor(context.generationId).onSettlementCompleted(
+                context.gestureId,
                 context.generationId,
                 context.targetLogicalPageId,
                 context.targetOrdinal,
@@ -644,6 +690,7 @@ public class PageSurfaceView extends GLSurfaceView {
     private void notifySettlementCancelled(SettlementContext context) {
         if (context != null) {
             listenerFor(context.generationId).onSettlementCancelled(
+                    context.gestureId,
                     context.generationId,
                     context.sourceLogicalPageId);
         }
@@ -651,6 +698,17 @@ public class PageSurfaceView extends GLSurfaceView {
 
     private PageSurfaceListener listenerFor(long generationId) {
         return leaseRegistry.listenerFor(generationId, pageSurfaceListener);
+    }
+
+    private long activeGenerationId() {
+        PageDeck<Bitmap> active = deckCoordinator.getActiveDeck();
+        return active == null ? -1L : active.getGenerationId();
+    }
+
+    private void notifyGestureCancelled(long gestureId, long generationId) {
+        if (gestureId != NO_GESTURE_ID) {
+            listenerFor(generationId).onGestureCancelled(gestureId, generationId);
+        }
     }
 
     private void releaseAllOutstandingLeases() {
@@ -705,7 +763,7 @@ public class PageSurfaceView extends GLSurfaceView {
                     : pageChange == PageChange.NEXT
                             ? portrait.getNext()
                             : source;
-            return SettlementContext.from(source, target);
+            return SettlementContext.from(activeGestureId, source, target);
         }
         LandscapePageDeck<Bitmap> spread = (LandscapePageDeck<Bitmap>) deck;
         PageImage<Bitmap> source = spread.getCurrentLeft();
@@ -714,7 +772,7 @@ public class PageSurfaceView extends GLSurfaceView {
                 : pageChange == PageChange.NEXT
                         ? spread.getNextLeft()
                         : source;
-        return SettlementContext.from(source, target);
+        return SettlementContext.from(activeGestureId, source, target);
     }
 
     private boolean activeDeckIsLandscape() {
@@ -778,16 +836,19 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     private static final class SettlementContext {
+        private final long gestureId;
         private final long generationId;
         private final String sourceLogicalPageId;
         private final String targetLogicalPageId;
         private final int targetOrdinal;
 
         private SettlementContext(
+                long gestureId,
                 long generationId,
                 String sourceLogicalPageId,
                 String targetLogicalPageId,
                 int targetOrdinal) {
+            this.gestureId = gestureId;
             this.generationId = generationId;
             this.sourceLogicalPageId = sourceLogicalPageId;
             this.targetLogicalPageId = targetLogicalPageId;
@@ -795,9 +856,11 @@ public class PageSurfaceView extends GLSurfaceView {
         }
 
         static SettlementContext from(
+                long gestureId,
                 PageImage<Bitmap> source,
                 PageImage<Bitmap> target) {
             return new SettlementContext(
+                    gestureId,
                     source.getGenerationId(),
                     source.getLogicalPageId(),
                     target.getLogicalPageId(),

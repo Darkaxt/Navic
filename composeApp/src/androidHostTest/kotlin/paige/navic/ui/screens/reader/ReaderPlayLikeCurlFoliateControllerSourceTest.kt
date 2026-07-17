@@ -81,12 +81,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("if (shouldRouteTapToPlayLikeCurl())")
 			.substringBefore("if (action != KomikkuNavigationRegion.MENU)")
 
-		assertContains(controllerSource, "fun turn(pageChange: PageChange): Boolean")
-		assertContains(controllerSource, "surfaceView.turn(pageChange)")
+		assertContains(controllerSource, "fun turn(pageChange: PageChange, gestureId: Long): Boolean")
+		assertContains(controllerSource, "surfaceView.turn(pageChange, gestureId)")
 		assertContains(controllerSource, "PlayLikeCurl tap turn")
 		assertContains(hostSource, "private fun shouldRouteTapToPlayLikeCurl()")
 		assertContains(hostSource, "private fun playLikeCurlPageChangeFor(")
-		assertContains(importedBranch, "playLikeCurlController.turn(pageChange)")
+		assertContains(importedBranch, "playLikeCurlController.turn(pageChange, gestureId)")
 		assertContains(importedBranch, "Reader PlayLikeCurl tap")
 		assertContains(importedBranch, "return")
 		assertFalse(
@@ -195,7 +195,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "ReaderPlayLikeCurlFoliateController")
 		assertContains(source, "playLikeCurlController.surfaceView")
 		assertContains(source, "playLikeCurlController.onHostContentReady()")
-		assertContains(source, "playLikeCurlController.onPageTouchEvent(event)")
+		assertContains(source, "playLikeCurlController.onPageTouchEvent(event, gestureId)")
 		assertContains(source, "playLikeCurlController.showSurfaceForGesture()")
 		assertContains(source, "playLikeCurlController.synchronizeVisualPageIndex(normalized, reason)")
 	}
@@ -222,8 +222,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("val handled = super.dispatchTouchEvent(event)")
 
 		assertContains(source, "private var playLikeCurlGestureOwned: Boolean = false")
-		assertContains(dispatch, "playLikeCurlGestureOwned = usesNativePageTurnCanvas()")
-		assertContains(ownerBranch, "playLikeCurlController.onPageTouchEvent(event)")
+		assertContains(dispatch, "playLikeCurlGestureOwned = shouldOwnPlayLikeCurlGesture()")
+		assertContains(ownerBranch, "playLikeCurlController.onPageTouchEvent(event, gestureId)")
 		assertContains(ownerBranch, "handleSwipeTouchEvent(event)")
 		assertContains(ownerBranch, "return true")
 		assertTrue(
@@ -234,8 +234,33 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertFalse(
 			dispatch
 				.substringAfter("val handled = super.dispatchTouchEvent(event)")
-				.contains("playLikeCurlController.onPageTouchEvent(event)"),
+				.contains("playLikeCurlController.onPageTouchEvent(event, gestureId)"),
 			"The fallback reader path must not send a second copy of the event to PlayLikeCurl."
 		)
+	}
+
+	@Test
+	fun rendererCallbacksCarryTheOriginatingGestureIdentityToOneTerminalLedger() {
+		val controller = controllerFile.readText()
+		val host = hostFile.readText()
+
+		assertContains(controller, "surfaceView.onPageTouchEvent(event, gestureId)")
+		assertContains(controller, "surfaceView.turn(pageChange, gestureId)")
+		assertContains(controller, "surfaceView.cancelGesture(gestureId)")
+		assertTrue(
+			Regex("override fun onGestureRejected\\(\\s*gestureId: Long,").containsMatchIn(controller),
+			"Gesture rejection callbacks must preserve the originating gesture ID."
+		)
+		assertTrue(
+			Regex("override fun onGestureCancelled\\(\\s*gestureId: Long,").containsMatchIn(controller),
+			"Gesture cancellation callbacks must preserve the originating gesture ID."
+		)
+		assertTrue(
+			Regex("override fun onSettlementCompleted\\(\\s*gestureId: Long,").containsMatchIn(controller),
+			"Settlement callbacks must preserve the originating gesture ID."
+		)
+		assertContains(controller, "finishGesture(gestureId,")
+		assertContains(host, "private val pageGestureLifecycle = ReaderPageGestureLifecycle()")
+		assertContains(host, "pageGestureLifecycle.completeGesture(gestureId, outcome)")
 	}
 }

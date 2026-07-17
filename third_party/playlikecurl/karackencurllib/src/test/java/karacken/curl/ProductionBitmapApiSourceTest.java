@@ -99,6 +99,28 @@ public class ProductionBitmapApiSourceTest {
     }
 
     @Test
+    public void gestureIdentitySurvivesEveryAsynchronousSettlementCallback()
+            throws IOException {
+        String surfaceSource = source("PageSurfaceView.java");
+        String listenerSource = source("PageSurfaceListener.java");
+
+        assertTrue(surfaceSource.contains(
+                "public boolean onPageTouchEvent(MotionEvent event, long gestureId)"));
+        assertTrue(surfaceSource.contains(
+                "public boolean turn(PageChange pageChange, long gestureId)"));
+        assertTrue(surfaceSource.contains("private long activeGestureId"));
+        assertTrue(surfaceSource.contains("SettlementContext.from(activeGestureId"));
+        assertTrue(surfaceSource.contains("onGestureRejected(gestureId"));
+        assertTrue(surfaceSource.contains("onGestureCancelled(gestureId"));
+
+        assertTrue(listenerSource.contains("onGestureRejected(\n            long gestureId,"));
+        assertTrue(listenerSource.contains("onGestureCancelled(\n            long gestureId,"));
+        assertTrue(listenerSource.contains("onSettlementStarted(\n            long gestureId,"));
+        assertTrue(listenerSource.contains("onSettlementCompleted(\n            long gestureId,"));
+        assertTrue(listenerSource.contains("onSettlementCancelled(\n            long gestureId,"));
+    }
+
+    @Test
     public void acceptedDeckCallbacksStayWithTheirLeaseOwner() throws IOException {
         String source = source("PageSurfaceView.java");
 
@@ -141,7 +163,9 @@ public class ProductionBitmapApiSourceTest {
         String surfaceSource = source("PageSurfaceView.java");
         String modelSource = source("PlayLikeCurlModel.java");
         String turnBody =
-                methodBody(surfaceSource, "public boolean turn(PageChange pageChange)");
+                methodBody(
+                        surfaceSource,
+                        "public boolean turn(PageChange pageChange, long gestureId)");
         String modelTurnBody =
                 methodBody(modelSource, "Settlement turn(PageChange pageChange)");
 
