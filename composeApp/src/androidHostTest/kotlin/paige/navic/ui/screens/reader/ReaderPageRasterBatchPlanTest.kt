@@ -9,12 +9,14 @@ class ReaderPageRasterBatchPlanTest {
 	@Test
 	fun parsesStableJsPriorityContract() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":10,"priority":"next-transition"},{"pageIndex":6,"priority":"previous-transition"},{"pageIndex":12,"priority":"current-chapter"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":4,"priority":"previous-chapter"}]}"""
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":10,"priority":"next-transition"},{"pageIndex":6,"priority":"previous-transition"},{"pageIndex":12,"priority":"current-chapter"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":4,"priority":"previous-chapter"}]}"""
 		)
 
 		assertNotNull(plan)
 		assertEquals(8, plan.centerPageIndex)
 		assertEquals(2, plan.step)
+		assertEquals(6, plan.currentChapterPageStartIndex)
+		assertEquals(8, plan.currentChapterPageCount)
 		assertEquals(ReaderPlayLikeCurlReaderDirection.Rtl, plan.readerDirection)
 		assertEquals(
 			listOf(
@@ -27,6 +29,16 @@ class ReaderPageRasterBatchPlanTest {
 			),
 			plan.targets.map { target -> target.priority }
 		)
+	}
+
+	@Test
+	fun preparedChapterRangeRecognizesOrdinaryTurnsAndChapterBoundaries() {
+		val range = ReaderPageRasterPreparedChapterRange(startPageIndex = 6, pageCount = 8)
+
+		assertEquals(true, range.contains(6))
+		assertEquals(true, range.contains(13))
+		assertEquals(false, range.contains(5))
+		assertEquals(false, range.contains(14))
 	}
 
 	@Test

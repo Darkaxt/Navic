@@ -12,6 +12,7 @@ import paige.navic.reader.ReaderDecodedWorkingSetState
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
@@ -41,7 +42,12 @@ internal class ReaderPageRasterPreparationController(
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {}
 ) {
 	private val rasterBatchController = ReaderPageRasterBatchController(bundleSource)
+	private val rasterRepairBatchController = ReaderPageRasterBatchController(bundleSource)
+	private val rasterRepairCallbacks = linkedMapOf<Int, MutableList<(Boolean) -> Unit>>()
+	private var activeRasterRepairPageIndex: Int? = null
 	private var currentVisualPageIndex: Int? = null
+	private var preparedChapterRange: ReaderPageRasterPreparedChapterRange? = null
+	private var candidateChapterRange: ReaderPageRasterPreparedChapterRange? = null
 	private var prewarmSession = 0L
 	private var prewarmInProgress = false
 	private var rasterPreparationCompleted = 0
@@ -152,6 +158,7 @@ internal class ReaderPageRasterPreparationController(
 
 	fun updateBitmapQuality(value: String?) {
 		if (!bundleSource.updateBitmapQuality(normalizeReaderPageBitmapQuality(value))) return
+		cancelRasterRepairs("bitmap-quality-changed")
 		cancelPrewarm(reason = "bitmap-quality-changed")
 		onRequestPrewarm()
 	}
@@ -164,6 +171,7 @@ internal class ReaderPageRasterPreparationController(
 	fun destroy() {
 		if (destroyed) return
 		destroyed = true
+		cancelRasterRepairs("destroy")
 		cancelPrewarm(reason = "destroy")
 		bundleSource.close()
 		currentVisualPageIndex = null
@@ -172,8 +180,11 @@ internal class ReaderPageRasterPreparationController(
 
 	fun invalidate(reason: String, clearVisualPageIndex: Boolean = false) {
 		if (destroyed) return
+		cancelRasterRepairs("invalidate:$reason")
 		cancelPrewarm(reason = "invalidate:$reason")
 		bundleSource.invalidate(reason)
+		preparedChapterRange = null
+		candidateChapterRange = null
 		if (clearVisualPageIndex) currentVisualPageIndex = null
 		logLoadingEvent(
 			event = "invalidated",
@@ -184,6 +195,7 @@ internal class ReaderPageRasterPreparationController(
 
 	fun invalidateCurrentVisualSnapshot(reason: String) {
 		if (destroyed) return
+		cancelRasterRepairs("invalidate-current:$reason")
 		cancelPrewarm(reason = "invalidate-current:$reason")
 		val pageIndex = currentVisualPageIndex
 		if (pageIndex == null) {
@@ -195,6 +207,15 @@ internal class ReaderPageRasterPreparationController(
 
 	fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {
 		if (destroyed || pageIndex == null || pageIndex < 0) return
+		if (reason == "page-turn:exact" && preparedChapterRange?.contains(pageIndex) == true) {
+			currentVisualPageIndex = pageIndex
+			logLoadingEvent(
+				event = "ordinary-turn-reused",
+				detail = "page=$pageIndex chapter=$preparedChapterRange " +
+					"generation=${bundleSource.currentGeneration()}"
+			)
+			return
+		}
 		if (currentVisualPageIndex == pageIndex) {
 			if (reason == "page-turn:exact") onRequestPrewarm()
 			return
@@ -208,6 +229,98 @@ internal class ReaderPageRasterPreparationController(
 		onRequestPrewarm()
 	}
 
+	fun repairRasterPage(pageIndex: Int, onComplete: (Boolean) -> Unit) {
+		val chapterRange = preparedChapterRange
+		if (destroyed || pageIndex < 0 || chapterRange?.contains(pageIndex) != true) {
+			logLoadingEvent(
+				event = "page-repair-failed",
+				detail = "page=$pageIndex reason=outside-prepared-chapter chapter=$chapterRange"
+			)
+			onComplete(false)
+			return
+		}
+		val callbacks = rasterRepairCallbacks.getOrPut(pageIndex) { mutableListOf() }
+		callbacks += onComplete
+		logLoadingEvent(
+			event = "page-repair-requested",
+			detail = "page=$pageIndex queued=${activeRasterRepairPageIndex != null} " +
+				"chapter=$chapterRange generation=${bundleSource.currentGeneration()}"
+		)
+		startNextRasterRepair()
+	}
+
+	private fun startNextRasterRepair() {
+		if (activeRasterRepairPageIndex != null || prewarmInProgress || destroyed) return
+		val pageIndex = rasterRepairCallbacks.keys.firstOrNull() ?: return
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+		if (webView == null) {
+			finishRasterRepair(pageIndex, false, "webview-unavailable")
+			return
+		}
+		val kind = if (expectedLayoutMode(webView) == "spread") {
+			ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+		} else {
+			ReaderPageTurnTransitionKind.PortraitSlide
+		}
+		val referencePageIndex = currentVisualPageIndex
+		val reference = referencePageIndex?.let { index -> bundleSource.retainedSnapshot(index, kind) }
+		if (reference == null) {
+			finishRasterRepair(pageIndex, false, "reference-unavailable:$referencePageIndex")
+			return
+		}
+		activeRasterRepairPageIndex = pageIndex
+		val generation = bundleSource.currentGeneration()
+		val started = rasterRepairBatchController.start(
+			webView = webView,
+			kind = kind,
+			reference = reference,
+			targets = listOf(
+				ReaderPageRasterBatchTarget(pageIndex, ReaderPageRasterPriority.CurrentChapter)
+			),
+			onComplete = { outcome ->
+				val success = outcome == ReaderPageRasterBatchOutcome.Ready &&
+					generation == bundleSource.currentGeneration()
+				finishRasterRepair(pageIndex, success, outcome.toString())
+			}
+		)
+		if (!started && activeRasterRepairPageIndex == pageIndex) {
+			finishRasterRepair(pageIndex, false, "batch-start-deferred")
+		}
+	}
+
+	private fun finishRasterRepair(pageIndex: Int, success: Boolean, detail: String) {
+		val callbacks = rasterRepairCallbacks.remove(pageIndex) ?: return
+		if (activeRasterRepairPageIndex == pageIndex) activeRasterRepairPageIndex = null
+		if (success) {
+			logLoadingEvent(
+				event = "page-repair-completed",
+				detail = "page=$pageIndex detail=$detail generation=${bundleSource.currentGeneration()}"
+			)
+		} else {
+			logLoadingEvent(
+				event = "page-repair-failed",
+				detail = "page=$pageIndex detail=$detail generation=${bundleSource.currentGeneration()}"
+			)
+		}
+		callbacks.forEach { callback -> callback(success) }
+		startNextRasterRepair()
+	}
+
+	private fun cancelRasterRepairs(reason: String) {
+		val callbacks = rasterRepairCallbacks.values.flatten()
+		val pages = rasterRepairCallbacks.keys.toList()
+		rasterRepairCallbacks.clear()
+		activeRasterRepairPageIndex = null
+		rasterRepairBatchController.cancel()
+		if (pages.isNotEmpty()) {
+			logLoadingEvent(
+				event = "page-repair-failed",
+				detail = "pages=${pages.joinToString(",")} reason=cancelled:$reason"
+			)
+		}
+		callbacks.forEach { callback -> callback(false) }
+	}
+
 	fun prewarmAdjacent(): Boolean {
 		if (prewarmInProgress) return true
 		if (!readerPageTurnCanStartPassivePrewarm(
@@ -218,6 +331,7 @@ internal class ReaderPageRasterPreparationController(
 		)) return false
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
 		prewarmInProgress = true
+		candidateChapterRange = null
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = 0
 		rasterInteractiveCompleted = 0
@@ -279,6 +393,7 @@ internal class ReaderPageRasterPreparationController(
 				detail = "session=$session layout=${plan.layoutMode} center=${plan.centerPageIndex} " +
 					"targets=${plan.targets.size}"
 			)
+			candidateChapterRange = plan.preparedChapterRange()
 			bundleSource.protectDecodedWindow(
 				centerPageIndex = plan.centerPageIndex,
 				step = plan.step,
@@ -505,6 +620,7 @@ internal class ReaderPageRasterPreparationController(
 				rasterPreparationCompleted = rasterPreparationRequired
 				rasterInteractiveCompleted = rasterInteractiveRequired
 				hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore
+				preparedChapterRange = candidateChapterRange ?: preparedChapterRange
 				publishPreparationState(ReaderPagePreparationPhase.Ready)
 			}
 			ReaderPageRasterBatchOutcome.Cancelled -> publishPreparationState(
@@ -531,12 +647,14 @@ internal class ReaderPageRasterPreparationController(
 				)
 			}
 		}
+		if (outcome != ReaderPageRasterBatchOutcome.Ready) candidateChapterRange = null
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = 0
 		rasterInteractiveCompleted = 0
 		rasterInteractiveRequired = 0
 		activePreparationPageNumber = null
 		removePreparationShield(reason = "session-finished:$outcome")
+		startNextRasterRepair()
 	}
 
 	private fun logPrewarmBoundary(event: String, detail: String? = null) {

@@ -563,6 +563,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		onRequestRasterRepair = ::requestPageRasterRepair,
 		onGestureTerminal = ::recordPageGestureTerminal,
 		onReadinessStateChange = { state ->
 			latestRendererReadinessState = state
@@ -580,6 +581,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			publishMergedPagePreparationState()
 		}
 	)
+
+	private fun requestPageRasterRepair(pageIndex: Int, onComplete: (Boolean) -> Unit) {
+		pageRasterPreparationController.repairRasterPage(pageIndex, onComplete)
+	}
 
 	private fun publishMergedPagePreparationState() {
 		val raster = latestRasterPreparationState
@@ -677,7 +682,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		pageTurnVisualLocationReason = reason
 		playLikeCurlController.synchronizeVisualPageIndex(normalized, reason)
 		pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
-		requestPageTurnPrewarmWhenReady()
 	}
 
 	fun setShellCoverVisible(visible: Boolean) {

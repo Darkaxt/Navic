@@ -198,6 +198,18 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 		assertTrue(!source.contains("BitmapFactory"))
 	}
 
+	@Test
+	fun missingFoliateRasterReportsItsSourcePageForTargetedRepair() {
+		val source = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlFoliateRasterSource.android.kt"
+		).readText()
+
+		assertTrue(source.contains("private val onMissingRaster: (Int) -> Unit"))
+		assertTrue(source.contains("onMissingRaster(request.sourcePageIndex)"))
+		assertTrue(!source.contains("onMissingRaster(request.logicalOrdinal)"))
+	}
+
 	private fun sourceFile(relativePath: String): File {
 		var directory = File(System.getProperty("user.dir")).absoluteFile
 		repeat(8) {

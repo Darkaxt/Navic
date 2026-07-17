@@ -118,7 +118,8 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
  */
 internal class ReaderPlayLikeCurlFoliateRasterLoader(
 	private val bundleSource: ReaderPageTurnBundleSource,
-	private val profile: ReaderPlayLikeCurlRasterProfile
+	private val profile: ReaderPlayLikeCurlRasterProfile,
+	private val onMissingRaster: (Int) -> Unit = {}
 ) : ReaderPlayLikeCurlRasterLoader<Bitmap> {
 	private val transitionKind = when (profile.orientation) {
 		ReaderPlayLikeCurlOrientation.Portrait -> ReaderPageTurnTransitionKind.PortraitSlide
@@ -137,6 +138,7 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 		val snapshot = withContext(Dispatchers.Main.immediate) {
 			bundleSource.retainedSnapshot(request.sourcePageIndex, transitionKind).also { retained ->
 				if (retained == null) {
+					onMissingRaster(request.sourcePageIndex)
 					Logger.w(
 						ReaderPlayLikeCurlFoliateRasterSourceTag,
 						"Missing Foliate raster logical=${request.logicalOrdinal} " +

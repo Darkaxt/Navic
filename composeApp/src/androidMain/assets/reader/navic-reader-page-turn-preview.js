@@ -169,6 +169,9 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
       layoutMode,
       readerDirection,
       step,
+      currentChapterPageStartIndex: currentChapter
+        ? Math.max(0, Math.floor(Number(currentChapter.pageStartIndex) || 0))
+        : -1,
       currentChapterPageCount: Math.max(0, Math.floor(Number(currentChapter?.pageCount) || 0)),
     }),
     targets: Object.freeze(targets),

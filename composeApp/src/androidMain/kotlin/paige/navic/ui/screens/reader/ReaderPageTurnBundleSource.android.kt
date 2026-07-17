@@ -190,6 +190,14 @@ internal class ReaderPageTurnBundleSource(
 						ReaderPageTurnTransitionKind.LandscapeSpreadSlide ->
 							leafGeometry?.leftLeafRect != null && leafGeometry.rightLeafRect != null
 					}
+					if (!kindMatches) {
+						cache.remove(key)
+						Logger.w(
+							ReaderPageTurnBundleSourceTag,
+							"Discarded incompatible page raster page=$pageIndex kind=$kind " +
+								"key=${key.digest}"
+						)
+					}
 					if (
 						closed || generation != activeGeneration || quality != bitmapQuality ||
 						hydration?.generation != generation || !kindMatches

@@ -26,9 +26,25 @@ internal data class ReaderPageRasterPreparationPlan(
 	val layoutMode: String,
 	val readerDirection: ReaderPlayLikeCurlReaderDirection,
 	val step: Int,
+	val currentChapterPageStartIndex: Int,
 	val currentChapterPageCount: Int,
 	val targets: List<ReaderPageRasterBatchTarget>
 )
+
+internal data class ReaderPageRasterPreparedChapterRange(
+	val startPageIndex: Int,
+	val pageCount: Int
+) {
+	val endPageIndexExclusive: Int = startPageIndex + pageCount
+
+	fun contains(pageIndex: Int): Boolean =
+		pageCount > 0 && pageIndex in startPageIndex until endPageIndexExclusive
+}
+
+internal fun ReaderPageRasterPreparationPlan.preparedChapterRange(): ReaderPageRasterPreparedChapterRange? =
+	currentChapterPageStartIndex
+		.takeIf { start -> start >= 0 && currentChapterPageCount > 0 }
+		?.let { start -> ReaderPageRasterPreparedChapterRange(start, currentChapterPageCount) }
 
 internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRasterPreparationPlan? {
 	val raw = encoded.orEmpty().trim()
@@ -65,6 +81,8 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 			else -> ReaderPlayLikeCurlReaderDirection.Ltr
 		},
 		step = (context["step"]?.jsonPrimitive?.intOrNull ?: 1).coerceAtLeast(1),
+		currentChapterPageStartIndex =
+			context["currentChapterPageStartIndex"]?.jsonPrimitive?.intOrNull ?: -1,
 		currentChapterPageCount =
 			(context["currentChapterPageCount"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0),
 		targets = targets

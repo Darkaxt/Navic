@@ -206,6 +206,57 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun exactSettlementRefillsDecodedPagesWithoutRestartingWebViewCapture() {
+		val controller = controllerFile.readText()
+		val synchronize = controller
+			.substringAfter("fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {")
+			.substringBefore("fun invalidate(")
+		val ready = controller
+			.substringAfter("ReaderPagePreparationPhase.Ready -> {")
+			.substringBefore("ReaderPagePreparationPhase.Failed -> {")
+		val host = hostFile.readText()
+		val hostSynchronize = host
+			.substringAfterLast("fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {")
+			.substringBefore("fun setShellCoverVisible(")
+
+		assertContains(synchronize, "refillDecodedWorkingSet(")
+		assertFalse(
+			synchronize.substringAfter("if (reason == \"page-turn:exact\")").substringBefore("return").contains("onRequestPrewarm()")
+		)
+		assertContains(ready, "if (activePages == null)")
+		assertFalse(hostSynchronize.contains("requestPageTurnPrewarmWhenReady()"))
+	}
+
+	@Test
+	fun missingFarEdgeRequestsOneRepairAndRetriesOnlyTheDecodedRefill() {
+		val controller = controllerFile.readText()
+		val host = hostFile.readText()
+		val repair = controller
+			.substringAfter("private fun requestRasterRepair(")
+			.substringBefore("private fun prepareProfile(")
+		val refill = controller
+			.substringAfter("private fun refillDecodedWorkingSet(")
+			.substringBefore("private fun requestRasterRepair(")
+		val failedLoad = controller
+			.substringAfter("if (deck == null) {")
+			.substringBefore("return@launch")
+
+		assertContains(controller, "onRequestRasterRepair:")
+		assertContains(controller, "onMissingRaster =")
+		assertContains(repair, "onRequestRasterRepair(sourcePageIndex)")
+		assertContains(repair, "event = \"page-repair-requested\"")
+		assertContains(repair, "event = \"page-repair-completed\"")
+		assertContains(repair, "refillDecodedWorkingSet(")
+		assertFalse(repair.contains("refreshPreparedDeck()"))
+		assertFalse(repair.contains("onRequestPrewarm()"))
+		assertContains(refill, "if (activeDeckGenerationId == null)")
+		assertContains(refill, "submitLibraryDeck(")
+		assertContains(failedLoad, "if (rasterRepairRequests.isEmpty())")
+		assertContains(host, "onRequestRasterRepair = ::requestPageRasterRepair")
+		assertContains(host, "pageRasterPreparationController.repairRasterPage(pageIndex, onComplete)")
+	}
+
+	@Test
 	fun portraitAnimationSurfaceStopsBeforeTheStaticBackCoverBoard() {
 		val source = controllerFile.readText()
 		val submit = source

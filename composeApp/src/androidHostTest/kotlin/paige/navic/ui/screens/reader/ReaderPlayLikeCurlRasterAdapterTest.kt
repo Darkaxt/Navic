@@ -110,6 +110,21 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	}
 
 	@Test
+	fun overlappingWorkingSetsLoadOnlyTheNewFarEdgeRaster() = runBlocking {
+		val loader = FakeRasterLoader()
+		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, release = {})
+		val profile = profile("sliding-window")
+
+		val first = checkNotNull(adapter.prepare(profile, listOf(0, 1, 2, 3, 4)).await())
+		val second = checkNotNull(adapter.prepare(profile, listOf(1, 2, 3, 4, 5)).await())
+
+		assertEquals(listOf(0, 1, 2, 3, 4, 5), loader.calls.map { key -> key.pageIndex })
+		first.close()
+		second.close()
+		adapter.close()
+	}
+
+	@Test
 	fun closeRejectsInFlightPreparationAndReleasesItsResult() = runBlocking {
 		val gate = CompletableDeferred<Unit>()
 		val loader = FakeRasterLoader(gateProfile = "closing", gate = gate)

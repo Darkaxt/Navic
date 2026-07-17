@@ -40,6 +40,18 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun exactTurnInsidePreparedChapterDoesNotRestartPassiveCapture() {
+		val source = readerRasterPreparationSource()
+		val function = source.substringAfter(
+			"fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {"
+		).substringBefore("\n\tfun prewarmAdjacent()")
+
+		assertContains(function, "preparedChapterRange?.contains(pageIndex) == true")
+		assertContains(function, "event = \"ordinary-turn-reused\"")
+		assertContains(function, "if (reason == \"page-turn:exact\"")
+	}
+
+	@Test
 	fun passiveFollowUpPrewarmNeverCoversTheVisibleReader() {
 		val source = readerRasterPreparationSource()
 		val followUp = source.substringAfter(
@@ -84,6 +96,23 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(callbacks, "bundleSource.trimMemory(")
 		assertFalse(callbacks.contains("invalidate("))
 		assertFalse(callbacks.contains("bundleSource.invalidate("))
+	}
+
+	@Test
+	fun singlePageRepairUsesAnIndependentBackgroundBatchWithoutChangingPresentationState() {
+		val source = readerRasterPreparationSource()
+		val repair = source.substringAfter(
+			"fun repairRasterPage(pageIndex: Int, onComplete: (Boolean) -> Unit) {"
+		).substringBefore("\n\tfun prewarmAdjacent()")
+
+		assertContains(source, "private val rasterRepairBatchController")
+		assertContains(repair, "ReaderPageRasterBatchTarget(pageIndex")
+		assertContains(repair, "event = \"page-repair-requested\"")
+		assertContains(repair, "event = \"page-repair-completed\"")
+		assertContains(repair, "event = \"page-repair-failed\"")
+		assertFalse(repair.contains("publishPreparationState("))
+		assertFalse(repair.contains("reusePreparationShield("))
+		assertFalse(repair.contains("onRequestPrewarm()"))
 	}
 }
 

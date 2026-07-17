@@ -63,6 +63,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val onRequestPrewarm: () -> Unit,
+	private val onRequestRasterRepair: (Int, (Boolean) -> Unit) -> Unit,
 	private val onGestureTerminal: (
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome,
@@ -72,7 +73,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 ) {
 	private class PreparedPages(
 		val profile: ReaderPlayLikeCurlRasterProfile,
-		val deck: ReaderPlayLikeCurlRasterDeck<Bitmap>
+		val deck: ReaderPlayLikeCurlRasterDeck<Bitmap>,
+		val centerOrdinal: Int
 	) {
 		val generations = mutableSetOf<Long>()
 		var obsolete = false
@@ -107,6 +109,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingExactOrdinal: Int? = null
 	private var preparationPhase = ReaderPagePreparationPhase.Idle
 	private var requestGeneration = 0L
+	private var decodedRefillGeneration = 0L
+	private var decodedRefillCenterOrdinal: Int? = null
+	private val rasterRepairRequests = mutableSetOf<Pair<ReaderPlayLikeCurlRasterProfile, Int>>()
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
 	private var activeDeckGenerationId: Long? = null
@@ -210,6 +215,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				}
 				if (pages != null && targetOrdinal != null) {
+					refillDecodedWorkingSet(targetOrdinal, "settlement-started:$gestureId")
 					submitLibraryDeck(
 						pages = pages,
 						ordinal = targetOrdinal,
@@ -366,7 +372,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						reason = "raster-preparation-ready"
 					)
 				}
-				refreshPreparedDeck()
+				if (activePages == null) refreshPreparedDeck()
 			}
 			ReaderPagePreparationPhase.Failed -> {
 				updateReadiness(
@@ -512,7 +518,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					reason = "foliate-exact-settlement:$normalized"
 				)
 			}
-			onRequestPrewarm()
+			refillDecodedWorkingSet(normalized, "foliate-exact-settlement")
 			return
 		}
 		if (currentOrdinal == normalized && pendingExactOrdinal == null) return
@@ -524,6 +530,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun invalidate(reason: String, profileRegeneration: Boolean = false) {
 		cancelActiveGesture()
 		requestGeneration += 1L
+		decodedRefillGeneration += 1L
+		decodedRefillCenterOrdinal = null
+		rasterRepairRequests.clear()
 		pendingExactOrdinal = null
 		updateReadiness(
 			textureDeck = ReaderTextureDeckState.Empty,
@@ -623,6 +632,114 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun refillDecodedWorkingSet(centerOrdinal: Int, reason: String) {
+		val profile = requestedProfile ?: return
+		val adapter = rasterAdapter ?: return
+		val pageIndices = readerPlayLikeCurlPreparedPageIndices(
+			orientation = profile.orientation,
+			currentOrdinal = centerOrdinal,
+			pageCount = profile.pageCount
+		)
+		val pages = activePages
+		if (
+			pages?.profile == profile &&
+			pages.centerOrdinal == centerOrdinal &&
+			pages.deck.pageIndices.containsAll(pageIndices)
+		) return
+		if (decodedRefillCenterOrdinal == centerOrdinal) return
+		val refill = ++decodedRefillGeneration
+		decodedRefillCenterOrdinal = centerOrdinal
+		val startedAtNanos = System.nanoTime()
+		logActivationState(
+			event = "decoded-refill-started",
+			detail = "refill=$refill center=$centerOrdinal reason=$reason " +
+				"pages=${pageIndices.joinToString(",")}"
+		)
+		val preparation = adapter.prepare(profile, pageIndices)
+		rasterScope.launch {
+			val deck = preparation.await()
+			host.post {
+				if (
+					deck == null ||
+					refill != decodedRefillGeneration ||
+					!enabled ||
+					destroyed ||
+					requestedProfile != profile
+				) {
+					deck?.close()
+					if (refill == decodedRefillGeneration) decodedRefillCenterOrdinal = null
+					if (deck == null && refill == decodedRefillGeneration) {
+						logActivationState(
+							event = "decoded-refill-deferred",
+							detail = "refill=$refill center=$centerOrdinal reason=$reason"
+						)
+					}
+					return@post
+				}
+				decodedRefillCenterOrdinal = null
+				activePages?.let { previous ->
+					previous.obsolete = true
+					closeIfUnused(previous)
+				}
+				val replacement = PreparedPages(profile, deck, centerOrdinal)
+				preparedPageSets += replacement
+				activePages = replacement
+				logActivationState(
+					event = "decoded-refill-completed",
+					detail = "refill=$refill center=$centerOrdinal reason=$reason " +
+						"pages=${pageIndices.joinToString(",")} " +
+						"elapsedMillis=${elapsedMillis(startedAtNanos)}"
+				)
+				if (activeDeckGenerationId == null) {
+					currentOrdinal = centerOrdinal.coerceIn(0, profile.pageCount - 1)
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Preparing,
+						interaction = blockingPreparationState(),
+						reason = "decoded-repair-submitting:$refill"
+					)
+					submitLibraryDeck(
+						pages = replacement,
+						ordinal = currentOrdinal,
+						role = ReaderDeckSubmissionRole.Active
+					)
+				}
+			}
+		}
+	}
+
+	private fun requestRasterRepair(
+		sourcePageIndex: Int,
+		profile: ReaderPlayLikeCurlRasterProfile
+	) {
+		val key = profile to sourcePageIndex
+		if (!rasterRepairRequests.add(key)) return
+		val refillCenter = decodedRefillCenterOrdinal ?: pendingExactOrdinal ?: currentOrdinal
+		logActivationState(
+			event = "page-repair-requested",
+			detail = "source=$sourcePageIndex center=$refillCenter " +
+				"profileGeneration=${profile.rasterGeneration}"
+		)
+		onRequestRasterRepair(sourcePageIndex) { success ->
+			host.post {
+				rasterRepairRequests.remove(key)
+				if (!success || destroyed || !enabled || requestedProfile != profile) {
+					logActivationState(
+						event = "page-repair-deferred",
+						detail = "source=$sourcePageIndex center=$refillCenter success=$success"
+					)
+					return@post
+				}
+				logActivationState(
+					event = "page-repair-completed",
+					detail = "source=$sourcePageIndex center=$refillCenter"
+				)
+				decodedRefillGeneration += 1L
+				decodedRefillCenterOrdinal = null
+				refillDecodedWorkingSet(refillCenter, "page-repair:$sourcePageIndex")
+			}
+		}
+	}
+
 	private fun prepareProfile(
 		request: Long,
 		profile: ReaderPlayLikeCurlRasterProfile,
@@ -637,7 +754,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			rasterAdapter?.close()
 			rasterAdapter = ReaderPlayLikeCurlRasterAdapter(
 				scope = rasterScope,
-				loader = ReaderPlayLikeCurlFoliateRasterLoader(bundleSource, profile),
+				loader = ReaderPlayLikeCurlFoliateRasterLoader(
+					bundleSource = bundleSource,
+					profile = profile,
+					onMissingRaster = { sourcePageIndex ->
+						requestRasterRepair(sourcePageIndex, profile)
+					}
+				),
 				release = Bitmap::recycle
 			)
 			requestedProfile = profile
@@ -696,7 +819,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 							"refresh-gated",
 							"raster-deck-unavailable phase=$preparationPhase"
 						)
-						requestPrewarmIfIdle("raster-deck-unavailable")
+						if (rasterRepairRequests.isEmpty()) {
+							requestPrewarmIfIdle("raster-deck-unavailable")
+						} else {
+							logActivationState(
+								event = "refresh-gated",
+								detail = "targeted-page-repair-active"
+							)
+						}
 					}
 				}
 				return@launch
@@ -716,7 +846,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					previous.obsolete = true
 					closeIfUnused(previous)
 				}
-				val pages = PreparedPages(profile, deck)
+				val pages = PreparedPages(profile, deck, centerOrdinal)
 				preparedPageSets += pages
 				activePages = pages
 				currentOrdinal = centerOrdinal.coerceIn(0, profile.pageCount - 1)
