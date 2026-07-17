@@ -1,13 +1,13 @@
 {
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "2555831fcca962b2089997c4f8ea21ff5bd226fc",
-  "tag": "1.1.2",
+  "commit": "f13eb7a4cb75761a6d329cc3d221faa2aeb47431",
+  "tag": "1.1.3",
   "apiVersion": 1,
   "module": "karackencurllib",
   "releaseArtifact": "karackencurllib-release.aar",
-  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.2/karackencurllib-release.aar",
-  "releaseArtifactDigest": "sha256:01ef07dcf19f52ce1cba37e9f9be3abcf15b228b9a7dd14d917036f85b4fe42b",
-  "sourceDigest": "sha256:a3b9eb1104e4fe1059b8f715c7007c36d300c7b2ab5365a4d3b7d91f875f7f05",
+  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.3/karackencurllib-release.aar",
+  "releaseArtifactDigest": "sha256:67340fcc2d325883b9b033bf356b87c782f938490bdbc67eed3c3be75f1af957",
+  "sourceDigest": "sha256:addb1167e20f0c26e4c0bb91a661a6fc4f99eff1b0a210190db95efeea1107a3",
   "sourceFileCount": 50,
   "licenseDigest": "sha256:002c2696d92b5c8cf956c11072baa58eaf9f6ade995c031ea635c6a1ee342ad1",
   "files": [
@@ -49,7 +49,7 @@
     },
     {
       "path": "src/main/java/karacken/curl/FoldShadowModel.java",
-      "sha256": "31ea5bbedd05d57b18522c90e1c78b91ea9e1004ab2ac735196d51861a9120a2"
+      "sha256": "057103ffa039ea1315b371a57f8475d496428057126ef820cd31f212e73cf609"
     },
     {
       "path": "src/main/java/karacken/curl/GestureRejectionReason.java",
@@ -101,7 +101,7 @@
     },
     {
       "path": "src/main/java/karacken/curl/PageRenderer.java",
-      "sha256": "afe28f735d445941360821592336cee1c9d1e6b2e83a910e4dcb1a7a5b600247"
+      "sha256": "c68721aa7ae528ac9042f903ac34273c8905327cd3c7d23bdfaf8d739adb4fc3"
     },
     {
       "path": "src/main/java/karacken/curl/PageRole.java",
@@ -125,7 +125,7 @@
     },
     {
       "path": "src/main/java/karacken/curl/PlayLikeCurlGeometry.java",
-      "sha256": "5c8356d23db1a6290c80ff10da1f89a21edc40deeb4e4499e2511d3311a63069"
+      "sha256": "7f1c95e57d65e3d8a94a555639536ac76dceed5ce925cbd81ed565cbd900e067"
     },
     {
       "path": "src/main/java/karacken/curl/PlayLikeCurlModel.java",
@@ -169,7 +169,7 @@
     },
     {
       "path": "src/test/java/karacken/curl/FoldShadowModelTest.java",
-      "sha256": "cab00594af5b5444fa2119290d10a59a9f81b6bc39a0425b5df32a8b0292a4ad"
+      "sha256": "288a4b5c2530fc2db475945f8b84ad3e721d1f0c1d4cddafcb9bf4a69ce22956"
     },
     {
       "path": "src/test/java/karacken/curl/Gles2RendererSourceTest.java",

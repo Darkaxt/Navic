@@ -71,7 +71,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "}\n";
 
     private static final short[] SHADOW_INDICES = {0, 1, 2, 2, 1, 3};
-    private static final float SHADOW_DEPTH = PlayLikeCurlModel.RIGHT_DEPTH + 0.00025f;
     private static final long DEFAULT_GPU_BUDGET_BYTES = 128L * 1024L * 1024L;
 
     private final Events events;
@@ -803,10 +802,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         float top = bitmapRatio - heightCorrection;
         shadowPositionBuffer.clear();
         shadowPositionBuffer.put(new float[] {
-                shadow.getStartX(), bottom, SHADOW_DEPTH,
-                shadow.getEndX(), bottom, SHADOW_DEPTH,
-                shadow.getStartX(), top, SHADOW_DEPTH,
-                shadow.getEndX(), top, SHADOW_DEPTH
+                shadow.getStartX(), bottom, FoldShadowModel.SHADOW_DEPTH,
+                shadow.getEndX(), bottom, FoldShadowModel.SHADOW_DEPTH,
+                shadow.getStartX(), top, FoldShadowModel.SHADOW_DEPTH,
+                shadow.getEndX(), top, FoldShadowModel.SHADOW_DEPTH
         }).position(0);
         shadowGradientBuffer.clear();
         shadowGradientBuffer.put(shadow.isDarkAtStart()
@@ -921,7 +920,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 0.1f,
                 100f);
         Matrix.setIdentityM(modelMatrix, 0);
-        Matrix.translateM(modelMatrix, 0, 0f, 0f, -2f);
+        Matrix.translateM(modelMatrix, 0, 0f, 0f, -PlayLikeCurlGeometry.CAMERA_DISTANCE);
         Matrix.translateM(modelMatrix, 0, -0.5f, -0.5f, 0f);
         Matrix.multiplyMM(mvpMatrix, 0, projectionMatrix, 0, modelMatrix, 0);
     }

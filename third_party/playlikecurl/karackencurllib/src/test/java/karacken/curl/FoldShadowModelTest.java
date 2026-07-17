@@ -57,8 +57,35 @@ public class FoldShadowModelTest {
         FoldShadowModel.State shadow = FoldShadowModel.resolve(PageRole.LEFT, curl, false);
 
         assertEquals(
-                PlayLikeCurlGeometry.foldEdgeX(PageRole.LEFT, curl),
-                shadow.getFoldEdgeX(),
+                projectedX(
+                        PlayLikeCurlGeometry.foldEdgeX(PageRole.LEFT, curl),
+                        PlayLikeCurlGeometry.foldEdgeDepth(PageRole.LEFT, curl)),
+                projectedX(shadow.getFoldEdgeX(), shadowPlaneDepth()),
                 TOLERANCE);
+    }
+
+    @Test
+    public void mirroredShadowTracksTheRaisedEdgeAcrossTheTurn() {
+        float[] curls = {20f, 12f, 4f};
+
+        for (float curl : curls) {
+            FoldShadowModel.State shadow = FoldShadowModel.resolve(PageRole.FRONT, curl, true);
+            float mirroredPageEdge = 1f - PlayLikeCurlGeometry.foldEdgeX(PageRole.FRONT, curl);
+
+            assertEquals(
+                    projectedX(
+                            mirroredPageEdge,
+                            PlayLikeCurlGeometry.foldEdgeDepth(PageRole.FRONT, curl)),
+                    projectedX(shadow.getFoldEdgeX(), shadowPlaneDepth()),
+                    TOLERANCE);
+        }
+    }
+
+    private static float projectedX(float modelX, float modelDepth) {
+        return (modelX - 0.5f) / (PlayLikeCurlGeometry.CAMERA_DISTANCE - modelDepth);
+    }
+
+    private static float shadowPlaneDepth() {
+        return FoldShadowModel.SHADOW_DEPTH;
     }
 }

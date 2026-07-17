@@ -1,6 +1,8 @@
 package karacken.curl;
 
 final class PlayLikeCurlGeometry {
+    static final float CAMERA_DISTANCE = 2f;
+
     private PlayLikeCurlGeometry() {
     }
 
@@ -76,6 +78,20 @@ final class PlayLikeCurlGeometry {
             return leftX(PlayLikeCurlModel.GRID, curlPosition);
         }
         return 1f;
+    }
+
+    static float foldEdgeDepth(PageRole role, float curlPosition) {
+        return activeDepth(role, PlayLikeCurlModel.GRID, curlPosition);
+    }
+
+    static float projectXOntoDepthPlane(
+            float sourceX,
+            float sourceDepth,
+            float targetDepth) {
+        return 0.5f
+                + (sourceX - 0.5f)
+                * (CAMERA_DISTANCE - targetDepth)
+                / (CAMERA_DISTANCE - sourceDepth);
     }
 
     private static float frontX(int column, float curlPosition) {

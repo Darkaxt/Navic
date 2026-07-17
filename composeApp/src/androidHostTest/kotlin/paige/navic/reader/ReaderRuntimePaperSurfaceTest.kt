@@ -257,9 +257,8 @@ class ReaderRuntimePaperSurfaceTest {
 
 		assertContains(helperText, "export const readerPaperLayoutProfile = ({")
 		assertContains(helperText, "? { mode: 'spread', bindingEdge: 'center' }")
-		assertContains(helperText, "pageSide === ReaderPhysicalPageLeft")
-		assertContains(helperText, "bindingEdge: leftPage ? 'right' : 'left'")
-		assertContains(helperText, "backCoverEdge: paged ? (leftPage ? 'left' : 'right') : 'none'")
+		assertContains(helperText, "bindingEdge: 'left'")
+		assertContains(helperText, "backCoverEdge: paged ? 'right' : 'none'")
 		assertContains(helperText, "export const readerPortraitBindingHintBoxShadow = (settings, profile) =>")
 		assertContains(helperText, "profile?.mode !== 'single'")
 		assertContains(helperText, "settings?.pageEdgesEnabled === false")
@@ -281,10 +280,13 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(viewportText, "renderer.removeAttribute('content-gap')")
 		assertContains(helperText, "const portraitRevealPercent = portraitSingle ? 1 : 0")
 		assertContains(helperText, "const backCoverEdge = boundedSpread ? 'both' : portraitSingle ? layoutProfile.backCoverEdge : 'none'")
-		assertContains(helperText, "left: portraitSingle && backCoverEdge === 'left' ? readerPercentValue(portraitRevealPercent) : '0px'")
+		assertContains(helperText, "left: '0px'")
 		assertContains(helperText, "width: portraitSingle ? readerPercentValue(100 - portraitRevealPercent) : '100%'")
 		assertContains(helperText, "geometry.backCoverEdge === 'right'")
-		assertContains(helperText, "geometry.backCoverEdge === 'left'")
+		assertFalse(
+			helperText.contains("backCoverEdge: paged ? (leftPage ? 'left' : 'right') : 'none'"),
+			"Portrait back-cover reveal must not swap sides with physical page parity."
+		)
 		assertContains(helperText, "readerReadableCoverTintChannels(coverTint)")
 		assertContains(helperText, "export const readerSurfaceBackCoverPalette = (settings, coverTint) =>")
 		assertContains(helperText, "const coverPalette = readerSurfaceBackCoverPalette(settings, geometry.coverTint)")

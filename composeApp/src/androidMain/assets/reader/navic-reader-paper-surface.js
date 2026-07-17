@@ -7,10 +7,6 @@ import {
   readerThemePalette,
   readerThemeUsesWarmPaperTreatment,
 } from './navic-reader-settings-core.js'
-import {
-  ReaderPhysicalPageLeft,
-} from './navic-reader-page-turn-model.js'
-
 export const readerSurfaceSpreadMode = ({
   flowMode = '',
   width: rawWidth = null,
@@ -32,17 +28,15 @@ export const readerPaperLayoutProfile = ({
   width = null,
   height = null,
   spreadMode = '',
-  pageSide = '',
 } = {}) => {
   const mode = spreadMode || readerSurfaceSpreadMode({ flowMode, width, height })
-  const leftPage = pageSide === ReaderPhysicalPageLeft
   const paged = flowMode === ReaderFlowPaged
   return mode === 'spread'
     ? { mode: 'spread', bindingEdge: 'center' }
     : {
         mode: 'single',
-        bindingEdge: leftPage ? 'right' : 'left',
-        backCoverEdge: paged ? (leftPage ? 'left' : 'right') : 'none',
+        bindingEdge: 'left',
+        backCoverEdge: paged ? 'right' : 'none',
       }
 }
 
@@ -107,7 +101,7 @@ export const readerSurfacePageDecorationGeometry = ({
     backCoverVisible: backCoverEdge !== 'none' && shellCoverVisible !== true,
     pages: {
       full: {
-        left: portraitSingle && backCoverEdge === 'left' ? readerPercentValue(portraitRevealPercent) : '0px',
+        left: '0px',
         width: portraitSingle ? readerPercentValue(100 - portraitRevealPercent) : '100%',
       },
       left: {

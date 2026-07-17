@@ -4,6 +4,7 @@ package karacken.curl;
 final class FoldShadowModel {
     static final float MAX_OPACITY = 0.30f;
     static final float WIDTH = 0.07f;
+    static final float SHADOW_DEPTH = PlayLikeCurlModel.RIGHT_DEPTH + 0.00025f;
 
     private FoldShadowModel() {
     }
@@ -12,7 +13,12 @@ final class FoldShadowModel {
         float progress = progress(role, curlPosition);
         float opacity = MAX_OPACITY * (float) Math.sin(Math.PI * progress);
         float edge = PlayLikeCurlGeometry.foldEdgeX(role, curlPosition);
+        float edgeDepth = PlayLikeCurlGeometry.foldEdgeDepth(role, curlPosition);
         if (mirrored) edge = 1f - edge;
+        edge = PlayLikeCurlGeometry.projectXOntoDepthPlane(
+                edge,
+                edgeDepth,
+                SHADOW_DEPTH);
         return mirrored
                 ? new State(edge - WIDTH, edge, edge, opacity, false)
                 : new State(edge, edge + WIDTH, edge, opacity, true);

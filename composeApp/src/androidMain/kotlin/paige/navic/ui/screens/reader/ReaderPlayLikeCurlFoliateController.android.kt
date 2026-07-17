@@ -28,6 +28,21 @@ import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
 
+internal fun readerPlayLikeCurlPortraitSurfaceWidth(
+	hostWidth: Int,
+	hostHeight: Int,
+	pageBitmapWidth: Int,
+	pageBitmapHeight: Int
+): Int {
+	if (hostWidth <= 0 || hostHeight <= 0 || pageBitmapWidth <= 0 || pageBitmapHeight <= 0) {
+		return hostWidth.coerceAtLeast(1)
+	}
+	val scaledWidth = (hostHeight.toDouble() * pageBitmapWidth / pageBitmapHeight)
+		.toInt()
+		.coerceAtLeast(1)
+	return scaledWidth.coerceAtMost(hostWidth)
+}
+
 /**
  * Production bridge between Foliate's passive raster cache and the imported PlayLikeCurl surface.
  * Foliate remains the pagination authority; this controller owns only immutable raster leases,
@@ -503,11 +518,41 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		pages.generations += generationId
 		generationOwners[generationId] = pages
+		updateSurfaceBounds(pages, ordinal)
 		logActivationState(
 			event = "deck-submitted",
 			detail = "generation=$generationId ordinal=$ordinal orientation=${pages.profile.orientation}"
 		)
 		surfaceView.submitDeck(deck)
+	}
+
+	private fun updateSurfaceBounds(pages: PreparedPages, ordinal: Int) {
+		val targetWidth = when (pages.profile.orientation) {
+			ReaderPlayLikeCurlOrientation.Landscape -> ViewGroup.LayoutParams.MATCH_PARENT
+			ReaderPlayLikeCurlOrientation.Portrait -> {
+				val page = pages.deck.value(ordinal)
+				if (page == null || host.width <= 0 || host.height <= 0) {
+					ViewGroup.LayoutParams.MATCH_PARENT
+				} else {
+					readerPlayLikeCurlPortraitSurfaceWidth(
+						hostWidth = host.width,
+						hostHeight = host.height,
+						pageBitmapWidth = page.width,
+						pageBitmapHeight = page.height
+					)
+				}
+			}
+		}
+		val params = surfaceView.layoutParams ?: return
+		if (params.width == targetWidth && params.height == ViewGroup.LayoutParams.MATCH_PARENT) return
+		params.width = targetWidth
+		params.height = ViewGroup.LayoutParams.MATCH_PARENT
+		surfaceView.layoutParams = params
+		surfaceView.requestLayout()
+		logActivationState(
+			event = "surface-bounds-updated",
+			detail = "orientation=${pages.profile.orientation} width=$targetWidth host=${host.width}x${host.height}"
+		)
 	}
 
 	private fun PreparedPages.page(generationId: Long, ordinal: Int): PageImage<Bitmap> {

@@ -171,6 +171,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun portraitAnimationSurfaceStopsBeforeTheStaticBackCoverBoard() {
+		val source = controllerFile.readText()
+		val submit = source
+			.substringAfter("private fun submitLibraryDeck(")
+			.substringBefore("private fun PreparedPages.page(")
+
+		assertContains(source, "private fun updateSurfaceBounds(")
+		assertContains(submit, "updateSurfaceBounds(pages, ordinal)")
+		assertTrue(
+			submit.indexOf("updateSurfaceBounds(pages, ordinal)") <
+				submit.indexOf("surfaceView.submitDeck(deck)"),
+			"The imported surface must match Foliate's page rectangle before the deck becomes visible."
+		)
+		assertContains(source, "readerPlayLikeCurlPortraitSurfaceWidth(")
+		assertContains(source, "ReaderPlayLikeCurlOrientation.Landscape -> ViewGroup.LayoutParams.MATCH_PARENT")
+	}
+
+	@Test
 	fun nativeHostMountsAndDrivesTheImportedSurface() {
 		val source = hostFile.readText()
 

@@ -75,8 +75,8 @@ function Assert-Acknowledgements {
 		},
 		@{
 			id = "playlikecurl"
-			version = "1.1.2"
-			website = "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.2"
+			version = "1.1.3"
+			website = "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.3"
 			license = "playlikecurl-mit"
 			copyright = "Originally created by Karan Kalsi; maintained fork by Darkaxt"
 			licenseFile = "third_party/playlikecurl/LICENSE.txt"
@@ -124,8 +124,8 @@ foreach ($requiredText in @(
 	"107f4fa74db0e7247c846c49d6211df3edf9887c",
 	"f52d42c6127d0ad981a2c67634113541b17ae01e",
 	"ce87167432819f85df49b6b16c7a78556e9a4ee0",
-	"2555831fcca962b2089997c4f8ea21ff5bd226fc",
-	"https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.2"
+	"f13eb7a4cb75761a6d329cc3d221faa2aeb47431",
+	"https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.3"
 )) {
 	if (-not $notices.Contains($requiredText)) {
 		throw "THIRD_PARTY.md omits '$requiredText'."
