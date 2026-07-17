@@ -18,6 +18,13 @@ enum class ReaderPagePreparationGestureDisposition {
 	ConsumeWhilePreparing
 }
 
+fun readerPageTurnContentReadyKey(profile: ReaderPaginationProfileStatus): String? {
+	if (profile.status != "cached" && profile.status != "ready") return null
+	val fingerprint = profile.fingerprint?.takeIf { it.isNotBlank() } ?: return null
+	val pageCount = profile.pageCount?.takeIf { it > 0 } ?: return null
+	return "$fingerprint:$pageCount"
+}
+
 data class ReaderPagePreparationState(
 	val phase: ReaderPagePreparationPhase = ReaderPagePreparationPhase.Idle,
 	val requiredCount: Int = 0,
@@ -56,7 +63,7 @@ fun readerPagePreparationState(
 		ReaderPagePreparationPhase.Preparing -> if (!hasPreparedBefore && !interactiveReady) {
 			ReaderPagePreparationPresentation.Cover
 		} else {
-			ReaderPagePreparationPresentation.Compact
+			ReaderPagePreparationPresentation.Hidden
 		}
 		ReaderPagePreparationPhase.Failed -> if (hasPreparedBefore) {
 			ReaderPagePreparationPresentation.Compact

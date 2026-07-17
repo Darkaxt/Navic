@@ -224,25 +224,29 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun nativeGesturePreservesExactEdgeOriginAndLivePointerY() {
+	fun nativeGestureIsOwnedByTheImportedPlayLikeCurlSurface() {
 		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
-		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
-		assertContains(host, "pageTurnController.update(dx, width, swipeStartY, event.y, height)")
-		assertContains(host, "pageTurnController.release(dx, width, swipeStartY, event.y, height)")
-		assertContains(controller, "edgeOriginY: Float")
-		assertContains(controller, "pointerY: Float")
-		assertContains(controller, "setGestureY")
-		assertContains(controller, "pageAxisWidth(viewWidth)")
-		assertContains(controller, "leaf.width * transition.renderScaleX")
+		val dispatch = host
+			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean")
+			.substringBefore("private fun handleSwipeTouchEvent(")
+
+		assertContains(dispatch, "playLikeCurlGestureOwned = usesNativePageTurnCanvas()")
+		assertContains(dispatch, "if (playLikeCurlGestureOwned)")
+		assertContains(dispatch, "playLikeCurlController.onPageTouchEvent(event)")
+		assertContains(dispatch, "return true")
+		assertFalse(dispatch.contains("pageTurnController.update("))
+		assertFalse(dispatch.contains("pageTurnController.release("))
 	}
 
 	@Test
-	fun nativeHostCancelsAnActiveTurnWhenItsLayoutSizeChanges() {
+	fun nativeHostInvalidatesAnActiveTurnWhenItsLayoutSizeChanges() {
 		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val onSizeChanged = host
+			.substringAfter("override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int)")
+			.substringBefore("override fun onWindowVisibilityChanged(")
 
-		assertContains(host, "override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int)")
-		assertContains(host, "if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh))")
-		assertContains(host, "pageTurnController.cancel()")
+		assertContains(onSizeChanged, "if (oldw > 0 && oldh > 0 && (w != oldw || h != oldh))")
+		assertContains(onSizeChanged, "pageTurnController.invalidate(\"size-changed\")")
 	}
 
 	@Test
@@ -371,16 +375,15 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
-	fun passiveBatchPersistsEveryHydratedOrCapturedTargetBeforeReportingProgress() {
-		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+	fun passiveBatchReportsInMemoryTargetsBeforeBestEffortPersistence() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
 
 		assertContains(source, "fun ensurePersistentSnapshot(")
 		assertContains(batch, "bundleSource.ensurePersistentSnapshot(")
 		assertTrue(
-			batch.indexOf("ensurePersistentSnapshot") < batch.indexOf("markCompleted(session)"),
-			"A hydrated raster must be durable before it advances preparation progress."
+			batch.indexOf("markCompleted(session)") < batch.indexOf("ensurePersistentSnapshot"),
+			"An in-memory raster must become interactive before optional disk persistence."
 		)
 		assertFalse(batch.contains("postDelayed"))
 		assertFalse(batch.contains("withTimeout"))
@@ -434,6 +437,93 @@ class ReaderPageTurnNativeSourceTest {
 		assertContains(batch, "onComplete")
 		assertFalse(batch.contains("SystemClock"))
 		assertFalse(batch.contains("Timer"))
+	}
+
+	@Test
+	fun passiveRasterBatchCancellationAndDeferredPagesDoNotSurfaceAsFailures() {
+		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val cancel = batch
+			.substringAfter("fun cancel()")
+			.substringBefore("private fun hydrateTarget(")
+		val finish = controller
+			.substringAfter("private fun finishPrewarm(")
+			.substringBefore("private fun logPrewarmBoundary(")
+
+		assertContains(cancel, "ReaderPageRasterBatchOutcome.Cancelled")
+		assertFalse(cancel.contains("onComplete(false)"))
+		assertContains(batch, "ReaderPageRasterBatchOutcome.Deferred")
+		assertContains(finish, "ReaderPageRasterBatchOutcome.Deferred")
+		assertContains(finish, "ReaderPageRasterBatchOutcome.Cancelled")
+		assertContains(finish, "ReaderPagePreparationPhase.Idle")
+	}
+
+	@Test
+	fun passiveRasterBatchDoesNotGateInteractionOnPersistentCacheWrites() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
+		val hydrate = batch
+			.substringAfter("private fun hydrateTarget(")
+			.substringBefore("private fun submitMissingTargets(")
+		val capture = batch
+			.substringAfter("private fun captureReadyItem(")
+			.substringBefore("private fun advancePageTurnPreviewBatch(")
+		val preparedCapture = source
+			.substringAfter("fun capturePreparedRasterPage(")
+			.substringBefore("private fun capturePreparedPage(")
+
+		assertContains(hydrate, "markCompleted(session)")
+		assertContains(hydrate, "bundleSource.ensurePersistentSnapshot(")
+		assertTrue(
+			hydrate.indexOf("markCompleted(session)") <
+				hydrate.indexOf("bundleSource.ensurePersistentSnapshot("),
+			"A retained in-memory raster must become interactive before optional disk persistence."
+		)
+		assertFalse(hydrate.contains("stage = \"snapshot-persist\""))
+		assertContains(capture, "if (!captured)")
+		assertFalse(capture.contains("persistent-snapshot-write-failed"))
+		assertContains(preparedCapture, "onCaptured(true)")
+		assertContains(preparedCapture, "schedulePersistentSnapshot(")
+		assertTrue(
+			preparedCapture.indexOf("onCaptured(true)") <
+				preparedCapture.indexOf("schedulePersistentSnapshot("),
+			"A freshly captured page must become interactive before optional disk persistence."
+		)
+		assertFalse(preparedCapture.contains("schedulePersistentSnapshot(cached, priority, onCaptured)"))
+	}
+
+	@Test
+	fun skippedRasterPersistenceReportsItsExactReasonWithoutFailingInteraction() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val persistence = source
+			.substringAfter("private fun schedulePersistentSnapshot(")
+			.substringBefore("private fun completeRasterPublication(")
+
+		assertContains(persistence, "rasterPersistenceSkipped(")
+		assertContains(persistence, "\"bundle-source-closed\"")
+		assertContains(persistence, "\"webview-unavailable\"")
+		assertContains(persistence, "\"generation-changed\"")
+		assertContains(persistence, "\"descriptor-unavailable\"")
+		assertContains(persistence, "\"bitmap-copy-failed\"")
+		assertContains(persistence, "\"scheduler-${'$'}{result.status.name.lowercase()}\"")
+		assertContains(source, "private fun rasterPersistenceSkipped(")
+		assertContains(source, "Page raster persistence skipped")
+		assertContains(source, "onPersisted(false)")
+	}
+
+	@Test
+	fun terminalRasterFailureLogsAndDisplaysItsExactStagePageAndReason() {
+		val batch = readerAndroidFile("ReaderPageRasterBatchController.android.kt").readText()
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val finish = controller
+			.substringAfter("private fun finishPrewarm(")
+			.substringBefore("private fun logPrewarmBoundary(")
+
+		assertContains(batch, "ReaderPageRasterBatchOutcome.Failed(")
+		assertContains(batch, "state.optString(\"message\")")
+		assertContains(finish, "outcome.diagnostic")
+		assertContains(finish, "error = outcome.userMessage")
+		assertContains(finish, "retryable = true")
 	}
 
 	@Test
@@ -558,6 +648,28 @@ class ReaderPageTurnNativeSourceTest {
 	}
 
 	@Test
+	fun deferredRasterPreparationWaitsForPaginationReadinessInsteadOfSpinningFrames() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val host = readerAndroidFile("KomikkuReaderNativeFrameHost.android.kt").readText()
+		val root = readerCommonUiFile("ReaderRoot.kt").readText()
+		val finishPrewarm = controller
+			.substringAfter("private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome)")
+			.substringBefore("private fun logPrewarmBoundary")
+		val readinessSetter = host
+			.substringAfterLast("fun setPageTurnContentReadyKey(contentReadyKey: String?)")
+			.substringBefore("fun setPageTurnVisualLocation(")
+
+		assertFalse(
+			finishPrewarm.contains("onRequestPrewarm()"),
+			"A deferred passive raster must not immediately restart on the next frame"
+		)
+		assertContains(readinessSetter, "pageTurnController.retryPreparation()")
+		assertContains(readinessSetter, "playLikeCurlController.onHostContentReady()")
+		assertContains(root, "pageTurnContentReadyKey = readerPageTurnContentReadyKey(")
+		assertContains(root, "controllerState.paginationProfile")
+	}
+
+	@Test
 	fun releasedGestureConsumesWarmSnapshotOrWaitsForInFlightCapture() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val release = controller.substringAfter("fun release(").substringBefore("private fun pageAxisWidth")
@@ -583,7 +695,7 @@ class ReaderPageTurnNativeSourceTest {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val finishPrewarm = controller
-			.substringAfter("private fun finishPrewarm(success: Boolean)")
+			.substringAfter("private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome)")
 			.substringBefore("private fun cancelPrewarm()")
 		val cancelPrewarm = controller
 			.substringAfter("private fun cancelPrewarm()")
@@ -793,7 +905,7 @@ class ReaderPageTurnNativeSourceTest {
 		assertTrue(
 			readerPageTurnCanStartPassivePrewarm(
 				destroyed = false,
-				available = true,
+				sessionEnabled = true,
 				visualCommitPending = false,
 				idle = true
 			)
@@ -801,8 +913,16 @@ class ReaderPageTurnNativeSourceTest {
 		assertFalse(
 			readerPageTurnCanStartPassivePrewarm(
 				destroyed = false,
-				available = true,
+				sessionEnabled = true,
 				visualCommitPending = true,
+				idle = true
+			)
+		)
+		assertFalse(
+			readerPageTurnCanStartPassivePrewarm(
+				destroyed = false,
+				sessionEnabled = false,
+				visualCommitPending = false,
 				idle = true
 			)
 		)
@@ -814,6 +934,21 @@ class ReaderPageTurnNativeSourceTest {
 
 		assertFalse(prewarm.contains("slideCoordinator?.activeSettlementTarget != null"))
 		assertContains(prewarm, "readerPageTurnCanStartPassivePrewarm")
+		assertContains(prewarm, "sessionEnabled = enabledForSession")
+		assertFalse(prewarm.contains("available = isAvailable"))
+	}
+
+	@Test
+	fun passivePrewarmReportsDistinctPreparationBoundariesWithoutPerFrameSpam() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+
+		assertContains(controller, "logPrewarmBoundary(")
+		assertContains(controller, "\"plan-unavailable\"")
+		assertContains(controller, "\"layout-mismatch\"")
+		assertContains(controller, "\"center-mismatch\"")
+		assertContains(controller, "\"reference-unavailable\"")
+		assertContains(controller, "\"batch-complete\"")
+		assertContains(controller, "if (lastPrewarmBoundary == trace) return")
 	}
 
 	@Test
@@ -840,7 +975,8 @@ class ReaderPageTurnNativeSourceTest {
 			.substringBefore("fun prewarmAdjacent()")
 
 		assertContains(bundle, "fun matchesLayout(spread: Boolean)")
-		assertContains(query, "plan.layoutMode != expectedLayoutMode(webView)")
+		assertContains(query, "val expectedLayout = expectedLayoutMode(webView)")
+		assertContains(query, "plan.layoutMode != expectedLayout")
 		assertContains(query, "webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }")
 		assertContains(begin, "!plan.matchesLayout(state.spread)")
 	}
@@ -873,8 +1009,25 @@ class ReaderPageTurnNativeSourceTest {
 
 		assertContains(host, "pagePreparationCoverVisible")
 		assertContains(host, "updateNativeCoverVisibility()")
+		assertContains(preparationVisibility, "Reader native cover visibility")
+		assertContains(preparationVisibility, "shell=${'$'}shellCoverVisible")
+		assertContains(preparationVisibility, "preparation=${'$'}pagePreparationCoverVisible")
 		assertFalse(preparationVisibility.contains("setShellCoverVisible"))
 		assertFalse(preparationVisibility.contains("pageTurnController.invalidate"))
+	}
+
+	@Test
+	fun preparationStateLoggingIncludesPresentationAndInteractiveReadiness() {
+		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
+		val publish = controller
+			.substringAfter("private fun publishPreparationState(")
+			.substringBefore("fun updateBitmapQuality(")
+
+		assertContains(publish, "lastPreparationStateTrace")
+		assertContains(publish, "presentation=${'$'}{state.presentation}")
+		assertContains(publish, "interactiveReady=${'$'}{state.interactiveReady}")
+		assertContains(publish, "hasPreparedBefore=${'$'}hasPreparedBefore")
+		assertContains(publish, "Page preparation state")
 	}
 
 	@Test
@@ -883,9 +1036,17 @@ class ReaderPageTurnNativeSourceTest {
 		val dispatch = host
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean")
 			.substringBefore("private fun handleSwipeTouchEvent(")
+		val preparationBlock = host
+			.substringAfterLast("fun setPagePreparationGesturesBlocked(blocked: Boolean)")
+			.substringBefore("fun setPagePreparationRetryKey(")
 
 		assertContains(host, "pagePreparationGesturesBlocked")
 		assertContains(dispatch, "if (pagePreparationGesturesBlocked)")
+		assertContains(preparationBlock, "playLikeCurlController.cancelGesture()")
+		assertFalse(
+			preparationBlock.contains("pageTurnController.cancel()"),
+			"Blocking user input while preparation is active must not cancel the preparation producer."
+		)
 		assertTrue(
 			dispatch.indexOf("if (pagePreparationGesturesBlocked)") < dispatch.indexOf("handleSwipeTouchEvent(event)"),
 			"Preparation must consume input before native tap or swipe dispatch."

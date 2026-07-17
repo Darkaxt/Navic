@@ -70,13 +70,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var snapshotKey = Int.MIN_VALUE
 	private var currentOrdinal = 0
 	private var pendingExactOrdinal: Int? = null
+	private var preparationPhase = ReaderPagePreparationPhase.Idle
 	private var requestGeneration = 0L
 	private var nextDeckGeneration = 1L
+	private var lastActivationTrace: String? = null
 
 	init {
 		surfaceView.setPageSurfaceListener(object : PageSurfaceListener {
 			override fun onCapabilitiesAvailable(capabilities: RenderCapabilities) {
 				capabilitiesAvailable = true
+				logActivationState(
+					event = "capabilities-available",
+					detail = "maxTextureSize=${capabilities.maxTextureSize}"
+				)
 				refreshPreparedDeck()
 			}
 
@@ -84,6 +90,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (generationOwners[generationId] === activePages) {
 					interactionReady = true
 				}
+				logActivationState("deck-prepared", "generation=$generationId")
 			}
 
 			override fun onDeckRejected(generationId: Long, reason: DeckRejectionReason) {
@@ -108,6 +115,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			) {
 				val pages = generationOwners[generationId] ?: activePages ?: return
 				val targetOrdinal = targetOrdinal(pageChange, pages.profile)
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl settlement started generation=$generationId " +
+						"source=$sourceLogicalPageId target=$targetLogicalPageId " +
+						"change=$pageChange targetOrdinal=$targetOrdinal"
+				)
 				submitLibraryDeck(pages, targetOrdinal)
 			}
 
@@ -118,9 +131,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 				pageChange: PageChange
 			) {
 				if (pageChange == PageChange.NONE) {
+					Logger.i(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"PlayLikeCurl settlement completed generation=$generationId " +
+							"page=$currentLogicalPageId ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
+					)
 					hideSurface()
 					return
 				}
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl settlement completed generation=$generationId " +
+						"page=$currentLogicalPageId ordinal=$currentPageOrdinal change=$pageChange exactDispatch=true"
+				)
 				currentOrdinal = currentPageOrdinal
 				pendingExactOrdinal = currentPageOrdinal
 				interactionReady = false
@@ -128,6 +151,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onSettlementCancelled(generationId: Long, currentLogicalPageId: String) {
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl settlement cancelled generation=$generationId page=$currentLogicalPageId"
+				)
 				hideSurface()
 			}
 
@@ -148,6 +175,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun setEnabled(value: Boolean) {
 		if (enabled == value) return
 		enabled = value
+		logActivationState("enabled", "value=$value")
 		if (value) {
 			onRequestPrewarm()
 			refreshPreparedDeck()
@@ -172,10 +200,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	fun onPreparationStateChanged(state: ReaderPagePreparationState) {
+		preparationPhase = state.phase
 		if (!enabled || destroyed) return
+		logActivationState(
+			event = "preparation-state",
+			detail = buildString {
+				append("phase=${state.phase}")
+				append(" completed=${state.completedCount}/${state.requiredCount}")
+				if (!state.error.isNullOrBlank()) append(" error=${state.error}")
+			}
+		)
 		when (state.phase) {
-			ReaderPagePreparationPhase.Ready -> refreshPreparedDeck()
-			ReaderPagePreparationPhase.Failed -> interactionReady = false
+			ReaderPagePreparationPhase.Ready -> {
+				logActivationState("preparation-ready")
+				refreshPreparedDeck()
+			}
+			ReaderPagePreparationPhase.Failed -> {
+				interactionReady = false
+				logActivationState("refresh-gated", "preparation-failed")
+			}
 			else -> Unit
 		}
 	}
@@ -184,6 +227,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (destroyed || attached) return
 		attached = true
 		surfaceView.attach()
+		logActivationState("host-attached")
 		if (enabled) {
 			onRequestPrewarm()
 			refreshPreparedDeck()
@@ -194,6 +238,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (!enabled || destroyed) return
 		invalidate("size-changed")
 		onRequestPrewarm()
+	}
+
+	fun onHostContentReady() {
+		if (!enabled || destroyed) return
+		logActivationState("host-content-ready")
+		refreshPreparedDeck()
 	}
 
 	fun onHostWindowHidden() {
@@ -265,18 +315,38 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun refreshPreparedDeck() {
-		if (!enabled || !attached || destroyed || !capabilitiesAvailable) return
-		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return
+		val gate = when {
+			!enabled -> "disabled"
+			!attached -> "host-detached"
+			destroyed -> "destroyed"
+			!capabilitiesAvailable -> "capabilities-unavailable"
+			preparationPhase == ReaderPagePreparationPhase.Preparing -> "preparation-in-progress"
+			else -> null
+		}
+		if (gate != null) {
+			logActivationState("refresh-gated", gate)
+			return
+		}
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+		if (webView == null) {
+			logActivationState("refresh-gated", "webview-unavailable")
+			return
+		}
 		val request = ++requestGeneration
 		val centerExpression = pendingExactOrdinal?.toString() ?: currentOrdinal.toString()
+		logActivationState("refresh-requested", "request=$request center=$centerExpression")
 		webView.evaluateJavascript(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(" +
 				"$centerExpression) ?? null)"
 		) { encoded ->
-			if (!isRequestActive(request, webView)) return@evaluateJavascript
+			if (!isRequestActive(request, webView)) {
+				logActivationState("refresh-gated", "stale-request=$request")
+				return@evaluateJavascript
+			}
 			val plan = readerPageRasterPreparationPlan(encoded)
 			if (plan == null) {
-				onRequestPrewarm()
+				logActivationState("refresh-gated", "preparation-plan-unavailable")
+				requestPrewarmIfIdle("preparation-plan-unavailable")
 				return@evaluateJavascript
 			}
 			currentOrdinal = plan.centerPageIndex
@@ -291,6 +361,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				quality = bitmapQuality,
 				pageCount = plan.pageCount,
 				readerDirection = plan.readerDirection,
+				spreadAnchorParity = Math.floorMod(plan.centerPageIndex, 2),
 				rasterGeneration = bundleSource.currentGeneration()
 			)
 			prepareProfile(request, profile, plan.centerPageIndex)
@@ -317,16 +388,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 			requestedProfile = profile
 		}
 		val adapter = rasterAdapter ?: return
-		val step = if (profile.orientation == ReaderPlayLikeCurlOrientation.Landscape) 2 else 1
-		val pageIndices = listOf(centerOrdinal - step, centerOrdinal, centerOrdinal + step)
-			.flatMap { ordinal ->
-				readerPlayLikeCurlLibraryDeckPageIndices(
-					orientation = profile.orientation,
-					currentOrdinal = ordinal,
-					pageCount = profile.pageCount
-				)
-			}
-			.distinct()
+		val pageIndices = readerPlayLikeCurlLibraryDeckPageIndices(
+			orientation = profile.orientation,
+			currentOrdinal = centerOrdinal,
+			pageCount = profile.pageCount
+		)
 		val preparation = adapter.prepare(profile, pageIndices)
 		rasterScope.launch {
 			val deck = preparation.await()
@@ -334,7 +400,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 				host.post {
 					if (request == requestGeneration && enabled && !destroyed) {
 						interactionReady = false
-						onRequestPrewarm()
+						logActivationState(
+							"refresh-gated",
+							"raster-deck-unavailable phase=$preparationPhase"
+						)
+						requestPrewarmIfIdle("raster-deck-unavailable")
 					}
 				}
 				return@launch
@@ -371,12 +441,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 					pages.page(pageGenerationId, pageOrdinal)
 				}
 			)
-		}.getOrElse {
-			onRequestPrewarm()
+		}.getOrElse { error ->
+			interactionReady = false
+			Logger.e(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"Failed to build PlayLikeCurl deck ordinal=$ordinal phase=$preparationPhase",
+				error
+			)
+			requestPrewarmIfIdle("deck-build-failed")
 			return
 		}
 		pages.generations += generationId
 		generationOwners[generationId] = pages
+		logActivationState(
+			event = "deck-submitted",
+			detail = "generation=$generationId ordinal=$ordinal orientation=${pages.profile.orientation}"
+		)
 		surfaceView.submitDeck(deck)
 	}
 
@@ -413,6 +493,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		val token = "navic-playlikecurl-settle-${nextDeckGeneration++}"
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl exact page dispatched pageIndex=$pageIndex token=$token"
+		)
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.dispatch?.({ type: 'goToVisualPage', " +
 				"pageIndex: $pageIndex, settleToken: ${JSONObject.quote(token)} })"
@@ -433,6 +517,49 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun hideSurface() {
 		surfaceView.alpha = 0f
+	}
+
+	private fun requestPrewarmIfIdle(reason: String) {
+		if (preparationPhase == ReaderPagePreparationPhase.Idle) {
+			logActivationState("prewarm-requested", reason)
+			onRequestPrewarm()
+		} else {
+			logActivationState("refresh-gated", "$reason phase=$preparationPhase")
+		}
+	}
+
+	private fun logActivationState(event: String, detail: String? = null) {
+		val trace = buildString {
+			append("activation event=")
+			append(event)
+			if (!detail.isNullOrBlank()) {
+				append(" detail=")
+				append(detail)
+			}
+			append(" enabled=")
+			append(enabled)
+			append(" attached=")
+			append(attached)
+			append(" destroyed=")
+			append(destroyed)
+			append(" capabilities=")
+			append(capabilitiesAvailable)
+			append(" interactionReady=")
+			append(interactionReady)
+			append(" pendingExactOrdinal=")
+			append(pendingExactOrdinal)
+			append(" activePages=")
+			append(activePages != null)
+			append(" requestedProfile=")
+			append(requestedProfile != null)
+			append(" requestGeneration=")
+			append(requestGeneration)
+			append(" preparationPhase=")
+			append(preparationPhase)
+		}
+		if (trace == lastActivationTrace) return
+		lastActivationTrace = trace
+		Logger.i(ReaderPlayLikeCurlFoliateControllerTag, trace)
 	}
 
 	private fun isRequestActive(request: Long, webView: WebView): Boolean =

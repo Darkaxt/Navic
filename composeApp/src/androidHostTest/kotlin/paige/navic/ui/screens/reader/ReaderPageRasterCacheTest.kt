@@ -51,12 +51,18 @@ class ReaderPageRasterCacheTest {
 
 	@Test
 	fun failedImageWriteDoesNotPublishManifestEntry() {
-		val fixture = fixture(codec = ByteArrayRasterCodec(failEncoding = true))
+		val diagnostics = mutableListOf<String>()
+		val fixture = fixture(
+			codec = ByteArrayRasterCodec(failEncoding = true),
+			onDiagnostic = diagnostics::add
+		)
 
 		assertFalse(fixture.cache.write(key(), metadata(), pngBytes("broken")))
 
 		assertFalse(fixture.cache.pathFor(key()).exists())
 		assertFalse(fixture.cache.manifestPath().takeIf(File::exists)?.readText().orEmpty().contains(key().digest))
+		assertTrue(diagnostics.single().contains("reason=encode-failed"))
+		assertTrue(diagnostics.single().contains("availableBytes="))
 	}
 
 	@Test
@@ -165,7 +171,8 @@ class ReaderPageRasterCacheTest {
 		codec: ByteArrayRasterCodec = ByteArrayRasterCodec(),
 		maxDiskBytes: Long = 1_024L,
 		maxDecodedEntries: Int = 2,
-		clock: () -> Long = System::currentTimeMillis
+		clock: () -> Long = System::currentTimeMillis,
+		onDiagnostic: (String) -> Unit = {}
 	): CacheFixture {
 		val root = createTempDirectory("navic-reader-page-raster-cache").toFile()
 		return CacheFixture(
@@ -175,7 +182,8 @@ class ReaderPageRasterCacheTest {
 				codec = codec,
 				maxDiskBytes = maxDiskBytes,
 				maxDecodedEntries = maxDecodedEntries,
-				clock = clock
+				clock = clock,
+				onDiagnostic = onDiagnostic
 			)
 		)
 	}

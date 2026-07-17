@@ -12,6 +12,9 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageRasterPreparationMode
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.util.core.Logger
+
+private const val ReaderPageRasterBatchTag = "ReaderPageRasterBatch"
 
 internal data class ReaderPageRasterBatchTarget(
 	val pageIndex: Int,
@@ -109,6 +112,74 @@ internal fun readerPageRasterImmediateTargets(
 	previousPageIndex?.let { add(ReaderPageRasterBatchTarget(it, ReaderPageRasterPriority.PreviousTransition)) }
 }
 
+internal sealed interface ReaderPageRasterBatchOutcome {
+	data object Ready : ReaderPageRasterBatchOutcome
+	data object Cancelled : ReaderPageRasterBatchOutcome
+
+	data class Deferred(
+		val stage: String,
+		val pageIndex: Int?,
+		val reason: String
+	) : ReaderPageRasterBatchOutcome
+
+	data class Failed(
+		val stage: String,
+		val pageIndex: Int?,
+		val reason: String
+	) : ReaderPageRasterBatchOutcome {
+		val diagnostic: String
+			get() = "stage=$stage pageIndex=${pageIndex ?: "none"} reason=$reason"
+
+		val userMessage: String
+			get() = pageIndex?.let { index ->
+				"Page ${index + 1} could not be prepared: $reason"
+			} ?: "Page preparation failed: $reason"
+	}
+}
+
+internal fun readerPageRasterPreviewOutcome(
+	status: String,
+	pageIndex: Int?,
+	message: String?,
+	paginationReady: Boolean = false
+): ReaderPageRasterBatchOutcome {
+	val normalizedPageIndex = pageIndex?.takeIf { it >= 0 }
+	val reason = message?.trim().takeUnless { it.isNullOrBlank() }
+	return when (status) {
+		"cancelled" -> ReaderPageRasterBatchOutcome.Cancelled
+		"missing" -> ReaderPageRasterBatchOutcome.Deferred(
+			stage = "preview-state",
+			pageIndex = normalizedPageIndex,
+			reason = "preview-state-missing"
+		)
+		"failed" -> {
+			val failureReason = reason ?: "preview-render-failed"
+			if (
+				failureReason.startsWith("Passive raster page ") &&
+				failureReason.endsWith(" is unavailable") &&
+				!paginationReady
+			) {
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "preview-render",
+					pageIndex = normalizedPageIndex,
+					reason = failureReason
+				)
+			} else {
+				ReaderPageRasterBatchOutcome.Failed(
+					stage = "preview-render",
+					pageIndex = normalizedPageIndex,
+					reason = failureReason
+				)
+			}
+		}
+		else -> ReaderPageRasterBatchOutcome.Failed(
+			stage = "preview-state",
+			pageIndex = normalizedPageIndex,
+			reason = reason ?: "unexpected-status-$status"
+		)
+	}
+}
+
 /**
  * Owns one passive raster preparation session. Disk reads and hidden preview captures are deliberately
  * serialized so the passive Foliate renderer is never asked to represent two pages at once.
@@ -126,7 +197,7 @@ internal class ReaderPageRasterBatchController(
 		val onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		val onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
 		val onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
-		val onComplete: (Boolean) -> Unit,
+		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
 		val missingTargets: MutableList<ReaderPageRasterBatchTarget> = mutableListOf(),
 		var completedCount: Int = 0
 	) {
@@ -144,11 +215,18 @@ internal class ReaderPageRasterBatchController(
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit = {},
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit = { _, _ -> },
-		onComplete: (Boolean) -> Unit
+		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
 	): Boolean {
 		if (!webView.isAttachedToWindow || targets.isEmpty()) {
 			reference.release()
-			onComplete(targets.isEmpty())
+			onComplete(
+				if (targets.isEmpty()) ReaderPageRasterBatchOutcome.Ready
+				else ReaderPageRasterBatchOutcome.Deferred(
+					stage = "batch-start",
+					pageIndex = targets.firstOrNull()?.pageIndex,
+					reason = "webview-detached"
+				)
+			)
 			return targets.isEmpty()
 		}
 		cancel()
@@ -187,13 +265,15 @@ internal class ReaderPageRasterBatchController(
 			) { }
 		}
 		session.reference.release()
-		session.onComplete(false)
+		session.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
 	}
 
 	private fun hydrateTarget(session: Session, targetIndex: Int) {
 		if (!isSessionActive(session)) return
 		if (targetIndex >= session.targets.size) {
-			if (session.missingTargets.isEmpty()) finish(session, true)
+			if (session.missingTargets.isEmpty()) {
+				finish(session, ReaderPageRasterBatchOutcome.Ready)
+			}
 			else submitMissingTargets(session)
 			return
 		}
@@ -211,15 +291,17 @@ internal class ReaderPageRasterBatchController(
 				hydrateTarget(session, targetIndex + 1)
 				return@hydrateSnapshot
 			}
+			markCompleted(session)
 			bundleSource.ensurePersistentSnapshot(hydrated, target.priority) { persisted ->
-				if (!isSessionActive(session)) return@ensurePersistentSnapshot
 				if (!persisted) {
-					finish(session, false)
-					return@ensurePersistentSnapshot
+					Logger.w(
+						ReaderPageRasterBatchTag,
+						"Retained in-memory page remains usable after cache persistence failure " +
+							"pageIndex=${target.pageIndex}"
+					)
 				}
-				markCompleted(session)
-				hydrateTarget(session, targetIndex + 1)
 			}
+			hydrateTarget(session, targetIndex + 1)
 		}
 	}
 
@@ -247,8 +329,27 @@ internal class ReaderPageRasterBatchController(
 			val state = encodedState.javascriptObject()
 			when (state?.optString("status")) {
 				"ready" -> captureReadyItem(session, state)
-				"complete" -> finish(session, session.completedCount == session.requiredCount)
-				"failed", "missing", "cancelled" -> finish(session, false)
+				"complete" -> {
+					val outcome = if (session.completedCount == session.requiredCount) {
+						ReaderPageRasterBatchOutcome.Ready
+					} else {
+						ReaderPageRasterBatchOutcome.Failed(
+							stage = "batch-completion",
+							pageIndex = session.missingTargets.firstOrNull()?.pageIndex,
+							reason = "completed-${session.completedCount}-of-${session.requiredCount}"
+						)
+					}
+					finish(session, outcome)
+				}
+				"failed", "missing", "cancelled" -> finish(
+					session,
+					readerPageRasterPreviewOutcome(
+						status = state.optString("status"),
+						pageIndex = state.optInt("pageIndex", -1),
+						message = state.optString("message").takeIf { it.isNotBlank() },
+						paginationReady = state.optBoolean("paginationReady", false)
+					)
+				)
 				else -> session.webView.postOnAnimation { pollBatchState(session) }
 			}
 		}
@@ -260,7 +361,14 @@ internal class ReaderPageRasterBatchController(
 		val itemToken = state.optString("itemToken")
 		val target = session.missingTargets.firstOrNull { candidate -> candidate.pageIndex == pageIndex }
 		if (pageIndex < 0 || itemToken.isBlank() || target == null) {
-			finish(session, false)
+			finish(
+				session,
+				ReaderPageRasterBatchOutcome.Failed(
+					stage = "preview-ready-state",
+					pageIndex = pageIndex,
+					reason = "malformed-ready-item"
+				)
+			)
 			return
 		}
 		session.onActiveTarget(target)
@@ -275,7 +383,14 @@ internal class ReaderPageRasterBatchController(
 		) { captured ->
 			if (!isSessionActive(session)) return@capturePreparedRasterPage
 			if (!captured) {
-				finish(session, false)
+				finish(
+					session,
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "preview-capture",
+						pageIndex = pageIndex,
+						reason = "prepared-raster-capture-failed"
+					)
+				)
 				return@capturePreparedRasterPage
 			}
 			session.missingTargets.remove(target)
@@ -305,11 +420,11 @@ internal class ReaderPageRasterBatchController(
 			session.generation == bundleSource.currentGeneration() &&
 			session.webView.isAttachedToWindow
 
-	private fun finish(session: Session, success: Boolean) {
+	private fun finish(session: Session, outcome: ReaderPageRasterBatchOutcome) {
 		if (activeSession !== session) return
 		activeSession = null
 		session.reference.release()
-		session.onComplete(success)
+		session.onComplete(outcome)
 	}
 }
 

@@ -33,7 +33,7 @@ class ReaderPagePreparationPolicyTest {
 		)
 
 		assertTrue(state.interactiveReady)
-		assertEquals(ReaderPagePreparationPresentation.Compact, state.presentation)
+		assertEquals(ReaderPagePreparationPresentation.Hidden, state.presentation)
 	}
 
 	@Test
@@ -52,7 +52,7 @@ class ReaderPagePreparationPolicyTest {
 	}
 
 	@Test
-	fun subsequentCacheOutrunKeepsStablePageAndShowsCompactProgress() {
+	fun subsequentCacheOutrunKeepsStablePageWithoutForegroundProgress() {
 		val state = readerPagePreparationState(
 			phase = ReaderPagePreparationPhase.Preparing,
 			requiredCount = 6,
@@ -64,9 +64,26 @@ class ReaderPagePreparationPolicyTest {
 		)
 
 		assertFalse(state.interactiveReady)
-		assertEquals(ReaderPagePreparationPresentation.Compact, state.presentation)
+		assertEquals(ReaderPagePreparationPresentation.Hidden, state.presentation)
 		assertEquals("Page 8", state.activePageLabel)
 		assertEquals(ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing, state.gestureDisposition)
+	}
+
+	@Test
+	fun subsequentFailureRemainsVisibleAndRetryable() {
+		val state = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Failed,
+			requiredCount = 3,
+			completedCount = 1,
+			interactiveRequiredCount = 3,
+			interactiveCompletedCount = 1,
+			hasPreparedBefore = true,
+			error = "Page preparation failed",
+			retryable = true
+		)
+
+		assertEquals(ReaderPagePreparationPresentation.Compact, state.presentation)
+		assertTrue(state.retryable)
 	}
 
 	@Test

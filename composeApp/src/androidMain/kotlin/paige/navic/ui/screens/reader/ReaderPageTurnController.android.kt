@@ -35,10 +35,10 @@ internal const val ReaderPageTurnOpenGlPrototypeEnabled = true
 
 internal fun readerPageTurnCanStartPassivePrewarm(
 	destroyed: Boolean,
-	available: Boolean,
+	sessionEnabled: Boolean,
 	visualCommitPending: Boolean,
 	idle: Boolean
-): Boolean = !destroyed && available && !visualCommitPending && idle
+): Boolean = !destroyed && sessionEnabled && !visualCommitPending && idle
 
 internal class ReaderPageTurnController(
 	private val host: ViewGroup,
@@ -73,6 +73,8 @@ internal class ReaderPageTurnController(
 	private var rasterInteractiveCompleted = 0
 	private var rasterInteractiveRequired = 0
 	private var activePreparationPageNumber: Int? = null
+	private var lastPrewarmBoundary: String? = null
+	private var lastPreparationStateTrace: String? = null
 	private var hasPreparedBefore = false
 	private var slideCoordinator: ReaderPageSlideCoordinator? = null
 	private var visualCommitPending = false
@@ -106,19 +108,33 @@ internal class ReaderPageTurnController(
 		error: String? = null,
 		retryable: Boolean = false
 	) {
-		onPreparationStateChange(
-			readerPagePreparationState(
-				phase = phase,
-				requiredCount = rasterPreparationRequired,
-				completedCount = rasterPreparationCompleted,
-				interactiveRequiredCount = rasterInteractiveRequired,
-				interactiveCompletedCount = rasterInteractiveCompleted,
-				hasPreparedBefore = hasPreparedBefore,
-				activePageNumber = activePreparationPageNumber,
-				error = error,
-				retryable = retryable
-			)
+		val state = readerPagePreparationState(
+			phase = phase,
+			requiredCount = rasterPreparationRequired,
+			completedCount = rasterPreparationCompleted,
+			interactiveRequiredCount = rasterInteractiveRequired,
+			interactiveCompletedCount = rasterInteractiveCompleted,
+			hasPreparedBefore = hasPreparedBefore,
+			activePageNumber = activePreparationPageNumber,
+			error = error,
+			retryable = retryable
 		)
+		val trace = buildString {
+			append("phase=${state.phase}")
+			append(" completed=${state.completedCount}/${state.requiredCount}")
+			append(" interactive=${state.interactiveCompletedCount}/${state.interactiveRequiredCount}")
+			append(" interactiveReady=${state.interactiveReady}")
+			append(" hasPreparedBefore=$hasPreparedBefore")
+			append(" presentation=${state.presentation}")
+			append(" gestures=${state.gestureDisposition}")
+			state.activePageLabel?.let { append(" active=$it") }
+			state.error?.takeIf { it.isNotBlank() }?.let { append(" error=$it") }
+		}
+		if (lastPreparationStateTrace != trace) {
+			lastPreparationStateTrace = trace
+			Logger.i(ReaderPageTurnControllerTag, "Page preparation state $trace")
+		}
+		onPreparationStateChange(state)
 	}
 
 	fun updateBitmapQuality(value: String?) {
@@ -325,7 +341,7 @@ internal class ReaderPageTurnController(
 		if (prewarmInProgress) return true
 		if (!readerPageTurnCanStartPassivePrewarm(
 			destroyed = destroyed,
-			available = isAvailable,
+			sessionEnabled = enabledForSession,
 			visualCommitPending = visualCommitPending,
 			idle = state.phase == paige.navic.reader.ReaderPageTurnPhase.Idle
 		)) return false
@@ -338,6 +354,11 @@ internal class ReaderPageTurnController(
 		activePreparationPageNumber = slideCoordinator?.visualPageIndex?.plus(1)
 		publishPreparationState(ReaderPagePreparationPhase.Preparing)
 		val session = ++prewarmSession
+		logPrewarmBoundary(
+			event = "started",
+			detail = "session=$session visual=${slideCoordinator?.visualPageIndex} " +
+				"webView=${webView.width}x${webView.height}"
+		)
 		queryRasterPreparationPlan(webView, session)
 		return true
 	}
@@ -352,7 +373,18 @@ internal class ReaderPageTurnController(
 		) { encoded ->
 			if (!isPrewarmActive(webView, session)) return@evaluateJavascript
 			val plan = readerPageRasterPreparationPlan(encoded)
-			if (plan == null || plan.layoutMode != expectedLayoutMode(webView)) {
+			if (plan == null) {
+				logPrewarmBoundary("plan-unavailable", "session=$session encoded=$encoded")
+				webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }
+				return@evaluateJavascript
+			}
+			val expectedLayout = expectedLayoutMode(webView)
+			if (plan.layoutMode != expectedLayout) {
+				logPrewarmBoundary(
+					event = "layout-mismatch",
+					detail = "session=$session actual=${plan.layoutMode} expected=$expectedLayout " +
+						"center=${plan.centerPageIndex}"
+				)
 				webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }
 				return@evaluateJavascript
 			}
@@ -360,9 +392,19 @@ internal class ReaderPageTurnController(
 				slideCoordinator = it
 			}
 			if (coordinator.visualPageIndex != plan.centerPageIndex) {
+				logPrewarmBoundary(
+					event = "center-mismatch",
+					detail = "session=$session coordinator=${coordinator.visualPageIndex} " +
+						"plan=${plan.centerPageIndex}"
+				)
 				webView.postOnAnimation { queryRasterPreparationPlan(webView, session) }
 				return@evaluateJavascript
 			}
+			logPrewarmBoundary(
+				event = "plan-accepted",
+				detail = "session=$session layout=${plan.layoutMode} center=${plan.centerPageIndex} " +
+					"targets=${plan.targets.size}"
+			)
 			val kind = if (plan.layoutMode == "spread") {
 				ReaderPageTurnTransitionKind.LandscapeSpreadSlide
 			} else {
@@ -375,7 +417,26 @@ internal class ReaderPageTurnController(
 					return@obtainRasterReference
 				}
 				if (reference == null || calibrationTargets.isEmpty()) {
-					finishPrewarm(success = false)
+					logPrewarmBoundary(
+						event = "reference-unavailable",
+						detail = "session=$session reference=${reference != null} " +
+							"targets=${calibrationTargets.size}"
+					)
+					finishPrewarm(
+						if (reference == null) {
+							ReaderPageRasterBatchOutcome.Deferred(
+								stage = "raster-reference",
+								pageIndex = plan.centerPageIndex,
+								reason = "current-surface-unavailable"
+							)
+						} else {
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "calibration-plan",
+								pageIndex = plan.centerPageIndex,
+								reason = "no-calibration-targets"
+							)
+						}
+					)
 					return@obtainRasterReference
 				}
 				startRasterCalibration(webView, session, plan, kind, reference, calibrationTargets)
@@ -408,10 +469,10 @@ internal class ReaderPageTurnController(
 			targets = calibrationTargets,
 			completedOffset = 0,
 			totalRequired = calibrationTargets.size
-		) { calibrated ->
+		) { outcome ->
 			if (!isPrewarmActive(webView, session)) return@startRasterBatch
-			if (!calibrated) {
-				finishPrewarm(success = false)
+			if (outcome != ReaderPageRasterBatchOutcome.Ready) {
+				finishPrewarm(outcome)
 				return@startRasterBatch
 			}
 			rasterInteractiveCompleted = rasterInteractiveRequired
@@ -440,11 +501,17 @@ internal class ReaderPageTurnController(
 			mode = mode
 		).filterNot { target -> target.pageIndex in calibratedPages }
 		if (followUpTargets.isEmpty()) {
-			finishPrewarm(success = true)
+			finishPrewarm(ReaderPageRasterBatchOutcome.Ready)
 			return
 		}
 		val reference = bundleSource.retainedSnapshot(plan.centerPageIndex, kind) ?: run {
-			finishPrewarm(success = false)
+			finishPrewarm(
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "follow-up-reference",
+					pageIndex = plan.centerPageIndex,
+					reason = "retained-snapshot-unavailable"
+				)
+			)
 			return
 		}
 		val completedOffset = calibrationTargets.size
@@ -459,7 +526,7 @@ internal class ReaderPageTurnController(
 			targets = followUpTargets,
 			completedOffset = completedOffset,
 			totalRequired = totalRequired
-		) { success -> finishPrewarm(success) }
+		) { outcome -> finishPrewarm(outcome) }
 	}
 
 	private fun startRasterBatch(
@@ -470,7 +537,7 @@ internal class ReaderPageTurnController(
 		targets: List<ReaderPageRasterBatchTarget>,
 		completedOffset: Int,
 		totalRequired: Int,
-		onComplete: (Boolean) -> Unit
+		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
 	) {
 		val generation = bundleSource.currentGeneration()
 		rasterBatchController.start(
@@ -499,9 +566,9 @@ internal class ReaderPageTurnController(
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
 				}
 			},
-			onComplete = { success ->
+			onComplete = { outcome ->
 				if (!isPrewarmActive(webView, session) || generation != bundleSource.currentGeneration()) return@start
-				onComplete(success)
+				onComplete(outcome)
 			}
 		)
 	}
@@ -536,19 +603,42 @@ internal class ReaderPageTurnController(
 			!destroyed &&
 			webView.isAttachedToWindow
 
-	private fun finishPrewarm(success: Boolean) {
+	private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome) {
 		prewarmInProgress = false
-		if (success) {
-			rasterPreparationCompleted = rasterPreparationRequired
-			rasterInteractiveCompleted = rasterInteractiveRequired
-			hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore
-			publishPreparationState(ReaderPagePreparationPhase.Ready)
-		} else {
-			publishPreparationState(
-				phase = ReaderPagePreparationPhase.Failed,
-				error = "Page preparation failed",
-				retryable = true
+		logPrewarmBoundary(
+			event = "batch-complete",
+			detail = "outcome=$outcome completed=$rasterPreparationCompleted/$rasterPreparationRequired"
+		)
+		when (outcome) {
+			ReaderPageRasterBatchOutcome.Ready -> {
+				rasterPreparationCompleted = rasterPreparationRequired
+				rasterInteractiveCompleted = rasterInteractiveRequired
+				hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore
+				publishPreparationState(ReaderPagePreparationPhase.Ready)
+			}
+			ReaderPageRasterBatchOutcome.Cancelled -> publishPreparationState(
+				if (hasPreparedBefore) ReaderPagePreparationPhase.Ready
+				else ReaderPagePreparationPhase.Idle
 			)
+			is ReaderPageRasterBatchOutcome.Deferred -> {
+				logPrewarmBoundary(
+					event = "deferred",
+					detail = "stage=${outcome.stage} pageIndex=${outcome.pageIndex ?: "none"} " +
+						"reason=${outcome.reason}"
+				)
+				publishPreparationState(ReaderPagePreparationPhase.Preparing)
+			}
+			is ReaderPageRasterBatchOutcome.Failed -> {
+				Logger.e(
+					ReaderPageTurnControllerTag,
+					"Page-turn raster preparation failed ${outcome.diagnostic}"
+				)
+				publishPreparationState(
+					phase = ReaderPagePreparationPhase.Failed,
+					error = outcome.userMessage,
+					retryable = true
+				)
+			}
 		}
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = 0
@@ -556,6 +646,19 @@ internal class ReaderPageTurnController(
 		rasterInteractiveRequired = 0
 		activePreparationPageNumber = null
 		removePreparationShield()
+	}
+
+	private fun logPrewarmBoundary(event: String, detail: String? = null) {
+		val trace = buildString {
+			append(event)
+			if (!detail.isNullOrBlank()) {
+				append(' ')
+				append(detail)
+			}
+		}
+		if (lastPrewarmBoundary == trace) return
+		lastPrewarmBoundary = trace
+		Logger.i(ReaderPageTurnControllerTag, "Page-turn passive prewarm $trace")
 	}
 
 	private fun cancelPrewarm() {

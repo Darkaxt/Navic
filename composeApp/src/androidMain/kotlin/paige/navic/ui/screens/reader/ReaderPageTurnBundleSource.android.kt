@@ -57,6 +57,7 @@ internal class ReaderPageTurnBundleSource(
 	private val stagedRasterGenerations = mutableMapOf<String, ReaderPageRasterGeneration<Bitmap>>()
 	private val rasterPublicationInFlight = mutableSetOf<String>()
 	private val rasterPublicationCallbacks = mutableMapOf<String, MutableList<(Boolean) -> Unit>>()
+	private val rasterPersistenceDiagnostics = linkedSetOf<String>()
 	private var rasterCache: ReaderPageRasterCache<Bitmap>? = null
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
 	private var activeWebView = WeakReference<WebView>(null)
@@ -101,6 +102,13 @@ internal class ReaderPageTurnBundleSource(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind
 	): ReaderPageSlideSnapshot? = cachedSnapshot(pageIndex, kind)?.also { snapshot -> snapshot.retain() }
+
+	fun cachedSnapshotPageIndices(kind: ReaderPageTurnTransitionKind): List<Int> =
+		snapshotCache.keys
+			.filter { key -> key.kind == kind }
+			.map { key -> key.visualPageIndex }
+			.distinct()
+			.sorted()
 
 	fun captureCurrentSurface(
 		webView: WebView,
@@ -385,7 +393,15 @@ internal class ReaderPageTurnBundleSource(
 			return
 		}
 		cachedSnapshot(pageIndex, kind)?.let { cached ->
-			schedulePersistentSnapshot(cached, priority, onCaptured)
+			onCaptured(true)
+			schedulePersistentSnapshot(cached, priority) { persisted ->
+				if (!persisted) {
+					Logger.w(
+						ReaderPageTurnBundleSourceTag,
+						"Prepared page remains usable after cache persistence failure pageIndex=$pageIndex"
+					)
+				}
+			}
 			return
 		}
 		val destinationKey = snapshotKey(
@@ -410,7 +426,15 @@ internal class ReaderPageTurnBundleSource(
 					return@capturePreparedPage
 				}
 				val cached = putSnapshot(captured, priority, persist = false)
-				schedulePersistentSnapshot(cached, priority, onCaptured)
+				onCaptured(true)
+				schedulePersistentSnapshot(cached, priority) { persisted ->
+					if (!persisted) {
+						Logger.w(
+							ReaderPageTurnBundleSourceTag,
+							"Captured page remains usable after cache persistence failure pageIndex=$pageIndex"
+						)
+					}
+				}
 			} finally {
 				reference.release()
 			}
@@ -598,15 +622,17 @@ internal class ReaderPageTurnBundleSource(
 		priority: ReaderPageRasterPriority,
 		onPersisted: (Boolean) -> Unit = {}
 	) {
+		val pageIndex = snapshot.key.visualPageIndex
 		if (closed) {
+			rasterPersistenceSkipped(pageIndex, "bundle-source-closed", activeGeneration)
 			onPersisted(false)
 			return
 		}
 		val webView = activeWebView.get()?.takeIf { it.isAttachedToWindow } ?: run {
+			rasterPersistenceSkipped(pageIndex, "webview-unavailable", activeGeneration)
 			onPersisted(false)
 			return
 		}
-		val pageIndex = snapshot.key.visualPageIndex
 		val generation = activeGeneration
 		snapshot.retain()
 		webView.evaluateJavascript(
@@ -614,10 +640,12 @@ internal class ReaderPageTurnBundleSource(
 		) { encodedDescriptor ->
 			try {
 				if (closed || generation != activeGeneration) {
+					rasterPersistenceSkipped(pageIndex, "generation-changed", generation)
 					onPersisted(false)
 					return@evaluateJavascript
 				}
 				val descriptor = readerPageRasterDescriptor(encodedDescriptor) ?: run {
+					rasterPersistenceSkipped(pageIndex, "descriptor-unavailable", generation)
 					onPersisted(false)
 					return@evaluateJavascript
 				}
@@ -628,6 +656,7 @@ internal class ReaderPageTurnBundleSource(
 					snapshot.bitmap.copy(Bitmap.Config.ARGB_8888, false)
 				}.getOrNull()
 				if (persistentBitmap == null) {
+					rasterPersistenceSkipped(pageIndex, "bitmap-copy-failed", generation)
 					completeRasterPublication(key.digest, false)
 					return@evaluateJavascript
 				}
@@ -640,6 +669,7 @@ internal class ReaderPageTurnBundleSource(
 				rasterScope.launch {
 					val scheduler = rasterScheduler(webView)
 					if (closed) {
+						rasterPersistenceSkipped(pageIndex, "bundle-source-closed", generation)
 						scheduler.close()
 						stagedRasterGenerations.remove(key.digest)?.let { unused ->
 							ReaderAndroidPageRasterCodec.release(unused.value)
@@ -654,6 +684,13 @@ internal class ReaderPageTurnBundleSource(
 					}
 					val persisted = result.status == ReaderPageRasterScheduleStatus.Cached ||
 						result.status == ReaderPageRasterScheduleStatus.Published
+					if (!persisted) {
+						rasterPersistenceSkipped(
+							pageIndex,
+							"scheduler-${result.status.name.lowercase()}",
+							generation
+						)
+					}
 					completeRasterPublication(key.digest, persisted)
 					Logger.i(
 						ReaderPageTurnBundleSourceTag,
@@ -667,6 +704,23 @@ internal class ReaderPageTurnBundleSource(
 		}
 	}
 
+	private fun rasterPersistenceSkipped(
+		pageIndex: Int,
+		reason: String,
+		requestGeneration: Long
+	) {
+		val diagnosticKey = "$pageIndex:$reason"
+		if (!rasterPersistenceDiagnostics.add(diagnosticKey)) return
+		while (rasterPersistenceDiagnostics.size > 64) {
+			rasterPersistenceDiagnostics.remove(rasterPersistenceDiagnostics.first())
+		}
+		Logger.w(
+			ReaderPageTurnBundleSourceTag,
+			"Page raster persistence skipped page=$pageIndex reason=$reason " +
+				"requestGeneration=$requestGeneration activeGeneration=$activeGeneration"
+		)
+	}
+
 	private fun completeRasterPublication(digest: String, persisted: Boolean) {
 		rasterPublicationInFlight.remove(digest)
 		rasterPublicationCallbacks.remove(digest)?.forEach { callback -> callback(persisted) }
@@ -678,7 +732,10 @@ internal class ReaderPageTurnBundleSource(
 			val cache = withContext(Dispatchers.IO) {
 				ReaderPageRasterCache(
 					root = readerPageRasterStorageRoot(webView.context.applicationContext),
-					codec = ReaderAndroidPageRasterCodec
+					codec = ReaderAndroidPageRasterCodec,
+					onDiagnostic = { diagnostic ->
+						Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")
+					}
 				)
 			}
 			ReaderPageRasterScheduler(

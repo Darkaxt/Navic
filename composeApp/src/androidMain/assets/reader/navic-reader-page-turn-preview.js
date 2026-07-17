@@ -334,6 +334,7 @@ async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
       ...state,
       status: 'failed',
       pageIndex,
+      paginationReady: this.isCompletePaginationProfile?.(this.paginationProfile) === true,
       message: error?.message || String(error),
     })
     readerTrace('page-turn-raster-batch:failed', this.pageTurnPreviewBatchStateValue)

@@ -41,7 +41,7 @@ class ReaderPageTurnSlidePerformanceSourceTest {
 	fun routinePrewarmDoesNotDestroyThePassiveRenderer() {
 		val controller = readerAndroidFile("ReaderPageTurnController.android.kt").readText()
 		val finish = controller
-			.substringAfter("private fun finishPrewarm()")
+			.substringAfter("private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome)")
 			.substringBefore("private fun cancelPrewarm()")
 		val cancel = controller
 			.substringAfter("private fun cancelPrewarm()")

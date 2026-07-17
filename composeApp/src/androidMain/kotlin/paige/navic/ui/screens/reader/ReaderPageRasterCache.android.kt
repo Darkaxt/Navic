@@ -33,7 +33,8 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val codec: ReaderPageRasterCodec<T>,
 	private val maxDiskBytes: Long = ReaderPageRasterDiskMaxBytes,
 	private val maxDecodedEntries: Int = ReaderPageRasterDecodedMaxEntries,
-	private val clock: () -> Long = System::currentTimeMillis
+	private val clock: () -> Long = System::currentTimeMillis,
+	private val onDiagnostic: (String) -> Unit = {}
 ) {
 	private val storageAvailable = !root.exists() || !Files.isSymbolicLink(root.toPath())
 	private val manifest = ReaderPageRasterManifest(root)
@@ -59,30 +60,39 @@ internal class ReaderPageRasterCache<T : Any>(
 
 	@Synchronized
 	fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean {
-		if (!storageAvailable || key.schemaVersion != ReaderPageRasterSchemaVersion || maxDiskBytes <= 0L) return false
+		if (!storageAvailable) return writeFailed(key, "storage-unavailable")
+		if (key.schemaVersion != ReaderPageRasterSchemaVersion) {
+			return writeFailed(key, "schema-mismatch-${key.schemaVersion}")
+		}
+		if (maxDiskBytes <= 0L) return writeFailed(key, "disk-cache-disabled")
 		root.mkdirs()
 		val temporary = root.resolve("${key.digest}.${System.nanoTime()}.tmp")
 		val encoded = runCatching { codec.encode(value, temporary) }.getOrDefault(false)
 		if (!encoded || !temporary.isFile || temporary.length() <= 0L) {
 			temporary.delete()
-			return false
+			return writeFailed(key, "encode-failed")
 		}
 		runCatching { FileOutputStream(temporary, true).use { output -> output.fd.sync() } }
 			.getOrElse {
 				temporary.delete()
-				return false
+				return writeFailed(key, "sync-failed-${it.javaClass.simpleName}")
 			}
 		val byteSize = temporary.length()
 		if (byteSize > maxDiskBytes) {
 			temporary.delete()
-			return false
+			return writeFailed(key, "raster-exceeds-cache-limit", byteSize)
 		}
 		val contentDigest = temporary.sha256().take(16)
 		val target = root.resolve("${key.digest}-$contentDigest.png")
 		val targetExisted = target.isFile
-		if (runCatching { readerPageRasterPromote(temporary, target) }.isFailure) {
+		val promotion = runCatching { readerPageRasterPromote(temporary, target) }
+		if (promotion.isFailure) {
 			temporary.delete()
-			return false
+			return writeFailed(
+				key,
+				"promote-failed-${promotion.exceptionOrNull()?.javaClass?.simpleName.orEmpty()}",
+				byteSize
+			)
 		}
 
 		val entry = ReaderPageRasterManifestEntry(
@@ -96,7 +106,7 @@ internal class ReaderPageRasterCache<T : Any>(
 		val retained = retainedWithinDiskLimit(proposed.values)
 		if (!manifest.write(retained)) {
 			if (!targetExisted) target.delete()
-			return false
+			return writeFailed(key, "manifest-write-failed", byteSize)
 		}
 
 		val retainedIds = retained.mapTo(mutableSetOf()) { retainedEntry -> retainedEntry.key.digest }
@@ -114,6 +124,19 @@ internal class ReaderPageRasterCache<T : Any>(
 		retained.forEach { retainedEntry -> entries[retainedEntry.key.digest] = retainedEntry }
 		putDecoded(ReaderPageRaster(key, metadata, value))
 		return key.digest in entries
+	}
+
+	private fun writeFailed(
+		key: ReaderPageRasterKey,
+		reason: String,
+		encodedBytes: Long = 0L
+	): Boolean {
+		onDiagnostic(
+			"write-failed key=${key.digest.take(12)} reason=$reason " +
+				"encodedBytes=${encodedBytes.coerceAtLeast(0L)} " +
+				"availableBytes=${root.usableSpace.coerceAtLeast(0L)}"
+		)
+		return false
 	}
 
 	@Synchronized

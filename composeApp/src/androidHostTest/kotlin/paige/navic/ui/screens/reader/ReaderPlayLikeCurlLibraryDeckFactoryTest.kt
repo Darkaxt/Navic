@@ -33,6 +33,18 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	}
 
 	@Test
+	fun landscapeDeckWindowPreservesAnOddFoliateSpreadAnchor() {
+		assertEquals(
+			listOf(11, 12, 13, 14, 15, 16),
+			readerPlayLikeCurlLibraryDeckPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				currentOrdinal = 13,
+				pageCount = 30
+			)
+		)
+	}
+
+	@Test
 	fun deckWindowClampsAtPublicationBoundaries() {
 		assertEquals(
 			listOf(0, 1),
@@ -93,7 +105,7 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	}
 
 	@Test
-	fun landscapeMapsThreeAdjacentSpreadsAndKeepsCurrentLeftEven() {
+	fun landscapeMapsThreeAdjacentSpreadsFromTheFoliateCurrentLeftLeaf() {
 		val deck = readerPlayLikeCurlLibraryDeck(
 			orientation = ReaderPlayLikeCurlOrientation.Landscape,
 			generationId = 10L,
@@ -103,9 +115,9 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		)
 
 		val landscape = assertIs<LandscapePageDeck<String>>(deck)
-		assertEquals(listOf(0, 1, 2, 3, 4, 5), landscape.pages.map(PageImage<String>::getOrdinal))
-		assertEquals(2, landscape.currentLeft.ordinal)
-		assertEquals(3, landscape.currentRight.ordinal)
+		assertEquals(listOf(1, 2, 3, 4, 5, 6), landscape.pages.map(PageImage<String>::getOrdinal))
+		assertEquals(3, landscape.currentLeft.ordinal)
+		assertEquals(4, landscape.currentRight.ordinal)
 	}
 
 	@Test
@@ -130,7 +142,7 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		)
 
 		assertEquals(listOf(0, 0, 0, 1, 2, 3), first.pages.map(PageImage<String>::getOrdinal))
-		assertEquals(listOf(4, 5, 6, 7, 7, 7), last.pages.map(PageImage<String>::getOrdinal))
+		assertEquals(listOf(5, 6, 7, 7, 7, 7), last.pages.map(PageImage<String>::getOrdinal))
 	}
 
 	@Test

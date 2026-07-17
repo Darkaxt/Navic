@@ -31,6 +31,7 @@ expect fun KomikkuReaderNativeFrameHost(
 	pageTurnCanvasEnabled: Boolean,
 	pageTurnBitmapQuality: String?,
 	pageTurnSnapshotKey: Int,
+	pageTurnContentReadyKey: String?,
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
 	pagePreparationCoverVisible: Boolean,

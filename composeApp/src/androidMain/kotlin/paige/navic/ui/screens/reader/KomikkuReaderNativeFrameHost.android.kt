@@ -64,6 +64,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnCanvasEnabled: Boolean,
 	pageTurnBitmapQuality: String?,
 	pageTurnSnapshotKey: Int,
+	pageTurnContentReadyKey: String?,
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
 	pagePreparationCoverVisible: Boolean,
@@ -98,6 +99,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setPageTurnBitmapQuality(pageTurnBitmapQuality)
 				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				setPageTurnSnapshotKey(pageTurnSnapshotKey)
+				setPageTurnContentReadyKey(pageTurnContentReadyKey)
 				setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
 				setPagePreparationCoverVisible(pagePreparationCoverVisible)
 				setPagePreparationGesturesBlocked(pagePreparationGesturesBlocked)
@@ -120,6 +122,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
 			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
+			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
 			root.setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationGesturesBlocked(pagePreparationGesturesBlocked)
@@ -145,6 +148,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private var currentViewerComposeView: ComposeView? = null
 	private var shellCoverVisible: Boolean = false
 	private var pagePreparationCoverVisible: Boolean = false
+	private var lastNativeCoverVisibilityTrace: String? = null
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -208,7 +212,17 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 
 	private fun updateNativeCoverVisibility() {
-		shellCoverView.visibility = if (shellCoverVisible || pagePreparationCoverVisible) VISIBLE else GONE
+		val visible = shellCoverVisible || pagePreparationCoverVisible
+		shellCoverView.visibility = if (visible) VISIBLE else GONE
+		val trace =
+			"visible=$visible shell=$shellCoverVisible preparation=$pagePreparationCoverVisible"
+		if (lastNativeCoverVisibilityTrace != trace) {
+			lastNativeCoverVisibilityTrace = trace
+			Logger.i(
+				KomikkuReaderNativeFrameHostTag,
+				"Reader native cover visibility $trace"
+			)
+		}
 	}
 
 	fun setPagePreparationGesturesBlocked(blocked: Boolean) {
@@ -256,6 +270,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
 		viewerContainer.setPageTurnSnapshotKey(snapshotKey)
+	}
+
+	fun setPageTurnContentReadyKey(contentReadyKey: String?) {
+		viewerContainer.setPageTurnContentReadyKey(contentReadyKey)
 	}
 
 	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
@@ -508,8 +526,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeTapCancelledByDrag: Boolean = false
 	private var nativeTapLongConfirmed: Boolean = false
 	private var nativeSwipeIntercepted: Boolean = false
+	private var playLikeCurlGestureOwned: Boolean = false
 	private var pageTurnCanvasEnabled: Boolean = false
 	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
+	private var pageTurnContentReadyKey: String? = null
 	private var pageTurnVisualPageIndex: Int? = null
 	private var pageTurnVisualLocationReason: String? = null
 	private var shellCoverVisible: Boolean = false
@@ -599,6 +619,18 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		requestPageTurnPrewarmWhenReady()
 	}
 
+	fun setPageTurnContentReadyKey(contentReadyKey: String?) {
+		if (pageTurnContentReadyKey == contentReadyKey) return
+		pageTurnContentReadyKey = contentReadyKey
+		if (contentReadyKey == null) return
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			"Page-turn pagination content ready key=${contentReadyKey.hashCode()}"
+		)
+		playLikeCurlController.onHostContentReady()
+		pageTurnController.retryPreparation()
+	}
+
 	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
 		val normalized = pageIndex?.takeIf { it >= 0 }
 		if (pageTurnVisualPageIndex == normalized && pageTurnVisualLocationReason == reason) return
@@ -627,7 +659,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		pagePreparationGesturesBlocked = blocked
 		if (blocked) {
 			playLikeCurlController.cancelGesture()
-			pageTurnController.cancel()
 			cancelReadableViewerDragPreview()
 			clearNativeTapState()
 			clearSwipeTouchState()
@@ -672,6 +703,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			if (pageTurnPrewarmStableFrameCount < PageTurnPrewarmRequiredStableFrames) {
 				postInvalidateOnAnimation()
 				return@OnPreDrawListener true
+			}
+			if (pageTurnPrewarmStableFrameCount == PageTurnPrewarmRequiredStableFrames) {
+				playLikeCurlController.onHostContentReady()
 			}
 			if (pageTurnController.prewarmAdjacent()) {
 				removePageTurnPrewarmLayoutListener()
@@ -812,22 +846,47 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun dispatchTouchEvent(event: MotionEvent): Boolean {
 		if (pagePreparationGesturesBlocked) {
 			if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+				playLikeCurlGestureOwned = false
 				clearNativeTapState()
 				clearSwipeTouchState()
 			}
 			return true
 		}
-		val handled = super.dispatchTouchEvent(event)
-		val playLikeCurlHandled = if (pageTurnCanvasEnabled && !shellCoverVisible) {
-			playLikeCurlController.onPageTouchEvent(event)
-		} else {
-			false
+		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+			playLikeCurlGestureOwned = usesNativePageTurnCanvas()
+			Logger.i(
+				KomikkuReaderNativeFrameHostTag,
+				"Reader PlayLikeCurl gesture owner action=down owned=$playLikeCurlGestureOwned " +
+					"available=${playLikeCurlController.isAvailable} canvas=$pageTurnCanvasEnabled"
+			)
 		}
+		if (playLikeCurlGestureOwned) {
+			playLikeCurlController.onPageTouchEvent(event)
+			handleSwipeTouchEvent(event)
+			if (!horizontalSwipeDispatched && !nativeSwipeIntercepted && !nativeTapCancelledByDrag) {
+				gestureDetector.onTouchEvent(event)
+			}
+			if (
+				event.actionMasked == MotionEvent.ACTION_UP ||
+				event.actionMasked == MotionEvent.ACTION_CANCEL ||
+				event.actionMasked == MotionEvent.ACTION_POINTER_DOWN
+			) {
+				Logger.i(
+					KomikkuReaderNativeFrameHostTag,
+					"Reader PlayLikeCurl gesture terminal action=${event.actionMasked} " +
+						"dragged=$nativeTapCancelledByDrag dispatched=$horizontalSwipeDispatched"
+				)
+				playLikeCurlGestureOwned = false
+				clearNativeTapState()
+			}
+			return true
+		}
+		val handled = super.dispatchTouchEvent(event)
 		handleSwipeTouchEvent(event)
 		if (!horizontalSwipeDispatched && !nativeSwipeIntercepted && !nativeTapCancelledByDrag) {
 			gestureDetector.onTouchEvent(event)
 		}
-		val consumed = handled || playLikeCurlHandled || nativeSwipeIntercepted || horizontalSwipeDispatched
+		val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched
 		if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
 			clearNativeTapState()
 		}

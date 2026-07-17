@@ -12,11 +12,7 @@ internal fun readerPlayLikeCurlLibraryDeckPageIndices(
 ): List<Int> {
 	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
 	return if (orientation == ReaderPlayLikeCurlOrientation.Landscape) {
-		val lastOrdinal = pageCount - 1
-		val lastLeft = lastOrdinal - Math.floorMod(lastOrdinal, 2)
-		val currentLeft = currentOrdinal
-			.coerceIn(0, lastLeft)
-			.let { ordinal -> ordinal - Math.floorMod(ordinal, 2) }
+		val currentLeft = currentOrdinal.coerceIn(0, pageCount - 1)
 		(currentLeft - 2..currentLeft + 3)
 			.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
 			.distinct()
@@ -40,11 +36,7 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 		page(generationId, ordinal.coerceIn(0, pageCount - 1))
 
 	if (orientation == ReaderPlayLikeCurlOrientation.Landscape) {
-		val lastOrdinal = pageCount - 1
-		val lastLeft = lastOrdinal - Math.floorMod(lastOrdinal, 2)
-		val currentLeft = currentOrdinal
-			.coerceIn(0, lastLeft)
-			.let { ordinal -> ordinal - Math.floorMod(ordinal, 2) }
+		val currentLeft = currentOrdinal.coerceIn(0, pageCount - 1)
 		return LandscapePageDeck(
 			boundedPage(currentLeft - 2),
 			boundedPage(currentLeft - 1),

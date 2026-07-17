@@ -13,6 +13,7 @@ internal data class ReaderPlayLikeCurlRasterProfile(
 	val quality: ReaderPageBitmapQuality,
 	val pageCount: Int = 1,
 	val readerDirection: ReaderPlayLikeCurlReaderDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+	val spreadAnchorParity: Int = 0,
 	val rasterGeneration: Long = 0L
 )
 

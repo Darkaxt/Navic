@@ -38,7 +38,8 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
 				logicalOrdinal = 2,
-				pageCount = 8
+				pageCount = 8,
+				spreadAnchorParity = 0
 			)
 		)
 		assertEquals(
@@ -51,7 +52,54 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
 				logicalOrdinal = 3,
-				pageCount = 8
+				pageCount = 8,
+				spreadAnchorParity = 0
+			)
+		)
+	}
+
+	@Test
+	fun landscapeUsesTheFoliateSpreadAnchorParityInsteadOfAssumingEvenSnapshots() {
+		assertEquals(
+			ReaderPlayLikeCurlFoliatePageRequest(
+				logicalOrdinal = 13,
+				sourcePageIndex = 13,
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Left
+			),
+			readerPlayLikeCurlFoliatePageRequest(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+				logicalOrdinal = 13,
+				pageCount = 30,
+				spreadAnchorParity = 1
+			)
+		)
+		assertEquals(
+			ReaderPlayLikeCurlFoliatePageRequest(
+				logicalOrdinal = 14,
+				sourcePageIndex = 13,
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Right
+			),
+			readerPlayLikeCurlFoliatePageRequest(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+				logicalOrdinal = 14,
+				pageCount = 30,
+				spreadAnchorParity = 1
+			)
+		)
+		assertEquals(
+			ReaderPlayLikeCurlFoliatePageRequest(
+				logicalOrdinal = 12,
+				sourcePageIndex = 11,
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Right
+			),
+			readerPlayLikeCurlFoliatePageRequest(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+				logicalOrdinal = 12,
+				pageCount = 30,
+				spreadAnchorParity = 1
 			)
 		)
 	}
@@ -68,7 +116,8 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl,
 				logicalOrdinal = 2,
-				pageCount = 8
+				pageCount = 8,
+				spreadAnchorParity = 0
 			)
 		)
 		assertEquals(
@@ -81,7 +130,8 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl,
 				logicalOrdinal = 3,
-				pageCount = 8
+				pageCount = 8,
+				spreadAnchorParity = 0
 			)
 		)
 	}
@@ -98,7 +148,8 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
 				logicalOrdinal = 9,
-				pageCount = 7
+				pageCount = 7,
+				spreadAnchorParity = 0
 			)
 		)
 	}

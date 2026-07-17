@@ -8,6 +8,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
+import paige.navic.util.core.Logger
+
+private const val ReaderPlayLikeCurlFoliateRasterSourceTag = "ReaderPlayLikeCurlFoliateRaster"
 
 internal enum class ReaderPlayLikeCurlReaderDirection {
 	Ltr,
@@ -30,7 +33,8 @@ internal fun readerPlayLikeCurlFoliatePageRequest(
 	orientation: ReaderPlayLikeCurlOrientation,
 	readerDirection: ReaderPlayLikeCurlReaderDirection,
 	logicalOrdinal: Int,
-	pageCount: Int
+	pageCount: Int,
+	spreadAnchorParity: Int = 0
 ): ReaderPlayLikeCurlFoliatePageRequest {
 	require(pageCount > 0) { "Foliate page count must be positive" }
 	val boundedOrdinal = logicalOrdinal.coerceIn(0, pageCount - 1)
@@ -42,19 +46,23 @@ internal fun readerPlayLikeCurlFoliatePageRequest(
 		)
 	}
 
-	val spreadStart = boundedOrdinal - Math.floorMod(boundedOrdinal, 2)
-	val evenLeaf = when (readerDirection) {
+	val relativeParity = Math.floorMod(
+		boundedOrdinal - Math.floorMod(spreadAnchorParity, 2),
+		2
+	)
+	val spreadStart = (boundedOrdinal - relativeParity).coerceAtLeast(0)
+	val anchorLeaf = when (readerDirection) {
 		ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlFoliateLeaf.Left
 		ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlFoliateLeaf.Right
 	}
-	val oddLeaf = when (readerDirection) {
+	val adjacentLeaf = when (readerDirection) {
 		ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlFoliateLeaf.Right
 		ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlFoliateLeaf.Left
 	}
 	return ReaderPlayLikeCurlFoliatePageRequest(
 		logicalOrdinal = boundedOrdinal,
 		sourcePageIndex = spreadStart,
-		leaf = if (boundedOrdinal % 2 == 0) evenLeaf else oddLeaf
+		leaf = if (relativeParity == 0) anchorLeaf else adjacentLeaf
 	)
 }
 
@@ -123,10 +131,22 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 			orientation = profile.orientation,
 			readerDirection = profile.readerDirection,
 			logicalOrdinal = key.pageIndex,
-			pageCount = profile.pageCount
+			pageCount = profile.pageCount,
+			spreadAnchorParity = profile.spreadAnchorParity
 		)
 		val snapshot = withContext(Dispatchers.Main.immediate) {
-			bundleSource.retainedSnapshot(request.sourcePageIndex, transitionKind)
+			bundleSource.retainedSnapshot(request.sourcePageIndex, transitionKind).also { retained ->
+				if (retained == null) {
+					Logger.w(
+						ReaderPlayLikeCurlFoliateRasterSourceTag,
+						"Missing Foliate raster logical=${request.logicalOrdinal} " +
+							"source=${request.sourcePageIndex} leaf=${request.leaf} " +
+							"profileGeneration=${profile.rasterGeneration} " +
+							"activeGeneration=${bundleSource.currentGeneration()} " +
+							"cached=${bundleSource.cachedSnapshotPageIndices(transitionKind)}"
+					)
+				}
+			}
 		} ?: return null
 		return withContext(Dispatchers.Default) {
 			readerPlayLikeCurlCopyRetainedFoliateLeaf(snapshot, request.leaf)
