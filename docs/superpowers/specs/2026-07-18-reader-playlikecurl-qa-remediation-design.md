@@ -383,14 +383,17 @@ the persistent current-chapter contract.
 - Distinguish capture completion from durable publication completion.
 - Cold current-chapter readiness awaits successful persistence and manifest
   publication for every required target.
-- Publication failure produces an explicit retry, repair, or visible failure
-  state; it cannot silently count as ready.
+- Publication failure enters a visible failure state with a user-initiated
+  `Retry preparation` action; it cannot silently count as ready.
+- Retry submits only targets that are still non-durable. It does not recapture
+  targets whose raster file and manifest entry were already published durably.
 - Asynchronous background publication is permitted only when the initial durable
   chapter contract was already satisfied.
 
 **Acceptance:** Inject persistent-write failure during a cold open. The reader
-must not become falsely ready. Restore storage and trigger the documented retry;
-readiness then completes without duplicate capture of already durable pages.
+must not become falsely ready. Restore storage, invoke `Retry preparation`, and
+verify that readiness completes without duplicate capture of already durable
+pages.
 
 ### QA-06 — Invalidation-generation race in raster publication
 
@@ -936,6 +939,8 @@ focused runtime requirements.
 - A valid warm reopen performs zero WebView captures.
 - Persistent-only far-edge refill performs zero WebView captures.
 - Cold current-chapter readiness waits for durable publication.
+- Invalidating a raster epoch prevents every old publication or callback from
+  satisfying or mutating the new epoch, and releases every stale staged bitmap.
 - Deferred initial preparation is visible and has a deterministic resume event.
 - Repair without a valid deck submits a deck and waits for `onDeckPrepared`.
 - No pointer is accepted against an unprepared active generation.
@@ -945,7 +950,11 @@ focused runtime requirements.
 - LTR and RTL drag, fling, and tap share logical direction.
 - Real boundaries cannot be represented by duplicate navigable page identities.
 - Boundary rejection dispatches no Foliate relocation.
-- Accepted relocations are tokenized, serialized, and stale-safe.
+- Accepted relocations are tokenized, serialized, stale-safe, and never silently
+  overwritten.
+- After renderer settlement ends, a prepared promoted active deck may accept the
+  next turn while the prior relocation awaits Foliate acknowledgement or visual
+  handoff; the later accepted relocation is appended to the queue.
 - GL remains visible until WebView visual composition and the next frame.
 - Adjacent chapters are scheduled after readiness without blocking interaction.
 
