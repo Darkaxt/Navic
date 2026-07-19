@@ -95,6 +95,23 @@ interface SongDao {
 	)
 	fun observeArtistSongArtwork(): Flow<List<SongArtistArtwork>>
 
+	@Query(
+		"""
+		SELECT artistId, artistName, coverArtId, year, albumTitle, title, playCount
+		FROM SongEntity
+		WHERE coverArtId IS NOT NULL AND coverArtId != ''
+			AND (
+				artistId IN (:artistIds)
+				OR LOWER(TRIM(artistName)) IN (:normalizedArtistNames)
+			)
+		ORDER BY playCount DESC, year DESC, albumTitle COLLATE NOCASE ASC, title COLLATE NOCASE ASC
+		"""
+	)
+	fun observeArtistSongArtworkByIdentity(
+		artistIds: List<String>,
+		normalizedArtistNames: List<String>
+	): Flow<List<SongArtistArtwork>>
+
 	@Transaction
 	suspend fun updateSongsByAlbumId(albumId: String, remoteSongs: List<SongEntity>) {
 		val remoteIds = remoteSongs.map { it.songId }.toSet()

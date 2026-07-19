@@ -63,11 +63,11 @@
 - Modify: `SongDao.kt`, `ArtistDao.kt`, `AlbumDao.kt`, `SongRepository.kt`, `ArtistDetailViewModel.kt`, and `MostPlayedShortcutsViewModel.kt`
 - Test: artist detail layout/policy tests, Most Played artwork/navigation tests, and source-contract test
 
-- [ ] Add failing tests for escaped contributor candidate patterns and visible artist-shortcut identity extraction.
-- [ ] Add targeted DAO queries for direct artist IDs/names plus contributor candidates; retain exact Kotlin credit matching after the prefilter.
-- [ ] Change Artist Detail to load only candidate credit songs.
-- [ ] Derive artist shortcut identities first and switch Most Played to targeted artist/album/song artwork flows with `flatMapLatest`.
-- [ ] Run focused tests and compile, then commit.
+- [x] Add failing tests for escaped contributor candidate patterns and visible artist-shortcut identity extraction.
+- [x] Add targeted DAO queries for direct artist IDs/names plus contributor candidates; retain exact Kotlin credit matching after the prefilter.
+- [x] Change Artist Detail to load only candidate credit songs.
+- [x] Derive artist shortcut identities first and switch Most Played to targeted artist/album/song artwork flows with `flatMapLatest`.
+- [x] Run focused tests and compile, then commit.
 
 ### Task 6: Bound album sync work creation
 

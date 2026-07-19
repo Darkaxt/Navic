@@ -4,6 +4,26 @@ import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.PlaybackOriginType
 import paige.navic.ui.navigation.Screen
 
+data class MostPlayedArtistLookupIdentities(
+	val ids: List<String>,
+	val normalizedNames: List<String>
+)
+
+fun mostPlayedArtistLookupIdentities(
+	shortcuts: List<DomainMostPlayedShortcut>
+): MostPlayedArtistLookupIdentities {
+	val artistShortcuts = shortcuts.filter { it.type == PlaybackOriginType.Artist }
+	return MostPlayedArtistLookupIdentities(
+		ids = artistShortcuts
+			.map { it.id.trim() }
+			.filter { it.isNotEmpty() }
+			.distinct(),
+		normalizedNames = artistShortcuts
+			.mapNotNull { it.title.normalizedShortcutEntityName() }
+			.distinct()
+	)
+}
+
 fun mostPlayedShortcutDestination(shortcut: DomainMostPlayedShortcut): Screen =
 	when (shortcut.type) {
 		PlaybackOriginType.Artist -> Screen.ArtistDetail(shortcut.id)

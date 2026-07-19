@@ -32,6 +32,19 @@ interface ArtistDao {
 	@Query("SELECT * FROM ArtistEntity ORDER BY name COLLATE NOCASE ASC")
 	fun getAllArtists(): Flow<List<ArtistEntity>>
 
+	@Query(
+		"""
+		SELECT * FROM ArtistEntity
+		WHERE artistId IN (:artistIds)
+			OR LOWER(TRIM(name)) IN (:normalizedArtistNames)
+		ORDER BY name COLLATE NOCASE ASC
+		"""
+	)
+	fun observeArtistsByIdentity(
+		artistIds: List<String>,
+		normalizedArtistNames: List<String>
+	): Flow<List<ArtistEntity>>
+
 	@Query("SELECT * FROM ArtistEntity")
 	suspend fun getAllArtistsList(): List<ArtistEntity>
 

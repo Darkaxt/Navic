@@ -134,6 +134,23 @@ interface AlbumDao {
 	)
 	fun observeAlbumArtistArtwork(): Flow<List<AlbumArtistArtwork>>
 
+	@Query(
+		"""
+		SELECT artistId, artistName, coverArtId, year, name
+		FROM AlbumEntity
+		WHERE coverArtId != ''
+			AND (
+				artistId IN (:artistIds)
+				OR LOWER(TRIM(artistName)) IN (:normalizedArtistNames)
+			)
+		ORDER BY year DESC, name COLLATE NOCASE ASC
+		"""
+	)
+	fun observeAlbumArtistArtworkByIdentity(
+		artistIds: List<String>,
+		normalizedArtistNames: List<String>
+	): Flow<List<AlbumArtistArtwork>>
+
 	@Transaction
 	suspend fun updateAllAlbums(remoteAlbums: List<AlbumEntity>) {
 		val remoteIds = remoteAlbums.map { it.albumId }.toSet()

@@ -8,6 +8,20 @@ import paige.navic.domain.models.PlaybackOriginType
 
 class MostPlayedShortcutEntityResolutionPolicyTest {
 	@Test
+	fun artistLookupIdentitiesAreBoundedToVisibleArtistShortcuts() {
+		val lookup = mostPlayedArtistLookupIdentities(
+			listOf(
+				mostPlayedShortcut(PlaybackOriginType.Artist, "artist-id", " Classical  Crossover "),
+				mostPlayedShortcut(PlaybackOriginType.Artist, "artist-id", "Classical Crossover"),
+				mostPlayedShortcut(PlaybackOriginType.Genre, "genre-id", "Ignored Genre")
+			)
+		)
+
+		assertEquals(listOf("artist-id"), lookup.ids)
+		assertEquals(listOf("classical crossover"), lookup.normalizedNames)
+	}
+
+	@Test
 	fun staleArtistShortcutIdResolvesToCurrentLocalArtistIdByName() {
 		val resolved = mostPlayedShortcutsWithResolvedLocalArtists(
 			shortcuts = listOf(

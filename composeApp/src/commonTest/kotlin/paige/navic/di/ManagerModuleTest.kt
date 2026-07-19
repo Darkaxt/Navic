@@ -72,6 +72,10 @@ class ManagerModuleTest {
 
 private class FakeArtistPhotoCacheDao : ArtistPhotoCacheDao {
 	override fun observeArtistPhotoCache(): Flow<List<ArtistPhotoCacheEntity>> = flowOf(emptyList())
+	override fun observeArtistPhotoCacheByIdentity(
+		artistIds: List<String>,
+		normalizedArtistNames: List<String>
+	): Flow<List<ArtistPhotoCacheEntity>> = flowOf(emptyList())
 
 	override suspend fun getArtistPhotoCache(): List<ArtistPhotoCacheEntity> = emptyList()
 

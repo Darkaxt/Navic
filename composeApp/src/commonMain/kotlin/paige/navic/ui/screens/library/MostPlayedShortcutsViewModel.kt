@@ -6,11 +6,15 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.ArtistDao
@@ -45,76 +49,7 @@ class MostPlayedShortcutsViewModel(
 
 	init {
 		viewModelScope.launch {
-			val artistArtworkInputs = combine(
-				artistDao.getAllArtists(),
-				artistPhotoCacheDao.observeArtistPhotoCache()
-			) { artists, cachedArtistPhotos ->
-				artists to cachedArtistPhotos
-			}
-			combine(
-				repository.observeMostPlayed(MOST_PLAYED_LIMIT),
-				artistArtworkInputs,
-				albumDao.observeAlbumArtistArtwork(),
-				songDao.observeArtistSongArtwork(),
-				aurralArtistArtwork
-			) { shortcuts, artistInputs, albums, songs, aurralArtists ->
-				val (artists, cachedArtistPhotos) = artistInputs
-				val localArtistArtwork = artists.map { artist ->
-					MostPlayedShortcutArtistArtwork(
-						id = artist.artistId,
-						name = artist.name,
-						coverArtId = artist.coverArtId,
-						artistImageUrl = artist.artistImageUrl,
-						trustedExternalPhoto = false
-					)
-				}
-				val resolvedShortcuts = mostPlayedShortcutsWithResolvedLocalArtists(
-					shortcuts = shortcuts,
-					artists = localArtistArtwork
-				)
-				val cachedArtistPhotoEntries = cachedArtistPhotos
-					.map { entry -> entry.toMostPlayedArtistPhotoCacheEntry() }
-				val cachedArtistArtwork = resolvedShortcuts
-					.mapNotNull { shortcut ->
-						mostPlayedArtistPhotoCacheArtworkForShortcut(
-							shortcut = shortcut,
-							entries = cachedArtistPhotoEntries
-						)
-					}
-					.distinctBy { artist -> artist.id.trim().lowercase() }
-				logMostPlayedArtistInputs(
-					shortcuts = resolvedShortcuts,
-					localArtists = localArtistArtwork,
-					cachedArtists = cachedArtistArtwork,
-					aurralArtists = aurralArtists
-				)
-				mostPlayedShortcutsWithResolvedArtwork(
-					shortcuts = resolvedShortcuts,
-					artists = cachedArtistArtwork + aurralArtists + localArtistArtwork,
-					albums = albums.map { album ->
-						MostPlayedShortcutAlbumArtwork(
-							artistId = album.artistId,
-							artistName = album.artistName,
-							coverArtId = album.coverArtId,
-							year = album.year,
-							name = album.name
-						)
-					},
-					songs = songs.map { song ->
-						MostPlayedShortcutSongArtwork(
-							artistId = song.artistId,
-							artistName = song.artistName,
-							coverArtId = song.coverArtId,
-							year = song.year,
-							albumTitle = song.albumTitle,
-							title = song.title,
-							playCount = song.playCount
-						)
-					},
-					artistArtworkPriority = preferenceManager.artistArtworkPriority,
-					aurralArtworkEnabled = preferenceManager.aurralEnabled
-				).toImmutableList()
-			}
+			observeResolvedShortcuts()
 				.flowOn(Dispatchers.Default)
 				.catch { error ->
 					_shortcutsState.value = UiState.Error(
@@ -128,6 +63,135 @@ class MostPlayedShortcutsViewModel(
 					hydrateAurralArtistPhotos(shortcuts)
 				}
 		}
+	}
+
+	@OptIn(ExperimentalCoroutinesApi::class)
+	private fun observeResolvedShortcuts(): Flow<ImmutableList<DomainMostPlayedShortcut>> =
+		repository.observeMostPlayed(MOST_PLAYED_LIMIT).flatMapLatest shortcutFlow@ { shortcuts ->
+			val lookup = mostPlayedArtistLookupIdentities(shortcuts)
+			if (lookup.ids.isEmpty() && lookup.normalizedNames.isEmpty()) {
+				return@shortcutFlow flowOf(
+					resolveShortcutArtwork(
+						shortcuts = mostPlayedShortcutsWithResolvedLocalArtists(shortcuts, emptyList()),
+						localArtists = emptyList(),
+						cachedArtistPhotos = emptyList(),
+						albums = emptyList(),
+						songs = emptyList(),
+						aurralArtists = emptyList()
+					)
+				)
+			}
+
+			artistDao.observeArtistsByIdentity(
+				artistIds = lookup.ids,
+				normalizedArtistNames = lookup.normalizedNames
+			).flatMapLatest artistFlow@ { artists ->
+				val localArtistArtwork = artists.map { artist ->
+					MostPlayedShortcutArtistArtwork(
+						id = artist.artistId,
+						name = artist.name,
+						coverArtId = artist.coverArtId,
+						artistImageUrl = artist.artistImageUrl,
+						trustedExternalPhoto = false
+					)
+				}
+				val resolvedShortcuts = mostPlayedShortcutsWithResolvedLocalArtists(
+					shortcuts = shortcuts,
+					artists = localArtistArtwork
+				)
+				val resolvedLookup = mostPlayedArtistLookupIdentities(resolvedShortcuts)
+				if (resolvedLookup.ids.isEmpty() && resolvedLookup.normalizedNames.isEmpty()) {
+					return@artistFlow flowOf(
+						resolveShortcutArtwork(
+							shortcuts = resolvedShortcuts,
+							localArtists = localArtistArtwork,
+							cachedArtistPhotos = emptyList(),
+							albums = emptyList(),
+							songs = emptyList(),
+							aurralArtists = emptyList()
+						)
+					)
+				}
+
+				combine(
+					artistPhotoCacheDao.observeArtistPhotoCacheByIdentity(
+						artistIds = resolvedLookup.ids,
+						normalizedArtistNames = resolvedLookup.normalizedNames
+					),
+					albumDao.observeAlbumArtistArtworkByIdentity(
+						artistIds = resolvedLookup.ids,
+						normalizedArtistNames = resolvedLookup.normalizedNames
+					),
+					songDao.observeArtistSongArtworkByIdentity(
+						artistIds = resolvedLookup.ids,
+						normalizedArtistNames = resolvedLookup.normalizedNames
+					),
+					aurralArtistArtwork
+				) { cachedArtistPhotos, albums, songs, aurralArtists ->
+					resolveShortcutArtwork(
+						shortcuts = resolvedShortcuts,
+						localArtists = localArtistArtwork,
+						cachedArtistPhotos = cachedArtistPhotos.map {
+							it.toMostPlayedArtistPhotoCacheEntry()
+						},
+						albums = albums.map { album ->
+							MostPlayedShortcutAlbumArtwork(
+								artistId = album.artistId,
+								artistName = album.artistName,
+								coverArtId = album.coverArtId,
+								year = album.year,
+								name = album.name
+							)
+						},
+						songs = songs.map { song ->
+							MostPlayedShortcutSongArtwork(
+								artistId = song.artistId,
+								artistName = song.artistName,
+								coverArtId = song.coverArtId,
+								year = song.year,
+								albumTitle = song.albumTitle,
+								title = song.title,
+								playCount = song.playCount
+							)
+						},
+						aurralArtists = aurralArtists.filter { artist ->
+							resolvedShortcuts.any { shortcut -> artist.matchesShortcut(shortcut) }
+						}
+					)
+				}
+			}
+		}
+
+	private fun resolveShortcutArtwork(
+		shortcuts: List<DomainMostPlayedShortcut>,
+		localArtists: List<MostPlayedShortcutArtistArtwork>,
+		cachedArtistPhotos: List<MostPlayedArtistPhotoCacheEntry>,
+		albums: List<MostPlayedShortcutAlbumArtwork>,
+		songs: List<MostPlayedShortcutSongArtwork>,
+		aurralArtists: List<MostPlayedShortcutArtistArtwork>
+	): ImmutableList<DomainMostPlayedShortcut> {
+		val cachedArtistArtwork = shortcuts
+			.mapNotNull { shortcut ->
+				mostPlayedArtistPhotoCacheArtworkForShortcut(
+					shortcut = shortcut,
+					entries = cachedArtistPhotos
+				)
+			}
+			.distinctBy { artist -> artist.id.trim().lowercase() }
+		logMostPlayedArtistInputs(
+			shortcuts = shortcuts,
+			localArtists = localArtists,
+			cachedArtists = cachedArtistArtwork,
+			aurralArtists = aurralArtists
+		)
+		return mostPlayedShortcutsWithResolvedArtwork(
+			shortcuts = shortcuts,
+			artists = cachedArtistArtwork + aurralArtists + localArtists,
+			albums = albums,
+			songs = songs,
+			artistArtworkPriority = preferenceManager.artistArtworkPriority,
+			aurralArtworkEnabled = preferenceManager.aurralEnabled
+		).toImmutableList()
 	}
 
 	fun clearError() {
