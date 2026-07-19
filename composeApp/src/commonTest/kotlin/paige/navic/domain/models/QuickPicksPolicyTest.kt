@@ -7,6 +7,24 @@ import kotlin.time.Instant
 
 class QuickPicksPolicyTest {
 	@Test
+	fun quickPicksAcceptLightweightAlbumCreationMetadata() {
+		val older = song(id = "older-song", albumId = "older")
+		val newer = song(id = "newer-song", albumId = "newer")
+
+		assertEquals(
+			listOf("newer-song", "older-song"),
+			quickPickSongs(
+				songs = listOf(older, newer),
+				albumCreatedAt = mapOf(
+					"older" to Instant.parse("2025-01-01T00:00:00Z"),
+					"newer" to Instant.parse("2026-01-01T00:00:00Z")
+				),
+				limit = 2
+			).map { it.id }
+		)
+	}
+
+	@Test
 	fun quickPicksPreferFrequentRatedAndRecentlyAddedSongsBeforeFallbacks() {
 		val frequent = song(id = "frequent", albumId = "older", playCount = 10)
 		val rated = song(id = "rated", albumId = "older", rating = 5)

@@ -11,6 +11,7 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.QuickPicksDefaultSize
 import paige.navic.domain.models.quickPickSongs
+import kotlin.time.Instant
 
 private const val AlbumYearDescendingOrder =
 	"CASE WHEN year IS NULL THEN 1 ELSE 0 END ASC, year DESC, LOWER(name) ASC"
@@ -19,7 +20,7 @@ private const val AlbumYearDescendingOrder =
 fun ImmutableList<DomainSong>.sortedByListType(
 	listType: DomainSongListType,
 	downloads: List<DownloadEntity>,
-	albums: List<DomainAlbum>,
+	albumCreatedAt: Map<String, Instant>,
 	quickPicksEnabled: Boolean = true,
 	quickPicksLimit: Int = QuickPicksDefaultSize,
 	quickPicksMinDurationSeconds: Int = 0
@@ -27,17 +28,13 @@ fun ImmutableList<DomainSong>.sortedByListType(
 	return when (listType) {
 		DomainSongListType.QuickPicks -> quickPickSongs(
 			songs = this,
-			albums = albums,
+			albumCreatedAt = albumCreatedAt,
 			enabled = quickPicksEnabled,
 			limit = quickPicksLimit,
 			minDurationSeconds = quickPicksMinDurationSeconds
 		)
 		DomainSongListType.FrequentlyPlayed -> sortedByDescending { it.playCount }
-		DomainSongListType.Newest -> sortedByDescending {
-			albums
-				.firstOrNull { album -> album.id == it.albumId }
-				?.createdAt
-		}
+		DomainSongListType.Newest -> sortedByDescending { albumCreatedAt[it.albumId] }
 		DomainSongListType.Starred -> filter { it.starredAt != null }.sortedBy { it.starredAt }
 		DomainSongListType.Random -> shuffled()
 		DomainSongListType.Downloaded -> filter { song ->

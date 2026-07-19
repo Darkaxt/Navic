@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.dao.DownloadDao
@@ -26,6 +27,7 @@ import paige.navic.domain.models.shouldAutoDownloadStarredSong
 import paige.navic.ui.core.UiState
 import paige.navic.util.core.sortedByListType
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 class SongRepository(
 	private val songDao: SongDao,
@@ -60,7 +62,7 @@ class SongRepository(
 		}.toImmutableList().sortedByListType(
 			listType,
 			downloads = downloadDao.getAllDownloadsList(),
-			albums = albumDao.getAllAlbumsList().map { it.toDomainModel() },
+			albumCreatedAt = albumCreatedAt(listType),
 			quickPicksEnabled = preferenceManager.quickPicksEnabled,
 			quickPicksLimit = preferenceManager.quickPicksLimit,
 			quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
@@ -106,7 +108,7 @@ class SongRepository(
 	}.flowOn(Dispatchers.IO)
 
 	/**
-	 * Reactive song view combining songs + downloads + albums (all reactive Room flows),
+	 * Reactive song view combining songs, downloads, and lightweight album sort metadata,
 	 * sorted via the same [sortedByListType] as [getLocalData]. Mapped per emission and
 	 * shareable across collectors. QuickPicks prefs are re-read on each emission (fresh
 	 * after any data change; note: a quickPicks-only setting change without a data change
@@ -120,8 +122,8 @@ class SongRepository(
 		combine(
 			songDao.getAllSongsFlow().map { it.map { song -> song.toDomainModel() } },
 			downloadManager.allDownloads,
-			albumDao.getAllAlbums().map { albums -> albums.map { it.toDomainModel() } }
-		) { songs, downloads, albums ->
+			albumCreatedAtFlow(listType)
+		) { songs, downloads, albumCreatedAt ->
 			if (listType == DomainSongListType.QuickPicks && !preferenceManager.quickPicksEnabled) {
 				emptyList()
 			} else {
@@ -129,13 +131,32 @@ class SongRepository(
 				filtered.toImmutableList().sortedByListType(
 					listType,
 					downloads = downloads,
-					albums = albums,
+					albumCreatedAt = albumCreatedAt,
 					quickPicksEnabled = preferenceManager.quickPicksEnabled,
 					quickPicksLimit = preferenceManager.quickPicksLimit,
 					quickPicksMinDurationSeconds = preferenceManager.quickPicksMinDurationSeconds
 				)
 			}
 		}.map { songs -> (if (reversed) songs.reversed() else songs).toImmutableList() }
+
+	private suspend fun albumCreatedAt(listType: DomainSongListType): Map<String, Instant> =
+		if (listType.requiresAlbumCreatedAt()) {
+			albumDao.getSongSortMetadata().associate { it.albumId to it.createdAt }
+		} else {
+			emptyMap()
+		}
+
+	private fun albumCreatedAtFlow(listType: DomainSongListType): Flow<Map<String, Instant>> =
+		if (listType.requiresAlbumCreatedAt()) {
+			albumDao.observeSongSortMetadata().map { metadata ->
+				metadata.associate { it.albumId to it.createdAt }
+			}
+		} else {
+			flowOf(emptyMap())
+		}
+
+	private fun DomainSongListType.requiresAlbumCreatedAt(): Boolean =
+		this == DomainSongListType.QuickPicks || this == DomainSongListType.Newest
 
 	/** Background network sync; writes to Room, which [songsFlow] observes. */
 	suspend fun syncSongs() {

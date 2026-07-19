@@ -52,10 +52,10 @@
 - Modify: `AlbumDao.kt`, `SongRepository.kt`, `SortUtils.kt`, and `QuickPicksPolicy.kt`
 - Test: `QuickPicksPolicyTest.kt` and the source-contract test
 
-- [ ] Add a failing test proving Quick Picks/Newest consume an `albumId -> createdAt` map with unchanged ordering.
-- [ ] Add an `AlbumSongSortMetadata` DAO flow containing only `albumId` and `createdAt`.
-- [ ] Replace every SongRepository album relation read with the metadata map; retain downloads and song table reactivity.
-- [ ] Run focused tests and compile, then commit.
+- [x] Add a failing test proving Quick Picks/Newest consume an `albumId -> createdAt` map with unchanged ordering.
+- [x] Add an `AlbumSongSortMetadata` DAO flow containing only `albumId` and `createdAt`.
+- [x] Replace every SongRepository album relation read with the metadata map; retain downloads and song table reactivity.
+- [x] Run focused tests and compile, then commit.
 
 ### Task 5: Restrict Artist Detail and Most Played lookups
 

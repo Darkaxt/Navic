@@ -1,10 +1,12 @@
 package paige.navic.domain.models
 
+import kotlin.time.Instant
+
 const val QuickPicksDefaultSize = 20
 
 fun quickPickSongs(
 	songs: List<DomainSong>,
-	albums: List<DomainAlbum>,
+	albumCreatedAt: Map<String, Instant>,
 	enabled: Boolean = true,
 	limit: Int = QuickPicksDefaultSize,
 	minDurationSeconds: Int = 0
@@ -14,7 +16,6 @@ fun quickPickSongs(
 	if (resultLimit == 0) return emptyList()
 
 	val originalIndexes = songs.withIndex().associate { it.value.id to it.index }
-	val albumCreatedAt = albums.associate { it.id to it.createdAt }
 	val minimumDurationSeconds = minDurationSeconds.coerceAtLeast(0)
 	val candidates = songs.filter {
 		hasStableNavidromeSongId(it.id) &&
@@ -51,3 +52,17 @@ fun quickPickSongs(
 		.take(resultLimit)
 		.toList()
 }
+
+fun quickPickSongs(
+	songs: List<DomainSong>,
+	albums: List<DomainAlbum>,
+	enabled: Boolean = true,
+	limit: Int = QuickPicksDefaultSize,
+	minDurationSeconds: Int = 0
+): List<DomainSong> = quickPickSongs(
+	songs = songs,
+	albumCreatedAt = albums.associate { it.id to it.createdAt },
+	enabled = enabled,
+	limit = limit,
+	minDurationSeconds = minDurationSeconds
+)

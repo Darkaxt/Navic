@@ -12,6 +12,7 @@ import paige.navic.data.database.entities.AlbumEntity
 import paige.navic.data.database.entities.SongEntity
 import paige.navic.data.database.relations.AlbumWithSongs
 import paige.navic.util.core.Logger
+import kotlin.time.Instant
 
 data class AlbumArtistArtwork(
 	val artistId: String?,
@@ -29,6 +30,11 @@ data class AlbumGenreMetadata(
 	val songCount: Int
 )
 
+data class AlbumSongSortMetadata(
+	val albumId: String,
+	val createdAt: Instant
+)
+
 @Dao
 interface AlbumDao {
 	@Query(
@@ -39,6 +45,12 @@ interface AlbumDao {
 		"""
 	)
 	fun observeAlbumGenreMetadata(): Flow<List<AlbumGenreMetadata>>
+
+	@Query("SELECT albumId, createdAt FROM AlbumEntity")
+	fun observeSongSortMetadata(): Flow<List<AlbumSongSortMetadata>>
+
+	@Query("SELECT albumId, createdAt FROM AlbumEntity")
+	suspend fun getSongSortMetadata(): List<AlbumSongSortMetadata>
 
 	@Transaction
 	@Query(" SELECT * FROM AlbumEntity WHERE genre = :genreName OR genres LIKE '%' || :genreName || '%' ORDER BY year DESC, name COLLATE NOCASE ASC")
