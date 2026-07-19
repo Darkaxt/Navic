@@ -42,6 +42,24 @@ interface SongDao {
 	@Query("SELECT * FROM SongEntity WHERE belongsToAlbumId = :albumId")
 	suspend fun getSongsByAlbumId(albumId: String): List<SongEntity>
 
+	@Query(
+		"""
+		SELECT * FROM SongEntity
+		WHERE (:artistId IS NOT NULL AND artistId COLLATE NOCASE = :artistId)
+			OR (:artistName IS NOT NULL AND artistName COLLATE NOCASE = :artistName)
+			OR (:contributorArtistIdPattern IS NOT NULL AND contributors LIKE :contributorArtistIdPattern ESCAPE '\')
+			OR (:contributorMusicBrainzIdPattern IS NOT NULL AND contributors LIKE :contributorMusicBrainzIdPattern ESCAPE '\')
+			OR (:contributorArtistNamePattern IS NOT NULL AND contributors LIKE :contributorArtistNamePattern ESCAPE '\')
+		"""
+	)
+	suspend fun getSongsByArtistCreditCandidates(
+		artistId: String?,
+		artistName: String?,
+		contributorArtistIdPattern: String?,
+		contributorMusicBrainzIdPattern: String?,
+		contributorArtistNamePattern: String?
+	): List<SongEntity>
+
 	@Query("DELETE FROM SongEntity WHERE songId = :songId")
 	suspend fun deleteSong(songId: String)
 

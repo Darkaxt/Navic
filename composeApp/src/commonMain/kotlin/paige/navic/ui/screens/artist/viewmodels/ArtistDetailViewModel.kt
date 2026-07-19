@@ -233,10 +233,10 @@ class ArtistDetailViewModel(
 					.map { it.toDomainModel() }
 					.sortedByAlbumYearDescending()
 
-				val allSongs = songRepository.getAllSongs()
+				val creditSongs = songRepository.getSongsByArtistCredit(domainArtist)
 				val creditAlbumIds = artistDetailSongCreditAlbumIds(
 					artist = domainArtist,
-					allSongs = allSongs,
+					allSongs = creditSongs,
 					excludedAlbumIds = directAlbums.map { it.id }.toSet()
 				)
 				val creditCandidateAlbums = if (creditAlbumIds.isEmpty()) {
@@ -247,7 +247,7 @@ class ArtistDetailViewModel(
 				val localCatalog = artistDetailLocalCatalog(
 					artist = domainArtist,
 					directAlbums = directAlbums,
-					allSongs = allSongs,
+					allSongs = creditSongs,
 					creditCandidateAlbums = creditCandidateAlbums
 				)
 				val domainAlbums = localCatalog.albums

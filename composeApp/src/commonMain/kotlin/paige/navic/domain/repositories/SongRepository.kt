@@ -21,6 +21,7 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SyncManager
+import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongListType
 import paige.navic.domain.models.shouldAutoDownloadStarredSong
@@ -41,6 +42,18 @@ class SongRepository(
 ) {
 	suspend fun getAllSongs(): List<DomainSong> {
 		return songDao.getAllSongs().map { it.toDomainModel() }
+	}
+
+	suspend fun getSongsByArtistCredit(artist: DomainArtist): List<DomainSong> {
+		val artistId = artist.id.trim().takeIf { it.isNotEmpty() }
+		val artistName = artist.name.trim().takeIf { it.isNotEmpty() }
+		return songDao.getSongsByArtistCreditCandidates(
+			artistId = artistId,
+			artistName = artistName,
+			contributorArtistIdPattern = artistCreditContributorLikePattern(artistId),
+			contributorMusicBrainzIdPattern = artistCreditContributorLikePattern(artist.musicBrainzId),
+			contributorArtistNamePattern = artistCreditContributorLikePattern(artistName)
+		).map { it.toDomainModel() }
 	}
 
 	private suspend fun getLocalData(
@@ -205,3 +218,12 @@ class SongRepository(
 		}
 	}
 }
+
+internal fun artistCreditContributorLikePattern(value: String?): String? =
+	value
+		?.trim()
+		?.takeIf { it.isNotEmpty() }
+		?.replace("\\", "\\\\")
+		?.replace("%", "\\%")
+		?.replace("_", "\\_")
+		?.let { "%$it%" }
