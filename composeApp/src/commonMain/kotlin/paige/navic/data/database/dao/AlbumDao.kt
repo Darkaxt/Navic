@@ -53,8 +53,18 @@ interface AlbumDao {
 	suspend fun getSongSortMetadata(): List<AlbumSongSortMetadata>
 
 	@Transaction
-	@Query(" SELECT * FROM AlbumEntity WHERE genre = :genreName OR genres LIKE '%' || :genreName || '%' ORDER BY year DESC, name COLLATE NOCASE ASC")
-	fun getAlbumsByGenre(genreName: String): Flow<List<AlbumWithSongs>>
+	@Query(
+		"""
+		SELECT * FROM AlbumEntity
+		WHERE LOWER(genre) = LOWER(:candidateTerm)
+			OR genres LIKE :candidatePattern ESCAPE '\'
+		ORDER BY year DESC, name COLLATE NOCASE ASC
+		"""
+	)
+	fun getAlbumsByGenre(
+		candidateTerm: String,
+		candidatePattern: String
+	): Flow<List<AlbumWithSongs>>
 
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity ORDER BY name ASC")

@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import paige.navic.data.database.dao.AlbumDao
 import paige.navic.data.database.mappers.toDomainModel
@@ -33,11 +34,33 @@ class GenreRepository(
 			).toImmutableList()
 		}.flowOn(Dispatchers.IO)
 
-	fun observeGenreByName(genreName: String): Flow<DomainGenre?> =
-		albumDao.getAlbumsByGenre(genreName).map { albums ->
+	fun observeGenreByName(genreName: String): Flow<DomainGenre?> {
+		val candidateTerm = genreCandidateSearchTerm(genreName)
+		if (candidateTerm.isEmpty()) return flowOf(null)
+		return albumDao.getAlbumsByGenre(
+			candidateTerm = candidateTerm,
+			candidatePattern = genreCandidateLikePattern(candidateTerm)
+		).map { albums ->
 			genreGroupByName(
 				albums = albums.map { it.toDomainModel() },
 				genreName = genreName
 			)
 		}.flowOn(Dispatchers.IO)
+	}
 }
+
+internal fun genreCandidateSearchTerm(genreName: String): String {
+	val cleaned = genreName.trim()
+	return when (cleaned.lowercase()) {
+		"game", "games" -> "game"
+		"soundtrack", "soundtracks" -> "soundtrack"
+		else -> cleaned
+	}
+}
+
+internal fun genreCandidateLikePattern(value: String): String =
+	value
+		.replace("\\", "\\\\")
+		.replace("%", "\\%")
+		.replace("_", "\\_")
+		.let { "%$it%" }

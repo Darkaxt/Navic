@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainAlbum
@@ -69,16 +71,18 @@ class GenreDetailViewModel(
 
 	private fun observeGenre() {
 		if (observeGenreJob?.isActive == true) return
-		observeGenreJob = viewModelScope.launch(Dispatchers.Default) {
-			genreRepository.observeGenreByName(genreName).collect { genre ->
-				val state = genre?.toDetailState()
-				_genreState.value = when {
-					state != null && isRefreshing -> UiState.Loading(state)
-					state != null -> UiState.Success(state)
-					isRefreshing -> UiState.Loading(_genreState.value.data)
-					else -> UiState.Error(genreNotFoundError(), _genreState.value.data)
+		observeGenreJob = viewModelScope.launch {
+			genreRepository.observeGenreByName(genreName)
+				.map { genre -> genre?.toDetailState() }
+				.flowOn(Dispatchers.Default)
+				.collect { state ->
+					_genreState.value = when {
+						state != null && isRefreshing -> UiState.Loading(state)
+						state != null -> UiState.Success(state)
+						isRefreshing -> UiState.Loading(_genreState.value.data)
+						else -> UiState.Error(genreNotFoundError(), _genreState.value.data)
+					}
 				}
-			}
 		}
 	}
 
