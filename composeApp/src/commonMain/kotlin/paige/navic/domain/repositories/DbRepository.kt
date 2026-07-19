@@ -7,7 +7,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -68,6 +67,33 @@ internal fun albumSyncSongArtistOverrides(
 private const val LIBRARY_SYNC_NETWORK_CONCURRENCY = 8
 private const val LIBRARY_DB_WRITE_BATCH_SIZE = 500
 private const val LIBRARY_SONG_ACCUMULATION_LIMIT = 1_500
+
+internal suspend fun <T> runLibraryAlbumSyncWorkers(
+	summaries: Iterable<T>,
+	processSummary: suspend (T) -> Unit
+) {
+	val summaryChannel = Channel<T>(capacity = LIBRARY_SYNC_NETWORK_CONCURRENCY)
+
+	coroutineScope {
+		launch {
+			try {
+				for (summary in summaries) {
+					summaryChannel.send(summary)
+				}
+			} finally {
+				summaryChannel.close()
+			}
+		}
+
+		repeat(LIBRARY_SYNC_NETWORK_CONCURRENCY) {
+			launch {
+				for (summary in summaryChannel) {
+					processSummary(summary)
+				}
+			}
+		}
+	}
+}
 
 class DbRepository(
 	private val albumDao: AlbumDao,
@@ -185,8 +211,8 @@ class DbRepository(
 
 		coroutineScope {
 			launch(Dispatchers.IO) {
-				allAlbumSummaries.map { summary ->
-					launch {
+				try {
+					runLibraryAlbumSyncWorkers(allAlbumSummaries) { summary ->
 						concurrentRequestLimit.withPermit {
 							try {
 								val album = sessionManager.withApi { it.getAlbum(summary.id) }
@@ -209,8 +235,9 @@ class DbRepository(
 							}
 						}
 					}
-				}.joinAll()
-				albumChannel.close()
+				} finally {
+					albumChannel.close()
+				}
 			}
 
 			launch(Dispatchers.IO) {
