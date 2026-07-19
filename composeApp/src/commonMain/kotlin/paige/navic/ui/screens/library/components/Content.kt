@@ -59,7 +59,7 @@ import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainAlbumListType
 import paige.navic.domain.models.DomainArtist
-import paige.navic.domain.models.DomainGenre
+import paige.navic.domain.models.DomainGenreSummary
 import paige.navic.domain.models.DomainMostPlayedShortcut
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSong
@@ -168,7 +168,7 @@ fun LibraryScreenContent(
 	onAddPlaylistToQueue: () -> Unit,
 
 	// genres
-	genresState: UiState<ImmutableList<DomainGenre>>,
+	genresState: UiState<ImmutableList<DomainGenreSummary>>,
 
 ) {
 	val backStack = LocalNavStack.current

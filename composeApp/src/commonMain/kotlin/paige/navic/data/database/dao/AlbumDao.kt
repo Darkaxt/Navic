@@ -21,8 +21,25 @@ data class AlbumArtistArtwork(
 	val name: String
 )
 
+data class AlbumGenreMetadata(
+	val albumId: String,
+	val genre: String?,
+	val genres: List<String>,
+	val coverArtId: String,
+	val songCount: Int
+)
+
 @Dao
 interface AlbumDao {
+	@Query(
+		"""
+		SELECT albumId, genre, genres, coverArtId, songCount
+		FROM AlbumEntity
+		ORDER BY year DESC, name COLLATE NOCASE ASC
+		"""
+	)
+	fun observeAlbumGenreMetadata(): Flow<List<AlbumGenreMetadata>>
+
 	@Transaction
 	@Query(" SELECT * FROM AlbumEntity WHERE genre = :genreName OR genres LIKE '%' || :genreName || '%' ORDER BY year DESC, name COLLATE NOCASE ASC")
 	fun getAlbumsByGenre(genreName: String): Flow<List<AlbumWithSongs>>

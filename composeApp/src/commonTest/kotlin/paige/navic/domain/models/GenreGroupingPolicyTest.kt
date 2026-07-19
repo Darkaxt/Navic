@@ -7,6 +7,54 @@ import kotlin.time.Instant
 
 class GenreGroupingPolicyTest {
 	@Test
+	fun genreSummariesUseOnlyMetadataAndLimitArtwork() {
+		val summaries = genreSummariesFromAlbums(
+			listOf(
+				genreAlbum(id = "one", genre = "Classical Crossover", songCount = 3),
+				genreAlbum(id = "two", genre = "Classical Crossover / Vocal", songCount = 5),
+				genreAlbum(id = "three", genre = "Classical Crossover", songCount = 7)
+			)
+		)
+		val classical = summaries.first { it.name == "Classical Crossover" }
+
+		assertEquals(3, classical.albumCount)
+		assertEquals(15, classical.songCount)
+		assertEquals(listOf("cover-one", "cover-two"), classical.coverArtIds)
+	}
+
+	@Test
+	fun genreSummariesDeduplicateAlbumsAcrossGenreColumns() {
+		val summaries = genreSummariesFromAlbums(
+			listOf(
+				GenreAlbumSummaryInput(
+					albumId = "duplicate",
+					genre = "Game",
+					genres = listOf("games", "Soundtracks - Games"),
+					coverArtId = "cover-duplicate",
+					songCount = 4
+				)
+			)
+		)
+
+		assertEquals(1, summaries.first { it.name == "Game" }.albumCount)
+		assertEquals(4, summaries.first { it.name == "Game" }.songCount)
+	}
+
+	@Test
+	fun genreDetailUsesExactNormalizedMembershipAfterSqlPrefilter() {
+		val genre = genreGroupByName(
+			albums = listOf(
+				album(id = "classical", genre = "Classical"),
+				album(id = "crossover", genre = "Classical Crossover"),
+				album(id = "compound", genre = "Vocal / Classical Crossover")
+			),
+			genreName = "classical crossover"
+		)
+
+		assertEquals(listOf("compound", "crossover"), genre?.albums?.map { it.id })
+	}
+
+	@Test
 	fun genreGroupsMergeCaseAndPluralVariants() {
 		val groups = genreGroupsFromAlbums(
 			listOf(
@@ -111,5 +159,17 @@ class GenreGroupingPolicyTest {
 		coverArtId = null,
 		musicBrainzId = null,
 		explicitStatus = DomainExplicitStatus.Unknown
+	)
+
+	private fun genreAlbum(
+		id: String,
+		genre: String,
+		songCount: Int
+	) = GenreAlbumSummaryInput(
+		albumId = id,
+		genre = genre,
+		genres = listOf(genre),
+		coverArtId = "cover-$id",
+		songCount = songCount
 	)
 }

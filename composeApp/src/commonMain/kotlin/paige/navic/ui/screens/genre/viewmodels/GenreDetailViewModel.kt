@@ -4,19 +4,20 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import paige.navic.domain.manager.SyncManager
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainGenre
 import paige.navic.domain.models.DomainGenreCollection
 import paige.navic.domain.models.genreAlbums
-import paige.navic.domain.models.genreArtists
+import paige.navic.domain.models.genreArtistsFromAlbums
+import paige.navic.domain.models.genrePlayableSongsFromAlbums
 import paige.navic.domain.models.genreTotalDuration
 import paige.navic.domain.models.toPlaybackOrigin
-import paige.navic.domain.models.toSongCollection
 import paige.navic.domain.repositories.GenreRepository
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.core.UiState
@@ -33,29 +34,50 @@ data class GenreDetailState(
 
 class GenreDetailViewModel(
 	private val genreName: String,
-	private val genreRepository: GenreRepository
+	private val genreRepository: GenreRepository,
+	private val syncManager: SyncManager
 ) : ViewModel() {
 	private val _genreState = MutableStateFlow<UiState<GenreDetailState>>(UiState.Loading())
 	val genreState = _genreState.asStateFlow()
+	private var observeGenreJob: Job? = null
+	private var refreshGenreJob: Job? = null
+	private var isRefreshing = false
 
 	init {
-		refreshGenre(fullRefresh = false)
+		observeGenre()
 	}
 
 	fun refreshGenre(fullRefresh: Boolean) {
-		viewModelScope.launch(Dispatchers.IO) {
-			val currentData = _genreState.value.data
-			if (fullRefresh) {
-				_genreState.value = UiState.Loading(currentData)
-			}
-			runCatching {
-				val genre = genreRepository.getGenreByName(genreName, fullRefresh)
-					?: error("Genre '$genreName' was not found")
-				genre.toDetailState()
-			}.onSuccess { state ->
-				_genreState.value = UiState.Success(state)
-			}.onFailure { error ->
-				_genreState.value = UiState.Error(error as? Exception ?: Exception(error), currentData)
+		observeGenre()
+		if (!fullRefresh || refreshGenreJob?.isActive == true) return
+
+		refreshGenreJob = viewModelScope.launch {
+			isRefreshing = true
+			_genreState.value = UiState.Loading(_genreState.value.data)
+			val result = syncManager.syncNow()
+			isRefreshing = false
+			val latestData = _genreState.value.data
+			_genreState.value = result.fold(
+				onSuccess = {
+					latestData?.let { UiState.Success(it) }
+						?: UiState.Error(genreNotFoundError())
+				},
+				onFailure = { error -> UiState.Error(error.asException(), latestData) }
+			)
+		}
+	}
+
+	private fun observeGenre() {
+		if (observeGenreJob?.isActive == true) return
+		observeGenreJob = viewModelScope.launch(Dispatchers.Default) {
+			genreRepository.observeGenreByName(genreName).collect { genre ->
+				val state = genre?.toDetailState()
+				_genreState.value = when {
+					state != null && isRefreshing -> UiState.Loading(state)
+					state != null -> UiState.Success(state)
+					isRefreshing -> UiState.Loading(_genreState.value.data)
+					else -> UiState.Error(genreNotFoundError(), _genreState.value.data)
+				}
 			}
 		}
 	}
@@ -85,13 +107,27 @@ class GenreDetailViewModel(
 	}
 
 	private fun DomainGenre.toDetailState(): GenreDetailState {
-		val collection = toSongCollection()
+		val albums = genreAlbums(this)
+		val songs = genrePlayableSongsFromAlbums(albums)
+		val totalDuration = genreTotalDuration(songs)
+		val collection = DomainGenreCollection(
+			id = name,
+			name = name,
+			coverArtId = albums.firstOrNull()?.coverArtId,
+			duration = totalDuration,
+			songCount = songs.size,
+			songs = songs
+		)
 		return GenreDetailState(
 			genre = this,
-			artists = genreArtists(this),
-			albums = genreAlbums(this),
+			artists = genreArtistsFromAlbums(albums),
+			albums = albums,
 			collection = collection,
-			totalDuration = genreTotalDuration(this)
+			totalDuration = totalDuration
 		)
 	}
+
+	private fun genreNotFoundError() = IllegalStateException("Genre '$genreName' was not found")
+
+	private fun Throwable.asException(): Exception = this as? Exception ?: Exception(this)
 }

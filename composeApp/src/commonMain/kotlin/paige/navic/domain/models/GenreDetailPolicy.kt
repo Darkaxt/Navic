@@ -4,7 +4,11 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 
 fun genreArtists(genre: DomainGenre): List<DomainArtist> {
-	val albumsByArtist = genreAlbums(genre).groupBy { album ->
+	return genreArtistsFromAlbums(genreAlbums(genre))
+}
+
+fun genreArtistsFromAlbums(albums: List<DomainAlbum>): List<DomainArtist> {
+	val albumsByArtist = albums.groupBy { album ->
 		album.artistId?.takeIf { it.isNotBlank() } ?: album.artistName
 	}
 
@@ -23,9 +27,15 @@ fun genreAlbums(genre: DomainGenre): List<DomainAlbum> =
 	genre.albums.sortedByAlbumYearDescending()
 
 fun genrePlayableSongs(genre: DomainGenre): List<DomainSong> =
-	genreAlbums(genre)
+	genrePlayableSongsFromAlbums(genreAlbums(genre))
+
+fun genrePlayableSongsFromAlbums(albums: List<DomainAlbum>): List<DomainSong> =
+	albums
 		.flatMap { it.songs }
 		.distinctBy { it.id }
 
 fun genreTotalDuration(genre: DomainGenre): Duration =
-	genrePlayableSongs(genre).fold(Duration.ZERO) { total, song -> total + song.duration }
+	genreTotalDuration(genrePlayableSongs(genre))
+
+fun genreTotalDuration(songs: List<DomainSong>): Duration =
+	songs.fold(Duration.ZERO) { total, song -> total + song.duration }

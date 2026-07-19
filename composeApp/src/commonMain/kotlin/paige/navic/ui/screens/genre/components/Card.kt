@@ -28,7 +28,7 @@ import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.models.DomainGenre
+import paige.navic.domain.models.DomainGenreSummary
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.navigation.Screen
@@ -38,7 +38,7 @@ import kotlin.math.abs
 @Composable
 fun GenreListScreenCard(
 	modifier: Modifier = Modifier,
-	genre: DomainGenre
+	genre: DomainGenreSummary
 ) {
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
@@ -62,8 +62,8 @@ fun GenreListScreenCard(
 		seedColor = seedColor,
 		isDark = isDark
 	)
-	val firstAlbumCoverArt = genre.albums.firstOrNull()?.coverArtId
-	val secondAlbumCoverArt = genre.albums.getOrNull(1)?.coverArtId
+	val firstAlbumCoverArt = genre.coverArtIds.firstOrNull()
+	val secondAlbumCoverArt = genre.coverArtIds.getOrNull(1)
 	Surface(
 		modifier = modifier,
 		color = colorScheme.primary,
@@ -122,9 +122,9 @@ fun GenreListScreenCard(
 				)
 				Text(
 					pluralStringResource(
-						Res.plurals.count_albums,
-						genre.albums.count(),
-						genre.albums.count()
+					Res.plurals.count_albums,
+						genre.albumCount,
+						genre.albumCount
 					),
 					style = MaterialTheme.typography.titleSmall,
 				)

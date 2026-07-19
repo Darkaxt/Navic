@@ -16,9 +16,9 @@
 - Create: `composeApp/src/androidHostTest/kotlin/paige/navic/domain/repositories/MusicLayoutDataLoadingSourceTest.kt`
 - Test: existing genre grouping/detail policy tests
 
-- [ ] Add source-contract assertions for every acceptance criterion that can be proven structurally: no all-library genre detail, no album-song relation in SongRepository, no all-song Artist Detail scan, no unfiltered Most Played artwork flow, and no per-album coroutine map.
-- [ ] Run `./gradlew :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.MusicLayoutDataLoadingSourceTest" --console=plain`.
-- [ ] Confirm failures identify the current production patterns rather than test setup errors.
+- [x] Add source-contract assertions for every acceptance criterion that can be proven structurally: no all-library genre detail, no album-song relation in SongRepository, no all-song Artist Detail scan, no unfiltered Most Played artwork flow, and no per-album coroutine map.
+- [x] Run `./gradlew :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.MusicLayoutDataLoadingSourceTest" --console=plain`.
+- [x] Confirm failures identify the current production patterns rather than test setup errors.
 
 ### Task 2: Introduce lightweight genre summaries
 
@@ -30,10 +30,10 @@
 - Modify: genre list ViewModel, screen content, and card types
 - Test: `GenreGroupingPolicyTest.kt`
 
-- [ ] Add failing policy tests proving summaries expand compound genres, deduplicate albums, count songs without retaining them, and expose at most two cover IDs.
-- [ ] Add an `AlbumGenreMetadata` projection (`albumId`, `genre`, `genres`, `coverArtId`, `songCount`) and reactive DAO flow that never joins `SongEntity`.
-- [ ] Map metadata to immutable `DomainGenreSummary` values and migrate genre list surfaces.
-- [ ] Run the focused policy and source-contract tests, then commit the independently buildable summary boundary.
+- [x] Add failing policy tests proving summaries expand compound genres, deduplicate albums, count songs without retaining them, and expose at most two cover IDs.
+- [x] Add an `AlbumGenreMetadata` projection (`albumId`, `genre`, `genres`, `coverArtId`, `songCount`) and reactive DAO flow that never joins `SongEntity`.
+- [x] Map metadata to immutable `DomainGenreSummary` values and migrate genre list surfaces.
+- [x] Run the focused policy and source-contract tests, then commit the independently buildable summary boundary.
 
 ### Task 3: Make genre detail targeted and reactive
 
@@ -41,10 +41,10 @@
 - Modify: `AlbumDao.kt`, `GenreRepository.kt`, `GenreDetailPolicy.kt`, `GenreDetailViewModel.kt`, `GenreListViewModel.kt`, and Koin bindings if constructor dependencies change
 - Test: `GenreDetailPolicyTest.kt` and the source-contract test
 
-- [ ] Add failing tests proving candidate albums are filtered by exact normalized genre membership and detail songs/artists/duration are derived from one prepared album/song set.
-- [ ] Expose `observeGenreByName(name)` from the repository using `AlbumDao.getAlbumsByGenre(name)` followed by exact domain filtering.
-- [ ] Have both genre ViewModels retain Room state while `SyncManager.syncNow()` runs. Refresh errors overlay existing data; successful Room writes appear through the active flow.
-- [ ] Run focused tests and compile, then commit the targeted reactive detail boundary.
+- [x] Add failing tests proving candidate albums are filtered by exact normalized genre membership and detail songs/artists/duration are derived from one prepared album/song set.
+- [x] Expose `observeGenreByName(name)` from the repository using `AlbumDao.getAlbumsByGenre(name)` followed by exact domain filtering.
+- [x] Have both genre ViewModels retain Room state while `SyncManager.syncNow()` runs. Refresh errors overlay existing data; successful Room writes appear through the active flow.
+- [x] Run focused tests and compile, then commit the targeted reactive detail boundary.
 
 ### Task 4: Remove SongRepository's nested album-song graph
 
@@ -75,9 +75,9 @@
 - Modify: `DbRepository.kt`
 - Test: source-contract test plus existing sync policy tests
 
-- [ ] Verify the source test fails on `allAlbumSummaries.map { launch { ... } }`.
-- [ ] Introduce a bounded summary channel and exactly `LIBRARY_SYNC_NETWORK_CONCURRENCY` fetch workers. Close the output channel only after all workers finish.
-- [ ] Preserve serialization-skip behavior, progress increments, batched writes, valid-ID tracking, and deletion gates.
+- [x] Verify the source test fails on `allAlbumSummaries.map { launch { ... } }`.
+- [x] Introduce a bounded summary channel and exactly `LIBRARY_SYNC_NETWORK_CONCURRENCY` fetch workers. Close the output channel only after all workers finish.
+- [x] Preserve serialization-skip behavior, progress increments, batched writes, valid-ID tracking, and deletion gates.
 - [ ] Run focused tests and compile, then commit.
 
 ### Task 7: Validate the staged release
