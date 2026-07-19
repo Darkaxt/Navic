@@ -162,8 +162,14 @@ Summary routes and detail routes have separate data contracts. A summary never o
 - Run policy, DAO source-contract, repository source-contract, and affected ViewModel tests.
 - Run the broad Android host suite and distinguish baseline reader failures from branch-owned failures.
 - Assemble Android debug and release APKs.
-- Install over the current public package and reproduce the Classical Crossover route while sampling PSS.
+- Install over the current public package and reproduce the Classical Crossover route while sampling PSS when an authenticated phone is available over ADB.
 - Publish the next `v1.0.11-iota##` Android-only release, verify asset digest/signature/version/install/launch, and remove only this worktree and branch.
+
+### Stage 5 - Post-release mobile canary
+
+- Use the published build during an uncached mobile-data session.
+- Open Classical Crossover from Most Played and observe first-content latency, PSS/RSS, process survival, playback continuity, and queue stability.
+- Treat a missing authenticated ADB target as deferred canary evidence, not as permission to claim the route passed.
 
 ## Acceptance Criteria
 
@@ -174,6 +180,16 @@ Summary routes and detail routes have separate data contracts. A summary never o
 5. Most Played does not observe unfiltered album/song artwork flows.
 6. Library sync creates a fixed number of album fetch workers independent of album count.
 7. Pull-to-refresh keeps prior genre data visible and uses the serialized sync actor.
-8. Focused tests, affected host tests, Android build, APK validation, and device route validation pass with fresh evidence.
+8. Focused tests, affected host tests, Android build, APK validation, upgrade install, and launch pass with fresh evidence.
 9. No iOS task is run or published.
+10. The authenticated-phone Classical Crossover route remains a post-release canary gate until it is exercised with real library data.
 
+## Release Evidence
+
+- Implemented in commits `2e3a7388` through `8dd69d7f`; release metadata is `0cc4a5c2` and the corrected PlayLikeCurl provenance pin is `999a52ca`.
+- The focused music-layout tests pass. The complete Android host suite reports 2,506 tests with 74 failures; detached baseline `5ae6ef7e` reports 2,491 tests with the same 74 failures, so this change adds 15 passing tests and no new failures.
+- Android debug assembly passes. The public GitHub Android workflow `29704807067` passes; its iOS job is skipped.
+- Public release: `v1.0.11-iota25`, version code `552`, APK SHA-256 `18a290114547810755e9a116e16b5c00d9de42d8a2187c138b7467a4cb539654`.
+- The APK has application ID `darkaxt.navic`, the expected release certificate SHA-256 `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`, 30 verified reader-vendor files, and complete packaged acknowledgements.
+- ADB upgrade from `iota23` to `iota25` and launch pass on `emulator-5554`; startup PSS is 88,143 KiB and RSS is 194,472 KiB, with no Navic fatal exception or OOM in the captured log.
+- The phone was not present in `adb devices`; the emulator is logged out. Authenticated Classical Crossover route evidence is therefore intentionally deferred to the post-release mobile canary.

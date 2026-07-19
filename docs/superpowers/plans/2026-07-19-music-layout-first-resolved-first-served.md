@@ -78,18 +78,18 @@
 - [x] Verify the source test fails on `allAlbumSummaries.map { launch { ... } }`.
 - [x] Introduce a bounded summary channel and exactly `LIBRARY_SYNC_NETWORK_CONCURRENCY` fetch workers. Close the output channel only after all workers finish.
 - [x] Preserve serialization-skip behavior, progress increments, batched writes, valid-ID tracking, and deletion gates.
-- [ ] Run focused tests and compile, then commit.
+- [x] Run focused tests and compile, then commit.
 
 ### Task 7: Validate the staged release
 
 **Files:**
 - Modify: specification/plan only for observed evidence and final disposition
 
-- [ ] Run `git diff --check`.
-- [ ] Run all newly added and affected focused tests.
-- [ ] Run `./gradlew :composeApp:testAndroidHostTest --console=plain` and classify every failure against clean baseline.
-- [ ] Run `./gradlew :androidApp:assembleDebug --console=plain` and the repository's Android release validation tasks.
-- [ ] Install the APK on the connected phone, clear logcat, open Classical Crossover from Most Played, and sample process PSS/RSS during loading. The process must remain alive and memory must not approach the recorded multi-gigabyte failure.
+- [x] Run `git diff --check`.
+- [x] Run all newly added and affected focused tests.
+- [x] Run `./gradlew :composeApp:testAndroidHostTest --console=plain` and classify every failure against clean baseline.
+- [x] Run `./gradlew :androidApp:assembleDebug --console=plain` and the repository's Android release validation tasks.
+- [ ] Install the APK on the connected phone, clear logcat, open Classical Crossover from Most Played, and sample process PSS/RSS during loading. The phone was absent from ADB at release time; upgrade install, launch, and an 88,143 KiB startup PSS sample passed on the logged-out emulator, so the authenticated route remains the post-release canary.
 
 ### Task 8: Integrate, publish, verify, and clean
 
@@ -97,9 +97,18 @@
 - Modify: `androidApp/build.gradle.kts` for the next unused padded iota version
 - Modify: specification/plan with release evidence
 
-- [ ] Fetch `fork`, rebase the feature branch on the current committed `master`, and rerun the complete validation matrix.
-- [ ] Fast-forward local `master` without staging any uncommitted ebook files.
-- [ ] Commit the release bump, push `master`, tag the next `v1.0.11-iota##`, and publish Android only.
-- [ ] Verify GitHub workflow success, release asset digest, APK signature certificate, embedded version, upgrade install, launch, and route behavior.
-- [ ] Commit/push release evidence if the repository convention requires it.
-- [ ] Remove only `navic-music-layout-memory` and `fix/music-layout-memory`; preserve all reader worktrees and artifacts owned by other tasks.
+- [x] Confirm the feature lineage contains current `master` and required commit `9c619f10`, then rerun the validation matrix.
+- [x] Fast-forward local `master` without staging any uncommitted ebook files.
+- [x] Commit the release bump, push `master`, tag `v1.0.11-iota25`, and publish Android only.
+- [x] Verify GitHub workflow success, release asset digest, APK signature certificate, embedded version, upgrade install, and launch. Authenticated route behavior remains the explicit post-release canary above.
+- [x] Commit/push release evidence.
+- [x] Remove only `navic-music-layout-memory` and `fix/music-layout-memory`; preserve all reader worktrees and artifacts owned by other tasks.
+
+## Validation Record
+
+- Focused policy, DAO/source-contract, and imported PlayLikeCurl tests pass.
+- Full Android host suite: 2,506 tests, 74 failures. Detached baseline: 2,491 tests, the same 74 failures. Net result: 15 added passing tests and no branch-owned failures.
+- Public workflow: `29704807067`, Android success, iOS skipped.
+- Release: `v1.0.11-iota25` at `999a52ca7148d0877cb09c85d363da8fb43bbc0d`.
+- APK: version code `552`, SHA-256 `18a290114547810755e9a116e16b5c00d9de42d8a2187c138b7467a4cb539654`, expected release certificate verified.
+- ADB: `emulator-5554` upgraded from `iota23` to `iota25` and launched; no phone was connected and the emulator has no authenticated library session.
