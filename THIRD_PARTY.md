@@ -50,8 +50,8 @@ the reader vendor manifest.
 
 - Original project: <https://github.com/karankalsi/PlayLikeCurl>
 - Maintained fork: <https://github.com/Darkaxt/PlayLikeCurl>
-- Pinned release: <https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.3>
-- Pinned source: <https://github.com/Darkaxt/PlayLikeCurl/commit/f13eb7a4cb75761a6d329cc3d221faa2aeb47431>
+- Pinned release: <https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.4>
+- Pinned source: <https://github.com/Darkaxt/PlayLikeCurl/commit/b885fc182f8e0c1c3a518c5bef23765eb44e1f31>
 - License: MIT
 - Full notice: [`third_party/playlikecurl/LICENSE.txt`](third_party/playlikecurl/LICENSE.txt)
 - Provenance: [`third_party/playlikecurl/provenance.json`](third_party/playlikecurl/provenance.json)

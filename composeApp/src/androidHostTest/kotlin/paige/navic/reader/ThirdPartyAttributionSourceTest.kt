@@ -45,9 +45,9 @@ class ThirdPartyAttributionSourceTest {
 
 		assertContains(notices, "PlayLikeCurl")
 		assertContains(notices, "https://github.com/karankalsi/PlayLikeCurl")
-		assertContains(notices, "f13eb7a4cb75761a6d329cc3d221faa2aeb47431")
+		assertContains(notices, "b885fc182f8e0c1c3a518c5bef23765eb44e1f31")
 		assertContains(notices, "third_party/playlikecurl/LICENSE.txt")
-		assertContains(libraryRecord, "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.3")
+		assertContains(libraryRecord, "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.4")
 		assertContains(libraryRecord, "https://github.com/karankalsi")
 		assertContains(libraryRecord, "playlikecurl-mit")
 		assertContains(licenseRecord, "MIT License - PlayLikeCurl")
