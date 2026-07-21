@@ -243,7 +243,6 @@ internal class ReaderPageTurnBundleSource(
 			return
 		}
 		cachedSnapshot(pageIndex, kind)?.let { cached ->
-			onCaptured(true)
 			schedulePersistentSnapshot(cached, priority) { persisted ->
 				if (!persisted) {
 					Logger.w(
@@ -251,6 +250,7 @@ internal class ReaderPageTurnBundleSource(
 						"Prepared page remains usable after cache persistence failure pageIndex=$pageIndex"
 					)
 				}
+				onCaptured(persisted)
 			}
 			return
 		}
@@ -275,16 +275,19 @@ internal class ReaderPageTurnBundleSource(
 					onCaptured(false)
 					return@capturePreparedPage
 				}
-				val cached = putSnapshot(captured, priority, persist = false)
-				onCaptured(true)
-				schedulePersistentSnapshot(cached, priority) { persisted ->
-					if (!persisted) {
-						Logger.w(
-							ReaderPageTurnBundleSourceTag,
-							"Captured page remains usable after cache persistence failure pageIndex=$pageIndex"
-						)
+				putSnapshot(
+					snapshot = captured,
+					priority = priority,
+					onPersisted = { persisted ->
+						if (!persisted) {
+							Logger.w(
+								ReaderPageTurnBundleSourceTag,
+								"Captured page remains usable after cache persistence failure pageIndex=$pageIndex"
+							)
+						}
+						onCaptured(persisted)
 					}
-				}
+				)
 			} finally {
 				reference.release()
 			}
@@ -390,14 +393,16 @@ internal class ReaderPageTurnBundleSource(
 	private fun putSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
 		priority: ReaderPageRasterPriority,
-		persist: Boolean = true
+		persist: Boolean = true,
+		onPersisted: (Boolean) -> Unit = {}
 	): ReaderPageSlideSnapshot {
 		snapshotCache[snapshot.key]?.let { cached ->
 			snapshot.releaseCacheOwnership()
+			if (persist) schedulePersistentSnapshot(cached, priority, onPersisted)
 			return cached
 		}
 		snapshotCache[snapshot.key] = snapshot
-		if (persist) schedulePersistentSnapshot(snapshot, priority)
+		if (persist) schedulePersistentSnapshot(snapshot, priority, onPersisted)
 		trimSnapshotCacheToCapacity()
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,

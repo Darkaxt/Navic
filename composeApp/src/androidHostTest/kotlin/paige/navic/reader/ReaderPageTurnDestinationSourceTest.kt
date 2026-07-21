@@ -229,9 +229,17 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(plan, "addTarget(centerPageIndex, 'current')")
 		assertContains(plan, "addTarget(centerPageIndex + step, 'next-transition')")
 		assertContains(plan, "addTarget(centerPageIndex - step, 'previous-transition')")
-		assertContains(plan, "addChapter(chapters[currentChapterIndex], 'current-chapter')")
-		assertContains(plan, "addChapter(chapters[currentChapterIndex + 1], 'next-chapter')")
-		assertContains(plan, "addChapter(chapters[currentChapterIndex - 1], 'previous-chapter')")
+		assertContains(plan, "addTarget(centerPageIndex + step * 2, 'next-lookahead')")
+		assertContains(plan, "addTarget(centerPageIndex - step * 2, 'previous-lookahead')")
+		assertContains(plan, "const currentChapterPages = chapterPages(chapters[currentChapterIndex])")
+		assertContains(plan, "const nextChapterPages = chapterPages(chapters[currentChapterIndex + 1])")
+		assertContains(plan, "const previousChapterPages = chapterPages(chapters[currentChapterIndex - 1])")
+		assertContains(plan, "currentChapterPages.forEach(pageIndex => addTarget(pageIndex, 'current-chapter'))")
+		assertContains(plan, "nextChapterPages.slice(0, 3).forEach(pageIndex => addTarget(pageIndex, 'next-chapter'))")
+		assertContains(plan, "previousChapterPages.slice(-3).reverse()")
+		assertContains(plan, "addTarget(pageIndex, 'previous-chapter')")
+		assertContains(plan, "addTarget(pageIndex, 'next-chapter-remainder')")
+		assertContains(plan, "addTarget(pageIndex, 'previous-chapter-remainder')")
 		assertContains(plan, "layoutMode === 'spread' ? 2 : 1")
 		assertContains(plan, "pageStartIndex")
 		assertContains(plan, "pageCount")
@@ -244,16 +252,17 @@ class ReaderPageTurnDestinationSourceTest {
 		val plan = preview
 			.substringAfter("function pageTurnRasterPreparationPlan(")
 			.substringBefore("function pageTurnPreviewContext(")
-		val addChapter = plan
-			.substringAfter("const addChapter = (chapter, priority) => {")
+		val chapterPages = plan
+			.substringAfter("const chapterPages = chapter => {")
 			.substringBefore("\n  }\n\n  addTarget(centerPageIndex")
 
-		assertContains(addChapter, "const pageStartIndex = Math.max(0")
-		assertContains(addChapter, "const pageEndIndex = Math.min(pageCount, pageStartIndex + chapterPageCount)")
-		assertContains(addChapter, "pageIndex < pageEndIndex")
-		assertContains(addChapter, "addTarget(pageIndex, priority)")
-		assertFalse(addChapter.contains("% pageCount"))
-		assertFalse(addChapter.contains("currentChapterIndex"))
+		assertContains(chapterPages, "const pageStartIndex = Math.max(0")
+		assertContains(chapterPages, "const pageEndIndex = Math.min(pageCount, pageStartIndex + chapterPageCount)")
+		assertContains(chapterPages, "pageIndex < pageEndIndex")
+		assertContains(chapterPages, "pages.push(pageIndex)")
+		assertContains(chapterPages, "return pages")
+		assertFalse(chapterPages.contains("% pageCount"))
+		assertFalse(chapterPages.contains("currentChapterIndex"))
 	}
 
 	@Test
@@ -424,5 +433,25 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(hydration, "generation != activeGeneration")
 		assertFalse(hydration.contains("postDelayed"))
 		assertFalse(hydration.contains("withTimeout"))
+	}
+
+	@Test
+	fun preparedCaptureRetainsPersistenceBeforeLruEvictionAndCompletesAfterPublication() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source
+			.substringAfter("fun capturePreparedRasterPage(")
+			.substringBefore("private fun capturePreparedPage(")
+		val insertion = source
+			.substringAfter("private fun putSnapshot(")
+			.substringBefore("private fun trimSnapshotCacheToCapacity()")
+
+		assertFalse(capture.contains("putSnapshot(captured, priority, persist = false)"))
+		assertContains(capture, "onPersisted = { persisted ->")
+		assertContains(capture, "onCaptured(persisted)")
+		assertContains(insertion, "onPersisted: (Boolean) -> Unit = {}")
+		assertTrue(
+			insertion.indexOf("schedulePersistentSnapshot(") < insertion.indexOf("trimSnapshotCacheToCapacity()"),
+			"Persistence must retain the inserted snapshot before an LRU trim can release cache ownership"
+		)
 	}
 }

@@ -144,22 +144,34 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
     seen.add(normalized)
     targets.push(Object.freeze({ pageIndex: normalized, priority }))
   }
-  const addChapter = (chapter, priority) => {
+  const chapterPages = chapter => {
     const pageStartIndex = Math.max(0, Math.floor(Number(chapter?.pageStartIndex) || 0))
     const chapterPageCount = Math.max(0, Math.floor(Number(chapter?.pageCount) || 0))
     const pageEndIndex = Math.min(pageCount, pageStartIndex + chapterPageCount)
+    const pages = []
     for (let pageIndex = pageStartIndex; pageIndex < pageEndIndex; pageIndex += 1) {
-      if (Math.abs(pageIndex - centerPageIndex) % step === 0) addTarget(pageIndex, priority)
+      if (Math.abs(pageIndex - centerPageIndex) % step === 0) pages.push(pageIndex)
     }
+    return pages
   }
 
   addTarget(centerPageIndex, 'current')
   addTarget(centerPageIndex + step, 'next-transition')
   addTarget(centerPageIndex - step, 'previous-transition')
+  addTarget(centerPageIndex + step * 2, 'next-lookahead')
+  addTarget(centerPageIndex - step * 2, 'previous-lookahead')
   if (currentChapterIndex >= 0) {
-    addChapter(chapters[currentChapterIndex], 'current-chapter')
-    addChapter(chapters[currentChapterIndex + 1], 'next-chapter')
-    addChapter(chapters[currentChapterIndex - 1], 'previous-chapter')
+    const currentChapterPages = chapterPages(chapters[currentChapterIndex])
+    const nextChapterPages = chapterPages(chapters[currentChapterIndex + 1])
+    const previousChapterPages = chapterPages(chapters[currentChapterIndex - 1])
+    currentChapterPages.forEach(pageIndex => addTarget(pageIndex, 'current-chapter'))
+    nextChapterPages.slice(0, 3).forEach(pageIndex => addTarget(pageIndex, 'next-chapter'))
+    previousChapterPages.slice(-3).reverse()
+      .forEach(pageIndex => addTarget(pageIndex, 'previous-chapter'))
+    nextChapterPages.slice(3)
+      .forEach(pageIndex => addTarget(pageIndex, 'next-chapter-remainder'))
+    previousChapterPages.slice(0, -3).reverse()
+      .forEach(pageIndex => addTarget(pageIndex, 'previous-chapter-remainder'))
   }
   const currentChapter = currentChapterIndex >= 0 ? chapters[currentChapterIndex] : null
   return Object.freeze({

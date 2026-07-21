@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import android.content.ComponentCallbacks2
 import android.content.res.Configuration
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -20,6 +21,14 @@ import paige.navic.reader.readerPagePreparationState
 import paige.navic.util.core.Logger
 
 private const val ReaderPageRasterPreparationControllerTag = "ReaderPageRasterPreparation"
+
+private data class ReaderPageRasterBackgroundPrefetch(
+	val webView: WebView,
+	val centerPageIndex: Int,
+	val kind: ReaderPageTurnTransitionKind,
+	val targets: List<ReaderPageRasterBatchTarget>,
+	val generation: Long
+)
 
 internal fun readerPageTurnCanStartPassivePrewarm(
 	destroyed: Boolean,
@@ -43,11 +52,15 @@ internal class ReaderPageRasterPreparationController(
 ) {
 	private val rasterBatchController = ReaderPageRasterBatchController(bundleSource)
 	private val rasterRepairBatchController = ReaderPageRasterBatchController(bundleSource)
+	private val rasterBackgroundBatchController = ReaderPageRasterBatchController(bundleSource)
 	private val rasterRepairCallbacks = linkedMapOf<Int, MutableList<(Boolean) -> Unit>>()
 	private var activeRasterRepairPageIndex: Int? = null
 	private var currentVisualPageIndex: Int? = null
 	private var preparedChapterRange: ReaderPageRasterPreparedChapterRange? = null
 	private var candidateChapterRange: ReaderPageRasterPreparedChapterRange? = null
+	private var preparedRepairPageIndices: Set<Int> = emptySet()
+	private var candidateRepairPageIndices: Set<Int> = emptySet()
+	private var candidateBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
 	private var prewarmSession = 0L
 	private var prewarmInProgress = false
 	private var rasterPreparationCompleted = 0
@@ -58,6 +71,8 @@ internal class ReaderPageRasterPreparationController(
 	private var lastPrewarmBoundary: String? = null
 	private var lastPreparationStateTrace: String? = null
 	private var hasPreparedBefore = false
+	private var backgroundPrefetchSession = 0L
+	private var backgroundPrefetchInProgress = false
 	private var preparationShield: ImageView? = null
 	private var preparationShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var preparationShieldSession: Long? = null
@@ -68,12 +83,18 @@ internal class ReaderPageRasterPreparationController(
 		override fun onConfigurationChanged(newConfig: Configuration) = Unit
 
 		override fun onLowMemory() {
-			host.post { bundleSource.trimMemory("on-low-memory") }
+			host.post {
+				cancelBackgroundPrefetch("on-low-memory")
+				bundleSource.trimMemory("on-low-memory")
+			}
 		}
 
 		override fun onTrimMemory(level: Int) {
 			if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-				host.post { bundleSource.trimMemory("on-trim-memory:$level") }
+				host.post {
+					cancelBackgroundPrefetch("on-trim-memory:$level")
+					bundleSource.trimMemory("on-trim-memory:$level")
+				}
 			}
 		}
 	}
@@ -158,6 +179,7 @@ internal class ReaderPageRasterPreparationController(
 
 	fun updateBitmapQuality(value: String?) {
 		if (!bundleSource.updateBitmapQuality(normalizeReaderPageBitmapQuality(value))) return
+		cancelBackgroundPrefetch("bitmap-quality-changed")
 		cancelRasterRepairs("bitmap-quality-changed")
 		cancelPrewarm(reason = "bitmap-quality-changed")
 		onRequestPrewarm()
@@ -171,6 +193,7 @@ internal class ReaderPageRasterPreparationController(
 	fun destroy() {
 		if (destroyed) return
 		destroyed = true
+		cancelBackgroundPrefetch("destroy")
 		cancelRasterRepairs("destroy")
 		cancelPrewarm(reason = "destroy")
 		bundleSource.close()
@@ -180,11 +203,14 @@ internal class ReaderPageRasterPreparationController(
 
 	fun invalidate(reason: String, clearVisualPageIndex: Boolean = false) {
 		if (destroyed) return
+		cancelBackgroundPrefetch("invalidate:$reason")
 		cancelRasterRepairs("invalidate:$reason")
 		cancelPrewarm(reason = "invalidate:$reason")
 		bundleSource.invalidate(reason)
 		preparedChapterRange = null
 		candidateChapterRange = null
+		preparedRepairPageIndices = emptySet()
+		candidateRepairPageIndices = emptySet()
 		if (clearVisualPageIndex) currentVisualPageIndex = null
 		logLoadingEvent(
 			event = "invalidated",
@@ -195,6 +221,7 @@ internal class ReaderPageRasterPreparationController(
 
 	fun invalidateCurrentVisualSnapshot(reason: String) {
 		if (destroyed) return
+		cancelBackgroundPrefetch("invalidate-current:$reason")
 		cancelRasterRepairs("invalidate-current:$reason")
 		cancelPrewarm(reason = "invalidate-current:$reason")
 		val pageIndex = currentVisualPageIndex
@@ -220,6 +247,7 @@ internal class ReaderPageRasterPreparationController(
 			if (reason == "page-turn:exact") onRequestPrewarm()
 			return
 		}
+		cancelBackgroundPrefetch("visual-index-changed:${reason ?: "unspecified"}")
 		cancelPrewarm(reason = "visual-index-changed:${reason ?: "unspecified"}")
 		currentVisualPageIndex = pageIndex
 		logLoadingEvent(
@@ -230,11 +258,11 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	fun repairRasterPage(pageIndex: Int, onComplete: (Boolean) -> Unit) {
-		val chapterRange = preparedChapterRange
-		if (destroyed || pageIndex < 0 || chapterRange?.contains(pageIndex) != true) {
+		val repairPages = preparedRepairPageIndices
+		if (destroyed || pageIndex < 0 || pageIndex !in repairPages) {
 			logLoadingEvent(
 				event = "page-repair-failed",
-				detail = "page=$pageIndex reason=outside-prepared-chapter chapter=$chapterRange"
+				detail = "page=$pageIndex reason=outside-prepared-window pages=$repairPages"
 			)
 			onComplete(false)
 			return
@@ -244,7 +272,7 @@ internal class ReaderPageRasterPreparationController(
 		logLoadingEvent(
 			event = "page-repair-requested",
 			detail = "page=$pageIndex queued=${activeRasterRepairPageIndex != null} " +
-				"chapter=$chapterRange generation=${bundleSource.currentGeneration()}"
+				"pages=$repairPages generation=${bundleSource.currentGeneration()}"
 		)
 		startNextRasterRepair()
 	}
@@ -252,6 +280,7 @@ internal class ReaderPageRasterPreparationController(
 	private fun startNextRasterRepair() {
 		if (activeRasterRepairPageIndex != null || prewarmInProgress || destroyed) return
 		val pageIndex = rasterRepairCallbacks.keys.firstOrNull() ?: return
+		cancelBackgroundPrefetch("page-repair")
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		if (webView == null) {
 			finishRasterRepair(pageIndex, false, "webview-unavailable")
@@ -330,8 +359,12 @@ internal class ReaderPageRasterPreparationController(
 			idle = true
 		)) return false
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
+		cancelBackgroundPrefetch("blocking-session-started")
+		cancelRasterRepairs("blocking-session-started")
 		prewarmInProgress = true
 		candidateChapterRange = null
+		candidateRepairPageIndices = emptySet()
+		candidateBackgroundPrefetch = null
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = 0
 		rasterInteractiveCompleted = 0
@@ -394,6 +427,7 @@ internal class ReaderPageRasterPreparationController(
 					"targets=${plan.targets.size}"
 			)
 			candidateChapterRange = plan.preparedChapterRange()
+			candidateRepairPageIndices = plan.preparedRepairPageIndices()
 			bundleSource.protectDecodedWindow(
 				centerPageIndex = plan.centerPageIndex,
 				step = plan.step,
@@ -404,6 +438,13 @@ internal class ReaderPageRasterPreparationController(
 			} else {
 				ReaderPageTurnTransitionKind.PortraitSlide
 			}
+			candidateBackgroundPrefetch = ReaderPageRasterBackgroundPrefetch(
+				webView = webView,
+				centerPageIndex = plan.centerPageIndex,
+				kind = kind,
+				targets = plan.targets,
+				generation = bundleSource.currentGeneration()
+			)
 			val calibrationTargets = readerPageRasterCalibrationTargets(plan.targets)
 			obtainRasterReference(webView, session, plan.centerPageIndex, kind) { reference ->
 				if (!isPrewarmActive(webView, session)) {
@@ -617,11 +658,14 @@ internal class ReaderPageRasterPreparationController(
 		)
 		when (outcome) {
 			ReaderPageRasterBatchOutcome.Ready -> {
+				val backgroundPrefetch = candidateBackgroundPrefetch
 				rasterPreparationCompleted = rasterPreparationRequired
 				rasterInteractiveCompleted = rasterInteractiveRequired
 				hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore
 				preparedChapterRange = candidateChapterRange ?: preparedChapterRange
+				preparedRepairPageIndices = candidateRepairPageIndices
 				publishPreparationState(ReaderPagePreparationPhase.Ready)
+				backgroundPrefetch?.let(::scheduleBackgroundPrefetch)
 			}
 			ReaderPageRasterBatchOutcome.Cancelled -> publishPreparationState(
 				if (hasPreparedBefore) ReaderPagePreparationPhase.Ready
@@ -647,7 +691,11 @@ internal class ReaderPageRasterPreparationController(
 				)
 			}
 		}
-		if (outcome != ReaderPageRasterBatchOutcome.Ready) candidateChapterRange = null
+		if (outcome != ReaderPageRasterBatchOutcome.Ready) {
+			candidateChapterRange = null
+			candidateRepairPageIndices = emptySet()
+		}
+		candidateBackgroundPrefetch = null
 		rasterPreparationCompleted = 0
 		rasterPreparationRequired = 0
 		rasterInteractiveCompleted = 0
@@ -655,6 +703,109 @@ internal class ReaderPageRasterPreparationController(
 		activePreparationPageNumber = null
 		removePreparationShield(reason = "session-finished:$outcome")
 		startNextRasterRepair()
+	}
+
+	private fun scheduleBackgroundPrefetch(prefetch: ReaderPageRasterBackgroundPrefetch) {
+		val targets = readerPageRasterBackgroundTargets(prefetch.targets)
+		if (targets.isEmpty()) return
+		cancelBackgroundPrefetch("rescheduled")
+		val session = ++backgroundPrefetchSession
+		logLoadingEvent(
+			event = "background-prefetch-scheduled",
+			detail = "session=$session center=${prefetch.centerPageIndex} " +
+				"pages=${targets.joinToString(",") { target -> target.pageIndex.toString() }} " +
+				"generation=${prefetch.generation}"
+		)
+		host.post {
+			if (!isBackgroundPrefetchActive(session, prefetch)) return@post
+			Looper.myQueue().addIdleHandler {
+				if (isBackgroundPrefetchActive(session, prefetch)) {
+					startBackgroundPrefetch(session, prefetch, targets)
+				}
+				false
+			}
+		}
+	}
+
+	private fun startBackgroundPrefetch(
+		session: Long,
+		prefetch: ReaderPageRasterBackgroundPrefetch,
+		targets: List<ReaderPageRasterBatchTarget>
+	) {
+		if (!isBackgroundPrefetchActive(session, prefetch)) return
+		val reference = bundleSource.retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
+		if (reference == null) {
+			logLoadingEvent(
+				event = "background-prefetch-failed",
+				detail = "session=$session reason=reference-unavailable " +
+					"center=${prefetch.centerPageIndex} generation=${prefetch.generation}"
+			)
+			return
+		}
+		backgroundPrefetchInProgress = true
+		logLoadingEvent(
+			event = "background-prefetch-started",
+			detail = "session=$session pages=${targets.size} generation=${prefetch.generation}"
+		)
+		val started = rasterBackgroundBatchController.start(
+			webView = prefetch.webView,
+			kind = prefetch.kind,
+			reference = reference,
+			targets = targets,
+			onProgress = { completed, required ->
+				if (isBackgroundPrefetchActive(session, prefetch)) {
+					logLoadingEvent(
+						event = "background-prefetch-progress",
+						detail = "session=$session completed=$completed/$required " +
+							"generation=${prefetch.generation}"
+					)
+				}
+			},
+			onComplete = backgroundComplete@ { outcome ->
+				if (session != backgroundPrefetchSession) return@backgroundComplete
+				backgroundPrefetchInProgress = false
+				if (outcome == ReaderPageRasterBatchOutcome.Ready) {
+					logLoadingEvent(
+						event = "background-prefetch-completed",
+						detail = "session=$session outcome=$outcome generation=${prefetch.generation}"
+					)
+				} else {
+					logLoadingEvent(
+						event = "background-prefetch-failed",
+						detail = "session=$session outcome=$outcome generation=${prefetch.generation}"
+					)
+				}
+			}
+		)
+		if (!started && session == backgroundPrefetchSession) {
+			backgroundPrefetchInProgress = false
+		}
+	}
+
+	private fun isBackgroundPrefetchActive(
+		session: Long,
+		prefetch: ReaderPageRasterBackgroundPrefetch
+	): Boolean =
+		session == backgroundPrefetchSession &&
+			!destroyed &&
+			!prewarmInProgress &&
+			activeRasterRepairPageIndex == null &&
+			rasterRepairCallbacks.isEmpty() &&
+			prefetch.generation == bundleSource.currentGeneration() &&
+			prefetch.webView.isAttachedToWindow
+
+	private fun cancelBackgroundPrefetch(reason: String) {
+		val wasInProgress = backgroundPrefetchInProgress
+		backgroundPrefetchSession += 1
+		backgroundPrefetchInProgress = false
+		candidateBackgroundPrefetch = null
+		if (wasInProgress) rasterBackgroundBatchController.cancel()
+		if (wasInProgress) {
+			logLoadingEvent(
+				event = "background-prefetch-failed",
+				detail = "reason=cancelled:$reason generation=${bundleSource.currentGeneration()}"
+			)
+		}
 	}
 
 	private fun logPrewarmBoundary(event: String, detail: String? = null) {

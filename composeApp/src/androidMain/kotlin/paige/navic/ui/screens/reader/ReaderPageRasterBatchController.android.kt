@@ -46,6 +46,9 @@ internal fun ReaderPageRasterPreparationPlan.preparedChapterRange(): ReaderPageR
 		.takeIf { start -> start >= 0 && currentChapterPageCount > 0 }
 		?.let { start -> ReaderPageRasterPreparedChapterRange(start, currentChapterPageCount) }
 
+internal fun ReaderPageRasterPreparationPlan.preparedRepairPageIndices(): Set<Int> =
+	readerPageRasterBlockingTargets(targets).mapTo(linkedSetOf()) { target -> target.pageIndex }
+
 internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRasterPreparationPlan? {
 	val raw = encoded.orEmpty().trim()
 	val root = runCatching {
@@ -111,9 +114,13 @@ private fun readerPageRasterPriority(value: String): ReaderPageRasterPriority? =
 	"current" -> ReaderPageRasterPriority.Current
 	"next-transition" -> ReaderPageRasterPriority.NextTransition
 	"previous-transition" -> ReaderPageRasterPriority.PreviousTransition
+	"next-lookahead" -> ReaderPageRasterPriority.NextLookahead
+	"previous-lookahead" -> ReaderPageRasterPriority.PreviousLookahead
 	"current-chapter" -> ReaderPageRasterPriority.CurrentChapter
 	"next-chapter" -> ReaderPageRasterPriority.NextChapter
 	"previous-chapter" -> ReaderPageRasterPriority.PreviousChapter
+	"next-chapter-remainder" -> ReaderPageRasterPriority.NextChapterRemainder
+	"previous-chapter-remainder" -> ReaderPageRasterPriority.PreviousChapterRemainder
 	else -> null
 }
 

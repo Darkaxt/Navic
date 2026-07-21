@@ -170,6 +170,18 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun staleDeckPlanCallbackCannotRaceAnActiveRasterProducer() {
+		val source = controllerFile.readText()
+		val callback = source
+			.substringAfter(") { encoded ->")
+			.substringBefore("val plan = readerPageRasterPreparationPlan(encoded)")
+
+		assertContains(callback, "preparationPhase == ReaderPagePreparationPhase.Preparing")
+		assertContains(callback, "\"preparation-in-progress-after-plan\"")
+		assertContains(callback, "return@evaluateJavascript")
+	}
+
+	@Test
 	fun productionControllerPreparesTheProtectedWorkingSetAroundTheFoliateCenter() {
 		val source = controllerFile.readText()
 		val prepare = source

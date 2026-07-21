@@ -34,9 +34,13 @@ class ReaderPageRasterPolicyTest {
 				ReaderPageRasterPriority.Current,
 				ReaderPageRasterPriority.NextTransition,
 				ReaderPageRasterPriority.PreviousTransition,
+				ReaderPageRasterPriority.NextLookahead,
+				ReaderPageRasterPriority.PreviousLookahead,
 				ReaderPageRasterPriority.CurrentChapter,
 				ReaderPageRasterPriority.NextChapter,
-				ReaderPageRasterPriority.PreviousChapter
+				ReaderPageRasterPriority.PreviousChapter,
+				ReaderPageRasterPriority.NextChapterRemainder,
+				ReaderPageRasterPriority.PreviousChapterRemainder
 			),
 			ReaderPageRasterPriority.entries.sortedBy { priority -> priority.rank }
 		)

@@ -1,8 +1,10 @@
 package paige.navic.ui.screens.reader
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import paige.navic.reader.ReaderPageRasterPriority
 
 class ReaderPageRasterBatchPlanTest {
@@ -82,6 +84,24 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
+	fun onePageChapterBlocksUntilTheFivePageRendererDeckIsResident() {
+		val plan = readerPageRasterPreparationPlan(
+			"""{"context":{"centerPageIndex":5,"pageCount":12,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterPageStartIndex":5,"currentChapterPageCount":1},"targets":[{"pageIndex":5,"priority":"current"},{"pageIndex":6,"priority":"next-transition"},{"pageIndex":4,"priority":"previous-transition"},{"pageIndex":7,"priority":"next-lookahead"},{"pageIndex":3,"priority":"previous-lookahead"},{"pageIndex":8,"priority":"next-chapter"},{"pageIndex":2,"priority":"previous-chapter"}]}"""
+		)
+
+		assertNotNull(plan)
+		assertEquals(setOf(5, 6, 4, 7, 3), plan.preparedRepairPageIndices())
+		assertEquals(
+			listOf(5, 6, 4, 7, 3),
+			readerPageRasterBlockingTargets(plan.targets).map { target -> target.pageIndex }
+		)
+		assertEquals(
+			listOf(8, 2),
+			readerPageRasterBackgroundTargets(plan.targets).map { target -> target.pageIndex }
+		)
+	}
+
+	@Test
 	fun adjacentChapterTargetsAreBackgroundWork() {
 		val targets = listOf(
 			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.Current),
@@ -96,5 +116,42 @@ class ReaderPageRasterBatchPlanTest {
 			listOf(20, 4),
 			readerPageRasterBackgroundTargets(targets).map { it.pageIndex }
 		)
+	}
+
+	@Test
+	fun adjacentChapterWindowsPrecedeIdleRemainders() {
+		val plan = readerPageRasterPreparationPlan(
+			"""{"context":{"centerPageIndex":8,"pageCount":40,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterPageStartIndex":6,"currentChapterPageCount":6},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":12,"priority":"next-chapter"},{"pageIndex":5,"priority":"previous-chapter"},{"pageIndex":15,"priority":"next-chapter-remainder"},{"pageIndex":2,"priority":"previous-chapter-remainder"}]}"""
+		)
+
+		assertNotNull(plan)
+		assertEquals(
+			listOf(
+				ReaderPageRasterPriority.NextChapter,
+				ReaderPageRasterPriority.PreviousChapter,
+				ReaderPageRasterPriority.NextChapterRemainder,
+				ReaderPageRasterPriority.PreviousChapterRemainder
+			),
+			readerPageRasterBackgroundTargets(plan.targets).map { target -> target.priority }
+		)
+	}
+
+	@Test
+	fun jsPlanBuildsAdjacentWindowsBeforeChapterRemainders() {
+		val source = File("src/androidMain/assets/reader/navic-reader-page-turn-preview.js").readText()
+		val plan = source
+			.substringAfter("function pageTurnRasterPreparationPlan(")
+			.substringBefore("function pageTurnPreviewContext()")
+
+		val nextWindow = plan.indexOf("'next-chapter'")
+		val previousWindow = plan.indexOf("'previous-chapter'")
+		val nextRemainder = plan.indexOf("'next-chapter-remainder'")
+		val previousRemainder = plan.indexOf("'previous-chapter-remainder'")
+		assertTrue(nextWindow >= 0)
+		assertTrue(previousWindow > nextWindow)
+		assertTrue(nextRemainder > previousWindow)
+		assertTrue(previousRemainder > nextRemainder)
+		assertTrue(plan.contains("slice(0, 3)"))
+		assertTrue(plan.contains("slice(-3).reverse()"))
 	}
 }

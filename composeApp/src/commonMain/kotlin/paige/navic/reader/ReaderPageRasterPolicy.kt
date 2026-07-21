@@ -14,9 +14,13 @@ enum class ReaderPageRasterPriority(val rank: Int) {
 	Current(0),
 	NextTransition(1),
 	PreviousTransition(2),
-	CurrentChapter(3),
-	NextChapter(4),
-	PreviousChapter(5)
+	NextLookahead(3),
+	PreviousLookahead(4),
+	CurrentChapter(5),
+	NextChapter(6),
+	PreviousChapter(7),
+	NextChapterRemainder(8),
+	PreviousChapterRemainder(9)
 }
 
 fun normalizeReaderPageBitmapQuality(value: String?): ReaderPageBitmapQuality =

@@ -603,6 +603,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 				logActivationState("refresh-gated", "stale-request=$request")
 				return@evaluateJavascript
 			}
+			if (preparationPhase == ReaderPagePreparationPhase.Preparing) {
+				logActivationState("refresh-gated", "preparation-in-progress-after-plan")
+				return@evaluateJavascript
+			}
 			val plan = readerPageRasterPreparationPlan(encoded)
 			if (plan == null) {
 				logActivationState("refresh-gated", "preparation-plan-unavailable")

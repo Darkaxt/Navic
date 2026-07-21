@@ -106,13 +106,38 @@ class ReaderPageRasterPreparationSourceTest {
 		).substringBefore("\n\tfun prewarmAdjacent()")
 
 		assertContains(source, "private val rasterRepairBatchController")
+		assertContains(repair, "pageIndex !in repairPages")
+		assertContains(repair, "reason=outside-prepared-window")
 		assertContains(repair, "ReaderPageRasterBatchTarget(pageIndex")
 		assertContains(repair, "event = \"page-repair-requested\"")
+		assertContains(repair, "cancelBackgroundPrefetch(\"page-repair\")")
 		assertContains(repair, "event = \"page-repair-completed\"")
 		assertContains(repair, "event = \"page-repair-failed\"")
 		assertFalse(repair.contains("publishPreparationState("))
 		assertFalse(repair.contains("reusePreparationShield("))
 		assertFalse(repair.contains("onRequestPrewarm()"))
+	}
+
+	@Test
+	fun adjacentChapterPrefetchUsesAnIndependentIdleBatchWithoutChangingReadiness() {
+		val source = readerRasterPreparationSource()
+		val background = source.substringAfter(
+			"private fun scheduleBackgroundPrefetch("
+		).substringBefore("\n\tprivate fun cancelBackgroundPrefetch(")
+
+		assertContains(source, "private val rasterBackgroundBatchController")
+		assertContains(source, "Looper.myQueue().addIdleHandler")
+		assertContains(background, "readerPageRasterBackgroundTargets(")
+		assertContains(background, "rasterBackgroundBatchController.start(")
+		assertContains(background, "event = \"background-prefetch-scheduled\"")
+		assertContains(background, "event = \"background-prefetch-started\"")
+		assertContains(background, "event = \"background-prefetch-progress\"")
+		assertContains(background, "event = \"background-prefetch-completed\"")
+		assertContains(background, "event = \"background-prefetch-failed\"")
+		assertContains(background, "activeRasterRepairPageIndex == null")
+		assertContains(background, "rasterRepairCallbacks.isEmpty()")
+		assertFalse(background.contains("publishPreparationState("))
+		assertFalse(background.contains("reusePreparationShield("))
 	}
 }
 
