@@ -1,7 +1,7 @@
 # Recommended Upstream Ports Design
 
-**Date:** 2026-07-21  
-**Source:** `ssalggnikool/Navic:master` audit at upstream commit `218c93b3`  
+**Date:** 2026-07-21
+**Source:** `ssalggnikool/Navic:master` audit at upstream commit `218c93b3`
 **Target:** Navic Android `master`, after `v1.0.11-iota25`
 
 ## Purpose
