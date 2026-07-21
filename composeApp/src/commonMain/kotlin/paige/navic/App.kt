@@ -41,10 +41,12 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
@@ -258,6 +260,10 @@ fun App(initialScreenOverride: Screen? = null) {
 							remember { NowPlayingSceneStrategy() },
 							remember { BottomSheetSceneStrategy() },
 							rememberListDetailSceneStrategy()
+						),
+						entryDecorators = listOf(
+							rememberSaveableStateHolderNavEntryDecorator(),
+							rememberViewModelStoreNavEntryDecorator()
 						),
 						onBack = {
 							handleNavicBack()

@@ -112,10 +112,10 @@
 
 **Steps**
 
-- [ ] Assert that `NavDisplay` installs saveable-state and ViewModel-store entry decorators.
-- [ ] Assert that the lifecycle dependency resolves to `lifecycle-viewmodel-navigation3`.
-- [ ] Assert that no `PersistentViewModelStoreOwner` is introduced.
-- [ ] Run the focused class and record the expected RED result.
+- [x] Assert that `NavDisplay` installs saveable-state and ViewModel-store entry decorators.
+- [x] Assert that the lifecycle dependency resolves to `lifecycle-viewmodel-navigation3`.
+- [x] Assert that no `PersistentViewModelStoreOwner` is introduced.
+- [x] Run the focused class and record the expected RED result.
 
 ## Task 8: Entry-scoped ViewModels
 
@@ -126,11 +126,11 @@
 
 **Steps**
 
-- [ ] Switch the lifecycle ViewModel module to the Navigation3 integration artifact without changing the pinned Navigation3 version.
-- [ ] Add saveable-state and ViewModel-store entry decorators to `NavDisplay`.
-- [ ] Compile and run the focused test. If the pinned Navigation3 API is incompatible, stop this stage and document the dependency constraint rather than silently upgrading the navigation stack.
-- [ ] Run `NavigationSceneContractSourceTest` and navigation policy tests; require GREEN.
-- [ ] Commit as `fix(navigation): scope ViewModels to back stack entries`.
+- [x] Switch the lifecycle ViewModel module to the Navigation3 integration artifact without changing the pinned Navigation3 version.
+- [x] Add saveable-state and ViewModel-store entry decorators to `NavDisplay`.
+- [x] Compile and run the focused test. If the pinned Navigation3 API is incompatible, stop this stage and document the dependency constraint rather than silently upgrading the navigation stack.
+- [x] Run `NavigationSceneContractSourceTest` and navigation policy tests; require GREEN.
+- [x] Commit as `fix(navigation): scope ViewModels to back stack entries`.
 
 ## Task 9: Integrated verification
 
