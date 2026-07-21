@@ -44,9 +44,9 @@
 
 **Steps**
 
-- [ ] Test that playlist IDs are unioned into an authoritative library keep-set and that a suppressed deletion plan remains suppressed.
-- [ ] Add source-contract assertions requiring Room `@Upsert`, an all-playlist-song-ID query, and one transactional replacement call with no repository-level delete/reinsert sequence.
-- [ ] Run the two focused classes and record the expected RED result.
+- [x] Test that playlist IDs are unioned into an authoritative library keep-set and that a suppressed deletion plan remains suppressed.
+- [x] Add source-contract assertions requiring Room `@Upsert`, an all-playlist-song-ID query, and one transactional replacement call with no repository-level delete/reinsert sequence.
+- [x] Run the two focused classes and record the expected RED result.
 
 ## Task 4: Atomic playlist refresh and safe deletion
 
@@ -58,12 +58,12 @@
 
 **Steps**
 
-- [ ] Replace song `REPLACE` writes with Room `@Upsert`; retain conflict-ignore only where explicitly intended.
-- [ ] Add `PlaylistDao.getAllPlaylistSongIds()`.
-- [ ] Add a pure keep-set policy and union playlist IDs only when authoritative song deletion is allowed.
-- [ ] Upsert playlist songs, construct ordered cross-references, and call `replacePlaylistSongs` once, including for an empty playlist.
-- [ ] Run focused tests plus `LibrarySyncDeletionPolicyTest` and `DbRepositoryAlbumSyncPolicyTest`; require GREEN.
-- [ ] Commit as `fix(playlists): preserve membership during song refresh`.
+- [x] Replace song `REPLACE` writes with Room `@Upsert`; retain conflict-ignore only where explicitly intended.
+- [x] Add `PlaylistDao.getAllPlaylistSongIds()`.
+- [x] Add a pure keep-set policy and union playlist IDs only when authoritative song deletion is allowed.
+- [x] Upsert playlist songs, construct ordered cross-references, and call `replacePlaylistSongs` once, including for an empty playlist.
+- [x] Run focused tests plus `LibrarySyncDeletionPolicyTest` and `DbRepositoryAlbumSyncPolicyTest`; require GREEN.
+- [x] Commit as `fix(playlists): preserve membership during song refresh`.
 
 ## Task 5: Permission-ordering tests
 

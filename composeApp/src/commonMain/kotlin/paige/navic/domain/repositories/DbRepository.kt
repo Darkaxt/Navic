@@ -39,6 +39,7 @@ import paige.navic.data.database.mappers.toEntity
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.librarySyncDeletionPlan
+import paige.navic.domain.models.withRetainedPlaylistSongs
 import paige.navic.util.core.Logger
 import kotlin.coroutines.cancellation.CancellationException
 import dev.zt64.subsonic.api.model.Album as ApiAlbum
@@ -295,6 +296,8 @@ class DbRepository(
 			authoritativeAlbumIds = allAlbumSummaries.mapTo(mutableSetOf()) { it.id },
 			fetchedAlbumIds = allValidAlbumIds,
 			fetchedSongIds = allValidSongIds
+		).withRetainedPlaylistSongs(
+			playlistDao.getAllPlaylistSongIds().toSet()
 		)
 		albumDao.deleteObsoleteAlbums(deletionPlan.albumIdsToKeep)
 		deletionPlan.songIdsToKeep?.let { songDao.deleteObsoleteSongs(it) }
@@ -351,21 +354,14 @@ class DbRepository(
 			song.toEntity(albumCoverArtId = song.albumId?.let(albumCoverArtById::get))
 		}
 
-		playlistDao.deletePlaylistSongCrossRefs(playlistId)
-
-		if (songEntities.isNotEmpty()) {
-			songEntities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
-				songDao.insertSongs(chunk)
-			}
-
-			val crossRefs = songEntities.mapIndexed { index, it ->
-				PlaylistSongCrossRef(playlistId = playlistId, songId = it.songId, position = index)
-			}
-
-			crossRefs.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
-				playlistDao.insertPlaylistSongCrossRefs(chunk)
-			}
+		songEntities.chunked(LIBRARY_DB_WRITE_BATCH_SIZE).forEach { chunk ->
+			songDao.insertSongs(chunk)
 		}
+
+		val crossRefs = songEntities.mapIndexed { index, it ->
+			PlaylistSongCrossRef(playlistId = playlistId, songId = it.songId, position = index)
+		}
+		playlistDao.replacePlaylistSongs(playlistId, crossRefs)
 
 		Logger.i("DbRepository", "- Playlist [$playlistId] synced: ${songEntities.size} songs")
 		songEntities.size
