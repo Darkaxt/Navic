@@ -287,6 +287,60 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun rendererRejectionCallbackSolelyOwnsItsTerminalAndBoundaryHide() {
+		val source = controllerFile.readText()
+		val rejection = source
+			.substringAfter("override fun onGestureRejected(")
+			.substringBefore("override fun onGestureCancelled(")
+		val rendererResult = source
+			.substringAfter("val accepted = surfaceView.turn(pageChange, gestureId)")
+			.substringBefore("fun showSurfaceForGesture()")
+
+		assertContains(
+			rejection,
+			"ReaderPageGestureTerminalOutcome.RejectedBoundary"
+		)
+		assertTrue(
+			rejection.indexOf("finishGesture(") < rejection.indexOf("hideSurface()")
+		)
+		listOf(
+			"dispatchExactVisualPage(",
+			"submitLibraryDeck(",
+			"promotePendingDeck("
+		).forEach { forbidden -> assertFalse(rejection.contains(forbidden)) }
+		assertFalse(rendererResult.contains("finishGesture("))
+		assertFalse(rendererResult.contains("RejectedBoundary"))
+		assertFalse(rendererResult.contains("hideSurface()"))
+	}
+
+	@Test
+	fun controllerPassesDirectionAndParityToEverySpreadAuthority() {
+		val source = controllerFile.readText()
+		val settlement = source
+			.substringAfter("override fun onSettlementStarted(")
+			.substringBefore("override fun onSettlementCompleted(")
+		val refill = source
+			.substringAfter("private fun refillDecodedWorkingSet(")
+			.substringBefore("private fun requestRasterRepair(")
+		val prepare = source
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("private fun submitLibraryDeck(")
+		val submit = source
+			.substringAfter("private fun submitLibraryDeck(")
+			.substringBefore("private fun updateSurfaceBounds(")
+
+		listOf(settlement, refill, prepare, submit).forEach { callSite ->
+			assertContains(callSite, "readerDirection =")
+			assertContains(callSite, "spreadAnchorParity =")
+		}
+		assertContains(submit, "surfaceView.setReadingDirection(")
+		assertTrue(
+			submit.indexOf("surfaceView.setReadingDirection(") <
+				submit.indexOf("surfaceView.submitDeck(deck)")
+		)
+	}
+
+	@Test
 	fun nativeHostMountsAndDrivesTheImportedSurface() {
 		val source = hostFile.readText()
 

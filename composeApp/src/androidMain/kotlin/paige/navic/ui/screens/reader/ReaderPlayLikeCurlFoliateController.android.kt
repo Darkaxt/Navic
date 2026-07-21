@@ -13,6 +13,7 @@ import karacken.curl.PageChange
 import karacken.curl.PageImage
 import karacken.curl.PageSurfaceListener
 import karacken.curl.PageSurfaceView
+import karacken.curl.ReadingDirection
 import karacken.curl.RenderCapabilities
 import karacken.curl.RenderFailure
 import karacken.curl.RenderFailureReason
@@ -79,7 +80,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 ) {
 	private class PreparedPages(
 		val profile: ReaderPlayLikeCurlRasterProfile,
-		val deck: ReaderPlayLikeCurlRasterDeck<Bitmap>,
+		val deck: ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>,
 		val centerOrdinal: Int
 	) {
 		val generations = mutableSetOf<Long>()
@@ -99,7 +100,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
 	private val preparedPageSets = mutableSetOf<PreparedPages>()
-	private var rasterAdapter: ReaderPlayLikeCurlRasterAdapter<Bitmap>? = null
+	private var rasterAdapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>? = null
 	private var activePages: PreparedPages? = null
 	private var requestedProfile: ReaderPlayLikeCurlRasterProfile? = null
 	private var capabilitiesAvailable = false
@@ -186,15 +187,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 				reason: GestureRejectionReason
 			) {
 				val outcome = when (reason) {
+					GestureRejectionReason.BOUNDARY ->
+						ReaderPageGestureTerminalOutcome.RejectedBoundary
 					GestureRejectionReason.SETTLEMENT_RUNNING ->
 						ReaderPageGestureTerminalOutcome.RejectedSettling
-					else -> ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+					else ->
+						ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
 				}
 				finishGesture(
 					gestureId,
 					outcome,
 					"renderer-rejected generation=$generationId reason=$reason"
 				)
+				if (reason == GestureRejectionReason.BOUNDARY) {
+					hideSurface()
+				}
 			}
 
 			override fun onGestureCancelled(gestureId: Long, generationId: Long) {
@@ -223,7 +230,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 						orientation = prepared.profile.orientation,
 						currentOrdinal = currentOrdinal,
 						pageCount = prepared.profile.pageCount,
-						pageChange = pageChange
+						pageChange = pageChange,
+						readerDirection = prepared.profile.readerDirection,
+						spreadAnchorParity = prepared.profile.spreadAnchorParity
 					)
 				}
 				if (pages != null && targetOrdinal != null) {
@@ -237,7 +246,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement started gestureId=$gestureId generation=$generationId " +
-						"source=$sourceLogicalPageId target=$targetLogicalPageId " +
 						"change=$pageChange"
 				)
 			}
@@ -254,7 +262,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					Logger.i(
 						ReaderPlayLikeCurlFoliateControllerTag,
 						"PlayLikeCurl settlement completed generation=$generationId " +
-							"page=$currentLogicalPageId ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
+							"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
 					)
 					hideSurface()
 					updateReadiness(
@@ -272,7 +280,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement completed generation=$generationId " +
-						"page=$currentLogicalPageId ordinal=$currentPageOrdinal change=$pageChange exactDispatch=true"
+						"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=true"
 				)
 				currentOrdinal = currentPageOrdinal
 				pendingExactOrdinal = currentPageOrdinal
@@ -296,13 +304,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			) {
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl settlement cancelled generation=$generationId page=$currentLogicalPageId"
+					"PlayLikeCurl settlement cancelled generation=$generationId"
 				)
 				discardPendingDeck("settlement-cancelled")
 				finishGesture(
 					gestureId,
 					ReaderPageGestureTerminalOutcome.CancelledByUser,
-					"settlement-cancelled generation=$generationId page=$currentLogicalPageId"
+					"settlement-cancelled generation=$generationId"
 				)
 				if (
 					readinessState.textureDeck != ReaderTextureDeckState.Failed &&
@@ -512,16 +520,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		surfaceView.alpha = 1f
 		val accepted = surfaceView.turn(pageChange, gestureId)
-		if (!accepted) {
-			hideSurface()
-			if (activeGestureId == gestureId) {
-				finishGesture(
-					gestureId,
-					ReaderPageGestureTerminalOutcome.RejectedBoundary,
-					"tap-turn-rejected change=$pageChange boundary"
-				)
-			}
-		}
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"PlayLikeCurl tap turn change=$pageChange accepted=$accepted"
@@ -715,7 +713,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val pageIndices = readerPlayLikeCurlPreparedPageIndices(
 			orientation = profile.orientation,
 			currentOrdinal = centerOrdinal,
-			pageCount = profile.pageCount
+			pageCount = profile.pageCount,
+			readerDirection = profile.readerDirection,
+			spreadAnchorParity = profile.spreadAnchorParity
 		)
 		val pages = activePages
 		if (
@@ -838,7 +838,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 						requestRasterRepair(sourcePageIndex, profile)
 					}
 				),
-				release = Bitmap::recycle
+				release = { image ->
+					if (!image.bitmap.isRecycled) image.bitmap.recycle()
+				}
 			)
 			requestedProfile = profile
 		}
@@ -846,7 +848,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val pageIndices = readerPlayLikeCurlPreparedPageIndices(
 			orientation = profile.orientation,
 			currentOrdinal = centerOrdinal,
-			pageCount = profile.pageCount
+			pageCount = profile.pageCount,
+			readerDirection = profile.readerDirection,
+			spreadAnchorParity = profile.spreadAnchorParity
 		)
 		val startedAtNanos = System.nanoTime()
 		logActivationState(
@@ -954,6 +958,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 				generationId = generationId,
 				currentOrdinal = ordinal,
 				pageCount = pages.profile.pageCount,
+				readerDirection = pages.profile.readerDirection,
+				spreadAnchorParity = pages.profile.spreadAnchorParity,
+				filler = { pageGenerationId, slotRole, sourcePageIndex, leaf, fallbackOrdinal ->
+					pages.filler(
+						generationId = pageGenerationId,
+						role = slotRole,
+						sourcePageIndex = sourcePageIndex,
+						leaf = leaf,
+						fallbackOrdinal = fallbackOrdinal
+					)
+				},
 				page = { pageGenerationId, pageOrdinal ->
 					pages.page(pageGenerationId, pageOrdinal)
 				}
@@ -990,6 +1005,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			detail = "generation=$generationId ordinal=$ordinal role=$role " +
 				"orientation=${pages.profile.orientation}"
 		)
+		surfaceView.setReadingDirection(
+			if (pages.profile.readerDirection == ReaderPlayLikeCurlReaderDirection.Rtl) {
+				ReadingDirection.RIGHT_TO_LEFT
+			} else {
+				ReadingDirection.LEFT_TO_RIGHT
+			}
+		)
 		surfaceView.submitDeck(deck)
 	}
 
@@ -1004,8 +1026,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 					readerPlayLikeCurlPortraitSurfaceWidth(
 						hostWidth = host.width,
 						hostHeight = host.height,
-						pageBitmapWidth = page.width,
-						pageBitmapHeight = page.height
+						pageBitmapWidth = page.bitmap.width,
+						pageBitmapHeight = page.bitmap.height
 					)
 				}
 			}
@@ -1022,17 +1044,41 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
-	private fun PreparedPages.page(generationId: Long, ordinal: Int): PageImage<Bitmap> {
-		val bitmap = checkNotNull(deck.value(ordinal)) {
+	private fun PreparedPages.page(
+		generationId: Long,
+		ordinal: Int
+	): PageImage<Bitmap> {
+		val image = checkNotNull(deck.value(ordinal)) {
 			"Missing prepared Foliate page $ordinal for ${profile.orientation}"
 		}
 		return PageImage(
 			generationId,
 			"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
 			ordinal,
-			bitmap.width,
-			bitmap.height,
-			bitmap
+			image.bitmap.width,
+			image.bitmap.height,
+			image.bitmap
+		)
+	}
+
+	private fun PreparedPages.filler(
+		generationId: Long,
+		role: ReaderPlayLikeCurlDeckSlotRole,
+		sourcePageIndex: Int,
+		leaf: ReaderPlayLikeCurlPhysicalLeaf,
+		fallbackOrdinal: Int
+	): PageImage<Bitmap> {
+		val borrowed = checkNotNull(deck.value(fallbackOrdinal)) {
+			"Missing filler lease page $fallbackOrdinal for ${profile.orientation}"
+		}
+		return PageImage.filler(
+			generationId,
+			"filler-${role.name}-$sourcePageIndex-${leaf.name}",
+			fallbackOrdinal,
+			borrowed.bitmap.width,
+			borrowed.bitmap.height,
+			borrowed.bitmap,
+			borrowed.paperColorArgb
 		)
 	}
 

@@ -29,6 +29,17 @@ internal data class ReaderPlayLikeCurlFoliatePageRequest(
 	val leaf: ReaderPlayLikeCurlFoliateLeaf
 )
 
+internal data class ReaderPlayLikeCurlRasterImage(
+	val bitmap: Bitmap,
+	val paperColorArgb: Int
+) {
+	init {
+		require((paperColorArgb ushr 24) == 0xFF) {
+			"PlayLikeCurl paper color must be opaque"
+		}
+	}
+}
+
 internal fun readerPlayLikeCurlFoliatePageRequest(
 	orientation: ReaderPlayLikeCurlOrientation,
 	readerDirection: ReaderPlayLikeCurlReaderDirection,
@@ -46,23 +57,19 @@ internal fun readerPlayLikeCurlFoliatePageRequest(
 		)
 	}
 
-	val relativeParity = Math.floorMod(
-		boundedOrdinal - Math.floorMod(spreadAnchorParity, 2),
-		2
+	val slot = readerPlayLikeCurlSpreadSlot(
+		logicalOrdinal = boundedOrdinal,
+		pageCount = pageCount,
+		readerDirection = readerDirection,
+		spreadAnchorParity = spreadAnchorParity
 	)
-	val spreadStart = (boundedOrdinal - relativeParity).coerceAtLeast(0)
-	val anchorLeaf = when (readerDirection) {
-		ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlFoliateLeaf.Left
-		ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlFoliateLeaf.Right
-	}
-	val adjacentLeaf = when (readerDirection) {
-		ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlFoliateLeaf.Right
-		ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlFoliateLeaf.Left
-	}
 	return ReaderPlayLikeCurlFoliatePageRequest(
 		logicalOrdinal = boundedOrdinal,
-		sourcePageIndex = spreadStart,
-		leaf = if (relativeParity == 0) anchorLeaf else adjacentLeaf
+		sourcePageIndex = slot.sourcePageIndex,
+		leaf = when (slot.physicalLeaf) {
+			ReaderPlayLikeCurlPhysicalLeaf.Left -> ReaderPlayLikeCurlFoliateLeaf.Left
+			ReaderPlayLikeCurlPhysicalLeaf.Right -> ReaderPlayLikeCurlFoliateLeaf.Right
+		}
 	)
 }
 
@@ -82,7 +89,7 @@ internal fun readerPlayLikeCurlFoliateLeafRect(
 internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 	snapshot: ReaderPageSlideSnapshot,
 	leaf: ReaderPlayLikeCurlFoliateLeaf
-): Bitmap? = try {
+): ReaderPlayLikeCurlRasterImage? = try {
 	val sourceRect = readerPlayLikeCurlFoliateLeafRect(snapshot.leafGeometry, leaf)
 		?.takeIf { rect ->
 			rect.left >= 0 &&
@@ -97,9 +104,9 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 
 	val targetWidth = sourceRect.width
 	val targetHeight = sourceRect.height
-	val reverseFaceColor = snapshot.reverseFaceColor
+	val paperColorArgb = snapshot.reverseFaceColor
 	val target = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-	target.eraseColor(reverseFaceColor)
+	target.eraseColor(paperColorArgb)
 	Canvas(target).drawBitmap(
 		snapshot.bitmap,
 		Rect(sourceRect.left, sourceRect.top, sourceRect.right, sourceRect.bottom),
@@ -107,7 +114,7 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 		Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 	)
 	target.setHasAlpha(false)
-	target
+	ReaderPlayLikeCurlRasterImage(target, paperColorArgb)
 } finally {
 	snapshot.release()
 }
@@ -120,13 +127,13 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val profile: ReaderPlayLikeCurlRasterProfile,
 	private val onMissingRaster: (Int) -> Unit = {}
-) : ReaderPlayLikeCurlRasterLoader<Bitmap> {
+) : ReaderPlayLikeCurlRasterLoader<ReaderPlayLikeCurlRasterImage> {
 	private val transitionKind = when (profile.orientation) {
 		ReaderPlayLikeCurlOrientation.Portrait -> ReaderPageTurnTransitionKind.PortraitSlide
 		ReaderPlayLikeCurlOrientation.Landscape -> ReaderPageTurnTransitionKind.LandscapeSpreadSlide
 	}
 
-	override suspend fun load(key: ReaderPlayLikeCurlRasterKey): Bitmap? {
+	override suspend fun load(key: ReaderPlayLikeCurlRasterKey): ReaderPlayLikeCurlRasterImage? {
 		if (key.profile != profile || key.pageIndex !in 0 until profile.pageCount) return null
 		val request = readerPlayLikeCurlFoliatePageRequest(
 			orientation = profile.orientation,

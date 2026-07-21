@@ -4,7 +4,9 @@ import java.io.File
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -155,6 +157,22 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	}
 
 	@Test
+	fun landscapeRasterRequestDelegatesSpreadPlacementToSharedAuthority() {
+		val source = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlFoliateRasterSource.android.kt"
+		).readText()
+		val request = source
+			.substringAfter("internal fun readerPlayLikeCurlFoliatePageRequest(")
+			.substringBefore("internal fun readerPlayLikeCurlFoliateLeafRect(")
+
+		assertContains(request, "readerPlayLikeCurlSpreadSlot(")
+		assertFalse(request.contains("val relativeParity"))
+		assertFalse(request.contains("val anchorLeaf"))
+		assertFalse(request.contains("val adjacentLeaf"))
+	}
+
+	@Test
 	fun requestedLeafSelectsOnlyTheMatchingFoliatePixelRect() {
 		val full = ReaderPageTurnPixelRect(0, 0, 900, 1_200)
 		val left = ReaderPageTurnPixelRect(0, 0, 440, 1_200)
@@ -179,7 +197,8 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 
 		assertTrue(source.contains("Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)"))
 		assertTrue(source.contains("Canvas(target).drawBitmap("))
-		assertTrue(source.contains("target.eraseColor(reverseFaceColor)"))
+		assertTrue(source.contains("target.eraseColor(paperColorArgb)"))
+		assertTrue(source.contains("ReaderPlayLikeCurlRasterImage(target, paperColorArgb)"))
 		assertTrue(source.contains("snapshot.release()"))
 	}
 

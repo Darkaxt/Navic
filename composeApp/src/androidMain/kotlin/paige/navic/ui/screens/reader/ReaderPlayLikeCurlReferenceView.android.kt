@@ -8,6 +8,7 @@ import karacken.curl.PageChange
 import karacken.curl.PageImage
 import karacken.curl.PageSurfaceListener
 import karacken.curl.PageSurfaceView
+import karacken.curl.ReadingDirection
 import karacken.curl.RenderCapabilities
 import karacken.curl.RenderFailure
 import kotlinx.coroutines.CoroutineScope
@@ -190,10 +191,28 @@ class ReaderPlayLikeCurlReferenceView(
 			generationId = generationId,
 			currentOrdinal = currentOrdinal,
 			pageCount = bitmapSource.pageCount,
+			readerDirection = pages.profile.readerDirection,
+			spreadAnchorParity = pages.profile.spreadAnchorParity,
+			filler = { pageGenerationId, role, sourcePageIndex, leaf, fallbackOrdinal ->
+				pages.filler(
+					generationId = pageGenerationId,
+					role = role,
+					sourcePageIndex = sourcePageIndex,
+					leaf = leaf,
+					fallbackOrdinal = fallbackOrdinal
+				)
+			},
 			page = { pageGenerationId, ordinal -> pages.page(pageGenerationId, ordinal) }
 		)
 		pages.generations += generationId
 		generationOwners[generationId] = pages
+		setReadingDirection(
+			if (pages.profile.readerDirection == ReaderPlayLikeCurlReaderDirection.Rtl) {
+				ReadingDirection.RIGHT_TO_LEFT
+			} else {
+				ReadingDirection.LEFT_TO_RIGHT
+			}
+		)
 		submitDeck(deck)
 	}
 
@@ -211,6 +230,27 @@ class ReaderPlayLikeCurlReferenceView(
 			bitmap.width,
 			bitmap.height,
 			bitmap
+		)
+	}
+
+	private fun PreparedPages.filler(
+		generationId: Long,
+		role: ReaderPlayLikeCurlDeckSlotRole,
+		sourcePageIndex: Int,
+		leaf: ReaderPlayLikeCurlPhysicalLeaf,
+		fallbackOrdinal: Int
+	): PageImage<Bitmap> {
+		val borrowed = checkNotNull(deck.value(fallbackOrdinal)) {
+			"Missing reference filler page $fallbackOrdinal"
+		}
+		return PageImage.filler(
+			generationId,
+			"filler-${role.name}-$sourcePageIndex-${leaf.name}",
+			fallbackOrdinal,
+			borrowed.width,
+			borrowed.height,
+			borrowed,
+			0xFFF5F2EA.toInt()
 		)
 	}
 
