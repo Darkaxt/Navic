@@ -137,7 +137,7 @@
 - [x] Run `git diff --check` and confirm the worktree contains only this task's files.
 - [x] Run all non-reader focused classes from Tasks 1-8 in one Gradle invocation.
 - [x] Run `./gradlew.bat --no-daemon :composeApp:testAndroidHostTest` and compare any failures with clean `master`.
-- [ ] Run `./gradlew.bat --no-daemon :androidApp:assembleDebug :androidApp:assembleRelease`.
+- [x] Run the debug build locally and the signed release build in CI. The local release task correctly refused to run without the signing environment instead of producing an unsigned release artifact.
 - [x] Confirm required lineage includes `9c619f10`.
 - [x] Install and launch the debug APK on an available ADB Android target; inspect launch logs for crashes.
 
@@ -152,9 +152,22 @@
 
 - [x] Refresh `fork/master`; rebase the task branch if it moved and rerun integrated verification.
 - [x] Bump to `versionName = "v1.0.11-iota26"` and `versionCode = 553`.
-- [ ] Run repository version/release gates and inspect APK package, manifest version, SHA-256, and signing certificate.
+- [x] Run repository version/release gates and inspect APK package, manifest version, SHA-256, and signing certificate.
 - [x] Commit as `release: prepare iota26 upstream compatibility fixes`.
-- [ ] Verify the dirty master worktree has no path overlap, fast-forward local `master`, and push `fork/master`.
-- [ ] Create and push tag `v1.0.11-iota26`; wait for the Android release workflow and verify iOS is skipped.
-- [ ] Download or inspect published release assets and record evidence in this plan.
-- [ ] Remove only `navic-upstream-recommended-ports` and its merged local branch; preserve ebook/reader worktrees.
+- [x] Verify the dirty ebook worktrees have no path overlap, advance local `master`, and push `fork/master`.
+- [x] Create and push tag `v1.0.11-iota26`; wait for the Android release workflow and verify iOS is skipped.
+- [x] Download and inspect the published Android release asset and record evidence in this plan.
+- [x] Remove only `navic-upstream-recommended-ports` and its merged local branch after this evidence commit; preserve ebook/reader worktrees.
+
+## Release evidence
+
+- Release source: `c35a1f428c3280fed8622794df4de58f211a6221`; required commit `9c619f10` is an ancestor.
+- Focused regression suite: all 10 targeted classes passed, including 21 tests added by this plan.
+- Full Android host suite: 2,527 tests with the same 74 pre-existing failures reproduced by a fresh detached `198eb932` baseline (2,506 tests, 74 failures); this port introduced no additional failures.
+- Local Android validation: debug compile/assemble, version gate, reader-vendor self-test, and attribution checks passed. ADB install and cold launch succeeded on `emulator-5554` with version `553` / `v1.0.11-iota26` and no fatal exception or ANR in the launched process.
+- GitHub Actions run: `29831855769` completed successfully. The signed Android release build, signing check, packaged-reader governance, and release publication passed; the iOS build and IPA attachment were skipped.
+- Public release: `v1.0.11-iota26`, published 2026-07-21 with Android asset `Navic.apk` (46,359,080 bytes).
+- Published APK: package `darkaxt.navic`, version code `553`, version name `v1.0.11-iota26`, and `android.permission.ACCESS_LOCAL_NETWORK` present.
+- Published APK SHA-256: `422bfe0cac7f87d3abc270508975d92cf476913fdc728432b41fe90f87fdc885`.
+- Published APK signing certificate SHA-256: `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7` (`CN=Darkaxt Navic Release`).
+- Published APK governance: all 30 reader vendor files and the Anx Reader, foliate-js, PDF.js, and PlayLikeCurl acknowledgements passed packaged verification.
