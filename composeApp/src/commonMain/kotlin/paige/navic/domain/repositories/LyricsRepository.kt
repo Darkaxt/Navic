@@ -8,6 +8,8 @@ import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.isSuccess
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import paige.navic.data.database.dao.LyricDao
 import paige.navic.data.database.entities.LyricEntity
 import paige.navic.data.remote.NetworkClientFactory
@@ -143,12 +145,35 @@ class LyricsRepository(
 	}
 
 	private suspend fun fetchRawLrcLib(song: DomainSong, config: LyricsConfig): String? {
+		val relaxedTrackName = relaxedLrcLibTrackName(song.title)
+		val durationSeconds = lrcLibDurationSeconds(song.duration)
+		val searchResult = try {
+			val response = client.get(normalizedLrcLibSearchUrl(config.lrcLibBaseUrl)) {
+				parameter("q", "$relaxedTrackName ${song.artistName}")
+				accept(ContentType.Application.Json)
+			}
+			if (!response.status.isSuccess()) {
+				null
+			} else {
+				selectLrcLibCandidate(
+					candidates = json.decodeFromString<List<LrcLibCandidate>>(response.bodyAsText()),
+					trackName = relaxedTrackName,
+					artistName = song.artistName,
+					albumName = song.albumTitle,
+					durationSeconds = durationSeconds
+				)?.let(json::encodeToString)
+			}
+		} catch (_: Exception) {
+			null
+		}
+		if (searchResult != null) return searchResult
+
 		return try {
-			val response = client.get(config.lrcLibBaseUrl) {
+			val response = client.get(lrcLibExactUrl(config.lrcLibBaseUrl)) {
 				parameter("track_name", song.title)
 				parameter("artist_name", song.artistName)
 				parameter("album_name", song.albumTitle)
-				parameter("duration", song.duration)
+				parameter("duration", durationSeconds)
 				accept(ContentType.Application.Json)
 			}
 			if (response.status.isSuccess()) response.bodyAsText() else null

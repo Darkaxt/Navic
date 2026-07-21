@@ -15,8 +15,8 @@
 
 **Steps**
 
-- [ ] Add tests for default `/api/search`, legacy `/api/get` migration, custom search endpoint preservation, parenthetical-title cleanup, punctuation/case normalization, whole-second duration, deterministic candidate ranking, and rejection of lyric-less or mismatched candidates.
-- [ ] Run `./gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.LrcLibLookupPolicyTest" --tests "paige.navic.domain.models.lyrics.LyricsConfigTest"` and record the expected RED result.
+- [x] Add tests for default `/api/search`, legacy `/api/get` migration, custom search endpoint preservation, parenthetical-title cleanup, punctuation/case normalization, whole-second duration, deterministic candidate ranking, and rejection of lyric-less or mismatched candidates.
+- [x] Run `./gradlew.bat --no-daemon :composeApp:testAndroidHostTest --tests "paige.navic.domain.repositories.LrcLibLookupPolicyTest" --tests "paige.navic.domain.models.lyrics.LyricsConfigTest"` and record the expected RED result.
 
 ## Task 2: LRCLIB search and exact fallback
 
@@ -28,12 +28,12 @@
 
 **Steps**
 
-- [ ] Add the serializable candidate model and pure endpoint/title/scoring policy.
-- [ ] Search with relaxed title and artist metadata.
-- [ ] Serialize the best credible candidate into the existing parser contract.
-- [ ] Fall back to `/api/get` with original metadata and `duration.inWholeSeconds` after a failed or unusable search.
-- [ ] Rerun the focused tests and `LyricsRepositoryPolicyTest`; require GREEN.
-- [ ] Commit as `fix(lyrics): make LRCLIB lookup tolerant and deterministic`.
+- [x] Add the serializable candidate model and pure endpoint/title/scoring policy.
+- [x] Search with relaxed title and artist metadata.
+- [x] Serialize the best credible candidate into the existing parser contract.
+- [x] Fall back to `/api/get` with original metadata and `duration.inWholeSeconds` after a failed or unusable search.
+- [x] Rerun the focused tests and `LyricsRepositoryPolicyTest`; require GREEN.
+- [x] Commit as `fix(lyrics): make LRCLIB lookup tolerant and deterministic`.
 
 ## Task 3: Playlist-integrity tests
 

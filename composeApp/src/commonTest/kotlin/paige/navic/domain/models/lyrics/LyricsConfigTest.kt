@@ -5,6 +5,11 @@ import kotlin.test.assertEquals
 
 class LyricsConfigTest {
 	@Test
+	fun defaultLrcLibEndpointUsesSearch() {
+		assertEquals("https://lrclib.net/api/search", LyricsConfig().lrcLibBaseUrl)
+	}
+
+	@Test
 	fun defaultPriorityUsesServerLyricsBeforeExternalProviders() {
 		assertEquals(
 			listOf(
