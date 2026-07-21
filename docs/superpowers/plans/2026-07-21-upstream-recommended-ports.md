@@ -134,12 +134,12 @@
 
 ## Task 9: Integrated verification
 
-- [ ] Run `git diff --check` and confirm the worktree contains only this task's files.
-- [ ] Run all non-reader focused classes from Tasks 1-8 in one Gradle invocation.
-- [ ] Run `./gradlew.bat --no-daemon :composeApp:testAndroidHostTest` and compare any failures with clean `master`.
+- [x] Run `git diff --check` and confirm the worktree contains only this task's files.
+- [x] Run all non-reader focused classes from Tasks 1-8 in one Gradle invocation.
+- [x] Run `./gradlew.bat --no-daemon :composeApp:testAndroidHostTest` and compare any failures with clean `master`.
 - [ ] Run `./gradlew.bat --no-daemon :androidApp:assembleDebug :androidApp:assembleRelease`.
-- [ ] Confirm required lineage includes `9c619f10`.
-- [ ] Install and launch the debug APK on an available ADB Android target; inspect launch logs for crashes.
+- [x] Confirm required lineage includes `9c619f10`.
+- [x] Install and launch the debug APK on an available ADB Android target; inspect launch logs for crashes.
 
 ## Task 10: Version, sync, and release
 
@@ -150,10 +150,10 @@
 
 **Steps**
 
-- [ ] Refresh `fork/master`; rebase the task branch if it moved and rerun integrated verification.
-- [ ] Bump to `versionName = "v1.0.11-iota26"` and `versionCode = 553`.
+- [x] Refresh `fork/master`; rebase the task branch if it moved and rerun integrated verification.
+- [x] Bump to `versionName = "v1.0.11-iota26"` and `versionCode = 553`.
 - [ ] Run repository version/release gates and inspect APK package, manifest version, SHA-256, and signing certificate.
-- [ ] Commit as `release: prepare iota26 upstream compatibility fixes`.
+- [x] Commit as `release: prepare iota26 upstream compatibility fixes`.
 - [ ] Verify the dirty master worktree has no path overlap, fast-forward local `master`, and push `fork/master`.
 - [ ] Create and push tag `v1.0.11-iota26`; wait for the Android release workflow and verify iOS is skipped.
 - [ ] Download or inspect published release assets and record evidence in this plan.
