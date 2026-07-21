@@ -16,7 +16,10 @@ import android.view.animation.Interpolator;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
 
 /**
  * Production page-curl surface.
@@ -27,10 +30,13 @@ import java.util.Set;
 public class PageSurfaceView extends GLSurfaceView {
     private static final float FLING_THRESHOLD_PX_PER_SECOND = 200f;
     public static final long NO_GESTURE_ID = -1L;
+    static final long NO_BOUNDARY_FRAME_TOKEN = 0L;
     private static final PageSurfaceListener NO_OP_LISTENER = new PageSurfaceListener() {};
 
     private final PageDeckCoordinator<Bitmap> deckCoordinator = new PageDeckCoordinator<>();
     private final DeckLeaseRegistry leaseRegistry = new DeckLeaseRegistry();
+    private final BoundaryRestorationProtocol boundaryRestorationProtocol =
+            new BoundaryRestorationProtocol();
     private final Set<Long> preparedGenerations = new LinkedHashSet<>();
     private final PageRenderer renderer;
     private final int touchSlop;
@@ -39,8 +45,12 @@ public class PageSurfaceView extends GLSurfaceView {
     private RenderCapabilities renderCapabilities;
     private ValueAnimator settlementAnimator;
     private SettlementContext activeSettlementContext;
+    private Settlement boundaryRestorationResult;
     private VelocityTracker velocityTracker;
+    private ReadingDirection readingDirection = ReadingDirection.LEFT_TO_RIGHT;
+    private ReadingDirection activeGestureReadingDirection = ReadingDirection.LEFT_TO_RIGHT;
     private boolean settlementRunning;
+    private boolean boundaryRestorationRunning;
     private boolean gestureAccepted;
     private boolean gestureMoved;
     private boolean surfaceVisible = true;
@@ -81,6 +91,30 @@ public class PageSurfaceView extends GLSurfaceView {
 
         setEGLContextClientVersion(2);
         setEGLConfigChooser(8, 8, 8, 8, 16, 0);
+        GLSurfaceView.Renderer renderer = new GLSurfaceView.Renderer() {
+            @Override
+            public void onSurfaceCreated(GL10 gl, EGLConfig config) {
+                PageSurfaceView.this.renderer.onSurfaceCreated(gl, config);
+            }
+
+            @Override
+            public void onSurfaceChanged(GL10 gl, int width, int height) {
+                PageSurfaceView.this.renderer.onSurfaceChanged(gl, width, height);
+            }
+
+            @Override
+            public void onDrawFrame(GL10 gl) {
+                boolean frameRendered = PageSurfaceView.this.renderer.drawFrame(gl);
+                if (!frameRendered) {
+                    return;
+                }
+                long frameToken = boundaryRestorationProtocol.armedToken();
+                if (frameToken == NO_BOUNDARY_FRAME_TOKEN) {
+                    return;
+                }
+                post(() -> postOnAnimation(() -> handleRenderedFrame(frameToken)));
+            }
+        };
         setRenderer(renderer);
         setRenderMode(RENDERMODE_WHEN_DIRTY);
         setPreserveEGLContextOnPause(true);
@@ -203,6 +237,17 @@ public class PageSurfaceView extends GLSurfaceView {
         }
     }
 
+    /** Sets the logical reading direction used by future gestures and turns. */
+    public void setReadingDirection(ReadingDirection readingDirection) {
+        requireMainThread();
+        this.readingDirection = Objects.requireNonNull(readingDirection, "readingDirection");
+        if (!gestureAccepted && !settlementRunning) {
+            activeGestureReadingDirection = readingDirection;
+            renderer.setReadingDirection(readingDirection);
+            requestRender();
+        }
+    }
+
     /** Cancels any partial gesture or settlement without navigating. */
     public void cancelGesture() {
         cancelGesture(activeGestureId);
@@ -236,8 +281,8 @@ public class PageSurfaceView extends GLSurfaceView {
     /**
      * Starts the same reference settlement used by a completed edge drag.
      *
-     * <p>Returns false when the prepared deck cannot accept a turn or the requested direction is
-     * outside the current deck boundary.
+     * @return {@code false} only after exactly one synchronous gesture-rejection callback
+     * @throws IllegalArgumentException when {@code pageChange} is not PREVIOUS or NEXT
      */
     public boolean turn(PageChange pageChange) {
         return turn(pageChange, NO_GESTURE_ID);
@@ -245,11 +290,10 @@ public class PageSurfaceView extends GLSurfaceView {
 
     public boolean turn(PageChange pageChange, long gestureId) {
         requireMainThread();
-        activeGestureId = gestureId;
         if (pageChange != PageChange.PREVIOUS && pageChange != PageChange.NEXT) {
-            activeGestureId = NO_GESTURE_ID;
-            return false;
+            throw new IllegalArgumentException("pageChange must be PREVIOUS or NEXT");
         }
+        activeGestureId = gestureId;
         if (!gestureReady()) {
             rejectGesture(gestureId);
             activeGestureId = NO_GESTURE_ID;
@@ -257,13 +301,22 @@ public class PageSurfaceView extends GLSurfaceView {
         }
         PlayLikeCurlModel interaction = interactionModelOrNull();
         if (interaction == null) {
+            rejectGesture(gestureId, GestureRejectionReason.DECK_NOT_PREPARED);
             activeGestureId = NO_GESTURE_ID;
             return false;
         }
+        if (!canSettle(pageChange)) {
+            rejectGesture(gestureId, GestureRejectionReason.BOUNDARY);
+            activeGestureId = NO_GESTURE_ID;
+            return false;
+        }
+        activeGestureReadingDirection = readingDirection;
+        renderer.setReadingDirection(activeGestureReadingDirection);
         Settlement settlement = interaction.turn(pageChange);
         if (settlement.getPageChange() == PageChange.NONE) {
             interaction.cancelGesture();
             requestRender();
+            rejectGesture(gestureId, GestureRejectionReason.MODEL_REJECTED);
             activeGestureId = NO_GESTURE_ID;
             return false;
         }
@@ -341,14 +394,13 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     public int getCurrentPosition() {
-        PageDeck<Bitmap> deck = deckCoordinator.getActiveDeck();
-        if (deck instanceof PortraitPageDeck) {
-            return ((PortraitPageDeck<Bitmap>) deck).getCurrent().getOrdinal();
-        }
-        if (deck instanceof LandscapePageDeck) {
-            return ((LandscapePageDeck<Bitmap>) deck).getCurrentLeft().getOrdinal();
-        }
-        return -1;
+        return currentPosition(deckCoordinator.getActiveDeck());
+    }
+
+    static int currentPosition(PageDeck<?> deck) {
+        return deck == null
+                ? -1
+                : deck.getSettlementPage(PageChange.NONE).getOrdinal();
     }
 
     public OnPageChangeListener getOnPageChangeListener() {
@@ -400,8 +452,12 @@ public class PageSurfaceView extends GLSurfaceView {
             case MotionEvent.ACTION_DOWN:
                 gestureDownX = event.getX();
                 gestureDownY = event.getY();
+                activeGestureReadingDirection = readingDirection;
+                renderer.setReadingDirection(activeGestureReadingDirection);
                 obtainVelocityTracker().addMovement(event);
-                interaction.beginGesture(gestureDownX);
+                float logicalDownX = activeGestureReadingDirection.toLogicalX(
+                        gestureDownX, Math.max(1f, getWidth()));
+                interaction.beginGesture(logicalDownX);
                 return true;
             case MotionEvent.ACTION_MOVE:
                 obtainVelocityTracker().addMovement(event);
@@ -434,7 +490,9 @@ public class PageSurfaceView extends GLSurfaceView {
                 recycleVelocityTracker();
                 Settlement settlement;
                 if (Math.abs(velocityX) >= FLING_THRESHOLD_PX_PER_SECOND) {
-                    settlement = velocityX < 0f
+                    PageChange flingChange = activeGestureReadingDirection
+                            .pageChangeForVelocity(velocityX);
+                    settlement = flingChange == PageChange.NEXT
                             ? interaction.flingTowardNext()
                             : interaction.flingTowardPrevious();
                 } else {
@@ -556,6 +614,11 @@ public class PageSurfaceView extends GLSurfaceView {
         return active != null && preparedGenerations.contains(active.getGenerationId());
     }
 
+    private boolean canSettle(PageChange pageChange) {
+        PageDeck<Bitmap> active = deckCoordinator.getActiveDeck();
+        return active != null && active.canTurn(pageChange);
+    }
+
     private void rejectGesture(long gestureId) {
         PageDeck<Bitmap> active = deckCoordinator.getActiveDeck();
         long generationId = active == null ? -1L : active.getGenerationId();
@@ -571,22 +634,35 @@ public class PageSurfaceView extends GLSurfaceView {
         } else {
             reason = GestureRejectionReason.DECK_NOT_PREPARED;
         }
+        rejectGesture(gestureId, reason);
+    }
+
+    private void rejectGesture(long gestureId, GestureRejectionReason reason) {
+        PageDeck<Bitmap> active = deckCoordinator.getActiveDeck();
+        long generationId = active == null ? -1L : active.getGenerationId();
         listenerFor(generationId).onGestureRejected(gestureId, generationId, reason);
     }
 
-    private void dragInteraction(float x) {
+    private void dragInteraction(float physicalX) {
+        float surfaceWidth = Math.max(1f, getWidth());
+        float logicalX = activeGestureReadingDirection.toLogicalX(physicalX, surfaceWidth);
         float gestureWidth = activeDeckIsLandscape()
-                ? Math.max(1f, getWidth() / 2f)
-                : Math.max(1f, getWidth());
+                ? Math.max(1f, surfaceWidth / 2f)
+                : surfaceWidth;
         if (landscapeModelOrNull() != null) {
-            landscapeModelOrNull().dragTo(x, gestureWidth);
+            landscapeModelOrNull().dragTo(logicalX, gestureWidth);
         } else {
-            interactionModelOrNull().dragTo(x, gestureWidth);
+            interactionModelOrNull().dragTo(logicalX, gestureWidth);
         }
     }
 
     private void settle(Settlement settlement) {
         if (settlementRunning) {
+            return;
+        }
+        if (settlement.getPageChange() != PageChange.NONE
+                && !canSettle(settlement.getPageChange())) {
+            startBoundaryRestoration(settlement);
             return;
         }
         SettlementContext context = settlementContext(settlement.getPageChange());
@@ -600,10 +676,46 @@ public class PageSurfaceView extends GLSurfaceView {
                 context.sourceLogicalPageId,
                 context.targetLogicalPageId,
                 settlement.getPageChange());
+        startSettlementAnimation(
+                settlement,
+                () -> completeSettlement(settlement, context));
+    }
 
+    private void startBoundaryRestoration(Settlement rejectedSettlement) {
+        PlayLikeCurlModel interaction = interactionModelOrNull();
+        if (interaction == null) {
+            throw new IllegalStateException("Boundary restoration requires an interaction model");
+        }
+        if (settlementRunning) {
+            throw new IllegalStateException("Boundary restoration cannot replace a settlement");
+        }
+        SettlementContext context = settlementContext(PageChange.NONE);
+        Settlement restoration = boundaryRestoreSettlement(interaction);
+        activeGestureId = NO_GESTURE_ID;
+        activeSettlementContext = context;
+        boundaryRestorationResult = restoration;
+        boundaryRestorationRunning = true;
+        deckCoordinator.beginSettlement();
+        settlementRunning = true;
+        startSettlementAnimation(restoration, this::completeBoundaryRestorationAnimation);
+    }
+
+    static Settlement boundaryRestoreSettlement(PlayLikeCurlModel model) {
+        Objects.requireNonNull(model, "model");
+        int targetPercent = model.getActivePage() == ActivePage.LEFT
+                ? PlayLikeCurlModel.RIGHT_ENDPOINT_PERCENT
+                : PlayLikeCurlModel.LEFT_ENDPOINT_PERCENT;
+        return new Settlement(
+                targetPercent,
+                PlayLikeCurlModel.SETTLEMENT_DURATION_MILLIS,
+                SettlementInterpolator.ACCELERATE_DECELERATE,
+                PageChange.NONE);
+    }
+
+    private void startSettlementAnimation(Settlement settlement, Runnable completion) {
         float startPercent = currentPagePercent();
         if (startPercent == settlement.getTargetPercent()) {
-            completeSettlement(settlement, context);
+            completion.run();
             return;
         }
         settlementAnimator =
@@ -632,11 +744,55 @@ public class PageSurfaceView extends GLSurfaceView {
             @Override
             public void onAnimationEnd(Animator animation) {
                 if (!cancelled) {
-                    completeSettlement(settlement, context);
+                    completion.run();
                 }
             }
         });
         settlementAnimator.start();
+    }
+
+    private void completeBoundaryRestorationAnimation() {
+        LandscapeSpreadModel spread = landscapeModelOrNull();
+        if (spread != null) {
+            spread.completeSettlement(boundaryRestorationResult);
+        } else {
+            interactionModelOrNull().completeSettlement(boundaryRestorationResult);
+        }
+        settlementAnimator = null;
+        gestureMoved = false;
+        long frameToken = boundaryRestorationProtocol.beginAwaitingFrame();
+        queueEvent(() -> {
+            if (boundaryRestorationProtocol.arm(frameToken)) {
+                requestRender();
+            }
+        });
+    }
+
+    private void handleRenderedFrame(long frameToken) {
+        boolean pendingDeckPresent = deckCoordinator.getPendingDeck() != null;
+        BoundaryRestorationProtocol.Completion completion =
+                boundaryRestorationProtocol.complete(
+                        frameToken, true, true, pendingDeckPresent);
+        if (completion == null || !boundaryRestorationRunning) {
+            return;
+        }
+        SettlementContext context = activeSettlementContext;
+        boundaryRestorationRunning = false;
+        boundaryRestorationResult = null;
+        settlementRunning = false;
+        settlementAnimator = null;
+        activeSettlementContext = null;
+        gestureMoved = false;
+        deckCoordinator.cancelSettlement();
+        if (completion.shouldReleasePending()) {
+            queueDeckRelease(deckCoordinator.releasePending(DeckReleaseReason.REPLACED));
+        }
+        if (completion.shouldPublishBoundary()) {
+            listenerFor(context.generationId).onGestureRejected(
+                    context.gestureId,
+                    context.generationId,
+                    GestureRejectionReason.BOUNDARY);
+        }
     }
 
     private void completeSettlement(Settlement settlement, SettlementContext context) {
@@ -682,6 +838,10 @@ public class PageSurfaceView extends GLSurfaceView {
             settlementAnimator.cancel();
             settlementAnimator = null;
         }
+        long boundaryToken = boundaryRestorationProtocol.pendingToken();
+        boundaryRestorationProtocol.cancel(boundaryToken);
+        boundaryRestorationRunning = false;
+        boundaryRestorationResult = null;
         settlementRunning = false;
         activeSettlementContext = null;
         return cancelledContext;
@@ -755,23 +915,8 @@ public class PageSurfaceView extends GLSurfaceView {
 
     private SettlementContext settlementContext(PageChange pageChange) {
         PageDeck<Bitmap> deck = deckCoordinator.getActiveDeck();
-        if (deck instanceof PortraitPageDeck) {
-            PortraitPageDeck<Bitmap> portrait = (PortraitPageDeck<Bitmap>) deck;
-            PageImage<Bitmap> source = portrait.getCurrent();
-            PageImage<Bitmap> target = pageChange == PageChange.PREVIOUS
-                    ? portrait.getPrevious()
-                    : pageChange == PageChange.NEXT
-                            ? portrait.getNext()
-                            : source;
-            return SettlementContext.from(activeGestureId, source, target);
-        }
-        LandscapePageDeck<Bitmap> spread = (LandscapePageDeck<Bitmap>) deck;
-        PageImage<Bitmap> source = spread.getCurrentLeft();
-        PageImage<Bitmap> target = pageChange == PageChange.PREVIOUS
-                ? spread.getPreviousLeft()
-                : pageChange == PageChange.NEXT
-                        ? spread.getNextLeft()
-                        : source;
+        PageImage<Bitmap> source = deck.getSettlementPage(PageChange.NONE);
+        PageImage<Bitmap> target = deck.getSettlementPage(pageChange);
         return SettlementContext.from(activeGestureId, source, target);
     }
 
@@ -829,6 +974,85 @@ public class PageSurfaceView extends GLSurfaceView {
         return interpolator == SettlementInterpolator.DECELERATE
                 ? new DecelerateInterpolator()
                 : new AccelerateDecelerateInterpolator();
+    }
+
+    static final class BoundaryRestorationProtocol {
+        static final class Completion {
+            private final boolean releasePending;
+            private final boolean publishBoundary;
+
+            Completion(boolean releasePending, boolean publishBoundary) {
+                this.releasePending = releasePending;
+                this.publishBoundary = publishBoundary;
+            }
+
+            boolean shouldReleasePending() {
+                return releasePending;
+            }
+
+            boolean shouldPublishBoundary() {
+                return publishBoundary;
+            }
+        }
+
+        private long lastToken;
+        private long requestedToken = NO_BOUNDARY_FRAME_TOKEN;
+        private long armedToken = NO_BOUNDARY_FRAME_TOKEN;
+
+        synchronized long beginAwaitingFrame() {
+            if (requestedToken != NO_BOUNDARY_FRAME_TOKEN) {
+                throw new IllegalStateException("A boundary frame is already pending");
+            }
+            lastToken = Math.incrementExact(lastToken);
+            requestedToken = lastToken;
+            armedToken = NO_BOUNDARY_FRAME_TOKEN;
+            return requestedToken;
+        }
+
+        synchronized boolean arm(long token) {
+            if (token == NO_BOUNDARY_FRAME_TOKEN
+                    || token != requestedToken
+                    || armedToken != NO_BOUNDARY_FRAME_TOKEN) {
+                return false;
+            }
+            armedToken = token;
+            return true;
+        }
+
+        synchronized Completion complete(
+                long token,
+                boolean everyBaseTextureRendered,
+                boolean everyDeclaredOverlayRendered,
+                boolean pendingDeckPresent) {
+            if (token == NO_BOUNDARY_FRAME_TOKEN
+                    || token != requestedToken
+                    || token != armedToken
+                    || !everyBaseTextureRendered
+                    || !everyDeclaredOverlayRendered) {
+                return null;
+            }
+            requestedToken = NO_BOUNDARY_FRAME_TOKEN;
+            armedToken = NO_BOUNDARY_FRAME_TOKEN;
+            return new Completion(pendingDeckPresent, true);
+        }
+
+        synchronized void cancel(long token) {
+            if (token == NO_BOUNDARY_FRAME_TOKEN) {
+                return;
+            }
+            if (token == requestedToken || token == armedToken) {
+                requestedToken = NO_BOUNDARY_FRAME_TOKEN;
+                armedToken = NO_BOUNDARY_FRAME_TOKEN;
+            }
+        }
+
+        synchronized long armedToken() {
+            return armedToken;
+        }
+
+        synchronized long pendingToken() {
+            return requestedToken;
+        }
     }
 
     public interface OnPageChangeListener {

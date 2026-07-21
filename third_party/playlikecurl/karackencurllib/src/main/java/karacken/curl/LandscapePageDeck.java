@@ -1,5 +1,7 @@
 package karacken.curl;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -12,6 +14,11 @@ public final class LandscapePageDeck<T> implements PageDeck<T> {
     private final PageImage<T> currentRight;
     private final PageImage<T> nextLeft;
     private final PageImage<T> nextRight;
+    private final boolean previousAvailable;
+    private final boolean nextAvailable;
+    private final PageImage<T> previousSettlementPage;
+    private final PageImage<T> currentSettlementPage;
+    private final PageImage<T> nextSettlementPage;
     private final List<PageImage<T>> pages;
 
     public LandscapePageDeck(
@@ -21,25 +28,83 @@ public final class LandscapePageDeck<T> implements PageDeck<T> {
             PageImage<T> currentRight,
             PageImage<T> nextLeft,
             PageImage<T> nextRight) {
+        this(
+                previousLeft,
+                previousRight,
+                currentLeft,
+                currentRight,
+                nextLeft,
+                nextRight,
+                true,
+                true);
+    }
+
+    public LandscapePageDeck(
+            PageImage<T> previousLeft,
+            PageImage<T> previousRight,
+            PageImage<T> currentLeft,
+            PageImage<T> currentRight,
+            PageImage<T> nextLeft,
+            PageImage<T> nextRight,
+            boolean previousAvailable,
+            boolean nextAvailable) {
+        this(
+                previousLeft,
+                previousRight,
+                currentLeft,
+                currentRight,
+                nextLeft,
+                nextRight,
+                previousAvailable,
+                nextAvailable,
+                previousLeft,
+                currentLeft,
+                nextLeft);
+    }
+
+    public LandscapePageDeck(
+            PageImage<T> previousLeft,
+            PageImage<T> previousRight,
+            PageImage<T> currentLeft,
+            PageImage<T> currentRight,
+            PageImage<T> nextLeft,
+            PageImage<T> nextRight,
+            boolean previousAvailable,
+            boolean nextAvailable,
+            PageImage<T> previousSettlementPage,
+            PageImage<T> currentSettlementPage,
+            PageImage<T> nextSettlementPage) {
         this.previousLeft = Objects.requireNonNull(previousLeft, "previousLeft");
         this.previousRight = Objects.requireNonNull(previousRight, "previousRight");
         this.currentLeft = Objects.requireNonNull(currentLeft, "currentLeft");
         this.currentRight = Objects.requireNonNull(currentRight, "currentRight");
         this.nextLeft = Objects.requireNonNull(nextLeft, "nextLeft");
         this.nextRight = Objects.requireNonNull(nextRight, "nextRight");
-        generationId = currentLeft.getGenerationId();
-        requireGeneration(previousLeft);
-        requireGeneration(previousRight);
-        requireGeneration(currentRight);
-        requireGeneration(nextLeft);
-        requireGeneration(nextRight);
-        pages = List.of(
-                previousLeft,
-                previousRight,
-                currentLeft,
-                currentRight,
-                nextLeft,
-                nextRight);
+        this.previousSettlementPage = Objects.requireNonNull(
+                previousSettlementPage, "previousSettlementPage");
+        this.currentSettlementPage = Objects.requireNonNull(
+                currentSettlementPage, "currentSettlementPage");
+        this.nextSettlementPage = Objects.requireNonNull(
+                nextSettlementPage, "nextSettlementPage");
+        this.previousAvailable = previousAvailable;
+        this.nextAvailable = nextAvailable;
+        generationId = this.currentSettlementPage.getGenerationId();
+        requireGeneration(this.previousLeft);
+        requireGeneration(this.previousRight);
+        requireGeneration(this.currentLeft);
+        requireGeneration(this.currentRight);
+        requireGeneration(this.nextLeft);
+        requireGeneration(this.nextRight);
+        pages = Collections.unmodifiableList(Arrays.asList(
+                this.previousLeft,
+                this.previousRight,
+                this.currentLeft,
+                this.currentRight,
+                this.nextLeft,
+                this.nextRight));
+        requireDeckPage(this.previousSettlementPage, "previousSettlementPage");
+        requireDeckPage(this.currentSettlementPage, "currentSettlementPage");
+        requireDeckPage(this.nextSettlementPage, "nextSettlementPage");
     }
 
     @Override
@@ -55,6 +120,30 @@ public final class LandscapePageDeck<T> implements PageDeck<T> {
     @Override
     public List<PageImage<T>> getPages() {
         return pages;
+    }
+
+    @Override
+    public boolean canTurn(PageChange pageChange) {
+        Objects.requireNonNull(pageChange, "pageChange");
+        if (pageChange == PageChange.PREVIOUS) {
+            return previousAvailable;
+        }
+        if (pageChange == PageChange.NEXT) {
+            return nextAvailable;
+        }
+        return false;
+    }
+
+    @Override
+    public PageImage<T> getSettlementPage(PageChange pageChange) {
+        Objects.requireNonNull(pageChange, "pageChange");
+        if (pageChange == PageChange.PREVIOUS) {
+            return previousSettlementPage;
+        }
+        if (pageChange == PageChange.NEXT) {
+            return nextSettlementPage;
+        }
+        return currentSettlementPage;
     }
 
     public PageImage<T> getPreviousLeft() {
@@ -84,6 +173,12 @@ public final class LandscapePageDeck<T> implements PageDeck<T> {
     private void requireGeneration(PageImage<T> page) {
         if (page.getGenerationId() != generationId) {
             throw new IllegalArgumentException("All landscape leaves must share one generation");
+        }
+    }
+
+    private void requireDeckPage(PageImage<T> page, String name) {
+        if (!pages.contains(page)) {
+            throw new IllegalArgumentException(name + " must be one of the physical deck pages");
         }
     }
 }

@@ -11,6 +11,8 @@ import java.util.Objects;
  * retains ownership but must not modify or recycle the bitmap after submitting its deck. The
  * client may release or recycle it only after
  * {@link PageSurfaceListener#onDeckReleased(long, DeckReleaseReason)} reports that generation.
+ * Filler content is borrowed only to carry dimensions and lifetime; it is never uploaded or
+ * sampled by the renderer.
  */
 public final class PageImage<T> {
     private final long generationId;
@@ -20,6 +22,8 @@ public final class PageImage<T> {
     private final int heightPx;
     private final T content;
     private final T overlayContent;
+    private final boolean filler;
+    private final int fillerColorArgb;
 
     public PageImage(
             long generationId,
@@ -35,7 +39,9 @@ public final class PageImage<T> {
                 widthPx,
                 heightPx,
                 content,
-                null);
+                null,
+                false,
+                0);
     }
 
     /**
@@ -52,7 +58,50 @@ public final class PageImage<T> {
             int heightPx,
             T content,
             T overlayContent) {
-        if (logicalPageId == null || logicalPageId.isBlank()) {
+        this(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                content,
+                overlayContent,
+                false,
+                0);
+    }
+
+    /** Creates a paper-colored physical filler that borrows content only for its lease. */
+    public static <T> PageImage<T> filler(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            T borrowedContent,
+            int fillerColorArgb) {
+        return new PageImage<>(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                borrowedContent,
+                null,
+                true,
+                fillerColorArgb);
+    }
+
+    private PageImage(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            T content,
+            T overlayContent,
+            boolean filler,
+            int fillerColorArgb) {
+        if (logicalPageId == null || logicalPageId.trim().isEmpty()) {
             throw new IllegalArgumentException("logicalPageId must not be blank");
         }
         if (ordinal < 0) {
@@ -61,6 +110,12 @@ public final class PageImage<T> {
         if (widthPx <= 0 || heightPx <= 0) {
             throw new IllegalArgumentException("page dimensions must be positive");
         }
+        if (filler && overlayContent != null) {
+            throw new IllegalArgumentException("Filler pages cannot have overlays");
+        }
+        if (filler && (fillerColorArgb >>> 24) != 0xFF) {
+            throw new IllegalArgumentException("Filler color must be fully opaque ARGB");
+        }
         this.generationId = generationId;
         this.logicalPageId = logicalPageId;
         this.ordinal = ordinal;
@@ -68,6 +123,8 @@ public final class PageImage<T> {
         this.heightPx = heightPx;
         this.content = Objects.requireNonNull(content, "content");
         this.overlayContent = overlayContent;
+        this.filler = filler;
+        this.fillerColorArgb = fillerColorArgb;
     }
 
     public long getGenerationId() {
@@ -100,6 +157,17 @@ public final class PageImage<T> {
 
     public T getOverlayContent() {
         return overlayContent;
+    }
+
+    public boolean isFiller() {
+        return filler;
+    }
+
+    public int getFillerColorArgb() {
+        if (!filler) {
+            throw new IllegalStateException("Normal pages do not have a filler color");
+        }
+        return fillerColorArgb;
     }
 
     String identityKey() {

@@ -5,5 +5,7 @@ public enum GestureRejectionReason {
     SETTLEMENT_RUNNING,
     SESSION_DETACHED,
     NOT_VISIBLE,
-    DISPOSED
+    DISPOSED,
+    BOUNDARY,
+    MODEL_REJECTED
 }

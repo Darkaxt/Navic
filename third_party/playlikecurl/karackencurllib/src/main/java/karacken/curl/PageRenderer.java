@@ -13,6 +13,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -44,8 +45,14 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "uniform sampler2D uTexture;\n"
                     + "uniform sampler2D uOverlayTexture;\n"
                     + "uniform float uHasOverlay;\n"
+                    + "uniform float uIsFiller;\n"
+                    + "uniform vec4 uFillerColor;\n"
                     + "varying vec2 vTextureCoordinate;\n"
                     + "void main() {\n"
+                    + "  if (uIsFiller > 0.5) {\n"
+                    + "    gl_FragColor = uFillerColor;\n"
+                    + "    return;\n"
+                    + "  }\n"
                     + "  vec4 base = texture2D(uTexture, vTextureCoordinate);\n"
                     + "  vec4 overlay = texture2D(uOverlayTexture, vTextureCoordinate);\n"
                     + "  gl_FragColor = mix(base, overlay + base * (1.0 - overlay.a), uHasOverlay);\n"
@@ -79,6 +86,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private final GpuMesh mirroredLeftMesh = new GpuMesh(PageRole.LEFT, true);
     private final GpuMesh mirroredFrontMesh = new GpuMesh(PageRole.FRONT, true);
     private final GpuMesh rightMesh = new GpuMesh(PageRole.RIGHT);
+    private final GpuMesh mirroredRightMesh = new GpuMesh(PageRole.RIGHT, true);
     private final Map<String, GpuTexture> textureCache = new LinkedHashMap<>();
     private final PageState flatState = new PageState(
             PageRole.RIGHT, PlayLikeCurlModel.RIGHT_DEPTH, PlayLikeCurlModel.GRID, 0);
@@ -118,6 +126,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int textureUniform;
     private int overlayTextureUniform;
     private int hasOverlayUniform;
+    private int isFillerUniform;
+    private int fillerColorUniform;
     private int shadowProgram;
     private int shadowPositionAttribute;
     private int shadowGradientAttribute;
@@ -125,11 +135,29 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int shadowOpacityUniform;
     private int maxTextureSize;
     private long gpuBudgetBytes = DEFAULT_GPU_BUDGET_BYTES;
+    private volatile ReadingDirection readingDirection = ReadingDirection.LEFT_TO_RIGHT;
     private boolean glReady;
     private boolean disposed;
 
     PageRenderer(Events events) {
         this.events = events;
+    }
+
+    void setReadingDirection(ReadingDirection readingDirection) {
+        this.readingDirection = Objects.requireNonNull(readingDirection, "readingDirection");
+    }
+
+    static boolean turnsPhysicalRightLeaf(
+            ReadingDirection readingDirection,
+            PageChange pageChange) {
+        Objects.requireNonNull(readingDirection, "readingDirection");
+        if (pageChange != PageChange.PREVIOUS && pageChange != PageChange.NEXT) {
+            throw new IllegalArgumentException("A physical turning leaf requires PREVIOUS or NEXT");
+        }
+        boolean logicalNext = pageChange == PageChange.NEXT;
+        return readingDirection == ReadingDirection.LEFT_TO_RIGHT
+                ? logicalNext
+                : !logicalNext;
     }
 
     void prepareDeck(PageDeck<Bitmap> deck, boolean activateWhenPrepared) {
@@ -269,6 +297,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         mirroredLeftMesh.dispose();
         mirroredFrontMesh.dispose();
         rightMesh.dispose();
+        mirroredRightMesh.dispose();
         if (program != 0) {
             GLES20.glDeleteProgram(program);
             program = 0;
@@ -317,6 +346,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             overlayTextureUniform =
                     GLES20.glGetUniformLocation(program, "uOverlayTexture");
             hasOverlayUniform = GLES20.glGetUniformLocation(program, "uHasOverlay");
+            isFillerUniform = GLES20.glGetUniformLocation(program, "uIsFiller");
+            fillerColorUniform = GLES20.glGetUniformLocation(program, "uFillerColor");
+            if (isFillerUniform < 0 || fillerColorUniform < 0) {
+                throw new IllegalStateException("Filler shader uniforms are unavailable");
+            }
             shadowProgram = createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
             shadowPositionAttribute =
                     GLES20.glGetAttribLocation(shadowProgram, "aPosition");
@@ -344,6 +378,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             mirroredLeftMesh.initializeGl();
             mirroredFrontMesh.initializeGl();
             rightMesh.initializeGl();
+            mirroredRightMesh.initializeGl();
             for (GpuTexture texture : textureCache.values()) {
                 texture.resetGl();
             }
@@ -369,8 +404,12 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     @Override
     public void onDrawFrame(GL10 ignored) {
+        drawFrame(ignored);
+    }
+
+    boolean drawFrame(GL10 ignored) {
         if (disposed || !glReady || activeDeck == null) {
-            return;
+            return false;
         }
         try {
             GLES20.glViewport(0, 0, viewportWidth, viewportHeight);
@@ -380,10 +419,12 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             GLES20.glUniform1i(overlayTextureUniform, 1);
 
             if (landscapeSpreadModel != null && viewportWidth > viewportHeight) {
-                drawLandscapeSpread();
-            } else if (portraitModel != null) {
-                drawPortraitPage();
+                return drawLandscapeSpread();
             }
+            if (portraitModel != null) {
+                return drawPortraitPage();
+            }
+            return false;
         } catch (RuntimeException exception) {
             reportFailure(
                     activeGeneration(),
@@ -391,6 +432,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     RenderFailureReason.CONTEXT,
                     "Could not render page frame",
                     exception);
+            return false;
         }
     }
 
@@ -446,6 +488,18 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             throw new IllegalArgumentException("deck must not be null");
         }
         for (PageImage<Bitmap> page : deck.getPages()) {
+            if (page.isFiller()) {
+                if (page.getWidthPx() <= 0 || page.getHeightPx() <= 0) {
+                    throw new IllegalArgumentException("Filler dimensions must be positive");
+                }
+                if (page.hasOverlay()) {
+                    throw new IllegalArgumentException("Filler pages cannot have overlays");
+                }
+                if ((page.getFillerColorArgb() >>> 24) != 0xFF) {
+                    throw new IllegalArgumentException("Filler color must be fully opaque ARGB");
+                }
+                continue;
+            }
             Bitmap bitmap = page.getContent();
             if (bitmap.isRecycled()) {
                 throw new IllegalArgumentException(
@@ -528,6 +582,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     private void uploadDeck(PageDeck<Bitmap> deck) {
         for (PageImage<Bitmap> page : deck.getPages()) {
+            if (page.isFiller()) {
+                continue;
+            }
             GpuTexture texture = textureCache.get(page.identityKey());
             if (texture == null) {
                 texture = new GpuTexture(page, false);
@@ -625,6 +682,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             return;
         }
         for (PageImage<Bitmap> page : deck.getPages()) {
+            if (page.isFiller()) {
+                continue;
+            }
             textureCache.computeIfAbsent(
                     page.identityKey(),
                     key -> new GpuTexture(page, false));
@@ -641,6 +701,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             return;
         }
         for (PageImage<Bitmap> page : deck.getPages()) {
+            if (page.isFiller()) {
+                continue;
+            }
             keys.add(page.identityKey());
             if (page.hasOverlay()) {
                 keys.add(page.overlayIdentityKey());
@@ -648,114 +711,131 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
     }
 
-    private void drawPortraitPage() {
+    private boolean drawPortraitPage() {
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight);
         updateMvp(viewportWidth, viewportHeight);
+        boolean rtl = readingDirection == ReadingDirection.RIGHT_TO_LEFT;
+        GpuMesh leftPageMesh = rtl ? mirroredLeftMesh : leftMesh;
+        GpuMesh frontPageMesh = rtl ? mirroredFrontMesh : frontMesh;
+        GpuMesh rightPageMesh = rtl ? mirroredRightMesh : rightMesh;
+        boolean rendered = true;
         if (portraitModel.getActivePage() == ActivePage.LEFT) {
-            drawPage(
-                    rightMesh,
+            rendered = drawPage(
+                    rightPageMesh,
                     portraitRightResource,
                     portraitModel.getRightPage(),
                     false,
-                    PageOrientation.PORTRAIT);
-            drawPage(
-                    frontMesh,
+                    PageOrientation.PORTRAIT) && rendered;
+            rendered = drawPage(
+                    frontPageMesh,
                     portraitFrontResource,
                     portraitModel.getFrontPage(),
                     false,
-                    PageOrientation.PORTRAIT);
-            drawMovingPage(
-                    leftMesh,
+                    PageOrientation.PORTRAIT) && rendered;
+            rendered = drawMovingPage(
+                    leftPageMesh,
                     portraitLeftResource,
                     portraitModel.getLeftPage(),
-                    PageOrientation.PORTRAIT);
-            return;
+                    PageOrientation.PORTRAIT) && rendered;
+            return rendered;
         }
-        drawPage(
-                leftMesh,
+        rendered = drawPage(
+                leftPageMesh,
                 portraitLeftResource,
                 portraitModel.getLeftPage(),
                 false,
-                PageOrientation.PORTRAIT);
-        drawPage(
-                rightMesh,
+                PageOrientation.PORTRAIT) && rendered;
+        rendered = drawPage(
+                rightPageMesh,
                 portraitRightResource,
                 portraitModel.getRightPage(),
                 false,
-                PageOrientation.PORTRAIT);
-        drawMovingPage(
-                frontMesh,
+                PageOrientation.PORTRAIT) && rendered;
+        rendered = drawMovingPage(
+                frontPageMesh,
                 portraitFrontResource,
                 portraitModel.getFrontPage(),
-                PageOrientation.PORTRAIT);
+                PageOrientation.PORTRAIT) && rendered;
+        return rendered;
     }
 
-    private void drawLandscapeSpread() {
+    private boolean drawLandscapeSpread() {
         preloadSpreadWindow();
         int leftWidth = viewportWidth / 2;
         int rightWidth = viewportWidth - leftWidth;
         LandscapeSpreadTransition transition = landscapeSpreadModel.getTransition();
+        boolean rendered = true;
 
         if (transition.getProgress() == 0f) {
-            drawFlatLeaf(0, leftWidth, spreadCurrentLeftResource);
-            drawFlatLeaf(leftWidth, rightWidth, spreadCurrentRightResource);
-            return;
+            rendered = drawFlatLeaf(0, leftWidth, spreadCurrentLeftResource) && rendered;
+            rendered = drawFlatLeaf(leftWidth, rightWidth, spreadCurrentRightResource) && rendered;
+            return rendered;
         }
 
-        if (transition.isForward()) {
-            drawFlatLeaf(0, leftWidth, spreadCurrentLeftResource);
-            drawFlatLeaf(leftWidth, rightWidth, spreadNextRightResource);
-            turningState.setCurlPosition(transition.getTurningCurlPosition());
-            incomingState.setCurlPosition(transition.getIncomingCurlPosition());
+        PageChange pageChange = transition.isForward()
+                ? PageChange.NEXT
+                : PageChange.PREVIOUS;
+        PageImage<Bitmap> destinationLeft = transition.isForward()
+                ? spreadNextLeftResource
+                : spreadPreviousLeftResource;
+        PageImage<Bitmap> destinationRight = transition.isForward()
+                ? spreadNextRightResource
+                : spreadPreviousRightResource;
+        boolean physicalRight = turnsPhysicalRightLeaf(readingDirection, pageChange);
+        turningState.setCurlPosition(transition.getTurningCurlPosition());
+        incomingState.setCurlPosition(transition.getIncomingCurlPosition());
+
+        if (physicalRight) {
+            rendered = drawFlatLeaf(0, leftWidth, spreadCurrentLeftResource) && rendered;
+            rendered = drawFlatLeaf(leftWidth, rightWidth, destinationRight) && rendered;
             if (transition.isTurningCurrentLeafVisible()) {
-                drawLeaf(
+                rendered = drawLeaf(
                         leftWidth,
                         rightWidth,
                         spreadCurrentRightResource,
                         frontMesh,
                         turningState,
-                        true);
+                        true) && rendered;
             }
             if (transition.isIncomingReverseLeafVisible()) {
-                drawLeaf(
+                rendered = drawLeaf(
                         0,
                         leftWidth,
-                        spreadNextLeftResource,
+                        destinationLeft,
                         mirroredLeftMesh,
                         incomingState,
-                        true);
+                        true) && rendered;
             }
         } else {
-            drawFlatLeaf(0, leftWidth, spreadPreviousLeftResource);
-            drawFlatLeaf(leftWidth, rightWidth, spreadCurrentRightResource);
-            turningState.setCurlPosition(transition.getTurningCurlPosition());
-            incomingState.setCurlPosition(transition.getIncomingCurlPosition());
+            rendered = drawFlatLeaf(0, leftWidth, destinationLeft) && rendered;
+            rendered = drawFlatLeaf(leftWidth, rightWidth, spreadCurrentRightResource) && rendered;
             if (transition.isTurningCurrentLeafVisible()) {
-                drawLeaf(
+                rendered = drawLeaf(
                         0,
                         leftWidth,
                         spreadCurrentLeftResource,
                         mirroredFrontMesh,
                         turningState,
-                        true);
+                        true) && rendered;
             }
             if (transition.isIncomingReverseLeafVisible()) {
-                drawLeaf(
+                rendered = drawLeaf(
                         leftWidth,
                         rightWidth,
-                        spreadPreviousRightResource,
+                        destinationRight,
                         leftMesh,
                         incomingState,
-                        true);
+                        true) && rendered;
             }
         }
+        return rendered;
     }
 
-    private void drawFlatLeaf(int x, int width, PageImage<Bitmap> resource) {
-        drawLeaf(x, width, resource, rightMesh, flatState, false);
+    private boolean drawFlatLeaf(int x, int width, PageImage<Bitmap> resource) {
+        return drawLeaf(x, width, resource, rightMesh, flatState, false);
     }
 
-    private void drawLeaf(
+    private boolean drawLeaf(
             int x,
             int width,
             PageImage<Bitmap> resource,
@@ -765,19 +845,18 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         GLES20.glViewport(x, 0, width, viewportHeight);
         updateMvp(width, viewportHeight);
         if (active) {
-            drawMovingPage(mesh, resource, state, PageOrientation.PORTRAIT);
-        } else {
-            drawPage(mesh, resource, state, false, PageOrientation.PORTRAIT);
+            return drawMovingPage(mesh, resource, state, PageOrientation.PORTRAIT);
         }
+        return drawPage(mesh, resource, state, false, PageOrientation.PORTRAIT);
     }
 
-    private void drawMovingPage(
+    private boolean drawMovingPage(
             GpuMesh mesh,
             PageImage<Bitmap> resource,
             PageState state,
             PageOrientation orientation) {
         drawFoldShadow(mesh, resource, state, orientation);
-        drawPage(mesh, resource, state, true, orientation);
+        return drawPage(mesh, resource, state, true, orientation);
     }
 
     private void drawFoldShadow(
@@ -785,8 +864,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             PageImage<Bitmap> resource,
             PageState state,
             PageOrientation orientation) {
+        if (resource == null) {
+            return;
+        }
         GpuTexture texture = texture(resource);
-        if (texture == null) {
+        if (!resource.isFiller() && texture == null) {
             return;
         }
         FoldShadowModel.State shadow = FoldShadowModel.resolve(
@@ -795,8 +877,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             return;
         }
 
+        int bitmapWidth = resource.isFiller() ? resource.getWidthPx() : texture.bitmapWidth;
+        int bitmapHeight = resource.isFiller() ? resource.getHeightPx() : texture.bitmapHeight;
         float bitmapRatio = PlayLikeCurlGeometry.bitmapRatio(
-                texture.bitmapWidth, texture.bitmapHeight, orientation);
+                bitmapWidth, bitmapHeight, orientation);
         float heightCorrection = (bitmapRatio - 1f) / 2f;
         float bottom = -heightCorrection;
         float top = bitmapRatio - heightCorrection;
@@ -848,22 +932,29 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         // Deck preparation uploads the complete six-leaf window before readiness is reported.
     }
 
-    private void drawPage(
+    private boolean drawPage(
             GpuMesh mesh,
             PageImage<Bitmap> resource,
             PageState state,
             boolean active,
             PageOrientation orientation) {
-        GpuTexture texture = texture(resource);
-        if (texture == null) {
-            return;
+        if (resource == null) {
+            return false;
         }
-        mesh.ensureGeometry(texture.bitmapWidth, texture.bitmapHeight, orientation);
+        GpuTexture baseTexture = texture(resource);
+        GpuTexture overlayTexture = overlayTexture(resource);
+        if (!resource.isFiller() && baseTexture == null) {
+            return false;
+        }
+        if (resource.hasOverlay() && overlayTexture == null) {
+            return false;
+        }
+        mesh.ensureGeometry(resource.getWidthPx(), resource.getHeightPx(), orientation);
         PlayLikeCurlGeometry.update(mesh.geometry, state.getCurlPosition(), active);
         mesh.uploadPositions();
 
         GLES20.glUniformMatrix4fv(matrixUniform, 1, false, mvpMatrix, 0);
-        drawPageTextures(resource, texture);
+        drawPageTextures(resource, baseTexture, overlayTexture);
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mesh.positionBufferId);
         GLES20.glEnableVertexAttribArray(positionAttribute);
         GLES20.glVertexAttribPointer(positionAttribute, 3, GLES20.GL_FLOAT, false, 0, 0);
@@ -879,24 +970,43 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 0);
         GLES20.glDisableVertexAttribArray(positionAttribute);
         GLES20.glDisableVertexAttribArray(textureCoordinateAttribute);
+        return true;
     }
 
     private void drawPageTextures(
             PageImage<Bitmap> resource,
-            GpuTexture baseTexture) {
-        GpuTexture overlayTexture = overlayTexture(resource);
+            GpuTexture baseTexture,
+            GpuTexture overlayTexture) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, baseTexture.textureId);
+        GLES20.glBindTexture(
+                GLES20.GL_TEXTURE_2D,
+                baseTexture == null ? 0 : baseTexture.textureId);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
         GLES20.glBindTexture(
                 GLES20.GL_TEXTURE_2D,
                 overlayTexture == null ? 0 : overlayTexture.textureId);
         GLES20.glUniform1f(hasOverlayUniform, overlayTexture == null ? 0f : 1f);
+        if (resource.isFiller()) {
+            int color = resource.getFillerColorArgb();
+            GLES20.glUniform1f(isFillerUniform, 1f);
+            GLES20.glUniform4f(fillerColorUniform,
+                    colorChannel(color, 16),
+                    colorChannel(color, 8),
+                    colorChannel(color, 0),
+                    colorChannel(color, 24));
+        } else {
+            GLES20.glUniform1f(isFillerUniform, 0f);
+            GLES20.glUniform4f(fillerColorUniform, 0f, 0f, 0f, 0f);
+        }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
     }
 
+    private static float colorChannel(int color, int shift) {
+        return ((color >>> shift) & 0xFF) / 255f;
+    }
+
     private GpuTexture texture(PageImage<Bitmap> page) {
-        if (page == null) {
+        if (page == null || page.isFiller()) {
             return null;
         }
         GpuTexture texture = textureCache.get(page.identityKey());
@@ -904,7 +1014,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     private GpuTexture overlayTexture(PageImage<Bitmap> page) {
-        if (page == null || !page.hasOverlay()) {
+        if (page == null || page.isFiller() || !page.hasOverlay()) {
             return null;
         }
         GpuTexture texture = textureCache.get(page.overlayIdentityKey());
@@ -948,6 +1058,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         private boolean uploaded;
 
         GpuTexture(PageImage<Bitmap> page, boolean overlay) {
+            if (page.isFiller()) {
+                throw new IllegalArgumentException("Filler pages do not allocate GPU textures");
+            }
             this.page = page;
             this.overlay = overlay;
         }

@@ -113,6 +113,9 @@ final class TextureBudget {
             return;
         }
         for (PageImage<?> page : deck.getPages()) {
+            if (page.isFiller()) {
+                continue;
+            }
             uniquePages.putIfAbsent(page.identityKey(), page);
             if (page.hasOverlay()) {
                 uniquePages.putIfAbsent(page.overlayIdentityKey(), page);

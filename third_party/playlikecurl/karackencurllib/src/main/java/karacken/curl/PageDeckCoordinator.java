@@ -94,22 +94,24 @@ final class PageDeckCoordinator<T> {
             return new Offer<>(
                     Placement.ACTIVE,
                     null,
-                    List.copyOf(releases));
+                    Collections.unmodifiableList(new ArrayList<>(releases)));
         }
 
         static <T> Offer<T> pending(Release<T> release) {
             return new Offer<>(
                     Placement.PENDING,
                     null,
-                    release == null ? List.of() : List.of(release));
+                    release == null
+                            ? Collections.emptyList()
+                            : Collections.singletonList(release));
         }
 
         static <T> Offer<T> unchanged() {
-            return new Offer<>(Placement.UNCHANGED, null, List.of());
+            return new Offer<>(Placement.UNCHANGED, null, Collections.emptyList());
         }
 
         static <T> Offer<T> rejected(DeckRejectionReason reason) {
-            return new Offer<>(Placement.REJECTED, reason, List.of());
+            return new Offer<>(Placement.REJECTED, reason, Collections.emptyList());
         }
 
         Placement getPlacement() {
@@ -255,7 +257,7 @@ final class PageDeckCoordinator<T> {
         }
         activeDeck = null;
         pendingDeck = null;
-        return List.copyOf(releases);
+        return Collections.unmodifiableList(new ArrayList<>(releases));
     }
 
     private PageDeck<T> retainedDeck(long generationId) {
@@ -271,7 +273,9 @@ final class PageDeckCoordinator<T> {
     private static <T> boolean hasSameIdentity(
             PageDeck<T> first,
             PageDeck<T> second) {
-        if (first.getMode() != second.getMode()) {
+        if (first.getMode() != second.getMode()
+                || first.canTurn(PageChange.PREVIOUS) != second.canTurn(PageChange.PREVIOUS)
+                || first.canTurn(PageChange.NEXT) != second.canTurn(PageChange.NEXT)) {
             return false;
         }
         List<PageImage<T>> firstPages = first.getPages();
@@ -280,17 +284,30 @@ final class PageDeckCoordinator<T> {
             return false;
         }
         for (int index = 0; index < firstPages.size(); index++) {
-            PageImage<T> firstPage = firstPages.get(index);
-            PageImage<T> secondPage = secondPages.get(index);
-            if (!firstPage.getLogicalPageId().equals(secondPage.getLogicalPageId())
-                    || firstPage.getOrdinal() != secondPage.getOrdinal()
-                    || firstPage.getWidthPx() != secondPage.getWidthPx()
-                    || firstPage.getHeightPx() != secondPage.getHeightPx()
-                    || firstPage.hasOverlay() != secondPage.hasOverlay()) {
+            if (!hasSamePageMetadata(firstPages.get(index), secondPages.get(index))) {
                 return false;
             }
         }
-        return true;
+        return hasSamePageMetadata(
+                        first.getSettlementPage(PageChange.PREVIOUS),
+                        second.getSettlementPage(PageChange.PREVIOUS))
+                && hasSamePageMetadata(
+                        first.getSettlementPage(PageChange.NONE),
+                        second.getSettlementPage(PageChange.NONE))
+                && hasSamePageMetadata(
+                        first.getSettlementPage(PageChange.NEXT),
+                        second.getSettlementPage(PageChange.NEXT));
+    }
+
+    private static boolean hasSamePageMetadata(PageImage<?> first, PageImage<?> second) {
+        return first.getLogicalPageId().equals(second.getLogicalPageId())
+                && first.getOrdinal() == second.getOrdinal()
+                && first.getWidthPx() == second.getWidthPx()
+                && first.getHeightPx() == second.getHeightPx()
+                && first.hasOverlay() == second.hasOverlay()
+                && first.isFiller() == second.isFiller()
+                && (!first.isFiller()
+                        || first.getFillerColorArgb() == second.getFillerColorArgb());
     }
 
     private static <T> void addRelease(
