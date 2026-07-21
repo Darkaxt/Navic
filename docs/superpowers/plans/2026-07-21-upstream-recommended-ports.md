@@ -73,10 +73,10 @@
 
 **Steps**
 
-- [ ] Assert that `MainActivity` registers the permission launcher before `setContent`.
-- [ ] Assert that login awaits `requestLocalNetworkPermission()` and returns before `login()` on denial.
-- [ ] Assert that the Android manager handles pre-37, already-granted, absent-launcher, callback, and cancellation paths without a non-null assertion or timeout.
-- [ ] Run the focused class and record the expected RED result.
+- [x] Assert that `MainActivity` registers the permission launcher before `setContent`.
+- [x] Assert that login awaits `requestLocalNetworkPermission()` and returns before `login()` on denial.
+- [x] Assert that the Android manager handles pre-37, already-granted, absent-launcher, callback, and cancellation paths without a non-null assertion or timeout.
+- [x] Run the focused class and record the expected RED result.
 
 ## Task 6: Android 17 permission gate
 
@@ -96,13 +96,13 @@
 
 **Steps**
 
-- [ ] Add a KMP permission-manager contract and a compile-only iOS no-op actual.
-- [ ] Implement Android Activity Result registration and a cancellation-safe suspended request serialized by a mutex.
-- [ ] Register the launcher before Compose starts and fail closed if registration is unavailable.
-- [ ] Remove the fire-and-forget `PlatformContext` permission API.
-- [ ] Await permission before calling login; show denial details and open application settings.
-- [ ] Run the focused test and login-related host tests; require GREEN.
-- [ ] Commit as `fix(login): await Android local network permission`.
+- [x] Add a KMP permission-manager contract and a compile-only iOS no-op actual.
+- [x] Implement Android Activity Result registration and a cancellation-safe suspended request serialized by a mutex.
+- [x] Register the launcher before Compose starts and fail closed if registration is unavailable.
+- [x] Remove the fire-and-forget `PlatformContext` permission API.
+- [x] Await permission before calling login; show denial details and open application settings.
+- [x] Run the focused test and login-related host tests; require GREEN.
+- [x] Commit as `fix(login): await Android local network permission`.
 
 ## Task 7: Navigation lifecycle tests
 

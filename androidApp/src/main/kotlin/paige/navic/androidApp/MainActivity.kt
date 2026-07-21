@@ -19,6 +19,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import paige.navic.App
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.models.VolumeKeySkipAction
 import paige.navic.domain.models.VolumeKeySkipEventAction
 import paige.navic.domain.models.VolumeKeySkipKey
@@ -32,6 +33,7 @@ import paige.navic.ui.screens.lidaClips.LidaClipPictureInPictureCoordinator
 
 class MainActivity : ComponentActivity(), KoinComponent {
 	private val preferenceManager: PreferenceManager by inject()
+	private val permissionManager: PermissionManager by inject()
 	private val player: MediaPlayerViewModel by inject()
 	private var readerDevInitialScreen by mutableStateOf<Screen?>(null)
 	private var readerDevWebDebuggingLease: AutoCloseable? = null
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 			ReaderWebRuntime.acquireForcedWebContentsDebugging(BuildConfig.NAVIC_READER_DEV)
 		applyReaderDevIntentSeed(intent)
 		enableEdgeToEdge()
+		permissionManager.registerLauncher(this)
 		requestNotificationPermissionIfNeeded()
 		setContent { App(initialScreenOverride = readerDevInitialScreen) }
 	}

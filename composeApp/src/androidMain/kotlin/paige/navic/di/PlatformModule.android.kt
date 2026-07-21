@@ -9,6 +9,7 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.AndroidKeystoreCredentialStore
 import paige.navic.domain.manager.CredentialStore
 import paige.navic.domain.manager.LogManager
+import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.QueueNotificationManager
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
@@ -64,4 +65,5 @@ actual val platformModule = module {
 	singleOf(::StorageManager)
 	singleOf(::ConnectivityManager)
 	singleOf(::LogManager)
+	singleOf(::PermissionManager)
 }
