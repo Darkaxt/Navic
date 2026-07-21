@@ -15,6 +15,7 @@ import karacken.curl.PageSurfaceListener
 import karacken.curl.PageSurfaceView
 import karacken.curl.RenderCapabilities
 import karacken.curl.RenderFailure
+import karacken.curl.RenderFailureReason
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,12 +24,17 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageInteractionState
+import paige.navic.reader.ReaderPageLifecycleCancellationReason
+import paige.navic.reader.ReaderPageNewPointerDecision
+import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
+import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
+import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
@@ -101,6 +107,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var attached = false
 	private var destroyed = false
 	private var readinessState = ReaderPageRendererReadinessState()
+	private var pageOperationPolicy = readerPageOperationPolicy(
+		ReaderPageReadinessState(
+			textureDeck = readinessState.textureDeck,
+			interaction = readinessState.interaction
+		)
+	)
 	private var hasPreparedDeckBefore = false
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private var snapshotKey = Int.MIN_VALUE
@@ -292,11 +304,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 					ReaderPageGestureTerminalOutcome.CancelledByUser,
 					"settlement-cancelled generation=$generationId page=$currentLogicalPageId"
 				)
-				updateReadiness(
-					textureDeck = ReaderTextureDeckState.Ready,
-					interaction = preparedInteractionState(),
-					reason = "settlement-cancelled:$gestureId"
-				)
+				if (
+					readinessState.textureDeck != ReaderTextureDeckState.Failed &&
+					readinessState.interaction != ReaderPageInteractionState.Failed
+				) {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Ready,
+						interaction = preparedInteractionState(),
+						reason = "settlement-cancelled:$gestureId"
+					)
+				}
 				hideSurface()
 			}
 
@@ -310,6 +327,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 					ReaderPageGestureTerminalOutcome.FailedRenderer,
 					"render-failure generation=${failure.generationId} reason=${failure.reason}"
 				)
+				if (!failure.isRecoverable()) {
+					cancelRendererWork(
+						if (failure.reason == RenderFailureReason.CONTEXT) {
+							ReaderPageLifecycleCancellationReason.UnsafeContextLoss
+						} else {
+							ReaderPageLifecycleCancellationReason.GlFailure
+						}
+					)
+				}
 				hideSurface()
 				Logger.e(
 					ReaderPlayLikeCurlFoliateControllerTag,
@@ -320,9 +346,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	val isAvailable: Boolean
-		get() = enabled && attached && readinessState.acceptsGestures
+		get() = enabled && attached &&
+			pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 
-	fun setEnabled(value: Boolean) {
+	fun setPageOperationPolicy(policy: ReaderPageOperationPolicy) {
+		pageOperationPolicy = policy
+	}
+
+	private fun unavailableGestureOutcome(): ReaderPageGestureTerminalOutcome =
+		(pageOperationPolicy.newPointer as? ReaderPageNewPointerDecision.Reject)?.outcome
+			?: ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+
+	fun setEnabled(
+		value: Boolean,
+		cancellationReason: ReaderPageLifecycleCancellationReason =
+			ReaderPageLifecycleCancellationReason.CanvasDisabled
+	) {
 		if (enabled == value) return
 		enabled = value
 		logActivationState("enabled", "value=$value")
@@ -330,7 +369,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			onRequestPrewarm()
 			refreshPreparedDeck()
 		} else {
-			invalidate("disabled")
+			invalidate("disabled", cancellationReason = cancellationReason)
 		}
 	}
 
@@ -340,7 +379,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		bitmapQuality = normalized
 		invalidate(
 			reason = "bitmap-quality-${normalized.persistedValue}",
-			profileRegeneration = true
+			profileRegeneration = true,
+			cancellationReason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
 		)
 		if (enabled) onRequestPrewarm()
 	}
@@ -348,11 +388,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun setSnapshotKey(value: Int) {
 		if (snapshotKey == value) return
 		snapshotKey = value
-		invalidate(reason = "snapshot-key", profileRegeneration = true)
+		invalidate(
+			reason = "snapshot-key",
+			profileRegeneration = true,
+			cancellationReason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+		)
 		if (enabled) onRequestPrewarm()
 	}
 
 	fun onPreparationStateChanged(state: ReaderPagePreparationState) {
+		setPageOperationPolicy(state.operationPolicy)
 		preparationPhase = state.phase
 		if (!enabled || destroyed) return
 		logActivationState(
@@ -382,7 +427,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 				logActivationState("refresh-gated", "preparation-failed")
 			}
 			ReaderPagePreparationPhase.Preparing -> {
-				if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
+				if (
+					readinessState.textureDeck == ReaderTextureDeckState.Settling ||
+					readinessState.interaction == ReaderPageInteractionState.Settling
+				) {
+					logActivationState("readiness-preserved", "raster-preparation-during-settlement")
+				} else if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
 					updateReadiness(
 						interaction = ReaderPageInteractionState.BackgroundPrefetch,
 						reason = "raster-background-prefetch"
@@ -412,7 +462,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onHostSizeChanged() {
 		if (!enabled || destroyed) return
-		invalidate(reason = "size-changed", profileRegeneration = true)
+		invalidate(
+			reason = "size-changed",
+			profileRegeneration = true,
+			cancellationReason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+		)
 		onRequestPrewarm()
 	}
 
@@ -424,20 +478,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onHostWindowHidden() {
 		hideSurface()
-		cancelActiveGesture()
+		cancelActiveGesture(ReaderPageLifecycleCancellationReason.CanvasDisabled)
 	}
 
 	fun onPageTouchEvent(event: MotionEvent, gestureId: Long): Boolean {
 		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 			activeGestureId = gestureId
-		}
-		if (!isAvailable) {
-			finishGesture(
-				gestureId,
-				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable,
-				"touch-rejected action=${event.actionMasked} controller-unavailable"
-			)
-			return false
+			if (!isAvailable) {
+				finishGesture(
+					gestureId,
+					unavailableGestureOutcome(),
+					"touch-rejected action=${event.actionMasked} controller-unavailable"
+				)
+				return false
+			}
 		}
 		return surfaceView.onPageTouchEvent(event, gestureId)
 	}
@@ -451,7 +505,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 			finishGesture(
 				gestureId,
-				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable,
+				unavailableGestureOutcome(),
 				"tap-turn-rejected change=$pageChange controller-unavailable"
 			)
 			return false
@@ -493,14 +547,26 @@ internal class ReaderPlayLikeCurlFoliateController(
 		hideSurface()
 	}
 
-	fun cancelActiveGesture() {
+	private fun cancelRendererWork(cancellationReason: ReaderPageLifecycleCancellationReason) {
+		surfaceView.cancelGesture()
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl renderer work cancelled reason=$cancellationReason"
+		)
+	}
+
+	fun cancelActiveGesture(cancellationReason: ReaderPageLifecycleCancellationReason) {
 		val gestureId = activeGestureId
 		if (gestureId != null) {
 			cancelGesture(gestureId)
 		} else {
-			surfaceView.cancelGesture()
+			cancelRendererWork(cancellationReason)
 			hideSurface()
 		}
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl active gesture cancelled reason=$cancellationReason"
+		)
 	}
 
 	fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {
@@ -523,12 +589,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		if (currentOrdinal == normalized && pendingExactOrdinal == null) return
 		currentOrdinal = normalized
-		invalidate("external-page-relocation")
+		invalidate(
+			"external-page-relocation",
+			cancellationReason = ReaderPageLifecycleCancellationReason.RendererReplaced
+		)
 		if (enabled) onRequestPrewarm()
 	}
 
-	fun invalidate(reason: String, profileRegeneration: Boolean = false) {
-		cancelActiveGesture()
+	fun invalidate(
+		reason: String,
+		profileRegeneration: Boolean = false,
+		cancellationReason: ReaderPageLifecycleCancellationReason? = null
+	) {
+		cancellationReason?.let(::cancelActiveGesture)
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		decodedRefillCenterOrdinal = null
@@ -560,11 +633,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		Logger.i(ReaderPlayLikeCurlFoliateControllerTag, "PlayLikeCurl invalidated reason=$reason")
 	}
 
-	fun destroy() {
+	fun destroy(cancellationReason: ReaderPageLifecycleCancellationReason) {
 		if (destroyed) return
 		destroyed = true
 		enabled = false
-		invalidate("destroyed")
+		invalidate("destroyed", cancellationReason = cancellationReason)
 		if (attached) {
 			attached = false
 			surfaceView.detach()

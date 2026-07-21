@@ -8,6 +8,7 @@ import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderPageDragPreviewPhase
+import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -36,7 +37,7 @@ expect fun KomikkuReaderNativeFrameHost(
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
 	pagePreparationCoverVisible: Boolean,
-	pagePreparationGesturesBlocked: Boolean,
+	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,

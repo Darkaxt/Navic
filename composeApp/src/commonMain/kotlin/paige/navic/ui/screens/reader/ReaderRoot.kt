@@ -23,7 +23,6 @@ import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderListeningSettings
-import paige.navic.reader.ReaderPagePreparationGestureDisposition
 import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPublicationFormat
@@ -150,8 +149,7 @@ internal fun KomikkuReaderRoot(
 			pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex,
 			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
 			pagePreparationCoverVisible = pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
-			pagePreparationGesturesBlocked = pagePreparationState.gestureDisposition ==
-				ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing,
+			pageOperationPolicy = pagePreparationState.operationPolicy,
 			pagePreparationRetryKey = pagePreparationRetryKey,
 			onPagePreparationStateChange = { state -> pagePreparationState = state },
 			onViewerAction = { action ->

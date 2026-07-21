@@ -38,20 +38,13 @@ data class ReaderPageReadinessState(
 		ReaderChapterRasterGenerationState.NotScheduled,
 	val decodedWorkingSet: ReaderDecodedWorkingSetState = ReaderDecodedWorkingSetState.Empty,
 	val textureDeck: ReaderTextureDeckState = ReaderTextureDeckState.Empty,
+	val pendingTextureDeck: ReaderTextureDeckState = ReaderTextureDeckState.Empty,
 	val interaction: ReaderPageInteractionState =
 		ReaderPageInteractionState.BlockingInitialPreparation
-) {
-	val acceptsGestures: Boolean
-		get() = interaction == ReaderPageInteractionState.Ready ||
-			interaction == ReaderPageInteractionState.BackgroundPrefetch
-}
+)
 
 data class ReaderPageRendererReadinessState(
 	val textureDeck: ReaderTextureDeckState = ReaderTextureDeckState.Empty,
 	val interaction: ReaderPageInteractionState =
 		ReaderPageInteractionState.BlockingInitialPreparation
-) {
-	val acceptsGestures: Boolean
-		get() = interaction == ReaderPageInteractionState.Ready ||
-			interaction == ReaderPageInteractionState.BackgroundPrefetch
-}
+)

@@ -37,12 +37,13 @@ data class ReaderPagePreparationState(
 	val readiness: ReaderPageReadinessState = ReaderPageReadinessState(
 		interaction = ReaderPageInteractionState.Ready
 	),
+	val operationPolicy: ReaderPageOperationPolicy = readerPageOperationPolicy(readiness),
 	val progress: Float = 0f,
 	val presentation: ReaderPagePreparationPresentation = ReaderPagePreparationPresentation.Hidden,
 	val gestureDisposition: ReaderPagePreparationGestureDisposition = ReaderPagePreparationGestureDisposition.Allow
 ) {
 	val interactiveReady: Boolean
-		get() = readiness.acceptsGestures
+		get() = operationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 }
 
 private fun readerPagePreparationPresentation(
@@ -64,15 +65,19 @@ private fun readerPagePreparationPresentation(
 
 fun ReaderPagePreparationState.withReadiness(
 	readiness: ReaderPageReadinessState
-): ReaderPagePreparationState = copy(
-	readiness = readiness,
-	presentation = readerPagePreparationPresentation(readiness),
-	gestureDisposition = if (readiness.acceptsGestures) {
-		ReaderPagePreparationGestureDisposition.Allow
-	} else {
-		ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing
-	}
-)
+): ReaderPagePreparationState {
+	val operationPolicy = readerPageOperationPolicy(readiness)
+	return copy(
+		readiness = readiness,
+		operationPolicy = operationPolicy,
+		presentation = readerPagePreparationPresentation(readiness),
+		gestureDisposition = if (operationPolicy.newPointer is ReaderPageNewPointerDecision.Accept) {
+			ReaderPagePreparationGestureDisposition.Allow
+		} else {
+			ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing
+		}
+	)
+}
 
 fun readerPagePreparationState(
 	phase: ReaderPagePreparationPhase,
