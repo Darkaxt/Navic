@@ -107,7 +107,8 @@ The decoded pages that cannot be evicted because they are required for immediate
 interaction:
 
 - portrait: the current page plus two pages in each direction;
-- landscape: the current spread plus two complete spreads in each direction.
+- landscape: the current spread plus two complete spreads in each direction,
+  yielding five protected spreads and up to ten protected raster entries.
 
 The window is clipped at real chapter boundaries. Clipping must not manufacture
 navigable duplicate pages.
@@ -177,8 +178,14 @@ Required invariants:
 - A decoded miss is not evidence that the persistent raster is missing.
 - Persistent hydration is attempted before WebView recapture.
 - The protected window advances before a turn refill requests its new far edge.
-- Eviction is prohibited while any cache, active deck, pending deck, upload, or
-  publication owner retains the bitmap.
+- Hydration completion revalidates the current profile, generation, destination,
+  monotonic committed-turn version, monotonic protected-window version, and exact
+  protected-window identity before decoded publication or repair. Value equality
+  alone is insufficient because a turn sequence can return to an earlier ordinal
+  and window while old hydration is suspended.
+- Eviction is prohibited while any cache, active deck, pending deck, upload,
+  encode pin, materialization reservation, or publication owner retains the
+  bitmap.
 
 ### 5.3 Texture-deck state
 
@@ -199,8 +206,8 @@ Required invariants:
 - A repaired decoded set is not recovered until the required deck is submitted
   and PlayLikeCurl confirms preparation.
 - Promotion cannot grant interaction to an unprepared generation.
-- Active and pending deck ownership remains bounded by the PlayLikeCurl lease
-  contract.
+- Active, pending, release-in-flight, and orphan deck ownership remains bounded by
+  the PlayLikeCurl lease contract and drains through typed renderer callbacks.
 
 ### 5.4 Pointer and settlement state
 
@@ -216,7 +223,11 @@ Provisional -> TapCandidate -> TapTerminal
 Required invariants:
 
 - The gesture ID is allocated once on `ACTION_DOWN` and reused for every later
-  callback, including delayed single-tap confirmation.
+  callback, including delayed single-tap and double-tap confirmation. The delayed
+  record retains the original down coordinates after Android recycles the event.
+- Android's first double-tap callback resolves the oldest prior delayed-tap record
+  rather than looking up the second physical stream. The second record resolves
+  only after its own `ACTION_UP`; both IDs terminate exactly once.
 - Native curl ownership remains provisional until touch slop and horizontal
   dominance are established.
 - A classified curl drag cannot fall through to tap navigation.
@@ -224,6 +235,8 @@ Required invariants:
   to continue.
 - A terminal ledger uses compare-and-set semantics: only the first terminal
   transition publishes an outcome.
+- Once lifecycle teardown permanently closes pointer delivery, every later event,
+  including a fresh `ACTION_DOWN`, is ignored without allocating a gesture ID.
 
 The coordinator must expose separate decisions for:
 
@@ -252,9 +265,20 @@ Required invariants:
 
 - Accepted settlement relocations are serialized and never silently overwritten.
 - Completion matching uses the token and generation, not only the page ordinal.
+- Native dispatch carries token, Foliate session, raster generation, and texture
+  generation through the JavaScript command and location message. Every location
+  message also carries an independently established, monotonic, non-sensitive
+  Foliate runtime session; the settlement echo is accepted only when it equals
+  that authoritative session. A successful location post consumes that settlement
+  exactly once, and bridge deduplication includes the same runtime and
+  acknowledgement identity so equal ordinals cannot suppress a newer token.
 - Stale acknowledgements cannot complete or clear a newer relocation.
 - The GL surface remains visible through visual-state confirmation and one
   subsequent animation frame.
+- Visual and frame callback registrations are bounded. Timeout, detach, or
+  invalidation makes ordinary logical delivery inert, but a WebView visual-state
+  registration remains physically counted until its callback completes or an
+  explicit WebView replacement/destruction boundary abandons that exact owner.
 
 ## 6. Cross-machine invariants
 
@@ -276,6 +300,8 @@ The following rules apply across every remediation workstream:
 9. No bitmap is released while any declared owner still retains it.
 10. Presentation follows state; presentation visibility must not be used as the
     source of lifecycle truth.
+11. A throwing callback or failure reporter is isolated from the sole terminal
+    drain owner and cannot strand later accepted terminal actions.
 
 ## 7. Normative remediation requirements
 
@@ -321,6 +347,12 @@ is treated as missing raster data even when the persistent raster is valid.
 - Resolve a refill in this order: retained decoded bitmap, persistent hydration,
   then explicit capture or repair only if the durable raster is absent or invalid.
 - Preserve logical page and raster-profile identity across hydration.
+- Before post-hydration decoded publication or repair, reject work whose profile
+  epoch, request generation, destination ordinal, monotonic committed-turn
+  version, monotonic protected-window version, or exact protected-window identity
+  is no longer current. Every committed turn and every protected-window
+  replacement advances its corresponding version even when the destination or
+  window value returns to an earlier value.
 
 **Acceptance:** Evict the new far-edge page from memory while leaving its
 persistent file valid, perform turns in both directions, and observe successful
@@ -336,13 +368,24 @@ without restoring texture readiness.
 
 **Required design:**
 
-- Repair completion emits a typed recovery result that identifies the page set,
-  center ordinal, raster generation, and intended deck role.
+- Repair completion emits a typed recovery result that identifies the repaired
+  page set, center ordinal, and raster generation. Derive the intended active or
+  pending deck role from authoritative renderer ownership immediately before the
+  initial submission and before every capacity retry. Do not store a deck role in
+  the repair result, build-wait state, or capacity-wait state.
 - If no valid prepared active deck exists, submit the repaired set as the active
   recovery deck.
 - If a valid active deck exists, recovery may prepare a pending replacement
   without blocking current interaction.
 - Recovery becomes interactive only after the matching `onDeckPrepared` callback.
+- Transition to callback-correlatable waiting state before submission and treat
+  typed `onDeckPrepared` or `onDeckRejected` callbacks as authoritative; do not
+  infer acceptance from a synchronous Boolean that the renderer API does not
+  provide.
+- A recovery coordinator enters its callback-correlatable waiting state before
+  invoking the renderer host. Submission has no inferred synchronous acceptance;
+  typed prepared or rejected callbacks are authoritative, including callbacks
+  delivered synchronously by the host.
 
 **Acceptance:** Force a missing-page repair with no usable active deck. The
 reader submits the repaired generation, remains non-interactive until the
@@ -359,15 +402,34 @@ the cache's ownership, so visited pages can accumulate indefinitely.
 **Required design:**
 
 - Bound adapter residency with a protected-window or LRU policy.
+- Size the default bound from protected raster entries, not renderer deck image
+  count: each live landscape lease can protect up to ten entries. One aggregate
+  budget is shared by current and retiring adapters, so profile replacement cannot
+  multiply the four-lease bound from forty to eighty entries.
 - Pin entries retained by active or pending renderer decks.
 - Remove cache ownership when an entry is outside the configured window and is
   not pinned.
 - Release the bitmap only when neither the adapter nor any deck owns it.
+- When the aggregate budget is saturated but the requesting adapter has an
+  unpinned, unprotected local eviction candidate, transfer that candidate's live
+  budget slot atomically to the replacement entry. Attach the replacement owner
+  before detaching the old owner; do not create a transient over-limit count, a
+  release/reacquire race, or a decoded-identity release/readoption gap. A
+  requester with no eligible local candidate remains a typed capacity miss.
 - Export current, peak, pinned, evicted, and released counts to diagnostics.
+- A retiring adapter is removed from the bounded owner pool whenever authoritative
+  metrics prove all residency, decoded identities, pins, workers, and release
+  callbacks drained, even if its join reports a retained callback failure. Report
+  that failure separately and surface it at teardown; do not consume an owner
+  slot forever after ownership reached zero.
 
 **Acceptance:** After one hundred consecutive turns, adapter bitmap residency is
 within the configured bound, obsolete entries are released, active/pending deck
-bitmaps remain valid, and residency does not grow monotonically.
+bitmaps remain valid, and residency does not grow monotonically. Saturate the
+shared budget with two adapters, leave one unpinned local candidate on the
+requesting adapter, and verify replacement succeeds by exact slot transfer with
+no capacity-return edge and no aggregate-count increase; the same request fails
+with a typed capacity result when every local candidate is pinned or protected.
 
 ### QA-05 — Readiness is published before durable persistence
 
@@ -478,7 +540,13 @@ ordinal-only matching cannot distinguish stale completion.
   the previous relocation is still awaiting WebView acknowledgement or visual
   handoff; its later accepted settlement is appended to the queue.
 - Carry the token through JavaScript dispatch, acknowledgement, exact-location
-  notification, visual-state confirmation, and completion.
+  notification, visual-state confirmation, and completion. Establish a monotonic,
+  non-sensitive Foliate runtime session independently when the publication/WebView
+  runtime opens and emit it on every location. The JavaScript bridge preserves the
+  token, echoed session, raster generation, and texture generation in the location
+  message and its deduplication key, accepts the echo only when it equals that
+  independent current session, and consumes settlement only after the message
+  posts successfully.
 - Reject stale token completions without clearing the active command.
 - Reader teardown, profile invalidation, or authoritative external navigation
   cancels queued tokens explicitly and exactly once.
@@ -598,8 +666,17 @@ that point can expose a stale or intermediate WebView frame.
 - After visual-state confirmation, wait for `postOnAnimation` before hiding.
 - Revalidate reader lifecycle, relocation token, raster generation, and expected
   ordinal immediately before handoff.
+- Bound visual and frame callback registrations. Timeout, detach, and invalidation
+  detach ordinary logical delivery but retain callback-slot ownership and capacity
+  until the real callback or an explicit WebView owner boundary releases it.
+  ReaderDev fault injection may transfer the same cell to one bounded QA owner
+  before physical registration; that transfer does not free or double-count its
+  callback slot. Explicit release submits the same cell once through the real
+  `WebView.VisualStateCallback`, while clear/teardown abandons it without posting
+  against a closing WebView.
 - If the visual barrier cannot complete, keep the shield and enter explicit
-  recovery rather than hiding blindly.
+  recovery rather than hiding blindly. Matching attach, resume, re-preparation,
+  or returned callback-capacity events retry the same acknowledged queue head.
 
 **Acceptance:** Delay WebView composition after logical acknowledgement. The GL
 surface remains visible until the matching visual callback and next frame, then
@@ -619,12 +696,25 @@ bitmap-release operation.
 - Make close idempotent and safe after partial initialization.
 - Resolve or cancel publication callbacks and release staged values before scope
   teardown loses their ownership path.
+- After renderer leases drain, synchronously fence adapters, cancel their shared
+  controller raster parent before awaiting adapter workers, and then verify every
+  cancellation cleanup and adapter join completes. An indefinitely suspended
+  hydration must not deadlock teardown.
 - Record decoded, adapter, staged, deck, and texture ownership before and after
   close.
+- Isolate every raster-generation request so a throwing store rollback, release,
+  or completion callback cannot kill the sole scheduler drain or strand later
+  waiters. Every waiter is terminally completed and removed from pending
+  ownership; joining teardown surfaces the retained aggregate failure rather than
+  relying on `Job.join()` to throw it.
+- Run publication, raster-generation, hydration, persistent-store, manifest,
+  codec, decoded-cache, and bitmap-release teardown on background/IO dispatchers.
+  Only renderer, GL, and host-view-confined disposal may execute on Android Main.
 
 **Acceptance:** Repeatedly open and close the reader after raster hydration and
-turning. Every cycle returns ownership counters to baseline and does not retain
-released reader instances.
+turning, including once while persistent hydration is suspended. Every cycle
+finishes, returns ownership counters to baseline, and does not retain released
+reader instances.
 
 ### QA-16 — Gesture IDs and terminal outcomes are not exactly once
 
@@ -636,7 +726,11 @@ streams can attempt terminal publication on `DOWN`, `MOVE`, and `UP`.
 
 **Required design:**
 
-- Store the `ACTION_DOWN` gesture ID through tap confirmation or cancellation.
+- Store the `ACTION_DOWN` gesture ID and original coordinates through tap
+  confirmation or cancellation.
+- Resolve the first action of an Android double tap from the oldest prior delayed
+  record; resolve the second action only after its own router `UP`. Never infer
+  first-tap identity from mutable detector or host-global state.
 - Maintain one terminal ledger shared by host and controller for the sequence.
 - `finishGesture` publishes only when it atomically changes an active,
   non-terminal sequence to a terminal state.
@@ -644,9 +738,11 @@ streams can attempt terminal publication on `DOWN`, `MOVE`, and `UP`.
   routed without publishing another result.
 - Lifecycle cancellation and renderer callbacks use the same terminal gate.
 
-**Acceptance:** For tap, committed turn, snap-back, unavailable renderer,
-boundary rejection, lifecycle cancellation, and render failure, diagnostics show
-one ID and exactly one terminal outcome. Replayed or late callbacks are ignored.
+**Acceptance:** For single tap, both callbacks of a double tap, committed turn,
+snap-back, unavailable renderer, boundary rejection, lifecycle cancellation, and
+render failure, diagnostics show one original ID and exactly one terminal outcome
+per physical stream. The first double-tap action uses its saved first-down
+coordinates. Replayed or late callbacks are ignored.
 
 ## 8. Required data flows
 
@@ -700,14 +796,24 @@ A valid warm reopen performs zero WebView captures.
 ### 8.5 Teardown and invalidation
 
 1. Stop accepting new pointer sequences.
-2. Cancel the active pointer or settlement with one explicit lifecycle reason
+2. Synchronously fence raster admission, advance raster epochs, and reject stale
+   completions without waiting for worker joins.
+3. Cancel the active pointer or settlement with one explicit lifecycle reason
    only when continuation is unsafe.
-3. Cancel or fence relocation tokens.
-4. Invalidate raster epochs and reject stale completions.
-5. Release active and pending deck leases through PlayLikeCurl's contract.
-6. Close adapter and raster caches.
-7. Cancel remaining scheduler work and callbacks.
-8. Verify ownership counters return to baseline.
+4. Cancel or fence relocation tokens.
+5. Release active, pending, release-in-flight, and orphan deck leases through
+   PlayLikeCurl's contract.
+6. Synchronously close/fence adapter and raster-cache admission, cancel the shared
+   controller raster parent, then await adapter cancellation cleanup and cache
+   owners. Remove any fully drained retiring adapter from owner capacity even when
+   its retained failure is reported separately.
+7. Close publication, raster-generation, and hydration schedulers on background
+   dispatchers, terminally complete every pending waiter, then close persistent
+   store and decoded cache on IO before clearing references. Cancel or detach
+   callbacks through their explicit owner; do not run bitmap-release callbacks on
+   Android Main.
+8. Verify ownership counters return to baseline and surface the aggregate of every
+   retained worker, callback, rollback, release, and close failure.
 
 ## 9. Failure and recovery policy
 
@@ -736,7 +842,9 @@ Every bitmap must have explicit ownership in one or more of these categories:
 - raster adapter cache;
 - active PlayLikeCurl deck lease;
 - pending PlayLikeCurl deck lease;
+- release-in-flight or explicitly tracked orphan deck lease;
 - in-flight texture upload;
+- encode pin or materialization reservation;
 - transient validated copy.
 
 Ownership transitions must satisfy:
@@ -751,6 +859,8 @@ Ownership transitions must satisfy:
 6. Diagnostic counters distinguish logical entries from unique bitmap identities.
 7. Protected and maximum residency limits are centralized policy, not duplicated
    across controllers.
+8. Pending callbacks, terminal actions, deck leases, and raster workers each have
+   a fixed admission bound and an explicit capacity-return edge.
 
 ## 11. Gesture and direction contract
 
@@ -814,7 +924,17 @@ contains at least:
 - expected Foliate session identity.
 
 The entry remains active until visual handoff completes or explicit cancellation
-occurs. Exact-location observation alone does not remove the GL surface.
+occurs. Each handoff attempt has a fresh monotonic attempt ID correlated to the
+stable relocation token. A timed-out attempt is permanently terminal; releasing
+its delayed physical callback is inert logical delivery and may only return
+capacity for a fresh attempt. Recovery may reach `Ready` only on that fresh
+attempt ID, never by changing the timed-out attempt's outcome. Exact-location
+observation alone does not remove the GL surface. The host retains the exact
+`WebView`, callback, and frame runnable registrations so cleanup never targets a
+replacement view or reconstructed wrapper. Timeout, detach, or invalidation makes
+ordinary logical delivery inert but does not pretend that WebView unregistered
+the callback. The bounded slot returns only on real callback completion or
+explicit replacement/destruction of that exact WebView owner.
 
 The required Android handoff is:
 
@@ -834,7 +954,8 @@ navigation may cancel them, but cancellation must be explicit and terminal.
 Diagnostics must make the independent state machines reconstructable. Events
 must include relevant non-content identifiers such as:
 
-- reader session identity;
+- opaque, process-local reader instance identity that is not derived from a user,
+  book, URL, href, CFI, or external session identifier;
 - gesture ID and terminal outcome;
 - relocation token and phase;
 - raster generation or request epoch;
@@ -846,13 +967,39 @@ must include relevant non-content identifiers such as:
 - capture, hydration, persistence, deck preparation, settlement, and visual
   handoff duration.
 
+ReaderDev fault evidence is operation-correlated, not timing-correlated. Allocate
+normal operation identity before consuming a fault. Every successful fault
+application records its request ID plus a complete fixed operation context:
+publication epoch, persistence attempt, raster request epoch, repair attempt,
+preparation attempt, relocation token, and handoff attempt, using typed absent
+sentinels for inapplicable fields. Ordinary downstream diagnostics carry the
+same immutable applied context and one relation (`AppliedOperation`, `Retry`, or
+`Recovery`). Direct effects must have current IDs equal to the applied context;
+retry/recovery events keep that root while using a separately visible fresh
+current attempt. No assertion may select the latest fault in a session or infer
+causality only from event order. In particular, a timed-out handoff attempt stays
+terminal, its later physical callback releases inertly under the original
+attempt ID, and only a newer same-token recovery attempt may become `Ready`.
+
 Diagnostics must not contain:
 
 - EPUB text;
-- rendered bitmap pixels or encoded raster payloads;
+- rendered bitmap pixels, encoded raster payloads, raster bytes, or payload labels;
 - API credentials or authentication material;
 - Whispersync transcript content;
-- user annotations or selected text.
+- user annotations or selected text;
+- URLs, hrefs, CFIs, book IDs, account IDs, or user identifiers;
+- user identifiers repurposed as reader-session identities.
+
+Every persisted diagnostic record must match exactly one closed, full-line schema
+before its first write and again after readback; unknown fields, missing fields,
+extra suffixes, malformed enums/identities, or forbidden values fail the gate.
+Raw PID-scoped log intervals remain memory-only and are represented by SHA-256.
+Privacy-safe smoke and Komikku trees use closed JSON/CSV schemas and exact path
+inventories. Their semantic privacy tests are rerun from the frozen commit, and
+every sealed tree plus every parsed diagnostic artifact is revalidated before the
+acceptance manifest or report is written. Screen recordings are explicitly
+separate visual artifacts and are not treated as diagnostic logs.
 
 ## 14. Verification strategy
 
@@ -888,9 +1035,11 @@ PlayLikeCurl, persistent cache, and scheduler callbacks. Verify:
 - repaired-deck submission and prepared gating;
 - unprepared promotion rejection;
 - rapid relocation serialization;
-- visual-state and frame-boundary handoff;
+- visual-state and frame-boundary handoff, including timeout capacity return and
+  delayed ReaderDev-owned stale callback delivery;
 - invalidation while old publication is in flight;
-- teardown after partial initialization and active work.
+- teardown after partial initialization, active work, and indefinitely suspended
+  hydration.
 
 ### 14.3 Resource and stress tests
 
@@ -924,7 +1073,9 @@ Behavior must be validated in:
 - rotation and resize;
 - app background and resume;
 - GL context recreation;
-- persistence, repair, and delayed-callback fault injection.
+- persistence, repair, and delayed-callback fault injection, with request IDs and
+  exact applied-operation contexts matched to every asserted terminal, retry, and
+  recovery event.
 
 Focused remediation suites must pass. The full host suite must introduce no new
 failures relative to a frozen baseline; unrelated baseline failures do not waive
@@ -965,7 +1116,8 @@ focused runtime requirements.
 - Current-chapter rasters are captured at most once per valid profile generation.
 - The portrait and landscape protected windows meet the required sizes.
 - Adapter and decoded residency remain within centralized configured bounds.
-- Active and pending deck leases remain bounded by the library contract.
+- Active, pending, release-in-flight, and orphan deck leases remain within the
+  library contract and drain on teardown.
 - One hundred consecutive turns cause no unbounded bitmap, texture, lease,
   callback, relocation, or staged-publication growth.
 - Reader teardown returns all reader-owned resource counters to baseline.
@@ -974,6 +1126,15 @@ focused runtime requirements.
 
 - Focused state-machine and behavior suites pass on a frozen commit.
 - PlayLikeCurl library tests pass for any canonical API change.
+- Commit the API-2 release source locally in canonical PlayLikeCurl before
+  creating the Navic candidate. Navic mirrors that exact commit, complete
+  `karackencurllib` source manifest, and license identity before candidate gates.
+- Run all frozen candidate automated gates against that exact API-2 source before
+  creating tag/release `1.2.0`. The annotated tag must point to the already
+  validated source commit; publication may not create a second source commit.
+- After publication, Navic immutably re-imports the released artifact and reruns
+  every automated gate. Candidate-source evidence never substitutes for this
+  post-publication pass.
 - ReaderDev and emulator validation pass.
 - Physical-device validation passes for portrait, landscape, LTR, RTL, rapid
   turning, rotation, background/resume, and GL recreation.
