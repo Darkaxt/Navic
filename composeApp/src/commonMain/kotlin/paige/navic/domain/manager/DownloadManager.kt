@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,8 +50,9 @@ import paige.navic.domain.models.collectionDownloadStatus
 import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.models.downloadSchedulerWorkerCount
 import paige.navic.domain.models.failedDownloadRetryPlan
+import paige.navic.domain.models.HostedDownloadFailureAction
+import paige.navic.domain.models.hostedDownloadFailureAction
 import paige.navic.domain.models.shouldSaveLidaClipWithDownloadedMusic
-import paige.navic.domain.models.shouldFailHostedDownload
 import paige.navic.domain.models.shouldRejectAudioDownloadContentType
 import paige.navic.domain.models.shouldUseDownloadedAudioFile
 import paige.navic.domain.models.shouldTreatLidaClipAsMusicVideo
@@ -73,6 +75,8 @@ class DownloadManager(
 	private val preferenceManager: PreferenceManager,
 	private val lidaClipsRepository: LidaClipsRepository,
 	private val lidaClipDownloadManager: LidaClipDownloadManager,
+	private val connectivityManager: ConnectivityManager,
+	private val navidromeAvailabilityManager: NavidromeAvailabilityManager,
 	private val sessionLifetime: AuthenticatedSessionLifetime,
 	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) {
@@ -127,6 +131,15 @@ class DownloadManager(
 		sessionLifetime.repeatInSession {
 			try {
 				recoverQueuedDownloads()
+				launch(Dispatchers.IO) {
+					connectivityManager.isOnline.collect { isOnline ->
+						if (isOnline) {
+							recoverQueuedDownloads()
+						} else {
+							suspendActiveDownloadsForOffline()
+						}
+					}
+				}
 				repeat(downloadSchedulerWorkerCount()) {
 					launch(Dispatchers.IO) {
 						processSongDownloadQueueWorker()
@@ -341,6 +354,14 @@ class DownloadManager(
 		resetLibraryDownloadState()
 	}
 
+	private suspend fun suspendActiveDownloadsForOffline() = withContext(NonCancellable) {
+		val jobs = activeDownloadsMutex.withLock { activeDownloads.values.toList() }
+		jobs.forEach { it.cancel() }
+		jobs.forEach { it.join() }
+		downloadDao.recoverInterruptedDownloads()
+		Logger.i("DownloadManager", "Suspended hosted downloads while effective Offline Mode is active")
+	}
+
 	private fun resetLibraryDownloadState() {
 		libraryDownloadJob?.cancel()
 		libraryDownloadJob = null
@@ -366,6 +387,7 @@ class DownloadManager(
 		startupQueueRecovery.join()
 		for (ignored in downloadWakeups) {
 			while (true) {
+				connectivityManager.isOnline.first { it }
 				val intent = claimNextDownloadSlot() ?: break
 				downloadWakeups.trySend(Unit)
 				try {
@@ -450,6 +472,7 @@ class DownloadManager(
 	}
 
 	private suspend fun claimNextDownloadSlot(): DownloadEntity? = runningDownloadSlotsMutex.withLock {
+		if (!connectivityManager.isOnline.value) return@withLock null
 		if (runningDownloadSlots.size >= paige.navic.domain.models.downloadConcurrencyLimit(
 				preferenceManager.maxConcurrentDownloads
 			)
@@ -473,33 +496,38 @@ class DownloadManager(
 	}
 
 	private suspend fun executeDownloadProcess(song: DomainSong, generation: Long) {
-		while (true) {
-			try {
-				Logger.i("DownloadManager", "beginning download for ${song.id}")
-				if (!isCurrentDownloadIntent(song.id, generation)) return
+		try {
+			Logger.i("DownloadManager", "beginning download for ${song.id}")
+			if (!isCurrentDownloadIntent(song.id, generation)) return
 
-				val path = downloadAudioFile(song, generation)
-				if (
-					downloadDao.completeIfCurrent(
-						songId = song.id,
-						generation = generation,
-						status = DownloadStatus.DOWNLOADED,
-						progress = 1f,
-						filePath = path
-					) != 1
-				) {
-					storageManager.deleteFile(path)
-					return
-				}
-				cacheSongCoverArt(song.coverArtId)
-				cacheAlbumCoverArt(song.albumId)
-				cacheLyrics(song)
-				cacheOfflineLidaClip(song)
+			val path = downloadAudioFile(song, generation)
+			if (
+				downloadDao.completeIfCurrent(
+					songId = song.id,
+					generation = generation,
+					status = DownloadStatus.DOWNLOADED,
+					progress = 1f,
+					filePath = path
+				) != 1
+			) {
+				storageManager.deleteFile(path)
 				return
-			} catch (e: Exception) {
-				if (e is CancellationException) throw e
-				if (shouldFailHostedDownload(e)) {
-					Logger.e("DownloadManager", "Navidrome service appears unavailable while downloading ${song.id}", e)
+			}
+			cacheSongCoverArt(song.coverArtId)
+			cacheAlbumCoverArt(song.albumId)
+			cacheLyrics(song)
+			cacheOfflineLidaClip(song)
+		} catch (e: Exception) {
+			if (e is CancellationException) throw e
+			when (hostedDownloadFailureAction(e)) {
+				HostedDownloadFailureAction.WaitForService -> withContext(NonCancellable) {
+					Logger.w("DownloadManager", "Navidrome unavailable while downloading ${song.id}; preserving queued intent", e)
+					navidromeAvailabilityManager.reportUnavailable(NavidromeOutageTrigger.Download, e)
+					downloadDao.requeueIfCurrent(song.id, generation)
+				}
+
+				HostedDownloadFailureAction.Fail -> {
+					Logger.e("DownloadManager", "Terminal download failure for ${song.id}", e)
 					downloadDao.completeIfCurrent(
 						song.id,
 						generation,
@@ -507,11 +535,7 @@ class DownloadManager(
 						0f,
 						null
 					)
-					return
 				}
-				Logger.w("DownloadManager", "Download retry queued for ${song.id}", e)
-				if (!isCurrentDownloadIntent(song.id, generation)) return
-				delay(HOSTED_DOWNLOAD_RETRY_DELAY_MS)
 			}
 		}
 	}
@@ -675,6 +699,5 @@ class DownloadManager(
 
 	private companion object {
 		const val LIBRARY_PROGRESS_POLL_DELAY_MS = 500L
-		const val HOSTED_DOWNLOAD_RETRY_DELAY_MS = 30_000L
 	}
 }

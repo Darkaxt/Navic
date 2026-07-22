@@ -102,5 +102,5 @@ actual class ConnectivityManager(
 	}
 		.distinctUntilChanged()
 		.flowOn(dispatcher)
-		.stateIn(scope, started, true)
+		.stateIn(scope, started, false)
 }

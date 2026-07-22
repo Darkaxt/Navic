@@ -99,6 +99,16 @@ interface DownloadDao {
 	@Query(
 		"""
 		UPDATE DownloadEntity
+		SET status = 'QUEUED', progress = 0
+		WHERE songId = :songId AND intentGeneration = :generation
+			AND status = 'DOWNLOADING' AND cancelled = 0
+		"""
+	)
+	suspend fun requeueIfCurrent(songId: String, generation: Long): Int
+
+	@Query(
+		"""
+		UPDATE DownloadEntity
 		SET status = :status, progress = :progress
 		WHERE songId = :songId AND intentGeneration = :generation
 			AND status = 'DOWNLOADING' AND cancelled = 0
