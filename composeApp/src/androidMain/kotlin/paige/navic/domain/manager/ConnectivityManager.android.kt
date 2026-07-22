@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -62,15 +61,11 @@ actual class ConnectivityManager(
 
 			override fun onLost(network: Network) {
 				super.onLost(network)
-				trySend(NetworkStatus())
+				trySend(currentNetworkStatus())
 			}
 		}
 
-		val request = NetworkRequest.Builder()
-			.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-			.build()
-
-		connectivityManager.registerNetworkCallback(request, callback)
+		connectivityManager.registerDefaultNetworkCallback(callback)
 
 		trySend(currentNetworkStatus())
 

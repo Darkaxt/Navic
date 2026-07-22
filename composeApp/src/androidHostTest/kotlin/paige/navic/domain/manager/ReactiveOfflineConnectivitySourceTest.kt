@@ -28,6 +28,17 @@ class ReactiveOfflineConnectivitySourceTest {
 	}
 
 	@Test
+	fun androidTracksTheDefaultNetworkAcrossRoamingTransitions() {
+		val source = androidMainFile("domain/manager/ConnectivityManager.android.kt").readText()
+		val onLostBody = source.substringAfter("override fun onLost")
+			.substringBefore("\n\t\t\t}")
+
+		assertContains(source, "registerDefaultNetworkCallback(callback)")
+		assertContains(onLostBody, "trySend(currentNetworkStatus())")
+		assertFalse("trySend(NetworkStatus())" in onLostBody)
+	}
+
+	@Test
 	fun settingsNoLongerRequireRestart() {
 		val strings = composeResourceFile("values/strings.xml").readText()
 		val offlineModeSubtitle = strings.lineSequence()
