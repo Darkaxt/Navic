@@ -11,9 +11,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageRasterPriority
-import paige.navic.util.core.Logger
-
-private const val ReaderPageRasterBatchTag = "ReaderPageRasterBatch"
 
 internal data class ReaderPageRasterBatchTarget(
 	val pageIndex: Int,
@@ -209,6 +206,12 @@ internal fun readerPageRasterPreviewOutcome(
 internal class ReaderPageRasterBatchController(
 	private val bundleSource: ReaderPageTurnBundleSource
 ) {
+	private data class RetryState(
+		val generation: Long,
+		val originalPageIndices: Set<Int>,
+		val retryPageIndices: Set<Int>
+	)
+
 	private data class Session(
 		val token: String,
 		val generation: Long,
@@ -216,18 +219,26 @@ internal class ReaderPageRasterBatchController(
 		val kind: ReaderPageTurnTransitionKind,
 		val reference: ReaderPageSlideSnapshot,
 		val targets: List<ReaderPageRasterBatchTarget>,
+		val originalPageIndices: Set<Int>,
+		val progressCompletedOffset: Int,
+		val progressRequiredCount: Int,
 		val onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		val onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
 		val onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
-		val missingTargets: MutableList<ReaderPageRasterBatchTarget> = mutableListOf(),
+		val missingTargets: MutableList<ReaderPageRasterBatchTarget> =
+			mutableListOf(),
 		var completedCount: Int = 0
 	) {
 		val requiredCount: Int get() = targets.size
+		val durabilityGate = ReaderPageRasterDurabilityGate(
+			targets.mapTo(linkedSetOf()) { target -> target.pageIndex }
+		)
 	}
 
 	private var nextSessionId = 0L
 	private var activeSession: Session? = null
+	private var retryState: RetryState? = null
 
 	fun start(
 		webView: WebView,
@@ -259,20 +270,46 @@ internal class ReaderPageRasterBatchController(
 				distinctTargets[target.pageIndex] = target
 			}
 		}
+		val generation = bundleSource.currentGeneration()
+		if (retryState?.generation != generation) retryState = null
+		val originalPageIndices = distinctTargets.keys.toSet()
+		val retry = retryState?.takeIf { candidate ->
+			candidate.generation == generation &&
+				candidate.originalPageIndices == originalPageIndices
+		}
+		val sessionTargets = retry?.let { candidate ->
+			distinctTargets.values.filter { target ->
+				target.pageIndex in candidate.retryPageIndices
+			}
+		} ?: distinctTargets.values.toList()
+		if (retry != null && sessionTargets.isEmpty()) {
+			retryState = null
+			reference.release()
+			onProgress(originalPageIndices.size, originalPageIndices.size)
+			onComplete(ReaderPageRasterBatchOutcome.Ready)
+			return true
+		}
+		val progressOffset = originalPageIndices.size - sessionTargets.size
 		val session = Session(
 			token = "navic-page-raster-batch-${++nextSessionId}",
-			generation = bundleSource.currentGeneration(),
+			generation = generation,
 			webView = webView,
 			kind = kind,
 			reference = reference,
-			targets = distinctTargets.values.toList(),
+			targets = sessionTargets,
+			originalPageIndices = originalPageIndices,
+			progressCompletedOffset = progressOffset,
+			progressRequiredCount = originalPageIndices.size,
 			onStagingStarted = onStagingStarted,
 			onActiveTarget = onActiveTarget,
 			onProgress = onProgress,
 			onComplete = onComplete
 		)
 		activeSession = session
-		session.onProgress(session.completedCount, session.requiredCount)
+		session.onProgress(
+			session.progressCompletedOffset,
+			session.progressRequiredCount
+		)
 		hydrateTarget(session, 0)
 		return true
 	}
@@ -313,17 +350,18 @@ internal class ReaderPageRasterBatchController(
 				hydrateTarget(session, targetIndex + 1)
 				return@hydrateSnapshot
 			}
-			markCompleted(session)
-			bundleSource.ensurePersistentSnapshot(hydrated, target.priority) { persisted ->
-				if (!persisted) {
-					Logger.w(
-						ReaderPageRasterBatchTag,
-						"Retained in-memory page remains usable after cache persistence failure " +
-							"pageIndex=${target.pageIndex}"
-					)
+			bundleSource.ensurePersistentSnapshot(
+				hydrated,
+				target.priority
+			) { persisted ->
+				if (!isSessionActive(session)) {
+					return@ensurePersistentSnapshot
 				}
+				if (!recordDurability(session, target, persisted)) {
+					return@ensurePersistentSnapshot
+				}
+				hydrateTarget(session, targetIndex + 1)
 			}
-			hydrateTarget(session, targetIndex + 1)
 		}
 	}
 
@@ -401,10 +439,9 @@ internal class ReaderPageRasterBatchController(
 			reference = session.reference,
 			itemToken = itemToken,
 			priority = target.priority,
-			onStagingStarted = session.onStagingStarted
-		) { captured ->
-			if (!isSessionActive(session)) return@capturePreparedRasterPage
-			if (!captured) {
+			onStagingStarted = session.onStagingStarted,
+			onCaptureFailed = captureFailed@{
+				if (!isSessionActive(session)) return@captureFailed
 				finish(
 					session,
 					ReaderPageRasterBatchOutcome.Failed(
@@ -413,12 +450,16 @@ internal class ReaderPageRasterBatchController(
 						reason = "prepared-raster-capture-failed"
 					)
 				)
-				return@capturePreparedRasterPage
+			},
+			onCaptured = captured@{ persisted ->
+				if (!isSessionActive(session)) return@captured
+				if (!recordDurability(session, target, persisted)) {
+					return@captured
+				}
+				session.missingTargets.remove(target)
+				advancePageTurnPreviewBatch(session, pageIndex)
 			}
-			session.missingTargets.remove(target)
-			markCompleted(session)
-			advancePageTurnPreviewBatch(session, pageIndex)
-		}
+		)
 	}
 
 	private fun advancePageTurnPreviewBatch(session: Session, pageIndex: Int) {
@@ -432,9 +473,43 @@ internal class ReaderPageRasterBatchController(
 		}
 	}
 
-	private fun markCompleted(session: Session) {
-		session.completedCount += 1
-		session.onProgress(session.completedCount, session.requiredCount)
+	private fun recordDurability(
+		session: Session,
+		target: ReaderPageRasterBatchTarget,
+		persisted: Boolean
+	): Boolean = when (
+		val decision = session.durabilityGate.record(
+			pageIndex = target.pageIndex,
+			persisted = persisted
+		)
+	) {
+		is ReaderPageRasterDurabilityDecision.Continue -> {
+			session.completedCount = decision.completed
+			session.onProgress(
+				session.progressCompletedOffset + decision.completed,
+				session.progressRequiredCount
+			)
+			true
+		}
+		ReaderPageRasterDurabilityDecision.Ready -> {
+			session.completedCount = session.requiredCount
+			session.onProgress(
+				session.progressCompletedOffset + session.completedCount,
+				session.progressRequiredCount
+			)
+			true
+		}
+		is ReaderPageRasterDurabilityDecision.Failed -> {
+			finish(
+				session,
+				ReaderPageRasterBatchOutcome.Failed(
+					stage = "persistent-publication",
+					pageIndex = decision.pageIndex,
+					reason = "durable-write-failed"
+				)
+			)
+			false
+		}
 	}
 
 	private fun isSessionActive(session: Session): Boolean =
@@ -444,6 +519,23 @@ internal class ReaderPageRasterBatchController(
 
 	private fun finish(session: Session, outcome: ReaderPageRasterBatchOutcome) {
 		if (activeSession !== session) return
+		when (outcome) {
+			is ReaderPageRasterBatchOutcome.Failed -> {
+				retryState = RetryState(
+					generation = session.generation,
+					originalPageIndices = session.originalPageIndices,
+					retryPageIndices = session.durabilityGate.retryPageIndices()
+				)
+			}
+			ReaderPageRasterBatchOutcome.Ready -> {
+				retryState?.takeIf { state ->
+					state.generation == session.generation &&
+						state.originalPageIndices == session.originalPageIndices
+				}?.let { retryState = null }
+			}
+			ReaderPageRasterBatchOutcome.Cancelled,
+			is ReaderPageRasterBatchOutcome.Deferred -> Unit
+		}
 		activeSession = null
 		session.reference.release()
 		session.onComplete(outcome)

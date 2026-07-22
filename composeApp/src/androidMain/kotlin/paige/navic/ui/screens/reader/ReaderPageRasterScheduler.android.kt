@@ -1,11 +1,14 @@
 package paige.navic.ui.screens.reader
 
+import java.io.File
 import java.util.PriorityQueue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,10 +38,52 @@ internal fun interface ReaderPageRasterGenerator<T : Any> {
 	suspend fun generate(key: ReaderPageRasterKey): ReaderPageRasterGeneration<T>?
 }
 
+internal enum class ReaderPageRasterWriteMode {
+	AdoptDecoded,
+	PersistOnly
+}
+
+internal enum class ReaderPageRasterValueOwnership {
+	Store,
+	Caller
+}
+
+internal data class ReaderPageRasterWriteReceipt(
+	val key: ReaderPageRasterKey,
+	val rasterFileName: String,
+	val inProcessRevision: Long
+)
+
+internal enum class ReaderPageRasterWriteFailureReason {
+	EncodeIdentityReleasing
+}
+
+internal data class ReaderPageRasterWriteResult(
+	val persisted: Boolean,
+	val ownership: ReaderPageRasterValueOwnership,
+	val receipt: ReaderPageRasterWriteReceipt? = null,
+	val failureReason: ReaderPageRasterWriteFailureReason? = null
+)
+
+internal fun interface ReaderPageRasterCommitFence {
+	fun commit(
+		action: () -> ReaderPageRasterWriteResult
+	): ReaderPageRasterWriteResult
+}
+
 internal interface ReaderPageRasterStore<T : Any> {
 	fun contains(key: ReaderPageRasterKey): Boolean
-	fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean
+	fun <R : Any> readCopy(
+		key: ReaderPageRasterKey,
+		copy: (T) -> R?
+	): ReaderPageRaster<R>?
+	fun write(
+		key: ReaderPageRasterKey,
+		metadata: ReaderPageRasterMetadata,
+		value: T
+	): ReaderPageRasterWriteResult
 	fun remove(key: ReaderPageRasterKey): Boolean
+	fun rollbackPublication(receipt: ReaderPageRasterWriteReceipt): Boolean
 	fun retainProfile(profile: ReaderPageRasterProfile): Int
 	fun protectChapter(chapter: ReaderPageRasterChapterKey?)
 	fun encodedBytes(key: ReaderPageRasterKey): Long
@@ -46,18 +91,112 @@ internal interface ReaderPageRasterStore<T : Any> {
 
 internal class ReaderPageRasterCacheStore<T : Any>(
 	private val cache: ReaderPageRasterCache<T>
-) : ReaderPageRasterStore<T> {
-	override fun contains(key: ReaderPageRasterKey): Boolean = cache.contains(key)
+) : ReaderPageRasterStore<T>, AutoCloseable {
+	private val lock = Any()
+	private var activeOperations = 0
+	private var closed = false
 
-	override fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean =
-		cache.write(key, metadata, value)
+	private inline fun <R> withOpen(
+		closedResult: R,
+		action: () -> R
+	): R {
+		val admitted = synchronized(lock) {
+			if (closed) false
+			else {
+				activeOperations += 1
+				true
+			}
+		}
+		if (!admitted) return closedResult
+		return try {
+			action()
+		} finally {
+			synchronized(lock) {
+				check(activeOperations > 0)
+				activeOperations -= 1
+			}
+		}
+	}
 
-	override fun remove(key: ReaderPageRasterKey): Boolean = cache.remove(key)
+	override fun contains(key: ReaderPageRasterKey): Boolean =
+		withOpen(false) { cache.contains(key) }
 
-	override fun retainProfile(profile: ReaderPageRasterProfile): Int = cache.retainProfile(profile)
-	override fun protectChapter(chapter: ReaderPageRasterChapterKey?) = cache.protectChapter(chapter)
+	override fun <R : Any> readCopy(
+		key: ReaderPageRasterKey,
+		copy: (T) -> R?
+	): ReaderPageRaster<R>? =
+		withOpen<ReaderPageRaster<R>?>(null) {
+			cache.readCopy(key, copy)
+		}
 
-	override fun encodedBytes(key: ReaderPageRasterKey): Long = cache.pathFor(key).takeIf { file -> file.isFile }?.length() ?: 0L
+	override fun write(
+		key: ReaderPageRasterKey,
+		metadata: ReaderPageRasterMetadata,
+		value: T
+	): ReaderPageRasterWriteResult = withOpen(
+		ReaderPageRasterWriteResult(
+			persisted = false,
+			ownership = ReaderPageRasterValueOwnership.Caller
+		)
+	) {
+		cache.write(
+			key,
+			metadata,
+			value,
+			ReaderPageRasterWriteMode.AdoptDecoded
+		)
+	}
+
+	fun writePublication(
+		key: ReaderPageRasterKey,
+		metadata: ReaderPageRasterMetadata,
+		value: T,
+		commitFence: ReaderPageRasterCommitFence
+	): ReaderPageRasterWriteResult = withOpen(
+		ReaderPageRasterWriteResult(
+			persisted = false,
+			ownership = ReaderPageRasterValueOwnership.Caller
+		)
+	) {
+		cache.write(
+			key = key,
+			metadata = metadata,
+			value = value,
+			mode = ReaderPageRasterWriteMode.PersistOnly,
+			commitFence = commitFence
+		)
+	}
+
+	override fun rollbackPublication(
+		receipt: ReaderPageRasterWriteReceipt
+	): Boolean = withOpen(false) {
+		cache.rollbackPublication(receipt)
+	}
+
+	override fun remove(key: ReaderPageRasterKey): Boolean =
+		withOpen(false) { cache.remove(key) }
+
+	override fun retainProfile(profile: ReaderPageRasterProfile): Int =
+		withOpen(0) { cache.retainProfile(profile) }
+
+	override fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
+		withOpen(Unit) { cache.protectChapter(chapter) }
+	}
+
+	override fun encodedBytes(key: ReaderPageRasterKey): Long =
+		withOpen(0L) {
+			cache.pathFor(key).takeIf(File::isFile)?.length() ?: 0L
+		}
+
+	override fun close() {
+		synchronized(lock) {
+			if (closed) return
+			check(activeOperations == 0) {
+				"Persistent raster store closed with active operations"
+			}
+			closed = true
+		}
+	}
 }
 
 internal class ReaderPageRasterScheduler<T : Any>(
@@ -86,6 +225,7 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	private var activeProfileGeneration = 0L
 	private var nextSequence = 0L
 	private var profilePendingRetention: ReaderPageRasterProfile? = null
+	private var retainedDispatchFailure: Throwable? = null
 	private var closed = false
 
 	init {
@@ -164,6 +304,17 @@ internal class ReaderPageRasterScheduler<T : Any>(
 		wakeups.close()
 	}
 
+	fun dispatchFailure(): Throwable? = synchronized(lock) {
+		retainedDispatchFailure
+	}
+
+	private fun recordFailure(failure: Throwable) {
+		synchronized(lock) {
+			val first = retainedDispatchFailure
+			if (first == null) retainedDispatchFailure = failure
+			else if (failure !== first) first.addSuppressed(failure)
+		}
+	}
 
 	suspend fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
 		withContext(ioDispatcher) { store.protectChapter(chapter) }
@@ -201,16 +352,59 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			return
 		}
 
-		val published = withContext(ioDispatcher) {
-			store.write(work.key, generated.metadata, generated.value)
+		var write = ReaderPageRasterWriteResult(
+			persisted = false,
+			ownership = ReaderPageRasterValueOwnership.Caller
+		)
+		var writeFailure: Throwable? = null
+		try {
+			withContext(NonCancellable + ioDispatcher) {
+				try {
+					write = store.write(
+						work.key,
+						generated.metadata,
+						generated.value
+					)
+				} catch (failure: Throwable) {
+					writeFailure = failure
+				}
+			}
+		} catch (_: CancellationException) {
+			// The non-cancellable worker already captured its write result.
+		} catch (failure: Throwable) {
+			writeFailure = failure
 		}
-		if (!published) {
+		if (writeFailure != null) {
+			recordFailure(checkNotNull(writeFailure))
 			release(generated.value)
 			complete(work, ReaderPageRasterScheduleStatus.Failed)
 			return
 		}
+		if (write.ownership == ReaderPageRasterValueOwnership.Caller) {
+			release(generated.value)
+		}
+		if (!write.persisted) {
+			complete(work, ReaderPageRasterScheduleStatus.Failed)
+			return
+		}
 		if (!isCurrent(work)) {
-			withContext(ioDispatcher) { store.remove(work.key) }
+			write.receipt?.let { receipt ->
+				var rollbackFailure: Throwable? = null
+				try {
+					withContext(NonCancellable + ioDispatcher) {
+						try {
+							store.rollbackPublication(receipt)
+						} catch (failure: Throwable) {
+							rollbackFailure = failure
+						}
+					}
+				} catch (_: CancellationException) {
+					// Rollback already completed on the non-cancellable worker.
+				} catch (failure: Throwable) {
+					rollbackFailure = failure
+				}
+				rollbackFailure?.let(::recordFailure)
+			}
 			complete(work, ReaderPageRasterScheduleStatus.Stale)
 			return
 		}

@@ -7,6 +7,28 @@ import kotlin.test.assertFalse
 
 class ReaderPageRasterPreparationSourceTest {
 	@Test
+	fun batchProgressAdvancesOnlyFromDurablePublicationCallbacks() {
+		val source = readerRasterBatchSource()
+		val hydration = source.substringAfter(
+			"private fun hydrateTarget("
+		).substringBefore("private fun submitMissingTargets(")
+		val capture = source.substringAfter(
+			"private fun captureReadyItem("
+		).substringBefore("private fun advancePageTurnPreviewBatch(")
+
+		assertContains(hydration, "bundleSource.ensurePersistentSnapshot(")
+		assertContains(hydration, "recordDurability(session, target, persisted)")
+		assertContains(capture, "onCaptured = captured@{ persisted ->")
+		assertContains(capture, "recordDurability(session, target, persisted)")
+		assertContains(source, "stage = \"persistent-publication\"")
+		assertContains(source, "reason = \"durable-write-failed\"")
+		assertContains(source, "session.durabilityGate.retryPageIndices()")
+		assertContains(source, "target.pageIndex in candidate.retryPageIndices")
+		assertContains(source, "progressCompletedOffset + decision.completed")
+		assertFalse(source.contains("private fun markCompleted("))
+	}
+
+	@Test
 	fun preparationShieldIsReusedWithinOneRasterSession() {
 		val source = readerRasterPreparationSource()
 
@@ -141,17 +163,24 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 }
 
-private fun readerRasterPreparationSource(): String {
+private fun readerRasterBatchSource(): String = readerSource(
+	"ReaderPageRasterBatchController.android.kt"
+)
+
+private fun readerRasterPreparationSource(): String = readerSource(
+	"ReaderPageRasterPreparationController.android.kt"
+)
+
+private fun readerSource(fileName: String): String {
 	var current: File? = File(checkNotNull(System.getProperty("user.dir"))).canonicalFile
 	repeat(10) {
 		val root = current ?: return@repeat
 		val candidate = File(
 			root,
-			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
-				"ReaderPageRasterPreparationController.android.kt"
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/$fileName"
 		)
 		if (candidate.isFile) return candidate.readText()
 		current = root.parentFile
 	}
-	error("Could not locate ReaderPageRasterPreparationController.android.kt")
+	error("Could not locate $fileName")
 }

@@ -39,7 +39,9 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val storageAvailable = !root.exists() || !Files.isSymbolicLink(root.toPath())
 	private val manifest = ReaderPageRasterManifest(root)
 	private val entries = linkedMapOf<String, ReaderPageRasterManifestEntry>()
+	private val entryRevisions = mutableMapOf<String, Long>()
 	private val decoded = LinkedHashMap<String, ReaderPageRaster<T>>(0, 0.75f, true)
+	private var nextInProcessRevision = 1L
 	private var protectedChapter: ReaderPageRasterChapterKey? = null
 	private var protectedDecodedPageIndices = emptySet<Int>()
 
@@ -60,7 +62,14 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 	}
 
-	fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean {
+	fun write(
+		key: ReaderPageRasterKey,
+		metadata: ReaderPageRasterMetadata,
+		value: T,
+		mode: ReaderPageRasterWriteMode = ReaderPageRasterWriteMode.AdoptDecoded,
+		commitFence: ReaderPageRasterCommitFence =
+			ReaderPageRasterCommitFence { action -> action() }
+	): ReaderPageRasterWriteResult {
 		if (!storageAvailable) return writeFailed(key, "storage-unavailable")
 		if (key.schemaVersion != ReaderPageRasterSchemaVersion) {
 			return writeFailed(key, "schema-mismatch-${key.schemaVersion}")
@@ -85,70 +94,143 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 		val contentDigest = temporary.sha256().take(16)
 		val lockRequestedAt = System.nanoTime()
-		val published = synchronized(this) {
-			val lockWaitMillis = elapsedMillis(lockRequestedAt)
-			if (lockWaitMillis >= ReaderPageRasterContentionDiagnosticMillis) {
-				onDiagnostic(
-					"write-lock-contention key=${key.digest.take(12)} " +
-						"waitMillis=$lockWaitMillis encodedBytes=$byteSize"
-				)
+		val result = try {
+			commitFence.commit {
+				synchronized(this) {
+					commitWrite(
+						key = key,
+						metadata = metadata,
+						value = value,
+						mode = mode,
+						temporary = temporary,
+						contentDigest = contentDigest,
+						byteSize = byteSize,
+						lockRequestedAt = lockRequestedAt
+					)
+				}
 			}
-			val target = root.resolve("${key.digest}-$contentDigest.png")
-			val targetExisted = target.isFile
-			val promotion = runCatching { readerPageRasterPromote(temporary, target) }
-			if (promotion.isFailure) {
-				temporary.delete()
-				return@synchronized writeFailed(
-					key,
-					"promote-failed-${promotion.exceptionOrNull()?.javaClass?.simpleName.orEmpty()}",
-					byteSize
-				)
-			}
+		} catch (failure: Throwable) {
+			temporary.delete()
+			throw failure
+		}
+		temporary.delete()
+		return result
+	}
 
-			val entry = ReaderPageRasterManifestEntry(
+	private fun commitWrite(
+		key: ReaderPageRasterKey,
+		metadata: ReaderPageRasterMetadata,
+		value: T,
+		mode: ReaderPageRasterWriteMode,
+		temporary: File,
+		contentDigest: String,
+		byteSize: Long,
+		lockRequestedAt: Long
+	): ReaderPageRasterWriteResult {
+		val lockWaitMillis = elapsedMillis(lockRequestedAt)
+		if (lockWaitMillis >= ReaderPageRasterContentionDiagnosticMillis) {
+			onDiagnostic(
+				"write-lock-contention key=${key.digest.take(12)} " +
+					"waitMillis=$lockWaitMillis encodedBytes=$byteSize"
+			)
+		}
+		val target = root.resolve("${key.digest}-$contentDigest.png")
+		val targetExisted = target.isFile
+		val promotion = runCatching {
+			readerPageRasterPromote(temporary, target)
+		}
+		if (promotion.isFailure) {
+			temporary.delete()
+			return writeFailed(
+				key,
+				"promote-failed-${
+					promotion.exceptionOrNull()?.javaClass?.simpleName.orEmpty()
+				}",
+				byteSize
+			)
+		}
+
+		val entry = ReaderPageRasterManifestEntry(
+			key = key,
+			rasterFileName = target.name,
+			byteSize = byteSize,
+			lastAccessEpochMillis = clock(),
+			metadata = metadata
+		)
+		val proposed = entries.toMutableMap().apply {
+			put(key.digest, entry)
+		}
+		val retained = retainedWithinDiskLimit(proposed.values)
+		if (!manifest.write(retained)) {
+			if (!targetExisted) target.delete()
+			return writeFailed(key, "manifest-write-failed", byteSize)
+		}
+
+		val retainedIds = retained.mapTo(mutableSetOf()) { retainedEntry ->
+			retainedEntry.key.digest
+		}
+		val retiredEntries = entries.values.filter { existing ->
+			existing.key.digest !in retainedIds ||
+				(existing.key.digest == key.digest &&
+					existing.rasterFileName != entry.rasterFileName)
+		}
+		retiredEntries.forEach { retired ->
+			decoded.remove(retired.key.digest)
+				?.takeIf { raster -> raster.value !== value }
+				?.let { raster -> codec.release(raster.value) }
+			deleteEntryFile(retired)
+		}
+		entries.clear()
+		retained.forEach { retainedEntry ->
+			entries[retainedEntry.key.digest] = retainedEntry
+		}
+		entryRevisions.keys.retainAll(retainedIds)
+
+		if (key.digest !in retainedIds) {
+			if (retained.none { it.rasterFileName == target.name }) {
+				target.delete()
+			}
+			return ReaderPageRasterWriteResult(
+				persisted = false,
+				ownership = ReaderPageRasterValueOwnership.Caller
+			)
+		}
+
+		val revision = nextInProcessRevision++
+		entryRevisions[key.digest] = revision
+		val ownership = if (
+			mode == ReaderPageRasterWriteMode.AdoptDecoded &&
+			adoptDecodedForWrite(ReaderPageRaster(key, metadata, value))
+		) {
+			ReaderPageRasterValueOwnership.Store
+		} else {
+			ReaderPageRasterValueOwnership.Caller
+		}
+		return ReaderPageRasterWriteResult(
+			persisted = true,
+			ownership = ownership,
+			receipt = ReaderPageRasterWriteReceipt(
 				key = key,
 				rasterFileName = target.name,
-				byteSize = byteSize,
-				lastAccessEpochMillis = clock(),
-				metadata = metadata
+				inProcessRevision = revision
 			)
-			val proposed = entries.toMutableMap().apply { put(key.digest, entry) }
-			val retained = retainedWithinDiskLimit(proposed.values)
-			if (!manifest.write(retained)) {
-				if (!targetExisted) target.delete()
-				return@synchronized writeFailed(key, "manifest-write-failed", byteSize)
-			}
-
-			val retainedIds = retained.mapTo(mutableSetOf()) { retainedEntry -> retainedEntry.key.digest }
-			val retiredEntries = entries.values.filter { existing ->
-				existing.key.digest !in retainedIds ||
-					(existing.key.digest == key.digest && existing.rasterFileName != entry.rasterFileName)
-			}
-			retiredEntries.forEach { retired ->
-				decoded.remove(retired.key.digest)?.takeIf { raster -> raster.value !== value }?.let { raster ->
-					codec.release(raster.value)
-				}
-				deleteEntryFile(retired)
-			}
-			entries.clear()
-			retained.forEach { retainedEntry -> entries[retainedEntry.key.digest] = retainedEntry }
-			putDecoded(ReaderPageRaster(key, metadata, value))
-			key.digest in entries
-		}
-		return published
+		)
 	}
 
 	private fun writeFailed(
 		key: ReaderPageRasterKey,
 		reason: String,
 		encodedBytes: Long = 0L
-	): Boolean {
+	): ReaderPageRasterWriteResult {
 		onDiagnostic(
 			"write-failed key=${key.digest.take(12)} reason=$reason " +
 				"encodedBytes=${encodedBytes.coerceAtLeast(0L)} " +
 				"availableBytes=${root.usableSpace.coerceAtLeast(0L)}"
 		)
-		return false
+		return ReaderPageRasterWriteResult(
+			persisted = false,
+			ownership = ReaderPageRasterValueOwnership.Caller
+		)
 	}
 
 	@Synchronized
@@ -219,6 +301,7 @@ internal class ReaderPageRasterCache<T : Any>(
 			decoded.remove(entry.key.digest)?.let { raster -> codec.release(raster.value) }
 			deleteEntryFile(entry)
 			entries.remove(entry.key.digest)
+			entryRevisions.remove(entry.key.digest)
 		}
 		return obsolete.size
 	}
@@ -235,7 +318,8 @@ internal class ReaderPageRasterCache<T : Any>(
 			deleteEntryFile(entry)
 		}
 		entries.clear()
-		retained.forEach { entry -> entries[entry.key.digest] = entry }
+		entries.putAll(retained.associateBy { entry -> entry.key.digest })
+		entryRevisions.keys.retainAll(entries.keys)
 	}
 
 	@Synchronized
@@ -258,11 +342,40 @@ internal class ReaderPageRasterCache<T : Any>(
 
 	@Synchronized
 	fun remove(key: ReaderPageRasterKey): Boolean {
-		val entry = entries[key.digest]?.takeIf { candidate -> candidate.key.identity == key.identity } ?: return false
+		val entry = entries[key.digest]?.takeIf { candidate ->
+			candidate.key.identity == key.identity
+		} ?: return false
 		entries.remove(key.digest)
-		decoded.remove(key.digest)?.let { raster -> codec.release(raster.value) }
+		entryRevisions.remove(key.digest)
+		decoded.remove(key.digest)?.let { raster ->
+			codec.release(raster.value)
+		}
 		deleteEntryFile(entry)
 		persistManifest()
+		return true
+	}
+
+	@Synchronized
+	fun rollbackPublication(receipt: ReaderPageRasterWriteReceipt): Boolean {
+		val entry = entries[receipt.key.digest]?.takeIf { candidate ->
+			candidate.key.identity == receipt.key.identity &&
+				candidate.rasterFileName == receipt.rasterFileName &&
+				entryRevisions[receipt.key.digest] == receipt.inProcessRevision
+		} ?: return false
+		val retained = entries.values.filterNot { candidate ->
+			candidate.key.digest == receipt.key.digest
+		}
+		check(manifest.write(retained)) {
+			"Raster publication rollback manifest write failed"
+		}
+		entries.remove(receipt.key.digest)
+		entryRevisions.remove(receipt.key.digest)
+		decoded.remove(receipt.key.digest)?.let { raster ->
+			codec.release(raster.value)
+		}
+		if (retained.none { it.rasterFileName == entry.rasterFileName }) {
+			deleteEntryFile(entry)
+		}
 		return true
 	}
 
@@ -306,6 +419,26 @@ internal class ReaderPageRasterCache<T : Any>(
 		return retained
 	}
 
+	private fun adoptDecodedForWrite(
+		raster: ReaderPageRaster<T>
+	): Boolean {
+		if (maxDecodedEntries <= 0) return false
+		val existing = decoded.remove(raster.key.digest)
+		if (existing != null) {
+			if (existing.value !== raster.value) {
+				codec.release(existing.value)
+			}
+		} else if (decoded.size >= maxDecodedEntries) {
+			val eviction = decoded.entries.firstOrNull { (_, candidate) ->
+				candidate.key.visualPageOrdinal !in protectedDecodedPageIndices
+			} ?: return false
+			decoded.remove(eviction.key)
+			codec.release(eviction.value.value)
+		}
+		decoded[raster.key.digest] = raster
+		return true
+	}
+
 	private fun putDecoded(raster: ReaderPageRaster<T>) {
 		if (maxDecodedEntries <= 0) return
 		decoded.put(raster.key.digest, raster)?.takeIf { previous -> previous.value !== raster.value }?.let { previous ->
@@ -333,6 +466,7 @@ internal class ReaderPageRasterCache<T : Any>(
 
 	private fun removeEntry(digest: String) {
 		val entry = entries.remove(digest) ?: return
+		entryRevisions.remove(digest)
 		decoded.remove(digest)?.let { raster -> codec.release(raster.value) }
 		deleteEntryFile(entry)
 		persistManifest()

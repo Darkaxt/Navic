@@ -7,10 +7,14 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import paige.navic.reader.ReaderPageBitmapQuality
 
@@ -22,8 +26,8 @@ class ReaderPageRasterCacheTest {
 	fun rasterEncodingAndDiskSyncHappenBeforeTheAtomicCacheCommitLock() {
 		val source = cacheSourceFile.readText()
 		val write = source
-			.substringAfter("fun write(key: ReaderPageRasterKey, metadata: ReaderPageRasterMetadata, value: T): Boolean")
-			.substringBefore("private fun writeFailed(")
+			.substringAfter("fun write(\n")
+			.substringBefore("private fun commitWrite(")
 		val encodeIndex = write.indexOf("codec.encode(value, temporary)")
 		val syncIndex = write.indexOf("output.fd.sync()")
 		val commitLockIndex = write.indexOf("synchronized(this)")
@@ -306,6 +310,289 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun publicationWritePersistsWithoutAdoptingTheCallersValue() {
+		val fixture = fixture(maxDecodedEntries = 2)
+		val rasterKey = key(chapterPageIndex = 4)
+		val value = pngBytes("publication")
+
+		val result = fixture.cache.write(
+			key = rasterKey,
+			metadata = metadata(),
+			value = value,
+			mode = ReaderPageRasterWriteMode.PersistOnly
+		)
+
+		assertTrue(result.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Caller, result.ownership)
+		assertEquals(0, fixture.cache.metrics().decodedEntries)
+		assertTrue(fixture.cache.contains(rasterKey))
+	}
+
+	@Test
+	fun schedulerWriteReportsWhenDecodedResidencyIsDisabled() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 5)
+
+		val result = fixture.cache.write(
+			key = rasterKey,
+			metadata = metadata(),
+			value = pngBytes("scheduler"),
+			mode = ReaderPageRasterWriteMode.AdoptDecoded
+		)
+
+		assertTrue(result.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Caller, result.ownership)
+		assertEquals(0, fixture.cache.metrics().decodedEntries)
+	}
+
+	@Test
+	fun protectedDecodedCapacityLeavesNewWriteCallerOwned() {
+		val fixture = fixture(maxDecodedEntries = 1)
+		val protected = key(chapterPageIndex = 5).copy(visualPageOrdinal = 20)
+		val incoming = key(chapterPageIndex = 6).copy(visualPageOrdinal = 21)
+		fixture.cache.protectDecodedPageIndices(setOf(20, 21))
+		val first = fixture.cache.write(
+			protected,
+			metadata(),
+			pngBytes("protected"),
+			ReaderPageRasterWriteMode.AdoptDecoded
+		)
+
+		val second = fixture.cache.write(
+			incoming,
+			metadata(),
+			pngBytes("incoming"),
+			ReaderPageRasterWriteMode.AdoptDecoded
+		)
+
+		assertEquals(ReaderPageRasterValueOwnership.Store, first.ownership)
+		assertTrue(second.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Caller, second.ownership)
+		assertEquals(1, fixture.cache.metrics().decodedEntries)
+		assertTrue(fixture.cache.contains(incoming))
+	}
+
+	@Test
+	fun schedulerWriteTransfersOwnershipOnlyAfterDecodedAdoption() {
+		val fixture = fixture(maxDecodedEntries = 1)
+		val rasterKey = key(chapterPageIndex = 6)
+
+		val result = fixture.cache.write(
+			key = rasterKey,
+			metadata = metadata(),
+			value = pngBytes("adopted"),
+			mode = ReaderPageRasterWriteMode.AdoptDecoded
+		)
+
+		assertTrue(result.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Store, result.ownership)
+		assertEquals(1, fixture.cache.metrics().decodedEntries)
+	}
+
+	@Test
+	fun manifestFailureDoesNotPublishEntryOrLeavePromotedRaster() {
+		val fixture = fixture(maxDecodedEntries = 1)
+		val rasterKey = key(chapterPageIndex = 7)
+		fixture.cache.manifestPath().delete()
+		assertTrue(fixture.cache.manifestPath().mkdir())
+
+		val result = fixture.cache.write(
+			rasterKey,
+			metadata(),
+			pngBytes("manifest-failure"),
+			ReaderPageRasterWriteMode.AdoptDecoded
+		)
+
+		assertFalse(result.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Caller, result.ownership)
+		assertFalse(fixture.cache.contains(rasterKey))
+		assertEquals(0, fixture.cache.metrics().decodedEntries)
+		assertFalse(fixture.root.listFiles().orEmpty().any { it.extension == "png" })
+	}
+
+	@Test
+	fun rollbackManifestFailureLeavesReceiptOwnerIntact() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 8)
+		val write = fixture.cache.write(
+			rasterKey,
+			metadata(),
+			pngBytes("rollback-failure"),
+			ReaderPageRasterWriteMode.PersistOnly
+		)
+		fixture.cache.manifestPath().delete()
+		assertTrue(fixture.cache.manifestPath().mkdir())
+
+		assertFailsWith<IllegalStateException> {
+			fixture.cache.rollbackPublication(assertNotNull(write.receipt))
+		}
+
+		assertTrue(fixture.cache.contains(rasterKey))
+		assertTrue(fixture.cache.pathFor(rasterKey).isFile)
+	}
+
+	@Test
+	fun exactReceiptRollbackRemovesItsDurableEntry() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 7)
+		val write = fixture.cache.write(
+			rasterKey,
+			metadata(),
+			pngBytes("rollback"),
+			ReaderPageRasterWriteMode.PersistOnly
+		)
+
+		assertTrue(fixture.cache.rollbackPublication(assertNotNull(write.receipt)))
+
+		assertFalse(fixture.cache.contains(rasterKey))
+		assertFalse(fixture.cache.manifestPath().readText().contains(rasterKey.digest))
+		assertFalse(fixture.cache.pathFor(rasterKey).exists())
+	}
+
+	@Test
+	fun staleReceiptCannotRemoveNewerSameKeyWrite() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 8)
+		val stale = fixture.cache.write(
+			rasterKey,
+			metadata(),
+			pngBytes("old"),
+			ReaderPageRasterWriteMode.PersistOnly
+		)
+		val current = fixture.cache.write(
+			rasterKey,
+			metadata(),
+			pngBytes("new"),
+			ReaderPageRasterWriteMode.PersistOnly
+		)
+
+		assertFalse(
+			fixture.cache.rollbackPublication(assertNotNull(stale.receipt))
+		)
+
+		assertTrue(current.persisted)
+		assertContentEquals(pngBytes("new"), fixture.cache.read(rasterKey)?.value)
+	}
+
+	@Test
+	fun retentionExclusionLeavesNoOrphanOrDecodedAdoption() {
+		val fixture = fixture(maxDiskBytes = 7L, maxDecodedEntries = 1)
+		val protected = key(chapterPageIndex = 9)
+		val excluded = protected.copy(
+			spineIndex = 8,
+			hrefHash = "other-href",
+			chapterPageIndex = 1,
+			visualPageOrdinal = 12
+		)
+		assertTrue(fixture.cache.write(protected, metadata(), pngBytes("old")))
+		fixture.cache.protectChapter(protected.chapter)
+
+		val result = fixture.cache.write(
+			excluded,
+			metadata(),
+			pngBytes("new"),
+			ReaderPageRasterWriteMode.AdoptDecoded
+		)
+
+		assertFalse(result.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Caller, result.ownership)
+		assertFalse(fixture.cache.contains(excluded))
+		assertEquals(1, fixture.cache.metrics().decodedEntries)
+		assertEquals(1, fixture.root.listFiles().orEmpty().count { it.extension == "png" })
+	}
+
+	@Test
+	fun rejectedCommitFenceDoesNotPromoteTemporaryFile() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 10)
+		var commitCalled = false
+
+		val result = fixture.cache.write(
+			key = rasterKey,
+			metadata = metadata(),
+			value = pngBytes("stale"),
+			mode = ReaderPageRasterWriteMode.PersistOnly,
+			commitFence = ReaderPageRasterCommitFence {
+				commitCalled = false
+				ReaderPageRasterWriteResult(
+					persisted = false,
+					ownership = ReaderPageRasterValueOwnership.Caller
+				)
+			}
+		)
+
+		assertFalse(result.persisted)
+		assertFalse(commitCalled)
+		assertFalse(fixture.cache.contains(rasterKey))
+		assertFalse(fixture.root.walkTopDown().any { it.name.endsWith(".tmp") })
+	}
+
+	@Test
+	fun invalidationBeforeCommitFenceCannotPublishRaster() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 11)
+		val value = pngBytes("before-fence")
+		val ledger = ReaderPageRasterPublicationLedger<ByteArray> { }
+		val registration = assertIs<
+			ReaderPageRasterPublicationRegistration.Started
+		>(ledger.begin(rasterKey.digest, value) { })
+		assertSame(value, ledger.acquireForPersistence(registration.request))
+		ledger.invalidate()
+
+		val write = fixture.cache.write(
+			key = rasterKey,
+			metadata = metadata(),
+			value = value,
+			mode = ReaderPageRasterWriteMode.PersistOnly,
+			commitFence = ledger.commitFence(registration.request)
+		)
+
+		assertFalse(write.persisted)
+		assertFalse(ledger.complete(registration.request, write.persisted))
+		assertFalse(fixture.cache.contains(rasterKey))
+	}
+
+	@Test
+	fun newerSameKeyWriteSurvivesStalePublicationRollback() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 12)
+		val staleValue = pngBytes("publication")
+		val ledger = ReaderPageRasterPublicationLedger<ByteArray> { }
+		val registration = assertIs<
+			ReaderPageRasterPublicationRegistration.Started
+		>(ledger.begin(rasterKey.digest, staleValue) { })
+		assertSame(
+			staleValue,
+			ledger.acquireForPersistence(registration.request)
+		)
+		val staleWrite = fixture.cache.write(
+			key = rasterKey,
+			metadata = metadata(),
+			value = staleValue,
+			mode = ReaderPageRasterWriteMode.PersistOnly,
+			commitFence = ledger.commitFence(registration.request)
+		)
+		ledger.invalidate()
+		val currentWrite = fixture.cache.write(
+			rasterKey,
+			metadata(),
+			pngBytes("current"),
+			ReaderPageRasterWriteMode.PersistOnly
+		)
+
+		assertFalse(
+			ledger.complete(registration.request, staleWrite.persisted)
+		)
+		assertFalse(
+			fixture.cache.rollbackPublication(
+				assertNotNull(staleWrite.receipt)
+			)
+		)
+		assertTrue(currentWrite.persisted)
+		assertContentEquals(pngBytes("current"), fixture.cache.read(rasterKey)?.value)
+	}
+
+	@Test
 	fun copiedReadTransfersIndependentValueOwnershipToCaller() {
 		val fixture = fixture(maxDecodedEntries = 1)
 		val rasterKey = key()
@@ -319,6 +606,14 @@ class ReaderPageRasterCacheTest {
 		assertNotSame(original, copied?.value)
 		fixture.cache.close()
 		assertContentEquals(pngBytes("owned-by-cache"), copied?.value)
+	}
+
+	private fun assertTrue(result: ReaderPageRasterWriteResult) {
+		kotlin.test.assertTrue(result.persisted)
+	}
+
+	private fun assertFalse(result: ReaderPageRasterWriteResult) {
+		kotlin.test.assertFalse(result.persisted)
 	}
 
 	private fun fixture(
