@@ -675,7 +675,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 	)
 
-	private fun requestPageRasterRepair(pageIndex: Int, onComplete: (Boolean) -> Unit) {
+	private fun requestPageRasterRepair(
+		pageIndex: Int,
+		onComplete: (ReaderPageRasterRepairResult) -> Unit
+	) {
 		pageRasterPreparationController.repairRasterPage(pageIndex, onComplete)
 	}
 
@@ -690,6 +693,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		val merged = raster.withReadiness(
 			raster.readiness.copy(
 				textureDeck = renderer.textureDeck,
+				pendingTextureDeck = renderer.pendingTextureDeck,
 				interaction = renderer.interaction
 			)
 		)

@@ -12,6 +12,18 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt")
 	private val hostFile =
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt")
+	private val recoveryFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPageDeckRecoveryCoordinator.android.kt"
+	)
+	private val recoveredBuildOperationFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPageRecoveredDeckBuildOperation.android.kt"
+	)
+	private val rasterPreparationFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPageRasterPreparationController.android.kt"
+	)
 	private val inputSettlementHostControllerFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageInputSettlementHostController.android.kt"
@@ -55,7 +67,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val source = controllerFile.readText()
 		val prepare = source
 			.substringAfter("private fun prepareProfile(")
-			.substringBefore("private fun submitLibraryDeck(")
+			.substringBefore("override fun isCurrentRepairWindow(")
 
 		assertContains(prepare, "\"deck-load-started\"")
 		assertContains(prepare, "\"deck-load-progress\"")
@@ -167,7 +179,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(")
 		val preparation = source
 			.substringAfter("private fun prepareProfile(")
-			.substringBefore("private fun submitLibraryDeck(")
+			.substringBefore("override fun isCurrentRepairWindow(")
 
 		assertContains(refill, "!publicationFence.isCurrent()")
 		assertEquals(
@@ -255,7 +267,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val source = controllerFile.readText()
 		val prepare = source
 			.substringAfter("private fun prepareProfile(")
-			.substringBefore("private fun submitLibraryDeck(")
+			.substringBefore("override fun isCurrentRepairWindow(")
 
 		assertContains(
 			prepare,
@@ -310,7 +322,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun missingFarEdgeRequestsOneRepairAndRetriesOnlyTheDecodedRefill() {
+	fun missingFarEdgeRequestsOneRepairAndRestoresARecoveredDeck() {
 		val controller = controllerFile.readText()
 		val host = hostFile.readText()
 		val repair = controller
@@ -331,7 +343,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(repair, "onRequestRasterRepair(sourcePageIndex)")
 		assertContains(repair, "event = \"page-repair-requested\"")
 		assertContains(repair, "event = \"page-repair-completed\"")
-		assertContains(repair, "refillDecodedWorkingSet(")
+		assertContains(repair, "deckRecoveryCoordinator.accept(result)")
+		assertContains(repair, "result=stale-repair-result attempt=${'$'}{currentRecipient.attempt}")
+		assertContains(repair, "attempt = 1")
+		assertContains(repair, "requestPrewarmIfIdle(\"page-repair-stale-result\")")
+		assertFalse(repair.contains("refillDecodedWorkingSet("))
 		assertFalse(repair.contains("refreshPreparedDeck()"))
 		assertFalse(repair.contains("onRequestPrewarm()"))
 		assertContains(refill, "if (activeDeckGenerationId == null)")
@@ -344,6 +360,76 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"A targeted raster repair must not cancel the settlement that requested it."
 		)
 		assertFalse(hostRepair.contains("ReaderPageHostLifecycleEvent.RasterProfileInvalidated"))
+	}
+
+	@Test
+	fun repairedRasterWindowBuildsAndSubmitsThroughTheRecoveryCoordinator() {
+		val controller = controllerFile.readText()
+		val recovery = recoveryFile.readText()
+		val buildOperation = recoveredBuildOperationFile.readText()
+		val preparation = rasterPreparationFile.readText()
+		val build = controller
+			.substringAfter("override fun requestRecoveredDeckBuild(")
+			.substringBefore("override fun cancelRecoveredDeckBuild(")
+		val submission = controller
+			.substringAfter("override fun submitRecoveredDeck(")
+			.substringBefore("override fun releaseRecoveredDeck(")
+		val cancellation = controller
+			.substringAfter("override fun cancelRecoveredDeckBuild(")
+			.substringBefore("override fun currentRecoveredDeckRole(")
+		val roleSelection = controller
+			.substringAfter("override fun currentRecoveredDeckRole(")
+			.substringBefore("override fun submitRecoveredDeck(")
+		val submittedCancellation = controller
+			.substringAfter("override fun cancelSubmittedRecoveredDeck(")
+			.substringBefore("override fun isPrepared(")
+		val renderFailure = controller
+			.substringAfter("override fun onRenderFailure(")
+			.substringBefore("val isAvailable: Boolean")
+		val releaseGeneration = controller
+			.substringAfter("private fun releaseGeneration(")
+			.substringBefore("private fun promotePendingDeck(")
+
+		assertContains(preparation, "ReaderPageRasterRepairResult.Repaired")
+		assertContains(preparation, "rasterEpoch = generation")
+		assertContains(controller, ") : ReaderPageTapTurnPort, ReaderPageDeckRecoveryHost")
+		assertContains(controller, "deckRecoveryCoordinator.accept(result)")
+		assertContains(build, "publicationFence.isCurrent()")
+		assertContains(build, "operation = ReaderPageRecoveredDeckBuildOperation(")
+		assertContains(build, "recoveredBuildOperations[requestId] = operation")
+		assertContains(build, "recoveredBuildOperations[requestId] !== operation")
+		assertContains(buildOperation, "CoroutineStart.UNDISPATCHED")
+		assertContains(buildOperation, "withContext(publicationDispatcher)")
+		assertContains(buildOperation, "withContext(NonCancellable)")
+		assertContains(buildOperation, "undeliveredResult?.close()")
+		assertContains(build, "builtRecoveredDecks[generationId]")
+		assertContains(cancellation, "operation.cancel()")
+		assertContains(roleSelection, "surfaceView.isSettlementRunning")
+		assertContains(submission, "builtRecoveredDecks.remove(generationId)")
+		assertContains(submission, "surfaceView.submitDeck(built.deck)")
+		assertContains(submission, "generationOwners[generationId] !== built.pages")
+		assertContains(submittedCancellation, "readerRecoveredDeckCancellationRoleMatches(")
+		assertContains(submittedCancellation, "tombstoneSubmittedRecoveredDeck(")
+		assertContains(renderFailure, "generationId in recoveredDeckGenerations")
+		assertContains(renderFailure, "deckRecoveryCoordinator.ownsSubmittedGeneration(")
+		assertContains(renderFailure, "tombstoneSubmittedRecoveredDeck(")
+		assertContains(releaseGeneration, "val releasedCurrentActive =")
+		assertContains(releaseGeneration, "if (activePages === pages) activePages = null")
+		assertTrue(
+			submission.indexOf("surfaceView.submitDeck(built.deck)") <
+				submission.indexOf("activePages = built.pages"),
+			"Recovered pages must become active only after synchronous rejection is impossible."
+		)
+		assertContains(recovery, "val role = host.currentRecoveredDeckRole()")
+		assertTrue(
+			recovery.indexOf("ReaderPageDeckRecoveryState.WaitingForPreparation(") <
+				recovery.indexOf("host.submitRecoveredDeck(generationId, role)")
+		)
+		assertFalse(
+			recovery.substringAfter("data class WaitingForBuild(")
+				.substringBefore(") : ReaderPageDeckRecoveryState")
+				.contains("ReaderDeckSubmissionRole")
+		)
 	}
 
 	@Test
@@ -450,7 +536,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun acceptedRendererPointerUsesContinuationPolicyAfterHostArbitration() {
+	fun rendererPointerAdmissionRequiresAPreparedActiveGeneration() {
 		val source = controllerFile.readText()
 		val touch = source
 			.substringAfter("fun onPageTouchEvent(")
@@ -463,8 +549,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("fun setPageOperationPolicy(")
 
 		assertContains(continuation, "pageOperationPolicy.continueActivePointer")
-		assertContains(touch, "canContinueAcceptedPointer")
-		assertFalse(touch.contains("!isAvailable"))
+		assertContains(touch, "if (!isAvailable)")
+		assertContains(source, "deckRecoveryCoordinator.canAcceptPointer")
 		assertContains(show, "canContinueAcceptedPointer")
 		assertFalse(show.contains("!isAvailable"))
 	}
@@ -510,17 +596,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val profileMapping = source
 			.substringAfter("private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(")
 			.substringBefore("private fun publishProtectedWindow(")
+		val deckFactory = source
+			.substringAfter("private fun buildLibraryDeck(")
+			.substringBefore("private fun setSurfaceReadingDirection(")
 		val submit = source
 			.substringAfter("private fun submitLibraryDeck(")
 			.substringBefore("private fun updateSurfaceBounds(")
 
-		listOf(settlement, profileMapping, submit).forEach { callSite ->
+		listOf(settlement, profileMapping, deckFactory).forEach { callSite ->
 			assertContains(callSite, "readerDirection =")
 			assertContains(callSite, "spreadAnchorParity =")
 		}
-		assertContains(submit, "surfaceView.setReadingDirection(")
+		assertContains(submit, "setSurfaceReadingDirection(pages.profile)")
 		assertTrue(
-			submit.indexOf("surfaceView.setReadingDirection(") <
+			submit.indexOf("setSurfaceReadingDirection(pages.profile)") <
 				submit.indexOf("surfaceView.submitDeck(deck)")
 		)
 	}

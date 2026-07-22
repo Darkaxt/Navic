@@ -199,6 +199,12 @@ public class PageSurfaceView extends GLSurfaceView {
         requestRender();
     }
 
+    /** Returns whether a replacement submission would enter the pending settlement slot. */
+    public boolean isSettlementRunning() {
+        requireMainThread();
+        return deckCoordinator.isSettling();
+    }
+
     /** Supplies the current pixel viewport without changing page layout. */
     public void setViewport(int widthPx, int heightPx) {
         requireMainThread();

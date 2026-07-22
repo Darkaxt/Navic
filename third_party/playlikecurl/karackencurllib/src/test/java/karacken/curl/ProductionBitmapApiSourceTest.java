@@ -54,6 +54,15 @@ public class ProductionBitmapApiSourceTest {
     }
 
     @Test
+    public void surfaceExposesTheAuthoritativeSettlementPlacementState() throws IOException {
+        String source = source("PageSurfaceView.java");
+        String method = methodBody(source, "public boolean isSettlementRunning()");
+
+        assertTrue(method.contains("requireMainThread()"));
+        assertTrue(method.contains("deckCoordinator.isSettling()"));
+    }
+
+    @Test
     public void attachDetachAreIdempotentAndWindowAttachmentDoesNotForgeSessionState()
             throws IOException {
         String source = source("PageSurfaceView.java");

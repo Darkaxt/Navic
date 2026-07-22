@@ -124,7 +124,7 @@ class ReaderPageRasterPreparationSourceTest {
 	fun singlePageRepairUsesAnIndependentBackgroundBatchWithoutChangingPresentationState() {
 		val source = readerRasterPreparationSource()
 		val repair = source.substringAfter(
-			"fun repairRasterPage(pageIndex: Int, onComplete: (Boolean) -> Unit) {"
+			"fun repairRasterPage("
 		).substringBefore("\n\tfun prewarmAdjacent()")
 
 		assertContains(source, "private val rasterRepairBatchController")
@@ -133,8 +133,9 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "ReaderPageRasterBatchTarget(pageIndex")
 		assertContains(repair, "event = \"page-repair-requested\"")
 		assertContains(repair, "cancelBackgroundPrefetch(\"page-repair\")")
-		assertContains(repair, "event = \"page-repair-completed\"")
-		assertContains(repair, "event = \"page-repair-failed\"")
+		assertContains(repair, "\"page-repair-completed\"")
+		assertContains(repair, "\"page-repair-failed\"")
+		assertContains(repair, "ReaderPageRasterRepairResult.Repaired")
 		assertFalse(repair.contains("publishPreparationState("))
 		assertFalse(repair.contains("reusePreparationShield("))
 		assertFalse(repair.contains("onRequestPrewarm()"))

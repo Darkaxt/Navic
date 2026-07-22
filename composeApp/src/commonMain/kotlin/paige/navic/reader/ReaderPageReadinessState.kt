@@ -45,6 +45,7 @@ data class ReaderPageReadinessState(
 
 data class ReaderPageRendererReadinessState(
 	val textureDeck: ReaderTextureDeckState = ReaderTextureDeckState.Empty,
+	val pendingTextureDeck: ReaderTextureDeckState = ReaderTextureDeckState.Empty,
 	val interaction: ReaderPageInteractionState =
 		ReaderPageInteractionState.BlockingInitialPreparation
 )

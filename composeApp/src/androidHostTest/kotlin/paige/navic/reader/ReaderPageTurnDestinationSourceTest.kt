@@ -426,7 +426,7 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("fun capturePreparedRasterPage(")
 
 		assertContains(hydration, "persistentStore")
-		assertContains(hydration, "store.readCopy(key)")
+		assertContains(hydration, "productionStore?.readCopy(key)")
 		assertContains(hydration, "cached.copy(Bitmap.Config.ARGB_8888, false)")
 		assertContains(hydration, "Rect(reference.surfaceRectInWindow)")
 		assertContains(hydration, "readerPageRasterLeafGeometry(")

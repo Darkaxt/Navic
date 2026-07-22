@@ -26,6 +26,10 @@ and rendering callbacks, and release rejected or obsolete decks. After OpenGL
 context recreation, retained decks are revalidated against the current texture
 limits; only decks that can no longer be uploaded are released.
 
+On the main thread, `PageSurfaceView.isSettlementRunning()` is the authoritative
+placement query immediately before deck submission. An idle submission enters
+the active slot; a submission during settlement enters the pending slot.
+
 ## Programmatic Turns
 
 `PageSurfaceView.turn(PageChange)` starts a prepared `PREVIOUS` or `NEXT` turn

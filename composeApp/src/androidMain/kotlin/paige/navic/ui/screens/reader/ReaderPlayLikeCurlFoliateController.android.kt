@@ -10,6 +10,7 @@ import karacken.curl.DeckRejectionReason
 import karacken.curl.DeckReleaseReason
 import karacken.curl.GestureRejectionReason
 import karacken.curl.PageChange
+import karacken.curl.PageDeck
 import karacken.curl.PageImage
 import karacken.curl.PageSurfaceListener
 import karacken.curl.PageSurfaceView
@@ -45,6 +46,13 @@ internal enum class ReaderDeckSubmissionRole {
 	Active,
 	Pending
 }
+
+internal fun readerRecoveredDeckCancellationRoleMatches(
+	expectedRole: ReaderDeckSubmissionRole,
+	currentRole: ReaderDeckSubmissionRole
+): Boolean = expectedRole == currentRole ||
+	(expectedRole == ReaderDeckSubmissionRole.Pending &&
+		currentRole == ReaderDeckSubmissionRole.Active)
 
 internal data class ReaderPlayLikeCurlRasterRepairRecipient(
 	val fence: ReaderPlayLikeCurlRasterRepairFence,
@@ -217,7 +225,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val onRequestPrewarm: () -> Unit,
-	private val onRequestRasterRepair: (Int, (Boolean) -> Unit) -> Unit,
+	private val onRequestRasterRepair:
+		(Int, (ReaderPageRasterRepairResult) -> Unit) -> Unit,
 	private val onGestureTerminal: (
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome,
@@ -225,7 +234,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) -> Boolean,
 	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
 	private val onUnsafeLifecycleEvent: (ReaderPageHostLifecycleEvent) -> Unit = {}
-) : ReaderPageTapTurnPort {
+) : ReaderPageTapTurnPort, ReaderPageDeckRecoveryHost {
 	private class PreparedPages(
 		val profile: ReaderPlayLikeCurlRasterProfile,
 		val deck: ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>,
@@ -234,6 +243,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val generations = mutableSetOf<Long>()
 		var obsolete = false
 	}
+
+	private data class BuiltRecoveredDeck(
+		val pages: PreparedPages,
+		val ordinal: Int,
+		val deck: PageDeck<Bitmap>
+	)
 
 	val surfaceView = PageSurfaceView(host.context).apply {
 		holder.setFormat(PixelFormat.TRANSLUCENT)
@@ -247,7 +262,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationOwners = mutableMapOf<Long, PreparedPages>()
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
+	private val recoveredDeckGenerations = mutableSetOf<Long>()
 	private val preparedPageSets = mutableSetOf<PreparedPages>()
+	private val recoveredBuildOperations = mutableMapOf<
+		Long,
+		ReaderPageRecoveredDeckBuildOperation<
+			ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>
+		>
+	>()
+	private val builtRecoveredDecks = mutableMapOf<Long, BuiltRecoveredDeck>()
 	private var rasterAdapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>? = null
 	private var foliateRasterLoader: ReaderPlayLikeCurlFoliateRasterLoader? = null
 	private var activePages: PreparedPages? = null
@@ -303,6 +326,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		},
 		requestRepair = ::requestLogicalRasterRepair
 	)
+	private val deckRecoveryCoordinator = ReaderPageDeckRecoveryCoordinator(
+		host = this,
+		onStateChanged = ::onDeckRecoveryStateChanged
+	)
 
 	init {
 		surfaceView.setPageSurfaceListener(object : PageSurfaceListener {
@@ -316,6 +343,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckPrepared(generationId: Long) {
+				val role = generationRoles[generationId] ?: return
 				preparedDeckGenerations += generationId
 				if (generationId == activeDeckGenerationId) {
 					hasPreparedDeckBefore = true
@@ -324,7 +352,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 						interaction = preparedInteractionState(),
 						reason = "deck-prepared:$generationId"
 					)
+				} else if (
+					generationId == pendingDeckGenerationId &&
+					role == ReaderDeckSubmissionRole.Pending
+				) {
+					updateReadiness(
+						pendingTextureDeck = ReaderTextureDeckState.Ready,
+						reason = "pending-deck-prepared:$generationId"
+					)
 				}
+				deckRecoveryCoordinator.onDeckPrepared(generationId)
 				logActivationState("deck-prepared", "generation=$generationId")
 			}
 
@@ -332,16 +369,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val activeRejected = generationId == activeDeckGenerationId
 				val pendingRejected = generationId == pendingDeckGenerationId
 				releaseGeneration(generationId)
-				if (pendingRejected) {
-					pendingDeckGenerationId = null
-					pendingDeckOrdinal = null
-				}
-				if (activeRejected) {
-					updateReadiness(
-						textureDeck = ReaderTextureDeckState.Failed,
-						interaction = ReaderPageInteractionState.Failed,
-						reason = "deck-rejected:$generationId:$reason"
-					)
+				val recoveryRejected = deckRecoveryCoordinator.onDeckRejected(generationId, reason)
+				if (!recoveryRejected) {
+					when {
+						activeRejected -> updateReadiness(
+							textureDeck = ReaderTextureDeckState.Failed,
+							interaction = ReaderPageInteractionState.Failed,
+							reason = "deck-rejected:$generationId:$reason"
+						)
+						pendingRejected -> updateReadiness(
+							pendingTextureDeck = ReaderTextureDeckState.Failed,
+							reason = "pending-deck-rejected:$generationId:$reason"
+						)
+					}
 				}
 				Logger.w(
 					ReaderPlayLikeCurlFoliateControllerTag,
@@ -351,6 +391,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
 				releaseGeneration(generationId)
+				deckRecoveryCoordinator.onDeckReleased(generationId)
 			}
 
 			override fun onGestureRejected(
@@ -516,6 +557,35 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onRenderFailure(failure: RenderFailure) {
+				val generationId = failure.generationId
+				val nonRecoverableContextFailure =
+					failure.reason == RenderFailureReason.CONTEXT && !failure.isRecoverable
+				if (!nonRecoverableContextFailure && generationId in recoveredDeckGenerations) {
+					val recoveryRole = generationRoles[generationId]
+					val coordinatorOwned =
+						deckRecoveryCoordinator.ownsSubmittedGeneration(generationId)
+					if (recoveryRole != null) {
+						tombstoneSubmittedRecoveredDeck(generationId, recoveryRole)
+					}
+					if (coordinatorOwned) {
+						deckRecoveryCoordinator.onDeckPreparationFailed(
+							generationId,
+							failure.reason.name
+						)
+					} else {
+						publishUnownedRecoveredDeckFailure(
+							generationId,
+							recoveryRole,
+							failure.reason
+						)
+					}
+					Logger.e(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"Recovered PlayLikeCurl deck preparation failed " +
+							"generation=$generationId reason=${failure.reason}"
+					)
+					return
+				}
 				updateReadiness(
 					textureDeck = ReaderTextureDeckState.Failed,
 					interaction = ReaderPageInteractionState.Failed,
@@ -549,6 +619,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	val isAvailable: Boolean
 		get() = enabled && attached &&
+			deckRecoveryCoordinator.canAcceptPointer &&
 			pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 
 	private val canContinueAcceptedPointer: Boolean
@@ -684,7 +755,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	): ReaderPageCurlDispatchResult {
 		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 			activeGestureId = gestureId
-			if (!canContinueAcceptedPointer) {
+			if (!isAvailable) {
 				finishGesture(
 					gestureId,
 					unavailableGestureOutcome(),
@@ -848,11 +919,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		decodedRefillCenterOrdinal = null
+		deckRecoveryCoordinator.cancelAll()
 		publishProtectedWindow(emptyList())
 		rasterRepairRequests.clear()
 		pendingExactOrdinal = null
 		updateReadiness(
 			textureDeck = ReaderTextureDeckState.Empty,
+			pendingTextureDeck = ReaderTextureDeckState.Empty,
 			interaction = if (profileRegeneration && hasPreparedDeckBefore) {
 				ReaderPageInteractionState.BlockingProfileRegeneration
 			} else {
@@ -1183,7 +1256,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			detail = "source=$sourcePageIndex center=$refillCenter " +
 				"profileGeneration=${profile.rasterGeneration}"
 		)
-		onRequestRasterRepair(sourcePageIndex) { success ->
+		onRequestRasterRepair(sourcePageIndex) { result ->
 			host.post {
 				val recipients = rasterRepairRequests.complete(
 					profile,
@@ -1204,15 +1277,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 						)
 					}
 				}
-				if (!success) {
+				if (result !is ReaderPageRasterRepairResult.Repaired) {
 					val operationAttempt = recipients.maxOfOrNull { it.attempt } ?: attempt
 					logActivationState(
 						event = "page-repair-deferred",
 						detail = "source=$sourcePageIndex " +
 							"center=${currentRecipient?.fence?.destinationOrdinal ?: refillCenter} " +
-							"success=false attempt=$operationAttempt"
+							"result=${result::class.simpleName} attempt=$operationAttempt"
 					)
-					if (currentRecipient != null) {
+					if (
+						currentRecipient != null &&
+						result != ReaderPageRasterRepairResult.Cancelled
+					) {
 						if (operationAttempt == 0) {
 							requestRasterRepair(
 								sourcePageIndex,
@@ -1230,20 +1306,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 						event = "page-repair-deferred",
 						detail = "source=$sourcePageIndex " +
 							"center=${recipients.lastOrNull()?.fence?.destinationOrdinal ?: refillCenter} " +
-							"success=$success"
+							"result=stale-repaired-window"
 					)
 					return@post
 				}
 				val destinationOrdinal = currentRecipient.fence.destinationOrdinal
+				if (!deckRecoveryCoordinator.accept(result)) {
+					logActivationState(
+						event = "page-repair-deferred",
+						detail = "source=$sourcePageIndex center=$destinationOrdinal " +
+							"result=stale-repair-result attempt=${currentRecipient.attempt}"
+					)
+					if (currentRecipient.attempt == 0) {
+						requestRasterRepair(
+							sourcePageIndex,
+							profile,
+							attempt = 1
+						)
+					} else {
+						requestPrewarmIfIdle("page-repair-stale-result")
+					}
+					return@post
+				}
 				logActivationState(
 					event = "page-repair-completed",
 					detail = "source=$sourcePageIndex center=$destinationOrdinal"
-				)
-				decodedRefillGeneration += 1L
-				decodedRefillCenterOrdinal = null
-				refillDecodedWorkingSet(
-					destinationOrdinal,
-					"page-repair:$sourcePageIndex"
 				)
 			}
 		}
@@ -1404,6 +1491,410 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	override fun isCurrentRepairWindow(
+		repairedPageIndices: Set<Int>,
+		centerOrdinal: Int,
+		rasterEpoch: Long
+	): Boolean {
+		val profile = requestedProfile ?: return false
+		if (
+			destroyed ||
+			!enabled ||
+			profile.rasterGeneration != rasterEpoch ||
+			bundleSource.currentGeneration() != rasterEpoch
+		) {
+			return false
+		}
+		val expectedSourceCenter = profile.pageRequest(currentOrdinal).sourcePageIndex
+		val expectedSourceWindow = currentProtectedWindow.mapTo(linkedSetOf()) { ordinal ->
+			profile.pageRequest(ordinal).sourcePageIndex
+		}
+		return centerOrdinal == expectedSourceCenter &&
+			expectedSourceWindow.all(repairedPageIndices::contains)
+	}
+
+	override fun hasUsablePreparedActiveDeck(): Boolean =
+		hasPreparedActiveDeckOwnership() &&
+			readinessState.textureDeck == ReaderTextureDeckState.Ready
+
+	private fun hasPreparedActiveDeckOwnership(): Boolean {
+		val generationId = activeDeckGenerationId ?: return false
+		val pages = generationOwners[generationId] ?: return false
+		return generationRoles[generationId] == ReaderDeckSubmissionRole.Active &&
+			generationId in preparedDeckGenerations &&
+			!pages.obsolete &&
+			pages.profile == requestedProfile
+	}
+
+	override fun requestRecoveredDeckBuild(
+		requestId: Long,
+		repairedPageIndices: Set<Int>,
+		centerOrdinal: Int,
+		rasterEpoch: Long,
+		onBuilt: (ReaderPageRecoveredDeckBuildResult) -> Unit
+	) {
+		check(isCurrentRepairWindow(repairedPageIndices, centerOrdinal, rasterEpoch)) {
+			"Recovered deck build requires the current repaired window"
+		}
+		check(requestId !in recoveredBuildOperations) {
+			"Recovered deck build request is already active"
+		}
+		val profile = checkNotNull(requestedProfile)
+		val logicalCenter = currentOrdinal
+		val logicalWindow = profile.preparedPageIndices(logicalCenter)
+		val expectedRequestGeneration = requestGeneration
+		val publicationFence = rasterPublicationFence(
+			profile = profile,
+			centerOrdinal = logicalCenter,
+			protectedWindow = logicalWindow,
+			expectedRequestGeneration = expectedRequestGeneration
+		)
+		val adapter = checkNotNull(rasterAdapter) {
+			"Recovered deck build requires an active raster adapter"
+		}
+		val preparation = adapter.prepare(
+			profile = profile,
+			pageIndices = logicalWindow,
+			publicationFence = publicationFence
+		)
+		lateinit var operation: ReaderPageRecoveredDeckBuildOperation<
+			ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>
+		>
+		operation = ReaderPageRecoveredDeckBuildOperation(
+			preparation = preparation,
+			scope = rasterScope,
+			publicationDispatcher = Dispatchers.Main.immediate,
+			onResult = result@ { deck, resolveOwnership ->
+				if (recoveredBuildOperations[requestId] !== operation) {
+					deck?.close()
+					resolveOwnership()
+					return@result
+				}
+				val repairWindowCurrent = runCatching {
+					publicationFence.isCurrent() &&
+						isCurrentRepairWindow(
+							repairedPageIndices,
+							centerOrdinal,
+							rasterEpoch
+						)
+				}.getOrDefault(false)
+				recoveredBuildOperations.remove(requestId)
+				if (!repairWindowCurrent) {
+					deck?.close()
+					resolveOwnership()
+					onBuilt(ReaderPageRecoveredDeckBuildResult.Stale)
+					return@result
+				}
+				if (deck == null) {
+					resolveOwnership()
+					onBuilt(
+						ReaderPageRecoveredDeckBuildResult.Failed(
+							"recovered-decoded-window-unavailable"
+						)
+					)
+					return@result
+				}
+				val pages = PreparedPages(profile, deck, logicalCenter)
+				val generationId = nextDeckGeneration++
+				val libraryDeck = runCatching {
+					buildLibraryDeck(pages, logicalCenter, generationId)
+				}.getOrElse { failure ->
+					pages.obsolete = true
+					deck.close()
+					resolveOwnership()
+					Logger.e(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"Failed to build recovered PlayLikeCurl deck",
+						failure
+					)
+					onBuilt(
+						ReaderPageRecoveredDeckBuildResult.Failed(
+							"recovered-library-deck-build-failed"
+						)
+					)
+					return@result
+				}
+				pages.generations += generationId
+				preparedPageSets += pages
+				generationOwners[generationId] = pages
+				builtRecoveredDecks[generationId] = BuiltRecoveredDeck(
+					pages = pages,
+					ordinal = logicalCenter,
+					deck = libraryDeck
+				)
+				resolveOwnership()
+				onBuilt(ReaderPageRecoveredDeckBuildResult.Built(generationId))
+			},
+			onFailure = failed@ { failure ->
+				if (recoveredBuildOperations[requestId] !== operation) return@failed
+				recoveredBuildOperations.remove(requestId)
+				Logger.e(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"Failed to hydrate recovered PlayLikeCurl deck",
+					failure
+				)
+				onBuilt(
+					ReaderPageRecoveredDeckBuildResult.Failed(
+						"recovered-decoded-window-failed"
+					)
+				)
+			}
+		)
+		recoveredBuildOperations[requestId] = operation
+		operation.start()
+	}
+
+	override fun cancelRecoveredDeckBuild(requestId: Long) {
+		val operation = recoveredBuildOperations.remove(requestId) ?: return
+		operation.cancel()
+	}
+
+	override fun currentRecoveredDeckRole(): ReaderDeckSubmissionRole =
+		if (surfaceView.isSettlementRunning) {
+			ReaderDeckSubmissionRole.Pending
+		} else {
+			ReaderDeckSubmissionRole.Active
+		}
+
+	override fun submitRecoveredDeck(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole
+	) {
+		val built = checkNotNull(builtRecoveredDecks.remove(generationId)) {
+			"Recovered deck generation is not owned by the build registry"
+		}
+		check(!built.pages.obsolete && generationOwners[generationId] === built.pages) {
+			"Recovered deck generation is obsolete"
+		}
+		generationRoles[generationId] = role
+		recoveredDeckGenerations += generationId
+		updateSurfaceBounds(built.pages, built.ordinal)
+		setSurfaceReadingDirection(built.pages.profile)
+		logActivationState(
+			event = "recovered-deck-submitted",
+			detail = "generation=$generationId ordinal=${built.ordinal} role=$role"
+		)
+		surfaceView.submitDeck(built.deck)
+		if (
+			generationOwners[generationId] !== built.pages ||
+			generationRoles[generationId] != role
+		) {
+			return
+		}
+		when (role) {
+			ReaderDeckSubmissionRole.Active -> {
+				activeDeckGenerationId = generationId
+				if (activePages !== built.pages) {
+					activePages?.let { previous ->
+						previous.obsolete = true
+						closeIfUnused(previous)
+					}
+					activePages = built.pages
+				}
+			}
+			ReaderDeckSubmissionRole.Pending -> {
+				pendingDeckGenerationId = generationId
+				pendingDeckOrdinal = built.ordinal
+			}
+		}
+	}
+
+	override fun releaseRecoveredDeck(generationId: Long) {
+		builtRecoveredDecks.remove(generationId)?.pages?.obsolete = true
+		releaseGeneration(generationId)
+	}
+
+	override fun cancelSubmittedRecoveredDeck(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole
+	) {
+		val currentRole = generationRoles[generationId] ?: return
+		if (!readerRecoveredDeckCancellationRoleMatches(role, currentRole)) return
+		if (!tombstoneSubmittedRecoveredDeck(generationId, currentRole)) return
+		surfaceView.releaseDeck(generationId)
+	}
+
+	private fun tombstoneSubmittedRecoveredDeck(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole
+	): Boolean {
+		if (generationRoles[generationId] != role) return false
+		val pages = generationOwners[generationId] ?: return false
+		generationRoles.remove(generationId)
+		preparedDeckGenerations -= generationId
+		when (role) {
+			ReaderDeckSubmissionRole.Active -> {
+				if (activeDeckGenerationId == generationId) activeDeckGenerationId = null
+				if (activePages === pages) {
+					activePages = null
+					pages.obsolete = true
+				}
+			}
+			ReaderDeckSubmissionRole.Pending -> {
+				if (pendingDeckGenerationId == generationId) {
+					pendingDeckGenerationId = null
+					pendingDeckOrdinal = null
+				}
+			}
+		}
+		return true
+	}
+
+	override fun isPrepared(generationId: Long): Boolean =
+		generationId in preparedDeckGenerations
+
+	private fun publishUnownedRecoveredDeckFailure(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole?,
+		reason: RenderFailureReason
+	) {
+		when (role) {
+			ReaderDeckSubmissionRole.Active -> updateReadiness(
+				textureDeck = ReaderTextureDeckState.Failed,
+				interaction = ReaderPageInteractionState.Failed,
+				reason = "unowned-recovered-active-failed:$generationId:$reason"
+			)
+			ReaderDeckSubmissionRole.Pending -> updateReadiness(
+				pendingTextureDeck = ReaderTextureDeckState.Failed,
+				reason = "unowned-recovered-pending-failed:$generationId:$reason"
+			)
+			null -> Unit
+		}
+	}
+
+	private fun onDeckRecoveryStateChanged(state: ReaderPageDeckRecoveryState) {
+		when (state) {
+			ReaderPageDeckRecoveryState.Idle -> {
+				if (hasPreparedActiveDeckOwnership()) {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Ready,
+						pendingTextureDeck = ReaderTextureDeckState.Empty,
+						interaction = preparedInteractionState(),
+						reason = "deck-recovery-idle"
+					)
+				} else {
+					updateReadiness(
+						textureDeck = if (activeDeckGenerationId == null) {
+							ReaderTextureDeckState.Empty
+						} else {
+							ReaderTextureDeckState.Preparing
+						},
+						pendingTextureDeck = ReaderTextureDeckState.Empty,
+						interaction = blockingPreparationState(),
+						reason = "deck-recovery-idle-without-active"
+					)
+				}
+			}
+			is ReaderPageDeckRecoveryState.WaitingForBuild -> {
+				if (hasPreparedActiveDeckOwnership()) {
+					updateReadiness(
+						pendingTextureDeck = ReaderTextureDeckState.Preparing,
+						interaction = preparedInteractionState(),
+						reason = "deck-recovery-building-pending:${state.requestId}"
+					)
+				} else {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Preparing,
+						pendingTextureDeck = ReaderTextureDeckState.Empty,
+						interaction = blockingPreparationState(),
+						reason = "deck-recovery-building-active:${state.requestId}"
+					)
+				}
+			}
+			is ReaderPageDeckRecoveryState.WaitingForPreparation -> when (state.role) {
+				ReaderDeckSubmissionRole.Active -> updateReadiness(
+					textureDeck = ReaderTextureDeckState.Preparing,
+					pendingTextureDeck = ReaderTextureDeckState.Empty,
+					interaction = blockingPreparationState(),
+					reason = "deck-recovery-preparing-active:${state.generationId}"
+				)
+				ReaderDeckSubmissionRole.Pending -> updateReadiness(
+					pendingTextureDeck = ReaderTextureDeckState.Preparing,
+					interaction = preparedInteractionState(),
+					reason = "deck-recovery-preparing-pending:${state.generationId}"
+				)
+			}
+			is ReaderPageDeckRecoveryState.Ready -> {
+				when (generationRoles[state.generationId]) {
+					ReaderDeckSubmissionRole.Active -> updateReadiness(
+						textureDeck = ReaderTextureDeckState.Ready,
+						interaction = preparedInteractionState(),
+						reason = "deck-recovery-ready-active:${state.generationId}"
+					)
+					ReaderDeckSubmissionRole.Pending -> updateReadiness(
+						pendingTextureDeck = ReaderTextureDeckState.Ready,
+						interaction = preparedInteractionState(),
+						reason = "deck-recovery-ready-pending:${state.generationId}"
+					)
+					null -> Unit
+				}
+			}
+			is ReaderPageDeckRecoveryState.Failed -> {
+				if (hasPreparedActiveDeckOwnership()) {
+					if (surfaceView.isSettlementRunning) {
+						updateReadiness(
+							pendingTextureDeck = ReaderTextureDeckState.Failed,
+							reason = "deck-recovery-failed-pending:${state.reason}"
+						)
+					} else {
+						updateReadiness(
+							textureDeck = ReaderTextureDeckState.Ready,
+							pendingTextureDeck = ReaderTextureDeckState.Failed,
+							interaction = preparedInteractionState(),
+							reason = "deck-recovery-failed-fallback:${state.reason}"
+						)
+					}
+				} else {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Failed,
+						pendingTextureDeck = ReaderTextureDeckState.Empty,
+						interaction = ReaderPageInteractionState.Failed,
+						reason = "deck-recovery-failed-active:${state.reason}"
+					)
+					finishActiveGesture(
+						ReaderPageGestureTerminalOutcome.FailedRecovery,
+						ReaderPageGestureTerminalDetail.RecoveryFailed
+					)
+				}
+			}
+		}
+	}
+
+	private fun buildLibraryDeck(
+		pages: PreparedPages,
+		ordinal: Int,
+		generationId: Long
+	): PageDeck<Bitmap> = readerPlayLikeCurlLibraryDeck(
+		orientation = pages.profile.orientation,
+		generationId = generationId,
+		currentOrdinal = ordinal,
+		pageCount = pages.profile.pageCount,
+		readerDirection = pages.profile.readerDirection,
+		spreadAnchorParity = pages.profile.spreadAnchorParity,
+		filler = { pageGenerationId, slotRole, sourcePageIndex, leaf, fallbackOrdinal ->
+			pages.filler(
+				generationId = pageGenerationId,
+				role = slotRole,
+				sourcePageIndex = sourcePageIndex,
+				leaf = leaf,
+				fallbackOrdinal = fallbackOrdinal
+			)
+		},
+		page = { pageGenerationId, pageOrdinal ->
+			pages.page(pageGenerationId, pageOrdinal)
+		}
+	)
+
+	private fun setSurfaceReadingDirection(profile: ReaderPlayLikeCurlRasterProfile) {
+		surfaceView.setReadingDirection(
+			if (profile.readerDirection == ReaderPlayLikeCurlReaderDirection.Rtl) {
+				ReadingDirection.RIGHT_TO_LEFT
+			} else {
+				ReadingDirection.LEFT_TO_RIGHT
+			}
+		)
+	}
+
 	private fun submitLibraryDeck(
 		pages: PreparedPages,
 		ordinal: Int,
@@ -1412,26 +1903,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (pages.obsolete || destroyed || !enabled || !attached) return
 		val generationId = nextDeckGeneration++
 		val deck = runCatching {
-			readerPlayLikeCurlLibraryDeck(
-				orientation = pages.profile.orientation,
-				generationId = generationId,
-				currentOrdinal = ordinal,
-				pageCount = pages.profile.pageCount,
-				readerDirection = pages.profile.readerDirection,
-				spreadAnchorParity = pages.profile.spreadAnchorParity,
-				filler = { pageGenerationId, slotRole, sourcePageIndex, leaf, fallbackOrdinal ->
-					pages.filler(
-						generationId = pageGenerationId,
-						role = slotRole,
-						sourcePageIndex = sourcePageIndex,
-						leaf = leaf,
-						fallbackOrdinal = fallbackOrdinal
-					)
-				},
-				page = { pageGenerationId, pageOrdinal ->
-					pages.page(pageGenerationId, pageOrdinal)
-				}
-			)
+			buildLibraryDeck(pages, ordinal, generationId)
 		}.getOrElse { error ->
 			if (role == ReaderDeckSubmissionRole.Active) {
 				updateReadiness(
@@ -1454,8 +1926,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> activeDeckGenerationId = generationId
 			ReaderDeckSubmissionRole.Pending -> {
+				pendingDeckGenerationId
+					?.takeIf { it != generationId }
+					?.let(surfaceView::releaseDeck)
 				pendingDeckGenerationId = generationId
 				pendingDeckOrdinal = ordinal
+				updateReadiness(
+					pendingTextureDeck = ReaderTextureDeckState.Preparing,
+					reason = "pending-deck-submitting:$generationId"
+				)
 			}
 		}
 		updateSurfaceBounds(pages, ordinal)
@@ -1464,13 +1943,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			detail = "generation=$generationId ordinal=$ordinal role=$role " +
 				"orientation=${pages.profile.orientation}"
 		)
-		surfaceView.setReadingDirection(
-			if (pages.profile.readerDirection == ReaderPlayLikeCurlReaderDirection.Rtl) {
-				ReadingDirection.RIGHT_TO_LEFT
-			} else {
-				ReadingDirection.LEFT_TO_RIGHT
-			}
-		)
+		setSurfaceReadingDirection(pages.profile)
 		surfaceView.submitDeck(deck)
 	}
 
@@ -1560,14 +2033,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun releaseGeneration(generationId: Long) {
 		val pages = generationOwners.remove(generationId) ?: return
+		val releasedCurrentActive = activeDeckGenerationId == generationId
 		generationRoles.remove(generationId)
 		preparedDeckGenerations -= generationId
-		if (activeDeckGenerationId == generationId) activeDeckGenerationId = null
+		recoveredDeckGenerations -= generationId
+		if (releasedCurrentActive) {
+			activeDeckGenerationId = null
+			if (activePages === pages) activePages = null
+		}
 		if (pendingDeckGenerationId == generationId) {
 			pendingDeckGenerationId = null
 			pendingDeckOrdinal = null
 		}
 		pages.generations -= generationId
+		if (pages.generations.isEmpty() && pages !== activePages) {
+			pages.obsolete = true
+		}
 		closeIfUnused(pages)
 	}
 
@@ -1583,6 +2064,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 			requestPrewarmIfIdle("settlement-missing-pending")
 			return
 		}
+		val promotedPages = generationOwners[promotedGeneration]
+		if (promotedPages != null && promotedPages !== activePages) {
+			activePages?.let { previous ->
+				previous.obsolete = true
+				closeIfUnused(previous)
+			}
+			activePages = promotedPages
+		}
 		activeDeckGenerationId = promotedGeneration
 		pendingDeckGenerationId = null
 		pendingDeckOrdinal = null
@@ -1590,6 +2079,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val prepared = promotedGeneration in preparedDeckGenerations
 		updateReadiness(
 			textureDeck = if (prepared) ReaderTextureDeckState.Ready else ReaderTextureDeckState.Preparing,
+			pendingTextureDeck = ReaderTextureDeckState.Empty,
 			interaction = if (prepared) preparedInteractionState() else ReaderPageInteractionState.BackgroundPrefetch,
 			reason = "settlement-promoted:$promotedGeneration:$currentPageOrdinal"
 		)
@@ -1599,6 +2089,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val generationId = pendingDeckGenerationId ?: return
 		pendingDeckGenerationId = null
 		pendingDeckOrdinal = null
+		updateReadiness(
+			pendingTextureDeck = ReaderTextureDeckState.Empty,
+			reason = "pending-deck-discarded:$generationId:$reason"
+		)
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"PlayLikeCurl pending deck discarded generation=$generationId reason=$reason"
@@ -1632,11 +2126,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun updateReadiness(
 		textureDeck: ReaderTextureDeckState = readinessState.textureDeck,
+		pendingTextureDeck: ReaderTextureDeckState = readinessState.pendingTextureDeck,
 		interaction: ReaderPageInteractionState = readinessState.interaction,
 		reason: String
 	) {
 		val next = ReaderPageRendererReadinessState(
 			textureDeck = textureDeck,
+			pendingTextureDeck = pendingTextureDeck,
 			interaction = interaction
 		)
 		if (next == readinessState) return
@@ -1645,6 +2141,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"Readiness transition texture=${previous.textureDeck}->${next.textureDeck} " +
+				"pending=${previous.pendingTextureDeck}->${next.pendingTextureDeck} " +
 				"interaction=${previous.interaction}->${next.interaction} reason=$reason"
 		)
 		onReadinessStateChange(next)
@@ -1679,6 +2176,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			append(readinessState.interaction)
 			append(" textureDeck=")
 			append(readinessState.textureDeck)
+			append(" pendingTextureDeck=")
+			append(readinessState.pendingTextureDeck)
 			append(" pendingExactOrdinal=")
 			append(pendingExactOrdinal)
 			append(" activePages=")
