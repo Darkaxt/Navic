@@ -18,6 +18,7 @@ import paige.navic.domain.models.settings.NowPlayingInfoStyle
 import paige.navic.domain.models.settings.NowPlayingProgressWidth
 import paige.navic.domain.models.settings.NowPlayingScreenOnMode
 import paige.navic.domain.models.settings.NowPlayingTechnicalInfoStyle
+import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.models.settings.QueueSwipeAction
 import paige.navic.domain.models.settings.SongSwipeAction
 import paige.navic.ui.screens.library.LibraryRowId
@@ -29,6 +30,27 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PreferenceManagerTest {
+	@Test
+	fun offlineModeIsObservableAndPersisted() {
+		val settings = MapSettings()
+		val manager = PreferenceManager(settings)
+
+		assertEquals(OfflineMode.Auto, manager.offlineModeState.value)
+
+		manager.offlineMode = OfflineMode.Forced
+
+		assertEquals(OfflineMode.Forced, manager.offlineModeState.value)
+		assertEquals(OfflineMode.Forced, PreferenceManager(settings).offlineMode)
+	}
+
+	@Test
+	fun offlineModeKeepsRawOrdinalCompatibility() {
+		val settings = MapSettings()
+		settings.putInt("offlineMode", OfflineMode.NoWiFi.ordinal)
+
+		assertEquals(OfflineMode.NoWiFi, PreferenceManager(settings).offlineMode)
+	}
+
 	@Test
 	fun nowPlayingScreenOnModeDefaultsToOff() {
 		val manager = PreferenceManager(MapSettings())

@@ -8,12 +8,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import paige.navic.domain.models.settings.OfflineMode
+import paige.navic.domain.models.isOnlineForOfflineMode
 import platform.Network.nw_interface_type_cellular
 import platform.Network.nw_path_get_status
 import platform.Network.nw_path_monitor_cancel
@@ -32,7 +32,7 @@ private data class NetworkStatus(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 actual class ConnectivityManager(
-	private val preferenceManager: PreferenceManager
+	private val offlineModeCoordinator: OfflineModeCoordinator
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 	private val dispatcher = Dispatchers.IO
@@ -61,14 +61,19 @@ actual class ConnectivityManager(
 		.flowOn(dispatcher)
 		.stateIn(scope, started, false)
 
-	actual val isOnline = networkStatus
-		.mapLatest { status ->
-			when (preferenceManager.offlineMode) {
-				OfflineMode.Forced -> false
-				OfflineMode.NoWiFi -> status.isOnline && !status.isCellular
-				else -> status.isOnline
-			}
-		}
+	actual val isNetworkAvailable = networkStatus
+		.map { it.isOnline }
+		.distinctUntilChanged()
+		.flowOn(dispatcher)
+		.stateIn(scope, started, false)
+
+	actual val isOnline = combine(networkStatus, offlineModeCoordinator.state) { status, offline ->
+		isOnlineForOfflineMode(
+			isNetworkAvailable = status.isOnline,
+			isCellular = status.isCellular,
+			offlineMode = offline.effectiveMode
+		)
+	}
 		.distinctUntilChanged()
 		.flowOn(dispatcher)
 		.stateIn(scope, started, true)

@@ -11,6 +11,7 @@ import paige.navic.domain.manager.DownloadQueueNotificationCoordinator
 import paige.navic.domain.manager.AppLogManager
 import paige.navic.domain.manager.LidaClipCacheManager
 import paige.navic.domain.manager.LidaClipDownloadManager
+import paige.navic.domain.manager.OfflineModeCoordinator
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
@@ -35,6 +36,7 @@ val managerModule = module {
 	singleOf(::PlaybackQueueInteractor)
 	singleOf(::SessionManager)
 	single { PreferenceManager(get(), get()) }
+	single { OfflineModeCoordinator(get()) }
 	singleOf(::SnackBarManager)
 	single { ArtworkColorManager(get()) }
 	single { AppLogManager(get()) }

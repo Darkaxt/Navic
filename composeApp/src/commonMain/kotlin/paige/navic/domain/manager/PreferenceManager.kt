@@ -4,6 +4,9 @@ import paige.navic.data.remote.aurral.aurralBasicAuthHeaders
 
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import paige.navic.domain.manager.base.BasePreferenceManager
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
@@ -469,5 +472,15 @@ class PreferenceManager(
 		musicBrainzArtworkCacheJson = ""
 	}
 
-	var offlineMode by preference(OfflineMode.Auto)
+	private var persistedOfflineMode by preference("offlineMode", OfflineMode.Auto)
+	private val _offlineModeState = MutableStateFlow(persistedOfflineMode)
+	val offlineModeState: StateFlow<OfflineMode> = _offlineModeState.asStateFlow()
+
+	var offlineMode: OfflineMode
+		get() = _offlineModeState.value
+		set(value) {
+			if (_offlineModeState.value == value) return
+			persistedOfflineMode = value
+			_offlineModeState.value = value
+		}
 }
