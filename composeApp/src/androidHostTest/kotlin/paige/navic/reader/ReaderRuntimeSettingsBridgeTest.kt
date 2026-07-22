@@ -118,46 +118,59 @@ class ReaderRuntimeSettingsBridgeTest {
 	}
 
 	@Test
-	fun androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku() {
+	fun androidReaderSeparatesLegacyChildFirstAndTypedProvisionalDispatch() {
 		val readerScreenText = readerScreenFile().readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val dispatchTouchEvent = nativeFrameHostText
-			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
-		val childDispatchedTouchBranch = dispatchTouchEvent
-			.substringAfter("val handled = super.dispatchTouchEvent(event)")
+		val outer = nativeFrameHostText
+			.substringAfter(
+				"override fun dispatchTouchEvent(event: MotionEvent): Boolean {"
+			)
+			.substringBefore(
+				"private fun dispatchLegacyReaderPointerEvent("
+			)
+		val legacy = nativeFrameHostText
+			.substringAfter(
+				"private fun dispatchLegacyReaderPointerEvent("
+			)
+			.substringBefore(
+				"private fun dispatchPlayLikeCurlPointerEvent("
+			)
+		val imported = nativeFrameHostText
+			.substringAfter(
+				"private fun dispatchPlayLikeCurlPointerEvent("
+			)
+			.substringBefore("private fun applyPointerRoute(")
+		val apply = nativeFrameHostText
+			.substringAfter("private fun applyPointerRoute(")
+			.substringBefore("private fun dispatchContentCancel(")
+		val content = apply
+			.substringAfter("ReaderPagePointerRoute.Content -> {")
+			.substringBefore(
+				"is ReaderPagePointerRoute.ContentTerminal -> {"
+			)
 
-		assertContains(nativeFrameHostText, "private class KomikkuReaderNativeViewerContainer")
-		assertContains(nativeFrameHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
-		assertContains(nativeFrameHostText, "val handled = super.dispatchTouchEvent(event)")
-		assertContains(nativeFrameHostText, "handleSwipeTouchEvent(event)")
-		assertContains(nativeFrameHostText, "gestureDetector.onTouchEvent(event)")
-		assertContains(nativeFrameHostText, "val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched")
-		assertFalse(
-			nativeFrameHostText.contains("nativeShortTapIntercepted"),
-			"Komikku's Pager does not use a separate short-tap intercept flag; confirmed tap ownership comes from GestureDetector after child dispatch."
-		)
-		assertContains(nativeFrameHostText, "return consumed")
-		assertContains(nativeFrameHostText, "GestureDetector(context, listener)")
-		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
-		assertContains(nativeFrameHostText, "navigator.getAction(")
-		assertContains(nativeFrameHostText, "ViewConfiguration.get(context).scaledTouchSlop")
+		assertContains(outer, "ReaderPagePhysicalDispatchMode.Legacy ->")
+		assertContains(outer, "ReaderPagePhysicalDispatchMode.PlayLikeCurl ->")
+		assertContains(legacy, "val handled = super.dispatchTouchEvent(event)")
+		assertContains(legacy, "handleSwipeTouchEvent(event)")
+		assertContains(legacy, "legacyGestureDetector.onTouchEvent(event)")
 		assertTrue(
-			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
-				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)"),
-			"Komikku's pager dispatches to the child/page first, then observes the same stream for confirmed reader-wide taps."
+			legacy.indexOf("handleSwipeTouchEvent(event)") <
+				legacy.indexOf("legacyGestureDetector.onTouchEvent(event)")
 		)
+		assertContains(imported, "pageInputSettlementHostController::dispatchPointer")
+		assertContains(content, "viewerContentContainer.dispatchTouchEvent(event)")
+		assertFalse(content.contains("super.dispatchTouchEvent(event)"))
+		assertContains(content, "playLikeCurlGestureDetector.onTouchEvent(event)")
+		assertFalse(content.contains("legacyGestureDetector"))
+		assertFalse(nativeFrameHostText.contains("private val gestureDetector"))
 		assertFalse(
 			webViewHostText.contains("ReaderSurfaceHost") ||
 				webViewHostText.contains("ReaderAndroidTapZoneObserver") ||
-				webViewHostText.contains("dispatchReaderWideTap"),
-			"Android must not keep the old split WebView-only tap-zone observer."
+				webViewHostText.contains("dispatchReaderWideTap")
 		)
-		assertFalse(
-			readerScreenText.contains("ReaderNativeTapRegion("),
-			"Reader-wide tap zones must not be Compose region boxes over the WebView."
-		)
+		assertFalse(readerScreenText.contains("ReaderNativeTapRegion("))
 	}
 
 	@Test

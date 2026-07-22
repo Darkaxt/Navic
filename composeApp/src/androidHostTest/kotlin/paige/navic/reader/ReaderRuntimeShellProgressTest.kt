@@ -415,45 +415,47 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku() {
+	fun importedReadableContentReceivesProvisionalDownBeforeCurlClaim() {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val bridgeText = readerBridgeText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val dispatchTouchEvent = nativeFrameHostText
-			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+		val intercept = nativeFrameHostText
+			.substringAfter(
+				"override fun onInterceptTouchEvent(event: MotionEvent): Boolean"
+			)
+			.substringBefore(
+				"override fun onTouchEvent(event: MotionEvent): Boolean"
+			)
+		val apply = nativeFrameHostText
+			.substringAfter("private fun applyPointerRoute(")
+			.substringBefore("private fun dispatchContentCancel(")
+		val content = apply
+			.substringAfter("ReaderPagePointerRoute.Content -> {")
+			.substringBefore(
+				"is ReaderPagePointerRoute.ContentTerminal -> {"
+			)
 
-		assertContains(nativeFrameHostText, "override fun dispatchTouchEvent(event: MotionEvent): Boolean")
-		assertContains(nativeFrameHostText, "val handled = super.dispatchTouchEvent(event)")
-		assertContains(nativeFrameHostText, "handleSwipeTouchEvent(event)")
-		assertContains(nativeFrameHostText, "gestureDetector.onTouchEvent(event)")
-		assertContains(nativeFrameHostText, "MotionEvent.ACTION_DOWN")
-		assertContains(nativeFrameHostText, "if (shellCoverView?.visibility != VISIBLE) return true")
-		assertContains(nativeFrameHostText, "override fun onSingleTapConfirmed(event: MotionEvent): Boolean")
-		assertContains(nativeFrameHostText, "navigator.getAction(")
-		assertContains(nativeFrameHostText, "val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched")
-		assertFalse(
-			nativeFrameHostText.contains("nativeShortTapIntercepted"),
-			"Komikku's Pager does not intercept plain ACTION_UP taps; Navic intercepts readable ACTION_DOWN instead so Foliate cannot receive a partial drag stream."
+		assertContains(
+			intercept,
+			"physicalDispatchMode == " +
+				"ReaderPagePhysicalDispatchMode.PlayLikeCurl"
 		)
-		assertFalse(
-			dispatchTouchEvent.contains("event.setAction(") || dispatchTouchEvent.contains("event.action ="),
-			"Native readable ownership must not rewrite MotionEvent actions to fake WebView cancellation."
+		assertContains(intercept, "return false")
+		assertContains(content, "MotionEvent.obtain(event)")
+		assertContains(content, "viewerContentContainer.dispatchTouchEvent(event)")
+		assertFalse(content.contains("super.dispatchTouchEvent(event)"))
+		assertContains(
+			content,
+			"playLikeCurlGestureDetector.onTouchEvent(event)"
 		)
+		assertFalse(content.contains("playLikeCurlController.onPageTouchEvent("))
 		assertFalse(
-			webViewHostText.contains("event.action =") || webViewHostText.contains("event.setAction("),
-			"The native surface must observe the child touch stream without rewriting WebView/Foliate events."
-		)
-		assertFalse(
-			webViewHostText.contains("ReaderSurfaceHost") ||
-				webViewHostText.contains("dispatchReaderWideTap"),
-			"Readable content taps are observed by the native frame, not the renderer WebView host."
+			webViewHostText.contains("event.action =") ||
+				webViewHostText.contains("event.setAction("),
+			"The WebView host must not rewrite its own pointer stream."
 		)
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(this.view)")
 		assertContains(bridgeText, "this.attachReaderTapZoneGesture(doc)")
-		assertContains(bridgeText, "target.addEventListener('touchstart'")
-		assertContains(bridgeText, "target.addEventListener('touchend'")
-		assertContains(bridgeText, "CenterTapMovementSlop")
 	}
 
 	@Test
@@ -461,27 +463,30 @@ class ReaderRuntimeShellProgressTest {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val platformHostText = readerCommonUiFile("ReaderPlatformHosts.kt").readText()
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
-		val singleTapBody = nativeFrameHostText
-			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
-			.substringBefore("\n\t\t\t}\n\n\t\t\t")
+		val legacyTap = nativeFrameHostText
+			.substringAfter("private fun onLegacySingleTapConfirmed(")
+			.substringBefore("private fun onPlayLikeCurlSingleTapConfirmed(")
+		val typedTap = nativeFrameHostText
+			.substringAfter("private fun onPlayLikeCurlSingleTapConfirmed(")
+			.substringBefore("private fun dispatchLegacySingleTapAction(")
 
 		assertContains(platformHostText, "chromeOverlayVisible: Boolean")
 		assertContains(nativeFrameHostText, "chromeOverlayVisible: Boolean")
 		assertContains(nativeFrameHostText, "setChromeOverlayVisible(chromeOverlayVisible)")
 		assertContains(nativeFrameHostText, "var chromeOverlayVisible: Boolean = false")
 		assertContains(readerRootText, "chromeOverlayVisible = controllerState.menuVisible")
-		assertContains(singleTapBody, "if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)")
-		assertContains(singleTapBody, "Reader native tap ignored under chrome action=")
-		assertTrue(
-			singleTapBody.indexOf("val action = if (shellCoverView?.visibility == VISIBLE)") <
-				singleTapBody.indexOf("if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)"),
-			"Chrome suppression must inspect the Komikku tap-zone result first so center MENU taps can still hide the menu."
-		)
-		assertTrue(
-			singleTapBody.indexOf("if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU)") <
-				singleTapBody.indexOf("dispatchSingleTapAction(action)"),
-			"Native edge page actions must not fire behind visible chapter rail, app bars, or bottom controls."
-		)
+		listOf(
+			legacyTap to "dispatchLegacySingleTapAction(action)",
+			typedTap to "dispatchPlayLikeCurlSingleTapAction("
+		).forEach { (body, dispatcher) ->
+			assertContains(body, "chromeOverlayVisible &&")
+			assertContains(body, "action != KomikkuNavigationRegion.MENU")
+			assertTrue(body.indexOf("chromeOverlayVisible &&") < body.indexOf(dispatcher))
+		}
+		assertContains(typedTap, "gestureId = tap.gestureId")
+		assertContains(typedTap, "tap.x")
+		assertContains(typedTap, "tap.y")
+		assertContains(typedTap, "completeDelayedTap(")
 	}
 
 	@Test
@@ -558,35 +563,39 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun nativeShellCoverSupportsHorizontalSwipeAndNativeReadableDragPreview() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val dispatchTouchEvent = nativeFrameHostText
-			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
+		val legacyDispatch = nativeFrameHostText
+			.substringAfter("private fun dispatchLegacyReaderPointerEvent(")
+			.substringBefore("private fun dispatchPlayLikeCurlPointerEvent(")
 		val handleTouch = nativeFrameHostText
 			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent) {")
 			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
 		val actionMove = handleTouch
-			.substringAfter("MotionEvent.ACTION_MOVE,")
-			.substringBefore("if (event.actionMasked == MotionEvent.ACTION_UP)")
+			.substringAfter("MotionEvent.ACTION_MOVE -> {")
+			.substringBefore("MotionEvent.ACTION_UP -> {")
 		val shellCoverSwipe = nativeFrameHostText
 			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
 			.substringBefore("\n\tprivate fun nativeTapMovedBeyondSlop")
 
 		assertContains(nativeFrameHostText, "private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()")
 		assertContains(handleTouch, "dispatchHorizontalSwipeViewerAction(")
-		assertContains(handleTouch, "val shellCoverVisible = shellCoverView?.visibility == VISIBLE")
 		assertContains(handleTouch, "if (shellCoverVisible)")
 		assertContains(handleTouch, "updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)")
 		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Release")
 		assertContains(handleTouch, "ReaderPageDragPreviewPhase.Cancel")
 		assertContains(nativeFrameHostText, "Reader native drag preview")
-		assertContains(actionMove, "dispatchHorizontalSwipeViewerAction(")
+		assertFalse(
+			actionMove.contains("dispatchHorizontalSwipeViewerAction("),
+			"Legacy drag preview must not commit navigation before ACTION_UP."
+		)
 		assertContains(handleTouch, "MotionEvent.ACTION_UP")
 		assertContains(shellCoverSwipe, "readerShellCoverSwipeAction(")
 		assertContains(shellCoverSwipe, "readableSwipeAction(")
 		assertContains(shellCoverSwipe, "touchSlopPx")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.NEXT)")
 		assertContains(shellCoverSwipe, "onAction(KomikkuNavigationRegion.PREV)")
-		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
+		assertContains(legacyDispatch, "val handled = super.dispatchTouchEvent(event)")
+		assertContains(legacyDispatch, "handleSwipeTouchEvent(event)")
+		assertContains(legacyDispatch, "legacyGestureDetector.onTouchEvent(event)")
 		assertContains(nativeFrameHostText, "private fun updateReadableViewerDragOffset(")
 		assertContains(nativeFrameHostText, "onReadableDragPreview(deltaX, deltaY, width, height, phase)")
 		assertFalse(
@@ -624,81 +633,53 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeCanvasDragUsesTapSlopWhileNonCanvasPreviewKeepsPagingSlop() {
+	fun importedCurlUsesRouterTouchSlopWhileLegacyPreviewKeepsPagingSlop() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val singleTap = nativeFrameHostText
-			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
-			.substringBefore("\n\t\t\t}")
-		val nativeHorizontalSwipe = nativeFrameHostText
-			.substringAfter("private fun nativeHorizontalSwipeMovedBeyondSlop(x: Float, y: Float): Boolean =")
-			.substringBefore("\n\n\tprivate fun clearNativeTapState")
-		val dispatchHorizontalSwipe = nativeFrameHostText
-			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
-			.substringBefore("\n\tprivate fun updateShellCoverDragOffset")
-		val logDragCandidate = nativeFrameHostText
-			.substringAfter("private fun logReaderDragCandidate(deltaX: Float, deltaY: Float) {")
-			.substringBefore("\n\tprivate fun logReaderReadableDragPreview")
+		val imported = nativeFrameHostText
+			.substringAfter("private fun dispatchPlayLikeCurlPointerEvent(")
+			.substringBefore("private fun applyPointerRoute(")
+		val legacySlop = nativeFrameHostText
+			.substringAfter(
+				"private fun nativeHorizontalSwipeMovedBeyondSlop("
+			)
+			.substringBefore("private fun clearLegacyNativeTapState(")
+		val typedTap = nativeFrameHostText
+			.substringAfter("private fun onPlayLikeCurlSingleTapConfirmed(")
+			.substringBefore("private fun dispatchLegacySingleTapAction(")
 
-		assertContains(
-			nativeFrameHostText,
-			"private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()",
-			message = "Readable page drags should not start from tiny tap drift; use Android's paging slop for the WebView/Foliate surface."
-		)
-		assertContains(
-			nativeHorizontalSwipe,
-			"readerShellCoverSwipeAction(",
-			message = "Shell-cover swipes still use the cover-specific physical side-zone drag behavior."
-		)
-		assertContains(
-			nativeHorizontalSwipe,
-			"thresholdPx = touchSlopPx",
-			message = "Native cover drags should remain responsive at normal tap slop."
-		)
-		assertContains(nativeFrameHostText, "private fun readableDragActivationSlopPx(): Float")
-		assertContains(nativeFrameHostText, "pageTurnCanvasEnabled && !verticalPageDragPreview -> touchSlopPx")
-		assertContains(nativeFrameHostText, "else -> readablePageDragSlopPx")
-		assertContains(
-			nativeHorizontalSwipe,
-			"thresholdPx = readableDragActivationSlopPx()",
-			message = "Canvas must claim a deliberate horizontal drag at normal touch slop; the non-canvas preview may retain paging slop."
-		)
-		assertContains(
-			dispatchHorizontalSwipe,
-			"readerSwipeThresholdPx(shellCoverVisible)",
-			message = "Swipe release must use the same cover/readable threshold as drag preview."
-		)
-		assertContains(
-			logDragCandidate,
-			"readerSwipeThresholdPx(shellCoverVisible = shellCoverView?.visibility == VISIBLE)",
-			message = "ADB drag diagnostics should follow the actual cover/readable drag threshold instead of logging mini-drifts as page drags."
-		)
-		assertContains(
-			singleTap,
-			"if (nativeTapCancelledByDrag) return false",
-			message = "A real drag preview must not also become a center-menu tap."
-		)
-		assertFalse(
-			singleTap.contains("if (!nativeTapCandidate) return false"),
-			"Do not reintroduce the eta73 fix: it kills confirmed center taps because GestureDetector may confirm after ACTION_UP lifecycle flags changed."
-		)
+		assertContains(imported, "scaledTouchSlop")
+		assertContains(imported, "ReaderPageHostPointerEvent.Move(")
+		assertFalse(imported.contains("scaledPagingTouchSlop"))
+		assertContains(nativeFrameHostText, "scaledPagingTouchSlop")
+		assertContains(legacySlop, "readerShellCoverSwipeAction(")
+		assertContains(legacySlop, "readableSwipeAction(")
+		assertFalse(typedTap.contains("nativeTapCandidate"))
+		assertFalse(typedTap.contains("nativeTapLongConfirmed"))
+		assertFalse(typedTap.contains("nativeTapCancelledByDrag"))
 	}
 
 	@Test
-	fun nativeDragCancelsTheWholeGestureDetectorSequenceBeforeTapConfirmation() {
+	fun dragCancellationTargetsTheDetectorThatOwnedTheFrozenStream() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val dispatchTouch = nativeFrameHostText
-			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
-		val cancelForDrag = nativeFrameHostText
+		val contentCancel = nativeFrameHostText
+			.substringAfter("private fun dispatchContentCancel(")
+			.substringBefore("private fun recycleRetainedContentDown(")
+		val legacyCancel = nativeFrameHostText
 			.substringAfter("private fun cancelPendingLongTapForDrag(")
-			.substringBefore("\n\tprivate fun nativeTapMovedBeyondSlop")
+			.substringBefore("private fun nativeTapMovedBeyondSlop")
 		val detector = nativeFrameHostText
-			.substringAfter("private class KomikkuGestureDetectorWithLongTap")
-			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+			.substringAfter("internal class KomikkuGestureDetectorWithLongTap")
+			.substringBefore(
+				"private class KomikkuReaderNativeNavigationOverlayView"
+			)
 
-		assertContains(dispatchTouch, "!nativeTapCancelledByDrag")
-		assertContains(cancelForDrag, "nativeTapCancelledByDrag = true")
-		assertContains(cancelForDrag, "gestureDetector.cancelForDrag(event)")
+		assertContains(
+			contentCancel,
+			"playLikeCurlGestureDetector.cancelForDrag(cancel)"
+		)
+		assertFalse(contentCancel.contains("legacyGestureDetector"))
+		assertContains(legacyCancel, "legacyGestureDetector.cancelForDrag(event)")
+		assertFalse(legacyCancel.contains("playLikeCurlGestureDetector"))
 		assertContains(detector, "fun cancelForDrag(event: MotionEvent)")
 		assertContains(detector, "MotionEvent.ACTION_CANCEL")
 	}
@@ -730,53 +711,50 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
-	fun nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner() {
+	fun shellCoverAndNonCurlRollbackKeepLegacyChildFirstDispatch() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val dispatchTouchEvent = nativeFrameHostText
-			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
-		val childDispatchedTouchBranch = dispatchTouchEvent
-			.substringAfter("val handled = super.dispatchTouchEvent(event)")
-		val interceptTouchEvent = nativeFrameHostText
-			.substringAfter("override fun onInterceptTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\t}\n\n\t")
+		val legacy = nativeFrameHostText
+			.substringAfter(
+				"private fun dispatchLegacyReaderPointerEvent("
+			)
+			.substringBefore(
+				"private fun dispatchPlayLikeCurlPointerEvent("
+			)
+		val mode = nativeFrameHostText
+			.substringAfter(
+				"private fun shouldUsePlayLikeCurlPointerRouter()"
+			)
+			.substringBefore(
+				"override fun dispatchTouchEvent(event: MotionEvent): Boolean"
+			)
 
-		assertContains(dispatchTouchEvent, "val handled = super.dispatchTouchEvent(event)")
-		assertContains(dispatchTouchEvent, "handleSwipeTouchEvent(event)")
-		assertContains(dispatchTouchEvent, "gestureDetector.onTouchEvent(event)")
-		assertContains(dispatchTouchEvent, "val consumed = handled || nativeSwipeIntercepted || horizontalSwipeDispatched")
-		assertContains(dispatchTouchEvent, "return consumed")
-		assertFalse(
-			interceptTouchEvent.contains("nativeShortTapIntercepted") ||
-				interceptTouchEvent.contains("return nativeTapCandidate"),
-			"Shell-cover taps must follow Komikku's child-first Pager dispatch; the native container must not intercept ACTION_UP just to own short taps."
-		)
-		assertTrue(
-			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") >= 0,
-			"Shell-cover drags must observe the same child-dispatched stream instead of bypassing the cover renderer."
-		)
-		assertTrue(
-			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
-				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)"),
-			"Shell-cover drag observation and reader tap detection must share the same native surface stream."
-		)
-		assertContains(childDispatchedTouchBranch, "handled")
+		assertContains(legacy, "val handled = super.dispatchTouchEvent(event)")
+		assertContains(legacy, "handleSwipeTouchEvent(event)")
+		assertContains(legacy, "legacyGestureDetector.onTouchEvent(event)")
+		assertFalse(legacy.contains("pageInputSettlementHostController"))
+		assertFalse(legacy.contains("playLikeCurlGestureDetector"))
+		assertContains(mode, "pageTurnCanvasEnabled")
+		assertContains(mode, "!verticalPageDragPreview")
+		assertContains(mode, "!shellCoverVisible")
 	}
 
 	@Test
-	fun readableSurfaceOwnsTouchStreamFromDownSoFoliateCannotDoubleCommitDrag() {
+	fun horizontalCurlClaimCancelsFoliateBeforeRendererReceivesDownAndMove() {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
-		val interceptTouchEvent = nativeFrameHostText
-			.substringAfter("override fun onInterceptTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\t}\n\n\t")
-		val actionDown = interceptTouchEvent
-			.substringAfter("MotionEvent.ACTION_DOWN -> {")
-			.substringBefore("\n\t\t\tMotionEvent.ACTION_MOVE")
+		val claim = nativeFrameHostText
+			.substringAfter("is ReaderPagePointerRoute.ClaimCurl -> {")
+			.substringBefore("is ReaderPagePointerRoute.Curl -> {")
 
-		assertContains(
-			actionDown,
-			"if (shellCoverView?.visibility != VISIBLE) return true",
-			message = "Readable EPUB/PDF gestures must be native-owned from ACTION_DOWN; otherwise Foliate can preview/commit one page and the native release can commit a second page."
+		val cancelIndex = claim.indexOf("dispatchContentCancel(event)")
+		val downIndex = claim.indexOf("originalDown,")
+		val moveIndex = claim.indexOf("event,")
+		assertTrue(cancelIndex >= 0)
+		assertTrue(downIndex > cancelIndex)
+		assertTrue(moveIndex > downIndex)
+		assertFalse(
+			claim.substringAfter("event,")
+				.contains("super.dispatchTouchEvent(event)"),
+			"The claimed move must not also reach Foliate."
 		)
 	}
 
@@ -799,26 +777,25 @@ class ReaderRuntimeShellProgressTest {
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val singleTap = nativeFrameHostText
-			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
-			.substringBefore("\n\t\t\t}")
+			.substringAfter("private fun onPlayLikeCurlSingleTapConfirmed(")
+			.substringBefore("private fun dispatchLegacySingleTapAction(")
 		val viewerContainerBody = nativeFrameHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("internal class KomikkuGestureDetectorWithLongTap")
 
 		assertContains(singleTap, "navigator.getAction(")
-		assertContains(singleTap, "dispatchSingleTapAction(action)")
-		assertContains(
-			singleTap,
-			"if (nativeTapCancelledByDrag) return false",
-			message = "A movement-cancelled drag preview must not also be accepted as a center tap that opens reader chrome."
+		assertContains(singleTap, "dispatchPlayLikeCurlSingleTapAction(")
+		assertContains(singleTap, "gestureId = tap.gestureId")
+		assertContains(singleTap, "tap.x")
+		assertContains(singleTap, "tap.y")
+		assertContains(singleTap, "takeOldestDelayedTap(")
+		assertFalse(singleTap.contains("nativeTapCandidate"))
+		assertFalse(singleTap.contains("nativeTapLongConfirmed"))
+		assertFalse(singleTap.contains("nativeTapCancelledByDrag"))
+		assertTrue(
+			singleTap.indexOf("takeDelayedTap(") <
+				singleTap.indexOf("navigator.getAction(")
 		)
-		assertFalse(
-			singleTap.contains("if (!nativeTapCandidate) return false"),
-			"Confirmed taps must not depend on nativeTapCandidate; GestureDetector confirms taps after ACTION_UP can clear that lifecycle flag."
-		)
-		assertContains(viewerContainerBody, "private var nativeTapCancelledByDrag: Boolean = false")
-		assertContains(viewerContainerBody, "nativeTapCancelledByDrag = false")
-		assertContains(viewerContainerBody, "nativeTapCancelledByDrag = true")
 		assertContains(viewerContainerBody, "if (action != KomikkuNavigationRegion.MENU)")
 		assertFalse(
 			viewerContainerBody.contains("dispatchMenuActionAfterContentHitTest") ||
@@ -829,13 +806,8 @@ class ReaderRuntimeShellProgressTest {
 			"Short center-menu taps must be native-owned; WebView content hit testing belongs to deliberate long press."
 		)
 		assertTrue(
-			singleTap.indexOf("if (nativeTapCancelledByDrag) return false") <
-				singleTap.indexOf("navigator.getAction("),
-			"Native tap classification must reject cancelled drag candidates before calculating a menu/edge action."
-		)
-		assertTrue(
 			singleTap.indexOf("navigator.getAction(") <
-				singleTap.indexOf("dispatchSingleTapAction(action)"),
+				singleTap.indexOf("dispatchPlayLikeCurlSingleTapAction("),
 			"Native frame tap classification must decide and dispatch the viewer action without a menu-only renderer hit test."
 		)
 	}

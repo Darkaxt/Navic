@@ -149,24 +149,67 @@ class FoliateAnxParityTest {
 	private val knownGaps: Map<String, GapStatus> = mapOf(
 		"onClick" to GapStatus.ProductDivergence(
 			navicRoute = listOf(
-				RouteStop(readerNativeFrameHostFile(), "onSingleTapConfirmed"),
-				RouteStop(readerNativeFrameHostFile(), "dispatchSingleTapAction"),
-				RouteStop(readerAssetRoot().resolve("navic-reader-content-interactions.js"), "readerContentTapHandled"),
-				RouteStop(readerCommonFile("ReaderBridgeProtocol.kt"), "ContentTapHandled"),
-				RouteStop(readerCommonFile("FoliateEpubEngineAdapter.kt"), "ContentActionClaimed")
+				RouteStop(
+					readerNativeFrameHostFile(),
+					"onLegacySingleTapConfirmed"
+				),
+				RouteStop(
+					readerNativeFrameHostFile(),
+					"onPlayLikeCurlSingleTapConfirmed"
+				),
+				RouteStop(
+					readerNativeFrameHostFile(),
+					"dispatchLegacySingleTapAction"
+				),
+				RouteStop(
+					readerNativeFrameHostFile(),
+					"dispatchPlayLikeCurlSingleTapAction"
+				),
+				RouteStop(
+					readerAssetRoot().resolve(
+						"navic-reader-content-interactions.js"
+					),
+					"readerContentTapHandled"
+				),
+				RouteStop(
+					readerCommonFile("ReaderBridgeProtocol.kt"),
+					"ContentTapHandled"
+				),
+				RouteStop(
+					readerCommonFile("FoliateEpubEngineAdapter.kt"),
+					"ContentActionClaimed"
+				)
 			),
-			rationale = "Komikku owns short taps; content interaction is long-press. ContentTapHandled carries typed ReaderContentAction."
+			rationale = "Komikku owns short taps; imported curls preserve typed " +
+				"gesture identity while content interaction remains long-press."
 		),
 		"onImageClick" to GapStatus.ProductDivergence(
 			navicRoute = listOf(
 				RouteStop(readerNativeFrameHostFile(), "onContentLongPress"),
-				RouteStop(readerNativeFrameHostFile(), "onLongTapConfirmed"),
-				RouteStop(readerCommonFile("ReaderBridgeProtocol.kt"), "ContentLongPressAt"),
-				RouteStop(readerCommonFile("FoliateEpubEngineAdapter.kt"), "ContentLongPressAt"),
-				RouteStop(readerAssetRoot().resolve("navic-reader-content-interactions.js"), "toggleSepiaImageOverlayFromEvent"),
-				RouteStop(readerAssetRoot().resolve("navic-reader-content-interactions.js"), "handleNativeTapZoneContentLongPressAt")
+				RouteStop(readerNativeFrameHostFile(), "claimContentAction"),
+				RouteStop(
+					readerCommonFile("ReaderBridgeProtocol.kt"),
+					"ContentLongPressAt"
+				),
+				RouteStop(
+					readerCommonFile("FoliateEpubEngineAdapter.kt"),
+					"ContentLongPressAt"
+				),
+				RouteStop(
+					readerAssetRoot().resolve(
+						"navic-reader-content-interactions.js"
+					),
+					"toggleSepiaImageOverlayFromEvent"
+				),
+				RouteStop(
+					readerAssetRoot().resolve(
+						"navic-reader-content-interactions.js"
+					),
+					"handleNativeTapZoneContentLongPressAt"
+				)
 			),
-			rationale = "Anx opens ImageViewer; Navic toggles sepia overlay. Different behavior, not parity. Sepia toggle is the user's intended long-press behavior."
+			rationale = "Anx opens ImageViewer; Navic deliberately claims a typed " +
+				"long press and toggles its sepia overlay."
 		),
 		"handleBookmark" to GapStatus.ProductDivergence(
 			navicRoute = listOf(
@@ -185,10 +228,21 @@ class FoliateAnxParityTest {
 		),
 		"click-view" to GapStatus.ProductDivergence(
 			navicRoute = listOf(
-				RouteStop(readerAssetRoot().resolve("vendor/foliate-js/view.js"), "click-view", mustBeAbsent = true),
-				RouteStop(readerNativeFrameHostFile(), "onSingleTapConfirmed")
+				RouteStop(
+					readerAssetRoot().resolve("vendor/foliate-js/view.js"),
+					"click-view",
+					mustBeAbsent = true
+				),
+				RouteStop(
+					readerNativeFrameHostFile(),
+					"onLegacySingleTapConfirmed"
+				),
+				RouteStop(
+					readerNativeFrameHostFile(),
+					"onPlayLikeCurlSingleTapConfirmed"
+				)
 			),
-			rationale = "Same as click-image. Navic handles view taps at the native Komikku tap-zone layer."
+			rationale = "Navic handles view taps in its named native paths."
 		),
 		"translateText" to GapStatus.OutOfScope(
 			rationale = "Anx-specific translation service integration (text -> translation API). Not a reader behavior parity item."

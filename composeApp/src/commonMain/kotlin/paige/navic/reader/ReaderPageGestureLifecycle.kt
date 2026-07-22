@@ -3,13 +3,16 @@ package paige.navic.reader
 enum class ReaderPageGestureTerminalOutcome {
 	CommittedForward,
 	CommittedBackward,
+	CompletedTapAction,
 	CancelledByUser,
+	CancelledLifecycle,
 	RejectedPreparing,
 	RejectedSettling,
 	RejectedDirection,
 	RejectedBoundary,
 	RejectedRendererUnavailable,
-	FailedRenderer
+	FailedRenderer,
+	FailedRecovery
 }
 
 /**

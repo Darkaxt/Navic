@@ -149,12 +149,15 @@ extensions.configure<KotlinMultiplatformExtension> {
 			implementation(libs.bundles.ktor.android)
 			implementation(libs.bundles.androidx.android)
 			implementation(libs.bundles.media3)
+			implementation("androidx.lifecycle:lifecycle-runtime:2.10.0")
 			api(projects.thirdParty.playlikecurl.karackencurllib)
 		}
 
 		named("androidHostTest") {
 			dependencies {
 				implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+				implementation("androidx.test:core:1.7.0")
+				implementation("org.robolectric:robolectric:4.16.1")
 			}
 		}
 

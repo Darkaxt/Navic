@@ -45,6 +45,75 @@ internal enum class ReaderDeckSubmissionRole {
 	Pending
 }
 
+internal sealed interface ReaderPageGestureTerminalDetail {
+	data class RendererRejected(
+		val generationId: Long,
+		val reason: GestureRejectionReason
+	) : ReaderPageGestureTerminalDetail
+
+	data class RendererCancelled(val generationId: Long) : ReaderPageGestureTerminalDetail
+
+	data class SettlementCompleted(
+		val pageChange: PageChange,
+		val ordinal: Int
+	) : ReaderPageGestureTerminalDetail
+
+	data class SettlementCancelled(val generationId: Long) : ReaderPageGestureTerminalDetail
+
+	data class TouchRejected(val actionMasked: Int) : ReaderPageGestureTerminalDetail
+
+	data class TapTurnUnavailable(val pageChange: PageChange) : ReaderPageGestureTerminalDetail
+
+	data class RelocationCapacityUnavailable(
+		val occupied: Int,
+		val capacity: Int
+	) : ReaderPageGestureTerminalDetail
+
+	data class RelocationReservationProtocolFailure(
+		val gestureId: Long
+	) : ReaderPageGestureTerminalDetail
+
+	data class TouchProtocolFailure(val actionMasked: Int) : ReaderPageGestureTerminalDetail
+
+	data class TapTurnProtocolFailure(val pageChange: PageChange) : ReaderPageGestureTerminalDetail
+
+	data class RelocationGenerationOrSessionDrift(
+		val gestureId: Long
+	) : ReaderPageGestureTerminalDetail
+
+	data object ControllerCancelled : ReaderPageGestureTerminalDetail
+
+	data class RenderFailed(
+		val generationId: Long,
+		val reason: RenderFailureReason
+	) : ReaderPageGestureTerminalDetail
+
+	data object RecoveryFailed : ReaderPageGestureTerminalDetail
+}
+
+internal sealed interface ReaderPageTurnStartResult {
+	data object Settling : ReaderPageTurnStartResult
+
+	data class TerminalPublished(
+		val outcome: ReaderPageGestureTerminalOutcome,
+		val detail: ReaderPageGestureTerminalDetail
+	) : ReaderPageTurnStartResult
+}
+
+internal sealed interface ReaderPageCurlDispatchResult {
+	data object Accepted : ReaderPageCurlDispatchResult
+	data object TerminalPublished : ReaderPageCurlDispatchResult
+}
+
+internal sealed interface ReaderPageTapDispatchResult {
+	data object Settling : ReaderPageTapDispatchResult
+	data object TerminalPublished : ReaderPageTapDispatchResult
+
+	data class CompleteInHost(
+		val outcome: ReaderPageGestureTerminalOutcome
+	) : ReaderPageTapDispatchResult
+}
+
 internal fun readerPlayLikeCurlPortraitSurfaceWidth(
 	hostWidth: Int,
 	hostHeight: Int,
@@ -74,10 +143,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val onGestureTerminal: (
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome,
-		detail: String
-	) -> Unit,
-	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {}
-) {
+		detail: ReaderPageGestureTerminalDetail
+	) -> Boolean,
+	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
+	private val onUnsafeLifecycleEvent: (ReaderPageHostLifecycleEvent) -> Unit = {}
+) : ReaderPageTapTurnPort {
 	private class PreparedPages(
 		val profile: ReaderPlayLikeCurlRasterProfile,
 		val deck: ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>,
@@ -127,6 +197,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val rasterRepairRequests = mutableSetOf<Pair<ReaderPlayLikeCurlRasterProfile, Int>>()
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
+	private var tapTurnGestureId: Long? = null
+	private var tapTurnTerminalSink: ((
+		ReaderPageGestureTerminalOutcome,
+		ReaderPageGestureTerminalDetail
+	) -> Boolean)? = null
+	private var synchronousTurnGestureId: Long? = null
+	private var synchronousTurnTerminal: ReaderPageTurnStartResult.TerminalPublished? = null
 	private var activeDeckGenerationId: Long? = null
 	private var pendingDeckGenerationId: Long? = null
 	private var pendingDeckOrdinal: Int? = null
@@ -194,21 +271,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 					else ->
 						ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
 				}
-				finishGesture(
-					gestureId,
-					outcome,
-					"renderer-rejected generation=$generationId reason=$reason"
-				)
-				if (reason == GestureRejectionReason.BOUNDARY) {
-					hideSurface()
+				if (!finishGesture(
+						gestureId,
+						outcome,
+						ReaderPageGestureTerminalDetail.RendererRejected(
+							generationId,
+							reason
+						)
+					)
+				) {
+					return
 				}
+				hideSurface()
 			}
 
 			override fun onGestureCancelled(gestureId: Long, generationId: Long) {
 				finishGesture(
 					gestureId,
 					ReaderPageGestureTerminalOutcome.CancelledByUser,
-					"renderer-cancelled generation=$generationId"
+					ReaderPageGestureTerminalDetail.RendererCancelled(generationId)
 				)
 			}
 
@@ -257,6 +338,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 				currentPageOrdinal: Int,
 				pageChange: PageChange
 			) {
+				val outcome = when (pageChange) {
+					PageChange.NEXT -> ReaderPageGestureTerminalOutcome.CommittedForward
+					PageChange.PREVIOUS -> ReaderPageGestureTerminalOutcome.CommittedBackward
+					PageChange.NONE -> ReaderPageGestureTerminalOutcome.CancelledByUser
+				}
+				if (!finishGesture(
+						gestureId,
+						outcome,
+						ReaderPageGestureTerminalDetail.SettlementCompleted(
+							pageChange,
+							currentPageOrdinal
+						)
+					)
+				) {
+					return
+				}
 				if (pageChange == PageChange.NONE) {
 					discardPendingDeck("settlement-none")
 					Logger.i(
@@ -270,11 +367,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 						interaction = preparedInteractionState(),
 						reason = "settlement-completed-none:$gestureId"
 					)
-					finishGesture(
-						gestureId,
-						ReaderPageGestureTerminalOutcome.CancelledByUser,
-						"settlement-completed change=NONE ordinal=$currentPageOrdinal"
-					)
 					return
 				}
 				Logger.i(
@@ -285,15 +377,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				currentOrdinal = currentPageOrdinal
 				pendingExactOrdinal = currentPageOrdinal
 				promotePendingDeck(currentPageOrdinal)
-				finishGesture(
-					gestureId,
-					if (pageChange == PageChange.NEXT) {
-						ReaderPageGestureTerminalOutcome.CommittedForward
-					} else {
-						ReaderPageGestureTerminalOutcome.CommittedBackward
-					},
-					"settlement-completed change=$pageChange ordinal=$currentPageOrdinal"
-				)
 				dispatchExactVisualPage(currentPageOrdinal)
 			}
 
@@ -302,16 +385,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 				generationId: Long,
 				currentLogicalPageId: String
 			) {
+				if (!finishGesture(
+						gestureId,
+						ReaderPageGestureTerminalOutcome.CancelledByUser,
+						ReaderPageGestureTerminalDetail.SettlementCancelled(generationId)
+					)
+				) {
+					return
+				}
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement cancelled generation=$generationId"
 				)
 				discardPendingDeck("settlement-cancelled")
-				finishGesture(
-					gestureId,
-					ReaderPageGestureTerminalOutcome.CancelledByUser,
-					"settlement-cancelled generation=$generationId"
-				)
 				if (
 					readinessState.textureDeck != ReaderTextureDeckState.Failed &&
 					readinessState.interaction != ReaderPageInteractionState.Failed
@@ -333,17 +419,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 				finishActiveGesture(
 					ReaderPageGestureTerminalOutcome.FailedRenderer,
-					"render-failure generation=${failure.generationId} reason=${failure.reason}"
-				)
-				if (!failure.isRecoverable()) {
-					cancelRendererWork(
-						if (failure.reason == RenderFailureReason.CONTEXT) {
-							ReaderPageLifecycleCancellationReason.UnsafeContextLoss
-						} else {
-							ReaderPageLifecycleCancellationReason.GlFailure
-						}
+					ReaderPageGestureTerminalDetail.RenderFailed(
+						failure.generationId,
+						failure.reason
 					)
-				}
+				)
+				onUnsafeLifecycleEvent(
+					if (
+						failure.reason == RenderFailureReason.CONTEXT &&
+						!failure.isRecoverable
+					) {
+						ReaderPageHostLifecycleEvent.UnsafeContextLost
+					} else {
+						ReaderPageHostLifecycleEvent.GlFailed
+					}
+				)
 				hideSurface()
 				Logger.e(
 					ReaderPlayLikeCurlFoliateControllerTag,
@@ -357,6 +447,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		get() = enabled && attached &&
 			pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 
+	private val canContinueAcceptedPointer: Boolean
+		get() = enabled && attached && pageOperationPolicy.continueActivePointer
+
 	fun setPageOperationPolicy(policy: ReaderPageOperationPolicy) {
 		pageOperationPolicy = policy
 	}
@@ -365,11 +458,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		(pageOperationPolicy.newPointer as? ReaderPageNewPointerDecision.Reject)?.outcome
 			?: ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
 
-	fun setEnabled(
-		value: Boolean,
-		cancellationReason: ReaderPageLifecycleCancellationReason =
-			ReaderPageLifecycleCancellationReason.CanvasDisabled
-	) {
+	fun setEnabled(value: Boolean) {
 		if (enabled == value) return
 		enabled = value
 		logActivationState("enabled", "value=$value")
@@ -377,7 +466,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			onRequestPrewarm()
 			refreshPreparedDeck()
 		} else {
-			invalidate("disabled", cancellationReason = cancellationReason)
+			invalidate("disabled")
 		}
 	}
 
@@ -387,8 +476,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		bitmapQuality = normalized
 		invalidate(
 			reason = "bitmap-quality-${normalized.persistedValue}",
-			profileRegeneration = true,
-			cancellationReason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+			profileRegeneration = true
 		)
 		if (enabled) onRequestPrewarm()
 	}
@@ -398,8 +486,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		snapshotKey = value
 		invalidate(
 			reason = "snapshot-key",
-			profileRegeneration = true,
-			cancellationReason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+			profileRegeneration = true
 		)
 		if (enabled) onRequestPrewarm()
 	}
@@ -472,8 +559,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (!enabled || destroyed) return
 		invalidate(
 			reason = "size-changed",
-			profileRegeneration = true,
-			cancellationReason = ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+			profileRegeneration = true
 		)
 		onRequestPrewarm()
 	}
@@ -486,49 +572,109 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun onHostWindowHidden() {
 		hideSurface()
-		cancelActiveGesture(ReaderPageLifecycleCancellationReason.CanvasDisabled)
 	}
 
-	fun onPageTouchEvent(event: MotionEvent, gestureId: Long): Boolean {
+	fun onPageTouchEvent(
+		event: MotionEvent,
+		gestureId: Long
+	): ReaderPageCurlDispatchResult {
 		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 			activeGestureId = gestureId
+			if (!canContinueAcceptedPointer) {
+				finishGesture(
+					gestureId,
+					unavailableGestureOutcome(),
+					ReaderPageGestureTerminalDetail.TouchRejected(event.actionMasked)
+				)
+				hideSurface()
+				return ReaderPageCurlDispatchResult.TerminalPublished
+			}
+		}
+		surfaceView.onPageTouchEvent(event, gestureId)
+		return if (
+			event.actionMasked == MotionEvent.ACTION_DOWN &&
+			activeGestureId != gestureId
+		) {
+			ReaderPageCurlDispatchResult.TerminalPublished
+		} else {
+			ReaderPageCurlDispatchResult.Accepted
+		}
+	}
+
+	override fun start(
+		gestureId: Long,
+		pageChange: PageChange,
+		onTerminal: (
+			ReaderPageGestureTerminalOutcome,
+			ReaderPageGestureTerminalDetail
+		) -> Boolean
+	): ReaderPageTurnStartResult {
+		check(tapTurnGestureId == null && tapTurnTerminalSink == null) {
+			"A tap turn terminal sink is already installed"
+		}
+		tapTurnGestureId = gestureId
+		tapTurnTerminalSink = onTerminal
+		return try {
+			startTapTurn(pageChange, gestureId)
+		} catch (failure: Throwable) {
+			if (tapTurnGestureId == gestureId) {
+				tapTurnGestureId = null
+				tapTurnTerminalSink = null
+			}
+			throw failure
+		}
+	}
+
+	private fun startTapTurn(
+		pageChange: PageChange,
+		gestureId: Long
+	): ReaderPageTurnStartResult {
+		check(synchronousTurnGestureId == null) {
+			"A tap turn is already starting"
+		}
+		activeGestureId = gestureId
+		synchronousTurnGestureId = gestureId
+		synchronousTurnTerminal = null
+
+		return try {
 			if (!isAvailable) {
 				finishGesture(
 					gestureId,
 					unavailableGestureOutcome(),
-					"touch-rejected action=${event.actionMasked} controller-unavailable"
+					ReaderPageGestureTerminalDetail.TapTurnUnavailable(pageChange)
 				)
-				return false
+				checkNotNull(synchronousTurnTerminal)
+			} else {
+				surfaceView.alpha = 1f
+				val accepted = surfaceView.turn(pageChange, gestureId)
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl tap turn change=$pageChange accepted=$accepted"
+				)
+				if (accepted) {
+					ReaderPageTurnStartResult.Settling
+				} else {
+					hideSurface()
+					synchronousTurnTerminal ?: run {
+						finishGesture(
+							gestureId,
+							ReaderPageGestureTerminalOutcome.FailedRenderer,
+							ReaderPageGestureTerminalDetail.TapTurnProtocolFailure(
+								pageChange
+							)
+						)
+						checkNotNull(synchronousTurnTerminal)
+					}
+				}
 			}
+		} finally {
+			synchronousTurnGestureId = null
+			synchronousTurnTerminal = null
 		}
-		return surfaceView.onPageTouchEvent(event, gestureId)
-	}
-
-	fun turn(pageChange: PageChange, gestureId: Long): Boolean {
-		activeGestureId = gestureId
-		if (!isAvailable) {
-			Logger.i(
-				ReaderPlayLikeCurlFoliateControllerTag,
-				"PlayLikeCurl tap turn change=$pageChange accepted=false reason=not-available"
-			)
-			finishGesture(
-				gestureId,
-				unavailableGestureOutcome(),
-				"tap-turn-rejected change=$pageChange controller-unavailable"
-			)
-			return false
-		}
-		surfaceView.alpha = 1f
-		val accepted = surfaceView.turn(pageChange, gestureId)
-		Logger.i(
-			ReaderPlayLikeCurlFoliateControllerTag,
-			"PlayLikeCurl tap turn change=$pageChange accepted=$accepted"
-		)
-		return accepted
 	}
 
 	fun showSurfaceForGesture() {
-		if (!isAvailable) return
+		if (!canContinueAcceptedPointer) return
 		surfaceView.alpha = 1f
 	}
 
@@ -539,7 +685,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			finishGesture(
 				gestureId,
 				ReaderPageGestureTerminalOutcome.CancelledByUser,
-				"controller-cancel"
+				ReaderPageGestureTerminalDetail.ControllerCancelled
 			)
 		}
 		hideSurface()
@@ -587,19 +733,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		if (currentOrdinal == normalized && pendingExactOrdinal == null) return
 		currentOrdinal = normalized
-		invalidate(
-			"external-page-relocation",
-			cancellationReason = ReaderPageLifecycleCancellationReason.RendererReplaced
-		)
+		invalidate("external-page-relocation")
 		if (enabled) onRequestPrewarm()
 	}
 
 	fun invalidate(
 		reason: String,
-		profileRegeneration: Boolean = false,
-		cancellationReason: ReaderPageLifecycleCancellationReason? = null
+		profileRegeneration: Boolean = false
 	) {
-		cancellationReason?.let(::cancelActiveGesture)
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		decodedRefillCenterOrdinal = null
@@ -631,11 +772,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		Logger.i(ReaderPlayLikeCurlFoliateControllerTag, "PlayLikeCurl invalidated reason=$reason")
 	}
 
-	fun destroy(cancellationReason: ReaderPageLifecycleCancellationReason) {
+	fun destroy() {
 		if (destroyed) return
 		destroyed = true
 		enabled = false
-		invalidate("destroyed", cancellationReason = cancellationReason)
+		invalidate("destroyed")
 		if (attached) {
 			attached = false
 			surfaceView.detach()
@@ -1249,15 +1390,36 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun finishGesture(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome,
-		detail: String
-	) {
+		detail: ReaderPageGestureTerminalDetail
+	): Boolean {
 		if (activeGestureId == gestureId) activeGestureId = null
-		onGestureTerminal(gestureId, outcome, detail)
+		val tapSink = if (tapTurnGestureId == gestureId) {
+			tapTurnGestureId = null
+			tapTurnTerminalSink.also { tapTurnTerminalSink = null }
+		} else {
+			null
+		}
+		val published = if (tapSink == null) {
+			onGestureTerminal(gestureId, outcome, detail)
+		} else {
+			tapSink(outcome, detail)
+		}
+		if (synchronousTurnGestureId == gestureId) {
+			check(published) { "Synchronous renderer terminal lost the host CAS" }
+			check(synchronousTurnTerminal == null) {
+				"Tap turn published more than one synchronous terminal"
+			}
+			synchronousTurnTerminal = ReaderPageTurnStartResult.TerminalPublished(
+				outcome = outcome,
+				detail = detail
+			)
+		}
+		return published
 	}
 
 	private fun finishActiveGesture(
 		outcome: ReaderPageGestureTerminalOutcome,
-		detail: String
+		detail: ReaderPageGestureTerminalDetail
 	) {
 		activeGestureId?.let { gestureId -> finishGesture(gestureId, outcome, detail) }
 	}

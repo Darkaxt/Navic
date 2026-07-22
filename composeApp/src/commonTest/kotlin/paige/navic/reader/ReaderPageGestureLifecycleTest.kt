@@ -39,6 +39,15 @@ class ReaderPageGestureLifecycleTest {
 	}
 
 	@Test
+	fun taskFourTerminalOutcomesAreTyped() {
+		val outcomes = ReaderPageGestureTerminalOutcome.values().toSet()
+
+		assertTrue(ReaderPageGestureTerminalOutcome.CompletedTapAction in outcomes)
+		assertTrue(ReaderPageGestureTerminalOutcome.CancelledLifecycle in outcomes)
+		assertTrue(ReaderPageGestureTerminalOutcome.FailedRecovery in outcomes)
+	}
+
+	@Test
 	fun unknownGestureCannotReceiveTerminalOutcome() {
 		val lifecycle = ReaderPageGestureLifecycle()
 

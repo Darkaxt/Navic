@@ -1094,7 +1094,7 @@ class ReaderRuntimeImageLinkTest {
 			.substringBefore("\n}")
 		val viewerContainerBody = nativeFrameHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("internal class KomikkuGestureDetectorWithLongTap")
 
 		assertContains(
 			bridgeText,
@@ -1118,8 +1118,13 @@ class ReaderRuntimeImageLinkTest {
 		)
 		assertContains(
 			viewerContainerBody,
-			"dispatchSingleTapAction(action)",
-			message = "The native frame must route confirmed tap actions through one Android-owned dispatcher."
+			"dispatchLegacySingleTapAction(action)",
+			message = "The native frame must retain the Android-owned legacy confirmed-tap dispatcher."
+		)
+		assertContains(
+			viewerContainerBody,
+			"dispatchPlayLikeCurlSingleTapAction(",
+			message = "The imported reader path must retain its ID-bearing confirmed-tap dispatcher."
 		)
 		assertFalse(
 			viewerContainerBody.contains("dispatchMenuActionAfterContentHitTest") ||
@@ -1140,7 +1145,17 @@ class ReaderRuntimeImageLinkTest {
 		val nativeFrameHostText = readerNativeFrameHostFile().readText()
 		val viewerContainerBody = nativeFrameHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("internal class KomikkuGestureDetectorWithLongTap")
+		val typedTap = viewerContainerBody
+			.substringAfter("private fun onPlayLikeCurlSingleTapConfirmed(")
+			.substringBefore("private fun dispatchLegacySingleTapAction(")
+
+		assertContains(typedTap, "dispatchPlayLikeCurlSingleTapAction(")
+		assertContains(typedTap, "action = action")
+		assertContains(typedTap, "gestureId = tap.gestureId")
+		assertContains(typedTap, "tap.x")
+		assertContains(typedTap, "tap.y")
+		assertFalse(typedTap.contains("readerContentActionAtPoint"))
 
 		assertFalse(
 			webViewHostText.contains("private fun queryReaderContentActionAtPoint(") ||

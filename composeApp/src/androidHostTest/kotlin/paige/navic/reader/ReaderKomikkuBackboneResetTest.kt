@@ -524,10 +524,20 @@ class ReaderKomikkuBackboneResetTest {
 			"Android must provide a native FrameLayout reader root, not only the common Compose fallback."
 		)
 		val androidText = androidHost.readText()
-		val childDispatchedTouchBranch = androidText
-			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate fun handleSwipeTouchEvent")
-			.substringAfter("val handled = super.dispatchTouchEvent(event)")
+		val outerDispatch = androidText
+			.substringAfter(
+				"override fun dispatchTouchEvent(event: MotionEvent): Boolean {"
+			)
+			.substringBefore(
+				"private fun dispatchLegacyReaderPointerEvent("
+			)
+		val legacyDispatch = androidText
+			.substringAfter(
+				"private fun dispatchLegacyReaderPointerEvent("
+			)
+			.substringBefore(
+				"private fun dispatchPlayLikeCurlPointerEvent("
+			)
 
 		assertTrue(readerRootText.contains("KomikkuReaderNativeFrameHost("))
 		assertTrue(platformText.contains("expect fun KomikkuReaderNativeFrameHost("))
@@ -560,11 +570,19 @@ class ReaderKomikkuBackboneResetTest {
 				androidText.contains("composeOverlay.bringToFront()"),
 			"The Android frame host must own the visible chrome overlay as the top native child above the WebView and shell cover."
 		)
-		assertTrue(androidText.contains("super.dispatchTouchEvent(event)"))
-		assertTrue(androidText.contains("gestureDetector.onTouchEvent(event)"))
+		assertTrue(androidText.contains("private val legacyGestureDetector"))
+		assertTrue(androidText.contains("private val playLikeCurlGestureDetector"))
 		assertTrue(
-			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
-				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)")
+			outerDispatch.contains(
+				"ReaderPagePhysicalDispatchMode.Legacy ->"
+			) && outerDispatch.contains(
+				"ReaderPagePhysicalDispatchMode.PlayLikeCurl ->"
+			)
+		)
+		assertTrue(legacyDispatch.contains("val handled = super.dispatchTouchEvent(event)"))
+		assertTrue(
+			legacyDispatch.indexOf("handleSwipeTouchEvent(event)") <
+				legacyDispatch.indexOf("legacyGestureDetector.onTouchEvent(event)")
 		)
 		assertFalse(
 			activeText.contains("Box(\n\t\tmodifier = Modifier\n\t\t\t.fillMaxSize()\n\t\t\t.background(Color(0xFF202329))") ||
@@ -623,10 +641,14 @@ class ReaderKomikkuBackboneResetTest {
 		val viewerContainerBody = androidText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
 			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
-		val dispatchTouchEvent = viewerContainerBody
-			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\tprivate val gestureDetector")
-		val childDispatchedTouchBranch = dispatchTouchEvent
+		val legacyDispatch = viewerContainerBody
+			.substringAfter(
+				"private fun dispatchLegacyReaderPointerEvent("
+			)
+			.substringBefore(
+				"private fun dispatchPlayLikeCurlPointerEvent("
+			)
+		val childDispatchedTouchBranch = legacyDispatch
 			.substringAfter("val handled = super.dispatchTouchEvent(event)")
 
 		assertTrue(
@@ -650,8 +672,10 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			childDispatchedTouchBranch.indexOf("handleSwipeTouchEvent(event)") <
-				childDispatchedTouchBranch.indexOf("gestureDetector.onTouchEvent(event)"),
-			"Swipe handling should cancel tap detection before the single-tap gesture detector can open chrome."
+				childDispatchedTouchBranch.indexOf(
+					"legacyGestureDetector.onTouchEvent(event)"
+				),
+			"Swipe handling should cancel tap detection before the legacy single-tap detector can open chrome."
 		)
 		assertFalse(
 			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
@@ -661,59 +685,39 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun nativeKomikkuFrameOwnsReadableDragPreviewWhileNativeFrameOwnsTaps() {
-		val androidHost = root.resolve(
-			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
-		)
-		val androidText = androidHost.readText()
-		val viewerContainerBody = androidText
-			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
-		val interceptTouchEvent = viewerContainerBody
-			.substringAfter("override fun onInterceptTouchEvent(event: MotionEvent): Boolean {")
-			.substringBefore("\n\t\telse -> return false")
-		val handleTouch = viewerContainerBody
-			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent) {")
-			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
-		val swipeAction = viewerContainerBody
-			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(deltaX: Float, deltaY: Float): Boolean {")
-			.substringBefore("\n\tprivate fun updateShellCoverDragOffset")
+	fun nativeKomikkuFrameSeparatesLegacyPreviewFromImportedCurl() {
+		val androidHostText = root.resolve(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"KomikkuReaderNativeFrameHost.android.kt"
+		).readText()
+		val legacy = androidHostText
+			.substringAfter(
+				"private fun dispatchLegacyReaderPointerEvent("
+			)
+			.substringBefore(
+				"private fun dispatchPlayLikeCurlPointerEvent("
+			)
+		val apply = androidHostText
+			.substringAfter("private fun applyPointerRoute(")
+			.substringBefore("private fun dispatchContentCancel(")
+		val content = apply
+			.substringAfter("ReaderPagePointerRoute.Content -> {")
+			.substringBefore(
+				"is ReaderPagePointerRoute.ContentTerminal -> {"
+			)
+		val claim = apply
+			.substringAfter("is ReaderPagePointerRoute.ClaimCurl -> {")
+			.substringBefore("is ReaderPagePointerRoute.Curl -> {")
 
-		assertFalse(
-			viewerContainerBody.contains("Reader native swipe action="),
-			"Readable drags must not be converted into immediate tap-like native page-turn actions; they need a drag preview before release."
-		)
-		assertTrue(
-			androidText.contains("Reader native drag preview"),
-			"Readable EPUB/PDF drag diagnostics should prove the native frame owns drag preview instead of blindly delegating to WebView."
-		)
-		assertTrue(
-			interceptTouchEvent.contains("nativeHorizontalSwipeMovedBeyondSlop(event.x, event.y)") &&
-				interceptTouchEvent.contains("nativeSwipeIntercepted = true") &&
-				interceptTouchEvent.contains("return true"),
-			"Horizontal drags should be intercepted by the native viewer container so readable content can follow the finger."
-		)
-		assertTrue(
-				handleTouch.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
-				handleTouch.contains("if (shellCoverVisible)") &&
-				handleTouch.contains("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)") &&
-				handleTouch.contains("ReaderPageDragPreviewPhase.Release") &&
-				handleTouch.contains("ReaderPageDragPreviewPhase.Cancel") &&
-				handleTouch.contains("dispatchHorizontalSwipeViewerAction("),
-			"Shell-cover and readable drags both stay under the native top manager; readable drags must drive renderer preview before release."
-		)
-		assertTrue(
-			swipeAction.contains("val shellCoverVisible = shellCoverView?.visibility == VISIBLE") &&
-				swipeAction.contains("if (shellCoverVisible)") &&
-				swipeAction.contains("readerShellCoverSwipeAction(") &&
-				swipeAction.contains("readableSwipeAction("),
-			"Cover and readable drags need separate native swipe contracts under the same top-level frame."
-		)
-		assertFalse(
-			viewerContainerBody.contains("ReaderBridgeCommand.NextPage") ||
-				viewerContainerBody.contains("ReaderBridgeCommand.PreviousPage"),
-			"Native swipes must still emit viewer actions only; engine command translation stays behind the controller/engine boundary."
-		)
+		assertTrue(legacy.contains("handleSwipeTouchEvent(event)"))
+		assertTrue(androidHostText.contains("updateReadableViewerDragOffset("))
+		assertTrue(content.contains("viewerContentContainer.dispatchTouchEvent(event)"))
+		assertFalse(content.contains("super.dispatchTouchEvent(event)"))
+		assertTrue(content.contains("MotionEvent.obtain(event)"))
+		assertFalse(content.contains("playLikeCurlController.onPageTouchEvent("))
+		assertTrue(claim.contains("dispatchContentCancel(event)"))
+		assertTrue(claim.contains("playLikeCurlController.onPageTouchEvent("))
+		assertFalse(claim.contains("updateReadableViewerDragOffset("))
 	}
 
 	@Test
@@ -742,7 +746,7 @@ class ReaderKomikkuBackboneResetTest {
 		val runtimeText = readerRuntimeImplementationText()
 		val viewerContainerBody = androidHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("internal class KomikkuGestureDetectorWithLongTap")
 
 		assertFalse(
 			viewerContainerBody.contains("viewerContentContainer.translationX = deltaX"),
@@ -798,31 +802,39 @@ class ReaderKomikkuBackboneResetTest {
 		val viewerContainerBody = androidHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
 			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+		val apply = viewerContainerBody
+			.substringAfter("private fun applyPointerRoute(")
+			.substringBefore("private fun dispatchContentCancel(")
+		val content = apply
+			.substringAfter("ReaderPagePointerRoute.Content -> {")
+			.substringBefore(
+				"is ReaderPagePointerRoute.ContentTerminal -> {"
+			)
+		val claim = apply
+			.substringAfter("is ReaderPagePointerRoute.ClaimCurl -> {")
+			.substringBefore("is ReaderPagePointerRoute.Curl -> {")
+		val typedDetector = viewerContainerBody
+			.substringAfter("private val playLikeCurlGestureDetector")
+			.substringBefore("private fun onLegacySingleTapConfirmed(")
 		val claimInteractiveTouch = bridgeText
 			.substringAfter("claimReaderInteractiveContentTouch(doc, event) {")
 			.substringBefore("\n  readerContentActionInDocumentAtPoint")
 
 		assertTrue(
-			androidHostText.contains("private class KomikkuGestureDetectorWithLongTap") &&
+			androidHostText.contains("internal class KomikkuGestureDetectorWithLongTap") &&
 				androidHostText.contains("override fun onLongTapConfirmed(event: MotionEvent)"),
 			"Native reader input must port Komikku's long-tap detector instead of using a plain GestureDetector-only tap fallback."
 		)
+		assertTrue(content.contains("viewerContentContainer.dispatchTouchEvent(event)"))
+		assertFalse(content.contains("super.dispatchTouchEvent(event)"))
+		assertTrue(content.contains("playLikeCurlGestureDetector.onTouchEvent(event)"))
+		assertTrue(claim.contains("dispatchContentCancel(event)"))
+		assertTrue(claim.contains("originalDown"))
+		assertTrue(typedDetector.contains("claimContentAction("))
+		assertTrue(typedDetector.contains("nativeTapLongConfirmed = true"))
 		assertTrue(
-			viewerContainerBody.contains("override fun onInterceptTouchEvent(event: MotionEvent): Boolean") &&
-				!viewerContainerBody.contains("nativeShortTapIntercepted"),
-			"Short taps must be classified by the native GestureDetector, not by an ACTION_UP intercept workaround."
-		)
-		assertTrue(
-			viewerContainerBody
-				.substringAfter("MotionEvent.ACTION_DOWN -> {")
-				.substringBefore("\n\t\t\tMotionEvent.ACTION_MOVE")
-				.contains("if (shellCoverView?.visibility != VISIBLE) return true"),
-			"Readable EPUB/PDF touch streams must be native-owned from ACTION_DOWN so Foliate cannot also turn pages."
-		)
-		assertTrue(
-			viewerContainerBody.contains("nativeTapLongConfirmed = true") &&
-				viewerContainerBody.contains("performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)"),
-			"Long press must switch the stream back to content behavior and give the same feedback Komikku gives for long tap."
+			typedDetector.indexOf("claimContentAction(") <
+				typedDetector.indexOf("onContentLongPress(")
 		)
 		assertTrue(
 			platformHostText.contains("onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit") &&
@@ -835,10 +847,6 @@ class ReaderKomikkuBackboneResetTest {
 		assertTrue(
 			claimInteractiveTouch.contains("if (this.nativeTapZones === true) return false"),
 			"When native tap zones are active, JS must not claim touchstart/pointerdown for links or images; those claims suppress reader-owned short taps."
-		)
-		assertFalse(
-			viewerContainerBody.contains("val handled = super.dispatchTouchEvent(event)\n\t\thandleSwipeTouchEvent(event)\n\t\tgestureDetector.onTouchEvent(event)\n\t\treturn handled"),
-			"The active native frame must not remain a child-first WebView tap fallback that lets content clicks race reader region taps."
 		)
 	}
 
@@ -1978,10 +1986,10 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 		val viewerContainerBody = androidHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("internal class KomikkuGestureDetectorWithLongTap")
 		val singleTap = viewerContainerBody
-			.substringAfter("override fun onSingleTapConfirmed(event: MotionEvent): Boolean {")
-			.substringBefore("\n\t\t\t}")
+			.substringAfter("private fun onLegacySingleTapConfirmed(")
+			.substringBefore("private fun onPlayLikeCurlSingleTapConfirmed(")
 
 		assertTrue(
 			viewerContainerBody.contains("shellCoverNavigator") &&
@@ -1989,9 +1997,10 @@ class ReaderKomikkuBackboneResetTest {
 			"Shell cover taps should use Komikku's simple side-zone shape instead of the active EPUB reading tap-zone preset."
 		)
 		assertTrue(
-			singleTap.contains("if (shellCoverView?.visibility == VISIBLE)") &&
+			singleTap.contains("if (shellCoverVisible)") &&
 				singleTap.contains("shellCoverNavigator.getAction(point)") &&
-				singleTap.contains("navigator.getAction(point)"),
+				singleTap.contains("navigator.getAction(point)") &&
+				singleTap.contains("dispatchLegacySingleTapAction(action)"),
 			"Native tap classification must switch navigator by shell-cover visibility before emitting a viewer action."
 		)
 		assertTrue(
@@ -2008,40 +2017,33 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe() {
+	fun nativeDragMotionCancelsOnlyTheFrozenStreamDetector() {
 		val androidHostText = root.resolve(
-			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
-		val viewerContainerBody = androidHostText
-			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
-		val moveBranch = viewerContainerBody
-			.substringAfter("MotionEvent.ACTION_MOVE,")
-			.substringBefore("if (event.actionMasked == MotionEvent.ACTION_UP)")
-		val gestureDetectorBody = androidHostText
-			.substringAfter("private class KomikkuGestureDetectorWithLongTap")
-			.substringBefore("private class KomikkuReaderNativeNavigationOverlayView")
+		val legacyCancel = androidHostText
+			.substringAfter("private fun cancelPendingLongTapForDrag(")
+			.substringBefore("private fun nativeTapMovedBeyondSlop(")
+		val contentCancel = androidHostText
+			.substringAfter("private fun dispatchContentCancel(")
+			.substringBefore("private fun recycleRetainedContentDown(")
+		val detectorBody = androidHostText
+			.substringAfter("internal class KomikkuGestureDetectorWithLongTap")
+			.substringBefore(
+				"private class KomikkuReaderNativeNavigationOverlayView"
+			)
 
+		assertTrue(legacyCancel.contains("legacyGestureDetector.cancelForDrag(event)"))
+		assertFalse(legacyCancel.contains("playLikeCurlGestureDetector"))
 		assertTrue(
-			gestureDetectorBody.contains("fun cancelPendingLongTap()"),
-			"The native top manager needs an explicit long-tap cancellation hook for drag motion observed outside child ownership."
+			contentCancel.contains(
+				"playLikeCurlGestureDetector.cancelForDrag(cancel)"
+			)
 		)
-		assertTrue(
-			moveBranch.contains("cancelPendingLongTapForDrag(dx, dy, event)") &&
-				viewerContainerBody.contains("private fun cancelPendingLongTapForDrag(deltaX: Float, deltaY: Float, event: MotionEvent)") &&
-				viewerContainerBody.contains("gestureDetector.cancelForDrag(event)"),
-			"Any drag crossing touch slop must cancel the complete native tap gesture before cover swipe dispatch or readable drag delegation."
-		)
-		assertTrue(
-			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy, event)") <
-				moveBranch.indexOf("dispatchHorizontalSwipeViewerAction("),
-			"A cover swipe must not dispatch while the old long-tap callback is still armed."
-		)
-		assertTrue(
-			moveBranch.indexOf("cancelPendingLongTapForDrag(dx, dy, event)") <
-				moveBranch.indexOf("updateReadableViewerDragOffset(dx, dy, ReaderPageDragPreviewPhase.Update)"),
-			"A readable EPUB/PDF drag must cancel native long-tap detection before the renderer preview keeps the drag stream."
-		)
+		assertFalse(contentCancel.contains("legacyGestureDetector"))
+		assertTrue(detectorBody.contains("fun cancelForDrag(event: MotionEvent)"))
+		assertTrue(detectorBody.contains("MotionEvent.ACTION_CANCEL"))
 	}
 
 	@Test
@@ -2051,7 +2053,7 @@ class ReaderKomikkuBackboneResetTest {
 		).readText()
 		val viewerContainerBody = androidHostText
 			.substringAfter("private class KomikkuReaderNativeViewerContainer")
-			.substringBefore("private class KomikkuGestureDetectorWithLongTap")
+			.substringBefore("internal class KomikkuGestureDetectorWithLongTap")
 		val swipeHandlerBody = viewerContainerBody
 			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent)")
 			.substringBefore("\n\tprivate fun dispatchHorizontalSwipeViewerAction")
