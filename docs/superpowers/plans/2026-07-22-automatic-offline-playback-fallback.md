@@ -1302,7 +1302,7 @@ Run focused tests, full Android host tests, lint comparison, and debug assembly
 again. Inspect the APK with `apkanalyzer manifest version-name` and
 `version-code`; both must match the derived values.
 
-- [ ] **Step 4: Commit the release candidate**
+- [x] **Step 4: Commit the release candidate**
 
 ```powershell
 git commit -m "release: prepare automatic offline playback fallback"
@@ -1313,7 +1313,7 @@ git commit -m "release: prepare automatic offline playback fallback"
 **Files:**
 - Update: this plan with final public evidence
 
-- [ ] **Step 1: Prove release ancestry and clean scope**
+- [x] **Step 1: Prove release ancestry and clean scope**
 
 Fetch `fork/master` again immediately before publication. Prove the candidate
 contains current public master and required historical playback commit
@@ -1327,7 +1327,7 @@ git status --short
 
 Expected: both ancestry commands return 0 and status is clean.
 
-- [ ] **Step 2: Push the candidate and annotated tag**
+- [x] **Step 2: Push the candidate and annotated tag**
 
 Fast-forward public master, create the derived annotated `iota##` tag, and push
 it. No iOS release work is performed.
@@ -1340,7 +1340,7 @@ git tag -a $releaseTag -m "Automatic offline playback fallback"
 git push --atomic fork HEAD:master "refs/tags/$releaseTag"
 ```
 
-- [ ] **Step 3: Start the guarded public release workflow**
+- [x] **Step 3: Start the guarded public release workflow**
 
 Use:
 
@@ -1354,7 +1354,7 @@ Use:
 Follow the workflow through GitHub CLI heartbeats until it completes. Do not use
 a cancellation timeout. Confirm all iOS jobs are skipped.
 
-- [ ] **Step 4: Verify the public artifact independently**
+- [x] **Step 4: Verify the public artifact independently**
 
 Download public `Navic.apk` and verify:
 
@@ -1364,7 +1364,7 @@ Download public `Navic.apk` and verify:
 - `apksigner verify --print-certs` reports the expected production signer; and
 - the public tag points to the released commit.
 
-- [ ] **Step 5: Install the public APK in place and capture readiness**
+- [x] **Step 5: Install the public APK in place and capture readiness**
 
 On an attached production Android target, record the installed version and
 queue state, install with `adb install -r`, launch Navic, and verify version,
@@ -1372,12 +1372,35 @@ PID, MediaSession queue size/current index, and no startup crash. Do not repeat
 the destructive network exercise unless the target owner has agreed to it for
 the production package.
 
-- [ ] **Step 6: Record release evidence**
+- [x] **Step 6: Record release evidence**
 
 Add workflow run ID, release URL, tag/commit, artifact digest, signer digest,
 embedded metadata, device serial, installed package version, PID, and queue
 preservation evidence to this plan. Commit and push the evidence commit only if
 the repository convention keeps post-release evidence on master.
+
+### Execution Status: Public Release
+
+- Public master and annotated tag `v1.0.11-iota27` were atomically advanced to
+  release commit `c767919cfbbb481c401719ffa2d357b79f274a64`. Both current
+  public master and required playback commit `9c619f10` were proven ancestors
+  before publication.
+- GitHub Actions run `29966040851` completed successfully. `Build Android APK`
+  and `Create GitHub Release` succeeded; the iOS, iOS attachment, and Discord
+  jobs were skipped.
+- Release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota27`.
+  The sole asset is `Navic.apk`, 46,436,884 bytes, GitHub and downloaded
+  SHA-256
+  `9f98f599ec52672ffdf90f6e39818c10a92398db707610d4fbf981fff7fe878c`.
+- Independent APK inspection reports package `darkaxt.navic`, version
+  `v1.0.11-iota27`/554, APK Signature Scheme v2, and established production
+  certificate SHA-256
+  `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`.
+- On ADB target `emulator-5554`, the signed public APK upgraded production
+  Navic in place from iota25/552 to iota27/554, launched as PID 18519, and
+  produced zero targeted fatal startup lines. There was no active Navic media
+  session before the upgrade and the target has no authenticated profile or
+  queue, so no queue contents existed to compare.
 
 ## Task 10: Field Acceptance and Workspace Cleanup
 
@@ -1397,7 +1420,7 @@ If behavior matches the acceptance matrix, mark field acceptance complete. If
 it does not, retain the branch/worktree until the deterministic cause is fixed
 and a follow-up release is verified.
 
-- [ ] **Step 3: Remove only this completed worktree and branch**
+- [x] **Step 3: Remove only this completed worktree and branch**
 
 After the feature tip is contained in public master and the worktree is clean:
 
@@ -1419,16 +1442,16 @@ playlist, or Claude worktrees.
 
 ## Self-Review Checklist
 
-- [ ] Every requirement in the design specification maps to a task and test.
-- [ ] `offlineMode` changes emit without restart.
-- [ ] Automatic state is never persisted.
-- [ ] Raw network remains available to health probing.
-- [ ] Only classified service failures enter automatic Offline Mode.
-- [ ] Download intents wait/requeue without fixed-delay retries.
-- [ ] Cached fallback uses usable files and Media3 upcoming order.
-- [ ] No connectivity path mutates queue contents or order.
-- [ ] User pause wins over restoration.
-- [ ] Exact notification copy appears once and clears silently.
-- [ ] Android-only build, ADB, release, and artifact gates are explicit.
-- [ ] Release version stays in the current `iota##` family and increments once.
-- [ ] Cleanup is limited to this worktree after public ancestry is proven.
+- [x] Every requirement in the design specification maps to a task and test.
+- [x] `offlineMode` changes emit without restart.
+- [x] Automatic state is never persisted.
+- [x] Raw network remains available to health probing.
+- [x] Only classified service failures enter automatic Offline Mode.
+- [x] Download intents wait/requeue without fixed-delay retries.
+- [x] Cached fallback uses usable files and Media3 upcoming order.
+- [x] No connectivity path mutates queue contents or order.
+- [x] User pause wins over restoration.
+- [x] Exact notification copy appears once and clears silently.
+- [x] Android-only build, ADB, release, and artifact gates are explicit.
+- [x] Release version stays in the current `iota##` family and increments once.
+- [x] Cleanup is limited to this worktree after public ancestry is proven.
