@@ -1026,6 +1026,7 @@
 	<string name="notice_created_radio">Created radio %1$s.</string>
 	<string name="notice_added_to_queue">Added to queue.</string>
 	<string name="notice_play_next">Playing next.</string>
+	<string name="notice_connection_lost_offline">Connection lost - Switching to Offline mode</string>
 	<string name="notice_added_to_playlist">Added to %1$s.</string>
 	<string name="notice_added_to_multiple_playlists">Added to multiple playlists.</string>
 	<string name="notice_download_started">Download started.</string>

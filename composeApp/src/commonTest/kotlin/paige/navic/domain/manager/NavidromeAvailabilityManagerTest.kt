@@ -31,6 +31,22 @@ class NavidromeAvailabilityManagerTest {
 			assertEquals(OfflineMode.Auto, offline.selectedMode)
 			assertEquals(OfflineMode.Forced, offline.effectiveMode)
 			assertEquals(OfflineMode.Auto, fixture.preferences.offlineMode)
+			assertTrue(fixture.manager.claimConnectionLostNotice())
+			assertFalse(fixture.manager.claimConnectionLostNotice())
+		} finally {
+			fixture.scope.cancel()
+		}
+	}
+
+	@Test
+	fun duplicateReportsDoNotCreateDuplicateConnectionLostNotices() {
+		val fixture = availabilityFixture()
+		try {
+			fixture.manager.reportUnavailable(NavidromeOutageTrigger.Playback)
+			fixture.manager.reportUnavailable(NavidromeOutageTrigger.Download)
+
+			assertTrue(fixture.manager.claimConnectionLostNotice())
+			assertFalse(fixture.manager.claimConnectionLostNotice())
 		} finally {
 			fixture.scope.cancel()
 		}

@@ -73,6 +73,7 @@ class NavidromeAvailabilityManager internal constructor(
 
 	private val mutableEvents = MutableSharedFlow<NavidromeAvailabilityEvent>(extraBufferCapacity = 16)
 	val events: SharedFlow<NavidromeAvailabilityEvent> = mutableEvents.asSharedFlow()
+	private val connectionLostNoticePending = MutableStateFlow(false)
 
 	private val probeWakeups = Channel<Unit>(capacity = Channel.CONFLATED)
 
@@ -114,10 +115,12 @@ class NavidromeAvailabilityManager internal constructor(
 					error = error
 				)
 			)
+			Logger.i("NavidromeAvailability", "navidrome-outage-duplicate trigger=$trigger")
 			return false
 		}
 
 		offlineModeCoordinator.enterAutomatic(AutomaticOfflineReason.NavidromeUnavailable)
+		connectionLostNoticePending.value = true
 		mutableEvents.tryEmit(
 			NavidromeAvailabilityEvent(
 				type = NavidromeAvailabilityEventType.EnteredOffline,
@@ -125,10 +128,17 @@ class NavidromeAvailabilityManager internal constructor(
 				error = error
 			)
 		)
-		Logger.w("NavidromeAvailability", "Navidrome unavailable; switching to automatic offline mode", error)
+		Logger.w(
+			"NavidromeAvailability",
+			"navidrome-outage-entered trigger=$trigger; switching to automatic offline mode",
+			error
+		)
 		requestProbe()
 		return true
 	}
+
+	fun claimConnectionLostNotice(): Boolean =
+		connectionLostNoticePending.compareAndSet(expect = true, update = false)
 
 	fun requestProbe() {
 		if (state.value is NavidromeAvailability.Unavailable) probeWakeups.trySend(Unit)
@@ -150,7 +160,11 @@ class NavidromeAvailabilityManager internal constructor(
 					error = error
 				)
 			)
-			Logger.i("NavidromeAvailability", "Authenticated availability probe failed")
+			Logger.w(
+				"NavidromeAvailability",
+				"navidrome-probe-failed trigger=${unavailable.trigger}",
+				error
+			)
 			return
 		}
 
@@ -162,6 +176,9 @@ class NavidromeAvailabilityManager internal constructor(
 				trigger = unavailable.trigger
 			)
 		)
-		Logger.i("NavidromeAvailability", "Authenticated availability probe succeeded; restored selected mode")
+		Logger.i(
+			"NavidromeAvailability",
+			"navidrome-service-restored trigger=${unavailable.trigger}; restored selected mode"
+		)
 	}
 }

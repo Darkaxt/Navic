@@ -41,6 +41,21 @@ class PlaybackDiagnosticsSourceTest {
 		assertContains(source, "logPlaybackServiceDiagnostic(\"volume-zero-paused\"")
 		assertContains(source, "logPlaybackServiceDiagnostic(\"volume-restored-resumed\"")
 	}
+
+	@Test
+	fun offlineFallbackLogsOutageProbeFallbackAndRestorationDecisions() {
+		val availability = commonSourceFile("domain/manager/NavidromeAvailabilityManager.kt").readText()
+		val recovery = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+
+		assertContains(availability, "navidrome-outage-entered")
+		assertContains(availability, "navidrome-outage-duplicate")
+		assertContains(availability, "navidrome-probe-failed")
+		assertContains(availability, "navidrome-service-restored")
+		assertContains(recovery, "offline-current-cache")
+		assertContains(recovery, "offline-cached-upcoming")
+		assertContains(recovery, "offline-no-cached-fallback")
+		assertContains(recovery, "service-restored")
+	}
 }
 
 private fun androidSharedSourceFile(fileName: String): File =
@@ -49,3 +64,10 @@ private fun androidSharedSourceFile(fileName: String): File =
 		File("composeApp/src/androidMain/kotlin/paige/navic/shared/$fileName")
 	).firstOrNull { it.isFile }
 		?: error("Could not locate Android shared source file $fileName")
+
+private fun commonSourceFile(relativePath: String): File =
+	listOf(
+		File("src/commonMain/kotlin/paige/navic/$relativePath"),
+		File("composeApp/src/commonMain/kotlin/paige/navic/$relativePath")
+	).firstOrNull { it.isFile }
+		?: error("Could not locate common source file $relativePath")

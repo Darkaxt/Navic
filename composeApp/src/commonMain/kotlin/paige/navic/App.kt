@@ -68,6 +68,7 @@ import paige.navic.domain.manager.DownloadQueueNotificationCoordinator
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.manager.NavidromeAvailabilityManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.snackbars.NavicSnackbar
@@ -177,6 +178,7 @@ fun App(initialScreenOverride: Screen? = null) {
 	val downloadQueueNotificationCoordinator = koinInject<DownloadQueueNotificationCoordinator>()
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
 	val snackBarManager = koinInject<SnackBarManager>()
+	val navidromeAvailabilityManager = koinInject<NavidromeAvailabilityManager>()
 	val backStack = rememberNavBackStack(
 		config, initialScreenOverride ?: if (isLoggedIn) {
 			Screen.Library()
@@ -201,6 +203,14 @@ fun App(initialScreenOverride: Screen? = null) {
 	LaunchedEffect(snackBarManager) {
 		snackBarManager.events.collectLatest { event ->
 			snackbarState.showSnackbar(getString(event.resource, *event.args.toTypedArray()))
+		}
+	}
+
+	LaunchedEffect(navidromeAvailabilityManager, snackBarManager) {
+		navidromeAvailabilityManager.state.collect {
+			if (navidromeAvailabilityManager.claimConnectionLostNotice()) {
+				snackBarManager.notifyConnectionLost()
+			}
 		}
 	}
 
