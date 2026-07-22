@@ -48,6 +48,10 @@ actual class ConnectivityManager(
 	private val started = SharingStarted.WhileSubscribed(5000)
 	private val connectivityManager =
 		context.getSystemService(Context.CONNECTIVITY_SERVICE) as AndroidConnectivityManager
+	private fun currentNetworkStatus(): NetworkStatus = connectivityManager
+		.getNetworkCapabilities(connectivityManager.activeNetwork)
+		?.let(NetworkStatus::fromCaps)
+		?: NetworkStatus()
 
 	private val networkStatus = callbackFlow {
 		val callback = object : AndroidConnectivityManager.NetworkCallback() {
@@ -68,30 +72,25 @@ actual class ConnectivityManager(
 
 		connectivityManager.registerNetworkCallback(request, callback)
 
-		trySend(
-			connectivityManager
-				.getNetworkCapabilities(connectivityManager.activeNetwork)
-				?.let { NetworkStatus.fromCaps(it) }
-				?: NetworkStatus()
-		)
+		trySend(currentNetworkStatus())
 
 		awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
 	}
 		.flowOn(dispatcher)
 		.conflate()
-		.stateIn(scope, started, NetworkStatus())
+		.stateIn(scope, started, currentNetworkStatus())
 
 	actual val isCellular = networkStatus
 		.map { it.isCellular }
 		.distinctUntilChanged()
 		.flowOn(dispatcher)
-		.stateIn(scope, started, false)
+		.stateIn(scope, started, networkStatus.value.isCellular)
 
 	actual val isNetworkAvailable = networkStatus
 		.map { it.isOnline }
 		.distinctUntilChanged()
 		.flowOn(dispatcher)
-		.stateIn(scope, started, false)
+		.stateIn(scope, started, networkStatus.value.isOnline)
 
 	actual val isOnline = combine(networkStatus, offlineModeCoordinator.state) { status, offline ->
 		isOnlineForOfflineMode(
@@ -102,5 +101,13 @@ actual class ConnectivityManager(
 	}
 		.distinctUntilChanged()
 		.flowOn(dispatcher)
-		.stateIn(scope, started, false)
+		.stateIn(
+			scope,
+			started,
+			isOnlineForOfflineMode(
+				isNetworkAvailable = networkStatus.value.isOnline,
+				isCellular = networkStatus.value.isCellular,
+				offlineMode = offlineModeCoordinator.state.value.effectiveMode
+			)
+		)
 }

@@ -41,7 +41,7 @@ private fun navidromeThrowableChain(error: Throwable): Sequence<Throwable> = seq
 }
 
 private val HTTP_STATUS_PATTERN = Regex(
-	pattern = """(?:http(?:\s+status)?|status)\s*[:=]?\s*(\d{3})""",
+	pattern = """(?:http(?:\s+status)?|status|response\s+code)\s*[:=]?\s*(\d{3})""",
 	option = RegexOption.IGNORE_CASE
 )
 

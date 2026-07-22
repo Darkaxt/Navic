@@ -12,6 +12,10 @@ class NavidromeFailurePolicyTest {
 				classifyNavidromeFailure(IllegalStateException("HTTP $status upstream failure"))
 			)
 		}
+		assertEquals(
+			NavidromeFailureDisposition.ServiceUnavailable,
+			classifyNavidromeFailure(IllegalStateException("Response code: 503"))
+		)
 	}
 
 	@Test
