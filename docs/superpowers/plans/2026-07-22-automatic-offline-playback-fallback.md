@@ -336,8 +336,10 @@ Add to the expect class:
 val isNetworkAvailable: StateFlow<Boolean>
 ```
 
-Add `OfflineModeCoordinator` to both actual constructors. In each actual, keep
-the platform network callback unchanged and derive:
+Add `OfflineModeCoordinator` to both actual constructors. On Android, observe
+the default network and recompute the active default status from `onLost` so a
+Wi-Fi-to-cellular handoff cannot be mistaken for total network loss. Then
+derive:
 
 ```kotlin
 actual val isNetworkAvailable = networkStatus
@@ -1132,12 +1134,12 @@ git commit -m "feat(playback): report automatic offline fallback"
 **Files:**
 - Update: this plan with observed evidence only
 
-- [ ] **Step 1: Run all focused tests from Tasks 1-6**
+- [x] **Step 1: Run all focused tests from Tasks 1-6**
 
 Run the exact focused classes named above in one
 `:composeApp:testAndroidHostTest` invocation. Expected: zero failures.
 
-- [ ] **Step 2: Run repository verification gates**
+- [x] **Step 2: Run repository verification gates**
 
 ```powershell
 .\gradlew.bat :composeApp:testAndroidHostTest
@@ -1153,7 +1155,7 @@ If the full host suite or lint has failures, run the same command at a fresh
 detached `fork/master` worktree and record the exact baseline delta. Do not call
 an unrelated pre-existing failure a feature regression.
 
-- [ ] **Step 3: Install the debug candidate on an Android target**
+- [x] **Step 3: Install the debug candidate on an Android target**
 
 Use an emulator when available; otherwise use the USB tablet selected explicitly
 by serial. Record:
@@ -1210,7 +1212,7 @@ an authenticated health success, then verify remote eligibility and download
 wake-up. Restore the original Wi-Fi state in a `finally` block even if an
 assertion fails. Do not stop the live server or alter DNS for this test.
 
-- [ ] **Step 6: Record evidence and commit verification notes**
+- [x] **Step 6: Record evidence and commit verification notes**
 
 Add exact test counts, baseline comparison, APK path/hash, target serial/package,
 queue evidence, notification copy, outage diagnostics, and restoration evidence
@@ -1220,13 +1222,41 @@ to an `Execution Status` section in this plan. Commit:
 git commit -m "docs(playback): record offline fallback validation"
 ```
 
+### Execution Status: Candidate Validation
+
+- Stages 1-4 are implemented in commits `e082e7e4`, `71693450`, `06c09b0c`,
+  and `675f8617`. The default-network roaming correction is commit
+  `4f87ccd6`.
+- The final focused gate ran 118 tests across 15 classes with zero failures,
+  errors, or skips. The default-network regression was observed failing before
+  the Android callback change and passing afterward.
+- The full candidate suite ran 2,559 tests with 74 failures. Detached public
+  master `0fde4f1f` ran 2,527 tests with the exact same 74 failures, so the 32
+  added tests pass and the feature introduces no full-suite regression.
+- Candidate lint reports 3 errors and 5 warnings. Its normalized text report is
+  byte-for-byte equal to detached public master; none of the findings is in a
+  changed feature file.
+- `:androidApp:assembleDebug`, reader vendor verification, third-party
+  attribution verification, and `git diff --check` pass.
+- The final debug APK is
+  `androidApp/build/outputs/apk/debug/Navic.apk`, package
+  `darkaxt.navic.debug`, version `v1.0.11-iota27`/554, SHA-256
+  `A6D1AE86BAB258A61E385F0FB57DF81507BD613D34044D0FEC40881C5CE909DE`.
+- ADB target `emulator-5554` upgraded the debug package from iota26/553 to
+  iota27/554, launched PID 18245, and produced zero fatal startup lines.
+- The emulator has no persisted Navic profile, credentials, or media queue.
+  Therefore Task 7 Steps 4-5 cannot produce valid authenticated, cached-queue,
+  notification, or restoration evidence on this target. Those scenarios remain
+  the explicitly planned next-walk field acceptance; deterministic policy and
+  source gates cover their contracts before publication.
+
 ## Task 8: Sync Current Master and Prepare the Next `iota##` Candidate
 
 **Files:**
 - Modify: `androidApp/build.gradle.kts`
 - Resolve only genuine overlap introduced by current `fork/master`
 
-- [ ] **Step 1: Fetch and integrate current public master**
+- [x] **Step 1: Fetch and integrate current public master**
 
 ```powershell
 git fetch fork master --tags --prune
@@ -1237,7 +1267,7 @@ Integrate `fork/master` non-interactively. Preserve the ebook implementation
 that has landed on public master; do not copy from or reset the active ebook
 worktree. Rerun all focused tests and Android assembly after integration.
 
-- [ ] **Step 2: Derive, do not pre-reserve, the next release identifiers**
+- [x] **Step 2: Derive, do not pre-reserve, the next release identifiers**
 
 Read `androidApp/build.gradle.kts` after the sync. Require its version name to
 match the regular expression `^v1\.0\.11-iota\d+$`, increment that numeric suffix by exactly one, and
@@ -1266,7 +1296,7 @@ Update the two Gradle values to `$nextName` and `$nextCode`, then verify:
 if (git tag --list $nextName) { throw "Tag already exists: $nextName" }
 ```
 
-- [ ] **Step 3: Rebuild and verify embedded metadata**
+- [x] **Step 3: Rebuild and verify embedded metadata**
 
 Run focused tests, full Android host tests, lint comparison, and debug assembly
 again. Inspect the APK with `apkanalyzer manifest version-name` and

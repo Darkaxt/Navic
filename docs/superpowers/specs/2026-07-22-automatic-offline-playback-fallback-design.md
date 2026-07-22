@@ -113,6 +113,11 @@ Whether the operating system reports a validated Internet path. It is
 independent from the selected and effective Offline Mode and remains available
 to the service-health monitor while automatic Offline Mode is active.
 
+On Android this state follows the default network, not every network that has
+the Internet capability. Losing an old Wi-Fi network during a handoff must
+recompute the active default network instead of briefly reporting total loss
+when validated cellular connectivity is already available.
+
 ### Navidrome Availability
 
 The process-local service state `Available` or `Unavailable`. It changes to
