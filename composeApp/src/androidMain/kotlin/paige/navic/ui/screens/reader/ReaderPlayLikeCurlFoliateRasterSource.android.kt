@@ -4,11 +4,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
+import android.webkit.WebView
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
 import paige.navic.util.core.Logger
+import kotlin.coroutines.resume
 
 private const val ReaderPlayLikeCurlFoliateRasterSourceTag = "ReaderPlayLikeCurlFoliateRaster"
 
@@ -119,14 +123,24 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 	snapshot.release()
 }
 
+private data class ReaderPlayLikeCurlRasterResolverInputs(
+	val webView: WebView,
+	val reference: ReaderPageSlideSnapshot
+)
+
 /**
- * Production raster loader. It never captures Foliate: the passive raster scheduler must have
- * prepared the requested page before PlayLikeCurl is allowed to accept a gesture.
+ * Production raster loader. It resolves decoded snapshots first, then durable rasters. Foliate
+ * capture is requested only after both sources miss while the publication fence remains current.
  */
 internal class ReaderPlayLikeCurlFoliateRasterLoader(
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val profile: ReaderPlayLikeCurlRasterProfile,
-	private val onMissingRaster: (Int) -> Unit = {}
+	private val webViewProvider: () -> WebView?,
+	private val referenceSnapshotProvider: (
+		ReaderPlayLikeCurlFoliatePageRequest
+	) -> ReaderPageSlideSnapshot?,
+	private val onMissingRaster: (Int) -> Unit = {},
+	private val copyDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : ReaderPlayLikeCurlRasterLoader<ReaderPlayLikeCurlRasterImage> {
 	private val transitionKind = when (profile.orientation) {
 		ReaderPlayLikeCurlOrientation.Portrait -> ReaderPageTurnTransitionKind.PortraitSlide
@@ -135,16 +149,11 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 
 	override suspend fun load(key: ReaderPlayLikeCurlRasterKey): ReaderPlayLikeCurlRasterImage? {
 		if (key.profile != profile || key.pageIndex !in 0 until profile.pageCount) return null
-		val request = readerPlayLikeCurlFoliatePageRequest(
-			orientation = profile.orientation,
-			readerDirection = profile.readerDirection,
-			logicalOrdinal = key.pageIndex,
-			pageCount = profile.pageCount,
-			spreadAnchorParity = profile.spreadAnchorParity
-		)
-		val snapshot = withContext(Dispatchers.Main.immediate) {
-			bundleSource.retainedSnapshot(request.sourcePageIndex, transitionKind).also { retained ->
-				if (retained == null) {
+		val request = pageRequest(key.pageIndex)
+		val snapshot = resolve(request, key.publicationFence::isCurrent)
+		if (snapshot == null) {
+			withContext(Dispatchers.Main.immediate) {
+				if (key.publicationFence.isCurrent()) {
 					onMissingRaster(request.sourcePageIndex)
 					Logger.w(
 						ReaderPlayLikeCurlFoliateRasterSourceTag,
@@ -156,9 +165,72 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 					)
 				}
 			}
-		} ?: return null
-		return withContext(Dispatchers.Default) {
-			readerPlayLikeCurlCopyRetainedFoliateLeaf(snapshot, request.leaf)
+			return null
+		}
+		var snapshotConsumed = false
+		return try {
+			withContext(copyDispatcher) {
+				snapshotConsumed = true
+				readerPlayLikeCurlCopyRetainedFoliateLeaf(snapshot, request.leaf)
+			}
+		} finally {
+			if (!snapshotConsumed) snapshot.release()
 		}
 	}
+
+	suspend fun hydratePersistent(
+		logicalOrdinal: Int,
+		isStillCurrent: () -> Boolean
+	): Boolean {
+		if (logicalOrdinal !in 0 until profile.pageCount) return false
+		val snapshot = resolve(pageRequest(logicalOrdinal), isStillCurrent) ?: return false
+		snapshot.release()
+		return true
+	}
+
+	private fun pageRequest(logicalOrdinal: Int) = readerPlayLikeCurlFoliatePageRequest(
+		orientation = profile.orientation,
+		readerDirection = profile.readerDirection,
+		logicalOrdinal = logicalOrdinal,
+		pageCount = profile.pageCount,
+		spreadAnchorParity = profile.spreadAnchorParity
+	)
+
+	private suspend fun resolve(
+		request: ReaderPlayLikeCurlFoliatePageRequest,
+		isStillCurrent: () -> Boolean
+	): ReaderPageSlideSnapshot? {
+		val inputs = resolverInputs(request, isStillCurrent) ?: return null
+		return try {
+			bundleSource.resolveSnapshot(
+				webView = inputs.webView,
+				pageIndex = request.sourcePageIndex,
+				kind = transitionKind,
+				reference = inputs.reference,
+				publicationFence = isStillCurrent
+			)
+		} finally {
+			inputs.reference.release()
+		}
+	}
+
+	private suspend fun resolverInputs(
+		request: ReaderPlayLikeCurlFoliatePageRequest,
+		isStillCurrent: () -> Boolean
+	): ReaderPlayLikeCurlRasterResolverInputs? =
+		withContext(Dispatchers.Main.immediate) {
+			if (!isStillCurrent()) return@withContext null
+			val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
+				?: return@withContext null
+			val reference = referenceSnapshotProvider(request)
+				?: return@withContext null
+			suspendCancellableCoroutine { continuation ->
+				continuation.resume(
+					ReaderPlayLikeCurlRasterResolverInputs(webView, reference),
+					onCancellation = { _, undelivered, _ ->
+						undelivered.reference.release()
+					}
+				)
+			}
+		}
 }

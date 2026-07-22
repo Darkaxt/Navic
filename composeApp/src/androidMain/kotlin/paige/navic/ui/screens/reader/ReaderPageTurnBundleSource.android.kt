@@ -11,12 +11,15 @@ import android.webkit.WebView
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -27,14 +30,86 @@ import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.readerPageRasterStorageRoot
 import paige.navic.util.core.Logger
+import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
 
-private data class InFlightRasterHydration(
+internal fun interface ReaderPageRasterDescriptorPort {
+	fun request(
+		webView: WebView,
+		pageIndex: Int,
+		onDescriptor: (ReaderPageRasterDescriptor?) -> Unit
+	)
+}
+
+internal interface ReaderPageRasterHydrationStorePort {
+	suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>?
+	suspend fun remove(key: ReaderPageRasterKey): Boolean
+}
+
+internal fun interface ReaderPageRasterHydrationRequest {
+	fun cancel()
+}
+
+internal data class ReaderPageRasterHydrationOwnerCounts(
+	val descriptorRequests: Int,
+	val descriptorRecipients: Int,
+	val readWorkers: Int,
+	val readRecipients: Int
+)
+
+private class ReaderPageWebViewRasterDescriptorPort : ReaderPageRasterDescriptorPort {
+	override fun request(
+		webView: WebView,
+		pageIndex: Int,
+		onDescriptor: (ReaderPageRasterDescriptor?) -> Unit
+	) {
+		webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterDescriptor?.($pageIndex) ?? null)"
+		) { encoded -> onDescriptor(readerPageRasterDescriptor(encoded)) }
+	}
+}
+
+private data class ReaderPageRasterHydrationRecipient(
+	val token: Long,
+	val publicationFence: () -> Boolean,
+	val callback: (ReaderPageSlideSnapshot?) -> Unit
+)
+
+private data class ReaderPageRasterDescriptorIdentity(
 	val generation: Long,
-	val callbacks: MutableList<(ReaderPageSlideSnapshot?) -> Unit>
+	val quality: ReaderPageBitmapQuality,
+	val pageIndex: Int,
+	val kind: ReaderPageTurnTransitionKind,
+	val surfaceRectInWindow: Rect
+)
+
+private class ReaderPageRasterDescriptorRequest(
+	val token: Long,
+	val identity: ReaderPageRasterDescriptorIdentity,
+	val webView: WeakReference<WebView>,
+	val recipients: MutableMap<Long, ReaderPageRasterHydrationRecipient>
+)
+
+private data class ReaderPageRasterHydrationIdentity(
+	val rasterIdentity: String,
+	val kind: ReaderPageTurnTransitionKind,
+	val surfaceRectInWindow: Rect
+)
+
+private class InFlightRasterHydration(
+	val token: Long,
+	val identity: ReaderPageRasterHydrationIdentity,
+	val generation: Long,
+	val quality: ReaderPageBitmapQuality,
+	val key: ReaderPageRasterKey,
+	val kind: ReaderPageTurnTransitionKind,
+	val surfaceRectInWindow: Rect,
+	val webView: WeakReference<WebView>,
+	val recipients: MutableMap<Long, ReaderPageRasterHydrationRecipient>,
+	var job: Job? = null
 )
 
 internal data class ReaderPageRasterPublicationValue<T : Any>(
@@ -44,17 +119,31 @@ internal data class ReaderPageRasterPublicationValue<T : Any>(
 
 internal class ReaderPageTurnBundleSource(
 	private val bitmapSource: ReaderPageTurnBitmapSource = ReaderPageTurnBitmapSource(),
-	private val mainHandler: Handler = Handler(Looper.getMainLooper())
+	private val mainHandler: Handler = Handler(Looper.getMainLooper()),
+	private val descriptorPort: ReaderPageRasterDescriptorPort =
+		ReaderPageWebViewRasterDescriptorPort(),
+	private val hydrationStorePort: ReaderPageRasterHydrationStorePort? = null
 ) {
 	private var activeGeneration = 0L
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private val rasterJob = SupervisorJob()
 	private val rasterScope = CoroutineScope(rasterJob + Dispatchers.Main.immediate)
+	private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+	private val closeSignal = CompletableDeferred<Unit>()
 	private val rasterInitializationMutex = Mutex()
 	private val visualStateRequestId = AtomicLong()
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
+	private val descriptorRequests =
+		mutableMapOf<Long, ReaderPageRasterDescriptorRequest>()
+	private val descriptorRequestTokens =
+		mutableMapOf<ReaderPageRasterDescriptorIdentity, Long>()
 	private val inFlightRasterHydrations =
-		mutableMapOf<String, InFlightRasterHydration>()
+		mutableMapOf<ReaderPageRasterHydrationIdentity, InFlightRasterHydration>()
+	private val hydrationScheduler = ReaderPageRasterHydrationScheduler(
+		scope = rasterScope,
+		maxConcurrentWorkers = 2
+	)
+	private var nextHydrationToken = 0L
 	private val publicationLedger =
 		ReaderPageRasterPublicationLedger<
 			ReaderPageRasterPublicationValue<Bitmap>
@@ -85,14 +174,22 @@ internal class ReaderPageTurnBundleSource(
 
 	fun currentGeneration(): Long = activeGeneration
 
+	fun hydrationOwnerCounts(): ReaderPageRasterHydrationOwnerCounts =
+		ReaderPageRasterHydrationOwnerCounts(
+			descriptorRequests = descriptorRequests.size,
+			descriptorRecipients = descriptorRequests.values.sumOf { it.recipients.size },
+			readWorkers = hydrationScheduler.activeWorkerCount,
+			readRecipients = inFlightRasterHydrations.values.sumOf { it.recipients.size }
+		)
+
 	fun protectDecodedWindow(centerPageIndex: Int, step: Int, pageCount: Int) {
-		protectedSnapshotPageIndices = readerPageSlideSnapshotWindow(
-			centerPageIndex = centerPageIndex,
-			step = step,
-			pageCount = pageCount
-		).toSet()
-		trimSnapshotCacheToCapacity()
-		rasterCache?.protectDecodedPageIndices(protectedSnapshotPageIndices)
+		protectDecodedPageIndices(
+			readerPageSlideSnapshotWindow(
+				centerPageIndex = centerPageIndex,
+				step = step,
+				pageCount = pageCount
+			).toSet()
+		)
 		Logger.i(
 			ReaderPageTurnBundleSourceTag,
 			"Decoded page window protected center=$centerPageIndex step=$step " +
@@ -100,6 +197,25 @@ internal class ReaderPageTurnBundleSource(
 				"pages=${protectedSnapshotPageIndices.sorted()} generation=$activeGeneration"
 		)
 	}
+
+	fun protectDecodedPageIndices(pageIndices: Set<Int>) {
+		protectedSnapshotPageIndices = pageIndices.filterTo(linkedSetOf()) { it >= 0 }
+		trimSnapshotCacheToCapacity()
+		rasterCache?.protectDecodedPageIndices(protectedSnapshotPageIndices)
+	}
+
+	fun hasSnapshot(
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind
+	): Boolean = cachedSnapshot(pageIndex, kind) != null
+
+	fun retainedReferenceSnapshot(
+		preferredPageIndex: Int,
+		kind: ReaderPageTurnTransitionKind
+	): ReaderPageSlideSnapshot? = (
+		cachedSnapshot(preferredPageIndex, kind)
+			?: snapshotCache.entries.lastOrNull { (key, _) -> key.kind == kind }?.value
+	).also { snapshot -> snapshot?.retain() }
 
 	fun trimMemory(reason: String) {
 		val removedSnapshots = snapshotCache.entries
@@ -146,100 +262,390 @@ internal class ReaderPageTurnBundleSource(
 		}
 	}
 
+	suspend fun resolveSnapshot(
+		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		publicationFence: () -> Boolean
+	): ReaderPageSlideSnapshot? = withContext(Dispatchers.Main.immediate) {
+		if (!runCatching(publicationFence).getOrDefault(false)) return@withContext null
+		retainedSnapshot(pageIndex, kind)?.let { retained ->
+			return@withContext suspendCancellableCoroutine { continuation ->
+				continuation.resume(
+					retained,
+					onCancellation = { _, undelivered, _ -> undelivered.release() }
+				)
+			}
+		}
+		if (!webView.isAttachedToWindow) return@withContext null
+		suspendCancellableCoroutine { continuation ->
+			val request = hydrateSnapshot(
+				webView = webView,
+				pageIndex = pageIndex,
+				kind = kind,
+				reference = reference,
+				publicationFence = publicationFence
+			) { hydrated ->
+				if (continuation.isActive) {
+					continuation.resume(
+						hydrated,
+						onCancellation = { _, undelivered, _ -> undelivered?.release() }
+					)
+				} else {
+					hydrated?.release()
+				}
+			}
+			continuation.invokeOnCancellation { request.cancel() }
+		}
+	}
+
 	fun hydrateSnapshot(
 		webView: WebView,
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
+		publicationFence: () -> Boolean = { true },
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
-	) {
+	): ReaderPageRasterHydrationRequest {
 		activeWebView = WeakReference(webView)
-		cachedSnapshot(pageIndex, kind)?.let {
-			onHydrated(it)
-			return
+		retainedSnapshot(pageIndex, kind)?.let { retained ->
+			deliverHydrationResult(onHydrated, retained)
+			return ReaderPageRasterHydrationRequest { }
 		}
-		if (closed || !webView.isAttachedToWindow) {
+		if (
+			closed ||
+			!webView.isAttachedToWindow ||
+			!runCatching(publicationFence).getOrDefault(false)
+		) {
 			onHydrated(null)
-			return
+			return ReaderPageRasterHydrationRequest { }
 		}
-		val generation = activeGeneration
-		val quality = bitmapQuality
-		webView.evaluateJavascript(
-			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterDescriptor?.($pageIndex) ?? null)"
-		) { encodedDescriptor ->
-			val descriptor = readerPageRasterDescriptor(encodedDescriptor)
-			if (descriptor == null || closed || generation != activeGeneration || quality != bitmapQuality) {
-				onHydrated(null)
-				return@evaluateJavascript
-			}
-			val key = descriptor.key(quality)
-			inFlightRasterHydrations[key.digest]
-				?.takeIf { request -> request.generation == generation }
-				?.let { request ->
-					request.callbacks.add(onHydrated)
-					return@evaluateJavascript
+		return registerPersistentHydration(
+			webView = webView,
+			pageIndex = pageIndex,
+			kind = kind,
+			surfaceRectInWindow = Rect(reference.surfaceRectInWindow),
+			publicationFence = publicationFence,
+			onHydrated = onHydrated
+		)
+	}
+
+	private fun registerPersistentHydration(
+		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		surfaceRectInWindow: Rect,
+		publicationFence: () -> Boolean,
+		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
+	): ReaderPageRasterHydrationRequest {
+		val recipientToken = Math.incrementExact(nextHydrationToken)
+		nextHydrationToken = recipientToken
+		val recipient = ReaderPageRasterHydrationRecipient(
+			token = recipientToken,
+			publicationFence = publicationFence,
+			callback = onHydrated
+		)
+		val identity = ReaderPageRasterDescriptorIdentity(
+			generation = activeGeneration,
+			quality = bitmapQuality,
+			pageIndex = pageIndex,
+			kind = kind,
+			surfaceRectInWindow = Rect(surfaceRectInWindow)
+		)
+		val existing = descriptorRequestTokens[identity]
+			?.let(descriptorRequests::get)
+		if (existing != null) {
+			existing.recipients[recipientToken] = recipient
+		} else {
+			val descriptorToken = Math.incrementExact(nextHydrationToken)
+			nextHydrationToken = descriptorToken
+			val request = ReaderPageRasterDescriptorRequest(
+				token = descriptorToken,
+				identity = identity,
+				webView = WeakReference(webView),
+				recipients = linkedMapOf(recipientToken to recipient)
+			)
+			descriptorRequests[descriptorToken] = request
+			descriptorRequestTokens[identity] = descriptorToken
+			try {
+				descriptorPort.request(webView, pageIndex) { descriptor ->
+					dispatchRasterDescriptor(descriptorToken, descriptor)
 				}
-			val request = InFlightRasterHydration(generation, mutableListOf(onHydrated))
-			inFlightRasterHydrations[key.digest] = request
-			val liveSurface = Rect(reference.surfaceRectInWindow)
-			rasterScope.launch {
-				val scheduler = rasterScheduler(webView)
-				scheduler.activateProfile(key.profile)
-				val cache = rasterCache
-				val raster = cache?.let {
-					withContext(Dispatchers.IO) {
-						cache.readCopy(key) { cached ->
+			} catch (_: Throwable) {
+				failDescriptorRequest(descriptorToken)
+			}
+		}
+		return ReaderPageRasterHydrationRequest {
+			dispatchToMain { cancelHydrationRecipient(recipientToken) }
+		}
+	}
+
+	private fun dispatchRasterDescriptor(
+		requestToken: Long,
+		descriptor: ReaderPageRasterDescriptor?
+	) = dispatchToMain {
+		val request = descriptorRequests.remove(requestToken)
+			?.takeIf { candidate -> candidate.token == requestToken }
+			?: return@dispatchToMain
+		descriptorRequestTokens[request.identity]
+			?.takeIf { token -> token == requestToken }
+			?.let { descriptorRequestTokens.remove(request.identity) }
+		val recipients = request.recipients.values.toList()
+		val webView = request.webView.get()
+		if (
+			descriptor == null ||
+			descriptor.visualPageOrdinal != request.identity.pageIndex ||
+			closed ||
+			request.identity.generation != activeGeneration ||
+			request.identity.quality != bitmapQuality ||
+			webView?.isAttachedToWindow != true
+		) {
+			recipients.forEach { recipient ->
+				deliverHydrationResult(recipient.callback, null)
+			}
+			return@dispatchToMain
+		}
+		val currentRecipients = recipients.filter { recipient ->
+			runCatching(recipient.publicationFence).getOrDefault(false)
+		}
+		(recipients - currentRecipients.toSet()).forEach { recipient ->
+			deliverHydrationResult(recipient.callback, null)
+		}
+		if (currentRecipients.isEmpty()) return@dispatchToMain
+		val key = descriptor.key(request.identity.quality)
+		val hydrationIdentity = ReaderPageRasterHydrationIdentity(
+			rasterIdentity = key.identity,
+			kind = request.identity.kind,
+			surfaceRectInWindow = Rect(request.identity.surfaceRectInWindow)
+		)
+		inFlightRasterHydrations[hydrationIdentity]
+			?.takeIf { hydration ->
+				hydration.generation == request.identity.generation &&
+					hydration.quality == request.identity.quality
+			}
+			?.let { hydration ->
+				currentRecipients.forEach { recipient ->
+					hydration.recipients[recipient.token] = recipient
+				}
+				return@dispatchToMain
+			}
+		val hydrationToken = Math.incrementExact(nextHydrationToken)
+		nextHydrationToken = hydrationToken
+		val hydration = InFlightRasterHydration(
+			token = hydrationToken,
+			identity = hydrationIdentity,
+			generation = request.identity.generation,
+			quality = request.identity.quality,
+			key = key,
+			kind = request.identity.kind,
+			surfaceRectInWindow = Rect(request.identity.surfaceRectInWindow),
+			webView = WeakReference(webView),
+			recipients = currentRecipients.associateByTo(linkedMapOf()) { it.token }
+		)
+		inFlightRasterHydrations[hydrationIdentity] = hydration
+		val job = hydrationScheduler.schedule { runPersistentHydration(hydration) }
+		if (job == null) {
+			if (inFlightRasterHydrations[hydrationIdentity] === hydration) {
+				inFlightRasterHydrations.remove(hydrationIdentity)
+				hydration.recipients.values.forEach { recipient ->
+					deliverHydrationResult(recipient.callback, null)
+				}
+			}
+		} else if (inFlightRasterHydrations[hydrationIdentity] === hydration) {
+			hydration.job = job
+		} else {
+			job.cancel()
+		}
+	}
+
+	private fun failDescriptorRequest(requestToken: Long) = dispatchToMain {
+		val request = descriptorRequests.remove(requestToken) ?: return@dispatchToMain
+		descriptorRequestTokens[request.identity]
+			?.takeIf { token -> token == requestToken }
+			?.let { descriptorRequestTokens.remove(request.identity) }
+		request.recipients.values.forEach { recipient ->
+			deliverHydrationResult(recipient.callback, null)
+		}
+	}
+
+	private suspend fun runPersistentHydration(
+		hydration: InFlightRasterHydration
+	) {
+		var raster: ReaderPageRaster<Bitmap>? = null
+		var rasterOwnershipTransferred = false
+		try {
+			if (!isHydrationCurrent(hydration)) return
+			val webView = hydration.webView.get() ?: return
+			raster = readPersistentRaster(webView, hydration.key)
+			val value = raster ?: return
+			if (value.key.identity != hydration.key.identity) return
+			val bitmap = value.value
+			val leafGeometry = readerPageRasterLeafGeometry(
+				metadata = value.metadata,
+				bitmapWidth = bitmap.width,
+				bitmapHeight = bitmap.height
+			)
+			val kindMatches = when (hydration.kind) {
+				ReaderPageTurnTransitionKind.PortraitSlide ->
+					leafGeometry?.fullLeafRect != null
+				ReaderPageTurnTransitionKind.LandscapeSpreadSlide ->
+					leafGeometry?.leftLeafRect != null &&
+						leafGeometry.rightLeafRect != null
+			}
+			if (!kindMatches) {
+				runCatching { removePersistentRaster(hydration.key) }
+				Logger.w(
+					ReaderPageTurnBundleSourceTag,
+					"Discarded incompatible page raster page=${hydration.key.visualPageOrdinal} " +
+						"kind=${hydration.kind} key=${hydration.key.digest}"
+				)
+				return
+			}
+			withContext(Dispatchers.Main.immediate) {
+				if (inFlightRasterHydrations[hydration.identity] !== hydration) {
+					return@withContext
+				}
+				val sourceCurrent = !closed &&
+					hydration.generation == activeGeneration &&
+					hydration.quality == bitmapQuality &&
+					hydration.webView.get()?.isAttachedToWindow == true
+				inFlightRasterHydrations.remove(hydration.identity)
+				val recipients = hydration.recipients.values.toList()
+				val eligible = recipients.filter { recipient ->
+					sourceCurrent &&
+						runCatching(recipient.publicationFence).getOrDefault(false)
+				}
+				(recipients - eligible.toSet()).forEach { recipient ->
+					deliverHydrationResult(recipient.callback, null)
+				}
+				if (eligible.isEmpty()) return@withContext
+				val snapshot = ReaderPageSlideSnapshot(
+					key = snapshotKey(
+						hydration.key.visualPageOrdinal,
+						hydration.kind,
+						bitmap,
+						hydration.surfaceRectInWindow
+					),
+					bitmap = bitmap,
+					surfaceRectInWindow = Rect(hydration.surfaceRectInWindow),
+					leafGeometry = checkNotNull(leafGeometry),
+					reverseFaceColor = value.metadata.reverseFaceColor
+				)
+				val cached = putSnapshot(
+					snapshot = snapshot,
+					priority = ReaderPageRasterPriority.NextTransition,
+					persist = false
+				)
+				rasterOwnershipTransferred = true
+				eligible.forEach { cached.retain() }
+				eligible.forEach { recipient ->
+					deliverHydrationResult(recipient.callback, cached)
+				}
+			}
+		} finally {
+			if (!rasterOwnershipTransferred) {
+				raster?.value?.let(ReaderAndroidPageRasterCodec::release)
+			}
+			withContext(NonCancellable + Dispatchers.Main.immediate) {
+				if (inFlightRasterHydrations[hydration.identity] === hydration) {
+					inFlightRasterHydrations.remove(hydration.identity)
+					hydration.recipients.values.forEach { recipient ->
+						deliverHydrationResult(recipient.callback, null)
+					}
+				}
+			}
+		}
+	}
+
+	private suspend fun readPersistentRaster(
+		webView: WebView,
+		key: ReaderPageRasterKey
+	): ReaderPageRaster<Bitmap>? {
+		val injectedStore = hydrationStorePort
+		val productionStore = if (injectedStore == null) {
+			val scheduler = rasterScheduler(webView)
+			scheduler.activateProfile(key.profile)
+			persistentStore
+		} else {
+			null
+		}
+		var result: ReaderPageRaster<Bitmap>? = null
+		var readFailure: Throwable? = null
+		try {
+			withContext(NonCancellable + Dispatchers.IO) {
+				try {
+					result = if (injectedStore != null) {
+						injectedStore.readCopy(key)
+					} else {
+						productionStore?.readCopy(key) { cached ->
 							cached.copy(Bitmap.Config.ARGB_8888, false)
 						}
 					}
+				} catch (failure: Throwable) {
+					readFailure = failure
 				}
-				val hydration = inFlightRasterHydrations.remove(key.digest)
-				val hydrated = raster?.let { cached ->
-					val bitmap = cached.value
-					val leafGeometry = readerPageRasterLeafGeometry(
-						metadata = cached.metadata,
-						bitmapWidth = bitmap.width,
-						bitmapHeight = bitmap.height
-					)
-					val kindMatches = when (kind) {
-						ReaderPageTurnTransitionKind.PortraitSlide -> leafGeometry?.fullLeafRect != null
-						ReaderPageTurnTransitionKind.LandscapeSpreadSlide ->
-							leafGeometry?.leftLeafRect != null && leafGeometry.rightLeafRect != null
-					}
-					if (!kindMatches) {
-						cache.remove(key)
-						Logger.w(
-							ReaderPageTurnBundleSourceTag,
-							"Discarded incompatible page raster page=$pageIndex kind=$kind " +
-								"key=${key.digest}"
-						)
-					}
-					if (
-						closed || generation != activeGeneration || quality != bitmapQuality ||
-						hydration?.generation != generation || !kindMatches
-					) {
-						ReaderAndroidPageRasterCodec.release(bitmap)
-						null
-					} else {
-						ReaderPageSlideSnapshot(
-							key = snapshotKey(pageIndex, kind, bitmap, liveSurface),
-							bitmap = bitmap,
-							surfaceRectInWindow = Rect(reference.surfaceRectInWindow),
-							leafGeometry = checkNotNull(leafGeometry),
-							reverseFaceColor = cached.metadata.reverseFaceColor
-						)
-					}
-				}
-				val cached = hydrated?.let { snapshot ->
-					putSnapshot(
-						snapshot = snapshot,
-						priority = ReaderPageRasterPriority.NextTransition,
-						persist = false
-					)
-				}
-				hydration?.callbacks?.forEach { callback -> callback(cached) }
+			}
+		} catch (_: CancellationException) {
+			// The non-cancellable read already captured ownership or failure.
+		} catch (failure: Throwable) {
+			readFailure = failure
+		}
+		readFailure?.let { failure -> throw failure }
+		return result
+	}
+
+	private suspend fun removePersistentRaster(key: ReaderPageRasterKey): Boolean {
+		hydrationStorePort?.let { store -> return store.remove(key) }
+		val store = persistentStore ?: return false
+		return withContext(Dispatchers.IO) { store.remove(key) }
+	}
+
+	private fun isHydrationCurrent(hydration: InFlightRasterHydration): Boolean =
+		!closed &&
+			hydration.generation == activeGeneration &&
+			hydration.quality == bitmapQuality &&
+			hydration.webView.get()?.isAttachedToWindow == true &&
+			inFlightRasterHydrations[hydration.identity] === hydration
+
+	private fun cancelHydrationRecipient(recipientToken: Long) {
+		descriptorRequests.values.firstOrNull { request ->
+			recipientToken in request.recipients
+		}?.let { request ->
+			request.recipients.remove(recipientToken)
+			if (request.recipients.isEmpty()) {
+				descriptorRequests.remove(request.token)
+				descriptorRequestTokens[request.identity]
+					?.takeIf { token -> token == request.token }
+					?.let { descriptorRequestTokens.remove(request.identity) }
+			}
+			return
+		}
+		inFlightRasterHydrations.values.firstOrNull { hydration ->
+			recipientToken in hydration.recipients
+		}?.let { hydration ->
+			hydration.recipients.remove(recipientToken)
+			if (hydration.recipients.isEmpty()) {
+				inFlightRasterHydrations.remove(hydration.identity)
+				hydration.job?.cancel()
 			}
 		}
+	}
+
+	private fun deliverHydrationResult(
+		callback: (ReaderPageSlideSnapshot?) -> Unit,
+		snapshot: ReaderPageSlideSnapshot?
+	) {
+		try {
+			callback(snapshot)
+		} catch (_: Throwable) {
+			snapshot?.release()
+		}
+	}
+
+	private fun dispatchToMain(action: () -> Unit) {
+		if (Looper.myLooper() == Looper.getMainLooper()) action()
+		else mainHandler.post(action)
 	}
 
 	fun capturePreparedRasterPage(
@@ -821,10 +1227,15 @@ internal class ReaderPageTurnBundleSource(
 		publicationScheduler.cancelBeforeEpoch(publicationLedger.currentEpoch())
 		protectedSnapshotPageIndices = emptySet()
 		rasterCache?.protectDecodedPageIndices(emptySet())
-		inFlightRasterHydrations.values.forEach { request ->
-			request.callbacks.forEach { it(null) }
-		}
+		val descriptorRecipients = descriptorRequests.values
+			.flatMap { request -> request.recipients.values }
+		descriptorRequests.clear()
+		descriptorRequestTokens.clear()
+		val hydrations = inFlightRasterHydrations.values.toList()
 		inFlightRasterHydrations.clear()
+		hydrations.forEach { hydration -> hydration.job?.cancel() }
+		(descriptorRecipients + hydrations.flatMap { hydration -> hydration.recipients.values })
+			.forEach { recipient -> deliverHydrationResult(recipient.callback, null) }
 		snapshotCache.values.distinctBy { System.identityHashCode(it) }.forEach { it.releaseCacheOwnership() }
 		snapshotCache.clear()
 		Logger.i(ReaderPageTurnBundleSourceTag, "Page-turn snapshot cache cleared reason=$reason")
@@ -836,9 +1247,25 @@ internal class ReaderPageTurnBundleSource(
 		invalidate("close")
 		rasterScheduler?.close()
 		rasterJob.cancel()
-		persistentStore = null
-		rasterCache = null
 		activeWebView.clear()
+		teardownScope.launch {
+			try {
+				hydrationScheduler.closeAndJoin()
+			} finally {
+				try {
+					publicationScheduler.closeAndJoin()
+				} finally {
+					persistentStore = null
+					rasterCache = null
+					closeSignal.complete(Unit)
+				}
+			}
+		}
+	}
+
+	suspend fun closeAndJoin() {
+		withContext(Dispatchers.Main.immediate) { close() }
+		closeSignal.await()
 	}
 
 	private fun restoreLiveComposition(

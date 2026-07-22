@@ -113,6 +113,71 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun committedTurnsPublishOneVersionedWindowBeforePersistentFarEdgeRefill() {
+		val source = controllerFile.readText()
+		val settlement = source
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
+		val schedule = source
+			.substringAfter("private fun schedulePersistentRefill(")
+			.substringBefore("private fun requestRasterRepair(")
+		val publisher = source
+			.substringAfter("private fun publishProtectedWindow(")
+			.substringBefore("private fun publishProtectedRasterOrdinals(")
+		val adapterFence = source
+			.substringAfter("private fun rasterPublicationFence(")
+			.substringBefore("private fun publishProtectedWindow(")
+
+		assertContains(source, "private val persistentRefillCoordinator")
+		assertContains(source, "private var committedTurnVersion = 0L")
+		assertContains(source, "private var protectedWindowVersion = 0L")
+		assertContains(source, "private var currentProtectedWindow = emptyList<Int>()")
+		assertContains(settlement, "committedTurnVersion = Math.incrementExact(committedTurnVersion)")
+		assertContains(settlement, "schedulePersistentRefill(")
+		assertTrue(
+			settlement.indexOf("currentOrdinal = currentPageOrdinal") <
+				settlement.indexOf("schedulePersistentRefill(")
+		)
+		assertContains(schedule, "rasterScope.launch(Dispatchers.Main.immediate)")
+		assertContains(schedule, "requestGeneration == expectedGeneration")
+		assertContains(schedule, "committedTurnVersion == fence.committedTurnVersion")
+		assertContains(schedule, "protectedWindowVersion == fence.protectedWindowVersion")
+		assertContains(schedule, "currentProtectedWindow == fence.protectedWindow")
+		assertContains(adapterFence, "val expectedTurnVersion = committedTurnVersion")
+		assertContains(adapterFence, "val expectedWindowVersion = protectedWindowVersion")
+		assertContains(adapterFence, "requestGeneration == expectedRequestGeneration")
+		assertContains(adapterFence, "committedTurnVersion == expectedTurnVersion")
+		assertContains(adapterFence, "protectedWindowVersion == expectedWindowVersion")
+		assertContains(adapterFence, "currentProtectedWindow == expectedWindow")
+		assertContains(source, "rasterAdapter?.hasDecoded(profile, logicalOrdinal)")
+		assertContains(source, "publicationDispatcher = Dispatchers.Main.immediate")
+		assertContains(publisher, "publishProtectedRasterOrdinals(immutableWindow)")
+		assertEquals(
+			2,
+			Regex("publishProtectedRasterOrdinals\\(").findAll(source).count(),
+			"Only the central protected-window publisher may replace raster protection."
+		)
+	}
+
+	@Test
+	fun deckDeliveryRechecksImmutableFenceOnEveryHostPostOutcome() {
+		val source = controllerFile.readText()
+		val refill = source
+			.substringAfter("private fun refillDecodedWorkingSet(")
+			.substringBefore("private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(")
+		val preparation = source
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("private fun submitLibraryDeck(")
+
+		assertContains(refill, "!publicationFence.isCurrent()")
+		assertEquals(
+			2,
+			Regex("publicationFence\\.isCurrent\\(\\)").findAll(preparation).count(),
+			"Both failed and successful preparation delivery must reject an expired fence."
+		)
+	}
+
+	@Test
 	fun settlementSubmitsThePreparedReplacementWithoutBlockingTheAcceptedAnimation() {
 		val source = controllerFile.readText()
 		val settlementStarted = source
@@ -194,10 +259,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(
 			prepare,
-			"readerPlayLikeCurlPreparedPageIndices(",
+			"profile.preparedPageIndices(centerOrdinal)",
 			ignoreCase = false,
 			"The controller must prepare the active deck plus one promotion in both directions."
 		)
+		assertContains(source, "readerPlayLikeCurlPreparedPageIndices(")
 		assertFalse(
 			prepare.contains("listOf(centerOrdinal - step, centerOrdinal, centerOrdinal + step)"),
 			"Expanding three overlapping deck windows requests Foliate snapshots that were never produced."
@@ -441,17 +507,14 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val settlement = source
 			.substringAfter("override fun onSettlementStarted(")
 			.substringBefore("override fun onSettlementCompleted(")
-		val refill = source
-			.substringAfter("private fun refillDecodedWorkingSet(")
-			.substringBefore("private fun requestRasterRepair(")
-		val prepare = source
-			.substringAfter("private fun prepareProfile(")
-			.substringBefore("private fun submitLibraryDeck(")
+		val profileMapping = source
+			.substringAfter("private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(")
+			.substringBefore("private fun publishProtectedWindow(")
 		val submit = source
 			.substringAfter("private fun submitLibraryDeck(")
 			.substringBefore("private fun updateSurfaceBounds(")
 
-		listOf(settlement, refill, prepare, submit).forEach { callSite ->
+		listOf(settlement, profileMapping, submit).forEach { callSite ->
 			assertContains(callSite, "readerDirection =")
 			assertContains(callSite, "spreadAnchorParity =")
 		}

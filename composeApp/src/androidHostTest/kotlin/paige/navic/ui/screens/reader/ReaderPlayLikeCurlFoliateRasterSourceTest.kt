@@ -203,15 +203,17 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	}
 
 	@Test
-	fun foliateLoaderReadsOnlyPrewarmedSnapshotsAndCopiesOffMain() {
+	fun foliateLoaderResolvesRetainedThenPersistentAndCopiesOffMain() {
 		val source = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPlayLikeCurlFoliateRasterSource.android.kt"
 		).readText()
 
-		assertTrue(source.contains("withContext(Dispatchers.Main.immediate)"))
-		assertTrue(source.contains("bundleSource.retainedSnapshot(request.sourcePageIndex, transitionKind)"))
-		assertTrue(source.contains("withContext(Dispatchers.Default)"))
+		assertTrue(source.contains("bundleSource.resolveSnapshot("))
+		assertTrue(source.contains("referenceSnapshotProvider(request)"))
+		assertTrue(source.contains("key.publicationFence::isCurrent"))
+		assertTrue(source.contains("private val copyDispatcher: CoroutineDispatcher = Dispatchers.Default"))
+		assertTrue(source.contains("withContext(copyDispatcher)"))
 		assertTrue(source.contains("readerPlayLikeCurlCopyRetainedFoliateLeaf(snapshot, request.leaf)"))
 		assertTrue(!source.contains("captureCurrentSurface("))
 		assertTrue(!source.contains("BitmapFactory"))
@@ -224,9 +226,16 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 				"ReaderPlayLikeCurlFoliateRasterSource.android.kt"
 		).readText()
 
+		val load = source
+			.substringAfter("override suspend fun load(")
+			.substringBefore("suspend fun hydratePersistent(")
 		assertTrue(source.contains("private val onMissingRaster: (Int) -> Unit"))
-		assertTrue(source.contains("onMissingRaster(request.sourcePageIndex)"))
-		assertTrue(!source.contains("onMissingRaster(request.logicalOrdinal)"))
+		assertTrue(load.contains("onMissingRaster(request.sourcePageIndex)"))
+		assertTrue(!load.contains("onMissingRaster(request.logicalOrdinal)"))
+		assertTrue(
+			load.indexOf("val snapshot = resolve(") <
+				load.indexOf("onMissingRaster(request.sourcePageIndex)")
+		)
 	}
 
 	private fun sourceFile(relativePath: String): File {

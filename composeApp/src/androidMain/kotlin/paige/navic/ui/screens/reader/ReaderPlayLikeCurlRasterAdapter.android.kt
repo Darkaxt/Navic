@@ -1,11 +1,17 @@
 package paige.navic.ui.screens.reader
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import paige.navic.reader.ReaderPageBitmapQuality
+import kotlin.coroutines.resume
 
 internal data class ReaderPlayLikeCurlRasterProfile(
 	val sourceIdentity: String,
@@ -17,10 +23,27 @@ internal data class ReaderPlayLikeCurlRasterProfile(
 	val rasterGeneration: Long = 0L
 )
 
+internal fun interface ReaderPlayLikeCurlRasterPublicationFence {
+	fun isCurrent(): Boolean
+}
+
+private val AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence =
+	ReaderPlayLikeCurlRasterPublicationFence { true }
+
 internal data class ReaderPlayLikeCurlRasterKey(
+	val profile: ReaderPlayLikeCurlRasterProfile,
+	val pageIndex: Int,
+	val publicationFence: ReaderPlayLikeCurlRasterPublicationFence =
+		AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence
+)
+
+private data class ReaderPlayLikeCurlRasterCacheKey(
 	val profile: ReaderPlayLikeCurlRasterProfile,
 	val pageIndex: Int
 )
+
+private val ReaderPlayLikeCurlRasterKey.cacheKey: ReaderPlayLikeCurlRasterCacheKey
+	get() = ReaderPlayLikeCurlRasterCacheKey(profile, pageIndex)
 
 internal data class ReaderPlayLikeCurlRasterProgress(
 	val completed: Int,
@@ -58,8 +81,14 @@ internal class ReaderPlayLikeCurlRasterDeck<T : Any> internal constructor(
 internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 	private val scope: CoroutineScope,
 	private val loader: ReaderPlayLikeCurlRasterLoader<T>,
+	private val publicationDispatcher: CoroutineDispatcher,
 	private val release: (T) -> Unit
 ) : AutoCloseable {
+	constructor(
+		scope: CoroutineScope,
+		loader: ReaderPlayLikeCurlRasterLoader<T>,
+		release: (T) -> Unit
+	) : this(scope, loader, Dispatchers.Default, release)
 	private class CacheEntry<T : Any>(val value: T) {
 		var cacheOwned = true
 		var retainCount = 0
@@ -72,7 +101,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 	)
 
 	private val lock = Any()
-	private val cache = mutableMapOf<ReaderPlayLikeCurlRasterKey, CacheEntry<T>>()
+	private val cache = mutableMapOf<ReaderPlayLikeCurlRasterCacheKey, CacheEntry<T>>()
 	private val inFlight = mutableMapOf<ReaderPlayLikeCurlRasterKey, InFlight<T>>()
 	private var activeProfile: ReaderPlayLikeCurlRasterProfile? = null
 	private var generation = 0L
@@ -81,6 +110,19 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 	fun prepare(
 		profile: ReaderPlayLikeCurlRasterProfile,
 		pageIndices: List<Int>,
+		onProgress: (ReaderPlayLikeCurlRasterProgress) -> Unit
+	): Deferred<ReaderPlayLikeCurlRasterDeck<T>?> = prepare(
+		profile = profile,
+		pageIndices = pageIndices,
+		publicationFence = AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence,
+		onProgress = onProgress
+	)
+
+	fun prepare(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		pageIndices: List<Int>,
+		publicationFence: ReaderPlayLikeCurlRasterPublicationFence =
+			AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence,
 		onProgress: (ReaderPlayLikeCurlRasterProgress) -> Unit = {}
 	): Deferred<ReaderPlayLikeCurlRasterDeck<T>?> {
 		val obsolete = mutableListOf<T>()
@@ -106,7 +148,11 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 			onProgress(ReaderPlayLikeCurlRasterProgress(completed = 0, total = uniquePageIndices.size))
 			val loaded = LinkedHashMap<ReaderPlayLikeCurlRasterKey, CacheEntry<T>>(uniquePageIndices.size)
 			for ((position, pageIndex) in uniquePageIndices.withIndex()) {
-				val key = ReaderPlayLikeCurlRasterKey(profile = profile, pageIndex = pageIndex)
+				val key = ReaderPlayLikeCurlRasterKey(
+					profile = profile,
+					pageIndex = pageIndex,
+					publicationFence = publicationFence
+				)
 				val entry = loadEntry(key, preparationGeneration) ?: return@async null
 				loaded[key] = entry
 				onProgress(
@@ -117,19 +163,55 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 				)
 			}
 
+			return@async retainDeck(
+				profile = profile,
+				preparationGeneration = preparationGeneration,
+				publicationFence = publicationFence,
+				loaded = loaded
+			)
+		}
+	}
+
+	private suspend fun retainDeck(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		preparationGeneration: Long,
+		publicationFence: ReaderPlayLikeCurlRasterPublicationFence,
+		loaded: Map<ReaderPlayLikeCurlRasterKey, CacheEntry<T>>
+	): ReaderPlayLikeCurlRasterDeck<T>? = withContext(publicationDispatcher) {
+		suspendCancellableCoroutine { continuation ->
 			val retainedEntries = synchronized(lock) {
-				if (closed || generation != preparationGeneration || activeProfile != profile) {
+				if (
+					closed ||
+					generation != preparationGeneration ||
+					activeProfile != profile ||
+					!runCatching(publicationFence::isCurrent).getOrDefault(false)
+				) {
 					return@synchronized null
 				}
 				loaded.values.distinct().onEach { entry -> entry.retainCount += 1 }
 			}
-			if (retainedEntries == null) return@async null
-			ReaderPlayLikeCurlRasterDeck(
-				profile = profile,
-				values = loaded.mapKeys { entry -> entry.key.pageIndex }.mapValues { entry -> entry.value.value },
-				releaseOwnership = { releaseDeckEntries(retainedEntries) }
+			val deck = retainedEntries?.let { retained ->
+				ReaderPlayLikeCurlRasterDeck(
+					profile = profile,
+					values = loaded.mapKeys { entry -> entry.key.pageIndex }
+						.mapValues { entry -> entry.value.value },
+					releaseOwnership = { releaseDeckEntries(retained) }
+				)
+			}
+			continuation.resume(
+				deck,
+				onCancellation = { _, undelivered, _ -> undelivered?.close() }
 			)
 		}
+	}
+
+	fun hasDecoded(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		pageIndex: Int
+	): Boolean = synchronized(lock) {
+		if (closed || activeProfile != profile) return@synchronized false
+		val entry = cache[ReaderPlayLikeCurlRasterCacheKey(profile, pageIndex)]
+		entry != null && !entry.released
 	}
 
 	private fun completedNullDeck(): Deferred<ReaderPlayLikeCurlRasterDeck<T>?> =
@@ -141,7 +223,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 	): CacheEntry<T>? {
 		val work = synchronized(lock) {
 			if (closed || generation != preparationGeneration || activeProfile != key.profile) return null
-			cache[key]?.let { entry -> return entry }
+			cache[key.cacheKey]?.let { entry -> return entry }
 			inFlight[key]?.takeIf { active -> active.generation == preparationGeneration }?.let { active ->
 				return@synchronized active
 			}
@@ -156,18 +238,25 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 	private suspend fun materialize(key: ReaderPlayLikeCurlRasterKey, work: InFlight<T>) {
 		val value = runCatching { loader.load(key) }.getOrNull()
 		var staleValue: T? = null
-		val published = synchronized(lock) {
-			inFlight[key]?.takeIf { active -> active === work }?.let { inFlight.remove(key) }
-			if (
-				value != null &&
-				!closed &&
-				generation == work.generation &&
-				activeProfile == key.profile
-			) {
-				CacheEntry(value).also { entry -> cache[key] = entry }
-			} else {
-				staleValue = value
-				null
+		val published = withContext(NonCancellable + publicationDispatcher) {
+			synchronized(lock) {
+				inFlight[key]?.takeIf { active -> active === work }?.let { inFlight.remove(key) }
+				if (
+					value != null &&
+					!closed &&
+					generation == work.generation &&
+					activeProfile == key.profile &&
+					runCatching(key.publicationFence::isCurrent).getOrDefault(false)
+				) {
+					cache[key.cacheKey]?.also {
+						staleValue = value
+					} ?: CacheEntry(value).also { entry ->
+						cache[key.cacheKey] = entry
+					}
+				} else {
+					staleValue = value
+					null
+				}
 			}
 		}
 		staleValue?.let(release)

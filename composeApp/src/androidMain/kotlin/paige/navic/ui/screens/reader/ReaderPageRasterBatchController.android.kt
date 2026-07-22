@@ -228,7 +228,9 @@ internal class ReaderPageRasterBatchController(
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
 		val missingTargets: MutableList<ReaderPageRasterBatchTarget> =
 			mutableListOf(),
-		var completedCount: Int = 0
+		var completedCount: Int = 0,
+		var hydrationToken: Long = 0L,
+		var hydrationRequest: ReaderPageRasterHydrationRequest? = null
 	) {
 		val requiredCount: Int get() = targets.size
 		val durabilityGate = ReaderPageRasterDurabilityGate(
@@ -317,6 +319,9 @@ internal class ReaderPageRasterBatchController(
 	fun cancel() {
 		val session = activeSession ?: return
 		activeSession = null
+		session.hydrationToken += 1L
+		session.hydrationRequest?.cancel()
+		session.hydrationRequest = null
 		if (session.webView.isAttachedToWindow) {
 			session.webView.evaluateJavascript(
 				"window.NavicReaderBridge?.cancelPageTurnPreviewBatch?.(" +
@@ -338,13 +343,20 @@ internal class ReaderPageRasterBatchController(
 		}
 		val target = session.targets[targetIndex]
 		session.onActiveTarget(target)
-		bundleSource.hydrateSnapshot(
+		val hydrationToken = ++session.hydrationToken
+		val hydrationRequest = bundleSource.hydrateSnapshot(
 			webView = session.webView,
 			pageIndex = target.pageIndex,
 			kind = session.kind,
 			reference = session.reference
 		) { hydrated ->
-			if (!isSessionActive(session)) return@hydrateSnapshot
+			if (session.hydrationToken == hydrationToken) {
+				session.hydrationRequest = null
+			}
+			if (!isSessionActive(session)) {
+				hydrated?.release()
+				return@hydrateSnapshot
+			}
 			if (hydrated == null) {
 				session.missingTargets += target
 				hydrateTarget(session, targetIndex + 1)
@@ -354,6 +366,7 @@ internal class ReaderPageRasterBatchController(
 				hydrated,
 				target.priority
 			) { persisted ->
+				hydrated.release()
 				if (!isSessionActive(session)) {
 					return@ensurePersistentSnapshot
 				}
@@ -362,6 +375,14 @@ internal class ReaderPageRasterBatchController(
 				}
 				hydrateTarget(session, targetIndex + 1)
 			}
+		}
+		if (
+			session.hydrationToken == hydrationToken &&
+			isSessionActive(session)
+		) {
+			session.hydrationRequest = hydrationRequest
+		} else {
+			hydrationRequest.cancel()
 		}
 	}
 

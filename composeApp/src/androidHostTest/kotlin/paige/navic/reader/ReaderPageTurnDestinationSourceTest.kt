@@ -425,12 +425,15 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("fun hydrateSnapshot(")
 			.substringBefore("fun capturePreparedRasterPage(")
 
-		assertContains(hydration, "cache.readCopy(key)")
+		assertContains(hydration, "persistentStore")
+		assertContains(hydration, "store.readCopy(key)")
 		assertContains(hydration, "cached.copy(Bitmap.Config.ARGB_8888, false)")
 		assertContains(hydration, "Rect(reference.surfaceRectInWindow)")
 		assertContains(hydration, "readerPageRasterLeafGeometry(")
 		assertContains(hydration, "persist = false")
 		assertContains(hydration, "generation != activeGeneration")
+		assertContains(hydration, "recipient.publicationFence")
+		assertFalse(hydration.contains("rasterCache?.read"))
 		assertFalse(hydration.contains("postDelayed"))
 		assertFalse(hydration.contains("withTimeout"))
 	}

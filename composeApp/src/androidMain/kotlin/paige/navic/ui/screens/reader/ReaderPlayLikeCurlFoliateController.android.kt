@@ -34,6 +34,7 @@ import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderTextureDeckState
+import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.util.core.Logger
@@ -43,6 +44,83 @@ private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFo
 internal enum class ReaderDeckSubmissionRole {
 	Active,
 	Pending
+}
+
+internal data class ReaderPlayLikeCurlRasterRepairRecipient(
+	val fence: ReaderPlayLikeCurlRasterRepairFence,
+	val attempt: Int = 0
+)
+
+internal class ReaderPlayLikeCurlRasterRepairRegistry {
+	private data class Operation(
+		val token: Long,
+		val recipients: MutableList<ReaderPlayLikeCurlRasterRepairRecipient>
+	)
+
+	private val operations = mutableMapOf<
+		Pair<ReaderPlayLikeCurlRasterProfile, Int>,
+		Operation
+	>()
+	private var nextOperationToken = 0L
+
+	fun register(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		sourcePageIndex: Int,
+		recipient: ReaderPlayLikeCurlRasterRepairRecipient
+	): Long? {
+		val key = profile to sourcePageIndex
+		val existing = operations[key]
+		if (existing != null) {
+			if (recipient !in existing.recipients) existing.recipients += recipient
+			return null
+		}
+		val token = Math.incrementExact(nextOperationToken)
+		nextOperationToken = token
+		operations[key] = Operation(token, mutableListOf(recipient))
+		return token
+	}
+
+	fun complete(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		sourcePageIndex: Int,
+		operationToken: Long
+	): List<ReaderPlayLikeCurlRasterRepairRecipient>? {
+		val key = profile to sourcePageIndex
+		val operation = operations[key]?.takeIf { it.token == operationToken }
+			?: return null
+		operations.remove(key)
+		return operation.recipients.toList()
+	}
+
+	fun isEmpty(): Boolean = operations.isEmpty()
+
+	fun clear() {
+		operations.clear()
+	}
+}
+
+internal data class ReaderPlayLikeCurlRasterRepairFence(
+	val profile: ReaderPlayLikeCurlRasterProfile,
+	val requestGeneration: Long,
+	val destinationOrdinal: Int,
+	val committedTurnVersion: Long,
+	val protectedWindowVersion: Long,
+	val protectedWindow: List<Int>
+) {
+	fun matches(
+		profile: ReaderPlayLikeCurlRasterProfile?,
+		requestGeneration: Long,
+		destinationOrdinal: Int,
+		committedTurnVersion: Long,
+		protectedWindowVersion: Long,
+		protectedWindow: List<Int>
+	): Boolean =
+		this.profile == profile &&
+			this.requestGeneration == requestGeneration &&
+			this.destinationOrdinal == destinationOrdinal &&
+			this.committedTurnVersion == committedTurnVersion &&
+			this.protectedWindowVersion == protectedWindowVersion &&
+			this.protectedWindow == protectedWindow
 }
 
 internal sealed interface ReaderPageGestureTerminalDetail {
@@ -171,6 +249,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val preparedDeckGenerations = mutableSetOf<Long>()
 	private val preparedPageSets = mutableSetOf<PreparedPages>()
 	private var rasterAdapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>? = null
+	private var foliateRasterLoader: ReaderPlayLikeCurlFoliateRasterLoader? = null
 	private var activePages: PreparedPages? = null
 	private var requestedProfile: ReaderPlayLikeCurlRasterProfile? = null
 	private var capabilitiesAvailable = false
@@ -194,7 +273,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var requestGeneration = 0L
 	private var decodedRefillGeneration = 0L
 	private var decodedRefillCenterOrdinal: Int? = null
-	private val rasterRepairRequests = mutableSetOf<Pair<ReaderPlayLikeCurlRasterProfile, Int>>()
+	private var committedTurnVersion = 0L
+	private var protectedWindowVersion = 0L
+	private var currentProtectedWindow = emptyList<Int>()
+	private val rasterRepairRequests = ReaderPlayLikeCurlRasterRepairRegistry()
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
 	private var tapTurnGestureId: Long? = null
@@ -208,6 +290,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var pendingDeckGenerationId: Long? = null
 	private var pendingDeckOrdinal: Int? = null
 	private var lastActivationTrace: String? = null
+	private val persistentRefillCoordinator = ReaderPagePersistentRefillCoordinator(
+		protectedWindowForCenter = { centerOrdinal ->
+			requestedProfile?.preparedPageIndices(centerOrdinal).orEmpty()
+		},
+		publishProtectedWindow = ::publishProtectedWindow,
+		isDecoded = ::isLogicalRasterDecoded,
+		hydratePersistent = { logicalOrdinal, fence, isStillCurrent ->
+			foliateRasterLoader?.hydratePersistent(logicalOrdinal) {
+				isStillCurrent(fence)
+			} == true
+		},
+		requestRepair = ::requestLogicalRasterRepair
+	)
 
 	init {
 		surfaceView.setPageSurfaceListener(object : PageSurfaceListener {
@@ -317,7 +412,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				}
 				if (pages != null && targetOrdinal != null) {
-					refillDecodedWorkingSet(targetOrdinal, "settlement-started:$gestureId")
 					submitLibraryDeck(
 						pages = pages,
 						ordinal = targetOrdinal,
@@ -376,6 +470,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 				currentOrdinal = currentPageOrdinal
 				pendingExactOrdinal = currentPageOrdinal
+				committedTurnVersion = Math.incrementExact(committedTurnVersion)
+				schedulePersistentRefill(
+					direction = when (pageChange) {
+						PageChange.NEXT -> ReaderPageTurnDirection.Next
+						PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous
+						PageChange.NONE -> error("Non-committed settlement reached refill")
+					},
+					destinationOrdinal = currentPageOrdinal,
+					expectedTurnVersion = committedTurnVersion
+				)
 				promotePendingDeck(currentPageOrdinal)
 				dispatchExactVisualPage(currentPageOrdinal)
 			}
@@ -744,6 +848,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		decodedRefillCenterOrdinal = null
+		publishProtectedWindow(emptyList())
 		rasterRepairRequests.clear()
 		pendingExactOrdinal = null
 		updateReadiness(
@@ -767,6 +872,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		preparedPageSets.forEach { pages -> pages.obsolete = true }
 		rasterAdapter?.close()
 		rasterAdapter = null
+		foliateRasterLoader = null
 		requestedProfile = null
 		preparedPageSets.toList().forEach(::closeIfUnused)
 		Logger.i(ReaderPlayLikeCurlFoliateControllerTag, "PlayLikeCurl invalidated reason=$reason")
@@ -851,12 +957,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun refillDecodedWorkingSet(centerOrdinal: Int, reason: String) {
 		val profile = requestedProfile ?: return
 		val adapter = rasterAdapter ?: return
-		val pageIndices = readerPlayLikeCurlPreparedPageIndices(
-			orientation = profile.orientation,
-			currentOrdinal = centerOrdinal,
-			pageCount = profile.pageCount,
-			readerDirection = profile.readerDirection,
-			spreadAnchorParity = profile.spreadAnchorParity
+		val pageIndices = profile.preparedPageIndices(centerOrdinal)
+		publishProtectedWindow(pageIndices)
+		val publicationFence = rasterPublicationFence(
+			profile = profile,
+			centerOrdinal = centerOrdinal,
+			protectedWindow = pageIndices,
+			expectedRequestGeneration = requestGeneration
 		)
 		val pages = activePages
 		if (
@@ -873,7 +980,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 			detail = "refill=$refill center=$centerOrdinal reason=$reason " +
 				"pages=${pageIndices.joinToString(",")}"
 		)
-		val preparation = adapter.prepare(profile, pageIndices)
+		val preparation = adapter.prepare(
+			profile = profile,
+			pageIndices = pageIndices,
+			publicationFence = publicationFence
+		)
 		rasterScope.launch {
 			val deck = preparation.await()
 			host.post {
@@ -882,7 +993,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 					refill != decodedRefillGeneration ||
 					!enabled ||
 					destroyed ||
-					requestedProfile != profile
+					requestedProfile != profile ||
+					!publicationFence.isCurrent()
 				) {
 					deck?.close()
 					if (refill == decodedRefillGeneration) decodedRefillCenterOrdinal = null
@@ -925,13 +1037,147 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(
+		centerOrdinal: Int
+	): List<Int> = readerPlayLikeCurlPreparedPageIndices(
+		orientation = orientation,
+		currentOrdinal = centerOrdinal,
+		pageCount = pageCount,
+		readerDirection = readerDirection,
+		spreadAnchorParity = spreadAnchorParity
+	)
+
+	private fun ReaderPlayLikeCurlRasterProfile.pageRequest(
+		logicalOrdinal: Int
+	): ReaderPlayLikeCurlFoliatePageRequest = readerPlayLikeCurlFoliatePageRequest(
+		orientation = orientation,
+		readerDirection = readerDirection,
+		logicalOrdinal = logicalOrdinal,
+		pageCount = pageCount,
+		spreadAnchorParity = spreadAnchorParity
+	)
+
+	private fun ReaderPlayLikeCurlRasterProfile.transitionKind(): ReaderPageTurnTransitionKind =
+		when (orientation) {
+			ReaderPlayLikeCurlOrientation.Portrait ->
+				ReaderPageTurnTransitionKind.PortraitSlide
+			ReaderPlayLikeCurlOrientation.Landscape ->
+				ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+		}
+
+	private fun rasterPublicationFence(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		centerOrdinal: Int,
+		protectedWindow: List<Int>,
+		expectedRequestGeneration: Long
+	): ReaderPlayLikeCurlRasterPublicationFence {
+		val expectedTurnVersion = committedTurnVersion
+		val expectedWindowVersion = protectedWindowVersion
+		val expectedWindow = protectedWindow.toList()
+		return ReaderPlayLikeCurlRasterPublicationFence {
+			!destroyed &&
+				enabled &&
+				requestedProfile == profile &&
+				bundleSource.currentGeneration() == profile.rasterGeneration &&
+				requestGeneration == expectedRequestGeneration &&
+				currentOrdinal == centerOrdinal &&
+				committedTurnVersion == expectedTurnVersion &&
+				protectedWindowVersion == expectedWindowVersion &&
+				currentProtectedWindow == expectedWindow
+		}
+	}
+
+	private fun publishProtectedWindow(window: List<Int>): Long {
+		val immutableWindow = window.toList()
+		if (currentProtectedWindow != immutableWindow) {
+			protectedWindowVersion = Math.incrementExact(protectedWindowVersion)
+			currentProtectedWindow = immutableWindow
+		}
+		publishProtectedRasterOrdinals(immutableWindow)
+		return protectedWindowVersion
+	}
+
+	private fun publishProtectedRasterOrdinals(logicalOrdinals: List<Int>) {
+		val profile = requestedProfile
+		val sourcePageIndices = if (profile == null) {
+			emptySet()
+		} else {
+			logicalOrdinals.mapTo(linkedSetOf()) { ordinal ->
+				profile.pageRequest(ordinal).sourcePageIndex
+			}
+		}
+		bundleSource.protectDecodedPageIndices(sourcePageIndices)
+	}
+
+	private fun isLogicalRasterDecoded(logicalOrdinal: Int): Boolean {
+		val profile = requestedProfile ?: return false
+		if (rasterAdapter?.hasDecoded(profile, logicalOrdinal) == true) return true
+		val request = profile.pageRequest(logicalOrdinal)
+		return bundleSource.hasSnapshot(
+			request.sourcePageIndex,
+			profile.transitionKind()
+		)
+	}
+
+	private fun requestLogicalRasterRepair(logicalOrdinal: Int) {
+		val profile = requestedProfile ?: return
+		requestRasterRepair(profile.pageRequest(logicalOrdinal).sourcePageIndex, profile)
+	}
+
+	private fun schedulePersistentRefill(
+		direction: ReaderPageTurnDirection,
+		destinationOrdinal: Int,
+		expectedTurnVersion: Long
+	) {
+		val expectedProfile = requestedProfile ?: return
+		val expectedGeneration = requestGeneration
+		rasterScope.launch(Dispatchers.Main.immediate) {
+			persistentRefillCoordinator.onTurnCommitted(
+				direction = direction,
+				destinationOrdinal = destinationOrdinal,
+				committedTurnVersion = expectedTurnVersion,
+				isTurnStillCurrent = {
+					!destroyed &&
+						requestedProfile == expectedProfile &&
+						requestGeneration == expectedGeneration &&
+						currentOrdinal == destinationOrdinal &&
+						committedTurnVersion == expectedTurnVersion
+				},
+				isStillCurrent = { fence ->
+					!destroyed &&
+						requestedProfile == expectedProfile &&
+						requestGeneration == expectedGeneration &&
+						currentOrdinal == fence.destinationOrdinal &&
+						committedTurnVersion == fence.committedTurnVersion &&
+						protectedWindowVersion == fence.protectedWindowVersion &&
+						currentProtectedWindow == fence.protectedWindow
+				}
+			)
+		}
+	}
+
 	private fun requestRasterRepair(
 		sourcePageIndex: Int,
-		profile: ReaderPlayLikeCurlRasterProfile
+		profile: ReaderPlayLikeCurlRasterProfile,
+		attempt: Int = 0
 	) {
-		val key = profile to sourcePageIndex
-		if (!rasterRepairRequests.add(key)) return
-		val refillCenter = decodedRefillCenterOrdinal ?: pendingExactOrdinal ?: currentOrdinal
+		val refillCenter = currentOrdinal
+		val recipient = ReaderPlayLikeCurlRasterRepairRecipient(
+			fence = ReaderPlayLikeCurlRasterRepairFence(
+				profile = profile,
+				requestGeneration = requestGeneration,
+				destinationOrdinal = currentOrdinal,
+				committedTurnVersion = committedTurnVersion,
+				protectedWindowVersion = protectedWindowVersion,
+				protectedWindow = currentProtectedWindow.toList()
+			),
+			attempt = attempt
+		)
+		val operationToken = rasterRepairRequests.register(
+			profile,
+			sourcePageIndex,
+			recipient
+		) ?: return
 		logActivationState(
 			event = "page-repair-requested",
 			detail = "source=$sourcePageIndex center=$refillCenter " +
@@ -939,21 +1185,66 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 		onRequestRasterRepair(sourcePageIndex) { success ->
 			host.post {
-				rasterRepairRequests.remove(key)
-				if (!success || destroyed || !enabled || requestedProfile != profile) {
+				val recipients = rasterRepairRequests.complete(
+					profile,
+					sourcePageIndex,
+					operationToken
+				) ?: return@post
+				val currentRecipient = if (destroyed || !enabled) {
+					null
+				} else {
+					recipients.lastOrNull { candidate ->
+						candidate.fence.matches(
+							profile = requestedProfile,
+							requestGeneration = requestGeneration,
+							destinationOrdinal = currentOrdinal,
+							committedTurnVersion = committedTurnVersion,
+							protectedWindowVersion = protectedWindowVersion,
+							protectedWindow = currentProtectedWindow
+						)
+					}
+				}
+				if (!success) {
+					val operationAttempt = recipients.maxOfOrNull { it.attempt } ?: attempt
 					logActivationState(
 						event = "page-repair-deferred",
-						detail = "source=$sourcePageIndex center=$refillCenter success=$success"
+						detail = "source=$sourcePageIndex " +
+							"center=${currentRecipient?.fence?.destinationOrdinal ?: refillCenter} " +
+							"success=false attempt=$operationAttempt"
+					)
+					if (currentRecipient != null) {
+						if (operationAttempt == 0) {
+							requestRasterRepair(
+								sourcePageIndex,
+								profile,
+								attempt = 1
+							)
+						} else {
+							requestPrewarmIfIdle("page-repair-failed")
+						}
+					}
+					return@post
+				}
+				if (currentRecipient == null) {
+					logActivationState(
+						event = "page-repair-deferred",
+						detail = "source=$sourcePageIndex " +
+							"center=${recipients.lastOrNull()?.fence?.destinationOrdinal ?: refillCenter} " +
+							"success=$success"
 					)
 					return@post
 				}
+				val destinationOrdinal = currentRecipient.fence.destinationOrdinal
 				logActivationState(
 					event = "page-repair-completed",
-					detail = "source=$sourcePageIndex center=$refillCenter"
+					detail = "source=$sourcePageIndex center=$destinationOrdinal"
 				)
 				decodedRefillGeneration += 1L
 				decodedRefillCenterOrdinal = null
-				refillDecodedWorkingSet(refillCenter, "page-repair:$sourcePageIndex")
+				refillDecodedWorkingSet(
+					destinationOrdinal,
+					"page-repair:$sourcePageIndex"
+				)
 			}
 		}
 	}
@@ -963,6 +1254,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		profile: ReaderPlayLikeCurlRasterProfile,
 		centerOrdinal: Int
 	) {
+		val pageIndices = profile.preparedPageIndices(centerOrdinal)
 		if (requestedProfile != profile) {
 			activePages?.let { pages ->
 				pages.obsolete = true
@@ -970,28 +1262,42 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 			activePages = null
 			rasterAdapter?.close()
-			rasterAdapter = ReaderPlayLikeCurlRasterAdapter(
-				scope = rasterScope,
-				loader = ReaderPlayLikeCurlFoliateRasterLoader(
-					bundleSource = bundleSource,
-					profile = profile,
-					onMissingRaster = { sourcePageIndex ->
-						requestRasterRepair(sourcePageIndex, profile)
-					}
-				),
-				release = { image ->
-					if (!image.bitmap.isRecycled) image.bitmap.recycle()
+			publishProtectedWindow(emptyList())
+			requestedProfile = profile
+			publishProtectedWindow(pageIndices)
+			val loader = ReaderPlayLikeCurlFoliateRasterLoader(
+				bundleSource = bundleSource,
+				profile = profile,
+				webViewProvider = webViewProvider,
+				referenceSnapshotProvider = {
+					val preferred = profile.pageRequest(currentOrdinal).sourcePageIndex
+					bundleSource.retainedReferenceSnapshot(
+						preferred,
+						profile.transitionKind()
+					)
+				},
+				onMissingRaster = { sourcePageIndex ->
+					requestRasterRepair(sourcePageIndex, profile)
 				}
 			)
-			requestedProfile = profile
+			foliateRasterLoader = loader
+			rasterAdapter = ReaderPlayLikeCurlRasterAdapter(
+				scope = rasterScope,
+				loader = loader,
+				release = { image ->
+					if (!image.bitmap.isRecycled) image.bitmap.recycle()
+				},
+				publicationDispatcher = Dispatchers.Main.immediate
+			)
+		} else {
+			publishProtectedWindow(pageIndices)
 		}
 		val adapter = rasterAdapter ?: return
-		val pageIndices = readerPlayLikeCurlPreparedPageIndices(
-			orientation = profile.orientation,
-			currentOrdinal = centerOrdinal,
-			pageCount = profile.pageCount,
-			readerDirection = profile.readerDirection,
-			spreadAnchorParity = profile.spreadAnchorParity
+		val publicationFence = rasterPublicationFence(
+			profile = profile,
+			centerOrdinal = centerOrdinal,
+			protectedWindow = pageIndices,
+			expectedRequestGeneration = request
 		)
 		val startedAtNanos = System.nanoTime()
 		logActivationState(
@@ -1001,6 +1307,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val preparation = adapter.prepare(
 			profile = profile,
 			pageIndices = pageIndices,
+			publicationFence = publicationFence,
 			onProgress = { progress ->
 				host.post {
 					if (request == requestGeneration && enabled && !destroyed) {
@@ -1018,7 +1325,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			val deck = preparation.await()
 			if (deck == null) {
 				host.post {
-					if (request == requestGeneration && enabled && !destroyed) {
+					if (
+						request == requestGeneration &&
+						enabled &&
+						!destroyed &&
+						publicationFence.isCurrent()
+					) {
 						if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
 							updateReadiness(
 								interaction = ReaderPageInteractionState.BackgroundPrefetch,
@@ -1054,7 +1366,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 				return@launch
 			}
 			host.post {
-				if (request != requestGeneration || !enabled || destroyed || requestedProfile != profile) {
+				if (
+					request != requestGeneration ||
+					!enabled ||
+					destroyed ||
+					requestedProfile != profile ||
+					!publicationFence.isCurrent()
+				) {
 					deck.close()
 					return@post
 				}

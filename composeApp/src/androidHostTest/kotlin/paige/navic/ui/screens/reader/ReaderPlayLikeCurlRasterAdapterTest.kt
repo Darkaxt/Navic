@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class ReaderPlayLikeCurlRasterAdapterTest {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -89,6 +90,99 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	}
 
 	@Test
+	fun concurrentCurrentFencesReusePublishedEntryAndReleaseDuplicateValue() = runBlocking {
+		val gate = CompletableDeferred<Unit>()
+		val loader = FakeRasterLoader(gateProfile = "duplicate", gate = gate)
+		val released = mutableListOf<String>()
+		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, released::add)
+		val profile = profile("duplicate")
+		val first = adapter.prepare(
+			profile = profile,
+			pageIndices = listOf(0),
+			publicationFence = ReaderPlayLikeCurlRasterPublicationFence { true }
+		)
+		val second = adapter.prepare(
+			profile = profile,
+			pageIndices = listOf(0),
+			publicationFence = ReaderPlayLikeCurlRasterPublicationFence { true }
+		)
+		loader.secondStarted.await()
+
+		gate.complete(Unit)
+		val firstDeck = checkNotNull(first.await())
+		val secondDeck = checkNotNull(second.await())
+
+		assertSame(firstDeck.value(0), secondDeck.value(0))
+		assertEquals(listOf("duplicate-page-0"), released)
+		firstDeck.close()
+		secondDeck.close()
+		adapter.close()
+		assertEquals(listOf("duplicate-page-0", "duplicate-page-0"), released)
+	}
+
+	@Test
+	fun staleFinalFenceRejectsDeckBuiltFromExistingCacheEntry() = runBlocking {
+		val released = mutableListOf<String>()
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope,
+			FakeRasterLoader(),
+			released::add
+		)
+		val profile = profile("cached-fence")
+		checkNotNull(adapter.prepare(profile, listOf(0)).await()).close()
+
+		val stale = adapter.prepare(
+			profile = profile,
+			pageIndices = listOf(0),
+			publicationFence = ReaderPlayLikeCurlRasterPublicationFence { false }
+		).await()
+
+		assertNull(stale)
+		assertTrue(adapter.hasDecoded(profile, 0))
+		assertTrue(released.isEmpty())
+		adapter.close()
+		assertEquals(listOf("cached-fence-page-0"), released)
+	}
+
+	@Test
+	fun staleWindowFenceCannotPublishAcrossAbaReturn() = runBlocking {
+		val gate = CompletableDeferred<Unit>()
+		val loader = FakeRasterLoader(gateProfile = "aba", gate = gate)
+		val released = mutableListOf<String>()
+		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, released::add)
+		val profile = profile("aba")
+		var windowVersion = 1L
+		val stale = adapter.prepare(
+			profile = profile,
+			pageIndices = listOf(4),
+			publicationFence = ReaderPlayLikeCurlRasterPublicationFence {
+				windowVersion == 1L
+			}
+		)
+		loader.firstStarted.await()
+
+		windowVersion = 2L
+		windowVersion = 3L
+		gate.complete(Unit)
+
+		assertNull(stale.await())
+		assertEquals(listOf("aba-page-4"), released)
+		assertEquals(false, adapter.hasDecoded(profile, 4))
+		val current = checkNotNull(
+			adapter.prepare(
+				profile = profile,
+				pageIndices = listOf(4),
+				publicationFence = ReaderPlayLikeCurlRasterPublicationFence {
+					windowVersion == 3L
+				}
+			).await()
+		)
+		assertEquals(true, adapter.hasDecoded(profile, 4))
+		current.close()
+		adapter.close()
+	}
+
+	@Test
 	fun progressCountsUniqueRasterRequirements() = runBlocking {
 		val progress = mutableListOf<ReaderPlayLikeCurlRasterProgress>()
 		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, FakeRasterLoader(), release = {})
@@ -158,10 +252,15 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	) : ReaderPlayLikeCurlRasterLoader<String> {
 		val calls = mutableListOf<ReaderPlayLikeCurlRasterKey>()
 		val firstStarted = CompletableDeferred<Unit>()
+		val secondStarted = CompletableDeferred<Unit>()
 
 		override suspend fun load(key: ReaderPlayLikeCurlRasterKey): String {
-			synchronized(calls) { calls += key }
+			val callCount = synchronized(calls) {
+				calls += key
+				calls.size
+			}
 			if (!firstStarted.isCompleted) firstStarted.complete(Unit)
+			if (callCount >= 2 && !secondStarted.isCompleted) secondStarted.complete(Unit)
 			if (key.profile.sourceIdentity == gateProfile) gate?.await()
 			return "${key.profile.sourceIdentity}-page-${key.pageIndex}"
 		}
