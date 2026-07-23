@@ -26966,7 +26966,8 @@ foreach ($stalePath in @($resultsRoot, $outcomePath)) {
   }
 }
 .\gradlew.bat `
-  -Dreader.host.outcome=.codex-validation/final-host-task-outcome.json `
+  '-Dreader.host.outcome=.codex-validation/final-host-task-outcome.json' `
+  --no-configuration-cache `
   --init-script .\.codex-validation\reader-host-task-outcome.init.gradle `
   :composeApp:testAndroidHostTest --continue
 $hostExit = $LASTEXITCODE
@@ -33343,7 +33344,8 @@ foreach ($stalePath in @($resultsRoot, $outcomePath)) {
   }
 }
 .\gradlew.bat `
-  -Dreader.host.outcome=.codex-validation/final-host-task-outcome.json `
+  '-Dreader.host.outcome=.codex-validation/final-host-task-outcome.json' `
+  --no-configuration-cache `
   --init-script .\.codex-validation\reader-host-task-outcome.init.gradle `
   :composeApp:testAndroidHostTest --continue
 $hostExit = $LASTEXITCODE
