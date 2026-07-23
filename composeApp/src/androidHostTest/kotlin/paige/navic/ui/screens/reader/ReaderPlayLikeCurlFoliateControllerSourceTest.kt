@@ -32,6 +32,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageTapTurnControllerFacade.android.kt"
 	)
+	private val visualHandoffFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderWebViewVisualHandoff.android.kt"
+	)
 	private val readerAssetRoot = File("src/androidMain/assets/reader")
 
 	@Test
@@ -149,6 +153,94 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 				.substringAfter("fun visualLocationOrigin(")
 				.substringBefore("fun synchronizeVisualPageIndex(")
 				.contains("page-turn:exact")
+		)
+	}
+
+	@Test
+	fun exactAcknowledgementStartsVisualHandoffWithAuthoritativeWebViewLocation() {
+		val source = controllerFile.readText()
+		val synchronize = source
+			.substringAfter("fun synchronizeVisualPageIndex(")
+			.substringBefore("private fun drainRelocationOwnership(")
+		val exact = synchronize
+			.substringAfter("ReaderPageVisualLocationOrigin.ExactPageTurn -> {")
+			.substringBefore("ReaderPageVisualLocationOrigin.StaleAcknowledgement")
+
+		assertContains(source, "private var currentOrdinal = 0")
+		assertContains(source, "private var currentWebViewOrdinal: Int? = null")
+		assertContains(synchronize, "currentWebViewOrdinal = normalized")
+		assertContains(exact, "relocationQueue.acknowledge(")
+		assertContains(exact, "relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)")
+		assertTrue(
+			exact.indexOf("relocationQueue.acknowledge(") <
+				exact.indexOf("relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)")
+		)
+		assertFalse(
+			exact.contains("currentOrdinal = normalized"),
+			"A historical WebView acknowledgement must not rewind the speculative GL ordinal."
+		)
+		assertFalse(
+			exact.contains("hideSurface()"),
+			"Acknowledgement must retain the GL shield until visual-state handoff completes."
+		)
+	}
+
+	@Test
+	fun productionRoutesTypedVisualHandoffRetriesAndCancelsBeforeQueueDrain() {
+		val source = controllerFile.readText()
+		val host = hostFile.readText()
+		val attach = source
+			.substringAfter("fun onHostAttached()")
+			.substringBefore("fun onHostSizeChanged()")
+		val contentReady = source
+			.substringAfter("fun onHostContentReady()")
+			.substringBefore("fun onWebViewAttachmentChanged(")
+		val webViewAttach = source
+			.substringAfter("fun onWebViewAttachmentChanged(")
+			.substringBefore("fun onHostResumedChanged(")
+		val resumed = source
+			.substringAfter("fun onHostResumedChanged(")
+			.substringBefore("fun onHostWindowHidden()")
+		val deckPrepared = source
+			.substringAfter("override fun onDeckPrepared(")
+			.substringBefore("override fun onDeckRejected(")
+		val invalidate = source
+			.substringAfter("fun invalidate(")
+			.substringBefore("fun destroy()")
+		val destroy = source
+			.substringAfter("fun destroy()")
+			.substringBefore("private fun refreshPreparedDeck(")
+
+		assertContains(attach, "retryRelocationVisualHandoffAttached()")
+		assertContains(contentReady, "retryRelocationVisualHandoffAttached()")
+		assertContains(webViewAttach, "retryRelocationVisualHandoffAttached()")
+		assertContains(resumed, "retryRelocationVisualHandoffResumed()")
+		assertContains(deckPrepared, "retryRelocationVisualHandoffForPreparedDeck(generationId)")
+		assertContains(source, "ReaderPageRelocationVisualRetryEvent.Attached(")
+		assertContains(source, "ReaderPageRelocationVisualRetryEvent.Resumed(")
+		assertContains(source, "ReaderPageRelocationVisualRetryEvent.Reprepared(")
+		assertTrue(
+			invalidate.indexOf("relocationVisualHandoffCoordinator.cancelForQueueInvalidation()") <
+				invalidate.indexOf("drainRelocationOwnership(\"invalidated:${'$'}reason\")")
+		)
+		assertContains(destroy, "relocationVisualHandoffCoordinator.close()")
+		assertContains(host, "playLikeCurlController.onHostResumedChanged(true)")
+		assertContains(host, "playLikeCurlController.onHostResumedChanged(false)")
+	}
+
+	@Test
+	fun successfulQueueHandoffAloneOwnsGlShieldRemoval() {
+		val source = visualHandoffFile.readText()
+		val complete = source
+			.substringAfter("private fun complete(request: ReaderPageRelocationRequest)")
+			.substringBefore("private fun recover(")
+
+		assertContains(complete, "queue.completeHandoff(request.token.value)")
+		assertContains(complete, "val next = queue.commandToDispatch()")
+		assertContains(complete, "if (next == null) hideSurface() else dispatch(next)")
+		assertTrue(
+			complete.indexOf("queue.completeHandoff(request.token.value)") <
+				complete.indexOf("if (next == null) hideSurface() else dispatch(next)")
 		)
 	}
 

@@ -301,9 +301,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private var snapshotKey = Int.MIN_VALUE
 	private var currentOrdinal = 0
+	private var currentWebViewOrdinal: Int? = null
 	private var authoritativeLocationReady = false
 	private var currentFoliateSessionId: String? = null
 	private var foliateSessionRelocationPending = false
+	private var hostResumed = false
 	private var preparationPhase = ReaderPagePreparationPhase.Idle
 	private var requestGeneration = 0L
 	private var decodedRefillGeneration = 0L
@@ -315,6 +317,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val relocationQueue = ReaderPageRelocationQueue()
 	private val relocationGestureCoordinator =
 		ReaderPageRelocationGestureCoordinator(relocationQueue)
+	private val relocationVisualHandoffCoordinator =
+		ReaderPageRelocationVisualHandoffCoordinator(
+			queue = relocationQueue,
+			host = ReaderWebViewVisualHandoffHostAdapter(webViewProvider),
+			currentState = ::relocationVisualState,
+			dispatch = ::dispatchRelocation,
+			publishRecovery = ::publishRelocationVisualRecovery,
+			hideSurface = ::hideSurface
+		)
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
 	private var tapTurnGestureId: Long? = null
@@ -376,6 +387,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				}
 				deckRecoveryCoordinator.onDeckPrepared(generationId)
+				retryRelocationVisualHandoffForPreparedDeck(generationId)
 				logActivationState("deck-prepared", "generation=$generationId")
 			}
 
@@ -848,6 +860,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			onRequestPrewarm()
 			refreshPreparedDeck()
 			dispatchNextRelocation()
+			retryRelocationVisualHandoffAttached()
 		}
 	}
 
@@ -865,11 +878,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 		logActivationState("host-content-ready")
 		refreshPreparedDeck()
 		dispatchNextRelocation()
+		retryRelocationVisualHandoffAttached()
 	}
 
 	fun onWebViewAttachmentChanged(webViewAttached: Boolean) {
 		if (!webViewAttached || !enabled || destroyed) return
 		dispatchNextRelocation()
+		retryRelocationVisualHandoffAttached()
+	}
+
+	fun onHostResumedChanged(resumed: Boolean) {
+		if (hostResumed == resumed) return
+		hostResumed = resumed
+		if (resumed && enabled && !destroyed) {
+			retryRelocationVisualHandoffResumed()
+		}
 	}
 
 	fun onHostWindowHidden() {
@@ -1057,10 +1080,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val previous = currentFoliateSessionId
 		if (previous == sessionId) return
 		if (previous != null) {
+			relocationVisualHandoffCoordinator.cancelForQueueInvalidation()
 			drainRelocationOwnership("foliate-session-changed")
 			foliateSessionRelocationPending = true
 		}
 		currentFoliateSessionId = sessionId
+		currentWebViewOrdinal = null
 	}
 
 	fun visualLocationOrigin(
@@ -1097,6 +1122,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) {
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
 		authoritativeLocationReady = true
+		currentWebViewOrdinal = normalized
 		when (visualLocationOrigin(normalized, acknowledgement)) {
 			ReaderPageVisualLocationOrigin.ExactPageTurn -> {
 				val matched = requireNotNull(acknowledgement)
@@ -1109,7 +1135,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 						textureGeneration = matched.textureGeneration
 					)
 				)
-				currentOrdinal = normalized
+				val acknowledged = requireNotNull(relocationQueue.head())
+				check(relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)) {
+					"Acknowledged relocation did not start visual handoff"
+				}
 				foliateSessionRelocationPending = false
 				refillDecodedWorkingSet(normalized, "foliate-exact-settlement")
 			}
@@ -1156,6 +1185,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		deckRecoveryCoordinator.cancelAll()
 		publishProtectedWindow(emptyList())
 		rasterRepairRequests.clear()
+		relocationVisualHandoffCoordinator.cancelForQueueInvalidation()
 		drainRelocationOwnership("invalidated:$reason")
 		updateReadiness(
 			textureDeck = ReaderTextureDeckState.Empty,
@@ -1191,6 +1221,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		destroyed = true
 		enabled = false
 		invalidate("destroyed")
+		relocationVisualHandoffCoordinator.close()
 		if (attached) {
 			attached = false
 			surfaceView.detach()
@@ -2269,6 +2300,67 @@ internal class ReaderPlayLikeCurlFoliateController(
 			borrowed.bitmap,
 			borrowed.paperColorArgb
 		)
+	}
+
+	private fun relocationVisualState(): ReaderPageRelocationVisualState =
+		ReaderPageRelocationVisualState(
+			attached = attached && webViewProvider()?.isAttachedToWindow == true,
+			resumed = hostResumed,
+			foliateSessionId = currentFoliateSessionId,
+			webViewOrdinal = currentWebViewOrdinal
+		)
+
+	private fun retryRelocationVisualHandoffAttached() {
+		val sessionId = currentFoliateSessionId ?: return
+		val ordinal = currentWebViewOrdinal ?: return
+		relocationVisualHandoffCoordinator.onRetryEvent(
+			ReaderPageRelocationVisualRetryEvent.Attached(sessionId, ordinal)
+		)
+	}
+
+	private fun retryRelocationVisualHandoffResumed() {
+		val sessionId = currentFoliateSessionId ?: return
+		val ordinal = currentWebViewOrdinal ?: return
+		relocationVisualHandoffCoordinator.onRetryEvent(
+			ReaderPageRelocationVisualRetryEvent.Resumed(sessionId, ordinal)
+		)
+	}
+
+	private fun retryRelocationVisualHandoffForPreparedDeck(generationId: Long) {
+		if (generationId != activeDeckGenerationId) return
+		val sessionId = currentFoliateSessionId ?: return
+		val ordinal = currentWebViewOrdinal ?: return
+		val rasterGeneration = generationOwners[generationId]
+			?.profile
+			?.rasterGeneration
+			?: return
+		relocationVisualHandoffCoordinator.onRetryEvent(
+			ReaderPageRelocationVisualRetryEvent.Reprepared(
+				foliateSessionId = sessionId,
+				destinationOrdinal = ordinal,
+				rasterGeneration = rasterGeneration,
+				textureGeneration = generationId
+			)
+		)
+	}
+
+	private fun publishRelocationVisualRecovery(
+		request: ReaderPageRelocationRequest,
+		reason: ReaderWebViewVisualHandoffFailure
+	) {
+		Logger.e(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl visual handoff recovery pageIndex=${request.destinationOrdinal} " +
+				"reason=$reason"
+		)
+		requestPrewarmIfIdle("visual-handoff-${reason.name.lowercase()}")
+	}
+
+	private fun dispatchRelocation(request: ReaderPageRelocationRequest) {
+		val webView = checkNotNull(
+			webViewProvider()?.takeIf { it.isAttachedToWindow }
+		) { "Visual relocation dispatch requires an attached WebView" }
+		dispatchExactVisualPage(webView, request)
 	}
 
 	private fun dispatchNextRelocation() {

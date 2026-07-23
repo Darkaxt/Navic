@@ -1073,19 +1073,23 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private val hostLifecycleObserver = object : DefaultLifecycleObserver {
 		override fun onResume(owner: LifecycleOwner) {
 			pageRasterHostEventController.lifecycleResumedChanged(true)
+			playLikeCurlController.onHostResumedChanged(true)
 			requestPageTurnPrewarmWhenReady()
 		}
 
 		override fun onPause(owner: LifecycleOwner) {
 			pageRasterHostEventController.lifecycleResumedChanged(false)
+			playLikeCurlController.onHostResumedChanged(false)
 		}
 
 		override fun onStop(owner: LifecycleOwner) {
 			pageRasterHostEventController.lifecycleResumedChanged(false)
+			playLikeCurlController.onHostResumedChanged(false)
 		}
 
 		override fun onDestroy(owner: LifecycleOwner) {
 			pageRasterHostEventController.lifecycleResumedChanged(false)
+			playLikeCurlController.onHostResumedChanged(false)
 			beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Destroyed)
 		}
 	}
@@ -1095,9 +1099,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		observedHostLifecycle = findViewTreeLifecycleOwner()?.lifecycle
 			?.also { lifecycle ->
 				lifecycle.addObserver(hostLifecycleObserver)
-				pageRasterHostEventController.lifecycleResumedChanged(
-					lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-				)
+				val resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+				pageRasterHostEventController.lifecycleResumedChanged(resumed)
+				playLikeCurlController.onHostResumedChanged(resumed)
 			}
 		pageRasterHostEventController.webViewAttachmentChanged(
 			viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
@@ -1867,13 +1871,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		super.onWindowVisibilityChanged(visibility)
 		if (!pageTurnCanvasEnabled) return
 		if (visibility == VISIBLE) {
-			pageRasterHostEventController.lifecycleResumedChanged(
+			val resumed =
 				observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
-			)
+			pageRasterHostEventController.lifecycleResumedChanged(resumed)
+			playLikeCurlController.onHostResumedChanged(resumed)
 			requestPageTurnPrewarmWhenReady()
 			return
 		}
 		pageRasterHostEventController.lifecycleResumedChanged(false)
+		playLikeCurlController.onHostResumedChanged(false)
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.WindowHidden
 		)
@@ -1885,6 +1891,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun onDetachedFromWindow() {
 		pageRasterHostEventController.webViewAttachmentChanged(false)
 		pageRasterHostEventController.lifecycleResumedChanged(false)
+		playLikeCurlController.onHostResumedChanged(false)
 		beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Detached)
 		closePhysicalPointerDelivery()
 		teardownTask4Resources()
