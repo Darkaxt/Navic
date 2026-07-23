@@ -46,4 +46,26 @@ class ReaderPageRasterPolicyTest {
 		)
 	}
 
+	@Test
+	fun adjacentChapterPrioritiesExposeOneSchedulingDirection() {
+		assertEquals(
+			listOf(
+				ReaderPageAdjacentChapterDirection.Next,
+				ReaderPageAdjacentChapterDirection.Previous,
+				ReaderPageAdjacentChapterDirection.Next,
+				ReaderPageAdjacentChapterDirection.Previous
+			),
+			listOf(
+				ReaderPageRasterPriority.NextChapter,
+				ReaderPageRasterPriority.PreviousChapter,
+				ReaderPageRasterPriority.NextChapterRemainder,
+				ReaderPageRasterPriority.PreviousChapterRemainder
+			).map { priority -> priority.adjacentChapterDirection }
+		)
+		assertEquals(
+			null,
+			ReaderPageRasterPriority.CurrentChapter.adjacentChapterDirection
+		)
+	}
+
 }

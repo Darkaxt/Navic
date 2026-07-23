@@ -790,7 +790,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("private fun onPlayLikeCurlSingleTapConfirmed(")
 			.substringBefore("private fun dispatchLegacySingleTapAction(")
 		val adapter = host
-			.substringAfter("private fun completePageGesture(")
+			.substringAfter("private fun completeHostGesture(")
 			.substringBefore("private fun logGestureTerminal(")
 
 		assertContains(controller, "internal sealed interface ReaderPageGestureTerminalDetail")
@@ -914,7 +914,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertFalse(content.contains("legacyGestureDetector.onTouchEvent(event)"))
 		assertContains(contentTerminal, "viewerContentContainer.dispatchTouchEvent(event)")
 		assertFalse(contentTerminal.contains("super.dispatchTouchEvent(event)"))
-		assertContains(contentTerminal, "pageInputSettlementHostController.complete(")
+		assertContains(contentTerminal, "completeHostGesture(")
 		assertContains(terminal, "dispatchContentCancel(event)")
 		assertFalse(terminal.contains("super.dispatchTouchEvent(event)"))
 		assertContains(contentCancel, "viewerContentContainer.dispatchTouchEvent(cancel)")
@@ -956,7 +956,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(typed, "tap.gestureId")
 		assertContains(typed, "tap.x")
 		assertContains(typed, "tap.y")
-		assertContains(typed, "completeDelayedTap(")
+		assertContains(typed, "completeHostDelayedTap(")
 		assertFalse(typed.contains("nativeTapCandidate"))
 		assertFalse(typed.contains("dispatchLegacySingleTapAction("))
 	}
@@ -1027,7 +1027,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(closeReader, "ReaderPageHostLifecycleEvent.ReaderClosed")
 		assertContains(closeReader, "closePhysicalPointerDelivery()")
 		assertContains(begin, "if (finalHostLifecycleEvent != null) return")
-		assertContains(begin, "pageInputSettlementHostController.onLifecycleEvent(event)")
+		assertContains(begin, "dispatchPageHostLifecycleEvent(event)")
 		assertContains(begin, "clearLegacyNativeTapState(reason)")
 		assertFalse(begin.contains("abandonPhysicalPointerStream("))
 

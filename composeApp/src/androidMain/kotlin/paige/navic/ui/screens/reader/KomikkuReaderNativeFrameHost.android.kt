@@ -661,6 +661,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			completePageGesture(gestureId, outcome, detail)
 		},
 		onRasterProfileEpochChanged = ::onRasterProfileEpochChanged,
+		onPreparedActiveDeckChanged = { deck ->
+			pageRasterPreparationController.onPreparedActiveDeckChanged(deck)
+		},
 		onPaginationReadinessChanged = { readiness ->
 			pageRasterHostEventController.paginationReadinessChanged(readiness)
 		},
@@ -674,7 +677,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				event == ReaderPageHostLifecycleEvent.UnsafeContextLost ||
 					event == ReaderPageHostLifecycleEvent.GlFailed
 			)
-			pageInputSettlementHostController.onLifecycleEvent(event)
+			dispatchPageHostLifecycleEvent(event)
 		}
 	)
 	private val tapTurnController = ReaderPageTapTurnControllerFacade(
@@ -706,12 +709,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	)
 	private val pageRasterHostEventController: ReaderPageRasterHostEventController =
 		ReaderPageRasterHostEventController(
-		onRetryEvent = pageRasterPreparationController::onRetryEvent,
-		cancelAllDeferredRetries = pageRasterPreparationController::cancelAllDeferredRetries
-	)
+			onRetryEvent = pageRasterPreparationController::onRetryEvent,
+			cancelAllDeferredRetries = pageRasterPreparationController::cancelAllDeferredRetries,
+			onWebViewAttachmentChanged =
+				pageRasterPreparationController::onWebViewAttachmentChanged
+		)
 
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
 		rasterProfileEpoch = epoch
+		pageRasterPreparationController.onRasterProfileEpochChanged(epoch)
 		if (epoch == null && !task4ResourceTeardownStarted) {
 			removePageTurnPrewarmLayoutListener()
 			requestPageTurnPrewarmWhenReady()
@@ -766,7 +772,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun replaceViewerContent(viewerView: View) {
-		pageInputSettlementHostController.onLifecycleEvent(
+		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.RendererReplaced
 		)
 		playLikeCurlController.invalidate("viewer-replaced")
@@ -789,7 +795,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	fun setVerticalPageDragPreview(value: Boolean) {
 		if (verticalPageDragPreview == value) return
-		pageInputSettlementHostController.onLifecycleEvent(
+		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		verticalPageDragPreview = value
@@ -799,7 +805,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		val supported = enabled && pageTurnBundleSource.isAvailable
 		if (pageTurnCanvasEnabled == supported) return
 		if (!supported) {
-			pageInputSettlementHostController.onLifecycleEvent(
+			dispatchPageHostLifecycleEvent(
 				ReaderPageHostLifecycleEvent.CanvasDisabled
 			)
 		}
@@ -816,7 +822,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	fun setPageTurnReadingDirection(direction: String?) {
 		val normalized = direction?.trim()?.lowercase()
 		if (pageTurnReadingDirection == normalized) return
-		pageInputSettlementHostController.onLifecycleEvent(
+		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		pageTurnReadingDirection = normalized
@@ -831,7 +837,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	fun setPageTurnBitmapQuality(value: String?) {
 		val normalized = normalizeReaderPageBitmapQuality(value)
 		if (pageTurnBitmapQuality == normalized) return
-		pageInputSettlementHostController.onLifecycleEvent(
+		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		pageTurnBitmapQuality = normalized
@@ -841,7 +847,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
 		if (pageTurnSnapshotKey == snapshotKey) return
-		pageInputSettlementHostController.onLifecycleEvent(
+		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		pageTurnSnapshotKey = snapshotKey
@@ -877,7 +883,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			readerPageVisualLocationOrigin(reason) ==
 			ReaderPageVisualLocationOrigin.External
 		) {
-			pageInputSettlementHostController.onLifecycleEvent(
+			dispatchPageHostLifecycleEvent(
 				ReaderPageHostLifecycleEvent.ExternalRelocation
 			)
 		}
@@ -890,7 +896,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	fun setShellCoverVisible(visible: Boolean) {
 		if (shellCoverVisible == visible) return
 		if (visible) {
-			pageInputSettlementHostController.onLifecycleEvent(
+			dispatchPageHostLifecycleEvent(
 				ReaderPageHostLifecycleEvent.ShellCoverShown
 			)
 		}
@@ -1146,7 +1152,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		tap: ReaderPageContentGestureToken
 	): Boolean {
 		if (width <= 0 || height <= 0) {
-			pageInputSettlementHostController.complete(
+			completeHostGesture(
 				tap.gestureId,
 				ReaderPageGestureTerminalOutcome.CancelledByUser
 			)
@@ -1159,7 +1165,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		val action = navigator.getAction(point)
 		logReaderTapAction(action)
 		if (chromeOverlayVisible && action != KomikkuNavigationRegion.MENU) {
-			pageInputSettlementHostController.completeDelayedTap(
+			completeHostDelayedTap(
 				tap.gestureId,
 				ReaderPageGestureTerminalOutcome.CompletedTapAction
 			)
@@ -1174,7 +1180,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			ReaderPageTapDispatchResult.Settling,
 			ReaderPageTapDispatchResult.TerminalPublished -> Unit
 			is ReaderPageTapDispatchResult.CompleteInHost -> {
-				pageInputSettlementHostController.completeDelayedTap(
+				completeHostDelayedTap(
 					tap.gestureId,
 					result.outcome
 				)
@@ -1295,6 +1301,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			} else {
 				ReaderPagePhysicalDispatchMode.Legacy
 			}
+			pageRasterPreparationController.onPointerInteractionChanged(true)
 		}
 
 		val handled = when (physicalDispatchMode) {
@@ -1309,6 +1316,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			event.actionMasked == MotionEvent.ACTION_UP ||
 			event.actionMasked == MotionEvent.ACTION_CANCEL
 		) {
+			if (physicalDispatchMode != ReaderPagePhysicalDispatchMode.PlayLikeCurl) {
+				pageRasterPreparationController.onPointerInteractionChanged(false)
+			}
 			physicalDispatchMode = null
 		}
 		return handled
@@ -1384,7 +1394,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		is ReaderPagePointerRoute.ContentTerminal -> {
 			val handled = viewerContentContainer.dispatchTouchEvent(event)
 			playLikeCurlGestureDetector.onTouchEvent(event)
-			pageInputSettlementHostController.complete(
+			completeHostGesture(
 				route.gestureId,
 				route.outcome
 			)
@@ -1625,12 +1635,40 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		)
 	}
 
+	private fun dispatchPageHostLifecycleEvent(
+		event: ReaderPageHostLifecycleEvent
+	): List<Long> = pageInputSettlementHostController.onLifecycleEvent(event).also { cancelled ->
+		if (cancelled.isNotEmpty()) {
+			pageRasterPreparationController.onPointerInteractionChanged(false)
+		}
+	}
+
+	private fun completeHostGesture(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome
+	): Boolean = pageInputSettlementHostController.complete(
+		gestureId,
+		outcome
+	).also { won ->
+		if (won) pageRasterPreparationController.onPointerInteractionChanged(false)
+	}
+
+	private fun completeHostDelayedTap(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome
+	): Boolean = pageInputSettlementHostController.completeDelayedTap(
+		gestureId,
+		outcome
+	).also { won ->
+		if (won) pageRasterPreparationController.onPointerInteractionChanged(false)
+	}
+
 	private fun completePageGesture(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	): Boolean {
-		val won = pageInputSettlementHostController.complete(
+		val won = completeHostGesture(
 			gestureId,
 			outcome
 		)
@@ -1746,7 +1784,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
 		if (oldw <= 0 || oldh <= 0 || (w == oldw && h == oldh)) return
-		pageInputSettlementHostController.onLifecycleEvent(
+		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ViewportChanged
 		)
 		playLikeCurlController.onHostSizeChanged()
@@ -1765,7 +1803,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			return
 		}
 		pageRasterHostEventController.lifecycleResumedChanged(false)
-		pageInputSettlementHostController.onLifecycleEvent(
+		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.WindowHidden
 		)
 		removePageTurnPrewarmLayoutListener()
@@ -1797,7 +1835,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (finalHostLifecycleEvent != null) return
 		finalHostLifecycleEvent = event
 		val reason = event.cancellationReason()
-		pageInputSettlementHostController.onLifecycleEvent(event)
+		dispatchPageHostLifecycleEvent(event)
 		clearLegacyNativeTapState(reason)
 	}
 

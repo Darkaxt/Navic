@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import android.view.View
 import android.webkit.WebView
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
@@ -10,7 +11,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import paige.navic.reader.ReaderPageAdjacentChapterDirection
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.reader.adjacentChapterDirection
 
 internal data class ReaderPageRasterBatchTarget(
 	val pageIndex: Int,
@@ -23,8 +26,13 @@ internal data class ReaderPageRasterPreparationPlan(
 	val layoutMode: String,
 	val readerDirection: ReaderPlayLikeCurlReaderDirection,
 	val step: Int,
+	val currentChapterIndex: Int,
 	val currentChapterPageStartIndex: Int,
 	val currentChapterPageCount: Int,
+	val previousChapterPageStartIndex: Int,
+	val previousChapterPageCount: Int,
+	val nextChapterPageStartIndex: Int,
+	val nextChapterPageCount: Int,
 	val targets: List<ReaderPageRasterBatchTarget>
 )
 
@@ -45,6 +53,40 @@ internal fun ReaderPageRasterPreparationPlan.preparedChapterRange(): ReaderPageR
 
 internal fun ReaderPageRasterPreparationPlan.preparedRepairPageIndices(): Set<Int> =
 	readerPageRasterBlockingTargets(targets).mapTo(linkedSetOf()) { target -> target.pageIndex }
+
+internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters():
+	List<ReaderPageAdjacentChapterPrefetchChapter> =
+	ReaderPageAdjacentChapterDirection.entries.mapNotNull { direction ->
+		val identity = when (direction) {
+			ReaderPageAdjacentChapterDirection.Previous -> ReaderPageAdjacentChapterIdentity(
+				direction = direction,
+				chapterIndex = currentChapterIndex - 1,
+				pageStartIndex = previousChapterPageStartIndex,
+				pageCount = previousChapterPageCount
+			)
+			ReaderPageAdjacentChapterDirection.Next -> ReaderPageAdjacentChapterIdentity(
+				direction = direction,
+				chapterIndex = currentChapterIndex + 1,
+				pageStartIndex = nextChapterPageStartIndex,
+				pageCount = nextChapterPageCount
+			)
+		}
+		val chapterTargets = targets.filter { target ->
+			target.priority.adjacentChapterDirection == direction &&
+				identity.contains(target.pageIndex)
+		}
+		if (
+			currentChapterIndex >= 0 &&
+			identity.chapterIndex >= 0 &&
+			identity.pageStartIndex >= 0 &&
+			identity.pageCount > 0 &&
+			chapterTargets.isNotEmpty()
+		) {
+			ReaderPageAdjacentChapterPrefetchChapter(identity, chapterTargets)
+		} else {
+			null
+		}
+	}
 
 internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRasterPreparationPlan? {
 	val raw = encoded.orEmpty().trim()
@@ -81,10 +123,20 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 			else -> ReaderPlayLikeCurlReaderDirection.Ltr
 		},
 		step = (context["step"]?.jsonPrimitive?.intOrNull ?: 1).coerceAtLeast(1),
+		currentChapterIndex =
+			context["currentChapterIndex"]?.jsonPrimitive?.intOrNull ?: -1,
 		currentChapterPageStartIndex =
 			context["currentChapterPageStartIndex"]?.jsonPrimitive?.intOrNull ?: -1,
 		currentChapterPageCount =
 			(context["currentChapterPageCount"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0),
+		previousChapterPageStartIndex =
+			context["previousChapterPageStartIndex"]?.jsonPrimitive?.intOrNull ?: -1,
+		previousChapterPageCount =
+			(context["previousChapterPageCount"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0),
+		nextChapterPageStartIndex =
+			context["nextChapterPageStartIndex"]?.jsonPrimitive?.intOrNull ?: -1,
+		nextChapterPageCount =
+			(context["nextChapterPageCount"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0),
 		targets = targets
 	)
 }
@@ -199,13 +251,31 @@ internal fun readerPageRasterPreviewOutcome(
 	}
 }
 
+internal interface ReaderPageRasterBatchPort {
+	fun start(
+		webView: WebView,
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot,
+		targets: List<ReaderPageRasterBatchTarget>,
+		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
+		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit = {},
+		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit = {},
+		onProgress: (completedCount: Int, requiredCount: Int) -> Unit = { _, _ -> },
+		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
+	): Boolean
+
+	fun resetRetryState()
+
+	fun cancel(onRestored: () -> Unit = {})
+}
+
 /**
  * Owns one passive raster preparation session. Disk reads and hidden preview captures are deliberately
  * serialized so the passive Foliate renderer is never asked to represent two pages at once.
  */
 internal class ReaderPageRasterBatchController(
 	private val bundleSource: ReaderPageTurnBundleSource
-) {
+) : ReaderPageRasterBatchPort {
 	private data class RetryState(
 		val generation: Long,
 		val originalPageIndices: Set<Int>,
@@ -224,6 +294,7 @@ internal class ReaderPageRasterBatchController(
 		val progressRequiredCount: Int,
 		val onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		val onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+		val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 		val onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
 		val missingTargets: MutableList<ReaderPageRasterBatchTarget> =
@@ -239,17 +310,19 @@ internal class ReaderPageRasterBatchController(
 	}
 
 	private var nextSessionId = 0L
+	private var nextCancellationVisualStateId = 0L
 	private var activeSession: Session? = null
 	private var retryState: RetryState? = null
 
-	fun start(
+	override fun start(
 		webView: WebView,
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
-		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
-		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit = {},
-		onProgress: (completedCount: Int, requiredCount: Int) -> Unit = { _, _ -> },
+		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
+		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
+		onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
 	): Boolean {
 		if (!webView.isAttachedToWindow || targets.isEmpty()) {
@@ -304,6 +377,7 @@ internal class ReaderPageRasterBatchController(
 			progressRequiredCount = originalPageIndices.size,
 			onStagingStarted = onStagingStarted,
 			onActiveTarget = onActiveTarget,
+			onTargetDurable = onTargetDurable,
 			onProgress = onProgress,
 			onComplete = onComplete
 		)
@@ -316,20 +390,61 @@ internal class ReaderPageRasterBatchController(
 		return true
 	}
 
-	fun cancel() {
-		val session = activeSession ?: return
+	override fun resetRetryState() {
+		retryState = null
+	}
+
+	override fun cancel(onRestored: () -> Unit) {
+		val session = activeSession ?: run {
+			onRestored()
+			return
+		}
 		activeSession = null
 		session.hydrationToken += 1L
 		session.hydrationRequest?.cancel()
 		session.hydrationRequest = null
-		if (session.webView.isAttachedToWindow) {
+		val attached = session.webView.isAttachedToWindow
+		if (attached) {
+			var restorationCompleted = false
+			lateinit var attachmentListener: View.OnAttachStateChangeListener
+			fun completeRestoration() {
+				if (restorationCompleted) return
+				restorationCompleted = true
+				session.webView.removeOnAttachStateChangeListener(attachmentListener)
+				onRestored()
+			}
+			attachmentListener = object : View.OnAttachStateChangeListener {
+				override fun onViewAttachedToWindow(view: View) = Unit
+
+				override fun onViewDetachedFromWindow(view: View) {
+					completeRestoration()
+				}
+			}
+			session.webView.addOnAttachStateChangeListener(attachmentListener)
 			session.webView.evaluateJavascript(
 				"window.NavicReaderBridge?.cancelPageTurnPreviewBatch?.(" +
 					"${JSONObject.quote(session.token)})"
-			) { }
+			) {
+				if (!session.webView.isAttachedToWindow) {
+					completeRestoration()
+					return@evaluateJavascript
+				}
+				val visualStateId = Math.incrementExact(nextCancellationVisualStateId).also {
+					nextCancellationVisualStateId = it
+				}
+				session.webView.postVisualStateCallback(
+					visualStateId,
+					object : WebView.VisualStateCallback() {
+						override fun onComplete(requestId: Long) {
+							session.webView.postOnAnimation(::completeRestoration)
+						}
+					}
+				)
+			}
 		}
 		session.reference.release()
 		session.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
+		if (!attached) onRestored()
 	}
 
 	private fun hydrateTarget(session: Session, targetIndex: Int) {
@@ -460,6 +575,7 @@ internal class ReaderPageRasterBatchController(
 			reference = session.reference,
 			itemToken = itemToken,
 			priority = target.priority,
+			isStillCurrent = { isSessionActive(session) },
 			onStagingStarted = session.onStagingStarted,
 			onCaptureFailed = captureFailed@{
 				if (!isSessionActive(session)) return@captureFailed
@@ -498,39 +614,34 @@ internal class ReaderPageRasterBatchController(
 		session: Session,
 		target: ReaderPageRasterBatchTarget,
 		persisted: Boolean
-	): Boolean = when (
-		val decision = session.durabilityGate.record(
-			pageIndex = target.pageIndex,
-			persisted = persisted
-		)
-	) {
-		is ReaderPageRasterDurabilityDecision.Continue -> {
-			session.completedCount = decision.completed
-			session.onProgress(
-				session.progressCompletedOffset + decision.completed,
-				session.progressRequiredCount
+	): Boolean {
+		val completed = when (
+			val decision = session.durabilityGate.record(
+				pageIndex = target.pageIndex,
+				persisted = persisted
 			)
-			true
-		}
-		ReaderPageRasterDurabilityDecision.Ready -> {
-			session.completedCount = session.requiredCount
-			session.onProgress(
-				session.progressCompletedOffset + session.completedCount,
-				session.progressRequiredCount
-			)
-			true
-		}
-		is ReaderPageRasterDurabilityDecision.Failed -> {
-			finish(
-				session,
-				ReaderPageRasterBatchOutcome.Failed(
-					stage = "persistent-publication",
-					pageIndex = decision.pageIndex,
-					reason = "durable-write-failed"
+		) {
+			is ReaderPageRasterDurabilityDecision.Continue -> decision.completed
+			ReaderPageRasterDurabilityDecision.Ready -> session.requiredCount
+			is ReaderPageRasterDurabilityDecision.Failed -> {
+				finish(
+					session,
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "persistent-publication",
+						pageIndex = decision.pageIndex,
+						reason = "durable-write-failed"
+					)
 				)
-			)
-			false
+				return false
+			}
 		}
+		session.completedCount = completed
+		session.onTargetDurable(target)
+		session.onProgress(
+			session.progressCompletedOffset + completed,
+			session.progressRequiredCount
+		)
+		return true
 	}
 
 	private fun isSessionActive(session: Session): Boolean =

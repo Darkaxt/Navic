@@ -655,19 +655,20 @@ internal class ReaderPageTurnBundleSource(
 		reference: ReaderPageSlideSnapshot,
 		itemToken: String,
 		priority: ReaderPageRasterPriority,
+		isStillCurrent: () -> Boolean = { true },
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
 		onCaptureFailed: () -> Unit,
 		onCaptured: (Boolean) -> Unit
 	) {
 		activeWebView = WeakReference(webView)
 		val generation = activeGeneration
-		if (closed || !webView.isAttachedToWindow) {
+		if (closed || !webView.isAttachedToWindow || !isStillCurrent()) {
 			onCaptureFailed()
 			return
 		}
 		cachedSnapshot(pageIndex, kind)?.let { cached ->
 			schedulePersistentSnapshot(cached, priority) { persisted ->
-				onCaptured(persisted)
+				if (isStillCurrent()) onCaptured(persisted)
 			}
 			return
 		}
@@ -684,10 +685,16 @@ internal class ReaderPageTurnBundleSource(
 			generation = generation,
 			reference = reference,
 			destinationKey = destinationKey,
+			isStillCurrent = isStillCurrent,
 			onStagingStarted = { onStagingStarted(reference) }
 		) { captured ->
 			try {
-				if (captured == null || generation != activeGeneration || closed) {
+				if (
+					captured == null ||
+					generation != activeGeneration ||
+					closed ||
+					!isStillCurrent()
+				) {
 					captured?.releaseCacheOwnership()
 					onCaptureFailed()
 					return@capturePreparedPage
@@ -711,32 +718,54 @@ internal class ReaderPageTurnBundleSource(
 		generation: Long,
 		reference: ReaderPageSlideSnapshot,
 		destinationKey: ReaderPageSlideSnapshotKey,
+		isStillCurrent: () -> Boolean,
 		onStagingStarted: () -> Unit,
 		onCaptured: (ReaderPageSlideSnapshot?) -> Unit
 	) {
+		if (!isStillCurrent()) {
+			onCaptured(null)
+			return
+		}
 		val captureStartedAt = SystemClock.uptimeMillis()
 		val quotedToken = JSONObject.quote(token)
 		onStagingStarted()
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
 		) { encoded ->
-			if (generation != activeGeneration || !encoded.isJavascriptTrue()) {
+			if (
+				generation != activeGeneration ||
+				!isStillCurrent() ||
+				!encoded.isJavascriptTrue()
+			) {
 				restoreLiveComposition(webView, token) { onCaptured(null) }
 				return@evaluateJavascript
 			}
 			webView.postOnAnimation {
+				if (!isStillCurrent()) {
+					restoreLiveComposition(webView, token) { onCaptured(null) }
+					return@postOnAnimation
+				}
 				capturePreparedSurface(webView, reference) { bitmap ->
 					restoreLiveComposition(webView, token) {
-						onCaptured(bitmap?.let {
+						if (
+							bitmap == null ||
+							generation != activeGeneration ||
+							!isStillCurrent()
+						) {
+							bitmap?.takeUnless { it.isRecycled }?.recycle()
+							onCaptured(null)
+							return@restoreLiveComposition
+						}
+						onCaptured(
 							ReaderPageSlideSnapshot(
 								key = destinationKey,
-								bitmap = it,
+								bitmap = bitmap,
 								surfaceRectInWindow = Rect(reference.surfaceRectInWindow),
 								leafGeometry = reference.leafGeometry,
 								reverseFaceColor = reference.reverseFaceColor,
 								captureMillis = SystemClock.uptimeMillis() - captureStartedAt
 							)
-						})
+						)
 					}
 				}
 			}

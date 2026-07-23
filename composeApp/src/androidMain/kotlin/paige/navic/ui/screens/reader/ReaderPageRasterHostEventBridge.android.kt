@@ -88,7 +88,8 @@ internal class ReaderPageRasterHostEventBridge(
 
 internal class ReaderPageRasterHostEventController(
 	onRetryEvent: (ReaderPageRasterRetryEvent) -> Unit,
-	private val cancelAllDeferredRetries: () -> Unit
+	private val cancelAllDeferredRetries: () -> Unit,
+	private val onWebViewAttachmentChanged: (Boolean) -> Unit = {}
 ) {
 	private val bridge = ReaderPageRasterHostEventBridge(onRetryEvent)
 
@@ -102,13 +103,16 @@ internal class ReaderPageRasterHostEventController(
 	fun paginationReadinessChanged(readiness: ReaderPagePaginationReadiness) =
 		bridge.paginationReadinessChanged(readiness)
 
-	fun webViewAttachmentChanged(attached: Boolean) =
+	fun webViewAttachmentChanged(attached: Boolean) {
 		bridge.webViewAttachmentChanged(attached)
+		onWebViewAttachmentChanged(attached)
+	}
 
 	fun lifecycleResumedChanged(resumed: Boolean) =
 		bridge.lifecycleResumedChanged(resumed)
 
 	fun close() {
+		onWebViewAttachmentChanged(false)
 		bridge.reset()
 		cancelAllDeferredRetries()
 	}

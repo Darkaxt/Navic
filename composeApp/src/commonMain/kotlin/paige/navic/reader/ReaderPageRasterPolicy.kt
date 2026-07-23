@@ -23,6 +23,22 @@ enum class ReaderPageRasterPriority(val rank: Int) {
 	PreviousChapterRemainder(9)
 }
 
+enum class ReaderPageAdjacentChapterDirection {
+	Previous,
+	Next
+}
+
+val ReaderPageRasterPriority.adjacentChapterDirection: ReaderPageAdjacentChapterDirection?
+	get() = when (this) {
+		ReaderPageRasterPriority.PreviousChapter,
+		ReaderPageRasterPriority.PreviousChapterRemainder ->
+			ReaderPageAdjacentChapterDirection.Previous
+		ReaderPageRasterPriority.NextChapter,
+		ReaderPageRasterPriority.NextChapterRemainder ->
+			ReaderPageAdjacentChapterDirection.Next
+		else -> null
+	}
+
 fun normalizeReaderPageBitmapQuality(value: String?): ReaderPageBitmapQuality =
 	ReaderPageBitmapQuality.entries.firstOrNull { quality ->
 		quality.persistedValue == value?.trim()

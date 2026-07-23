@@ -5,13 +5,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderPageAdjacentChapterDirection
 import paige.navic.reader.ReaderPageRasterPriority
 
 class ReaderPageRasterBatchPlanTest {
 	@Test
 	fun parsesStableJsPriorityContract() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":10,"priority":"next-transition"},{"pageIndex":6,"priority":"previous-transition"},{"pageIndex":12,"priority":"current-chapter"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":4,"priority":"previous-chapter"}]}"""
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":10,"priority":"next-transition"},{"pageIndex":6,"priority":"previous-transition"},{"pageIndex":12,"priority":"current-chapter"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":4,"priority":"previous-chapter"}]}"""
 		)
 
 		assertNotNull(plan)
@@ -134,6 +135,26 @@ class ReaderPageRasterBatchPlanTest {
 			),
 			readerPageRasterBackgroundTargets(plan.targets).map { target -> target.priority }
 		)
+	}
+
+	@Test
+	fun adjacentChapterTargetsBecomeSeparateIdentityQualifiedBatches() {
+		val plan = readerPageRasterPreparationPlan(
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":18,"priority":"next-chapter-remainder"},{"pageIndex":4,"priority":"previous-chapter"},{"pageIndex":2,"priority":"previous-chapter-remainder"}]}"""
+		)
+
+		assertNotNull(plan)
+		val chapters = plan.adjacentChapterPrefetchChapters()
+		assertEquals(
+			listOf(
+				ReaderPageAdjacentChapterDirection.Previous,
+				ReaderPageAdjacentChapterDirection.Next
+			),
+			chapters.map { chapter -> chapter.identity.direction }
+		)
+		assertEquals(listOf(4, 2), chapters[0].targets.map { target -> target.pageIndex })
+		assertEquals(listOf(20, 18), chapters[1].targets.map { target -> target.pageIndex })
+		assertEquals(listOf(1, 3), chapters.map { chapter -> chapter.identity.chapterIndex })
 	}
 
 	@Test

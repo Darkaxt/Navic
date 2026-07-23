@@ -98,6 +98,23 @@ class ReaderPageRasterHostEventBridgeTest {
 	}
 
 	@Test
+	fun hostControllerForwardsAttachmentStateToBackgroundOwnership() {
+		val attachments = mutableListOf<Boolean>()
+		val events = ReaderPageRasterHostEventController(
+			onRetryEvent = {},
+			cancelAllDeferredRetries = {},
+			onWebViewAttachmentChanged = attachments::add
+		)
+
+		events.webViewAttachmentChanged(false)
+		events.webViewAttachmentChanged(true)
+		events.webViewAttachmentChanged(true)
+		events.close()
+
+		assertEquals(listOf(false, true, true, false), attachments)
+	}
+
+	@Test
 	fun contentAndLayoutEdgesRearmAfterBecomingNotReadyOrUnstable() {
 		val published = mutableListOf<ReaderPageRasterRetryEvent>()
 		val bridge = ReaderPageRasterHostEventBridge(published::add)

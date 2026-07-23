@@ -24,7 +24,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(source, "reason = \"durable-write-failed\"")
 		assertContains(source, "session.durabilityGate.retryPageIndices()")
 		assertContains(source, "target.pageIndex in candidate.retryPageIndices")
-		assertContains(source, "progressCompletedOffset + decision.completed")
+		assertContains(source, "progressCompletedOffset + completed")
 		assertFalse(source.contains("private fun markCompleted("))
 	}
 
@@ -38,11 +38,26 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun preparationShieldWaitsForSessionFencedRestorationOnCancellation() {
+		val source = readerRasterPreparationSource()
+		val cancellation = source.substringAfter(
+			"private fun cancelPrewarm(reason: String) {"
+		).substringBefore("private fun reusePreparationShield(")
+		val removal = source.substringAfter(
+			"private fun removePreparationShield("
+		).substringBefore("private fun shieldDetail(")
+
+		assertContains(cancellation, "rasterBatchController.cancel {")
+		assertContains(cancellation, "expectedSession = cancelledSession")
+		assertContains(removal, "preparationShieldSession != expectedSession")
+	}
+
+	@Test
 	fun preparationLifecycleLogsEveryRemovalAndInvalidationCause() {
 		val source = readerRasterPreparationSource()
 
 		assertContains(source, "cancelPrewarm(reason:")
-		assertContains(source, "removePreparationShield(reason:")
+		assertContains(source, "removePreparationShield(")
 		assertContains(source, "event = \"invalidated\"")
 		assertContains(source, "\"shield-attached\"")
 		assertContains(source, "event = \"shield-removed\"")
@@ -60,6 +75,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(function, "cancelRasterRepairs(\"visual-index-cleared:")
 		assertFalse(function.contains("if (currentVisualPageIndex != null)"))
 		assertContains(function, "currentVisualPageIndex = null")
+		assertContains(function, "beginBlockingBackgroundPrefetchSession()")
 		assertContains(function, "cancelRasterRepairs(\"visual-index-changed:")
 		assertContains(function, "cancelPrewarm(reason = \"visual-index-changed:")
 		assertContains(function, "currentVisualPageIndex = pageIndex")
@@ -137,7 +153,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "reason=outside-prepared-window")
 		assertContains(repair, "ReaderPageRasterBatchTarget(pageIndex")
 		assertContains(repair, "event = \"page-repair-requested\"")
-		assertContains(repair, "cancelBackgroundPrefetch(\"page-repair\")")
+		assertContains(repair, "adjacentChapterPrefetchCoordinator.suspendForForegroundWork()")
 		assertContains(repair, "\"page-repair-completed\"")
 		assertContains(repair, "\"page-repair-failed\"")
 		assertContains(repair, "ReaderPageRasterRepairResult.Repaired")
@@ -155,21 +171,45 @@ class ReaderPageRasterPreparationSourceTest {
 		val source = readerRasterPreparationSource()
 		val background = source.substringAfter(
 			"private fun scheduleBackgroundPrefetch("
-		).substringBefore("\n\tprivate fun cancelBackgroundPrefetch(")
+		).substringBefore("\n\tprivate fun logPrewarmBoundary(")
 
 		assertContains(source, "private val rasterBackgroundBatchController")
 		assertContains(source, "Looper.myQueue().addIdleHandler")
-		assertContains(background, "readerPageRasterBackgroundTargets(")
+		assertContains(background, "submission.targets")
 		assertContains(background, "rasterBackgroundBatchController.start(")
 		assertContains(background, "event = \"background-prefetch-scheduled\"")
 		assertContains(background, "event = \"background-prefetch-started\"")
 		assertContains(background, "event = \"background-prefetch-progress\"")
-		assertContains(background, "event = \"background-prefetch-completed\"")
+		assertContains(background, "\"background-prefetch-completed\"")
 		assertContains(background, "event = \"background-prefetch-failed\"")
 		assertContains(background, "activeRasterRepairPageIndex == null")
 		assertContains(background, "rasterRepairCallbacks.isEmpty()")
+		assertContains(background, "showBackgroundPrefetchShield(snapshot, submission)")
+		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
+		assertContains(background, "rasterBackgroundBatchController.cancel {")
+		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
 		assertFalse(background.contains("publishPreparationState("))
 		assertFalse(background.contains("reusePreparationShield("))
+	}
+
+	@Test
+	fun adjacentChapterShieldHasIndependentSessionFencedLeaseOwnership() {
+		val source = readerRasterPreparationSource()
+		val shield = source.substringAfter(
+			"private fun showBackgroundPrefetchShield("
+		).substringBefore("\n\tprivate fun cancelBackgroundPrefetchSubmission(")
+
+		assertContains(source, "private var backgroundPrefetchShieldSessionId: Long?")
+		assertContains(shield, "backgroundBatchSubmission != submission")
+		assertContains(shield, "adjacentChapterPrefetchCoordinator.isActive(submission)")
+		assertContains(shield, "snapshot.retain()")
+		assertContains(shield, "currentSnapshot?.release()")
+		assertContains(shield, "backgroundPrefetchShieldSessionId != sessionId")
+		assertContains(shield, "snapshot?.release()")
+		assertContains(shield, "isClickable = false")
+		assertContains(shield, "importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO")
+		assertFalse(shield.contains("publishPreparationState("))
+		assertFalse(shield.contains("reusePreparationShield("))
 	}
 }
 

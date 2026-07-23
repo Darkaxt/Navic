@@ -27,9 +27,24 @@ private data class ReaderPageRasterBackgroundPrefetch(
 	val webView: WebView,
 	val centerPageIndex: Int,
 	val kind: ReaderPageTurnTransitionKind,
-	val targets: List<ReaderPageRasterBatchTarget>,
+	val currentChapterIndex: Int,
+	val currentChapterPageStartIndex: Int,
+	val currentChapterPageCount: Int,
+	val chapters: List<ReaderPageAdjacentChapterPrefetchChapter>,
 	val generation: Long
-)
+) {
+	fun qualifiedPlan(rasterProfileEpoch: Long): ReaderPageAdjacentChapterPrefetchPlan =
+		ReaderPageAdjacentChapterPrefetchPlan(
+			key = ReaderPageAdjacentChapterPrefetchKey(
+				currentChapterIndex = currentChapterIndex,
+				currentChapterPageStartIndex = currentChapterPageStartIndex,
+				currentChapterPageCount = currentChapterPageCount,
+				rasterProfileEpoch = rasterProfileEpoch,
+				rasterEpoch = generation
+			),
+			chapters = chapters
+		)
+}
 
 private data class ReaderPageRasterRetryAttempt(
 	val sessionId: Long,
@@ -38,6 +53,29 @@ private data class ReaderPageRasterRetryAttempt(
 ) {
 	fun observedVersion(reason: ReaderPageRasterDeferralReason): Long =
 		checkNotNull(observedVersions[reason])
+}
+
+internal fun interface ReaderPageRasterPreparationPlanPort {
+	fun query(
+		webView: WebView,
+		centerPageIndex: Int?,
+		onPlan: (ReaderPageRasterPreparationPlan?) -> Unit
+	)
+}
+
+private class ReaderPageWebViewRasterPreparationPlanPort :
+	ReaderPageRasterPreparationPlanPort {
+	override fun query(
+		webView: WebView,
+		centerPageIndex: Int?,
+		onPlan: (ReaderPageRasterPreparationPlan?) -> Unit
+	) {
+		val centerExpression = centerPageIndex?.toString() ?: "null"
+		webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(" +
+				"$centerExpression) ?? null)"
+		) { encoded -> onPlan(readerPageRasterPreparationPlan(encoded)) }
+	}
 }
 
 internal fun readerPageTurnCanStartPassivePrewarm(
@@ -59,12 +97,42 @@ internal class ReaderPageRasterPreparationController(
 	private val bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
 	private val onRequestPrewarm: () -> Unit = {},
 	private val onAwaitHostEvent: (ReaderPageRasterDeferralReason) -> Unit = {},
-	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {}
+	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
+	private val rasterBatchController: ReaderPageRasterBatchPort =
+		ReaderPageRasterBatchController(bundleSource),
+	private val rasterRepairBatchController: ReaderPageRasterBatchPort =
+		ReaderPageRasterBatchController(bundleSource),
+	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
+		ReaderPageRasterBatchController(bundleSource),
+	private val rasterPlanPort: ReaderPageRasterPreparationPlanPort =
+		ReaderPageWebViewRasterPreparationPlanPort(),
+	private val retainedSnapshot: (
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind
+	) -> ReaderPageSlideSnapshot? = bundleSource::retainedSnapshot
 ) {
 	private val deferredRetryCoordinator = ReaderPageRasterDeferredRetryCoordinator()
-	private val rasterBatchController = ReaderPageRasterBatchController(bundleSource)
-	private val rasterRepairBatchController = ReaderPageRasterBatchController(bundleSource)
-	private val rasterBackgroundBatchController = ReaderPageRasterBatchController(bundleSource)
+	private val adjacentChapterPrefetchCoordinator =
+		ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = ::scheduleBackgroundPrefetch,
+			onCancel = ::cancelBackgroundPrefetchSubmission
+		)
+	private var backgroundPrefetchWebView: WebView? = null
+	private val backgroundPrefetchAttachmentListener =
+		object : View.OnAttachStateChangeListener {
+			override fun onViewAttachedToWindow(view: View) {
+				if (view === backgroundPrefetchWebView) {
+					adjacentChapterPrefetchCoordinator.onHostAvailabilityChanged(true)
+				}
+			}
+
+			override fun onViewDetachedFromWindow(view: View) {
+				if (view === backgroundPrefetchWebView) {
+					adjacentChapterPrefetchCoordinator.onHostAvailabilityChanged(false)
+					removeBackgroundPrefetchShield()
+				}
+			}
+		}
 	private val rasterRepairCallbacks = linkedMapOf<
 		Int,
 		MutableList<(ReaderPageRasterRepairResult) -> Unit>
@@ -79,6 +147,12 @@ internal class ReaderPageRasterPreparationController(
 	private var preparedRepairPageIndices: Set<Int> = emptySet()
 	private var candidateRepairPageIndices: Set<Int> = emptySet()
 	private var candidateBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
+	private var durableBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
+	private var currentRasterProfileEpoch: Long? = null
+	private var backgroundBatchSubmission: ReaderPageAdjacentChapterPrefetchSubmission? = null
+	private var backgroundPrefetchShield: ImageView? = null
+	private var backgroundPrefetchShieldSnapshot: ReaderPageSlideSnapshot? = null
+	private var backgroundPrefetchShieldSessionId: Long? = null
 	private var prewarmSession = 0L
 	private var prewarmRetryAttempt: ReaderPageRasterRetryAttempt? = null
 	private var pendingPrewarmRetryCount = 0
@@ -93,8 +167,6 @@ internal class ReaderPageRasterPreparationController(
 	private var lastPrewarmBoundary: String? = null
 	private var lastPreparationStateTrace: String? = null
 	private var hasPreparedBefore = false
-	private var backgroundPrefetchSession = 0L
-	private var backgroundPrefetchInProgress = false
 	private var preparationShield: ImageView? = null
 	private var preparationShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var preparationShieldSession: Long? = null
@@ -224,6 +296,41 @@ internal class ReaderPageRasterPreparationController(
 	fun onRetryEvent(event: ReaderPageRasterRetryEvent): Boolean =
 		deferredRetryCoordinator.onRetryEvent(event)
 
+	fun onRasterProfileEpochChanged(epoch: Long?) {
+		if (destroyed || currentRasterProfileEpoch == epoch) return
+		val replacedProfile = currentRasterProfileEpoch != null && epoch != null
+		currentRasterProfileEpoch = epoch
+		if (replacedProfile) {
+			cancelBackgroundPrefetch("raster-profile-replaced")
+			cancelPrewarm(reason = "raster-profile-replaced")
+			onRequestPrewarm()
+			return
+		}
+		if (epoch == null) {
+			durableBackgroundPrefetch = null
+			adjacentChapterPrefetchCoordinator.clear()
+			rasterBackgroundBatchController.resetRetryState()
+			clearBackgroundPrefetchWebView()
+			return
+		}
+		durableBackgroundPrefetch?.let(::publishDurableAdjacentChapterPlan)
+	}
+
+	fun onPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
+		if (destroyed) return
+		adjacentChapterPrefetchCoordinator.onPreparedActiveDeckChanged(deck)
+	}
+
+	fun onWebViewAttachmentChanged(attached: Boolean) {
+		if (destroyed) return
+		adjacentChapterPrefetchCoordinator.onHostAvailabilityChanged(attached)
+	}
+
+	fun onPointerInteractionChanged(active: Boolean) {
+		if (destroyed) return
+		adjacentChapterPrefetchCoordinator.onInteractionActiveChanged(active)
+	}
+
 	fun cancelAllDeferredRetries() {
 		deferredRetryCoordinator.cancelAll()
 		deferredPrewarmSessionId = null
@@ -246,8 +353,10 @@ internal class ReaderPageRasterPreparationController(
 		if (destroyed) return
 		destroyed = true
 		cancelBackgroundPrefetch("destroy")
+		removeBackgroundPrefetchShield()
 		cancelRasterRepairs("destroy")
 		cancelPrewarm(reason = "destroy")
+		removePreparationShield(reason = "destroy")
 		cancelAllDeferredRetries()
 		bundleSource.close()
 		currentVisualPageIndex = null
@@ -308,7 +417,7 @@ internal class ReaderPageRasterPreparationController(
 			if (reason == "page-turn:exact") onRequestPrewarm()
 			return
 		}
-		cancelBackgroundPrefetch("visual-index-changed:${reason ?: "unspecified"}")
+		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("visual-index-changed:${reason ?: "unspecified"}")
 		cancelPrewarm(reason = "visual-index-changed:${reason ?: "unspecified"}")
 		currentVisualPageIndex = pageIndex
@@ -361,7 +470,7 @@ internal class ReaderPageRasterPreparationController(
 				resumePrewarmAfterRasterRepairs = true
 			}
 		}
-		cancelBackgroundPrefetch("page-repair")
+		adjacentChapterPrefetchCoordinator.suspendForForegroundWork()
 		val retryAttempt = newRetryAttempt()
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		if (webView == null) {
@@ -380,7 +489,7 @@ internal class ReaderPageRasterPreparationController(
 		}
 		val centerOrdinal = currentVisualPageIndex
 		val reference = centerOrdinal?.let { index ->
-			bundleSource.retainedSnapshot(index, kind)
+			retainedSnapshot(index, kind)
 		}
 		if (reference == null) {
 			finishRasterRepair(
@@ -507,6 +616,9 @@ internal class ReaderPageRasterPreparationController(
 			detail = "page=$pageIndex detail=$detail generation=${bundleSource.currentGeneration()}"
 		)
 		callbacks.forEach { callback -> callback(result) }
+		if (rasterRepairCallbacks.isEmpty()) {
+			adjacentChapterPrefetchCoordinator.resumeAfterForegroundWork()
+		}
 		if (rasterRepairCallbacks.isEmpty() && resumePrewarmAfterRasterRepairs) {
 			resumePrewarmAfterRasterRepairs = false
 			onRequestPrewarm()
@@ -549,6 +661,13 @@ internal class ReaderPageRasterPreparationController(
 		callbacks.forEach { callback -> callback(ReaderPageRasterRepairResult.Cancelled) }
 	}
 
+	private fun beginBlockingBackgroundPrefetchSession() {
+		adjacentChapterPrefetchCoordinator.beginBlockingSession()
+		rasterBackgroundBatchController.resetRetryState()
+		candidateBackgroundPrefetch = null
+		durableBackgroundPrefetch = null
+	}
+
 	fun prewarmAdjacent(): Boolean {
 		if (prewarmInProgress) return true
 		if (
@@ -564,7 +683,7 @@ internal class ReaderPageRasterPreparationController(
 		)) return false
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
 		deferredPrewarmSessionId?.let(deferredRetryCoordinator::cancel)
-		cancelBackgroundPrefetch("blocking-session-started")
+		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("blocking-session-started")
 		prewarmRetryAttempt = newRetryAttempt(pendingPrewarmRetryCount)
 		pendingPrewarmRetryCount = 0
@@ -595,13 +714,8 @@ internal class ReaderPageRasterPreparationController(
 
 	private fun queryRasterPreparationPlan(webView: WebView, session: Long) {
 		if (!isPrewarmActive(webView, session)) return
-		val centerExpression = currentVisualPageIndex?.toString() ?: "null"
-		webView.evaluateJavascript(
-			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(" +
-				"$centerExpression) ?? null)"
-		) { encoded ->
-			if (!isPrewarmActive(webView, session)) return@evaluateJavascript
-			val plan = readerPageRasterPreparationPlan(encoded)
+		rasterPlanPort.query(webView, currentVisualPageIndex) plan@{ plan ->
+			if (!isPrewarmActive(webView, session)) return@plan
 			if (plan == null) {
 				logPrewarmBoundary("plan-unavailable", "session=$session")
 				finishPrewarm(
@@ -611,7 +725,7 @@ internal class ReaderPageRasterPreparationController(
 						reason = "pagination-not-ready"
 					)
 				)
-				return@evaluateJavascript
+				return@plan
 			}
 			val expectedLayout = expectedLayoutMode(webView)
 			if (plan.layoutMode != expectedLayout) {
@@ -627,7 +741,7 @@ internal class ReaderPageRasterPreparationController(
 						reason = "layout-unstable"
 					)
 				)
-				return@evaluateJavascript
+				return@plan
 			}
 			val visualPageIndex = currentVisualPageIndex
 			if (visualPageIndex == null) {
@@ -644,7 +758,7 @@ internal class ReaderPageRasterPreparationController(
 						reason = "content-not-ready"
 					)
 				)
-				return@evaluateJavascript
+				return@plan
 			}
 			logPrewarmBoundary(
 				event = "plan-accepted",
@@ -667,7 +781,10 @@ internal class ReaderPageRasterPreparationController(
 				webView = webView,
 				centerPageIndex = plan.centerPageIndex,
 				kind = kind,
-				targets = plan.targets,
+				currentChapterIndex = plan.currentChapterIndex,
+				currentChapterPageStartIndex = plan.currentChapterPageStartIndex,
+				currentChapterPageCount = plan.currentChapterPageCount,
+				chapters = plan.adjacentChapterPrefetchChapters(),
 				generation = bundleSource.currentGeneration()
 			)
 			val calibrationTargets = readerPageRasterCalibrationTargets(plan.targets)
@@ -757,7 +874,7 @@ internal class ReaderPageRasterPreparationController(
 			finishPrewarm(ReaderPageRasterBatchOutcome.Ready)
 			return
 		}
-		val reference = bundleSource.retainedSnapshot(plan.centerPageIndex, kind) ?: run {
+		val reference = retainedSnapshot(plan.centerPageIndex, kind) ?: run {
 			finishPrewarm(
 				ReaderPageRasterBatchOutcome.Deferred(
 					stage = "follow-up-reference",
@@ -846,7 +963,7 @@ internal class ReaderPageRasterPreparationController(
 		kind: ReaderPageTurnTransitionKind,
 		onResolved: (ReaderPageSlideSnapshot?) -> Unit
 	) {
-		bundleSource.retainedSnapshot(pageIndex, kind)?.let { retained ->
+		retainedSnapshot(pageIndex, kind)?.let { retained ->
 			onResolved(retained)
 			return
 		}
@@ -892,7 +1009,7 @@ internal class ReaderPageRasterPreparationController(
 				preparedChapterRange = candidateChapterRange ?: preparedChapterRange
 				preparedRepairPageIndices = candidateRepairPageIndices
 				publishPreparationState(ReaderPagePreparationPhase.Ready)
-				backgroundPrefetch?.let(::scheduleBackgroundPrefetch)
+				backgroundPrefetch?.let(::publishDurableAdjacentChapterPlan)
 			}
 			ReaderPageRasterBatchOutcome.Cancelled -> publishPreparationState(
 				if (hasPreparedBefore) ReaderPagePreparationPhase.Ready
@@ -978,22 +1095,66 @@ internal class ReaderPageRasterPreparationController(
 		}
 	}
 
-	private fun scheduleBackgroundPrefetch(prefetch: ReaderPageRasterBackgroundPrefetch) {
-		val targets = readerPageRasterBackgroundTargets(prefetch.targets)
-		if (targets.isEmpty()) return
-		cancelBackgroundPrefetch("rescheduled")
-		val session = ++backgroundPrefetchSession
+	private fun observeBackgroundPrefetchWebView(webView: WebView) {
+		if (backgroundPrefetchWebView !== webView) {
+			backgroundPrefetchWebView?.removeOnAttachStateChangeListener(
+				backgroundPrefetchAttachmentListener
+			)
+			backgroundPrefetchWebView = webView
+			webView.addOnAttachStateChangeListener(backgroundPrefetchAttachmentListener)
+		}
+		adjacentChapterPrefetchCoordinator.onHostAvailabilityChanged(
+			webView.isAttachedToWindow
+		)
+	}
+
+	private fun clearBackgroundPrefetchWebView() {
+		backgroundPrefetchWebView?.removeOnAttachStateChangeListener(
+			backgroundPrefetchAttachmentListener
+		)
+		backgroundPrefetchWebView = null
+	}
+
+	private fun publishDurableAdjacentChapterPlan(
+		prefetch: ReaderPageRasterBackgroundPrefetch
+	) {
+		durableBackgroundPrefetch = prefetch
+		val profileEpoch = currentRasterProfileEpoch ?: return
+		if (prefetch.chapters.isEmpty()) {
+			adjacentChapterPrefetchCoordinator.clear()
+			clearBackgroundPrefetchWebView()
+			return
+		}
+		observeBackgroundPrefetchWebView(prefetch.webView)
+		adjacentChapterPrefetchCoordinator.replaceDurablePlan(
+			prefetch.qualifiedPlan(profileEpoch)
+		)
+	}
+
+	private fun scheduleBackgroundPrefetch(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission
+	) {
+		val prefetch = durableBackgroundPrefetch
+		val profileEpoch = currentRasterProfileEpoch
+		if (
+			prefetch == null ||
+			profileEpoch == null ||
+			prefetch.qualifiedPlan(profileEpoch).key != submission.key
+		) {
+			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
+			return
+		}
 		logLoadingEvent(
 			event = "background-prefetch-scheduled",
-			detail = "session=$session center=${prefetch.centerPageIndex} " +
-				"pages=${targets.joinToString(",") { target -> target.pageIndex.toString() }} " +
+			detail = "session=${submission.sessionId} chapter=${submission.chapter.identity.chapterIndex} " +
+				"direction=${submission.chapter.identity.direction} pages=${submission.targets.size} " +
 				"generation=${prefetch.generation}"
 		)
 		host.post {
-			if (!isBackgroundPrefetchActive(session, prefetch)) return@post
+			if (!isBackgroundPrefetchActive(submission, prefetch)) return@post
 			Looper.myQueue().addIdleHandler {
-				if (isBackgroundPrefetchActive(session, prefetch)) {
-					startBackgroundPrefetch(session, prefetch, targets)
+				if (isBackgroundPrefetchActive(submission, prefetch)) {
+					startBackgroundPrefetch(submission, prefetch)
 				}
 				false
 			}
@@ -1001,84 +1162,183 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	private fun startBackgroundPrefetch(
-		session: Long,
-		prefetch: ReaderPageRasterBackgroundPrefetch,
-		targets: List<ReaderPageRasterBatchTarget>
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		prefetch: ReaderPageRasterBackgroundPrefetch
 	) {
-		if (!isBackgroundPrefetchActive(session, prefetch)) return
-		val reference = bundleSource.retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
+		if (!isBackgroundPrefetchActive(submission, prefetch)) return
+		val reference = retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
 		if (reference == null) {
 			logLoadingEvent(
 				event = "background-prefetch-failed",
-				detail = "session=$session reason=reference-unavailable " +
-					"center=${prefetch.centerPageIndex} generation=${prefetch.generation}"
+				detail = "session=${submission.sessionId} reason=reference-unavailable " +
+					"chapter=${submission.chapter.identity.chapterIndex} generation=${prefetch.generation}"
 			)
+			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
 			return
 		}
-		backgroundPrefetchInProgress = true
+		backgroundBatchSubmission = submission
 		logLoadingEvent(
 			event = "background-prefetch-started",
-			detail = "session=$session pages=${targets.size} generation=${prefetch.generation}"
+			detail = "session=${submission.sessionId} chapter=${submission.chapter.identity.chapterIndex} " +
+				"pages=${submission.targets.size} generation=${prefetch.generation}"
 		)
 		val started = rasterBackgroundBatchController.start(
 			webView = prefetch.webView,
 			kind = prefetch.kind,
 			reference = reference,
-			targets = targets,
+			targets = submission.targets,
+			onStagingStarted = { snapshot ->
+				showBackgroundPrefetchShield(snapshot, submission)
+			},
+			onTargetDurable = { target ->
+				adjacentChapterPrefetchCoordinator.onTargetDurable(
+					submission = submission,
+					pageIndex = target.pageIndex
+				)
+			},
 			onProgress = { completed, required ->
-				if (isBackgroundPrefetchActive(session, prefetch)) {
+				if (isBackgroundPrefetchActive(submission, prefetch)) {
 					logLoadingEvent(
 						event = "background-prefetch-progress",
-						detail = "session=$session completed=$completed/$required " +
+						detail = "session=${submission.sessionId} completed=$completed/$required " +
+							"chapter=${submission.chapter.identity.chapterIndex} " +
 							"generation=${prefetch.generation}"
 					)
 				}
 			},
 			onComplete = backgroundComplete@ { outcome ->
-				if (session != backgroundPrefetchSession) return@backgroundComplete
-				backgroundPrefetchInProgress = false
-				if (outcome == ReaderPageRasterBatchOutcome.Ready) {
-					logLoadingEvent(
-						event = "background-prefetch-completed",
-						detail = "session=$session outcome=$outcome generation=${prefetch.generation}"
-					)
-				} else {
-					logLoadingEvent(
-						event = "background-prefetch-failed",
-						detail = "session=$session outcome=$outcome generation=${prefetch.generation}"
-					)
+				if (backgroundBatchSubmission == submission) {
+					backgroundBatchSubmission = null
 				}
+				if (!adjacentChapterPrefetchCoordinator.onBatchFinished(submission)) {
+					return@backgroundComplete
+				}
+				removeBackgroundPrefetchShield(submission.sessionId)
+				logLoadingEvent(
+					event = if (outcome == ReaderPageRasterBatchOutcome.Ready) {
+						"background-prefetch-completed"
+					} else {
+						"background-prefetch-failed"
+					},
+					detail = "session=${submission.sessionId} outcome=$outcome " +
+						"chapter=${submission.chapter.identity.chapterIndex} " +
+						"generation=${prefetch.generation}"
+				)
 			}
 		)
-		if (!started && session == backgroundPrefetchSession) {
-			backgroundPrefetchInProgress = false
+		if (!started && backgroundBatchSubmission == submission) {
+			backgroundBatchSubmission = null
+			removeBackgroundPrefetchShield(submission.sessionId)
+			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
 		}
 	}
 
 	private fun isBackgroundPrefetchActive(
-		session: Long,
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
 		prefetch: ReaderPageRasterBackgroundPrefetch
 	): Boolean =
-		session == backgroundPrefetchSession &&
-			!destroyed &&
+		!destroyed &&
 			!prewarmInProgress &&
 			activeRasterRepairPageIndex == null &&
 			rasterRepairCallbacks.isEmpty() &&
+			prefetch === durableBackgroundPrefetch &&
+			currentRasterProfileEpoch == submission.key.rasterProfileEpoch &&
+			prefetch.generation == submission.key.rasterEpoch &&
 			prefetch.generation == bundleSource.currentGeneration() &&
-			prefetch.webView.isAttachedToWindow
+			prefetch.webView.isAttachedToWindow &&
+			adjacentChapterPrefetchCoordinator.isActive(submission)
+
+	private fun showBackgroundPrefetchShield(
+		snapshot: ReaderPageSlideSnapshot,
+		submission: ReaderPageAdjacentChapterPrefetchSubmission
+	) {
+		if (
+			backgroundBatchSubmission != submission ||
+			!adjacentChapterPrefetchCoordinator.isActive(submission)
+		) return
+
+		val currentShield = backgroundPrefetchShield
+		val currentSnapshot = backgroundPrefetchShieldSnapshot
+		val sameVisualSurface = currentShield != null &&
+			currentSnapshot != null &&
+			currentSnapshot.key == snapshot.key &&
+			currentSnapshot.surfaceRectInWindow == snapshot.surfaceRectInWindow &&
+			!currentSnapshot.bitmap.isRecycled
+		if (sameVisualSurface) {
+			backgroundPrefetchShieldSessionId = submission.sessionId
+			currentShield.bringToFront()
+			return
+		}
+
+		snapshot.retain()
+		val hostLocation = IntArray(2)
+		host.getLocationInWindow(hostLocation)
+		val rect = snapshot.surfaceRectInWindow
+		val layout = FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
+			leftMargin = rect.left - hostLocation[0]
+			topMargin = rect.top - hostLocation[1]
+		}
+		val shield = currentShield ?: ImageView(host.context).apply {
+			scaleType = ImageView.ScaleType.FIT_XY
+			isClickable = false
+			isFocusable = false
+			importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+		}
+		shield.setImageBitmap(snapshot.bitmap)
+		shield.layoutParams = layout
+		if (currentShield == null) host.addView(shield) else shield.bringToFront()
+
+		backgroundPrefetchShield = shield
+		backgroundPrefetchShieldSnapshot = snapshot
+		backgroundPrefetchShieldSessionId = submission.sessionId
+		currentSnapshot?.release()
+	}
+
+	private fun removeBackgroundPrefetchShield(sessionId: Long? = null) {
+		if (
+			sessionId != null &&
+			backgroundPrefetchShieldSessionId != sessionId
+		) return
+		val shield = backgroundPrefetchShield
+		val snapshot = backgroundPrefetchShieldSnapshot
+		backgroundPrefetchShield = null
+		backgroundPrefetchShieldSnapshot = null
+		backgroundPrefetchShieldSessionId = null
+		shield?.setImageDrawable(null)
+		(shield?.parent as? ViewGroup)?.removeView(shield)
+		snapshot?.release()
+	}
+
+	private fun cancelBackgroundPrefetchSubmission(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission
+	) {
+		val batchStarted = backgroundBatchSubmission == submission
+		if (batchStarted) {
+			backgroundBatchSubmission = null
+			rasterBackgroundBatchController.cancel {
+				removeBackgroundPrefetchShield(submission.sessionId)
+			}
+		} else {
+			removeBackgroundPrefetchShield(submission.sessionId)
+		}
+		logLoadingEvent(
+			event = "background-prefetch-failed",
+			detail = "session=${submission.sessionId} reason=cancelled:eligibility-changed " +
+				"chapter=${submission.chapter.identity.chapterIndex} " +
+				"generation=${submission.key.rasterEpoch} started=$batchStarted"
+		)
+	}
 
 	private fun cancelBackgroundPrefetch(reason: String) {
-		val wasInProgress = backgroundPrefetchInProgress
-		backgroundPrefetchSession += 1
-		backgroundPrefetchInProgress = false
 		candidateBackgroundPrefetch = null
-		if (wasInProgress) rasterBackgroundBatchController.cancel()
-		if (wasInProgress) {
-			logLoadingEvent(
-				event = "background-prefetch-failed",
-				detail = "reason=cancelled:$reason generation=${bundleSource.currentGeneration()}"
-			)
-		}
+		durableBackgroundPrefetch = null
+		adjacentChapterPrefetchCoordinator.clear()
+		rasterBackgroundBatchController.resetRetryState()
+		clearBackgroundPrefetchWebView()
+		logLoadingEvent(
+			event = "background-prefetch-cancelled",
+			detail = "reason=$reason generation=${bundleSource.currentGeneration()}"
+		)
 	}
 
 	private fun logPrewarmBoundary(event: String, detail: String? = null) {
@@ -1111,13 +1371,21 @@ internal class ReaderPageRasterPreparationController(
 		rasterInteractiveCompleted = 0
 		rasterInteractiveRequired = 0
 		activePreparationPageNumber = null
-		if (wasInProgress) rasterBatchController.cancel()
+		if (wasInProgress) {
+			rasterBatchController.cancel {
+				removePreparationShield(
+					reason = "session-cancelled:$reason",
+					expectedSession = cancelledSession
+				)
+			}
+		} else {
+			removePreparationShield(reason = "session-cancelled:$reason")
+		}
 		logLoadingEvent(
 			event = "session-cancelled",
 			detail = "session=$cancelledSession reason=$reason wasInProgress=$wasInProgress " +
 				"visual=$currentVisualPageIndex generation=${bundleSource.currentGeneration()}"
 		)
-		removePreparationShield(reason = "session-cancelled:$reason")
 		publishPreparationState(
 			if (hasPreparedBefore) ReaderPagePreparationPhase.Ready else ReaderPagePreparationPhase.Idle
 		)
@@ -1175,7 +1443,14 @@ internal class ReaderPageRasterPreparationController(
 		)
 	}
 
-	private fun removePreparationShield(reason: String) {
+	private fun removePreparationShield(
+		reason: String,
+		expectedSession: Long? = null
+	) {
+		if (
+			expectedSession != null &&
+			preparationShieldSession != expectedSession
+		) return
 		val shield = preparationShield
 		val snapshot = preparationShieldSnapshot
 		val session = preparationShieldSession

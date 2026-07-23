@@ -174,6 +174,12 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
       .forEach(pageIndex => addTarget(pageIndex, 'previous-chapter-remainder'))
   }
   const currentChapter = currentChapterIndex >= 0 ? chapters[currentChapterIndex] : null
+  const previousChapter = currentChapterIndex > 0 ? chapters[currentChapterIndex - 1] : null
+  const nextChapter = currentChapterIndex >= 0 ? chapters[currentChapterIndex + 1] : null
+  const chapterStart = chapter => chapter
+    ? Math.max(0, Math.floor(Number(chapter.pageStartIndex) || 0))
+    : -1
+  const chapterCount = chapter => Math.max(0, Math.floor(Number(chapter?.pageCount) || 0))
   return Object.freeze({
     context: Object.freeze({
       centerPageIndex,
@@ -181,10 +187,13 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
       layoutMode,
       readerDirection,
       step,
-      currentChapterPageStartIndex: currentChapter
-        ? Math.max(0, Math.floor(Number(currentChapter.pageStartIndex) || 0))
-        : -1,
-      currentChapterPageCount: Math.max(0, Math.floor(Number(currentChapter?.pageCount) || 0)),
+      currentChapterIndex,
+      currentChapterPageStartIndex: chapterStart(currentChapter),
+      currentChapterPageCount: chapterCount(currentChapter),
+      previousChapterPageStartIndex: chapterStart(previousChapter),
+      previousChapterPageCount: chapterCount(previousChapter),
+      nextChapterPageStartIndex: chapterStart(nextChapter),
+      nextChapterPageCount: chapterCount(nextChapter),
     }),
     targets: Object.freeze(targets),
   })

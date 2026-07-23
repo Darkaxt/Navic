@@ -233,6 +233,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		detail: ReaderPageGestureTerminalDetail
 	) -> Boolean,
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
+	private val onPreparedActiveDeckChanged: (ReaderPagePreparedActiveDeck?) -> Unit = {},
 	private val onPaginationReadinessChanged: (ReaderPagePaginationReadiness) -> Unit = {},
 	private val onProfileBootstrapFailed: () -> Unit = {},
 	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
@@ -279,6 +280,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var activePages: PreparedPages? = null
 	private var requestedProfile: ReaderPlayLikeCurlRasterProfile? = null
 	private var publishedRasterProfile: ReaderPlayLikeCurlRasterProfile? = null
+	private var publishedRasterProfileEpoch: Long? = null
 	private var nextRasterProfileEpoch = 1L
 	private var publishedPaginationReadiness = ReaderPagePaginationReadiness.Loading
 	private var capabilitiesAvailable = false
@@ -358,6 +360,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						interaction = preparedInteractionState(),
 						reason = "deck-prepared:$generationId"
 					)
+					publishPreparedActiveDeck()
 				} else if (
 					generationId == pendingDeckGenerationId &&
 					role == ReaderDeckSubmissionRole.Pending
@@ -648,17 +651,43 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun publishRasterProfileEpoch(profile: ReaderPlayLikeCurlRasterProfile?) {
 		if (profile == null) {
 			publishedRasterProfile = null
+			publishedRasterProfileEpoch = null
+			onPreparedActiveDeckChanged(null)
 			onRasterProfileEpochChanged(null)
 			return
 		}
 		if (publishedRasterProfile == profile) return
 		publishedRasterProfile = profile
+		onPreparedActiveDeckChanged(null)
 		val epoch = profile.let {
 			val current = nextRasterProfileEpoch
 			nextRasterProfileEpoch = Math.incrementExact(current)
 			current
 		}
+		publishedRasterProfileEpoch = epoch
 		onRasterProfileEpochChanged(epoch)
+	}
+
+	private fun publishPreparedActiveDeck() {
+		val generationId = activeDeckGenerationId
+		val pages = generationId?.let(generationOwners::get)
+		val profileEpoch = publishedRasterProfileEpoch
+		val prepared = if (
+			generationId != null &&
+			pages != null &&
+			profileEpoch != null &&
+			hasPreparedActiveDeckOwnership()
+		) {
+			ReaderPagePreparedActiveDeck(
+				rasterProfileEpoch = profileEpoch,
+				rasterEpoch = pages.profile.rasterGeneration,
+				sourceCenterPageIndex = pages.profile.pageRequest(currentOrdinal).sourcePageIndex,
+				generationId = generationId
+			)
+		} else {
+			null
+		}
+		onPreparedActiveDeckChanged(prepared)
 	}
 
 	fun setEnabled(value: Boolean) {
@@ -774,7 +803,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	fun onHostWindowHidden() {
-		hideSurface()
+		if (!enabled || destroyed) return
+		invalidate(
+			reason = "window-hidden",
+			profileRegeneration = true
+		)
 	}
 
 	fun onPageTouchEvent(
@@ -1730,6 +1763,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
 				activeDeckGenerationId = generationId
+				onPreparedActiveDeckChanged(null)
 				if (activePages !== built.pages) {
 					activePages?.let { previous ->
 						previous.obsolete = true
@@ -1775,6 +1809,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					activePages = null
 					pages.obsolete = true
 				}
+				onPreparedActiveDeckChanged(null)
 			}
 			ReaderDeckSubmissionRole.Pending -> {
 				if (pendingDeckGenerationId == generationId) {
@@ -1970,7 +2005,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		generationOwners[generationId] = pages
 		generationRoles[generationId] = role
 		when (role) {
-			ReaderDeckSubmissionRole.Active -> activeDeckGenerationId = generationId
+			ReaderDeckSubmissionRole.Active -> {
+				activeDeckGenerationId = generationId
+				onPreparedActiveDeckChanged(null)
+			}
 			ReaderDeckSubmissionRole.Pending -> {
 				pendingDeckGenerationId
 					?.takeIf { it != generationId }
@@ -2086,6 +2124,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (releasedCurrentActive) {
 			activeDeckGenerationId = null
 			if (activePages === pages) activePages = null
+			onPreparedActiveDeckChanged(null)
 		}
 		if (pendingDeckGenerationId == generationId) {
 			pendingDeckGenerationId = null
@@ -2129,6 +2168,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			interaction = if (prepared) preparedInteractionState() else ReaderPageInteractionState.BackgroundPrefetch,
 			reason = "settlement-promoted:$promotedGeneration:$currentPageOrdinal"
 		)
+		if (prepared) publishPreparedActiveDeck() else onPreparedActiveDeckChanged(null)
 	}
 
 	private fun discardPendingDeck(reason: String) {
