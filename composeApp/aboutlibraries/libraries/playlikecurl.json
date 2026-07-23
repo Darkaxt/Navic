@@ -1,9 +1,9 @@
 {
   "uniqueId": "playlikecurl",
-  "artifactVersion": "1.1.4",
+  "artifactVersion": "1.2.0",
   "name": "PlayLikeCurl",
-  "description": "Vendored source snapshot of Darkaxt's maintained PlayLikeCurl fork (production API 1). Originally created by Karan Kalsi; maintained fork by Darkaxt.",
-  "website": "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.4",
+  "description": "Vendored source snapshot of Darkaxt's maintained PlayLikeCurl fork (production API 2; source commit 116ea75f86cff26199ab3e7180285e5b728913fa; release AAR SHA-256 eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c). Originally created by Karan Kalsi; maintained fork by Darkaxt.",
+  "website": "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0",
   "developers": [
     {
       "name": "Karan Kalsi",

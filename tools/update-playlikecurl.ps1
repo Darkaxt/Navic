@@ -1,13 +1,15 @@
 param(
-	[string] $TagOrCommit = "1.1.4",
-	[string] $ExpectedCommit = "b885fc182f8e0c1c3a518c5bef23765eb44e1f31",
-	[string] $ReleaseTag = "1.1.4",
-	[int] $ApiVersion = 1,
+	[string] $TagOrCommit = "1.2.0",
+	[string] $ExpectedCommit = "116ea75f86cff26199ab3e7180285e5b728913fa",
+	[string] $ReleaseTag = "1.2.0",
+	[int] $ApiVersion = 2,
 	[string] $ReleaseArtifact = "karackencurllib-release.aar",
 	[string] $ReleaseArtifactDigest =
-		"sha256:9e31005cdf1768a89f7356f8519caefa80fd05fc84ca98e8b070fad009078ca8",
+		"sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c",
 	[string] $Repository = "https://github.com/Darkaxt/PlayLikeCurl",
-	[string] $RepositoryRoot = (Join-Path $PSScriptRoot "..")
+	[string] $RepositoryRoot = (Join-Path $PSScriptRoot ".."),
+	[string] $VerifiedReleaseArtifactPath,
+	[string] $CandidateSourcePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,7 +85,12 @@ try {
 
 	$releaseArtifactUrl =
 		"$Repository/releases/download/$ReleaseTag/$ReleaseArtifact"
-	Invoke-WebRequest -Uri $releaseArtifactUrl -OutFile $releaseArtifactPath
+	if ($VerifiedReleaseArtifactPath) {
+		$verifiedArtifact = (Resolve-Path -LiteralPath $VerifiedReleaseArtifactPath).Path
+		Copy-Item -LiteralPath $verifiedArtifact -Destination $releaseArtifactPath
+	} else {
+		Invoke-WebRequest -Uri $releaseArtifactUrl -OutFile $releaseArtifactPath
+	}
 	$actualReleaseArtifactDigest = Get-PlayLikeCurlFileDigest $releaseArtifactPath
 	if ($actualReleaseArtifactDigest -ne $ReleaseArtifactDigest) {
 		throw (
@@ -132,25 +139,107 @@ try {
 		(Join-Path $stagingRoot "provenance.json"),
 		"$provenanceJson`n",
 		[System.Text.UTF8Encoding]::new($false)
-	)
+		)
 
-	Assert-PlayLikeCurlRemovalTarget `
-		-RepositoryRoot $repositoryRootPath `
-		-TargetPath $targetRoot
-	if (Test-Path -LiteralPath $targetRoot) {
-		Remove-Item -LiteralPath $targetRoot -Recurse -Force
+	if ($CandidateSourcePath) {
+		$candidateSourceResolved = (Resolve-Path -LiteralPath $CandidateSourcePath).Path
+		$candidateSourceBytes = [IO.File]::ReadAllBytes($candidateSourceResolved)
+		if ($candidateSourceBytes.Length -eq 0) {
+			throw "CandidateSourcePath is empty."
+		}
+		[IO.File]::WriteAllBytes(
+			(Join-Path $stagingRoot "candidate-source.json"),
+			$candidateSourceBytes
+		)
 	}
-	New-Item -ItemType Directory -Path (Split-Path -Parent $targetRoot) -Force |
-		Out-Null
-	Copy-Item -LiteralPath $stagingRoot -Destination $targetRoot -Recurse
 
-	$verifierPath = Join-Path $repositoryRootPath (
-		"scripts/verify-playlikecurl-snapshot.ps1"
-	)
-	& pwsh -NoProfile -File $verifierPath -RepositoryRoot $repositoryRootPath
-	if ($LASTEXITCODE -ne 0) {
-		throw "Imported PlayLikeCurl snapshot failed verification."
-	}
+  Assert-PlayLikeCurlRemovalTarget `
+    -RepositoryRoot $repositoryRootPath `
+    -TargetPath $targetRoot
+  $targetParent = Split-Path -Parent $targetRoot
+  New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
+  $swapJournalPath = Join-Path $repositoryRootPath ".codex-validation/playlikecurl-import-swap.json"
+  if (Test-Path -LiteralPath $swapJournalPath -PathType Leaf) {
+    $journal = Get-Content -LiteralPath $swapJournalPath -Raw | ConvertFrom-Json
+    $expectedTarget = [IO.Path]::GetFullPath($targetRoot)
+    $recordedTarget = [IO.Path]::GetFullPath([string]$journal.Target)
+    $recordedPrepared = [IO.Path]::GetFullPath([string]$journal.Prepared)
+    $recordedBackup = [IO.Path]::GetFullPath([string]$journal.Backup)
+    $expectedParent = [IO.Path]::GetFullPath($targetParent) + [IO.Path]::DirectorySeparatorChar
+    if ($journal.SchemaVersion -ne 1 -or $recordedTarget -ne $expectedTarget -or
+        -not $recordedPrepared.StartsWith($expectedParent, [StringComparison]::OrdinalIgnoreCase) -or
+        -not $recordedBackup.StartsWith($expectedParent, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($recordedPrepared) -notmatch '^\.playlikecurl-prepared-[0-9a-f]{32}$' -or
+        [IO.Path]::GetFileName($recordedBackup) -notmatch '^\.playlikecurl-backup-[0-9a-f]{32}$') {
+      throw "PlayLikeCurl swap journal contains an unsafe path."
+    }
+    $targetExists = Test-Path -LiteralPath $recordedTarget
+    $preparedExists = Test-Path -LiteralPath $recordedPrepared
+    $backupExists = Test-Path -LiteralPath $recordedBackup
+    if (-not $targetExists -and $backupExists) {
+      Move-Item -LiteralPath $recordedBackup -Destination $recordedTarget
+      if ($preparedExists) {
+        Remove-Item -LiteralPath $recordedPrepared -Recurse -Force
+      }
+    } elseif ($targetExists -and $backupExists -and -not $preparedExists) {
+      Remove-Item -LiteralPath $recordedBackup -Recurse -Force
+    } elseif ($targetExists -and -not $backupExists) {
+      if ($preparedExists) {
+        Remove-Item -LiteralPath $recordedPrepared -Recurse -Force
+      }
+    } else {
+      throw "PlayLikeCurl swap journal state is ambiguous; preserve it for review."
+    }
+    Remove-Item -LiteralPath $swapJournalPath -Force
+  }
+  $swapId = [guid]::NewGuid().ToString("N")
+  $preparedTarget = Join-Path $targetParent ".playlikecurl-prepared-$swapId"
+  $backupTarget = Join-Path $targetParent ".playlikecurl-backup-$swapId"
+  foreach ($path in @($preparedTarget, $backupTarget)) {
+    if (Test-Path -LiteralPath $path) {
+      throw "PlayLikeCurl swap path unexpectedly exists: $path"
+    }
+  }
+  $journalTemporary = "$swapJournalPath.tmp"
+  [ordered]@{
+    SchemaVersion = 1
+    Target = [IO.Path]::GetFullPath($targetRoot)
+    Prepared = [IO.Path]::GetFullPath($preparedTarget)
+    Backup = [IO.Path]::GetFullPath($backupTarget)
+  } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $journalTemporary
+  Move-Item -LiteralPath $journalTemporary -Destination $swapJournalPath -Force
+  try {
+    Copy-Item -LiteralPath $stagingRoot -Destination $preparedTarget -Recurse
+    if (Test-Path -LiteralPath $targetRoot) {
+      Move-Item -LiteralPath $targetRoot -Destination $backupTarget
+    }
+    Move-Item -LiteralPath $preparedTarget -Destination $targetRoot
+    $verifierPath = Join-Path $repositoryRootPath (
+      "scripts/verify-playlikecurl-snapshot.ps1"
+    )
+    & pwsh -NoProfile -File $verifierPath -RepositoryRoot $repositoryRootPath
+    if ($LASTEXITCODE -ne 0) {
+      throw "Imported PlayLikeCurl snapshot failed verification."
+    }
+    if (Test-Path -LiteralPath $backupTarget) {
+      Remove-Item -LiteralPath $backupTarget -Recurse -Force
+    }
+    Remove-Item -LiteralPath $swapJournalPath -Force
+  } catch {
+    if ((Test-Path -LiteralPath $targetRoot) -and
+        (Test-Path -LiteralPath $backupTarget)) {
+      Remove-Item -LiteralPath $targetRoot -Recurse -Force
+      Move-Item -LiteralPath $backupTarget -Destination $targetRoot
+    } elseif (-not (Test-Path -LiteralPath $targetRoot) -and
+        (Test-Path -LiteralPath $backupTarget)) {
+      Move-Item -LiteralPath $backupTarget -Destination $targetRoot
+    }
+    throw
+  } finally {
+    if (Test-Path -LiteralPath $preparedTarget) {
+      Remove-Item -LiteralPath $preparedTarget -Recurse -Force
+    }
+  }
 } finally {
 	if (Test-Path -LiteralPath $temporaryRoot) {
 		$resolvedTemporaryRoot = [System.IO.Path]::GetFullPath($temporaryRoot)

@@ -1,6 +1,10 @@
 package paige.navic.reader
 
 import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -41,21 +45,46 @@ class ThirdPartyAttributionSourceTest {
 			"composeApp/aboutlibraries/licenses/playlikecurl-mit.json"
 		).readText()
 		val license = repoFile("third_party/playlikecurl/LICENSE.txt").readText()
-		val verifier = repoFile("scripts/verify-third-party-attributions.ps1").readText()
+			val verifier = repoFile("scripts/verify-third-party-attributions.ps1").readText()
+			val provenance = repoFile("third_party/playlikecurl/provenance.json").readText()
+			val releaseIdentity = "production API 2; source commit 116ea75f86cff26199ab3e7180285e5b728913fa; release AAR SHA-256 eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
+			val generatedLibraries = Json.parseToJsonElement(generated)
+				.jsonObject["libraries"]!!.jsonArray
+			val generatedPlayLikeCurl = generatedLibraries.single { library ->
+				library.jsonObject["uniqueId"]!!.jsonPrimitive.content == "playlikecurl"
+			}.jsonObject
+			val generatedDescription = generatedPlayLikeCurl["description"]!!
+				.jsonPrimitive.content
+			val playLikeCurlNotice = Regex(
+				"(?ms)^## PlayLikeCurl\\r?$.*?(?=^## |\\z)"
+			).find(notices)?.value ?: error("Missing PlayLikeCurl notice section" )
 
-		assertContains(notices, "PlayLikeCurl")
+			assertContains(notices, "PlayLikeCurl")
 		assertContains(notices, "https://github.com/karankalsi/PlayLikeCurl")
-		assertContains(notices, "b885fc182f8e0c1c3a518c5bef23765eb44e1f31")
+		assertContains(notices, "116ea75f86cff26199ab3e7180285e5b728913fa")
 		assertContains(notices, "third_party/playlikecurl/LICENSE.txt")
-		assertContains(libraryRecord, "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.4")
+		assertContains(libraryRecord, "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0")
 		assertContains(libraryRecord, "https://github.com/karankalsi")
 		assertContains(libraryRecord, "playlikecurl-mit")
 		assertContains(licenseRecord, "MIT License - PlayLikeCurl")
 		assertContains(license, "MIT License")
 		assertContains(license, "Copyright (c) [year] [fullname]")
 		assertContains(verifier, "id = \"playlikecurl\"")
-		assertContains(verifier, "third_party/playlikecurl/LICENSE.txt")
-		assertEquals(
+			assertContains(verifier, "third_party/playlikecurl/LICENSE.txt")
+			listOf(playLikeCurlNotice, generatedDescription, libraryRecord, verifier).forEach { representation ->
+				assertEquals(
+					1,
+					Regex(Regex.escape(releaseIdentity)).findAll(representation).count(),
+					"Each PlayLikeCurl representation must contain one exact API/commit/AAR identity."
+				)
+			}
+			assertContains(provenance, "\"tag\": \"1.2.0\"")
+			assertContains(provenance, "\"apiVersion\": 2")
+			assertContains(provenance, "\"commit\": \"116ea75f86cff26199ab3e7180285e5b728913fa\"")
+			assertContains(provenance, "\"releaseArtifactDigest\": \"sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c\"")
+			assertEquals(0, Regex("production API 1").findAll(libraryRecord).count())
+			assertEquals(0, Regex("production API 1").findAll(generated).count())
+			assertEquals(
 			1,
 			Regex("\\\"uniqueId\\\":\\s*\\\"playlikecurl\\\"").findAll(generated).count(),
 			"Generated acknowledgements must contain exactly one PlayLikeCurl record."

@@ -75,8 +75,8 @@ function Assert-Acknowledgements {
 		},
 		@{
 			id = "playlikecurl"
-			version = "1.1.4"
-			website = "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.4"
+			version = "1.2.0"
+			website = "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0"
 			license = "playlikecurl-mit"
 			copyright = "Originally created by Karan Kalsi; maintained fork by Darkaxt"
 			licenseFile = "third_party/playlikecurl/LICENSE.txt"
@@ -113,6 +113,18 @@ function Assert-Acknowledgements {
 }
 
 $repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
+$expectedPlayLikeCurlCommit = "116ea75f86cff26199ab3e7180285e5b728913fa"
+$expectedPlayLikeCurlArtifactDigest = "sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
+$script:playLikeCurlIdentity = "production API 2; source commit 116ea75f86cff26199ab3e7180285e5b728913fa; release AAR SHA-256 eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
+$provenancePath = Join-Path $repositoryRoot "third_party/playlikecurl/provenance.json"
+$provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
+if ($provenance.tag -ne "1.2.0" -or $provenance.apiVersion -ne 2 -or
+    $provenance.commit -ne $expectedPlayLikeCurlCommit -or
+    $provenance.releaseArtifactDigest -ne $expectedPlayLikeCurlArtifactDigest) {
+  throw "PlayLikeCurl provenance does not match the exact API-2 release identity."
+}
+$libraryMetadataPath = Join-Path $repositoryRoot "composeApp/aboutlibraries/libraries/playlikecurl.json"
+$libraryMetadataText = Get-Content -LiteralPath $libraryMetadataPath -Raw
 $noticesPath = Join-Path $repositoryRoot "THIRD_PARTY.md"
 if (-not (Test-Path -LiteralPath $noticesPath -PathType Leaf)) {
 	throw "THIRD_PARTY.md is missing."
@@ -124,8 +136,8 @@ foreach ($requiredText in @(
 	"107f4fa74db0e7247c846c49d6211df3edf9887c",
 	"f52d42c6127d0ad981a2c67634113541b17ae01e",
 	"ce87167432819f85df49b6b16c7a78556e9a4ee0",
-	"b885fc182f8e0c1c3a518c5bef23765eb44e1f31",
-	"https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.1.4"
+	"116ea75f86cff26199ab3e7180285e5b728913fa",
+	"https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0"
 )) {
 	if (-not $notices.Contains($requiredText)) {
 		throw "THIRD_PARTY.md omits '$requiredText'."
@@ -142,4 +154,26 @@ if ($ApkPath) {
 
 $acknowledgements = $jsonText | ConvertFrom-Json -AsHashtable
 Assert-Acknowledgements $acknowledgements $sourceLabel $repositoryRoot
+$playLikeCurlMatches = @($acknowledgements.libraries | Where-Object {
+  $_.uniqueId -eq "playlikecurl"
+})
+Assert-Equal $playLikeCurlMatches.Count 1 "$sourceLabel must contain one PlayLikeCurl record."
+$playLikeCurlNotice = [regex]::Match(
+  $notices,
+  "(?ms)^## PlayLikeCurl\r?$.*?(?=^## |\z)"
+)
+if (-not $playLikeCurlNotice.Success) {
+  throw "THIRD_PARTY.md omits the PlayLikeCurl section."
+}
+foreach ($representation in @(
+    @{ Label = "PlayLikeCurl metadata"; Text = $libraryMetadataText },
+    @{ Label = "THIRD_PARTY.md PlayLikeCurl section"; Text = $playLikeCurlNotice.Value },
+    @{ Label = "$SourceLabel PlayLikeCurl description"; Text = [string]$playLikeCurlMatches[0].description }
+  )) {
+  $identityCount = [regex]::Matches(
+    $representation.Text,
+    [regex]::Escape($script:playLikeCurlIdentity)
+  ).Count
+  Assert-Equal $identityCount 1 "$($representation.Label) has the wrong API/commit/AAR identity count."
+}
 Write-Host "$sourceLabel verified: Anx Reader, foliate-js, PDF.js, and PlayLikeCurl notices are complete."

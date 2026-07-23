@@ -5,15 +5,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 $expectedRepository = "https://github.com/Darkaxt/PlayLikeCurl"
-$expectedCommit = "b885fc182f8e0c1c3a518c5bef23765eb44e1f31"
-$expectedTag = "1.1.4"
-$expectedApiVersion = 1
+$expectedCommit = "116ea75f86cff26199ab3e7180285e5b728913fa"
+$expectedTag = "1.2.0"
+$expectedApiVersion = 2
 $expectedModule = "karackencurllib"
 $expectedReleaseArtifact = "karackencurllib-release.aar"
 $expectedReleaseArtifactUrl =
-	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.1.4/karackencurllib-release.aar"
+	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.2.0/karackencurllib-release.aar"
 $expectedReleaseArtifactDigest =
-	"sha256:9e31005cdf1768a89f7356f8519caefa80fd05fc84ca98e8b070fad009078ca8"
+	"sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
 $expectedCandidateCommit = "116ea75f86cff26199ab3e7180285e5b728913fa"
 $expectedCandidateManifestSha256 =
 	"69694c05f763d53a60dc9e76f0ff76b7405764ada83cd9daa10567354fb2a7f3"

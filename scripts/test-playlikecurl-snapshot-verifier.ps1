@@ -192,7 +192,7 @@ try {
 	Reset-Fixture
 	$provenancePath = Join-Path $temporarySnapshot "provenance.json"
 	$provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
-	$provenance.apiVersion = 2
+	$provenance.apiVersion = 3
 	$provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $provenancePath
 	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "Immutable API version drift"
 
