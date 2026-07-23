@@ -232,6 +232,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	) -> Boolean,
+	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
+	private val onPaginationReadinessChanged: (ReaderPagePaginationReadiness) -> Unit = {},
+	private val onProfileBootstrapFailed: () -> Unit = {},
 	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
 	private val onUnsafeLifecycleEvent: (ReaderPageHostLifecycleEvent) -> Unit = {}
 ) : ReaderPageTapTurnPort, ReaderPageDeckRecoveryHost {
@@ -275,6 +278,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var foliateRasterLoader: ReaderPlayLikeCurlFoliateRasterLoader? = null
 	private var activePages: PreparedPages? = null
 	private var requestedProfile: ReaderPlayLikeCurlRasterProfile? = null
+	private var publishedRasterProfile: ReaderPlayLikeCurlRasterProfile? = null
+	private var nextRasterProfileEpoch = 1L
+	private var publishedPaginationReadiness = ReaderPagePaginationReadiness.Loading
 	private var capabilitiesAvailable = false
 	private var enabled = false
 	private var attached = false
@@ -633,6 +639,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 		(pageOperationPolicy.newPointer as? ReaderPageNewPointerDecision.Reject)?.outcome
 			?: ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
 
+	fun updatePaginationReadiness(readiness: ReaderPagePaginationReadiness) {
+		if (publishedPaginationReadiness == readiness) return
+		publishedPaginationReadiness = readiness
+		onPaginationReadinessChanged(readiness)
+	}
+
+	private fun publishRasterProfileEpoch(profile: ReaderPlayLikeCurlRasterProfile?) {
+		if (profile == null) {
+			publishedRasterProfile = null
+			onRasterProfileEpochChanged(null)
+			return
+		}
+		if (publishedRasterProfile == profile) return
+		publishedRasterProfile = profile
+		val epoch = profile.let {
+			val current = nextRasterProfileEpoch
+			nextRasterProfileEpoch = Math.incrementExact(current)
+			current
+		}
+		onRasterProfileEpochChanged(epoch)
+	}
+
 	fun setEnabled(value: Boolean) {
 		if (enabled == value) return
 		enabled = value
@@ -946,6 +974,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rasterAdapter?.close()
 		rasterAdapter = null
 		foliateRasterLoader = null
+		publishRasterProfileEpoch(null)
 		requestedProfile = null
 		preparedPageSets.toList().forEach(::closeIfUnused)
 		Logger.i(ReaderPlayLikeCurlFoliateControllerTag, "PlayLikeCurl invalidated reason=$reason")
@@ -964,7 +993,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rasterScope.cancel()
 	}
 
-	private fun refreshPreparedDeck() {
+	private fun refreshPreparedDeck(planRetryAttempt: Int = 0) {
 		val gate = when {
 			!enabled -> "disabled"
 			!attached -> "host-detached"
@@ -1000,8 +1029,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 			val plan = readerPageRasterPreparationPlan(encoded)
 			if (plan == null) {
-				logActivationState("refresh-gated", "preparation-plan-unavailable")
-				requestPrewarmIfIdle("preparation-plan-unavailable")
+				logActivationState(
+					"refresh-gated",
+					"preparation-plan-unavailable attempt=$planRetryAttempt"
+				)
+				if (planRetryAttempt == 0) {
+					webView.postVisualStateCallback(
+						request,
+						object : WebView.VisualStateCallback() {
+							override fun onComplete(requestId: Long) {
+								if (isRequestActive(request, webView)) {
+									refreshPreparedDeck(planRetryAttempt = 1)
+								}
+							}
+						}
+					)
+				} else {
+					onProfileBootstrapFailed()
+				}
 				return@evaluateJavascript
 			}
 			currentOrdinal = plan.centerPageIndex
@@ -1351,6 +1396,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			rasterAdapter?.close()
 			publishProtectedWindow(emptyList())
 			requestedProfile = profile
+			publishRasterProfileEpoch(profile)
 			publishProtectedWindow(pageIndices)
 			val loader = ReaderPlayLikeCurlFoliateRasterLoader(
 				bundleSource = bundleSource,

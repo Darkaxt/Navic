@@ -1,0 +1,115 @@
+package paige.navic.ui.screens.reader
+
+internal enum class ReaderPagePaginationReadiness {
+	Loading,
+	Cached,
+	Ready,
+	Failed
+}
+
+internal fun readerPagePaginationReadiness(status: String?): ReaderPagePaginationReadiness =
+	when (status?.trim()?.lowercase()) {
+		"cached" -> ReaderPagePaginationReadiness.Cached
+		"ready" -> ReaderPagePaginationReadiness.Ready
+		"failed" -> ReaderPagePaginationReadiness.Failed
+		else -> ReaderPagePaginationReadiness.Loading
+	}
+
+internal data class ReaderPageLayoutSignature(
+	val widthPx: Int,
+	val heightPx: Int,
+	val layoutDirection: Int,
+	val rasterProfileEpoch: Long
+)
+
+internal class ReaderPageRasterHostEventBridge(
+	private val publish: (ReaderPageRasterRetryEvent) -> Unit
+) {
+	private var contentReadyKey: String? = null
+	private var previousLayoutSignature: ReaderPageLayoutSignature? = null
+	private var layoutStable = false
+	private var paginationReady = false
+	private var webViewAttached = false
+	private var readerResumed = false
+
+	fun contentReadyKeyChanged(key: String?) {
+		if (key == contentReadyKey) return
+		contentReadyKey = key
+		if (key != null) publish(ReaderPageRasterRetryEvent.ContentReady)
+	}
+
+	fun layoutStabilityInvalidated() {
+		previousLayoutSignature = null
+		layoutStable = false
+	}
+
+	fun layoutSignatureMeasured(signature: ReaderPageLayoutSignature) {
+		if (signature != previousLayoutSignature) {
+			layoutStable = false
+		} else if (!layoutStable) {
+			layoutStable = true
+			publish(ReaderPageRasterRetryEvent.LayoutStable)
+		}
+		previousLayoutSignature = signature
+	}
+
+	fun paginationReadinessChanged(readiness: ReaderPagePaginationReadiness) {
+		val ready = readiness == ReaderPagePaginationReadiness.Cached ||
+			readiness == ReaderPagePaginationReadiness.Ready
+		if (ready && !paginationReady) {
+			publish(ReaderPageRasterRetryEvent.PaginationReady)
+		}
+		paginationReady = ready
+	}
+
+	fun webViewAttachmentChanged(attached: Boolean) {
+		if (attached && !webViewAttached) {
+			publish(ReaderPageRasterRetryEvent.WebViewAttached)
+		}
+		webViewAttached = attached
+	}
+
+	fun lifecycleResumedChanged(resumed: Boolean) {
+		if (resumed && !readerResumed) {
+			publish(ReaderPageRasterRetryEvent.ReaderResumed)
+		}
+		readerResumed = resumed
+	}
+
+	fun reset() {
+		contentReadyKey = null
+		previousLayoutSignature = null
+		layoutStable = false
+		paginationReady = false
+		webViewAttached = false
+		readerResumed = false
+	}
+}
+
+internal class ReaderPageRasterHostEventController(
+	onRetryEvent: (ReaderPageRasterRetryEvent) -> Unit,
+	private val cancelAllDeferredRetries: () -> Unit
+) {
+	private val bridge = ReaderPageRasterHostEventBridge(onRetryEvent)
+
+	fun contentReadyKeyChanged(key: String?) = bridge.contentReadyKeyChanged(key)
+
+	fun layoutStabilityInvalidated() = bridge.layoutStabilityInvalidated()
+
+	fun layoutSignatureMeasured(signature: ReaderPageLayoutSignature) =
+		bridge.layoutSignatureMeasured(signature)
+
+	fun paginationReadinessChanged(readiness: ReaderPagePaginationReadiness) =
+		bridge.paginationReadinessChanged(readiness)
+
+	fun webViewAttachmentChanged(attached: Boolean) =
+		bridge.webViewAttachmentChanged(attached)
+
+	fun lifecycleResumedChanged(resumed: Boolean) =
+		bridge.lifecycleResumedChanged(resumed)
+
+	fun close() {
+		bridge.reset()
+		cancelAllDeferredRetries()
+	}
+}

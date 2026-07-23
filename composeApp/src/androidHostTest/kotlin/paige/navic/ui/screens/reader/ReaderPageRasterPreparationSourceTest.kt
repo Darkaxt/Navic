@@ -56,6 +56,11 @@ class ReaderPageRasterPreparationSourceTest {
 			"fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {"
 		).substringBefore("\n\tfun prewarmAdjacent()")
 
+		assertContains(function, "if (pageIndex == null) {")
+		assertContains(function, "cancelRasterRepairs(\"visual-index-cleared:")
+		assertFalse(function.contains("if (currentVisualPageIndex != null)"))
+		assertContains(function, "currentVisualPageIndex = null")
+		assertContains(function, "cancelRasterRepairs(\"visual-index-changed:")
 		assertContains(function, "cancelPrewarm(reason = \"visual-index-changed:")
 		assertContains(function, "currentVisualPageIndex = pageIndex")
 		assertFalse(function.contains("bundleSource.invalidate("))
@@ -138,7 +143,11 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "ReaderPageRasterRepairResult.Repaired")
 		assertFalse(repair.contains("publishPreparationState("))
 		assertFalse(repair.contains("reusePreparationShield("))
-		assertFalse(repair.contains("onRequestPrewarm()"))
+		assertContains(
+			repair,
+			"detail = \"reference-unavailable:${'$'}centerOrdinal\""
+		)
+		assertContains(repair, "onRequestPrewarm()")
 	}
 
 	@Test

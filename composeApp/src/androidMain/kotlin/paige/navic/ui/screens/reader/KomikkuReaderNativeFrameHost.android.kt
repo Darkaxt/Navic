@@ -86,6 +86,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnBitmapQuality: String?,
 	pageTurnSnapshotKey: Int,
 	pageTurnContentReadyKey: String?,
+	pageTurnPaginationStatus: String?,
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
 	pagePreparationCoverVisible: Boolean,
@@ -123,6 +124,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				setPageTurnReadingDirection(pageTurnReadingDirection)
 				setPageTurnSnapshotKey(pageTurnSnapshotKey)
 				setPageTurnContentReadyKey(pageTurnContentReadyKey)
+				setPageTurnPaginationStatus(pageTurnPaginationStatus)
 				setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
 				setPagePreparationCoverVisible(pagePreparationCoverVisible)
 				setPagePreparationRetryKey(pagePreparationRetryKey)
@@ -147,6 +149,7 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPageTurnReadingDirection(pageTurnReadingDirection)
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
+			root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
 			root.setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationRetryKey(pagePreparationRetryKey)
@@ -302,6 +305,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnContentReadyKey(contentReadyKey: String?) {
 		viewerContainer.setPageTurnContentReadyKey(contentReadyKey)
+	}
+
+	fun setPageTurnPaginationStatus(status: String?) {
+		viewerContainer.setPageTurnPaginationStatus(status)
 	}
 
 	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
@@ -575,14 +582,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnBitmapQuality = ReaderPageBitmapQuality.Balanced
 	private var pageTurnSnapshotKey: Int = Int.MIN_VALUE
 	private var pageTurnContentReadyKey: String? = null
+	private var pageTurnPaginationStatus: String? = null
 	private var pageTurnVisualPageIndex: Int? = null
 	private var pageTurnVisualLocationReason: String? = null
 	private var shellCoverVisible: Boolean = false
 	private var pageOperationPolicy = readerPageOperationPolicy(ReaderPageReadinessState())
 	private var pagePreparationRetryKey: Int = Int.MIN_VALUE
 	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
-	private var pageTurnPrewarmLayoutSignature: Long? = null
+	private var pageTurnPrewarmLayoutSignature: ReaderPageLayoutSignature? = null
 	private var pageTurnPrewarmStableFrameCount: Int = 0
+	private var rasterProfileEpoch: Long? = null
 	private var latestRasterPreparationState = ReaderPagePreparationState()
 	private var latestRendererReadinessState = ReaderPageRendererReadinessState()
 	private val pageTurnBundleSource = ReaderPageTurnBundleSource()
@@ -641,7 +650,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			)
 		}
 	)
-	private val playLikeCurlController = ReaderPlayLikeCurlFoliateController(
+	private val playLikeCurlController: ReaderPlayLikeCurlFoliateController =
+		ReaderPlayLikeCurlFoliateController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
@@ -649,6 +659,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		onRequestRasterRepair = ::requestPageRasterRepair,
 		onGestureTerminal = { gestureId, outcome, detail ->
 			completePageGesture(gestureId, outcome, detail)
+		},
+		onRasterProfileEpochChanged = ::onRasterProfileEpochChanged,
+		onPaginationReadinessChanged = { readiness ->
+			pageRasterHostEventController.paginationReadinessChanged(readiness)
+		},
+		onProfileBootstrapFailed = {
+			removePageTurnPrewarmLayoutListener()
+			pageRasterPreparationController.onProfileBootstrapFailed()
 		},
 		onReadinessStateChange = ::onRendererReadinessChanged,
 		onUnsafeLifecycleEvent = { event ->
@@ -663,17 +681,42 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		port = playLikeCurlController,
 		publishTerminal = ::completePageGesture
 	)
-	private val pageRasterPreparationController = ReaderPageRasterPreparationController(
+	private val pageRasterPreparationController: ReaderPageRasterPreparationController =
+		ReaderPageRasterPreparationController(
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		onAwaitHostEvent = { reason ->
+			if (reason == ReaderPageRasterDeferralReason.LayoutUnstable) {
+				pageRasterHostEventController.layoutStabilityInvalidated()
+			}
+			if (
+				reason == ReaderPageRasterDeferralReason.LayoutUnstable ||
+				reason == ReaderPageRasterDeferralReason.WebViewDetached
+			) {
+				requestPageTurnPrewarmWhenReady()
+			}
+		},
 		onPreparationStateChange = { state ->
 			latestRasterPreparationState = state
 			playLikeCurlController.onPreparationStateChanged(state)
 			publishMergedPagePreparationState()
 		}
 	)
+	private val pageRasterHostEventController: ReaderPageRasterHostEventController =
+		ReaderPageRasterHostEventController(
+		onRetryEvent = pageRasterPreparationController::onRetryEvent,
+		cancelAllDeferredRetries = pageRasterPreparationController::cancelAllDeferredRetries
+	)
+
+	private fun onRasterProfileEpochChanged(epoch: Long?) {
+		rasterProfileEpoch = epoch
+		if (epoch == null && !task4ResourceTeardownStarted) {
+			removePageTurnPrewarmLayoutListener()
+			requestPageTurnPrewarmWhenReady()
+		}
+	}
 
 	private fun requestPageRasterRepair(
 		pageIndex: Int,
@@ -731,10 +774,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			reason = "viewer-replaced",
 			clearVisualPageIndex = true
 		)
+		removePageTurnPrewarmLayoutListener()
+		pageRasterHostEventController.webViewAttachmentChanged(false)
 		viewerContentContainer.removeAllViews()
 		viewerContentContainer.addView(
 			viewerView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+		)
+		pageRasterHostEventController.webViewAttachmentChanged(
+			viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
 		)
 		requestPageTurnPrewarmWhenReady()
 	}
@@ -748,15 +796,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
-		if (pageTurnCanvasEnabled == enabled) return
-		if (!enabled) {
+		val supported = enabled && pageTurnBundleSource.isAvailable
+		if (pageTurnCanvasEnabled == supported) return
+		if (!supported) {
 			pageInputSettlementHostController.onLifecycleEvent(
 				ReaderPageHostLifecycleEvent.CanvasDisabled
 			)
 		}
-		pageTurnCanvasEnabled = enabled
-		playLikeCurlController.setEnabled(enabled)
-		if (enabled) {
+		pageTurnCanvasEnabled = supported
+		playLikeCurlController.setEnabled(supported)
+		if (supported) {
 			requestPageTurnPrewarmWhenReady()
 		} else {
 			removePageTurnPrewarmLayoutListener()
@@ -804,13 +853,21 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	fun setPageTurnContentReadyKey(contentReadyKey: String?) {
 		if (pageTurnContentReadyKey == contentReadyKey) return
 		pageTurnContentReadyKey = contentReadyKey
+		pageRasterHostEventController.contentReadyKeyChanged(contentReadyKey)
 		if (contentReadyKey == null) return
 		Logger.i(
 			KomikkuReaderNativeFrameHostTag,
 			"Page-turn pagination content ready key=${contentReadyKey.hashCode()}"
 		)
 		playLikeCurlController.onHostContentReady()
-		pageRasterPreparationController.retryPreparation()
+	}
+
+	fun setPageTurnPaginationStatus(status: String?) {
+		if (pageTurnPaginationStatus == status) return
+		pageTurnPaginationStatus = status
+		playLikeCurlController.updatePaginationReadiness(
+			readerPagePaginationReadiness(status)
+		)
 	}
 
 	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
@@ -865,17 +922,20 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (
 			!pageTurnCanvasEnabled ||
 			!isAttachedToWindow ||
-			pageTurnVisualPageIndex == null
+			pageTurnVisualPageIndex == null ||
+			pageTurnPrewarmLayoutListener != null
 		) return
 		pageTurnPrewarmLayoutSignature = null
 		pageTurnPrewarmStableFrameCount = 0
-		if (pageTurnPrewarmLayoutListener != null) return
 		val listener = ViewTreeObserver.OnPreDrawListener {
 			if (!pageTurnCanvasEnabled || !isAttachedToWindow) {
 				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
 			val webView = viewerContentContainer.findDescendantWebView()
+			pageRasterHostEventController.webViewAttachmentChanged(
+				webView?.isAttachedToWindow == true
+			)
 			if (
 				webView == null ||
 				!webView.isAttachedToWindow ||
@@ -886,7 +946,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				isLayoutRequested ||
 				webView.isLayoutRequested
 			) return@OnPreDrawListener true
-			val signature = pageTurnPrewarmLayoutSignature(webView)
+			val profileEpoch = rasterProfileEpoch
+			val signature = pageTurnPrewarmLayoutSignature(webView, profileEpoch ?: 0L)
+			if (profileEpoch != null) {
+				pageRasterHostEventController.layoutSignatureMeasured(signature)
+			}
 			if (signature == pageTurnPrewarmLayoutSignature) {
 				pageTurnPrewarmStableFrameCount += 1
 			} else {
@@ -900,6 +964,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			if (pageTurnPrewarmStableFrameCount == PageTurnPrewarmRequiredStableFrames) {
 				playLikeCurlController.onHostContentReady()
 			}
+			if (profileEpoch == null) {
+				postInvalidateOnAnimation()
+				return@OnPreDrawListener true
+			}
 			if (pageRasterPreparationController.prewarmAdjacent()) {
 				removePageTurnPrewarmLayoutListener()
 			}
@@ -910,13 +978,15 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		postInvalidateOnAnimation()
 	}
 
-	private fun pageTurnPrewarmLayoutSignature(webView: WebView): Long {
-		var signature = width.toLong()
-		signature = signature * 31L + height
-		signature = signature * 31L + webView.width
-		signature = signature * 31L + webView.height
-		return signature
-	}
+	private fun pageTurnPrewarmLayoutSignature(
+		webView: WebView,
+		profileEpoch: Long
+	): ReaderPageLayoutSignature = ReaderPageLayoutSignature(
+		widthPx = webView.width,
+		heightPx = webView.height,
+		layoutDirection = layoutDirection,
+		rasterProfileEpoch = profileEpoch
+	)
 
 	private fun removePageTurnPrewarmLayoutListener() {
 		val listener = pageTurnPrewarmLayoutListener ?: return
@@ -932,7 +1002,21 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var observedHostLifecycle: Lifecycle? = null
 
 	private val hostLifecycleObserver = object : DefaultLifecycleObserver {
+		override fun onResume(owner: LifecycleOwner) {
+			pageRasterHostEventController.lifecycleResumedChanged(true)
+			requestPageTurnPrewarmWhenReady()
+		}
+
+		override fun onPause(owner: LifecycleOwner) {
+			pageRasterHostEventController.lifecycleResumedChanged(false)
+		}
+
+		override fun onStop(owner: LifecycleOwner) {
+			pageRasterHostEventController.lifecycleResumedChanged(false)
+		}
+
 		override fun onDestroy(owner: LifecycleOwner) {
+			pageRasterHostEventController.lifecycleResumedChanged(false)
 			beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Destroyed)
 		}
 	}
@@ -942,7 +1026,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		observedHostLifecycle = findViewTreeLifecycleOwner()?.lifecycle
 			?.also { lifecycle ->
 				lifecycle.addObserver(hostLifecycleObserver)
+				pageRasterHostEventController.lifecycleResumedChanged(
+					lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+				)
 			}
+		pageRasterHostEventController.webViewAttachmentChanged(
+			viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
+		)
 		playLikeCurlController.onHostAttached()
 		requestPageTurnPrewarmWhenReady()
 	}
@@ -1668,9 +1758,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		super.onWindowVisibilityChanged(visibility)
 		if (!pageTurnCanvasEnabled) return
 		if (visibility == VISIBLE) {
+			pageRasterHostEventController.lifecycleResumedChanged(
+				observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+			)
 			requestPageTurnPrewarmWhenReady()
 			return
 		}
+		pageRasterHostEventController.lifecycleResumedChanged(false)
 		pageInputSettlementHostController.onLifecycleEvent(
 			ReaderPageHostLifecycleEvent.WindowHidden
 		)
@@ -1680,6 +1774,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	override fun onDetachedFromWindow() {
+		pageRasterHostEventController.webViewAttachmentChanged(false)
+		pageRasterHostEventController.lifecycleResumedChanged(false)
 		beginFinalHostLifecycle(ReaderPageHostLifecycleEvent.Detached)
 		closePhysicalPointerDelivery()
 		teardownTask4Resources()
@@ -1718,6 +1814,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		if (task4ResourceTeardownStarted) return
 		task4ResourceTeardownStarted = true
 		removePageTurnPrewarmLayoutListener()
+		pageRasterHostEventController.close()
 		playLikeCurlController.destroy()
 		pageRasterPreparationController.destroy()
 	}

@@ -146,6 +146,7 @@ internal fun KomikkuReaderRoot(
 			pageTurnContentReadyKey = readerPageTurnContentReadyKey(
 				controllerState.paginationProfile
 			),
+			pageTurnPaginationStatus = controllerState.paginationProfile.status,
 			pageTurnVisualPageIndex = controllerState.chrome.currentLocator?.pageIndex,
 			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
 			pagePreparationCoverVisible = pagePreparationState.presentation == ReaderPagePreparationPresentation.Cover,
