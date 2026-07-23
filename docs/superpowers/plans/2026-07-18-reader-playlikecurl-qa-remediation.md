@@ -21233,7 +21233,7 @@ if ($requiredTask12CanonicalClasses.Count -ne 9) {
   throw 'task12Canonical canonical class inventory is incomplete or duplicated'
 }
 $task12CanonicalResultsRoot =
-  '.\third_party\playlikecurl\karackencurllib\build\test-results\test'
+  '.\build\third-party\playlikecurl\karackencurllib\test-results\testDebugUnitTest'
 if (Test-Path -LiteralPath $task12CanonicalResultsRoot) {
   Remove-Item -LiteralPath $task12CanonicalResultsRoot -Recurse -Force
 }
@@ -24368,7 +24368,7 @@ if ($requiredTask13CanonicalClasses.Count -ne 11) {
   throw 'task13Canonical canonical class inventory is incomplete or duplicated'
 }
 $task13CanonicalResultsRoot =
-  '.\third_party\playlikecurl\karackencurllib\build\test-results\test'
+  '.\build\third-party\playlikecurl\karackencurllib\test-results\testDebugUnitTest'
 if (Test-Path -LiteralPath $task13CanonicalResultsRoot) {
   Remove-Item -LiteralPath $task13CanonicalResultsRoot -Recurse -Force
 }
@@ -26818,7 +26818,7 @@ $productionApi = Get-Content `
 if ([regex]::Matches($apiSource, 'PRODUCTION_API_VERSION = 2;').Count -ne 1 -or
     [regex]::Matches(
       $productionApi,
-      '(?m)^Production API version: 2\r?$'
+      '(?m)^Production API version `2` accepts client-prepared bitmap page decks through\r?$'
     ).Count -ne 1) {
   throw 'Frozen canonical mirror is not the API-2 release source'
 }
@@ -26840,7 +26840,7 @@ if ($requiredCanonicalClasses.Count -ne 12) {
   throw 'Canonical release class inventory is incomplete or duplicated'
 }
 $canonicalResultsRoot =
-  '.\third_party\playlikecurl\karackencurllib\build\test-results\test'
+  '.\build\third-party\playlikecurl\karackencurllib\test-results\testDebugUnitTest'
 if (Test-Path -LiteralPath $canonicalResultsRoot) {
   Remove-Item -LiteralPath $canonicalResultsRoot -Recurse -Force
 }
@@ -28450,7 +28450,7 @@ if (-not $postPublicationComplete) {
     '.codex-validation\final-host-failures.txt'
     '.codex-validation\final-host-task-outcome.json'
     '.\composeApp\build\test-results\testAndroidHostTest'
-    '.\third_party\playlikecurl\karackencurllib\build\test-results\test'
+    '.\build\third-party\playlikecurl\karackencurllib\test-results\testDebugUnitTest'
     '.\androidApp\build\outputs\apk\readerDev\Navic.apk'
   )
   foreach ($path in $staleEvidence) {
@@ -33250,7 +33250,7 @@ if ($requiredCanonicalClasses.Count -ne 12) {
   throw 'Canonical release class inventory is incomplete or duplicated'
 }
 $canonicalResultsRoot =
-  '.\third_party\playlikecurl\karackencurllib\build\test-results\test'
+  '.\build\third-party\playlikecurl\karackencurllib\test-results\testDebugUnitTest'
 if (Test-Path -LiteralPath $canonicalResultsRoot) {
   Remove-Item -LiteralPath $canonicalResultsRoot -Recurse -Force
 }
