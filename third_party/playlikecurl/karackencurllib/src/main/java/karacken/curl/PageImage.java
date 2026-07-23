@@ -4,6 +4,7 @@ import java.util.Objects;
 
 /**
  * Immutable client page identity paired with already prepared image content.
+ * Generation identifiers are non-negative; negative values are reserved for internal absence.
  *
  * <p>For the Android production API, {@code content} is an immutable, opaque
  * {@link android.graphics.Bitmap.Config#ARGB_8888 ARGB_8888} bitmap. Opaque base pages do not
@@ -101,6 +102,9 @@ public final class PageImage<T> {
             T overlayContent,
             boolean filler,
             int fillerColorArgb) {
+        if (generationId < 0) {
+            throw new IllegalArgumentException("generationId must not be negative");
+        }
         if (logicalPageId == null || logicalPageId.trim().isEmpty()) {
             throw new IllegalArgumentException("logicalPageId must not be blank");
         }

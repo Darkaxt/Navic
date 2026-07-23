@@ -124,10 +124,18 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(bridgeText, "suppressWebShellCover = false")
 		assertContains(bridgeText, "this.externalShellCover = Boolean(externalShellCover)")
 		assertContains(bridgeText, "this.suppressWebShellCover = Boolean(suppressWebShellCover)")
-		assertContains(
-			bridgeText,
-			"this.close()\n      this.externalShellCover = Boolean(externalShellCover)\n      this.suppressWebShellCover = Boolean(suppressWebShellCover)",
-			message = "The cover flags must be applied after close() resets runtime state."
+		val closeIndex = bridgeText.indexOf("this.close()")
+		val externalCoverIndex = bridgeText.indexOf(
+			"this.externalShellCover = Boolean(externalShellCover)"
+		)
+		val suppressedCoverIndex = bridgeText.indexOf(
+			"this.suppressWebShellCover = Boolean(suppressWebShellCover)"
+		)
+		assertTrue(
+			closeIndex >= 0 &&
+				externalCoverIndex > closeIndex &&
+				suppressedCoverIndex > externalCoverIndex,
+			"The cover flags must be applied after close() resets runtime state."
 		)
 		assertContains(
 			bridgeText,

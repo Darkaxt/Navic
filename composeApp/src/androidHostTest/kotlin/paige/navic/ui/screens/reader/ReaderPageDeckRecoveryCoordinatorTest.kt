@@ -112,6 +112,24 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 	}
 
 	@Test
+	fun synchronousBuildFailureUsesPrivacySafeStableReason() {
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false)
+		host.buildRequestFailure = IllegalStateException(
+			"sensitive-publication-path"
+		)
+		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
+
+		assertFalse(coordinator.accept(repairedWindow()))
+		assertEquals(
+			ReaderPageDeckRecoveryState.Failed(
+				"protected-window-build-failed"
+			),
+			coordinator.state
+		)
+		assertEquals(listOf(1L), host.cancelledRequests)
+	}
+
+	@Test
 	fun staleRepairAndSupersededBuildCallbacksAreNoOps() {
 		val host = FakeDeckRecoveryHost(usableActiveDeck = false)
 		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
@@ -192,12 +210,12 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 
 	@Test
 	fun synchronousRendererRejectionCannotBeOverwritten() {
-		val host = FakeDeckRecoveryHost(usableActiveDeck = false)
-		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
-		host.synchronousRejection = { generationId, reason ->
-			host.releasedGenerations += generationId
-			assertTrue(coordinator.onDeckRejected(generationId, reason))
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false).apply {
+			nextSubmissionResult = ReaderPageRecoveredDeckSubmissionResult.Rejected(
+				DeckRejectionReason.INVALID_CONTENT.name
+			)
 		}
+		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
 		coordinator.accept(repairedWindow())
 
 		host.completeBuild(host.singleBuildRequestId(), generationId = 50L)
@@ -267,6 +285,78 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 	}
 
 	@Test
+	fun capacityRetryRetainsTheGenerationAndRecomputesItsRole() {
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false).apply {
+			nextSubmissionResult =
+				ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
+		}
+		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
+		coordinator.accept(repairedWindow())
+
+		host.completeBuild(host.singleBuildRequestId(), generationId = 54L)
+
+		assertIs<ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity>(coordinator.state)
+		assertTrue(host.releasedGenerations.isEmpty())
+		host.currentRole = ReaderDeckSubmissionRole.Pending
+		host.nextSubmissionResult = ReaderPageRecoveredDeckSubmissionResult.Accepted
+		assertTrue(coordinator.onDeckSubmissionCapacityAvailable())
+		assertEquals(
+			listOf(
+				54L to ReaderDeckSubmissionRole.Active,
+				54L to ReaderDeckSubmissionRole.Pending
+			),
+			host.submissions
+		)
+		assertEquals(
+			ReaderPageDeckRecoveryState.WaitingForPreparation(
+				54L,
+				ReaderDeckSubmissionRole.Pending
+			),
+			coordinator.state
+		)
+	}
+
+	@Test
+	fun staleCapacityRetryReleasesTheRetainedGeneration() {
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false).apply {
+			nextSubmissionResult =
+				ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
+		}
+		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
+		coordinator.accept(repairedWindow())
+		host.completeBuild(host.singleBuildRequestId(), generationId = 55L)
+		host.windowCurrent = false
+
+		assertFalse(coordinator.onDeckSubmissionCapacityAvailable())
+
+		assertEquals(listOf(55L), host.releasedGenerations)
+		assertEquals(ReaderPageDeckRecoveryState.Idle, coordinator.state)
+	}
+
+	@Test
+	fun replacementAndCancelReleaseCapacityOwnedGenerationsExactlyOnce() {
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false).apply {
+			nextSubmissionResult =
+				ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
+		}
+		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
+		coordinator.accept(repairedWindow())
+		host.completeBuild(host.singleBuildRequestId(), generationId = 56L)
+
+		assertTrue(coordinator.accept(repairedWindow()))
+		assertEquals(listOf(56L), host.releasedGenerations)
+		host.nextSubmissionResult =
+			ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
+		host.completeBuild(host.singleBuildRequestId(), generationId = 57L)
+
+		coordinator.cancelAll()
+
+		assertEquals(listOf(56L, 57L), host.releasedGenerations)
+		assertEquals(ReaderPageDeckRecoveryState.Idle, coordinator.state)
+		assertFalse(coordinator.onDeckSubmissionCapacityAvailable())
+	}
+
+	@Test
 	fun throwingSubmissionReleasesTheUnacceptedGeneration() {
 		val host = FakeDeckRecoveryHost(usableActiveDeck = false)
 		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
@@ -276,6 +366,21 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 		host.completeBuild(host.singleBuildRequestId(), generationId = 51L)
 
 		assertEquals(listOf(51L), host.releasedGenerations)
+		assertIs<ReaderPageDeckRecoveryState.Failed>(coordinator.state)
+		assertEquals(0, host.retainedSubmittedGenerations)
+	}
+
+	@Test
+	fun throwingSubmissionAfterAcceptanceUsesHostRollbackInsteadOfUnsubmittedRelease() {
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false)
+		val coordinator = ReaderPageDeckRecoveryCoordinator(host)
+		host.throwAfterAcceptance = true
+		coordinator.accept(repairedWindow())
+
+		host.completeBuild(host.singleBuildRequestId(), generationId = 58L)
+
+		assertTrue(host.releasedGenerations.isEmpty())
+		assertEquals(listOf(58L), host.rolledBackAcceptedGenerations)
 		assertIs<ReaderPageDeckRecoveryState.Failed>(coordinator.state)
 		assertEquals(0, host.retainedSubmittedGenerations)
 	}
@@ -352,13 +457,18 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 		>()
 		val cancelledRequests = mutableListOf<Long>()
 		val releasedGenerations = mutableListOf<Long>()
+		val rolledBackAcceptedGenerations = mutableListOf<Long>()
 		val submissions = mutableListOf<Pair<Long, ReaderDeckSubmissionRole>>()
 		val cancelledSubmissions = mutableListOf<Pair<Long, ReaderDeckSubmissionRole>>()
 		val prepared = mutableSetOf<Long>()
 		var windowCurrent = true
 		var synchronousCancelledGeneration: Long? = null
-		var synchronousRejection: ((Long, DeckRejectionReason) -> Unit)? = null
+		var buildRequestFailure: Throwable? = null
 		var throwOnSubmission = false
+		var throwAfterAcceptance = false
+		var nextSubmissionResult: ReaderPageRecoveredDeckSubmissionResult =
+			ReaderPageRecoveredDeckSubmissionResult.Accepted
+		private val unsubmittedGenerations = mutableSetOf<Long>()
 		private val submittedGenerations = mutableSetOf<Long>()
 		val retainedSubmittedGenerations: Int
 			get() = submittedGenerations.size
@@ -382,6 +492,7 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 			onBuilt: (ReaderPageRecoveredDeckBuildResult) -> Unit
 		) {
 			check(isCurrentRepairWindow(repairedPageIndices, centerOrdinal, rasterEpoch))
+			buildRequestFailure?.let { throw it }
 			builds[requestId] = onBuilt
 		}
 
@@ -393,6 +504,7 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 				cancelledBuilds[requestId] = callback
 			} else {
 				synchronousCancelledGeneration = null
+				unsubmittedGenerations += synchronousGeneration
 				callback(ReaderPageRecoveredDeckBuildResult.Built(synchronousGeneration))
 			}
 		}
@@ -402,20 +514,25 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 		override fun submitRecoveredDeck(
 			generationId: Long,
 			role: ReaderDeckSubmissionRole
-		) {
+		): ReaderPageRecoveredDeckSubmissionResult {
 			submissions += generationId to role
-			submittedGenerations += generationId
 			if (throwOnSubmission) error("submission-failed")
-			synchronousRejection?.invoke(
-				generationId,
-				DeckRejectionReason.INVALID_CONTENT
-			)
-			if (synchronousRejection != null) submittedGenerations -= generationId
+			return nextSubmissionResult.also { result ->
+				if (result == ReaderPageRecoveredDeckSubmissionResult.Accepted) {
+					check(unsubmittedGenerations.remove(generationId))
+					submittedGenerations += generationId
+					if (throwAfterAcceptance) {
+						submittedGenerations -= generationId
+						rolledBackAcceptedGenerations += generationId
+						error("post-acceptance-publication-failed")
+					}
+				}
+			}
 		}
 
-		override fun releaseRecoveredDeck(generationId: Long) {
+		override fun releaseUnsubmittedRecoveredDeck(generationId: Long) {
+			if (!unsubmittedGenerations.remove(generationId)) return
 			releasedGenerations += generationId
-			submittedGenerations -= generationId
 		}
 
 		override fun cancelSubmittedRecoveredDeck(
@@ -433,6 +550,7 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 		fun singleBuildRequestId(): Long = builds.keys.single()
 
 		fun completeBuild(requestId: Long, generationId: Long) {
+			unsubmittedGenerations += generationId
 			checkNotNull(builds.remove(requestId)).invoke(
 				ReaderPageRecoveredDeckBuildResult.Built(generationId)
 			)
@@ -451,6 +569,7 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 		}
 
 		fun deliverCancelledBuild(requestId: Long, generationId: Long) {
+			unsubmittedGenerations += generationId
 			checkNotNull(cancelledBuilds.remove(requestId)).invoke(
 				ReaderPageRecoveredDeckBuildResult.Built(generationId)
 			)

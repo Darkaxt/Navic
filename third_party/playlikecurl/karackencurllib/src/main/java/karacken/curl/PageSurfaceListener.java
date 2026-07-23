@@ -16,6 +16,8 @@ public interface PageSurfaceListener {
 
     default void onDeckReleased(long generationId, DeckReleaseReason reason) {}
 
+    default void onDeckSubmissionCapacityAvailable() {}
+
     default void onRenderFailure(RenderFailure failure) {}
 
     default void onGestureRejected(

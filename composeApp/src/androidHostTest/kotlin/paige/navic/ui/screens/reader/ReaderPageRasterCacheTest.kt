@@ -1,8 +1,12 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import java.util.IdentityHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -30,13 +34,20 @@ class ReaderPageRasterCacheTest {
 			.substringBefore("private fun commitWrite(")
 		val encodeIndex = write.indexOf("codec.encode(value, temporary)")
 		val syncIndex = write.indexOf("output.fd.sync()")
-		val commitLockIndex = write.indexOf("synchronized(this)")
+		val commitIndex = write.indexOf("commitWrite(")
+		val commit = source
+			.substringAfter("private fun commitWrite(")
+			.substringBefore("private fun writeFailed(")
 
 		assertTrue(encodeIndex >= 0, "Raster writes must encode the immutable value.")
 		assertTrue(syncIndex > encodeIndex, "Disk synchronization must follow encoding.")
 		assertTrue(
-			commitLockIndex > syncIndex,
-			"PNG encoding and fsync must not hold the cache state lock needed by foreground raster reads."
+			commitIndex > syncIndex,
+			"PNG encoding and fsync must precede the cache state commit."
+		)
+		assertTrue(
+			"synchronized(this)" in commit,
+			"The atomic cache commit must own the cache state monitor."
 		)
 		assertFalse(
 			source.contains("@Synchronized\n\tfun write("),
@@ -167,40 +178,43 @@ class ReaderPageRasterCacheTest {
 		assertFalse(fixture.cache.pathFor(second).exists())
 		assertTrue(fixture.cache.pathFor(third).isFile)
 		assertEquals(2, fixture.cache.metrics().diskEntries)
+		assertTrue(
+			fixture.cache.metrics().diskBytes <= fixture.cache.metrics().diskByteLimit
+		)
 	}
 
 	@Test
-	fun protectedChapterCanTemporarilyExceedDiskLimitWithoutEvictingItself() {
-		val fixture = fixture(maxDiskBytes = 10L, maxDecodedEntries = 0)
-		val first = key(chapterPageIndex = 1)
-		val second = key(chapterPageIndex = 2)
-		val unrelated = key(chapterPageIndex = 1).copy(spineIndex = 8, hrefHash = "href-2")
-		assertTrue(fixture.cache.write(unrelated, metadata(), pngBytes("old")))
-		fixture.cache.protectChapter(first.chapter)
+	fun protectedChapterLargerThanDiskLimitIsNotRetained() {
+		val value = pngBytes("oversized")
+		val fixture = fixture(
+			maxDiskBytes = value.size.toLong() - 1L,
+			maxDecodedEntries = 1
+		)
+		val rasterKey = key(chapterPageIndex = 1)
+		fixture.cache.protectChapter(rasterKey.chapter)
 
-		assertTrue(fixture.cache.write(first, metadata(), pngBytes("first")))
-		assertTrue(fixture.cache.write(second, metadata(), pngBytes("second")))
+		val result = fixture.cache.write(rasterKey, metadata(), value)
 
-		assertTrue(fixture.cache.pathFor(first).isFile)
-		assertTrue(fixture.cache.pathFor(second).isFile)
-		assertFalse(fixture.cache.pathFor(unrelated).exists())
-		assertTrue(fixture.cache.metrics().diskBytes > 10L)
+		assertFalse(result.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Caller, result.ownership)
+		assertFalse(fixture.cache.contains(rasterKey))
+		assertTrue(fixture.cache.metrics().diskBytes <= fixture.cache.metrics().diskByteLimit)
+		assertEquals(0, fixture.cache.metrics().decodedEntries)
 	}
 
 	@Test
-	fun replacingProtectedChapterTrimsPreviousOverflowBackToBudget() {
-		val fixture = fixture(maxDiskBytes = 10L, maxDecodedEntries = 0)
-		val first = key(chapterPageIndex = 1)
-		val second = key(chapterPageIndex = 2)
-		val nextChapter = key(chapterPageIndex = 1).copy(spineIndex = 8, hrefHash = "href-2")
-		fixture.cache.protectChapter(first.chapter)
-		assertTrue(fixture.cache.write(first, metadata(), pngBytes("first")))
-		assertTrue(fixture.cache.write(second, metadata(), pngBytes("second")))
+	fun writeExactlyAtDiskByteLimitIsRetained() {
+		val value = pngBytes("exact")
+		val fixture = fixture(
+			maxDiskBytes = value.size.toLong(),
+			maxDecodedEntries = 0
+		)
 
-		fixture.cache.protectChapter(nextChapter.chapter)
+		val result = fixture.cache.write(key(), metadata(), value)
 
-		assertTrue(fixture.cache.metrics().diskBytes <= 10L)
-		assertFalse(fixture.cache.pathFor(first).isFile && fixture.cache.pathFor(second).isFile)
+		assertTrue(result.persisted)
+		assertEquals(value.size.toLong(), fixture.cache.metrics().diskBytes)
+		assertEquals(value.size.toLong(), fixture.cache.metrics().diskByteLimit)
 	}
 
 	@Test
@@ -608,12 +622,411 @@ class ReaderPageRasterCacheTest {
 		assertContentEquals(pngBytes("owned-by-cache"), copied?.value)
 	}
 
+	@Test
+	fun sharedIdentitySurvivesSingleKeyRemovalAndCapacityEviction() {
+		val attempts = mutableListOf<Any>()
+		val shared = Any()
+		val distinct = Any()
+		val cache = rasterCache<Any>(
+			maxDecodedEntries = 2,
+			release = attempts::add
+		)
+		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
+		assertTrue(cache.write(ownedKey(2), metadata(), shared).persisted)
+
+		assertTrue(cache.remove(ownedKey(1)))
+		assertTrue(attempts.isEmpty())
+		assertSame(shared, cache.read(ownedKey(2))?.value)
+
+		assertTrue(cache.write(ownedKey(3), metadata(), distinct).persisted)
+		cache.protectDecodedPageIndices(setOf(3))
+		cache.trimDecodedToProtectedWindow()
+		assertEquals(listOf(shared), attempts)
+		assertSame(distinct, cache.read(ownedKey(3))?.value)
+	}
+
+	@Test
+	fun fullyProtectedIdentityCapacityLeavesNewValueWithCaller() {
+		val releases = mutableListOf<Any>()
+		val protected = Any()
+		val rejected = Any()
+		val cache = rasterCache<Any>(
+			maxDecodedEntries = 1,
+			release = releases::add
+		)
+		cache.protectDecodedPageIndices(setOf(1))
+		val first = cache.write(ownedKey(1), metadata(), protected)
+
+		val second = cache.write(ownedKey(2), metadata(), rejected)
+
+		assertTrue(first.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Store, first.ownership)
+		assertTrue(second.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Caller, second.ownership)
+		assertSame(protected, cache.read(ownedKey(1))?.value)
+		assertNull(cache.read(ownedKey(2)))
+		assertTrue(releases.isEmpty())
+		assertTrue(cache.remove(ownedKey(1)))
+		assertEquals(listOf(protected), releases)
+		assertFalse(releases.any { it === rejected })
+	}
+
+	@Test
+	fun profileRetentionReleasesSharedIdentityOnlyOnLastDetach() {
+		val attempts = mutableListOf<Any>()
+		val shared = Any()
+		val cache = rasterCache<Any>(release = attempts::add)
+		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
+		assertTrue(cache.write(ownedKey(2), metadata(), shared).persisted)
+
+		cache.retainProfile(ownedKey(1).profile.copy(layoutHash = "replacement"))
+
+		assertEquals(listOf(shared), attempts)
+		assertEquals(0, cache.metrics().uniqueDecodedBitmaps)
+	}
+
+	@Test
+	fun closeUsesIdentityAndAttemptsEveryReleaseBeforeFailing() {
+		class Value(val label: String)
+		val attempts = mutableListOf<Value>()
+		val cache = rasterCache<Value>(release = { value ->
+			attempts += value
+			error("release-failed-${value.label}")
+		})
+		val shared = Value("shared")
+		val distinct = Value("distinct")
+		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
+		assertTrue(cache.write(ownedKey(2), metadata(), shared).persisted)
+		assertTrue(cache.write(ownedKey(3), metadata(), distinct).persisted)
+
+		val failure = assertFailsWith<IllegalStateException> { cache.close() }
+
+		assertEquals(2, attempts.size)
+		assertTrue(attempts.any { value -> value === shared })
+		assertTrue(attempts.any { value -> value === distinct })
+		assertEquals(1, failure.suppressed.size)
+		assertEquals(0, cache.metrics().decodedEntries)
+		assertEquals(0, cache.metrics().uniqueDecodedBitmaps)
+		assertEquals(0, cache.metrics().pendingDecodedReleases)
+		cache.close()
+		assertEquals(2, attempts.size)
+	}
+
+	@Test
+	fun protectedChapterTrimDetachesOnlyTheRetiredAlias() {
+		var now = 1L
+		val releases = mutableListOf<Any>()
+		val shared = Any()
+		val distinct = Any()
+		val retired = ownedKey(1)
+		val retained = ownedKey(2)
+		val next = ownedKey(3).copy(spineIndex = 8, hrefHash = "next")
+		val cache = rasterCache<Any>(
+			maxDiskBytes = 2,
+			maxDecodedEntries = 2,
+			encodedBytesPerValue = 1,
+			clock = { now++ },
+			release = releases::add
+		)
+		cache.protectChapter(retired.chapter)
+		assertTrue(cache.write(retired, metadata(), shared).persisted)
+		assertTrue(cache.write(retained, metadata(), shared).persisted)
+		assertEquals(2, cache.metrics().diskEntries)
+		assertEquals(2L, cache.metrics().diskBytes)
+		assertEquals(2L, cache.metrics().diskByteLimit)
+
+		cache.protectChapter(next.chapter)
+		assertTrue(cache.write(next, metadata(), distinct).persisted)
+
+		assertEquals(2, cache.metrics().diskEntries)
+		assertTrue(cache.metrics().diskBytes <= cache.metrics().diskByteLimit)
+		assertFalse(cache.contains(retired))
+		assertTrue(cache.contains(retained))
+		assertTrue(cache.contains(next))
+		assertSame(shared, cache.read(retained)?.value)
+		assertTrue(releases.isEmpty())
+		assertTrue(cache.remove(retained))
+		assertEquals(listOf(shared), releases)
+		cache.close()
+		assertEquals(1, releases.count { it === distinct })
+	}
+
+	@Test
+	fun corruptEntryRemovalDoesNotReleaseAStillReferencedIdentity() {
+		val releases = mutableListOf<Any>()
+		val shared = Any()
+		val corrupt = ownedKey(1)
+		val retained = ownedKey(2)
+		val cache = rasterCache<Any>(
+			maxDecodedEntries = 2,
+			decode = { shared },
+			release = releases::add
+		)
+		assertTrue(cache.write(corrupt, metadata(), shared).persisted)
+		assertTrue(cache.write(retained, metadata(), shared).persisted)
+		cache.protectDecodedPageIndices(setOf(retained.visualPageOrdinal))
+		cache.trimDecodedToProtectedWindow()
+		cache.pathFor(corrupt).writeText("corrupt")
+
+		assertNull(cache.read(corrupt))
+		assertSame(shared, cache.read(retained)?.value)
+		assertTrue(releases.isEmpty())
+		assertTrue(cache.remove(retained))
+		assertEquals(listOf(shared), releases)
+	}
+
+	@Test
+	fun sameDigestReplacementDoesNotDuplicateIdentityReferences() {
+		val releases = mutableListOf<Any>()
+		val shared = Any()
+		val replacement = Any()
+		val cache = rasterCache<Any>(release = releases::add)
+		val rasterKey = ownedKey(1)
+		assertTrue(cache.write(rasterKey, metadata(), shared).persisted)
+		assertTrue(cache.write(rasterKey, metadata(), shared).persisted)
+
+		assertTrue(cache.write(rasterKey, metadata(), replacement).persisted)
+		assertEquals(listOf(shared), releases)
+		assertSame(replacement, cache.read(rasterKey)?.value)
+		assertTrue(cache.remove(rasterKey))
+		assertEquals(listOf(shared, replacement), releases)
+	}
+
+	@Test
+	fun writeStartingAfterReleaseCallbackEntryFailsBeforeEncode() {
+		val releaseEntered = CountDownLatch(1)
+		val allowRelease = CountDownLatch(1)
+		val encodeCounts = IdentityHashMap<Any, Int>()
+		val releases = mutableListOf<Any>()
+		val shared = Any()
+		val replacement = Any()
+		val cache = rasterCache<Any>(
+			maxDecodedEntries = 1,
+			encode = { value, target ->
+				synchronized(encodeCounts) {
+					encodeCounts[value] = (encodeCounts[value] ?: 0) + 1
+				}
+				target.writeText("raster")
+				true
+			},
+			release = { value ->
+				synchronized(releases) { releases += value }
+				if (value === shared) {
+					releaseEntered.countDown()
+					check(allowRelease.await(5, TimeUnit.SECONDS))
+				}
+			}
+		)
+		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
+		val eviction = thread(start = true) {
+			cache.write(ownedKey(2), metadata(), replacement)
+		}
+		assertTrue(releaseEntered.await(5, TimeUnit.SECONDS))
+		var result: ReaderPageRasterWriteResult? = null
+		val writeFinished = CountDownLatch(1)
+		val writer = thread(start = true) {
+			result = cache.write(ownedKey(3), metadata(), shared)
+			writeFinished.countDown()
+		}
+
+		val completedWhileReleaseBlocked = writeFinished.await(1, TimeUnit.SECONDS)
+		allowRelease.countDown()
+		eviction.join(5_000)
+		writer.join(5_000)
+
+		assertTrue(completedWhileReleaseBlocked)
+		val writeResult = assertNotNull(result)
+		assertFalse(writeResult.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Store, writeResult.ownership)
+		assertNull(writeResult.receipt)
+		assertEquals(
+			ReaderPageRasterWriteFailureReason.EncodeIdentityReleasing,
+			writeResult.failureReason
+		)
+		assertEquals(1, synchronized(encodeCounts) { encodeCounts[shared] })
+		assertFalse(eviction.isAlive)
+		assertFalse(writer.isAlive)
+		assertNull(cache.read(ownedKey(3)))
+		cache.close()
+		assertEquals(1, synchronized(releases) { releases.count { it === shared } })
+	}
+
+	@Test
+	fun encodePinDefersLastAliasReleaseUntilEncodeAndAdoptionDecisionReturns() {
+		val secondEncodeEntered = CountDownLatch(1)
+		val allowSecondEncode = CountDownLatch(1)
+		val releases = mutableListOf<Any>()
+		val shared = Any()
+		val sharedEncodeCount = AtomicInteger()
+		val cache = rasterCache<Any>(
+			encode = { value, target ->
+				if (value === shared && sharedEncodeCount.incrementAndGet() == 2) {
+					secondEncodeEntered.countDown()
+					check(allowSecondEncode.await(5, TimeUnit.SECONDS))
+				}
+				target.writeText("raster")
+				true
+			},
+			release = releases::add
+		)
+		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
+		val writer = thread(start = true) {
+			cache.write(ownedKey(2), metadata(), shared)
+		}
+		assertTrue(secondEncodeEntered.await(5, TimeUnit.SECONDS))
+
+		assertTrue(cache.remove(ownedKey(1)))
+		assertTrue(releases.isEmpty())
+		allowSecondEncode.countDown()
+		writer.join(5_000)
+		assertFalse(writer.isAlive)
+		assertSame(shared, cache.read(ownedKey(2))?.value)
+		assertTrue(releases.isEmpty())
+		assertTrue(cache.remove(ownedKey(2)))
+		assertEquals(listOf(shared), releases)
+	}
+
+	@Test
+	fun twoConcurrentEncodesOfSameIdentityReleaseOnlyAfterLastPin() {
+		val bothEntered = CountDownLatch(2)
+		val allowEncodes = CountDownLatch(1)
+		val releases = mutableListOf<Any>()
+		val shared = Any()
+		val encodeCount = AtomicInteger()
+		val cache = rasterCache<Any>(
+			encode = { value, target ->
+				if (value === shared && encodeCount.incrementAndGet() > 1) {
+					bothEntered.countDown()
+					check(allowEncodes.await(5, TimeUnit.SECONDS))
+				}
+				target.writeText("raster")
+				true
+			},
+			release = releases::add
+		)
+		assertTrue(cache.write(ownedKey(0), metadata(), shared).persisted)
+		val first = thread(start = true) {
+			cache.write(ownedKey(1), metadata(), shared)
+		}
+		val second = thread(start = true) {
+			cache.write(ownedKey(2), metadata(), shared)
+		}
+		assertTrue(bothEntered.await(5, TimeUnit.SECONDS))
+
+		assertTrue(cache.remove(ownedKey(0)))
+		assertTrue(releases.isEmpty())
+		allowEncodes.countDown()
+		first.join(5_000)
+		second.join(5_000)
+		assertFalse(first.isAlive)
+		assertFalse(second.isAlive)
+		assertTrue(cache.remove(ownedKey(1)))
+		assertTrue(releases.isEmpty())
+		assertTrue(cache.remove(ownedKey(2)))
+		assertEquals(listOf(shared), releases)
+	}
+
+	@Test
+	fun failedEncodeOfAlreadyOwnedIdentityStillReturnsStoreOwnership() {
+		val shared = Any()
+		var encodeCount = 0
+		val releases = mutableListOf<Any>()
+		val cache = rasterCache<Any>(
+			encode = { _, target ->
+				encodeCount += 1
+				if (encodeCount == 1) target.writeText("raster")
+				encodeCount == 1
+			},
+			release = releases::add
+		)
+		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
+
+		val failed = cache.write(ownedKey(2), metadata(), shared)
+
+		assertFalse(failed.persisted)
+		assertEquals(ReaderPageRasterValueOwnership.Store, failed.ownership)
+		assertTrue(releases.isEmpty())
+		assertTrue(cache.remove(ownedKey(1)))
+		assertEquals(listOf(shared), releases)
+	}
+
+	@Test
+	fun persistOnlyRejectsDecodedIdentityBeforeEncode() {
+		val shared = Any()
+		var encodeCount = 0
+		val cache = rasterCache<Any>(
+			encode = { _, target ->
+				encodeCount += 1
+				target.writeText("raster")
+				true
+			}
+		)
+		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
+
+		assertFailsWith<IllegalStateException> {
+			cache.write(
+				key = ownedKey(2),
+				metadata = metadata(),
+				value = shared,
+				mode = ReaderPageRasterWriteMode.PersistOnly
+			)
+		}
+		assertEquals(1, encodeCount)
+	}
+
+	@Test
+	fun closeLeavesNoEncodePinsOrPinnedIdentitiesAndRetainsBounds() {
+		val cache = rasterCache<Any>(maxDiskBytes = 4, maxDecodedEntries = 2)
+		assertTrue(cache.write(ownedKey(1), metadata(), Any()).persisted)
+
+		cache.close()
+
+		val metrics = cache.metrics()
+		assertEquals(0, metrics.decodedEntries)
+		assertEquals(0, metrics.uniqueDecodedBitmaps)
+		assertEquals(2, metrics.uniqueDecodedBitmapLimit)
+		assertEquals(0, metrics.pendingDecodedReleases)
+		assertEquals(0, metrics.activeEncodePins)
+		assertEquals(0, metrics.encodePinnedIdentities)
+		assertEquals(4L, metrics.diskByteLimit)
+		assertTrue(metrics.diskBytes <= metrics.diskByteLimit)
+	}
+
 	private fun assertTrue(result: ReaderPageRasterWriteResult) {
 		kotlin.test.assertTrue(result.persisted)
 	}
 
 	private fun assertFalse(result: ReaderPageRasterWriteResult) {
 		kotlin.test.assertFalse(result.persisted)
+	}
+
+	private fun <T : Any> rasterCache(
+		maxDiskBytes: Long = 1_024L,
+		maxDecodedEntries: Int = 3,
+		encodedBytesPerValue: Int = 1,
+		clock: () -> Long = System::currentTimeMillis,
+		encode: (T, File) -> Boolean = { _, target ->
+			target.writeBytes(ByteArray(encodedBytesPerValue) { 1 })
+			true
+		},
+		decode: (File) -> T? = { null },
+		release: (T) -> Unit = {}
+	): ReaderPageRasterCache<T> {
+		val root = createTempDirectory("navic-reader-page-raster-owners").toFile()
+		return ReaderPageRasterCache(
+			root = root,
+			codec = object : ReaderPageRasterCodec<T> {
+				override fun encode(value: T, target: File): Boolean =
+					encode(value, target)
+
+				override fun decode(source: File): T? = decode(source)
+
+				override fun release(value: T) = release(value)
+			},
+			maxDiskBytes = maxDiskBytes,
+			maxDecodedEntries = maxDecodedEntries,
+			clock = clock
+		)
 	}
 
 	private fun fixture(
@@ -650,6 +1063,9 @@ class ReaderPageRasterCacheTest {
 		decorationHash = "decoration-1",
 		quality = ReaderPageBitmapQuality.Balanced
 	)
+
+	private fun ownedKey(page: Int): ReaderPageRasterKey =
+		key(chapterPageIndex = page).copy(visualPageOrdinal = page)
 
 	private fun metadata() = ReaderPageRasterMetadata(
 		surfaceLeft = 10,

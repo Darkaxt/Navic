@@ -10,9 +10,12 @@ import paige.navic.reader.ReaderPageBitmapQuality
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+
+private const val TestRendererDeckLeaseLimit = 4
 
 class ReaderPlayLikeCurlRasterAdapterTest {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -25,7 +28,12 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	@Test
 	fun duplicatePageIdentitiesLoadOnceAndMapToOneDeckEntry() = runBlocking {
 		val loader = FakeRasterLoader()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, release = {})
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = {}
+		)
 		val profile = profile("reference")
 
 		val deck = adapter.prepare(profile, listOf(0, 0, 1)).await()
@@ -44,7 +52,12 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 		val gate = CompletableDeferred<Unit>()
 		val loader = FakeRasterLoader(gateProfile = "shared", gate = gate)
 		val released = mutableListOf<String>()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, released::add)
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = released::add
+		)
 		val profile = profile("shared")
 
 		val first = adapter.prepare(profile, listOf(0))
@@ -69,10 +82,15 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 		val loader = FakeRasterLoader(gateProfile = "old", gate = gate)
 		val released = mutableListOf<String>()
 		val staleReleased = CompletableDeferred<String>()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader) { value ->
-			released += value
-			if (value.startsWith("old-")) staleReleased.complete(value)
-		}
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = { value ->
+				released += value
+				if (value.startsWith("old-")) staleReleased.complete(value)
+			}
+		)
 
 		val stale = adapter.prepare(profile("old"), listOf(0))
 		loader.firstStarted.await()
@@ -94,7 +112,12 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 		val gate = CompletableDeferred<Unit>()
 		val loader = FakeRasterLoader(gateProfile = "duplicate", gate = gate)
 		val released = mutableListOf<String>()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, released::add)
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = released::add
+		)
 		val profile = profile("duplicate")
 		val first = adapter.prepare(
 			profile = profile,
@@ -124,9 +147,10 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	fun staleFinalFenceRejectsDeckBuiltFromExistingCacheEntry() = runBlocking {
 		val released = mutableListOf<String>()
 		val adapter = ReaderPlayLikeCurlRasterAdapter(
-			scope,
-			FakeRasterLoader(),
-			released::add
+			scope = scope,
+			loader = FakeRasterLoader(),
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = released::add
 		)
 		val profile = profile("cached-fence")
 		checkNotNull(adapter.prepare(profile, listOf(0)).await()).close()
@@ -149,7 +173,12 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 		val gate = CompletableDeferred<Unit>()
 		val loader = FakeRasterLoader(gateProfile = "aba", gate = gate)
 		val released = mutableListOf<String>()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, released::add)
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = released::add
+		)
 		val profile = profile("aba")
 		var windowVersion = 1L
 		val stale = adapter.prepare(
@@ -185,7 +214,12 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	@Test
 	fun progressCountsUniqueRasterRequirements() = runBlocking {
 		val progress = mutableListOf<ReaderPlayLikeCurlRasterProgress>()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, FakeRasterLoader(), release = {})
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = FakeRasterLoader(),
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = {}
+		)
 
 		val deck = adapter.prepare(profile("progress"), listOf(0, 0, 1, 2), progress::add).await()
 
@@ -206,7 +240,12 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	@Test
 	fun overlappingWorkingSetsLoadOnlyTheNewFarEdgeRaster() = runBlocking {
 		val loader = FakeRasterLoader()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader, release = {})
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = {}
+		)
 		val profile = profile("sliding-window")
 
 		val first = checkNotNull(adapter.prepare(profile, listOf(0, 1, 2, 3, 4)).await())
@@ -219,15 +258,43 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	}
 
 	@Test
+	fun unexpectedLoaderFailureCompletesPreparationExceptionallyAfterOwnershipFinalizes() =
+		runBlocking {
+			val expected = IllegalStateException("decode-failed")
+			val adapter = ReaderPlayLikeCurlRasterAdapter(
+				scope = scope,
+				loader = ReaderPlayLikeCurlRasterLoader<String> { throw expected },
+				rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+				release = {}
+			)
+
+			val failure = assertFailsWith<IllegalStateException> {
+				adapter.prepare(profile("failure"), listOf(0)).await()
+			}
+
+			assertEquals(expected.message, failure.message)
+			adapter.closeAndJoin()
+			assertEquals(0, adapter.metrics().activePreparationWorkers)
+			assertEquals(0, adapter.metrics().activeMaterializationWorkers)
+			assertEquals(0, adapter.metrics().residentEntries)
+			assertEquals(0, adapter.metrics().uniqueDecodedBitmaps)
+		}
+
+	@Test
 	fun closeRejectsInFlightPreparationAndReleasesItsResult() = runBlocking {
 		val gate = CompletableDeferred<Unit>()
 		val loader = FakeRasterLoader(gateProfile = "closing", gate = gate)
 		val released = mutableListOf<String>()
 		val staleReleased = CompletableDeferred<String>()
-		val adapter = ReaderPlayLikeCurlRasterAdapter(scope, loader) { value ->
-			released += value
-			staleReleased.complete(value)
-		}
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = { value ->
+				released += value
+				staleReleased.complete(value)
+			}
+		)
 		val pending = adapter.prepare(profile("closing"), listOf(0))
 		loader.firstStarted.await()
 

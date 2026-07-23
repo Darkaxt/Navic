@@ -2,6 +2,7 @@ package karacken.curl;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -81,6 +82,46 @@ public class TextureBudgetTest {
         assertEquals(16_000_000L, result.getRequiredBytes());
     }
 
+    @Test
+    public void twoIdentityDistinctLandscapeDecksReachTheStructuralSlotLimit() {
+        LandscapePageDeck<String> active = landscapeDeck(31L, "active", -1);
+        LandscapePageDeck<String> pending = landscapeDeck(32L, "pending", -1);
+
+        assertEquals(
+                TextureBudget.maximumTextureSlots(),
+                TextureBudget.identityDistinctTextureCount(active, pending));
+        assertEquals(24, TextureBudget.maximumTextureSlots());
+    }
+
+    @Test
+    public void eachFillerRemovesBaseAndOverlayBytesAndSlots() {
+        LandscapePageDeck<String> active = landscapeDeck(41L, "active", -1);
+        LandscapePageDeck<String> pending = landscapeDeck(42L, "pending", 5);
+
+        assertEquals(
+                TextureBudget.maximumTextureSlots() - 2,
+                TextureBudget.identityDistinctTextureCount(active, pending));
+        TextureBudget.Result result =
+                TextureBudget.evaluate(active, pending, 4096, Long.MAX_VALUE);
+        assertNull(result.getFailureReason());
+        assertEquals(22L * 10L * 20L * 4L, result.getRequiredBytes());
+    }
+
+    @Test
+    public void everyAcceptedPortraitLandscapePairFitsTheStructuralSlotLimit() {
+        PortraitPageDeck<String> portrait = portraitDeckWithOverlays(51L, "portrait");
+        LandscapePageDeck<String> landscape = landscapeDeck(52L, "landscape", -1);
+        LandscapePageDeck<String> secondLandscape =
+                landscapeDeck(53L, "second-landscape", -1);
+
+        assertTrue(TextureBudget.identityDistinctTextureCount(portrait, portrait)
+                <= TextureBudget.maximumTextureSlots());
+        assertTrue(TextureBudget.identityDistinctTextureCount(portrait, landscape)
+                <= TextureBudget.maximumTextureSlots());
+        assertTrue(TextureBudget.identityDistinctTextureCount(landscape, secondLandscape)
+                <= TextureBudget.maximumTextureSlots());
+    }
+
     private static PortraitPageDeck<String> portraitDeck(
             long generationId,
             int width,
@@ -89,6 +130,52 @@ public class TextureBudgetTest {
                 image(generationId, "previous", 0, width, height),
                 image(generationId, "current", 1, width, height),
                 image(generationId, "next", 2, width, height));
+    }
+
+    private static PortraitPageDeck<String> portraitDeckWithOverlays(
+            long generationId,
+            String prefix) {
+        return new PortraitPageDeck<>(
+                imageWithOverlay(generationId, prefix + "-previous", 0),
+                imageWithOverlay(generationId, prefix + "-current", 1),
+                imageWithOverlay(generationId, prefix + "-next", 2));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static LandscapePageDeck<String> landscapeDeck(
+            long generationId,
+            String prefix,
+            int fillerIndex) {
+        PageImage<String>[] pages = new PageImage[6];
+        for (int index = 0; index < pages.length; index++) {
+            String id = prefix + "-" + index;
+            pages[index] = index == fillerIndex
+                    ? PageImage.filler(
+                            generationId,
+                            id,
+                            index,
+                            10,
+                            20,
+                            id + "-borrowed",
+                            0xFFFFFFFF)
+                    : imageWithOverlay(generationId, id, index);
+        }
+        return new LandscapePageDeck<>(
+                pages[0], pages[1], pages[2], pages[3], pages[4], pages[5]);
+    }
+
+    private static PageImage<String> imageWithOverlay(
+            long generationId,
+            String id,
+            int ordinal) {
+        return new PageImage<>(
+                generationId,
+                id,
+                ordinal,
+                10,
+                20,
+                id + "-base",
+                id + "-overlay");
     }
 
     private static PageImage<String> image(

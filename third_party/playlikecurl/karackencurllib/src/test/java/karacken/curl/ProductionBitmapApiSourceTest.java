@@ -54,6 +54,22 @@ public class ProductionBitmapApiSourceTest {
     }
 
     @Test
+    public void submissionAddsTypedResultWithoutChangingVoidDescriptor() throws IOException {
+        String source = source("PageSurfaceView.java");
+        String compatibilityBody = methodBody(source, "public void submitDeck");
+        String typedBody = methodBody(
+                source,
+                "public PageSurfaceDeckSubmissionResult submitDeckWithResult(\n"
+                        + "            PageDeck<Bitmap> deck,\n"
+                        + "            Runnable onOwnershipTransferred)");
+
+        assertTrue(compatibilityBody.contains("submitDeckWithResult(deck)"));
+        assertTrue(typedBody.contains("submissionGate.submit"));
+        assertTrue(typedBody.contains("PageSurfaceDeckSubmissionResult"));
+        assertTrue(typedBody.contains("onDeckRejected"));
+    }
+
+    @Test
     public void surfaceExposesTheAuthoritativeSettlementPlacementState() throws IOException {
         String source = source("PageSurfaceView.java");
         String method = methodBody(source, "public boolean isSettlementRunning()");
@@ -68,7 +84,11 @@ public class ProductionBitmapApiSourceTest {
         String source = source("PageSurfaceView.java");
         String attachBody = methodBody(source, "public void attach()");
         String detachBody = methodBody(source, "public void detach()");
-        String submitBody = methodBody(source, "public void submitDeck");
+        String submitBody = methodBody(
+                source,
+                "public PageSurfaceDeckSubmissionResult submitDeckWithResult(\n"
+                        + "            PageDeck<Bitmap> deck,\n"
+                        + "            Runnable onOwnershipTransferred)");
         String windowAttachBody = methodBody(source, "protected void onAttachedToWindow()");
 
         assertTrue(attachBody.contains("if (disposed || attached)"));
@@ -132,9 +152,11 @@ public class ProductionBitmapApiSourceTest {
     @Test
     public void acceptedDeckCallbacksStayWithTheirLeaseOwner() throws IOException {
         String source = source("PageSurfaceView.java");
+        String gateSource = source("PageSurfaceDeckSubmissionGate.java");
 
         assertTrue(source.contains("DeckLeaseRegistry"));
-        assertTrue(source.contains("leaseRegistry.acquire"));
+        assertTrue(source.contains("PageSurfaceDeckSubmissionGate"));
+        assertTrue(gateSource.contains("leaseRegistry.acquire"));
         assertTrue(source.contains("leaseRegistry.listenerFor"));
         assertTrue(source.contains("leaseRegistry.ownerFor"));
         assertTrue(source.contains("leaseRegistry.release"));
@@ -142,20 +164,28 @@ public class ProductionBitmapApiSourceTest {
     }
 
     @Test
-    public void disposalCannotDependOnlyOnAQueuedGlEvent() throws IOException {
+    public void disposalUsesRequiredLifecycleOwnerAndTerminalGate() throws IOException {
         String surfaceSource = source("PageSurfaceView.java");
         String rendererSource = source("PageRenderer.java");
-        String disposeBody = methodBody(surfaceSource, "public void dispose()");
+        String lifecycleDispose = methodBody(
+                surfaceSource,
+                "public void disposeForLifecycleOwner");
+        String startDispose = methodBody(
+                surfaceSource,
+                "private void startDisposeIfNeeded()");
 
-        assertTrue(disposeBody.contains("renderer.abandonClientState()"));
-        assertTrue(disposeBody.contains("releaseAllOutstandingLeases"));
-        assertTrue(
-                disposeBody.indexOf("notifySettlementCancelled")
-                        < disposeBody.indexOf("releaseAllOutstandingLeases"));
+        assertTrue(lifecycleDispose.contains("requiredDisposeCallback.register"));
+        assertTrue(lifecycleDispose.contains("startDisposeIfNeeded()"));
+        assertTrue(startDispose.contains("terminalDisposalGate.start"));
+        assertTrue(startDispose.contains("submissionGate.close()"));
+        assertTrue(startDispose.indexOf("submissionGate.close()")
+                < startDispose.indexOf("deckCoordinator.dispose()"));
         assertTrue(rendererSource.contains("void abandonClientState()"));
         assertTrue(rendererSource.contains("textureCache.clear()"));
         assertTrue(surfaceSource.contains("leaseRegistry.markReleaseRequested"));
         assertTrue(surfaceSource.contains("lease.getReleaseReason()"));
+        assertFalse(surfaceSource.contains(
+                "private void releaseAllOutstandingLeases()"));
     }
 
     @Test

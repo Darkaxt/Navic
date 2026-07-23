@@ -83,4 +83,44 @@ public class DeckLeaseRegistryTest {
         assertEquals(DeckReleaseReason.REPLACED, release.getReleaseReason());
         assertFalse(registry.hasOutstandingLeases());
     }
+
+    @Test
+    public void fixedCapacityRejectsGrowthUntilAnOwnedLeaseIsReleased() {
+        DeckLeaseRegistry registry = new DeckLeaseRegistry(2);
+        PageSurfaceListener listener = new PageSurfaceListener() {};
+
+        assertEquals(2, registry.capacity());
+        assertTrue(registry.hasCapacity());
+        assertTrue(registry.acquire(41L, listener));
+        assertTrue(registry.acquire(42L, listener));
+        assertFalse(registry.hasCapacity());
+        assertEquals(2, registry.size());
+        assertTrue(registry.contains(41L));
+        assertTrue(registry.contains(42L));
+        assertFalse(registry.acquire(41L, new PageSurfaceListener() {}));
+        assertFalse(registry.acquire(43L, listener));
+        assertEquals(2, registry.size());
+
+        assertSame(listener, registry.release(41L).getListener());
+        assertTrue(registry.hasCapacity());
+        assertFalse(registry.contains(41L));
+        assertEquals(1, registry.size());
+        assertTrue(registry.acquire(43L, listener));
+        assertEquals(2, registry.size());
+    }
+
+    @Test
+    public void releaseInFlightCountExcludesActiveAndPendingPlacements() {
+        DeckLeaseRegistry registry = new DeckLeaseRegistry();
+        PageSurfaceListener listener = new PageSurfaceListener() {};
+        assertTrue(registry.acquire(51L, listener));
+        assertTrue(registry.acquire(52L, listener));
+        assertTrue(registry.acquire(53L, listener));
+        registry.markReleaseRequested(51L, DeckReleaseReason.DISPOSED);
+        registry.markReleaseRequested(52L, DeckReleaseReason.REPLACED);
+        registry.markReleaseRequested(53L, DeckReleaseReason.REPLACED);
+
+        assertEquals(1, registry.releaseInFlightCount(51L, 52L));
+        assertEquals(2, registry.releaseInFlightCount(51L, -1L));
+    }
 }

@@ -11,8 +11,8 @@ import android.webkit.WebView
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -128,9 +128,16 @@ internal class ReaderPageTurnBundleSource(
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
 	private val rasterJob = SupervisorJob()
 	private val rasterScope = CoroutineScope(rasterJob + Dispatchers.Main.immediate)
-	private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-	private val closeSignal = CompletableDeferred<Unit>()
+	private val teardownJob = SupervisorJob()
+	private val teardownScope = CoroutineScope(teardownJob + Dispatchers.Default)
+	private val closeFenceLock = Any()
 	private val rasterInitializationMutex = Mutex()
+	private val rasterPersistenceJobLock = Any()
+	private val rasterPersistenceJobs = linkedSetOf<Job>()
+	private val pendingDescriptorOwners = ReaderPagePendingCallbackOwners<ReaderPageSlideSnapshot>(
+		retain = ReaderPageSlideSnapshot::retain,
+		release = ReaderPageSlideSnapshot::release
+	)
 	private val visualStateRequestId = AtomicLong()
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
 	private val descriptorRequests =
@@ -161,6 +168,54 @@ internal class ReaderPageTurnBundleSource(
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
 	private var activeWebView = WeakReference<WebView>(null)
 	private var closed = false
+	private var closeInvalidationFailure: Throwable? = null
+	private var disposedRasterCacheMetrics: ReaderPageRasterCacheMetrics? = null
+	private val teardown = ReaderPageTurnBundleTeardown(
+		scope = teardownScope,
+		preCloseFailure = { closeInvalidationFailure },
+		closePublicationWorkers = {
+			publicationScheduler.closeAndJoin()
+		},
+		publicationEntryCount = publicationLedger::entryCount,
+		publicationDispatchFailure = publicationLedger::dispatchFailure,
+		closeRasterGenerationWorkers = {
+			rasterScheduler?.closeAndJoin()
+			val persistenceJobs = synchronized(rasterPersistenceJobLock) {
+				rasterPersistenceJobs.toList()
+			}
+			persistenceJobs.forEach { job -> job.join() }
+			rasterScheduler?.closeAndJoin()
+			check(synchronized(rasterPersistenceJobLock) {
+				rasterPersistenceJobs.isEmpty()
+			}) { "Raster persistence initialization workers did not drain" }
+			check(pendingDescriptorOwners.pendingCount() == 0) {
+				"Raster descriptor callbacks retained snapshot owners"
+			}
+		},
+		closeRasterHydrationWorkers = {
+			hydrationScheduler.closeAndJoin()
+		},
+		closePersistentStore = {
+			persistentStore?.close()
+		},
+		closeRasterCache = {
+			rasterCache?.let { cache ->
+				try {
+					cache.close()
+				} finally {
+					disposedRasterCacheMetrics = cache.metrics()
+				}
+			}
+		},
+		clearReferences = {
+			persistentStore = null
+			rasterCache = null
+			activeWebView.clear()
+		},
+		onFinished = {
+			teardownJob.complete()
+		}
+	)
 	val isAvailable: Boolean
 		get() = bitmapSource.isAvailable
 
@@ -887,11 +942,24 @@ internal class ReaderPageTurnBundleSource(
 				return
 			}
 		val generation = activeGeneration
-		snapshot.retain()
-		webView.evaluateJavascript(
-			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterDescriptor?.($pageIndex) ?? null)"
-		) { encodedDescriptor ->
-			try {
+		val descriptorOwner = pendingDescriptorOwners.acquire(snapshot) {
+			onPersisted(false)
+		} ?: run {
+			rasterPersistenceSkipped(
+				pageIndex,
+				"bundle-source-closed",
+				generation
+			)
+			onPersisted(false)
+			return
+		}
+		try {
+			webView.evaluateJavascript(
+				"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterDescriptor?.($pageIndex) ?? null)"
+			) callback@{ encodedDescriptor ->
+				val claimedOwner = pendingDescriptorOwners.claim(descriptorOwner)
+					?: return@callback
+				try {
 				if (closed || generation != activeGeneration) {
 					rasterPersistenceSkipped(
 						pageIndex,
@@ -899,7 +967,7 @@ internal class ReaderPageTurnBundleSource(
 						generation
 					)
 					onPersisted(false)
-					return@evaluateJavascript
+					return@callback
 				}
 				val descriptor = readerPageRasterDescriptor(encodedDescriptor)
 					?: run {
@@ -909,7 +977,7 @@ internal class ReaderPageTurnBundleSource(
 							generation
 						)
 						onPersisted(false)
-						return@evaluateJavascript
+						return@callback
 					}
 				val key = descriptor.key(snapshot.key.bitmapQuality)
 				val persistentBitmap = runCatching {
@@ -922,14 +990,14 @@ internal class ReaderPageTurnBundleSource(
 						generation
 					)
 					onPersisted(false)
-					return@evaluateJavascript
+					return@callback
 				}
 				val rasterGeneration = ReaderPageRasterGeneration(
 					metadata = snapshot.toRasterMetadata(),
 					value = persistentBitmap,
 					captureMillis = snapshot.captureMillis.coerceAtLeast(0L)
 				)
-				rasterScope.launch {
+				val persistenceJob = rasterScope.launch {
 					var publicationValueTransferred = false
 					try {
 						val scheduler = rasterScheduler(webView)
@@ -995,9 +1063,29 @@ internal class ReaderPageTurnBundleSource(
 						}
 					}
 				}
+				trackRasterPersistenceJob(persistenceJob)
 			} finally {
-				snapshot.release()
+				pendingDescriptorOwners.complete(claimedOwner)
 			}
+		}
+		} catch (failure: Throwable) {
+			val claimedOwner = pendingDescriptorOwners.claim(descriptorOwner)
+				?: return
+			try {
+				pendingDescriptorOwners.abandon(claimedOwner)
+			} catch (cleanupFailure: Throwable) {
+				if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+			}
+			try {
+				rasterPersistenceSkipped(
+					pageIndex,
+					"descriptor-request-failed",
+					generation
+				)
+			} catch (reportingFailure: Throwable) {
+				if (reportingFailure !== failure) failure.addSuppressed(reportingFailure)
+			}
+			publicationLedger.recordFailure(failure)
 		}
 	}
 
@@ -1092,31 +1180,95 @@ internal class ReaderPageTurnBundleSource(
 		)
 	}
 
+	private fun trackRasterPersistenceJob(job: Job) {
+		synchronized(rasterPersistenceJobLock) {
+			rasterPersistenceJobs += job
+		}
+		job.invokeOnCompletion {
+			synchronized(rasterPersistenceJobLock) {
+				rasterPersistenceJobs -= job
+			}
+		}
+	}
+
 	private suspend fun rasterScheduler(webView: WebView): ReaderPageRasterScheduler<Bitmap> =
 		rasterInitializationMutex.withLock {
 			rasterScheduler?.let { return@withLock it }
-			val cache = withContext(Dispatchers.IO) {
-				ReaderPageRasterCache(
-					root = readerPageRasterStorageRoot(webView.context.applicationContext),
-					codec = ReaderAndroidPageRasterCodec,
-					onDiagnostic = { diagnostic ->
-						Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")
-					}
+			var cache: ReaderPageRasterCache<Bitmap>? = null
+			var store: ReaderPageRasterCacheStore<Bitmap>? = null
+			var scheduler: ReaderPageRasterScheduler<Bitmap>? = null
+			try {
+				requireRasterInitializationOpen()
+				withContext(Dispatchers.IO) {
+					ReaderPageRasterCache(
+						root = readerPageRasterStorageRoot(webView.context.applicationContext),
+						codec = ReaderAndroidPageRasterCodec,
+						onDiagnostic = { diagnostic ->
+							Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")
+						}
+					).also { created -> cache = created }
+				}
+				requireRasterInitializationOpen()
+				val createdCache = checkNotNull(cache)
+				val createdStore = ReaderPageRasterCacheStore(createdCache)
+				store = createdStore
+				val createdScheduler = ReaderPageRasterScheduler(
+					scope = rasterScope,
+					store = createdStore,
+					generator = ReaderPageRasterGenerator { null },
+					release = ReaderAndroidPageRasterCodec::release
 				)
-			}
-			val store = ReaderPageRasterCacheStore(cache)
-			ReaderPageRasterScheduler(
-				scope = rasterScope,
-				store = store,
-				generator = ReaderPageRasterGenerator { null },
-				release = ReaderAndroidPageRasterCodec::release
-			).also { scheduler ->
-				cache.protectDecodedPageIndices(protectedSnapshotPageIndices)
-				rasterCache = cache
-				persistentStore = store
-				rasterScheduler = scheduler
+				scheduler = createdScheduler
+				requireRasterInitializationOpen()
+				createdCache.protectDecodedPageIndices(protectedSnapshotPageIndices)
+				rasterCache = createdCache
+				persistentStore = createdStore
+				rasterScheduler = createdScheduler
+				createdScheduler
+			} catch (failure: Throwable) {
+				closeUnpublishedRasterOwners(
+					cache = cache,
+					store = store,
+					scheduler = scheduler,
+					failure = failure
+				)
+				throw failure
 			}
 		}
+
+	private fun requireRasterInitializationOpen() {
+		val fenced = synchronized(closeFenceLock) { closed }
+		if (fenced || !rasterJob.isActive) {
+			throw CancellationException(
+				"Raster persistence initialization is closed"
+			)
+		}
+	}
+
+	private suspend fun closeUnpublishedRasterOwners(
+		cache: ReaderPageRasterCache<Bitmap>?,
+		store: ReaderPageRasterCacheStore<Bitmap>?,
+		scheduler: ReaderPageRasterScheduler<Bitmap>?,
+		failure: Throwable
+	) {
+		withContext(NonCancellable) {
+			try {
+				scheduler?.closeAndJoin()
+			} catch (cleanupFailure: Throwable) {
+				if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+			}
+			try {
+				store?.close()
+			} catch (cleanupFailure: Throwable) {
+				if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+			}
+			try {
+				cache?.close()
+			} catch (cleanupFailure: Throwable) {
+				if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+			}
+		}
+	}
 
 	private fun ReaderPageSlideSnapshot.toRasterMetadata(): ReaderPageRasterMetadata = ReaderPageRasterMetadata(
 		surfaceLeft = 0,
@@ -1252,6 +1404,11 @@ internal class ReaderPageTurnBundleSource(
 
 	fun invalidate(reason: String) {
 		activeGeneration += 1
+		try {
+			pendingDescriptorOwners.cancelAll()
+		} catch (failure: Throwable) {
+			publicationLedger.recordFailure(failure)
+		}
 		publicationLedger.invalidate()
 		publicationScheduler.cancelBeforeEpoch(publicationLedger.currentEpoch())
 		protectedSnapshotPageIndices = emptySet()
@@ -1270,31 +1427,31 @@ internal class ReaderPageTurnBundleSource(
 		Logger.i(ReaderPageTurnBundleSourceTag, "Page-turn snapshot cache cleared reason=$reason")
 	}
 
-	fun close() {
-		if (closed) return
-		closed = true
-		invalidate("close")
-		rasterScheduler?.close()
-		rasterJob.cancel()
-		activeWebView.clear()
-		teardownScope.launch {
+	fun fenceForClose() {
+		synchronized(closeFenceLock) {
+			if (closed) return
+			closed = true
+			rasterJob.cancel()
 			try {
-				hydrationScheduler.closeAndJoin()
-			} finally {
-				try {
-					publicationScheduler.closeAndJoin()
-				} finally {
-					persistentStore = null
-					rasterCache = null
-					closeSignal.complete(Unit)
-				}
+				pendingDescriptorOwners.close()
+			} catch (failure: Throwable) {
+				publicationLedger.recordFailure(failure)
+			}
+			try {
+				invalidate("close")
+			} catch (failure: Throwable) {
+				closeInvalidationFailure = failure
 			}
 		}
 	}
 
+	fun close(): Deferred<Unit> {
+		fenceForClose()
+		return teardown.start()
+	}
+
 	suspend fun closeAndJoin() {
-		withContext(Dispatchers.Main.immediate) { close() }
-		closeSignal.await()
+		close().await()
 	}
 
 	private fun restoreLiveComposition(

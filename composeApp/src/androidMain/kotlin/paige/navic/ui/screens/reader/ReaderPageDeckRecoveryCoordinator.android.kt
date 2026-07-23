@@ -44,6 +44,12 @@ internal sealed interface ReaderPageRecoveredDeckBuildResult {
 	data object Stale : ReaderPageRecoveredDeckBuildResult
 }
 
+internal sealed interface ReaderPageRecoveredDeckSubmissionResult {
+	data object Accepted : ReaderPageRecoveredDeckSubmissionResult
+	data object AwaitingRendererCapacity : ReaderPageRecoveredDeckSubmissionResult
+	data class Rejected(val reason: String) : ReaderPageRecoveredDeckSubmissionResult
+}
+
 internal interface ReaderPageDeckRecoveryHost {
 	fun isCurrentRepairWindow(
 		repairedPageIndices: Set<Int>,
@@ -68,9 +74,9 @@ internal interface ReaderPageDeckRecoveryHost {
 	fun submitRecoveredDeck(
 		generationId: Long,
 		role: ReaderDeckSubmissionRole
-	)
+	): ReaderPageRecoveredDeckSubmissionResult
 
-	fun releaseRecoveredDeck(generationId: Long)
+	fun releaseUnsubmittedRecoveredDeck(generationId: Long)
 
 	fun cancelSubmittedRecoveredDeck(
 		generationId: Long,
@@ -90,6 +96,13 @@ internal sealed interface ReaderPageDeckRecoveryState {
 		val rasterEpoch: Long
 	) : ReaderPageDeckRecoveryState
 
+	data class WaitingForSubmissionCapacity(
+		val generationId: Long,
+		val repairedPageIndices: Set<Int>,
+		val centerOrdinal: Int,
+		val rasterEpoch: Long
+	) : ReaderPageDeckRecoveryState
+
 	data class WaitingForPreparation(
 		val generationId: Long,
 		val role: ReaderDeckSubmissionRole
@@ -102,9 +115,11 @@ internal sealed interface ReaderPageDeckRecoveryState {
 
 internal class ReaderPageDeckRecoveryCoordinator(
 	private val host: ReaderPageDeckRecoveryHost,
-	private val onStateChanged: (ReaderPageDeckRecoveryState) -> Unit = {}
+	private val onStateChanged: (ReaderPageDeckRecoveryState) -> Unit = {},
+	private val onStateObserverFailure: (Throwable) -> Unit = {}
 ) {
 	private var nextRequestId = 0L
+	private var retainedStateObserverFailure: Throwable? = null
 
 	var state: ReaderPageDeckRecoveryState = ReaderPageDeckRecoveryState.Idle
 		private set
@@ -141,13 +156,13 @@ internal class ReaderPageDeckRecoveryCoordinator(
 				centerOrdinal = result.centerOrdinal,
 				rasterEpoch = result.rasterEpoch
 			) { build -> onDeckBuilt(requestId, build) }
-		} catch (failure: Throwable) {
+		} catch (_: Throwable) {
 			host.cancelRecoveredDeckBuild(requestId)
 			val waiting = state as? ReaderPageDeckRecoveryState.WaitingForBuild
 			if (waiting?.requestId == requestId) {
 				transitionTo(
 					ReaderPageDeckRecoveryState.Failed(
-						failure.message ?: "protected-window-build-failed"
+						"protected-window-build-failed"
 					)
 				)
 			}
@@ -188,6 +203,41 @@ internal class ReaderPageDeckRecoveryCoordinator(
 			is ReaderPageRecoveredDeckBuildResult.Built -> Unit
 		}
 		val generationId = result.generationId
+		return submitRecoveredGeneration(
+			generationId = generationId,
+			repairedPageIndices = waiting.repairedPageIndices,
+			centerOrdinal = waiting.centerOrdinal,
+			rasterEpoch = waiting.rasterEpoch
+		)
+	}
+
+	fun onDeckSubmissionCapacityAvailable(): Boolean {
+		val waiting = state as? ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity
+			?: return false
+		if (!host.isCurrentRepairWindow(
+				waiting.repairedPageIndices,
+				waiting.centerOrdinal,
+				waiting.rasterEpoch
+			)
+		) {
+			host.releaseUnsubmittedRecoveredDeck(waiting.generationId)
+			transitionTo(ReaderPageDeckRecoveryState.Idle)
+			return false
+		}
+		return submitRecoveredGeneration(
+			generationId = waiting.generationId,
+			repairedPageIndices = waiting.repairedPageIndices,
+			centerOrdinal = waiting.centerOrdinal,
+			rasterEpoch = waiting.rasterEpoch
+		)
+	}
+
+	private fun submitRecoveredGeneration(
+		generationId: Long,
+		repairedPageIndices: Set<Int>,
+		centerOrdinal: Int,
+		rasterEpoch: Long
+	): Boolean {
 		val role = host.currentRecoveredDeckRole()
 		transitionTo(
 			ReaderPageDeckRecoveryState.WaitingForPreparation(
@@ -195,21 +245,51 @@ internal class ReaderPageDeckRecoveryCoordinator(
 				role
 			)
 		)
-		return try {
+		val submission = try {
 			host.submitRecoveredDeck(generationId, role)
-			state is ReaderPageDeckRecoveryState.WaitingForPreparation ||
-				state is ReaderPageDeckRecoveryState.Ready
 		} catch (_: Throwable) {
 			val owned = state as? ReaderPageDeckRecoveryState.WaitingForPreparation
 			if (owned?.generationId == generationId && owned.role == role) {
-				host.releaseRecoveredDeck(generationId)
+				host.releaseUnsubmittedRecoveredDeck(generationId)
 				transitionTo(
 					ReaderPageDeckRecoveryState.Failed(
 						"recovered-deck-submission-failed"
 					)
 				)
 			}
-			false
+			return false
+		}
+		return when (submission) {
+			ReaderPageRecoveredDeckSubmissionResult.Accepted ->
+				state is ReaderPageDeckRecoveryState.WaitingForPreparation ||
+					state is ReaderPageDeckRecoveryState.Ready
+			ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity -> {
+				val owned = state as? ReaderPageDeckRecoveryState.WaitingForPreparation
+				check(owned?.generationId == generationId && owned.role == role) {
+					"Capacity-rejected recovered deck lost submission ownership"
+				}
+				transitionTo(
+					ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity(
+						generationId = generationId,
+						repairedPageIndices = repairedPageIndices.toSet(),
+						centerOrdinal = centerOrdinal,
+						rasterEpoch = rasterEpoch
+					)
+				)
+				true
+			}
+			is ReaderPageRecoveredDeckSubmissionResult.Rejected -> {
+				val owned = state as? ReaderPageDeckRecoveryState.WaitingForPreparation
+				if (owned?.generationId == generationId && owned.role == role) {
+					host.releaseUnsubmittedRecoveredDeck(generationId)
+					transitionTo(
+						ReaderPageDeckRecoveryState.Failed(
+							"recovered-deck-rejected:${submission.reason}"
+						)
+					)
+				}
+				false
+			}
 		}
 	}
 
@@ -284,7 +364,7 @@ internal class ReaderPageDeckRecoveryCoordinator(
 
 	private fun releaseIfUnsubmitted(result: ReaderPageRecoveredDeckBuildResult) {
 		if (result is ReaderPageRecoveredDeckBuildResult.Built) {
-			host.releaseRecoveredDeck(result.generationId)
+			host.releaseUnsubmittedRecoveredDeck(result.generationId)
 		}
 	}
 
@@ -292,6 +372,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 		when (previous) {
 			is ReaderPageDeckRecoveryState.WaitingForBuild ->
 				host.cancelRecoveredDeckBuild(previous.requestId)
+			is ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity ->
+				host.releaseUnsubmittedRecoveredDeck(previous.generationId)
 			is ReaderPageDeckRecoveryState.WaitingForPreparation ->
 				host.cancelSubmittedRecoveredDeck(
 					previous.generationId,
@@ -301,9 +383,22 @@ internal class ReaderPageDeckRecoveryCoordinator(
 		}
 	}
 
+	fun stateObserverFailure(): Throwable? = retainedStateObserverFailure
+
 	private fun transitionTo(next: ReaderPageDeckRecoveryState) {
 		if (state == next) return
 		state = next
-		onStateChanged(next)
+		try {
+			onStateChanged(next)
+		} catch (failure: Throwable) {
+			val first = retainedStateObserverFailure
+			if (first == null) retainedStateObserverFailure = failure
+			else if (failure !== first) first.addSuppressed(failure)
+			try {
+				onStateObserverFailure(failure)
+			} catch (reportingFailure: Throwable) {
+				if (reportingFailure !== failure) failure.addSuppressed(reportingFailure)
+			}
+		}
 	}
 }

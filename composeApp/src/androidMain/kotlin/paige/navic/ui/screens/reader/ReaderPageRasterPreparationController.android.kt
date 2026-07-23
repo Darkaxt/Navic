@@ -8,6 +8,10 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import paige.navic.reader.ReaderChapterRasterGenerationState
 import paige.navic.reader.ReaderDecodedWorkingSetState
 import paige.navic.reader.ReaderPageInteractionState
@@ -95,6 +99,7 @@ internal class ReaderPageRasterPreparationController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
+	private val closeRendererAndAdapter: suspend () -> Unit = {},
 	private val onRequestPrewarm: () -> Unit = {},
 	private val onAwaitHostEvent: (ReaderPageRasterDeferralReason) -> Unit = {},
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
@@ -173,6 +178,18 @@ internal class ReaderPageRasterPreparationController(
 	private var preparationShieldBatchLabel: String? = null
 	private var destroyed = false
 	private val applicationContext = host.context.applicationContext
+	private val teardownJob = SupervisorJob()
+	private val teardownScope = CoroutineScope(
+		teardownJob + Dispatchers.Main.immediate
+	)
+	private val teardown = ReaderPageReaderTeardown(
+		scope = teardownScope,
+		fenceCallbacks = ::fenceForDestroy,
+		fenceBundleOwners = bundleSource::fenceForClose,
+		closeRendererAndAdapter = closeRendererAndAdapter,
+		closeBundleOwners = bundleSource::closeAndJoin,
+		onFinished = { teardownJob.complete() }
+	)
 	private val memoryCallbacks = object : ComponentCallbacks2 {
 		override fun onConfigurationChanged(newConfig: Configuration) = Unit
 
@@ -349,18 +366,35 @@ internal class ReaderPageRasterPreparationController(
 			)
 		)
 
-	fun destroy() {
-		if (destroyed) return
-		destroyed = true
-		cancelBackgroundPrefetch("destroy")
-		removeBackgroundPrefetchShield()
-		cancelRasterRepairs("destroy")
-		cancelPrewarm(reason = "destroy")
-		removePreparationShield(reason = "destroy")
-		cancelAllDeferredRetries()
-		bundleSource.close()
-		currentVisualPageIndex = null
-		applicationContext.unregisterComponentCallbacks(memoryCallbacks)
+	fun destroy(): Deferred<Unit> {
+		if (!destroyed) destroyed = true
+		return teardown.start()
+	}
+
+	private fun fenceForDestroy() {
+		var failure: Throwable? = null
+		fun capture(action: () -> Unit) {
+			try {
+				action()
+			} catch (next: Throwable) {
+				val first = failure
+				if (first == null) failure = next
+				else if (next !== first) first.addSuppressed(next)
+			}
+		}
+		capture { cancelBackgroundPrefetch("destroy") }
+		capture(::removeBackgroundPrefetchShield)
+		capture { cancelRasterRepairs("destroy") }
+		capture { cancelPrewarm(reason = "destroy") }
+		capture { removePreparationShield(reason = "destroy") }
+		capture(::cancelAllDeferredRetries)
+		capture { currentVisualPageIndex = null }
+		capture { applicationContext.unregisterComponentCallbacks(memoryCallbacks) }
+		failure?.let { throw it }
+	}
+
+	suspend fun destroyAndJoin() {
+		destroy().await()
 	}
 
 	fun invalidate(reason: String, clearVisualPageIndex: Boolean = false) {

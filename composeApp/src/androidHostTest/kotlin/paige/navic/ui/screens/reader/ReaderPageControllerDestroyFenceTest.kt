@@ -1,0 +1,201 @@
+package paige.navic.ui.screens.reader
+
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.test.runTest
+import paige.navic.reader.ReaderPageRelocationDrain
+import paige.navic.reader.ReaderPageRelocationQueue
+import paige.navic.reader.ReaderPageRelocationReservationResult
+import paige.navic.reader.ReaderPageRelocationTransferResult
+import paige.navic.reader.ReaderPageTurnDirection
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
+
+class ReaderPageControllerDestroyFenceTest {
+	@Test
+	fun destroyFenceStopsAdmissionAndCancelsEveryOwnerBeforeRendererDisposal() = runTest {
+		val queue = ReaderPageRelocationQueue(capacity = 3)
+		val firstReservation = assertIs<
+			ReaderPageRelocationReservationResult.Reserved
+		>(queue.reserve(11L)).reservation
+		val firstRequest = assertIs<
+			ReaderPageRelocationTransferResult.Enqueued
+		>(
+			queue.enqueueReserved(
+				reservation = firstReservation,
+				rasterGeneration = 7L,
+				textureGeneration = 9L,
+				sourceOrdinal = 4,
+				destinationOrdinal = 5,
+				logicalDirection = ReaderPageTurnDirection.Next,
+				foliateSessionId = "session"
+			)
+		).request
+		assertSame(firstRequest, queue.commandToDispatch())
+		assertTrue(
+			queue.acknowledge(
+				token = firstRequest.token.value,
+				pageIndex = 5,
+				foliateSessionId = "session",
+				rasterGeneration = 7L,
+				textureGeneration = 9L
+			)
+		)
+		val secondReservation = assertIs<
+			ReaderPageRelocationReservationResult.Reserved
+		>(queue.reserve(12L)).reservation
+		val thirdReservation = assertIs<
+			ReaderPageRelocationReservationResult.Reserved
+		>(queue.reserve(13L)).reservation
+		val events = mutableListOf<String>()
+		val fence = ReaderPageControllerDestroyFence(
+			scope = this,
+			fenceAdmission = { events += "fence" },
+			advanceGenerations = { events += "advance" },
+			cancelActiveGesture = { events += "gesture" },
+			cancelRecovery = { events += "recovery" },
+			closeVisualHandoff = { events += "handoff" },
+			cancelRelocations = {
+				events += "cancel-relocations"
+				queue.cancelAll()
+			},
+			verifyRelocationsDrained = { drain ->
+				events += "verify-relocations"
+				assertEquals(listOf(firstRequest), drain.queued)
+				assertEquals(
+					listOf(secondReservation, thirdReservation),
+					drain.reservations
+				)
+				assertEquals(0, queue.occupiedCount())
+			},
+			markPageSetsObsolete = { events += "obsolete" },
+			hideSurface = { events += "hide" },
+			disposeRendererAndOwners = { events += "dispose" }
+		)
+
+		fence.start().await()
+
+		assertEquals(
+			listOf(
+				"fence",
+				"advance",
+				"gesture",
+				"recovery",
+				"handoff",
+				"cancel-relocations",
+				"verify-relocations",
+				"obsolete",
+				"hide",
+				"dispose"
+			),
+			events
+		)
+	}
+
+	@Test
+	fun destroyFenceContinuesAfterFailuresAndStillDisposesOwners() = runTest {
+		val events = mutableListOf<String>()
+		val fence = ReaderPageControllerDestroyFence(
+			scope = this,
+			fenceAdmission = { events += "fence" },
+			advanceGenerations = { events += "advance" },
+			cancelActiveGesture = {
+				events += "gesture"
+				throw IllegalStateException("gesture")
+			},
+			cancelRecovery = { events += "recovery" },
+			closeVisualHandoff = { events += "handoff" },
+			cancelRelocations = {
+				events += "relocations"
+				ReaderPageRelocationDrain(emptyList(), emptyList())
+			},
+			verifyRelocationsDrained = { events += "verify" },
+			markPageSetsObsolete = { events += "obsolete" },
+			hideSurface = {
+				events += "hide"
+				throw IllegalArgumentException("hide")
+			},
+			disposeRendererAndOwners = {
+				events += "dispose"
+				throw UnsupportedOperationException("dispose")
+			}
+		)
+
+		val failure = assertFailsWith<ReaderPageTeardownException> {
+			fence.start().await()
+		}
+
+		assertEquals(ReaderPageTeardownStage.ControllerWorker, failure.stage)
+		assertEquals(2, failure.suppressed.size)
+		assertEquals(
+			listOf(
+				"fence",
+				"advance",
+				"gesture",
+				"recovery",
+				"handoff",
+				"relocations",
+				"verify",
+				"obsolete",
+				"hide",
+				"dispose"
+			),
+			events
+		)
+	}
+
+	@Test
+	fun destroyFenceIsIdempotentUnderReentrantStart() = runTest {
+		val invocations = mutableMapOf<String, Int>()
+		fun invoked(name: String) {
+			invocations[name] = invocations.getOrDefault(name, 0) + 1
+		}
+		lateinit var fence: ReaderPageControllerDestroyFence
+		var reentrant: Deferred<Unit>? = null
+		fence = ReaderPageControllerDestroyFence(
+			scope = this,
+			fenceAdmission = { invoked("fence") },
+			advanceGenerations = { invoked("advance") },
+			cancelActiveGesture = {
+				invoked("gesture")
+				reentrant = fence.start()
+			},
+			cancelRecovery = { invoked("recovery") },
+			closeVisualHandoff = { invoked("handoff") },
+			cancelRelocations = {
+				invoked("relocations")
+				ReaderPageRelocationDrain(emptyList(), emptyList())
+			},
+			verifyRelocationsDrained = { invoked("verify") },
+			markPageSetsObsolete = { invoked("obsolete") },
+			hideSurface = { invoked("hide") },
+			disposeRendererAndOwners = { invoked("dispose") }
+		)
+
+		val first = fence.start()
+		first.await()
+		val later = fence.start()
+
+		assertSame(first, reentrant)
+		assertSame(first, later)
+		assertEquals(
+			setOf(
+				"fence",
+				"advance",
+				"gesture",
+				"recovery",
+				"handoff",
+				"relocations",
+				"verify",
+				"obsolete",
+				"hide",
+				"dispose"
+			),
+			invocations.keys
+		)
+		assertTrue(invocations.values.all { count -> count == 1 })
+	}
+}

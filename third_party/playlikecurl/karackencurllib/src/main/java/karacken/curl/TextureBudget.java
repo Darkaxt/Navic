@@ -6,6 +6,13 @@ import java.util.Map;
 /** Pure active-plus-pending texture sizing used before any GLES allocation. */
 final class TextureBudget {
     private static final long BYTES_PER_PIXEL = 4L;
+    private static final int MAX_RETAINED_DECKS = 2;
+    private static final int MAX_PAGE_IMAGES_PER_DECK = 6;
+    private static final int MAX_TEXTURES_PER_PAGE = 2;
+    static final int MAX_IDENTITY_DISTINCT_TEXTURE_SLOTS =
+            MAX_RETAINED_DECKS
+                    * MAX_PAGE_IMAGES_PER_DECK
+                    * MAX_TEXTURES_PER_PAGE;
 
     static final class Result {
         private final RenderFailureReason failureReason;
@@ -56,6 +63,19 @@ final class TextureBudget {
     }
 
     private TextureBudget() {}
+
+    static int maximumTextureSlots() {
+        return MAX_IDENTITY_DISTINCT_TEXTURE_SLOTS;
+    }
+
+    static int identityDistinctTextureCount(
+            PageDeck<?> activeDeck,
+            PageDeck<?> pendingDeck) {
+        Map<String, PageImage<?>> uniqueTextures = new LinkedHashMap<>();
+        collect(activeDeck, uniqueTextures);
+        collect(pendingDeck, uniqueTextures);
+        return uniqueTextures.size();
+    }
 
     static Result evaluate(
             PageDeck<?> activeDeck,

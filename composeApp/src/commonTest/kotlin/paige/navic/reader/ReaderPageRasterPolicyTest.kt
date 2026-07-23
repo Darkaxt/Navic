@@ -5,6 +5,12 @@ import kotlin.test.assertEquals
 
 class ReaderPageRasterPolicyTest {
 	@Test
+	fun rasterResidencyLimitsMatchRendererAndProtectedWindowContracts() {
+		assertEquals(6, ReaderPageMaximumRasterImagesPerDeck)
+		assertEquals(10, ReaderPageMaximumProtectedRasterEntriesPerLease)
+	}
+
+	@Test
 	fun bitmapQualityDefaultsToHalfResolution() {
 		assertEquals(ReaderPageBitmapQuality.Balanced, normalizeReaderPageBitmapQuality(null))
 		assertEquals(0.5f, ReaderPageBitmapQuality.Balanced.scale)

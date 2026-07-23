@@ -2,6 +2,8 @@ package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -12,21 +14,31 @@ import karacken.curl.GestureRejectionReason
 import karacken.curl.PageChange
 import karacken.curl.PageDeck
 import karacken.curl.PageImage
+import karacken.curl.PageSurfaceDeckSubmissionResult
+import karacken.curl.PageSurfaceDisposalResult
+import karacken.curl.PageSurfaceDisposalStage
 import karacken.curl.PageSurfaceListener
 import karacken.curl.PageSurfaceView
 import karacken.curl.ReadingDirection
 import karacken.curl.RenderCapabilities
 import karacken.curl.RenderFailure
 import karacken.curl.RenderFailureReason
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
+import paige.navic.reader.ReaderPageMaximumProtectedRasterEntriesPerLease
 import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationPhase
@@ -44,6 +56,7 @@ import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
+private const val MAX_RASTER_ADAPTER_OWNERS = 2
 
 internal enum class ReaderDeckSubmissionRole {
 	Active,
@@ -265,7 +278,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 		visibility = View.VISIBLE
 	}
 
-	private val rasterScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+	private val rasterResidencyBudget =
+		ReaderPlayLikeCurlRasterResidencyBudget(
+			residentEntryLimit =
+				surfaceView.deckLeaseLimit *
+					ReaderPageMaximumProtectedRasterEntriesPerLease,
+			onCapacityAvailable = ::signalRasterCapacityAvailable
+		)
+	private val rasterJob = SupervisorJob()
+	private val rasterScope = CoroutineScope(rasterJob + Dispatchers.Default)
+	private val teardownJob = SupervisorJob()
+	private val teardownScope = CoroutineScope(
+		teardownJob + Dispatchers.Main.immediate
+	)
+	private val mainTerminalExecutor = ReaderMainTerminalActionExecutor(
+		actionLimit = surfaceView.mainTerminalActionLimit,
+		scope = teardownScope,
+		onActionFailure = {
+			if (!destroyed) {
+				updateReadiness(
+					interaction = ReaderPageInteractionState.Failed,
+					reason = "main-terminal-action-failed"
+				)
+			}
+		}
+	)
 	private val generationOwners = mutableMapOf<Long, PreparedPages>()
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
@@ -279,6 +316,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 	>()
 	private val builtRecoveredDecks = mutableMapOf<Long, BuiltRecoveredDeck>()
 	private var rasterAdapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>? = null
+	private val rasterAdapterOwners =
+		ReaderPlayLikeCurlAdapterOwnerPool<
+			ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>
+		>(ownerLimit = MAX_RASTER_ADAPTER_OWNERS)
+	private val mainHandler = Handler(Looper.getMainLooper())
+	private val rasterCapacityRefreshPosted = AtomicBoolean(false)
+	private var rasterRetirementFailure: Throwable? = null
+	private var disposedRasterResidencyMetrics: ReaderPlayLikeCurlRasterResidencyMetrics? = null
 	private var foliateRasterLoader: ReaderPlayLikeCurlFoliateRasterLoader? = null
 	private var activePages: PreparedPages? = null
 	private var requestedProfile: ReaderPlayLikeCurlRasterProfile? = null
@@ -350,12 +395,23 @@ internal class ReaderPlayLikeCurlFoliateController(
 		},
 		requestRepair = ::requestLogicalRasterRepair
 	)
+	private val submissionCallbackFence = ReaderPageDeckSubmissionCallbackFence()
 	private val deckRecoveryCoordinator = ReaderPageDeckRecoveryCoordinator(
 		host = this,
-		onStateChanged = ::onDeckRecoveryStateChanged
+		onStateChanged = ::onDeckRecoveryStateChanged,
+		onStateObserverFailure = { failure ->
+			Logger.e(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"Deck recovery observer failed " +
+					"failureClass=${failure::class.simpleName ?: "unknown"}"
+			)
+		}
 	)
 
 	init {
+		surfaceView.registerMainTerminalExecutor(
+			mainTerminalExecutor::execute
+		)
 		surfaceView.setPageSurfaceListener(object : PageSurfaceListener {
 			override fun onCapabilitiesAvailable(capabilities: RenderCapabilities) {
 				capabilitiesAvailable = true
@@ -392,6 +448,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onDeckRejected(generationId: Long, reason: DeckRejectionReason) {
+				if (submissionCallbackFence.onDeckRejected(generationId, reason)) return
 				val activeRejected = generationId == activeDeckGenerationId
 				val pendingRejected = generationId == pendingDeckGenerationId
 				releaseGeneration(generationId)
@@ -413,6 +470,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl deck rejected generation=$generationId reason=$reason"
 				)
+			}
+
+			override fun onDeckSubmissionCapacityAvailable() {
+				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()
 			}
 
 			override fun onDeckReleased(generationId: Long, reason: DeckReleaseReason) {
@@ -727,13 +788,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (profile == null) {
 			publishedRasterProfile = null
 			publishedRasterProfileEpoch = null
-			onPreparedActiveDeckChanged(null)
+			notifyPreparedActiveDeckChanged(null)
 			onRasterProfileEpochChanged(null)
 			return
 		}
 		if (publishedRasterProfile == profile) return
 		publishedRasterProfile = profile
-		onPreparedActiveDeckChanged(null)
+		notifyPreparedActiveDeckChanged(null)
 		val epoch = profile.let {
 			val current = nextRasterProfileEpoch
 			nextRasterProfileEpoch = Math.incrementExact(current)
@@ -762,7 +823,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 		} else {
 			null
 		}
-		onPreparedActiveDeckChanged(prepared)
+		notifyPreparedActiveDeckChanged(prepared)
+	}
+
+	private fun notifyPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
+		try {
+			onPreparedActiveDeckChanged(deck)
+		} catch (failure: Throwable) {
+			Logger.e(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"Prepared active deck observer failed " +
+					"failureClass=${failure::class.simpleName ?: "unknown"}"
+			)
+		}
 	}
 
 	fun setEnabled(value: Boolean) {
@@ -1207,7 +1280,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		activePages?.obsolete = true
 		activePages = null
 		preparedPageSets.forEach { pages -> pages.obsolete = true }
-		rasterAdapter?.close()
+		rasterAdapter?.let(::retireRasterAdapter)
 		rasterAdapter = null
 		foliateRasterLoader = null
 		publishRasterProfileEpoch(null)
@@ -1216,18 +1289,431 @@ internal class ReaderPlayLikeCurlFoliateController(
 		Logger.i(ReaderPlayLikeCurlFoliateControllerTag, "PlayLikeCurl invalidated reason=$reason")
 	}
 
-	fun destroy() {
-		if (destroyed) return
-		destroyed = true
-		enabled = false
-		invalidate("destroyed")
-		relocationVisualHandoffCoordinator.close()
-		if (attached) {
-			attached = false
-			surfaceView.detach()
+	private val destroyFence = ReaderPageControllerDestroyFence(
+		scope = teardownScope,
+		fenceAdmission = {
+			destroyed = true
+			enabled = false
+		},
+		advanceGenerations = {
+			requestGeneration += 1L
+			decodedRefillGeneration += 1L
+		},
+		cancelActiveGesture = {
+			cancelActiveGesture(
+				ReaderPageLifecycleCancellationReason.HostDestroyed
+			)
+		},
+		cancelRecovery = deckRecoveryCoordinator::cancelAll,
+		closeVisualHandoff = relocationVisualHandoffCoordinator::close,
+		cancelRelocations = relocationGestureCoordinator::cancelAll,
+		verifyRelocationsDrained = { cancelled ->
+			check(relocationGestureCoordinator.reservationCount() == 0)
+			check(relocationQueue.reservedCount() == 0)
+			check(relocationQueue.queuedCount() == 0)
+			logActivationState(
+				"teardown-relocations-cancelled",
+				"queued=${cancelled.queued.size} " +
+					"reserved=${cancelled.reservations.size}"
+			)
+		},
+		markPageSetsObsolete = {
+			preparedPageSets.forEach { pages -> pages.obsolete = true }
+		},
+		hideSurface = ::hideSurface,
+		disposeRendererAndOwners = ::disposeRendererAndOwners
+	)
+
+	fun destroy(): Deferred<Unit> = destroyFence.start()
+
+	private suspend fun disposeRendererAndOwners() {
+		val rendererDisposed = CompletableDeferred<PageSurfaceDisposalResult>()
+		try {
+			withContext(NonCancellable) {
+				var failure: Throwable? = null
+				var rendererResult: PageSurfaceDisposalResult? = null
+				failure = captureTeardownFailure(
+					failure,
+					ReaderPageTeardownStage.RendererDisposal
+				) {
+					surfaceView.disposeForLifecycleOwner { result ->
+						check(rendererDisposed.complete(result))
+					}
+					rendererResult = rendererDisposed.await()
+				}
+				failure = captureTeardownFailure(
+					failure,
+					ReaderPageTeardownStage.ControllerWorker
+				) {
+					mainTerminalExecutor.closeAndJoin()
+					check(mainTerminalExecutor.pendingActionCount() == 0) {
+						"Controller main-terminal action ownership did not drain"
+					}
+					check(surfaceView.pendingMainTerminalActionCount == 0) {
+						"Renderer main-terminal action ownership did not drain"
+					}
+				}
+				if (rendererResult == null && rendererDisposed.isCompleted) {
+					failure = captureTeardownFailure(
+						failure,
+						ReaderPageTeardownStage.RendererDisposal
+					) {
+						rendererResult = rendererDisposed.await()
+					}
+				}
+				val terminalRendererResult = rendererResult
+				val rendererOwnershipReleased = terminalRendererResult?.ownership?.let { snapshot ->
+					snapshot.activeDeckLeases == 0 &&
+						snapshot.pendingDeckLeases == 0 &&
+						snapshot.releaseInFlightDeckLeases == 0 &&
+						snapshot.orphanDeckLeases == 0 &&
+						snapshot.textures == 0
+				} == true
+				if (terminalRendererResult == null) {
+					failure = captureTeardownFailure(
+						failure,
+						ReaderPageTeardownStage.RendererOwnership
+					) {
+						error("Renderer disposal did not publish terminal ownership")
+					}
+				} else {
+					val rendererSnapshot = terminalRendererResult.ownership
+					failure = captureTeardownFailure(
+						failure,
+						ReaderPageTeardownStage.RendererDisposal,
+						terminalRendererResult.failureStage
+					) {
+						if (!terminalRendererResult.isSuccessful) {
+							throw terminalRendererResult.failure
+								?: IllegalStateException(
+									"Renderer disposal failed without a cause"
+								)
+						}
+					}
+					failure = captureTeardownFailure(
+						failure,
+						ReaderPageTeardownStage.RendererOwnership
+					) {
+						check(
+							rendererSnapshot.activeDeckLeases == 0 &&
+								rendererSnapshot.pendingDeckLeases == 0 &&
+								rendererSnapshot.releaseInFlightDeckLeases == 0 &&
+								rendererSnapshot.orphanDeckLeases == 0 &&
+								rendererSnapshot.textures == 0
+						) { "Renderer disposal retained authoritative ownership" }
+					}
+				}
+
+				val strandedGenerations = generationOwners.keys.toList()
+				failure = captureTeardownFailure(
+					failure,
+					ReaderPageTeardownStage.DeckGeneration
+				) {
+					check(strandedGenerations.isEmpty()) {
+						"Renderer disposal left deck generations owned"
+					}
+				}
+				if (rendererOwnershipReleased) {
+					strandedGenerations.forEach { generationId ->
+						failure = captureTeardownFailure(
+							failure,
+							ReaderPageTeardownStage.DeckGeneration
+						) {
+							releaseGeneration(generationId)
+						}
+					}
+				}
+				preparedPageSets.toList().forEach { pages ->
+					failure = captureTeardownFailure(
+						failure,
+						ReaderPageTeardownStage.RasterDeck
+					) {
+						closeIfUnused(pages)
+					}
+				}
+				failure = captureTeardownFailure(
+					failure,
+					ReaderPageTeardownStage.RasterDeck
+				) {
+					check(preparedPageSets.isEmpty()) {
+						"Renderer disposal left raster decks pinned"
+					}
+				}
+
+				disposeRasterAdapterOwners(failure)?.let { throw it }
+			}
+		} finally {
+			teardownJob.complete()
 		}
-		surfaceView.dispose()
-		rasterScope.cancel()
+	}
+
+	private suspend fun disposeRasterAdapterOwners(
+		initialFailure: Throwable?
+	): Throwable? {
+		var failure = initialFailure
+		val adaptersToClose = rasterAdapterOwners.snapshot()
+		adaptersToClose.forEach { adapter ->
+			failure = captureTeardownFailure(
+				failure,
+				ReaderPageTeardownStage.RasterAdapter
+			) {
+				adapter.close()
+			}
+		}
+		failure = captureTeardownFailure(
+			failure,
+			ReaderPageTeardownStage.ControllerWorker
+		) {
+			rasterJob.cancelAndJoin()
+		}
+		adaptersToClose.forEach { adapter ->
+			failure = captureTeardownFailure(
+				failure,
+				ReaderPageTeardownStage.RasterAdapter
+			) {
+				adapter.closeAndJoin()
+			}
+		}
+		val adapterMetrics = mutableListOf<ReaderPlayLikeCurlRasterResidencyMetrics>()
+		adaptersToClose.forEach { adapter ->
+			failure = captureTeardownFailure(
+				failure,
+				ReaderPageTeardownStage.RasterAdapter
+			) {
+				adapterMetrics += adapter.metrics()
+			}
+		}
+		var budgetMetrics: ReaderPlayLikeCurlRasterResidencyBudgetMetrics? = null
+		failure = captureTeardownFailure(
+			failure,
+			ReaderPageTeardownStage.RasterAdapter
+		) {
+			budgetMetrics = rasterResidencyBudget.metrics()
+		}
+		var finalResidency: ReaderPlayLikeCurlRasterResidencyMetrics? = null
+		if (adapterMetrics.size == adaptersToClose.size && budgetMetrics != null) {
+			failure = captureTeardownFailure(
+				failure,
+				ReaderPageTeardownStage.RasterAdapter
+			) {
+				finalResidency = aggregateRasterResidencyMetrics(
+					adapterMetrics,
+					checkNotNull(budgetMetrics)
+				)
+			}
+		}
+		finalResidency?.let { residency ->
+			disposedRasterResidencyMetrics = residency
+			failure = captureTeardownFailure(
+				failure,
+				ReaderPageTeardownStage.RasterAdapter
+			) {
+				check(residency.isDrained()) {
+					"Raster adapter ownership did not drain"
+				}
+			}
+		}
+		adaptersToClose.forEach { adapter ->
+			failure = captureTeardownFailure(
+				failure,
+				ReaderPageTeardownStage.RasterAdapter
+			) {
+				rasterAdapterOwners.remove(adapter)
+			}
+		}
+		rasterAdapter = null
+		activePages = null
+		requestedProfile = null
+		rasterRetirementFailure?.let { retirementFailure ->
+			failure = captureTeardownFailure(
+				failure,
+				ReaderPageTeardownStage.RasterAdapter
+			) {
+				throw retirementFailure
+			}
+		}
+		return failure
+	}
+
+	suspend fun destroyAndJoin() {
+		destroy().await()
+	}
+
+	fun rasterResidencyMetrics(): ReaderPlayLikeCurlRasterResidencyMetrics =
+		disposedRasterResidencyMetrics
+			?: aggregateRasterResidencyMetrics(
+				rasterAdapterOwners.snapshot().map { adapter ->
+					adapter.metrics()
+				},
+				rasterResidencyBudget.metrics()
+			)
+
+	private fun aggregateRasterResidencyMetrics(
+		metrics: List<ReaderPlayLikeCurlRasterResidencyMetrics>,
+		budget: ReaderPlayLikeCurlRasterResidencyBudgetMetrics
+	): ReaderPlayLikeCurlRasterResidencyMetrics {
+		check(metrics.sumOf { it.residentEntries } == budget.residentEntries) {
+			"Adapter entries differ from shared residency ownership"
+		}
+		return ReaderPlayLikeCurlRasterResidencyMetrics(
+			residentEntries = budget.residentEntries,
+			uniqueDecodedBitmaps = metrics.sumOf { it.uniqueDecodedBitmaps },
+			residentEntryLimit = budget.residentEntryLimit,
+			uniqueDecodedBitmapLimit = metrics.sumOf { it.uniqueDecodedBitmapLimit },
+			peakResidentEntries = budget.peakResidentEntries,
+			peakUniqueDecodedBitmaps = metrics.sumOf { it.peakUniqueDecodedBitmaps },
+			pinnedEntries = metrics.sumOf { it.pinnedEntries },
+			activePreparationWorkers = metrics.sumOf { it.activePreparationWorkers },
+			activeMaterializationWorkers = metrics.sumOf { it.activeMaterializationWorkers },
+			pendingValueReleases = metrics.sumOf { it.pendingValueReleases },
+			evictedEntries = metrics.sumOf { it.evictedEntries },
+			releasedEntries = metrics.sumOf { it.releasedEntries }
+		)
+	}
+
+	private suspend fun captureTeardownFailure(
+		current: Throwable?,
+		stage: ReaderPageTeardownStage,
+		rendererStage: PageSurfaceDisposalStage? = null,
+		action: suspend () -> Unit
+	): Throwable? = try {
+		readerPageTeardownStage(stage, rendererStage, action)
+		current
+	} catch (next: Throwable) {
+		if (current == null) next
+		else current.apply {
+			if (next !== current) addSuppressed(next)
+		}
+	}
+
+	private suspend fun <T> awaitRasterPreparation(
+		preparation: Deferred<T>
+	): Result<T> = try {
+		Result.success(preparation.await())
+	} catch (cancelled: CancellationException) {
+		throw cancelled
+	} catch (failure: Throwable) {
+		Result.failure(failure)
+	}
+
+	private fun signalRasterCapacityAvailable(): Boolean {
+		if (destroyed) return true
+		if (!rasterCapacityRefreshPosted.compareAndSet(false, true)) return true
+		val accepted = mainHandler.post {
+			rasterCapacityRefreshPosted.set(false)
+			if (!destroyed) refreshPreparedDeck()
+		}
+		if (!accepted) {
+			rasterCapacityRefreshPosted.set(false)
+			updateReadiness(
+				interaction = ReaderPageInteractionState.Failed,
+				reason = "capacity-dispatch-rejected"
+			)
+		}
+		return accepted
+	}
+
+	private fun ReaderPlayLikeCurlRasterResidencyMetrics.isDrained(): Boolean =
+		residentEntries == 0 &&
+			uniqueDecodedBitmaps == 0 &&
+			pinnedEntries == 0 &&
+			activePreparationWorkers == 0 &&
+			activeMaterializationWorkers == 0 &&
+			pendingValueReleases == 0
+
+	private fun recordRasterRetirementFailure(failure: Throwable) {
+		val first = rasterRetirementFailure
+		if (first == null) rasterRetirementFailure = failure
+		else if (failure !== first) first.addSuppressed(failure)
+	}
+
+	private fun retireRasterAdapter(
+		adapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>
+	) {
+		adapter.close()
+		rasterScope.launch {
+			val joinResult = runCatching { adapter.closeAndJoin() }
+			val metricsResult = runCatching { adapter.metrics() }
+			withContext(Dispatchers.Main.immediate) {
+				val metrics = metricsResult.getOrNull()
+				val drained = metrics?.let { current -> current.isDrained() } == true
+				if (drained) {
+					check(rasterAdapterOwners.remove(adapter))
+					if (!destroyed) refreshPreparedDeck()
+				}
+
+				val failure = joinResult.exceptionOrNull()
+					?: metricsResult.exceptionOrNull()
+					?: if (!drained) {
+						IllegalStateException(
+							"Retiring raster adapter retained ownership"
+						)
+					} else {
+						null
+					}
+				if (failure != null) {
+					recordRasterRetirementFailure(failure)
+					logActivationState(
+						"adapter-retirement-failed",
+						if (drained) "owner-released" else "owner-retained"
+					)
+					if (!destroyed) {
+						updateReadiness(
+							interaction = ReaderPageInteractionState.Failed,
+							reason = "adapter-retirement-failed"
+						)
+					}
+				}
+			}
+		}
+	}
+
+	private fun createRasterAdapter(
+		profile: ReaderPlayLikeCurlRasterProfile
+	): ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage> {
+		val loader = ReaderPlayLikeCurlFoliateRasterLoader(
+			bundleSource = bundleSource,
+			profile = profile,
+			webViewProvider = webViewProvider,
+			referenceSnapshotProvider = {
+				val preferred = profile.pageRequest(currentOrdinal).sourcePageIndex
+				bundleSource.retainedReferenceSnapshot(
+					preferred,
+					profile.transitionKind()
+				)
+			},
+			onMissingRaster = { sourcePageIndex ->
+				requestRasterRepair(sourcePageIndex, profile)
+			}
+		)
+		return ReaderPlayLikeCurlRasterAdapter(
+			scope = rasterScope,
+			loader = loader,
+			rendererDeckLeaseLimit = surfaceView.deckLeaseLimit,
+			residencyBudget = rasterResidencyBudget,
+			onCapacityAvailable = ::signalRasterCapacityAvailable,
+			publicationDispatcher = Dispatchers.Main.immediate,
+			release = { image ->
+				if (!image.bitmap.isRecycled) image.bitmap.recycle()
+			}
+		).also {
+			foliateRasterLoader = loader
+		}
+	}
+
+	private fun createRasterAdapterOrDefer(
+		profile: ReaderPlayLikeCurlRasterProfile
+	): ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>? {
+		if (rasterAdapterOwners.size == rasterAdapterOwners.ownerLimit) {
+			logActivationState("refresh-gated", "adapter-owner-capacity")
+			return null
+		}
+		val adapter = createRasterAdapter(profile)
+		check(rasterAdapterOwners.tryAdd(adapter)) {
+			"Raster adapter owner capacity changed during main-thread admission"
+		}
+		rasterAdapter = adapter
+		return adapter
 	}
 
 	private fun refreshPreparedDeck(planRetryAttempt: Int = 0) {
@@ -1341,8 +1827,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 			publicationFence = publicationFence
 		)
 		rasterScope.launch {
-			val deck = preparation.await()
-			host.post {
+			val preparationResult = awaitRasterPreparation(preparation)
+			withContext(Dispatchers.Main.immediate) {
+				val failure = preparationResult.exceptionOrNull()
+				if (failure != null) {
+					if (refill == decodedRefillGeneration) {
+						decodedRefillCenterOrdinal = null
+						Logger.e(
+							ReaderPlayLikeCurlFoliateControllerTag,
+							"Decoded refill failed " +
+								"failureClass=${failure::class.simpleName ?: "unknown"}"
+						)
+						if (activeDeckGenerationId == null) {
+							updateReadiness(
+								textureDeck = ReaderTextureDeckState.Failed,
+								interaction = ReaderPageInteractionState.Failed,
+								reason = "decoded-refill-failed:$refill"
+							)
+						}
+					}
+					return@withContext
+				}
+				val deck = preparationResult.getOrNull()
 				if (
 					deck == null ||
 					refill != decodedRefillGeneration ||
@@ -1359,7 +1865,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 							detail = "refill=$refill center=$centerOrdinal reason=$reason"
 						)
 					}
-					return@post
+					return@withContext
 				}
 				decodedRefillCenterOrdinal = null
 				activePages?.let { previous ->
@@ -1630,39 +2136,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 				closeIfUnused(pages)
 			}
 			activePages = null
-			rasterAdapter?.close()
+			rasterAdapter?.let(::retireRasterAdapter)
+			rasterAdapter = null
+			foliateRasterLoader = null
 			publishProtectedWindow(emptyList())
 			requestedProfile = profile
 			publishRasterProfileEpoch(profile)
 			publishProtectedWindow(pageIndices)
-			val loader = ReaderPlayLikeCurlFoliateRasterLoader(
-				bundleSource = bundleSource,
-				profile = profile,
-				webViewProvider = webViewProvider,
-				referenceSnapshotProvider = {
-					val preferred = profile.pageRequest(currentOrdinal).sourcePageIndex
-					bundleSource.retainedReferenceSnapshot(
-						preferred,
-						profile.transitionKind()
-					)
-				},
-				onMissingRaster = { sourcePageIndex ->
-					requestRasterRepair(sourcePageIndex, profile)
-				}
-			)
-			foliateRasterLoader = loader
-			rasterAdapter = ReaderPlayLikeCurlRasterAdapter(
-				scope = rasterScope,
-				loader = loader,
-				release = { image ->
-					if (!image.bitmap.isRecycled) image.bitmap.recycle()
-				},
-				publicationDispatcher = Dispatchers.Main.immediate
-			)
 		} else {
 			publishProtectedWindow(pageIndices)
 		}
-		val adapter = rasterAdapter ?: return
+		val adapter = rasterAdapter
+			?: createRasterAdapterOrDefer(profile)
+			?: run {
+				updateReadiness(
+					interaction = ReaderPageInteractionState.BlockingProfileRegeneration,
+					reason = "adapter-owner-capacity"
+				)
+				return
+			}
 		val publicationFence = rasterPublicationFence(
 			profile = profile,
 			centerOrdinal = centerOrdinal,
@@ -1679,22 +2171,40 @@ internal class ReaderPlayLikeCurlFoliateController(
 			pageIndices = pageIndices,
 			publicationFence = publicationFence,
 			onProgress = { progress ->
-				host.post {
-					if (request == requestGeneration && enabled && !destroyed) {
-						logActivationState(
-							event = "deck-load-progress",
-							detail = "request=$request center=$centerOrdinal " +
-								"completed=${progress.completed}/${progress.total} " +
-								"elapsedMillis=${elapsedMillis(startedAtNanos)}"
-						)
-					}
-				}
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"deck-load-progress request=$request center=$centerOrdinal " +
+						"completed=${progress.completed}/${progress.total} " +
+						"elapsedMillis=${elapsedMillis(startedAtNanos)}"
+				)
 			}
 		)
 		rasterScope.launch {
-			val deck = preparation.await()
-			if (deck == null) {
-				host.post {
+			val preparationResult = awaitRasterPreparation(preparation)
+			withContext(Dispatchers.Main.immediate) {
+				val failure = preparationResult.exceptionOrNull()
+				if (failure != null) {
+					if (
+						request == requestGeneration &&
+							enabled &&
+							!destroyed &&
+							publicationFence.isCurrent()
+					) {
+						updateReadiness(
+							textureDeck = ReaderTextureDeckState.Failed,
+							interaction = ReaderPageInteractionState.Failed,
+							reason = "deck-load-exception:$request"
+						)
+						Logger.e(
+							ReaderPlayLikeCurlFoliateControllerTag,
+							"Raster deck load failed " +
+								"failureClass=${failure::class.simpleName ?: "unknown"}"
+						)
+					}
+					return@withContext
+				}
+				val deck = preparationResult.getOrNull()
+				if (deck == null) {
 					if (
 						request == requestGeneration &&
 						enabled &&
@@ -1732,11 +2242,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 							)
 						}
 					}
+					return@withContext
 				}
-				return@launch
-			}
-			host.post {
-				if (
+			if (
 					request != requestGeneration ||
 					!enabled ||
 					destroyed ||
@@ -1744,7 +2252,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					!publicationFence.isCurrent()
 				) {
 					deck.close()
-					return@post
+					return@withContext
 				}
 				logActivationState(
 					event = "deck-load-completed",
@@ -1942,24 +2450,60 @@ internal class ReaderPlayLikeCurlFoliateController(
 	override fun submitRecoveredDeck(
 		generationId: Long,
 		role: ReaderDeckSubmissionRole
-	) {
-		val built = checkNotNull(builtRecoveredDecks.remove(generationId)) {
+	): ReaderPageRecoveredDeckSubmissionResult {
+		val built = checkNotNull(builtRecoveredDecks[generationId]) {
 			"Recovered deck generation is not owned by the build registry"
 		}
 		check(!built.pages.obsolete && generationOwners[generationId] === built.pages) {
 			"Recovered deck generation is obsolete"
 		}
-		generationRoles[generationId] = role
-		recoveredDeckGenerations += generationId
 		updateSurfaceBounds(built.pages, built.ordinal)
 		setSurfaceReadingDirection(built.pages.profile)
 		logActivationState(
 			event = "recovered-deck-submitted",
 			detail = "generation=$generationId ordinal=${built.ordinal} role=$role"
 		)
-		surfaceView.submitDeck(built.deck)
+		var ownershipTransferred = false
+		val result = try {
+			submissionCallbackFence.submit(generationId) {
+				surfaceView.submitDeckWithResult(built.deck) {
+					ownershipTransferred = true
+					acceptRecoveredDeckOwnership(generationId, role)
+				}
+			}
+		} catch (failure: Throwable) {
+			if (ownershipTransferred) {
+				rollbackAcceptedRecoveredDeck(generationId, role, failure)
+			}
+			throw failure
+		}
+		if (result.status == PageSurfaceDeckSubmissionResult.Status.REJECTED) {
+			return if (result.rejectionReason == DeckRejectionReason.RESOURCE_CAPACITY) {
+				ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
+			} else {
+				ReaderPageRecoveredDeckSubmissionResult.Rejected(
+					checkNotNull(result.rejectionReason).name
+				)
+			}
+		}
+		check(
+			result.status == PageSurfaceDeckSubmissionResult.Status.ACCEPTED &&
+				ownershipTransferred
+		) {
+			"Fresh recovered deck submission did not transfer renderer ownership"
+		}
+		return ReaderPageRecoveredDeckSubmissionResult.Accepted
+	}
+
+	private fun acceptRecoveredDeckOwnership(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole
+	) {
+		val accepted = checkNotNull(builtRecoveredDecks.remove(generationId))
+		generationRoles[generationId] = role
+		recoveredDeckGenerations += generationId
 		if (
-			generationOwners[generationId] !== built.pages ||
+			generationOwners[generationId] !== accepted.pages ||
 			generationRoles[generationId] != role
 		) {
 			return
@@ -1967,25 +2511,55 @@ internal class ReaderPlayLikeCurlFoliateController(
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
 				activeDeckGenerationId = generationId
-				onPreparedActiveDeckChanged(null)
-				if (activePages !== built.pages) {
+				notifyPreparedActiveDeckChanged(null)
+				if (activePages !== accepted.pages) {
 					activePages?.let { previous ->
 						previous.obsolete = true
 						closeIfUnused(previous)
 					}
-					activePages = built.pages
+					activePages = accepted.pages
 				}
 			}
 			ReaderDeckSubmissionRole.Pending -> {
 				pendingDeckGenerationId = generationId
-				pendingDeckOrdinal = built.ordinal
+				pendingDeckOrdinal = accepted.ordinal
 			}
 		}
 	}
 
-	override fun releaseRecoveredDeck(generationId: Long) {
-		builtRecoveredDecks.remove(generationId)?.pages?.obsolete = true
+	override fun releaseUnsubmittedRecoveredDeck(generationId: Long) {
+		val built = builtRecoveredDecks.remove(generationId) ?: return
+		built.pages.obsolete = true
 		releaseGeneration(generationId)
+	}
+
+	private fun rollbackAcceptedRecoveredDeck(
+		generationId: Long,
+		role: ReaderDeckSubmissionRole,
+		failure: Throwable
+	) {
+		try {
+			tombstoneSubmittedRecoveredDeck(generationId, role)
+		} catch (cleanupFailure: Throwable) {
+			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+		}
+		if (role == ReaderDeckSubmissionRole.Active) {
+			val strandedActive = activePages
+			if (strandedActive != null && strandedActive !== generationOwners[generationId]) {
+				activePages = null
+				strandedActive.obsolete = true
+				try {
+					closeIfUnused(strandedActive)
+				} catch (cleanupFailure: Throwable) {
+					if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+				}
+			}
+		}
+		try {
+			surfaceView.releaseDeck(generationId)
+		} catch (cleanupFailure: Throwable) {
+			if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+		}
 	}
 
 	override fun cancelSubmittedRecoveredDeck(
@@ -2013,7 +2587,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					activePages = null
 					pages.obsolete = true
 				}
-				onPreparedActiveDeckChanged(null)
+				notifyPreparedActiveDeckChanged(null)
 			}
 			ReaderDeckSubmissionRole.Pending -> {
 				if (pendingDeckGenerationId == generationId) {
@@ -2083,6 +2657,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 						pendingTextureDeck = ReaderTextureDeckState.Empty,
 						interaction = blockingPreparationState(),
 						reason = "deck-recovery-building-active:${state.requestId}"
+					)
+				}
+			}
+			is ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity -> {
+				if (hasPreparedActiveDeckOwnership()) {
+					updateReadiness(
+						pendingTextureDeck = ReaderTextureDeckState.Preparing,
+						interaction = preparedInteractionState(),
+						reason = "deck-recovery-waiting-capacity:${state.generationId}"
+					)
+				} else {
+					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Preparing,
+						pendingTextureDeck = ReaderTextureDeckState.Empty,
+						interaction = blockingPreparationState(),
+						reason = "deck-recovery-waiting-capacity:${state.generationId}"
 					)
 				}
 			}
@@ -2211,7 +2801,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		when (role) {
 			ReaderDeckSubmissionRole.Active -> {
 				activeDeckGenerationId = generationId
-				onPreparedActiveDeckChanged(null)
+				notifyPreparedActiveDeckChanged(null)
 			}
 			ReaderDeckSubmissionRole.Pending -> {
 				pendingDeckGenerationId
@@ -2399,7 +2989,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (releasedCurrentActive) {
 			activeDeckGenerationId = null
 			if (activePages === pages) activePages = null
-			onPreparedActiveDeckChanged(null)
+			notifyPreparedActiveDeckChanged(null)
 		}
 		if (pendingDeckGenerationId == generationId) {
 			pendingDeckGenerationId = null
@@ -2443,7 +3033,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			interaction = if (prepared) preparedInteractionState() else ReaderPageInteractionState.BackgroundPrefetch,
 			reason = "settlement-promoted:$promotedGeneration:$currentPageOrdinal"
 		)
-		if (prepared) publishPreparedActiveDeck() else onPreparedActiveDeckChanged(null)
+		if (prepared) publishPreparedActiveDeck() else notifyPreparedActiveDeckChanged(null)
 		return promotedGeneration
 	}
 

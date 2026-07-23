@@ -24,6 +24,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageRasterPreparationController.android.kt"
 	)
+	private val bundleSourceFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPageTurnBundleSource.android.kt"
+	)
 	private val inputSettlementHostControllerFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageInputSettlementHostController.android.kt"
@@ -35,6 +39,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	private val visualHandoffFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderWebViewVisualHandoff.android.kt"
+	)
+	private val referenceViewFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPlayLikeCurlReferenceView.android.kt"
 	)
 	private val readerAssetRoot = File("src/androidMain/assets/reader")
 
@@ -51,6 +59,45 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "put(\"type\", \"goToVisualPage\")")
 		assertFalse(source.contains("ReaderPlayLikeCurlAssetBitmapSource"))
 		assertFalse(source.contains("ReaderPlayLikeCurlDiagnosticBitmapSource"))
+	}
+
+	@Test
+	fun productionAdaptersShareTheSurfaceDerivedResidencyBudget() {
+		val controller = controllerFile.readText()
+		val reference = referenceViewFile.readText()
+
+		assertContains(controller, "private const val MAX_RASTER_ADAPTER_OWNERS = 2")
+		assertContains(controller, "private val rasterResidencyBudget =")
+		assertContains(controller, "surfaceView.deckLeaseLimit *")
+		assertContains(controller, "ReaderPageMaximumProtectedRasterEntriesPerLease")
+		assertContains(controller, "ReaderPlayLikeCurlAdapterOwnerPool")
+		assertContains(controller, "ownerLimit = MAX_RASTER_ADAPTER_OWNERS")
+		assertContains(controller, "private fun createRasterAdapterOrDefer(")
+		assertContains(controller, "private fun retireRasterAdapter(")
+		assertContains(controller, "adapter.closeAndJoin()")
+		assertContains(controller, ".isDrained()")
+		assertContains(controller, "rendererDeckLeaseLimit = surfaceView.deckLeaseLimit")
+		assertContains(controller, "residencyBudget = rasterResidencyBudget")
+		assertContains(controller, "onCapacityAvailable = ::signalRasterCapacityAvailable")
+		assertContains(controller, "private suspend fun <T> awaitRasterPreparation(")
+		assertContains(controller, "catch (cancelled: CancellationException)")
+		assertContains(controller, "Result.failure(failure)")
+		assertEquals(
+			2,
+			Regex("awaitRasterPreparation\\(preparation\\)").findAll(controller).count()
+		)
+		assertFalse(controller.contains("val deck = preparation.await()"))
+		assertContains(reference, "rendererDeckLeaseLimit = deckLeaseLimit")
+		assertContains(reference, "catch (cancelled: CancellationException)")
+		assertContains(reference, "Reference raster preparation failed")
+		assertContains(reference, "failureClass=")
+		assertContains(reference, "registerMainTerminalExecutor")
+		assertContains(reference, "Looper.myLooper() == Looper.getMainLooper()")
+		assertEquals(
+			2,
+			Regex("rendererDeckLeaseLimit\\s*=").findAll(controller + reference).count(),
+			"Every production adapter must receive the enforcing surface lease limit."
+		)
 	}
 
 	@Test
@@ -75,7 +122,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("override fun isCurrentRepairWindow(")
 
 		assertContains(prepare, "\"deck-load-started\"")
-		assertContains(prepare, "\"deck-load-progress\"")
+		assertContains(prepare, "deck-load-progress")
 		assertContains(prepare, "\"deck-load-completed\"")
 		assertContains(prepare, "\"deck-load-failed\"")
 		assertContains(prepare, "pageIndices.joinToString")
@@ -207,9 +254,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val invalidate = source
 			.substringAfter("fun invalidate(")
 			.substringBefore("fun destroy()")
-		val destroy = source
-			.substringAfter("fun destroy()")
-			.substringBefore("private fun refreshPreparedDeck(")
+		val destroyFence = source
+			.substringAfter("private val destroyFence = ReaderPageControllerDestroyFence(")
+			.substringBefore("fun destroy(): Deferred<Unit>")
 
 		assertContains(attach, "retryRelocationVisualHandoffAttached()")
 		assertContains(contentReady, "retryRelocationVisualHandoffAttached()")
@@ -223,7 +270,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			invalidate.indexOf("relocationVisualHandoffCoordinator.cancelForQueueInvalidation()") <
 				invalidate.indexOf("drainRelocationOwnership(\"invalidated:${'$'}reason\")")
 		)
-		assertContains(destroy, "relocationVisualHandoffCoordinator.close()")
+		assertContains(
+			destroyFence,
+			"closeVisualHandoff = relocationVisualHandoffCoordinator::close"
+		)
+		assertTrue(
+			destroyFence.indexOf("closeVisualHandoff =") <
+				destroyFence.indexOf("cancelRelocations ="),
+			"Visual handoff ownership must close before relocation ownership drains."
+		)
 		assertContains(host, "playLikeCurlController.onHostResumedChanged(true)")
 		assertContains(host, "playLikeCurlController.onHostResumedChanged(false)")
 	}
@@ -368,9 +423,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(refill, "!publicationFence.isCurrent()")
 		assertEquals(
-			2,
+			3,
 			Regex("publicationFence\\.isCurrent\\(\\)").findAll(preparation).count(),
-			"Both failed and successful preparation delivery must reject an expired fence."
+			"Exceptional, unavailable, and successful delivery must reject an expired fence."
 		)
 	}
 
@@ -421,7 +476,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun prepareProfile(")
 		val unavailableDeck = source
 			.substringAfter("if (deck == null)")
-			.substringBefore("return@launch")
+			.substringBefore("return@withContext")
 
 		assertContains(source, "private var preparationPhase = ReaderPagePreparationPhase.Idle")
 		assertContains(source, "preparationPhase = state.phase")
@@ -560,7 +615,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("override fun cancelRecoveredDeckBuild(")
 		val submission = controller
 			.substringAfter("override fun submitRecoveredDeck(")
-			.substringBefore("override fun releaseRecoveredDeck(")
+			.substringBefore("override fun releaseUnsubmittedRecoveredDeck(")
+		val unsubmittedRelease = controller
+			.substringAfter("override fun releaseUnsubmittedRecoveredDeck(")
+			.substringBefore("private fun rollbackAcceptedRecoveredDeck(")
+		val acceptedRollback = controller
+			.substringAfter("private fun rollbackAcceptedRecoveredDeck(")
+			.substringBefore("override fun cancelSubmittedRecoveredDeck(")
 		val cancellation = controller
 			.substringAfter("override fun cancelRecoveredDeckBuild(")
 			.substringBefore("override fun currentRecoveredDeckRole(")
@@ -592,9 +653,26 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(build, "builtRecoveredDecks[generationId]")
 		assertContains(cancellation, "operation.cancel()")
 		assertContains(roleSelection, "surfaceView.isSettlementRunning")
-		assertContains(submission, "builtRecoveredDecks.remove(generationId)")
-		assertContains(submission, "surfaceView.submitDeck(built.deck)")
-		assertContains(submission, "generationOwners[generationId] !== built.pages")
+		assertContains(submission, "submissionCallbackFence.submit(generationId)")
+		assertContains(submission, "surfaceView.submitDeckWithResult(built.deck) {")
+		assertContains(submission, "ownershipTransferred = true")
+		assertContains(submission, "acceptRecoveredDeckOwnership(generationId, role)")
+		assertContains(submission, "if (ownershipTransferred)")
+		assertContains(submission, "PageSurfaceDeckSubmissionResult.Status.REJECTED")
+		assertContains(submission, "DeckRejectionReason.RESOURCE_CAPACITY")
+		assertContains(
+			submission,
+			"ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity"
+		)
+		assertContains(submission, "val accepted = checkNotNull(builtRecoveredDecks.remove(generationId))")
+		assertContains(submission, "generationOwners[generationId] !== accepted.pages")
+		assertContains(submission, "rollbackAcceptedRecoveredDeck(generationId, role, failure)")
+		assertContains(unsubmittedRelease, "builtRecoveredDecks.remove(generationId) ?: return")
+		assertContains(unsubmittedRelease, "releaseGeneration(generationId)")
+		assertContains(acceptedRollback, "tombstoneSubmittedRecoveredDeck(generationId, role)")
+		assertContains(acceptedRollback, "strandedActive !== generationOwners[generationId]")
+		assertContains(acceptedRollback, "activePages = null")
+		assertContains(acceptedRollback, "surfaceView.releaseDeck(generationId)")
 		assertContains(submittedCancellation, "readerRecoveredDeckCancellationRoleMatches(")
 		assertContains(submittedCancellation, "tombstoneSubmittedRecoveredDeck(")
 		assertContains(renderFailure, "generationId in recoveredDeckGenerations")
@@ -603,11 +681,19 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(releaseGeneration, "val releasedCurrentActive =")
 		assertContains(releaseGeneration, "if (activePages === pages) activePages = null")
 		assertTrue(
-			submission.indexOf("surfaceView.submitDeck(built.deck)") <
-				submission.indexOf("activePages = built.pages"),
+			submission.indexOf("surfaceView.submitDeckWithResult(built.deck)") <
+				submission.indexOf("builtRecoveredDecks.remove(generationId)"),
+			"Capacity rejection must retain recovered generation ownership for retry."
+		)
+		assertTrue(
+			submission.indexOf("surfaceView.submitDeckWithResult(built.deck)") <
+				submission.indexOf("activePages = accepted.pages"),
 			"Recovered pages must become active only after synchronous rejection is impossible."
 		)
 		assertContains(recovery, "val role = host.currentRecoveredDeckRole()")
+		assertContains(recovery, "data class WaitingForSubmissionCapacity(")
+		assertContains(recovery, "fun onDeckSubmissionCapacityAvailable(): Boolean")
+		assertContains(recovery, "waiting.generationId")
 		assertTrue(
 			recovery.indexOf("ReaderPageDeckRecoveryState.WaitingForPreparation(") <
 				recovery.indexOf("host.submitRecoveredDeck(generationId, role)")
@@ -616,6 +702,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			recovery.substringAfter("data class WaitingForBuild(")
 				.substringBefore(") : ReaderPageDeckRecoveryState")
 				.contains("ReaderDeckSubmissionRole")
+		)
+		assertFalse(
+			recovery.substringAfter("data class WaitingForSubmissionCapacity(")
+				.substringBefore(") : ReaderPageDeckRecoveryState")
+				.contains("ReaderDeckSubmissionRole"),
+			"Capacity retry must recompute the active or pending role."
 		)
 	}
 
@@ -1188,6 +1280,61 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun readerTeardownFencesBundleBeforeRendererAndClosesOwnersInOrder() {
+		val preparation = rasterPreparationFile.readText()
+		val bundle = bundleSourceFile.readText()
+		val host = hostFile.readText()
+		val destroy = preparation
+			.substringAfter("fun destroy(): Deferred<Unit>")
+			.substringBefore("suspend fun destroyAndJoin()")
+		val bundleWiring = bundle
+			.substringAfter("private val teardown = ReaderPageTurnBundleTeardown(")
+			.substringBefore("fun fenceForClose()")
+		val bundleClose = bundle
+			.substringAfter("fun fenceForClose()")
+			.substringBefore("private fun restoreLiveComposition(")
+		val hostTeardown = host.substringAfter("private fun teardownTask4Resources()")
+
+		assertContains(preparation, "closeRendererAndAdapter: suspend () -> Unit")
+		assertContains(preparation, "fenceCallbacks = ::fenceForDestroy")
+		assertContains(preparation, "fenceBundleOwners = bundleSource::fenceForClose")
+		assertContains(destroy, "if (!destroyed) destroyed = true")
+		assertContains(destroy, "return teardown.start()")
+		assertContains(bundleWiring, "publicationScheduler.closeAndJoin()")
+		assertContains(bundleWiring, "publicationEntryCount = publicationLedger::entryCount")
+		assertContains(bundleWiring, "rasterScheduler?.closeAndJoin()")
+		assertContains(bundleWiring, "persistenceJobs.forEach { job -> job.join() }")
+		assertContains(bundleWiring, "rasterPersistenceJobs.isEmpty()")
+		assertContains(bundleWiring, "pendingDescriptorOwners.pendingCount() == 0")
+		assertContains(bundleWiring, "hydrationScheduler.closeAndJoin()")
+		assertContains(bundle, "trackRasterPersistenceJob(persistenceJob)")
+		assertContains(bundle, "pendingDescriptorOwners.acquire(snapshot)")
+		assertContains(bundle, "pendingDescriptorOwners.claim(descriptorOwner)")
+		assertContains(bundle, "pendingDescriptorOwners.complete(claimedOwner)")
+		assertContains(bundle, "pendingDescriptorOwners.cancelAll()")
+		assertContains(bundle, "requireRasterInitializationOpen()")
+		assertContains(bundle, "closeUnpublishedRasterOwners(")
+		assertContains(bundleClose, "rasterJob.cancel()")
+		assertContains(bundleClose, "pendingDescriptorOwners.close()")
+		assertTrue(
+			bundleWiring.indexOf("persistentStore?.close()") <
+				bundleWiring.indexOf("rasterCache?.let")
+		)
+		assertContains(bundleClose, "fun close(): Deferred<Unit>")
+		assertContains(hostTeardown, "val teardown = pageRasterPreparationController.destroy()")
+		assertContains(hostTeardown, "task4Teardown = teardown")
+		assertContains(hostTeardown, "teardown.invokeOnCompletion")
+		assertFalse(hostTeardown.contains("playLikeCurlController.destroy()"))
+		assertContains(host, "closeRendererAndAdapter = {")
+		assertContains(host, "playLikeCurlController.destroyAndJoin()")
+		listOf(preparation, bundle, host).forEach { source ->
+			assertFalse(source.contains("runBlocking"))
+			assertFalse(source.contains("Thread.join"))
+			assertFalse(source.contains("CountDownLatch"))
+		}
+	}
+
+	@Test
 	fun productionFinalLifecycleSeparatesCancellationFromDeliveryClose() {
 		val hostSource = hostFile.readText()
 		val root = hostSource
@@ -1235,15 +1382,81 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertTrue(abandonIndex >= 0)
 		assertTrue(clearModeIndex > abandonIndex)
 		val removeIndex = teardown.indexOf("removePageTurnPrewarmLayoutListener()")
-		val curlIndex = teardown.indexOf("playLikeCurlController.destroy()")
+		val eventIndex = teardown.indexOf("pageRasterHostEventController.close()")
 		val rasterIndex = teardown.indexOf("pageRasterPreparationController.destroy()")
 		assertTrue(removeIndex >= 0)
-		assertTrue(curlIndex > removeIndex)
-		assertTrue(rasterIndex > curlIndex)
+		assertTrue(eventIndex > removeIndex)
+		assertTrue(rasterIndex > eventIndex)
+		assertFalse(teardown.contains("playLikeCurlController.destroy()"))
 		assertTrue(
 			rootClose.indexOf("viewerContainer.closeReader()") <
 				rootClose.indexOf("currentViewerComposeView?.disposeComposition()")
 		)
+	}
+
+	@Test
+	fun destroyDelegatesToBehaviorTestedFenceAndDrainsRendererOwners() {
+		val source = controllerFile.readText()
+		val wiring = source
+			.substringAfter("private val destroyFence =")
+			.substringBefore("private suspend fun disposeRendererAndOwners()")
+		val disposal = source
+			.substringAfter("private suspend fun disposeRendererAndOwners()")
+			.substringBefore("suspend fun destroyAndJoin()")
+
+		assertFalse(source.contains("private var destroyTask"))
+		assertContains(wiring, "ReaderPageControllerDestroyFence(")
+		assertContains(wiring, "cancelRecovery = deckRecoveryCoordinator::cancelAll")
+		assertContains(
+			wiring,
+			"closeVisualHandoff = relocationVisualHandoffCoordinator::close"
+		)
+		assertContains(
+			wiring,
+			"cancelRelocations = relocationGestureCoordinator::cancelAll"
+		)
+		assertContains(wiring, "fun destroy(): Deferred<Unit> = destroyFence.start()")
+		assertContains(disposal, "surfaceView.disposeForLifecycleOwner { result ->")
+		assertContains(disposal, "check(rendererDisposed.complete(result))")
+		assertContains(disposal, "terminalRendererResult.ownership")
+		assertContains(disposal, "if (rendererResult == null && rendererDisposed.isCompleted)")
+		assertContains(disposal, "val rendererOwnershipReleased =")
+		assertContains(disposal, "if (rendererOwnershipReleased)")
+		assertContains(disposal, "adapterMetrics += adapter.metrics()")
+		assertContains(disposal, "budgetMetrics = rasterResidencyBudget.metrics()")
+		assertContains(disposal, "rasterAdapterOwners.remove(adapter)")
+		assertContains(disposal, "mainTerminalExecutor.closeAndJoin()")
+		assertContains(disposal, "teardownJob.complete()")
+		assertContains(disposal, "surfaceView.pendingMainTerminalActionCount == 0")
+		assertContains(disposal, "rendererSnapshot.releaseInFlightDeckLeases")
+		assertContains(disposal, "ReaderPageTeardownStage.RendererDisposal")
+		assertContains(disposal, "strandedGenerations.forEach")
+		val rendererAwaitIndex = disposal.indexOf("rendererDisposed.await()")
+		val deckCloseIndex =
+			disposal.indexOf("preparedPageSets.toList().forEach { pages ->")
+		val adapterFenceIndex = disposal.indexOf("adapter.close()")
+		val workerCancelJoinIndex = disposal.indexOf("rasterJob.cancelAndJoin()")
+		val adapterJoinIndex = disposal.indexOf("adapter.closeAndJoin()")
+		assertTrue(rendererAwaitIndex >= 0)
+		assertTrue(deckCloseIndex > rendererAwaitIndex)
+		assertTrue(adapterFenceIndex > deckCloseIndex)
+		assertTrue(workerCancelJoinIndex > adapterFenceIndex)
+		assertTrue(adapterJoinIndex > workerCancelJoinIndex)
+		assertFalse(disposal.contains("invalidate(\"destroyed\")"))
+		assertContains(source, "ReaderMainTerminalActionExecutor(")
+		assertContains(source, "actionLimit = surfaceView.mainTerminalActionLimit")
+		assertContains(source, "surfaceView.registerMainTerminalExecutor(")
+		assertContains(source, "mainTerminalExecutor::execute")
+		val refill = source
+			.substringAfter("private fun refillDecodedWorkingSet(")
+			.substringBefore("private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(")
+		val prepare = source
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("override fun isCurrentRepairWindow(")
+		assertContains(refill, "withContext(Dispatchers.Main.immediate)")
+		assertContains(prepare, "withContext(Dispatchers.Main.immediate)")
+		assertFalse(refill.contains("host.post {"))
+		assertFalse(prepare.contains("host.post {"))
 	}
 
 	@Test

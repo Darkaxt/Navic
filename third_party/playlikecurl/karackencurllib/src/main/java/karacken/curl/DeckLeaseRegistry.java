@@ -14,6 +14,8 @@ import java.util.Objects;
  * converge on the same generation.
  */
 final class DeckLeaseRegistry {
+    static final int MAX_DECK_LEASES = 4;
+
     static final class Lease {
         private final long generationId;
         private final PageSurfaceListener listener;
@@ -41,17 +43,59 @@ final class DeckLeaseRegistry {
         }
     }
 
+    private final int capacity;
     private final Map<Long, PageSurfaceListener> owners = new LinkedHashMap<>();
     private final Map<Long, DeckReleaseReason> requestedReleaseReasons =
             new LinkedHashMap<>();
 
+    DeckLeaseRegistry() {
+        this(MAX_DECK_LEASES);
+    }
+
+    DeckLeaseRegistry(int capacity) {
+        if (capacity <= 0) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
+        this.capacity = capacity;
+    }
+
     synchronized boolean acquire(long generationId, PageSurfaceListener listener) {
         Objects.requireNonNull(listener, "listener");
-        if (owners.containsKey(generationId)) {
+        if (owners.containsKey(generationId)
+                || owners.size() >= capacity) {
             return false;
         }
         owners.put(generationId, listener);
         return true;
+    }
+
+    synchronized boolean hasCapacity() {
+        return owners.size() < capacity;
+    }
+
+    synchronized int capacity() {
+        return capacity;
+    }
+
+    synchronized int size() {
+        return owners.size();
+    }
+
+    synchronized boolean contains(long generationId) {
+        return owners.containsKey(generationId);
+    }
+
+    synchronized int releaseInFlightCount(
+            long activeGenerationId,
+            long pendingGenerationId) {
+        int count = 0;
+        for (long generationId : requestedReleaseReasons.keySet()) {
+            if (generationId != activeGenerationId
+                    && generationId != pendingGenerationId) {
+                count += 1;
+            }
+        }
+        return count;
     }
 
     synchronized PageSurfaceListener listenerFor(

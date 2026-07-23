@@ -33,6 +33,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import karacken.curl.PageChange
+import kotlinx.coroutines.Deferred
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
@@ -718,6 +719,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
+		closeRendererAndAdapter = {
+			playLikeCurlController.destroyAndJoin()
+		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		onAwaitHostEvent = { reason ->
 			if (reason == ReaderPageRasterDeferralReason.LayoutUnstable) {
@@ -1068,6 +1072,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var finalHostLifecycleEvent: ReaderPageHostLifecycleEvent? = null
 	private var physicalPointerDeliveryClosed = false
 	private var task4ResourceTeardownStarted = false
+	private var task4Teardown: Deferred<Unit>? = null
 	private var observedHostLifecycle: Lifecycle? = null
 
 	private val hostLifecycleObserver = object : DefaultLifecycleObserver {
@@ -1931,8 +1936,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		task4ResourceTeardownStarted = true
 		removePageTurnPrewarmLayoutListener()
 		pageRasterHostEventController.close()
-		playLikeCurlController.destroy()
-		pageRasterPreparationController.destroy()
+		val teardown = pageRasterPreparationController.destroy()
+		task4Teardown = teardown
+		teardown.invokeOnCompletion { failure ->
+			if (failure != null) {
+				val stage = (failure as? ReaderPageTeardownException)?.stage?.name
+					?: "UNTYPED"
+				Logger.e(
+					KomikkuReaderNativeFrameHostTag,
+					"Reader teardown failed stage=$stage " +
+						"failureClass=${failure::class.simpleName ?: "unknown"}"
+				)
+			}
+		}
 	}
 }
 

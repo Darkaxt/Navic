@@ -218,19 +218,22 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	private val lock = Any()
 	private val wakeups = Channel<Unit>(capacity = 1)
 	private val queue = PriorityQueue<Work<T>>(
-		compareBy<Work<T>> { work -> work.priority.rank }.thenBy { work -> work.sequence }
+		compareBy<Work<T>> { work -> work.priority.rank }
+			.thenBy { work -> work.sequence }
 	)
 	private val pending = mutableMapOf<String, Work<T>>()
 	private var activeProfile: ReaderPageRasterProfile? = null
 	private var activeProfileGeneration = 0L
 	private var nextSequence = 0L
 	private var profilePendingRetention: ReaderPageRasterProfile? = null
-	private var retainedDispatchFailure: Throwable? = null
+	private var retainedWorkerFailure: Throwable? = null
 	private var closed = false
 
-	init {
-		scope.launch {
+	private val workerJob = scope.launch {
+		try {
 			for (signal in wakeups) drain()
+		} finally {
+			completePendingAfterWorkerExit()
 		}
 	}
 
@@ -243,12 +246,14 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			profilePendingRetention = profile
 			val obsolete = queue.filter { work -> work.key.profile != profile }
 			queue.removeAll(obsolete.toSet())
-			obsolete.forEach { work -> pending.remove(work.key.digest) }
+			obsolete.forEach { work ->
+				pending[work.key.digest]
+					?.takeIf { current -> current === work }
+					?.let { pending.remove(work.key.digest) }
+			}
 			obsolete
 		}
-		stale.forEach { work ->
-			work.result.complete(ReaderPageRasterScheduleResult(work.key, ReaderPageRasterScheduleStatus.Stale))
-		}
+		completeDetached(stale, ReaderPageRasterScheduleStatus.Stale)
 		wakeups.trySend(Unit)
 	}
 
@@ -258,19 +263,27 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	): Deferred<ReaderPageRasterScheduleResult> = synchronized(lock) {
 		if (closed) {
 			return@synchronized CompletableDeferred(
-				ReaderPageRasterScheduleResult(key, ReaderPageRasterScheduleStatus.Stale)
+				ReaderPageRasterScheduleResult(
+					key,
+					ReaderPageRasterScheduleStatus.Stale
+				)
 			)
 		}
-		pending[key.digest]?.takeIf { work -> work.key.identity == key.identity }?.let { work ->
-			if (priority.rank < work.priority.rank && queue.remove(work)) {
-				work.priority = priority
-				queue.add(work)
+		pending[key.digest]
+			?.takeIf { work -> work.key.identity == key.identity }
+			?.let { work ->
+				if (priority.rank < work.priority.rank && queue.remove(work)) {
+					work.priority = priority
+					queue.add(work)
+				}
+				return@synchronized work.result
 			}
-			return@synchronized work.result
-		}
 		if (activeProfile != key.profile) {
 			return@synchronized CompletableDeferred(
-				ReaderPageRasterScheduleResult(key, ReaderPageRasterScheduleStatus.Stale)
+				ReaderPageRasterScheduleResult(
+					key,
+					ReaderPageRasterScheduleStatus.Stale
+				)
 			)
 		}
 		val work = Work<T>(
@@ -293,25 +306,35 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			activeProfile = null
 			activeProfileGeneration += 1L
 			profilePendingRetention = null
-			queue.toList().also {
+			queue.toList().also { queued ->
 				queue.clear()
-				pending.clear()
+				queued.forEach { work ->
+					pending[work.key.digest]
+						?.takeIf { current -> current === work }
+						?.let { pending.remove(work.key.digest) }
+				}
 			}
 		}
-		stale.forEach { work ->
-			work.result.complete(ReaderPageRasterScheduleResult(work.key, ReaderPageRasterScheduleStatus.Stale))
-		}
+		completeDetached(stale, ReaderPageRasterScheduleStatus.Stale)
 		wakeups.close()
 	}
 
-	fun dispatchFailure(): Throwable? = synchronized(lock) {
-		retainedDispatchFailure
+	suspend fun closeAndJoin() {
+		close()
+		withContext(NonCancellable) {
+			workerJob.join()
+		}
+		synchronized(lock) { retainedWorkerFailure }?.let { throw it }
 	}
 
-	private fun recordFailure(failure: Throwable) {
+	fun dispatchFailure(): Throwable? = synchronized(lock) {
+		retainedWorkerFailure
+	}
+
+	private fun recordWorkerFailure(failure: Throwable) {
 		synchronized(lock) {
-			val first = retainedDispatchFailure
-			if (first == null) retainedDispatchFailure = failure
+			val first = retainedWorkerFailure
+			if (first == null) retainedWorkerFailure = failure
 			else if (failure !== first) first.addSuppressed(failure)
 		}
 	}
@@ -325,104 +348,164 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			val retention = synchronized(lock) {
 				profilePendingRetention.also { profilePendingRetention = null }
 			}
-			if (retention != null) withContext(ioDispatcher) { store.retainProfile(retention) }
+			if (retention != null) {
+				try {
+					withContext(ioDispatcher) { store.retainProfile(retention) }
+				} catch (cancelled: CancellationException) {
+					throw cancelled
+				} catch (failure: Throwable) {
+					recordWorkerFailure(failure)
+				}
+			}
 			val work = synchronized(lock) { queue.poll() } ?: return
 			process(work)
 		}
 	}
 
 	private suspend fun process(work: Work<T>) {
-		if (withContext(ioDispatcher) { store.contains(work.key) }) {
-			complete(work, ReaderPageRasterScheduleStatus.Cached)
-			return
-		}
-		if (!isCurrent(work)) {
-			complete(work, ReaderPageRasterScheduleStatus.Stale)
-			return
-		}
-
-		val generated = runCatching { generator.generate(work.key) }.getOrNull()
-		if (generated == null) {
-			complete(work, ReaderPageRasterScheduleStatus.Failed)
-			return
-		}
-		if (!isCurrent(work)) {
-			release(generated.value)
-			complete(work, ReaderPageRasterScheduleStatus.Stale)
-			return
-		}
-
-		var write = ReaderPageRasterWriteResult(
-			persisted = false,
-			ownership = ReaderPageRasterValueOwnership.Caller
-		)
-		var writeFailure: Throwable? = null
+		var status = ReaderPageRasterScheduleStatus.Failed
+		var cancellation: CancellationException? = null
 		try {
-			withContext(NonCancellable + ioDispatcher) {
+			status = processOwned(work)
+		} catch (cancelled: CancellationException) {
+			cancellation = cancelled
+			status = ReaderPageRasterScheduleStatus.Stale
+			cancelled.suppressed.forEach(::recordWorkerFailure)
+		} catch (failure: Throwable) {
+			recordWorkerFailure(failure)
+		} finally {
+			try {
+				complete(work, status)
+			} catch (failure: Throwable) {
+				recordWorkerFailure(failure)
+				synchronized(lock) {
+					pending[work.key.digest]
+						?.takeIf { current -> current === work }
+						?.let { pending.remove(work.key.digest) }
+				}
 				try {
-					write = store.write(
-						work.key,
-						generated.metadata,
-						generated.value
+					work.result.complete(
+						ReaderPageRasterScheduleResult(work.key, status)
 					)
-				} catch (failure: Throwable) {
-					writeFailure = failure
+				} catch (completionFailure: Throwable) {
+					recordWorkerFailure(completionFailure)
 				}
 			}
-		} catch (_: CancellationException) {
-			// The non-cancellable worker already captured its write result.
-		} catch (failure: Throwable) {
-			writeFailure = failure
 		}
-		if (writeFailure != null) {
-			recordFailure(checkNotNull(writeFailure))
-			release(generated.value)
-			complete(work, ReaderPageRasterScheduleStatus.Failed)
-			return
-		}
-		if (write.ownership == ReaderPageRasterValueOwnership.Caller) {
-			release(generated.value)
-		}
-		if (!write.persisted) {
-			complete(work, ReaderPageRasterScheduleStatus.Failed)
-			return
+		cancellation?.let { throw it }
+	}
+
+	private suspend fun processOwned(
+		work: Work<T>
+	): ReaderPageRasterScheduleStatus {
+		if (withContext(ioDispatcher) { store.contains(work.key) }) {
+			return ReaderPageRasterScheduleStatus.Cached
 		}
 		if (!isCurrent(work)) {
-			write.receipt?.let { receipt ->
-				var rollbackFailure: Throwable? = null
+			return ReaderPageRasterScheduleStatus.Stale
+		}
+		val generated = generator.generate(work.key)
+			?: return ReaderPageRasterScheduleStatus.Failed
+		var callerOwnsValue = true
+		var status = ReaderPageRasterScheduleStatus.Failed
+		var failure: Throwable? = null
+		try {
+			if (!isCurrent(work)) {
+				status = ReaderPageRasterScheduleStatus.Stale
+			} else {
+				var completedWrite: ReaderPageRasterWriteResult? = null
 				try {
 					withContext(NonCancellable + ioDispatcher) {
-						try {
+						completedWrite = store.write(
+							work.key,
+							generated.metadata,
+							generated.value
+						)
+					}
+				} catch (cancelled: CancellationException) {
+					if (completedWrite == null) throw cancelled
+				}
+				val write = checkNotNull(completedWrite) {
+					"Raster store write completed without an ownership result"
+				}
+				callerOwnsValue =
+					write.ownership == ReaderPageRasterValueOwnership.Caller
+				status = if (!write.persisted) {
+					ReaderPageRasterScheduleStatus.Failed
+				} else if (!isCurrent(work)) {
+					write.receipt?.let { receipt ->
+						withContext(NonCancellable + ioDispatcher) {
 							store.rollbackPublication(receipt)
-						} catch (failure: Throwable) {
-							rollbackFailure = failure
 						}
 					}
-				} catch (_: CancellationException) {
-					// Rollback already completed on the non-cancellable worker.
-				} catch (failure: Throwable) {
-					rollbackFailure = failure
+					ReaderPageRasterScheduleStatus.Stale
+				} else {
+					ReaderPageRasterScheduleStatus.Published
 				}
-				rollbackFailure?.let(::recordFailure)
 			}
-			complete(work, ReaderPageRasterScheduleStatus.Stale)
-			return
+		} catch (caught: Throwable) {
+			failure = caught
+		} finally {
+			if (callerOwnsValue) {
+				try {
+					release(generated.value)
+				} catch (releaseFailure: Throwable) {
+					val currentFailure = failure
+					if (currentFailure == null) failure = releaseFailure
+					else if (releaseFailure !== currentFailure) {
+						currentFailure.addSuppressed(releaseFailure)
+					}
+				}
+			}
 		}
-
-		complete(work, ReaderPageRasterScheduleStatus.Published)
+		failure?.let { throw it }
+		return status
 	}
 
 	private fun isCurrent(work: Work<T>): Boolean = synchronized(lock) {
-		activeProfileGeneration == work.profileGeneration && activeProfile == work.key.profile
+		activeProfileGeneration == work.profileGeneration &&
+			activeProfile == work.key.profile
 	}
 
-	private fun complete(work: Work<T>, status: ReaderPageRasterScheduleStatus) {
+	private fun complete(
+		work: Work<T>,
+		status: ReaderPageRasterScheduleStatus
+	) {
 		synchronized(lock) {
-			pending[work.key.digest]?.takeIf { current -> current === work }?.let {
-				pending.remove(work.key.digest)
-			}
+			pending[work.key.digest]
+				?.takeIf { current -> current === work }
+				?.let { pending.remove(work.key.digest) }
 		}
 		work.result.complete(ReaderPageRasterScheduleResult(work.key, status))
 	}
 
+	private fun completePendingAfterWorkerExit() {
+		val stale = synchronized(lock) {
+			closed = true
+			activeProfile = null
+			activeProfileGeneration += 1L
+			profilePendingRetention = null
+			pending.values.toList().also {
+				pending.clear()
+				queue.clear()
+			}
+		}
+		wakeups.close()
+		completeDetached(stale, ReaderPageRasterScheduleStatus.Stale)
+	}
+
+	private fun completeDetached(
+		work: List<Work<T>>,
+		status: ReaderPageRasterScheduleStatus
+	) {
+		work.forEach { item ->
+			try {
+				item.result.complete(
+					ReaderPageRasterScheduleResult(item.key, status)
+				)
+			} catch (failure: Throwable) {
+				recordWorkerFailure(failure)
+			}
+		}
+	}
 }

@@ -80,38 +80,73 @@ final class PageDeckCoordinator<T> {
         private final Placement placement;
         private final DeckRejectionReason rejectionReason;
         private final List<Release<T>> releases;
+        private final PageDeck<T> previousActiveDeck;
+        private final PageDeck<T> previousPendingDeck;
+        private final long previousLatestGeneration;
 
         private Offer(
                 Placement placement,
                 DeckRejectionReason rejectionReason,
-                List<Release<T>> releases) {
+                List<Release<T>> releases,
+                PageDeck<T> previousActiveDeck,
+                PageDeck<T> previousPendingDeck,
+                long previousLatestGeneration) {
             this.placement = placement;
             this.rejectionReason = rejectionReason;
             this.releases = releases;
+            this.previousActiveDeck = previousActiveDeck;
+            this.previousPendingDeck = previousPendingDeck;
+            this.previousLatestGeneration = previousLatestGeneration;
         }
 
-        static <T> Offer<T> active(List<Release<T>> releases) {
+        static <T> Offer<T> active(
+                List<Release<T>> releases,
+                PageDeck<T> previousActiveDeck,
+                PageDeck<T> previousPendingDeck,
+                long previousLatestGeneration) {
             return new Offer<>(
                     Placement.ACTIVE,
                     null,
-                    Collections.unmodifiableList(new ArrayList<>(releases)));
+                    Collections.unmodifiableList(new ArrayList<>(releases)),
+                    previousActiveDeck,
+                    previousPendingDeck,
+                    previousLatestGeneration);
         }
 
-        static <T> Offer<T> pending(Release<T> release) {
+        static <T> Offer<T> pending(
+                Release<T> release,
+                PageDeck<T> previousActiveDeck,
+                PageDeck<T> previousPendingDeck,
+                long previousLatestGeneration) {
             return new Offer<>(
                     Placement.PENDING,
                     null,
                     release == null
                             ? Collections.emptyList()
-                            : Collections.singletonList(release));
+                            : Collections.singletonList(release),
+                    previousActiveDeck,
+                    previousPendingDeck,
+                    previousLatestGeneration);
         }
 
         static <T> Offer<T> unchanged() {
-            return new Offer<>(Placement.UNCHANGED, null, Collections.emptyList());
+            return new Offer<>(
+                    Placement.UNCHANGED,
+                    null,
+                    Collections.emptyList(),
+                    null,
+                    null,
+                    Long.MIN_VALUE);
         }
 
         static <T> Offer<T> rejected(DeckRejectionReason reason) {
-            return new Offer<>(Placement.REJECTED, reason, Collections.emptyList());
+            return new Offer<>(
+                    Placement.REJECTED,
+                    reason,
+                    Collections.emptyList(),
+                    null,
+                    null,
+                    Long.MIN_VALUE);
         }
 
         Placement getPlacement() {
@@ -157,6 +192,9 @@ final class PageDeckCoordinator<T> {
             return Offer.rejected(DeckRejectionReason.CONFLICTING_GENERATION);
         }
 
+        PageDeck<T> previousActiveDeck = activeDeck;
+        PageDeck<T> previousPendingDeck = pendingDeck;
+        long previousLatestGeneration = latestGeneration;
         latestGeneration = generationId;
         if (settling) {
             PageDeck<T> replaced = pendingDeck;
@@ -164,7 +202,11 @@ final class PageDeckCoordinator<T> {
             Release<T> release = replaced == null
                     ? null
                     : new Release<>(replaced, DeckReleaseReason.REPLACED);
-            return Offer.pending(release);
+            return Offer.pending(
+                    release,
+                    previousActiveDeck,
+                    previousPendingDeck,
+                    previousLatestGeneration);
         }
 
         List<Release<T>> releases = new ArrayList<>(2);
@@ -174,7 +216,37 @@ final class PageDeckCoordinator<T> {
         }
         activeDeck = deck;
         pendingDeck = null;
-        return Offer.active(releases);
+        return Offer.active(
+                releases,
+                previousActiveDeck,
+                previousPendingDeck,
+                previousLatestGeneration);
+    }
+
+    synchronized boolean rollback(PageDeck<T> deck, Offer<T> offer) {
+        Objects.requireNonNull(deck, "deck");
+        Objects.requireNonNull(offer, "offer");
+        switch (offer.getPlacement()) {
+            case ACTIVE:
+                if (activeDeck != deck || pendingDeck != null) {
+                    return false;
+                }
+                break;
+            case PENDING:
+                if (pendingDeck != deck) {
+                    return false;
+                }
+                break;
+            default:
+                return false;
+        }
+        if (latestGeneration != deck.getGenerationId()) {
+            return false;
+        }
+        activeDeck = offer.previousActiveDeck;
+        pendingDeck = offer.previousPendingDeck;
+        latestGeneration = offer.previousLatestGeneration;
+        return true;
     }
 
     synchronized void beginSettlement() {

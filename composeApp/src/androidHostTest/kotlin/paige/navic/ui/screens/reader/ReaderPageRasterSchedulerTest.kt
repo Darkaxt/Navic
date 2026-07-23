@@ -1,21 +1,28 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.io.path.createTempDirectory
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.readerAndroidFile
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -187,7 +194,7 @@ class ReaderPageRasterSchedulerTest {
 			ReaderPageRasterPriority.Current
 		).await()
 
-		assertEquals(ReaderPageRasterScheduleStatus.Stale, stale.status)
+		assertEquals(ReaderPageRasterScheduleStatus.Failed, stale.status)
 		assertEquals("manifest-failed", scheduler.dispatchFailure()?.message)
 		store.rollbackFailure = null
 		store.afterWrite = {}
@@ -300,6 +307,190 @@ class ReaderPageRasterSchedulerTest {
 	}
 
 	@Test
+	fun closeAndJoinWaitsForActiveWorkerBeforeLaterOwnersClose() = runBlocking {
+		val gate = CompletableDeferred<Unit>()
+		val store = FakeRasterStore()
+		val generator = FakeRasterGenerator(gate = gate)
+		val profile = rasterProfile("ordered-close")
+		val scheduler = ReaderPageRasterScheduler(
+			scope = scope,
+			store = store,
+			generator = generator,
+			release = {}
+		)
+		scheduler.activateProfile(profile)
+		val active = scheduler.request(
+			rasterKey(profile, page = 1),
+			ReaderPageRasterPriority.Current
+		)
+		generator.firstStarted.await()
+		val queued = scheduler.request(
+			rasterKey(profile, page = 2),
+			ReaderPageRasterPriority.NextTransition
+		)
+		val closeEvents = mutableListOf<String>()
+
+		val close = async {
+			scheduler.closeAndJoin()
+			closeEvents += "generation-worker"
+			closeEvents += "persistent-store"
+			closeEvents += "decoded-cache"
+		}
+		yield()
+
+		assertFalse(close.isCompleted)
+		assertTrue(closeEvents.isEmpty())
+		assertEquals(ReaderPageRasterScheduleStatus.Stale, queued.await().status)
+		gate.complete(Unit)
+		assertEquals(ReaderPageRasterScheduleStatus.Stale, active.await().status)
+		close.await()
+		assertEquals(
+			listOf("generation-worker", "persistent-store", "decoded-cache"),
+			closeEvents
+		)
+	}
+
+	@Test
+	fun rollbackAndReleaseFailuresAreAggregatedWithoutStoppingDrain() = runBlocking {
+		val writeEntered = CompletableDeferred<Unit>()
+		val allowWrite = CountDownLatch(1)
+		val rollbackFailure = IllegalStateException("rollback-failed")
+		val releaseFailure = IllegalArgumentException("release-failed")
+		val releases = mutableListOf<String>()
+		val store = FakeRasterStore(
+			writeOwnership = ReaderPageRasterValueOwnership.Caller
+		)
+		val oldProfile = rasterProfile("aggregate-old")
+		val currentProfile = rasterProfile("aggregate-current")
+		val oldKey = rasterKey(oldProfile, page = 7)
+		val currentKey = rasterKey(currentProfile, page = 8)
+		store.beforeWrite = { key ->
+			if (key == oldKey) {
+				writeEntered.complete(Unit)
+				check(allowWrite.await(5, TimeUnit.SECONDS))
+			}
+		}
+		store.rollbackFailure = rollbackFailure
+		val scheduler = ReaderPageRasterScheduler(
+			scope = scope,
+			store = store,
+			generator = FakeRasterGenerator(),
+			release = { value ->
+				releases += value
+				if (value == "page-7") throw releaseFailure
+			}
+		)
+		scheduler.activateProfile(oldProfile)
+		val stale = scheduler.request(oldKey, ReaderPageRasterPriority.Current)
+		withTimeout(5_000) { writeEntered.await() }
+		scheduler.activateProfile(currentProfile)
+		val current = scheduler.request(
+			currentKey,
+			ReaderPageRasterPriority.Current
+		)
+		allowWrite.countDown()
+
+		assertEquals(ReaderPageRasterScheduleStatus.Failed, stale.await().status)
+		assertEquals(ReaderPageRasterScheduleStatus.Published, current.await().status)
+		assertEquals(listOf("page-7", "page-8"), releases)
+		assertEquals(0, pendingRequestCount(scheduler))
+		val firstClose = assertFailsWith<IllegalStateException> {
+			scheduler.closeAndJoin()
+		}
+		val secondClose = assertFailsWith<IllegalStateException> {
+			scheduler.closeAndJoin()
+		}
+		assertEquals(rollbackFailure.message, firstClose.message)
+		assertSame(firstClose, secondClose)
+		assertEquals(listOf(releaseFailure), firstClose.suppressed.toList())
+	}
+
+	@Test
+	fun parentCancellationCompletesCurrentAndQueuedWaitersAsStale() = runBlocking {
+		val parent = SupervisorJob()
+		val localScope = CoroutineScope(parent + Dispatchers.Default)
+		val gate = CompletableDeferred<Unit>()
+		val generator = FakeRasterGenerator(gate = gate)
+		val profile = rasterProfile("parent-cancel")
+		val scheduler = ReaderPageRasterScheduler(
+			scope = localScope,
+			store = FakeRasterStore(),
+			generator = generator,
+			release = {}
+		)
+		scheduler.activateProfile(profile)
+		val current = scheduler.request(
+			rasterKey(profile, page = 1),
+			ReaderPageRasterPriority.Current
+		)
+		generator.firstStarted.await()
+		val queued = scheduler.request(
+			rasterKey(profile, page = 2),
+			ReaderPageRasterPriority.NextTransition
+		)
+
+		parent.cancel()
+
+		withTimeout(5_000) {
+			assertEquals(ReaderPageRasterScheduleStatus.Stale, current.await().status)
+			assertEquals(ReaderPageRasterScheduleStatus.Stale, queued.await().status)
+			val afterWorkerExit = scheduler.request(
+				rasterKey(profile, page = 3),
+				ReaderPageRasterPriority.Current
+			)
+			assertEquals(
+				ReaderPageRasterScheduleStatus.Stale,
+				afterWorkerExit.await().status
+			)
+			scheduler.closeAndJoin()
+		}
+		assertEquals(0, pendingRequestCount(scheduler))
+	}
+
+	@Test
+	fun earlyStoreCloseFailureDoesNotPoisonLaterOrderedClose() {
+		val encodeEntered = CountDownLatch(1)
+		val allowEncode = CountDownLatch(1)
+		val cache = ReaderPageRasterCache(
+			root = createTempDirectory("navic-active-raster-store").toFile(),
+			codec = object : ReaderPageRasterCodec<String> {
+				override fun encode(value: String, target: File): Boolean {
+					encodeEntered.countDown()
+					check(allowEncode.await(5, TimeUnit.SECONDS))
+					target.writeText(value)
+					return true
+				}
+
+				override fun decode(source: File): String? = source.readText()
+
+				override fun release(value: String) = Unit
+			},
+			maxDecodedEntries = 1
+		)
+		val store = ReaderPageRasterCacheStore(cache)
+		val key = rasterKey(rasterProfile("active-store"), page = 1)
+		var write: ReaderPageRasterWriteResult? = null
+		val writer = thread(start = true) {
+			write = store.write(key, testRasterMetadata(), "value")
+		}
+		assertTrue(encodeEntered.await(5, TimeUnit.SECONDS))
+
+		assertFailsWith<IllegalStateException> { store.close() }
+		assertFalse(store.contains(key))
+		allowEncode.countDown()
+		writer.join(5_000)
+		assertFalse(writer.isAlive)
+		assertTrue(checkNotNull(write).persisted)
+
+		store.close()
+		store.close()
+		val beforeClosedCall = cache.metrics()
+		assertFalse(store.write(key, testRasterMetadata(), "later").persisted)
+		assertEquals(beforeClosedCall, cache.metrics())
+		cache.close()
+	}
+
+	@Test
 	fun closedCacheStoreRejectsEveryOperationWithoutMutatingCache() {
 		val cache = ReaderPageRasterCache(
 			root = createTempDirectory("navic-closed-raster-store").toFile(),
@@ -323,7 +514,12 @@ class ReaderPageRasterSchedulerTest {
 				ReaderPageRasterWriteReceipt(key, "unused.png", 1L)
 			)
 		)
-		assertEquals(ReaderPageRasterCacheMetrics(0, 0L, 0), cache.metrics())
+		val metrics = cache.metrics()
+		assertEquals(0, metrics.diskEntries)
+		assertEquals(0L, metrics.diskBytes)
+		assertEquals(0, metrics.decodedEntries)
+		assertEquals(0, metrics.uniqueDecodedBitmaps)
+		assertEquals(0, metrics.activeEncodePins)
 	}
 
 	@Test
@@ -331,7 +527,10 @@ class ReaderPageRasterSchedulerTest {
 		val source = readerAndroidFile("ReaderPageRasterScheduler.android.kt").readText()
 
 		assertTrue("Channel<Unit>(capacity = 1)" in source)
+		assertTrue("private val workerJob = scope.launch" in source)
 		assertTrue("for (signal in wakeups)" in source)
+		assertTrue("suspend fun closeAndJoin()" in source)
+		assertTrue("withContext(NonCancellable)" in source)
 		assertFalse("withTimeout" in source)
 		assertFalse("timeoutMillis" in source)
 		assertFalse("delay(" in source)
@@ -380,6 +579,7 @@ class ReaderPageRasterSchedulerTest {
 		private val revisions = mutableMapOf<ReaderPageRasterKey, Long>()
 		private var nextRevision = 1L
 		val readCalls = mutableListOf<ReaderPageRasterKey>()
+		var beforeWrite: (ReaderPageRasterKey) -> Unit = {}
 		var afterWrite: (ReaderPageRasterKey) -> Unit = {}
 		var rollbackFailure: Throwable? = null
 
@@ -411,6 +611,7 @@ class ReaderPageRasterSchedulerTest {
 			metadata: ReaderPageRasterMetadata,
 			value: String
 		): ReaderPageRasterWriteResult {
+			beforeWrite(key)
 			values[key] = ReaderPageRaster(key, metadata, value)
 			val revision = nextRevision++
 			revisions[key] = revision
@@ -460,6 +661,14 @@ class ReaderPageRasterSchedulerTest {
 		) = Unit
 
 		override fun encodedBytes(key: ReaderPageRasterKey): Long = 1024
+	}
+
+	private fun pendingRequestCount(
+		scheduler: ReaderPageRasterScheduler<*>
+	): Int {
+		val field = scheduler.javaClass.getDeclaredField("pending")
+		field.isAccessible = true
+		return (field.get(scheduler) as Map<*, *>).size
 	}
 
 	private fun rasterProfile(id: String) = ReaderPageRasterProfile(

@@ -9,9 +9,11 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.ShortBuffer;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -284,32 +286,85 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         if (replacementDeck != null) {
             releasedGenerations.add(replacementDeck.getGenerationId());
         }
+
         disposed = true;
         activeDeck = null;
         replacementDeck = null;
         clearActiveDeck();
-        for (GpuTexture texture : textureCache.values()) {
-            texture.deleteGl();
-        }
-        textureCache.clear();
-        leftMesh.dispose();
-        frontMesh.dispose();
-        mirroredLeftMesh.dispose();
-        mirroredFrontMesh.dispose();
-        rightMesh.dispose();
-        mirroredRightMesh.dispose();
-        if (program != 0) {
-            GLES20.glDeleteProgram(program);
-            program = 0;
-        }
-        if (shadowProgram != 0) {
-            GLES20.glDeleteProgram(shadowProgram);
-            shadowProgram = 0;
-        }
         glReady = false;
-        for (long generationId : releasedGenerations) {
-            events.onDeckReleased(generationId, DeckReleaseReason.DISPOSED);
+
+        DisposalFailure failure = new DisposalFailure();
+        List<GpuTexture> textures =
+                new ArrayList<>(textureCache.values());
+        textureCache.clear();
+        for (GpuTexture texture : textures) {
+            failure.capture(texture::deleteGl);
         }
+
+        failure.capture(leftMesh::dispose);
+        failure.capture(frontMesh::dispose);
+        failure.capture(mirroredLeftMesh::dispose);
+        failure.capture(mirroredFrontMesh::dispose);
+        failure.capture(rightMesh::dispose);
+        failure.capture(mirroredRightMesh::dispose);
+
+        int retainedProgram = program;
+        program = 0;
+        if (retainedProgram != 0) {
+            failure.capture(() -> GLES20.glDeleteProgram(retainedProgram));
+        }
+        int retainedShadowProgram = shadowProgram;
+        shadowProgram = 0;
+        if (retainedShadowProgram != 0) {
+            failure.capture(
+                    () -> GLES20.glDeleteProgram(retainedShadowProgram));
+        }
+
+        for (long generationId : releasedGenerations) {
+            failure.capture(() -> events.onDeckReleased(
+                    generationId,
+                    DeckReleaseReason.DISPOSED));
+        }
+        failure.throwIfPresent();
+    }
+
+    private static final class DisposalFailure {
+        private Throwable first;
+
+        void capture(Runnable action) {
+            try {
+                action.run();
+            } catch (Throwable next) {
+                if (first == null) {
+                    first = next;
+                } else if (next != first) {
+                    first.addSuppressed(next);
+                }
+            }
+        }
+
+        void throwIfPresent() {
+            if (first == null) {
+                return;
+            }
+            if (first instanceof RuntimeException) {
+                throw (RuntimeException) first;
+            }
+            if (first instanceof Error) {
+                throw (Error) first;
+            }
+            throw new IllegalStateException(
+                    "Unexpected checked renderer disposal failure",
+                    first);
+        }
+    }
+
+    int textureCount() {
+        return textureCache.size();
+    }
+
+    int textureLimit() {
+        return TextureBudget.maximumTextureSlots();
     }
 
     /**

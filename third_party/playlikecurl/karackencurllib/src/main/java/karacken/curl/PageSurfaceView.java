@@ -6,8 +6,11 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.opengl.GLSurfaceView;
+import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.MotionEvent;
+import android.view.SurfaceHolder;
 import android.view.VelocityTracker;
 import android.view.ViewConfiguration;
 import android.view.animation.AccelerateDecelerateInterpolator;
@@ -18,6 +21,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -28,18 +34,89 @@ import javax.microedition.khronos.opengles.GL10;
  * settlement, and GL resource lifecycle. Public mutations must run on the Android main thread.
  */
 public class PageSurfaceView extends GLSurfaceView {
+    private static final String TAG = "PageSurfaceView";
     private static final float FLING_THRESHOLD_PX_PER_SECOND = 200f;
+    private static final long NO_GENERATION_ID = -1L;
+    private static final int REQUIRED_DISPOSAL_CALLBACK_LIMIT = 1;
+    private static final int AUXILIARY_DISPOSAL_CALLBACK_LIMIT = 2;
+    private static final int OWNERSHIP_CALLBACK_LIMIT = 4;
+    private static final int MAIN_TERMINAL_ACTION_LIMIT =
+            OWNERSHIP_CALLBACK_LIMIT + REQUIRED_DISPOSAL_CALLBACK_LIMIT;
+    private static final long GL_QUEUE_ENTRY_WATCHDOG_MILLIS = 5_000L;
     public static final long NO_GESTURE_ID = -1L;
     static final long NO_BOUNDARY_FRAME_TOKEN = 0L;
     private static final PageSurfaceListener NO_OP_LISTENER = new PageSurfaceListener() {};
 
+    public interface MainTerminalExecutor {
+        boolean execute(Runnable action);
+    }
+
+    public enum DisposalCallbackRegistration {
+        ACCEPTED,
+        DELIVERED_TERMINAL,
+        CALLBACK_CAPACITY
+    }
+
+    private static final class OwnershipLeaseSample {
+        final long epoch;
+        final int activeDeckLeases;
+        final int pendingDeckLeases;
+        final int releaseInFlightDeckLeases;
+        final int orphanDeckLeases;
+
+        OwnershipLeaseSample(
+                long epoch,
+                int activeDeckLeases,
+                int pendingDeckLeases,
+                int releaseInFlightDeckLeases,
+                int orphanDeckLeases) {
+            this.epoch = epoch;
+            this.activeDeckLeases = activeDeckLeases;
+            this.pendingDeckLeases = pendingDeckLeases;
+            this.releaseInFlightDeckLeases = releaseInFlightDeckLeases;
+            this.orphanDeckLeases = orphanDeckLeases;
+        }
+    }
+
     private final PageDeckCoordinator<Bitmap> deckCoordinator = new PageDeckCoordinator<>();
     private final DeckLeaseRegistry leaseRegistry = new DeckLeaseRegistry();
+    private final PageSurfaceDeckSubmissionGate<Bitmap> submissionGate =
+            new PageSurfaceDeckSubmissionGate<>(deckCoordinator, leaseRegistry);
     private final BoundaryRestorationProtocol boundaryRestorationProtocol =
             new BoundaryRestorationProtocol();
     private final Set<Long> preparedGenerations = new LinkedHashSet<>();
     private final PageRenderer renderer;
     private final int touchSlop;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final AtomicInteger pendingMainTerminalActions = new AtomicInteger();
+    private final AtomicReference<Runnable> retainedOwnershipMainTerminalAction =
+            new AtomicReference<>();
+    private final AtomicReference<Runnable> retainedDisposalMainTerminalAction =
+            new AtomicReference<>();
+    private final PageSurfaceTerminalDisposalGate terminalDisposalGate =
+            new PageSurfaceTerminalDisposalGate();
+    private final FailureAccumulator disposalFailure =
+            new FailureAccumulator();
+    private final PageSurfaceRequiredTerminalCallback<PageSurfaceDisposalResult>
+            requiredDisposeCallback = new PageSurfaceRequiredTerminalCallback<>(
+                    (callback, failure) -> reportIsolatedCallbackFailure(
+                            IsolatedCallbackKind.DISPOSAL,
+                            callback,
+                            failure));
+    private final PageSurfaceTerminalCallbacks<PageSurfaceDisposalResult>
+            disposeCallbacks = new PageSurfaceTerminalCallbacks<>(
+                    AUXILIARY_DISPOSAL_CALLBACK_LIMIT,
+                    (callback, failure) -> reportIsolatedCallbackFailure(
+                            IsolatedCallbackKind.DISPOSAL,
+                            callback,
+                            failure));
+    private final PageSurfaceSnapshotCallbacks<PageSurfaceOwnershipSnapshot>
+            pendingOwnershipCallbacks = new PageSurfaceSnapshotCallbacks<>(
+                    OWNERSHIP_CALLBACK_LIMIT,
+                    (callback, failure) -> reportIsolatedCallbackFailure(
+                            IsolatedCallbackKind.OWNERSHIP,
+                            callback,
+                            failure));
 
     private PageSurfaceListener pageSurfaceListener = NO_OP_LISTENER;
     private RenderCapabilities renderCapabilities;
@@ -56,7 +133,19 @@ public class PageSurfaceView extends GLSurfaceView {
     private boolean surfaceVisible = true;
     private boolean attached;
     private boolean disposed;
+    private boolean windowAttached;
+    private boolean holderSurfaceAvailable;
+    private boolean disposeStarted;
+    private boolean resumedForDispose;
+    private boolean mainTerminalExecutorRegistered;
+    private boolean ownershipSnapshotInFlight;
+    private volatile MainTerminalExecutor mainTerminalExecutor;
+    private PageSurfaceDisposalResult disposedResult;
+    private PageSurfaceOwnershipSnapshot disposedOwnershipSnapshot;
+    private long disposingActiveGenerationId = NO_GENERATION_ID;
+    private long disposingPendingGenerationId = NO_GENERATION_ID;
     private long activeGestureId = NO_GESTURE_ID;
+    private long ownershipEpoch;
     private float gestureDownX;
     private float gestureDownY;
     private OnPageChangeListener onPageChangeListener;
@@ -80,7 +169,7 @@ public class PageSurfaceView extends GLSurfaceView {
                     long generationId,
                     DeckReleaseReason reason) {
                 leaseRegistry.markReleaseRequested(generationId, reason);
-                post(() -> handleDeckReleased(generationId, reason));
+                mainHandler.post(() -> handleDeckReleased(generationId, reason));
             }
 
             @Override
@@ -125,10 +214,12 @@ public class PageSurfaceView extends GLSurfaceView {
     /** Marks the surface active for interaction and resumes its GL thread. */
     public void attach() {
         requireMainThread();
+        drainRetainedMainTerminal();
         if (disposed || attached) {
             return;
         }
         attached = true;
+        advanceOwnershipEpoch();
         onResume();
         requestRender();
     }
@@ -140,6 +231,10 @@ public class PageSurfaceView extends GLSurfaceView {
             return;
         }
         attached = false;
+        advanceOwnershipEpoch();
+        if (!disposeStarted) {
+            failLiveOwnershipRequests();
+        }
         cancelGesture();
         queueDeckRelease(deckCoordinator.releasePending(
                 DeckReleaseReason.SESSION_DETACHED));
@@ -157,46 +252,110 @@ public class PageSurfaceView extends GLSurfaceView {
      * Rejected decks are never acquired.
      */
     public void submitDeck(PageDeck<Bitmap> deck) {
+        submitDeckWithResult(deck);
+    }
+
+    public PageSurfaceDeckSubmissionResult submitDeckWithResult(
+            PageDeck<Bitmap> deck) {
+        return submitDeckWithResult(deck, () -> {});
+    }
+
+    /**
+     * Submits a deck and synchronously reports the instant its bitmap lease transfers.
+     *
+     * <p>For a fresh accepted submission, {@code onOwnershipTransferred} runs after one renderer
+     * command has accepted the deck transaction and before the render request. Queue rejection is
+     * rolled back before transfer. Once the callback runs, the surface owns the deck even if this
+     * method later throws; the caller must release that generation through {@link #releaseDeck(long)}.
+     */
+    public PageSurfaceDeckSubmissionResult submitDeckWithResult(
+            PageDeck<Bitmap> deck,
+            Runnable onOwnershipTransferred) {
         requireMainThread();
         if (deck == null) {
             throw new IllegalArgumentException("deck must not be null");
         }
+        if (onOwnershipTransferred == null) {
+            throw new IllegalArgumentException(
+                    "onOwnershipTransferred must not be null");
+        }
         if (disposed) {
-            pageSurfaceListener.onDeckRejected(
-                    deck.getGenerationId(),
-                    DeckRejectionReason.DISPOSED);
-            return;
+            return rejectDeck(deck, DeckRejectionReason.DISPOSED);
         }
         if (!attached) {
-            pageSurfaceListener.onDeckRejected(
-                    deck.getGenerationId(),
-                    DeckRejectionReason.SESSION_DETACHED);
-            return;
+            return rejectDeck(deck, DeckRejectionReason.SESSION_DETACHED);
         }
         if (renderCapabilities == null) {
+            return rejectDeck(
+                    deck,
+                    DeckRejectionReason.CAPABILITIES_UNAVAILABLE);
+        }
+        if (!isSupportedDeckType(deck)) {
+            return rejectDeck(deck, DeckRejectionReason.INVALID_CONTENT);
+        }
+
+        PageSurfaceDeckSubmissionGate.Result<Bitmap> gated =
+                submissionGate.submit(deck, pageSurfaceListener);
+        PageSurfaceDeckSubmissionResult result = gated.publicResult();
+        if (result.getStatus()
+                == PageSurfaceDeckSubmissionResult.Status.REJECTED) {
             pageSurfaceListener.onDeckRejected(
                     deck.getGenerationId(),
-                    DeckRejectionReason.CAPABILITIES_UNAVAILABLE);
-            return;
+                    result.getRejectionReason());
+            return result;
         }
-        PageDeckCoordinator.Offer<Bitmap> offer = deckCoordinator.offer(deck);
-        if (offer.getPlacement() == PageDeckCoordinator.Placement.REJECTED) {
-            pageSurfaceListener.onDeckRejected(
-                    deck.getGenerationId(), offer.getRejectionReason());
-            return;
-        }
-        if (offer.getPlacement() == PageDeckCoordinator.Placement.UNCHANGED) {
-            return;
-        }
-        leaseRegistry.acquire(deck.getGenerationId(), pageSurfaceListener);
-        for (PageDeckCoordinator.Release<Bitmap> release : offer.getReleases()) {
-            queueDeckRelease(release);
+        PageDeckCoordinator.Offer<Bitmap> offer = gated.offer();
+        if (result.getStatus()
+                == PageSurfaceDeckSubmissionResult.Status.UNCHANGED) {
+            return result;
         }
         boolean activateWhenPrepared =
                 offer.getPlacement() == PageDeckCoordinator.Placement.ACTIVE;
+        try {
+            queueEvent(() -> {
+                for (PageDeckCoordinator.Release<Bitmap> release :
+                        offer.getReleases()) {
+                    renderer.releaseDeck(
+                            release.getDeck().getGenerationId(),
+                            release.getReason());
+                }
+                renderer.prepareDeck(deck, activateWhenPrepared);
+            });
+        } catch (RuntimeException | Error queueFailure) {
+            try {
+                submissionGate.rollbackAccepted(deck, gated);
+            } catch (Throwable rollbackFailure) {
+                if (rollbackFailure != queueFailure) {
+                    queueFailure.addSuppressed(rollbackFailure);
+                }
+            }
+            throw queueFailure;
+        }
+        for (PageDeckCoordinator.Release<Bitmap> release :
+                offer.getReleases()) {
+            long releasedGenerationId = release.getDeck().getGenerationId();
+            preparedGenerations.remove(releasedGenerationId);
+            leaseRegistry.markReleaseRequested(
+                    releasedGenerationId,
+                    release.getReason());
+        }
         preparedGenerations.remove(deck.getGenerationId());
-        queueEvent(() -> renderer.prepareDeck(deck, activateWhenPrepared));
+        advanceOwnershipEpoch();
+        onOwnershipTransferred.run();
         requestRender();
+        return result;
+    }
+
+    private static boolean isSupportedDeckType(PageDeck<?> deck) {
+        return deck instanceof PortraitPageDeck<?>
+                || deck instanceof LandscapePageDeck<?>;
+    }
+
+    private PageSurfaceDeckSubmissionResult rejectDeck(
+            PageDeck<Bitmap> deck,
+            DeckRejectionReason reason) {
+        pageSurfaceListener.onDeckRejected(deck.getGenerationId(), reason);
+        return PageSurfaceDeckSubmissionResult.rejected(reason);
     }
 
     /** Returns whether a replacement submission would enter the pending settlement slot. */
@@ -347,6 +506,11 @@ public class PageSurfaceView extends GLSurfaceView {
     /** Releases a retained active or replacement deck and its GL textures. */
     public void releaseDeck(long generationId) {
         requireMainThread();
+        PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
+        if (activeDeck != null
+                && activeDeck.getGenerationId() == generationId) {
+            cancelGesture();
+        }
         preparedGenerations.remove(generationId);
         PageDeckCoordinator.Release<Bitmap> release =
                 deckCoordinator.release(generationId);
@@ -357,24 +521,834 @@ public class PageSurfaceView extends GLSurfaceView {
     /** Idempotently releases renderer, gesture, and deck state. */
     public void dispose() {
         requireMainThread();
-        if (disposed) {
+        startDisposeIfNeeded();
+    }
+
+    public void disposeForLifecycleOwner(
+            PageSurfaceDisposalResult.Callback callback) {
+        requireMainThread();
+        if (callback == null) {
+            throw new IllegalArgumentException("callback must not be null");
+        }
+        requiredDisposeCallback.register(callback::onComplete);
+        startDisposeIfNeeded();
+    }
+
+    public DisposalCallbackRegistration dispose(
+            PageSurfaceDisposalResult.Callback callback) {
+        requireMainThread();
+        if (callback == null) {
+            throw new IllegalArgumentException("callback must not be null");
+        }
+        PageSurfaceTerminalCallbacks.AddResult registration =
+                disposeCallbacks.add(callback::onComplete);
+        startDisposeIfNeeded();
+        switch (registration) {
+            case ACCEPTED:
+                return DisposalCallbackRegistration.ACCEPTED;
+            case DELIVERED_TERMINAL:
+                return DisposalCallbackRegistration.DELIVERED_TERMINAL;
+            case CALLBACK_CAPACITY:
+                return DisposalCallbackRegistration.CALLBACK_CAPACITY;
+            default:
+                throw new AssertionError("Unhandled callback registration");
+        }
+    }
+
+    public void requestOwnershipSnapshot(
+            PageSurfaceOwnershipSnapshot.Callback callback) {
+        requireMainThread();
+        if (callback == null) {
+            throw new IllegalArgumentException("callback must not be null");
+        }
+        if (disposedOwnershipSnapshot != null) {
+            notifyOwnershipCallback(callback, disposedOwnershipSnapshot);
             return;
         }
-        disposed = true;
-        SettlementContext cancelledSettlement = cancelSettlementAnimator();
-        recycleVelocityTracker();
-        preparedGenerations.clear();
-        deckCoordinator.dispose();
-        if (attached) {
-            attached = false;
-            setPreserveEGLContextOnPause(false);
-            queueEvent(renderer::dispose);
-            requestRender();
-            onPause();
+        if (!pendingOwnershipCallbacks.add(callback::onSnapshot)) {
+            throw new IllegalStateException(
+                    "Ownership callback capacity is exhausted");
         }
-        renderer.abandonClientState();
-        notifySettlementCancelled(cancelledSettlement);
-        releaseAllOutstandingLeases();
+        if (disposeStarted || ownershipSnapshotInFlight) {
+            return;
+        }
+        ownershipSnapshotInFlight = true;
+        startLiveOwnershipSnapshot(callback);
+    }
+
+    private void startLiveOwnershipSnapshot(Object failureOwner) {
+        requireMainThread();
+        if (disposeStarted) {
+            return;
+        }
+        if (!attached || !windowAttached || !holderSurfaceAvailable) {
+            completeUnavailableOwnershipRequests();
+            return;
+        }
+        OwnershipLeaseSample leaseSample = captureOwnershipLeaseSample();
+        try {
+            queueEvent(() -> {
+                int textures = renderer.textureCount();
+                int textureLimit = renderer.textureLimit();
+                enqueueOrRetainMainTerminal(
+                        () -> finishLiveOwnershipSnapshot(
+                                leaseSample,
+                                textures,
+                                textureLimit),
+                        false);
+            });
+        } catch (Throwable queueFailure) {
+            reportIsolatedCallbackFailure(
+                    IsolatedCallbackKind.OWNERSHIP,
+                    failureOwner,
+                    queueFailure);
+            completeUnavailableOwnershipRequests();
+        }
+    }
+
+    public int getPendingCallbackCount() {
+        requireMainThread();
+        return requiredDisposeCallback.pendingCount()
+                + disposeCallbacks.pendingCount()
+                + pendingOwnershipCallbacks.pendingCount()
+                + pendingMainTerminalActions.get();
+    }
+
+    public int getPendingCallbackLimit() {
+        return REQUIRED_DISPOSAL_CALLBACK_LIMIT
+                + AUXILIARY_DISPOSAL_CALLBACK_LIMIT
+                + OWNERSHIP_CALLBACK_LIMIT
+                + MAIN_TERMINAL_ACTION_LIMIT;
+    }
+
+    public int getDeckLeaseLimit() {
+        return leaseRegistry.capacity();
+    }
+
+    public void registerMainTerminalExecutor(MainTerminalExecutor executor) {
+        requireMainThread();
+        Objects.requireNonNull(executor, "executor");
+        if (mainTerminalExecutorRegistered) {
+            throw new IllegalStateException(
+                    "Main terminal executor is already registered");
+        }
+        mainTerminalExecutorRegistered = true;
+        mainTerminalExecutor = executor;
+        drainRetainedMainTerminal();
+    }
+
+    public int getMainTerminalActionLimit() {
+        return MAIN_TERMINAL_ACTION_LIMIT;
+    }
+
+    public int getPendingMainTerminalActionCount() {
+        return pendingMainTerminalActions.get();
+    }
+
+    private void startDisposeIfNeeded() {
+        requireMainThread();
+        if (disposedResult != null || disposeStarted) {
+            return;
+        }
+        disposeStarted = true;
+        disposed = true;
+        try {
+            submissionGate.close();
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        boolean terminalExecutorUnavailable = mainTerminalExecutor == null;
+        if (terminalExecutorUnavailable) {
+            recordSetupFailure(
+                    new IllegalStateException(
+                            "Required main terminal executor is not registered"));
+        }
+
+        SettlementContext cancelledSettlement = null;
+        try {
+            cancelledSettlement = cancelSettlementAnimator();
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        try {
+            recycleVelocityTracker();
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        try {
+            preparedGenerations.clear();
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        try {
+            disposingActiveGenerationId = generationIdOf(
+                    deckCoordinator.getActiveDeck());
+            disposingPendingGenerationId = generationIdOf(
+                    deckCoordinator.getPendingDeck());
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        try {
+            for (PageDeckCoordinator.Release<Bitmap> release :
+                    deckCoordinator.dispose()) {
+                try {
+                    leaseRegistry.markReleaseRequested(
+                            release.getDeck().getGenerationId(),
+                            DeckReleaseReason.DISPOSED);
+                } catch (Throwable setupFailure) {
+                    recordSetupFailure(setupFailure);
+                }
+            }
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        notifySettlementCancelledForDispose(cancelledSettlement);
+        try {
+            setPreserveEGLContextOnPause(false);
+        } catch (Throwable setupFailure) {
+            recordSetupFailure(setupFailure);
+        }
+        if (terminalExecutorUnavailable) {
+            finishDetachedDisposal();
+            return;
+        }
+
+        terminalDisposalGate.start(
+                new PageSurfaceTerminalDisposalGate.Host() {
+                    @Override
+                    public boolean isWindowAttached() {
+                        return windowAttached;
+                    }
+
+                    @Override
+                    public boolean isHolderSurfaceAvailable() {
+                        return holderSurfaceAvailable;
+                    }
+
+                    @Override
+                    public boolean isLogicallyAttached() {
+                        return attached;
+                    }
+
+                    @Override
+                    public void resumeForTerminalWork() {
+                        resumedForDispose = true;
+                        onResume();
+                    }
+
+                    @Override
+                    public void queueTerminalWork(Runnable action) {
+                        queueEvent(action);
+                    }
+                },
+                timeoutAction -> {
+                    if (!mainHandler.postDelayed(
+                            timeoutAction,
+                            GL_QUEUE_ENTRY_WATCHDOG_MILLIS)) {
+                        throw new IllegalStateException(
+                                "Main thread rejected the GL queue-entry watchdog");
+                    }
+                    return () -> mainHandler.removeCallbacks(timeoutAction);
+                },
+                this::disposeOnGlThread,
+                this::finishTerminalFallback);
+    }
+
+    private void recordSetupFailure(Throwable failure) {
+        disposalFailure.record(
+                PageSurfaceDisposalStage.PRE_GL_SETUP,
+                failure);
+    }
+
+    private void finishTerminalFallback(
+            PageSurfaceTerminalDisposalGate.FailureKind kind,
+            Throwable failure) {
+        requireMainThread();
+        PageSurfaceDisposalStage stage =
+                kind == PageSurfaceTerminalDisposalGate.FailureKind.RESUME
+                        ? PageSurfaceDisposalStage.SURFACE_RESUME
+                        : PageSurfaceDisposalStage.GL_QUEUE_UNAVAILABLE;
+        disposalFailure.record(stage, failure);
+        finishDetachedDisposal();
+    }
+
+    private void disposeOnGlThread() {
+        try {
+            renderer.dispose();
+        } catch (Throwable rendererFailure) {
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.GL_RENDERER_DISPOSE,
+                    rendererFailure);
+        } finally {
+            int textures = renderer.textureCount();
+            int textureLimit = renderer.textureLimit();
+            if (!terminalDisposalGate.completeGlExecution()) {
+                disposalFailure.record(
+                        PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                        new IllegalStateException(
+                                "GL disposal ownership was not active at completion"));
+            }
+            enqueueOrRetainMainTerminal(
+                    () -> finishGlDisposalOnMain(
+                            textures,
+                            textureLimit),
+                    true);
+        }
+    }
+
+    private void finishGlDisposalOnMain(
+            int textures,
+            int textureLimit) {
+        try {
+            finishDisposeAfterGl(
+                    textures,
+                    textureLimit,
+                    disposalFailure,
+                    false,
+                    true);
+        } catch (Throwable publicationFailure) {
+            if (!terminalDisposalGate.abandonGlPublication()) {
+                disposalFailure.record(
+                        PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                        new IllegalStateException(
+                                "GL disposal publication ownership was not active",
+                                publicationFailure));
+            }
+            if (publicationFailure instanceof RuntimeException) {
+                throw (RuntimeException) publicationFailure;
+            }
+            if (publicationFailure instanceof Error) {
+                throw (Error) publicationFailure;
+            }
+            throw new IllegalStateException(
+                    "GL disposal publication failed",
+                    publicationFailure);
+        }
+        if (!terminalDisposalGate.completeGlPublication()) {
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                    new IllegalStateException(
+                            "GL disposal publication ownership was not active at completion"));
+        }
+    }
+
+    private boolean enqueueMainTerminal(Runnable action) {
+        MainTerminalExecutor executor = mainTerminalExecutor;
+        if (executor == null) {
+            return false;
+        }
+        int pending = pendingMainTerminalActions.incrementAndGet();
+        if (pending > MAIN_TERMINAL_ACTION_LIMIT) {
+            pendingMainTerminalActions.decrementAndGet();
+            return false;
+        }
+        AtomicBoolean ownershipClaimed = new AtomicBoolean();
+        Runnable counted = countedMainTerminalAction(action, ownershipClaimed);
+        final boolean accepted;
+        try {
+            accepted = executor.execute(counted);
+        } catch (Throwable executionFailure) {
+            if (ownershipClaimed.compareAndSet(false, true)) {
+                releaseMainTerminalActionCount();
+                disposalFailure.record(
+                        PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                        executionFailure);
+                return false;
+            }
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                    executionFailure);
+            return true;
+        }
+        if (!accepted && ownershipClaimed.compareAndSet(false, true)) {
+            releaseMainTerminalActionCount();
+            return false;
+        }
+        if (!accepted) {
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                    new IllegalStateException(
+                            "Main terminal executor ran an action before rejecting it"));
+        }
+        return true;
+    }
+
+    private boolean enqueueMainHandlerTerminal(Runnable action) {
+        int pending = pendingMainTerminalActions.incrementAndGet();
+        if (pending > MAIN_TERMINAL_ACTION_LIMIT) {
+            pendingMainTerminalActions.decrementAndGet();
+            return false;
+        }
+        AtomicBoolean ownershipClaimed = new AtomicBoolean();
+        Runnable counted = countedMainTerminalAction(action, ownershipClaimed);
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            counted.run();
+            return true;
+        }
+        final boolean accepted;
+        try {
+            accepted = mainHandler.post(counted);
+        } catch (Throwable handlerFailure) {
+            if (ownershipClaimed.compareAndSet(false, true)) {
+                releaseMainTerminalActionCount();
+            }
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                    handlerFailure);
+            return false;
+        }
+        if (!accepted && ownershipClaimed.compareAndSet(false, true)) {
+            releaseMainTerminalActionCount();
+            return false;
+        }
+        return true;
+    }
+
+    private Runnable countedMainTerminalAction(
+            Runnable action,
+            AtomicBoolean ownershipClaimed) {
+        return () -> {
+            if (!ownershipClaimed.compareAndSet(false, true)) {
+                return;
+            }
+            releaseMainTerminalActionCount();
+            try {
+                action.run();
+            } catch (Throwable actionFailure) {
+                disposalFailure.record(
+                        PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                        actionFailure);
+                if (disposeStarted && disposedResult == null) {
+                    finishDetachedDisposal();
+                } else if (!disposeStarted) {
+                    failLiveOwnershipRequests();
+                }
+            }
+        };
+    }
+
+    private void releaseMainTerminalActionCount() {
+        int remaining = pendingMainTerminalActions.decrementAndGet();
+        if (remaining < 0) {
+            pendingMainTerminalActions.set(0);
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                    new IllegalStateException(
+                            "Main terminal action ownership underflow"));
+        }
+    }
+
+    private void enqueueOrRetainMainTerminal(
+            Runnable action,
+            boolean requiredDisposal) {
+        if (enqueueMainTerminal(action)) {
+            return;
+        }
+        if (enqueueMainHandlerTerminal(action)) {
+            return;
+        }
+        AtomicReference<Runnable> retained = requiredDisposal
+                ? retainedDisposalMainTerminalAction
+                : retainedOwnershipMainTerminalAction;
+        int pending = pendingMainTerminalActions.incrementAndGet();
+        if (pending > MAIN_TERMINAL_ACTION_LIMIT) {
+            pendingMainTerminalActions.decrementAndGet();
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                    new IllegalStateException(
+                            "Main terminal action capacity is exhausted"));
+            return;
+        }
+        Runnable counted = () -> {
+            releaseMainTerminalActionCount();
+            action.run();
+        };
+        if (!retained.compareAndSet(null, counted)) {
+            releaseMainTerminalActionCount();
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                    new IllegalStateException(
+                            "A main-thread terminal action is already retained"));
+            return;
+        }
+        disposalFailure.record(
+                PageSurfaceDisposalStage.MAIN_TERMINAL_EXECUTOR,
+                new IllegalStateException(
+                        "Required main terminal executor rejected completion"));
+    }
+
+    private void drainRetainedMainTerminal() {
+        requireMainThread();
+        runRetainedMainTerminal(retainedDisposalMainTerminalAction);
+        runRetainedMainTerminal(retainedOwnershipMainTerminalAction);
+    }
+
+    private void runRetainedMainTerminal(
+            AtomicReference<Runnable> retained) {
+        Runnable action = retained.getAndSet(null);
+        if (action != null) {
+            action.run();
+        }
+    }
+
+    private void discardRetainedMainTerminal(
+            AtomicReference<Runnable> retained) {
+        if (retained.getAndSet(null) != null) {
+            releaseMainTerminalActionCount();
+        }
+    }
+
+    private void finishDetachedDisposal() {
+        requireMainThread();
+        if (disposedResult != null || terminalDisposalGate.glOwnsExecution()) {
+            return;
+        }
+        boolean glPaused = pauseForDetachedDisposal();
+        int textureLimit = renderer.textureLimit();
+        int textures = textureLimit;
+        boolean clientOwnershipReleased = false;
+        if (glPaused) {
+            try {
+                renderer.abandonClientState();
+                textures = renderer.textureCount();
+                clientOwnershipReleased = true;
+            } catch (Throwable abandonFailure) {
+                disposalFailure.record(
+                        PageSurfaceDisposalStage.GL_RENDERER_DISPOSE,
+                        abandonFailure);
+            }
+        }
+        finishDisposeAfterGl(
+                textures,
+                textureLimit,
+                disposalFailure,
+                true,
+                clientOwnershipReleased);
+    }
+
+    private boolean pauseForDetachedDisposal() {
+        boolean alreadyPaused = !attached && !resumedForDispose;
+        attached = false;
+        resumedForDispose = false;
+        if (!windowAttached) {
+            return true;
+        }
+        if (alreadyPaused) {
+            try {
+                onResume();
+            } catch (Throwable resumeFailure) {
+                disposalFailure.record(
+                        PageSurfaceDisposalStage.SURFACE_RESUME,
+                        resumeFailure);
+                return false;
+            }
+        }
+        try {
+            onPause();
+            return true;
+        } catch (Throwable pauseFailure) {
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.SURFACE_PAUSE,
+                    pauseFailure);
+            return false;
+        }
+    }
+
+    private void finishDisposeAfterGl(
+            int textures,
+            int textureLimit,
+            FailureAccumulator failure,
+            boolean detachedFallback,
+            boolean releaseDeckLeases) {
+        requireMainThread();
+        if (disposedResult != null) {
+            return;
+        }
+        if (releaseDeckLeases) {
+            for (DeckLeaseRegistry.Lease lease :
+                    leaseRegistry.releaseAll(DeckReleaseReason.DISPOSED)) {
+                notifyDeckReleased(
+                        lease.getListener(),
+                        lease.getGenerationId(),
+                        lease.getReleaseReason());
+            }
+        }
+        int activeDeckLeases = leaseCount(disposingActiveGenerationId);
+        int pendingDeckLeases =
+                disposingPendingGenerationId == disposingActiveGenerationId
+                        ? 0
+                        : leaseCount(disposingPendingGenerationId);
+        int releaseInFlightDeckLeases =
+                leaseRegistry.releaseInFlightCount(
+                        disposingActiveGenerationId,
+                        disposingPendingGenerationId);
+        int orphanDeckLeases = leaseRegistry.size()
+                - activeDeckLeases
+                - pendingDeckLeases
+                - releaseInFlightDeckLeases;
+        PageSurfaceOwnershipSnapshot snapshot =
+                new PageSurfaceOwnershipSnapshot(
+                        activeDeckLeases,
+                        1,
+                        pendingDeckLeases,
+                        1,
+                        releaseInFlightDeckLeases,
+                        leaseRegistry.capacity(),
+                        orphanDeckLeases,
+                        0,
+                        textures,
+                        textureLimit);
+        if (activeDeckLeases != 0
+                || pendingDeckLeases != 0
+                || releaseInFlightDeckLeases != 0
+                || orphanDeckLeases != 0
+                || textures != 0) {
+            failure.record(
+                    PageSurfaceDisposalStage.OWNERSHIP_RETAINED,
+                    new IllegalStateException(
+                            "Renderer disposal retained ownership"));
+        }
+
+        if (attached || resumedForDispose) {
+            attached = false;
+            resumedForDispose = false;
+            try {
+                onPause();
+            } catch (Throwable pauseFailure) {
+                failure.record(
+                        PageSurfaceDisposalStage.SURFACE_PAUSE,
+                        pauseFailure);
+            }
+        }
+
+        disposedOwnershipSnapshot = snapshot;
+        disposingActiveGenerationId = NO_GENERATION_ID;
+        disposingPendingGenerationId = NO_GENERATION_ID;
+        PageSurfaceDisposalResult result = new PageSurfaceDisposalResult(
+                snapshot,
+                failure.stage(),
+                failure.failure(),
+                failure.suppressedFailureCount(),
+                detachedFallback);
+        disposedResult = result;
+
+        discardRetainedMainTerminal(retainedOwnershipMainTerminalAction);
+        completeOwnershipCallbacks(snapshot);
+        requiredDisposeCallback.complete(result);
+        disposeCallbacks.complete(result);
+        mainTerminalExecutor = null;
+    }
+
+    private void finishLiveOwnershipSnapshot(
+            OwnershipLeaseSample leaseSample,
+            int textures,
+            int textureLimit) {
+        requireMainThread();
+        if (disposeStarted) {
+            return;
+        }
+        if (ownershipEpoch != leaseSample.epoch) {
+            startLiveOwnershipSnapshot(pendingOwnershipCallbacks);
+            return;
+        }
+        completeOwnershipCallbacks(ownershipSnapshot(
+                leaseSample,
+                textures,
+                textureLimit));
+    }
+
+    private OwnershipLeaseSample captureOwnershipLeaseSample() {
+        long activeGenerationId = generationIdOf(deckCoordinator.getActiveDeck());
+        long pendingGenerationId = generationIdOf(deckCoordinator.getPendingDeck());
+        int activeDeckLeases = leaseCount(activeGenerationId);
+        int pendingDeckLeases = activeGenerationId == pendingGenerationId
+                ? 0
+                : leaseCount(pendingGenerationId);
+        int releaseInFlightDeckLeases = leaseRegistry.releaseInFlightCount(
+                activeGenerationId,
+                pendingGenerationId);
+        int orphanDeckLeases = leaseRegistry.size()
+                - activeDeckLeases
+                - pendingDeckLeases
+                - releaseInFlightDeckLeases;
+        return new OwnershipLeaseSample(
+                ownershipEpoch,
+                activeDeckLeases,
+                pendingDeckLeases,
+                releaseInFlightDeckLeases,
+                orphanDeckLeases);
+    }
+
+    private PageSurfaceOwnershipSnapshot ownershipSnapshot(
+            OwnershipLeaseSample leaseSample,
+            int textures,
+            int textureLimit) {
+        return new PageSurfaceOwnershipSnapshot(
+                leaseSample.activeDeckLeases,
+                1,
+                leaseSample.pendingDeckLeases,
+                1,
+                leaseSample.releaseInFlightDeckLeases,
+                leaseRegistry.capacity(),
+                leaseSample.orphanDeckLeases,
+                0,
+                textures,
+                textureLimit);
+    }
+
+    private void completeUnavailableOwnershipRequests() {
+        OwnershipLeaseSample leaseSample = captureOwnershipLeaseSample();
+        int textureLimit = renderer.textureLimit();
+        completeOwnershipCallbacks(ownershipSnapshot(
+                leaseSample,
+                textureLimit,
+                textureLimit));
+    }
+
+    private void completeOwnershipCallbacks(
+            PageSurfaceOwnershipSnapshot snapshot) {
+        ownershipSnapshotInFlight = false;
+        pendingOwnershipCallbacks.completeBatch(snapshot);
+    }
+
+    private void failLiveOwnershipRequests() {
+        completeUnavailableOwnershipRequests();
+    }
+
+    private void advanceOwnershipEpoch() {
+        ownershipEpoch += 1L;
+    }
+
+    private int leaseCount(long generationId) {
+        return generationId == NO_GENERATION_ID
+                || !leaseRegistry.contains(generationId) ? 0 : 1;
+    }
+
+    private static long generationIdOf(PageDeck<?> deck) {
+        return deck == null ? NO_GENERATION_ID : deck.getGenerationId();
+    }
+
+    private void notifySettlementCancelledForDispose(
+            SettlementContext context) {
+        if (context == null) {
+            return;
+        }
+        PageSurfaceListener listener = null;
+        try {
+            listener = listenerFor(context.generationId);
+            listener.onSettlementCancelled(
+                    context.gestureId,
+                    context.generationId,
+                    context.sourceLogicalPageId);
+        } catch (Throwable callbackFailure) {
+            disposalFailure.record(
+                    PageSurfaceDisposalStage.SETTLEMENT_CANCEL_CALLBACK,
+                    callbackFailure);
+            reportIsolatedCallbackFailure(
+                    IsolatedCallbackKind.SETTLEMENT_CANCEL,
+                    listener,
+                    callbackFailure);
+        }
+    }
+
+    private void notifyDeckReleased(
+            PageSurfaceListener listener,
+            long generationId,
+            DeckReleaseReason reason) {
+        try {
+            listener.onDeckReleased(generationId, reason);
+        } catch (Throwable callbackFailure) {
+            if (disposeStarted && disposedResult == null) {
+                disposalFailure.record(
+                        PageSurfaceDisposalStage.DECK_RELEASE_CALLBACK,
+                        callbackFailure);
+            }
+            reportIsolatedCallbackFailure(
+                    IsolatedCallbackKind.DECK_RELEASE,
+                    listener,
+                    callbackFailure);
+        }
+    }
+
+    private void notifyDeckSubmissionCapacityAvailable(
+            PageSurfaceListener listener) {
+        try {
+            listener.onDeckSubmissionCapacityAvailable();
+        } catch (Throwable callbackFailure) {
+            reportIsolatedCallbackFailure(
+                    IsolatedCallbackKind.DECK_SUBMISSION_CAPACITY,
+                    listener,
+                    callbackFailure);
+        }
+    }
+
+    private static void notifyOwnershipCallback(
+            PageSurfaceOwnershipSnapshot.Callback callback,
+            PageSurfaceOwnershipSnapshot snapshot) {
+        try {
+            callback.onSnapshot(snapshot);
+        } catch (Throwable callbackFailure) {
+            reportIsolatedCallbackFailure(
+                    IsolatedCallbackKind.OWNERSHIP,
+                    callback,
+                    callbackFailure);
+        }
+    }
+
+    private static void reportIsolatedCallbackFailure(
+            IsolatedCallbackKind kind,
+            Object callback,
+            Throwable failure) {
+        try {
+            Log.e(
+                    TAG,
+                    "callback-failed kind=" + kind
+                            + " callbackClass="
+                            + (callback == null
+                                    ? "unresolved"
+                                    : callback.getClass().getName())
+                            + " failureClass="
+                            + failure.getClass().getName());
+        } catch (Throwable ignored) {
+            // Callback isolation must not depend on diagnostics.
+        }
+    }
+
+    private enum IsolatedCallbackKind {
+        SETTLEMENT_CANCEL,
+        DECK_RELEASE,
+        DECK_SUBMISSION_CAPACITY,
+        OWNERSHIP,
+        DISPOSAL
+    }
+
+    private static final class FailureAccumulator {
+        private PageSurfaceDisposalStage stage =
+                PageSurfaceDisposalStage.NONE;
+        private Throwable failure;
+
+        synchronized void record(
+                PageSurfaceDisposalStage nextStage,
+                Throwable nextFailure) {
+            if (failure == null) {
+                stage = nextStage;
+                failure = nextFailure;
+            } else if (nextFailure != failure) {
+                failure.addSuppressed(nextFailure);
+            }
+        }
+
+        synchronized PageSurfaceDisposalStage stage() {
+            return stage;
+        }
+
+        synchronized Throwable failure() {
+            return failure;
+        }
+
+        synchronized int suppressedFailureCount() {
+            return failure == null ? 0 : failure.getSuppressed().length;
+        }
     }
 
     /**
@@ -538,12 +1512,52 @@ public class PageSurfaceView extends GLSurfaceView {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        windowAttached = true;
+        advanceOwnershipEpoch();
+        drainRetainedMainTerminal();
+    }
+
+    @Override
+    public void surfaceCreated(SurfaceHolder holder) {
+        super.surfaceCreated(holder);
+        holderSurfaceAvailable = true;
+        advanceOwnershipEpoch();
+        drainRetainedMainTerminal();
+    }
+
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
+        super.surfaceDestroyed(holder);
+        holderSurfaceAvailable = false;
+        advanceOwnershipEpoch();
+        drainRetainedMainTerminal();
+        if (!disposeStarted) {
+            failLiveOwnershipRequests();
+        }
+        if (disposeStarted && disposedResult == null) {
+            terminalDisposalGate.onSurfaceUnavailable(
+                    new IllegalStateException(
+                            "GL holder surface was destroyed before terminal disposal"),
+                    this::finishTerminalFallback);
+        }
     }
 
     @Override
     protected void onDetachedFromWindow() {
         detach();
         super.onDetachedFromWindow();
+        windowAttached = false;
+        advanceOwnershipEpoch();
+        drainRetainedMainTerminal();
+        if (!disposeStarted) {
+            failLiveOwnershipRequests();
+        }
+        if (disposeStarted && disposedResult == null) {
+            terminalDisposalGate.onSurfaceUnavailable(
+                    new IllegalStateException(
+                            "GL window detached before terminal disposal"),
+                    this::finishTerminalFallback);
+        }
     }
 
     @Override
@@ -565,6 +1579,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (!preparedGenerations.add(generationId)) {
             return;
         }
+        advanceOwnershipEpoch();
         trimPreparedGenerations();
         owner.onDeckPrepared(generationId);
         requestRender();
@@ -588,6 +1603,7 @@ public class PageSurfaceView extends GLSurfaceView {
             return;
         }
         renderCapabilities = capabilities;
+        advanceOwnershipEpoch();
         pageSurfaceListener.onCapabilitiesAvailable(capabilities);
     }
 
@@ -595,12 +1611,30 @@ public class PageSurfaceView extends GLSurfaceView {
             long generationId,
             DeckReleaseReason reason) {
         preparedGenerations.remove(generationId);
+        PageDeck<Bitmap> activeDeck = deckCoordinator.getActiveDeck();
+        if (activeDeck != null
+                && activeDeck.getGenerationId() == generationId) {
+            cancelGesture();
+        }
         deckCoordinator.release(generationId);
-        DeckLeaseRegistry.Lease lease = leaseRegistry.release(generationId);
-        if (lease != null) {
-            DeckReleaseReason effectiveReason =
-                    lease.getReleaseReason() == null ? reason : lease.getReleaseReason();
-            lease.getListener().onDeckReleased(generationId, effectiveReason);
+        DeckLeaseRegistry.Lease lease =
+                leaseRegistry.release(generationId);
+        if (lease == null) {
+            return;
+        }
+        DeckReleaseReason effectiveReason =
+                lease.getReleaseReason() == null
+                        ? reason
+                        : lease.getReleaseReason();
+        advanceOwnershipEpoch();
+        notifyDeckReleased(
+                lease.getListener(),
+                generationId,
+                effectiveReason);
+        boolean capacityAvailable =
+                submissionGate.takeCapacityAvailableSignal(generationId);
+        if (capacityAvailable) {
+            notifyDeckSubmissionCapacityAvailable(pageSurfaceListener);
         }
     }
 
@@ -877,20 +1911,12 @@ public class PageSurfaceView extends GLSurfaceView {
         }
     }
 
-    private void releaseAllOutstandingLeases() {
-        for (DeckLeaseRegistry.Lease lease :
-                leaseRegistry.releaseAll(DeckReleaseReason.DISPOSED)) {
-            lease.getListener().onDeckReleased(
-                    lease.getGenerationId(),
-                    lease.getReleaseReason());
-        }
-    }
-
     private void queueDeckRelease(PageDeckCoordinator.Release<Bitmap> release) {
         if (release == null) {
             return;
         }
         long generationId = release.getDeck().getGenerationId();
+        advanceOwnershipEpoch();
         preparedGenerations.remove(generationId);
         leaseRegistry.markReleaseRequested(generationId, release.getReason());
         queueEvent(() -> renderer.releaseDeck(generationId, release.getReason()));
@@ -898,6 +1924,7 @@ public class PageSurfaceView extends GLSurfaceView {
 
     private void markPromotionRelease(
             PageDeckCoordinator.Promotion<Bitmap> promotion) {
+        advanceOwnershipEpoch();
         PageDeckCoordinator.Release<Bitmap> release = promotion.getRelease();
         if (release != null) {
             leaseRegistry.markReleaseRequested(

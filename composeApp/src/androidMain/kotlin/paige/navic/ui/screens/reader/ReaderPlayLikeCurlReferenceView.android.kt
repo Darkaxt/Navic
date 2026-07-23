@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Looper
 import karacken.curl.DeckRejectionReason
 import karacken.curl.DeckReleaseReason
 import karacken.curl.PageChange
@@ -11,11 +12,15 @@ import karacken.curl.PageSurfaceView
 import karacken.curl.ReadingDirection
 import karacken.curl.RenderCapabilities
 import karacken.curl.RenderFailure
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import paige.navic.util.core.Logger
+
+private const val ReaderPlayLikeCurlReferenceViewTag = "ReaderPlayLikeCurlReference"
 
 /** ReaderDev harness backed exclusively by the imported PlayLikeCurl production surface. */
 class ReaderPlayLikeCurlReferenceView(
@@ -38,6 +43,7 @@ class ReaderPlayLikeCurlReferenceView(
 	private val rasterAdapter = ReaderPlayLikeCurlRasterAdapter(
 		scope = rasterScope,
 		loader = bitmapSource,
+		rendererDeckLeaseLimit = deckLeaseLimit,
 		release = Bitmap::recycle
 	)
 	private val generationOwners = mutableMapOf<Long, PreparedPages>()
@@ -57,6 +63,14 @@ class ReaderPlayLikeCurlReferenceView(
 	var onRenderFailure: (RenderFailure) -> Unit = {}
 
 	init {
+		registerMainTerminalExecutor { action ->
+			if (Looper.myLooper() == Looper.getMainLooper()) {
+				action.run()
+				true
+			} else {
+				post(action)
+			}
+		}
 		setPageSurfaceListener(object : PageSurfaceListener {
 			override fun onCapabilitiesAvailable(capabilities: RenderCapabilities) {
 				capabilitiesAvailable = true
@@ -156,7 +170,18 @@ class ReaderPlayLikeCurlReferenceView(
 			}
 		}
 		rasterScope.launch {
-			val deck = preparation.await() ?: return@launch
+			val deck = try {
+				preparation.await()
+			} catch (cancelled: CancellationException) {
+				throw cancelled
+			} catch (failure: Throwable) {
+				Logger.e(
+					ReaderPlayLikeCurlReferenceViewTag,
+					"Reference raster preparation failed " +
+						"failureClass=${failure::class.simpleName ?: "unknown"}"
+				)
+				return@launch
+			} ?: return@launch
 			if (requestedProfile != profile || disposedByOwner) {
 				deck.close()
 				return@launch

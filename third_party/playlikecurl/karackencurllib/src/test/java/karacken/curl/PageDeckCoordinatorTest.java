@@ -1,6 +1,7 @@
 package karacken.curl;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -37,6 +38,41 @@ public class PageDeckCoordinatorTest {
         assertSame(first, result.getReleasedDeck());
         assertEquals(DeckReleaseReason.REPLACED, result.getReleaseReason());
         assertSame(second, coordinator.getActiveDeck());
+    }
+
+    @Test
+    public void acceptedIdleOfferCanRollbackBeforeAdmission() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        PortraitPageDeck<String> first = portraitDeck(1, "one");
+        PortraitPageDeck<String> second = portraitDeck(2, "two");
+        coordinator.offer(first);
+
+        PageDeckCoordinator.Offer<String> accepted = coordinator.offer(second);
+
+        assertTrue(coordinator.rollback(second, accepted));
+        assertSame(first, coordinator.getActiveDeck());
+        assertNull(coordinator.getPendingDeck());
+        assertEquals(
+                PageDeckCoordinator.Placement.ACTIVE,
+                coordinator.offer(second).getPlacement());
+    }
+
+    @Test
+    public void acceptedPendingOfferRollbackRestoresReplacedPendingDeck() {
+        PageDeckCoordinator<String> coordinator = new PageDeckCoordinator<>();
+        PortraitPageDeck<String> active = portraitDeck(1, "active");
+        PortraitPageDeck<String> firstPending = portraitDeck(2, "pending-one");
+        PortraitPageDeck<String> secondPending = portraitDeck(3, "pending-two");
+        coordinator.offer(active);
+        coordinator.beginSettlement();
+        coordinator.offer(firstPending);
+
+        PageDeckCoordinator.Offer<String> accepted = coordinator.offer(secondPending);
+
+        assertTrue(coordinator.rollback(secondPending, accepted));
+        assertSame(active, coordinator.getActiveDeck());
+        assertSame(firstPending, coordinator.getPendingDeck());
+        assertFalse(coordinator.rollback(secondPending, accepted));
     }
 
     @Test
