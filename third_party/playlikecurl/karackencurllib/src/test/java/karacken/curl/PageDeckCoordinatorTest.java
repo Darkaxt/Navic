@@ -7,6 +7,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 public class PageDeckCoordinatorTest {
@@ -261,6 +263,69 @@ public class PageDeckCoordinatorTest {
         assertEquals(DeckRejectionReason.DISPOSED, result.getRejectionReason());
         assertNull(coordinator.getActiveDeck());
         assertNull(coordinator.getPendingDeck());
+    }
+
+    @Test
+    public void ownershipObserverReportsEachRealMutationOutsideMonitor() {
+        AtomicInteger mutations = new AtomicInteger();
+        AtomicBoolean callbackHeldMonitor = new AtomicBoolean();
+        @SuppressWarnings("unchecked")
+        PageDeckCoordinator<String>[] owner = new PageDeckCoordinator[1];
+        owner[0] = new PageDeckCoordinator<>(() -> {
+            mutations.incrementAndGet();
+            callbackHeldMonitor.set(
+                    callbackHeldMonitor.get()
+                            || Thread.holdsLock(owner[0]));
+        });
+        PageDeckCoordinator<String> coordinator = owner[0];
+        PortraitPageDeck<String> first = portraitDeck(1, "first");
+        PortraitPageDeck<String> second = portraitDeck(2, "second");
+        PortraitPageDeck<String> third = portraitDeck(3, "third");
+
+        coordinator.offer(first);
+        assertEquals(1, mutations.get());
+        coordinator.offer(portraitDeck(1, "first"));
+        coordinator.offer(portraitDeck(0, "stale"));
+        assertEquals(1, mutations.get());
+
+        PageDeckCoordinator.Offer<String> activeOffer = coordinator.offer(second);
+        assertEquals(2, mutations.get());
+        assertTrue(coordinator.rollback(second, activeOffer));
+        assertEquals(3, mutations.get());
+        assertFalse(coordinator.rollback(second, activeOffer));
+        assertEquals(3, mutations.get());
+
+        coordinator.beginSettlement();
+        coordinator.beginSettlement();
+        assertEquals(4, mutations.get());
+        coordinator.offer(second);
+        assertEquals(5, mutations.get());
+        coordinator.completeSettlement();
+        assertEquals(6, mutations.get());
+        coordinator.completeSettlement();
+        assertEquals(6, mutations.get());
+
+        coordinator.beginSettlement();
+        coordinator.completeSettlement();
+        assertEquals(8, mutations.get());
+
+        coordinator.beginSettlement();
+        coordinator.offer(third);
+        coordinator.cancelSettlement();
+        coordinator.cancelSettlement();
+        assertEquals(11, mutations.get());
+        coordinator.releasePending(DeckReleaseReason.SESSION_DETACHED);
+        coordinator.releasePending(DeckReleaseReason.SESSION_DETACHED);
+        assertEquals(12, mutations.get());
+
+        coordinator.release(2);
+        coordinator.release(2);
+        assertEquals(13, mutations.get());
+        coordinator.dispose();
+        coordinator.dispose();
+        coordinator.offer(portraitDeck(4, "late"));
+        assertEquals(14, mutations.get());
+        assertFalse(callbackHeldMonitor.get());
     }
 
     @Test

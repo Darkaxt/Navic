@@ -3,9 +3,55 @@ package paige.navic.ui.screens.reader
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class ReaderPageRasterPreparationSourceTest {
+	@Test
+	fun productionAcquisitionTriggerDistinguishesColdWarmAndLiveRefill() {
+		assertEquals(
+			ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+			readerPageRasterAcquisitionTrigger(
+				hasPreparedBefore = false,
+				persistentRasterEntries = 0
+			)
+		)
+		assertEquals(
+			ReaderPageRasterAcquisitionTrigger.WarmReopen,
+			readerPageRasterAcquisitionTrigger(
+				hasPreparedBefore = false,
+				persistentRasterEntries = 1
+			)
+		)
+		assertEquals(
+			ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
+			readerPageRasterAcquisitionTrigger(
+				hasPreparedBefore = true,
+				persistentRasterEntries = 1
+			)
+		)
+		val source = readerRasterPreparationSource()
+		assertContains(source, "persistentRasterEntries = bundleSource.rasterCacheMetrics().diskEntries")
+		assertContains(source, "trigger = activeAcquisitionTrigger")
+	}
+
+	@Test
+	fun publicationCapacityRetriesUseTheExactPreparationListener() {
+		val preparation = readerRasterPreparationSource()
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+
+		assertContains(
+			preparation,
+			"bundleSource.setPublicationCapacityAvailableListener(onRequestPrewarm)"
+		)
+		assertContains(
+			preparation,
+			"bundleSource.clearPublicationCapacityAvailableListener(onRequestPrewarm)"
+		)
+		assertContains(bundle, "publicationLedger.setCapacityAvailableListener(listener)")
+		assertContains(bundle, "publicationLedger.clearCapacityAvailableListener(listener)")
+	}
+
 	@Test
 	fun batchProgressAdvancesOnlyFromDurablePublicationCallbacks() {
 		val source = readerRasterBatchSource()

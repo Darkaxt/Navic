@@ -14,6 +14,56 @@ import kotlin.test.assertTrue
 
 class ReaderWebViewVisualHandoffTest {
 	@Test
+	fun ownershipObserverReportsOneMutationPerCallbackTransaction() {
+		val host = FakeVisualHandoffHost(attached = true)
+		var mutations = 0
+		val handoff = ReaderWebViewVisualHandoff(
+			host = host,
+			onOwnershipMutated = { mutations += 1 }
+		)
+
+		handoff.await("token-1") {}
+		assertEquals(1, mutations)
+		assertEquals(2, handoff.pendingCallbackCount())
+		host.completeVisualState()
+		assertEquals(2, mutations)
+		assertEquals(2, handoff.pendingCallbackCount())
+		host.runNextFrame()
+		assertEquals(3, mutations)
+		assertEquals(0, handoff.pendingCallbackCount())
+		host.redeliverLastVisualState()
+		assertEquals(3, mutations)
+		handoff.close()
+		assertEquals(4, mutations)
+		handoff.close()
+		assertEquals(4, mutations)
+	}
+
+	@Test
+	fun retainedCapacityEdgeMutationIsObservedWithoutDuplicateDelivery() {
+		val host = FakeVisualHandoffHost(attached = true)
+		var mutations = 0
+		val handoff = ReaderWebViewVisualHandoff(
+			host = host,
+			onCapacityRetry = { false },
+			onOwnershipMutated = { mutations += 1 }
+		)
+		handoff.await("token-1") {}
+		host.runTimeout()
+		handoff.await("token-2") {}
+		val beforeRelease = mutations
+
+		host.completeVisualState()
+
+		assertEquals(beforeRelease + 1, mutations)
+		assertEquals(1, handoff.pendingCapacityRetryEdgeCount())
+		assertFalse(handoff.redeliverPendingCapacityRetryEdge())
+		assertEquals(beforeRelease + 1, mutations)
+		assertTrue(handoff.cancelPendingCapacityRetryEdge("token-2"))
+		assertEquals(beforeRelease + 2, mutations)
+	}
+
+	@Test
 	fun handoffCompletesOnlyAfterVisualStateAndNextFrame() {
 		val host = FakeVisualHandoffHost(attached = true)
 		var result: ReaderWebViewVisualHandoffResult? = null
@@ -24,6 +74,57 @@ class ReaderWebViewVisualHandoffTest {
 		assertNull(result)
 		host.runNextFrame()
 		assertEquals(ReaderWebViewVisualHandoffResult.Ready("token-1"), result)
+	}
+
+	@Test
+	fun attemptEventsCarryExactProgressAndOneTerminalPerAttempt() {
+		val host = FakeVisualHandoffHost(attached = true)
+		val events = mutableListOf<ReaderWebViewVisualHandoffAttemptEvent>()
+		val handoff = ReaderWebViewVisualHandoff(
+			host = host,
+			attemptEventSink = ReaderWebViewVisualHandoffAttemptEventSink(events::add)
+		)
+
+		handoff.await("token-1") {}
+		host.completeVisualState()
+		host.runNextFrame()
+
+		val started = assertIs<ReaderWebViewVisualHandoffAttemptEvent.Started>(
+			events.single { it is ReaderWebViewVisualHandoffAttemptEvent.Started }
+		)
+		val terminal = assertIs<ReaderWebViewVisualHandoffAttemptEvent.Terminal>(
+			events.single { it is ReaderWebViewVisualHandoffAttemptEvent.Terminal }
+		)
+		assertEquals(started.handoffAttemptId, terminal.handoffAttemptId)
+		assertEquals(started.relocationToken, terminal.relocationToken)
+		assertTrue(terminal.visualStateCompleted)
+		assertTrue(terminal.nextFrameCompleted)
+		assertIs<ReaderWebViewVisualHandoffResult.Ready>(terminal.result)
+	}
+
+	@Test
+	fun closePreservesPartialProgressAndDoesNotPublishASecondTerminal() {
+		val host = FakeVisualHandoffHost(attached = true)
+		val events = mutableListOf<ReaderWebViewVisualHandoffAttemptEvent>()
+		val handoff = ReaderWebViewVisualHandoff(
+			host = host,
+			attemptEventSink = ReaderWebViewVisualHandoffAttemptEventSink(events::add)
+		)
+		handoff.await("token-1") {}
+		host.completeVisualState()
+
+		handoff.close()
+		handoff.close()
+
+		val terminal = events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Terminal
+		>().single()
+		assertTrue(terminal.visualStateCompleted)
+		assertFalse(terminal.nextFrameCompleted)
+		assertEquals(
+			ReaderWebViewVisualHandoffFailure.Cancelled,
+			assertIs<ReaderWebViewVisualHandoffResult.Failed>(terminal.result).reason
+		)
 	}
 
 	@Test
@@ -119,6 +220,7 @@ class ReaderWebViewVisualHandoffTest {
 		val host = FakeVisualHandoffHost(attached = true)
 		val state = visualStateFor(request)
 		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val awaiting = mutableListOf<ReaderPageRelocationRequest>()
 		var hideCount = 0
 		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
 			queue = queue,
@@ -126,10 +228,12 @@ class ReaderWebViewVisualHandoffTest {
 			currentState = { state },
 			dispatch = { error("No later request expected: $it") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = { hideCount += 1 }
+			hideSurface = { hideCount += 1 },
+			onAwaiting = awaiting::add
 		)
 
 		assertTrue(coordinator.onAcknowledged(request))
+		assertEquals(listOf(request), awaiting)
 		assertTrue(host.transferNextVisualStateToQa())
 		host.runTimeout()
 		assertEquals(
@@ -140,6 +244,7 @@ class ReaderWebViewVisualHandoffTest {
 			recoveries
 		)
 		assertEquals(request, queue.head())
+		assertEquals(listOf(request), awaiting)
 		assertEquals(0, hideCount)
 		assertFalse(
 			coordinator.onRetryEvent(

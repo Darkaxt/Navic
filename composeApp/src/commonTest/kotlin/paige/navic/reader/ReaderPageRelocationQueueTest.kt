@@ -188,6 +188,42 @@ class ReaderPageRelocationQueueTest {
 	}
 
 	@Test
+	fun ownershipSizeAndCapacityFollowReservationsAndQueuedTokens() {
+		val queue = ReaderPageRelocationQueue(capacity = 2)
+		assertEquals(0, queue.size())
+		assertEquals(2, queue.capacity)
+		assertTrue(queue.hasCapacity())
+
+		val first = assertIs<ReaderPageRelocationReservationResult.Reserved>(
+			queue.reserve(gestureId = 1L)
+		).reservation
+		assertEquals(1, queue.size())
+		assertTrue(queue.hasCapacity())
+		assertIs<ReaderPageRelocationTransferResult.Enqueued>(
+			queue.enqueueReserved(
+				reservation = first,
+				rasterGeneration = 10L,
+				textureGeneration = 20L,
+				sourceOrdinal = 3,
+				destinationOrdinal = 4,
+				logicalDirection = ReaderPageTurnDirection.Next,
+				foliateSessionId = "session-a"
+			)
+		)
+		val second = assertIs<ReaderPageRelocationReservationResult.Reserved>(
+			queue.reserve(gestureId = 2L)
+		).reservation
+
+		assertEquals(2, queue.size())
+		assertFalse(queue.hasCapacity())
+		assertTrue(queue.release(second))
+		assertEquals(1, queue.size())
+		assertTrue(queue.hasCapacity())
+		queue.cancelAll()
+		assertEquals(0, queue.size())
+	}
+
+	@Test
 	fun cancelAllDrainsQueuedAndUncommittedReservations() {
 		val queue = ReaderPageRelocationQueue(capacity = 2)
 		val queued = enqueue(queue, gestureId = 1L, source = 3, destination = 4)

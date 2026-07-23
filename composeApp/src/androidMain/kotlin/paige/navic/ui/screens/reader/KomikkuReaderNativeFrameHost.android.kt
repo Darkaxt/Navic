@@ -12,6 +12,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -41,6 +42,7 @@ import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageLifecycleCancellationReason
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
+import paige.navic.reader.ReaderPagePointerOwnership
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
 import paige.navic.reader.ReaderPagePreparationState
@@ -62,6 +64,8 @@ import paige.navic.util.core.Logger
 import java.io.File
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -69,6 +73,7 @@ import kotlin.math.min
 private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHost"
 private const val PageTurnPrewarmRequiredStableFrames = 2
 private const val AndroidGestureDoubleTapMinTimeMillis = 40L
+private val ReaderPageDiagnosticSessionIds = AtomicLong()
 
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
@@ -569,6 +574,14 @@ private fun Context.readerShellCoverFileFor(coverUrl: String): File? {
 	return file.takeIf { it.isFile }
 }
 
+private data class ReaderPageGestureDiagnosticContext(
+	val startedAtMillis: Long,
+	val downX: Float,
+	var owner: ReaderPagePointerOwnership,
+	var physicalDirection: ReaderPagePhysicalDirection? = null,
+	var logicalDirection: ReaderPageTurnDirection? = null
+)
+
 private enum class ReaderPagePhysicalDispatchMode {
 	Legacy,
 	PlayLikeCurl
@@ -624,15 +637,43 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var rasterProfileEpoch: Long? = null
 	private var latestRasterPreparationState = ReaderPagePreparationState()
 	private var latestRendererReadinessState = ReaderPageRendererReadinessState()
-	private val pageTurnBundleSource = ReaderPageTurnBundleSource()
-	private val pagePointerRouter = ReaderPagePointerRouter(
-		ReaderPageGestureLifecycle()
-	) { gestureId, outcome ->
-		Logger.i(
-			KomikkuReaderNativeFrameHostTag,
-			"Reader pointer terminal gestureId=$gestureId outcome=$outcome"
-		)
+	private val ownershipMainHandler = Handler(Looper.getMainLooper())
+	private val ownershipRetryPosted = AtomicBoolean()
+	private val readerDiagnosticSession = ReaderPageDiagnosticSessionIds.incrementAndGet()
+	private val readerRuntimeDiagnostics = ReaderPageRuntimeDiagnostics(
+		readerSession = readerDiagnosticSession,
+		emit = { message -> Logger.i(KomikkuReaderNativeFrameHostTag, message) }
+	)
+	private val gestureDiagnostics = mutableMapOf<Long, ReaderPageGestureDiagnosticContext>()
+	private val pendingOwnershipDiagnosticPhases = linkedSetOf<ReaderPageOwnershipPhase>()
+	private var ownershipDiagnosticInFlight = false
+	private var ownershipDiagnosticRetryPending = false
+	private var coldOwnershipAdmitted = false
+	private val applicationOwnershipEpoch = ReaderPageApplicationOwnershipEpoch {
+		scheduleApplicationOwnershipRetry()
 	}
+	private val pageTurnBundleSource = ReaderPageTurnBundleSource(
+		diagnostics = readerRuntimeDiagnostics,
+		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted
+	)
+	private val pagePointerRouter = ReaderPagePointerRouter(
+		lifecycle = ReaderPageGestureLifecycle(),
+		onStarted = { gestureId, downX, _ ->
+			check(
+				gestureDiagnostics.put(
+					gestureId,
+					ReaderPageGestureDiagnosticContext(
+						startedAtMillis = SystemClock.uptimeMillis(),
+						downX = downX,
+						owner = ReaderPagePointerOwnership.Pending
+					)
+				) == null
+			) { "Gesture diagnostics already own gesture $gestureId" }
+		},
+		publishTerminal = { gestureId, outcome ->
+			emitGestureDiagnostic(gestureId, outcome)
+		}
+	)
 	private val pageInputSettlementHostController: ReaderPageInputSettlementHostController =
 		ReaderPageInputSettlementHostController(
 		initialPolicy = pageOperationPolicy,
@@ -676,7 +717,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		publishLifecycleCancellation = { gestureId, reason ->
 			Logger.i(
 				KomikkuReaderNativeFrameHostTag,
-				"Reader gesture lifecycle cancellation gestureId=$gestureId reason=$reason"
+				ReaderPageDiagnostic.lifecycleCancellation(
+					readerDiagnosticSession,
+					gestureId,
+					reason
+				)
 			)
 		}
 	)
@@ -685,6 +730,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
+		diagnostics = readerRuntimeDiagnostics,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		onRequestRasterRepair = ::requestPageRasterRepair,
 		onGestureTerminal = { gestureId, outcome, detail ->
@@ -708,7 +754,36 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					event == ReaderPageHostLifecycleEvent.GlFailed
 			)
 			dispatchPageHostLifecycleEvent(event)
-		}
+		},
+		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted,
+		onOwnershipAvailabilityEdge = ::retryOwnershipAdmission,
+		onOwnershipDiagnosticRequested = ::requestOwnershipDiagnostic
+	)
+	private val ownershipProbe = ReaderPageOwnershipProbe(
+		applicationSnapshot = ::captureApplicationOwnershipSnapshot,
+		rendererHost = playLikeCurlController
+	)
+	private val coldOwnershipAdmission = ReaderPageColdOwnershipAdmission(
+		ownershipProbe = ownershipProbe,
+		rendererHost = playLikeCurlController,
+		acceptsColdBaseline = { snapshot ->
+			emitOwnershipDiagnostic(
+				ReaderPageOwnershipPhase.ColdStartBaseline,
+				snapshot
+			)
+			snapshot.withinBounds() && snapshot.isClosedBaseline()
+		},
+		onUnavailable = { reason ->
+			emitOwnershipUnavailable(
+				ReaderPageOwnershipPhase.ColdStartBaseline,
+				reason
+			)
+		},
+		onAdmitted = {
+			coldOwnershipAdmitted = true
+			requestPageTurnPrewarmWhenReady()
+		},
+		onCallbackCapacityAvailable = ::retryOwnershipDiagnostics
 	)
 	private val tapTurnController = ReaderPageTapTurnControllerFacade(
 		port = playLikeCurlController,
@@ -719,10 +794,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		host = this,
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
+		diagnostics = readerRuntimeDiagnostics,
 		closeRendererAndAdapter = {
 			playLikeCurlController.destroyAndJoin()
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		canStartPreparation = { coldOwnershipAdmitted },
 		onAwaitHostEvent = { reason ->
 			if (reason == ReaderPageRasterDeferralReason.LayoutUnstable) {
 				pageRasterHostEventController.layoutStabilityInvalidated()
@@ -749,6 +826,149 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				playLikeCurlController.onWebViewAttachmentChanged(attached)
 			}
 		)
+
+	private fun scheduleApplicationOwnershipRetry() {
+		if (!ownershipRetryPosted.compareAndSet(false, true)) return
+		val accepted = ownershipMainHandler.post {
+			ownershipRetryPosted.set(false)
+			retryOwnershipAdmission()
+			retryOwnershipDiagnostics()
+		}
+		if (!accepted) ownershipRetryPosted.set(false)
+	}
+
+	private fun retryOwnershipAdmission() {
+		if (
+			task4ResourceTeardownStarted ||
+			!pageTurnCanvasEnabled ||
+			!isAttachedToWindow
+		) return
+		coldOwnershipAdmission.retryOnOwnershipEdge()
+	}
+
+	private fun requestOwnershipDiagnostic(phase: ReaderPageOwnershipPhase) {
+		if (
+			task4ResourceTeardownStarted ||
+			phase == ReaderPageOwnershipPhase.ColdStartBaseline ||
+			phase == ReaderPageOwnershipPhase.AfterClose
+		) return
+		pendingOwnershipDiagnosticPhases += phase
+		retryOwnershipDiagnostics()
+	}
+
+	private fun retryOwnershipDiagnostics() {
+		if (task4ResourceTeardownStarted || pendingOwnershipDiagnosticPhases.isEmpty()) {
+			return
+		}
+		if (ownershipDiagnosticInFlight) {
+			ownershipDiagnosticRetryPending = true
+			return
+		}
+		val phase = pendingOwnershipDiagnosticPhases.first()
+		ownershipDiagnosticInFlight = true
+		ownershipDiagnosticRetryPending = false
+		ownershipProbe.request { result ->
+			ownershipDiagnosticInFlight = false
+			result.fold(
+				onSuccess = { snapshot ->
+					pendingOwnershipDiagnosticPhases.remove(phase)
+					emitOwnershipDiagnostic(phase, snapshot)
+				},
+				onFailure = { unavailable ->
+					emitOwnershipUnavailable(
+						phase,
+						(unavailable as ReaderPageOwnershipUnavailableException).reason
+					)
+				}
+			)
+			if (
+				ownershipDiagnosticRetryPending ||
+					(result.isSuccess && pendingOwnershipDiagnosticPhases.isNotEmpty())
+			) {
+				ownershipDiagnosticRetryPending = false
+				retryOwnershipDiagnostics()
+			}
+		}
+	}
+
+	private fun captureApplicationOwnershipSnapshot():
+		ReaderPageApplicationOwnershipSnapshot? =
+		applicationOwnershipEpoch.captureStable { ownershipEpoch ->
+			val controller = playLikeCurlController.applicationOwnershipMetrics()
+			val residency = controller.rasterResidency
+			val bundle = pageTurnBundleSource.ownershipMetrics()
+			val cache = bundle.rasterCache
+			val relocation = controller.relocation
+			check(residency.pendingValueReleases <= residency.uniqueDecodedBitmaps)
+			check(cache.pendingDecodedReleases <= cache.uniqueDecodedBitmaps)
+			check(cache.activeEncodePins >= cache.encodePinnedIdentities)
+			check(relocation.occupied == relocation.reserved + relocation.queued)
+			ReaderPageApplicationOwnershipSnapshot(
+				ownershipEpoch = ownershipEpoch,
+				adapterResidents = residency.residentEntries,
+				adapterResidentLimit = residency.residentEntryLimit,
+				adapterDecodedBitmaps = residency.uniqueDecodedBitmaps,
+				adapterDecodedBitmapLimit = residency.uniqueDecodedBitmapLimit,
+				cacheDecodedBitmaps = cache.uniqueDecodedBitmaps,
+				cacheDecodedBitmapLimit = cache.uniqueDecodedBitmapLimit,
+				stagedPublications = bundle.stagedPublications,
+				stagedPublicationLimit = bundle.stagedPublicationLimit,
+				pendingCallbacks =
+					bundle.pendingPublicationCallbacks +
+						controller.pendingVisualCallbacks,
+				pendingCallbackLimit =
+					bundle.pendingPublicationCallbackLimit +
+						controller.pendingVisualCallbackLimit,
+				relocationReservations = relocation.reserved,
+				queuedRelocations = relocation.queued,
+				relocationTokens = relocation.occupied,
+				relocationTokenLimit = relocation.capacity
+			)
+		}
+
+	private fun emitOwnershipDiagnostic(
+		phase: ReaderPageOwnershipPhase,
+		snapshot: ReaderPageOwnershipSnapshot
+	) {
+		val cacheMetrics = pageTurnBundleSource.rasterCacheMetrics()
+		if (phase == ReaderPageOwnershipPhase.AfterClose) {
+			check(cacheMetrics.activeEncodePins == 0)
+			check(cacheMetrics.encodePinnedIdentities == 0)
+		}
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			ReaderPageDiagnostic.ownership(readerDiagnosticSession, phase, snapshot)
+		)
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			ReaderPageDiagnostic.residency(
+				readerDiagnosticSession,
+				playLikeCurlController.rasterResidencyMetrics()
+			)
+		)
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			ReaderPageDiagnostic.rasterCache(
+				readerDiagnosticSession,
+				phase,
+				cacheMetrics
+			)
+		)
+	}
+
+	private fun emitOwnershipUnavailable(
+		phase: ReaderPageOwnershipPhase,
+		reason: ReaderPageOwnershipUnavailableReason
+	) {
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			ReaderPageDiagnostic.ownershipUnavailable(
+				readerDiagnosticSession,
+				phase,
+				reason
+			)
+		)
+	}
 
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
 		rasterProfileEpoch = epoch
@@ -992,9 +1212,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
+		if (!pageTurnCanvasEnabled || !isAttachedToWindow) return
+		if (!coldOwnershipAdmitted) {
+			coldOwnershipAdmission.requestColdBaseline()
+			return
+		}
 		if (
-			!pageTurnCanvasEnabled ||
-			!isAttachedToWindow ||
 			pageTurnVisualPageIndex == null ||
 			pageTurnPrewarmLayoutListener != null
 		) return
@@ -1449,7 +1672,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private fun applyPointerRoute(
 		event: MotionEvent,
 		dispatch: ReaderPageHostPointerDispatchResult
-	): Boolean = when (val route = dispatch.route) {
+	): Boolean {
+		updateGestureDiagnostic(event, dispatch)
+		return when (val route = dispatch.route) {
 		ReaderPagePointerRoute.Content -> {
 			if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 				retainedContentDown?.recycle()
@@ -1527,6 +1752,43 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 		ReaderPagePointerRoute.Consume -> true
 		ReaderPagePointerRoute.Ignore -> true
+		}
+	}
+
+	private fun updateGestureDiagnostic(
+		event: MotionEvent,
+		dispatch: ReaderPageHostPointerDispatchResult
+	) {
+		val gestureId = dispatch.gestureId ?: return
+		val context = gestureDiagnostics[gestureId] ?: return
+		when (dispatch.route) {
+			ReaderPagePointerRoute.Content,
+			is ReaderPagePointerRoute.ContentTerminal ->
+				context.owner = ReaderPagePointerOwnership.Content
+			is ReaderPagePointerRoute.ClaimCurl,
+			is ReaderPagePointerRoute.Curl -> {
+				context.owner = ReaderPagePointerOwnership.Curl
+				if (context.physicalDirection == null && event.x != context.downX) {
+					val physical = if (event.x < context.downX) {
+						ReaderPagePhysicalDirection.Left
+					} else {
+						ReaderPagePhysicalDirection.Right
+					}
+					context.physicalDirection = physical
+					context.logicalDirection = when {
+						pageTurnReadingDirection == "rtl" &&
+							physical == ReaderPagePhysicalDirection.Left ->
+							ReaderPageTurnDirection.Previous
+						pageTurnReadingDirection == "rtl" ->
+							ReaderPageTurnDirection.Next
+						physical == ReaderPagePhysicalDirection.Left ->
+							ReaderPageTurnDirection.Next
+						else -> ReaderPageTurnDirection.Previous
+					}
+				}
+			}
+			else -> Unit
+		}
 	}
 
 	private fun dispatchContentCancel(source: MotionEvent? = null) {
@@ -1730,7 +1992,32 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		gestureId,
 		outcome
 	).also { won ->
-		if (won) pageRasterPreparationController.onPointerInteractionChanged(false)
+		if (won) {
+			pageRasterPreparationController.onPointerInteractionChanged(false)
+		}
+	}
+
+	private fun emitGestureDiagnostic(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome
+	) {
+		val context = gestureDiagnostics.remove(gestureId)
+		Logger.i(
+			KomikkuReaderNativeFrameHostTag,
+			ReaderPageDiagnostic.gesture(
+				readerSession = readerDiagnosticSession,
+				gestureId = gestureId,
+				outcome = outcome,
+				owner = context?.owner ?: ReaderPagePointerOwnership.Terminal,
+				rasterGeneration = playLikeCurlController.diagnosticRasterGeneration(),
+				textureGeneration = playLikeCurlController.diagnosticTextureGeneration(),
+				physicalDirection = context?.physicalDirection,
+				logicalDirection = context?.logicalDirection,
+				durationMs = context?.let {
+					(SystemClock.uptimeMillis() - it.startedAtMillis).coerceAtLeast(0L)
+				} ?: 0L
+			)
+		)
 	}
 
 	private fun completeHostDelayedTap(
@@ -1740,7 +2027,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		gestureId,
 		outcome
 	).also { won ->
-		if (won) pageRasterPreparationController.onPointerInteractionChanged(false)
+		if (won) {
+			pageRasterPreparationController.onPointerInteractionChanged(false)
+		}
 	}
 
 	private fun completePageGesture(
@@ -1934,18 +2223,44 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private fun teardownTask4Resources() {
 		if (task4ResourceTeardownStarted) return
 		task4ResourceTeardownStarted = true
+		coldOwnershipAdmission.close()
 		removePageTurnPrewarmLayoutListener()
 		pageRasterHostEventController.close()
 		val teardown = pageRasterPreparationController.destroy()
 		task4Teardown = teardown
 		teardown.invokeOnCompletion { failure ->
-			if (failure != null) {
-				val stage = (failure as? ReaderPageTeardownException)?.stage?.name
-					?: "UNTYPED"
+			ownershipMainHandler.post {
+				if (failure == null) {
+					ownershipProbe.request { result ->
+						result.fold(
+							onSuccess = { snapshot ->
+								emitOwnershipDiagnostic(
+									ReaderPageOwnershipPhase.AfterClose,
+									snapshot
+								)
+							},
+							onFailure = { unavailable ->
+								emitOwnershipUnavailable(
+									ReaderPageOwnershipPhase.AfterClose,
+									(unavailable as
+										ReaderPageOwnershipUnavailableException).reason
+								)
+							}
+						)
+					}
+					return@post
+				}
+				val typedFailure = failure as? ReaderPageTeardownException
+					?: ReaderPageTeardownException(
+						ReaderPageTeardownStage.BundleOwners,
+						cause = failure
+					)
 				Logger.e(
 					KomikkuReaderNativeFrameHostTag,
-					"Reader teardown failed stage=$stage " +
-						"failureClass=${failure::class.simpleName ?: "unknown"}"
+					ReaderPageDiagnostic.teardownFailure(
+						readerDiagnosticSession,
+						typedFailure
+					)
 				)
 			}
 		}

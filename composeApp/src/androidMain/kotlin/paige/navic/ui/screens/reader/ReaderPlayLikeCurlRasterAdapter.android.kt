@@ -186,6 +186,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 			onCapacityAvailable = onCapacityAvailable
 		),
 	private val publicationDispatcher: CoroutineDispatcher = Dispatchers.Default,
+	private val onOwnershipMutated: () -> Unit = {},
 	private val release: (T) -> Unit
 ) : AutoCloseable {
 	constructor(
@@ -639,6 +640,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 						attachEntryLocked(entry)
 						check(entries.put(key.cacheKey, entry) == null)
 						updateResidencyPeaksLocked()
+						onOwnershipMutated()
 						entry
 					}
 					is ReaderPlayLikeCurlRasterResidencyBudget.Admission.Replaced -> {
@@ -653,10 +655,15 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 						check(entries.remove(candidate.key) === candidate)
 						evictedEntries += 1L
 						detachEntryLocked(candidate)?.let { detachedOwner ->
-							scheduleReleaseLocked(detachedOwner, ownersToRelease)
+							scheduleReleaseLocked(
+								detachedOwner,
+								ownersToRelease,
+								notifyOwnership = false
+							)
 						}
 						check(entries.put(key.cacheKey, entry) == null)
 						updateResidencyPeaksLocked()
+						onOwnershipMutated()
 						entry
 					}
 				}
@@ -729,6 +736,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 			decodedOwners[value] = owner
 			updateResidencyPeaksLocked()
 			assertDecodedCapacityLocked()
+			onOwnershipMutated()
 		}
 	}
 
@@ -770,11 +778,13 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 
 	private fun scheduleReleaseLocked(
 		owner: DecodedValueOwner<T>,
-		scheduled: MutableList<DecodedValueOwner<T>>
+		scheduled: MutableList<DecodedValueOwner<T>>,
+		notifyOwnership: Boolean = true
 	) {
 		check(owner.state == DecodedOwnerState.Releasing)
 		pendingValueReleases += 1
 		scheduled += owner
+		if (notifyOwnership) onOwnershipMutated()
 	}
 
 	private fun releaseScheduledOwners(owners: List<DecodedValueOwner<T>>) {
@@ -801,6 +811,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 					} else {
 						pendingValueReleases -= 1
 					}
+					onOwnershipMutated()
 					collectCapacitySignalsLocked().also {
 						completeCloseIfDrainedLocked()
 					}
@@ -816,15 +827,22 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 	) {
 		val previous = entries.values.toList()
 		entries.clear()
+		var ownershipChanged = false
 		previous.forEach { entry ->
 			if (entry.retainCount > 0) {
 				check(retiredEntries.add(entry))
 			} else {
+				ownershipChanged = true
 				detachResidentEntryLocked(entry, residencySlotsToRelease)?.let { owner ->
-					scheduleReleaseLocked(owner, ownersToRelease)
+					scheduleReleaseLocked(
+						owner,
+						ownersToRelease,
+						notifyOwnership = false
+					)
 				}
 			}
 		}
+		if (ownershipChanged) onOwnershipMutated()
 	}
 
 	private fun replacementCandidateLocked(): CacheEntry<T>? =
@@ -886,6 +904,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		val residencySlotsToRelease =
 			mutableListOf<ReaderPlayLikeCurlRasterResidencyBudget.Slot>()
 		synchronized(lock) {
+			var ownershipChanged = false
 			deckEntries.forEach { entry ->
 				if (entry.retainCount <= 0) {
 					recordReleaseFailureLocked(
@@ -894,15 +913,28 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 						)
 					)
 				} else {
+					val releasesRetiredEntry =
+						entry.retainCount == 1 && entry in retiredEntries
 					entry.retainCount -= 1
 					try {
-						detachEntryIfRetiredLocked(entry, residencySlotsToRelease)
-							?.let { owner -> scheduleReleaseLocked(owner, ownersToRelease) }
+						val retiredOwner = detachEntryIfRetiredLocked(
+							entry,
+							residencySlotsToRelease
+						)
+						if (releasesRetiredEntry) ownershipChanged = true
+						retiredOwner?.let { owner ->
+							scheduleReleaseLocked(
+								owner,
+								ownersToRelease,
+								notifyOwnership = false
+							)
+						}
 					} catch (failure: Throwable) {
 						recordReleaseFailureLocked(failure)
 					}
 				}
 			}
+			if (ownershipChanged) onOwnershipMutated()
 		}
 		releaseScheduledOwners(ownersToRelease)
 		releaseResidencySlots(residencySlotsToRelease)

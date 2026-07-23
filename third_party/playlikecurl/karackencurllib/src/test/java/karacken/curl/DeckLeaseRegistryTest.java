@@ -7,6 +7,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 public class DeckLeaseRegistryTest {
@@ -107,6 +109,43 @@ public class DeckLeaseRegistryTest {
         assertEquals(1, registry.size());
         assertTrue(registry.acquire(43L, listener));
         assertEquals(2, registry.size());
+    }
+
+    @Test
+    public void ownershipObserverReportsEachRealMutationOutsideMonitor() {
+        AtomicInteger mutations = new AtomicInteger();
+        AtomicBoolean callbackHeldMonitor = new AtomicBoolean();
+        DeckLeaseRegistry[] owner = new DeckLeaseRegistry[1];
+        owner[0] = new DeckLeaseRegistry(2, () -> {
+            mutations.incrementAndGet();
+            callbackHeldMonitor.set(
+                    callbackHeldMonitor.get()
+                            || Thread.holdsLock(owner[0]));
+        });
+        DeckLeaseRegistry registry = owner[0];
+        PageSurfaceListener listener = new PageSurfaceListener() {};
+
+        assertTrue(registry.acquire(1L, listener));
+        assertEquals(1, mutations.get());
+        assertFalse(registry.acquire(1L, listener));
+        registry.markReleaseRequested(9L, DeckReleaseReason.EXPLICIT);
+        assertEquals(1, mutations.get());
+
+        registry.markReleaseRequested(1L, DeckReleaseReason.REPLACED);
+        registry.markReleaseRequested(1L, DeckReleaseReason.DISPOSED);
+        assertEquals(2, mutations.get());
+        registry.release(1L);
+        registry.release(1L);
+        assertEquals(3, mutations.get());
+
+        assertTrue(registry.acquire(2L, listener));
+        assertTrue(registry.acquire(3L, listener));
+        assertFalse(registry.acquire(4L, listener));
+        assertEquals(5, mutations.get());
+        registry.releaseAll(DeckReleaseReason.DISPOSED);
+        registry.releaseAll(DeckReleaseReason.DISPOSED);
+        assertEquals(6, mutations.get());
+        assertFalse(callbackHeldMonitor.get());
     }
 
     @Test

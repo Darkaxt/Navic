@@ -28,55 +28,176 @@ function Invoke-Verifier {
 	}
 }
 
-Invoke-Verifier -Root $repositoryRootPath -ShouldPass $true -Case "Canonical snapshot"
+function Invoke-TestGit {
+	param(
+		[string] $Root,
+		[string[]] $Arguments,
+		[string] $Description
+	)
+
+	& git -C $Root @Arguments | Out-Null
+	if ($LASTEXITCODE -ne 0) {
+		throw "$Description (exit=$LASTEXITCODE)."
+	}
+}
+
+function Read-Candidate {
+	param([string] $Root)
+
+	$path = Join-Path $Root "third_party/playlikecurl/candidate-source.json"
+	return Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+}
+
+function Write-Candidate {
+	param(
+		[string] $Root,
+		[object] $Candidate
+	)
+
+	$path = Join-Path $Root "third_party/playlikecurl/candidate-source.json"
+	$Candidate | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
+}
+
+Invoke-Verifier `
+	-Root $repositoryRootPath `
+	-ShouldPass $true `
+	-Case "Canonical API-2 source candidate"
+$immutableProvenancePath = Join-Path $repositoryRootPath (
+	"third_party/playlikecurl/provenance.json"
+)
+$immutableProvenance = Get-Content -LiteralPath $immutableProvenancePath -Raw |
+	ConvertFrom-Json
+$candidateRecordIsHistorical = $immutableProvenance.apiVersion -eq 2
 
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
 	"navic-playlikecurl-verifier-" + [guid]::NewGuid().ToString("N")
 )
+$temporarySnapshot = Join-Path $temporaryRoot "third_party/playlikecurl"
+$sourceSnapshot = Join-Path $repositoryRootPath "third_party/playlikecurl"
 
 try {
-	New-Item -ItemType Directory -Path (Join-Path $temporaryRoot "third_party") -Force | Out-Null
-	Copy-Item `
-		-LiteralPath (Join-Path $repositoryRootPath "third_party/playlikecurl") `
-		-Destination (Join-Path $temporaryRoot "third_party/playlikecurl") `
-		-Recurse
+	New-Item -ItemType Directory -Path (Join-Path $temporaryRoot "third_party") -Force |
+		Out-Null
+	Invoke-TestGit $temporaryRoot @("init", "--quiet") "Unable to initialize verifier fixture"
 
-	$apiPath = Join-Path $temporaryRoot (
-		"third_party/playlikecurl/karackencurllib/src/main/java/" +
-		"karacken/curl/PlayLikeCurlApi.java"
+	function Reset-Fixture {
+		if (Test-Path -LiteralPath $temporarySnapshot) {
+			Remove-Item -LiteralPath $temporarySnapshot -Recurse -Force
+		}
+		Copy-Item -LiteralPath $sourceSnapshot -Destination $temporarySnapshot -Recurse
+		Invoke-TestGit $temporaryRoot @("add", "--all") "Unable to index verifier fixture"
+	}
+
+	Reset-Fixture
+	Invoke-Verifier -Root $temporaryRoot -ShouldPass $true -Case "Clean candidate"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$missingPath = Join-Path $temporarySnapshot ([string]$candidate.sourceFiles[0].path)
+	Remove-Item -LiteralPath $missingPath -Force
+	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "Missing source file"
+
+	Reset-Fixture
+	$extraPath = Join-Path $temporarySnapshot (
+		"karackencurllib/src/main/java/karacken/curl/UnexpectedCandidateSource.java"
 	)
-	Add-Content -LiteralPath $apiPath -Value "// tampered"
+	Set-Content -LiteralPath $extraPath -Value "package karacken.curl;"
+	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "Extra source file"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$candidate.sourceFiles[0].blob = "0000000000000000000000000000000000000000"
+	Write-Candidate $temporaryRoot $candidate
+	Invoke-Verifier `
+		-Root $temporaryRoot `
+		-ShouldPass $candidateRecordIsHistorical `
+		-Case "Wrong source blob"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$candidate.licenseBlob = "0000000000000000000000000000000000000000"
+	Write-Candidate $temporaryRoot $candidate
+	Invoke-Verifier `
+		-Root $temporaryRoot `
+		-ShouldPass $candidateRecordIsHistorical `
+		-Case "Wrong license blob"
+
+	Reset-Fixture
+	$candidatePath = Join-Path $temporarySnapshot "candidate-source.json"
+	Set-Content -LiteralPath $candidatePath -Value "{"
+	Invoke-Verifier `
+		-Root $temporaryRoot `
+		-ShouldPass $candidateRecordIsHistorical `
+		-Case "Malformed candidate JSON"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$candidatePath = Join-Path $temporarySnapshot "candidate-source.json"
+	ConvertTo-Json -InputObject @($candidate) -Depth 8 |
+		Set-Content -LiteralPath $candidatePath
+	Invoke-Verifier `
+		-Root $temporaryRoot `
+		-ShouldPass $candidateRecordIsHistorical `
+		-Case "Candidate root array"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$candidate | Add-Member -NotePropertyName "unexpected" -NotePropertyValue $true
+	Write-Candidate $temporaryRoot $candidate
+	Invoke-Verifier `
+		-Root $temporaryRoot `
+		-ShouldPass $candidateRecordIsHistorical `
+		-Case "Extra candidate JSON field"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$candidate.apiVersion = 3
+	Write-Candidate $temporaryRoot $candidate
+	Invoke-Verifier `
+		-Root $temporaryRoot `
+		-ShouldPass $candidateRecordIsHistorical `
+		-Case "Candidate API mismatch"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$candidate | Add-Member -NotePropertyName "tag" -NotePropertyValue "1.2.0"
+	Write-Candidate $temporaryRoot $candidate
+	Invoke-Verifier `
+		-Root $temporaryRoot `
+		-ShouldPass $candidateRecordIsHistorical `
+		-Case "Forged candidate release claim"
+
+	Reset-Fixture
+	$candidate = Read-Candidate $temporaryRoot
+	$sourcePath = Join-Path $temporarySnapshot ([string]$candidate.sourceFiles[0].path)
+	Add-Content -LiteralPath $sourcePath -Value "// tampered"
 	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "Source tampering"
 
-	Remove-Item -LiteralPath (Join-Path $temporaryRoot "third_party/playlikecurl") -Recurse -Force
-	Copy-Item `
-		-LiteralPath (Join-Path $repositoryRootPath "third_party/playlikecurl") `
-		-Destination (Join-Path $temporaryRoot "third_party/playlikecurl") `
-		-Recurse
-	$generatedPath = Join-Path $temporaryRoot (
-		"third_party/playlikecurl/karackencurllib/build/generated.bin"
+	Reset-Fixture
+	$generatedPath = Join-Path $temporarySnapshot (
+		"karackencurllib/build/generated.bin"
 	)
-	New-Item -ItemType Directory -Path (Split-Path -Parent $generatedPath) -Force | Out-Null
+	New-Item -ItemType Directory -Path (Split-Path -Parent $generatedPath) -Force |
+		Out-Null
 	Set-Content -LiteralPath $generatedPath -Value "generated"
 	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "Generated build output"
 
-	Remove-Item -LiteralPath (Join-Path $temporaryRoot "third_party/playlikecurl") -Recurse -Force
-	Copy-Item `
-		-LiteralPath (Join-Path $repositoryRootPath "third_party/playlikecurl") `
-		-Destination (Join-Path $temporaryRoot "third_party/playlikecurl") `
-		-Recurse
-	$provenancePath = Join-Path $temporaryRoot "third_party/playlikecurl/provenance.json"
+	Reset-Fixture
+	$provenancePath = Join-Path $temporarySnapshot "provenance.json"
+	$provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
+	$provenance.apiVersion = $true
+	$provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $provenancePath
+	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "Non-integer immutable API version"
+
+	Reset-Fixture
+	$provenancePath = Join-Path $temporarySnapshot "provenance.json"
 	$provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
 	$provenance.apiVersion = 2
 	$provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $provenancePath
-	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "API version drift"
+	Invoke-Verifier -Root $temporaryRoot -ShouldPass $false -Case "Immutable API version drift"
 
-	Remove-Item -LiteralPath (Join-Path $temporaryRoot "third_party/playlikecurl") -Recurse -Force
-	Copy-Item `
-		-LiteralPath (Join-Path $repositoryRootPath "third_party/playlikecurl") `
-		-Destination (Join-Path $temporaryRoot "third_party/playlikecurl") `
-		-Recurse
-	$provenancePath = Join-Path $temporaryRoot "third_party/playlikecurl/provenance.json"
+	Reset-Fixture
+	$provenancePath = Join-Path $temporarySnapshot "provenance.json"
 	$provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
 	$provenance.releaseArtifactUrl =
 		"https://github.com/Darkaxt/PlayLikeCurl/releases/download/invalid/karackencurllib-release.aar"

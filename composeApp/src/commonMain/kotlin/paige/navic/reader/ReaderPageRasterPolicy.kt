@@ -2,6 +2,11 @@ package paige.navic.reader
 
 internal const val ReaderPageMaximumRasterImagesPerDeck = 6
 internal const val ReaderPageMaximumProtectedRasterEntriesPerLease = 10
+internal const val ReaderPageMaximumForegroundPublicationEntries = 10
+internal const val ReaderPageAdjacentPrefetchPublicationAllowance = 1
+internal const val ReaderPageMaximumPublicationCallbacks =
+	(ReaderPageMaximumForegroundPublicationEntries +
+		ReaderPageAdjacentPrefetchPublicationAllowance) * 2
 
 enum class ReaderPageBitmapQuality(
 	val persistedValue: String,

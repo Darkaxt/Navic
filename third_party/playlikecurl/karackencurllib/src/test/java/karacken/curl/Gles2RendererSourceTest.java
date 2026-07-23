@@ -124,6 +124,9 @@ public class Gles2RendererSourceTest {
         String releaseDeck = methodBody(
                 surfaceSource,
                 "public void releaseDeck(long generationId)");
+        String startDispose = methodBody(
+                surfaceSource,
+                "private void startDisposeIfNeeded()");
         String rendererDispose = methodBody(rendererSource, "void dispose()");
 
         assertTrue(glDispose.indexOf("renderer.dispose()")
@@ -177,6 +180,8 @@ public class Gles2RendererSourceTest {
                 < releaseDeck.indexOf("deckCoordinator.release(generationId)"));
         assertTrue(deckReleased.indexOf("cancelGesture()")
                 < deckReleased.indexOf("deckCoordinator.release(generationId)"));
+        assertTrue(deckReleased.indexOf("leaseRegistry.markReleaseRequested(")
+                < deckReleased.indexOf("deckCoordinator.release(generationId)"));
         assertTrue(surfaceSource.contains("holderSurfaceAvailable"));
         assertTrue(surfaceSource.contains("surfaceDestroyed(SurfaceHolder holder)"));
         assertTrue(surfaceSource.contains("PageSurfaceDisposalStage.SURFACE_RESUME"));
@@ -188,7 +193,7 @@ public class Gles2RendererSourceTest {
         assertTrue(finish.indexOf("disposeCallbacks.complete(result)")
                 < finish.indexOf("mainTerminalExecutor = null"));
         assertTrue(finish.indexOf("disposedOwnershipSnapshot = snapshot")
-                < finish.indexOf("completeOwnershipCallbacks(snapshot)"));
+                < finish.indexOf("terminalOwnershipCallbacks.complete("));
         assertTrue(finish.contains("releaseInFlightDeckLeases"));
         assertTrue(surfaceSource.contains(
                 "PageSurfaceDisposalStage.SETTLEMENT_CANCEL_CALLBACK"));
@@ -199,10 +204,37 @@ public class Gles2RendererSourceTest {
         assertTrue(surfaceSource.contains(
                 "PageSurfaceTerminalCallbacks<PageSurfaceDisposalResult>"));
         assertTrue(surfaceSource.contains(
+                "PageSurfaceTerminalCallbacks<PageSurfaceOwnershipResult>"));
+        assertTrue(surfaceSource.contains(
+                "PageSurfaceOwnershipSnapshotCoordinator ownershipSnapshotCoordinator"));
+        assertTrue(surfaceSource.contains(
+                "new PageDeckCoordinator<>(this::advanceOwnershipEpoch)"));
+        assertTrue(surfaceSource.contains(
+                "new DeckLeaseRegistry(this::advanceOwnershipEpoch)"));
+        assertTrue(surfaceSource.contains(
+                "ownershipSnapshotCoordinator.request(callback)"));
+        assertTrue(surfaceSource.contains(
+                "setOwnershipCallbackCapacityListener(Runnable listener)"));
+        assertTrue(surfaceSource.contains(
+                "clearOwnershipCallbackCapacityListener(Runnable listener)"));
+        assertTrue(surfaceSource.contains(
+                "ownershipSnapshotCapacityEdge"));
+        assertTrue(surfaceSource.contains(
+                "ownershipSnapshotCoordinator.drain()"));
+        assertTrue(startDispose.indexOf(
+                "ownershipSnapshotCoordinator.clearCapacityAvailableListener(")
+                < startDispose.indexOf("ownershipSnapshotCoordinator.drain()"));
+        assertTrue(startDispose.indexOf("ownershipSnapshotCoordinator.drain()")
+                < startDispose.indexOf("disposeStarted = true"));
+        assertTrue(surfaceSource.contains(
+                "if (disposeStarted) {\n"
+                        + "                                    return PageSurfaceOwnershipSnapshotCoordinator"));
+        assertFalse(surfaceSource.contains(
                 "PageSurfaceSnapshotCallbacks<PageSurfaceOwnershipSnapshot>"));
-        assertTrue(surfaceSource.contains("OwnershipLeaseSample leaseSample"));
-        assertTrue(surfaceSource.contains("ownershipEpoch != leaseSample.epoch"));
-        assertTrue(surfaceSource.contains("completeUnavailableOwnershipRequests()"));
+        assertFalse(surfaceSource.contains("pendingOwnershipCallbacks"));
+        assertFalse(surfaceSource.contains("ownershipSnapshotInFlight"));
+        assertFalse(surfaceSource.contains("finishLiveOwnershipSnapshot"));
+        assertFalse(surfaceSource.contains("completeUnavailableOwnershipRequests"));
         assertTrue(surfaceSource.contains(
                 "if (enqueueMainHandlerTerminal(action))"));
         assertFalse(surfaceSource.contains(

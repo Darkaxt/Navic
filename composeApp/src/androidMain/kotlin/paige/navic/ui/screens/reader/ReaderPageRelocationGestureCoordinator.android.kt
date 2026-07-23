@@ -37,7 +37,9 @@ internal sealed interface ReaderPageRelocationCommitResult {
 }
 
 internal class ReaderPageRelocationGestureCoordinator(
-	private val queue: ReaderPageRelocationQueue
+	private val queue: ReaderPageRelocationQueue,
+	private val onQueued: (ReaderPageRelocationRequest) -> Unit = {},
+	private val onRejected: (ReaderPageRelocationRequest) -> Unit = {}
 ) {
 	private data class Owner(
 		val reservation: ReaderPageRelocationReservation,
@@ -199,14 +201,17 @@ internal class ReaderPageRelocationGestureCoordinator(
 			ReaderPageRelocationTransferResult.ReservationNotOwned ->
 				return ReaderPageRelocationCommitResult.ReservationNotOwned
 		}
+		onQueued(request)
 		val published = try {
 			publishCommittedTerminal()
 		} catch (failure: Throwable) {
 			check(queue.cancelTransferred(request.token.value))
+			onRejected(request)
 			throw failure
 		}
 		if (!published) {
 			check(queue.cancelTransferred(request.token.value))
+			onRejected(request)
 			return ReaderPageRelocationCommitResult.TerminalNotPublished
 		}
 		dispatch(request)

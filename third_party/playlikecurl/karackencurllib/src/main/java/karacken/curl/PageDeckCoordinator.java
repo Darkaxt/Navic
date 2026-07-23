@@ -170,114 +170,156 @@ final class PageDeckCoordinator<T> {
         }
     }
 
+    private final Runnable ownershipMutated;
     private PageDeck<T> activeDeck;
     private PageDeck<T> pendingDeck;
     private long latestGeneration = Long.MIN_VALUE;
     private boolean settling;
     private boolean disposed;
 
-    synchronized Offer<T> offer(PageDeck<T> deck) {
-        if (disposed) {
-            return Offer.rejected(DeckRejectionReason.DISPOSED);
-        }
-        long generationId = deck.getGenerationId();
-        if (generationId < latestGeneration) {
-            return Offer.rejected(DeckRejectionReason.STALE_GENERATION);
-        }
-        if (generationId == latestGeneration) {
-            PageDeck<T> retained = retainedDeck(generationId);
-            if (retained != null && hasSameIdentity(retained, deck)) {
-                return Offer.unchanged();
-            }
-            return Offer.rejected(DeckRejectionReason.CONFLICTING_GENERATION);
-        }
-
-        PageDeck<T> previousActiveDeck = activeDeck;
-        PageDeck<T> previousPendingDeck = pendingDeck;
-        long previousLatestGeneration = latestGeneration;
-        latestGeneration = generationId;
-        if (settling) {
-            PageDeck<T> replaced = pendingDeck;
-            pendingDeck = deck;
-            Release<T> release = replaced == null
-                    ? null
-                    : new Release<>(replaced, DeckReleaseReason.REPLACED);
-            return Offer.pending(
-                    release,
-                    previousActiveDeck,
-                    previousPendingDeck,
-                    previousLatestGeneration);
-        }
-
-        List<Release<T>> releases = new ArrayList<>(2);
-        addRelease(releases, activeDeck, DeckReleaseReason.REPLACED);
-        if (pendingDeck != activeDeck) {
-            addRelease(releases, pendingDeck, DeckReleaseReason.REPLACED);
-        }
-        activeDeck = deck;
-        pendingDeck = null;
-        return Offer.active(
-                releases,
-                previousActiveDeck,
-                previousPendingDeck,
-                previousLatestGeneration);
+    PageDeckCoordinator() {
+        this(() -> {});
     }
 
-    synchronized boolean rollback(PageDeck<T> deck, Offer<T> offer) {
+    PageDeckCoordinator(Runnable ownershipMutated) {
+        this.ownershipMutated =
+                Objects.requireNonNull(ownershipMutated, "ownershipMutated");
+    }
+
+    Offer<T> offer(PageDeck<T> deck) {
+        final Offer<T> result;
+        synchronized (this) {
+            if (disposed) {
+                return Offer.rejected(DeckRejectionReason.DISPOSED);
+            }
+            long generationId = deck.getGenerationId();
+            if (generationId < latestGeneration) {
+                return Offer.rejected(DeckRejectionReason.STALE_GENERATION);
+            }
+            if (generationId == latestGeneration) {
+                PageDeck<T> retained = retainedDeck(generationId);
+                if (retained != null && hasSameIdentity(retained, deck)) {
+                    return Offer.unchanged();
+                }
+                return Offer.rejected(DeckRejectionReason.CONFLICTING_GENERATION);
+            }
+
+            PageDeck<T> previousActiveDeck = activeDeck;
+            PageDeck<T> previousPendingDeck = pendingDeck;
+            long previousLatestGeneration = latestGeneration;
+            latestGeneration = generationId;
+            if (settling) {
+                PageDeck<T> replaced = pendingDeck;
+                pendingDeck = deck;
+                Release<T> release = replaced == null
+                        ? null
+                        : new Release<>(replaced, DeckReleaseReason.REPLACED);
+                result = Offer.pending(
+                        release,
+                        previousActiveDeck,
+                        previousPendingDeck,
+                        previousLatestGeneration);
+            } else {
+                List<Release<T>> releases = new ArrayList<>(2);
+                addRelease(releases, activeDeck, DeckReleaseReason.REPLACED);
+                if (pendingDeck != activeDeck) {
+                    addRelease(releases, pendingDeck, DeckReleaseReason.REPLACED);
+                }
+                activeDeck = deck;
+                pendingDeck = null;
+                result = Offer.active(
+                        releases,
+                        previousActiveDeck,
+                        previousPendingDeck,
+                        previousLatestGeneration);
+            }
+        }
+        ownershipMutated.run();
+        return result;
+    }
+
+    boolean rollback(PageDeck<T> deck, Offer<T> offer) {
         Objects.requireNonNull(deck, "deck");
         Objects.requireNonNull(offer, "offer");
-        switch (offer.getPlacement()) {
-            case ACTIVE:
-                if (activeDeck != deck || pendingDeck != null) {
+        synchronized (this) {
+            switch (offer.getPlacement()) {
+                case ACTIVE:
+                    if (activeDeck != deck || pendingDeck != null) {
+                        return false;
+                    }
+                    break;
+                case PENDING:
+                    if (pendingDeck != deck) {
+                        return false;
+                    }
+                    break;
+                default:
                     return false;
-                }
-                break;
-            case PENDING:
-                if (pendingDeck != deck) {
-                    return false;
-                }
-                break;
-            default:
+            }
+            if (latestGeneration != deck.getGenerationId()) {
                 return false;
+            }
+            activeDeck = offer.previousActiveDeck;
+            pendingDeck = offer.previousPendingDeck;
+            latestGeneration = offer.previousLatestGeneration;
         }
-        if (latestGeneration != deck.getGenerationId()) {
-            return false;
-        }
-        activeDeck = offer.previousActiveDeck;
-        pendingDeck = offer.previousPendingDeck;
-        latestGeneration = offer.previousLatestGeneration;
+        ownershipMutated.run();
         return true;
     }
 
-    synchronized void beginSettlement() {
-        if (!disposed) {
+    void beginSettlement() {
+        synchronized (this) {
+            if (disposed || settling) {
+                return;
+            }
             settling = true;
         }
+        ownershipMutated.run();
     }
 
-    synchronized Promotion<T> completeSettlement() {
-        settling = false;
-        if (pendingDeck != null) {
+    Promotion<T> completeSettlement() {
+        final Promotion<T> result;
+        synchronized (this) {
+            if (!settling && pendingDeck == null) {
+                return Promotion.none();
+            }
+            settling = false;
+            if (pendingDeck != null) {
+                PageDeck<T> released = activeDeck;
+                activeDeck = pendingDeck;
+                pendingDeck = null;
+                result = Promotion.activated(activeDeck, released);
+            } else {
+                result = Promotion.none();
+            }
+        }
+        ownershipMutated.run();
+        return result;
+    }
+
+    void cancelSettlement() {
+        synchronized (this) {
+            if (!settling) {
+                return;
+            }
+            settling = false;
+        }
+        ownershipMutated.run();
+    }
+
+    Promotion<T> activatePending() {
+        final Promotion<T> result;
+        synchronized (this) {
+            if (disposed || settling || pendingDeck == null) {
+                return Promotion.none();
+            }
             PageDeck<T> released = activeDeck;
             activeDeck = pendingDeck;
             pendingDeck = null;
-            return Promotion.activated(activeDeck, released);
+            result = Promotion.activated(activeDeck, released);
         }
-        return Promotion.none();
-    }
-
-    synchronized void cancelSettlement() {
-        settling = false;
-    }
-
-    synchronized Promotion<T> activatePending() {
-        if (disposed || settling || pendingDeck == null) {
-            return Promotion.none();
-        }
-        PageDeck<T> released = activeDeck;
-        activeDeck = pendingDeck;
-        pendingDeck = null;
-        return Promotion.activated(activeDeck, released);
+        ownershipMutated.run();
+        return result;
     }
 
     synchronized PageDeck<T> getActiveDeck() {
@@ -292,44 +334,60 @@ final class PageDeckCoordinator<T> {
         return settling;
     }
 
-    synchronized Release<T> release(long generationId) {
-        if (activeDeck != null && activeDeck.getGenerationId() == generationId) {
-            PageDeck<T> released = activeDeck;
-            activeDeck = null;
-            return new Release<>(released, DeckReleaseReason.EXPLICIT);
+    Release<T> release(long generationId) {
+        final Release<T> result;
+        synchronized (this) {
+            if (activeDeck != null && activeDeck.getGenerationId() == generationId) {
+                PageDeck<T> released = activeDeck;
+                activeDeck = null;
+                result = new Release<>(released, DeckReleaseReason.EXPLICIT);
+            } else if (pendingDeck != null
+                    && pendingDeck.getGenerationId() == generationId) {
+                PageDeck<T> released = pendingDeck;
+                pendingDeck = null;
+                result = new Release<>(released, DeckReleaseReason.EXPLICIT);
+            } else {
+                return null;
+            }
         }
-        if (pendingDeck != null && pendingDeck.getGenerationId() == generationId) {
+        ownershipMutated.run();
+        return result;
+    }
+
+    Release<T> releasePending(DeckReleaseReason reason) {
+        Objects.requireNonNull(reason, "reason");
+        final Release<T> result;
+        synchronized (this) {
+            if (pendingDeck == null) {
+                return null;
+            }
             PageDeck<T> released = pendingDeck;
             pendingDeck = null;
-            return new Release<>(released, DeckReleaseReason.EXPLICIT);
+            result = new Release<>(released, reason);
         }
-        return null;
+        ownershipMutated.run();
+        return result;
     }
 
-    synchronized Release<T> releasePending(DeckReleaseReason reason) {
-        Objects.requireNonNull(reason, "reason");
-        if (pendingDeck == null) {
-            return null;
+    List<Release<T>> dispose() {
+        final List<Release<T>> result;
+        synchronized (this) {
+            if (disposed) {
+                return Collections.emptyList();
+            }
+            disposed = true;
+            settling = false;
+            List<Release<T>> releases = new ArrayList<>(2);
+            addRelease(releases, activeDeck, DeckReleaseReason.DISPOSED);
+            if (pendingDeck != activeDeck) {
+                addRelease(releases, pendingDeck, DeckReleaseReason.DISPOSED);
+            }
+            activeDeck = null;
+            pendingDeck = null;
+            result = Collections.unmodifiableList(new ArrayList<>(releases));
         }
-        PageDeck<T> released = pendingDeck;
-        pendingDeck = null;
-        return new Release<>(released, reason);
-    }
-
-    synchronized List<Release<T>> dispose() {
-        if (disposed) {
-            return Collections.emptyList();
-        }
-        disposed = true;
-        settling = false;
-        List<Release<T>> releases = new ArrayList<>(2);
-        addRelease(releases, activeDeck, DeckReleaseReason.DISPOSED);
-        if (pendingDeck != activeDeck) {
-            addRelease(releases, pendingDeck, DeckReleaseReason.DISPOSED);
-        }
-        activeDeck = null;
-        pendingDeck = null;
-        return Collections.unmodifiableList(new ArrayList<>(releases));
+        ownershipMutated.run();
+        return result;
     }
 
     private PageDeck<T> retainedDeck(long generationId) {

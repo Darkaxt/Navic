@@ -46,7 +46,9 @@ internal sealed interface ReaderWebViewVisualHandoffAttemptEvent {
 	data class Terminal(
 		override val relocationToken: String,
 		override val handoffAttemptId: Long,
-		val result: ReaderWebViewVisualHandoffResult
+		val result: ReaderWebViewVisualHandoffResult,
+		val visualStateCompleted: Boolean = false,
+		val nextFrameCompleted: Boolean = false
 	) : ReaderWebViewVisualHandoffAttemptEvent
 
 	data class StalePhysicalCallbackReleased(
@@ -71,7 +73,8 @@ internal interface ReaderWebViewVisualCallbackRegistration {
 
 internal class ReaderWebViewVisualDeliveryCell(
 	action: () -> Unit,
-	private val onPhysicalOwnershipReleased: () -> Unit
+	private val onPhysicalOwnershipReleased: () -> Unit,
+	private val onPhysicalOwnershipReleaseCompleted: () -> Unit = {}
 ) : ReaderWebViewVisualCallbackRegistration {
 	private val action = AtomicReference<(() -> Unit)?>(action)
 	private val transferred = AtomicBoolean()
@@ -97,9 +100,13 @@ internal class ReaderWebViewVisualDeliveryCell(
 
 	private fun releasePhysicalOwnership(deliver: Boolean): Boolean {
 		if (!physicalOwnershipReleased.compareAndSet(false, true)) return false
-		onPhysicalOwnershipReleased()
 		val owned = action.getAndSet(null)
-		if (deliver) owned?.invoke()
+		try {
+			onPhysicalOwnershipReleased()
+			if (deliver) owned?.invoke()
+		} finally {
+			onPhysicalOwnershipReleaseCompleted()
+		}
 		return owned != null
 	}
 
@@ -134,7 +141,8 @@ internal class ReaderWebViewVisualHandoff(
 	private val timeoutMillis: Long = 2_000L,
 	private val onCapacityRetry: (ReaderWebViewVisualHandoffRetryEvent) -> Boolean = { true },
 	private val attemptEventSink: ReaderWebViewVisualHandoffAttemptEventSink =
-		ReaderWebViewVisualHandoffAttemptEventSink { }
+		ReaderWebViewVisualHandoffAttemptEventSink { },
+	private val onOwnershipMutated: () -> Unit = {}
 ) {
 	private enum class PendingCallbackKind {
 		VisualState,
@@ -150,7 +158,18 @@ internal class ReaderWebViewVisualHandoff(
 		val timeoutAction: () -> Unit,
 		val onResult: (ReaderWebViewVisualHandoffResult) -> Unit,
 		var nextFrameToken: Long? = null,
-		var nextFrameAction: (() -> Unit)? = null
+		var nextFrameAction: (() -> Unit)? = null,
+		var visualStateCompleted: Boolean = false,
+		var nextFrameCompleted: Boolean = false
+	)
+
+	private data class OwnershipState(
+		val pendingCallbacks: List<Pair<Long, PendingCallbackKind>>,
+		val visualRegistrationTokens: List<Long>,
+		val callbackCapacityRetryToken: String?,
+		val pendingCapacityEdge:
+			ReaderWebViewVisualHandoffRetryEvent.CallbackCapacityAvailable?,
+		val closed: Boolean
 	)
 
 	val hostCallbackLimit: Int = 2
@@ -168,7 +187,42 @@ internal class ReaderWebViewVisualHandoff(
 	private var pendingCapacityEdge:
 		ReaderWebViewVisualHandoffRetryEvent.CallbackCapacityAvailable? = null
 	private var capacityDeliveryInProgress = false
+	private var ownershipMutationDepth = 0
+	private var ownershipStateBeforeMutation: OwnershipState? = null
 	private var closed = false
+
+	private fun ownershipState(): OwnershipState = OwnershipState(
+		pendingCallbacks = pendingCallbacks.entries.map { it.key to it.value },
+		visualRegistrationTokens = visualRegistrations.keys.toList(),
+		callbackCapacityRetryToken = callbackCapacityRetryToken,
+		pendingCapacityEdge = pendingCapacityEdge,
+		closed = closed
+	)
+
+	private fun beginOwnershipMutation() {
+		if (ownershipMutationDepth == 0) {
+			ownershipStateBeforeMutation = ownershipState()
+		}
+		ownershipMutationDepth += 1
+	}
+
+	private fun endOwnershipMutation() {
+		check(ownershipMutationDepth > 0)
+		ownershipMutationDepth -= 1
+		if (ownershipMutationDepth != 0) return
+		val before = checkNotNull(ownershipStateBeforeMutation)
+		ownershipStateBeforeMutation = null
+		if (ownershipState() != before) onOwnershipMutated()
+	}
+
+	private inline fun <T> ownershipMutation(action: () -> T): T {
+		beginOwnershipMutation()
+		return try {
+			action()
+		} finally {
+			endOwnershipMutation()
+		}
+	}
 
 	fun pendingHostCallbackCount(): Int = pendingCallbacks.size
 
@@ -202,7 +256,7 @@ internal class ReaderWebViewVisualHandoff(
 	fun await(
 		token: String,
 		onResult: (ReaderWebViewVisualHandoffResult) -> Unit
-	) {
+	): Unit = ownershipMutation {
 		check(!closed) { "Visual handoff is closed" }
 		invalidate()
 		cancelPendingCapacityRetryEdge(token)
@@ -240,12 +294,14 @@ internal class ReaderWebViewVisualHandoff(
 		val (timeoutToken, visualStateToken) = reservation
 		lateinit var timeoutAction: () -> Unit
 		timeoutAction = {
-			if (consumeCallback(timeoutToken, PendingCallbackKind.Timeout)) {
-				finish(
-					requestId,
-					token,
-					ReaderWebViewVisualHandoffFailure.TimedOut
-				)
+			ownershipMutation {
+				if (consumeCallback(timeoutToken, PendingCallbackKind.Timeout)) {
+					finish(
+						requestId,
+						token,
+						ReaderWebViewVisualHandoffFailure.TimedOut
+					)
+				}
 			}
 		}
 		val request = Active(
@@ -272,34 +328,46 @@ internal class ReaderWebViewVisualHandoff(
 					)
 					return@visualState
 				}
+				current.visualStateCompleted = true
 				val nextFrameToken = reserveCallback(PendingCallbackKind.NextFrame)
 				lateinit var nextFrameAction: () -> Unit
 				nextFrameAction = nextFrame@{
-					if (!consumeCallback(
-							nextFrameToken,
-							PendingCallbackKind.NextFrame
-						)
-					) return@nextFrame
-					val ready = active?.takeIf {
-						it.requestId == requestId && it.token == token
-					} ?: return@nextFrame
-					removeTimeout(ready)
-					active = null
-					val result = if (host.isAttachedToWindow) {
-						ReaderWebViewVisualHandoffResult.Ready(token)
-					} else {
-						ReaderWebViewVisualHandoffResult.Failed(
+					ownershipMutation {
+						if (!consumeCallback(
+								nextFrameToken,
+								PendingCallbackKind.NextFrame
+							)
+						) return@ownershipMutation
+						val ready = active?.takeIf {
+							it.requestId == requestId && it.token == token
+						} ?: return@ownershipMutation
+						ready.nextFrameCompleted = true
+						removeTimeout(ready)
+						active = null
+						val result = if (host.isAttachedToWindow) {
+							ReaderWebViewVisualHandoffResult.Ready(token)
+						} else {
+							ReaderWebViewVisualHandoffResult.Failed(
+								token,
+								ReaderWebViewVisualHandoffFailure.Detached
+							)
+						}
+						publishTerminal(
+							requestId,
 							token,
-							ReaderWebViewVisualHandoffFailure.Detached
+							result,
+							ready.onResult,
+							ready.visualStateCompleted,
+							ready.nextFrameCompleted
 						)
 					}
-					publishTerminal(requestId, token, result, ready.onResult)
 				}
 				current.nextFrameToken = nextFrameToken
 				current.nextFrameAction = nextFrameAction
 				host.postOnAnimation(nextFrameAction)
 			},
 			onPhysicalOwnershipReleased = {
+				beginOwnershipMutation()
 				val wasLogicallyActive = active?.let {
 					it.requestId == requestId && it.token == token
 				} == true
@@ -317,7 +385,8 @@ internal class ReaderWebViewVisualHandoff(
 							.StalePhysicalCallbackReleased(token, requestId)
 					)
 				}
-			}
+			},
+			onPhysicalOwnershipReleaseCompleted = ::endOwnershipMutation
 		)
 		check(visualRegistrations.put(visualStateToken, registration) == null)
 		try {
@@ -333,7 +402,7 @@ internal class ReaderWebViewVisualHandoff(
 		}
 	}
 
-	fun invalidate() {
+	fun invalidate(): Unit = ownershipMutation {
 		val request = active ?: return
 		active = null
 		removeTimeout(request)
@@ -346,11 +415,13 @@ internal class ReaderWebViewVisualHandoff(
 				request.token,
 				ReaderWebViewVisualHandoffFailure.Invalidated
 			),
-			request.onResult
+			request.onResult,
+			request.visualStateCompleted,
+			request.nextFrameCompleted
 		)
 	}
 
-	fun cancelPendingCapacityRetryEdge(token: String): Boolean {
+	fun cancelPendingCapacityRetryEdge(token: String): Boolean = ownershipMutation {
 		var cancelled = false
 		if (callbackCapacityRetryToken == token) {
 			callbackCapacityRetryToken = null
@@ -364,7 +435,7 @@ internal class ReaderWebViewVisualHandoff(
 		return cancelled
 	}
 
-	fun redeliverPendingCapacityRetryEdge(): Boolean {
+	fun redeliverPendingCapacityRetryEdge(): Boolean = ownershipMutation {
 		val edge = pendingCapacityEdge ?: return false
 		if (closed || capacityDeliveryInProgress) return false
 		capacityDeliveryInProgress = true
@@ -400,7 +471,9 @@ internal class ReaderWebViewVisualHandoff(
 			requestId,
 			token,
 			ReaderWebViewVisualHandoffResult.Failed(token, reason),
-			request.onResult
+			request.onResult,
+			request.visualStateCompleted,
+			request.nextFrameCompleted
 		)
 	}
 
@@ -408,13 +481,17 @@ internal class ReaderWebViewVisualHandoff(
 		requestId: Long,
 		token: String,
 		result: ReaderWebViewVisualHandoffResult,
-		onResult: (ReaderWebViewVisualHandoffResult) -> Unit
+		onResult: (ReaderWebViewVisualHandoffResult) -> Unit,
+		visualStateCompleted: Boolean = false,
+		nextFrameCompleted: Boolean = false
 	) {
 		attemptEventSink.emit(
 			ReaderWebViewVisualHandoffAttemptEvent.Terminal(
 				relocationToken = token,
 				handoffAttemptId = requestId,
-				result = result
+				result = result,
+				visualStateCompleted = visualStateCompleted,
+				nextFrameCompleted = nextFrameCompleted
 			)
 		)
 		onResult(result)
@@ -443,7 +520,7 @@ internal class ReaderWebViewVisualHandoff(
 	private fun consumeCallback(
 		callbackToken: Long,
 		expected: PendingCallbackKind
-	): Boolean {
+	): Boolean = ownershipMutation {
 		if (pendingCallbacks[callbackToken] != expected) return false
 		val couldReserveBefore = canReserveInitialCallbacks()
 		pendingCallbacks.remove(callbackToken)
@@ -466,7 +543,7 @@ internal class ReaderWebViewVisualHandoff(
 		return true
 	}
 
-	fun close() {
+	fun close(): Unit = ownershipMutation {
 		if (closed) return
 		closed = true
 		callbackCapacityRetryToken = null
@@ -483,7 +560,9 @@ internal class ReaderWebViewVisualHandoff(
 					request.token,
 					ReaderWebViewVisualHandoffFailure.Cancelled
 				),
-				request.onResult
+				request.onResult,
+				request.visualStateCompleted,
+				request.nextFrameCompleted
 			)
 		}
 		visualRegistrations.values.toList().forEach { registration ->
@@ -657,7 +736,12 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		ReaderWebViewVisualHandoffFailure
 	) -> Unit,
 	private val hideSurface: () -> Unit,
-	timeoutMillis: Long = 2_000L
+	timeoutMillis: Long = 2_000L,
+	private val onOwnershipMutated: () -> Unit = {},
+	private val attemptEventSink: ReaderWebViewVisualHandoffAttemptEventSink =
+		ReaderWebViewVisualHandoffAttemptEventSink { },
+	private val onAwaiting: (ReaderPageRelocationRequest) -> Unit = {},
+	private val onCompleted: (ReaderPageRelocationRequest) -> Unit = {}
 ) {
 	private enum class Phase {
 		Idle,
@@ -671,8 +755,14 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	private val handoff = ReaderWebViewVisualHandoff(
 		host = host,
 		timeoutMillis = timeoutMillis,
-		onCapacityRetry = ::onCapacityRetry
+		onCapacityRetry = ::onCapacityRetry,
+		attemptEventSink = attemptEventSink,
+		onOwnershipMutated = onOwnershipMutated
 	)
+
+	fun pendingCallbackCount(): Int = handoff.applicationOwnedCallbackCount()
+
+	fun pendingCallbackLimit(): Int = handoff.pendingCallbackLimit
 
 	fun onAcknowledged(request: ReaderPageRelocationRequest): Boolean {
 		if (phase != Phase.Idle || !matchesAcknowledgedHead(request)) return false
@@ -715,7 +805,9 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		) {
 			return false
 		}
+		val firstAttempt = phase == Phase.Idle
 		phase = Phase.Awaiting
+		if (firstAttempt) onAwaiting(request)
 		return try {
 			handoff.await(request.token.value, ::onHandoffResult)
 			true
@@ -755,6 +847,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		}
 		head = null
 		phase = Phase.Idle
+		onCompleted(request)
 		val next = queue.commandToDispatch()
 		if (next == null) hideSurface() else dispatch(next)
 	}

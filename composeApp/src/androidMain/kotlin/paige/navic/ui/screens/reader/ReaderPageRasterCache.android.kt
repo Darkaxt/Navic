@@ -41,7 +41,8 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val maxDiskBytes: Long = ReaderPageRasterDiskMaxBytes,
 	private val maxDecodedEntries: Int = ReaderPageRasterDecodedMaxEntries,
 	private val clock: () -> Long = System::currentTimeMillis,
-	private val onDiagnostic: (String) -> Unit = {}
+	private val onDiagnostic: (String) -> Unit = {},
+	private val onOwnershipMutated: () -> Unit = {}
 ) {
 	private enum class DecodedCacheOwnerState {
 		Active,
@@ -651,11 +652,13 @@ internal class ReaderPageRasterCache<T : Any>(
 		)
 		if ((decodedEncodePins[owner.value] ?: 0) > 0) {
 			owner.state = DecodedCacheOwnerState.ReleasePendingForEncode
+			onOwnershipMutated()
 			return
 		}
 		owner.state = DecodedCacheOwnerState.Releasing
 		pendingDecodedReleases += 1
 		scheduled += owner
+		onOwnershipMutated()
 	}
 
 	private fun detachDecodedEntryLocked(
@@ -669,6 +672,8 @@ internal class ReaderPageRasterCache<T : Any>(
 		owner.entryReferences -= 1
 		if (owner.entryReferences == 0) {
 			scheduleDecodedOwnerReleaseLocked(owner, scheduled)
+		} else {
+			onOwnershipMutated()
 		}
 		assertDecodedBoundsLocked()
 	}
@@ -691,6 +696,7 @@ internal class ReaderPageRasterCache<T : Any>(
 		decodedEncodePins[value] = (decodedEncodePins[value] ?: 0) + 1
 		activeEncodePins += 1
 		assertDecodedBoundsLocked()
+		onOwnershipMutated()
 		DecodedCacheEncodeAdmission.Pinned(DecodedCacheEncodePin(value))
 	}
 
@@ -733,6 +739,8 @@ internal class ReaderPageRasterCache<T : Any>(
 				decodedEncodePins[pin.value] == null
 			) {
 				scheduleDecodedOwnerReleaseLocked(owner, scheduled)
+			} else {
+				onOwnershipMutated()
 			}
 			assertDecodedBoundsLocked()
 		}
@@ -793,6 +801,7 @@ internal class ReaderPageRasterCache<T : Any>(
 		decoded[key.digest] = DecodedCacheEntry(key, metadata, owner)
 		owner.entryReferences += 1
 		assertDecodedBoundsLocked()
+		onOwnershipMutated()
 	}
 
 	private fun adoptDecodedValue(
@@ -898,6 +907,7 @@ internal class ReaderPageRasterCache<T : Any>(
 					pendingDecodedReleases -= 1
 					check(pendingDecodedReleases >= 0)
 					assertDecodedBoundsLocked()
+					onOwnershipMutated()
 				}
 			}
 		}

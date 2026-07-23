@@ -25,15 +25,19 @@ internal sealed interface ReaderPageRasterPublicationRegistration {
 }
 
 internal class ReaderPageRasterPublicationLedger<T : Any>(
-	private val maxEntries: Int = Int.MAX_VALUE,
-	private val maxCallbacksPerEntry: Int = Int.MAX_VALUE,
+	val currentEpochEntryLimit: Int,
+	private val persistenceWorkerLimit: Int,
+	val callbackLimit: Int,
+	private val onOwnershipMutated: () -> Unit = {},
 	private val release: (T) -> Unit
 ) {
 	constructor(release: (T) -> Unit) : this(
-		maxEntries = Int.MAX_VALUE,
-		maxCallbacksPerEntry = Int.MAX_VALUE,
+		currentEpochEntryLimit = Int.MAX_VALUE / 2,
+		persistenceWorkerLimit = Int.MAX_VALUE / 2,
+		callbackLimit = Int.MAX_VALUE,
 		release = release
 	)
+
 	private enum class ProducerState { Queued, Active }
 
 	private data class Entry<T : Any>(
@@ -53,12 +57,44 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 	private var epoch = 0L
 	private val entries =
 		linkedMapOf<ReaderPageRasterPublicationRequest, Entry<T>>()
+	private var capacityAvailableListener: (() -> Unit)? = null
+	private var capacityRetryPending = false
 	private var retainedDispatchFailure: Throwable? = null
 
 	init {
-		require(maxEntries > 0)
-		require(maxCallbacksPerEntry > 0)
+		require(currentEpochEntryLimit > 0)
+		require(persistenceWorkerLimit > 0)
+		require(callbackLimit >= currentEpochEntryLimit)
 	}
+
+	fun setCapacityAvailableListener(listener: () -> Unit) {
+		val notify = synchronized(this) {
+			check(
+				capacityAvailableListener == null ||
+					capacityAvailableListener === listener
+			) { "Publication capacity listener is already owned" }
+			capacityAvailableListener = listener
+			capacityRetryPending.also { pending ->
+				if (pending) capacityRetryPending = false
+			}
+		}
+		if (notify) dispatchCapacityAvailable(listener)
+	}
+
+	fun clearCapacityAvailableListener(listener: () -> Unit) {
+		synchronized(this) {
+			if (capacityAvailableListener === listener) {
+				capacityAvailableListener = null
+				capacityRetryPending = false
+			}
+		}
+	}
+
+	val staleActiveDrainLimit: Int
+		get() = persistenceWorkerLimit
+
+	val entryLimit: Int
+		get() = currentEpochEntryLimit + staleActiveDrainLimit
 
 	fun begin(
 		digest: String,
@@ -70,9 +106,13 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 		val registration = synchronized(this) {
 			val request = ReaderPageRasterPublicationRequest(digest, epoch)
 			val existing = entries[request]
-			when {
+			val globalCallbackCapacityReached = callbackCountLocked() >= callbackLimit
+			val entryCallbackCapacityReached =
+				(existing?.callbacks?.size ?: 0) >= MaximumCallbacksPerEntry
+			val result = when {
 				existing != null &&
-					existing.callbacks.size >= maxCallbacksPerEntry -> {
+					(entryCallbackCapacityReached || globalCallbackCapacityReached) -> {
+					capacityRetryPending = true
 					rejectedCallback = callback
 					detachedValue = value
 					ReaderPageRasterPublicationRegistration.Rejected(
@@ -84,11 +124,20 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 					detachedValue = value
 					ReaderPageRasterPublicationRegistration.Coalesced(request)
 				}
-				entries.size >= maxEntries -> {
+				currentEpochEntryCountLocked() >= currentEpochEntryLimit -> {
+					capacityRetryPending = true
 					rejectedCallback = callback
 					detachedValue = value
 					ReaderPageRasterPublicationRegistration.Rejected(
 						ReaderPageRasterPublicationRejection.EntryCapacity
+					)
+				}
+				globalCallbackCapacityReached -> {
+					capacityRetryPending = true
+					rejectedCallback = callback
+					detachedValue = value
+					ReaderPageRasterPublicationRegistration.Rejected(
+						ReaderPageRasterPublicationRejection.CallbackCapacity
 					)
 				}
 				else -> {
@@ -96,6 +145,10 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 					ReaderPageRasterPublicationRegistration.Started(request)
 				}
 			}
+			if (result !is ReaderPageRasterPublicationRegistration.Rejected) {
+				onOwnershipMutated()
+			}
+			result
 		}
 		dispatchBestEffort(
 			callbacks = listOfNotNull(rejectedCallback),
@@ -113,12 +166,40 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 		if (entry.stale || entry.producerState != ProducerState.Queued) {
 			return null
 		}
+		check(activeWorkerCountLocked() < persistenceWorkerLimit) {
+			"Publication scheduler exceeded its configured worker limit"
+		}
 		entry.producerState = ProducerState.Active
 		return entry.value
 	}
 
 	@Synchronized
 	fun entryCount(): Int = entries.size
+
+	@Synchronized
+	fun currentEpochEntryCount(): Int = currentEpochEntryCountLocked()
+
+	private fun currentEpochEntryCountLocked(): Int =
+		entries.count { (request, entry) ->
+			request.epoch == epoch && !entry.stale
+		}
+
+	@Synchronized
+	fun staleActiveEntryCount(): Int =
+		entries.count { (_, entry) ->
+			entry.stale && entry.producerState == ProducerState.Active
+		}
+
+	@Synchronized
+	fun callbackCount(): Int = callbackCountLocked()
+
+	private fun callbackCountLocked(): Int =
+		entries.values.sumOf { entry -> entry.callbacks.size }
+
+	private fun activeWorkerCountLocked(): Int =
+		entries.count { (_, entry) ->
+			entry.producerState == ProducerState.Active
+		}
 
 	@Synchronized
 	fun currentEpoch(): Long = epoch
@@ -159,24 +240,30 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 		request: ReaderPageRasterPublicationRequest,
 		persisted: Boolean
 	): Boolean {
+		var capacityAvailable: (() -> Unit)? = null
 		val completion = synchronized(this) {
 			val entry = entries.remove(request) ?: return false
 			check(entry.producerState == ProducerState.Active) {
 				"Publication completed without active worker ownership"
 			}
 			val accepted = !entry.stale && request.epoch == epoch
+			if (capacityRetryPending) {
+				capacityAvailable = capacityAvailableListener
+				if (capacityAvailable != null) capacityRetryPending = false
+			}
 			Completion(
 				value = entry.value,
 				callbacks = entry.callbacks.toList(),
 				accepted = accepted,
 				persisted = persisted
-			)
+			).also { onOwnershipMutated() }
 		}
 		dispatchBestEffort(
 			callbacks = completion.callbacks,
 			callbackResult = completion.persisted && completion.accepted,
 			values = listOf(completion.value)
 		)
+		capacityAvailable?.let(::dispatchCapacityAvailable)
 		return completion.accepted
 	}
 
@@ -185,6 +272,8 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 		val queuedValues = mutableListOf<T>()
 		synchronized(this) {
 			epoch += 1L
+			capacityRetryPending = false
+			val ownershipChanged = entries.isNotEmpty()
 			val iterator = entries.iterator()
 			while (iterator.hasNext()) {
 				val (_, entry) = iterator.next()
@@ -196,8 +285,17 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 					iterator.remove()
 				}
 			}
+			if (ownershipChanged) onOwnershipMutated()
 		}
 		dispatchBestEffort(callbacks, false, queuedValues)
+	}
+
+	private fun dispatchCapacityAvailable(listener: () -> Unit) {
+		try {
+			listener()
+		} catch (failure: Throwable) {
+			recordFailure(failure)
+		}
 	}
 
 	private fun dispatchBestEffort(
@@ -222,5 +320,9 @@ internal class ReaderPageRasterPublicationLedger<T : Any>(
 			capture { release(value) }
 		}
 		failure?.let(::recordFailure)
+	}
+
+	private companion object {
+		const val MaximumCallbacksPerEntry = 2
 	}
 }

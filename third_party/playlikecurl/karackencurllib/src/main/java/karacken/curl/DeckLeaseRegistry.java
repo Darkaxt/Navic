@@ -44,28 +44,42 @@ final class DeckLeaseRegistry {
     }
 
     private final int capacity;
+    private final Runnable ownershipMutated;
     private final Map<Long, PageSurfaceListener> owners = new LinkedHashMap<>();
     private final Map<Long, DeckReleaseReason> requestedReleaseReasons =
             new LinkedHashMap<>();
 
     DeckLeaseRegistry() {
-        this(MAX_DECK_LEASES);
+        this(MAX_DECK_LEASES, () -> {});
     }
 
     DeckLeaseRegistry(int capacity) {
+        this(capacity, () -> {});
+    }
+
+    DeckLeaseRegistry(Runnable ownershipMutated) {
+        this(MAX_DECK_LEASES, ownershipMutated);
+    }
+
+    DeckLeaseRegistry(int capacity, Runnable ownershipMutated) {
         if (capacity <= 0) {
             throw new IllegalArgumentException("capacity must be positive");
         }
         this.capacity = capacity;
+        this.ownershipMutated =
+                Objects.requireNonNull(ownershipMutated, "ownershipMutated");
     }
 
-    synchronized boolean acquire(long generationId, PageSurfaceListener listener) {
+    boolean acquire(long generationId, PageSurfaceListener listener) {
         Objects.requireNonNull(listener, "listener");
-        if (owners.containsKey(generationId)
-                || owners.size() >= capacity) {
-            return false;
+        synchronized (this) {
+            if (owners.containsKey(generationId)
+                    || owners.size() >= capacity) {
+                return false;
+            }
+            owners.put(generationId, listener);
         }
-        owners.put(generationId, listener);
+        ownershipMutated.run();
         return true;
     }
 
@@ -109,32 +123,54 @@ final class DeckLeaseRegistry {
         return owners.get(generationId);
     }
 
-    synchronized void markReleaseRequested(
+    void markReleaseRequested(
             long generationId,
             DeckReleaseReason reason) {
         Objects.requireNonNull(reason, "reason");
-        if (owners.containsKey(generationId)) {
-            requestedReleaseReasons.putIfAbsent(generationId, reason);
+        synchronized (this) {
+            if (!owners.containsKey(generationId)
+                    || requestedReleaseReasons.containsKey(generationId)) {
+                return;
+            }
+            requestedReleaseReasons.put(generationId, reason);
         }
+        ownershipMutated.run();
     }
 
-    synchronized Lease release(long generationId) {
-        PageSurfaceListener listener = owners.remove(generationId);
-        DeckReleaseReason reason = requestedReleaseReasons.remove(generationId);
-        return listener == null ? null : new Lease(generationId, listener, reason);
+    Lease release(long generationId) {
+        final Lease lease;
+        synchronized (this) {
+            PageSurfaceListener listener = owners.remove(generationId);
+            DeckReleaseReason reason = requestedReleaseReasons.remove(generationId);
+            if (listener == null) {
+                return null;
+            }
+            lease = new Lease(generationId, listener, reason);
+        }
+        ownershipMutated.run();
+        return lease;
     }
 
-    synchronized List<Lease> releaseAll(DeckReleaseReason fallbackReason) {
+    List<Lease> releaseAll(DeckReleaseReason fallbackReason) {
         Objects.requireNonNull(fallbackReason, "fallbackReason");
-        List<Lease> leases = new ArrayList<>(owners.size());
-        for (Map.Entry<Long, PageSurfaceListener> entry : owners.entrySet()) {
-            DeckReleaseReason reason =
-                    requestedReleaseReasons.getOrDefault(entry.getKey(), fallbackReason);
-            leases.add(new Lease(entry.getKey(), entry.getValue(), reason));
+        final List<Lease> result;
+        synchronized (this) {
+            if (owners.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<Lease> leases = new ArrayList<>(owners.size());
+            for (Map.Entry<Long, PageSurfaceListener> entry : owners.entrySet()) {
+                DeckReleaseReason reason = requestedReleaseReasons.getOrDefault(
+                        entry.getKey(),
+                        fallbackReason);
+                leases.add(new Lease(entry.getKey(), entry.getValue(), reason));
+            }
+            owners.clear();
+            requestedReleaseReasons.clear();
+            result = Collections.unmodifiableList(new ArrayList<>(leases));
         }
-        owners.clear();
-        requestedReleaseReasons.clear();
-        return Collections.unmodifiableList(new ArrayList<>(leases));
+        ownershipMutated.run();
+        return result;
     }
 
     synchronized boolean hasOutstandingLeases() {

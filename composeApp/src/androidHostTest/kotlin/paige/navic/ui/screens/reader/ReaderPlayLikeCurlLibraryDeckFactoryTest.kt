@@ -10,6 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import paige.navic.reader.ReaderPageMaximumForegroundPublicationEntries
 
 class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	@Test
@@ -34,6 +35,31 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 				pageCount = 20
 			)
 		)
+	}
+
+	@Test
+	fun preparedWindowsNeverExceedForegroundPublicationBound() {
+		ReaderPlayLikeCurlOrientation.values().forEach { orientation ->
+			ReaderPlayLikeCurlReaderDirection.values().forEach { direction ->
+				(0..1).forEach { parity ->
+					(1..40).forEach { pageCount ->
+						(0 until pageCount).forEach { currentOrdinal ->
+							val prepared = readerPlayLikeCurlPreparedPageIndices(
+								orientation = orientation,
+								currentOrdinal = currentOrdinal,
+								pageCount = pageCount,
+								readerDirection = direction,
+								spreadAnchorParity = parity
+							)
+							assertTrue(
+								prepared.size <=
+									ReaderPageMaximumForegroundPublicationEntries
+							)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	@Test

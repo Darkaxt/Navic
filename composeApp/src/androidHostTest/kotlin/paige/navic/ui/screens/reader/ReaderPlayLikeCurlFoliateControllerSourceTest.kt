@@ -40,6 +40,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderWebViewVisualHandoff.android.kt"
 	)
+	private val diagnosticFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPageDiagnostic.android.kt"
+	)
 	private val referenceViewFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPlayLikeCurlReferenceView.android.kt"
@@ -135,7 +139,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val controllerSource = controllerFile.readText()
 		val hostSource = hostFile.readText()
 
-		assertContains(hostSource, "Reader pointer terminal")
+		assertContains(hostSource, "emitGestureDiagnostic(")
+		assertContains(hostSource, "ReaderPageDiagnostic.gesture(")
 		assertContains(controllerSource, "PlayLikeCurl settlement started")
 		assertContains(controllerSource, "PlayLikeCurl settlement completed")
 		assertContains(controllerSource, "PlayLikeCurl settlement cancelled")
@@ -281,6 +286,34 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(host, "playLikeCurlController.onHostResumedChanged(true)")
 		assertContains(host, "playLikeCurlController.onHostResumedChanged(false)")
+	}
+
+	@Test
+	fun structuredDiagnosticsStayOnAuthoritativeTransitionOwners() {
+		val controller = controllerFile.readText()
+		val handoff = visualHandoffFile.readText()
+		val recovery = recoveryFile.readText()
+		val diagnostic = diagnosticFile.readText()
+
+		assertContains(controller, "onQueued = { request ->")
+		assertContains(controller, "onRejected = { request ->")
+		assertContains(controller, "onAwaiting = { request ->")
+		assertContains(controller, "onCompleted = { request ->")
+		assertContains(controller, "if (terminal) relocationDiagnosticStarts.remove(")
+		assertContains(controller, "handoffAttemptId = event.handoffAttemptId")
+		assertContains(controller, "ReaderPageRepairDiagnosticState.Completed")
+		assertContains(controller, "deckDiagnosticTracker?.prepared(")
+		assertContains(controller, "deckDiagnosticTracker?.submitted(")
+		assertContains(handoff, "if (firstAttempt) onAwaiting(request)")
+		assertContains(recovery, "waiting.diagnosticOperation")
+		assertContains(diagnostic, "internal class ReaderPageDeckDiagnosticTracker(")
+		assertContains(diagnostic, "handoffAttemptId=${'$'}handoffAttemptId")
+		assertContains(diagnostic, "private fun diagnosticDigestPrefix(")
+		assertContains(diagnostic, "?: \"invalid\"")
+		val recoveryAdmission = controller
+			.substringAfter("if (!deckRecoveryCoordinator.accept(result)) {")
+			.substringBefore("return@post")
+		assertFalse(recoveryAdmission.contains("diagnostics?.repair("))
 	}
 
 	@Test
@@ -640,7 +673,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(preparation, "ReaderPageRasterRepairResult.Repaired")
 		assertContains(preparation, "rasterEpoch = generation")
-		assertContains(controller, ") : ReaderPageTapTurnPort, ReaderPageDeckRecoveryHost")
+		assertContains(controller, ") : ReaderPageTapTurnPort,")
+		assertContains(controller, "ReaderPageDeckRecoveryHost,")
+		assertContains(controller, "ReaderPageRendererOwnershipHost")
 		assertContains(controller, "deckRecoveryCoordinator.accept(result)")
 		assertContains(build, "publicationFence.isCurrent()")
 		assertContains(build, "operation = ReaderPageRecoveredDeckBuildOperation(")
@@ -1413,7 +1448,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(
 			wiring,
-			"cancelRelocations = relocationGestureCoordinator::cancelAll"
+			"cancelRelocations = ::cancelRelocationsWithDiagnostics"
 		)
 		assertContains(wiring, "fun destroy(): Deferred<Unit> = destroyFence.start()")
 		assertContains(disposal, "surfaceView.disposeForLifecycleOwner { result ->")

@@ -14,7 +14,8 @@ internal sealed interface ReaderPageRasterRepairResult {
 	data class Repaired(
 		val repairedPageIndices: Set<Int>,
 		val centerOrdinal: Int,
-		val rasterEpoch: Long
+		val rasterEpoch: Long,
+		val diagnosticOperation: ReaderPageDiagnosticOperation? = null
 	) : ReaderPageRasterRepairResult
 
 	data class Deferred(
@@ -29,11 +30,13 @@ internal sealed interface ReaderPageRasterRepairResult {
 internal fun readerPageRasterRepairedResult(
 	repairedPageIndices: Set<Int>,
 	centerOrdinal: Int,
-	rasterEpoch: Long
+	rasterEpoch: Long,
+	diagnosticOperation: ReaderPageDiagnosticOperation? = null
 ): ReaderPageRasterRepairResult.Repaired = ReaderPageRasterRepairResult.Repaired(
 	repairedPageIndices = repairedPageIndices.toSet(),
 	centerOrdinal = centerOrdinal,
-	rasterEpoch = rasterEpoch
+	rasterEpoch = rasterEpoch,
+	diagnosticOperation = diagnosticOperation
 )
 
 internal sealed interface ReaderPageRecoveredDeckBuildResult {
@@ -93,29 +96,39 @@ internal sealed interface ReaderPageDeckRecoveryState {
 		val requestId: Long,
 		val repairedPageIndices: Set<Int>,
 		val centerOrdinal: Int,
-		val rasterEpoch: Long
+		val rasterEpoch: Long,
+		val diagnosticOperation: ReaderPageDiagnosticOperation? = null
 	) : ReaderPageDeckRecoveryState
 
 	data class WaitingForSubmissionCapacity(
 		val generationId: Long,
 		val repairedPageIndices: Set<Int>,
 		val centerOrdinal: Int,
-		val rasterEpoch: Long
+		val rasterEpoch: Long,
+		val diagnosticOperation: ReaderPageDiagnosticOperation? = null
 	) : ReaderPageDeckRecoveryState
 
 	data class WaitingForPreparation(
 		val generationId: Long,
-		val role: ReaderDeckSubmissionRole
+		val role: ReaderDeckSubmissionRole,
+		val diagnosticOperation: ReaderPageDiagnosticOperation? = null
 	) : ReaderPageDeckRecoveryState
 
-	data class Ready(val generationId: Long) : ReaderPageDeckRecoveryState
+	data class Ready(
+		val generationId: Long,
+		val diagnosticOperation: ReaderPageDiagnosticOperation? = null
+	) : ReaderPageDeckRecoveryState
 
-	data class Failed(val reason: String) : ReaderPageDeckRecoveryState
+	data class Failed(
+		val reason: String,
+		val diagnosticOperation: ReaderPageDiagnosticOperation? = null
+	) : ReaderPageDeckRecoveryState
 }
 
 internal class ReaderPageDeckRecoveryCoordinator(
 	private val host: ReaderPageDeckRecoveryHost,
 	private val onStateChanged: (ReaderPageDeckRecoveryState) -> Unit = {},
+	private val onRepairCancelled: (ReaderPageDiagnosticOperation) -> Unit = {},
 	private val onStateObserverFailure: (Throwable) -> Unit = {}
 ) {
 	private var nextRequestId = 0L
@@ -135,6 +148,7 @@ internal class ReaderPageDeckRecoveryCoordinator(
 				result.rasterEpoch
 			)
 		) {
+			result.diagnosticOperation?.let(onRepairCancelled)
 			return false
 		}
 		val requestId = Math.incrementExact(nextRequestId)
@@ -145,7 +159,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 				requestId = requestId,
 				repairedPageIndices = result.repairedPageIndices.toSet(),
 				centerOrdinal = result.centerOrdinal,
-				rasterEpoch = result.rasterEpoch
+				rasterEpoch = result.rasterEpoch,
+				diagnosticOperation = result.diagnosticOperation
 			)
 		)
 		cancelOwnedState(previous)
@@ -162,7 +177,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 			if (waiting?.requestId == requestId) {
 				transitionTo(
 					ReaderPageDeckRecoveryState.Failed(
-						"protected-window-build-failed"
+						"protected-window-build-failed",
+						waiting.diagnosticOperation
 					)
 				)
 			}
@@ -188,15 +204,22 @@ internal class ReaderPageDeckRecoveryCoordinator(
 		) {
 			host.cancelRecoveredDeckBuild(requestId)
 			releaseIfUnsubmitted(result)
+			waiting.diagnosticOperation?.let(onRepairCancelled)
 			transitionTo(ReaderPageDeckRecoveryState.Idle)
 			return false
 		}
 		when (result) {
 			is ReaderPageRecoveredDeckBuildResult.Failed -> {
-				transitionTo(ReaderPageDeckRecoveryState.Failed(result.reason))
+				transitionTo(
+					ReaderPageDeckRecoveryState.Failed(
+						result.reason,
+						waiting.diagnosticOperation
+					)
+				)
 				return false
 			}
 			ReaderPageRecoveredDeckBuildResult.Stale -> {
+				waiting.diagnosticOperation?.let(onRepairCancelled)
 				transitionTo(ReaderPageDeckRecoveryState.Idle)
 				return false
 			}
@@ -207,7 +230,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 			generationId = generationId,
 			repairedPageIndices = waiting.repairedPageIndices,
 			centerOrdinal = waiting.centerOrdinal,
-			rasterEpoch = waiting.rasterEpoch
+			rasterEpoch = waiting.rasterEpoch,
+			diagnosticOperation = waiting.diagnosticOperation
 		)
 	}
 
@@ -221,6 +245,7 @@ internal class ReaderPageDeckRecoveryCoordinator(
 			)
 		) {
 			host.releaseUnsubmittedRecoveredDeck(waiting.generationId)
+			waiting.diagnosticOperation?.let(onRepairCancelled)
 			transitionTo(ReaderPageDeckRecoveryState.Idle)
 			return false
 		}
@@ -228,7 +253,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 			generationId = waiting.generationId,
 			repairedPageIndices = waiting.repairedPageIndices,
 			centerOrdinal = waiting.centerOrdinal,
-			rasterEpoch = waiting.rasterEpoch
+			rasterEpoch = waiting.rasterEpoch,
+			diagnosticOperation = waiting.diagnosticOperation
 		)
 	}
 
@@ -236,13 +262,15 @@ internal class ReaderPageDeckRecoveryCoordinator(
 		generationId: Long,
 		repairedPageIndices: Set<Int>,
 		centerOrdinal: Int,
-		rasterEpoch: Long
+		rasterEpoch: Long,
+		diagnosticOperation: ReaderPageDiagnosticOperation?
 	): Boolean {
 		val role = host.currentRecoveredDeckRole()
 		transitionTo(
 			ReaderPageDeckRecoveryState.WaitingForPreparation(
 				generationId,
-				role
+				role,
+				diagnosticOperation
 			)
 		)
 		val submission = try {
@@ -253,7 +281,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 				host.releaseUnsubmittedRecoveredDeck(generationId)
 				transitionTo(
 					ReaderPageDeckRecoveryState.Failed(
-						"recovered-deck-submission-failed"
+						"recovered-deck-submission-failed",
+						owned.diagnosticOperation
 					)
 				)
 			}
@@ -273,7 +302,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 						generationId = generationId,
 						repairedPageIndices = repairedPageIndices.toSet(),
 						centerOrdinal = centerOrdinal,
-						rasterEpoch = rasterEpoch
+						rasterEpoch = rasterEpoch,
+						diagnosticOperation = diagnosticOperation
 					)
 				)
 				true
@@ -284,7 +314,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 					host.releaseUnsubmittedRecoveredDeck(generationId)
 					transitionTo(
 						ReaderPageDeckRecoveryState.Failed(
-							"recovered-deck-rejected:${submission.reason}"
+							"recovered-deck-rejected:${submission.reason}",
+							owned.diagnosticOperation
 						)
 					)
 				}
@@ -302,7 +333,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 		if (waiting.generationId != generationId) return false
 		transitionTo(
 			ReaderPageDeckRecoveryState.Failed(
-				"recovered-deck-rejected:${reason.name}"
+				"recovered-deck-rejected:${reason.name}",
+				waiting.diagnosticOperation
 			)
 		)
 		return true
@@ -317,9 +349,14 @@ internal class ReaderPageDeckRecoveryCoordinator(
 
 	fun onDeckPreparationFailed(generationId: Long, reason: String): Boolean {
 		if (!ownsSubmittedGeneration(generationId)) return false
+		val diagnosticOperation =
+			(state as? ReaderPageDeckRecoveryState.WaitingForPreparation)
+				?.takeIf { waiting -> waiting.generationId == generationId }
+				?.diagnosticOperation
 		transitionTo(
 			ReaderPageDeckRecoveryState.Failed(
-				"recovered-deck-preparation-failed:$reason"
+				"recovered-deck-preparation-failed:$reason",
+				diagnosticOperation
 			)
 		)
 		return true
@@ -331,7 +368,12 @@ internal class ReaderPageDeckRecoveryCoordinator(
 		if (waiting.generationId != generationId || !host.isPrepared(generationId)) {
 			return false
 		}
-		transitionTo(ReaderPageDeckRecoveryState.Ready(generationId))
+		transitionTo(
+			ReaderPageDeckRecoveryState.Ready(
+				generationId,
+				waiting.diagnosticOperation
+			)
+		)
 		return true
 	}
 
@@ -341,7 +383,8 @@ internal class ReaderPageDeckRecoveryCoordinator(
 				if (current.generationId != generationId) return false
 				transitionTo(
 					ReaderPageDeckRecoveryState.Failed(
-						"recovered-deck-released-before-preparation"
+						"recovered-deck-released-before-preparation",
+						current.diagnosticOperation
 					)
 				)
 				true
@@ -370,15 +413,21 @@ internal class ReaderPageDeckRecoveryCoordinator(
 
 	private fun cancelOwnedState(previous: ReaderPageDeckRecoveryState) {
 		when (previous) {
-			is ReaderPageDeckRecoveryState.WaitingForBuild ->
+			is ReaderPageDeckRecoveryState.WaitingForBuild -> {
 				host.cancelRecoveredDeckBuild(previous.requestId)
-			is ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity ->
+				previous.diagnosticOperation?.let(onRepairCancelled)
+			}
+			is ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity -> {
 				host.releaseUnsubmittedRecoveredDeck(previous.generationId)
-			is ReaderPageDeckRecoveryState.WaitingForPreparation ->
+				previous.diagnosticOperation?.let(onRepairCancelled)
+			}
+			is ReaderPageDeckRecoveryState.WaitingForPreparation -> {
 				host.cancelSubmittedRecoveredDeck(
 					previous.generationId,
 					previous.role
 				)
+				previous.diagnosticOperation?.let(onRepairCancelled)
+			}
 			else -> Unit
 		}
 	}

@@ -25,9 +25,12 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONTokener
-import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderPageAdjacentPrefetchPublicationAllowance
 import paige.navic.reader.ReaderPageBitmapQuality
+import paige.navic.reader.ReaderPageMaximumForegroundPublicationEntries
+import paige.navic.reader.ReaderPageMaximumPublicationCallbacks
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.readerPageRasterStorageRoot
 import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
@@ -117,12 +120,22 @@ internal data class ReaderPageRasterPublicationValue<T : Any>(
 	val generation: ReaderPageRasterGeneration<T>
 )
 
+internal data class ReaderPageTurnBundleOwnershipMetrics(
+	val rasterCache: ReaderPageRasterCacheMetrics,
+	val stagedPublications: Int,
+	val stagedPublicationLimit: Int,
+	val pendingPublicationCallbacks: Int,
+	val pendingPublicationCallbackLimit: Int
+)
+
 internal class ReaderPageTurnBundleSource(
 	private val bitmapSource: ReaderPageTurnBitmapSource = ReaderPageTurnBitmapSource(),
 	private val mainHandler: Handler = Handler(Looper.getMainLooper()),
 	private val descriptorPort: ReaderPageRasterDescriptorPort =
 		ReaderPageWebViewRasterDescriptorPort(),
-	private val hydrationStorePort: ReaderPageRasterHydrationStorePort? = null
+	private val hydrationStorePort: ReaderPageRasterHydrationStorePort? = null,
+	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
+	private val onOwnershipMutated: () -> Unit = {}
 ) {
 	private var activeGeneration = 0L
 	private var bitmapQuality = ReaderPageBitmapQuality.Balanced
@@ -151,16 +164,24 @@ internal class ReaderPageTurnBundleSource(
 		maxConcurrentWorkers = 2
 	)
 	private var nextHydrationToken = 0L
-	private val publicationLedger =
-		ReaderPageRasterPublicationLedger<
-			ReaderPageRasterPublicationValue<Bitmap>
-		>(release = { value ->
-			ReaderAndroidPageRasterCodec.release(value.generation.value)
-		})
 	private val publicationScheduler = ReaderPageRasterPublicationScheduler(
 		scope = rasterScope,
 		maxConcurrentWorkers = 1
 	)
+	private val publicationLedger =
+		ReaderPageRasterPublicationLedger<
+			ReaderPageRasterPublicationValue<Bitmap>
+		>(
+			currentEpochEntryLimit =
+				ReaderPageMaximumForegroundPublicationEntries +
+					ReaderPageAdjacentPrefetchPublicationAllowance,
+			persistenceWorkerLimit = publicationScheduler.maxConcurrentWorkers,
+			callbackLimit = ReaderPageMaximumPublicationCallbacks,
+			onOwnershipMutated = onOwnershipMutated,
+			release = { value ->
+				ReaderAndroidPageRasterCodec.release(value.generation.value)
+			}
+		)
 	private val rasterPersistenceDiagnostics = linkedSetOf<String>()
 	private var protectedSnapshotPageIndices = emptySet<Int>()
 	private var rasterCache: ReaderPageRasterCache<Bitmap>? = null
@@ -218,6 +239,38 @@ internal class ReaderPageTurnBundleSource(
 	)
 	val isAvailable: Boolean
 		get() = bitmapSource.isAvailable
+
+	fun setPublicationCapacityAvailableListener(listener: () -> Unit) {
+		publicationLedger.setCapacityAvailableListener(listener)
+	}
+
+	fun clearPublicationCapacityAvailableListener(listener: () -> Unit) {
+		publicationLedger.clearCapacityAvailableListener(listener)
+	}
+
+	fun rasterCacheMetrics(): ReaderPageRasterCacheMetrics =
+		rasterCache?.metrics()
+			?: disposedRasterCacheMetrics
+			?: ReaderPageRasterCacheMetrics(
+				diskEntries = 0,
+				diskBytes = 0L,
+				diskByteLimit = 0L,
+				decodedEntries = 0,
+				uniqueDecodedBitmaps = 0,
+				uniqueDecodedBitmapLimit = 0,
+				pendingDecodedReleases = 0,
+				activeEncodePins = 0,
+				encodePinnedIdentities = 0
+			)
+
+	fun ownershipMetrics(): ReaderPageTurnBundleOwnershipMetrics =
+		ReaderPageTurnBundleOwnershipMetrics(
+			rasterCache = rasterCacheMetrics(),
+			stagedPublications = publicationLedger.entryCount(),
+			stagedPublicationLimit = publicationLedger.entryLimit,
+			pendingPublicationCallbacks = publicationLedger.callbackCount(),
+			pendingPublicationCallbackLimit = publicationLedger.callbackLimit
+		)
 
 	fun updateBitmapQuality(quality: ReaderPageBitmapQuality): Boolean {
 		if (bitmapQuality == quality) return false
@@ -1018,10 +1071,24 @@ internal class ReaderPageTurnBundleSource(
 							key = key,
 							generation = rasterGeneration
 						)
+						val publicationEpoch = publicationLedger.currentEpoch()
+						val publicationStartedAt = diagnostics?.now() ?: 0L
 						val registration = publicationLedger.begin(
 							digest = key.digest,
 							value = value
 						) { persisted ->
+							diagnostics?.publication(
+								digest = key.digest,
+								rasterEpoch = publicationEpoch,
+								result = when {
+									persisted -> ReaderPagePublicationDiagnosticResult.Durable
+									closed -> ReaderPagePublicationDiagnosticResult.Cancelled
+									publicationEpoch != publicationLedger.currentEpoch() ->
+										ReaderPagePublicationDiagnosticResult.Stale
+									else -> ReaderPagePublicationDiagnosticResult.Failed
+								},
+								startedAtMs = publicationStartedAt
+							)
 							if (!persisted) {
 								rasterPersistenceSkipped(
 									pageIndex,
@@ -1205,7 +1272,8 @@ internal class ReaderPageTurnBundleSource(
 						codec = ReaderAndroidPageRasterCodec,
 						onDiagnostic = { diagnostic ->
 							Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")
-						}
+						},
+						onOwnershipMutated = onOwnershipMutated
 					).also { created -> cache = created }
 				}
 				requireRasterInitializationOpen()
@@ -1224,6 +1292,7 @@ internal class ReaderPageTurnBundleSource(
 				rasterCache = createdCache
 				persistentStore = createdStore
 				rasterScheduler = createdScheduler
+					onOwnershipMutated()
 				createdScheduler
 			} catch (failure: Throwable) {
 				closeUnpublishedRasterOwners(

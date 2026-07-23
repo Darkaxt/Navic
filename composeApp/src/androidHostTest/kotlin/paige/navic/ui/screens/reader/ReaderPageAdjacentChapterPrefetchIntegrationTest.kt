@@ -209,6 +209,131 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun preparationDeferralResumesOnStrictlyNewerEventAndTerminatesOnce() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.foreground.completeDeferred("pagination-not-ready")
+			assertTrue(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.PaginationReady)
+			)
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeCurrentChapterDurably()
+
+			val preparation = fixture.diagnosticMessages.filter {
+				it.startsWith("reader-preparation ")
+			}
+			assertEquals(
+				listOf("Attempted", "Deferred", "Resumed", "Ready"),
+				preparation.map { message ->
+					message.substringAfter("state=").substringBefore(' ')
+				}
+			)
+			assertEquals(
+				1,
+				preparation.map { message ->
+					message.substringAfter("attempt=").substringBefore(' ')
+				}.distinct().size
+			)
+			val deferredVersion = preparation[1]
+				.substringAfter("eventVersion=").substringBefore(' ').toLong()
+			val resumedVersion = preparation[2]
+				.substringAfter("eventVersion=").substringBefore(' ').toLong()
+			assertTrue(resumedVersion > deferredVersion)
+			assertEquals(
+				1,
+				preparation.count { message ->
+					listOf("Ready", "Failed", "Cancelled").any { state ->
+						message.contains("state=$state")
+					}
+				}
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun repairCancellationRetainsOneAttemptAndOneTerminalDiagnostic() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeCurrentChapterDurably()
+			var result: ReaderPageRasterRepairResult? = null
+			fixture.controller.repairRasterPage(8) { result = it }
+
+			fixture.controller.invalidate("diagnostic-cancel")
+
+			assertEquals(ReaderPageRasterRepairResult.Cancelled, result)
+			val repair = fixture.diagnosticMessages.filter {
+				it.startsWith("reader-repair ")
+			}
+			assertEquals(
+				listOf("Started", "Cancelled"),
+				repair.map { message ->
+					message.substringAfter("state=").substringBefore(' ')
+				}
+			)
+			assertEquals(
+				1,
+				repair.map { message ->
+					message.substringAfter("attempt=").substringBefore(' ')
+				}.distinct().size
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun backgroundPrefetchPublishesOneTerminalForEachDiagnosticSession() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeCurrentChapterDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			val firstQueued = fixture.diagnosticMessages.first { message ->
+				message.startsWith("reader-prefetch ") && message.contains("state=Queued")
+			}
+			val session = firstQueued
+				.substringAfter("prefetchSession=").substringBefore(' ')
+
+			fixture.background.completeReady(durably = true)
+
+			val firstSessionMessages = fixture.diagnosticMessages.filter { message ->
+				message.startsWith("reader-prefetch ") &&
+					message.contains("prefetchSession=$session ")
+			}
+			assertEquals(
+				listOf("Queued", "Running", "Completed"),
+				firstSessionMessages.map { message ->
+					message.substringAfter("state=").substringBefore(' ')
+				}
+			)
+			assertEquals(
+				1,
+				firstSessionMessages.count { message ->
+					listOf("Completed", "Cancelled", "Failed").any { state ->
+						message.contains("state=$state")
+					}
+				}
+			)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun parsedDestinationPlanConsumesThePreparedDeckPublishedBeforeBlockingPrewarm() {
 		val parsed = readerPageRasterPreparationPlan(
 			"""{"context":{"centerPageIndex":8,"pageCount":20,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterIndex":4,"currentChapterPageStartIndex":8,"currentChapterPageCount":3,"previousChapterPageStartIndex":4,"previousChapterPageCount":4,"nextChapterPageStartIndex":11,"nextChapterPageCount":3},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":7,"priority":"previous-chapter"},{"pageIndex":11,"priority":"next-chapter"}]}"""
@@ -360,7 +485,8 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			.substringBefore("private fun logGestureTerminal(")
 		assertContains(terminals, "if (cancelled.isNotEmpty()) {")
 		assertContains(terminals, "private fun completeHostDelayedTap(")
-		assertContains(terminals, "if (won) pageRasterPreparationController.onPointerInteractionChanged(false)")
+		assertContains(terminals, "if (won) {")
+		assertContains(terminals, "pageRasterPreparationController.onPointerInteractionChanged(false)")
 		assertContains(terminals, "val won = completeHostGesture(")
 		assertContains(preparation, "onInteractionActiveChanged(active)")
 	}
@@ -393,6 +519,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 private data class ReaderPageRasterBatchRequest(
 	val reference: ReaderPageSlideSnapshot,
 	val targets: List<ReaderPageRasterBatchTarget>,
+	val trigger: ReaderPageRasterAcquisitionTrigger,
 	val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 	val onProgress: (Int, Int) -> Unit,
 	val onComplete: (ReaderPageRasterBatchOutcome) -> Unit
@@ -410,6 +537,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
+		trigger: ReaderPageRasterAcquisitionTrigger,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
@@ -420,6 +548,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		val request = ReaderPageRasterBatchRequest(
 			reference = reference,
 			targets = targets,
+			trigger = trigger,
 			onTargetDurable = onTargetDurable,
 			onProgress = onProgress,
 			onComplete = onComplete
@@ -460,6 +589,19 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		)
 	}
 
+	fun completeDeferred(reason: String) {
+		val request = checkNotNull(active)
+		active = null
+		request.reference.release()
+		request.onComplete(
+			ReaderPageRasterBatchOutcome.Deferred(
+				stage = "batch",
+				pageIndex = request.targets.last().pageIndex,
+				reason = reason
+			)
+		)
+	}
+
 	override fun resetRetryState() = Unit
 
 	override fun cancel(onRestored: () -> Unit) {
@@ -484,6 +626,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	val foreground: FakeReaderPageRasterBatchPort,
 	val repair: FakeReaderPageRasterBatchPort,
 	val background: FakeReaderPageRasterBatchPort,
+	val diagnosticMessages: MutableList<String>,
 	private val states: MutableList<ReaderPagePreparationState>
 ) {
 	val latestState: ReaderPagePreparationState
@@ -545,10 +688,16 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			val repair = FakeReaderPageRasterBatchPort()
 			val background = FakeReaderPageRasterBatchPort()
 			val states = mutableListOf<ReaderPagePreparationState>()
+			val diagnosticMessages = mutableListOf<String>()
 			val controller = ReaderPageRasterPreparationController(
 				host = host,
 				webViewProvider = { webView },
 				bundleSource = bundleSource,
+				diagnostics = ReaderPageRuntimeDiagnostics(
+					readerSession = 19L,
+					nowMs = { 30L },
+					emit = diagnosticMessages::add
+				),
 				onPreparationStateChange = states::add,
 				rasterBatchController = foreground,
 				rasterRepairBatchController = repair,
@@ -570,6 +719,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				foreground = foreground,
 				repair = repair,
 				background = background,
+				diagnosticMessages = diagnosticMessages,
 				states = states
 			)
 		}

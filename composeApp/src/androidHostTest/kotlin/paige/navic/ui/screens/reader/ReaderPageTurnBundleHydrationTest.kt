@@ -92,6 +92,78 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun warmPersistentHitEmitsAcquisitionWithoutStartingWebViewCapture() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val messages = mutableListOf<String>()
+		val persistentHit = CompletableDeferred<Unit>()
+		val events = mutableListOf<String>()
+		val diagnostics = ReaderPageRuntimeDiagnostics(
+			readerSession = 17L,
+			nowMs = { 25L },
+			emit = { message ->
+				messages += message
+				if (message.contains("result=Hit")) persistentHit.complete(Unit)
+			}
+		)
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(events),
+			hydrationStorePort = FakeHydrationStore(events, durablePages = setOf(4))
+		)
+		val controller = ReaderPageRasterBatchController(source, diagnostics)
+		val reference = referenceSnapshot()
+		try {
+			val outcomes = mutableListOf<ReaderPageRasterBatchOutcome>()
+			reference.retain()
+			assertTrue(
+				controller.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = 4,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					trigger = ReaderPageRasterAcquisitionTrigger.WarmReopen,
+					onComplete = outcomes::add
+				)
+			)
+			persistentHit.await()
+
+			assertEquals(listOf("descriptor:4", "persistent:4"), events)
+			val acquisitions = messages.filter {
+				it.startsWith("reader-raster-acquisition ")
+			}
+			assertEquals(2, acquisitions.size)
+			assertTrue(acquisitions[0].contains("source=PersistentHydration"))
+			assertTrue(acquisitions[0].contains("trigger=WarmReopen result=Started"))
+			assertTrue(acquisitions[1].contains("source=PersistentHydration"))
+			assertTrue(acquisitions[1].contains("trigger=WarmReopen result=Hit"))
+			assertEquals(
+				acquisitions[0].substringAfter("attempt=").substringBefore(' '),
+				acquisitions[1].substringAfter("attempt=").substringBefore(' ')
+			)
+			assertFalse(messages.any { it.contains("source=WebViewCapture") })
+			controller.cancel()
+			assertEquals(
+				listOf<ReaderPageRasterBatchOutcome>(ReaderPageRasterBatchOutcome.Cancelled),
+				outcomes
+			)
+		} finally {
+			controller.cancel()
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun productionFoliateLoaderUsesRetainedThenPersistentThenOneRepair() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()

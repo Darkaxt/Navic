@@ -975,6 +975,30 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun ownershipObserverTracksDecodedAdmissionAndReleaseButNotNoOps() {
+		var mutations = 0
+		val cache = rasterCache<Any>(
+			maxDecodedEntries = 1,
+			onOwnershipMutated = { mutations += 1 }
+		)
+		val rasterKey = ownedKey(1)
+
+		assertTrue(cache.write(rasterKey, metadata(), Any()).persisted)
+		assertEquals(1, cache.metrics().decodedEntries)
+		val afterAdmission = mutations
+		assertTrue(afterAdmission > 0)
+
+		assertNotNull(cache.read(rasterKey))
+		assertEquals(afterAdmission, mutations)
+		assertTrue(cache.remove(rasterKey))
+		assertEquals(0, cache.metrics().decodedEntries)
+		assertTrue(mutations > afterAdmission)
+		val afterRelease = mutations
+		assertFalse(cache.remove(rasterKey))
+		assertEquals(afterRelease, mutations)
+	}
+
+	@Test
 	fun closeLeavesNoEncodePinsOrPinnedIdentitiesAndRetainsBounds() {
 		val cache = rasterCache<Any>(maxDiskBytes = 4, maxDecodedEntries = 2)
 		assertTrue(cache.write(ownedKey(1), metadata(), Any()).persisted)
@@ -1010,7 +1034,8 @@ class ReaderPageRasterCacheTest {
 			true
 		},
 		decode: (File) -> T? = { null },
-		release: (T) -> Unit = {}
+		release: (T) -> Unit = {},
+		onOwnershipMutated: () -> Unit = {}
 	): ReaderPageRasterCache<T> {
 		val root = createTempDirectory("navic-reader-page-raster-owners").toFile()
 		return ReaderPageRasterCache(
@@ -1025,7 +1050,8 @@ class ReaderPageRasterCacheTest {
 			},
 			maxDiskBytes = maxDiskBytes,
 			maxDecodedEntries = maxDecodedEntries,
-			clock = clock
+			clock = clock,
+			onOwnershipMutated = onOwnershipMutated
 		)
 	}
 
@@ -1034,7 +1060,8 @@ class ReaderPageRasterCacheTest {
 		maxDiskBytes: Long = 1_024L,
 		maxDecodedEntries: Int = 2,
 		clock: () -> Long = System::currentTimeMillis,
-		onDiagnostic: (String) -> Unit = {}
+		onDiagnostic: (String) -> Unit = {},
+		onOwnershipMutated: () -> Unit = {}
 	): CacheFixture {
 		val root = createTempDirectory("navic-reader-page-raster-cache").toFile()
 		return CacheFixture(
@@ -1045,7 +1072,8 @@ class ReaderPageRasterCacheTest {
 				maxDiskBytes = maxDiskBytes,
 				maxDecodedEntries = maxDecodedEntries,
 				clock = clock,
-				onDiagnostic = onDiagnostic
+				onDiagnostic = onDiagnostic,
+				onOwnershipMutated = onOwnershipMutated
 			)
 		)
 	}

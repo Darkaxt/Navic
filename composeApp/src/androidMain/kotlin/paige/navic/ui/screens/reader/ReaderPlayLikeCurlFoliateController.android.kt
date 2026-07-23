@@ -18,6 +18,7 @@ import karacken.curl.PageSurfaceDeckSubmissionResult
 import karacken.curl.PageSurfaceDisposalResult
 import karacken.curl.PageSurfaceDisposalStage
 import karacken.curl.PageSurfaceListener
+import karacken.curl.PageSurfaceOwnershipResult
 import karacken.curl.PageSurfaceView
 import karacken.curl.ReadingDirection
 import karacken.curl.RenderCapabilities
@@ -57,6 +58,13 @@ import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
 private const val MAX_RASTER_ADAPTER_OWNERS = 2
+
+internal data class ReaderPlayLikeCurlControllerOwnershipMetrics(
+	val rasterResidency: ReaderPlayLikeCurlRasterResidencyMetrics,
+	val pendingVisualCallbacks: Int,
+	val pendingVisualCallbackLimit: Int,
+	val relocation: paige.navic.reader.ReaderPageRelocationOwnershipSnapshot
+)
 
 internal enum class ReaderDeckSubmissionRole {
 	Active,
@@ -240,6 +248,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource,
+	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
 	private val onRequestPrewarm: () -> Unit,
 	private val onRequestRasterRepair:
 		(Int, (ReaderPageRasterRepairResult) -> Unit) -> Unit,
@@ -253,8 +262,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val onPaginationReadinessChanged: (ReaderPagePaginationReadiness) -> Unit = {},
 	private val onProfileBootstrapFailed: () -> Unit = {},
 	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
-	private val onUnsafeLifecycleEvent: (ReaderPageHostLifecycleEvent) -> Unit = {}
-) : ReaderPageTapTurnPort, ReaderPageDeckRecoveryHost {
+	private val onUnsafeLifecycleEvent: (ReaderPageHostLifecycleEvent) -> Unit = {},
+	private val onOwnershipMutated: () -> Unit = {},
+	private val onOwnershipAvailabilityEdge: () -> Unit = {},
+	private val onOwnershipDiagnosticRequested: (ReaderPageOwnershipPhase) -> Unit = {}
+) : ReaderPageTapTurnPort,
+	ReaderPageDeckRecoveryHost,
+	ReaderPageRendererOwnershipHost {
 	private class PreparedPages(
 		val profile: ReaderPlayLikeCurlRasterProfile,
 		val deck: ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>,
@@ -306,6 +320,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationOwners = mutableMapOf<Long, PreparedPages>()
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
+	private val deckDiagnosticTracker = diagnostics?.let(::ReaderPageDeckDiagnosticTracker)
 	private val recoveredDeckGenerations = mutableSetOf<Long>()
 	private val preparedPageSets = mutableSetOf<PreparedPages>()
 	private val recoveredBuildOperations = mutableMapOf<
@@ -324,6 +339,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val rasterCapacityRefreshPosted = AtomicBoolean(false)
 	private var rasterRetirementFailure: Throwable? = null
 	private var disposedRasterResidencyMetrics: ReaderPlayLikeCurlRasterResidencyMetrics? = null
+	private var ownershipCapacityListener: (() -> Unit)? = null
+	private var ownershipCapacityRunnable: Runnable? = null
 	private var foliateRasterLoader: ReaderPlayLikeCurlFoliateRasterLoader? = null
 	private var activePages: PreparedPages? = null
 	private var requestedProfile: ReaderPlayLikeCurlRasterProfile? = null
@@ -359,9 +376,30 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var protectedWindowVersion = 0L
 	private var currentProtectedWindow = emptyList<Int>()
 	private val rasterRepairRequests = ReaderPlayLikeCurlRasterRepairRegistry()
-	private val relocationQueue = ReaderPageRelocationQueue()
+	private val relocationQueue = ReaderPageRelocationQueue(
+		onOwnershipMutated = onOwnershipMutated
+	)
+	private val relocationDiagnosticStarts = mutableMapOf<String, Long>()
+	private val handoffDiagnosticStarts = mutableMapOf<Long, Long>()
 	private val relocationGestureCoordinator =
-		ReaderPageRelocationGestureCoordinator(relocationQueue)
+		ReaderPageRelocationGestureCoordinator(
+			queue = relocationQueue,
+			onQueued = { request ->
+				val startedAt = diagnostics?.now() ?: 0L
+				relocationDiagnosticStarts[request.token.value] = startedAt
+				emitRelocationDiagnostic(
+					request,
+					ReaderPageRelocationDiagnosticState.Queued
+				)
+			},
+			onRejected = { request ->
+				emitRelocationDiagnostic(
+					request,
+					ReaderPageRelocationDiagnosticState.Rejected,
+					terminal = true
+				)
+			}
+		)
 	private val relocationVisualHandoffCoordinator =
 		ReaderPageRelocationVisualHandoffCoordinator(
 			queue = relocationQueue,
@@ -369,7 +407,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 			currentState = ::relocationVisualState,
 			dispatch = ::dispatchRelocation,
 			publishRecovery = ::publishRelocationVisualRecovery,
-			hideSurface = ::hideSurface
+			hideSurface = ::hideSurface,
+			onOwnershipMutated = onOwnershipMutated,
+			attemptEventSink =
+				ReaderWebViewVisualHandoffAttemptEventSink(::onHandoffAttemptEvent),
+			onAwaiting = { request ->
+				emitRelocationDiagnostic(
+					request,
+					ReaderPageRelocationDiagnosticState.AwaitingVisualHandoff
+				)
+			},
+			onCompleted = { request ->
+				emitRelocationDiagnostic(
+					request,
+					ReaderPageRelocationDiagnosticState.Completed,
+					terminal = true
+				)
+				onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
+			}
 		)
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
@@ -399,6 +454,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val deckRecoveryCoordinator = ReaderPageDeckRecoveryCoordinator(
 		host = this,
 		onStateChanged = ::onDeckRecoveryStateChanged,
+		onRepairCancelled = { operation ->
+			diagnostics?.repair(
+				operation,
+				ReaderPageRepairDiagnosticState.Cancelled
+			)
+		},
 		onStateObserverFailure = { failure ->
 			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
@@ -415,6 +476,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		surfaceView.setPageSurfaceListener(object : PageSurfaceListener {
 			override fun onCapabilitiesAvailable(capabilities: RenderCapabilities) {
 				capabilitiesAvailable = true
+				onOwnershipAvailabilityEdge()
 				logActivationState(
 					event = "capabilities-available",
 					detail = "maxTextureSize=${capabilities.maxTextureSize}"
@@ -443,7 +505,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				}
 				deckRecoveryCoordinator.onDeckPrepared(generationId)
+				deckDiagnosticTracker?.prepared(
+					generation = generationId,
+					active = activeDeckGenerationId,
+					pending = pendingDeckGenerationId
+				)
 				retryRelocationVisualHandoffForPreparedDeck(generationId)
+				onOwnershipDiagnosticRequested(
+					ReaderPageOwnershipPhase.PeakPreparation
+				)
 				logActivationState("deck-prepared", "generation=$generationId")
 			}
 
@@ -1209,6 +1279,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				)
 				val acknowledged = requireNotNull(relocationQueue.head())
+				emitRelocationDiagnostic(
+					acknowledged,
+					ReaderPageRelocationDiagnosticState.Acknowledged
+				)
 				check(relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)) {
 					"Acknowledged relocation did not start visual handoff"
 				}
@@ -1233,8 +1307,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun cancelRelocationsWithDiagnostics() =
+		relocationGestureCoordinator.cancelAll().also { drained ->
+			drained.queued.forEach { request ->
+				emitRelocationDiagnostic(
+					request,
+					ReaderPageRelocationDiagnosticState.Rejected,
+					terminal = true
+				)
+			}
+		}
+
 	private fun drainRelocationOwnership(reason: String) {
-		val drained = relocationGestureCoordinator.cancelAll()
+		val drained = cancelRelocationsWithDiagnostics()
 		check(relocationGestureCoordinator.reservationCount() == 0)
 		check(relocationQueue.reservedCount() == 0)
 		check(relocationQueue.queuedCount() == 0)
@@ -1272,6 +1357,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 		hideSurface()
 		generationOwners.keys.toList().forEach(surfaceView::releaseDeck)
+		deckDiagnosticTracker?.cancelAll()
 		generationRoles.clear()
 		preparedDeckGenerations.clear()
 		activeDeckGenerationId = null
@@ -1306,7 +1392,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		},
 		cancelRecovery = deckRecoveryCoordinator::cancelAll,
 		closeVisualHandoff = relocationVisualHandoffCoordinator::close,
-		cancelRelocations = relocationGestureCoordinator::cancelAll,
+		cancelRelocations = ::cancelRelocationsWithDiagnostics,
 		verifyRelocationsDrained = { cancelled ->
 			check(relocationGestureCoordinator.reservationCount() == 0)
 			check(relocationQueue.reservedCount() == 0)
@@ -1423,6 +1509,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						}
 					}
 				}
+				deckDiagnosticTracker?.cancelAll()
 				preparedPageSets.toList().forEach { pages ->
 					failure = captureTeardownFailure(
 						failure,
@@ -1518,7 +1605,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				failure,
 				ReaderPageTeardownStage.RasterAdapter
 			) {
-				rasterAdapterOwners.remove(adapter)
+				check(rasterAdapterOwners.remove(adapter))
+				onOwnershipMutated()
 			}
 		}
 		rasterAdapter = null
@@ -1547,6 +1635,71 @@ internal class ReaderPlayLikeCurlFoliateController(
 				},
 				rasterResidencyBudget.metrics()
 			)
+
+	fun diagnosticRasterGeneration(): Long = bundleSource.currentGeneration()
+
+	fun diagnosticTextureGeneration(): Long = activeDeckGenerationId ?: -1L
+
+	fun applicationOwnershipMetrics(): ReaderPlayLikeCurlControllerOwnershipMetrics =
+		ReaderPlayLikeCurlControllerOwnershipMetrics(
+			rasterResidency = rasterResidencyMetrics(),
+			pendingVisualCallbacks =
+				relocationVisualHandoffCoordinator.pendingCallbackCount(),
+			pendingVisualCallbackLimit =
+				relocationVisualHandoffCoordinator.pendingCallbackLimit(),
+			relocation = relocationQueue.ownershipSnapshot()
+		)
+
+	override fun requestOwnershipSnapshot(
+		onResult: (ReaderPageRendererOwnershipResult) -> Unit
+	) {
+		surfaceView.requestOwnershipSnapshot { result ->
+			if (result.status != PageSurfaceOwnershipResult.Status.AVAILABLE) {
+				onResult(ReaderPageRendererOwnershipResult.Unavailable(result.status))
+				return@requestOwnershipSnapshot
+			}
+			val snapshot = checkNotNull(result.snapshot) {
+				"Available renderer ownership result omitted its snapshot"
+			}
+			onResult(
+				ReaderPageRendererOwnershipResult.Available(
+					ReaderPageRendererOwnershipSnapshot(
+						activeDeckLeases = snapshot.activeDeckLeases,
+						activeDeckLeaseLimit = snapshot.activeDeckLeaseLimit,
+						pendingDeckLeases = snapshot.pendingDeckLeases,
+						pendingDeckLeaseLimit = snapshot.pendingDeckLeaseLimit,
+						releaseInFlightDeckLeases = snapshot.releaseInFlightDeckLeases,
+						releaseInFlightDeckLeaseLimit =
+							snapshot.releaseInFlightDeckLeaseLimit,
+						orphanDeckLeases = snapshot.orphanDeckLeases,
+						orphanDeckLeaseLimit = snapshot.orphanDeckLeaseLimit,
+						rendererTextures = snapshot.textures,
+						rendererTextureLimit = snapshot.textureLimit,
+						pendingCallbacks = surfaceView.pendingCallbackCount,
+						pendingCallbackLimit = surfaceView.pendingCallbackLimit
+					)
+				)
+			)
+		}
+	}
+
+	override fun setCallbackCapacityListener(listener: () -> Unit) {
+		check(ownershipCapacityListener == null) {
+			"Renderer ownership capacity listener is already registered"
+		}
+		val runnable = Runnable(listener)
+		ownershipCapacityListener = listener
+		ownershipCapacityRunnable = runnable
+		surfaceView.setOwnershipCallbackCapacityListener(runnable)
+	}
+
+	override fun clearCallbackCapacityListener(listener: () -> Unit) {
+		if (ownershipCapacityListener !== listener) return
+		val runnable = checkNotNull(ownershipCapacityRunnable)
+		surfaceView.clearOwnershipCallbackCapacityListener(runnable)
+		ownershipCapacityListener = null
+		ownershipCapacityRunnable = null
+	}
 
 	private fun aggregateRasterResidencyMetrics(
 		metrics: List<ReaderPlayLikeCurlRasterResidencyMetrics>,
@@ -1639,6 +1792,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val drained = metrics?.let { current -> current.isDrained() } == true
 				if (drained) {
 					check(rasterAdapterOwners.remove(adapter))
+					onOwnershipMutated()
 					if (!destroyed) refreshPreparedDeck()
 				}
 
@@ -1693,6 +1847,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			residencyBudget = rasterResidencyBudget,
 			onCapacityAvailable = ::signalRasterCapacityAvailable,
 			publicationDispatcher = Dispatchers.Main.immediate,
+			onOwnershipMutated = onOwnershipMutated,
 			release = { image ->
 				if (!image.bitmap.isRecycled) image.bitmap.recycle()
 			}
@@ -1712,6 +1867,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		check(rasterAdapterOwners.tryAdd(adapter)) {
 			"Raster adapter owner capacity changed during main-thread admission"
 		}
+		onOwnershipMutated()
 		rasterAdapter = adapter
 		return adapter
 	}
@@ -2090,6 +2246,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 					return@post
 				}
 				if (currentRecipient == null) {
+					result.diagnosticOperation?.let { operation ->
+						diagnostics?.repair(
+							operation,
+							ReaderPageRepairDiagnosticState.Cancelled
+						)
+					}
 					logActivationState(
 						event = "page-repair-deferred",
 						detail = "source=$sourcePageIndex " +
@@ -2457,6 +2619,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		check(!built.pages.obsolete && generationOwners[generationId] === built.pages) {
 			"Recovered deck generation is obsolete"
 		}
+		val repairDiagnostic =
+			(deckRecoveryCoordinator.state as?
+				ReaderPageDeckRecoveryState.WaitingForPreparation)
+				?.takeIf { state -> state.generationId == generationId }
+				?.diagnosticOperation
+		deckDiagnosticTracker?.begin(
+			generation = generationId,
+			repairAttempt = repairDiagnostic?.attempt,
+			role = role
+		)
 		updateSurfaceBounds(built.pages, built.ordinal)
 		setSurfaceReadingDirection(built.pages.profile)
 		logActivationState(
@@ -2469,15 +2641,23 @@ internal class ReaderPlayLikeCurlFoliateController(
 				surfaceView.submitDeckWithResult(built.deck) {
 					ownershipTransferred = true
 					acceptRecoveredDeckOwnership(generationId, role)
+					repairDiagnostic?.let { operation ->
+						diagnostics?.repair(
+							operation,
+							ReaderPageRepairDiagnosticState.Submitted
+						)
+					}
 				}
 			}
 		} catch (failure: Throwable) {
+			deckDiagnosticTracker?.cancel(generationId)
 			if (ownershipTransferred) {
 				rollbackAcceptedRecoveredDeck(generationId, role, failure)
 			}
 			throw failure
 		}
 		if (result.status == PageSurfaceDeckSubmissionResult.Status.REJECTED) {
+			deckDiagnosticTracker?.cancel(generationId)
 			return if (result.rejectionReason == DeckRejectionReason.RESOURCE_CAPACITY) {
 				ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
 			} else {
@@ -2492,6 +2672,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			"Fresh recovered deck submission did not transfer renderer ownership"
 		}
+		deckDiagnosticTracker?.submitted(
+			generation = generationId,
+			active = activeDeckGenerationId,
+			pending = pendingDeckGenerationId
+		)
 		return ReaderPageRecoveredDeckSubmissionResult.Accepted
 	}
 
@@ -2690,6 +2875,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 			}
 			is ReaderPageDeckRecoveryState.Ready -> {
+				state.diagnosticOperation?.let { operation ->
+					diagnostics?.repair(
+						operation,
+						ReaderPageRepairDiagnosticState.Completed
+					)
+				}
 				when (generationRoles[state.generationId]) {
 					ReaderDeckSubmissionRole.Active -> updateReadiness(
 						textureDeck = ReaderTextureDeckState.Ready,
@@ -2705,6 +2896,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 			}
 			is ReaderPageDeckRecoveryState.Failed -> {
+				state.diagnosticOperation?.let { operation ->
+					diagnostics?.repair(
+						operation,
+						ReaderPageRepairDiagnosticState.Failed
+					)
+				}
 				if (hasPreparedActiveDeckOwnership()) {
 					if (surfaceView.isSettlementRunning) {
 						updateReadiness(
@@ -2795,6 +2992,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 			requestPrewarmIfIdle("deck-build-failed")
 			return
 		}
+		deckDiagnosticTracker?.begin(
+			generation = generationId,
+			repairAttempt = null,
+			role = role
+		)
 		pages.generations += generationId
 		generationOwners[generationId] = pages
 		generationRoles[generationId] = role
@@ -2822,7 +3024,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 				"orientation=${pages.profile.orientation}"
 		)
 		setSurfaceReadingDirection(pages.profile)
-		surfaceView.submitDeck(deck)
+		try {
+			surfaceView.submitDeck(deck)
+		} catch (failure: Throwable) {
+			deckDiagnosticTracker?.cancel(generationId)
+			throw failure
+		}
+		deckDiagnosticTracker?.submitted(
+			generation = generationId,
+			active = activeDeckGenerationId,
+			pending = pendingDeckGenerationId
+		)
 	}
 
 	private fun updateSurfaceBounds(pages: PreparedPages, ordinal: Int) {
@@ -2890,6 +3102,50 @@ internal class ReaderPlayLikeCurlFoliateController(
 			borrowed.bitmap,
 			borrowed.paperColorArgb
 		)
+	}
+
+	private fun onHandoffAttemptEvent(
+		event: ReaderWebViewVisualHandoffAttemptEvent
+	) {
+		when (event) {
+			is ReaderWebViewVisualHandoffAttemptEvent.Started -> {
+				handoffDiagnosticStarts[event.handoffAttemptId] =
+					diagnostics?.now() ?: 0L
+			}
+			is ReaderWebViewVisualHandoffAttemptEvent.Terminal -> {
+				val startedAt =
+					handoffDiagnosticStarts.remove(event.handoffAttemptId) ?: return
+				val request = relocationQueue.head()?.takeIf { candidate ->
+					candidate.token.value == event.relocationToken
+				} ?: return
+				diagnostics?.handoff(
+					handoffAttemptId = event.handoffAttemptId,
+					token = event.relocationToken,
+					target = request.destinationOrdinal,
+					visualState = event.visualStateCompleted,
+					nextFrame = event.nextFrameCompleted,
+					result = event.result.toDiagnosticResult(),
+					startedAtMs = startedAt
+				)
+			}
+			is ReaderWebViewVisualHandoffAttemptEvent.StalePhysicalCallbackReleased ->
+				Unit
+		}
+	}
+
+	private fun emitRelocationDiagnostic(
+		request: ReaderPageRelocationRequest,
+		state: ReaderPageRelocationDiagnosticState,
+		terminal: Boolean = false
+	) {
+		val startedAt = relocationDiagnosticStarts[request.token.value] ?: return
+		diagnostics?.relocation(
+			request = request,
+			state = state,
+			queueDepth = relocationQueue.ownershipSnapshot().queued,
+			startedAtMs = startedAt
+		)
+		if (terminal) relocationDiagnosticStarts.remove(request.token.value)
 	}
 
 	private fun relocationVisualState(): ReaderPageRelocationVisualState =
@@ -2978,9 +3234,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		webView.evaluateJavascript(
 			"window.NavicReaderBridge?.dispatch?.($command)"
 		) { }
+		emitRelocationDiagnostic(
+			request,
+			ReaderPageRelocationDiagnosticState.Dispatched
+		)
 	}
 
 	private fun releaseGeneration(generationId: Long) {
+		deckDiagnosticTracker?.cancel(generationId)
 		val pages = generationOwners.remove(generationId) ?: return
 		val releasedCurrentActive = activeDeckGenerationId == generationId
 		generationRoles.remove(generationId)

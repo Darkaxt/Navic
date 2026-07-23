@@ -89,6 +89,18 @@ internal fun readerPageTurnCanStartPassivePrewarm(
 	idle: Boolean
 ): Boolean = !destroyed && sessionEnabled && !visualCommitPending && idle
 
+internal fun readerPageRasterAcquisitionTrigger(
+	hasPreparedBefore: Boolean,
+	persistentRasterEntries: Int
+): ReaderPageRasterAcquisitionTrigger {
+	require(persistentRasterEntries >= 0)
+	return when {
+		hasPreparedBefore -> ReaderPageRasterAcquisitionTrigger.WorkingSetRefill
+		persistentRasterEntries > 0 -> ReaderPageRasterAcquisitionTrigger.WarmReopen
+		else -> ReaderPageRasterAcquisitionTrigger.InitialPreparation
+	}
+}
+
 /**
  * Prepares immutable Foliate page rasters for PlayLikeCurl.
  *
@@ -99,16 +111,18 @@ internal class ReaderPageRasterPreparationController(
 	private val host: ViewGroup,
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
+	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
 	private val closeRendererAndAdapter: suspend () -> Unit = {},
 	private val onRequestPrewarm: () -> Unit = {},
+	private val canStartPreparation: () -> Boolean = { true },
 	private val onAwaitHostEvent: (ReaderPageRasterDeferralReason) -> Unit = {},
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
 	private val rasterBatchController: ReaderPageRasterBatchPort =
-		ReaderPageRasterBatchController(bundleSource),
+		ReaderPageRasterBatchController(bundleSource, diagnostics),
 	private val rasterRepairBatchController: ReaderPageRasterBatchPort =
-		ReaderPageRasterBatchController(bundleSource),
+		ReaderPageRasterBatchController(bundleSource, diagnostics),
 	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
-		ReaderPageRasterBatchController(bundleSource),
+		ReaderPageRasterBatchController(bundleSource, diagnostics),
 	private val rasterPlanPort: ReaderPageRasterPreparationPlanPort =
 		ReaderPageWebViewRasterPreparationPlanPort(),
 	private val retainedSnapshot: (
@@ -142,6 +156,8 @@ internal class ReaderPageRasterPreparationController(
 		Int,
 		MutableList<(ReaderPageRasterRepairResult) -> Unit>
 	>()
+	private val rasterRepairDiagnostics =
+		mutableMapOf<Int, ReaderPageDiagnosticOperation>()
 	private var activeRasterRepairPageIndex: Int? = null
 	private var deferredRasterRepairPageIndex: Int? = null
 	private var deferredRasterRepairSessionId: Long? = null
@@ -155,11 +171,14 @@ internal class ReaderPageRasterPreparationController(
 	private var durableBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
 	private var currentRasterProfileEpoch: Long? = null
 	private var backgroundBatchSubmission: ReaderPageAdjacentChapterPrefetchSubmission? = null
+	private val backgroundPrefetchDiagnosticStarts = mutableMapOf<Long, Long>()
 	private var backgroundPrefetchShield: ImageView? = null
 	private var backgroundPrefetchShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var backgroundPrefetchShieldSessionId: Long? = null
 	private var prewarmSession = 0L
 	private var prewarmRetryAttempt: ReaderPageRasterRetryAttempt? = null
+	private var activePrewarmDiagnostic: ReaderPageDiagnosticOperation? = null
+	private var deferredPrewarmDiagnostic: ReaderPageDiagnosticOperation? = null
 	private var pendingPrewarmRetryCount = 0
 	private var deferredPrewarmSessionId: Long? = null
 	private var nextDeferredRetrySessionId = 0L
@@ -172,6 +191,8 @@ internal class ReaderPageRasterPreparationController(
 	private var lastPrewarmBoundary: String? = null
 	private var lastPreparationStateTrace: String? = null
 	private var hasPreparedBefore = false
+	private var activeAcquisitionTrigger =
+		ReaderPageRasterAcquisitionTrigger.InitialPreparation
 	private var preparationShield: ImageView? = null
 	private var preparationShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var preparationShieldSession: Long? = null
@@ -211,6 +232,7 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	init {
+		bundleSource.setPublicationCapacityAvailableListener(onRequestPrewarm)
 		applicationContext.registerComponentCallbacks(memoryCallbacks)
 	}
 
@@ -389,6 +411,9 @@ internal class ReaderPageRasterPreparationController(
 		capture { removePreparationShield(reason = "destroy") }
 		capture(::cancelAllDeferredRetries)
 		capture { currentVisualPageIndex = null }
+		capture {
+			bundleSource.clearPublicationCapacityAvailableListener(onRequestPrewarm)
+		}
 		capture { applicationContext.unregisterComponentCallbacks(memoryCallbacks) }
 		failure?.let { throw it }
 	}
@@ -499,6 +524,18 @@ internal class ReaderPageRasterPreparationController(
 			destroyed
 		) return
 		val pageIndex = rasterRepairCallbacks.keys.firstOrNull() ?: return
+		if (pageIndex !in rasterRepairDiagnostics) {
+			diagnostics?.startOperation(
+				rasterGeneration = bundleSource.currentGeneration(),
+				ordinal = currentVisualPageIndex ?: pageIndex
+			)?.let { operation ->
+				rasterRepairDiagnostics[pageIndex] = operation
+				diagnostics.repair(
+					operation,
+					ReaderPageRepairDiagnosticState.Started
+				)
+			}
+		}
 		deferredPrewarmSessionId?.let { sessionId ->
 			if (deferredRetryCoordinator.cancel(sessionId)) {
 				resumePrewarmAfterRasterRepairs = true
@@ -526,11 +563,10 @@ internal class ReaderPageRasterPreparationController(
 			retainedSnapshot(index, kind)
 		}
 		if (reference == null) {
-			finishRasterRepair(
+			deferRasterRepair(
 				pageIndex = pageIndex,
-				result = ReaderPageRasterRepairResult.Deferred(
-					ReaderPageRasterDeferralReason.ContentNotReady
-				),
+				reason = ReaderPageRasterDeferralReason.ContentNotReady,
+				retryAttempt = retryAttempt,
 				detail = "reference-unavailable:$centerOrdinal"
 			)
 			onRequestPrewarm()
@@ -546,6 +582,7 @@ internal class ReaderPageRasterPreparationController(
 			targets = listOf(
 				ReaderPageRasterBatchTarget(pageIndex, ReaderPageRasterPriority.CurrentChapter)
 			),
+			trigger = ReaderPageRasterAcquisitionTrigger.Repair,
 			onComplete = { outcome ->
 				when {
 					generation != bundleSource.currentGeneration() -> finishRasterRepair(
@@ -558,7 +595,9 @@ internal class ReaderPageRasterPreparationController(
 						readerPageRasterRepairedResult(
 							repairedPageIndices = repairPages,
 							centerOrdinal = centerOrdinal,
-							rasterEpoch = generation
+							rasterEpoch = generation,
+							diagnosticOperation =
+								rasterRepairDiagnostics[pageIndex]
 						),
 						outcome.toString()
 					)
@@ -601,6 +640,13 @@ internal class ReaderPageRasterPreparationController(
 		if (activeRasterRepairPageIndex == pageIndex) activeRasterRepairPageIndex = null
 		deferredRasterRepairPageIndex = pageIndex
 		deferredRasterRepairSessionId = retryAttempt.sessionId
+		rasterRepairDiagnostics[pageIndex]?.let { operation ->
+			diagnostics?.repair(
+				operation = operation,
+				state = ReaderPageRepairDiagnosticState.Deferred,
+				reason = reason
+			)
+		}
 		logLoadingEvent(
 			event = "page-repair-deferred",
 			detail = "page=$pageIndex reason=$reason detail=$detail " +
@@ -639,6 +685,28 @@ internal class ReaderPageRasterPreparationController(
 		detail: String
 	) {
 		val callbacks = rasterRepairCallbacks.remove(pageIndex) ?: return
+		val repairDiagnostic = rasterRepairDiagnostics.remove(pageIndex)
+		repairDiagnostic?.let { operation ->
+			when (result) {
+				is ReaderPageRasterRepairResult.Repaired -> diagnostics?.repair(
+					operation,
+					ReaderPageRepairDiagnosticState.Ready
+				)
+				is ReaderPageRasterRepairResult.Deferred -> diagnostics?.repair(
+					operation,
+					ReaderPageRepairDiagnosticState.Deferred,
+					result.reason
+				)
+				is ReaderPageRasterRepairResult.Failed -> diagnostics?.repair(
+					operation,
+					ReaderPageRepairDiagnosticState.Failed
+				)
+				ReaderPageRasterRepairResult.Cancelled -> diagnostics?.repair(
+					operation,
+					ReaderPageRepairDiagnosticState.Cancelled
+				)
+			}
+		}
 		if (activeRasterRepairPageIndex == pageIndex) activeRasterRepairPageIndex = null
 		if (deferredRasterRepairPageIndex == pageIndex) {
 			deferredRasterRepairSessionId?.let(deferredRetryCoordinator::cancel)
@@ -679,6 +747,13 @@ internal class ReaderPageRasterPreparationController(
 	private fun cancelRasterRepairs(reason: String) {
 		val callbacks = rasterRepairCallbacks.values.flatten()
 		val pages = rasterRepairCallbacks.keys.toList()
+		rasterRepairDiagnostics.values.forEach { operation ->
+			diagnostics?.repair(
+				operation,
+				ReaderPageRepairDiagnosticState.Cancelled
+			)
+		}
+		rasterRepairDiagnostics.clear()
 		rasterRepairCallbacks.clear()
 		activeRasterRepairPageIndex = null
 		deferredRasterRepairSessionId?.let(deferredRetryCoordinator::cancel)
@@ -703,6 +778,7 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	fun prewarmAdjacent(): Boolean {
+		if (!canStartPreparation()) return false
 		if (prewarmInProgress) return true
 		if (
 			activeRasterRepairPageIndex != null ||
@@ -719,6 +795,25 @@ internal class ReaderPageRasterPreparationController(
 		deferredPrewarmSessionId?.let(deferredRetryCoordinator::cancel)
 		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("blocking-session-started")
+		val resumedDiagnostic = deferredPrewarmDiagnostic
+		val preparationDiagnostic = resumedDiagnostic ?: diagnostics?.startOperation(
+			rasterGeneration = bundleSource.currentGeneration(),
+			ordinal = currentVisualPageIndex ?: -1
+		)
+		deferredPrewarmDiagnostic = null
+		activePrewarmDiagnostic = preparationDiagnostic
+		if (resumedDiagnostic == null) {
+			activeAcquisitionTrigger = readerPageRasterAcquisitionTrigger(
+				hasPreparedBefore = hasPreparedBefore,
+				persistentRasterEntries = bundleSource.rasterCacheMetrics().diskEntries
+			)
+			preparationDiagnostic?.let { operation ->
+				diagnostics?.preparation(
+					operation,
+					ReaderPagePreparationDiagnosticState.Attempted
+				)
+			}
+		}
 		prewarmRetryAttempt = newRetryAttempt(pendingPrewarmRetryCount)
 		pendingPrewarmRetryCount = 0
 		prewarmInProgress = true
@@ -953,6 +1048,7 @@ internal class ReaderPageRasterPreparationController(
 			kind = kind,
 			reference = reference,
 			targets = targets,
+			trigger = activeAcquisitionTrigger,
 			onStagingStarted = { snapshot ->
 				if (protectForeground) {
 					reusePreparationShield(snapshot, session, batchLabel)
@@ -1022,7 +1118,9 @@ internal class ReaderPageRasterPreparationController(
 
 	private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome) {
 		val retryAttempt = prewarmRetryAttempt
+		val preparationDiagnostic = activePrewarmDiagnostic
 		prewarmRetryAttempt = null
+		activePrewarmDiagnostic = null
 		prewarmInProgress = false
 		logLoadingEvent(
 			event = "session-finished",
@@ -1036,6 +1134,12 @@ internal class ReaderPageRasterPreparationController(
 		)
 		when (outcome) {
 			ReaderPageRasterBatchOutcome.Ready -> {
+				preparationDiagnostic?.let { operation ->
+					diagnostics?.preparation(
+						operation,
+						ReaderPagePreparationDiagnosticState.Ready
+					)
+				}
 				val backgroundPrefetch = candidateBackgroundPrefetch
 				rasterPreparationCompleted = rasterPreparationRequired
 				rasterInteractiveCompleted = rasterInteractiveRequired
@@ -1045,10 +1149,18 @@ internal class ReaderPageRasterPreparationController(
 				publishPreparationState(ReaderPagePreparationPhase.Ready)
 				backgroundPrefetch?.let(::publishDurableAdjacentChapterPlan)
 			}
-			ReaderPageRasterBatchOutcome.Cancelled -> publishPreparationState(
-				if (hasPreparedBefore) ReaderPagePreparationPhase.Ready
-				else ReaderPagePreparationPhase.Idle
-			)
+			ReaderPageRasterBatchOutcome.Cancelled -> {
+				preparationDiagnostic?.let { operation ->
+					diagnostics?.preparation(
+						operation,
+						ReaderPagePreparationDiagnosticState.Cancelled
+					)
+				}
+				publishPreparationState(
+					if (hasPreparedBefore) ReaderPagePreparationPhase.Ready
+					else ReaderPagePreparationPhase.Idle
+				)
+			}
 			is ReaderPageRasterBatchOutcome.Deferred -> {
 				logPrewarmBoundary(
 					event = "deferred",
@@ -1058,21 +1170,44 @@ internal class ReaderPageRasterPreparationController(
 				val attempt = checkNotNull(retryAttempt) {
 					"Deferred prewarm completed without a retry attempt"
 				}
+				val reason = readerPageRasterDeferralReason(outcome)
+				preparationDiagnostic?.let { operation ->
+					diagnostics?.preparation(
+						operation = operation,
+						state = ReaderPagePreparationDiagnosticState.Deferred,
+						reason = reason,
+						eventVersion = attempt.observedVersion(reason)
+					)
+				}
 				if (attempt.retryCount >= ReaderPageRasterMaxAutomaticRetries) {
+					preparationDiagnostic?.let { operation ->
+						diagnostics?.preparation(
+							operation,
+							ReaderPagePreparationDiagnosticState.Failed,
+							reason
+						)
+					}
 					publishPreparationState(
 						phase = ReaderPagePreparationPhase.Failed,
 						error = "Page preparation did not become ready.",
 						retryable = true
 					)
 				} else {
+					deferredPrewarmDiagnostic = preparationDiagnostic
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
 					deferPrewarm(
-						reason = readerPageRasterDeferralReason(outcome),
+						reason = reason,
 						retryAttempt = attempt
 					)
 				}
 			}
 			is ReaderPageRasterBatchOutcome.Failed -> {
+				preparationDiagnostic?.let { operation ->
+					diagnostics?.preparation(
+						operation,
+						ReaderPagePreparationDiagnosticState.Failed
+					)
+				}
 				Logger.e(
 					ReaderPageRasterPreparationControllerTag,
 					"Page raster preparation failed ${outcome.diagnostic}"
@@ -1107,6 +1242,16 @@ internal class ReaderPageRasterPreparationController(
 			sessionId = retryAttempt.sessionId,
 			reason = reason,
 			observedVersion = retryAttempt.observedVersion(reason),
+			onResumed = { eventVersion ->
+				deferredPrewarmDiagnostic?.let { operation ->
+					diagnostics?.preparation(
+						operation = operation,
+						state = ReaderPagePreparationDiagnosticState.Resumed,
+						reason = reason,
+						eventVersion = eventVersion
+					)
+				}
+			},
 			retry = retry@{
 				if (deferredPrewarmSessionId != retryAttempt.sessionId || destroyed) {
 					return@retry
@@ -1165,9 +1310,36 @@ internal class ReaderPageRasterPreparationController(
 		)
 	}
 
+	private fun emitPrefetchDiagnostic(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		state: ReaderPagePrefetchDiagnosticState
+	) {
+		val runtime = diagnostics ?: return
+		val startedAt = if (state == ReaderPagePrefetchDiagnosticState.Queued) {
+			backgroundPrefetchDiagnosticStarts.getOrPut(submission.sessionId, runtime::now)
+		} else {
+			backgroundPrefetchDiagnosticStarts[submission.sessionId] ?: return
+		}
+		runtime.prefetch(
+			prefetchSession = submission.sessionId,
+			rasterEpoch = submission.key.rasterEpoch,
+			state = state,
+			targetCount = submission.targets.size,
+			startedAtMs = startedAt
+		)
+		if (
+			state == ReaderPagePrefetchDiagnosticState.Completed ||
+			state == ReaderPagePrefetchDiagnosticState.Cancelled ||
+			state == ReaderPagePrefetchDiagnosticState.Failed
+		) {
+			backgroundPrefetchDiagnosticStarts.remove(submission.sessionId)
+		}
+	}
+
 	private fun scheduleBackgroundPrefetch(
 		submission: ReaderPageAdjacentChapterPrefetchSubmission
 	) {
+		emitPrefetchDiagnostic(submission, ReaderPagePrefetchDiagnosticState.Queued)
 		val prefetch = durableBackgroundPrefetch
 		val profileEpoch = currentRasterProfileEpoch
 		if (
@@ -1175,6 +1347,10 @@ internal class ReaderPageRasterPreparationController(
 			profileEpoch == null ||
 			prefetch.qualifiedPlan(profileEpoch).key != submission.key
 		) {
+			emitPrefetchDiagnostic(
+				submission,
+				ReaderPagePrefetchDiagnosticState.Cancelled
+			)
 			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
 			return
 		}
@@ -1200,8 +1376,13 @@ internal class ReaderPageRasterPreparationController(
 		prefetch: ReaderPageRasterBackgroundPrefetch
 	) {
 		if (!isBackgroundPrefetchActive(submission, prefetch)) return
+		emitPrefetchDiagnostic(submission, ReaderPagePrefetchDiagnosticState.Running)
 		val reference = retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
 		if (reference == null) {
+			emitPrefetchDiagnostic(
+				submission,
+				ReaderPagePrefetchDiagnosticState.Failed
+			)
 			logLoadingEvent(
 				event = "background-prefetch-failed",
 				detail = "session=${submission.sessionId} reason=reference-unavailable " +
@@ -1221,6 +1402,7 @@ internal class ReaderPageRasterPreparationController(
 			kind = prefetch.kind,
 			reference = reference,
 			targets = submission.targets,
+			trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
 			onStagingStarted = { snapshot ->
 				showBackgroundPrefetchShield(snapshot, submission)
 			},
@@ -1248,6 +1430,16 @@ internal class ReaderPageRasterPreparationController(
 					return@backgroundComplete
 				}
 				removeBackgroundPrefetchShield(submission.sessionId)
+				emitPrefetchDiagnostic(
+					submission,
+					when (outcome) {
+						ReaderPageRasterBatchOutcome.Ready ->
+							ReaderPagePrefetchDiagnosticState.Completed
+						ReaderPageRasterBatchOutcome.Cancelled ->
+							ReaderPagePrefetchDiagnosticState.Cancelled
+						else -> ReaderPagePrefetchDiagnosticState.Failed
+					}
+				)
 				logLoadingEvent(
 					event = if (outcome == ReaderPageRasterBatchOutcome.Ready) {
 						"background-prefetch-completed"
@@ -1263,6 +1455,10 @@ internal class ReaderPageRasterPreparationController(
 		if (!started && backgroundBatchSubmission == submission) {
 			backgroundBatchSubmission = null
 			removeBackgroundPrefetchShield(submission.sessionId)
+			emitPrefetchDiagnostic(
+				submission,
+				ReaderPagePrefetchDiagnosticState.Failed
+			)
 			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
 		}
 	}
@@ -1346,6 +1542,10 @@ internal class ReaderPageRasterPreparationController(
 	private fun cancelBackgroundPrefetchSubmission(
 		submission: ReaderPageAdjacentChapterPrefetchSubmission
 	) {
+		emitPrefetchDiagnostic(
+			submission,
+			ReaderPagePrefetchDiagnosticState.Cancelled
+		)
 		val batchStarted = backgroundBatchSubmission == submission
 		if (batchStarted) {
 			backgroundBatchSubmission = null
@@ -1393,6 +1593,16 @@ internal class ReaderPageRasterPreparationController(
 
 	private fun cancelPrewarm(reason: String) {
 		prewarmSession += 1
+		val preparationDiagnostic =
+			activePrewarmDiagnostic ?: deferredPrewarmDiagnostic
+		activePrewarmDiagnostic = null
+		deferredPrewarmDiagnostic = null
+		preparationDiagnostic?.let { operation ->
+			diagnostics?.preparation(
+				operation,
+				ReaderPagePreparationDiagnosticState.Cancelled
+			)
+		}
 		val wasInProgress = prewarmInProgress
 		val cancelledSession = prewarmSession - 1
 		prewarmInProgress = false

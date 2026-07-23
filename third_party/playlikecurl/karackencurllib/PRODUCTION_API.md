@@ -1,7 +1,7 @@
 # Production Bitmap API
 
-Production API version `1` accepts client-prepared bitmap page decks through
-`PageSurfaceView`.
+Production API version `2` accepts client-prepared bitmap page decks through
+`PageSurfaceView` and exposes typed asynchronous ownership snapshots.
 
 ## Bitmap Page Decks
 
@@ -18,6 +18,27 @@ the client's bitmap cache.
 The required formats are opaque ARGB_8888 base pages and optional
 premultiplied ARGB_8888 overlays with alpha. Overlays use the same page mesh
 and texture coordinates as their base page.
+
+## Ownership Snapshots
+
+`PageSurfaceView.requestOwnershipSnapshot(PageSurfaceOwnershipResult.Callback)`
+reports ownership asynchronously on the main thread. Every accepted request is
+completed exactly once with a typed status:
+
+- `AVAILABLE` includes an immutable `PageSurfaceOwnershipSnapshot` sampled
+  across a stable main-thread ownership epoch and the GL texture state.
+- `SURFACE_UNAVAILABLE` means no live GL sample can be obtained while the
+  surface is detached or unavailable.
+- `QUEUE_REJECTED` means GL execution or its main-thread completion could not be
+  admitted.
+- `CALLBACK_CAPACITY` means the fixed request registry is full; the callback is
+  notified immediately and is not retained.
+
+The limits carried by the snapshot are renderer ownership limits, not
+best-effort diagnostic thresholds. During disposal, accepted live requests are
+transferred into the bounded terminal callback owner and receive the final
+terminal snapshot. A terminal snapshot can report retained resources when the
+disposal result also reports an ownership-retained failure.
 
 ## Lifecycle
 

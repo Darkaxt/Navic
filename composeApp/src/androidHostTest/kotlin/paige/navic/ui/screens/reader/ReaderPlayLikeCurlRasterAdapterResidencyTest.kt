@@ -63,6 +63,63 @@ class ReaderPlayLikeCurlRasterAdapterResidencyTest {
 	)
 
 	@Test
+	fun ownershipObserverTracksDecodedAdmissionAndTerminalRelease() = runTest {
+		var mutations = 0
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = this,
+			loader = ReaderPlayLikeCurlRasterLoader { key -> key.pageIndex },
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			residentEntryLimit = 2,
+			onOwnershipMutated = { mutations += 1 },
+			release = { _: Int -> }
+		)
+
+		val deck = assertNotNull(adapter.prepare(profile, listOf(1)).await())
+		assertEquals(1, adapter.metrics().residentEntries)
+		assertEquals(1, adapter.metrics().uniqueDecodedBitmaps)
+		val afterAdmission = mutations
+		assertTrue(afterAdmission > 0)
+
+		deck.close()
+		adapter.closeAndJoin()
+		assertEquals(0, adapter.metrics().residentEntries)
+		assertEquals(0, adapter.metrics().uniqueDecodedBitmaps)
+		assertTrue(mutations > afterAdmission)
+		val afterClose = mutations
+		adapter.closeAndJoin()
+		assertEquals(afterClose, mutations)
+	}
+
+	@Test
+	fun retiringUnpinnedAliasAdvancesOwnershipWhilePinnedAliasRemains() = runTest {
+		val shared = Any()
+		var mutations = 0
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = this,
+			loader = ReaderPlayLikeCurlRasterLoader { shared },
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			residentEntryLimit = 2,
+			onOwnershipMutated = { mutations += 1 },
+			release = { _: Any -> }
+		)
+		val pinned = assertNotNull(adapter.prepare(profile, listOf(1)).await())
+		assertNotNull(adapter.prepare(profile, listOf(2)).await()).close()
+		assertEquals(2, adapter.metrics().residentEntries)
+		assertEquals(1, adapter.metrics().uniqueDecodedBitmaps)
+		val beforeRetirement = mutations
+
+		adapter.close()
+
+		assertEquals(1, adapter.metrics().residentEntries)
+		assertEquals(1, adapter.metrics().uniqueDecodedBitmaps)
+		assertTrue(mutations > beforeRetirement)
+		pinned.close()
+		adapter.closeAndJoin()
+		assertEquals(0, adapter.metrics().residentEntries)
+		assertEquals(0, adapter.metrics().uniqueDecodedBitmaps)
+	}
+
+	@Test
 	fun maximumRasterImagesPerDeckMatchesLandscapeDeckContract() {
 		assertEquals(6, ReaderPageMaximumRasterImagesPerDeck)
 		assertEquals(10, ReaderPageMaximumProtectedRasterEntriesPerLease)

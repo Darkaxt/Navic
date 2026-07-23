@@ -41,6 +41,7 @@ internal class ReaderPageRasterDeferredRetryCoordinator {
 	private data class DeferredRequest(
 		val sessionId: Long,
 		val policy: ReaderPageRasterDeferralPolicy,
+		val onResumed: (Long) -> Unit,
 		val retry: () -> Unit,
 		val cancel: () -> Unit
 	)
@@ -57,6 +58,7 @@ internal class ReaderPageRasterDeferredRetryCoordinator {
 		sessionId: Long,
 		reason: ReaderPageRasterDeferralReason,
 		observedVersion: Long,
+		onResumed: (Long) -> Unit = {},
 		retry: () -> Unit,
 		cancel: () -> Unit
 	) {
@@ -65,13 +67,16 @@ internal class ReaderPageRasterDeferredRetryCoordinator {
 		previous?.cancel?.invoke()
 
 		val policy = ReaderPageRasterDeferralPolicy(reason)
-		if (eventVersions[policy.retryEvent.ordinal] > observedVersion) {
+		val currentVersion = eventVersions[policy.retryEvent.ordinal]
+		if (currentVersion > observedVersion) {
+			onResumed(currentVersion)
 			retry()
 			return
 		}
 		deferred = DeferredRequest(
 			sessionId = sessionId,
 			policy = policy,
+			onResumed = onResumed,
 			retry = retry,
 			cancel = cancel
 		)
@@ -83,6 +88,7 @@ internal class ReaderPageRasterDeferredRetryCoordinator {
 		val current = deferred ?: return false
 		if (!current.policy.shouldRetry(event)) return false
 		deferred = null
+		current.onResumed(eventVersions[eventIndex])
 		current.retry()
 		return true
 	}

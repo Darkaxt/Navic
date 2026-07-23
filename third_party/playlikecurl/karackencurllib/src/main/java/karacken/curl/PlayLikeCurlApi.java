@@ -7,7 +7,7 @@ public final class PlayLikeCurlApi {
      *
      * <p>Consumers should pin both this value and the repository revision they embed.
      */
-    public static final int PRODUCTION_API_VERSION = 1;
+    public static final int PRODUCTION_API_VERSION = 2;
 
     private PlayLikeCurlApi() {}
 }

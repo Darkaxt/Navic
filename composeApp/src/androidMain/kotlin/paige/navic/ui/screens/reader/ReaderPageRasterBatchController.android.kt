@@ -257,6 +257,8 @@ internal interface ReaderPageRasterBatchPort {
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
+		trigger: ReaderPageRasterAcquisitionTrigger =
+			ReaderPageRasterAcquisitionTrigger.InitialPreparation,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit = {},
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit = {},
@@ -274,7 +276,8 @@ internal interface ReaderPageRasterBatchPort {
  * serialized so the passive Foliate renderer is never asked to represent two pages at once.
  */
 internal class ReaderPageRasterBatchController(
-	private val bundleSource: ReaderPageTurnBundleSource
+	private val bundleSource: ReaderPageTurnBundleSource,
+	private val diagnostics: ReaderPageRuntimeDiagnostics? = null
 ) : ReaderPageRasterBatchPort {
 	private data class RetryState(
 		val generation: Long,
@@ -289,6 +292,7 @@ internal class ReaderPageRasterBatchController(
 		val kind: ReaderPageTurnTransitionKind,
 		val reference: ReaderPageSlideSnapshot,
 		val targets: List<ReaderPageRasterBatchTarget>,
+		val trigger: ReaderPageRasterAcquisitionTrigger,
 		val originalPageIndices: Set<Int>,
 		val progressCompletedOffset: Int,
 		val progressRequiredCount: Int,
@@ -301,7 +305,11 @@ internal class ReaderPageRasterBatchController(
 			mutableListOf(),
 		var completedCount: Int = 0,
 		var hydrationToken: Long = 0L,
-		var hydrationRequest: ReaderPageRasterHydrationRequest? = null
+		var hydrationRequest: ReaderPageRasterHydrationRequest? = null,
+		val acquisitionOperations:
+			MutableMap<Int, ReaderPageDiagnosticOperation> = mutableMapOf(),
+		val activeAcquisitionSources:
+			MutableMap<Int, ReaderPageRasterAcquisitionSource> = mutableMapOf()
 	) {
 		val requiredCount: Int get() = targets.size
 		val durabilityGate = ReaderPageRasterDurabilityGate(
@@ -319,6 +327,7 @@ internal class ReaderPageRasterBatchController(
 		kind: ReaderPageTurnTransitionKind,
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
+		trigger: ReaderPageRasterAcquisitionTrigger,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
@@ -372,6 +381,7 @@ internal class ReaderPageRasterBatchController(
 			kind = kind,
 			reference = reference,
 			targets = sessionTargets,
+			trigger = trigger,
 			originalPageIndices = originalPageIndices,
 			progressCompletedOffset = progressOffset,
 			progressRequiredCount = originalPageIndices.size,
@@ -400,6 +410,7 @@ internal class ReaderPageRasterBatchController(
 			return
 		}
 		activeSession = null
+		cancelAcquisitions(session)
 		session.hydrationToken += 1L
 		session.hydrationRequest?.cancel()
 		session.hydrationRequest = null
@@ -447,6 +458,50 @@ internal class ReaderPageRasterBatchController(
 		if (!attached) onRestored()
 	}
 
+	private fun startAcquisition(
+		session: Session,
+		target: ReaderPageRasterBatchTarget,
+		source: ReaderPageRasterAcquisitionSource
+	) {
+		val runtime = diagnostics ?: return
+		val operation = session.acquisitionOperations.getOrPut(target.pageIndex) {
+			runtime.startOperation(session.generation, target.pageIndex)
+		}
+		session.activeAcquisitionSources[target.pageIndex] = source
+		runtime.rasterAcquisition(
+			operation = operation,
+			source = source,
+			trigger = session.trigger,
+			result = ReaderPageRasterAcquisitionResult.Started
+		)
+	}
+
+	private fun finishAcquisition(
+		session: Session,
+		pageIndex: Int,
+		result: ReaderPageRasterAcquisitionResult
+	) {
+		val runtime = diagnostics ?: return
+		val source = session.activeAcquisitionSources.remove(pageIndex) ?: return
+		val operation = session.acquisitionOperations[pageIndex] ?: return
+		runtime.rasterAcquisition(
+			operation = operation,
+			source = source,
+			trigger = session.trigger,
+			result = result
+		)
+	}
+
+	private fun cancelAcquisitions(session: Session) {
+		session.activeAcquisitionSources.keys.toList().forEach { pageIndex ->
+			finishAcquisition(
+				session,
+				pageIndex,
+				ReaderPageRasterAcquisitionResult.Cancelled
+			)
+		}
+	}
+
 	private fun hydrateTarget(session: Session, targetIndex: Int) {
 		if (!isSessionActive(session)) return
 		if (targetIndex >= session.targets.size) {
@@ -458,6 +513,11 @@ internal class ReaderPageRasterBatchController(
 		}
 		val target = session.targets[targetIndex]
 		session.onActiveTarget(target)
+		startAcquisition(
+			session,
+			target,
+			ReaderPageRasterAcquisitionSource.PersistentHydration
+		)
 		val hydrationToken = ++session.hydrationToken
 		val hydrationRequest = bundleSource.hydrateSnapshot(
 			webView = session.webView,
@@ -469,14 +529,33 @@ internal class ReaderPageRasterBatchController(
 				session.hydrationRequest = null
 			}
 			if (!isSessionActive(session)) {
+				finishAcquisition(
+					session,
+					target.pageIndex,
+					if (session.generation == bundleSource.currentGeneration()) {
+						ReaderPageRasterAcquisitionResult.Cancelled
+					} else {
+						ReaderPageRasterAcquisitionResult.Stale
+					}
+				)
 				hydrated?.release()
 				return@hydrateSnapshot
 			}
 			if (hydrated == null) {
+				finishAcquisition(
+					session,
+					target.pageIndex,
+					ReaderPageRasterAcquisitionResult.Miss
+				)
 				session.missingTargets += target
 				hydrateTarget(session, targetIndex + 1)
 				return@hydrateSnapshot
 			}
+			finishAcquisition(
+				session,
+				target.pageIndex,
+				ReaderPageRasterAcquisitionResult.Hit
+			)
 			bundleSource.ensurePersistentSnapshot(
 				hydrated,
 				target.priority
@@ -568,6 +647,11 @@ internal class ReaderPageRasterBatchController(
 			return
 		}
 		session.onActiveTarget(target)
+		startAcquisition(
+			session,
+			target,
+			ReaderPageRasterAcquisitionSource.WebViewCapture
+		)
 		bundleSource.capturePreparedRasterPage(
 			webView = session.webView,
 			pageIndex = pageIndex,
@@ -578,7 +662,19 @@ internal class ReaderPageRasterBatchController(
 			isStillCurrent = { isSessionActive(session) },
 			onStagingStarted = session.onStagingStarted,
 			onCaptureFailed = captureFailed@{
-				if (!isSessionActive(session)) return@captureFailed
+				if (!isSessionActive(session)) {
+					finishAcquisition(
+						session,
+						pageIndex,
+						inactiveAcquisitionResult(session)
+					)
+					return@captureFailed
+				}
+				finishAcquisition(
+					session,
+					pageIndex,
+					ReaderPageRasterAcquisitionResult.Failed
+				)
 				finish(
 					session,
 					ReaderPageRasterBatchOutcome.Failed(
@@ -589,7 +685,20 @@ internal class ReaderPageRasterBatchController(
 				)
 			},
 			onCaptured = captured@{ persisted ->
-				if (!isSessionActive(session)) return@captured
+				if (!isSessionActive(session)) {
+					finishAcquisition(
+						session,
+						pageIndex,
+						inactiveAcquisitionResult(session)
+					)
+					return@captured
+				}
+				finishAcquisition(
+					session,
+					pageIndex,
+					if (persisted) ReaderPageRasterAcquisitionResult.Durable
+					else ReaderPageRasterAcquisitionResult.Failed
+				)
 				if (!recordDurability(session, target, persisted)) {
 					return@captured
 				}
@@ -643,6 +752,15 @@ internal class ReaderPageRasterBatchController(
 		)
 		return true
 	}
+
+	private fun inactiveAcquisitionResult(
+		session: Session
+	): ReaderPageRasterAcquisitionResult =
+		if (session.generation == bundleSource.currentGeneration()) {
+			ReaderPageRasterAcquisitionResult.Cancelled
+		} else {
+			ReaderPageRasterAcquisitionResult.Stale
+		}
 
 	private fun isSessionActive(session: Session): Boolean =
 		activeSession === session &&

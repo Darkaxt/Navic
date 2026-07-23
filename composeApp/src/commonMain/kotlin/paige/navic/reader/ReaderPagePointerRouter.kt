@@ -23,6 +23,11 @@ sealed interface ReaderPagePointerRoute {
 
 class ReaderPagePointerRouter(
 	private val lifecycle: ReaderPageGestureLifecycle,
+	private val onStarted: (
+		gestureId: Long,
+		downX: Float,
+		downY: Float
+	) -> Unit = { _, _, _ -> },
 	private val publishTerminal: (
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome
@@ -45,6 +50,7 @@ class ReaderPagePointerRouter(
 		sequences[gestureId] = ReaderPagePointerSequence(gestureId, downX, downY)
 		activeGestureId = gestureId
 		curlClaimed = false
+		onStarted(gestureId, downX, downY)
 		return when (admission) {
 			ReaderPageNewPointerDecision.Accept ->
 				ReaderPagePointerBeginResult(gestureId, ReaderPagePointerRoute.Content)

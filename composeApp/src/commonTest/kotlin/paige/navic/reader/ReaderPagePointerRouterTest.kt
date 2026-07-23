@@ -83,9 +83,15 @@ class ReaderPagePointerRouterTest {
 		).forEach { outcome ->
 			val lifecycle = ReaderPageGestureLifecycle()
 			val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
-			val router = ReaderPagePointerRouter(lifecycle) { gestureId, terminal ->
-				published += gestureId to terminal
-			}
+			val events = mutableListOf<String>()
+			val router = ReaderPagePointerRouter(
+				lifecycle = lifecycle,
+				onStarted = { gestureId, _, _ -> events += "started:$gestureId" },
+				publishTerminal = { gestureId, terminal ->
+					events += "terminal:$gestureId"
+					published += gestureId to terminal
+				}
+			)
 			val begin = router.begin(100f, 200f, ReaderPageNewPointerDecision.Reject(outcome))
 
 			assertEquals(ReaderPagePointerRoute.Terminal(begin.gestureId, outcome), begin.route)
@@ -94,6 +100,10 @@ class ReaderPagePointerRouterTest {
 			assertEquals(ReaderPagePointerRoute.Consume, router.pointerUp(begin.gestureId))
 			assertFalse(router.complete(begin.gestureId, ReaderPageGestureTerminalOutcome.FailedRenderer))
 			assertEquals(listOf(begin.gestureId to outcome), published)
+			assertEquals(
+				listOf("started:${begin.gestureId}", "terminal:${begin.gestureId}"),
+				events
+			)
 			assertEquals(0, router.trackedSequenceCount())
 		}
 	}

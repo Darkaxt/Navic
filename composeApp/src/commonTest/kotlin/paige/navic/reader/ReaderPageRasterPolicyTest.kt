@@ -11,6 +11,19 @@ class ReaderPageRasterPolicyTest {
 	}
 
 	@Test
+	fun publicationLimitsMatchForegroundAndPrefetchOwnerArithmetic() {
+		assertEquals(10, ReaderPageMaximumForegroundPublicationEntries)
+		assertEquals(1, ReaderPageAdjacentPrefetchPublicationAllowance)
+		assertEquals(
+			(
+				ReaderPageMaximumForegroundPublicationEntries +
+					ReaderPageAdjacentPrefetchPublicationAllowance
+			) * 2,
+			ReaderPageMaximumPublicationCallbacks
+		)
+	}
+
+	@Test
 	fun bitmapQualityDefaultsToHalfResolution() {
 		assertEquals(ReaderPageBitmapQuality.Balanced, normalizeReaderPageBitmapQuality(null))
 		assertEquals(0.5f, ReaderPageBitmapQuality.Balanced.scale)

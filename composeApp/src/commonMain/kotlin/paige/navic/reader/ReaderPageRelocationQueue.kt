@@ -290,6 +290,7 @@ class ReaderPageRelocationQueue(
 	fun reservedCount(): Int = ownershipSnapshot().reserved
 	fun queuedCount(): Int = ownershipSnapshot().queued
 	fun occupiedCount(): Int = ownershipSnapshot().occupied
+	fun size(): Int = ownershipSnapshot().occupied
 	fun hasCapacity(): Boolean = ownershipSnapshot().occupied < capacity
 
 	fun cancelAll(): ReaderPageRelocationDrain = synchronized(lock) {

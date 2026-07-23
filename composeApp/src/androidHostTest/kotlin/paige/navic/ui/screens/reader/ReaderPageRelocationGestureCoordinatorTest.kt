@@ -141,7 +141,11 @@ class ReaderPageRelocationGestureCoordinatorTest {
 	@Test
 	fun failedCommittedTerminalCasRollsBackTransferredRequest() {
 		val queue = ReaderPageRelocationQueue(capacity = 1)
-		val coordinator = ReaderPageRelocationGestureCoordinator(queue)
+		var rejectedToken: String? = null
+		val coordinator = ReaderPageRelocationGestureCoordinator(
+			queue = queue,
+			onRejected = { rejectedToken = it.token.value }
+		)
 		coordinator.start(
 			metadata(gestureId = 9L),
 			0,
@@ -164,6 +168,7 @@ class ReaderPageRelocationGestureCoordinatorTest {
 		)
 
 		assertEquals(ReaderPageRelocationCommitResult.TerminalNotPublished, result)
+		assertEquals("page-turn-1", rejectedToken)
 		assertEquals(0, dispatchCalls)
 		assertEquals(0, queue.occupiedCount())
 	}
@@ -171,8 +176,12 @@ class ReaderPageRelocationGestureCoordinatorTest {
 	@Test
 	fun commitDispatchesOnlyAfterSuccessfulTerminalCas() {
 		val queue = ReaderPageRelocationQueue(capacity = 1)
-		val coordinator = ReaderPageRelocationGestureCoordinator(queue)
 		val events = mutableListOf<String>()
+		val coordinator = ReaderPageRelocationGestureCoordinator(
+			queue = queue,
+			onQueued = { events += "queued:${it.token.value}" },
+			onRejected = { events += "rejected:${it.token.value}" }
+		)
 		coordinator.start(
 			metadata(gestureId = 10L),
 			0,
@@ -196,7 +205,11 @@ class ReaderPageRelocationGestureCoordinatorTest {
 		val published = assertIs<ReaderPageRelocationCommitResult.Published>(result)
 		assertEquals(21L, published.request.textureGeneration)
 		assertEquals(
-			listOf("terminal", "dispatch:${published.request.token.value}"),
+			listOf(
+				"queued:${published.request.token.value}",
+				"terminal",
+				"dispatch:${published.request.token.value}"
+			),
 			events
 		)
 		assertEquals(1, queue.occupiedCount())

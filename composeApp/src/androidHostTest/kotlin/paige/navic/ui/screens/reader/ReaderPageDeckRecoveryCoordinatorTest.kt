@@ -434,13 +434,85 @@ class ReaderPageDeckRecoveryCoordinatorTest {
 		assertFalse(coordinator.canAcceptPointer)
 	}
 
+	@Test
+	fun repairDiagnosticOperationSurvivesBuildSubmissionAndSingleCancellation() {
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false)
+		val operation = ReaderPageDiagnosticOperation(
+			attempt = 71L,
+			rasterGeneration = 9L,
+			ordinal = 5,
+			startedAtMs = 10L
+		)
+		val cancelled = mutableListOf<ReaderPageDiagnosticOperation>()
+		val coordinator = ReaderPageDeckRecoveryCoordinator(
+			host = host,
+			onRepairCancelled = cancelled::add
+		)
+
+		assertTrue(coordinator.accept(repairedWindow(diagnosticOperation = operation)))
+		assertEquals(
+			operation,
+			assertIs<ReaderPageDeckRecoveryState.WaitingForBuild>(
+				coordinator.state
+			).diagnosticOperation
+		)
+		host.completeBuild(host.singleBuildRequestId(), generationId = 72L)
+		assertEquals(
+			operation,
+			assertIs<ReaderPageDeckRecoveryState.WaitingForPreparation>(
+				coordinator.state
+			).diagnosticOperation
+		)
+
+		coordinator.cancelAll()
+		coordinator.cancelAll()
+
+		assertEquals(listOf(operation), cancelled)
+	}
+
+	@Test
+	fun preparedRecoveryCarriesDiagnosticOperationToOneSuccessfulTerminal() {
+		val host = FakeDeckRecoveryHost(usableActiveDeck = false)
+		val operation = ReaderPageDiagnosticOperation(
+			attempt = 72L,
+			rasterGeneration = 9L,
+			ordinal = 5,
+			startedAtMs = 10L
+		)
+		val states = mutableListOf<ReaderPageDeckRecoveryState>()
+		val cancelled = mutableListOf<ReaderPageDiagnosticOperation>()
+		val coordinator = ReaderPageDeckRecoveryCoordinator(
+			host = host,
+			onStateChanged = states::add,
+			onRepairCancelled = cancelled::add
+		)
+
+		assertTrue(coordinator.accept(repairedWindow(diagnosticOperation = operation)))
+		host.completeBuild(host.singleBuildRequestId(), generationId = 73L)
+		host.prepared += 73L
+		assertTrue(coordinator.onDeckPrepared(73L))
+
+		assertEquals(
+			ReaderPageDeckRecoveryState.Ready(73L, operation),
+			coordinator.state
+		)
+		assertEquals(
+			listOf(ReaderPageDeckRecoveryState.Ready(73L, operation)),
+			states.filterIsInstance<ReaderPageDeckRecoveryState.Ready>()
+		)
+		coordinator.cancelAll()
+		assertTrue(cancelled.isEmpty())
+	}
+
 	private fun repairedWindow(
 		center: Int = 5,
-		rasterEpoch: Long = 9L
+		rasterEpoch: Long = 9L,
+		diagnosticOperation: ReaderPageDiagnosticOperation? = null
 	): ReaderPageRasterRepairResult.Repaired = readerPageRasterRepairedResult(
 		repairedPageIndices = setOf(3, 4, 5, 6, 7),
 		centerOrdinal = center,
-		rasterEpoch = rasterEpoch
+		rasterEpoch = rasterEpoch,
+		diagnosticOperation = diagnosticOperation
 	)
 
 	private class FakeDeckRecoveryHost(
