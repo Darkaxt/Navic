@@ -53,11 +53,16 @@ internal object ReaderProgressReducer {
 			shellCoverVisible = state.shellCoverVisible,
 			locator = event.locator
 		)
+		val sessionChanged = state.foliateSessionId != event.foliateSessionId
+		val nextSettlementAck = event.pageTurnSettlementAck()
+			?: state.pageTurnSettlementAck.takeUnless { sessionChanged }
 		return ReaderProgressReduction(
 			state = state.copy(
 				chrome = nextChrome,
 				chapterProgress = state.chapterProgress.updatedFrom(event.locator, event.tocTitle),
 				readingProgress = nextReadingProgress,
+				foliateSessionId = event.foliateSessionId,
+				pageTurnSettlementAck = nextSettlementAck,
 				nativeShellCoverReturnLocatorKey = nextNativeShellCoverReturnLocatorKey,
 				shellCoverVisible = if (dismissShellCover) false else state.shellCoverVisible,
 				menuVisible = if (dismissShellCover) false else state.menuVisible
@@ -124,6 +129,23 @@ internal object ReaderProgressReducer {
 			engineCommands = listOf(ReaderEngineCommand.NavigateTo(ReaderLocator(href = targetHref)))
 		)
 	}
+}
+
+private fun ReaderEngineEvent.Relocated.pageTurnSettlementAck(): ReaderPageTurnSettlementAck? {
+	val token = pageTurnSettleToken?.takeIf { it.isNotBlank() } ?: return null
+	val pageIndex = locator.pageIndex?.takeIf { it >= 0 } ?: return null
+	val settlementSessionId = pageTurnSettleSessionId
+		?.takeIf { it.isNotBlank() && it == foliateSessionId }
+		?: return null
+	val rasterGeneration = pageTurnSettleRasterGeneration?.takeIf { it >= 0L } ?: return null
+	val textureGeneration = pageTurnSettleTextureGeneration?.takeIf { it >= 0L } ?: return null
+	return ReaderPageTurnSettlementAck(
+		token = token,
+		pageIndex = pageIndex,
+		foliateSessionId = settlementSessionId,
+		rasterGeneration = rasterGeneration,
+		textureGeneration = textureGeneration
+	)
 }
 
 internal fun ReaderChapterProgressState.updatedFrom(

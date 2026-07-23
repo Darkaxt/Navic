@@ -108,8 +108,17 @@ sealed interface ReaderEngineEvent {
 	data object PublicationReady : ReaderEngineEvent
 	data class Relocated(
 		val locator: ReaderLocator,
-		val tocTitle: String? = null
-	) : ReaderEngineEvent
+		val foliateSessionId: String,
+		val tocTitle: String? = null,
+		val pageTurnSettleToken: String? = null,
+		val pageTurnSettleSessionId: String? = null,
+		val pageTurnSettleRasterGeneration: Long? = null,
+		val pageTurnSettleTextureGeneration: Long? = null
+	) : ReaderEngineEvent {
+		init {
+			require(foliateSessionId.isNotBlank())
+		}
+	}
 
 	data class TocItemChanged(
 		val href: String? = null,

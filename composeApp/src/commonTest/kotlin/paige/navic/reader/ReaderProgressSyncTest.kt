@@ -11,9 +11,9 @@ class ReaderProgressSyncTest {
 		val startupLocator = ReaderLocator(href = "cover.xhtml", progress = 0.0)
 		val resumedLocator = ReaderLocator(href = "chapter-04.xhtml", progress = 0.62)
 		val initial = ReaderProgressSaveGate()
-		val startup = initial.onReaderEvent(ReaderBridgeEvent.LocationChanged(startupLocator))
+		val startup = initial.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = startupLocator))
 		val ready = startup.state.onReaderEvent(ReaderBridgeEvent.PublicationReady)
-		val resumed = ready.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
+		val resumed = ready.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = resumedLocator))
 
 		assertEquals(null, startup.locatorToSave)
 		assertEquals(false, startup.state.publicationReady)
@@ -34,9 +34,9 @@ class ReaderProgressSyncTest {
 		val ready = ReaderProgressSaveGate()
 			.onReaderEvent(ReaderBridgeEvent.PublicationReady)
 			.state
-		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
-		val resumed = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
-		val laterCover = resumed.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
+		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = coverLocator))
+		val resumed = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = resumedLocator))
+		val laterCover = resumed.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = coverLocator))
 
 		assertEquals(null, startupCover.locatorToSave)
 		assertEquals(resumedLocator, resumed.locatorToSave)
@@ -56,10 +56,10 @@ class ReaderProgressSyncTest {
 			.onReaderEvent(ReaderBridgeEvent.PublicationReady)
 			.state
 		val resumed = ready
-			.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
+			.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = resumedLocator))
 			.state
 
-		val laterCover = resumed.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
+		val laterCover = resumed.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = coverLocator))
 
 		assertEquals(null, laterCover.locatorToSave)
 		assertEquals(true, laterCover.state.readableLocationSaved)
@@ -78,10 +78,10 @@ class ReaderProgressSyncTest {
 			.onReaderEvent(ReaderBridgeEvent.PublicationReady)
 			.state
 
-		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
-		val startupNav = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(navLocator))
-		val resumed = startupNav.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
-		val laterCover = resumed.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
+		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = coverLocator))
+		val startupNav = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = navLocator))
+		val resumed = startupNav.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = resumedLocator))
+		val laterCover = resumed.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = coverLocator))
 
 		assertEquals(null, startupCover.locatorToSave)
 		assertEquals(null, startupNav.locatorToSave)
@@ -101,8 +101,8 @@ class ReaderProgressSyncTest {
 		val ready = ReaderProgressSaveGate()
 			.onReaderEvent(ReaderBridgeEvent.PublicationReady)
 			.state
-		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(coverLocator))
-		val resumed = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(resumedLocator))
+		val startupCover = ready.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = coverLocator))
+		val resumed = startupCover.state.onReaderEvent(ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = resumedLocator))
 
 		assertEquals(null, startupCover.locatorToSave)
 		assertEquals(resumedLocator, resumed.locatorToSave)
@@ -117,7 +117,7 @@ class ReaderProgressSyncTest {
 		assertEquals(
 			null,
 			reset.onReaderEvent(
-				ReaderBridgeEvent.LocationChanged(ReaderLocator(href = "cover.xhtml", progress = 0.0))
+				ReaderBridgeEvent.LocationChanged(foliateSessionId = "session-a", locator = ReaderLocator(href = "cover.xhtml", progress = 0.0))
 			).locatorToSave
 		)
 	}

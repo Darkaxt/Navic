@@ -9,6 +9,7 @@ data class ReaderWebCommandDispatchState(
 	val publicationKey: String? = null,
 	val publicationSequence: Long = 0L,
 	val runtimeGeneration: Int? = null,
+	val foliateSessionId: String? = null,
 	val lastCommandKey: Long? = null,
 	val lastKnownLocator: ReaderLocator? = null,
 	val pendingCommands: List<ReaderWebPendingCommand> = emptyList()
@@ -63,6 +64,12 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 		)
 		else -> this
 	}
+	val runtimeSessionId = if (publicationChanged || generationChanged) {
+		"foliate-${nextState.publicationSequence}-$runtimeGeneration"
+	} else {
+		checkNotNull(nextState.foliateSessionId)
+	}
+	nextState = nextState.copy(foliateSessionId = runtimeSessionId)
 
 	if (publicationChanged || generationChanged) {
 		nextState = nextState.copy(
@@ -71,6 +78,7 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 					dispatch = ReaderBridgeDispatchCommand(
 						id = "reader-open-${nextState.publicationSequence}",
 						command = openCommand.copy(
+							foliateSessionId = runtimeSessionId,
 							startLocator = nextState.lastKnownLocator ?: openCommand.startLocator
 						)
 					)

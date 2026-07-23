@@ -80,6 +80,7 @@ class ReaderControllerTest {
 
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = locator,
 				tocTitle = "Chapter 1"
 			)
@@ -89,6 +90,56 @@ class ReaderControllerTest {
 		assertEquals("Chapter 1", step.controller.state.chrome.currentSectionTitle)
 		assertEquals("Page 6 of 411 • 25%", step.controller.state.chrome.progressLabel)
 		assertEquals(emptyList(), step.engineCommands)
+	}
+
+	@Test
+	fun relocationAcknowledgementRequiresCurrentSessionAndResetsOnSessionOrPublicationChange() {
+		val acknowledged = ReaderController().onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(pageIndex = 7),
+				foliateSessionId = "session-a",
+				pageTurnSettleToken = "settle-1",
+				pageTurnSettleSessionId = "session-a",
+				pageTurnSettleRasterGeneration = 11L,
+				pageTurnSettleTextureGeneration = 13L
+			)
+		).controller
+		assertEquals("session-a", acknowledged.state.foliateSessionId)
+		assertEquals(
+			ReaderPageTurnSettlementAck(
+				token = "settle-1",
+				pageIndex = 7,
+				foliateSessionId = "session-a",
+				rasterGeneration = 11L,
+				textureGeneration = 13L
+			),
+			acknowledged.state.pageTurnSettlementAck
+		)
+
+		val mismatched = ReaderController().onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(pageIndex = 8),
+				foliateSessionId = "session-a",
+				pageTurnSettleToken = "settle-2",
+				pageTurnSettleSessionId = "session-b",
+				pageTurnSettleRasterGeneration = 17L,
+				pageTurnSettleTextureGeneration = 19L
+			)
+		).controller
+		assertNull(mismatched.state.pageTurnSettlementAck)
+
+		val changedSession = acknowledged.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(pageIndex = 9),
+				foliateSessionId = "session-b"
+			)
+		).controller
+		assertEquals("session-b", changedSession.state.foliateSessionId)
+		assertNull(changedSession.state.pageTurnSettlementAck)
+
+		val reopened = acknowledged.open(hobbitOpenRequest()).controller
+		assertNull(reopened.state.foliateSessionId)
+		assertNull(reopened.state.pageTurnSettlementAck)
 	}
 
 	@Test
@@ -103,6 +154,7 @@ class ReaderControllerTest {
 
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "OEBPS/xhtml/chapter4.xhtml",
 					progress = 0.28,
@@ -132,6 +184,7 @@ class ReaderControllerTest {
 
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "OEBPS/xhtml/chapter4.xhtml",
 					progress = 0.28,
@@ -159,6 +212,7 @@ class ReaderControllerTest {
 
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "OEBPS/xhtml/chapter4.xhtml",
 					progress = 0.28,
@@ -489,6 +543,7 @@ class ReaderControllerTest {
 
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = locator,
 				tocTitle = "Chapter 1"
 			)
@@ -520,6 +575,7 @@ class ReaderControllerTest {
 
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = locator,
 				tocTitle = "Chapter XIV: Fire and Water"
 			)
@@ -544,6 +600,7 @@ class ReaderControllerTest {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "chapter-13.xhtml",
 						chapterProgress = 1.0,
@@ -556,6 +613,7 @@ class ReaderControllerTest {
 
 		val step = controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "chapter-14.xhtml",
 					progress = 0.84,
@@ -585,6 +643,7 @@ class ReaderControllerTest {
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).controller
 		val startupCover = ready.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.0),
 				tocTitle = "Cover"
 			)
@@ -598,12 +657,14 @@ class ReaderControllerTest {
 		)
 		val resumed = startupCover.controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = resumedLocator,
 				tocTitle = "Chapter 4"
 			)
 		)
 		val laterCover = resumed.controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.0),
 				tocTitle = "Cover"
 			)
@@ -683,6 +744,7 @@ class ReaderControllerTest {
 			.controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "OEBPS/Text/sinopsis.xhtml",
 						progress = 0.004370907849029098,
@@ -714,6 +776,7 @@ class ReaderControllerTest {
 			.controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "OEBPS/Text/sinopsis.xhtml",
 						progress = 0.0007927082115140601,
@@ -748,6 +811,7 @@ class ReaderControllerTest {
 			.controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "OEBPS/Text/sinopsis.xhtml",
 						progress = 0.0007927082115140601,
@@ -765,6 +829,7 @@ class ReaderControllerTest {
 			.controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "OEBPS/Text/TitlePage-01.xhtml",
 						progress = 0.0024865680920030196,
@@ -802,6 +867,7 @@ class ReaderControllerTest {
 			.controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "OEBPS/Text/chapter-01.xhtml",
 						progress = 0.12,
@@ -868,6 +934,7 @@ class ReaderControllerTest {
 			.controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "OEBPS/Text/chapter-01.xhtml",
 						progress = 0.12,
@@ -1355,6 +1422,7 @@ class ReaderControllerTest {
 			).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "EPUB/Text/chapter-02.xhtml#p3",
 						chapterPageIndex = 3,
@@ -1413,6 +1481,7 @@ class ReaderControllerTest {
 			).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "EPUB/Text/foreword.xhtml",
 						chapterPageIndex = 3,
@@ -1464,6 +1533,7 @@ class ReaderControllerTest {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "EPUB/Text/foreword.xhtml",
 						chapterPageIndex = 3,
@@ -1520,6 +1590,7 @@ class ReaderControllerTest {
 			).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(href = "EPUB/Text/chapter-01.xhtml"),
 					tocTitle = "Chapter 1"
 				)
@@ -2174,6 +2245,7 @@ class ReaderControllerTest {
 			).controller
 		val saved = synced.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "Text/chapter1.xhtml#reader",
 					progress = 0.42,
@@ -2185,6 +2257,7 @@ class ReaderControllerTest {
 
 		val audioFollow = saved.controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "Text/chapter1.xhtml#seg-2",
 					progress = 0.09,
@@ -2214,6 +2287,7 @@ class ReaderControllerTest {
 			.loadWhispersyncSidecar(testWhispersyncSidecar()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "Text/chapter1.xhtml#reader",
 						cfi = "epubcfi(/6/2!/4/4,/1:0,/1:24)",
@@ -2301,6 +2375,7 @@ class ReaderControllerTest {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "chapter-01.xhtml",
 						cfi = "epubcfi(/6/8!/4/1:0)",
@@ -2358,6 +2433,7 @@ class ReaderControllerTest {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "chapter-01.xhtml",
 						cfi = "epubcfi(/6/8!/4/1:0)",
@@ -2403,6 +2479,7 @@ class ReaderControllerTest {
 		val annotated = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "chapter-01.xhtml",
 						cfi = "epubcfi(/6/8!/4/1:0)",
@@ -2448,6 +2525,7 @@ class ReaderControllerTest {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "chapter-01.xhtml",
 						cfi = "epubcfi(/6/8!/4/1:0)",
@@ -2498,6 +2576,7 @@ class ReaderControllerTest {
 		val controller = ReaderController().open(hobbitOpenRequest()).controller
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = locator,
 					tocTitle = "Chapter 1"
 				)
@@ -2515,6 +2594,7 @@ class ReaderControllerTest {
 		)
 		val movedAway = added.controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = locator.copy(cfi = "epubcfi(/6/10!/4/1:0)"),
 				tocTitle = "Chapter 1"
 			)

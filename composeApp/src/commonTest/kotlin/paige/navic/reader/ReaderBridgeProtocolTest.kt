@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -15,6 +16,7 @@ class ReaderBridgeProtocolTest {
 			id = "reader-open-1",
 			command = ReaderBridgeCommand.OpenPublication(
 				url = "https://bindery.local/books/1.epub",
+				foliateSessionId = "session-a",
 				startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)")
 			)
 		).toJavaScript()
@@ -23,7 +25,18 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"commandId\":\"reader-open-1\"")
 		assertContains(script, "\"type\":\"openPublication\"")
 		assertContains(script, "\"url\":\"https://bindery.local/books/1.epub\"")
+		assertContains(script, "\"foliateSessionId\":\"session-a\"")
 		assertContains(script, "epubcfi(/6/2!/4/1:0)")
+	}
+
+	@Test
+	fun openPublicationRequiresBoundFoliateSessionBeforeSerialization() {
+		val command = ReaderBridgeCommand.OpenPublication(
+			url = "https://bindery.local/books/1.epub",
+			foliateSessionId = ReaderUnboundFoliateSessionId
+		)
+
+		assertFailsWith<IllegalStateException> { command.toJsonObject() }
 	}
 
 	@Test
@@ -54,6 +67,7 @@ class ReaderBridgeProtocolTest {
 	fun openPublicationCommandDispatchesEscapedJsonToNavicReaderBridge() {
 		val script = ReaderBridgeCommand.OpenPublication(
 			url = "https://bindery.local/opds/books/3693/resources/readaloud-1?title=\"Alcatraz\"",
+			foliateSessionId = "session-a",
 			mediaOverlayEnabled = true,
 			externalShellCover = true,
 			suppressWebShellCover = true,
@@ -106,6 +120,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\\\"Alcatraz\\\"")
 		assertContains(script, "epubcfi(/6/2!/4/1:0)")
 		assertContains(script, "\"type\":\"openPublication\"")
+		assertContains(script, "\"foliateSessionId\":\"session-a\"")
 		assertContains(script, "\"mediaOverlayEnabled\":true")
 		assertContains(script, "\"externalShellCover\":true")
 		assertContains(script, "\"suppressWebShellCover\":true")
@@ -139,7 +154,7 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"theme\":\"dusk\"")
 		assertContains(script, "\"direction\":\"rtl\"")
 		assertContains(script, "\"navBarType\":\"bottom\"")
-		assertContains(script, "\"dragAnimationMode\":\"canvas\"")
+		assertContains(script, "\"dragAnimationMode\":\"none\"")
 		assertContains(script, "\"paged\":false")
 		assertContains(script, "\"tapZone\":\"kindle\"")
 		assertContains(script, "\"tapZoneInvertMode\":\"horizontal\"")
@@ -439,11 +454,81 @@ class ReaderBridgeProtocolTest {
 	}
 
 	@Test
+	fun locationChangedRequiresIndependentSessionAndValidatesSettlementMetadata() {
+		val decoded = assertIs<ReaderBridgeEvent.LocationChanged>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "locationChanged",
+				  "foliateSessionId": "session-a",
+				  "pageIndex": 7,
+				  "pageTurnSettleToken": "settle-1",
+				  "pageTurnSettleSessionId": "session-a",
+				  "pageTurnSettleRasterGeneration": 11,
+				  "pageTurnSettleTextureGeneration": 13
+				}
+				""".trimIndent()
+			)
+		)
+
+		assertEquals("session-a", decoded.foliateSessionId)
+		assertEquals("settle-1", decoded.pageTurnSettleToken)
+		assertEquals("session-a", decoded.pageTurnSettleSessionId)
+		assertEquals(11L, decoded.pageTurnSettleRasterGeneration)
+		assertEquals(13L, decoded.pageTurnSettleTextureGeneration)
+
+		val missingSession = assertIs<ReaderBridgeDecodeResult.Rejected>(
+			decodeReaderBridgeMessage("""{"type":"locationChanged","pageIndex":7}""")
+		)
+		assertEquals(ReaderBridgeDecodeFailure.InvalidPayload, missingSession.failure)
+
+		val mismatched = assertIs<ReaderBridgeEvent.LocationChanged>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "locationChanged",
+				  "foliateSessionId": "session-a",
+				  "pageIndex": 7,
+				  "pageTurnSettleToken": "settle-1",
+				  "pageTurnSettleSessionId": "session-b",
+				  "pageTurnSettleRasterGeneration": 11,
+				  "pageTurnSettleTextureGeneration": 13
+				}
+				""".trimIndent()
+			)
+		)
+		assertNull(mismatched.pageTurnSettleToken)
+		assertNull(mismatched.pageTurnSettleSessionId)
+		assertNull(mismatched.pageTurnSettleRasterGeneration)
+		assertNull(mismatched.pageTurnSettleTextureGeneration)
+
+		val incomplete = assertIs<ReaderBridgeEvent.LocationChanged>(
+			decodeReaderBridgeEvent(
+				"""
+				{
+				  "type": "locationChanged",
+				  "foliateSessionId": "session-a",
+				  "pageIndex": 7,
+				  "pageTurnSettleToken": "settle-1",
+				  "pageTurnSettleSessionId": "session-a",
+				  "pageTurnSettleRasterGeneration": 11
+				}
+				""".trimIndent()
+			)
+		)
+		assertNull(incomplete.pageTurnSettleToken)
+		assertNull(incomplete.pageTurnSettleSessionId)
+		assertNull(incomplete.pageTurnSettleRasterGeneration)
+		assertNull(incomplete.pageTurnSettleTextureGeneration)
+	}
+
+	@Test
 	fun bridgeEventsDecodeReaderLocationAndOverlayEvents() {
 		val location = decodeReaderBridgeEvent(
 			"""
 			{
 			  "type": "locationChanged",
+			  "foliateSessionId": "session-a",
 			  "href": "chapter-01.xhtml",
 			  "cfi": "epubcfi(/6/2!/4/1:0)",
 			  "progress": 0.24,
@@ -548,6 +633,7 @@ class ReaderBridgeProtocolTest {
 			"""
 			{
 			  "type": "locationChanged",
+			  "foliateSessionId": "session-a",
 			  "progress": 0.05,
 			  "pageIndex": 6,
 			  "pageCount": 120
@@ -572,6 +658,7 @@ class ReaderBridgeProtocolTest {
 			"""
 			{
 			  "type": "locationChanged",
+			  "foliateSessionId": "session-a",
 			  "href": "chapter-01.xhtml",
 			  "progress": 0.12,
 			  "pageIndex": 42,

@@ -43,6 +43,7 @@ import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRendererReadinessState
 import paige.navic.reader.ReaderPageTurnDirection
@@ -89,6 +90,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnPaginationStatus: String?,
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
+	pageTurnFoliateSessionId: String?,
+	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
 	pagePreparationCoverVisible: Boolean,
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
@@ -125,7 +128,14 @@ actual fun KomikkuReaderNativeFrameHost(
 				setPageTurnSnapshotKey(pageTurnSnapshotKey)
 				setPageTurnContentReadyKey(pageTurnContentReadyKey)
 				setPageTurnPaginationStatus(pageTurnPaginationStatus)
-				setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
+				pageTurnFoliateSessionId?.let { sessionId ->
+					setPageTurnVisualLocation(
+						pageTurnVisualPageIndex,
+						pageTurnVisualLocationReason,
+						sessionId,
+						pageTurnSettlementAck
+					)
+				}
 				setPagePreparationCoverVisible(pagePreparationCoverVisible)
 				setPagePreparationRetryKey(pagePreparationRetryKey)
 				setOnViewerAction { action -> currentOnViewerAction(action) }
@@ -150,7 +160,14 @@ actual fun KomikkuReaderNativeFrameHost(
 			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
 			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
 			root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
-			root.setPageTurnVisualLocation(pageTurnVisualPageIndex, pageTurnVisualLocationReason)
+			pageTurnFoliateSessionId?.let { sessionId ->
+				root.setPageTurnVisualLocation(
+					pageTurnVisualPageIndex,
+					pageTurnVisualLocationReason,
+					sessionId,
+					pageTurnSettlementAck
+				)
+			}
 			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
 			root.setPagePreparationRetryKey(pagePreparationRetryKey)
 			root.setViewerContent(viewerKey) { currentViewerContent() }
@@ -311,8 +328,18 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.setPageTurnPaginationStatus(status)
 	}
 
-	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
-		viewerContainer.setPageTurnVisualLocation(pageIndex, reason)
+	fun setPageTurnVisualLocation(
+		pageIndex: Int?,
+		reason: String?,
+		foliateSessionId: String,
+		acknowledgement: ReaderPageTurnSettlementAck?
+	) {
+		viewerContainer.setPageTurnVisualLocation(
+			pageIndex,
+			reason,
+			foliateSessionId,
+			acknowledgement
+		)
 	}
 
 	fun setOnReadableDragPreview(
@@ -585,6 +612,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnPaginationStatus: String? = null
 	private var pageTurnVisualPageIndex: Int? = null
 	private var pageTurnVisualLocationReason: String? = null
+	private var pageTurnFoliateSessionId: String? = null
+	private var pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null
 	private var shellCoverVisible: Boolean = false
 	private var pageOperationPolicy = readerPageOperationPolicy(ReaderPageReadinessState())
 	private var pagePreparationRetryKey: Int = Int.MIN_VALUE
@@ -711,8 +740,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		ReaderPageRasterHostEventController(
 			onRetryEvent = pageRasterPreparationController::onRetryEvent,
 			cancelAllDeferredRetries = pageRasterPreparationController::cancelAllDeferredRetries,
-			onWebViewAttachmentChanged =
-				pageRasterPreparationController::onWebViewAttachmentChanged
+			onWebViewAttachmentChanged = { attached ->
+				pageRasterPreparationController.onWebViewAttachmentChanged(attached)
+				playLikeCurlController.onWebViewAttachmentChanged(attached)
+			}
 		)
 
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
@@ -876,20 +907,52 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		)
 	}
 
-	fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {
+	fun setPageTurnVisualLocation(
+		pageIndex: Int?,
+		reason: String?,
+		currentFoliateSessionId: String,
+		acknowledgement: ReaderPageTurnSettlementAck?
+	) {
+		require(currentFoliateSessionId.isNotBlank())
 		val normalized = pageIndex?.takeIf { it >= 0 }
-		if (pageTurnVisualPageIndex == normalized && pageTurnVisualLocationReason == reason) return
 		if (
-			readerPageVisualLocationOrigin(reason) ==
+			pageTurnVisualPageIndex == normalized &&
+			pageTurnVisualLocationReason == reason &&
+			pageTurnFoliateSessionId == currentFoliateSessionId &&
+			pageTurnSettlementAck == acknowledgement
+		) return
+
+		val sessionChanged =
+			pageTurnFoliateSessionId != null &&
+				pageTurnFoliateSessionId != currentFoliateSessionId
+		if (sessionChanged) {
+			dispatchPageHostLifecycleEvent(
+				ReaderPageHostLifecycleEvent.ExternalRelocation
+			)
+		}
+		pageTurnFoliateSessionId = currentFoliateSessionId
+		playLikeCurlController.setFoliateSessionId(currentFoliateSessionId)
+		val origin = if (sessionChanged) {
 			ReaderPageVisualLocationOrigin.External
-		) {
+		} else {
+			playLikeCurlController.visualLocationOrigin(
+				normalized,
+				acknowledgement
+			)
+		}
+		if (!sessionChanged && origin == ReaderPageVisualLocationOrigin.External) {
 			dispatchPageHostLifecycleEvent(
 				ReaderPageHostLifecycleEvent.ExternalRelocation
 			)
 		}
 		pageTurnVisualPageIndex = normalized
 		pageTurnVisualLocationReason = reason
-		playLikeCurlController.synchronizeVisualPageIndex(normalized, reason)
+		pageTurnSettlementAck = acknowledgement
+		playLikeCurlController.synchronizeVisualPageIndex(
+			normalized,
+			reason,
+			acknowledgement
+		)
 		pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
 	}
 
@@ -1415,11 +1478,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			recycleRetainedContentDown()
 			when (downResult) {
 				ReaderPageCurlDispatchResult.Accepted -> {
-					playLikeCurlController.onPageTouchEvent(
+					val moveResult = playLikeCurlController.onPageTouchEvent(
 						event,
 						route.gestureId
 					)
-					playLikeCurlGestureOwned = true
+					when (moveResult) {
+						ReaderPageCurlDispatchResult.Accepted -> {
+							playLikeCurlGestureOwned = true
+						}
+						ReaderPageCurlDispatchResult.TerminalPublished -> {
+							playLikeCurlGestureOwned = false
+							clearPlayLikeCurlPointerTapFlagsAfterUp()
+						}
+					}
 				}
 				ReaderPageCurlDispatchResult.TerminalPublished -> {
 					playLikeCurlGestureOwned = false

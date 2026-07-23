@@ -19,6 +19,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 private val ReaderBridgeJson = Json {
@@ -181,6 +182,8 @@ enum class ReaderPublicationFormat {
 	Fb2
 }
 
+internal const val ReaderUnboundFoliateSessionId = "foliate-unbound"
+
 sealed interface ReaderBridgeCommand {
 	val type: String
 
@@ -188,6 +191,7 @@ sealed interface ReaderBridgeCommand {
 
 	data class OpenPublication(
 		val url: String,
+		val foliateSessionId: String,
 		val mediaOverlayEnabled: Boolean = false,
 		val externalShellCover: Boolean = false,
 		val suppressWebShellCover: Boolean = false,
@@ -195,12 +199,18 @@ sealed interface ReaderBridgeCommand {
 		val startLocator: ReaderLocator? = null,
 		val settings: ReaderSettings? = null
 	) : ReaderBridgeCommand {
+		init {
+			require(foliateSessionId.isNotBlank())
+		}
+
 		override val type: String = "openPublication"
 
-		override fun toJsonObject(): JsonObject =
-			buildJsonObject {
+		override fun toJsonObject(): JsonObject {
+			check(foliateSessionId != ReaderUnboundFoliateSessionId)
+			return buildJsonObject {
 				put("type", type)
 				put("url", url)
+				put("foliateSessionId", foliateSessionId)
 				put("mediaOverlayEnabled", mediaOverlayEnabled)
 				put("externalShellCover", externalShellCover)
 				put("suppressWebShellCover", suppressWebShellCover)
@@ -208,6 +218,7 @@ sealed interface ReaderBridgeCommand {
 				startLocator?.let { put("startLocator", it.toJsonObject()) }
 				settings?.let { put("settings", it.toJsonObject()) }
 			}
+		}
 	}
 
 	data class GoToCfi(val cfi: String) : ReaderBridgeCommand {
@@ -487,8 +498,17 @@ sealed interface ReaderBridgeEvent {
 	) : ReaderBridgeEvent
 	data class LocationChanged(
 		val locator: ReaderLocator,
-		val tocTitle: String? = null
-	) : ReaderBridgeEvent
+		val foliateSessionId: String,
+		val tocTitle: String? = null,
+		val pageTurnSettleToken: String? = null,
+		val pageTurnSettleSessionId: String? = null,
+		val pageTurnSettleRasterGeneration: Long? = null,
+		val pageTurnSettleTextureGeneration: Long? = null
+	) : ReaderBridgeEvent {
+		init {
+			require(foliateSessionId.isNotBlank())
+		}
+	}
 	data class CfiChanged(val cfi: String) : ReaderBridgeEvent
 	data class TocItemChanged(
 		val href: String? = null,
@@ -670,25 +690,7 @@ private fun decodeReaderBridgeEventPayload(json: JsonObject, type: String): Read
 				href = json.stringValue("href"),
 				anchorHref = json.stringValue("anchorHref")
 			)
-			"locationChanged" -> ReaderBridgeEvent.LocationChanged(
-				locator = ReaderLocator(
-					href = json.stringValue("href"),
-					cfi = json.stringValue("cfi"),
-					progress = json.doubleValue("progress"),
-					pageIndex = json.intValue("pageIndex"),
-					pageCount = json.intValue("pageCount"),
-					chapterProgress = json.doubleValue("chapterProgress"),
-					chapterPageIndex = json.intValue("chapterPageIndex"),
-					chapterPageCount = json.intValue("chapterPageCount"),
-					rangeCfi = json.stringValue("rangeCfi"),
-					reason = json.stringValue("reason"),
-					fraction = json.doubleValue("fraction"),
-					size = json.doubleValue("size"),
-					tocItemLabel = json.stringValue("tocItemLabel"),
-					pageItemLabel = json.stringValue("pageItemLabel")
-				),
-				tocTitle = json.stringValue("tocTitle")
-			)
+			"locationChanged" -> json.toLocationChanged()
 			"cfiChanged" -> json.stringValue("cfi")?.let(ReaderBridgeEvent::CfiChanged)
 			"tocItemChanged" -> ReaderBridgeEvent.TocItemChanged(
 				href = json.stringValue("href"),
@@ -781,6 +783,42 @@ private fun String.toReaderBridgeDiagnosticRawMessage(): String {
 	} else {
 		sanitized
 	}
+}
+
+private fun JsonObject.toLocationChanged(): ReaderBridgeEvent.LocationChanged? {
+	val foliateSessionId = stringValue("foliateSessionId") ?: return null
+	val settlementToken = stringValue("pageTurnSettleToken")
+	val settlementSessionId = stringValue("pageTurnSettleSessionId")
+	val settlementRasterGeneration = longValue("pageTurnSettleRasterGeneration")
+	val settlementTextureGeneration = longValue("pageTurnSettleTextureGeneration")
+	val settlementIsValid = settlementToken != null &&
+		settlementSessionId == foliateSessionId &&
+		settlementRasterGeneration?.let { it >= 0L } == true &&
+		settlementTextureGeneration?.let { it >= 0L } == true
+	return ReaderBridgeEvent.LocationChanged(
+		locator = ReaderLocator(
+			href = stringValue("href"),
+			cfi = stringValue("cfi"),
+			progress = doubleValue("progress"),
+			pageIndex = intValue("pageIndex"),
+			pageCount = intValue("pageCount"),
+			chapterProgress = doubleValue("chapterProgress"),
+			chapterPageIndex = intValue("chapterPageIndex"),
+			chapterPageCount = intValue("chapterPageCount"),
+			rangeCfi = stringValue("rangeCfi"),
+			reason = stringValue("reason"),
+			fraction = doubleValue("fraction"),
+			size = doubleValue("size"),
+			tocItemLabel = stringValue("tocItemLabel"),
+			pageItemLabel = stringValue("pageItemLabel")
+		),
+		foliateSessionId = foliateSessionId,
+		tocTitle = stringValue("tocTitle"),
+		pageTurnSettleToken = settlementToken.takeIf { settlementIsValid },
+		pageTurnSettleSessionId = settlementSessionId.takeIf { settlementIsValid },
+		pageTurnSettleRasterGeneration = settlementRasterGeneration.takeIf { settlementIsValid },
+		pageTurnSettleTextureGeneration = settlementTextureGeneration.takeIf { settlementIsValid }
+	)
 }
 
 private fun JsonObject.toVisibleTextRange(): ReaderBridgeEvent.VisibleTextRange? {
@@ -1009,6 +1047,12 @@ private fun Map<String, JsonElement>.intValue(key: String): Int? =
 		?.value
 		?.jsonPrimitive
 		?.intOrNull
+
+private fun Map<String, JsonElement>.longValue(key: String): Long? =
+	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }
+		?.value
+		?.jsonPrimitive
+		?.longOrNull
 
 private fun Map<String, JsonElement>.booleanValue(key: String): Boolean? =
 	entries.firstOrNull { (entryKey, _) -> entryKey.equals(key, ignoreCase = true) }

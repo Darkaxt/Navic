@@ -157,6 +157,41 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidReaderLocationAcknowledgementIsSessionBoundAndConsumedOnlyAfterDelivery() {
+		val root = readerAssetRoot()
+		val runtime = root.resolve("navic-reader.js").readText()
+		val location = root.resolve("navic-reader-location.js").readText()
+		val core = root.resolve("navic-reader-bridge-core.js").readText()
+		val postLocation = location
+			.substringAfter("function postLocationChanged(")
+			.substringBefore("function postCurrentVisibleTextRange(")
+
+		assertContains(runtime, "foliateSessionId = ''")
+		assertContains(runtime, "const normalizedFoliateSessionId")
+		assertContains(runtime, "this.foliateSessionId = normalizedFoliateSessionId")
+		assertContains(location, "foliateSessionId: this.foliateSessionId")
+		assertContains(location, "pageTurnSettleToken: settlement?.token")
+		assertContains(location, "pageTurnSettleSessionId: settlement?.foliateSessionId")
+		assertContains(location, "pageTurnSettleRasterGeneration: settlement?.rasterGeneration")
+		assertContains(location, "pageTurnSettleTextureGeneration: settlement?.textureGeneration")
+		assertContains(postLocation, "const delivered = post(message)")
+		assertContains(postLocation, "skipped: 'bridge-delivery-failed'")
+		assertTrue(
+			postLocation.indexOf("if (!delivered)") < postLocation.indexOf("this.lastPostedLocationKey = locationKey")
+		)
+		assertTrue(
+			postLocation.indexOf("this.lastPostedLocationKey = locationKey") <
+				postLocation.indexOf("this.consumeNativePageTurnSettlement(settlement.token)")
+		)
+		assertFalse(postLocation.contains("readerTrace('location:post', { reason, message })"))
+		assertContains(core, "message?.foliateSessionId || ''")
+		assertContains(core, "message?.pageTurnSettleToken || ''")
+		assertContains(core, "message?.pageTurnSettleSessionId || ''")
+		assertContains(core, "message?.pageTurnSettleRasterGeneration")
+		assertContains(core, "message?.pageTurnSettleTextureGeneration")
+	}
+
+	@Test
 	fun androidReaderDiagnosticPullUpExercisesScrolledEdgeBridgePath() {
 		val bridgeText = readerBridgeText()
 		val helperText = repoFile("tools/reader-harness/src/adb-webview-eval.mjs").readText()
@@ -486,7 +521,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(typedTap, "gestureId = tap.gestureId")
 		assertContains(typedTap, "tap.x")
 		assertContains(typedTap, "tap.y")
-		assertContains(typedTap, "completeDelayedTap(")
+		assertContains(typedTap, "completeHostDelayedTap(")
 	}
 
 	@Test
@@ -861,8 +896,8 @@ class ReaderRuntimeShellProgressTest {
 	@Test
 	fun androidReaderPublishesPostReadyLocationSnapshotAfterResumeSeek() {
 		val bridgeText = readerBridgeText()
-		val openPublication = bridgeText
-			.substringAfter("async openPublication({ url, mediaOverlayEnabled = false, startLocator = null, settings = null }) {")
+		val openPublication = readerAssetRoot().resolve("navic-reader.js").readText()
+			.substringAfter("async openPublication({")
 			.substringBefore("\n  close()")
 		val onRelocate = bridgeText
 			.substringAfter("onRelocate(detail) {")

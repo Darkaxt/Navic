@@ -140,7 +140,12 @@ sealed class FoliateWebViewEngineAdapter(
 			)
 			is ReaderBridgeEvent.LocationChanged -> ReaderEngineEvent.Relocated(
 				locator = event.locator,
-				tocTitle = event.tocTitle
+				foliateSessionId = event.foliateSessionId,
+				tocTitle = event.tocTitle,
+				pageTurnSettleToken = event.pageTurnSettleToken,
+				pageTurnSettleSessionId = event.pageTurnSettleSessionId,
+				pageTurnSettleRasterGeneration = event.pageTurnSettleRasterGeneration,
+				pageTurnSettleTextureGeneration = event.pageTurnSettleTextureGeneration
 			)
 			is ReaderBridgeEvent.TocItemChanged -> ReaderEngineEvent.TocItemChanged(
 				href = event.href,

@@ -274,7 +274,17 @@ data class ReaderProgressSaveGate(
 	fun onEngineEvent(event: ReaderEngineEvent): ReaderProgressSaveDecision =
 		when (event) {
 			ReaderEngineEvent.PublicationReady -> onReaderEvent(ReaderBridgeEvent.PublicationReady)
-			is ReaderEngineEvent.Relocated -> onReaderEvent(ReaderBridgeEvent.LocationChanged(event.locator))
+			is ReaderEngineEvent.Relocated -> onReaderEvent(
+				ReaderBridgeEvent.LocationChanged(
+					locator = event.locator,
+					foliateSessionId = event.foliateSessionId,
+					tocTitle = event.tocTitle,
+					pageTurnSettleToken = event.pageTurnSettleToken,
+					pageTurnSettleSessionId = event.pageTurnSettleSessionId,
+					pageTurnSettleRasterGeneration = event.pageTurnSettleRasterGeneration,
+					pageTurnSettleTextureGeneration = event.pageTurnSettleTextureGeneration
+				)
+			)
 			else -> ReaderProgressSaveDecision(state = this)
 		}
 }

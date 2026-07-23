@@ -237,6 +237,31 @@ class FoliateEpubEngineAdapterTest {
 	}
 
 	@Test
+	fun forwardsIndependentFoliateSessionAndOptionalSettlementMetadata() {
+		val locator = ReaderLocator(pageIndex = 5)
+		val event = ReaderBridgeEvent.LocationChanged(
+			locator = locator,
+			foliateSessionId = "session-a",
+			pageTurnSettleToken = "settle-1",
+			pageTurnSettleSessionId = "session-a",
+			pageTurnSettleRasterGeneration = 11L,
+			pageTurnSettleTextureGeneration = 13L
+		)
+
+		assertEquals(
+			ReaderEngineEvent.Relocated(
+				locator = locator,
+				foliateSessionId = "session-a",
+				pageTurnSettleToken = "settle-1",
+				pageTurnSettleSessionId = "session-a",
+				pageTurnSettleRasterGeneration = 11L,
+				pageTurnSettleTextureGeneration = 13L
+			),
+			FoliateEpubEngineAdapter().onBridgeHostEvent(event)
+		)
+	}
+
+	@Test
 	fun mapsBridgeEventsToEngineEventsWithoutLettingBridgeOwnChrome() {
 		val locator = ReaderLocator(
 			href = "chapter-01.xhtml",
@@ -258,8 +283,18 @@ class FoliateEpubEngineAdapterTest {
 			adapter.onBridgeHostEvent(ReaderBridgeEvent.PublicationReady)
 		)
 		assertEquals(
-			ReaderEngineEvent.Relocated(locator = locator, tocTitle = "Chapter 1"),
-			adapter.onBridgeHostEvent(ReaderBridgeEvent.LocationChanged(locator, tocTitle = "Chapter 1"))
+			ReaderEngineEvent.Relocated(
+				locator = locator,
+				foliateSessionId = "session-a",
+				tocTitle = "Chapter 1"
+			),
+			adapter.onBridgeHostEvent(
+				ReaderBridgeEvent.LocationChanged(
+					locator = locator,
+					foliateSessionId = "session-a",
+					tocTitle = "Chapter 1"
+				)
+			)
 		)
 		assertEquals(
 			ReaderEngineEvent.TocItemChanged(href = "chapter-01.xhtml", title = "Chapter 1"),

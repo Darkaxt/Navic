@@ -57,15 +57,9 @@ internal fun ReaderPageHostLifecycleEvent.cancellationReason():
 
 internal enum class ReaderPageVisualLocationOrigin {
 	ExactPageTurn,
-	External
+	External,
+	StaleAcknowledgement
 }
-
-internal fun readerPageVisualLocationOrigin(reason: String?): ReaderPageVisualLocationOrigin =
-	if (reason == "page-turn:exact") {
-		ReaderPageVisualLocationOrigin.ExactPageTurn
-	} else {
-		ReaderPageVisualLocationOrigin.External
-	}
 
 internal data class ReaderPageContentGestureToken(
 	val downTimeMillis: Long,

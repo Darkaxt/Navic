@@ -32,6 +32,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageTapTurnControllerFacade.android.kt"
 	)
+	private val readerAssetRoot = File("src/androidMain/assets/reader")
 
 	@Test
 	fun productionControllerUsesFoliateRastersAndImportedSurface() {
@@ -43,7 +44,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "pageTurnRasterPreparationPlan")
 		assertContains(source, "ReaderPlayLikeCurlRasterAdapter")
 		assertContains(source, "readerPlayLikeCurlLibraryDeck")
-		assertContains(source, "type: 'goToVisualPage'")
+		assertContains(source, "put(\"type\", \"goToVisualPage\")")
 		assertFalse(source.contains("ReaderPlayLikeCurlAssetBitmapSource"))
 		assertFalse(source.contains("ReaderPlayLikeCurlDiagnosticBitmapSource"))
 	}
@@ -89,6 +90,98 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(controllerSource, "PlayLikeCurl settlement cancelled")
 		assertContains(controllerSource, "PlayLikeCurl exact page dispatched")
 		assertFalse(hostSource.contains("Reader PlayLikeCurl gesture move"))
+	}
+
+	@Test
+	fun relocationBridgePreservesCompleteTokenSessionAndGenerationIdentity() {
+		val controller = controllerFile.readText()
+		val runtime = readerAssetRoot.resolve("navic-reader.js").readText()
+		val turns = readerAssetRoot.resolve("navic-reader-page-turns.js").readText()
+		val location = readerAssetRoot.resolve("navic-reader-location.js").readText()
+		val core = readerAssetRoot.resolve("navic-reader-bridge-core.js").readText()
+
+		assertContains(controller, "private fun dispatchNextRelocation()")
+		assertContains(controller, "put(\"settleToken\", request.token.value)")
+		assertContains(controller, "put(\"settleSessionId\", request.foliateSessionId)")
+		assertContains(controller, "put(\"settleRasterGeneration\", request.rasterGeneration)")
+		assertContains(controller, "put(\"settleTextureGeneration\", request.textureGeneration)")
+		assertContains(runtime, "return this.goToVisualPage(command)")
+		assertContains(runtime, "foliateSessionId = ''")
+		assertContains(turns, "pendingExactPageTurnSettlements")
+		assertContains(turns, "activeExactPageTurnSettlementToken")
+		assertContains(turns, "pending.paginationProfile !== this.paginationProfile")
+		assertContains(location, "foliateSessionId: this.foliateSessionId")
+		assertContains(location, "pageTurnSettleToken: settlement?.token")
+		assertContains(location, "pageTurnSettleSessionId: settlement?.foliateSessionId")
+		assertContains(location, "pageTurnSettleRasterGeneration: settlement?.rasterGeneration")
+		assertContains(location, "pageTurnSettleTextureGeneration: settlement?.textureGeneration")
+		assertContains(location, "const delivered = post(message)")
+		assertTrue(
+			location.indexOf("const delivered = post(message)") <
+				location.indexOf("this.consumeNativePageTurnSettlement(settlement.token)")
+		)
+		listOf(
+			"message?.foliateSessionId || ''",
+			"message?.pageTurnSettleToken || ''",
+			"message?.pageTurnSettleSessionId || ''",
+			"message?.pageTurnSettleRasterGeneration",
+			"message?.pageTurnSettleTextureGeneration"
+		).forEach { identity -> assertContains(core, identity) }
+	}
+
+	@Test
+	fun visualLocationOriginUsesQueueIdentityRatherThanReasonText() {
+		val host = hostFile.readText()
+		val controller = controllerFile.readText()
+
+		assertFalse(host.contains("readerPageVisualLocationOrigin(reason)"))
+		assertContains(host, "pageTurnSettlementAck == acknowledgement")
+		assertContains(host, "ReaderPageVisualLocationOrigin.External")
+		assertContains(controller, "fun visualLocationOrigin(")
+		assertContains(controller, "relocationQueue.matchesDispatchedHead(")
+		assertContains(controller, "relocationQueue.occupiedCount() == 0")
+		assertContains(
+			controller,
+			"ReaderPageVisualLocationOrigin.StaleAcknowledgement"
+		)
+		assertFalse(
+			controller
+				.substringAfter("fun visualLocationOrigin(")
+				.substringBefore("fun synchronizeVisualPageIndex(")
+				.contains("page-turn:exact")
+		)
+	}
+
+	@Test
+	fun relocationAdmissionAndCommitUseTheProductionOwnershipCoordinator() {
+		val controller = controllerFile.readText()
+		val touch = controller
+			.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("override fun start(")
+		val tap = controller
+			.substringAfter("private fun startTapTurn(")
+			.substringBefore("fun showSurfaceForGesture()")
+		val settlement = controller
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
+		val finish = controller
+			.substringAfter("private fun finishGesture(")
+			.substringBefore("private fun finishActiveGesture(")
+
+		assertContains(touch, "relocationGestureCoordinator.start(")
+		assertContains(touch, "rendererAdmission = {")
+		assertContains(touch, "surfaceView.onPageTouchEvent(event, gestureId)")
+		assertContains(tap, "relocationGestureCoordinator.start(")
+		assertContains(tap, "surfaceView.turn(pageChange, gestureId)")
+		assertContains(settlement, "relocationGestureCoordinator.commit(")
+		assertContains(settlement, "settledSourceTextureGeneration = generationId")
+		assertContains(settlement, "promotedTextureGeneration = promotedGeneration")
+		assertContains(settlement, "publishCommittedTerminal = {")
+		assertContains(settlement, "dispatch = { dispatchNextRelocation() }")
+		assertContains(
+			finish,
+			"relocationGestureCoordinator.finish(gestureId, outcome, detail)"
+		)
 	}
 
 	@Test
@@ -303,20 +396,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	fun exactSettlementRefillsDecodedPagesWithoutRestartingWebViewCapture() {
 		val controller = controllerFile.readText()
 		val synchronize = controller
-			.substringAfter("fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {")
-			.substringBefore("fun invalidate(")
+			.substringAfter("fun synchronizeVisualPageIndex(")
+			.substringBefore("private fun drainRelocationOwnership(")
 		val ready = controller
 			.substringAfter("ReaderPagePreparationPhase.Ready -> {")
 			.substringBefore("ReaderPagePreparationPhase.Failed -> {")
 		val host = hostFile.readText()
 		val hostSynchronize = host
-			.substringAfterLast("fun setPageTurnVisualLocation(pageIndex: Int?, reason: String?) {")
+			.substringAfterLast("fun setPageTurnVisualLocation(")
 			.substringBefore("fun setShellCoverVisible(")
 
+		assertContains(synchronize, "ReaderPageVisualLocationOrigin.ExactPageTurn")
 		assertContains(synchronize, "refillDecodedWorkingSet(")
-		assertFalse(
-			synchronize.substringAfter("if (reason == \"page-turn:exact\")").substringBefore("return").contains("onRequestPrewarm()")
-		)
+		val exact = synchronize
+			.substringAfter("ReaderPageVisualLocationOrigin.ExactPageTurn -> {")
+			.substringBefore("ReaderPageVisualLocationOrigin.StaleAcknowledgement")
+		assertFalse(exact.contains("onRequestPrewarm()"))
 		assertContains(ready, "if (activePages == null)")
 		assertFalse(hostSynchronize.contains("requestPageTurnPrewarmWhenReady()"))
 	}
@@ -498,20 +593,27 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val settlement = source
 			.substringAfter("override fun onSettlementCompleted(")
 			.substringBefore("override fun onSettlementCancelled(")
-		val fence = settlement.indexOf("if (!finishGesture(")
+		val nonCommittedFence = settlement.indexOf("if (!finishGesture(")
+		val committedFence = settlement.indexOf("relocationGestureCoordinator.commit(")
 
-		assertTrue(fence >= 0, "Late settlement callbacks must be fenced by the terminal CAS.")
-		listOf(
-			"discardPendingDeck(",
-			"currentOrdinal = currentPageOrdinal",
-			"promotePendingDeck(",
-			"dispatchExactVisualPage("
-		).forEach { sideEffect ->
-			assertTrue(
-				fence < settlement.indexOf(sideEffect),
-				"Settlement side effect $sideEffect must occur only after the terminal fence wins."
-			)
-		}
+		assertTrue(
+			nonCommittedFence >= 0,
+			"Snap-back settlement callbacks must be fenced by the terminal CAS."
+		)
+		assertTrue(
+			nonCommittedFence < settlement.indexOf("discardPendingDeck("),
+			"Snap-back side effects must occur only after the terminal fence wins."
+		)
+		assertTrue(
+			committedFence >= 0,
+			"Committed settlement must transfer ownership through the relocation coordinator."
+		)
+		assertContains(settlement, "publishCommittedTerminal = {")
+		assertContains(settlement, "dispatch = { dispatchNextRelocation() }")
+		assertTrue(
+			committedFence < settlement.indexOf("currentOrdinal = currentPageOrdinal"),
+			"Committed state must advance only after relocation publication succeeds."
+		)
 	}
 
 	@Test
@@ -549,7 +651,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("fun setPageOperationPolicy(")
 
 		assertContains(continuation, "pageOperationPolicy.continueActivePointer")
-		assertContains(touch, "if (!isAvailable)")
+		assertContains(touch, "if (!isAvailable || metadata == null)")
+		assertContains(touch, "relocationGestureCoordinator.start(")
 		assertContains(source, "deckRecoveryCoordinator.canAcceptPointer")
 		assertContains(show, "canContinueAcceptedPointer")
 		assertFalse(show.contains("!isAvailable"))
@@ -562,8 +665,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("private fun startTapTurn(")
 			.substringBefore("fun showSurfaceForGesture()")
 		val unavailable = startTapTurn
-			.substringAfter("if (!isAvailable) {")
-			.substringBefore("} else {")
+			.substringAfter("if (!isAvailable || metadata == null) {")
+			.substringBefore("return when (")
 
 		assertContains(unavailable, "unavailableGestureOutcome()")
 		assertFalse(
@@ -579,12 +682,14 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("fun onPageTouchEvent(")
 			.substringBefore("override fun start(")
 		val unavailable = touch
-			.substringAfter("if (!isAvailable) {")
+			.substringAfter("if (!isAvailable || metadata == null) {")
 			.substringBefore("return ReaderPageCurlDispatchResult.TerminalPublished")
 
-		assertContains(unavailable, "finishGesture(")
+		assertContains(unavailable, "publishGestureTerminal(")
 		assertContains(unavailable, "hideSurface()")
-		assertTrue(unavailable.indexOf("finishGesture(") < unavailable.indexOf("hideSurface()"))
+		assertTrue(
+			unavailable.indexOf("publishGestureTerminal(") < unavailable.indexOf("hideSurface()")
+		)
 	}
 
 	@Test
@@ -625,7 +730,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "private fun applyPointerRoute(")
 		assertContains(source, "playLikeCurlController.onPageTouchEvent(")
 		assertContains(source, "route.gestureId")
-		assertContains(source, "playLikeCurlController.synchronizeVisualPageIndex(normalized, reason)")
+		assertContains(source, "playLikeCurlController.synchronizeVisualPageIndex(")
+		assertContains(source, "acknowledgement")
 	}
 
 	@Test
@@ -805,12 +911,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(start, "): ReaderPageTurnStartResult")
 		assertContains(start, "tapTurnGestureId = gestureId")
 		assertContains(start, "startTapTurn(pageChange, gestureId)")
-		assertContains(startTapTurn, "synchronousTurnGestureId = gestureId")
-		assertContains(startTapTurn, "synchronousTurnTerminal ?: run")
+		assertContains(startTapTurn, "relocationGestureCoordinator.start(")
+		assertContains(startTapTurn, "surfaceView.turn(pageChange, gestureId)")
 		assertContains(startTapTurn, "ReaderPageTurnStartResult.Settling")
-		assertContains(startTapTurn, "ReaderPageGestureTerminalOutcome.FailedRenderer")
+		assertContains(startTapTurn, "ReaderPageRelocationStartResult.TerminalPublished")
+		assertContains(finish, "relocationGestureCoordinator.finish(gestureId, outcome, detail)")
+		assertContains(finish, "publishGestureTerminal(gestureId, outcome, detail)")
 		assertContains(finish, "onGestureTerminal(gestureId, outcome, detail)")
-		assertContains(finish, "ReaderPageTurnStartResult.TerminalPublished(")
 		assertFalse(controller.contains("ReaderPageInputSettlementHostController"))
 		assertContains(facadeTurn, "port.start(gestureId, pageChange)")
 		assertContains(facadeTurn, "publishTerminal(gestureId, outcome, detail)")

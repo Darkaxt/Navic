@@ -14,6 +14,14 @@ data class ReaderLoadedDocument(
 	val sectionId: String? = null
 )
 
+data class ReaderPageTurnSettlementAck(
+	val token: String,
+	val pageIndex: Int,
+	val foliateSessionId: String,
+	val rasterGeneration: Long,
+	val textureGeneration: Long
+)
+
 data class ReaderControllerState(
 	val publication: ReaderPublicationIdentity? = null,
 	val activeEngine: ReaderPublicationFormat? = null,
@@ -40,6 +48,8 @@ data class ReaderControllerState(
 	val bookmarks: ReaderBookmarkState = ReaderBookmarkState(),
 	val readingProgress: ReaderReadingProgressState = ReaderReadingProgressState(),
 	val paginationProfile: ReaderPaginationProfileStatus = ReaderPaginationProfileStatus(),
+	val foliateSessionId: String? = null,
+	val pageTurnSettlementAck: ReaderPageTurnSettlementAck? = null,
 	val whispersync: ReaderWhispersyncSessionState = ReaderWhispersyncSessionState(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
 	val audioMetadataLabel: String? = null,

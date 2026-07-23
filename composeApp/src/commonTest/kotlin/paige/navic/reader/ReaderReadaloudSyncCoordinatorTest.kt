@@ -54,6 +54,7 @@ class ReaderReadaloudSyncCoordinatorTest {
 			plan = plan,
 			timeline = timeline,
 			event = ReaderBridgeEvent.LocationChanged(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2")
 			)
 		)
@@ -70,6 +71,7 @@ class ReaderReadaloudSyncCoordinatorTest {
 			plan = plan,
 			timeline = timeline,
 			event = ReaderBridgeEvent.LocationChanged(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2")
 			)
 		)

@@ -116,7 +116,10 @@ class ReaderEngineCapabilityTest {
 			assertIs<ReaderEngineEvent.Relocated>(
 				adapter.onHostEvent(
 					ReaderEngineHostEvent.FoliateBridge(
-						ReaderBridgeEvent.LocationChanged(ReaderLocator(progress = 0.4))
+						ReaderBridgeEvent.LocationChanged(
+								locator = ReaderLocator(progress = 0.4),
+								foliateSessionId = "session-a"
+							)
 					)
 				)
 			)

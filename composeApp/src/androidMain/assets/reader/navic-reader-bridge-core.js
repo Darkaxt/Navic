@@ -36,6 +36,13 @@ export const readerLocationPostKey = message => [
   Number.isFinite(message?.pageIndex) ? message.pageIndex : '',
   Number.isFinite(message?.pageCount) ? message.pageCount : '',
   message?.tocTitle || '',
+  message?.foliateSessionId || '',
+  message?.pageTurnSettleToken || '',
+  message?.pageTurnSettleSessionId || '',
+  Number.isFinite(message?.pageTurnSettleRasterGeneration)
+    ? message.pageTurnSettleRasterGeneration : '',
+  Number.isFinite(message?.pageTurnSettleTextureGeneration)
+    ? message.pageTurnSettleTextureGeneration : '',
 ].join('|')
 
 export const describeUrl = url => {
@@ -49,12 +56,19 @@ export const describeUrl = url => {
 }
 
 export const post = message => {
-  const json = JSON.stringify(message)
-  log('post', message.type, message.code || '')
-  if (window.NavicAndroidBridge?.postMessage) {
-    window.NavicAndroidBridge.postMessage(json)
-  } else {
-    log('bridge-unavailable', message)
+  try {
+    const json = JSON.stringify(message)
+    log('post', message?.type || '', message?.code || '')
+    const bridge = window.NavicAndroidBridge
+    if (typeof bridge?.postMessage !== 'function') {
+      log('bridge-unavailable', message?.type || '')
+      return false
+    }
+    bridge.postMessage(json)
+    return true
+  } catch (failure) {
+    logError('post-failed', message?.type || '', failure?.name || 'Error')
+    return false
   }
 }
 

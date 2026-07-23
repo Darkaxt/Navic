@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.ReaderPageTurnSettlementAck
 
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
@@ -28,6 +29,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnPaginationStatus: String?,
 	pageTurnVisualPageIndex: Int?,
 	pageTurnVisualLocationReason: String?,
+	pageTurnFoliateSessionId: String?,
+	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
 	pagePreparationCoverVisible: Boolean,
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,

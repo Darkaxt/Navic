@@ -186,6 +186,8 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     ? {}
     : rawTocItem
   const pagePosition = this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
+  this.maybeCompleteNativePageTurnSettlement(pagePosition)
+  const settlement = this.peekNativePageTurnSettlement(pagePosition)
   const chapterPosition = this.chapterPagePosition(detail, pagePosition)
   const pageModelDiagnostics = {
     pageCountSource: pagePosition?.pageCountSource || null,
@@ -207,6 +209,11 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     chapterPageIndex: chapterPosition?.pageIndex,
     chapterPageCount: chapterPosition?.pageCount,
     tocTitle: tocItem.label || tocItem.title,
+    foliateSessionId: this.foliateSessionId,
+    pageTurnSettleToken: settlement?.token,
+    pageTurnSettleSessionId: settlement?.foliateSessionId,
+    pageTurnSettleRasterGeneration: settlement?.rasterGeneration,
+    pageTurnSettleTextureGeneration: settlement?.textureGeneration,
     rangeCfi: detail.cfi || null,
     reason: reason || null,
     fraction: optionalNumber(detail.fraction),
@@ -218,7 +225,7 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   const locationKey = readerLocationPostKey(message)
   if (locationKey === this.lastPostedLocationKey && !options.forceDuplicatePost) {
     log('location-changed:duplicate-skipped', reason)
-    readerTrace('location:duplicate-skipped', { reason, message })
+    readerTrace('location:duplicate-skipped', { reason })
     const duplicateHandled = this.handleDuplicatePageTurnRelocation?.(detail, reason)
     if (duplicateHandled) {
       return { posted: false, skipped: 'duplicate-adjacent-fallback', reason }
@@ -227,10 +234,8 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   }
   this.updateSurfacePaperTexture(detail, pagePosition, reason)
   this.committedRelocateDetail = detail
-  this.lastPostedLocationKey = locationKey
   readerTrace('location:page-model', {
     reason,
-    href: message.href,
     pageIndex: message.pageIndex,
     pageCount: message.pageCount,
     chapterPageIndex: message.chapterPageIndex,
@@ -245,11 +250,15 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     `profile=${pageModelDiagnostics.paginationProfilePageCount ?? 'n/a'}`,
     `observed=${pageModelDiagnostics.paginationProfileObservedChapterCount ?? 'n/a'}`,
     `raw=${pageModelDiagnostics.rawLocationCurrent ?? 'n/a'}/${pageModelDiagnostics.rawLocationTotal ?? 'n/a'}`,
-    `fingerprint=${pageModelDiagnostics.paginationFingerprint || 'none'}`,
-    `href=${message.href || 'none'}`
+    `fingerprint=${pageModelDiagnostics.paginationFingerprint || 'none'}`
   )
-  readerTrace('location:post', { reason, message })
-  post(message)
+  const delivered = post(message)
+  if (!delivered) {
+    return { posted: false, skipped: 'bridge-delivery-failed', reason }
+  }
+  this.lastPostedLocationKey = locationKey
+  if (settlement) this.consumeNativePageTurnSettlement(settlement.token)
+  readerTrace('location:post', { reason })
   const visibleTextRangeResult = this.postCurrentVisibleTextRange(detail, { ...options, source: reason || null })
   log('location-changed:posted', reason)
   if (detail.cfi) post({ type: 'cfiChanged', cfi: detail.cfi })

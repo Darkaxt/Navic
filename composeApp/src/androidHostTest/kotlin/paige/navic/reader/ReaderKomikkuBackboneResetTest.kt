@@ -1955,8 +1955,8 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			readerScreenText.contains("decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)") &&
-				readerScreenText.contains("startLocatorFor(") &&
-				readerScreenText.contains("localStartLocator ="),
+				readerScreenText.contains(".startProgressFor(") &&
+				readerScreenText.contains("localProgress = localProgress"),
 			"ReaderScreen must feed local readerReadingProgressJson into the open request factory so cached EPUBs resume when Bindery progress lookup is unavailable."
 		)
 		assertTrue(

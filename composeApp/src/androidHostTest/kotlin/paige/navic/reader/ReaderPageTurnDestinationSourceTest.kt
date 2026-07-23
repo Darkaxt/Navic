@@ -12,9 +12,17 @@ class ReaderPageTurnDestinationSourceTest {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 
 		assertContains(runtime, "case 'goToVisualPage'")
-		assertContains(runtime, "command.pageIndex")
-		assertContains(runtime, "command.settleToken")
-		assertContains(turns, "async function goToVisualPage(")
+		assertContains(runtime, "return this.goToVisualPage(command)")
+		assertContains(turns, "async function goToVisualPage(command = {})")
+		assertContains(turns, "command.pageIndex")
+		assertContains(turns, "command.settleToken")
+		assertContains(turns, "command.settleSessionId")
+		assertContains(turns, "command.settleRasterGeneration")
+		assertContains(turns, "command.settleTextureGeneration")
+		assertContains(turns, "!Number.isInteger(pageIndex) || pageIndex < 0")
+		assertContains(turns, "settleSessionId !== this.foliateSessionId")
+		assertContains(turns, "!Number.isInteger(settleRasterGeneration)")
+		assertContains(turns, "!Number.isInteger(settleTextureGeneration)")
 		assertContains(turns, "readerPageLocatorForVisualIndex")
 	}
 
@@ -61,11 +69,18 @@ class ReaderPageTurnDestinationSourceTest {
 
 		assertContains(runtime, "nativePageTurnSettledState")
 		assertContains(runtime, "nativePageTurnSettledState: () => runtime.nativePageTurnSettledState")
-		assertContains(turns, "token: settleToken")
-		assertContains(turns, "pageIndex: settledPageIndex")
+		assertContains(runtime, "pendingExactPageTurnSettlements = new Map()")
+		assertContains(runtime, "activeExactPageTurnSettlementToken = null")
+		assertContains(turns, "this.pendingExactPageTurnSettlements.set(token, pending)")
+		assertContains(turns, "this.activeExactPageTurnSettlementToken = token")
+		assertContains(turns, "foliateSessionId: settleSessionId")
+		assertContains(turns, "rasterGeneration: settleRasterGeneration")
+		assertContains(turns, "textureGeneration: settleTextureGeneration")
+		assertContains(turns, "pageIndex: locator.pageIndex")
 		assertContains(turns, "spineIndex: locator.spineIndex")
 		assertContains(turns, "chapterPageIndex: locator.chapterPageIndex")
 		assertContains(turns, "paginationProfile: this.paginationProfile")
+		assertContains(turns, "pending.paginationProfile !== this.paginationProfile")
 		assertContains(turns, "Math.floor(spineIndex) !== pending.spineIndex")
 		assertContains(turns, "Math.floor(chapterPageIndex) !== pending.chapterPageIndex")
 		assertContains(turns, "readerTrace('page-turn:exact-settle-pending'")
@@ -84,7 +99,7 @@ class ReaderPageTurnDestinationSourceTest {
 
 		assertContains(
 			runtime,
-			"nativePageTurnPendingState: () => runtime.pendingExactPageTurnSettlement"
+			"nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement()"
 		)
 	}
 
@@ -95,7 +110,7 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("function readerEnsurePaginationProfile(")
 			.substringBefore("\n}\n")
 
-		assertContains(ensureProfile, "this.pendingExactPageTurnSettlement?.paginationProfile")
+		assertContains(ensureProfile, "this.activeExactPageTurnSettlement()?.paginationProfile")
 		assertContains(ensureProfile, "this.paginationProfile = exactTurnProfile")
 		assertContains(ensureProfile, "return exactTurnProfile")
 	}
@@ -107,7 +122,7 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("function committedPageTurnPosition(")
 			.substringBefore("\n}\n")
 
-		assertContains(committedPosition, "this.pendingExactPageTurnSettlement")
+		assertContains(committedPosition, "this.activeExactPageTurnSettlement()")
 		assertContains(committedPosition, "candidateSpineIndex === pendingExact.spineIndex")
 		assertContains(committedPosition, "candidateChapterPageIndex === pendingExact.chapterPageIndex")
 		assertContains(committedPosition, "pageIndex: pendingExact.pageIndex")
@@ -127,15 +142,62 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun cancelledSettlementIsObservableByTheImportedController() {
+	fun cancellationClearsPendingAndUndeliveredSettledAcknowledgements() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
-		val controller = readerAndroidFile("ReaderPlayLikeCurlFoliateController.android.kt").readText()
+		val cancellation = turns
+			.substringAfter("function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
+			.substringBefore("\n}\n")
 
-		assertContains(turns, "function cancelPendingExactPageTurnSettlement(reason = 'superseded')")
-		assertContains(turns, "cancelled: true")
-		assertContains(controller, "override fun onSettlementCancelled(")
-		assertContains(controller, "\"PlayLikeCurl settlement cancelled")
-		assertContains(controller, "hideSurface()")
+		assertContains(cancellation, "const pending = this.activeExactPageTurnSettlement()")
+		assertContains(cancellation, "const settled = this.nativePageTurnSettledState")
+		assertContains(cancellation, "if (!pending && !settled) return false")
+		assertContains(cancellation, "this.pendingExactPageTurnSettlements.delete(pending.token)")
+		assertContains(cancellation, "this.nativePageTurnSettledState = null")
+		assertContains(cancellation, "rememberCompletedExactPageTurnSettlement(this, pending)")
+		assertContains(cancellation, "rememberCompletedExactPageTurnSettlement(this, settled)")
+		assertFalse(cancellation.contains("cancelled: true"))
+	}
+
+	@Test
+	fun settlementTokensAreOneShotAndConflictingReuseIsRejected() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val exactNavigation = turns
+			.substringAfter("async function goToVisualPage(")
+			.substringBefore("\n}\n")
+		val completion = turns
+			.substringAfter("function rememberCompletedExactPageTurnSettlement(")
+			.substringBefore("\n}\n")
+
+		assertContains(runtime, "completedExactPageTurnSettlements = new Map()")
+		assertContains(exactNavigation, "this.pendingExactPageTurnSettlements.get(token)")
+		assertContains(exactNavigation, "this.nativePageTurnSettledState?.token === token")
+		assertContains(exactNavigation, "this.completedExactPageTurnSettlements.get(token)")
+		assertContains(exactNavigation, "exactPageTurnSettlementMatches(")
+		assertContains(exactNavigation, "throw new TypeError('Visual page settlement token cannot be reused')")
+		assertContains(completion, "runtime.completedExactPageTurnSettlements.set(token, settlement)")
+		assertFalse(completion.contains("runtime.completedExactPageTurnSettlements.delete"))
+		assertFalse(completion.contains("runtime.completedExactPageTurnSettlements.size"))
+	}
+
+	@Test
+	fun undeliveredSettlementRetainsAndRevalidatesFullVisualIdentity() {
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val settled = turns
+			.substringAfter("this.nativePageTurnSettledState = Object.freeze({")
+			.substringBefore("\n  })")
+		val peek = turns
+			.substringAfter("function peekNativePageTurnSettlement(")
+			.substringBefore("\n}\n")
+
+		assertContains(settled, "spineIndex: pending.spineIndex")
+		assertContains(settled, "chapterPageIndex: pending.chapterPageIndex")
+		assertContains(settled, "paginationProfile: pending.paginationProfile")
+		assertContains(peek, "settlement.foliateSessionId !== this.foliateSessionId")
+		assertContains(peek, "settlement.paginationProfile !== this.paginationProfile")
+		assertContains(peek, "Math.floor(spineIndex) !== settlement.spineIndex")
+		assertContains(peek, "Math.floor(chapterPageIndex) !== settlement.chapterPageIndex")
+		assertContains(peek, "this.consumeNativePageTurnSettlement(settlement.token)")
 	}
 
 	@Test

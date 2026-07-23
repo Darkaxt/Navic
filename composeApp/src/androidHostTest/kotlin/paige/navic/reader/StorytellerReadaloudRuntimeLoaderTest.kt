@@ -40,6 +40,7 @@ class StorytellerReadaloudRuntimeLoaderTest {
 			publicationKey = runtime.publicationUrl,
 			openCommand = ReaderBridgeCommand.OpenPublication(
 				url = runtime.publicationUrl,
+				foliateSessionId = ReaderUnboundFoliateSessionId,
 				mediaOverlayEnabled = true
 			),
 			command = null,
@@ -91,6 +92,7 @@ class StorytellerReadaloudRuntimeLoaderTest {
 			listOf(
 				ReaderBridgeCommand.OpenPublication(
 					url = runtime.publicationUrl,
+					foliateSessionId = "foliate-1-0",
 					mediaOverlayEnabled = true
 				)
 			),

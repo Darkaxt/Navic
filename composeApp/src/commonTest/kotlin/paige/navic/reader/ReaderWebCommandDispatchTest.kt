@@ -8,8 +8,45 @@ import kotlin.test.assertTrue
 class ReaderWebCommandDispatchTest {
 	private val firstOpen = ReaderBridgeCommand.OpenPublication(
 		url = "https://bindery.local/books/1.epub",
+		foliateSessionId = ReaderUnboundFoliateSessionId,
 		startLocator = ReaderLocator(cfi = "epubcfi(/6/2!/4/1:0)")
 	)
+
+	@Test
+	fun runtimeSessionIsMonotonicAcrossRuntimeAndPublicationChanges() {
+		val initial = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		val initialOpen = initial.commands.single().command as ReaderBridgeCommand.OpenPublication
+		assertEquals("foliate-1-0", initialOpen.foliateSessionId)
+		assertEquals("foliate-1-0", initial.state.foliateSessionId)
+
+		val recreated = initial.state.commandsForReadyReaderRuntime(
+			runtimeGeneration = 1,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		val recreatedOpen = recreated.commands.single().command as ReaderBridgeCommand.OpenPublication
+		assertEquals("foliate-1-1", recreatedOpen.foliateSessionId)
+		assertEquals("foliate-1-1", recreated.state.foliateSessionId)
+
+		val reopened = recreated.state.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-2",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		val reopenedCommand = reopened.commands.single().command as ReaderBridgeCommand.OpenPublication
+		assertEquals("foliate-2-0", reopenedCommand.foliateSessionId)
+		assertEquals("foliate-2-0", reopened.state.foliateSessionId)
+	}
 
 	@Test
 	fun readerCommandsDispatchOnlyAfterEntrypointRuntimeIsReady() {
@@ -33,7 +70,10 @@ class ReaderWebCommandDispatchTest {
 		)
 
 		assertEquals(listOf("reader-open-1"), first.commands.map { it.id })
-		assertEquals(listOf(firstOpen), first.commands.map { it.command })
+		assertEquals(
+			listOf(firstOpen.copy(foliateSessionId = "foliate-1-0")),
+			first.commands.map { it.command }
+		)
 		assertEquals(
 			listOf("reader-open-1", "reader-command-1-7"),
 			first.state.pendingCommands.map { it.dispatch.id }
@@ -254,6 +294,7 @@ class ReaderWebCommandDispatchTest {
 		).state
 		val secondOpen = ReaderBridgeCommand.OpenPublication(
 			url = "https://bindery.local/books/2.epub",
+			foliateSessionId = ReaderUnboundFoliateSessionId,
 			startLocator = ReaderLocator(progress = 0.3)
 		)
 
@@ -266,7 +307,10 @@ class ReaderWebCommandDispatchTest {
 		)
 
 		assertEquals(listOf("reader-open-2"), reopened.commands.map { it.id })
-		assertEquals(listOf(secondOpen), reopened.commands.map { it.command })
+		assertEquals(
+			listOf(secondOpen.copy(foliateSessionId = "foliate-2-0")),
+			reopened.commands.map { it.command }
+		)
 		assertEquals(
 			listOf("reader-open-2", "reader-command-2-4"),
 			reopened.state.pendingCommands.map { it.dispatch.id }

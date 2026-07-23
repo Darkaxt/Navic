@@ -722,7 +722,7 @@ function readerBuildPaginationProfileFromSectionPosition(detail, sectionPosition
 function readerEnsurePaginationProfile(detail, sectionPosition) {
   if (this.view?.isFixedLayout === true) return null
   const fingerprint = this.readerPaginationRenderFingerprint()
-  const exactTurnProfile = this.pendingExactPageTurnSettlement?.paginationProfile
+  const exactTurnProfile = this.activeExactPageTurnSettlement()?.paginationProfile
   if (
     exactTurnProfile?.chapters?.length &&
     exactTurnProfile.fingerprint === fingerprint
@@ -957,7 +957,7 @@ function detailSectionKey(detail) {
 function committedPageTurnPosition(pagePosition, detail, reason) {
   if (!pagePosition || !String(reason || '').startsWith('page-turn:')) return pagePosition
   if (pagePosition.pageCountSource === 'fixed-layout') return pagePosition
-  const pendingExact = this.pendingExactPageTurnSettlement
+  const pendingExact = this.activeExactPageTurnSettlement()
   const candidateSpineIndex = Number(pagePosition.spineIndex)
   const candidateChapterPageIndex = Number(pagePosition.chapterPageIndex)
   if (

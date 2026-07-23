@@ -29,6 +29,7 @@ import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderSettings
+import paige.navic.reader.ReaderUnboundFoliateSessionId
 import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.commandsForReadyReaderRuntime
@@ -107,6 +108,7 @@ actual fun ReaderEngineWebViewHost(
 	) {
 		ReaderBridgeCommand.OpenPublication(
 			url = publicationUrl,
+			foliateSessionId = ReaderUnboundFoliateSessionId,
 			mediaOverlayEnabled = mediaOverlayEnabled,
 			externalShellCover = externalShellCover,
 			suppressWebShellCover = suppressWebShellCover,

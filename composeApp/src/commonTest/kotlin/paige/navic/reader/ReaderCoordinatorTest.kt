@@ -349,6 +349,7 @@ class ReaderCoordinatorTest {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val located = opened.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "chapter-01.xhtml",
 					cfi = "epubcfi(/6/8!/4/1:0)",
@@ -388,6 +389,7 @@ class ReaderCoordinatorTest {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val located = opened.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(
 					href = "chapter-01.xhtml",
 					cfi = "epubcfi(/6/8!/4/1:0)",
@@ -435,6 +437,7 @@ class ReaderCoordinatorTest {
 		val opened = ReaderCoordinator().open(hobbitOpenRequest()).coordinator
 		val located = opened.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = locator,
 				tocTitle = "Chapter 1"
 			)
@@ -464,6 +467,7 @@ class ReaderCoordinatorTest {
 		val ready = opened.onEngineEvent(ReaderEngineEvent.PublicationReady).coordinator
 		val startupCover = ready.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = ReaderLocator(href = "EPUB/Text/cover.xhtml", progress = 0.0),
 				tocTitle = "Cover"
 			)
@@ -478,6 +482,7 @@ class ReaderCoordinatorTest {
 
 		val resumed = startupCover.onEngineEvent(
 			ReaderEngineEvent.Relocated(
+				foliateSessionId = "session-a",
 				locator = resumedLocator,
 				tocTitle = "Chapter 4"
 			)
@@ -623,6 +628,7 @@ class ReaderCoordinatorTest {
 			.coordinator
 			.onEngineEvent(
 				ReaderEngineEvent.Relocated(
+					foliateSessionId = "session-a",
 					locator = ReaderLocator(
 						href = "OEBPS/Text/titlepage.xhtml",
 						progress = 0.0,
@@ -655,7 +661,11 @@ class ReaderCoordinatorTest {
 		)
 
 		val relocated = opened.onFoliateHostEvent(
-			ReaderBridgeEvent.LocationChanged(locator = locator, tocTitle = "Chapter 2")
+			ReaderBridgeEvent.LocationChanged(
+					locator = locator,
+					foliateSessionId = "session-a",
+					tocTitle = "Chapter 2"
+				)
 		).coordinator
 		val ignoredCenterTap = relocated.onFoliateHostEvent(ReaderBridgeEvent.CenterTap).coordinator
 		val contentClaimed = ignoredCenterTap.onFoliateHostEvent(

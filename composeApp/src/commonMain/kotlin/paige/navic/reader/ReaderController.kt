@@ -54,6 +54,8 @@ data class ReaderController(
 					selection = null,
 					selectionNoteDraft = null,
 					paginationProfile = ReaderPaginationProfileStatus(),
+					foliateSessionId = null,
+					pageTurnSettlementAck = null,
 					whispersync = ReaderWhispersyncSessionState(),
 					activeMediaOverlay = null,
 					audioMetadataLabel = null,

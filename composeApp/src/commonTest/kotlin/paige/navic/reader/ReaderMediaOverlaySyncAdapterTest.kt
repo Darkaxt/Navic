@@ -75,7 +75,8 @@ class ReaderMediaOverlaySyncAdapterTest {
 		val repeated = active.followReaderTarget(
 			adapter.readerTarget(
 				ReaderBridgeEvent.LocationChanged(
-					locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-1")
+					locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-1"),
+					foliateSessionId = "session-a"
 				)
 			)
 		)
@@ -84,8 +85,9 @@ class ReaderMediaOverlaySyncAdapterTest {
 		val seek = active.followReaderTarget(
 			adapter.readerTarget(
 				ReaderBridgeEvent.LocationChanged(
-				locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2")
-			)
+					locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2"),
+					foliateSessionId = "session-a"
+				)
 			)
 		)
 		assertEquals(0, seek.seekTarget?.trackIndex)
@@ -96,7 +98,8 @@ class ReaderMediaOverlaySyncAdapterTest {
 		val disabled = active.setSyncEnabled(false).followReaderTarget(
 			adapter.readerTarget(
 				ReaderBridgeEvent.LocationChanged(
-					locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2")
+					locator = ReaderLocator(href = "EPUB/Text/chapter1.xhtml#frag-2"),
+					foliateSessionId = "session-a"
 				)
 			)
 		)

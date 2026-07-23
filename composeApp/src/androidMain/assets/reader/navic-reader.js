@@ -281,6 +281,7 @@ class NavicReaderRuntime {
   nativeTapZones = false
   originalBookDir = null
   publicationUrl = ''
+  foliateSessionId = ''
   surfaceTextureLayer = null
   surfaceBorderOverlayLayer = null
   surfaceStainOverlayLayer = null
@@ -369,7 +370,9 @@ class NavicReaderRuntime {
   pageTurnDirection = null
   pendingNativePageTurnSettleToken = null
   nativePageTurnSettledToken = null
-  pendingExactPageTurnSettlement = null
+  pendingExactPageTurnSettlements = new Map()
+  completedExactPageTurnSettlements = new Map()
+  activeExactPageTurnSettlementToken = null
   nativePageTurnSettledState = null
   pageTurnPreviewView = null
   pageTurnPreviewPublicationUrl = ''
@@ -424,7 +427,7 @@ class NavicReaderRuntime {
           command.chapterPageCount
         )
       case 'goToVisualPage':
-        return this.goToVisualPage(command.pageIndex, command.settleToken)
+        return this.goToVisualPage(command)
       case 'nextPage':
         readerTrace('dispatch:nextPage', {
           hasPromise: Boolean(this.pageTurnPromise),
@@ -477,6 +480,7 @@ class NavicReaderRuntime {
 
   async openPublication({
     url,
+    foliateSessionId,
     mediaOverlayEnabled = false,
     externalShellCover = false,
     suppressWebShellCover = false,
@@ -489,10 +493,19 @@ class NavicReaderRuntime {
       post({ type: 'error', code: 'missing_url', message: 'Reader publication URL is required.' })
       return
     }
+    const normalizedFoliateSessionId = typeof foliateSessionId === 'string'
+      ? foliateSessionId.trim()
+      : ''
+    if (!normalizedFoliateSessionId) {
+      logError('openPublication:missing-session')
+      post({ type: 'error', code: 'missing_session', message: 'Reader runtime session is required.' })
+      return
+    }
     this.mediaOverlayEnabled = Boolean(mediaOverlayEnabled)
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
     try {
       this.close()
+      this.foliateSessionId = normalizedFoliateSessionId
       this.externalShellCover = Boolean(externalShellCover)
       this.suppressWebShellCover = Boolean(suppressWebShellCover)
       this.shellCoverDominantColor = /^#[0-9a-f]{6}$/i.test(String(nativeShellCoverTint || '').trim())
@@ -674,12 +687,19 @@ class NavicReaderRuntime {
     this.nativeTapZones = false
     this.originalBookDir = null
     this.publicationUrl = ''
+    this.foliateSessionId = ''
     this.externalShellCover = false
     this.suppressWebShellCover = false
     this.pageTurnPromise = null
     this.pageTurnQueue = []
     this.pageTurnInProgress = false
     this.pageTurnDirection = null
+    this.pendingNativePageTurnSettleToken = null
+    this.nativePageTurnSettledToken = null
+    this.pendingExactPageTurnSettlements.clear()
+    this.completedExactPageTurnSettlements.clear()
+    this.activeExactPageTurnSettlementToken = null
+    this.nativePageTurnSettledState = null
     this.recentPageTurnDirection = null
     this.nativePageDragPreview = null
     this.removePageDragPreviewLayer()
@@ -1581,12 +1601,13 @@ window.NavicReaderBridge = {
   armNativePageTurnSettle: token => {
     runtime.pendingNativePageTurnSettleToken = String(token || '') || null
     runtime.nativePageTurnSettledToken = null
-    runtime.pendingExactPageTurnSettlement = null
+    runtime.pendingExactPageTurnSettlements.clear()
+    runtime.activeExactPageTurnSettlementToken = null
     runtime.nativePageTurnSettledState = null
   },
   nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
   nativePageTurnSettledState: () => runtime.nativePageTurnSettledState,
-  nativePageTurnPendingState: () => runtime.pendingExactPageTurnSettlement,
+  nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),
   beginPageTurnPreviewPreparation: (token, pageIndex) =>
     runtime.beginPageTurnPreviewPreparation(token, pageIndex),
   beginPageTurnPreviewBatch: (token, pageIndexes) =>

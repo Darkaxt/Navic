@@ -297,20 +297,101 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
   }
 }
 
-async function goToVisualPage(pageIndex, settleToken = '') {
+function exactPageTurnSettlementMatches(
+  settlement,
+  locator,
+  foliateSessionId,
+  rasterGeneration,
+  textureGeneration,
+  paginationProfile
+) {
+  return settlement?.foliateSessionId === foliateSessionId &&
+    settlement?.rasterGeneration === rasterGeneration &&
+    settlement?.textureGeneration === textureGeneration &&
+    settlement?.pageIndex === locator.pageIndex &&
+    settlement?.spineIndex === locator.spineIndex &&
+    settlement?.chapterPageIndex === locator.chapterPageIndex &&
+    settlement?.paginationProfile === paginationProfile
+}
+
+function rememberCompletedExactPageTurnSettlement(runtime, settlement) {
+  const token = settlement?.token
+  if (!token) return
+  runtime.completedExactPageTurnSettlements.set(token, settlement)
+}
+
+async function goToVisualPage(command = {}) {
+  const pageIndex = command.pageIndex
+  const token = typeof command.settleToken === 'string' ? command.settleToken.trim() : ''
+  const settleSessionId = typeof command.settleSessionId === 'string'
+    ? command.settleSessionId.trim()
+    : ''
+  const settleRasterGeneration = command.settleRasterGeneration
+  const settleTextureGeneration = command.settleTextureGeneration
+  if (!Number.isInteger(pageIndex) || pageIndex < 0) {
+    throw new TypeError('Visual page index must be a non-negative integer')
+  }
+  if (!token) throw new TypeError('Visual page settlement token is required')
+  if (!settleSessionId) throw new TypeError('Visual page settlement session is required')
+  if (settleSessionId !== this.foliateSessionId) {
+    throw new TypeError('Visual page settlement session does not match the active runtime')
+  }
+  if (
+    !Number.isInteger(settleRasterGeneration) ||
+    settleRasterGeneration < 0
+  ) {
+    throw new TypeError('Visual page raster generation must be a non-negative integer')
+  }
+  if (
+    !Number.isInteger(settleTextureGeneration) ||
+    settleTextureGeneration < 0
+  ) {
+    throw new TypeError('Visual page texture generation must be a non-negative integer')
+  }
   if (!this.view) return null
   const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
   if (!locator) throw new Error(`Visual page ${pageIndex} is unavailable`)
-  const token = String(settleToken || '')
-  this.pendingExactPageTurnSettlement = token
-    ? {
-        token,
-        pageIndex: locator.pageIndex,
-        spineIndex: locator.spineIndex,
-        chapterPageIndex: locator.chapterPageIndex,
-        paginationProfile: this.paginationProfile,
-      }
+  const existingPending = this.pendingExactPageTurnSettlements.get(token)
+  const existingSettlement = this.nativePageTurnSettledState?.token === token
+    ? this.nativePageTurnSettledState
     : null
+  const completedSettlement = this.completedExactPageTurnSettlements.get(token)
+  const existing = existingPending || existingSettlement || completedSettlement
+  if (existing) {
+    if (
+      !exactPageTurnSettlementMatches(
+        existing,
+        locator,
+        settleSessionId,
+        settleRasterGeneration,
+        settleTextureGeneration,
+        this.paginationProfile
+      )
+    ) {
+      throw new TypeError('Visual page settlement token cannot be reused')
+    }
+    return locator
+  }
+  if (
+    (this.activeExactPageTurnSettlementToken &&
+      this.activeExactPageTurnSettlementToken !== token) ||
+    (this.nativePageTurnSettledState?.token &&
+      this.nativePageTurnSettledState.token !== token)
+  ) {
+    this.cancelPendingExactPageTurnSettlement('superseded')
+  }
+  const pending = Object.freeze({
+    token,
+    foliateSessionId: settleSessionId,
+    rasterGeneration: settleRasterGeneration,
+    textureGeneration: settleTextureGeneration,
+    pageIndex: locator.pageIndex,
+    spineIndex: locator.spineIndex,
+    chapterPageIndex: locator.chapterPageIndex,
+    paginationProfile: this.paginationProfile,
+  })
+  this.pendingExactPageTurnSettlements.set(token, pending)
+  this.activeExactPageTurnSettlementToken = token
   this.nativePageTurnSettledState = null
   this.nativePageTurnSettledToken = null
   try {
@@ -326,65 +407,125 @@ async function goToVisualPage(pageIndex, settleToken = '') {
     this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)
     return locator
   } catch (error) {
-    if (this.pendingExactPageTurnSettlement?.token === token) {
-      this.pendingExactPageTurnSettlement = null
+    if (this.pendingExactPageTurnSettlements.get(token) === pending) {
+      this.pendingExactPageTurnSettlements.delete(token)
+    }
+    if (this.activeExactPageTurnSettlementToken === token) {
+      this.activeExactPageTurnSettlementToken = null
     }
     throw error
   }
 }
 
+function activeExactPageTurnSettlement() {
+  const token = this.activeExactPageTurnSettlementToken
+  return token ? this.pendingExactPageTurnSettlements.get(token) || null : null
+}
+
 function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePosition) {
-  const pending = this.pendingExactPageTurnSettlement
+  const pending = this.activeExactPageTurnSettlement()
   if (!pending) return false
   const pageIndex = Number(pagePosition?.pageIndex)
   const spineIndex = Number(pagePosition?.spineIndex)
   const chapterPageIndex = Number(pagePosition?.chapterPageIndex)
   if (
+    pending.paginationProfile !== this.paginationProfile ||
     !Number.isFinite(pageIndex) ||
     Math.floor(pageIndex) !== pending.pageIndex ||
+    !Number.isFinite(spineIndex) ||
     Math.floor(spineIndex) !== pending.spineIndex ||
+    !Number.isFinite(chapterPageIndex) ||
     Math.floor(chapterPageIndex) !== pending.chapterPageIndex
   ) {
     readerTrace('page-turn:exact-settle-pending', {
-      token: pending.token,
       requestedPageIndex: pending.pageIndex,
       actualPageIndex: Number.isFinite(pageIndex) ? Math.floor(pageIndex) : null,
       requestedSpineIndex: pending.spineIndex,
       actualSpineIndex: Number.isFinite(spineIndex) ? Math.floor(spineIndex) : null,
       requestedChapterPageIndex: pending.chapterPageIndex,
       actualChapterPageIndex: Number.isFinite(chapterPageIndex) ? Math.floor(chapterPageIndex) : null,
+      paginationProfileMatches: pending.paginationProfile === this.paginationProfile,
     })
     return false
   }
-  const settleToken = pending.token
   const settledPageIndex = Math.floor(pageIndex)
   this.nativePageTurnSettledState = Object.freeze({
-    token: settleToken,
+    token: pending.token,
+    foliateSessionId: pending.foliateSessionId,
+    rasterGeneration: pending.rasterGeneration,
+    textureGeneration: pending.textureGeneration,
     pageIndex: settledPageIndex,
+    spineIndex: pending.spineIndex,
+    chapterPageIndex: pending.chapterPageIndex,
+    paginationProfile: pending.paginationProfile,
   })
-  this.nativePageTurnSettledToken = settleToken
-  this.pendingExactPageTurnSettlement = null
-  readerTrace('page-turn:exact-settled', {
-    token: settleToken,
-    pageIndex: settledPageIndex,
-  })
+  this.nativePageTurnSettledToken = pending.token
+  if (this.pendingExactPageTurnSettlements.get(pending.token) === pending) {
+    this.pendingExactPageTurnSettlements.delete(pending.token)
+  }
+  if (this.activeExactPageTurnSettlementToken === pending.token) {
+    this.activeExactPageTurnSettlementToken = null
+  }
+  readerTrace('page-turn:exact-settled', { pageIndex: settledPageIndex })
+  return true
+}
+
+function peekNativePageTurnSettlement(pagePosition = this.currentPagePosition) {
+  const settlement = this.nativePageTurnSettledState
+  if (!settlement) return null
+  const pageIndex = Number(pagePosition?.pageIndex)
+  const spineIndex = Number(pagePosition?.spineIndex)
+  const chapterPageIndex = Number(pagePosition?.chapterPageIndex)
+  if (
+    settlement.foliateSessionId !== this.foliateSessionId ||
+    settlement.paginationProfile !== this.paginationProfile ||
+    !Number.isFinite(pageIndex) ||
+    Math.floor(pageIndex) !== settlement.pageIndex ||
+    !Number.isFinite(spineIndex) ||
+    Math.floor(spineIndex) !== settlement.spineIndex ||
+    !Number.isFinite(chapterPageIndex) ||
+    Math.floor(chapterPageIndex) !== settlement.chapterPageIndex
+  ) {
+    this.consumeNativePageTurnSettlement(settlement.token)
+    return null
+  }
+  return settlement
+}
+
+function consumeNativePageTurnSettlement(token) {
+  const normalizedToken = typeof token === 'string' ? token.trim() : ''
+  if (!normalizedToken || this.nativePageTurnSettledState?.token !== normalizedToken) return false
+  const settlement = this.nativePageTurnSettledState
+  this.nativePageTurnSettledState = null
+  if (this.nativePageTurnSettledToken === normalizedToken) {
+    this.nativePageTurnSettledToken = null
+  }
+  rememberCompletedExactPageTurnSettlement(this, settlement)
   return true
 }
 
 function cancelPendingExactPageTurnSettlement(reason = 'superseded') {
-  const pending = this.pendingExactPageTurnSettlement
-  if (!pending) return false
-  const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
-  this.nativePageTurnSettledState = Object.freeze({
-    token: pending.token,
-    pageIndex: Number.isFinite(currentPageIndex) ? Math.floor(currentPageIndex) : pending.pageIndex,
-    cancelled: true,
-  })
-  this.nativePageTurnSettledToken = pending.token
-  this.pendingExactPageTurnSettlement = null
+  const pending = this.activeExactPageTurnSettlement()
+  const settled = this.nativePageTurnSettledState
+  if (!pending && !settled) return false
+  if (pending) {
+    if (this.pendingExactPageTurnSettlements.get(pending.token) === pending) {
+      this.pendingExactPageTurnSettlements.delete(pending.token)
+    }
+    if (this.activeExactPageTurnSettlementToken === pending.token) {
+      this.activeExactPageTurnSettlementToken = null
+    }
+    rememberCompletedExactPageTurnSettlement(this, pending)
+  }
+  if (settled) {
+    this.nativePageTurnSettledState = null
+    if (this.nativePageTurnSettledToken === settled.token) {
+      this.nativePageTurnSettledToken = null
+    }
+    rememberCompletedExactPageTurnSettlement(this, settled)
+  }
   readerTrace('page-turn:exact-cancelled', {
-    token: pending.token,
-    targetPageIndex: pending.pageIndex,
+    targetPageIndex: pending?.pageIndex ?? settled?.pageIndex ?? null,
     reason,
   })
   return true
@@ -2487,7 +2628,10 @@ export const NavicReaderPageTurnMethods = {
   goToProgress,
   goToChapterProgress,
   goToVisualPage,
+  activeExactPageTurnSettlement,
   maybeCompleteNativePageTurnSettlement,
+  peekNativePageTurnSettlement,
+  consumeNativePageTurnSettlement,
   cancelPendingExactPageTurnSettlement,
   nextPage,
   previousPage,

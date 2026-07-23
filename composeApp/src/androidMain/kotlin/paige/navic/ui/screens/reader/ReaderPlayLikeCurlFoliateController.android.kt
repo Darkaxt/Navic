@@ -33,7 +33,10 @@ import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPageRelocationQueue
+import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRendererReadinessState
+import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.normalizeReaderPageBitmapQuality
@@ -299,7 +302,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var snapshotKey = Int.MIN_VALUE
 	private var currentOrdinal = 0
 	private var authoritativeLocationReady = false
-	private var pendingExactOrdinal: Int? = null
+	private var currentFoliateSessionId: String? = null
+	private var foliateSessionRelocationPending = false
 	private var preparationPhase = ReaderPagePreparationPhase.Idle
 	private var requestGeneration = 0L
 	private var decodedRefillGeneration = 0L
@@ -308,6 +312,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var protectedWindowVersion = 0L
 	private var currentProtectedWindow = emptyList<Int>()
 	private val rasterRepairRequests = ReaderPlayLikeCurlRasterRepairRegistry()
+	private val relocationQueue = ReaderPageRelocationQueue()
+	private val relocationGestureCoordinator =
+		ReaderPageRelocationGestureCoordinator(relocationQueue)
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
 	private var tapTurnGestureId: Long? = null
@@ -315,8 +322,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 		ReaderPageGestureTerminalOutcome,
 		ReaderPageGestureTerminalDetail
 	) -> Boolean)? = null
-	private var synchronousTurnGestureId: Long? = null
-	private var synchronousTurnTerminal: ReaderPageTurnStartResult.TerminalPublished? = null
 	private var activeDeckGenerationId: Long? = null
 	private var pendingDeckGenerationId: Long? = null
 	private var pendingDeckOrdinal: Int? = null
@@ -482,23 +487,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 				currentPageOrdinal: Int,
 				pageChange: PageChange
 			) {
-				val outcome = when (pageChange) {
-					PageChange.NEXT -> ReaderPageGestureTerminalOutcome.CommittedForward
-					PageChange.PREVIOUS -> ReaderPageGestureTerminalOutcome.CommittedBackward
-					PageChange.NONE -> ReaderPageGestureTerminalOutcome.CancelledByUser
-				}
-				if (!finishGesture(
-						gestureId,
-						outcome,
-						ReaderPageGestureTerminalDetail.SettlementCompleted(
-							pageChange,
-							currentPageOrdinal
-						)
-					)
-				) {
-					return
-				}
 				if (pageChange == PageChange.NONE) {
+					if (!finishGesture(
+							gestureId,
+							ReaderPageGestureTerminalOutcome.CancelledByUser,
+							ReaderPageGestureTerminalDetail.SettlementCompleted(
+								pageChange,
+								currentPageOrdinal
+							)
+						)
+					) {
+						return
+					}
 					discardPendingDeck("settlement-none")
 					Logger.i(
 						ReaderPlayLikeCurlFoliateControllerTag,
@@ -513,25 +513,88 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 					return
 				}
+
+				val rasterGeneration = bundleSource.currentGeneration()
+				if (activeGestureId != gestureId) return
+				if (
+					activeDeckGenerationId != generationId ||
+					activePages?.profile?.rasterGeneration != rasterGeneration
+				) {
+					val detail =
+						ReaderPageGestureTerminalDetail.RelocationGenerationOrSessionDrift(
+							gestureId
+						)
+					publishGestureTerminal(
+						gestureId,
+						ReaderPageGestureTerminalOutcome.FailedRecovery,
+						detail
+					)
+					check(
+						relocationGestureCoordinator.finish(
+							gestureId,
+							ReaderPageGestureTerminalOutcome.FailedRecovery,
+							detail
+						)
+					) { "Drift terminal lost its relocation reservation" }
+					return
+				}
+
+				val promotedGeneration = promotePendingDeck(currentPageOrdinal)
+				if (promotedGeneration == null) {
+					finishGesture(
+						gestureId,
+						ReaderPageGestureTerminalOutcome.FailedRecovery,
+						ReaderPageGestureTerminalDetail.RecoveryFailed
+					)
+					return
+				}
+				val direction = when (pageChange) {
+					PageChange.NEXT -> ReaderPageTurnDirection.Next
+					PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous
+					PageChange.NONE -> error("Non-committed settlement reached relocation")
+				}
+				val outcome = when (pageChange) {
+					PageChange.NEXT -> ReaderPageGestureTerminalOutcome.CommittedForward
+					PageChange.PREVIOUS -> ReaderPageGestureTerminalOutcome.CommittedBackward
+					PageChange.NONE -> error("Non-committed settlement reached relocation")
+				}
+				val result = relocationGestureCoordinator.commit(
+					gestureId = gestureId,
+					settledSourceTextureGeneration = generationId,
+					promotedRasterGeneration = rasterGeneration,
+					promotedTextureGeneration = promotedGeneration,
+					destinationOrdinal = currentPageOrdinal,
+					logicalDirection = direction,
+					currentFoliateSessionId = checkNotNull(currentFoliateSessionId),
+					publishDriftTerminal = { driftOutcome, detail ->
+						publishGestureTerminal(gestureId, driftOutcome, detail)
+					},
+					publishCommittedTerminal = {
+						publishGestureTerminal(
+							gestureId,
+							outcome,
+							ReaderPageGestureTerminalDetail.SettlementCompleted(
+								pageChange,
+								currentPageOrdinal
+							)
+						)
+					},
+					dispatch = { dispatchNextRelocation() }
+				)
+				if (result !is ReaderPageRelocationCommitResult.Published) return
+
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement completed generation=$generationId " +
 						"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=true"
 				)
 				currentOrdinal = currentPageOrdinal
-				pendingExactOrdinal = currentPageOrdinal
 				committedTurnVersion = Math.incrementExact(committedTurnVersion)
 				schedulePersistentRefill(
-					direction = when (pageChange) {
-						PageChange.NEXT -> ReaderPageTurnDirection.Next
-						PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous
-						PageChange.NONE -> error("Non-committed settlement reached refill")
-					},
+					direction = direction,
 					destinationOrdinal = currentPageOrdinal,
 					expectedTurnVersion = committedTurnVersion
 				)
-				promotePendingDeck(currentPageOrdinal)
-				dispatchExactVisualPage(currentPageOrdinal)
 			}
 
 			override fun onSettlementCancelled(
@@ -784,6 +847,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) {
 			onRequestPrewarm()
 			refreshPreparedDeck()
+			dispatchNextRelocation()
 		}
 	}
 
@@ -800,6 +864,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (!enabled || destroyed) return
 		logActivationState("host-content-ready")
 		refreshPreparedDeck()
+		dispatchNextRelocation()
+	}
+
+	fun onWebViewAttachmentChanged(webViewAttached: Boolean) {
+		if (!webViewAttached || !enabled || destroyed) return
+		dispatchNextRelocation()
 	}
 
 	fun onHostWindowHidden() {
@@ -814,26 +884,44 @@ internal class ReaderPlayLikeCurlFoliateController(
 		event: MotionEvent,
 		gestureId: Long
 	): ReaderPageCurlDispatchResult {
-		if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-			activeGestureId = gestureId
-			if (!isAvailable) {
-				finishGesture(
+		if (event.actionMasked != MotionEvent.ACTION_DOWN) {
+			surfaceView.onPageTouchEvent(event, gestureId)
+			return ReaderPageCurlDispatchResult.Accepted
+		}
+
+		activeGestureId = gestureId
+		val metadata = relocationMetadata(gestureId)
+		if (!isAvailable || metadata == null) {
+			val detail = ReaderPageGestureTerminalDetail.TouchRejected(event.actionMasked)
+			check(
+				publishGestureTerminal(
 					gestureId,
 					unavailableGestureOutcome(),
-					ReaderPageGestureTerminalDetail.TouchRejected(event.actionMasked)
+					detail
 				)
-				hideSurface()
-				return ReaderPageCurlDispatchResult.TerminalPublished
-			}
+			) { "Unavailable touch terminal was not published" }
+			hideSurface()
+			return ReaderPageCurlDispatchResult.TerminalPublished
 		}
-		surfaceView.onPageTouchEvent(event, gestureId)
-		return if (
-			event.actionMasked == MotionEvent.ACTION_DOWN &&
-			activeGestureId != gestureId
+
+		return when (
+			val result = relocationGestureCoordinator.start(
+				metadata = metadata,
+				protocolActionMasked = event.actionMasked,
+				rendererAdmission = {
+					surfaceView.onPageTouchEvent(event, gestureId)
+				},
+				publishTerminal = { outcome, detail ->
+					publishGestureTerminal(gestureId, outcome, detail)
+				}
+			)
 		) {
-			ReaderPageCurlDispatchResult.TerminalPublished
-		} else {
-			ReaderPageCurlDispatchResult.Accepted
+			ReaderPageRelocationStartResult.Admitted ->
+				ReaderPageCurlDispatchResult.Accepted
+			is ReaderPageRelocationStartResult.TerminalPublished -> {
+				hideSurface()
+				ReaderPageCurlDispatchResult.TerminalPublished
+			}
 		}
 	}
 
@@ -861,51 +949,66 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun relocationMetadata(
+		gestureId: Long
+	): ReaderPageRelocationReservationMetadata? {
+		val sessionId = currentFoliateSessionId ?: return null
+		val textureGeneration = activeDeckGenerationId ?: return null
+		return ReaderPageRelocationReservationMetadata(
+			gestureId = gestureId,
+			sourceOrdinal = currentOrdinal,
+			foliateSessionId = sessionId,
+			reservedRasterGeneration = bundleSource.currentGeneration(),
+			reservedTextureGeneration = textureGeneration
+		)
+	}
+
 	private fun startTapTurn(
 		pageChange: PageChange,
 		gestureId: Long
 	): ReaderPageTurnStartResult {
-		check(synchronousTurnGestureId == null) {
-			"A tap turn is already starting"
-		}
 		activeGestureId = gestureId
-		synchronousTurnGestureId = gestureId
-		synchronousTurnTerminal = null
+		val metadata = relocationMetadata(gestureId)
+		if (!isAvailable || metadata == null) {
+			val outcome = unavailableGestureOutcome()
+			val detail = ReaderPageGestureTerminalDetail.TapTurnUnavailable(pageChange)
+			check(publishGestureTerminal(gestureId, outcome, detail)) {
+				"Unavailable tap terminal was not published"
+			}
+			return ReaderPageTurnStartResult.TerminalPublished(outcome, detail)
+		}
 
-		return try {
-			if (!isAvailable) {
-				finishGesture(
-					gestureId,
-					unavailableGestureOutcome(),
-					ReaderPageGestureTerminalDetail.TapTurnUnavailable(pageChange)
-				)
-				checkNotNull(synchronousTurnTerminal)
-			} else {
-				surfaceView.alpha = 1f
-				val accepted = surfaceView.turn(pageChange, gestureId)
+		return when (
+			val result = relocationGestureCoordinator.start(
+				metadata = metadata,
+				protocolActionMasked = MotionEvent.ACTION_DOWN,
+				rendererAdmission = {
+					surfaceView.alpha = 1f
+					surfaceView.turn(pageChange, gestureId)
+				},
+				publishTerminal = { outcome, detail ->
+					publishGestureTerminal(gestureId, outcome, detail)
+				}
+			)
+		) {
+			ReaderPageRelocationStartResult.Admitted -> {
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl tap turn change=$pageChange accepted=$accepted"
+					"PlayLikeCurl tap turn change=$pageChange accepted=true"
 				)
-				if (accepted) {
-					ReaderPageTurnStartResult.Settling
-				} else {
-					hideSurface()
-					synchronousTurnTerminal ?: run {
-						finishGesture(
-							gestureId,
-							ReaderPageGestureTerminalOutcome.FailedRenderer,
-							ReaderPageGestureTerminalDetail.TapTurnProtocolFailure(
-								pageChange
-							)
-						)
-						checkNotNull(synchronousTurnTerminal)
-					}
-				}
+				ReaderPageTurnStartResult.Settling
 			}
-		} finally {
-			synchronousTurnGestureId = null
-			synchronousTurnTerminal = null
+			is ReaderPageRelocationStartResult.TerminalPublished -> {
+				hideSurface()
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl tap turn change=$pageChange accepted=false"
+				)
+				ReaderPageTurnStartResult.TerminalPublished(
+					result.outcome,
+					result.detail
+				)
+			}
 		}
 	}
 
@@ -949,28 +1052,98 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
-	fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {
+	fun setFoliateSessionId(sessionId: String) {
+		require(sessionId.isNotBlank())
+		val previous = currentFoliateSessionId
+		if (previous == sessionId) return
+		if (previous != null) {
+			drainRelocationOwnership("foliate-session-changed")
+			foliateSessionRelocationPending = true
+		}
+		currentFoliateSessionId = sessionId
+	}
+
+	fun visualLocationOrigin(
+		pageIndex: Int?,
+		acknowledgement: ReaderPageTurnSettlementAck?
+	): ReaderPageVisualLocationOrigin {
+		val normalized = pageIndex?.takeIf { it >= 0 }
+		if (foliateSessionRelocationPending) {
+			return ReaderPageVisualLocationOrigin.External
+		}
+		if (
+			normalized != null &&
+			acknowledgement != null &&
+			relocationQueue.matchesDispatchedHead(
+				token = acknowledgement.token,
+				rasterGeneration = acknowledgement.rasterGeneration,
+				textureGeneration = acknowledgement.textureGeneration,
+				foliateSessionId = acknowledgement.foliateSessionId,
+				destinationOrdinal = normalized
+			)
+		) {
+			return ReaderPageVisualLocationOrigin.ExactPageTurn
+		}
+		if (acknowledgement != null && normalized == currentOrdinal) {
+			return ReaderPageVisualLocationOrigin.StaleAcknowledgement
+		}
+		return ReaderPageVisualLocationOrigin.External
+	}
+
+	fun synchronizeVisualPageIndex(
+		pageIndex: Int?,
+		_reason: String?,
+		acknowledgement: ReaderPageTurnSettlementAck?
+	) {
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
 		authoritativeLocationReady = true
-		if (reason == "page-turn:exact") {
-			if (pendingExactOrdinal != normalized) return
-			pendingExactOrdinal = null
-			currentOrdinal = normalized
-			if (activeGestureId == null) hideSurface()
-			if (activePages?.generations?.isNotEmpty() == true) {
-				updateReadiness(
-					textureDeck = ReaderTextureDeckState.Ready,
-					interaction = ReaderPageInteractionState.Ready,
-					reason = "foliate-exact-settlement:$normalized"
+		when (visualLocationOrigin(normalized, acknowledgement)) {
+			ReaderPageVisualLocationOrigin.ExactPageTurn -> {
+				val matched = requireNotNull(acknowledgement)
+				check(
+					relocationQueue.acknowledge(
+						token = matched.token,
+						pageIndex = normalized,
+						foliateSessionId = matched.foliateSessionId,
+						rasterGeneration = matched.rasterGeneration,
+						textureGeneration = matched.textureGeneration
+					)
 				)
+				currentOrdinal = normalized
+				foliateSessionRelocationPending = false
+				refillDecodedWorkingSet(normalized, "foliate-exact-settlement")
 			}
-			refillDecodedWorkingSet(normalized, "foliate-exact-settlement")
-			return
+
+			ReaderPageVisualLocationOrigin.StaleAcknowledgement -> Unit
+
+			ReaderPageVisualLocationOrigin.External -> {
+				val sessionRelocation = foliateSessionRelocationPending
+				foliateSessionRelocationPending = false
+				if (
+					!sessionRelocation &&
+					currentOrdinal == normalized &&
+					relocationQueue.occupiedCount() == 0
+				) return
+				currentOrdinal = normalized
+				invalidate("external-page-relocation")
+				if (enabled) onRequestPrewarm()
+			}
 		}
-		if (currentOrdinal == normalized && pendingExactOrdinal == null) return
-		currentOrdinal = normalized
-		invalidate("external-page-relocation")
-		if (enabled) onRequestPrewarm()
+	}
+
+	private fun drainRelocationOwnership(reason: String) {
+		val drained = relocationGestureCoordinator.cancelAll()
+		check(relocationGestureCoordinator.reservationCount() == 0)
+		check(relocationQueue.reservedCount() == 0)
+		check(relocationQueue.queuedCount() == 0)
+		if (drained.queued.isNotEmpty() || drained.reservations.isNotEmpty()) {
+			Logger.i(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl relocation ownership drained " +
+					"queued=${drained.queued.size} " +
+					"reserved=${drained.reservations.size} reason=$reason"
+			)
+		}
 	}
 
 	fun invalidate(
@@ -983,7 +1156,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		deckRecoveryCoordinator.cancelAll()
 		publishProtectedWindow(emptyList())
 		rasterRepairRequests.clear()
-		pendingExactOrdinal = null
+		drainRelocationOwnership("invalidated:$reason")
 		updateReadiness(
 			textureDeck = ReaderTextureDeckState.Empty,
 			pendingTextureDeck = ReaderTextureDeckState.Empty,
@@ -1046,7 +1219,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		val request = ++requestGeneration
-		val centerExpression = pendingExactOrdinal?.toString() ?: currentOrdinal.toString()
+		val centerExpression = currentOrdinal.toString()
 		logActivationState("refresh-requested", "request=$request center=$centerExpression")
 		webView.evaluateJavascript(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(" +
@@ -2098,20 +2271,30 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
-	private fun dispatchExactVisualPage(pageIndex: Int) {
-		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: run {
-			pendingExactOrdinal = null
-			hideSurface()
-			return
+	private fun dispatchNextRelocation() {
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return
+		val request = relocationQueue.commandToDispatch() ?: return
+		dispatchExactVisualPage(webView, request)
+	}
+
+	private fun dispatchExactVisualPage(
+		webView: WebView,
+		request: ReaderPageRelocationRequest
+	) {
+		val command = JSONObject().apply {
+			put("type", "goToVisualPage")
+			put("pageIndex", request.destinationOrdinal)
+			put("settleToken", request.token.value)
+			put("settleSessionId", request.foliateSessionId)
+			put("settleRasterGeneration", request.rasterGeneration)
+			put("settleTextureGeneration", request.textureGeneration)
 		}
-		val token = "navic-playlikecurl-settle-${nextDeckGeneration++}"
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
-			"PlayLikeCurl exact page dispatched pageIndex=$pageIndex token=$token"
+			"PlayLikeCurl exact page dispatched pageIndex=${request.destinationOrdinal}"
 		)
 		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.dispatch?.({ type: 'goToVisualPage', " +
-				"pageIndex: $pageIndex, settleToken: ${JSONObject.quote(token)} })"
+			"window.NavicReaderBridge?.dispatch?.($command)"
 		) { }
 	}
 
@@ -2137,7 +2320,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		closeIfUnused(pages)
 	}
 
-	private fun promotePendingDeck(currentPageOrdinal: Int) {
+	private fun promotePendingDeck(currentPageOrdinal: Int): Long? {
 		val promotedGeneration = pendingDeckGenerationId
 			?.takeIf { pendingDeckOrdinal == currentPageOrdinal }
 		if (promotedGeneration == null) {
@@ -2147,7 +2330,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				reason = "settlement-missing-pending:$currentPageOrdinal"
 			)
 			requestPrewarmIfIdle("settlement-missing-pending")
-			return
+			return null
 		}
 		val promotedPages = generationOwners[promotedGeneration]
 		if (promotedPages != null && promotedPages !== activePages) {
@@ -2169,6 +2352,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			reason = "settlement-promoted:$promotedGeneration:$currentPageOrdinal"
 		)
 		if (prepared) publishPreparedActiveDeck() else onPreparedActiveDeckChanged(null)
+		return promotedGeneration
 	}
 
 	private fun discardPendingDeck(reason: String) {
@@ -2243,6 +2427,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun logActivationState(event: String, detail: String? = null) {
+		val relocation = relocationQueue.ownershipSnapshot()
 		val trace = buildString {
 			append("activation event=")
 			append(event)
@@ -2264,8 +2449,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			append(readinessState.textureDeck)
 			append(" pendingTextureDeck=")
 			append(readinessState.pendingTextureDeck)
-			append(" pendingExactOrdinal=")
-			append(pendingExactOrdinal)
+			append(" relocationReserved=")
+			append(relocation.reserved)
+			append(" relocationQueued=")
+			append(relocation.queued)
 			append(" activePages=")
 			append(activePages != null)
 			append(" requestedProfile=")
@@ -2295,6 +2482,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	): Boolean {
+		if (!relocationGestureCoordinator.finish(gestureId, outcome, detail)) return false
+		return publishGestureTerminal(gestureId, outcome, detail)
+	}
+
+	private fun publishGestureTerminal(
+		gestureId: Long,
+		outcome: ReaderPageGestureTerminalOutcome,
+		detail: ReaderPageGestureTerminalDetail
+	): Boolean {
 		if (activeGestureId == gestureId) activeGestureId = null
 		val tapSink = if (tapTurnGestureId == gestureId) {
 			tapTurnGestureId = null
@@ -2302,22 +2498,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		} else {
 			null
 		}
-		val published = if (tapSink == null) {
+		return if (tapSink == null) {
 			onGestureTerminal(gestureId, outcome, detail)
 		} else {
 			tapSink(outcome, detail)
 		}
-		if (synchronousTurnGestureId == gestureId) {
-			check(published) { "Synchronous renderer terminal lost the host CAS" }
-			check(synchronousTurnTerminal == null) {
-				"Tap turn published more than one synchronous terminal"
-			}
-			synchronousTurnTerminal = ReaderPageTurnStartResult.TerminalPublished(
-				outcome = outcome,
-				detail = detail
-			)
-		}
-		return published
 	}
 
 	private fun finishActiveGesture(
