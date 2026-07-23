@@ -483,6 +483,11 @@ class ReaderRuntimeShellProgressTest {
 			content,
 			"playLikeCurlGestureDetector.onTouchEvent(event)"
 		)
+		assertTrue(
+			content.indexOf("viewerContentContainer.dispatchTouchEvent(event)") <
+				content.indexOf("playLikeCurlGestureDetector.onTouchEvent(event)"),
+			"Foliate must receive the provisional event before curl evaluates ownership."
+		)
 		assertFalse(content.contains("playLikeCurlController.onPageTouchEvent("))
 		assertFalse(
 			webViewHostText.contains("event.action =") ||
@@ -678,6 +683,17 @@ class ReaderRuntimeShellProgressTest {
 				"private fun nativeHorizontalSwipeMovedBeyondSlop("
 			)
 			.substringBefore("private fun clearLegacyNativeTapState(")
+		val handleTouch = nativeFrameHostText
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent) {")
+			.substringBefore("private fun dispatchHorizontalSwipeViewerAction(")
+		val actionUp = handleTouch
+			.substringAfter("MotionEvent.ACTION_UP -> {")
+			.substringBefore("MotionEvent.ACTION_CANCEL,")
+		val dispatchSlop = nativeFrameHostText
+			.substringAfter(
+				"private fun readerSwipeThresholdPx(shellCoverVisible: Boolean): Float ="
+			)
+			.substringBefore("private fun clearLegacyNativeTapState(")
 		val typedTap = nativeFrameHostText
 			.substringAfter("private fun onPlayLikeCurlSingleTapConfirmed(")
 			.substringBefore("private fun dispatchLegacySingleTapAction(")
@@ -685,9 +701,20 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(imported, "scaledTouchSlop")
 		assertContains(imported, "ReaderPageHostPointerEvent.Move(")
 		assertFalse(imported.contains("scaledPagingTouchSlop"))
-		assertContains(nativeFrameHostText, "scaledPagingTouchSlop")
+		assertContains(
+			nativeFrameHostText,
+			"private val readablePageDragSlopPx = " +
+				"ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()"
+		)
+		assertContains(legacySlop, "thresholdPx = readableDragActivationSlopPx()")
+		assertContains(legacySlop, "else -> readablePageDragSlopPx")
 		assertContains(legacySlop, "readerShellCoverSwipeAction(")
 		assertContains(legacySlop, "readableSwipeAction(")
+		assertContains(actionUp, "thresholdPx = readableDragActivationSlopPx()")
+		assertContains(dispatchSlop, "if (shellCoverVisible)")
+		assertContains(dispatchSlop, "touchSlopPx")
+		assertContains(dispatchSlop, "else")
+		assertContains(dispatchSlop, "readablePageDragSlopPx")
 		assertFalse(typedTap.contains("nativeTapCandidate"))
 		assertFalse(typedTap.contains("nativeTapLongConfirmed"))
 		assertFalse(typedTap.contains("nativeTapCancelledByDrag"))
@@ -702,6 +729,15 @@ class ReaderRuntimeShellProgressTest {
 		val legacyCancel = nativeFrameHostText
 			.substringAfter("private fun cancelPendingLongTapForDrag(")
 			.substringBefore("private fun nativeTapMovedBeyondSlop")
+		val handleTouch = nativeFrameHostText
+			.substringAfter("private fun handleSwipeTouchEvent(event: MotionEvent) {")
+			.substringBefore("private fun dispatchHorizontalSwipeViewerAction(")
+		val actionMove = handleTouch
+			.substringAfter("MotionEvent.ACTION_MOVE -> {")
+			.substringBefore("MotionEvent.ACTION_UP -> {")
+		val actionUp = handleTouch
+			.substringAfter("MotionEvent.ACTION_UP -> {")
+			.substringBefore("MotionEvent.ACTION_CANCEL,")
 		val detector = nativeFrameHostText
 			.substringAfter("internal class KomikkuGestureDetectorWithLongTap")
 			.substringBefore(
@@ -715,6 +751,16 @@ class ReaderRuntimeShellProgressTest {
 		assertFalse(contentCancel.contains("legacyGestureDetector"))
 		assertContains(legacyCancel, "legacyGestureDetector.cancelForDrag(event)")
 		assertFalse(legacyCancel.contains("playLikeCurlGestureDetector"))
+		assertTrue(
+			actionMove.indexOf("cancelPendingLongTapForDrag(dx, dy, event)") in
+				0 until actionMove.indexOf("nativeHorizontalSwipeMovedBeyondSlop("),
+			"Move must cancel the frozen long-tap detector before starting drag preview."
+		)
+		assertTrue(
+			actionUp.indexOf("cancelPendingLongTapForDrag(dx, dy, event)") in
+				0 until actionUp.indexOf("dispatchHorizontalSwipeViewerAction("),
+			"Up must cancel the frozen long-tap detector before dispatching a swipe."
+		)
 		assertContains(detector, "fun cancelForDrag(event: MotionEvent)")
 		assertContains(detector, "MotionEvent.ACTION_CANCEL")
 	}

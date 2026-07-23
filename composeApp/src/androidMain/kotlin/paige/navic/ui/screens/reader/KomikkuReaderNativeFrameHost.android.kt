@@ -1859,7 +1859,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 							val readableSwipeAction = readableSwipeAction(
 								deltaX = dx,
 								deltaY = dy,
-								thresholdPx = touchSlopPx
+								thresholdPx = readableDragActivationSlopPx()
 							)
 							updateReadableViewerDragOffset(
 								deltaX = dx,

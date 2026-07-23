@@ -484,7 +484,9 @@ foreach ($file in $resultFiles) {
   foreach ($case in @($xml.testsuite.testcase)) {
     $identity = "$($case.classname)::$($case.name)"
     $inventory.Add($identity)
-    if ($case.failure -or $case.error) { $failures.Add($identity) }
+    if ($null -ne $case.SelectSingleNode('failure|error')) {
+      $failures.Add($identity)
+    }
   }
 }
 $inventory = @($inventory | Sort-Object)
@@ -21263,7 +21265,7 @@ $task12CanonicalCases = @(
 )
 if ($task12CanonicalCases.Count -eq 0 -or
     @($task12CanonicalCases | Where-Object {
-      $_.failure -or $_.error -or $_.skipped
+      $null -ne $_.SelectSingleNode('failure|error|skipped')
     }).Count -ne 0) {
   throw 'task12Canonical canonical XML is empty, failed, errored, or skipped'
 }
@@ -24398,7 +24400,7 @@ $task13CanonicalCases = @(
 )
 if ($task13CanonicalCases.Count -eq 0 -or
     @($task13CanonicalCases | Where-Object {
-      $_.failure -or $_.error -or $_.skipped
+      $null -ne $_.SelectSingleNode('failure|error|skipped')
     }).Count -ne 0) {
   throw 'task13Canonical canonical XML is empty, failed, errored, or skipped'
 }
@@ -26734,7 +26736,9 @@ $testCases = @(
   }
 )
 if ($testCases.Count -eq 0 -or
-    @($testCases | Where-Object { $_.skipped }).Count -ne 0) {
+    @($testCases | Where-Object {
+      $null -ne $_.SelectSingleNode('skipped')
+    }).Count -ne 0) {
   throw 'Focused JUnit XML is empty or contains skipped tests'
 }
 $executedClasses = @(
@@ -26744,7 +26748,9 @@ if (@(Compare-Object $requiredFocusedClasses $executedClasses).Count -ne 0) {
   throw 'Focused JUnit XML does not prove every requested class executed exactly within the reviewed inventory'
 }
 $focusedFailures = @(
-  $testCases | Where-Object { $_.failure -or $_.error } |
+  $testCases | Where-Object {
+    $null -ne $_.SelectSingleNode('failure|error')
+  } |
     ForEach-Object { "$($_.classname)::$($_.name)" } |
     Sort-Object -Unique
 )
@@ -26864,7 +26870,7 @@ $canonicalCases = @(
 )
 if ($canonicalCases.Count -eq 0 -or
     @($canonicalCases | Where-Object {
-      $_.failure -or $_.error -or $_.skipped
+      $null -ne $_.SelectSingleNode('failure|error|skipped')
     }).Count -ne 0) {
   throw 'Canonical PlayLikeCurl XML is empty, failed, errored, or skipped'
 }
@@ -27003,6 +27009,7 @@ if ($resultFiles.Count -eq 0) {
 }
 $finalInventory = [System.Collections.Generic.List[string]]::new()
 $finalFailures = [System.Collections.Generic.List[string]]::new()
+$finalSkipped = [System.Collections.Generic.List[string]]::new()
 $declaredTests = 0
 foreach ($file in $resultFiles) {
   [xml]$xml = Get-Content -LiteralPath $file.FullName -Raw
@@ -27010,13 +27017,20 @@ foreach ($file in $resultFiles) {
   foreach ($case in @($xml.testsuite.testcase)) {
     $identity = "$($case.classname)::$($case.name)"
     $finalInventory.Add($identity)
-    if ($case.failure -or $case.error) { $finalFailures.Add($identity) }
+    if ($null -ne $case.SelectSingleNode('failure|error')) {
+      $finalFailures.Add($identity)
+    }
+    if ($null -ne $case.SelectSingleNode('skipped')) {
+      $finalSkipped.Add($identity)
+    }
   }
 }
 $finalInventory = @($finalInventory | Sort-Object)
 $finalFailures = @($finalFailures | Sort-Object)
-if ($finalInventory.Count -eq 0 -or $finalInventory.Count -ne $declaredTests) {
-  throw "Full host XML inventory incomplete parsed=$($finalInventory.Count) declared=$declaredTests"
+if ($finalInventory.Count -eq 0 -or
+    $finalInventory.Count -ne $declaredTests -or
+    $finalSkipped.Count -ne 0) {
+  throw "Full host XML inventory is incomplete or skipped parsed=$($finalInventory.Count) declared=$declaredTests skipped=$($finalSkipped.Count)"
 }
 if (($outcome.failureKind -eq 'TEST_FAILURES') -ne ($finalFailures.Count -gt 0)) {
   throw 'Full host task outcome and testcase failures disagree'
@@ -27028,10 +27042,51 @@ $finalInventory | Set-Content .codex-validation\final-host-inventory.txt
 )
 $finalGroups = @{}
 $finalInventory | Group-Object | ForEach-Object { $finalGroups[$_.Name] = $_.Count }
+$approvedBaselineReplacements = [ordered]@{
+  'paige.navic.reader.ReaderKomikkuBackboneResetTest::nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::dragCancellationTargetsTheDetectorThatOwnedTheFrozenStream'
+  'paige.navic.reader.ReaderKomikkuBackboneResetTest::nativeKomikkuFrameOwnsReadableDragPreviewWhileNativeFrameOwnsTaps' =
+    'paige.navic.reader.ReaderKomikkuBackboneResetTest::nativeKomikkuFrameSeparatesLegacyPreviewFromImportedCurl'
+  'paige.navic.reader.ReaderPageTurnDestinationSourceTest::cancelledSettlementIsObservableByTheImportedController' =
+    'paige.navic.reader.ReaderPageTurnDestinationSourceTest::cancellationClearsPendingAndUndeliveredSettledAcknowledgements'
+  'paige.navic.reader.ReaderRuntimeSettingsBridgeTest::androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::importedReadableContentReceivesProvisionalDownBeforeCurlClaim'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::nativeCanvasDragUsesTapSlopWhileNonCanvasPreviewKeepsPagingSlop' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::importedCurlUsesRouterTouchSlopWhileLegacyPreviewKeepsPagingSlop'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::nativeDragCancelsTheWholeGestureDetectorSequenceBeforeTapConfirmation' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::dragCancellationTargetsTheDetectorThatOwnedTheFrozenStream'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::shellCoverAndNonCurlRollbackKeepLegacyChildFirstDispatch'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::importedReadableContentReceivesProvisionalDownBeforeCurlClaim'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::readableSurfaceOwnsTouchStreamFromDownSoFoliateCannotDoubleCommitDrag' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::horizontalCurlClaimCancelsFoliateBeforeRendererReceivesDownAndMove'
+  'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::protectedChapterCanTemporarilyExceedDiskLimitWithoutEvictingItself' =
+    'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::protectedChapterLargerThanDiskLimitIsNotRetained'
+  'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::replacingProtectedChapterTrimsPreviousOverflowBackToBudget' =
+    'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::protectedChapterTrimDetachesOnlyTheRetiredAlias'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::importedSurfaceExclusivelyOwnsAnAcceptedGestureBeforeAndroidChildDispatch' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::importedSurfaceClaimsOnlyAfterProvisionalContentDownIsCancelled'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::missingFarEdgeRequestsOneRepairAndRetriesOnlyTheDecodedRefill' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::missingFarEdgeRequestsOneRepairAndRestoresARecoveredDeck'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateRasterSourceTest::foliateLoaderReadsOnlyPrewarmedSnapshotsAndCopiesOffMain' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateRasterSourceTest::foliateLoaderResolvesRetainedThenPersistentAndCopiesOffMain'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlLibraryDeckFactoryTest::portraitDuplicatesTheBoundaryPageWithoutInventingAnInvalidOrdinal' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlLibraryDeckFactoryTest::portraitBoundariesUseFillersWithoutInventingNavigation'
+}
+foreach ($replacement in $approvedBaselineReplacements.GetEnumerator()) {
+  if (@($baselineInventory | Where-Object { $_ -eq $replacement.Key }).Count -ne 1 -or
+      -not $finalGroups.ContainsKey($replacement.Value)) {
+    throw "Approved baseline replacement is absent or malformed: $($replacement.Key) -> $($replacement.Value)"
+  }
+}
 foreach ($group in @($baselineInventory | Group-Object)) {
   if (-not $finalGroups.ContainsKey($group.Name) -or
       $finalGroups[$group.Name] -lt $group.Count) {
-    throw "Baseline testcase missing from final complete inventory: $($group.Name)"
+    if ($group.Count -ne 1 -or
+        -not $approvedBaselineReplacements.Contains($group.Name)) {
+      throw "Unaudited baseline testcase missing from final complete inventory: $($group.Name)"
+    }
   }
 }
 $baselineFailureGroups = @{}
@@ -27048,7 +27103,7 @@ foreach ($group in @($finalFailures | Group-Object)) {
 if ($LASTEXITCODE -ne 0) { throw 'Full-host gate identity postcheck failed' }
 ```
 
-Expected: no new failing testcase occurrence. Existing environment/reference failures may remain only up to the exact multiplicity captured in the digest-verified baseline, and every baseline testcase occurrence remains in the complete final inventory.
+Expected: no new failing testcase occurrence. Existing environment/reference failures may remain only up to the exact multiplicity captured in the digest-verified baseline. Every baseline testcase remains in the complete final inventory unless it is one of the fifteen explicitly audited replacements above, in which case the mapped stronger test must execute.
 
 - [ ] **Step 5: Build ReaderDev**
 
@@ -33215,7 +33270,7 @@ $focusedCases = @(
 )
 if ($focusedCases.Count -eq 0 -or
     @($focusedCases | Where-Object {
-      $_.failure -or $_.error -or $_.skipped
+      $null -ne $_.SelectSingleNode('failure|error|skipped')
     }).Count -ne 0) {
   throw 'Script-bearing focused XML is empty, failed, errored, or skipped'
 }
@@ -33275,7 +33330,7 @@ $canonicalCases = @(
 )
 if ($canonicalCases.Count -eq 0 -or
     @($canonicalCases | Where-Object {
-      $_.failure -or $_.error -or $_.skipped
+      $null -ne $_.SelectSingleNode('failure|error|skipped')
     }).Count -ne 0) {
   throw 'Canonical PlayLikeCurl XML is empty, failed, errored, or skipped'
 }
@@ -33381,6 +33436,7 @@ if ($resultFiles.Count -eq 0) {
 }
 $finalInventory = [System.Collections.Generic.List[string]]::new()
 $finalFailures = [System.Collections.Generic.List[string]]::new()
+$finalSkipped = [System.Collections.Generic.List[string]]::new()
 $declaredTests = 0
 foreach ($file in $resultFiles) {
   [xml]$xml = Get-Content -LiteralPath $file.FullName -Raw
@@ -33388,13 +33444,20 @@ foreach ($file in $resultFiles) {
   foreach ($case in @($xml.testsuite.testcase)) {
     $identity = "$($case.classname)::$($case.name)"
     $finalInventory.Add($identity)
-    if ($case.failure -or $case.error) { $finalFailures.Add($identity) }
+    if ($null -ne $case.SelectSingleNode('failure|error')) {
+      $finalFailures.Add($identity)
+    }
+    if ($null -ne $case.SelectSingleNode('skipped')) {
+      $finalSkipped.Add($identity)
+    }
   }
 }
 $finalInventory = @($finalInventory | Sort-Object)
 $finalFailures = @($finalFailures | Sort-Object)
-if ($finalInventory.Count -eq 0 -or $finalInventory.Count -ne $declaredTests) {
-  throw "Full host XML inventory incomplete parsed=$($finalInventory.Count) declared=$declaredTests"
+if ($finalInventory.Count -eq 0 -or
+    $finalInventory.Count -ne $declaredTests -or
+    $finalSkipped.Count -ne 0) {
+  throw "Full host XML inventory is incomplete or skipped parsed=$($finalInventory.Count) declared=$declaredTests skipped=$($finalSkipped.Count)"
 }
 if (($outcome.failureKind -eq 'TEST_FAILURES') -ne ($finalFailures.Count -gt 0)) {
   throw 'Full host task outcome and testcase failures disagree'
@@ -33406,10 +33469,51 @@ $finalInventory | Set-Content .codex-validation\final-host-inventory.txt
 )
 $finalGroups = @{}
 $finalInventory | Group-Object | ForEach-Object { $finalGroups[$_.Name] = $_.Count }
+$approvedBaselineReplacements = [ordered]@{
+  'paige.navic.reader.ReaderKomikkuBackboneResetTest::nativeDragMotionCancelsPendingLongTapBeforeDelegatingOrDispatchingSwipe' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::dragCancellationTargetsTheDetectorThatOwnedTheFrozenStream'
+  'paige.navic.reader.ReaderKomikkuBackboneResetTest::nativeKomikkuFrameOwnsReadableDragPreviewWhileNativeFrameOwnsTaps' =
+    'paige.navic.reader.ReaderKomikkuBackboneResetTest::nativeKomikkuFrameSeparatesLegacyPreviewFromImportedCurl'
+  'paige.navic.reader.ReaderPageTurnDestinationSourceTest::cancelledSettlementIsObservableByTheImportedController' =
+    'paige.navic.reader.ReaderPageTurnDestinationSourceTest::cancellationClearsPendingAndUndeliveredSettledAcknowledgements'
+  'paige.navic.reader.ReaderRuntimeSettingsBridgeTest::androidReaderSurfaceObservesConfirmedTapsAfterChildDispatchLikeKomikku' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::importedReadableContentReceivesProvisionalDownBeforeCurlClaim'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::nativeCanvasDragUsesTapSlopWhileNonCanvasPreviewKeepsPagingSlop' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::importedCurlUsesRouterTouchSlopWhileLegacyPreviewKeepsPagingSlop'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::nativeDragCancelsTheWholeGestureDetectorSequenceBeforeTapConfirmation' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::dragCancellationTargetsTheDetectorThatOwnedTheFrozenStream'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::nativeShellCoverTouchStreamSharesKomikkuChildFirstGestureOwner' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::shellCoverAndNonCurlRollbackKeepLegacyChildFirstDispatch'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::readableContentTapsAreObservedByNativeSurfaceAfterChildDispatchLikeKomikku' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::importedReadableContentReceivesProvisionalDownBeforeCurlClaim'
+  'paige.navic.reader.ReaderRuntimeShellProgressTest::readableSurfaceOwnsTouchStreamFromDownSoFoliateCannotDoubleCommitDrag' =
+    'paige.navic.reader.ReaderRuntimeShellProgressTest::horizontalCurlClaimCancelsFoliateBeforeRendererReceivesDownAndMove'
+  'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::protectedChapterCanTemporarilyExceedDiskLimitWithoutEvictingItself' =
+    'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::protectedChapterLargerThanDiskLimitIsNotRetained'
+  'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::replacingProtectedChapterTrimsPreviousOverflowBackToBudget' =
+    'paige.navic.ui.screens.reader.ReaderPageRasterCacheTest::protectedChapterTrimDetachesOnlyTheRetiredAlias'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::importedSurfaceExclusivelyOwnsAnAcceptedGestureBeforeAndroidChildDispatch' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::importedSurfaceClaimsOnlyAfterProvisionalContentDownIsCancelled'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::missingFarEdgeRequestsOneRepairAndRetriesOnlyTheDecodedRefill' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateControllerSourceTest::missingFarEdgeRequestsOneRepairAndRestoresARecoveredDeck'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateRasterSourceTest::foliateLoaderReadsOnlyPrewarmedSnapshotsAndCopiesOffMain' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlFoliateRasterSourceTest::foliateLoaderResolvesRetainedThenPersistentAndCopiesOffMain'
+  'paige.navic.ui.screens.reader.ReaderPlayLikeCurlLibraryDeckFactoryTest::portraitDuplicatesTheBoundaryPageWithoutInventingAnInvalidOrdinal' =
+    'paige.navic.ui.screens.reader.ReaderPlayLikeCurlLibraryDeckFactoryTest::portraitBoundariesUseFillersWithoutInventingNavigation'
+}
+foreach ($replacement in $approvedBaselineReplacements.GetEnumerator()) {
+  if (@($baselineInventory | Where-Object { $_ -eq $replacement.Key }).Count -ne 1 -or
+      -not $finalGroups.ContainsKey($replacement.Value)) {
+    throw "Approved baseline replacement is absent or malformed: $($replacement.Key) -> $($replacement.Value)"
+  }
+}
 foreach ($group in @($baselineInventory | Group-Object)) {
   if (-not $finalGroups.ContainsKey($group.Name) -or
       $finalGroups[$group.Name] -lt $group.Count) {
-    throw "Baseline testcase missing from final complete inventory: $($group.Name)"
+    if ($group.Count -ne 1 -or
+        -not $approvedBaselineReplacements.Contains($group.Name)) {
+      throw "Unaudited baseline testcase missing from final complete inventory: $($group.Name)"
+    }
   }
 }
 $baselineFailureGroups = @{}
