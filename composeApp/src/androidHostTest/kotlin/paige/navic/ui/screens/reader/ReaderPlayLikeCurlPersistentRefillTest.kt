@@ -72,15 +72,34 @@ class ReaderPlayLikeCurlPersistentRefillTest {
 	}
 
 	@Test
-	fun completedRepairFromPriorSameProfileTurnCannotRefillAfterAbaReturn() {
+	fun currentRepairTargetDoesNotDependOnTheCompletedPreparationPlan() {
+		assertTrue(
+			readerPlayLikeCurlRepairTargetMatches(
+				repairedCenterOrdinal = 2,
+				expectedSourceCenter = 2
+			)
+		)
+	}
+
+	@Test
+	fun repairTargetRejectsAStaleCenter() {
+		assertFalse(
+			readerPlayLikeCurlRepairTargetMatches(
+				repairedCenterOrdinal = 2,
+				expectedSourceCenter = 3
+			)
+		)
+	}
+
+	@Test
+	fun currentRepairFenceSurvivesANonSemanticPreparationRefresh() {
 		val profile = ReaderPlayLikeCurlRasterProfile(
-			sourceIdentity = "repair-aba",
+			sourceIdentity = "repair-refresh",
 			orientation = ReaderPlayLikeCurlOrientation.Portrait,
 			quality = ReaderPageBitmapQuality.Balanced
 		)
 		val fence = ReaderPlayLikeCurlRasterRepairFence(
 			profile = profile,
-			requestGeneration = 4L,
 			destinationOrdinal = 5,
 			committedTurnVersion = 7L,
 			protectedWindowVersion = 11L,
@@ -90,8 +109,33 @@ class ReaderPlayLikeCurlPersistentRefillTest {
 		assertTrue(
 			fence.matches(
 				profile = profile,
-				requestGeneration = 4L,
 				destinationOrdinal = 5,
+				committedTurnVersion = 7L,
+				protectedWindowVersion = 11L,
+				protectedWindow = listOf(3, 4, 5, 6, 7)
+			)
+		)
+	}
+
+	@Test
+	fun completedRepairFromPriorSameProfileTurnCannotRefillAfterAbaReturn() {
+		val profile = ReaderPlayLikeCurlRasterProfile(
+			sourceIdentity = "repair-aba",
+			orientation = ReaderPlayLikeCurlOrientation.Portrait,
+			quality = ReaderPageBitmapQuality.Balanced
+		)
+		val fence = ReaderPlayLikeCurlRasterRepairFence(
+			profile = profile,
+			destinationOrdinal = 5,
+			committedTurnVersion = 7L,
+			protectedWindowVersion = 11L,
+			protectedWindow = listOf(3, 4, 5, 6, 7)
+		)
+
+		assertTrue(
+			fence.matches(
+				profile = profile,
+					destinationOrdinal = 5,
 				committedTurnVersion = 7L,
 				protectedWindowVersion = 11L,
 				protectedWindow = listOf(3, 4, 5, 6, 7)
@@ -100,8 +144,7 @@ class ReaderPlayLikeCurlPersistentRefillTest {
 		assertFalse(
 			fence.matches(
 				profile = profile,
-				requestGeneration = 4L,
-				destinationOrdinal = 5,
+					destinationOrdinal = 5,
 				committedTurnVersion = 9L,
 				protectedWindowVersion = 13L,
 				protectedWindow = listOf(3, 4, 5, 6, 7)
@@ -120,8 +163,7 @@ class ReaderPlayLikeCurlPersistentRefillTest {
 			ReaderPlayLikeCurlRasterRepairRecipient(
 				fence = ReaderPlayLikeCurlRasterRepairFence(
 					profile = profile,
-					requestGeneration = 4L,
-					destinationOrdinal = 5,
+							destinationOrdinal = 5,
 					committedTurnVersion = turnVersion,
 					protectedWindowVersion = windowVersion,
 					protectedWindow = listOf(3, 4, 5, 6, 7)
@@ -142,8 +184,7 @@ class ReaderPlayLikeCurlPersistentRefillTest {
 		val current = recipients.lastOrNull { candidate ->
 			candidate.fence.matches(
 				profile = profile,
-				requestGeneration = 4L,
-				destinationOrdinal = 5,
+					destinationOrdinal = 5,
 				committedTurnVersion = 9L,
 				protectedWindowVersion = 13L,
 				protectedWindow = listOf(3, 4, 5, 6, 7)

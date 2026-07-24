@@ -8,10 +8,14 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import paige.navic.reader.ReaderChapterRasterGenerationState
 import paige.navic.reader.ReaderDecodedWorkingSetState
 import paige.navic.reader.ReaderPageInteractionState
@@ -112,7 +116,11 @@ internal class ReaderPageRasterPreparationController(
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource = ReaderPageTurnBundleSource(),
 	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
+	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
+	private val fenceCallbacks: () -> Unit = {},
+	private val fenceBundleOwners: () -> Unit = bundleSource::fenceForClose,
 	private val closeRendererAndAdapter: suspend () -> Unit = {},
+	private val closeBundleOwners: suspend () -> Unit = bundleSource::closeAndJoin,
 	private val onRequestPrewarm: () -> Unit = {},
 	private val canStartPreparation: () -> Boolean = { true },
 	private val onAwaitHostEvent: (ReaderPageRasterDeferralReason) -> Unit = {},
@@ -125,6 +133,8 @@ internal class ReaderPageRasterPreparationController(
 		ReaderPageRasterBatchController(bundleSource, diagnostics),
 	private val rasterPlanPort: ReaderPageRasterPreparationPlanPort =
 		ReaderPageWebViewRasterPreparationPlanPort(),
+	private val initializeRasterCache: suspend (WebView) -> Unit =
+		bundleSource::initializeRasterCache,
 	private val retainedSnapshot: (
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind
@@ -158,6 +168,8 @@ internal class ReaderPageRasterPreparationController(
 	>()
 	private val rasterRepairDiagnostics =
 		mutableMapOf<Int, ReaderPageDiagnosticOperation>()
+	private val rasterRepairQaFaultCorrelations =
+		mutableMapOf<Int, ReaderPageQaFaultCorrelation>()
 	private var activeRasterRepairPageIndex: Int? = null
 	private var deferredRasterRepairPageIndex: Int? = null
 	private var deferredRasterRepairSessionId: Long? = null
@@ -182,6 +194,7 @@ internal class ReaderPageRasterPreparationController(
 	private var pendingPrewarmRetryCount = 0
 	private var deferredPrewarmSessionId: Long? = null
 	private var nextDeferredRetrySessionId = 0L
+	private var nextQaPreparationAttemptId = 0L
 	private var prewarmInProgress = false
 	private var rasterPreparationCompleted = 0
 	private var rasterPreparationRequired = 0
@@ -191,6 +204,7 @@ internal class ReaderPageRasterPreparationController(
 	private var lastPrewarmBoundary: String? = null
 	private var lastPreparationStateTrace: String? = null
 	private var hasPreparedBefore = false
+	private var prewarmAcquisitionTriggerClassified = false
 	private var activeAcquisitionTrigger =
 		ReaderPageRasterAcquisitionTrigger.InitialPreparation
 	private var preparationShield: ImageView? = null
@@ -203,12 +217,18 @@ internal class ReaderPageRasterPreparationController(
 	private val teardownScope = CoroutineScope(
 		teardownJob + Dispatchers.Main.immediate
 	)
+	private val rasterCacheInitializationJobs = linkedSetOf<Job>()
 	private val teardown = ReaderPageReaderTeardown(
 		scope = teardownScope,
 		fenceCallbacks = ::fenceForDestroy,
-		fenceBundleOwners = bundleSource::fenceForClose,
-		closeRendererAndAdapter = closeRendererAndAdapter,
-		closeBundleOwners = bundleSource::closeAndJoin,
+		fenceBundleOwners = fenceBundleOwners,
+		closeRendererAndAdapter = {
+			val initializationJobs = rasterCacheInitializationJobs.toList()
+			rasterCacheInitializationJobs.clear()
+			initializationJobs.forEach { job -> job.cancelAndJoin() }
+			closeRendererAndAdapter()
+		},
+		closeBundleOwners = closeBundleOwners,
 		onFinished = { teardownJob.complete() }
 	)
 	private val memoryCallbacks = object : ComponentCallbacks2 {
@@ -404,6 +424,7 @@ internal class ReaderPageRasterPreparationController(
 				else if (next !== first) first.addSuppressed(next)
 			}
 		}
+		capture(fenceCallbacks)
 		capture { cancelBackgroundPrefetch("destroy") }
 		capture(::removeBackgroundPrefetchShield)
 		capture { cancelRasterRepairs("destroy") }
@@ -487,8 +508,29 @@ internal class ReaderPageRasterPreparationController(
 		onRequestPrewarm()
 	}
 
+	fun attachRasterRepairQaFault(
+		pageIndex: Int,
+		correlation: ReaderPageQaFaultCorrelation
+	) {
+		if (destroyed || pageIndex < 0) return
+		val activeCorrelation =
+			rasterRepairQaFaultCorrelations.putIfAbsent(pageIndex, correlation) ?: correlation
+		rasterRepairDiagnostics[pageIndex]?.let { operation ->
+			if (operation.qaFaultCorrelation == null) {
+				rasterRepairDiagnostics[pageIndex] =
+					operation.copy(qaFaultCorrelation = activeCorrelation)
+			}
+		}
+	}
+
 	fun repairRasterPage(
 		pageIndex: Int,
+		onComplete: (ReaderPageRasterRepairResult) -> Unit
+	) = repairRasterPage(pageIndex, null, onComplete)
+
+	fun repairRasterPage(
+		pageIndex: Int,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation?,
 		onComplete: (ReaderPageRasterRepairResult) -> Unit
 	) {
 		val repairPages = preparedRepairPageIndices
@@ -508,6 +550,9 @@ internal class ReaderPageRasterPreparationController(
 		}
 		val callbacks = rasterRepairCallbacks.getOrPut(pageIndex) { mutableListOf() }
 		callbacks += onComplete
+		qaFaultCorrelation?.let { correlation ->
+			rasterRepairQaFaultCorrelations.putIfAbsent(pageIndex, correlation)
+		}
 		logLoadingEvent(
 			event = "page-repair-requested",
 			detail = "page=$pageIndex queued=${activeRasterRepairPageIndex != null} " +
@@ -527,7 +572,8 @@ internal class ReaderPageRasterPreparationController(
 		if (pageIndex !in rasterRepairDiagnostics) {
 			diagnostics?.startOperation(
 				rasterGeneration = bundleSource.currentGeneration(),
-				ordinal = currentVisualPageIndex ?: pageIndex
+				ordinal = currentVisualPageIndex ?: pageIndex,
+				qaFaultCorrelation = rasterRepairQaFaultCorrelations[pageIndex]
 			)?.let { operation ->
 				rasterRepairDiagnostics[pageIndex] = operation
 				diagnostics.repair(
@@ -685,6 +731,7 @@ internal class ReaderPageRasterPreparationController(
 		detail: String
 	) {
 		val callbacks = rasterRepairCallbacks.remove(pageIndex) ?: return
+		rasterRepairQaFaultCorrelations.remove(pageIndex)
 		val repairDiagnostic = rasterRepairDiagnostics.remove(pageIndex)
 		repairDiagnostic?.let { operation ->
 			when (result) {
@@ -754,6 +801,7 @@ internal class ReaderPageRasterPreparationController(
 			)
 		}
 		rasterRepairDiagnostics.clear()
+		rasterRepairQaFaultCorrelations.clear()
 		rasterRepairCallbacks.clear()
 		activeRasterRepairPageIndex = null
 		deferredRasterRepairSessionId?.let(deferredRetryCoordinator::cancel)
@@ -796,23 +844,41 @@ internal class ReaderPageRasterPreparationController(
 		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("blocking-session-started")
 		val resumedDiagnostic = deferredPrewarmDiagnostic
-		val preparationDiagnostic = resumedDiagnostic ?: diagnostics?.startOperation(
-			rasterGeneration = bundleSource.currentGeneration(),
-			ordinal = currentVisualPageIndex ?: -1
-		)
-		deferredPrewarmDiagnostic = null
-		activePrewarmDiagnostic = preparationDiagnostic
 		if (resumedDiagnostic == null) {
-			activeAcquisitionTrigger = readerPageRasterAcquisitionTrigger(
-				hasPreparedBefore = hasPreparedBefore,
-				persistentRasterEntries = bundleSource.rasterCacheMetrics().diskEntries
+			prewarmAcquisitionTriggerClassified = false
+		}
+		var preparationDiagnostic = if (resumedDiagnostic == null) {
+			diagnostics?.startOperation(
+				rasterGeneration = bundleSource.currentGeneration(),
+				ordinal = currentVisualPageIndex ?: -1
 			)
-			preparationDiagnostic?.let { operation ->
-				diagnostics?.preparation(
-					operation,
-					ReaderPagePreparationDiagnosticState.Attempted
+		} else {
+			diagnostics?.startRetryOperation(
+				root = resumedDiagnostic,
+				rasterGeneration = bundleSource.currentGeneration(),
+				ordinal = currentVisualPageIndex ?: -1
+			)
+		}
+		var qaDeferralReason: ReaderPageRasterDeferralReason? = null
+		if (resumedDiagnostic == null) {
+			val preparationAttemptId = preparationDiagnostic?.attempt
+				?: Math.incrementExact(nextQaPreparationAttemptId).also {
+					nextQaPreparationAttemptId = it
+				}
+			consumeQaDeferral(preparationAttemptId)?.let { (reason, applied) ->
+				qaDeferralReason = reason
+				preparationDiagnostic = preparationDiagnostic?.copy(
+					qaFaultCorrelation = applied.correlation()
 				)
 			}
+		}
+		deferredPrewarmDiagnostic = null
+		activePrewarmDiagnostic = preparationDiagnostic
+		preparationDiagnostic?.let { operation ->
+			diagnostics?.preparation(
+				operation,
+				ReaderPagePreparationDiagnosticState.Attempted
+			)
 		}
 		prewarmRetryAttempt = newRetryAttempt(pendingPrewarmRetryCount)
 		pendingPrewarmRetryCount = 0
@@ -837,9 +903,101 @@ internal class ReaderPageRasterPreparationController(
 			detail = "session=$session visual=$currentVisualPageIndex " +
 				"webView=${webView.width}x${webView.height}"
 		)
-		queryRasterPreparationPlan(webView, session)
+		qaDeferralReason?.let { reason ->
+			finishPrewarm(
+				ReaderPageRasterBatchOutcome.Deferred(
+					stage = "qa-deferral",
+					pageIndex = currentVisualPageIndex,
+					reason = qaDeferralDiagnostic(reason)
+				)
+			)
+			return true
+		}
+		initializeRasterCacheAndQueryPlan(
+			webView = webView,
+			session = session
+		)
 		return true
 	}
+
+	private fun initializeRasterCacheAndQueryPlan(
+		webView: WebView,
+		session: Long
+	) {
+		val initializationJob = teardownScope.launch {
+			try {
+				initializeRasterCache(webView)
+			} catch (failure: CancellationException) {
+				throw failure
+			} catch (failure: Throwable) {
+				Logger.w(
+					ReaderPageRasterPreparationControllerTag,
+					"Page raster cache initialization failed " +
+						"failureClass=${failure::class.simpleName ?: "unknown"}"
+				)
+			}
+			if (!isPrewarmSessionActive(session)) return@launch
+			if (!webView.isAttachedToWindow) {
+				finishPrewarm(
+					ReaderPageRasterBatchOutcome.Deferred(
+						stage = "raster-cache",
+						pageIndex = currentVisualPageIndex,
+						reason = "webview-detached"
+					)
+				)
+				return@launch
+			}
+			if (!prewarmAcquisitionTriggerClassified) {
+				activeAcquisitionTrigger = readerPageRasterAcquisitionTrigger(
+					hasPreparedBefore = hasPreparedBefore,
+					persistentRasterEntries = bundleSource.rasterCacheMetrics().diskEntries
+				)
+				prewarmAcquisitionTriggerClassified = true
+			}
+			queryRasterPreparationPlan(webView, session)
+		}
+		rasterCacheInitializationJobs += initializationJob
+		initializationJob.invokeOnCompletion {
+			rasterCacheInitializationJobs -= initializationJob
+		}
+	}
+
+	private fun consumeQaDeferral(
+		preparationAttemptId: Long
+	): Pair<ReaderPageRasterDeferralReason, ReaderPageQaAppliedFault>? {
+		val registry = qaFaultRegistry ?: return null
+		val seams = listOf(
+			ReaderPageQaFault.DeferContentNotReady to
+				ReaderPageRasterDeferralReason.ContentNotReady,
+			ReaderPageQaFault.DeferLayoutUnstable to
+				ReaderPageRasterDeferralReason.LayoutUnstable,
+			ReaderPageQaFault.DeferPaginationNotReady to
+				ReaderPageRasterDeferralReason.PaginationNotReady,
+			ReaderPageQaFault.DeferWebViewDetached to
+				ReaderPageRasterDeferralReason.WebViewDetached,
+			ReaderPageQaFault.DeferReaderPaused to
+				ReaderPageRasterDeferralReason.ReaderPaused
+		)
+		seams.forEach { (fault, reason) ->
+			val applied = registry.consumeAndApply(
+				fault,
+				ReaderPageQaFaultOperationContext(
+					preparationAttemptId = preparationAttemptId
+				)
+			)
+			if (applied != null) return reason to applied
+		}
+		return null
+	}
+
+	private fun qaDeferralDiagnostic(reason: ReaderPageRasterDeferralReason): String =
+		when (reason) {
+			ReaderPageRasterDeferralReason.ContentNotReady -> "content-not-ready"
+			ReaderPageRasterDeferralReason.LayoutUnstable -> "layout-unstable"
+			ReaderPageRasterDeferralReason.PaginationNotReady -> "pagination-not-ready"
+			ReaderPageRasterDeferralReason.WebViewDetached -> "webview-detached"
+			ReaderPageRasterDeferralReason.ReaderPaused -> "reader-paused"
+		}
 
 	private fun queryRasterPreparationPlan(webView: WebView, session: Long) {
 		if (!isPrewarmActive(webView, session)) return
@@ -1110,11 +1268,13 @@ internal class ReaderPageRasterPreparationController(
 		}
 	}
 
-	private fun isPrewarmActive(webView: WebView, session: Long): Boolean =
+	private fun isPrewarmSessionActive(session: Long): Boolean =
 		prewarmInProgress &&
 			prewarmSession == session &&
-			!destroyed &&
-			webView.isAttachedToWindow
+			!destroyed
+
+	private fun isPrewarmActive(webView: WebView, session: Long): Boolean =
+		isPrewarmSessionActive(session) && webView.isAttachedToWindow
 
 	private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome) {
 		val retryAttempt = prewarmRetryAttempt
@@ -1592,6 +1752,7 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	private fun cancelPrewarm(reason: String) {
+		rasterCacheInitializationJobs.toList().forEach { job -> job.cancel() }
 		prewarmSession += 1
 		val preparationDiagnostic =
 			activePrewarmDiagnostic ?: deferredPrewarmDiagnostic

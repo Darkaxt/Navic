@@ -1,0 +1,11 @@
+gradle.beforeProject { project ->
+    if (project == project.rootProject) {
+        project.tasks.register("readerQaProcessVariantManifests") {
+            dependsOn(
+                ":androidApp:processReaderDevMainManifest",
+                ":androidApp:processDebugMainManifest",
+                ":androidApp:processReleaseMainManifest"
+            )
+        }
+    }
+}

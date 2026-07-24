@@ -78,9 +78,25 @@ internal fun readerRecoveredDeckCancellationRoleMatches(
 	(expectedRole == ReaderDeckSubmissionRole.Pending &&
 		currentRole == ReaderDeckSubmissionRole.Active)
 
+internal fun recoverRejectedReaderSettlement(
+	sourceOrdinal: Int,
+	promotedGeneration: Long,
+	rendererEnabled: Boolean,
+	restoreSourceOrdinal: (Int) -> Unit,
+	invalidateRenderer: (String) -> Unit,
+	requestPrewarm: () -> Unit
+) {
+	require(sourceOrdinal >= 0)
+	require(promotedGeneration >= 0L)
+	restoreSourceOrdinal(sourceOrdinal)
+	invalidateRenderer("settlement-terminal-rejected:$promotedGeneration")
+	if (rendererEnabled) requestPrewarm()
+}
+
 internal data class ReaderPlayLikeCurlRasterRepairRecipient(
 	val fence: ReaderPlayLikeCurlRasterRepairFence,
-	val attempt: Int = 0
+	val attempt: Int = 0,
+	val qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 )
 
 internal class ReaderPlayLikeCurlRasterRepairRegistry {
@@ -133,7 +149,6 @@ internal class ReaderPlayLikeCurlRasterRepairRegistry {
 
 internal data class ReaderPlayLikeCurlRasterRepairFence(
 	val profile: ReaderPlayLikeCurlRasterProfile,
-	val requestGeneration: Long,
 	val destinationOrdinal: Int,
 	val committedTurnVersion: Long,
 	val protectedWindowVersion: Long,
@@ -141,19 +156,22 @@ internal data class ReaderPlayLikeCurlRasterRepairFence(
 ) {
 	fun matches(
 		profile: ReaderPlayLikeCurlRasterProfile?,
-		requestGeneration: Long,
 		destinationOrdinal: Int,
 		committedTurnVersion: Long,
 		protectedWindowVersion: Long,
 		protectedWindow: List<Int>
 	): Boolean =
 		this.profile == profile &&
-			this.requestGeneration == requestGeneration &&
 			this.destinationOrdinal == destinationOrdinal &&
 			this.committedTurnVersion == committedTurnVersion &&
 			this.protectedWindowVersion == protectedWindowVersion &&
 			this.protectedWindow == protectedWindow
 }
+
+internal fun readerPlayLikeCurlRepairTargetMatches(
+	repairedCenterOrdinal: Int,
+	expectedSourceCenter: Int
+): Boolean = repairedCenterOrdinal == expectedSourceCenter
 
 internal sealed interface ReaderPageGestureTerminalDetail {
 	data class RendererRejected(
@@ -249,7 +267,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val webViewProvider: () -> WebView?,
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
+	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
 	private val onRequestPrewarm: () -> Unit,
+	private val onAttachRasterRepairQaFault: (
+		Int,
+		ReaderPageQaFaultCorrelation
+	) -> Unit = { _, _ -> },
 	private val onRequestRasterRepair:
 		(Int, (ReaderPageRasterRepairResult) -> Unit) -> Unit,
 	private val onGestureTerminal: (
@@ -321,6 +344,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val generationRoles = mutableMapOf<Long, ReaderDeckSubmissionRole>()
 	private val preparedDeckGenerations = mutableSetOf<Long>()
 	private val deckDiagnosticTracker = diagnostics?.let(::ReaderPageDeckDiagnosticTracker)
+	private val repairQaFaultCorrelations =
+		mutableMapOf<Long, ReaderPageQaFaultCorrelation>()
 	private val recoveredDeckGenerations = mutableSetOf<Long>()
 	private val preparedPageSets = mutableSetOf<PreparedPages>()
 	private val recoveredBuildOperations = mutableMapOf<
@@ -372,6 +397,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var requestGeneration = 0L
 	private var decodedRefillGeneration = 0L
 	private var decodedRefillCenterOrdinal: Int? = null
+	private var deferredDecodedRefillCenterOrdinal: Int? = null
 	private var committedTurnVersion = 0L
 	private var protectedWindowVersion = 0L
 	private var currentProtectedWindow = emptyList<Int>()
@@ -380,7 +406,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		onOwnershipMutated = onOwnershipMutated
 	)
 	private val relocationDiagnosticStarts = mutableMapOf<String, Long>()
+	private val relocationQaFaultCorrelations =
+		mutableMapOf<String, ReaderPageQaFaultCorrelation>()
 	private val handoffDiagnosticStarts = mutableMapOf<Long, Long>()
+	private val staleHandoffDiagnosticStarts = mutableMapOf<Long, Long>()
 	private val relocationGestureCoordinator =
 		ReaderPageRelocationGestureCoordinator(
 			queue = relocationQueue,
@@ -400,14 +429,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 			}
 		)
-	private val relocationVisualHandoffCoordinator =
+	private val relocationVisualHandoffCoordinator:
+		ReaderPageRelocationVisualHandoffCoordinator =
 		ReaderPageRelocationVisualHandoffCoordinator(
 			queue = relocationQueue,
-			host = ReaderWebViewVisualHandoffHostAdapter(webViewProvider),
+			host = ReaderWebViewVisualHandoffHostAdapter(
+				webViewProvider = webViewProvider,
+				qaFaultRegistry = qaFaultRegistry,
+				onQaFaultApplied = { token, handoffAttemptId, correlation ->
+					val attached = relocationVisualHandoffCoordinator.attachQaFault(
+						relocationToken = token,
+						handoffAttemptId = handoffAttemptId,
+						correlation = correlation
+					)
+					if (attached) relocationQaFaultCorrelations[token] = correlation
+					attached
+				}
+			),
 			currentState = ::relocationVisualState,
 			dispatch = ::dispatchRelocation,
 			publishRecovery = ::publishRelocationVisualRecovery,
 			hideSurface = ::hideSurface,
+			canRecover = { qaFaultRegistry?.isClosed() != true },
 			onOwnershipMutated = onOwnershipMutated,
 			attemptEventSink =
 				ReaderWebViewVisualHandoffAttemptEventSink(::onHandoffAttemptEvent),
@@ -457,8 +500,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		onRepairCancelled = { operation ->
 			diagnostics?.repair(
 				operation,
-				ReaderPageRepairDiagnosticState.Cancelled
+				ReaderPageRepairDiagnosticState.Cancelled,
+				qaFaultCorrelation = qaFaultCorrelationForRepair(operation)
 			)
+			repairQaFaultCorrelations.remove(operation.attempt)
 		},
 		onStateObserverFailure = { failure ->
 			Logger.e(
@@ -658,10 +703,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 
 				val rasterGeneration = bundleSource.currentGeneration()
+				val profile = activePages?.profile
 				if (activeGestureId != gestureId) return
 				if (
 					activeDeckGenerationId != generationId ||
-					activePages?.profile?.rasterGeneration != rasterGeneration
+					profile?.rasterGeneration != rasterGeneration
 				) {
 					val detail =
 						ReaderPageGestureTerminalDetail.RelocationGenerationOrSessionDrift(
@@ -682,6 +728,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					return
 				}
 
+				val sourceOrdinal = currentOrdinal
 				val promotedGeneration = promotePendingDeck(currentPageOrdinal)
 				if (promotedGeneration == null) {
 					finishGesture(
@@ -713,6 +760,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 						publishGestureTerminal(gestureId, driftOutcome, detail)
 					},
 					publishCommittedTerminal = {
+						currentOrdinal = currentPageOrdinal
+						committedTurnVersion = Math.incrementExact(committedTurnVersion)
+						val destinationWindow = profile.preparedPageIndices(currentPageOrdinal)
+						publishProtectedWindow(destinationWindow)
+						gateForDecodedWorkingSetRefill(profile, destinationWindow)
 						publishGestureTerminal(
 							gestureId,
 							outcome,
@@ -724,15 +776,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 					},
 					dispatch = { dispatchNextRelocation() }
 				)
-				if (result !is ReaderPageRelocationCommitResult.Published) return
+				if (result !is ReaderPageRelocationCommitResult.Published) {
+					recoverRejectedSettlement(sourceOrdinal, promotedGeneration)
+					return
+				}
 
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl settlement completed generation=$generationId " +
 						"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=true"
 				)
-				currentOrdinal = currentPageOrdinal
-				committedTurnVersion = Math.incrementExact(committedTurnVersion)
 				schedulePersistentRefill(
 					direction = direction,
 					destinationOrdinal = currentPageOrdinal,
@@ -832,8 +885,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		})
 	}
 
+	private fun hasDecodedWorkingSetForCurrentOrdinal(): Boolean {
+		val profile = requestedProfile ?: return false
+		val pages = activePages ?: return false
+		return pages.profile == profile &&
+			pages.deck.pageIndices.containsAll(profile.preparedPageIndices(currentOrdinal))
+	}
+
 	val isAvailable: Boolean
 		get() = enabled && attached &&
+			hasDecodedWorkingSetForCurrentOrdinal() &&
 			deckRecoveryCoordinator.canAcceptPointer &&
 			pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 
@@ -845,8 +906,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun unavailableGestureOutcome(): ReaderPageGestureTerminalOutcome =
-		(pageOperationPolicy.newPointer as? ReaderPageNewPointerDecision.Reject)?.outcome
-			?: ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+		if (!hasDecodedWorkingSetForCurrentOrdinal()) {
+			ReaderPageGestureTerminalOutcome.RejectedPreparing
+		} else {
+			(pageOperationPolicy.newPointer as? ReaderPageNewPointerDecision.Reject)?.outcome
+				?: ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+		}
 
 	fun updatePaginationReadiness(readiness: ReaderPagePaginationReadiness) {
 		if (publishedPaginationReadiness == readiness) return
@@ -874,7 +939,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		onRasterProfileEpochChanged(epoch)
 	}
 
-	private fun publishPreparedActiveDeck() {
+	private fun publishPreparedActiveDeck(sourceOrdinal: Int = currentOrdinal) {
 		val generationId = activeDeckGenerationId
 		val pages = generationId?.let(generationOwners::get)
 		val profileEpoch = publishedRasterProfileEpoch
@@ -887,7 +952,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPagePreparedActiveDeck(
 				rasterProfileEpoch = profileEpoch,
 				rasterEpoch = pages.profile.rasterGeneration,
-				sourceCenterPageIndex = pages.profile.pageRequest(currentOrdinal).sourcePageIndex,
+				sourceCenterPageIndex = pages.profile.pageRequest(sourceOrdinal).sourcePageIndex,
 				generationId = generationId
 			)
 		} else {
@@ -962,7 +1027,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 						reason = "raster-preparation-ready"
 					)
 				}
-				if (activePages == null) refreshPreparedDeck()
+				if (activePages == null) {
+					refreshPreparedDeck()
+				} else {
+					deferredDecodedRefillCenterOrdinal?.let { centerOrdinal ->
+						deferredDecodedRefillCenterOrdinal = null
+						refillDecodedWorkingSet(
+							centerOrdinal,
+							"raster-preparation-ready"
+						)
+					}
+				}
 			}
 			ReaderPagePreparationPhase.Failed -> {
 				updateReadiness(
@@ -979,7 +1054,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 					logActivationState("readiness-preserved", "raster-preparation-during-settlement")
 				} else if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
 					updateReadiness(
-						interaction = ReaderPageInteractionState.BackgroundPrefetch,
+						interaction = if (
+							decodedRefillCenterOrdinal != null ||
+							deferredDecodedRefillCenterOrdinal != null
+						) {
+							ReaderPageInteractionState.RefillingWorkingSet
+						} else {
+							ReaderPageInteractionState.BackgroundPrefetch
+						},
 						reason = "raster-background-prefetch"
 					)
 				} else {
@@ -1252,6 +1334,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return ReaderPageVisualLocationOrigin.ExactPageTurn
 		}
+		if (relocationQueue.hasDispatchedHead()) {
+			return ReaderPageVisualLocationOrigin.PendingExactPageTurn
+		}
 		if (acknowledgement != null && normalized == currentOrdinal) {
 			return ReaderPageVisualLocationOrigin.StaleAcknowledgement
 		}
@@ -1279,16 +1364,37 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				)
 				val acknowledged = requireNotNull(relocationQueue.head())
-				emitRelocationDiagnostic(
-					acknowledged,
-					ReaderPageRelocationDiagnosticState.Acknowledged
-				)
-				check(relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)) {
-					"Acknowledged relocation did not start visual handoff"
+				val delayed = qaFaultRegistry?.pauseRelocationAck(
+					relocationToken = acknowledged.token.value,
+					onAdmitted = { applied ->
+						relocationQaFaultCorrelations[
+							acknowledged.token.value
+						] = applied.correlation()
+					},
+					completion = { applied ->
+						completeAcknowledgedRelocation(
+							acknowledged,
+							applied.correlation()
+						)
+					}
+				) == true
+				if (!delayed) {
+					emitRelocationDiagnostic(
+						acknowledged,
+						ReaderPageRelocationDiagnosticState.Acknowledged
+					)
+					check(relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)) {
+						"Acknowledged relocation did not start visual handoff"
+					}
+					foliateSessionRelocationPending = false
+					refillDecodedWorkingSet(
+						acknowledged.destinationOrdinal,
+						"foliate-exact-settlement"
+					)
 				}
-				foliateSessionRelocationPending = false
-				refillDecodedWorkingSet(normalized, "foliate-exact-settlement")
 			}
+
+			ReaderPageVisualLocationOrigin.PendingExactPageTurn -> Unit
 
 			ReaderPageVisualLocationOrigin.StaleAcknowledgement -> Unit
 
@@ -1305,6 +1411,42 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (enabled) onRequestPrewarm()
 			}
 		}
+	}
+
+	private fun completeAcknowledgedRelocation(
+		acknowledged: ReaderPageRelocationRequest,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation?
+	) {
+		if (!relocationQueue.matchesAcknowledgedHead(
+				token = acknowledged.token.value,
+				rasterGeneration = acknowledged.rasterGeneration,
+				textureGeneration = acknowledged.textureGeneration,
+				foliateSessionId = acknowledged.foliateSessionId,
+				destinationOrdinal = acknowledged.destinationOrdinal
+			)
+		) {
+			relocationQaFaultCorrelations.remove(acknowledged.token.value)
+			return
+		}
+		emitRelocationDiagnostic(
+			acknowledged,
+			ReaderPageRelocationDiagnosticState.Acknowledged,
+			qaFaultCorrelation = qaFaultCorrelation
+		)
+		val started = if (qaFaultCorrelation == null) {
+			relocationVisualHandoffCoordinator.onAcknowledged(acknowledged)
+		} else {
+			relocationVisualHandoffCoordinator.onAcknowledged(
+				acknowledged,
+				qaFaultCorrelation
+			)
+		}
+		check(started) { "Acknowledged relocation did not start visual handoff" }
+		foliateSessionRelocationPending = false
+		refillDecodedWorkingSet(
+			acknowledged.destinationOrdinal,
+			"foliate-exact-settlement"
+		)
 	}
 
 	private fun cancelRelocationsWithDiagnostics() =
@@ -1340,7 +1482,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		decodedRefillCenterOrdinal = null
+		deferredDecodedRefillCenterOrdinal = null
 		deckRecoveryCoordinator.cancelAll()
+		repairQaFaultCorrelations.clear()
 		publishProtectedWindow(emptyList())
 		rasterRepairRequests.clear()
 		relocationVisualHandoffCoordinator.cancelForQueueInvalidation()
@@ -1384,6 +1528,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		advanceGenerations = {
 			requestGeneration += 1L
 			decodedRefillGeneration += 1L
+			decodedRefillCenterOrdinal = null
+			deferredDecodedRefillCenterOrdinal = null
 		},
 		cancelActiveGesture = {
 			cancelActiveGesture(
@@ -1836,8 +1982,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 					profile.transitionKind()
 				)
 			},
+			diagnostics = diagnostics,
+			qaFaultRegistry = qaFaultRegistry,
+			qaMissTargetOrdinalProvider = { currentOrdinal },
 			onMissingRaster = { sourcePageIndex ->
 				requestRasterRepair(sourcePageIndex, profile)
+			},
+			onQaMissingRaster = { sourcePageIndex, correlation ->
+				requestRasterRepair(
+					sourcePageIndex = sourcePageIndex,
+					profile = profile,
+					qaFaultCorrelation = correlation
+				)
 			}
 		)
 		return ReaderPlayLikeCurlRasterAdapter(
@@ -1846,6 +2002,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			rendererDeckLeaseLimit = surfaceView.deckLeaseLimit,
 			residencyBudget = rasterResidencyBudget,
 			onCapacityAvailable = ::signalRasterCapacityAvailable,
+			acquisitionInterceptor = loader::consumeQaMiss,
 			publicationDispatcher = Dispatchers.Main.immediate,
 			onOwnershipMutated = onOwnershipMutated,
 			release = { image ->
@@ -1951,6 +2108,23 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun gateForDecodedWorkingSetRefill(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		destinationWindow: List<Int>
+	) {
+		val pages = activePages
+		if (
+			pages?.profile == profile &&
+			pages.deck.pageIndices.containsAll(destinationWindow)
+		) {
+			return
+		}
+		updateReadiness(
+			interaction = ReaderPageInteractionState.RefillingWorkingSet,
+			reason = "decoded-refill-required:$currentOrdinal"
+		)
+	}
+
 	private fun refillDecodedWorkingSet(centerOrdinal: Int, reason: String) {
 		val profile = requestedProfile ?: return
 		val adapter = rasterAdapter ?: return
@@ -1969,8 +2143,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 			pages.deck.pageIndices.containsAll(pageIndices)
 		) return
 		if (decodedRefillCenterOrdinal == centerOrdinal) return
+		deferredDecodedRefillCenterOrdinal = null
 		val refill = ++decodedRefillGeneration
 		decodedRefillCenterOrdinal = centerOrdinal
+		if (hasPreparedActiveDeckOwnership()) {
+			updateReadiness(
+				interaction = ReaderPageInteractionState.RefillingWorkingSet,
+				reason = "decoded-refill-started:$refill"
+			)
+		}
 		val startedAtNanos = System.nanoTime()
 		logActivationState(
 			event = "decoded-refill-started",
@@ -1994,6 +2175,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 							"Decoded refill failed " +
 								"failureClass=${failure::class.simpleName ?: "unknown"}"
 						)
+						if (activeDeckGenerationId != null) {
+							updateReadiness(
+								interaction = preparedInteractionState(),
+								reason = "decoded-refill-failed-fallback:$refill"
+							)
+						}
 						if (activeDeckGenerationId == null) {
 							updateReadiness(
 								textureDeck = ReaderTextureDeckState.Failed,
@@ -2014,8 +2201,47 @@ internal class ReaderPlayLikeCurlFoliateController(
 					!publicationFence.isCurrent()
 				) {
 					deck?.close()
-					if (refill == decodedRefillGeneration) decodedRefillCenterOrdinal = null
-					if (deck == null && refill == decodedRefillGeneration) {
+					val isCurrentRefill = refill == decodedRefillGeneration
+					val waitsForPreparation =
+						deck == null &&
+							isCurrentRefill &&
+							activeDeckGenerationId != null &&
+							preparationPhase == ReaderPagePreparationPhase.Preparing &&
+							currentOrdinal == centerOrdinal
+					val needsCurrentWindowRetry =
+						isCurrentRefill &&
+							activeDeckGenerationId != null &&
+							enabled &&
+							!destroyed &&
+							requestedProfile == profile &&
+							currentOrdinal == centerOrdinal &&
+							!hasDecodedWorkingSetForCurrentOrdinal()
+					if (isCurrentRefill) decodedRefillCenterOrdinal = null
+					if (waitsForPreparation) {
+						deferredDecodedRefillCenterOrdinal = centerOrdinal
+						updateReadiness(
+							interaction = ReaderPageInteractionState.RefillingWorkingSet,
+							reason = "decoded-refill-awaiting-preparation:$refill"
+						)
+					} else if (deck == null && needsCurrentWindowRetry) {
+						deferredDecodedRefillCenterOrdinal = centerOrdinal
+						updateReadiness(
+							interaction = ReaderPageInteractionState.RefillingWorkingSet,
+							reason = "decoded-refill-awaiting-raster:$refill"
+						)
+					} else if (deck != null && needsCurrentWindowRetry) {
+						scheduleDecodedWorkingSetRefillRetry(
+							profile = profile,
+							centerOrdinal = centerOrdinal,
+							refill = refill
+						)
+					} else if (isCurrentRefill && activeDeckGenerationId != null) {
+						updateReadiness(
+							interaction = preparedInteractionState(),
+							reason = "decoded-refill-deferred-fallback:$refill"
+						)
+					}
+					if (deck == null && isCurrentRefill) {
 						logActivationState(
 							event = "decoded-refill-deferred",
 							detail = "refill=$refill center=$centerOrdinal reason=$reason"
@@ -2024,13 +2250,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 					return@withContext
 				}
 				decodedRefillCenterOrdinal = null
+				deferredDecodedRefillCenterOrdinal = null
 				activePages?.let { previous ->
-					previous.obsolete = true
-					closeIfUnused(previous)
+					if (previous.generations.isEmpty()) {
+						previous.obsolete = true
+						closeIfUnused(previous)
+					}
 				}
 				val replacement = PreparedPages(profile, deck, centerOrdinal)
 				preparedPageSets += replacement
 				activePages = replacement
+				updateReadiness(
+					interaction = preparedInteractionState(),
+					reason = "decoded-refill-completed:$refill"
+				)
 				logActivationState(
 					event = "decoded-refill-completed",
 					detail = "refill=$refill center=$centerOrdinal reason=$reason " +
@@ -2051,6 +2284,47 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				}
 			}
+		}
+	}
+
+	private fun scheduleDecodedWorkingSetRefillRetry(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		centerOrdinal: Int,
+		refill: Long
+	) {
+		deferredDecodedRefillCenterOrdinal = centerOrdinal
+		updateReadiness(
+			interaction = ReaderPageInteractionState.RefillingWorkingSet,
+			reason = "decoded-refill-fence-retry-scheduled:$refill"
+		)
+		val posted = mainHandler.post {
+			if (
+				decodedRefillGeneration != refill ||
+				deferredDecodedRefillCenterOrdinal != centerOrdinal
+			) {
+				return@post
+			}
+			deferredDecodedRefillCenterOrdinal = null
+			if (
+				!destroyed &&
+				enabled &&
+				requestedProfile == profile &&
+				currentOrdinal == centerOrdinal &&
+				decodedRefillCenterOrdinal == null &&
+				!hasDecodedWorkingSetForCurrentOrdinal()
+			) {
+				refillDecodedWorkingSet(
+					centerOrdinal,
+					"decoded-refill-fence-retry:$refill"
+				)
+			}
+		}
+		if (
+			!posted &&
+			decodedRefillGeneration == refill &&
+			deferredDecodedRefillCenterOrdinal == centerOrdinal
+		) {
+			deferredDecodedRefillCenterOrdinal = null
 		}
 	}
 
@@ -2106,12 +2380,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun publishProtectedWindow(window: List<Int>): Long {
 		val immutableWindow = window.toList()
-		if (currentProtectedWindow != immutableWindow) {
-			protectedWindowVersion = Math.incrementExact(protectedWindowVersion)
-			currentProtectedWindow = immutableWindow
+		val version = if (currentProtectedWindow != immutableWindow) {
+			Math.incrementExact(protectedWindowVersion)
+		} else {
+			protectedWindowVersion
 		}
-		publishProtectedRasterOrdinals(immutableWindow)
+		applyProtectedWindow(immutableWindow, version)
 		return protectedWindowVersion
+	}
+
+	private fun applyProtectedWindow(window: List<Int>, version: Long) {
+		currentProtectedWindow = window
+		protectedWindowVersion = version
+		publishProtectedRasterOrdinals(window)
 	}
 
 	private fun publishProtectedRasterOrdinals(logicalOrdinals: List<Int>) {
@@ -2176,25 +2457,30 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun requestRasterRepair(
 		sourcePageIndex: Int,
 		profile: ReaderPlayLikeCurlRasterProfile,
-		attempt: Int = 0
+		attempt: Int = 0,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) {
 		val refillCenter = currentOrdinal
 		val recipient = ReaderPlayLikeCurlRasterRepairRecipient(
 			fence = ReaderPlayLikeCurlRasterRepairFence(
 				profile = profile,
-				requestGeneration = requestGeneration,
 				destinationOrdinal = currentOrdinal,
 				committedTurnVersion = committedTurnVersion,
 				protectedWindowVersion = protectedWindowVersion,
 				protectedWindow = currentProtectedWindow.toList()
 			),
-			attempt = attempt
+			attempt = attempt,
+			qaFaultCorrelation = qaFaultCorrelation
 		)
 		val operationToken = rasterRepairRequests.register(
 			profile,
 			sourcePageIndex,
 			recipient
-		) ?: return
+		)
+		qaFaultCorrelation?.let { correlation ->
+			onAttachRasterRepairQaFault(sourcePageIndex, correlation)
+		}
+		if (operationToken == null) return
 		logActivationState(
 			event = "page-repair-requested",
 			detail = "source=$sourcePageIndex center=$refillCenter " +
@@ -2213,7 +2499,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 					recipients.lastOrNull { candidate ->
 						candidate.fence.matches(
 							profile = requestedProfile,
-							requestGeneration = requestGeneration,
 							destinationOrdinal = currentOrdinal,
 							committedTurnVersion = committedTurnVersion,
 							protectedWindowVersion = protectedWindowVersion,
@@ -2237,7 +2522,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 							requestRasterRepair(
 								sourcePageIndex,
 								profile,
-								attempt = 1
+								attempt = 1,
+								qaFaultCorrelation = currentRecipient.qaFaultCorrelation
 							)
 						} else {
 							requestPrewarmIfIdle("page-repair-failed")
@@ -2459,11 +2745,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return false
 		}
 		val expectedSourceCenter = profile.pageRequest(currentOrdinal).sourcePageIndex
-		val expectedSourceWindow = currentProtectedWindow.mapTo(linkedSetOf()) { ordinal ->
-			profile.pageRequest(ordinal).sourcePageIndex
-		}
-		return centerOrdinal == expectedSourceCenter &&
-			expectedSourceWindow.all(repairedPageIndices::contains)
+		return readerPlayLikeCurlRepairTargetMatches(
+			repairedCenterOrdinal = centerOrdinal,
+			expectedSourceCenter = expectedSourceCenter
+		)
 	}
 
 	override fun hasUsablePreparedActiveDeck(): Boolean =
@@ -2602,12 +2887,39 @@ internal class ReaderPlayLikeCurlFoliateController(
 		operation.cancel()
 	}
 
-	override fun currentRecoveredDeckRole(): ReaderDeckSubmissionRole =
-		if (surfaceView.isSettlementRunning) {
+	override fun currentRecoveredDeckRole(): ReaderDeckSubmissionRole {
+		val operation = when (val state = deckRecoveryCoordinator.state) {
+			is ReaderPageDeckRecoveryState.WaitingForBuild -> state.diagnosticOperation
+			is ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity ->
+				state.diagnosticOperation
+			else -> null
+		}
+		val repairAttemptId = operation?.attempt
+		if (
+			repairAttemptId != null &&
+			repairAttemptId !in repairQaFaultCorrelations
+		) {
+			qaFaultRegistry?.consumeAndApply(
+				ReaderPageQaFault.ForceRepairWithoutPreparedDeck,
+				ReaderPageQaFaultOperationContext(
+					repairAttemptId = repairAttemptId
+				)
+			)?.let { applied ->
+				repairQaFaultCorrelations[repairAttemptId] = applied.correlation()
+			}
+		}
+		if (
+			repairAttemptId != null &&
+			repairQaFaultCorrelations.containsKey(repairAttemptId)
+		) {
+			return ReaderDeckSubmissionRole.Active
+		}
+		return if (surfaceView.isSettlementRunning) {
 			ReaderDeckSubmissionRole.Pending
 		} else {
 			ReaderDeckSubmissionRole.Active
 		}
+	}
 
 	override fun submitRecoveredDeck(
 		generationId: Long,
@@ -2627,7 +2939,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		deckDiagnosticTracker?.begin(
 			generation = generationId,
 			repairAttempt = repairDiagnostic?.attempt,
-			role = role
+			role = role,
+			qaFaultCorrelation = repairDiagnostic?.let(::qaFaultCorrelationForRepair)
 		)
 		updateSurfaceBounds(built.pages, built.ordinal)
 		setSurfaceReadingDirection(built.pages.profile)
@@ -2644,7 +2957,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 					repairDiagnostic?.let { operation ->
 						diagnostics?.repair(
 							operation,
-							ReaderPageRepairDiagnosticState.Submitted
+							ReaderPageRepairDiagnosticState.Submitted,
+							qaFaultCorrelation = qaFaultCorrelationForRepair(operation)
 						)
 					}
 				}
@@ -2806,6 +3120,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	private fun qaFaultCorrelationForRepair(
+		operation: ReaderPageDiagnosticOperation
+	): ReaderPageQaFaultCorrelation? =
+		repairQaFaultCorrelations[operation.attempt] ?: operation.qaFaultCorrelation
+
 	private fun onDeckRecoveryStateChanged(state: ReaderPageDeckRecoveryState) {
 		when (state) {
 			ReaderPageDeckRecoveryState.Idle -> {
@@ -2878,8 +3197,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 				state.diagnosticOperation?.let { operation ->
 					diagnostics?.repair(
 						operation,
-						ReaderPageRepairDiagnosticState.Completed
+						ReaderPageRepairDiagnosticState.Completed,
+						qaFaultCorrelation = qaFaultCorrelationForRepair(operation)
 					)
+					repairQaFaultCorrelations.remove(operation.attempt)
 				}
 				when (generationRoles[state.generationId]) {
 					ReaderDeckSubmissionRole.Active -> updateReadiness(
@@ -2899,8 +3220,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 				state.diagnosticOperation?.let { operation ->
 					diagnostics?.repair(
 						operation,
-						ReaderPageRepairDiagnosticState.Failed
+						ReaderPageRepairDiagnosticState.Failed,
+						qaFaultCorrelation = qaFaultCorrelationForRepair(operation)
 					)
+					repairQaFaultCorrelations.remove(operation.attempt)
 				}
 				if (hasPreparedActiveDeckOwnership()) {
 					if (surfaceView.isSettlementRunning) {
@@ -3125,27 +3448,60 @@ internal class ReaderPlayLikeCurlFoliateController(
 					visualState = event.visualStateCompleted,
 					nextFrame = event.nextFrameCompleted,
 					result = event.result.toDiagnosticResult(),
-					startedAtMs = startedAt
+					startedAtMs = startedAt,
+					qaFaultCorrelation = event.qaFaultCorrelation
+				)
+				if (
+					event.qaFaultCorrelation != null &&
+					(event.result as? ReaderWebViewVisualHandoffResult.Failed)
+						?.reason == ReaderWebViewVisualHandoffFailure.TimedOut
+				) {
+					staleHandoffDiagnosticStarts[event.handoffAttemptId] = startedAt
+				}
+			}
+			is ReaderWebViewVisualHandoffAttemptEvent.StalePhysicalCallbackReleased -> {
+				val startedAt = staleHandoffDiagnosticStarts.remove(
+					event.handoffAttemptId
+				) ?: return
+				val request = relocationQueue.head()?.takeIf { candidate ->
+					candidate.token.value == event.relocationToken
+				} ?: return
+				diagnostics?.handoff(
+					handoffAttemptId = event.handoffAttemptId,
+					token = event.relocationToken,
+					target = request.destinationOrdinal,
+					visualState = false,
+					nextFrame = false,
+					result =
+						ReaderPageHandoffDiagnosticResult.StalePhysicalCallbackReleased,
+					startedAtMs = startedAt,
+					qaFaultCorrelation = event.qaFaultCorrelation
 				)
 			}
-			is ReaderWebViewVisualHandoffAttemptEvent.StalePhysicalCallbackReleased ->
-				Unit
 		}
 	}
 
 	private fun emitRelocationDiagnostic(
 		request: ReaderPageRelocationRequest,
 		state: ReaderPageRelocationDiagnosticState,
-		terminal: Boolean = false
+		terminal: Boolean = false,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) {
 		val startedAt = relocationDiagnosticStarts[request.token.value] ?: return
+		val correlation = qaFaultCorrelation
+			?: relocationVisualHandoffCoordinator.qaFaultCorrelation(
+				request.token.value
+			)
+			?: relocationQaFaultCorrelations[request.token.value]
 		diagnostics?.relocation(
 			request = request,
 			state = state,
 			queueDepth = relocationQueue.ownershipSnapshot().queued,
-			startedAtMs = startedAt
+			startedAtMs = startedAt,
+			qaFaultCorrelation = correlation
 		)
 		if (terminal) relocationDiagnosticStarts.remove(request.token.value)
+		if (terminal) relocationQaFaultCorrelations.remove(request.token.value)
 	}
 
 	private fun relocationVisualState(): ReaderPageRelocationVisualState =
@@ -3263,6 +3619,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 		closeIfUnused(pages)
 	}
 
+	private fun recoverRejectedSettlement(
+		sourceOrdinal: Int,
+		promotedGeneration: Long
+	) {
+		recoverRejectedReaderSettlement(
+			sourceOrdinal = sourceOrdinal,
+			promotedGeneration = promotedGeneration,
+			rendererEnabled = enabled,
+			restoreSourceOrdinal = { ordinal -> currentOrdinal = ordinal },
+			invalidateRenderer = { reason -> invalidate(reason) },
+			requestPrewarm = onRequestPrewarm
+		)
+	}
+
 	private fun promotePendingDeck(currentPageOrdinal: Int): Long? {
 		val promotedGeneration = pendingDeckGenerationId
 			?.takeIf { pendingDeckOrdinal == currentPageOrdinal }
@@ -3294,7 +3664,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			interaction = if (prepared) preparedInteractionState() else ReaderPageInteractionState.BackgroundPrefetch,
 			reason = "settlement-promoted:$promotedGeneration:$currentPageOrdinal"
 		)
-		if (prepared) publishPreparedActiveDeck() else notifyPreparedActiveDeckChanged(null)
+		if (prepared) publishPreparedActiveDeck(currentPageOrdinal)
+		else notifyPreparedActiveDeckChanged(null)
 		return promotedGeneration
 	}
 
@@ -3361,7 +3732,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun requestPrewarmIfIdle(reason: String) {
-		if (preparationPhase == ReaderPagePreparationPhase.Idle) {
+		if (preparationPhase != ReaderPagePreparationPhase.Preparing) {
 			logActivationState("prewarm-requested", reason)
 			onRequestPrewarm()
 		} else {

@@ -318,7 +318,7 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "required bridge event '\$requiredBridgeEvent' was not captured")
 		assertContains(scriptText, "function Get-TextFileRaw")
 		assertContains(scriptText, "function Test-TextMatches")
-		assertContains(scriptText, "Get-TextFileRaw -Path \$bridgeDiagnosticsPath")
+		assertContains(scriptText, "\$bridgeDiagnosticsText = \$bridgeDiagnosticLines -join \"`n\"")
 		assertContains(scriptText, "bridgeEvent:\$requiredBridgeEvent=\$(Test-TextMatches")
 		assertContains(scriptText, "-not (Test-TextMatches -Text \$bridgeDiagnosticsText")
 		assertFalse(
@@ -336,8 +336,8 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "reader-diagnostics-summary.txt")
 		assertContains(scriptText, "reader-texture-diagnostics.log")
 		assertContains(scriptText, "reader-touch-diagnostics.log")
-		assertContains(scriptText, "textureScrollLines=$((@(Select-String")
-		assertContains(scriptText, "textureUpdateLines=$((@(Select-String")
+		assertContains(scriptText, "textureScrollLines=\$(@(\$textureLines | Where-Object")
+		assertContains(scriptText, "textureUpdateLines=\$(@(\$textureLines | Where-Object")
 		assertContains(scriptText, "[string] \$DeviceSerial")
 		assertContains(scriptText, "\$env:ANDROID_SERIAL = \$DeviceSerial")
 		assertContains(scriptText, "\$previousErrorActionPreference = \$ErrorActionPreference")
@@ -1162,6 +1162,32 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun adbReaderSmokeMatchesVersionNameExactly() {
+		val scriptText = repoScriptFile("adb-reader-smoke.ps1").readText()
+		val versionBlock = scriptText
+			.substringAfter("if (-not [string]::IsNullOrWhiteSpace(\$ExpectedVersionName)) {")
+			.substringBefore("Assert-FocusedAndroidPackage")
+
+		assertContains(versionBlock, "(?m)^\\s*versionName=(?<Value>[^\\r\\n]*)\\r?\$")
+		assertContains(versionBlock, "Groups['Value'].Value.Trim() -cne \$ExpectedVersionName")
+		assertFalse(versionBlock.contains("did not contain expected versionName"))
+	}
+
+	@Test
+	fun readerQaRunnerRevalidatesSourceIdentityAtCompletion() {
+		val scriptText = repoScriptFile("adb-reader-playlikecurl-qa.ps1").readText()
+		val completionBlock = scriptText
+			.substringAfter("Assert-InstalledReaderDevIdentity 'ReaderDev post-run'")
+			.substringBefore("\$resolvedArtifactRoot =")
+
+		assertContains(scriptText, "function Assert-RunnerSourceIdentity")
+		assertContains(completionBlock, "Assert-RunnerSourceIdentity 'ReaderDev post-run'")
+		assertContains(scriptText, "Runner Git commit changed while")
+		assertContains(scriptText, "FrozenCommit source tree changed while")
+		assertContains(scriptText, "Precommit candidate tree changed while")
+	}
+
+	@Test
 	fun foliateSearchAnnotationsDoNotRejectOnInvalidCfiResolution() {
 		val viewText = repoFile("composeApp/src/androidMain/assets/reader/vendor/foliate-js/view.js").readText()
 		val searchAnnotationBlock = viewText
@@ -1244,7 +1270,14 @@ class ReaderRuntimeAssetsTest {
 		assertContains(bodyAfterHelper, "Invoke-Adb @(\"shell\", \"dumpsys\", \"package\", \$Package)")
 		assertContains(bodyAfterHelper, "Invoke-Adb @(\"shell\", \"cat\", \"/proc/net/unix\")")
 		assertContains(bodyAfterHelper, "Invoke-Adb @(\"exec-out\", \"uiautomator\", \"dump\", \"/dev/tty\")")
-		assertContains(bodyAfterHelper, "Invoke-Adb @(\"logcat\", \"-d\", \"--pid=\$processId\", \"-v\", \"time\")")
+		val logcatCapture = bodyAfterHelper
+			.substringAfter("\$logcatFullLines = @(")
+			.substringBefore("\$logcatFullText =")
+		assertContains(logcatCapture, "Invoke-Adb @(")
+		assertContains(
+			logcatCapture,
+			"\"logcat\", \"-d\", \"--pid=\$processId\", \"-v\", \"time\""
+		)
 	}
 
 	@Test
@@ -1257,9 +1290,19 @@ class ReaderRuntimeAssetsTest {
 		assertContains(scriptText, "mFocusedApp=.*\$escapedPackage\$packageBoundary")
 		assertContains(scriptText, "Focused Android window does not belong to package")
 		assertContains(scriptText, "Foreground confirmed for \$Package")
+		val focusAssertion = scriptText.indexOf(
+			"Assert-FocusedAndroidPackage -Package \$Package"
+		)
+		val privacySafeCapture = scriptText.indexOf(
+			"\$screenshotBytes = Invoke-AdbExecOutToMemory"
+		)
+		val diagnosticCapture = scriptText.indexOf(
+			"-OutputPath (Join-Path \$ArtifactDir \"screen.png\")"
+		)
 		assertTrue(
-			scriptText.indexOf("Assert-FocusedAndroidPackage -Package \$Package") <
-				scriptText.indexOf("Invoke-AdbExecOutToFile -Arguments @(\"exec-out\", \"screencap\", \"-p\")"),
+			focusAssertion >= 0 &&
+				privacySafeCapture > focusAssertion &&
+				diagnosticCapture > focusAssertion,
 			"Smoke capture must prove the requested package owns the focused window before screenshot/window/log artifacts are captured."
 		)
 	}

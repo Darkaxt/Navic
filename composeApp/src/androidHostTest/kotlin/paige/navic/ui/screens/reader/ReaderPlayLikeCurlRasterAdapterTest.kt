@@ -144,6 +144,40 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	}
 
 	@Test
+	fun acquisitionInterceptorCanMissResidentEntryWithoutReloadingOrReleasingIt() = runBlocking {
+		val loader = FakeRasterLoader()
+		val released = mutableListOf<String>()
+		var forceMiss = false
+		val intercepted = mutableListOf<Int>()
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			acquisitionInterceptor = { key ->
+				if (forceMiss) intercepted += key.pageIndex
+				forceMiss
+			},
+			release = released::add
+		)
+		val profile = profile("resident-intercept")
+		checkNotNull(adapter.prepare(profile, listOf(0)).await()).close()
+		forceMiss = true
+
+		val missed = adapter.prepare(profile, listOf(0)).await()
+
+		assertNull(missed)
+		assertEquals(listOf(0), intercepted)
+		assertEquals(1, loader.calls.size)
+		assertTrue(adapter.hasDecoded(profile, 0))
+		assertTrue(released.isEmpty())
+		forceMiss = false
+		checkNotNull(adapter.prepare(profile, listOf(0)).await()).close()
+		assertEquals(1, loader.calls.size)
+		adapter.close()
+		assertEquals(listOf("resident-intercept-page-0"), released)
+	}
+
+	@Test
 	fun staleFinalFenceRejectsDeckBuiltFromExistingCacheEntry() = runBlocking {
 		val released = mutableListOf<String>()
 		val adapter = ReaderPlayLikeCurlRasterAdapter(

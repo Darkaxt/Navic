@@ -213,6 +213,144 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
+	fun timedOutQaAttemptReleasesStalePhysicalCallbackAndRecoversOnFreshAttempt() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 7L)
+		acknowledgeForVisualHandoff(queue, request)
+		val physicalHost = FakeVisualHandoffHost(attached = true)
+		val registry = ReaderPageQaFaultRegistry()
+		val events = mutableListOf<ReaderWebViewVisualHandoffAttemptEvent>()
+		lateinit var coordinator: ReaderPageRelocationVisualHandoffCoordinator
+		val qaHost = object : ReaderWebViewVisualHandoffHost {
+			override val isAttachedToWindow: Boolean
+				get() = physicalHost.isAttachedToWindow
+
+			override fun synchronizeVisualStateOwner() =
+				physicalHost.synchronizeVisualStateOwner()
+
+			override fun abandonVisualStateCallbacks() =
+				physicalHost.abandonVisualStateCallbacks()
+
+			override fun postVisualStateCallback(
+				relocationToken: String,
+				handoffAttemptId: Long,
+				registration: ReaderWebViewVisualDeliveryCell
+			) {
+				val applied = registry.delayVisualState(
+					relocationToken = relocationToken,
+					handoffAttemptId = handoffAttemptId,
+					registration = registration,
+					postPhysical = { ownedRegistration ->
+						physicalHost.postVisualStateCallback(
+							relocationToken,
+							handoffAttemptId,
+							ownedRegistration
+						)
+					}
+				)
+				if (applied == null) {
+					physicalHost.postVisualStateCallback(
+						relocationToken,
+						handoffAttemptId,
+						registration
+					)
+				} else {
+					assertTrue(
+						coordinator.attachQaFault(
+							relocationToken = relocationToken,
+							handoffAttemptId = handoffAttemptId,
+							correlation = applied.correlation()
+						)
+					)
+				}
+			}
+
+			override fun postOnAnimation(action: () -> Unit) =
+				physicalHost.postOnAnimation(action)
+
+			override fun postDelayed(delayMillis: Long, action: () -> Unit) =
+				physicalHost.postDelayed(delayMillis, action)
+
+			override fun removeCallbacks(action: () -> Unit) =
+				physicalHost.removeCallbacks(action)
+		}
+		coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = qaHost,
+			currentState = { visualStateFor(request) },
+			dispatch = { error("No later relocation expected: $it") },
+			publishRecovery = { _, _ -> },
+			hideSurface = {},
+			attemptEventSink = ReaderWebViewVisualHandoffAttemptEventSink(events::add)
+		)
+		assertTrue(
+			registry.enqueue(
+				"visual-delay",
+				ReaderPageQaFault.DelayNextVisualStateCallback
+			)
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		assertEquals(0, physicalHost.visualStateCount())
+		assertEquals(1, registry.pendingCallbackCount())
+		physicalHost.runTimeout()
+
+		val timedOut = events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Terminal
+		>().single()
+		assertEquals(1L, timedOut.handoffAttemptId)
+		assertEquals(
+			ReaderWebViewVisualHandoffFailure.TimedOut,
+			assertIs<ReaderWebViewVisualHandoffResult.Failed>(timedOut.result).reason
+		)
+		assertEquals(
+			ReaderPageQaFaultRelation.AppliedOperation,
+			timedOut.qaFaultCorrelation?.relation
+		)
+		assertEquals(
+			1L,
+			timedOut.qaFaultCorrelation?.appliedOperation?.handoffAttemptId
+		)
+
+		assertTrue(registry.releaseVisualState("release-visual"))
+		assertEquals(1, physicalHost.visualStateCount())
+		physicalHost.completeVisualState()
+
+		val stale = events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.StalePhysicalCallbackReleased
+		>().single()
+		assertEquals(1L, stale.handoffAttemptId)
+		assertEquals(
+			ReaderPageQaFaultRelation.AppliedOperation,
+			stale.qaFaultCorrelation?.relation
+		)
+		assertEquals(1, physicalHost.visualStateCount())
+
+		physicalHost.completeVisualState()
+		physicalHost.runNextFrame()
+
+		val terminals = events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Terminal
+		>()
+		assertEquals(listOf(1L, 2L), terminals.map { it.handoffAttemptId })
+		val recovered = terminals.single { it.handoffAttemptId == 2L }
+		assertIs<ReaderWebViewVisualHandoffResult.Ready>(recovered.result)
+		assertEquals(
+			ReaderPageQaFaultRelation.Recovery,
+			recovered.qaFaultCorrelation?.relation
+		)
+		assertEquals(
+			1L,
+			recovered.qaFaultCorrelation?.appliedOperation?.handoffAttemptId
+		)
+		assertNull(queue.head())
+		assertEquals(0, physicalHost.visualStateCount())
+		assertEquals(0, registry.pendingCallbackCount())
+		assertEquals(0, coordinator.pendingCallbackCount())
+		registry.closeAndDrain()
+	}
+
+	@Test
 	fun productionCoordinatorRetainsShieldAndRetriesCapacityForSameHead() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 1L)

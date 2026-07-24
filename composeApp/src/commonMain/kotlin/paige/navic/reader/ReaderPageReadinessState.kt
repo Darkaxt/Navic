@@ -29,6 +29,7 @@ enum class ReaderPageInteractionState {
 	Ready,
 	Settling,
 	BackgroundPrefetch,
+	RefillingWorkingSet,
 	BlockingProfileRegeneration,
 	Failed
 }

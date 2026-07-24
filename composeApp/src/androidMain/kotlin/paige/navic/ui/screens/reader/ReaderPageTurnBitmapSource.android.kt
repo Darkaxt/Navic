@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
@@ -30,6 +32,8 @@ private const val PageTurnCaptureSampleColumns = 48
 private const val PageTurnCaptureSampleRows = 32
 private const val PageTurnCaptureMinimumLuminanceRange = 32
 private const val PageTurnCaptureForegroundDistance = 24
+private const val PageTurnCaptureMinimumForegroundSamples = 3
+private const val PageTurnCaptureForegroundSampleDivisor = 384
 
 internal data class ReaderPageTurnCaptureResult(
 	val bitmap: Bitmap,
@@ -159,18 +163,38 @@ internal class ReaderPageTurnBitmapSource(
 					sourceRect,
 					bitmap,
 					{ result ->
-						if (result == PixelCopy.SUCCESS && bitmap.containsRenderableForeground()) {
+						var captureMethod = "pixel-copy"
+						var foreground = if (result == PixelCopy.SUCCESS) {
+							bitmap.analyzeRenderableForeground()
+						} else {
+							null
+						}
+						if (
+							result == PixelCopy.SUCCESS &&
+							foreground?.renderable == false &&
+							webView.isAttachedToWindow &&
+							drawWebViewIntoBitmap(webView, location, sourceRect, bitmap)
+						) {
+							captureMethod = "webview-draw"
+							foreground = bitmap.analyzeRenderableForeground()
+						}
+						if (result == PixelCopy.SUCCESS && foreground?.renderable == true) {
 							val elapsedMs = SystemClock.uptimeMillis() - startedAt
 							Logger.i(
 								ReaderPageTurnBitmapSourceTag,
-								"Page-turn capture success rect=$sourceRect bitmap=${bitmap.width}x${bitmap.height} elapsedMs=$elapsedMs"
+								"Page-turn capture success method=$captureMethod rect=$sourceRect " +
+									"bitmap=${bitmap.width}x${bitmap.height} elapsedMs=$elapsedMs"
 							)
 							onCaptured(ReaderPageTurnCaptureResult(bitmap, sourceRect, geometry, elapsedMs))
 						} else if (result == PixelCopy.SUCCESS) {
 							bitmap.recycle()
 							Logger.i(
 								ReaderPageTurnBitmapSourceTag,
-								"Page-turn capture rejected unpainted surface rect=$sourceRect"
+								"Page-turn capture rejected unpainted surface rect=$sourceRect " +
+									"samples=${foreground?.sampleCount ?: 0} " +
+									"range=${foreground?.luminanceRange ?: 0} " +
+									"distant=${foreground?.distantSampleCount ?: 0} " +
+									"required=${foreground?.requiredDistantSampleCount ?: 0}"
 							)
 							onCaptured(null)
 						} else {
@@ -230,10 +254,48 @@ internal class ReaderPageTurnBitmapSource(
 	}
 }
 
-private fun Bitmap.containsRenderableForeground(): Boolean {
+private fun drawWebViewIntoBitmap(
+	webView: WebView,
+	webViewLocationInWindow: IntArray,
+	sourceRectInWindow: Rect,
+	bitmap: Bitmap
+): Boolean = runCatching {
+	bitmap.eraseColor(Color.TRANSPARENT)
+	val canvas = Canvas(bitmap)
+	val checkpoint = canvas.save()
+	canvas.scale(
+		bitmap.width.toFloat() / sourceRectInWindow.width(),
+		bitmap.height.toFloat() / sourceRectInWindow.height()
+	)
+	canvas.translate(
+		webViewLocationInWindow[0] - sourceRectInWindow.left.toFloat(),
+		webViewLocationInWindow[1] - sourceRectInWindow.top.toFloat()
+	)
+	webView.draw(canvas)
+	canvas.restoreToCount(checkpoint)
+	true
+}.getOrElse { failure ->
+	Logger.w(
+		ReaderPageTurnBitmapSourceTag,
+		"Page-turn WebView draw fallback failed failureClass=${failure::class.simpleName ?: "unknown"}"
+	)
+	false
+}
+
+private data class ReaderPageTurnForegroundAnalysis(
+	val sampleCount: Int,
+	val luminanceRange: Int,
+	val distantSampleCount: Int,
+	val requiredDistantSampleCount: Int,
+	val renderable: Boolean
+)
+
+private fun Bitmap.analyzeRenderableForeground(): ReaderPageTurnForegroundAnalysis {
 	val columns = PageTurnCaptureSampleColumns.coerceAtMost(width)
 	val rows = PageTurnCaptureSampleRows.coerceAtMost(height)
-	if (columns <= 0 || rows <= 0) return false
+	if (columns <= 0 || rows <= 0) {
+		return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false)
+	}
 	val pixels = ArrayList<Int>(columns * rows)
 	for (row in 0 until rows) {
 		val y = ((row + 0.5f) * height / rows).toInt().coerceIn(0, height - 1)
@@ -245,11 +307,11 @@ private fun Bitmap.containsRenderableForeground(): Boolean {
 			pixels += getPixel(x, y)
 		}
 	}
-	return readerPageTurnPixelsContainForeground(pixels.toIntArray())
+	return readerPageTurnForegroundAnalysis(pixels.toIntArray())
 }
 
-internal fun readerPageTurnPixelsContainForeground(pixels: IntArray): Boolean {
-	if (pixels.isEmpty()) return false
+private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnForegroundAnalysis {
+	if (pixels.isEmpty()) return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false)
 	val luminance = IntArray(pixels.size) { index ->
 		val color = pixels[index]
 		val red = color ushr 16 and 0xff
@@ -260,11 +322,26 @@ internal fun readerPageTurnPixelsContainForeground(pixels: IntArray): Boolean {
 	val sorted = luminance.sortedArray()
 	val baseline = sorted[sorted.size / 2]
 	val range = sorted.last() - sorted.first()
-	if (range < PageTurnCaptureMinimumLuminanceRange) return false
-	val requiredForegroundSamples = maxOf(4, pixels.size / 256)
-	return luminance.count { value -> abs(value - baseline) >= PageTurnCaptureForegroundDistance } >=
-		requiredForegroundSamples
+	val requiredDistantSamples = maxOf(
+		PageTurnCaptureMinimumForegroundSamples,
+		pixels.size / PageTurnCaptureForegroundSampleDivisor
+	)
+	val distantSamples = luminance.count { value ->
+		abs(value - baseline) >= PageTurnCaptureForegroundDistance
+	}
+	return ReaderPageTurnForegroundAnalysis(
+		sampleCount = pixels.size,
+		luminanceRange = range,
+		distantSampleCount = distantSamples,
+		requiredDistantSampleCount = requiredDistantSamples,
+		renderable =
+			range >= PageTurnCaptureMinimumLuminanceRange &&
+				distantSamples >= requiredDistantSamples
+	)
 }
+
+internal fun readerPageTurnPixelsContainForeground(pixels: IntArray): Boolean =
+	readerPageTurnForegroundAnalysis(pixels).renderable
 
 private tailrec fun Context.findActivityOrNull(): Activity? = when (this) {
 	is Activity -> this

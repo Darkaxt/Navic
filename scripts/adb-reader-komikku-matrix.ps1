@@ -28,12 +28,14 @@ param(
     [switch] $IncludeRailEndpointChecks,
     [switch] $OnlyRailEndpointChecks,
     [switch] $OnlyPdfChecks,
-    [switch] $ContinueOnFailure
+    [switch] $ContinueOnFailure,
+    [switch] $PrivacySafeEvidence
 )
 
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptRoot 'reader-privacy-safe-evidence.ps1')
 $smokeScript = Join-Path $scriptRoot "adb-reader-smoke.ps1"
 $installReaderDevScript = Join-Path $scriptRoot "install-reader-dev.ps1"
 if (-not (Test-Path -LiteralPath $smokeScript -PathType Leaf)) {
@@ -78,8 +80,23 @@ function Record-ReaderMatrixResult {
 
 function Write-ReaderMatrixSummary {
     $summaryPath = Join-Path $ArtifactRoot "reader-matrix-summary.csv"
-    $failurePath = Join-Path $ArtifactRoot "reader-matrix-failures.txt"
+    if ($PrivacySafeEvidence) {
+        @($matrixResults | ForEach-Object {
+            [pscustomobject][ordered]@{
+                Package = $Package
+                DeviceSerial = $DeviceSerial
+                Case = $_.Name
+                Status = $_.Status
+                PrivacySafeArtifact = "$($_.Name)/privacy-safe-smoke.json"
+            }
+        }) | Export-Csv `
+            -Path $summaryPath `
+            -NoTypeInformation `
+            -Encoding utf8
+        return
+    }
 
+    $failurePath = Join-Path $ArtifactRoot "reader-matrix-failures.txt"
     $matrixResults | Export-Csv -Path $summaryPath -NoTypeInformation -Encoding utf8
     if ($matrixFailures.Count -gt 0) {
         $matrixFailures |
@@ -155,6 +172,10 @@ function Invoke-ReaderMatrixStep {
         Package = $Package
         ArtifactDir = $artifactDir
         CaptureReaderDiagnostics = $true
+    }
+    if ($PrivacySafeEvidence) {
+        $smokeArgs.PrivacySafeEvidence = $true
+        $smokeArgs.RequireNeutralReaderVisualState = $true
     }
 
     if ($InstallApk -and -not [string]::IsNullOrWhiteSpace($ApkPath)) {
@@ -542,4 +563,7 @@ Write-ReaderMatrixSummary
 
 if ($matrixFailures.Count -gt 0) {
     throw "Komikku reader matrix failed: $($matrixFailures.Count) step(s). See $ArtifactRoot"
+}
+if ($PrivacySafeEvidence) {
+    Assert-ReaderPrivacySafeArtifactTree -Root $ArtifactRoot -Kind komikku
 }

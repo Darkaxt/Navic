@@ -55,6 +55,26 @@ class ReaderPageOperationPolicyTest {
 	}
 
 	@Test
+	fun refillingWorkingSetRejectsNextPointerWithoutCancellingActivePointer() {
+		val policy = readerPageOperationPolicy(
+			ReaderPageReadinessState(
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Hydrating,
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.RefillingWorkingSet
+			)
+		)
+
+		assertEquals(
+			ReaderPageNewPointerDecision.Reject(
+				ReaderPageGestureTerminalOutcome.RejectedPreparing
+			),
+			policy.newPointer
+		)
+		assertTrue(policy.continueActivePointer)
+		assertFalse(policy.cancelForReadinessChange)
+	}
+
+	@Test
 	fun pendingDeckPreparationDoesNotBlockAnActiveReadyDeck() {
 		val policy = readerPageOperationPolicy(
 			ReaderPageReadinessState(

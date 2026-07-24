@@ -30,6 +30,7 @@ class ReaderPageTurnDestinationSourceTest {
 	fun exactVisualPageNavigationUsesOneRendererTarget() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val viewport = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
 		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val exactNavigation = turns
 			.substringAfter("async function goToVisualPage(")
@@ -39,11 +40,96 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(preview, "export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact')")
 		assertContains(preview, "renderer.goToTextPage(locator.spineIndex, locator.chapterPageIndex, reason)")
 		assertContains(paginator, "async goToTextPage(index, pageIndex, reason = 'navigation')")
+		assertContains(paginator, "await this.#acquireExactNavigationLock()")
+		assertContains(paginator, "async #acquireExactNavigationLock()")
+		assertContains(paginator, "throw new Error('Exact page navigation timed out waiting for paginator unlock')")
 		assertContains(paginator, "this.#scrollToPage(textPageIndex + 1, reason)")
 		assertContains(exactNavigation, "this.view.history?.pushState?.(")
+		val applyStableLayout = exactNavigation.indexOf(
+			"this.applyReaderViewportLayout('page-turn:exact', { renderSynchronously: true })"
+		)
+		val navigateExactPage = exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)")
+		val exactNavigationStart = exactNavigation.indexOf(
+			"this.exactPageTurnNavigationInProgress = true"
+		)
+		val exactNavigationEnd = exactNavigation.indexOf(
+			"this.exactPageTurnNavigationInProgress = false"
+		)
+		assertTrue(applyStableLayout >= 0, "Exact navigation must establish the final renderer layout.")
+		assertTrue(navigateExactPage >= 0, "Exact navigation must invoke the renderer target.")
+		assertTrue(exactNavigationStart >= 0, "Exact navigation must publish its active state.")
+		assertTrue(exactNavigationEnd >= 0, "Exact navigation must clear its active state.")
+		assertTrue(
+			applyStableLayout < navigateExactPage,
+			"Applying viewport layout after exact scrolling resets Foliate to its previous anchor."
+		)
+		assertTrue(
+			exactNavigationStart < applyStableLayout,
+			"Synchronous layout relocation must remain isolated inside exact navigation."
+		)
+		assertContains(viewport, "function applyReaderViewportLayout(label = 'unknown', options = {})")
+		assertContains(viewport, "if (options.renderSynchronously) renderer.render?.()")
+		assertContains(viewport, "else requestAnimationFrame(() => renderer?.render?.())")
+		assertContains(
+			exactNavigation,
+			"this.scheduleSettledControlledPageTurnRelocation('exact')"
+		)
+		assertTrue(
+			exactNavigationStart < navigateExactPage
+		)
+		assertTrue(
+			navigateExactPage < exactNavigationEnd
+		)
 		assertFalse(exactNavigation.contains("anchor: locator.anchor"))
 		assertFalse(exactNavigation.contains("this.view?.next?.("))
 		assertFalse(exactNavigation.contains("this.view?.prev?.("))
+	}
+
+	@Test
+	fun paginatorAppliesSectionStylesBeforeResolvingItsExactTextPage() {
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val display = paginator
+			.substringAfter("async #display(promise) {")
+			.substringBefore("\n    #canGoToIndex(index) {")
+		val goTo = paginator
+			.substringAfter("async #goTo({ index, anchor, select }) {")
+			.substringBefore("\n    async goTo(target) {")
+
+		val installView = display.indexOf("this.#view = view")
+		val applyStyles = display.indexOf("this.setStyles(this.#styles)")
+		val resolveAnchor = display.indexOf("await this.scrollToAnchor(")
+		assertTrue(installView >= 0, "The newly loaded section must become the active paginator view.")
+		assertTrue(applyStyles > installView, "Saved reader styles must target the newly loaded section.")
+		assertTrue(resolveAnchor > applyStyles, "Exact page geometry must be measured only after reader styles apply.")
+		assertFalse(
+			goTo.contains("this.setStyles(this.#styles)"),
+			"The section load callback runs before the new paginator view is installed and must not style the old view."
+		)
+	}
+
+	@Test
+	fun paginatorSerializesNavigationAndReleasesLocksAfterFailures() {
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val exact = paginator
+			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
+			.substringBefore("\n    #scrollPrev(distance) {")
+		val turn = paginator
+			.substringAfter("async #turnPage(dir, distance) {")
+			.substringBefore("\n    async prev(distance) {")
+		val goTo = paginator
+			.substringAfter("async #goTo({ index, anchor, select }) {")
+			.substringBefore("\n    async goTo(target) {")
+
+		assertContains(exact, "await this.#acquireExactNavigationLock()")
+		assertContains(exact, "try {")
+		assertContains(exact, "finally {")
+		assertContains(exact, "this.#locked = false")
+		assertContains(turn, "this.#locked = true")
+		assertContains(turn, "try {")
+		assertContains(turn, "finally {")
+		assertContains(turn, "this.#locked = false")
+		assertContains(goTo, "throw e")
+		assertFalse(goTo.contains("return {}"))
 	}
 
 	@Test
@@ -60,6 +146,25 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun synchronousExactRelocationIsCapturedBeforeOrdinaryStaleFiltering() {
+		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
+		val onRelocate = location
+			.substringAfter("function onRelocate(detail) {")
+			.substringBefore("\n}\n")
+		val exactFence = onRelocate.indexOf("if (this.exactPageTurnNavigationInProgress) {")
+		val staleFilter = onRelocate.indexOf("this.pageTurnRelocationDetailIsStale(")
+		val exactBlock = onRelocate
+			.substringAfter("if (this.exactPageTurnNavigationInProgress) {")
+			.substringBefore("\n  }")
+
+		assertTrue(exactFence >= 0)
+		assertTrue(staleFilter > exactFence)
+		assertContains(exactBlock, "this.relocateSequence += 1")
+		assertContains(exactBlock, "this.lastRelocateDetail = detail")
+		assertContains(exactBlock, "return")
+	}
+
+	@Test
 	fun settlementRequiresTokenAndExactVisualPage() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
@@ -71,6 +176,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(runtime, "nativePageTurnSettledState: () => runtime.nativePageTurnSettledState")
 		assertContains(runtime, "pendingExactPageTurnSettlements = new Map()")
 		assertContains(runtime, "activeExactPageTurnSettlementToken = null")
+		assertContains(runtime, "exactPageTurnNavigationInProgress = false")
 		assertContains(turns, "this.pendingExactPageTurnSettlements.set(token, pending)")
 		assertContains(turns, "this.activeExactPageTurnSettlementToken = token")
 		assertContains(turns, "foliateSessionId: settleSessionId")
@@ -156,6 +262,43 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(cancellation, "rememberCompletedExactPageTurnSettlement(this, pending)")
 		assertContains(cancellation, "rememberCompletedExactPageTurnSettlement(this, settled)")
 		assertFalse(cancellation.contains("cancelled: true"))
+	}
+
+	@Test
+	fun supersededExactNavigationCannotClearOrPublishForItsSuccessor() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val exactNavigation = turns
+			.substringAfter("async function goToVisualPage(")
+			.substringBefore("\n}\n")
+
+		assertContains(runtime, "exactPageTurnNavigationToken = null")
+		assertContains(exactNavigation, "this.exactPageTurnNavigationToken = token")
+		assertContains(exactNavigation, "this.exactPageTurnNavigationToken === token")
+		assertContains(exactNavigation, "this.activeExactPageTurnSettlementToken !== token")
+		assertContains(exactNavigation, "this.pendingExactPageTurnSettlements.get(token) !== pending")
+		val navigation = exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)")
+		val ownershipFence = exactNavigation.indexOf(
+			"this.activeExactPageTurnSettlementToken !== token",
+			startIndex = navigation
+		)
+		val history = exactNavigation.indexOf("this.view.history?.pushState?.(")
+		assertTrue(navigation >= 0)
+		assertTrue(ownershipFence > navigation)
+		assertTrue(history > ownershipFence)
+	}
+
+	@Test
+	fun exactNavigationFailureClearsOnlyItsControlledRelocation() {
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val exactNavigation = turns
+			.substringAfter("async function goToVisualPage(")
+			.substringBefore("\n}\n")
+		val failure = exactNavigation.substringAfter("} catch (error) {")
+
+		assertContains(failure, "const ownsPendingExactNavigation =")
+		assertContains(failure, "this.controlledRelocateReason === 'page-turn:exact'")
+		assertContains(failure, "this.consumeControlledRelocationReason('page-turn:exact-failed')")
 	}
 
 	@Test

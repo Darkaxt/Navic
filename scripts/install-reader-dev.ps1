@@ -6,6 +6,10 @@ param(
     [switch] $NoBuild,
     [switch] $NoInstall,
     [switch] $NoLaunch,
+    [switch] $NoForceStopLaunch,
+    [switch] $PreserveLogcat,
+    [ValidateRange(1, 600)]
+    [int] $WaitTimeoutSeconds = 60,
     [switch] $Capture,
     [int] $ReaderAssetServerPort = 0,
     [switch] $NoDiscoverPublication,
@@ -62,7 +66,10 @@ function Read-EnvFile {
 }
 
 function Invoke-Adb {
-    param([Parameter(Mandatory = $true)][string[]] $Arguments)
+    param(
+        [Parameter(Mandatory = $true)][string[]] $Arguments,
+        [switch] $RedactFailure
+    )
 
     $adbArgs = @()
     if ($DeviceSerial) {
@@ -81,6 +88,9 @@ function Invoke-Adb {
     $output = @($output | ForEach-Object { "$_" })
 
     if ($exitCode -ne 0) {
+        if ($RedactFailure) {
+            throw "ReaderDev launch failed with exit code $exitCode"
+        }
         throw "adb $($adbArgs -join ' ') failed with exit code $exitCode`n$($output -join "`n")"
     }
 
@@ -166,43 +176,43 @@ function Invoke-GradleWrapper {
 
 function Wait-ReaderDevForeground {
     param([Parameter(Mandatory = $true)][string] $Package)
-
     $escapedPackage = [regex]::Escape($Package)
-    Write-Output "Waiting for $Package to become the focused Android window before capture..."
-    while ($true) {
-        $windowDump = Invoke-Adb -Arguments @("shell", "dumpsys", "activity", "activities")
-        $focusLine = @(
-            $windowDump |
-                Where-Object { $_ -match "mCurrentFocus=.*$escapedPackage" -or $_ -match "mFocusedApp=.*$escapedPackage" } |
-                Select-Object -First 1
+    $deadline = [DateTime]::UtcNow.AddSeconds($WaitTimeoutSeconds)
+    do {
+        $windowDump = Invoke-Adb -Arguments @(
+            "shell", "dumpsys", "activity", "activities"
         )
-        if ($focusLine.Count -gt 0) {
-            Write-Output ("Foreground confirmed: {0}" -f $focusLine[0].Trim())
-            return
-        }
-
+        $focusLine = @(
+            $windowDump | Where-Object {
+                $_ -match (
+                    "(?:mCurrentFocus|mFocusedApp|topResumedActivity|" +
+                    "ResumedActivity)(?:=|:).*$escapedPackage/"
+                )
+            } | Select-Object -First 1
+        )
+        if ($focusLine.Count -gt 0) { return }
         Start-Sleep -Seconds 1
-    }
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "ReaderDev did not become foreground within $WaitTimeoutSeconds seconds"
 }
 
 function Wait-ReaderDevPublicationReady {
     param([Parameter(Mandatory = $true)][string] $Package)
-
-    Write-Output "Waiting for reader publicationReady bridge event before capture..."
-    while ($true) {
-        $logLines = Invoke-Adb -Arguments @("logcat", "-d", "-v", "brief", "-t", "1000")
-        $readyLine = @(
-            $logLines |
-                Where-Object { $_ -match "Reader bridge event: publicationReady" -or $_ -match '"type":"publicationReady"' } |
-                Select-Object -First 1
+    $deadline = [DateTime]::UtcNow.AddSeconds($WaitTimeoutSeconds)
+    do {
+        $logLines = Invoke-Adb -Arguments @(
+            "logcat", "-d", "-v", "brief", "-t", "1000"
         )
-        if ($readyLine.Count -gt 0) {
-            Write-Output ("Reader publication ready: {0}" -f $readyLine[0].Trim())
-            return
-        }
-
+        $readyLine = @(
+            $logLines | Where-Object {
+                $_ -match "Reader bridge event: publicationReady" -or
+                $_ -match '"type":"publicationReady"'
+            } | Select-Object -First 1
+        )
+        if ($readyLine.Count -gt 0) { return }
         Start-Sleep -Seconds 1
-    }
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "ReaderDev publication was not ready within $WaitTimeoutSeconds seconds"
 }
 
 function Get-EnvValue {
@@ -885,7 +895,7 @@ if ($explicitBinderyResource) {
     $resourceHref = $explicitBinderyResource.ResourceHref
     $publicationUrl = $explicitBinderyResource.PublicationUrl
     $format = if ($format) { $format } else { $explicitBinderyResource.Format }
-    Write-Host ("Resolved explicit reader target to Bindery OPDS resource: {0}" -f $resourceHref)
+    Write-Host ("Resolved explicit reader target to Bindery OPDS resource (format={0})." -f $format)
 }
 
 if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
@@ -902,7 +912,7 @@ if (!$publicationUrl -and !$resourceHref -and !$NoDiscoverPublication) {
         $resourceHref = $discoveredPublication.ResourceHref
         $publicationUrl = $discoveredPublication.PublicationUrl
         $format = if ($format) { $format } else { $discoveredPublication.Format }
-        Write-Host ("Discovered Bindery reader target: {0} ({1})" -f $title, $format)
+        Write-Host ("Discovered Bindery reader target (format={0})." -f $format)
     } else {
         Write-Host "No Bindery reader resource discovered; launching Bindery Books catalog."
     }
@@ -918,9 +928,13 @@ if (!$NoBuild) {
     Invoke-GradleWrapper -Arguments @("--no-daemon", ":androidApp:assembleReaderDev")
 }
 
-$apkPath = Join-Path (Get-Location) "androidApp\build\outputs\apk\readerDev\Navic.apk"
-if (!(Test-Path $apkPath)) {
-    throw "readerDev APK not found: $apkPath"
+$apkPath = $null
+if (-not $NoBuild -or -not $NoInstall) {
+    $apkPath = Join-Path (Get-Location) `
+        "androidApp\build\outputs\apk\readerDev\Navic.apk"
+    if (!(Test-Path $apkPath)) {
+        throw "readerDev APK not found: $apkPath"
+    }
 }
 
 if (!$NoInstall) {
@@ -934,11 +948,13 @@ if ($ReaderAssetServerPort -gt 0) {
 
 if (!$NoLaunch) {
     Invoke-Adb -Arguments @("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
-    if ($readerLaunchHasPublication) {
+    if ($readerLaunchHasPublication -and -not $PreserveLogcat) {
         Invoke-Adb -Arguments @("logcat", "-c")
     }
     $launchArgs = [System.Collections.Generic.List[string]]::new()
-    $launchArgs.AddRange([string[]] @("shell", "am", "start", "-S", "-n", "$Package/$Activity"))
+    $launchArgs.AddRange([string[]] @("shell", "am", "start"))
+    if (-not $NoForceStopLaunch) { $launchArgs.Add("-S") }
+    $launchArgs.AddRange([string[]] @("-n", "$Package/$Activity"))
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.bindery.opds_url" -Value $opdsBaseUrl
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.bindery.api_key" -Value $apiKey
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.bindery.language_filter" -Value $languageFilter
@@ -966,7 +982,7 @@ if (!$NoLaunch) {
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.whispersync_audiobook_title" -Value $whispersyncAudiobookTitle
 
     Write-Host "Launching $Package. Secrets are passed through adb extras and not printed."
-    Invoke-Adb -Arguments $launchArgs.ToArray()
+    Invoke-Adb -Arguments $launchArgs.ToArray() -RedactFailure
     if ($readerLaunchHasPublication) {
         Wait-ReaderDevForeground -Package $Package
         Wait-ReaderDevPublicationReady -Package $Package

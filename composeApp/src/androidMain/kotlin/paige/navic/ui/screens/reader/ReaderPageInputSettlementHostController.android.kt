@@ -57,6 +57,7 @@ internal fun ReaderPageHostLifecycleEvent.cancellationReason():
 
 internal enum class ReaderPageVisualLocationOrigin {
 	ExactPageTurn,
+	PendingExactPageTurn,
 	External,
 	StaleAcknowledgement
 }
@@ -75,6 +76,11 @@ internal sealed interface ReaderPageHostPointerEvent {
 		val downTimeMillis: Long
 	) : ReaderPageHostPointerEvent
 	data class Move(
+		val x: Float,
+		val y: Float,
+		val touchSlop: Float
+	) : ReaderPageHostPointerEvent
+	data class PositionedUp(
 		val x: Float,
 		val y: Float,
 		val touchSlop: Float
@@ -152,17 +158,18 @@ internal class ReaderPageInputSettlementHostController(
 				}
 				ReaderPageHostPointerDispatchResult(physicalStreamGestureId, route)
 			}
-			ReaderPageHostPointerEvent.Up -> {
-				val gestureId = physicalStreamGestureId
-				if (gestureId == null) {
-					ReaderPageHostPointerDispatchResult(null, ReaderPagePointerRoute.Ignore)
-				} else {
-					val route = endPointer(gestureId)
-					physicalStreamGestureId = null
-					closeDeliveryAfterFinalPhysicalTail()
-					ReaderPageHostPointerDispatchResult(gestureId, route)
+			is ReaderPageHostPointerEvent.PositionedUp -> {
+				val classification = movePointer(
+					event.x,
+					event.y,
+					event.touchSlop
+				)
+				if (classification is ReaderPagePointerRoute.ClaimCurl) {
+					releaseContentToken(classification.gestureId)
 				}
+				dispatchPointerUp(classification)
 			}
+			ReaderPageHostPointerEvent.Up -> dispatchPointerUp()
 			ReaderPageHostPointerEvent.Cancel -> interruptPointer(finalStreamEvent = true)
 			ReaderPageHostPointerEvent.SecondaryPointerDown ->
 				interruptPointer(finalStreamEvent = false)
@@ -182,6 +189,30 @@ internal class ReaderPageInputSettlementHostController(
 
 	private fun movePointer(x: Float, y: Float, touchSlop: Float): ReaderPagePointerRoute =
 		pointerRouter.move(x, y, touchSlop)
+
+	private fun dispatchPointerUp(
+		classification: ReaderPagePointerRoute? = null
+	): ReaderPageHostPointerDispatchResult {
+		val gestureId = physicalStreamGestureId
+		if (gestureId == null) {
+			return ReaderPageHostPointerDispatchResult(
+				null,
+				ReaderPagePointerRoute.Ignore
+			)
+		}
+		val terminalRoute = endPointer(gestureId)
+		val route = if (
+			classification is ReaderPagePointerRoute.ClaimCurl &&
+			terminalRoute is ReaderPagePointerRoute.Curl
+		) {
+			classification
+		} else {
+			terminalRoute
+		}
+		physicalStreamGestureId = null
+		closeDeliveryAfterFinalPhysicalTail()
+		return ReaderPageHostPointerDispatchResult(gestureId, route)
+	}
 
 	fun claimContentAction(downTimeMillis: Long): ReaderPageHostPointerDispatchResult {
 		contentTokenByGestureId.values

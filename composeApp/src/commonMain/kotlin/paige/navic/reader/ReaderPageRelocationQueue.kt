@@ -276,6 +276,11 @@ class ReaderPageRelocationQueue(
 
 	fun head(): ReaderPageRelocationRequest? = synchronized(lock) { requests.firstOrNull() }
 
+	fun hasDispatchedHead(): Boolean = synchronized(lock) {
+		val head = requests.firstOrNull() ?: return@synchronized false
+		dispatchedToken == head.token
+	}
+
 	fun hasQueuedAfterHead(): Boolean = synchronized(lock) { requests.size > 1 }
 
 	fun ownershipSnapshot(): ReaderPageRelocationOwnershipSnapshot = synchronized(lock) {

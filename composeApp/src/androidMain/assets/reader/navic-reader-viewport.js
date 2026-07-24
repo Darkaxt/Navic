@@ -54,7 +54,7 @@ const normalizedReaderPdfPageGapPercent = value => {
   return Math.min(ReaderPdfPageGapMaxPercent, Math.max(0, gap))
 }
 
-function applyReaderViewportLayout(label = 'unknown') {
+function applyReaderViewportLayout(label = 'unknown', options = {}) {
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
@@ -110,7 +110,10 @@ function applyReaderViewportLayout(label = 'unknown') {
     renderer.dataset.navicAdaptivePageBox = JSON.stringify(pageBox)
   }
   this.applyPdfImageSettings(this.readerSettings)
-  if (renderer) requestAnimationFrame(() => renderer?.render?.())
+  if (renderer) {
+    if (options.renderSynchronously) renderer.render?.()
+    else requestAnimationFrame(() => renderer?.render?.())
+  }
   if (this.shellCoverVisible && this.shellCoverLayer && this.shellCoverBlobUrl) {
     updateReaderShellCoverLayer(
       this.shellCoverLayer,

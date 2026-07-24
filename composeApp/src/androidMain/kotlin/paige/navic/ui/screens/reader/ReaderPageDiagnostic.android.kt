@@ -20,6 +20,13 @@ internal enum class ReaderPagePublicationDiagnosticResult {
 	Cancelled
 }
 
+@JvmInline
+internal value class ReaderPagePersistenceAttemptId(val value: Long) {
+	init {
+		require(value >= 0L)
+	}
+}
+
 internal enum class ReaderPageRasterAcquisitionSource {
 	PersistentHydration,
 	WebViewCapture
@@ -76,7 +83,8 @@ internal enum class ReaderPageHandoffDiagnosticResult {
 	TimedOut,
 	Invalidated,
 	CallbackCapacity,
-	Cancelled
+	Cancelled,
+	StalePhysicalCallbackReleased
 }
 
 internal fun ReaderWebViewVisualHandoffResult.toDiagnosticResult():
@@ -118,7 +126,8 @@ internal data class ReaderPageDiagnosticOperation(
 	val attempt: Long,
 	val rasterGeneration: Long,
 	val ordinal: Int,
-	val startedAtMs: Long
+	val startedAtMs: Long,
+	val qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 )
 
 private val ReaderPageDiagnosticAttemptIds = AtomicLong()
@@ -137,26 +146,44 @@ internal class ReaderPageRuntimeDiagnostics(
 ) {
 	fun startOperation(
 		rasterGeneration: Long,
-		ordinal: Int
+		ordinal: Int,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): ReaderPageDiagnosticOperation = ReaderPageDiagnosticOperation(
 		attempt = ReaderPageDiagnosticAttemptIds.incrementAndGet(),
 		rasterGeneration = rasterGeneration,
 		ordinal = ordinal,
-		startedAtMs = nowMs()
+		startedAtMs = nowMs(),
+		qaFaultCorrelation = qaFaultCorrelation
+	)
+
+	fun startRetryOperation(
+		root: ReaderPageDiagnosticOperation,
+		rasterGeneration: Long,
+		ordinal: Int
+	): ReaderPageDiagnosticOperation = startOperation(
+		rasterGeneration = rasterGeneration,
+		ordinal = ordinal,
+		qaFaultCorrelation = root.qaFaultCorrelation?.withRelation(
+			ReaderPageQaFaultRelation.Retry
+		)
 	)
 
 	fun publication(
 		digest: String,
 		rasterEpoch: Long,
+		persistenceAttemptId: ReaderPagePersistenceAttemptId,
 		result: ReaderPagePublicationDiagnosticResult,
-		startedAtMs: Long
+		startedAtMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.publication(
 			readerSession = readerSession,
 			digestPrefix = diagnosticDigestPrefix(digest),
 			rasterEpoch = rasterEpoch,
+			persistenceAttemptId = persistenceAttemptId,
 			result = result,
-			durationMs = elapsed(startedAtMs)
+			durationMs = elapsed(startedAtMs),
+			qaFaultCorrelation = qaFaultCorrelation
 		)
 	)
 
@@ -164,7 +191,8 @@ internal class ReaderPageRuntimeDiagnostics(
 		operation: ReaderPageDiagnosticOperation,
 		source: ReaderPageRasterAcquisitionSource,
 		trigger: ReaderPageRasterAcquisitionTrigger,
-		result: ReaderPageRasterAcquisitionResult
+		result: ReaderPageRasterAcquisitionResult,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.rasterAcquisition(
 			readerSession = readerSession,
@@ -174,7 +202,9 @@ internal class ReaderPageRuntimeDiagnostics(
 			source = source,
 			trigger = trigger,
 			result = result,
-			durationMs = elapsed(operation.startedAtMs)
+			durationMs = elapsed(operation.startedAtMs),
+			qaFaultCorrelation =
+				qaFaultCorrelation ?: operation.qaFaultCorrelation
 		)
 	)
 
@@ -182,7 +212,8 @@ internal class ReaderPageRuntimeDiagnostics(
 		operation: ReaderPageDiagnosticOperation,
 		state: ReaderPagePreparationDiagnosticState,
 		reason: ReaderPageRasterDeferralReason? = null,
-		eventVersion: Long? = null
+		eventVersion: Long? = null,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.preparation(
 			readerSession = readerSession,
@@ -191,14 +222,17 @@ internal class ReaderPageRuntimeDiagnostics(
 			state = state,
 			reason = reason,
 			eventVersion = eventVersion,
-			durationMs = elapsed(operation.startedAtMs)
+			durationMs = elapsed(operation.startedAtMs),
+			qaFaultCorrelation =
+				qaFaultCorrelation ?: operation.qaFaultCorrelation
 		)
 	)
 
 	fun repair(
 		operation: ReaderPageDiagnosticOperation,
 		state: ReaderPageRepairDiagnosticState,
-		reason: ReaderPageRasterDeferralReason? = null
+		reason: ReaderPageRasterDeferralReason? = null,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.repair(
 			readerSession = readerSession,
@@ -207,7 +241,9 @@ internal class ReaderPageRuntimeDiagnostics(
 			centerOrdinal = operation.ordinal,
 			state = state,
 			reason = reason,
-			durationMs = elapsed(operation.startedAtMs)
+			durationMs = elapsed(operation.startedAtMs),
+			qaFaultCorrelation =
+				qaFaultCorrelation ?: operation.qaFaultCorrelation
 		)
 	)
 
@@ -218,7 +254,8 @@ internal class ReaderPageRuntimeDiagnostics(
 		prepared: Boolean,
 		active: Long?,
 		pending: Long?,
-		startedAtMs: Long
+		startedAtMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.deck(
 			readerSession = readerSession,
@@ -228,7 +265,8 @@ internal class ReaderPageRuntimeDiagnostics(
 			prepared = prepared,
 			active = active,
 			pending = pending,
-			durationMs = elapsed(startedAtMs)
+			durationMs = elapsed(startedAtMs),
+			qaFaultCorrelation = qaFaultCorrelation
 		)
 	)
 
@@ -236,7 +274,8 @@ internal class ReaderPageRuntimeDiagnostics(
 		request: paige.navic.reader.ReaderPageRelocationRequest,
 		state: ReaderPageRelocationDiagnosticState,
 		queueDepth: Int,
-		startedAtMs: Long
+		startedAtMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.relocation(
 			readerSession = readerSession,
@@ -249,7 +288,8 @@ internal class ReaderPageRuntimeDiagnostics(
 			textureGeneration = request.textureGeneration,
 			state = state,
 			queueDepth = queueDepth,
-			durationMs = elapsed(startedAtMs)
+			durationMs = elapsed(startedAtMs),
+			qaFaultCorrelation = qaFaultCorrelation
 		)
 	)
 
@@ -260,7 +300,8 @@ internal class ReaderPageRuntimeDiagnostics(
 		visualState: Boolean,
 		nextFrame: Boolean,
 		result: ReaderPageHandoffDiagnosticResult,
-		startedAtMs: Long
+		startedAtMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.handoff(
 			readerSession = readerSession,
@@ -270,7 +311,8 @@ internal class ReaderPageRuntimeDiagnostics(
 			visualState = visualState,
 			nextFrame = nextFrame,
 			result = result,
-			durationMs = elapsed(startedAtMs)
+			durationMs = elapsed(startedAtMs),
+			qaFaultCorrelation = qaFaultCorrelation
 		)
 	)
 
@@ -308,6 +350,7 @@ internal class ReaderPageDeckDiagnosticTracker(
 		val repairAttempt: Long?,
 		val role: ReaderDeckSubmissionRole,
 		val startedAtMs: Long,
+		val qaFaultCorrelation: ReaderPageQaFaultCorrelation?,
 		var submitted: Boolean = false
 	)
 
@@ -316,7 +359,8 @@ internal class ReaderPageDeckDiagnosticTracker(
 	fun begin(
 		generation: Long,
 		repairAttempt: Long?,
-		role: ReaderDeckSubmissionRole
+		role: ReaderDeckSubmissionRole,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) {
 		check(
 			submissions.put(
@@ -324,7 +368,8 @@ internal class ReaderPageDeckDiagnosticTracker(
 				Submission(
 					repairAttempt = repairAttempt,
 					role = role,
-					startedAtMs = diagnostics.now()
+					startedAtMs = diagnostics.now(),
+					qaFaultCorrelation = qaFaultCorrelation
 				)
 			) == null
 		) { "Deck diagnostics already own generation $generation" }
@@ -346,7 +391,8 @@ internal class ReaderPageDeckDiagnosticTracker(
 			prepared = false,
 			active = active,
 			pending = pending,
-			startedAtMs = submission.startedAtMs
+			startedAtMs = submission.startedAtMs,
+			qaFaultCorrelation = submission.qaFaultCorrelation
 		)
 		return true
 	}
@@ -364,7 +410,8 @@ internal class ReaderPageDeckDiagnosticTracker(
 			prepared = true,
 			active = active,
 			pending = pending,
-			startedAtMs = submission.startedAtMs
+			startedAtMs = submission.startedAtMs,
+			qaFaultCorrelation = submission.qaFaultCorrelation
 		)
 		return true
 	}
@@ -379,6 +426,40 @@ internal class ReaderPageDeckDiagnosticTracker(
 }
 
 internal object ReaderPageDiagnostic {
+	private fun qaFaultCorrelationFields(
+		correlation: ReaderPageQaFaultCorrelation?
+	): String {
+		val operation = correlation?.appliedOperation
+		return "qaFaultRequestId=${correlation?.requestId ?: "none"} " +
+			"qaFaultRelation=${correlation?.relation?.name ?: "None"} " +
+			"qaFaultPublicationEpoch=${operation?.publicationEpoch ?: -1L} " +
+			"qaFaultPersistenceAttemptId=${operation?.persistenceAttemptId ?: -1L} " +
+			"qaFaultRasterRequestEpoch=${operation?.rasterRequestEpoch ?: -1L} " +
+			"qaFaultRepairAttemptId=${operation?.repairAttemptId ?: -1L} " +
+			"qaFaultPreparationAttemptId=${operation?.preparationAttemptId ?: -1L} " +
+			"qaFaultRelocationToken=${operation?.relocationToken ?: "none"} " +
+			"qaFaultHandoffAttemptId=${operation?.handoffAttemptId ?: -1L}"
+	}
+
+	fun qaFault(
+		readerSession: Long,
+		event: ReaderPageQaFaultEvent
+	): String {
+		val operation = event.operation
+		return "reader-qa-fault session=$readerSession " +
+			"requestId=${event.ticket.requestId} fault=${event.ticket.fault.name} " +
+			"seam=${event.seam} state=${event.state.name} " +
+			"publicationEpoch=${operation?.publicationEpoch ?: -1L} " +
+			"persistenceAttemptId=${operation?.persistenceAttemptId ?: -1L} " +
+			"rasterRequestEpoch=${operation?.rasterRequestEpoch ?: -1L} " +
+			"repairAttemptId=${operation?.repairAttemptId ?: -1L} " +
+			"preparationAttemptId=${operation?.preparationAttemptId ?: -1L} " +
+			"relocationToken=${operation?.relocationToken ?: "none"} " +
+			"handoffAttemptId=${operation?.handoffAttemptId ?: -1L} " +
+			"releaseRequestId=${event.releaseRequestId ?: "none"} " +
+			"result=${event.result}"
+	}
+
 	fun gesture(
 		readerSession: Long,
 		gestureId: Long,
@@ -415,12 +496,16 @@ internal object ReaderPageDiagnostic {
 		readerSession: Long,
 		digestPrefix: String,
 		rasterEpoch: Long,
+		persistenceAttemptId: ReaderPagePersistenceAttemptId,
 		result: ReaderPagePublicationDiagnosticResult,
-		durationMs: Long
+		durationMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): String =
 		"reader-raster-publication session=$readerSession " +
 			"digestPrefix=$digestPrefix rasterEpoch=$rasterEpoch " +
-			"result=$result durationMs=$durationMs"
+			"persistenceAttemptId=${persistenceAttemptId.value} " +
+			"result=$result durationMs=$durationMs " +
+			qaFaultCorrelationFields(qaFaultCorrelation)
 
 	fun rasterAcquisition(
 		readerSession: Long,
@@ -430,11 +515,13 @@ internal object ReaderPageDiagnostic {
 		source: ReaderPageRasterAcquisitionSource,
 		trigger: ReaderPageRasterAcquisitionTrigger,
 		result: ReaderPageRasterAcquisitionResult,
-		durationMs: Long
+		durationMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): String =
 		"reader-raster-acquisition session=$readerSession attempt=$attempt " +
 			"rasterGeneration=$rasterGeneration ordinal=$ordinal source=$source " +
-			"trigger=$trigger result=$result durationMs=$durationMs"
+			"trigger=$trigger result=$result durationMs=$durationMs " +
+			qaFaultCorrelationFields(qaFaultCorrelation)
 
 	fun preparation(
 		readerSession: Long,
@@ -443,12 +530,14 @@ internal object ReaderPageDiagnostic {
 		state: ReaderPagePreparationDiagnosticState,
 		reason: ReaderPageRasterDeferralReason?,
 		eventVersion: Long?,
-		durationMs: Long
+		durationMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): String =
 		"reader-preparation session=$readerSession attempt=$attempt " +
 			"rasterGeneration=$rasterGeneration state=$state " +
 			"reason=${reason?.name ?: "None"} " +
-			"eventVersion=${eventVersion ?: -1L} durationMs=$durationMs"
+			"eventVersion=${eventVersion ?: -1L} durationMs=$durationMs " +
+			qaFaultCorrelationFields(qaFaultCorrelation)
 
 	fun repair(
 		readerSession: Long,
@@ -457,11 +546,13 @@ internal object ReaderPageDiagnostic {
 		centerOrdinal: Int,
 		state: ReaderPageRepairDiagnosticState,
 		reason: ReaderPageRasterDeferralReason?,
-		durationMs: Long
+		durationMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): String =
 		"reader-repair session=$readerSession attempt=$attempt " +
 			"rasterGeneration=$rasterGeneration centerOrdinal=$centerOrdinal " +
-			"state=$state reason=${reason?.name ?: "None"} durationMs=$durationMs"
+			"state=$state reason=${reason?.name ?: "None"} durationMs=$durationMs " +
+			qaFaultCorrelationFields(qaFaultCorrelation)
 
 	fun deck(
 		readerSession: Long,
@@ -471,11 +562,13 @@ internal object ReaderPageDiagnostic {
 		prepared: Boolean,
 		active: Long?,
 		pending: Long?,
-		durationMs: Long
+		durationMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): String =
 		"reader-deck session=$readerSession generation=$generation " +
 			"repairAttempt=${repairAttempt ?: -1L} role=$role prepared=$prepared " +
-			"active=$active pending=$pending durationMs=$durationMs"
+			"active=$active pending=$pending durationMs=$durationMs " +
+			qaFaultCorrelationFields(qaFaultCorrelation)
 
 	fun relocation(
 		readerSession: Long,
@@ -488,27 +581,29 @@ internal object ReaderPageDiagnostic {
 		textureGeneration: Long,
 		state: ReaderPageRelocationDiagnosticState,
 		queueDepth: Int,
-		durationMs: Long
+		durationMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): String =
 		"reader-relocation session=$readerSession token=$token gestureId=$gestureId " +
 			"source=$source target=$target logicalDirection=$logicalDirection " +
 			"rasterGeneration=$rasterGeneration textureGeneration=$textureGeneration " +
-			"state=$state queueDepth=$queueDepth durationMs=$durationMs"
+			"state=$state queueDepth=$queueDepth durationMs=$durationMs " +
+			qaFaultCorrelationFields(qaFaultCorrelation)
 
 	fun handoff(
 		readerSession: Long,
-		handoffAttemptId: Long,
 		token: String,
+		handoffAttemptId: Long,
 		target: Int,
 		visualState: Boolean,
 		nextFrame: Boolean,
 		result: ReaderPageHandoffDiagnosticResult,
-		durationMs: Long
-	): String =
-		"reader-handoff session=$readerSession token=$token " +
-			"handoffAttemptId=$handoffAttemptId target=$target " +
-			"visualState=$visualState nextFrame=$nextFrame " +
-			"result=$result durationMs=$durationMs"
+		durationMs: Long,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
+	): String = "reader-handoff session=$readerSession token=$token " +
+		"handoffAttemptId=$handoffAttemptId target=$target " +
+		"visualState=$visualState nextFrame=$nextFrame result=$result " +
+		"durationMs=$durationMs ${qaFaultCorrelationFields(qaFaultCorrelation)}"
 
 	fun residency(
 		readerSession: Long,

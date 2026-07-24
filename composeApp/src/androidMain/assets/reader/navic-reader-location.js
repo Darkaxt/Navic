@@ -500,13 +500,21 @@ function scheduleControlledRelocationFallback(reason) {
 function onRelocate(detail) {
   readerTrace('relocate:raw', detail)
   this.attachSurfacePaperTextureScrollSync()
+  if (this.exactPageTurnNavigationInProgress) {
+    this.relocateSequence += 1
+    this.lastRelocateDetail = detail
+    return
+  }
   if (this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)) {
     this.handleDuplicatePageTurnRelocation?.(detail, this.controlledRelocateReason)
     return
   }
   this.relocateSequence += 1
   this.lastRelocateDetail = detail
-  if (this.pageTurnInProgress || this.pageTurnPromise) return
+  if (
+    this.pageTurnInProgress ||
+    this.pageTurnPromise
+  ) return
   this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason('relocate-committed'))
 }
 

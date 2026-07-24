@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import android.os.Looper
 import android.view.View
 import android.webkit.WebView
 import paige.navic.reader.ReaderPageRelocationQueue
@@ -48,12 +49,14 @@ internal sealed interface ReaderWebViewVisualHandoffAttemptEvent {
 		override val handoffAttemptId: Long,
 		val result: ReaderWebViewVisualHandoffResult,
 		val visualStateCompleted: Boolean = false,
-		val nextFrameCompleted: Boolean = false
+		val nextFrameCompleted: Boolean = false,
+		val qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) : ReaderWebViewVisualHandoffAttemptEvent
 
 	data class StalePhysicalCallbackReleased(
 		override val relocationToken: String,
-		override val handoffAttemptId: Long
+		override val handoffAttemptId: Long,
+		val qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) : ReaderWebViewVisualHandoffAttemptEvent
 }
 
@@ -96,7 +99,12 @@ internal class ReaderWebViewVisualDeliveryCell(
 	fun deliver(): Boolean = releasePhysicalOwnership(deliver = true)
 
 	override fun abandonPhysicalOwnership(): Boolean =
-		releasePhysicalOwnership(deliver = false)
+		if (transferred.get()) false else releasePhysicalOwnership(deliver = false)
+
+	fun abandonQaOwnership(): Boolean {
+		if (!transferred.compareAndSet(true, false)) return false
+		return releasePhysicalOwnership(deliver = false)
+	}
 
 	private fun releasePhysicalOwnership(deliver: Boolean): Boolean {
 		if (!physicalOwnershipReleased.compareAndSet(false, true)) return false
@@ -230,6 +238,12 @@ internal class ReaderWebViewVisualHandoff(
 
 	fun pendingCallbackCount(): Int =
 		pendingHostCallbackCount() + pendingCapacityRetryEdgeCount()
+
+	fun awaitCallbackCapacity(token: String): Boolean = ownershipMutation {
+		if (closed || active != null || canReserveInitialCallbacks()) return false
+		callbackCapacityRetryToken = token
+		return true
+	}
 
 	fun applicationOwnedCallbackCount(): Int =
 		pendingCallbackCount() - visualRegistrations.values.count {
@@ -577,7 +591,13 @@ internal class ReaderWebViewVisualHandoff(
 }
 
 internal class ReaderWebViewVisualHandoffHostAdapter(
-	private val webViewProvider: () -> WebView?
+	private val webViewProvider: () -> WebView?,
+	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
+	private val onQaFaultApplied: (
+		relocationToken: String,
+		handoffAttemptId: Long,
+		correlation: ReaderPageQaFaultCorrelation
+	) -> Boolean = { _, _, _ -> false }
 ) : ReaderWebViewVisualHandoffHost {
 	private data class PostedCallback(
 		val owner: View,
@@ -619,6 +639,37 @@ internal class ReaderWebViewVisualHandoffHostAdapter(
 
 	override fun postVisualStateCallback(
 		relocationToken: String,
+		handoffAttemptId: Long,
+		registration: ReaderWebViewVisualDeliveryCell
+	) {
+		check(Looper.myLooper() === Looper.getMainLooper()) {
+			"Visual-state callback registration is Main-thread owned"
+		}
+		val applied = qaFaultRegistry?.delayVisualState(
+			relocationToken = relocationToken,
+			handoffAttemptId = handoffAttemptId,
+			registration = registration,
+			postPhysical = { ownedRegistration ->
+				postPhysicalVisualStateCallback(
+					handoffAttemptId,
+					ownedRegistration
+				)
+			}
+		)
+		if (applied == null) {
+			postPhysicalVisualStateCallback(handoffAttemptId, registration)
+		} else {
+			check(
+				onQaFaultApplied(
+					relocationToken,
+					handoffAttemptId,
+					applied.correlation()
+				)
+			) { "Visual-state QA fault did not match the active handoff" }
+		}
+	}
+
+	private fun postPhysicalVisualStateCallback(
 		handoffAttemptId: Long,
 		registration: ReaderWebViewVisualDeliveryCell
 	) {
@@ -736,6 +787,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		ReaderWebViewVisualHandoffFailure
 	) -> Unit,
 	private val hideSurface: () -> Unit,
+	private val canRecover: () -> Boolean = { true },
 	timeoutMillis: Long = 2_000L,
 	private val onOwnershipMutated: () -> Unit = {},
 	private val attemptEventSink: ReaderWebViewVisualHandoffAttemptEventSink =
@@ -752,11 +804,47 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 
 	private var phase = Phase.Idle
 	private var head: ReaderPageRelocationRequest? = null
+	private var headQaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
+	private var qaFaultAppliedHandoffAttemptId: Long? = null
+	private var currentHandoffAttemptId: Long? = null
+	private val correlatedAttemptEventSink =
+		ReaderWebViewVisualHandoffAttemptEventSink { event ->
+			when (event) {
+				is ReaderWebViewVisualHandoffAttemptEvent.Started -> {
+					currentHandoffAttemptId = event.handoffAttemptId
+					if (
+						headQaFaultCorrelation != null &&
+						qaFaultAppliedHandoffAttemptId == null
+					) {
+						qaFaultAppliedHandoffAttemptId = event.handoffAttemptId
+					}
+					attemptEventSink.emit(event)
+				}
+				is ReaderWebViewVisualHandoffAttemptEvent.Terminal ->
+					attemptEventSink.emit(
+						event.copy(
+							qaFaultCorrelation = qaFaultCorrelationForAttempt(
+								event.relocationToken,
+								event.handoffAttemptId
+							)
+						)
+					)
+				is ReaderWebViewVisualHandoffAttemptEvent.StalePhysicalCallbackReleased ->
+					attemptEventSink.emit(
+						event.copy(
+							qaFaultCorrelation = qaFaultCorrelationForAttempt(
+								event.relocationToken,
+								event.handoffAttemptId
+							)
+						)
+					)
+			}
+		}
 	private val handoff = ReaderWebViewVisualHandoff(
 		host = host,
 		timeoutMillis = timeoutMillis,
 		onCapacityRetry = ::onCapacityRetry,
-		attemptEventSink = attemptEventSink,
+		attemptEventSink = correlatedAttemptEventSink,
 		onOwnershipMutated = onOwnershipMutated
 	)
 
@@ -764,13 +852,68 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 
 	fun pendingCallbackLimit(): Int = handoff.pendingCallbackLimit
 
-	fun onAcknowledged(request: ReaderPageRelocationRequest): Boolean {
+	fun onAcknowledged(
+		request: ReaderPageRelocationRequest,
+		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
+	): Boolean {
 		if (phase != Phase.Idle || !matchesAcknowledgedHead(request)) return false
 		head = request
+		headQaFaultCorrelation = qaFaultCorrelation
+		qaFaultAppliedHandoffAttemptId = null
 		return begin(request)
 	}
 
+	fun attachQaFault(
+		relocationToken: String,
+		handoffAttemptId: Long,
+		correlation: ReaderPageQaFaultCorrelation
+	): Boolean {
+		val request = head ?: return false
+		if (
+			phase != Phase.Awaiting ||
+			request.token.value != relocationToken ||
+			currentHandoffAttemptId != handoffAttemptId ||
+			headQaFaultCorrelation != null ||
+			correlation.appliedOperation.relocationToken != relocationToken ||
+			correlation.appliedOperation.handoffAttemptId != handoffAttemptId
+		) {
+			return false
+		}
+		headQaFaultCorrelation = correlation
+		qaFaultAppliedHandoffAttemptId = handoffAttemptId
+		return true
+	}
+
+	fun qaFaultCorrelation(
+		relocationToken: String,
+		handoffAttemptId: Long? = null
+	): ReaderPageQaFaultCorrelation? {
+		val root = headQaFaultCorrelation ?: return null
+		if (root.appliedOperation.relocationToken != relocationToken) return null
+		val attemptId = handoffAttemptId ?: currentHandoffAttemptId
+		return attemptId?.let {
+			qaFaultCorrelationForAttempt(relocationToken, it)
+		} ?: root
+	}
+
+	private fun qaFaultCorrelationForAttempt(
+		relocationToken: String,
+		handoffAttemptId: Long
+	): ReaderPageQaFaultCorrelation? {
+		val root = headQaFaultCorrelation ?: return null
+		if (root.appliedOperation.relocationToken != relocationToken) return null
+		val appliedAttempt = qaFaultAppliedHandoffAttemptId ?: return null
+		return root.withRelation(
+			if (handoffAttemptId == appliedAttempt) {
+				ReaderPageQaFaultRelation.AppliedOperation
+			} else {
+				ReaderPageQaFaultRelation.Recovery
+			}
+		)
+	}
+
 	fun onRetryEvent(event: ReaderPageRelocationVisualRetryEvent): Boolean {
+		if (!canRecover()) return false
 		val request = head ?: return false
 		if (
 			phase != Phase.Recovering ||
@@ -783,6 +926,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	}
 
 	private fun onCapacityRetry(event: ReaderWebViewVisualHandoffRetryEvent): Boolean {
+		if (!canRecover()) return true
 		val request = head ?: return false
 		val edge = event as?
 			ReaderWebViewVisualHandoffRetryEvent.CallbackCapacityAvailable
@@ -845,9 +989,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
 			return
 		}
-		head = null
 		phase = Phase.Idle
 		onCompleted(request)
+		head = null
+		clearQaFaultCorrelation()
 		val next = queue.commandToDispatch()
 		if (next == null) hideSurface() else dispatch(next)
 	}
@@ -859,12 +1004,28 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		if (phase == Phase.Closed || head != request) return
 		phase = Phase.Recovering
 		publishRecovery(request, reason)
+		if (!canRecover()) return
 		if (
 			reason == ReaderWebViewVisualHandoffFailure.TimedOut &&
 			currentStateMatches(request)
 		) {
+			val delayedByQa =
+				headQaFaultCorrelation != null &&
+				qaFaultAppliedHandoffAttemptId == currentHandoffAttemptId
+			if (
+				delayedByQa &&
+				handoff.awaitCallbackCapacity(request.token.value)
+			) {
+				return
+			}
 			begin(request)
 		}
+	}
+
+	private fun clearQaFaultCorrelation() {
+		headQaFaultCorrelation = null
+		qaFaultAppliedHandoffAttemptId = null
+		currentHandoffAttemptId = null
 	}
 
 	private fun matchesAcknowledgedHead(
@@ -910,6 +1071,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		phase = Phase.Idle
 		handoff.cancelPendingCapacityRetryEdge(request.token.value)
 		handoff.invalidate()
+		clearQaFaultCorrelation()
 	}
 
 	fun close() {
@@ -919,5 +1081,6 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		phase = Phase.Closed
 		request?.let { handoff.cancelPendingCapacityRetryEdge(it.token.value) }
 		handoff.close()
+		clearQaFaultCorrelation()
 	}
 }

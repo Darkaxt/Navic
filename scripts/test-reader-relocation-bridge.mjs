@@ -60,6 +60,7 @@ const runtime = {
     },
   },
   beginControlledRelocation: () => {},
+  scheduleSettledControlledPageTurnRelocation: () => true,
   scheduleControlledRelocationFallback: () => {},
   applyReaderViewportLayout: () => {},
 }

@@ -60,7 +60,8 @@ private fun readerPagePreparationPresentation(
 	}
 	ReaderPageInteractionState.Ready,
 	ReaderPageInteractionState.Settling,
-	ReaderPageInteractionState.BackgroundPrefetch -> ReaderPagePreparationPresentation.Hidden
+	ReaderPageInteractionState.BackgroundPrefetch,
+	ReaderPageInteractionState.RefillingWorkingSet -> ReaderPagePreparationPresentation.Hidden
 }
 
 fun ReaderPagePreparationState.withReadiness(

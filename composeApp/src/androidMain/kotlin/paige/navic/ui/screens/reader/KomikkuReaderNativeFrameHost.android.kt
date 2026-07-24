@@ -75,6 +75,23 @@ private const val PageTurnPrewarmRequiredStableFrames = 2
 private const val AndroidGestureDoubleTapMinTimeMillis = 40L
 private val ReaderPageDiagnosticSessionIds = AtomicLong()
 
+internal fun dispatchClaimedReaderPageCurlEvent(
+	event: MotionEvent,
+	dispatch: (MotionEvent) -> ReaderPageCurlDispatchResult
+): ReaderPageCurlDispatchResult {
+	if (event.actionMasked != MotionEvent.ACTION_UP) return dispatch(event)
+	val moveEvent = MotionEvent.obtain(event)
+	moveEvent.action = MotionEvent.ACTION_MOVE
+	return try {
+		when (val moveResult = dispatch(moveEvent)) {
+			ReaderPageCurlDispatchResult.Accepted -> dispatch(event)
+			ReaderPageCurlDispatchResult.TerminalPublished -> moveResult
+		}
+	} finally {
+		moveEvent.recycle()
+	}
+}
+
 @Composable
 actual fun KomikkuReaderNativeFrameHost(
 	navigator: KomikkuReaderNavigator,
@@ -652,8 +669,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private val applicationOwnershipEpoch = ReaderPageApplicationOwnershipEpoch {
 		scheduleApplicationOwnershipRetry()
 	}
+	private val qaFaultRegistry = ReaderPageQaFaultRegistry(
+		eventSink = ReaderPageQaFaultEventSink { event ->
+			Logger.i(
+				"ReaderPageQaFault",
+				ReaderPageDiagnostic.qaFault(readerDiagnosticSession, event)
+			)
+		},
+		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted
+	)
+	private val qaFaultRegistration = ReaderPageQaFaultControl.attach(qaFaultRegistry)
 	private val pageTurnBundleSource = ReaderPageTurnBundleSource(
 		diagnostics = readerRuntimeDiagnostics,
+		qaFaultRegistry = qaFaultRegistry,
 		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted
 	)
 	private val pagePointerRouter = ReaderPagePointerRouter(
@@ -731,7 +759,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
+		qaFaultRegistry = qaFaultRegistry,
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		onAttachRasterRepairQaFault = ::attachPageRasterRepairQaFault,
 		onRequestRasterRepair = ::requestPageRasterRepair,
 		onGestureTerminal = { gestureId, outcome, detail ->
 			completePageGesture(gestureId, outcome, detail)
@@ -795,6 +825,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		webViewProvider = { viewerContentContainer.findDescendantWebView() },
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
+		qaFaultRegistry = qaFaultRegistry,
+		fenceCallbacks = {
+			ReaderPageQaFaultControl.detach(qaFaultRegistration)
+			qaFaultRegistry.closeAndDrain()
+		},
 		closeRendererAndAdapter = {
 			playLikeCurlController.destroyAndJoin()
 		},
@@ -915,10 +950,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				stagedPublicationLimit = bundle.stagedPublicationLimit,
 				pendingCallbacks =
 					bundle.pendingPublicationCallbacks +
-						controller.pendingVisualCallbacks,
+						controller.pendingVisualCallbacks +
+						qaFaultRegistry.pendingCallbackCount(),
 				pendingCallbackLimit =
 					bundle.pendingPublicationCallbackLimit +
-						controller.pendingVisualCallbackLimit,
+						controller.pendingVisualCallbackLimit +
+						qaFaultRegistry.pendingCallbackLimit,
 				relocationReservations = relocation.reserved,
 				queuedRelocations = relocation.queued,
 				relocationTokens = relocation.occupied,
@@ -977,6 +1014,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			removePageTurnPrewarmLayoutListener()
 			requestPageTurnPrewarmWhenReady()
 		}
+	}
+
+	private fun attachPageRasterRepairQaFault(
+		pageIndex: Int,
+		correlation: ReaderPageQaFaultCorrelation
+	) {
+		pageRasterPreparationController.attachRasterRepairQaFault(
+			pageIndex,
+			correlation
+		)
 	}
 
 	private fun requestPageRasterRepair(
@@ -1651,7 +1698,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				y = event.y,
 				touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 			)
-			MotionEvent.ACTION_UP -> ReaderPageHostPointerEvent.Up
+			MotionEvent.ACTION_UP -> ReaderPageHostPointerEvent.PositionedUp(
+				x = event.x,
+				y = event.y,
+				touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+			)
 			MotionEvent.ACTION_CANCEL -> ReaderPageHostPointerEvent.Cancel
 			MotionEvent.ACTION_POINTER_DOWN ->
 				ReaderPageHostPointerEvent.SecondaryPointerDown
@@ -1712,13 +1763,24 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			recycleRetainedContentDown()
 			when (downResult) {
 				ReaderPageCurlDispatchResult.Accepted -> {
-					val moveResult = playLikeCurlController.onPageTouchEvent(
-						event,
-						route.gestureId
-					)
+					val moveResult = dispatchClaimedReaderPageCurlEvent(event) {
+						dispatchedEvent ->
+						playLikeCurlController.onPageTouchEvent(
+							dispatchedEvent,
+							route.gestureId
+						)
+					}
 					when (moveResult) {
 						ReaderPageCurlDispatchResult.Accepted -> {
-							playLikeCurlGestureOwned = true
+							if (
+								event.actionMasked == MotionEvent.ACTION_UP ||
+								event.actionMasked == MotionEvent.ACTION_CANCEL
+							) {
+								playLikeCurlGestureOwned = false
+								clearPlayLikeCurlPointerTapFlagsAfterUp()
+							} else {
+								playLikeCurlGestureOwned = true
+							}
 						}
 						ReaderPageCurlDispatchResult.TerminalPublished -> {
 							playLikeCurlGestureOwned = false

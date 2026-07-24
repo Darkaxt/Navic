@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ReaderPageRasterPreparationSourceTest {
 	@Test
@@ -30,9 +31,27 @@ class ReaderPageRasterPreparationSourceTest {
 				persistentRasterEntries = 1
 			)
 		)
-		val source = readerRasterPreparationSource()
-		assertContains(source, "persistentRasterEntries = bundleSource.rasterCacheMetrics().diskEntries")
-		assertContains(source, "trigger = activeAcquisitionTrigger")
+		val preparation = readerRasterPreparationSource()
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val initializationPath = preparation
+			.substringAfter("private fun initializeRasterCacheAndQueryPlan(")
+			.substringBefore("private fun consumeQaDeferral(")
+		val initialization = "initializeRasterCache(webView)"
+		val metrics = "bundleSource.rasterCacheMetrics().diskEntries"
+		assertContains(bundle, "suspend fun initializeRasterCache(webView: WebView)")
+		assertContains(initializationPath, initialization)
+		assertContains(initializationPath, "if (!prewarmAcquisitionTriggerClassified)")
+		assertContains(initializationPath, "prewarmAcquisitionTriggerClassified = true")
+		assertContains(
+			preparation,
+			"if (resumedDiagnostic == null) {\n\t\t\tprewarmAcquisitionTriggerClassified = false"
+		)
+		assertContains(preparation, "persistentRasterEntries = $metrics")
+		assertTrue(
+			initializationPath.indexOf(initialization) < initializationPath.indexOf(metrics),
+			"Persistent cache initialization must precede warm-reopen trigger selection"
+		)
+		assertContains(preparation, "trigger = activeAcquisitionTrigger")
 	}
 
 	@Test
@@ -210,6 +229,19 @@ class ReaderPageRasterPreparationSourceTest {
 			"detail = \"reference-unavailable:${'$'}centerOrdinal\""
 		)
 		assertContains(repair, "onRequestPrewarm()")
+	}
+
+	@Test
+	fun coalescedRepairFaultUpgradesTheInFlightDiagnosticRoot() {
+		val source = readerRasterPreparationSource()
+		val attach = source.substringAfter(
+			"fun attachRasterRepairQaFault("
+		).substringBefore("\n\tfun repairRasterPage(")
+
+		assertContains(attach, "rasterRepairQaFaultCorrelations.putIfAbsent(pageIndex, correlation)")
+		assertContains(attach, "rasterRepairDiagnostics[pageIndex]?.let { operation ->")
+		assertContains(attach, "if (operation.qaFaultCorrelation == null)")
+		assertContains(attach, "operation.copy(qaFaultCorrelation = activeCorrelation)")
 	}
 
 	@Test

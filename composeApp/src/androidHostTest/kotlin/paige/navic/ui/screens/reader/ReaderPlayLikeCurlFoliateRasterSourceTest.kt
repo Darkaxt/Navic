@@ -220,6 +220,74 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	}
 
 	@Test
+	fun qaRasterMissTargetsOnlyTheCurrentLogicalOrdinal() {
+		val current = readerPlayLikeCurlFoliatePageRequest(
+			orientation = ReaderPlayLikeCurlOrientation.Landscape,
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+			logicalOrdinal = 2,
+			pageCount = 8
+		)
+		val adjacentSameSnapshot = readerPlayLikeCurlFoliatePageRequest(
+			orientation = ReaderPlayLikeCurlOrientation.Landscape,
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+			logicalOrdinal = 3,
+			pageCount = 8
+		)
+
+		assertTrue(readerPlayLikeCurlQaMissIsEligible(current, targetLogicalOrdinal = 2))
+		assertFalse(
+			readerPlayLikeCurlQaMissIsEligible(
+				adjacentSameSnapshot,
+				targetLogicalOrdinal = 2
+			)
+		)
+		assertTrue(
+			readerPlayLikeCurlQaMissIsEligible(
+				adjacentSameSnapshot,
+				targetLogicalOrdinal = null
+			)
+		)
+	}
+
+	@Test
+	fun qaRasterMissAppliesAndStartsRepairInsideOneCurrentMainThreadFence() {
+		val source = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlFoliateRasterSource.android.kt"
+		).readText()
+		val load = source
+			.substringAfter("override suspend fun load(")
+			.substringBefore("internal suspend fun consumeQaMiss(")
+		val qaMiss = source
+			.substringAfter("internal suspend fun consumeQaMiss(")
+			.substringBefore("suspend fun hydratePersistent(")
+
+		assertContains(load, "if (consumeQaMiss(key)) return null")
+		assertContains(qaMiss, "withContext(Dispatchers.Main.immediate)")
+		assertContains(qaMiss, "key.publicationFence.isCurrent()")
+		assertContains(qaMiss, "readerPlayLikeCurlQaMissIsEligible(")
+		assertContains(qaMiss, "qaMissTargetOrdinalProvider()")
+		assertContains(
+			qaMiss,
+			"registry.hasQueued(ReaderPageQaFault.MissNextRasterLoad)"
+		)
+		assertContains(qaMiss, "registry.consumeAndApply(")
+		assertContains(qaMiss, "onQaMissingRaster(")
+		assertTrue(
+			qaMiss.indexOf("key.publicationFence.isCurrent()") <
+				qaMiss.indexOf("registry.consumeAndApply(")
+		)
+		assertTrue(
+			qaMiss.indexOf("readerPlayLikeCurlQaMissIsEligible(") <
+				qaMiss.indexOf("registry.consumeAndApply(")
+		)
+		assertTrue(
+			qaMiss.indexOf("registry.consumeAndApply(") <
+				qaMiss.indexOf("onQaMissingRaster(")
+		)
+	}
+
+	@Test
 	fun missingFoliateRasterReportsItsSourcePageForTargetedRepair() {
 		val source = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +

@@ -828,12 +828,12 @@ class ReaderRuntimeShellProgressTest {
 
 		val cancelIndex = claim.indexOf("dispatchContentCancel(event)")
 		val downIndex = claim.indexOf("originalDown,")
-		val moveIndex = claim.indexOf("event,")
+		val moveIndex = claim.indexOf("dispatchClaimedReaderPageCurlEvent(event)")
 		assertTrue(cancelIndex >= 0)
 		assertTrue(downIndex > cancelIndex)
 		assertTrue(moveIndex > downIndex)
 		assertFalse(
-			claim.substringAfter("event,")
+			claim.substringAfter("dispatchClaimedReaderPageCurlEvent(event)")
 				.contains("super.dispatchTouchEvent(event)"),
 			"The claimed move must not also reach Foliate."
 		)
@@ -953,6 +953,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "postLocationChanged(detail")
 		assertContains(bridgeText, "postCurrentLocationSnapshot('initial-resume')")
 		assertContains(onRelocate, "this.lastRelocateDetail = detail")
+		assertContains(onRelocate, "this.exactPageTurnNavigationInProgress")
 		assertContains(onRelocate, "this.scheduleCommittedRelocation(detail, this.consumeControlledRelocationReason('relocate-committed'))")
 		assertTrue(
 			openPublication.indexOf("post({ type: 'publicationReady' })") <
@@ -985,7 +986,7 @@ class ReaderRuntimeShellProgressTest {
 
 		assertContains(bridgeText, "reflowablePagePosition(detail)")
 		assertContains(bridgeText, "reflowableLocationPagePosition(detail)")
-		assertContains(bridgeText, "reflowableSectionPagePosition()")
+		assertContains(bridgeText, "reflowableSectionPagePosition(detail)")
 		assertContains(bridgeText, "readerPaginationProfilePosition(detail, sectionPosition)")
 		assertContains(bridgeText, "readerEnsurePaginationProfile(detail, sectionPosition)")
 		assertContains(bridgeText, "const sectionIndex = Number(detail?.section?.current ?? detail?.index)")
@@ -1016,7 +1017,7 @@ class ReaderRuntimeShellProgressTest {
 			visualTextPageCount.contains("this.reflowablePaginatedRawTextPageCount(pages) - 1"),
 			"Foliate already maps readable text pages as pages - 2; subtracting one more collapses short chapters and desynchronizes page turns."
 		)
-		assertContains(bridgeText, "pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
+		assertContains(bridgeText, "const pageIndex = Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))")
 		assertContains(bridgeText, "const sectionSizes = this.reflowableSectionSizes()")
 		assertContains(bridgeText, "reflowableBookPageModel")
 		assertContains(bridgeText, "reflowableStableBookPageModel(normalizedSectionIndex, sectionPosition, sectionSizes)")
@@ -1038,7 +1039,7 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(
 			bridgeText,
-			"pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))",
+			"const pageIndex = Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))",
 			message = "Foliate's 1-based section page must be converted to a zero-based page index after EPUB cover suppression."
 		)
 		assertContains(bridgeText, "readerPagePosition(detail)")
@@ -1153,7 +1154,7 @@ class ReaderRuntimeShellProgressTest {
 			.substringAfter("function reflowableScrolledSectionPagePosition() {")
 			.substringBefore("\nfunction reflowableSectionPagePosition")
 		val reflowableSectionBody = bridgeText
-			.substringAfter("function reflowableSectionPagePosition() {")
+			.substringAfter("function reflowableSectionPagePosition(detail = this.lastRelocateDetail) {")
 			.substringBefore("\nfunction reflowableLocationPagePosition")
 		val chapterPagePositionBody = bridgeText
 			.substringAfter("chapterPagePosition(detail, fallback = null) {")
@@ -1172,7 +1173,7 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(
 			chapterPagePositionBody,
-			": this.reflowableSectionPagePosition()",
+			": this.reflowableSectionPagePosition(detail)",
 			message = "The native rail must continue to use chapter-local section math, now including scrolled section pseudo-pages."
 		)
 		assertFalse(
@@ -1206,7 +1207,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeText, "observedChapterPageCounts = new Map()")
 		assertContains(
 			bridgeText,
-			"return this.readerPaginationProfilePosition(detail, sectionPosition) ||",
+			"const pagePosition = this.readerPaginationProfilePosition(detail, sectionPosition) ||",
 			message = "Reflowable EPUB labels must prefer the deterministic pagination profile before whole-book, location, page-list, or section fallbacks."
 		)
 		assertContains(
@@ -1284,8 +1285,8 @@ class ReaderRuntimeShellProgressTest {
 			.substringAfter("function scheduleControlledRelocationFallback(reason) {")
 			.substringBefore("\n\nfunction onRelocate")
 		val staleGuardIndex = onRelocateBody.indexOf("this.pageTurnRelocationDetailIsStale(detail, this.controlledRelocateReason)")
-		val sequenceIncrementIndex = onRelocateBody.indexOf("this.relocateSequence += 1")
-		val lastRelocateIndex = onRelocateBody.indexOf("this.lastRelocateDetail = detail")
+		val sequenceIncrementIndex = onRelocateBody.indexOf("this.relocateSequence += 1", staleGuardIndex)
+		val lastRelocateIndex = onRelocateBody.indexOf("this.lastRelocateDetail = detail", staleGuardIndex)
 		val consumeReasonIndex = onRelocateBody.indexOf("this.consumeControlledRelocationReason")
 		val fallbackStaleGuardIndex = fallbackBody.indexOf("this.pageTurnRelocationDetailIsStale(this.lastRelocateDetail, reason)")
 		val fallbackCommitIndex = fallbackBody.indexOf("this.scheduleCommittedRelocation(this.lastRelocateDetail, this.consumeControlledRelocationReason(reason))")

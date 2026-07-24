@@ -6,5 +6,13 @@
 			android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
 			android:exported="true"
 			android:theme="@style/Theme.Navic" />
+		<receiver
+			android:name="paige.navic.androidApp.ReaderPageQaFaultReceiver"
+			android:exported="true"
+			android:permission="android.permission.DUMP">
+			<intent-filter>
+				<action android:name="darkaxt.navic.readerdev.READER_QA_FAULT" />
+			</intent-filter>
+		</receiver>
 	</application>
 </manifest>

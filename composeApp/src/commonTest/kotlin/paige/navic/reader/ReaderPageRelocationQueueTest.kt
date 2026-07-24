@@ -49,6 +49,21 @@ class ReaderPageRelocationQueueTest {
 	}
 
 	@Test
+	fun dispatchedHeadStateEndsWhenTheExactRelocationIsAcknowledged() {
+		val queue = ReaderPageRelocationQueue()
+		val current = enqueue(queue, gestureId = 1L, source = 3, destination = 4)
+		assertFalse(queue.hasDispatchedHead())
+
+		assertEquals(current, queue.commandToDispatch())
+		assertTrue(queue.hasDispatchedHead())
+		assertTrue(queue.acknowledge(current.token.value, 4, "session-a", 10L, 20L))
+		assertFalse(queue.hasDispatchedHead())
+
+		assertTrue(queue.completeHandoff(current.token.value))
+		assertFalse(queue.hasDispatchedHead())
+	}
+
+	@Test
 	fun capacityReservationRejectsWithoutAdvancingIds() {
 		val queue = ReaderPageRelocationQueue(capacity = 1)
 		val first = assertIs<ReaderPageRelocationReservationResult.Reserved>(

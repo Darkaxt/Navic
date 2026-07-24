@@ -1,4 +1,6 @@
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+const exactNavigationUnlockPollMs = 16
+const exactNavigationUnlockTimeoutMs = 5000
 
 const debounce = (f, wait, immediate) => {
     let timeout
@@ -1199,6 +1201,7 @@ export class Paginator extends HTMLElement {
                 },
             }))
             this.#view = view
+            this.setStyles(this.#styles)
         }
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(this.#view.document) : anchor) ?? 0, select)
@@ -1213,7 +1216,6 @@ export class Paginator extends HTMLElement {
             const oldIndex = this.#index
             const onLoad = detail => {
                 this.sections[oldIndex]?.unload?.()
-                this.setStyles(this.#styles)
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
             await this.#display(Promise.resolve(this.sections[index].load())
@@ -1221,7 +1223,7 @@ export class Paginator extends HTMLElement {
                 .catch(e => {
                     console.warn(e)
                     console.warn(new Error(`Failed to load section ${index}`))
-                    return {}
+                    throw e
                 }))
         }
     }
@@ -1230,13 +1232,26 @@ export class Paginator extends HTMLElement {
         const resolved = await target
         if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
     }
+    async #acquireExactNavigationLock() {
+        const deadline = performance.now() + exactNavigationUnlockTimeoutMs
+        while (this.#locked && performance.now() < deadline)
+            await wait(exactNavigationUnlockPollMs)
+        if (this.#locked)
+            throw new Error('Exact page navigation timed out waiting for paginator unlock')
+        this.#locked = true
+    }
     async goToTextPage(index, pageIndex, reason = 'navigation') {
-        if (this.#locked || !this.#canGoToIndex(index)) return
-        const requestedPageIndex = Math.max(0, Math.floor(Number(pageIndex) || 0))
-        if (index !== this.#index) await this.#goTo({ index, anchor: 0 })
-        const textPageCount = Math.max(1, this.pages - 2)
-        const textPageIndex = Math.min(textPageCount - 1, requestedPageIndex)
-        return this.#scrollToPage(textPageIndex + 1, reason)
+        if (!this.#canGoToIndex(index)) return
+        await this.#acquireExactNavigationLock()
+        try {
+            const requestedPageIndex = Math.max(0, Math.floor(Number(pageIndex) || 0))
+            if (index !== this.#index) await this.#goTo({ index, anchor: 0 })
+            const textPageCount = Math.max(1, this.pages - 2)
+            const textPageIndex = Math.min(textPageCount - 1, requestedPageIndex)
+            return await this.#scrollToPage(textPageIndex + 1, reason)
+        } finally {
+            this.#locked = false
+        }
     }
     #scrollPrev(distance) {
         if (!this.#view) return true
@@ -1274,14 +1289,17 @@ export class Paginator extends HTMLElement {
     async #turnPage(dir, distance) {
         if (this.#locked) return
         this.#locked = true
-        const prev = dir === -1
-        const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
-        if (shouldGo) await this.#goTo({
-            index: this.#adjacentIndex(dir),
-            anchor: prev ? () => 1 : () => 0,
-        })
-        if (shouldGo || !this.hasAttribute('animated')) await wait(100)
-        this.#locked = false
+        try {
+            const prev = dir === -1
+            const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
+            if (shouldGo) await this.#goTo({
+                index: this.#adjacentIndex(dir),
+                anchor: prev ? () => 1 : () => 0,
+            })
+            if (shouldGo || !this.hasAttribute('animated')) await wait(100)
+        } finally {
+            this.#locked = false
+        }
     }
     async prev(distance) {
         return await this.#turnPage(-1, distance)

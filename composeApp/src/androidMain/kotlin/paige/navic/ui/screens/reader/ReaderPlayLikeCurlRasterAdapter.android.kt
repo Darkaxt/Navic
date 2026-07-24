@@ -185,6 +185,8 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 			residentEntryLimit = residentEntryLimit,
 			onCapacityAvailable = onCapacityAvailable
 		),
+	private val acquisitionInterceptor:
+		suspend (ReaderPlayLikeCurlRasterKey) -> Boolean = { false },
 	private val publicationDispatcher: CoroutineDispatcher = Dispatchers.Default,
 	private val onOwnershipMutated: () -> Unit = {},
 	private val release: (T) -> Unit
@@ -527,6 +529,13 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		key: ReaderPlayLikeCurlRasterKey,
 		preparationGeneration: Long
 	): CacheEntry<T>? {
+		val acquisitionIsCurrent = synchronized(lock) {
+			!closed &&
+				generation == preparationGeneration &&
+				activeProfile == key.profile
+		}
+		if (!acquisitionIsCurrent || acquisitionInterceptor(key)) return null
+
 		var workerToStart: Job? = null
 		val work = synchronized(lock) {
 			if (

@@ -135,6 +135,7 @@ internal class ReaderPageTurnBundleSource(
 		ReaderPageWebViewRasterDescriptorPort(),
 	private val hydrationStorePort: ReaderPageRasterHydrationStorePort? = null,
 	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
+	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
 	private val onOwnershipMutated: () -> Unit = {}
 ) {
 	private var activeGeneration = 0L
@@ -152,6 +153,7 @@ internal class ReaderPageTurnBundleSource(
 		release = ReaderPageSlideSnapshot::release
 	)
 	private val visualStateRequestId = AtomicLong()
+	private val persistenceAttemptIds = AtomicLong()
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
 	private val descriptorRequests =
 		mutableMapOf<Long, ReaderPageRasterDescriptorRequest>()
@@ -183,6 +185,8 @@ internal class ReaderPageTurnBundleSource(
 			}
 		)
 	private val rasterPersistenceDiagnostics = linkedSetOf<String>()
+	private val persistenceRetryCorrelations =
+		mutableMapOf<String, ReaderPageQaFaultCorrelation>()
 	private var protectedSnapshotPageIndices = emptySet<Int>()
 	private var rasterCache: ReaderPageRasterCache<Bitmap>? = null
 	private var persistentStore: ReaderPageRasterCacheStore<Bitmap>? = null
@@ -262,6 +266,13 @@ internal class ReaderPageTurnBundleSource(
 				activeEncodePins = 0,
 				encodePinnedIdentities = 0
 			)
+
+	suspend fun initializeRasterCache(webView: WebView) {
+		withContext(Dispatchers.Main.immediate) {
+			requireRasterInitializationOpen()
+			rasterScheduler(webView)
+		}
+	}
 
 	fun ownershipMetrics(): ReaderPageTurnBundleOwnershipMetrics =
 		ReaderPageTurnBundleOwnershipMetrics(
@@ -640,13 +651,17 @@ internal class ReaderPageTurnBundleSource(
 					leafGeometry = checkNotNull(leafGeometry),
 					reverseFaceColor = value.metadata.reverseFaceColor
 				)
+				eligible.forEach { snapshot.retain() }
 				val cached = putSnapshot(
 					snapshot = snapshot,
 					priority = ReaderPageRasterPriority.NextTransition,
 					persist = false
 				)
 				rasterOwnershipTransferred = true
-				eligible.forEach { cached.retain() }
+				if (cached !== snapshot) {
+					eligible.forEach { cached.retain() }
+					eligible.forEach { snapshot.release() }
+				}
 				eligible.forEach { recipient ->
 					deliverHydrationResult(recipient.callback, cached)
 				}
@@ -1073,6 +1088,14 @@ internal class ReaderPageTurnBundleSource(
 						)
 						val publicationEpoch = publicationLedger.currentEpoch()
 						val publicationStartedAt = diagnostics?.now() ?: 0L
+						val persistenceAttemptId = ReaderPagePersistenceAttemptId(
+							persistenceAttemptIds.incrementAndGet()
+						)
+						var publicationQaFaultCorrelation:
+							ReaderPageQaFaultCorrelation? =
+							persistenceRetryCorrelations[key.digest]?.withRelation(
+								ReaderPageQaFaultRelation.Retry
+							)
 						val registration = publicationLedger.begin(
 							digest = key.digest,
 							value = value
@@ -1080,6 +1103,7 @@ internal class ReaderPageTurnBundleSource(
 							diagnostics?.publication(
 								digest = key.digest,
 								rasterEpoch = publicationEpoch,
+								persistenceAttemptId = persistenceAttemptId,
 								result = when {
 									persisted -> ReaderPagePublicationDiagnosticResult.Durable
 									closed -> ReaderPagePublicationDiagnosticResult.Cancelled
@@ -1087,8 +1111,16 @@ internal class ReaderPageTurnBundleSource(
 										ReaderPagePublicationDiagnosticResult.Stale
 									else -> ReaderPagePublicationDiagnosticResult.Failed
 								},
-								startedAtMs = publicationStartedAt
+								startedAtMs = publicationStartedAt,
+								qaFaultCorrelation = publicationQaFaultCorrelation
 							)
+							publicationQaFaultCorrelation
+								?.takeIf { correlation ->
+									correlation.relation == ReaderPageQaFaultRelation.Retry &&
+										persistenceRetryCorrelations[key.digest]
+											?.requestId == correlation.requestId
+								}
+								?.let { persistenceRetryCorrelations.remove(key.digest) }
 							if (!persisted) {
 								rasterPersistenceSkipped(
 									pageIndex,
@@ -1100,8 +1132,15 @@ internal class ReaderPageTurnBundleSource(
 						}
 						publicationValueTransferred = true
 						when (registration) {
-							is ReaderPageRasterPublicationRegistration.Started ->
-								scheduleRasterPublication(registration.request)
+							is ReaderPageRasterPublicationRegistration.Started -> {
+								scheduleRasterPublication(
+									request = registration.request,
+									persistenceAttemptId = persistenceAttemptId,
+									onQaFaultApplied = { correlation ->
+										publicationQaFaultCorrelation = correlation
+									}
+								)
+							}
 							is ReaderPageRasterPublicationRegistration.Coalesced ->
 								Unit
 							is ReaderPageRasterPublicationRegistration.Rejected ->
@@ -1157,7 +1196,9 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	private fun scheduleRasterPublication(
-		request: ReaderPageRasterPublicationRequest
+		request: ReaderPageRasterPublicationRequest,
+		persistenceAttemptId: ReaderPagePersistenceAttemptId,
+		onQaFaultApplied: (ReaderPageQaFaultCorrelation) -> Unit
 	) {
 		publicationScheduler.schedule(request) {
 			val value = publicationLedger.acquireForPersistence(request)
@@ -1168,7 +1209,19 @@ internal class ReaderPageTurnBundleSource(
 			)
 			val store = persistentStore
 			var writeFailure: Throwable? = null
+			var publicationQaFault: ReaderPageQaAppliedFault? = null
 			try {
+				publicationQaFault = qaFaultRegistry?.consumeAndApply(
+					ReaderPageQaFault.FailNextPersistence,
+					ReaderPageQaFaultOperationContext(
+						publicationEpoch = request.epoch,
+						persistenceAttemptId = persistenceAttemptId.value
+					)
+				)
+				publicationQaFault?.correlation()?.let { correlation ->
+					persistenceRetryCorrelations[value.key.digest] = correlation
+					onQaFaultApplied(correlation)
+				}
 				try {
 					withContext(NonCancellable + Dispatchers.IO) {
 						try {
@@ -1187,8 +1240,17 @@ internal class ReaderPageTurnBundleSource(
 										publicationLedger.commitFence(request)
 								) ?: write
 							}
+							if (publicationQaFault != null && write.persisted) {
+								write.receipt?.let { receipt ->
+									store?.rollbackPublication(receipt)
+								}
+								write = write.copy(persisted = false, receipt = null)
+							}
 						} catch (failure: Throwable) {
 							writeFailure = failure
+							if (publicationQaFault != null) {
+								write = write.copy(persisted = false, receipt = null)
+							}
 						}
 					}
 				} catch (_: CancellationException) {
@@ -1202,6 +1264,11 @@ internal class ReaderPageTurnBundleSource(
 				) {
 					"Publication store adopted a ledger-owned value"
 				}
+				qaFaultRegistry?.pausePublicationWithinWorker(request.epoch)
+					?.let { applied ->
+						publicationQaFault = applied
+						onQaFaultApplied(applied.correlation())
+					}
 			} finally {
 				val accepted = publicationLedger.complete(
 					request = request,
@@ -1500,6 +1567,7 @@ internal class ReaderPageTurnBundleSource(
 		synchronized(closeFenceLock) {
 			if (closed) return
 			closed = true
+			persistenceRetryCorrelations.clear()
 			rasterJob.cancel()
 			try {
 				pendingDescriptorOwners.close()

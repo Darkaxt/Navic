@@ -59,6 +59,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "ReaderPlayLikeCurlFoliateRasterLoader")
 		assertContains(source, "pageTurnRasterPreparationPlan")
 		assertContains(source, "ReaderPlayLikeCurlRasterAdapter")
+		assertContains(source, "qaMissTargetOrdinalProvider = { currentOrdinal }")
+		assertContains(source, "acquisitionInterceptor = loader::consumeQaMiss")
 		assertContains(source, "readerPlayLikeCurlLibraryDeck")
 		assertContains(source, "put(\"type\", \"goToVisualPage\")")
 		assertFalse(source.contains("ReaderPlayLikeCurlAssetBitmapSource"))
@@ -195,17 +197,90 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(host, "ReaderPageVisualLocationOrigin.External")
 		assertContains(controller, "fun visualLocationOrigin(")
 		assertContains(controller, "relocationQueue.matchesDispatchedHead(")
+		assertContains(controller, "if (relocationQueue.hasDispatchedHead())")
+		assertFalse(
+			controller.contains(
+				"acknowledgement == null && relocationQueue.hasDispatchedHead()"
+			),
+			"A retained stale acknowledgement must not reclassify an in-flight exact relocation as external."
+		)
+		assertContains(
+			controller,
+			"ReaderPageVisualLocationOrigin.PendingExactPageTurn"
+		)
 		assertContains(controller, "relocationQueue.occupiedCount() == 0")
 		assertContains(
 			controller,
 			"ReaderPageVisualLocationOrigin.StaleAcknowledgement"
 		)
+		val origin = controller
+			.substringAfter("fun visualLocationOrigin(")
+			.substringBefore("fun synchronizeVisualPageIndex(")
+		assertTrue(
+			origin.indexOf("if (foliateSessionRelocationPending)") <
+				origin.indexOf("if (relocationQueue.hasDispatchedHead())"),
+			"A genuine Foliate session replacement must still outrank pending exact relocation state."
+		)
+		assertTrue(
+			origin.indexOf("relocationQueue.matchesDispatchedHead(") <
+				origin.indexOf("if (relocationQueue.hasDispatchedHead())"),
+			"An exact acknowledgement must be matched before transient dispatched state."
+		)
+		val synchronization = controller
+			.substringAfter("fun synchronizeVisualPageIndex(")
+			.substringBefore("private fun completeAcknowledgedRelocation(")
+		val pendingExact = synchronization
+			.substringAfter("ReaderPageVisualLocationOrigin.PendingExactPageTurn ->")
+			.substringBefore("ReaderPageVisualLocationOrigin.StaleAcknowledgement")
+		assertFalse(pendingExact.contains("invalidate("))
 		assertFalse(
 			controller
 				.substringAfter("fun visualLocationOrigin(")
 				.substringBefore("fun synchronizeVisualPageIndex(")
 				.contains("page-turn:exact")
 		)
+	}
+
+	@Test
+	fun exactCrossSpineRelocationRetainsRendererSectionIdentityDuringProfileFallback() {
+		val pagination = File(readerAssetRoot, "navic-reader-pagination.js").readText()
+		val sectionPosition = pagination
+			.substringAfter("function reflowableSectionPagePosition(")
+			.substringBefore("function reflowableLocationPagePosition(")
+		val profilePosition = pagination
+			.substringAfter("function readerPaginationProfilePosition(")
+			.substringBefore("function reflowableStableBookPageModel(")
+		val pagePosition = pagination
+			.substringAfter("function reflowablePagePosition(detail)")
+			.substringBefore("function readerPagePosition(detail)")
+		val chapterPosition = pagination
+			.substringAfter("function chapterPagePosition(detail, fallback = null)")
+			.substringBefore("function detailSectionKey(detail)")
+
+		assertContains(sectionPosition, "detail = this.lastRelocateDetail")
+		assertContains(
+			sectionPosition,
+			"detail?.section?.current ?? detail?.index"
+		)
+		assertContains(sectionPosition, "spineIndex:")
+		assertContains(sectionPosition, "chapterPageIndex:")
+		assertContains(sectionPosition, "chapterPageCount:")
+		assertContains(
+			profilePosition,
+			"sectionPosition = this.reflowableSectionPagePosition(detail)"
+		)
+		assertContains(pagePosition, "this.reflowableSectionPagePosition(detail)")
+		assertContains(pagePosition, "const pagePosition =")
+		assertContains(pagePosition, "spineIndex: sectionPosition.spineIndex")
+		assertContains(
+			pagePosition,
+			"chapterPageIndex: sectionPosition.chapterPageIndex"
+		)
+		assertContains(
+			pagePosition,
+			"chapterPageCount: sectionPosition.chapterPageCount"
+		)
+		assertContains(chapterPosition, "this.reflowableSectionPagePosition(detail)")
 	}
 
 	@Test
@@ -398,6 +473,53 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun rejectedCommittedTerminalInvalidatesPromotedRendererState() {
+		val source = controllerFile.readText()
+		val settlement = source
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
+		val recovery = source
+			.substringAfter("private fun recoverRejectedSettlement(")
+			.substringBefore("private fun promotePendingDeck(")
+
+		val sourceCapture = settlement.indexOf("val sourceOrdinal = currentOrdinal")
+		val promotion = settlement.indexOf("promotePendingDeck(currentPageOrdinal)")
+		val rejected = settlement.indexOf("result !is ReaderPageRelocationCommitResult.Published")
+		val recoveryCall = settlement.indexOf(
+			"recoverRejectedSettlement(sourceOrdinal, promotedGeneration)",
+			rejected
+		)
+		assertTrue(sourceCapture >= 0)
+		assertTrue(promotion > sourceCapture)
+		assertTrue(rejected > promotion)
+		assertTrue(recoveryCall > rejected)
+		assertContains(recovery, "recoverRejectedReaderSettlement(")
+		assertContains(recovery, "restoreSourceOrdinal = { ordinal -> currentOrdinal = ordinal }")
+		assertContains(recovery, "invalidateRenderer = { reason -> invalidate(reason) }")
+		assertContains(recovery, "requestPrewarm = onRequestPrewarm")
+		assertFalse(recovery.contains("activeDeckGenerationId = snapshot.activeDeckGenerationId"))
+		assertFalse(recovery.contains("pendingDeckGenerationId = snapshot.pendingDeckGenerationId"))
+	}
+
+	@Test
+	fun promotedDeckPublishesItsDestinationSourceOrdinal() {
+		val source = controllerFile.readText()
+		val publication = source
+			.substringAfter("private fun publishPreparedActiveDeck(")
+			.substringBefore("private fun notifyPreparedActiveDeckChanged(")
+		val promotion = source
+			.substringAfter("private fun promotePendingDeck(")
+			.substringBefore("private fun discardPendingDeck(")
+
+		assertContains(publication, "sourceOrdinal: Int = currentOrdinal")
+		assertContains(
+			publication,
+			"sourceCenterPageIndex = pages.profile.pageRequest(sourceOrdinal).sourcePageIndex"
+		)
+		assertContains(promotion, "publishPreparedActiveDeck(currentPageOrdinal)")
+	}
+
+	@Test
 	fun committedTurnsPublishOneVersionedWindowBeforePersistentFarEdgeRefill() {
 		val source = controllerFile.readText()
 		val settlement = source
@@ -409,6 +531,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val publisher = source
 			.substringAfter("private fun publishProtectedWindow(")
 			.substringBefore("private fun publishProtectedRasterOrdinals(")
+		val committedPublication = settlement
+			.substringAfter("publishCommittedTerminal = {")
+			.substringBefore("dispatch = { dispatchNextRelocation() }")
 		val adapterFence = source
 			.substringAfter("private fun rasterPublicationFence(")
 			.substringBefore("private fun publishProtectedWindow(")
@@ -419,9 +544,25 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "private var currentProtectedWindow = emptyList<Int>()")
 		assertContains(settlement, "committedTurnVersion = Math.incrementExact(committedTurnVersion)")
 		assertContains(settlement, "schedulePersistentRefill(")
+		assertContains(
+			committedPublication,
+			"val destinationWindow = profile.preparedPageIndices(currentPageOrdinal)"
+		)
+		assertContains(committedPublication, "publishProtectedWindow(destinationWindow)")
 		assertTrue(
-			settlement.indexOf("currentOrdinal = currentPageOrdinal") <
-				settlement.indexOf("schedulePersistentRefill(")
+			committedPublication.indexOf("currentOrdinal = currentPageOrdinal") <
+				committedPublication.indexOf("publishGestureTerminal("),
+			"The destination must become authoritative before the committed terminal is observable."
+		)
+		assertTrue(
+			committedPublication.indexOf("publishProtectedWindow(") <
+				committedPublication.indexOf("publishGestureTerminal("),
+			"The destination window must advance before relocation dispatch can request its far edge."
+		)
+		assertTrue(
+			settlement.indexOf("schedulePersistentRefill(") >
+				settlement.indexOf("relocationGestureCoordinator.commit("),
+			"Persistent hydration must remain asynchronous after the synchronous window advance."
 		)
 		assertContains(schedule, "rasterScope.launch(Dispatchers.Main.immediate)")
 		assertContains(schedule, "requestGeneration == expectedGeneration")
@@ -436,7 +577,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(adapterFence, "currentProtectedWindow == expectedWindow")
 		assertContains(source, "rasterAdapter?.hasDecoded(profile, logicalOrdinal)")
 		assertContains(source, "publicationDispatcher = Dispatchers.Main.immediate")
-		assertContains(publisher, "publishProtectedRasterOrdinals(immutableWindow)")
+		assertContains(publisher, "applyProtectedWindow(immutableWindow, version)")
+		assertContains(publisher, "publishProtectedRasterOrdinals(window)")
 		assertEquals(
 			2,
 			Regex("publishProtectedRasterOrdinals\\(").findAll(source).count(),
@@ -510,6 +652,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val unavailableDeck = source
 			.substringAfter("if (deck == null)")
 			.substringBefore("return@withContext")
+		val prewarm = source
+			.substringAfter("private fun requestPrewarmIfIdle(")
+			.substringBefore("private fun logActivationState(")
 
 		assertContains(source, "private var preparationPhase = ReaderPagePreparationPhase.Idle")
 		assertContains(source, "preparationPhase = state.phase")
@@ -517,6 +662,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(refresh, "\"preparation-in-progress\"")
 		assertContains(refresh, "requestPrewarmIfIdle(")
 		assertContains(unavailableDeck, "requestPrewarmIfIdle(")
+		assertContains(
+			prewarm,
+			"preparationPhase != ReaderPagePreparationPhase.Preparing",
+			message = "Ready preparation may be stale for the newly committed protected window."
+		)
 		assertFalse(
 			unavailableDeck.contains("onRequestPrewarm()"),
 			"A missing deck while the raster producer is active must not recursively start another producer."
@@ -597,6 +747,85 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun exactSettlementBlocksNewPointersOnlyUntilDecodedRefillCompletes() {
+		val controller = controllerFile.readText()
+		val preparation = controller
+			.substringAfter("fun onPreparationStateChanged(")
+			.substringBefore("fun onHostAttached()")
+		val refill = controller
+			.substringAfter("private fun refillDecodedWorkingSet(")
+			.substringBefore("private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(")
+		val waitsForPreparation = refill
+			.substringAfter("val waitsForPreparation =")
+			.substringBefore("val needsCurrentWindowRetry =")
+		val settlement = controller
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
+		val committedPublication = settlement
+			.substringAfter("publishCommittedTerminal = {")
+			.substringBefore("dispatch = { dispatchNextRelocation() }")
+		val availability = controller
+			.substringAfter("val isAvailable: Boolean")
+			.substringBefore("private val canContinueAcceptedPointer")
+		val workingSetReadiness = controller
+			.substringAfter("private fun hasDecodedWorkingSetForCurrentOrdinal()")
+			.substringBefore("val isAvailable: Boolean")
+		val unavailableOutcome = controller
+			.substringAfter("private fun unavailableGestureOutcome()")
+			.substringBefore("fun updatePaginationReadiness(")
+
+		assertContains(
+			refill,
+			"interaction = ReaderPageInteractionState.RefillingWorkingSet"
+		)
+		assertContains(
+			committedPublication,
+			"gateForDecodedWorkingSetRefill(profile, destinationWindow)"
+		)
+		assertTrue(
+			committedPublication.indexOf("gateForDecodedWorkingSetRefill(") <
+				committedPublication.indexOf("publishGestureTerminal("),
+			"A committed terminal must not expose an incomplete destination window to a new pointer."
+		)
+		assertContains(refill, "deferredDecodedRefillCenterOrdinal = centerOrdinal")
+		assertContains(refill, "scheduleDecodedWorkingSetRefillRetry(")
+		assertContains(
+			waitsForPreparation,
+			"deck == null",
+			message = "A decoded deck rejected by an expired fence must retain its immediate retry."
+		)
+		assertContains(refill, "deck == null && needsCurrentWindowRetry")
+		assertContains(refill, "decoded-refill-awaiting-raster:${'$'}refill")
+		assertContains(
+			refill,
+			"deck != null && needsCurrentWindowRetry",
+			message = "An unavailable raster must await repair or prewarm instead of hot-looping retries."
+		)
+		assertContains(refill, "mainHandler.post {")
+		assertContains(refill, "!hasDecodedWorkingSetForCurrentOrdinal()")
+		assertContains(refill, "decoded-refill-fence-retry:${'$'}refill")
+		assertContains(
+			preparation,
+			"deferredDecodedRefillCenterOrdinal?.let { centerOrdinal ->"
+		)
+		assertContains(refill, "if (previous.generations.isEmpty())")
+		assertContains(
+			refill,
+			"reason = \"decoded-refill-completed:${'$'}refill\""
+		)
+		assertContains(refill, "interaction = preparedInteractionState()")
+		assertContains(
+			workingSetReadiness,
+			"pages.deck.pageIndices.containsAll(profile.preparedPageIndices(currentOrdinal))"
+		)
+		assertContains(availability, "hasDecodedWorkingSetForCurrentOrdinal()")
+		assertContains(
+			unavailableOutcome,
+			"ReaderPageGestureTerminalOutcome.RejectedPreparing"
+		)
+	}
+
+	@Test
 	fun missingFarEdgeRequestsOneRepairAndRestoresARecoveredDeck() {
 		val controller = controllerFile.readText()
 		val host = hostFile.readText()
@@ -616,6 +845,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(controller, "onRequestRasterRepair:")
 		assertContains(controller, "onMissingRaster =")
 		assertContains(repair, "onRequestRasterRepair(sourcePageIndex)")
+		assertContains(repair, "onAttachRasterRepairQaFault(sourcePageIndex, correlation)")
+		assertContains(repair, "if (operationToken == null) return")
+		assertTrue(
+			repair.indexOf("onAttachRasterRepairQaFault(sourcePageIndex, correlation)") <
+				repair.indexOf("if (operationToken == null) return"),
+			"A fault-bearing coalesced recipient must attach its immutable root before returning."
+		)
 		assertContains(repair, "event = \"page-repair-requested\"")
 		assertContains(repair, "event = \"page-repair-completed\"")
 		assertContains(repair, "deckRecoveryCoordinator.accept(result)")
@@ -635,6 +871,25 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"A targeted raster repair must not cancel the settlement that requested it."
 		)
 		assertFalse(hostRepair.contains("ReaderPageHostLifecycleEvent.RasterProfileInvalidated"))
+	}
+
+	@Test
+	fun completedRasterPlanMetadataDoesNotGateTheCurrentRepairTarget() {
+		val source = controllerFile.readText()
+		val currentWindow = source
+			.substringAfter("override fun isCurrentRepairWindow(")
+			.substringBefore("override fun hasUsablePreparedActiveDeck()")
+		val recoveredBuild = source
+			.substringAfter("override fun requestRecoveredDeckBuild(")
+			.substringBefore("override fun cancelRecoveredDeckBuild(")
+
+		assertContains(currentWindow, "readerPlayLikeCurlRepairTargetMatches(")
+		assertFalse(
+			currentWindow.contains("preparedRepairPageIndices = repairedPageIndices"),
+			"The completed preparation plan does not describe the current protected window."
+		)
+		assertContains(recoveredBuild, "profile.preparedPageIndices(logicalCenter)")
+		assertContains(recoveredBuild, "publicationFence.isCurrent()")
 	}
 
 	@Test
@@ -996,8 +1251,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertTrue(cancelIndex >= 0)
 		assertTrue(showIndex > cancelIndex)
 		assertTrue(downIndex > showIndex)
-		assertContains(accepted, "playLikeCurlController.onPageTouchEvent(")
-		assertContains(accepted, "event,")
+		assertContains(accepted, "dispatchClaimedReaderPageCurlEvent(event)")
+		assertContains(accepted, "dispatchedEvent,")
 		assertContains(accepted, "playLikeCurlGestureOwned = true")
 		assertFalse(terminal.contains("playLikeCurlController.onPageTouchEvent("))
 		assertContains(terminal, "playLikeCurlGestureOwned = false")
@@ -1165,7 +1420,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val expectedMappings = linkedMapOf(
 			"MotionEvent.ACTION_DOWN" to "ReaderPageHostPointerEvent.Down(",
 			"MotionEvent.ACTION_MOVE" to "ReaderPageHostPointerEvent.Move(",
-			"MotionEvent.ACTION_UP" to "ReaderPageHostPointerEvent.Up",
+			"MotionEvent.ACTION_UP" to "ReaderPageHostPointerEvent.PositionedUp(",
 			"MotionEvent.ACTION_CANCEL" to "ReaderPageHostPointerEvent.Cancel",
 			"MotionEvent.ACTION_POINTER_DOWN" to "ReaderPageHostPointerEvent.SecondaryPointerDown",
 			"MotionEvent.ACTION_POINTER_UP" to "ReaderPageHostPointerEvent.SecondaryPointerUp"
@@ -1188,6 +1443,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			assertTrue(branch.containsMatchIn(pointerMapping), "$androidAction must map to $typedEvent")
 		}
 		assertContains(pointerMapping, "downTimeMillis = event.downTime")
+		assertContains(pointerMapping, "x = event.x")
+		assertContains(pointerMapping, "y = event.y")
+		assertContains(
+			pointerMapping,
+			"touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()"
+		)
 		assertContains(importedDispatch, "pageInputSettlementHostController::dispatchPointer")
 		assertFalse(hostSource.contains("currentPageGestureId"))
 		assertFalse(hostSource.contains("pageGestureLifecycle"))
@@ -1251,13 +1512,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val cancelIndex = claimCurl.indexOf("dispatchContentCancel(event)")
 		val showIndex = claimCurl.indexOf("playLikeCurlController.showSurfaceForGesture()")
 		val downIndex = claimCurl.indexOf("originalDown,")
-		val moveIndex = claimCurl.lastIndexOf("event,")
+		val moveIndex = claimCurl.indexOf("dispatchClaimedReaderPageCurlEvent(event)")
 		val ownerIndex = claimCurl.indexOf("playLikeCurlGestureOwned = true")
 		assertTrue(cancelIndex >= 0)
 		assertTrue(showIndex > cancelIndex)
 		assertTrue(downIndex > showIndex)
 		assertTrue(moveIndex > downIndex)
 		assertTrue(ownerIndex > moveIndex)
+		assertContains(claimCurl, "event.actionMasked == MotionEvent.ACTION_UP")
+		assertContains(claimCurl, "clearPlayLikeCurlPointerTapFlagsAfterUp()")
 	}
 
 	@Test
@@ -1332,7 +1595,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(preparation, "closeRendererAndAdapter: suspend () -> Unit")
 		assertContains(preparation, "fenceCallbacks = ::fenceForDestroy")
-		assertContains(preparation, "fenceBundleOwners = bundleSource::fenceForClose")
+		assertContains(
+			preparation,
+			"private val fenceBundleOwners: () -> Unit = bundleSource::fenceForClose"
+		)
+		assertContains(preparation, "fenceBundleOwners = fenceBundleOwners")
+		assertContains(
+			preparation,
+			"initializationJobs.forEach { job -> job.cancelAndJoin() }"
+		)
 		assertContains(destroy, "if (!destroyed) destroyed = true")
 		assertContains(destroy, "return teardown.start()")
 		assertContains(bundleWiring, "publicationScheduler.closeAndJoin()")

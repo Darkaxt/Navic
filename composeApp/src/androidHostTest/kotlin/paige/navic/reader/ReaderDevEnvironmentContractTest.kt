@@ -116,6 +116,214 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun readerQaFaultReceiverExistsOnlyInReaderDevMergedManifest() {
+		val receiver =
+			"paige.navic.androidApp.ReaderPageQaFaultReceiver"
+		val action =
+			"darkaxt.navic.readerdev.READER_QA_FAULT"
+		val senderPermission = "android.permission.DUMP"
+		val readerDev = mergedManifest("readerDev")
+		val debug = mergedManifest("debug")
+		val release = mergedManifest("release")
+		val androidBuild =
+			root.resolve("androidApp/build.gradle.kts").readText()
+		val receiverSource = root.resolve(
+			"androidApp/src/readerDev/kotlin/paige/navic/androidApp/" +
+				"ReaderPageQaFaultReceiver.kt"
+		).readText()
+		val actionGate = receiverSource.indexOf(
+			"ReaderPageQaFaultCommandDecoder.acceptsAction(intent.action)"
+		)
+		val firstExtraRead = receiverSource.indexOf("intent.getStringExtra")
+
+		assertTrue(androidBuild.contains("releaseBuildRequested"))
+		assertTrue(androidBuild.contains("task.contains(\"Release\")"))
+		assertTrue(androidBuild.contains("(isRelease || releaseBuildRequested) && !hasReleaseSigning"))
+		assertTrue(readerDev.contains("PlayLikeCurlReferenceActivity"))
+		assertTrue(readerDev.contains(receiver))
+		assertTrue(readerDev.contains(action))
+		assertTrue(readerDev.contains(senderPermission))
+		assertFalse(debug.contains(receiver))
+		assertFalse(debug.contains(action))
+		assertFalse(release.contains(receiver))
+		assertFalse(release.contains(action))
+		assertTrue(actionGate >= 0 && firstExtraRead > actionGate)
+		assertTrue(receiverSource.contains("ReaderPageQaFaultCommandDecoder.decode"))
+		listOf(
+			"requireNotNull",
+			"ReaderPageQaFault.valueOf",
+			"error("
+		).forEach { forbidden -> assertFalse(receiverSource.contains(forbidden)) }
+		assertFalse(
+			Regex("Log\\.[a-zA-Z]+\\([^)]*intent\\.getStringExtra")
+				.containsMatchIn(receiverSource)
+		)
+	}
+
+	@Test
+	fun readerQaRunnerBindsTheInstalledPackageAndCompleteCandidateTree() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+
+		assertTrue(
+			runner.contains("git diff HEAD --name-status --no-renames"),
+			"Precommit evidence must include staged-only tracked changes."
+		)
+		assertTrue(
+			runner.contains(
+				"'(?m)^\\s*versionName=(?<Value>[^\\r\\n]*)\\r?$'"
+			),
+			"Installed package parsing must accept adb's CRLF dumpsys output."
+		)
+		assertTrue(
+			runner.contains("Get-FileHash -Algorithm SHA256") &&
+				runner.contains("installed package identity mismatch"),
+			"The runner must verify the installed APK against the sealed build."
+		)
+		assertTrue(
+			runner.contains("\$readerLaunchTimeoutSeconds = 120") &&
+				runner.split("-WaitTimeoutSeconds \$readerLaunchTimeoutSeconds")
+					.size == 3,
+			"The runner must allow both cold and warm publication launches enough time to finish on the bounded ReaderDev emulator."
+		)
+		assertTrue(
+			runner.contains("function Wait-ReaderWarmupOwnership") &&
+				runner.contains("\$_.Phase -eq 'peak-preparation' -or") &&
+				runner.contains("\$_.Phase -eq 'steady-state'") &&
+				runner.contains("\$warmupSnapshot = Wait-ReaderWarmupOwnership") &&
+				runner.contains("\$reopened = Wait-ReaderWarmupOwnership") &&
+				!runner.contains("Wait-ReaderSteadyState"),
+			"Warmup and reopen must admit a prepared-deck ownership snapshot; steady-state snapshots are turn-completion evidence."
+		)
+		assertTrue(
+			runner.contains("function Wait-ReaderPid") &&
+				runner.split("\$script:ReaderPid = Wait-ReaderPid").size == 3,
+			"Initial and reopened ReaderDev launches must wait for one bounded process identity before reading PID-scoped diagnostics."
+		)
+		assertTrue(
+			runner.contains(
+				"\$initialPreparationSnapshot = Wait-ReaderWarmupOwnership 'ReaderDev initial preparation'"
+			) &&
+				runner.contains(
+					"Assert-OwnershipWithinBounds @(\$initialPreparationSnapshot) 'ReaderDev initial preparation'"
+				) &&
+				runner.contains("\$script:ReaderPid = \$null"),
+			"The first launch must finish and persist a prepared deck before force-stop so the warm reopen can prove persistent hydration."
+		)
+		val stressRetryOutcomes = runner
+			.substringAfter("\$transientRetryOutcomes = @(")
+			.substringBefore(")")
+		assertTrue(
+			stressRetryOutcomes.contains("'CancelledByUser',") &&
+				stressRetryOutcomes.contains("'RejectedPreparing',") &&
+				stressRetryOutcomes.contains("'RejectedSettling',") &&
+				stressRetryOutcomes.contains("'RejectedRendererUnavailable'") &&
+				runner.contains("if (\$newTerminal.Outcome -in \$transientRetryOutcomes)"),
+			"The stress sweep must retry bounded snap-backs and transient readiness rejections instead of requiring turn directions from them."
+		)
+		assertTrue(
+			runner.split("-AllowPendingRecovery").size == 3 &&
+				runner.contains("-Context 'ReaderDev completed stress interval'"),
+			"Stress polling must admit a pending recoverable ownership callback, then require recovery before accepting the completed interval."
+		)
+		assertTrue(
+			runner.contains("\$maximumConsecutiveNoTerminalAttempts = 3") &&
+				runner.contains("\$consecutiveNoTerminalAttempts += 1") &&
+				runner.contains("\$consecutiveNoTerminalAttempts = 0") &&
+				runner.contains("ReaderDev stress emitted no gesture terminal for") &&
+				runner.contains("Start-Sleep -Milliseconds 250") &&
+				runner.contains("continue"),
+			"A swipe that lands during a bounded refill must be retried, while repeated missing terminals still fail the gate."
+		)
+		assertTrue(
+			runner.contains("function Invoke-ReaderQaFaultMatrix") &&
+				listOf(
+					"FailNextPersistence",
+					"PauseNextPublication",
+					"MissNextRasterLoad",
+					"ForceRepairWithoutPreparedDeck",
+					"DelayNextVisualStateCallback",
+					"DelayNextRelocationAcknowledgement"
+				).all(runner::contains) &&
+				runner.contains("Assert-ReaderQaFaultCorrelation") &&
+				runner.contains("logcat-fault-injection.txt"),
+			"The emulator runner must execute and persist operation-correlated persistence, repair, and delayed-callback fault evidence."
+		)
+		assertTrue(
+			runner.contains("function Wait-ReaderPreparedDeckOwnership") &&
+				runner.contains("function Invoke-ReaderQaPreparationRetry") &&
+				runner.contains("'uiautomator', 'dump', '/dev/tty'") &&
+				runner.contains("ReaderDev durable persistence retry") &&
+				runner.contains("\$_.QaFaultRelation -eq 'Retry'") &&
+				runner.contains("\$_.Result -eq 'Durable'"),
+			"The persistence fault interval must recover durably before the process is restarted for warm-reopen validation."
+		)
+		assertTrue(
+			runner.contains("\$maximumRepairFaultAttempts = 5") &&
+				runner.contains("\$missIds = [Collections.Generic.List[string]]::new()") &&
+				runner.contains("Kind = 'RepairTerminated'") &&
+				runner.contains("ReaderDev forced repair exhausted its bounded attempts"),
+			"A full preparation may validly supersede a synthetic miss repair, so the fault matrix must retry with fresh miss identities until the queued forced-role seam is applied."
+		)
+		assertTrue(
+			runner.contains("function Wait-ReaderQaRelocationTerminal") &&
+				runner.contains("function Wait-ReaderQaWorkingSetReady") &&
+				runner.contains("-AfterIndex \$visualTurn.Index") &&
+				runner.contains("\$turnRightToLeft = \$repairFaultAttempt % 2 -eq 0") &&
+				runner.contains("-States @('Completed', 'Rejected')") &&
+				runner.contains("ReaderDev repaired active deck proof turn"),
+			"Forced active repair must isolate the prior refill, turn away from the imminent publication boundary, accept either valid relocation terminal, and prove that the prepared recovery deck accepts the next turn."
+		)
+		assertTrue(
+			runner.contains("\$script:ReaderAccumulatedLogLines") &&
+				runner.contains("function Reset-ReaderLogAccumulator") &&
+				runner.contains("ReaderAccumulatedLogLineSet.Add"),
+			"The runner must accumulate PID snapshots so the circular logcat buffer cannot evict early stress evidence."
+		)
+		assertTrue(
+			runner.contains("\$script:ReaderLogcatCursor") &&
+				runner.contains("\$script:ReaderAccumulatedDiagnosticLogLines") &&
+				runner.contains("\$arguments.Add('-T')") &&
+				runner.contains("Assert-ReaderRuntimeLogSafe -Log \$newRawLog") &&
+				runner.contains("\$ReaderDiagnosticIntroducerPattern.IsMatch(\$newRawLog)") &&
+				runner.contains("[switch] \$Full") &&
+				runner.contains("\$recentDiagnosticWindow = 1024"),
+			"Polling must ingest logcat incrementally, validate every new raw line, and parse a bounded diagnostic window while retaining the complete interval for final evidence."
+		)
+		assertTrue(
+			runner.contains("ReaderDev stress emitted an unexpected terminal") &&
+				runner.contains("run-failed.json") &&
+				runner.contains("failure-diagnostics.txt") &&
+				runner.contains("Assert-ReaderDiagnosticRecordSet") &&
+				runner.contains("--es command clear") &&
+				runner.contains("} finally {"),
+			"Unexpected outcomes must preserve only closed-schema diagnostics before every failed run releases QA-owned callbacks."
+		)
+	}
+
+	private fun mergedManifest(variant: String): String {
+		val intermediates =
+			root.resolve("androidApp/build/intermediates").toFile()
+		val marker = "/${variant.lowercase()}/"
+		val manifests = intermediates.walkTopDown()
+			.filter { file ->
+				val normalized =
+					file.invariantSeparatorsPath.lowercase()
+				file.isFile &&
+					file.name == "AndroidManifest.xml" &&
+					normalized.contains("/merged_manifest/") &&
+					normalized.contains(marker)
+			}
+			.toList()
+		assertTrue(
+			manifests.isNotEmpty(),
+			"Run readerQaProcessVariantManifests before this test; missing variant=$variant"
+		)
+		return manifests.joinToString("\n") { it.readText() }
+	}
+
+	@Test
 	fun readerDevScriptsAndSecretFilesAreDocumentedAndIgnored() {
 		val gitignore = root.resolve(".gitignore").readText()
 		val setupScript = root.resolve("scripts/setup-android-reader-dev.ps1")
@@ -144,6 +352,10 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("BINDERY_API_KEY_HEADER"),
 			"The install script must be able to derive a reader launch target from Bindery OPDS credentials without printing secrets."
 		)
+		assertTrue(installScriptText.contains("Discovered Bindery reader target (format="))
+		assertTrue(installScriptText.contains("Resolved explicit reader target to Bindery OPDS resource (format="))
+		assertFalse(installScriptText.contains("Discovered Bindery reader target: {0}"))
+		assertFalse(installScriptText.contains("Bindery OPDS resource: {0}"))
 		assertTrue(
 			installScriptText.contains("Get-ReaderDevPublicationEbookLink") &&
 				installScriptText.contains("http://opds-spec.org/acquisition") &&
@@ -175,6 +387,15 @@ class ReaderDevEnvironmentContractTest {
 			"The install script must capture adb stderr/progress output and throw only on non-zero exit; adb pull progress is not a failed setup."
 		)
 		assertTrue(
+			installScriptText.contains("[switch] \$RedactFailure") &&
+				installScriptText.contains("if (\$RedactFailure) {") &&
+				installScriptText.contains("ReaderDev launch failed with exit code") &&
+				installScriptText.contains(
+					"Invoke-Adb -Arguments \$launchArgs.ToArray() -RedactFailure"
+				),
+			"Secret-bearing ReaderDev launch failures must not print adb extras or adb output containing credentials, URLs, hrefs, book identifiers, or reader-session metadata."
+		)
+		assertTrue(
 			installScriptText.contains("function Invoke-GradleWrapper") &&
 				installScriptText.contains("gradle-wrapper.jar") &&
 				installScriptText.contains("function ConvertTo-ProcessArgument") &&
@@ -190,8 +411,11 @@ class ReaderDevEnvironmentContractTest {
 			installScriptText.contains("function Wait-ReaderDevForeground") &&
 				installScriptText.contains("\"dumpsys\", \"activity\", \"activities\"") &&
 				installScriptText.contains("mCurrentFocus") &&
+				installScriptText.contains("mFocusedApp") &&
+				installScriptText.contains("topResumedActivity") &&
+				installScriptText.contains("ResumedActivity") &&
 				installScriptText.contains("Wait-ReaderDevForeground -Package \$Package"),
-			"The install script must wait until the launched reader package is foreground before capture; otherwise screencap can record the Android launcher during the app transition."
+			"The install script must recognize current and modern resumed-activity fields before capture; otherwise it can time out after a successful reader launch."
 		)
 		assertTrue(
 			installScriptText.contains("function Wait-ReaderDevPublicationReady") &&
@@ -200,6 +424,16 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("publicationReady") &&
 				installScriptText.contains("Wait-ReaderDevPublicationReady -Package \$Package"),
 			"The install script must wait for the reader bridge publicationReady event after launch using a bounded recent logcat window; foreground alone can still capture the splash screen, while full logcat dumps can fail on noisy emulators."
+		)
+		assertTrue(
+			installScriptText.contains("[switch] \$NoForceStopLaunch") &&
+				installScriptText.contains("[switch] \$PreserveLogcat") &&
+				installScriptText.contains("[int] \$WaitTimeoutSeconds = 60") &&
+				installScriptText.contains("[ValidateRange(1, 600)]") &&
+				installScriptText.contains("[DateTime]::UtcNow.AddSeconds(\$WaitTimeoutSeconds)") &&
+				installScriptText.contains("if (-not \$NoForceStopLaunch) { \$launchArgs.Add(\"-S\") }") &&
+				installScriptText.contains("if (\$readerLaunchHasPublication -and -not \$PreserveLogcat)"),
+			"ReaderDev relaunches must have a bounded timeout and let the QA runner preserve the process and measured logcat interval."
 		)
 		assertTrue(
 			installScriptText.contains("[switch] \$RequireReaderLaunch") &&
@@ -234,7 +468,7 @@ class ReaderDevEnvironmentContractTest {
 			installScriptText.contains("function Resolve-ReaderDevExplicitBinderyResource") &&
 				installScriptText.contains("Get-ReaderDevBookFileIdFromUrl") &&
 				installScriptText.contains("properties.bookFileId") &&
-				installScriptText.contains("Resolved explicit reader target to Bindery OPDS resource"),
+				installScriptText.contains("Resolved explicit reader target to Bindery OPDS resource (format="),
 			"The install script must canonicalize explicit direct /api/v1/book/{id}/file?bookFileId=... launches to the matching OPDS resource href so progress saves do not use resourceKey=file."
 		)
 		assertTrue(
@@ -245,6 +479,30 @@ class ReaderDevEnvironmentContractTest {
 			"The install script must pass paired Whispersync route metadata so emulator validation can open a real sidecar/audiobook reader session directly."
 		)
 		val smokeScriptText = root.resolve("scripts/adb-reader-smoke.ps1").readText()
+		val qaRunnerScriptText = root.resolve("scripts/adb-reader-playlikecurl-qa.ps1").readText()
+		val matrixScriptText = root.resolve("scripts/adb-reader-komikku-matrix.ps1").readText()
+		val postStressQaRunnerText = qaRunnerScriptText.substringAfter("logcat-stress.txt")
+		val privacySafeMatrixSetup = matrixScriptText
+			.substringAfter("\$smokeArgs = @{")
+			.substringBefore("if (\$InstallApk")
+		assertTrue(
+			smokeScriptText.contains("[switch] \$PreserveLogcat") &&
+				smokeScriptText.contains("if (-not \$PreserveLogcat) {") &&
+				postStressQaRunnerText.contains("-RequireNoReaderConsoleErrors") &&
+				postStressQaRunnerText.contains("-RequireNeutralReaderVisualState") &&
+				postStressQaRunnerText.contains("-PreserveLogcat") &&
+				privacySafeMatrixSetup.contains(
+					"\$smokeArgs.RequireNeutralReaderVisualState = \$true"
+				),
+			"Privacy-safe smoke orchestration must preserve the stress log and require a proven neutral visual state before sealing evidence."
+		)
+		assertTrue(
+			smokeScriptText.contains("\$script:NeutralVisualState = \$false") &&
+				smokeScriptText.contains("\$script:NeutralVisualState = \$true") &&
+				smokeScriptText.indexOf("\$script:NeutralVisualState = \$true") >
+					smokeScriptText.indexOf("function Assert-NeutralReaderVisualState"),
+			"Privacy-safe smoke summaries must report a neutral visual state only after the neutral-state assertion runs successfully."
+		)
 		assertTrue(
 			smokeScriptText.contains("[switch] \$RequireNeutralReaderVisualState") &&
 				smokeScriptText.contains("function Assert-NeutralReaderVisualState") &&

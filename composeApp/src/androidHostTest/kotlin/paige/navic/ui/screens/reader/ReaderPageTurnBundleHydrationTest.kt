@@ -22,7 +22,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnLeafGeometry
+import paige.navic.reader.ReaderPageTurnPageRect
+import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.ReaderPageTurnPixelRect
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -83,6 +87,57 @@ class ReaderPageTurnBundleHydrationTest {
 
 			assertNull(missingResult.await())
 			assertEquals(listOf("descriptor:5", "persistent:5"), events)
+		} finally {
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun hydratedRecipientLeaseSurvivesImmediateCacheTrim() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val events = mutableListOf<String>()
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(events),
+			hydrationStorePort = FakeHydrationStore(events, durablePages = setOf(6))
+		)
+		val reference = referenceSnapshot()
+		try {
+			repeat(5) { pageIndex ->
+				assertNotNull(
+					source.cacheCurrentSnapshot(
+						pageIndex = pageIndex,
+						kind = ReaderPageTurnTransitionKind.PortraitSlide,
+						current = captureResult()
+					)
+				)
+			}
+			source.protectDecodedPageIndices((0 until 5).toSet())
+			val result = CompletableDeferred<ReaderPageSlideSnapshot?>()
+
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = 6,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference
+			) { result.complete(it) }
+
+			val hydrated = assertNotNull(result.await())
+			assertFalse(hydrated.bitmap.isRecycled)
+			assertFalse(
+				source.hasSnapshot(
+					6,
+					ReaderPageTurnTransitionKind.PortraitSlide
+				)
+			)
+			hydrated.release()
+			assertTrue(hydrated.bitmap.isRecycled)
 		} finally {
 			source.close()
 			reference.releaseCacheOwnership()
@@ -815,6 +870,26 @@ private fun persistentRaster(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>
 		),
 		value = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
 	)
+
+private fun captureResult(): ReaderPageTurnCaptureResult = ReaderPageTurnCaptureResult(
+	bitmap = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888),
+	sourceRectInWindow = Rect(0, 0, 20, 30),
+	geometry = ReaderPageTurnCaptureGeometry(
+		viewportWidth = 20.0,
+		viewportHeight = 30.0,
+		mode = ReaderPageTurnLayoutMode.Single,
+		pages = listOf(
+			ReaderPageTurnPageRect(
+				role = ReaderPageTurnPageRole.Full,
+				left = 0.0,
+				top = 0.0,
+				width = 20.0,
+				height = 30.0
+			)
+		)
+	),
+	elapsedMs = 1L
+)
 
 private fun referenceSnapshot(): ReaderPageSlideSnapshot = ReaderPageSlideSnapshot(
 	key = ReaderPageSlideSnapshotKey(

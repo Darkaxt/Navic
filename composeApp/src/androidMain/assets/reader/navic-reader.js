@@ -373,6 +373,8 @@ class NavicReaderRuntime {
   pendingExactPageTurnSettlements = new Map()
   completedExactPageTurnSettlements = new Map()
   activeExactPageTurnSettlementToken = null
+  exactPageTurnNavigationToken = null
+  exactPageTurnNavigationInProgress = false
   nativePageTurnSettledState = null
   pageTurnPreviewView = null
   pageTurnPreviewPublicationUrl = ''
@@ -699,6 +701,8 @@ class NavicReaderRuntime {
     this.pendingExactPageTurnSettlements.clear()
     this.completedExactPageTurnSettlements.clear()
     this.activeExactPageTurnSettlementToken = null
+    this.exactPageTurnNavigationToken = null
+    this.exactPageTurnNavigationInProgress = false
     this.nativePageTurnSettledState = null
     this.recentPageTurnDirection = null
     this.nativePageDragPreview = null

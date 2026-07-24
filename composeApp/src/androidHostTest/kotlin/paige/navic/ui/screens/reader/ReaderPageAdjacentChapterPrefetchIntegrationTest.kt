@@ -7,12 +7,18 @@ import android.os.Looper
 import android.webkit.WebView
 import android.widget.FrameLayout
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -55,7 +61,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	@Test
 	fun productionControllerStartsAndPersistsBothChaptersOnlyAfterReadiness() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			assertTrue(fixture.background.starts.isEmpty())
@@ -104,7 +110,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	@Test
 	fun foregroundRepairCancelsThenResumesProductionBackgroundPrefetch() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
@@ -144,7 +150,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	@Test
 	fun failedPersistenceAdvancesTheOtherDirectionAndRetriesOnlyMissingWork() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
@@ -180,7 +186,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	@Test
 	fun profileReplacementCannotRelabelAnOldDurablePlan() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
@@ -211,7 +217,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	@Test
 	fun preparationDeferralResumesOnStrictlyNewerEventAndTerminatesOnce() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.foreground.completeDeferred("pagination-not-ready")
@@ -226,17 +232,18 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 				it.startsWith("reader-preparation ")
 			}
 			assertEquals(
-				listOf("Attempted", "Deferred", "Resumed", "Ready"),
+				listOf("Attempted", "Deferred", "Resumed", "Attempted", "Ready"),
 				preparation.map { message ->
 					message.substringAfter("state=").substringBefore(' ')
 				}
 			)
-			assertEquals(
-				1,
-				preparation.map { message ->
-					message.substringAfter("attempt=").substringBefore(' ')
-				}.distinct().size
-			)
+			val attempts = preparation.map { message ->
+				message.substringAfter("attempt=").substringBefore(' ').toLong()
+			}
+			assertEquals(attempts[0], attempts[1])
+			assertEquals(attempts[0], attempts[2])
+			assertEquals(attempts[3], attempts[4])
+			assertTrue(attempts[3] > attempts[0])
 			val deferredVersion = preparation[1]
 				.substringAfter("eventVersion=").substringBefore(' ').toLong()
 			val resumedVersion = preparation[2]
@@ -257,9 +264,81 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun destroyWaitsForRasterCacheInitializationCleanup() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val initializationStarted = CompletableDeferred<Unit>()
+		val allowInitializationCleanup = CompletableDeferred<Unit>()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			initializeRasterCache = {
+				initializationStarted.complete(Unit)
+				try {
+					awaitCancellation()
+				} finally {
+					withContext(NonCancellable) {
+						allowInitializationCleanup.await()
+					}
+				}
+			}
+		)
+		try {
+			assertTrue(fixture.controller.prewarmAdjacent())
+			initializationStarted.await()
+
+			val destruction = fixture.controller.destroy()
+			val returnedBeforeInitializationCleanup = withTimeoutOrNull(1_000L) {
+				destruction.await()
+				true
+			} ?: false
+
+			assertFalse(returnedBeforeInitializationCleanup)
+			allowInitializationCleanup.complete(Unit)
+			destruction.await()
+		} finally {
+			allowInitializationCleanup.complete(Unit)
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun cacheInitializationCompletingWhileDetachedDefersAndCanRetry() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val allowFirstInitialization = CompletableDeferred<Unit>()
+		var initializationCount = 0
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			initializeRasterCache = {
+				initializationCount += 1
+				if (initializationCount == 1) allowFirstInitialization.await()
+			}
+		)
+		try {
+			assertTrue(fixture.controller.prewarmAdjacent())
+			fixture.detachWebView()
+			allowFirstInitialization.complete(Unit)
+			testScheduler.advanceUntilIdle()
+
+			fixture.attachWebView()
+			assertTrue(
+				fixture.controller.onRetryEvent(ReaderPageRasterRetryEvent.WebViewAttached)
+			)
+			assertTrue(fixture.controller.prewarmAdjacent())
+			testScheduler.advanceUntilIdle()
+
+			assertEquals(2, initializationCount)
+			assertNotNull(fixture.foreground.active)
+		} finally {
+			allowFirstInitialization.complete(Unit)
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun repairCancellationRetainsOneAttemptAndOneTerminalDiagnostic() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
@@ -294,7 +373,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	@Test
 	fun backgroundPrefetchPublishesOneTerminalForEachDiagnosticSession() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-		val fixture = ReaderPageRasterPreparationControllerFixture.create()
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
@@ -620,6 +699,9 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 
 private class ReaderPageRasterPreparationControllerFixture private constructor(
 	private val activityController: org.robolectric.android.controller.ActivityController<Activity>,
+	private val host: FrameLayout,
+	private val webView: WebView,
+	private val testScheduler: TestCoroutineScheduler,
 	private val bundleSource: ReaderPageTurnBundleSource,
 	private val reference: ReaderPageSlideSnapshot,
 	val controller: ReaderPageRasterPreparationController,
@@ -636,6 +718,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 
 	fun startCurrentChapterPreparation() {
 		assertTrue(controller.prewarmAdjacent())
+		testScheduler.advanceUntilIdle()
 		assertNotNull(foreground.active)
 	}
 
@@ -665,14 +748,30 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 		Shadows.shadowOf(Looper.getMainLooper()).idle()
 	}
 
-	fun close() {
-		controller.destroy()
+	fun detachWebView() {
+		host.removeView(webView)
+		controller.onWebViewAttachmentChanged(false)
+		drainMainLooper()
+	}
+
+	fun attachWebView() {
+		host.addView(webView)
+		drainMainLooper()
+		controller.onWebViewAttachmentChanged(true)
+	}
+
+	suspend fun close() {
+		controller.destroyAndJoin()
+		bundleSource.closeAndJoin()
 		reference.releaseCacheOwnership()
 		activityController.destroy()
 	}
 
 	companion object {
-		fun create(): ReaderPageRasterPreparationControllerFixture {
+		suspend fun create(
+			testScheduler: TestCoroutineScheduler,
+			initializeRasterCache: (suspend (WebView) -> Unit)? = null
+		): ReaderPageRasterPreparationControllerFixture {
 			val activityController = Robolectric.buildActivity(Activity::class.java).setup()
 			val activity = activityController.get()
 			val host = FrameLayout(activity)
@@ -682,6 +781,9 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			Shadows.shadowOf(Looper.getMainLooper()).idle()
 			val bundleSource = ReaderPageTurnBundleSource().also {
 				it.invalidate("task9-integration")
+			}
+			if (initializeRasterCache == null) {
+				bundleSource.initializeRasterCache(webView)
 			}
 			val reference = task9ReferenceSnapshot()
 			val foreground = FakeReaderPageRasterBatchPort()
@@ -693,6 +795,16 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				host = host,
 				webViewProvider = { webView },
 				bundleSource = bundleSource,
+				fenceBundleOwners = if (initializeRasterCache == null) {
+					bundleSource::fenceForClose
+				} else {
+					{}
+				},
+				closeBundleOwners = if (initializeRasterCache == null) {
+					bundleSource::closeAndJoin
+				} else {
+					{}
+				},
 				diagnostics = ReaderPageRuntimeDiagnostics(
 					readerSession = 19L,
 					nowMs = { 30L },
@@ -705,6 +817,8 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				rasterPlanPort = ReaderPageRasterPreparationPlanPort { _, _, onPlan ->
 					onPlan(task9PreparationPlan())
 				},
+				initializeRasterCache = initializeRasterCache
+					?: bundleSource::initializeRasterCache,
 				retainedSnapshot = { _, _ ->
 					reference.retain()
 					reference
@@ -713,6 +827,9 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			controller.onRasterProfileEpochChanged(7L)
 			return ReaderPageRasterPreparationControllerFixture(
 				activityController = activityController,
+				host = host,
+				webView = webView,
+				testScheduler = testScheduler,
 				bundleSource = bundleSource,
 				reference = reference,
 				controller = controller,

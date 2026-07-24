@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import java.io.File
 import karacken.curl.PageSurfaceDisposalStage
 import karacken.curl.PageSurfaceOwnershipResult
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
@@ -13,6 +14,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderPageDiagnosticTest {
+	private val noQaFaultCorrelation =
+		"qaFaultRequestId=none qaFaultRelation=None " +
+			"qaFaultPublicationEpoch=-1 qaFaultPersistenceAttemptId=-1 " +
+			"qaFaultRasterRequestEpoch=-1 qaFaultRepairAttemptId=-1 " +
+			"qaFaultPreparationAttemptId=-1 qaFaultRelocationToken=none " +
+			"qaFaultHandoffAttemptId=-1"
 	private val sentinels = listOf(
 		"PRIVATE_EPUB_TEXT",
 		"PRIVATE_ANNOTATION",
@@ -116,7 +123,8 @@ class ReaderPageDiagnosticTest {
 		)
 		assertEquals(
 			"reader-handoff session=7 token=token-9 handoffAttemptId=19 target=31 " +
-				"visualState=false nextFrame=false result=CallbackCapacity durationMs=3",
+				"visualState=false nextFrame=false result=CallbackCapacity durationMs=3 " +
+				noQaFaultCorrelation,
 			messages[0]
 		)
 		assertTrue(messages[1].contains("source=PersistentHydration trigger=WarmReopen result=Hit"))
@@ -124,6 +132,69 @@ class ReaderPageDiagnosticTest {
 		assertTrue(messages[3].contains("state=Ready reason=None"))
 		assertTrue(messages[4].contains("repairAttempt=24 role=Active"))
 		assertPrivateSentinelsAbsent(*messages.toTypedArray())
+	}
+
+	@Test
+	fun qaFaultProjectionContainsOnlyClosedReconstructableFields() {
+		val line = ReaderPageDiagnostic.qaFault(
+			readerSession = 42L,
+			event = ReaderPageQaFaultEvent(
+				ticket = ReaderPageQaFaultTicket(
+					requestId = "fault-request",
+					fault = ReaderPageQaFault.DelayNextVisualStateCallback
+				),
+				seam = "visual-state",
+				state = ReaderPageQaFaultState.Released,
+				operation = ReaderPageQaFaultOperationContext(
+					relocationToken = "relocation-7",
+					handoffAttemptId = 9L
+				),
+				releaseRequestId = "release-request",
+				result = "command-release"
+			)
+		)
+
+		assertEquals(
+			"reader-qa-fault session=42 requestId=fault-request " +
+				"fault=DelayNextVisualStateCallback seam=visual-state " +
+				"state=Released publicationEpoch=-1 persistenceAttemptId=-1 " +
+				"rasterRequestEpoch=-1 repairAttemptId=-1 " +
+				"preparationAttemptId=-1 relocationToken=relocation-7 " +
+				"handoffAttemptId=9 releaseRequestId=release-request " +
+				"result=command-release",
+			line
+		)
+		listOf("PRIVATE_EPUB_TEXT", "SECRET_TOKEN", "href=", "cfi=")
+			.forEach { assertFalse(line.contains(it)) }
+	}
+
+	@Test
+	fun correlatedDiagnosticsSerializeTheImmutableAppliedRoot() {
+		val correlation = ReaderPageQaFaultCorrelation(
+			requestId = "raster-miss",
+			appliedOperation = ReaderPageQaFaultOperationContext(
+				rasterRequestEpoch = 17L
+			),
+			relation = ReaderPageQaFaultRelation.Recovery
+		)
+
+		val line = ReaderPageDiagnostic.repair(
+			readerSession = 7L,
+			attempt = 25L,
+			rasterGeneration = 4L,
+			centerOrdinal = 31,
+			state = ReaderPageRepairDiagnosticState.Ready,
+			reason = null,
+			durationMs = 8L,
+			qaFaultCorrelation = correlation
+		)
+
+		assertTrue(line.contains("attempt=25"))
+		assertTrue(line.contains("qaFaultRequestId=raster-miss"))
+		assertTrue(line.contains("qaFaultRelation=Recovery"))
+		assertTrue(line.contains("qaFaultRasterRequestEpoch=17"))
+		assertTrue(line.contains("qaFaultRepairAttemptId=-1"))
+		assertPrivateSentinelsAbsent(line)
 	}
 
 	@Test
@@ -253,6 +324,92 @@ class ReaderPageDiagnosticTest {
 	}
 
 	@Test
+	fun retryOperationAllocatesFreshAttemptWithoutMutatingAppliedRoot() {
+		val messages = mutableListOf<String>()
+		val diagnostics = ReaderPageRuntimeDiagnostics(
+			readerSession = 9L,
+			nowMs = { 100L },
+			emit = messages::add
+		)
+		val root = diagnostics.startOperation(
+			rasterGeneration = 3L,
+			ordinal = 4,
+			qaFaultCorrelation = ReaderPageQaFaultCorrelation(
+				requestId = "deferred-preparation",
+				appliedOperation = ReaderPageQaFaultOperationContext(
+					preparationAttemptId = 17L
+				),
+				relation = ReaderPageQaFaultRelation.AppliedOperation
+			)
+		)
+
+		val retry = diagnostics.startRetryOperation(
+			root = root,
+			rasterGeneration = 3L,
+			ordinal = 4
+		)
+		diagnostics.preparation(
+			root,
+			ReaderPagePreparationDiagnosticState.Resumed,
+			ReaderPageRasterDeferralReason.ContentNotReady,
+			eventVersion = 2L
+		)
+		diagnostics.preparation(
+			retry,
+			ReaderPagePreparationDiagnosticState.Failed,
+			ReaderPageRasterDeferralReason.ContentNotReady
+		)
+
+		assertTrue(retry.attempt > root.attempt)
+		assertEquals(
+			ReaderPageQaFaultRelation.AppliedOperation,
+			root.qaFaultCorrelation?.relation
+		)
+		assertEquals(ReaderPageQaFaultRelation.Retry, retry.qaFaultCorrelation?.relation)
+		assertTrue(messages[0].contains("attempt=${root.attempt}"))
+		assertTrue(messages[0].contains("state=Resumed"))
+		assertTrue(messages[0].contains("qaFaultRelation=AppliedOperation"))
+		assertTrue(messages[1].contains("attempt=${retry.attempt}"))
+		assertTrue(messages[1].contains("state=Failed"))
+		assertTrue(messages[1].contains("qaFaultRelation=Retry"))
+	}
+
+	@Test
+	fun publicationDiagnosticsRequireTypedNonnegativePersistenceAttempts() {
+		assertFailsWith<IllegalArgumentException> {
+			ReaderPagePersistenceAttemptId(-1L)
+		}
+		val line = ReaderPageDiagnostic.publication(
+			readerSession = 9L,
+			digestPrefix = "0123456789ab",
+			rasterEpoch = 3L,
+			persistenceAttemptId = ReaderPagePersistenceAttemptId(0L),
+			result = ReaderPagePublicationDiagnosticResult.Failed,
+			durationMs = 0L
+		)
+		assertTrue(line.contains("persistenceAttemptId=0"))
+	}
+
+	@Test
+	fun publicationIdentityIsAllocatedBeforeSynchronousLedgerCallbacks() {
+		val source = readerProductionSource("ReaderPageTurnBundleSource.android.kt")
+		val publication = source.substringAfter(
+			"val publicationEpoch = publicationLedger.currentEpoch()"
+		).substringBefore("publicationValueTransferred = true")
+		val allocation = publication.indexOf(
+			"val persistenceAttemptId = ReaderPagePersistenceAttemptId("
+		)
+		val registration = publication.indexOf("val registration = publicationLedger.begin(")
+
+		assertTrue(allocation >= 0, "A typed persistence attempt must be allocated")
+		assertTrue(
+			allocation < registration,
+			"Synchronous coalesced/rejected callbacks must see their allocated identity"
+		)
+		assertFalse(publication.contains("var persistenceAttemptId"))
+	}
+
+	@Test
 	fun runtimeOperationsAreMonotonicBoundedAndBestEffort() {
 		var now = 100L
 		val messages = mutableListOf<String>()
@@ -278,6 +435,7 @@ class ReaderPageDiagnosticTest {
 		diagnostics.publication(
 			digest = "PRIVATE_EPUB_TEXT",
 			rasterEpoch = 3L,
+			persistenceAttemptId = ReaderPagePersistenceAttemptId(1L),
 			result = ReaderPagePublicationDiagnosticResult.Failed,
 			startedAtMs = 100L
 		)
@@ -314,12 +472,14 @@ class ReaderPageDiagnosticTest {
 		assertEquals(2, messages.size)
 		assertEquals(
 			"reader-deck session=7 generation=9 repairAttempt=24 role=Active " +
-				"prepared=false active=9 pending=null durationMs=0",
+				"prepared=false active=9 pending=null durationMs=0 " +
+				noQaFaultCorrelation,
 			messages[0]
 		)
 		assertEquals(
 			"reader-deck session=7 generation=9 repairAttempt=24 role=Active " +
-				"prepared=true active=9 pending=null durationMs=3",
+				"prepared=true active=9 pending=null durationMs=3 " +
+				noQaFaultCorrelation,
 			messages[1]
 		)
 	}
@@ -344,4 +504,18 @@ class ReaderPageDiagnosticTest {
 			}
 		}
 	}
+}
+
+private fun readerProductionSource(fileName: String): String {
+	var current: File? = File(checkNotNull(System.getProperty("user.dir"))).canonicalFile
+	repeat(10) {
+		val root = current ?: return@repeat
+		val candidate = File(
+			root,
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/$fileName"
+		)
+		if (candidate.isFile) return candidate.readText()
+		current = root.parentFile
+	}
+	error("Could not locate $fileName")
 }

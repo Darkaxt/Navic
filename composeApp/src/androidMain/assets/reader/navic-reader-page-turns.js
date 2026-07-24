@@ -396,17 +396,41 @@ async function goToVisualPage(command = {}) {
   this.nativePageTurnSettledToken = null
   try {
     this.beginControlledRelocation('page-turn:exact')
-    await readerGoToExactVisualPage(this.view, locator)
+    this.exactPageTurnNavigationToken = token
+    this.exactPageTurnNavigationInProgress = true
+    try {
+      this.applyReaderViewportLayout('page-turn:exact', { renderSynchronously: true })
+      await readerGoToExactVisualPage(this.view, locator)
+    } finally {
+      if (this.exactPageTurnNavigationToken === token) {
+        this.exactPageTurnNavigationToken = null
+        this.exactPageTurnNavigationInProgress = false
+      }
+    }
+    if (
+      this.activeExactPageTurnSettlementToken !== token ||
+      this.pendingExactPageTurnSettlements.get(token) !== pending
+    ) return locator
     this.view.history?.pushState?.({
       href: locator.href,
       chapterPageIndex: locator.chapterPageIndex,
       chapterPageCount: locator.chapterPageCount,
     })
-    this.scheduleControlledRelocationFallback('page-turn:exact')
-    this.applyReaderViewportLayout('page-turn:exact')
+    if (!this.scheduleSettledControlledPageTurnRelocation('exact')) {
+      this.scheduleControlledRelocationFallback('page-turn:exact')
+    }
     this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)
     return locator
   } catch (error) {
+    const ownsPendingExactNavigation =
+      this.pendingExactPageTurnSettlements.get(token) === pending &&
+      this.activeExactPageTurnSettlementToken === token
+    if (
+      ownsPendingExactNavigation &&
+      this.controlledRelocateReason === 'page-turn:exact'
+    ) {
+      this.consumeControlledRelocationReason('page-turn:exact-failed')
+    }
     if (this.pendingExactPageTurnSettlements.get(token) === pending) {
       this.pendingExactPageTurnSettlements.delete(token)
     }
@@ -437,6 +461,13 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     !Number.isFinite(chapterPageIndex) ||
     Math.floor(chapterPageIndex) !== pending.chapterPageIndex
   ) {
+    log(
+      'page-turn:exact-settle-pending',
+      `page=${Number.isFinite(pageIndex) ? Math.floor(pageIndex) : 'n/a'}/${pending.pageIndex}`,
+      `spine=${Number.isFinite(spineIndex) ? Math.floor(spineIndex) : 'n/a'}/${pending.spineIndex}`,
+      `chapter=${Number.isFinite(chapterPageIndex) ? Math.floor(chapterPageIndex) : 'n/a'}/${pending.chapterPageIndex}`,
+      `profile=${pending.paginationProfile === this.paginationProfile}`
+    )
     readerTrace('page-turn:exact-settle-pending', {
       requestedPageIndex: pending.pageIndex,
       actualPageIndex: Number.isFinite(pageIndex) ? Math.floor(pageIndex) : null,

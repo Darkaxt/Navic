@@ -1,8 +1,12 @@
 package paige.navic.ui.screens.reader
 
+import android.view.MotionEvent
 import karacken.curl.GestureRejectionReason
 import karacken.curl.PageChange
 import karacken.curl.RenderFailureReason
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import paige.navic.reader.ReaderPageGestureLifecycle
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageInteractionState
@@ -22,6 +26,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class ReaderPageInputSettlementHostControllerTest {
 	private class FakeReaderPageHostCancellationPort : ReaderPageHostCancellationPort {
 		val calls = mutableListOf<Pair<String, ReaderPageLifecycleCancellationReason>>()
@@ -289,6 +295,99 @@ class ReaderPageInputSettlementHostControllerTest {
 				listOf(gestureId to ReaderPageGestureTerminalOutcome.RejectedSettling),
 				published
 			)
+		}
+	}
+
+	@Test
+	fun positionedUpClaimsCurlWhenIntermediateMovesWereCoalesced() {
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, router, _) = host(published = published)
+		val gestureId = requireNotNull(
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.Down(900f, 400f, 100L)
+			).gestureId
+		)
+
+		assertEquals(
+			ReaderPagePointerRoute.ClaimCurl(gestureId),
+			host.dispatchPointer(
+				ReaderPageHostPointerEvent.PositionedUp(
+					x = 100f,
+					y = 400f,
+					touchSlop = 8f
+				)
+			).route
+		)
+		assertEquals(0, host.contentGestureTokenCount())
+		assertTrue(
+			host.complete(
+				gestureId,
+				ReaderPageGestureTerminalOutcome.CancelledByUser
+			)
+		)
+		assertEquals(
+			listOf(gestureId to ReaderPageGestureTerminalOutcome.CancelledByUser),
+			published
+		)
+		assertEquals(0, router.trackedSequenceCount())
+	}
+
+	@Test
+	fun claimedPositionedUpMovesRendererToReleaseCoordinatesBeforeUp() {
+		val event = MotionEvent.obtain(
+			100L,
+			140L,
+			MotionEvent.ACTION_UP,
+			100f,
+			400f,
+			0
+		)
+		val actions = mutableListOf<Int>()
+		val coordinates = mutableListOf<Pair<Float, Float>>()
+
+		try {
+			assertEquals(
+				ReaderPageCurlDispatchResult.Accepted,
+				dispatchClaimedReaderPageCurlEvent(event) { dispatched ->
+					actions += dispatched.actionMasked
+					coordinates += dispatched.x to dispatched.y
+					ReaderPageCurlDispatchResult.Accepted
+				}
+			)
+			assertEquals(
+				listOf(MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP),
+				actions
+			)
+			assertEquals(listOf(100f to 400f, 100f to 400f), coordinates)
+			assertEquals(MotionEvent.ACTION_UP, event.actionMasked)
+		} finally {
+			event.recycle()
+		}
+	}
+
+	@Test
+	fun syntheticPositionedUpMoveTerminalDoesNotReplayPhysicalUp() {
+		val event = MotionEvent.obtain(
+			100L,
+			140L,
+			MotionEvent.ACTION_UP,
+			100f,
+			400f,
+			0
+		)
+		val actions = mutableListOf<Int>()
+
+		try {
+			assertEquals(
+				ReaderPageCurlDispatchResult.TerminalPublished,
+				dispatchClaimedReaderPageCurlEvent(event) { dispatched ->
+					actions += dispatched.actionMasked
+					ReaderPageCurlDispatchResult.TerminalPublished
+				}
+			)
+			assertEquals(listOf(MotionEvent.ACTION_MOVE), actions)
+		} finally {
+			event.recycle()
 		}
 	}
 

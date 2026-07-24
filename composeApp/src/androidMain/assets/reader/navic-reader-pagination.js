@@ -238,7 +238,7 @@ function reflowableScrolledSectionPagePosition() {
   }
 }
 
-function reflowableSectionPagePosition() {
+function reflowableSectionPagePosition(detail = this.lastRelocateDetail) {
   if (this.view?.isFixedLayout === true) return null
   const renderer = this.view?.renderer
   if (!renderer) return null
@@ -254,10 +254,17 @@ function reflowableSectionPagePosition() {
   }
   if (!Number.isFinite(page) || !Number.isFinite(pages) || pages <= 1) return null
   const pageCount = this.reflowablePaginatedTextPageCount(pages)
+  const pageIndex = Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1)))
+  const sectionIndex = Number(detail?.section?.current ?? detail?.index)
   return {
-    pageIndex: Math.min(pageCount - 1, Math.max(0, Math.floor(page - 1))),
+    pageIndex,
     pageCount,
     pageCountSource: 'section',
+    spineIndex: Number.isFinite(sectionIndex)
+      ? Math.max(0, Math.floor(sectionIndex))
+      : undefined,
+    chapterPageIndex: pageIndex,
+    chapterPageCount: pageCount,
   }
 }
 
@@ -787,7 +794,7 @@ function readerEnsurePaginationProfile(detail, sectionPosition) {
   return this.paginationProfile
 }
 
-function readerPaginationProfilePosition(detail, sectionPosition = this.reflowableSectionPagePosition()) {
+function readerPaginationProfilePosition(detail, sectionPosition = this.reflowableSectionPagePosition(detail)) {
   if (!sectionPosition || this.view?.isFixedLayout === true) return null
   const sectionIndex = Number(detail?.section?.current ?? detail?.index)
   const sectionHref = this.sectionHrefForDetail(detail) || detail?.href || detail?.tocItem?.href || ''
@@ -886,7 +893,7 @@ function normalizedReflowablePagePosition(pagePosition, detail) {
 
 function reflowableWholeBookPagePosition(detail) {
   detail = detail || this.lastRelocateDetail || {}
-  const sectionPosition = this.reflowableSectionPagePosition()
+  const sectionPosition = this.reflowableSectionPagePosition(detail)
   if (!sectionPosition) return null
   const sectionIndex = Number(detail?.section?.current ?? detail?.index)
   const sectionSizes = this.reflowableSectionSizes()
@@ -914,12 +921,19 @@ function reflowableWholeBookPagePosition(detail) {
 }
 
 function reflowablePagePosition(detail) {
-  const sectionPosition = this.reflowableSectionPagePosition()
-  return this.readerPaginationProfilePosition(detail, sectionPosition) ||
+  const sectionPosition = this.reflowableSectionPagePosition(detail)
+  const pagePosition = this.readerPaginationProfilePosition(detail, sectionPosition) ||
     this.reflowableWholeBookPagePosition(detail) ||
     this.reflowableLocationPagePosition(detail) ||
     this.readerPageListPosition(detail) ||
     sectionPosition
+  if (!pagePosition || !sectionPosition) return pagePosition
+  return {
+    ...pagePosition,
+    spineIndex: sectionPosition.spineIndex,
+    chapterPageIndex: sectionPosition.chapterPageIndex,
+    chapterPageCount: sectionPosition.chapterPageCount,
+  }
 }
 
 function readerPagePosition(detail) {
@@ -929,7 +943,7 @@ function readerPagePosition(detail) {
 function chapterPagePosition(detail, fallback = null) {
   const pagePosition = this.view?.isFixedLayout === true
     ? this.fixedLayoutPagePosition(detail)
-    : this.reflowableSectionPagePosition()
+    : this.reflowableSectionPagePosition(detail)
   const resolved = this.view?.isFixedLayout === true
     ? pagePosition || fallback
     : pagePosition

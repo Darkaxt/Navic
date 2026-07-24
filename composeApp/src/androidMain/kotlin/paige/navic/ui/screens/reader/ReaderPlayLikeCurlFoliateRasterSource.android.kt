@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
 import paige.navic.util.core.Logger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 
 private const val ReaderPlayLikeCurlFoliateRasterSourceTag = "ReaderPlayLikeCurlFoliateRaster"
@@ -77,6 +78,11 @@ internal fun readerPlayLikeCurlFoliatePageRequest(
 	)
 }
 
+internal fun readerPlayLikeCurlQaMissIsEligible(
+	request: ReaderPlayLikeCurlFoliatePageRequest,
+	targetLogicalOrdinal: Int?
+): Boolean = targetLogicalOrdinal == null || request.logicalOrdinal == targetLogicalOrdinal
+
 internal fun readerPlayLikeCurlFoliateLeafRect(
 	geometry: ReaderPageTurnLeafGeometry,
 	leaf: ReaderPlayLikeCurlFoliateLeaf
@@ -139,16 +145,25 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 	private val referenceSnapshotProvider: (
 		ReaderPlayLikeCurlFoliatePageRequest
 	) -> ReaderPageSlideSnapshot?,
+	private val diagnostics: ReaderPageRuntimeDiagnostics? = null,
+	private val qaFaultRegistry: ReaderPageQaFaultRegistry? = null,
+	private val qaMissTargetOrdinalProvider: () -> Int? = { null },
 	private val onMissingRaster: (Int) -> Unit = {},
+	private val onQaMissingRaster: (
+		Int,
+		ReaderPageQaFaultCorrelation
+	) -> Unit = { pageIndex, _ -> onMissingRaster(pageIndex) },
 	private val copyDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : ReaderPlayLikeCurlRasterLoader<ReaderPlayLikeCurlRasterImage> {
 	private val transitionKind = when (profile.orientation) {
 		ReaderPlayLikeCurlOrientation.Portrait -> ReaderPageTurnTransitionKind.PortraitSlide
 		ReaderPlayLikeCurlOrientation.Landscape -> ReaderPageTurnTransitionKind.LandscapeSpreadSlide
 	}
+	private val fallbackRasterRequestEpochs = AtomicLong()
 
 	override suspend fun load(key: ReaderPlayLikeCurlRasterKey): ReaderPlayLikeCurlRasterImage? {
 		if (key.profile != profile || key.pageIndex !in 0 until profile.pageCount) return null
+		if (consumeQaMiss(key)) return null
 		val request = pageRequest(key.pageIndex)
 		val snapshot = resolve(request, key.publicationFence::isCurrent)
 		if (snapshot == null) {
@@ -175,6 +190,53 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 			}
 		} finally {
 			if (!snapshotConsumed) snapshot.release()
+		}
+	}
+
+	internal suspend fun consumeQaMiss(key: ReaderPlayLikeCurlRasterKey): Boolean {
+		if (key.profile != profile || key.pageIndex !in 0 until profile.pageCount) return false
+		val registry = qaFaultRegistry ?: return false
+		return withContext(Dispatchers.Main.immediate) {
+			val request = pageRequest(key.pageIndex)
+			if (
+				!key.publicationFence.isCurrent() ||
+				!readerPlayLikeCurlQaMissIsEligible(
+					request,
+					qaMissTargetOrdinalProvider()
+				) ||
+				!registry.hasQueued(ReaderPageQaFault.MissNextRasterLoad)
+			) {
+				return@withContext false
+			}
+			val diagnosticOperation = diagnostics?.startOperation(
+				rasterGeneration = profile.rasterGeneration,
+				ordinal = request.logicalOrdinal
+			)
+			val rasterRequestEpoch = diagnosticOperation?.attempt
+				?: fallbackRasterRequestEpochs.incrementAndGet()
+			registry.consumeAndApply(
+				ReaderPageQaFault.MissNextRasterLoad,
+				ReaderPageQaFaultOperationContext(
+					rasterRequestEpoch = rasterRequestEpoch
+				)
+			)?.also { applied ->
+				val directCorrelation = applied.correlation()
+				diagnosticOperation?.let { operation ->
+					diagnostics.rasterAcquisition(
+						operation = operation,
+						source = ReaderPageRasterAcquisitionSource.PersistentHydration,
+						trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
+						result = ReaderPageRasterAcquisitionResult.Miss,
+						qaFaultCorrelation = directCorrelation
+					)
+				}
+				onQaMissingRaster(
+					request.sourcePageIndex,
+					directCorrelation.withRelation(
+						ReaderPageQaFaultRelation.Recovery
+					)
+				)
+			} != null
 		}
 	}
 

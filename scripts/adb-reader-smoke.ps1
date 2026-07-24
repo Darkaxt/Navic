@@ -50,10 +50,27 @@ param(
     [ValidateSet("", "next", "previous")]
     [string] $RequireTextureDirection = "",
     [switch] $CaptureReaderDiagnostics,
+    [switch] $PrivacySafeEvidence,
+    [switch] $PreserveLogcat,
     [switch] $NoLaunch
 )
 
 $ErrorActionPreference = "Stop"
+$startedUtc = [DateTime]::UtcNow.ToString('o')
+. (Join-Path $PSScriptRoot 'reader-privacy-safe-evidence.ps1')
+$script:ReaderProbeText = @{}
+$script:ReaderForeground = $false
+$script:ReaderPublicationReady = $false
+$script:NeutralVisualState = $false
+$script:SpreadGeometryValid = $false
+$script:PositiveGutter = $false
+$script:TextureStateValid = $true
+$script:LayoutMode = ''
+$script:ViewportWidthPx = 0
+$script:ViewportHeightPx = 0
+$script:GutterPx = 0
+$script:GeometrySampleCount = 0
+$script:TextureSampleCount = 0
 
 if (-not [string]::IsNullOrWhiteSpace($DeviceSerial)) {
     $env:ANDROID_SERIAL = $DeviceSerial
@@ -126,6 +143,42 @@ function Invoke-AdbExecOutToFile {
     $outputFile = Get-Item -LiteralPath $OutputPath
     if ($outputFile.Length -le 0) {
         throw "adb $($Arguments -join ' ') produced an empty file: $OutputPath"
+    }
+}
+
+function Invoke-AdbExecOutToMemory {
+    param([Parameter(Mandatory = $true)][string[]] $Arguments)
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = "adb"
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        throw "Failed to start adb $($Arguments -join ' ')"
+    }
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $stream = [IO.MemoryStream]::new()
+    try {
+        $process.StandardOutput.BaseStream.CopyTo($stream)
+        $process.WaitForExit()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) {
+            throw "adb $($Arguments -join ' ') failed with exit code $($process.ExitCode)`n$stderr"
+        }
+        $bytes = $stream.ToArray()
+        if ($bytes.Length -le 0) {
+            throw "adb $($Arguments -join ' ') produced no bytes"
+        }
+        return $bytes
+    } finally {
+        $stream.Dispose()
+        $process.Dispose()
     }
 }
 
@@ -347,10 +400,13 @@ function Get-ReaderDevtoolsProbeResult {
     )
 
     $probeJsonPath = Join-Path $ArtifactDir $OutputFileName
-    if (-not (Test-Path -LiteralPath $probeJsonPath -PathType Leaf)) {
+    if ($script:ReaderProbeText.ContainsKey($OutputFileName)) {
+        $probeJsonText = [string]$script:ReaderProbeText[$OutputFileName]
+    } elseif (Test-Path -LiteralPath $probeJsonPath -PathType Leaf) {
+        $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
+    } else {
         return $null
     }
-    $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
     if ([string]::IsNullOrWhiteSpace($probeJsonText)) {
         return $null
     }
@@ -390,6 +446,7 @@ function Assert-NeutralReaderVisualState {
     $probeResults = @()
     $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-probe.json"
     $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-post-action-probe.json"
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-privacy-page-box.json"
     foreach ($result in $probeResults) {
         if ($null -eq $result -or $result.probe -ne "page-box") {
             continue
@@ -413,13 +470,15 @@ function Assert-NeutralReaderVisualState {
     }
 
     $summaryPath = Join-Path $ArtifactDir "reader-neutral-visual-state.txt"
-    @(
-        "pageBoxProbeResults=$pageBoxResultCount",
-        "nativeOverlayHits=$($nativeOverlayHits -join ',')",
-        "activeOverlayMarkerCount=$activeOverlayMarkerCount",
-        "activeMediaOverlayMarkerCount=$activeMediaOverlayMarkerCount",
-        "selectedTextLength=$selectedTextLength"
-    ) | Out-File -Encoding utf8 $summaryPath
+    if (-not $PrivacySafeEvidence) {
+        @(
+            "pageBoxProbeResults=$pageBoxResultCount",
+            "nativeOverlayHits=$($nativeOverlayHits -join ',')",
+            "activeOverlayMarkerCount=$activeOverlayMarkerCount",
+            "activeMediaOverlayMarkerCount=$activeMediaOverlayMarkerCount",
+            "selectedTextLength=$selectedTextLength"
+        ) | Out-File -Encoding utf8 $summaryPath
+    }
 
     if ($nativeOverlayHits.Count -gt 0) {
         throw "Reader visual-state validation failed: native transient overlay controls were visible ($($nativeOverlayHits -join ', ')). See $summaryPath"
@@ -430,6 +489,7 @@ function Assert-NeutralReaderVisualState {
     if ($activeOverlayMarkerCount -gt 0 -or $activeMediaOverlayMarkerCount -gt 0 -or $selectedTextLength -gt 0) {
         throw "Reader visual-state validation failed: WebView transient state was active (activeOverlayMarkerCount=$activeOverlayMarkerCount, activeMediaOverlayMarkerCount=$activeMediaOverlayMarkerCount, selectedTextLength=$selectedTextLength). See $summaryPath"
     }
+    $script:NeutralVisualState = $true
 }
 
 function Assert-FocusedAndroidPackage {
@@ -445,7 +505,11 @@ function Assert-FocusedAndroidPackage {
             Select-String -Pattern "mCurrentFocus|mFocusedApp" |
             ForEach-Object { $_.Line.Trim() }
     )
-    $focusLines | Out-File -Encoding utf8 (Join-Path $ArtifactDir "focused-window.txt")
+    if (-not $PrivacySafeEvidence) {
+        $focusLines | Out-File -Encoding utf8 (
+            Join-Path $ArtifactDir "focused-window.txt"
+        )
+    }
 
     $escapedPackage = [regex]::Escape($Package)
     $packageBoundary = "(?:/|\s|\}|$)"
@@ -459,6 +523,7 @@ function Assert-FocusedAndroidPackage {
         throw "Focused Android window does not belong to package '$Package'. See $ArtifactDir\focused-window.txt"
     }
 
+    $script:ReaderForeground = $true
     Write-Host "Foreground confirmed for $Package"
 }
 
@@ -490,11 +555,17 @@ if (-not [string]::IsNullOrWhiteSpace($ApkPath)) {
     Invoke-Adb @("install", "-r", $resolvedApk)
 }
 
-Invoke-Adb @("logcat", "-c")
+if (-not $PreserveLogcat) {
+    Invoke-Adb @("logcat", "-c")
+}
 
 if (-not $NoLaunch) {
     $launchOutput = Invoke-Adb @("shell", "monkey", "-p", $Package, "1") -PassThru
-    $launchOutput | Out-File -Encoding utf8 (Join-Path $ArtifactDir "launch.txt")
+    if (-not $PrivacySafeEvidence) {
+        $launchOutput | Out-File -Encoding utf8 (
+            Join-Path $ArtifactDir "launch.txt"
+        )
+    }
     Start-Sleep -Seconds $LaunchWaitSeconds
 }
 
@@ -583,24 +654,41 @@ if ([string]::IsNullOrWhiteSpace($processId)) {
     throw "Package is not running: $Package"
 }
 
-Invoke-Adb @("shell", "dumpsys", "package", $Package) -PassThru |
-    Select-String -Pattern "versionCode|versionName|lastUpdateTime" |
-    ForEach-Object { $_.Line.Trim() } |
-    Out-File -Encoding utf8 (Join-Path $ArtifactDir "package-version.txt")
-
-$packageVersionText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "package-version.txt")
+$packageVersionLines = @(
+    Invoke-Adb @("shell", "dumpsys", "package", $Package) -PassThru |
+        Select-String -Pattern "versionCode|versionName|lastUpdateTime" |
+        ForEach-Object { $_.Line.Trim() }
+)
+$packageVersionText = $packageVersionLines -join "`n"
+if (-not $PrivacySafeEvidence) {
+    $packageVersionLines | Out-File -Encoding utf8 (
+        Join-Path $ArtifactDir "package-version.txt"
+    )
+}
 if (-not [string]::IsNullOrWhiteSpace($ExpectedVersionName)) {
-    if (-not (Test-TextMatches -Text $packageVersionText -Pattern ([regex]::Escape($ExpectedVersionName)))) {
-        throw "Installed $Package version did not contain expected versionName '$ExpectedVersionName'. Captured version: $packageVersionText"
+    $installedVersionName = [regex]::Match(
+        $packageVersionText,
+        '(?m)^\s*versionName=(?<Value>[^\r\n]*)\r?$'
+    )
+    if (-not $installedVersionName.Success -or
+        $installedVersionName.Groups['Value'].Value.Trim() -cne $ExpectedVersionName) {
+        throw "Installed $Package versionName did not exactly match the expected value."
     }
 }
 
 Assert-FocusedAndroidPackage -Package $Package -ArtifactDir $ArtifactDir
 
-Invoke-Adb @("shell", "cat", "/proc/net/unix") -PassThru |
-    Select-String -Pattern "webview_devtools|chrome_devtools" -CaseSensitive:$false |
-    ForEach-Object { $_.Line.Trim() } |
-    Out-File -Encoding utf8 (Join-Path $ArtifactDir "webview-devtools-sockets.txt")
+$devtoolsSockets = @(
+    Invoke-Adb @("shell", "cat", "/proc/net/unix") -PassThru |
+        Select-String -Pattern "webview_devtools|chrome_devtools" `
+            -CaseSensitive:$false |
+        ForEach-Object { $_.Line.Trim() }
+)
+if (-not $PrivacySafeEvidence) {
+    $devtoolsSockets | Out-File -Encoding utf8 (
+        Join-Path $ArtifactDir "webview-devtools-sockets.txt"
+    )
+}
 
 function Invoke-ReaderDevtoolsProbe {
     param(
@@ -636,7 +724,13 @@ function Invoke-ReaderDevtoolsProbe {
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
-    $probeOutput | Out-File -Encoding utf8 (Join-Path $ArtifactDir $OutputFileName)
+    $probeOutputText = @($probeOutput | ForEach-Object { "$_" }) -join "`n"
+    $script:ReaderProbeText[$OutputFileName] = $probeOutputText
+    if (-not $PrivacySafeEvidence) {
+        $probeOutputText | Out-File -Encoding utf8 (
+            Join-Path $ArtifactDir $OutputFileName
+        )
+    }
     if ($probeExitCode -ne 0) {
         throw "Reader DevTools probe '$ProbeName' failed with exit code $probeExitCode. See $ArtifactDir\$OutputFileName"
     }
@@ -1183,27 +1277,74 @@ Invoke-ReaderDevtoolsProbe `
     -OutputFileName "reader-devtools-post-action-probe.json" `
     -SettingsJson $ReaderDevtoolsProbeSettingsJson
 
-Invoke-AdbExecOutToFile -Arguments @("exec-out", "screencap", "-p") -OutputPath (Join-Path $ArtifactDir "screen.png")
+if ($PrivacySafeEvidence -and
+    $ReaderDevtoolsProbe -ne 'page-box' -and
+    $PostActionReaderDevtoolsProbe -ne 'page-box') {
+    Invoke-ReaderDevtoolsProbe `
+        -ProbeName 'page-box' `
+        -OutputFileName 'reader-privacy-page-box.json'
+}
 
-Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru |
-    Out-File -Encoding utf8 (Join-Path $ArtifactDir "window.xml")
+if ($PrivacySafeEvidence) {
+    $screenshotBytes = Invoke-AdbExecOutToMemory `
+        -Arguments @("exec-out", "screencap", "-p")
+    $screenshotBytes = $null
+} else {
+    Invoke-AdbExecOutToFile `
+        -Arguments @("exec-out", "screencap", "-p") `
+        -OutputPath (Join-Path $ArtifactDir "screen.png")
+}
 
-$windowXmlText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "window.xml")
-$nativeShellCoverVisible = Get-ReaderNativeShellCoverVisible -WindowXmlText $windowXmlText
-@(
-    "nativeShellCoverVisible=$nativeShellCoverVisible",
-    "marker=full-window-clickable-naf-view"
-) | Out-File -Encoding utf8 (Join-Path $ArtifactDir "reader-native-cover-validation.txt")
+$windowXmlLines = @(
+    Invoke-Adb @("exec-out", "uiautomator", "dump", "/dev/tty") -PassThru |
+        ForEach-Object { "$_" }
+)
+$windowXmlText = $windowXmlLines -join "`n"
+if (-not $PrivacySafeEvidence) {
+    $windowXmlLines | Out-File -Encoding utf8 (
+        Join-Path $ArtifactDir "window.xml"
+    )
+}
+$nativeShellCoverVisible = Get-ReaderNativeShellCoverVisible `
+    -WindowXmlText $windowXmlText
+if (-not $PrivacySafeEvidence) {
+    @(
+        "nativeShellCoverVisible=$nativeShellCoverVisible",
+        "marker=full-window-clickable-naf-view"
+    ) | Out-File -Encoding utf8 (
+        Join-Path $ArtifactDir "reader-native-cover-validation.txt"
+    )
+}
 
-Invoke-Adb @("logcat", "-d", "--pid=$processId", "-v", "time") -PassThru |
-    Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-full.log")
-
-Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
-    Select-String -Pattern "Reader|Foliate|Paginator|content-layout|iframe-srcdoc|firstText|publicationReady|locationChanged|AndroidRuntime|FATAL|ERROR|WARNING|Exception|503|404|unsupported" -CaseSensitive:$false |
-    ForEach-Object { $_.Line } |
-    Out-File -Encoding utf8 (Join-Path $ArtifactDir "logcat-reader.log")
-
-$readerLogText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-reader.log")
+$logcatFullLines = @(
+    Invoke-Adb @(
+        "logcat", "-d", "--pid=$processId", "-v", "time"
+    ) -PassThru | ForEach-Object { "$_" }
+)
+$logcatFullText = $logcatFullLines -join "`n"
+$readerLogLines = @(
+    $logcatFullLines |
+        Select-String -Pattern "Reader|Foliate|Paginator|content-layout|iframe-srcdoc|firstText|publicationReady|locationChanged|AndroidRuntime|FATAL|ERROR|WARNING|Exception|503|404|unsupported" `
+            -CaseSensitive:$false |
+        ForEach-Object { $_.Line }
+)
+$readerLogText = $readerLogLines -join "`n"
+if (-not $PrivacySafeEvidence) {
+    $logcatFullLines | Out-File -Encoding utf8 (
+        Join-Path $ArtifactDir "logcat-full.log"
+    )
+    $readerLogLines | Out-File -Encoding utf8 (
+        Join-Path $ArtifactDir "logcat-reader.log"
+    )
+}
+$script:ReaderPublicationReady =
+    (Test-TextMatches -Text $readerLogText -Pattern 'publicationReady') -or
+    $script:ReaderProbeText.ContainsKey('reader-privacy-page-box.json') -or
+    $ReaderDevtoolsProbe -eq 'page-box' -or
+    $PostActionReaderDevtoolsProbe -eq 'page-box'
+if ($PrivacySafeEvidence -and -not $script:ReaderPublicationReady) {
+    throw 'Reader smoke validation failed: reader publication was not ready.'
+}
 
 if ($RequireNativeShellCover -and -not $nativeShellCoverVisible) {
     throw "Reader diagnostics validation failed: native shell cover was not visible. See $ArtifactDir"
@@ -1233,31 +1374,39 @@ function Assert-ReaderShellGeometryProbe {
         [bool] $NativeShellCoverVisible
     )
 
-    if (-not $RequireGeometry -and [string]::IsNullOrWhiteSpace($ExpectedMode)) {
+    if (-not $RequireGeometry -and
+        [string]::IsNullOrWhiteSpace($ExpectedMode) -and
+        -not $PrivacySafeEvidence) {
         return
     }
 
     $summaryPath = Join-Path $ArtifactDir "reader-shell-geometry-validation.txt"
     if ($ExpectedMode -eq "cover") {
-        @(
-            "expectedMode=cover",
-            "nativeShellCoverVisible=$NativeShellCoverVisible"
-        ) | Out-File -Encoding utf8 $summaryPath
+        if (-not $PrivacySafeEvidence) {
+            @(
+                "expectedMode=cover",
+                "nativeShellCoverVisible=$NativeShellCoverVisible"
+            ) | Out-File -Encoding utf8 $summaryPath
+        }
         if (-not $NativeShellCoverVisible) {
             throw "Reader shell-geometry validation failed: expected native cover shell for cover mode. See $summaryPath"
         }
-        return
+        if (-not $PrivacySafeEvidence) { return }
+        $ExpectedMode = ''
     }
 
     $probeResults = @()
     $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-probe.json"
     $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-post-action-probe.json"
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-privacy-page-box.json"
     $pageBoxResult = $probeResults | Where-Object { $null -ne $_ -and $_.probe -eq "page-box" } | Select-Object -First 1
     if ($null -eq $pageBoxResult) {
-        @(
-            "expectedMode=$ExpectedMode",
-            "pageBoxProbePresent=false"
-        ) | Out-File -Encoding utf8 $summaryPath
+        if (-not $PrivacySafeEvidence) {
+            @(
+                "expectedMode=$ExpectedMode",
+                "pageBoxProbePresent=false"
+            ) | Out-File -Encoding utf8 $summaryPath
+        }
         throw "Reader shell-geometry validation failed: expected a page-box DevTools probe. See $summaryPath"
     }
 
@@ -1278,19 +1427,50 @@ function Assert-ReaderShellGeometryProbe {
     $rightRectValid = Test-ReaderPositiveRect -Rect $contentRects.right
     $gutterWidth = 0.0
     [void] [double]::TryParse(([string] $pageBoxResult.shellGutterWidth), [ref] $gutterWidth)
+    if ($mode -notin @('single', 'spread')) {
+        $mode = if ($leftRectValid -and $rightRectValid) {
+            'spread'
+        } elseif ($singleRectValid) {
+            'single'
+        } else {
+            ''
+        }
+    }
+    $script:LayoutMode = $mode
+    $script:ViewportWidthPx = [int]$pageBoxResult.viewport.width
+    $script:ViewportHeightPx = [int]$pageBoxResult.viewport.height
+    $script:GutterPx = [int][Math]::Round($gutterWidth)
+    $script:GeometrySampleCount = @(
+        $probeResults | Where-Object { $null -ne $_ -and $_.probe -eq 'page-box' }
+    ).Count
+    $script:SpreadGeometryValid =
+        ($mode -eq 'single' -and $singleRectValid) -or
+        ($mode -eq 'spread' -and $leftRectValid -and $rightRectValid)
+    $script:PositiveGutter =
+        ($mode -eq 'single' -and $gutterWidth -ge 0) -or
+        ($mode -eq 'spread' -and $gutterWidth -gt 0)
 
-    @(
-        "expectedMode=$ExpectedMode",
-        "actualMode=$mode",
-        "shellRectValid=$(Test-ReaderPositiveRect -Rect $shellRect)",
-        "singleRectValid=$singleRectValid",
-        "leftRectValid=$leftRectValid",
-        "rightRectValid=$rightRectValid",
-        "shellGutterWidth=$gutterWidth"
-    ) | Out-File -Encoding utf8 $summaryPath
+    if (-not $PrivacySafeEvidence) {
+        @(
+            "expectedMode=$ExpectedMode",
+            "actualMode=$mode",
+            "shellRectValid=$(Test-ReaderPositiveRect -Rect $shellRect)",
+            "singleRectValid=$singleRectValid",
+            "leftRectValid=$leftRectValid",
+            "rightRectValid=$rightRectValid",
+            "shellGutterWidth=$gutterWidth"
+        ) | Out-File -Encoding utf8 $summaryPath
+    }
 
     if (-not (Test-ReaderPositiveRect -Rect $shellRect)) {
         throw "Reader shell-geometry validation failed: shell rect was missing or empty. See $summaryPath"
+    }
+    if ($PrivacySafeEvidence -and
+        (-not $script:SpreadGeometryValid -or
+         -not $script:PositiveGutter -or
+         $script:ViewportWidthPx -le 0 -or
+         $script:ViewportHeightPx -le 0)) {
+        throw 'Reader privacy-safe geometry validation failed.'
     }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedMode) -and $mode -ne $ExpectedMode) {
         throw "Reader shell-geometry validation failed: expected mode '$ExpectedMode' but got '$mode'. See $summaryPath"
@@ -1327,14 +1507,18 @@ function Assert-ReaderTextureProbeState {
     $probeResults = @()
     $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-probe.json"
     $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-devtools-post-action-probe.json"
+    $probeResults += Get-ReaderDevtoolsProbeResult -OutputFileName "reader-privacy-page-box.json"
     $textureResult = $probeResults | Where-Object { $null -ne $_ -and $_.probe -eq "texture-slots" } | Select-Object -First 1
     if ($null -eq $textureResult) {
-        @(
-            "expectedState=$ExpectedState",
-            "textureSlotsProbePresent=false"
-        ) | Out-File -Encoding utf8 $summaryPath
+        if (-not $PrivacySafeEvidence) {
+            @(
+                "expectedState=$ExpectedState",
+                "textureSlotsProbePresent=false"
+            ) | Out-File -Encoding utf8 $summaryPath
+        }
         throw "Reader texture-state validation failed: expected a texture-slots DevTools probe. See $summaryPath"
     }
+    $script:TextureSampleCount = 1
 
     function Test-ReaderDisabledTextureOpacity {
         param(
@@ -1355,18 +1539,20 @@ function Assert-ReaderTextureProbeState {
     $movingGutterOpacity = [string] $textureResult.gutterLayerOpacity
     $stainOpacity = [string] $textureResult.staticStainLayerOpacity
     $movingStainOpacity = [string] $textureResult.stainLayerOpacity
-    @(
-        "expectedState=$ExpectedState",
-        "paperOpacity=$paperOpacity",
-        "paperImageSet=$paperImageSet",
-        "movingPaperOpacity=$movingPaperOpacity",
-        "borderOpacity=$borderOpacity",
-        "movingBorderOpacity=$movingBorderOpacity",
-        "gutterOpacity=$gutterOpacity",
-        "movingGutterOpacity=$movingGutterOpacity",
-        "stainOpacity=$stainOpacity",
-        "movingStainOpacity=$movingStainOpacity"
-    ) | Out-File -Encoding utf8 $summaryPath
+    if (-not $PrivacySafeEvidence) {
+        @(
+            "expectedState=$ExpectedState",
+            "paperOpacity=$paperOpacity",
+            "paperImageSet=$paperImageSet",
+            "movingPaperOpacity=$movingPaperOpacity",
+            "borderOpacity=$borderOpacity",
+            "movingBorderOpacity=$movingBorderOpacity",
+            "gutterOpacity=$gutterOpacity",
+            "movingGutterOpacity=$movingGutterOpacity",
+            "stainOpacity=$stainOpacity",
+            "movingStainOpacity=$movingStainOpacity"
+        ) | Out-File -Encoding utf8 $summaryPath
+    }
 
     if (
         $ExpectedState -eq "paper-off" -and
@@ -1421,13 +1607,11 @@ function Assert-ReaderDevtoolsProbeLogLabels {
     }
 
     $probeJsonPath = Join-Path $ArtifactDir $OutputFileName
-    $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
-    try {
-        $probeJson = $probeJsonText | ConvertFrom-Json
-    } catch {
+    $probeResult = Get-ReaderDevtoolsProbeResult -OutputFileName $OutputFileName
+    if ($null -eq $probeResult) {
         throw "Reader DevTools probe '$ProbeName' did not return parseable JSON. See $probeJsonPath"
     }
-    $expectedLogLabels = @($probeJson.result.expectedLogLabels)
+    $expectedLogLabels = @($probeResult.expectedLogLabels)
     foreach ($expectedLogLabel in $expectedLogLabels) {
         if ([string]::IsNullOrWhiteSpace($expectedLogLabel)) {
             continue
@@ -1505,10 +1689,13 @@ function Get-ReaderDevtoolsPdfVisibleResult {
     )
 
     $probeJsonPath = Join-Path $ArtifactDir $OutputFileName
-    if (-not (Test-Path -LiteralPath $probeJsonPath -PathType Leaf)) {
+    if ($script:ReaderProbeText.ContainsKey($OutputFileName)) {
+        $probeJsonText = [string]$script:ReaderProbeText[$OutputFileName]
+    } elseif (Test-Path -LiteralPath $probeJsonPath -PathType Leaf) {
+        $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
+    } else {
         return $null
     }
-    $probeJsonText = Get-TextFileRaw -Path $probeJsonPath
     if ([string]::IsNullOrWhiteSpace($probeJsonText)) {
         return $null
     }
@@ -1563,25 +1750,29 @@ if ($CaptureReaderDiagnostics) {
     $bridgeDiagnosticsPath = Join-Path $ArtifactDir "reader-bridge-events.log"
     $summaryPath = Join-Path $ArtifactDir "reader-diagnostics-summary.txt"
 
-    Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
-        Select-String -Pattern $textureDiagnosticPattern -CaseSensitive:$false |
-        ForEach-Object { $_.Line } |
-        Out-File -Encoding utf8 $textureDiagnosticsPath
-
-    Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
-        Select-String -Pattern $touchDiagnosticPattern -CaseSensitive:$false |
-        ForEach-Object { $_.Line } |
-        Out-File -Encoding utf8 $touchDiagnosticsPath
-
-    Get-Content -LiteralPath (Join-Path $ArtifactDir "logcat-full.log") |
-        Select-String -Pattern $bridgeDiagnosticPattern -CaseSensitive:$false |
-        ForEach-Object { $_.Line } |
-        Out-File -Encoding utf8 $bridgeDiagnosticsPath
-
-    $textureDiagnosticsText = Get-TextFileRaw -Path $textureDiagnosticsPath
-    $touchDiagnosticsText = Get-TextFileRaw -Path $touchDiagnosticsPath
-    $bridgeDiagnosticsText = Get-TextFileRaw -Path $bridgeDiagnosticsPath
-    $logcatFullText = Get-TextFileRaw -Path (Join-Path $ArtifactDir "logcat-full.log")
+    $textureLines = @(
+        $logcatFullLines |
+            Select-String -Pattern $textureDiagnosticPattern -CaseSensitive:$false |
+            ForEach-Object { $_.Line }
+    )
+    $touchDiagnosticLines = @(
+        $logcatFullLines |
+            Select-String -Pattern $touchDiagnosticPattern -CaseSensitive:$false |
+            ForEach-Object { $_.Line }
+    )
+    $bridgeDiagnosticLines = @(
+        $logcatFullLines |
+            Select-String -Pattern $bridgeDiagnosticPattern -CaseSensitive:$false |
+            ForEach-Object { $_.Line }
+    )
+    $textureDiagnosticsText = $textureLines -join "`n"
+    $touchDiagnosticsText = $touchDiagnosticLines -join "`n"
+    $bridgeDiagnosticsText = $bridgeDiagnosticLines -join "`n"
+    if (-not $PrivacySafeEvidence) {
+        $textureLines | Out-File -Encoding utf8 $textureDiagnosticsPath
+        $touchDiagnosticLines | Out-File -Encoding utf8 $touchDiagnosticsPath
+        $bridgeDiagnosticLines | Out-File -Encoding utf8 $bridgeDiagnosticsPath
+    }
     $pdfProbeResult = Get-ReaderDevtoolsPdfVisibleResult -OutputFileName "reader-devtools-post-action-probe.json"
     if ($null -eq $pdfProbeResult) {
         $pdfProbeResult = Get-ReaderDevtoolsPdfVisibleResult -OutputFileName "reader-devtools-probe.json"
@@ -1590,7 +1781,6 @@ if ($CaptureReaderDiagnostics) {
     $pdfRendererIndex = if ($null -ne $pdfProbeResult) { [int] $pdfProbeResult.rendererIndex } else { -1 }
     $pdfRuntimeDiagnostics = (Test-TextMatches -Text $logcatFullText -Pattern '\[FoliatePDF\]|makePDF|pdfjs|PDF\.js|publication\.pdf|format=Pdf') -or
         $pdfProbeVisible
-    $textureLines = @(Get-Content -LiteralPath $textureDiagnosticsPath)
     $textureDirectionSamples = @()
     $wrongTextureDirection = $false
     if (-not [string]::IsNullOrWhiteSpace($RequireTextureDirection)) {
@@ -1599,17 +1789,19 @@ if ($CaptureReaderDiagnostics) {
             -Direction $RequireTextureDirection
         $wrongTextureDirection = [bool]($textureDirectionSamples | Where-Object { $_.WrongTextureDirection })
         $directionValidationPath = Join-Path $ArtifactDir "reader-texture-direction-validation.txt"
-        @(
-            "requiredTextureDirection=$RequireTextureDirection",
-            "textureDirectionSamples=$($textureDirectionSamples.Count)",
-            "wrongTextureDirection=$wrongTextureDirection"
-        ) + ($textureDirectionSamples | ForEach-Object {
-            "sample axis=$($_.Axis) offset=$($_.Offset) expectedSign=$($_.ExpectedSign) wrong=$($_.WrongTextureDirection) line=$($_.Line)"
-        }) | Out-File -Encoding utf8 $directionValidationPath
+        if (-not $PrivacySafeEvidence) {
+            @(
+                "requiredTextureDirection=$RequireTextureDirection",
+                "textureDirectionSamples=$($textureDirectionSamples.Count)",
+                "wrongTextureDirection=$wrongTextureDirection"
+            ) + ($textureDirectionSamples | ForEach-Object {
+                "sample axis=$($_.Axis) offset=$($_.Offset) expectedSign=$($_.ExpectedSign) wrong=$($_.WrongTextureDirection) line=$($_.Line)"
+            }) | Out-File -Encoding utf8 $directionValidationPath
+        }
     }
     $summaryLines = @(
-        "textureScrollLines=$((@(Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-scroll' -CaseSensitive:$false)).Count)",
-        "textureUpdateLines=$((@(Select-String -Path $textureDiagnosticsPath -Pattern 'surface-texture-update' -CaseSensitive:$false)).Count)",
+        "textureScrollLines=$(@($textureLines | Where-Object { $_ -match 'surface-texture-scroll' }).Count)",
+        "textureUpdateLines=$(@($textureLines | Where-Object { $_ -match 'surface-texture-update' }).Count)",
         "readerSurfaceTouchDown=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface touch down')",
         "readerSurfaceTapAction=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader surface tap action=')",
         "readerNativeTapAction=$(Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader native tap action=')",
@@ -1640,7 +1832,13 @@ if ($CaptureReaderDiagnostics) {
     foreach ($requiredBridgeEvent in $RequireReaderBridgeEvent) {
         $summaryLines += "bridgeEvent:$requiredBridgeEvent=$(Test-TextMatches -Text $bridgeDiagnosticsText -Pattern ([regex]::Escape("Reader bridge event: $requiredBridgeEvent")))"
     }
-    $summaryLines | Out-File -Encoding utf8 $summaryPath
+    if (-not $PrivacySafeEvidence) {
+        $summaryLines | Out-File -Encoding utf8 $summaryPath
+    }
+    $script:TextureSampleCount = [Math]::Max(
+        $script:TextureSampleCount,
+        $textureLines.Count
+    )
 
     if ($RequireShellCoverSwipe -and -not (Test-TextMatches -Text $touchDiagnosticsText -Pattern 'Reader shell cover swipe')) {
         throw "Reader diagnostics validation failed: no shell-cover swipe was captured. See $ArtifactDir"
@@ -1707,8 +1905,11 @@ if ($ValidateReaderTaps) {
     $validationLines.Add("nativeTapAction=$hasNativeTapAction")
     $validationLines.Add("explicitContentHandler=$hasExplicitContentHandler")
     $validationLines.Add("contentTapHandledEvent=$hasContentTapHandledEvent")
-    $validationLines |
-        Out-File -Encoding utf8 (Join-Path $ArtifactDir "reader-tap-validation.txt")
+    if (-not $PrivacySafeEvidence) {
+        $validationLines | Out-File -Encoding utf8 (
+            Join-Path $ArtifactDir "reader-tap-validation.txt"
+        )
+    }
 
     if ($hasPlainImageRegression) {
         throw "Reader tap validation failed: logcat still contains 'Reader surface tap ignored for content hitType=5'. See $ArtifactDir"
@@ -1718,10 +1919,81 @@ if ($ValidateReaderTaps) {
     }
 }
 
+if ($PrivacySafeEvidence) {
+    $noConsoleErrors = -not (
+        Test-TextMatches -Text $readerLogText -Pattern 'Reader console ERROR:'
+    )
+    $nativeLongTap = -not $RequireNativeLongTap -or (
+        Test-TextMatches -Text $readerLogText -Pattern 'Reader native long tap'
+    )
+    $nativeSwipe = -not $RequireNativeSwipeAction -or (
+        Test-TextMatches -Text $readerLogText -Pattern 'Reader native drag preview'
+    )
+    $bridgeEventCount = @(
+        $readerLogLines | Where-Object {
+            $_ -match 'Reader bridge raw|Reader bridge event:'
+        }
+    ).Count
+    $gestureEventCount = @(
+        $readerLogLines | Where-Object {
+            $_ -match 'reader-gesture|Reader native (?:drag|long tap|tap)'
+        }
+    ).Count
+    if (-not $noConsoleErrors -or
+        -not $nativeLongTap -or
+        -not $nativeSwipe -or
+        -not $script:ReaderForeground -or
+        -not $script:ReaderPublicationReady -or
+        -not $script:SpreadGeometryValid -or
+        -not $script:PositiveGutter -or
+        -not $script:TextureStateValid) {
+        throw 'Reader privacy-safe smoke assertions did not all pass.'
+    }
+    $privacySafePath = Join-Path $ArtifactDir 'privacy-safe-smoke.json'
+    [ordered]@{
+        SchemaVersion = 1
+        Status = 'complete'
+        Package = $Package
+        DeviceSerial = $DeviceSerial
+        StartedUtc = $startedUtc
+        CompletedUtc = [DateTime]::UtcNow.ToString('o')
+        Assertions = [ordered]@{
+            ReaderForeground = [bool]$script:ReaderForeground
+            ReaderPublicationReady = [bool]$script:ReaderPublicationReady
+            NoConsoleErrors = [bool]$noConsoleErrors
+            NativeLongTap = [bool]$nativeLongTap
+            NativeSwipe = [bool]$nativeSwipe
+            NeutralVisualState = [bool]$script:NeutralVisualState
+            SpreadGeometryValid = [bool]$script:SpreadGeometryValid
+            PositiveGutter = [bool]$script:PositiveGutter
+            TextureStateValid = [bool]$script:TextureStateValid
+        }
+        Counts = [ordered]@{
+            BridgeEvents = [int]$bridgeEventCount
+            GestureEvents = [int]$gestureEventCount
+            GeometrySamples = [int]$script:GeometrySampleCount
+            TextureSamples = [int]$script:TextureSampleCount
+        }
+        Geometry = [ordered]@{
+            Mode = [string]$script:LayoutMode
+            ViewportWidthPx = [int]$script:ViewportWidthPx
+            ViewportHeightPx = [int]$script:ViewportHeightPx
+            GutterPx = [int]$script:GutterPx
+        }
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $privacySafePath
+    Assert-ReaderPrivacySafeArtifactTree -Root $ArtifactDir -Kind smoke
+    $script:ReaderProbeText.Clear()
+    $windowXmlLines = $null
+    $windowXmlText = $null
+    $logcatFullLines = $null
+    $logcatFullText = $null
+    $readerLogLines = $null
+    $readerLogText = $null
+}
+
 Write-Host "Reader smoke artifacts: $ArtifactDir"
 Write-Host "PID: $processId"
-Get-Content -LiteralPath (Join-Path $ArtifactDir "package-version.txt")
-$devtoolsSockets = Get-Content -LiteralPath (Join-Path $ArtifactDir "webview-devtools-sockets.txt")
+$packageVersionLines | ForEach-Object { Write-Output $_ }
 if ($devtoolsSockets) {
     Write-Host "WebView devtools sockets:"
     $devtoolsSockets | ForEach-Object { Write-Host $_ }
