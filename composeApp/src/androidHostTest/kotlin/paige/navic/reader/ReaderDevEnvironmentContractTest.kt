@@ -334,8 +334,10 @@ class ReaderDevEnvironmentContractTest {
 			launchIndex > clearIndex && prearmIndex > launchIndex &&
 				pidIndex > prearmIndex &&
 				initialLaunch.substring(launchIndex, pidIndex)
-					.contains("-ReaderQaFault 'FailNextPersistence'"),
-			"The deterministic persistence fault must travel on the Activity launch that begins foreground preparation."
+					.contains("-ReaderQaFault 'FailNextPersistence'") &&
+				initialLaunch.substring(launchIndex, pidIndex)
+					.contains("-EnableCanvasPageTurn"),
+			"The deterministic persistence fault must travel on the canvas-enabled Activity launch that begins foreground preparation."
 		)
 		assertTrue(
 			faultIndex > pidIndex && warmupIndex > faultIndex,
@@ -354,6 +356,29 @@ class ReaderDevEnvironmentContractTest {
 				persistenceFault.contains("\$RequestId 'Enqueued'") &&
 				persistenceFault.contains("ReaderSession = \$readerSession"),
 			"The launched reader must acknowledge the prearmed fault before the runner accepts its recovery evidence."
+		)
+		val failedPublicationWait = persistenceFault
+			.substringAfter("\$failedPublication = Wait-ReaderQaCondition `")
+			.substringBefore("\$preparationFailure = Wait-ReaderQaCondition `")
+		val preparationFailureWait = persistenceFault
+			.substringAfter("\$preparationFailure = Wait-ReaderQaCondition `")
+			.substringBefore("Start-Sleep -Milliseconds 500")
+		val preparationRetryWait = persistenceFault
+			.substringAfter("-Context 'ReaderDev persistence preparation retry' `")
+			.substringBefore("\$evidenceLog = Read-ReaderPidLog")
+		assertTrue(
+			failedPublicationWait.contains("-Full `") &&
+				preparationFailureWait.contains("-Full `") &&
+				preparationRetryWait.contains("-Full `"),
+			"Same-poll and split-poll publication/preparation evidence must compare indexes from the shared full diagnostic stream."
+		)
+		assertTrue(
+			persistenceFault.contains(
+				"\$failedPublication = Wait-ReaderQaCondition `"
+			) && persistenceFault.contains(
+				"\$_.Index -gt \$failedPublication.Match.Index"
+			),
+			"A startup failure that predates the injected publication failure must not satisfy persistence-fault recovery."
 		)
 
 		val installer = root.resolve("scripts/install-reader-dev.ps1").readText()
@@ -374,14 +399,18 @@ class ReaderDevEnvironmentContractTest {
 		).readText()
 		assertTrue(
 			installer.contains("navic.dev.reader.qa_fault_request_id") &&
-				installer.contains("navic.dev.reader.qa_fault"),
-			"The launcher must place the bounded QA command on the same Activity intent as the publication seed."
+				installer.contains("navic.dev.reader.qa_fault") &&
+				installer.contains("navic.dev.reader.canvas_page_turn"),
+			"The launcher must place the bounded QA command and explicit canvas mode on the same Activity intent as the publication seed."
 		)
 		assertTrue(
 			mainActivity.contains("applyReaderDevQaFaultSeed(intent)") &&
 				mainActivity.contains("ReaderPageQaFaultCommandDecoder.decode(") &&
-				mainActivity.contains("ReaderPageQaFaultControl.enqueue("),
-			"ReaderDev must prearm the validated fault synchronously in Activity creation before Compose attaches the reader registry."
+				mainActivity.contains("ReaderPageQaFaultControl.enqueue(") &&
+				mainActivity.contains(
+					"preferenceManager.readerDragAnimationMode = ReaderDragAnimationCanvas"
+				),
+			"ReaderDev must synchronously enable the canvas and prearm the validated fault before Compose attaches the reader registry."
 		)
 	}
 

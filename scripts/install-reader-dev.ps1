@@ -14,6 +14,7 @@ param(
     [int] $ReaderAssetServerPort = 0,
     [switch] $NoDiscoverPublication,
     [switch] $RequireReaderLaunch,
+    [switch] $EnableCanvasPageTurn,
     [string] $ReaderQaFaultRequestId,
     [string] $ReaderQaFault,
     [int] $MaxDiscoveryBooks = 150,
@@ -993,6 +994,11 @@ if (!$NoLaunch) {
     $launchArgs.Add("--ez")
     $launchArgs.Add("navic.dev.reader.web_debugging")
     $launchArgs.Add("true")
+    if ($EnableCanvasPageTurn) {
+        $launchArgs.Add("--ez")
+        $launchArgs.Add("navic.dev.reader.canvas_page_turn")
+        $launchArgs.Add("true")
+    }
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.qa_fault_request_id" -Value $ReaderQaFaultRequestId
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.qa_fault" -Value $ReaderQaFault
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.publication_url" -Value $publicationUrl

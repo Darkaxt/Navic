@@ -559,11 +559,12 @@ function Invoke-ReaderQaFaultCommand(
 function Wait-ReaderQaCondition(
     [string] $Context,
     [scriptblock] $Select,
-    [int] $WaitSeconds = 30
+    [int] $WaitSeconds = 30,
+    [switch] $Full
 ) {
     $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
     do {
-        $log = Read-ReaderPidLog $Context
+        $log = Read-ReaderPidLog $Context -Full:$Full
         $matches = @(& $Select $log)
         if ($matches.Count -gt 0) {
             return [pscustomobject]@{
@@ -778,9 +779,10 @@ function Invoke-ReaderPersistenceFault(
     $enqueued = Wait-ReaderQaFaultState `
         $RequestId 'Enqueued' 'ReaderDev prearmed persistence fault'
     $readerSession = [long]$enqueued.Match.Session
-    [void](Wait-ReaderQaCondition `
+    $failedPublication = Wait-ReaderQaCondition `
         -Context 'ReaderDev injected persistence failure' `
         -WaitSeconds 30 `
+        -Full `
         -Select {
             param($log)
             ConvertFrom-ReaderPublicationLog $log | Where-Object {
@@ -789,14 +791,17 @@ function Invoke-ReaderPersistenceFault(
                     $_.QaFaultRelation -eq 'AppliedOperation' -and
                     $_.Result -eq 'Failed'
             }
-        })
+        }
     $preparationFailure = Wait-ReaderQaCondition `
         -Context 'ReaderDev persistence preparation failure' `
         -WaitSeconds 30 `
+        -Full `
         -Select {
             param($log)
             ConvertFrom-ReaderPreparationLog $log | Where-Object {
-                $_.Session -eq $readerSession -and $_.State -eq 'Failed'
+                $_.Session -eq $readerSession -and
+                    $_.State -eq 'Failed' -and
+                    $_.Index -gt $failedPublication.Match.Index
             }
         }
     Start-Sleep -Milliseconds 500
@@ -816,6 +821,7 @@ function Invoke-ReaderPersistenceFault(
     [void](Wait-ReaderQaCondition `
         -Context 'ReaderDev persistence preparation retry' `
         -WaitSeconds 60 `
+        -Full `
         -Select {
             param($log)
             ConvertFrom-ReaderPreparationLog $log | Where-Object {
@@ -1047,6 +1053,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
     -NoBuild `
     -NoInstall `
     -RequireReaderLaunch `
+    -EnableCanvasPageTurn `
     -SkipNativeShellCover `
     -ReaderQaFaultRequestId $persistenceRequestId `
     -ReaderQaFault 'FailNextPersistence' `

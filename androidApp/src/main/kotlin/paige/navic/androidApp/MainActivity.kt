@@ -23,6 +23,7 @@ import paige.navic.domain.models.VolumeKeySkipAction
 import paige.navic.domain.models.VolumeKeySkipEventAction
 import paige.navic.domain.models.VolumeKeySkipKey
 import paige.navic.domain.models.volumeKeySkipDecision
+import paige.navic.reader.ReaderDragAnimationCanvas
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderWebRuntime
@@ -89,6 +90,10 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		}
 		applyReaderDevQaFaultSeed(intent)
 		var applied = false
+		if (intent.getBooleanExtra(ReaderDevExtraCanvasPageTurn, false)) {
+			preferenceManager.readerDragAnimationMode = ReaderDragAnimationCanvas
+			applied = true
+		}
 		var binderySeeded = false
 		val binderyOpdsUrl = intent.stringExtra(
 			ReaderDevExtraBinderyOpdsUrl,
@@ -181,6 +186,8 @@ private const val ReaderDevExtraBinderyOpdsUrl = "navic.dev.bindery.opds_url"
 private const val ReaderDevExtraBinderyApiKey = "navic.dev.bindery.api_key"
 private const val ReaderDevExtraBinderyLanguage = "navic.dev.bindery.language_filter"
 private const val ReaderDevExtraReaderWebDebugging = "navic.dev.reader.web_debugging"
+private const val ReaderDevExtraCanvasPageTurn =
+	"navic.dev.reader.canvas_page_turn"
 private const val ReaderDevExtraQaFaultRequestId =
 	"navic.dev.reader.qa_fault_request_id"
 private const val ReaderDevExtraQaFault = "navic.dev.reader.qa_fault"
