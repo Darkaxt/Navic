@@ -250,10 +250,29 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("logcat-fault-injection.txt"),
 			"The emulator runner must execute and persist operation-correlated persistence, repair, and delayed-callback fault evidence."
 		)
+		val hierarchyDump = runner
+			.substringAfter("function Invoke-ReaderQaUiHierarchy")
+			.substringBefore("function Invoke-ReaderQaPreparationRetry")
+		val retryControl = runner
+			.substringAfter("function Invoke-ReaderQaPreparationRetry")
+			.substringBefore("function Invoke-ReaderPersistenceFault")
 		assertTrue(
 			runner.contains("function Wait-ReaderPreparedDeckOwnership") &&
 				runner.contains("function Invoke-ReaderQaPreparationRetry") &&
-				runner.contains("'uiautomator', 'dump', '/dev/tty'") &&
+				hierarchyDump.split(
+					"if ([DateTime]::UtcNow -ge \$DeadlineUtc) { return '' }"
+				).size == 3 &&
+				hierarchyDump.contains("(\$DeadlineUtc - [DateTime]::UtcNow)") &&
+				hierarchyDump.contains("WaitForExit(\$remainingMilliseconds)") &&
+				hierarchyDump.contains("Kill(\$true)") &&
+				hierarchyDump.contains("'uiautomator', 'dump', '/dev/tty'") &&
+				retryControl.contains("Invoke-ReaderQaUiHierarchy `") &&
+				retryControl.contains("-DeadlineUtc \$deadline") &&
+				retryControl.contains("\$remainingMilliseconds") &&
+				retryControl.contains("\$deadline = [DateTime]::UtcNow.AddSeconds(15)") &&
+				retryControl.contains("[Math]::Min(250, \$remainingMilliseconds)") &&
+				retryControl.contains("Start-Sleep -Milliseconds \$sleepMilliseconds") &&
+				retryControl.contains("while ([DateTime]::UtcNow -lt \$deadline)") &&
 				runner.contains("ReaderDev durable persistence retry") &&
 				runner.contains("\$_.QaFaultRelation -eq 'Retry'") &&
 				runner.contains("\$_.Result -eq 'Durable'"),
@@ -362,7 +381,7 @@ class ReaderDevEnvironmentContractTest {
 			.substringBefore("\$preparationFailure = Wait-ReaderQaCondition `")
 		val preparationFailureWait = persistenceFault
 			.substringAfter("\$preparationFailure = Wait-ReaderQaCondition `")
-			.substringBefore("Start-Sleep -Milliseconds 500")
+			.substringBefore("Invoke-ReaderQaPreparationRetry")
 		val preparationRetryWait = persistenceFault
 			.substringAfter("-Context 'ReaderDev persistence preparation retry' `")
 			.substringBefore("\$evidenceLog = Read-ReaderPidLog")
