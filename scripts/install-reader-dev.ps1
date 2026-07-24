@@ -14,6 +14,8 @@ param(
     [int] $ReaderAssetServerPort = 0,
     [switch] $NoDiscoverPublication,
     [switch] $RequireReaderLaunch,
+    [string] $ReaderQaFaultRequestId,
+    [string] $ReaderQaFault,
     [int] $MaxDiscoveryBooks = 150,
     [string] $StartProgress,
     [Alias("PublicationUrl")]
@@ -46,6 +48,33 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$readerQaFaultRequestSupplied =
+    -not [string]::IsNullOrWhiteSpace($ReaderQaFaultRequestId)
+$readerQaFaultSupplied = -not [string]::IsNullOrWhiteSpace($ReaderQaFault)
+if ($readerQaFaultRequestSupplied -ne $readerQaFaultSupplied) {
+    throw 'ReaderQaFaultRequestId and ReaderQaFault must be supplied together'
+}
+if ($readerQaFaultRequestSupplied) {
+    $readerQaFaultNames = @(
+        'FailNextPersistence',
+        'PauseNextPublication',
+        'MissNextRasterLoad',
+        'ForceRepairWithoutPreparedDeck',
+        'DeferContentNotReady',
+        'DeferLayoutUnstable',
+        'DeferPaginationNotReady',
+        'DeferWebViewDetached',
+        'DeferReaderPaused',
+        'DelayNextVisualStateCallback',
+        'DelayNextRelocationAcknowledgement'
+    )
+    if ($ReaderQaFaultRequestId -notmatch '^[A-Za-z0-9_-]{1,64}$' -or
+        $ReaderQaFaultRequestId -ieq 'none' -or
+        $ReaderQaFault -cnotin $readerQaFaultNames) {
+        throw 'ReaderDev launch QA fault identity is invalid'
+    }
+}
 
 function Read-EnvFile {
     param([Parameter(Mandatory = $true)][string] $Path)
@@ -939,6 +968,9 @@ if (-not $NoBuild -or -not $NoInstall) {
 
 if (!$NoInstall) {
     Invoke-Adb -Arguments @("install", "-r", $apkPath)
+}
+
+if (!$NoInstall -or !$NoLaunch) {
     Grant-ReaderDevNotificationPermission -Package $Package
 }
 
@@ -961,6 +993,8 @@ if (!$NoLaunch) {
     $launchArgs.Add("--ez")
     $launchArgs.Add("navic.dev.reader.web_debugging")
     $launchArgs.Add("true")
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.qa_fault_request_id" -Value $ReaderQaFaultRequestId
+    Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.qa_fault" -Value $ReaderQaFault
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.publication_url" -Value $publicationUrl
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.book_id" -Value $bookId
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.reader.resource_href" -Value $resourceHref

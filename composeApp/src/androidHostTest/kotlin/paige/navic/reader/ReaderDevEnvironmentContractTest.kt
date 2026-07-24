@@ -302,6 +302,89 @@ class ReaderDevEnvironmentContractTest {
 		)
 	}
 
+	@Test
+	fun readerQaRunnerInjectsPersistenceFaultBeforeBackgroundPrefetch() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+		val initialLaunch = runner
+			.substringAfter("\$runSucceeded = \$false")
+			.substringBefore("\$faultMatrixLog = Invoke-ReaderQaFaultMatrix")
+		val clearIndex = initialLaunch.indexOf(
+			"Invoke-Adb @('shell', 'pm', 'clear', 'darkaxt.navic.readerdev')"
+		)
+		val launchIndex = initialLaunch.indexOf(
+			".\\scripts\\install-reader-dev.ps1"
+		)
+		val prearmIndex = initialLaunch.indexOf(
+			"-ReaderQaFaultRequestId \$persistenceRequestId"
+		)
+		val pidIndex = initialLaunch.indexOf(
+			"\$script:ReaderPid = Wait-ReaderPid 'ReaderDev initial launch'"
+		)
+		val faultIndex = initialLaunch.indexOf(
+			"\$persistenceFault = Invoke-ReaderPersistenceFault `\n    -RequestId \$persistenceRequestId"
+		)
+		val warmupIndex = initialLaunch.indexOf(
+			"\$initialPreparationSnapshot = Wait-ReaderWarmupOwnership"
+		)
+
+		assertTrue(clearIndex >= 0, "The run must start from empty ReaderDev app data.")
+		assertTrue(
+			launchIndex > clearIndex && prearmIndex > launchIndex &&
+				pidIndex > prearmIndex &&
+				initialLaunch.substring(launchIndex, pidIndex)
+					.contains("-ReaderQaFault 'FailNextPersistence'"),
+			"The deterministic persistence fault must travel on the Activity launch that begins foreground preparation."
+		)
+		assertTrue(
+			faultIndex > pidIndex && warmupIndex > faultIndex,
+			"The runner must validate persistence recovery before prepared-deck completion can start background prefetch."
+		)
+
+		val persistenceFault = runner
+			.substringAfter("function Invoke-ReaderPersistenceFault")
+			.substringBefore("function Invoke-ReaderQaFaultMatrix")
+		assertFalse(
+			persistenceFault.contains("Invoke-ReaderQaCommittedTurn"),
+			"The persistence fault must not race an already-running adjacent prefetch behind a committed turn."
+		)
+		assertTrue(
+			persistenceFault.contains("Wait-ReaderQaFaultState `") &&
+				persistenceFault.contains("\$RequestId 'Enqueued'") &&
+				persistenceFault.contains("ReaderSession = \$readerSession"),
+			"The launched reader must acknowledge the prearmed fault before the runner accepts its recovery evidence."
+		)
+
+		val installer = root.resolve("scripts/install-reader-dev.ps1").readText()
+		val installBlockIndex = installer.indexOf("if (!\$NoInstall) {")
+		val permissionGrantIndex = installer.indexOf(
+			"if (!\$NoInstall -or !\$NoLaunch) {\n" +
+				"    Grant-ReaderDevNotificationPermission -Package \$Package\n" +
+				"}"
+		)
+		val activityLaunchIndex = installer.indexOf("if (!\$NoLaunch) {")
+		assertTrue(
+			installBlockIndex >= 0 && permissionGrantIndex > installBlockIndex &&
+				activityLaunchIndex > permissionGrantIndex,
+			"Every ReaderDev launch, including -NoInstall after pm clear, must restore notification permission before Activity startup."
+		)
+		val mainActivity = root.resolve(
+			"androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt"
+		).readText()
+		assertTrue(
+			installer.contains("navic.dev.reader.qa_fault_request_id") &&
+				installer.contains("navic.dev.reader.qa_fault"),
+			"The launcher must place the bounded QA command on the same Activity intent as the publication seed."
+		)
+		assertTrue(
+			mainActivity.contains("applyReaderDevQaFaultSeed(intent)") &&
+				mainActivity.contains("ReaderPageQaFaultCommandDecoder.decode(") &&
+				mainActivity.contains("ReaderPageQaFaultControl.enqueue("),
+			"ReaderDev must prearm the validated fault synchronously in Activity creation before Compose attaches the reader registry."
+		)
+	}
+
 	private fun mergedManifest(variant: String): String {
 		val intermediates =
 			root.resolve("androidApp/build/intermediates").toFile()

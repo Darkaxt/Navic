@@ -152,13 +152,45 @@ class ReaderPageQaFaultRegistry(
 		!closed && queued.any { ticket -> ticket.fault == fault }
 
 	@Synchronized
-	fun enqueue(requestId: String, fault: ReaderPageQaFault): Boolean {
-		require(isReaderPageQaRequestId(requestId))
-		if (closed || queued.size == QUEUED_FAULT_LIMIT) return false
-		val ticket = ReaderPageQaFaultTicket(requestId, fault)
+	fun enqueue(requestId: String, fault: ReaderPageQaFault): Boolean =
+		enqueueTicket(
+			ticket = ReaderPageQaFaultTicket(requestId, fault),
+			emitEnqueued = true
+		)
+
+	@Synchronized
+	internal fun restoreQueued(ticket: ReaderPageQaFaultTicket): Boolean =
+		enqueueTicket(ticket = ticket, emitEnqueued = false)
+
+	private fun enqueueTicket(
+		ticket: ReaderPageQaFaultTicket,
+		emitEnqueued: Boolean
+	): Boolean {
+		if (closed ||
+			queued.size == QUEUED_FAULT_LIMIT ||
+			queued.any { queuedTicket ->
+				queuedTicket.requestId == ticket.requestId
+			}
+		) {
+			return false
+		}
 		queued.addLast(ticket)
-		emit(ticket, "queue", ReaderPageQaFaultState.Enqueued, "accepted")
+		if (emitEnqueued) {
+			emit(ticket, "queue", ReaderPageQaFaultState.Enqueued, "accepted")
+		}
 		return true
+	}
+
+	@Synchronized
+	internal fun takeQueued(
+		requestIds: Set<String>
+	): List<ReaderPageQaFaultTicket> {
+		if (closed || requestIds.isEmpty()) return emptyList()
+		val transferred = queued.filter { ticket ->
+			ticket.requestId in requestIds
+		}
+		queued.removeAll(transferred.toSet())
+		return transferred
 	}
 
 	fun enqueue(fault: ReaderPageQaFault): Boolean =
@@ -592,46 +624,144 @@ object ReaderPageQaFaultControl {
 		internal val registry: ReaderPageQaFaultRegistry
 	)
 
+	private data class TrackedRequest(
+		val ticket: ReaderPageQaFaultTicket,
+		var registrationId: Long? = null,
+		var enqueuedEventEmitted: Boolean = false,
+		var completed: Boolean = false
+	)
+
+	private const val PENDING_FAULT_LIMIT = 16
+	private const val TRACKED_REQUEST_LIMIT = 128
 	private var nextRegistrationId = 1L
+	private var nextPendingRequestId = 1L
 	private var active: Registration? = null
+	private val pending = ArrayDeque<TrackedRequest>()
+	private val trackedRequests = linkedMapOf<String, TrackedRequest>()
 
 	@Synchronized
 	fun attach(
 		registry: ReaderPageQaFaultRegistry
 	): Registration {
 		check(!registry.isClosed()) { "Cannot attach a closed fault registry" }
+		active?.let(::reclaimUnconsumed)
 		return Registration(nextRegistrationId++, registry).also { created ->
 			active = created
+			transferPendingTo(created)
 		}
 	}
 
 	@Synchronized
 	fun detach(registration: Registration) {
-		if (active === registration) active = null
+		if (active === registration) {
+			reclaimUnconsumed(registration)
+			active = null
+		}
 	}
 
 	@Synchronized
-	private fun activeRegistry(): ReaderPageQaFaultRegistry? =
-		active?.registry
-
-	fun enqueue(requestId: String, fault: ReaderPageQaFault): Boolean =
-		activeRegistry()?.enqueue(requestId, fault) == true
-
-	fun enqueue(fault: ReaderPageQaFault): Boolean =
-		activeRegistry()?.enqueue(fault) == true
-
-	fun releasePublication(requestId: String): Boolean =
-		activeRegistry()?.releasePublication(requestId) == true
-
-	fun releaseRelocationAck(requestId: String): Boolean =
-		activeRegistry()?.releaseRelocationAck(requestId) == true
-
-	fun releaseVisualState(requestId: String): Boolean =
-		activeRegistry()?.releaseVisualState(requestId) == true
-
-	fun clear(requestId: String): Boolean {
-		val registry = activeRegistry() ?: return false
-		registry.clear(requestId)
+	fun enqueue(requestId: String, fault: ReaderPageQaFault): Boolean {
+		val ticket = ReaderPageQaFaultTicket(requestId, fault)
+		if (requestId in trackedRequests ||
+			trackedRequests.size >= TRACKED_REQUEST_LIMIT
+		) {
+			return false
+		}
+		val registration = active
+		if (registration != null) {
+			if (!registration.registry.enqueue(requestId, fault)) return false
+			trackedRequests[requestId] = TrackedRequest(
+				ticket = ticket,
+				registrationId = registration.id,
+				enqueuedEventEmitted = true
+			)
+			return true
+		}
+		if (pending.size >= PENDING_FAULT_LIMIT) return false
+		TrackedRequest(ticket).also { tracked ->
+			trackedRequests[requestId] = tracked
+			pending.addLast(tracked)
+		}
 		return true
+	}
+
+	@Synchronized
+	fun enqueue(fault: ReaderPageQaFault): Boolean = enqueue(
+		requestId = "prearmed-${fault.name}-${nextPendingRequestId++}",
+		fault = fault
+	)
+
+	private fun reclaimUnconsumed(registration: Registration) {
+		val owned = trackedRequests.values.filter { tracked ->
+			!tracked.completed && tracked.registrationId == registration.id
+		}
+		if (owned.isEmpty()) return
+		val transferred = registration.registry.takeQueued(
+			owned.mapTo(mutableSetOf()) { tracked ->
+				tracked.ticket.requestId
+			}
+		).associateBy { ticket -> ticket.requestId }
+		check(pending.size + transferred.size <= PENDING_FAULT_LIMIT) {
+			"Reclaimed reader QA faults exceed pending capacity"
+		}
+		owned.forEach { tracked ->
+			tracked.registrationId = null
+			if (transferred.containsKey(tracked.ticket.requestId)) {
+				pending.addLast(tracked)
+			} else {
+				tracked.completed = true
+			}
+		}
+	}
+
+	private fun transferPendingTo(registration: Registration) {
+		while (pending.isNotEmpty()) {
+			val tracked = pending.removeFirst()
+			check(!tracked.completed && tracked.registrationId == null) {
+				"Only unconsumed reader QA faults can transfer"
+			}
+			val accepted = if (tracked.enqueuedEventEmitted) {
+				registration.registry.restoreQueued(tracked.ticket)
+			} else {
+				registration.registry.enqueue(
+					tracked.ticket.requestId,
+					tracked.ticket.fault
+				)
+			}
+			check(accepted) { "Prearmed reader QA fault could not transfer" }
+			tracked.registrationId = registration.id
+			tracked.enqueuedEventEmitted = true
+		}
+	}
+
+	@Synchronized
+	fun releasePublication(requestId: String): Boolean =
+		active?.registry?.releasePublication(requestId) == true
+
+	@Synchronized
+	fun releaseRelocationAck(requestId: String): Boolean =
+		active?.registry?.releaseRelocationAck(requestId) == true
+
+	@Synchronized
+	fun releaseVisualState(requestId: String): Boolean =
+		active?.registry?.releaseVisualState(requestId) == true
+
+	@Synchronized
+	fun clear(requestId: String): Boolean {
+		require(isReaderPageQaRequestId(requestId))
+		val registration = active
+		val hadPending = pending.isNotEmpty()
+		pending.forEach { tracked -> tracked.completed = true }
+		pending.clear()
+		if (registration != null) {
+			registration.registry.clear(requestId)
+			trackedRequests.values.forEach { tracked ->
+				if (tracked.registrationId == registration.id) {
+					tracked.registrationId = null
+					tracked.completed = true
+				}
+			}
+		}
+		return registration != null || hadPending
 	}
 }

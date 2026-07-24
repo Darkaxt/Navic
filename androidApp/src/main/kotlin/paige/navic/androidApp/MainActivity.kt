@@ -28,6 +28,9 @@ import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.reader.ReaderPageQaFaultCommand
+import paige.navic.ui.screens.reader.ReaderPageQaFaultCommandDecoder
+import paige.navic.ui.screens.reader.ReaderPageQaFaultControl
 import paige.navic.ui.screens.lidaClips.LidaClipPictureInPictureCoordinator
 
 class MainActivity : ComponentActivity(), KoinComponent {
@@ -84,6 +87,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		if (!BuildConfig.NAVIC_READER_DEV || intent == null) {
 			return
 		}
+		applyReaderDevQaFaultSeed(intent)
 		var applied = false
 		var binderySeeded = false
 		val binderyOpdsUrl = intent.stringExtra(
@@ -130,6 +134,29 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		}
 	}
 
+	private fun applyReaderDevQaFaultSeed(intent: Intent) {
+		val requestId = intent.getStringExtra(ReaderDevExtraQaFaultRequestId)
+		val faultName = intent.getStringExtra(ReaderDevExtraQaFault)
+		if (requestId == null && faultName == null) return
+		val result = when (val command = ReaderPageQaFaultCommandDecoder.decode(
+			requestId = requestId,
+			command = "enqueue",
+			faultName = faultName
+		)) {
+			is ReaderPageQaFaultCommand.Enqueue -> if (
+				ReaderPageQaFaultControl.enqueue(command.requestId, command.fault)
+			) {
+				"accepted"
+			} else {
+				"rejected-unavailable"
+			}
+			is ReaderPageQaFaultCommand.Rejected ->
+				"rejected-${command.reason.name}"
+			else -> "rejected-invalid-command"
+		}
+		Log.i("MainActivity", "ReaderDev QA fault seed result=$result")
+	}
+
 	private fun requestNotificationPermissionIfNeeded() {
 		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
 		if (
@@ -154,6 +181,9 @@ private const val ReaderDevExtraBinderyOpdsUrl = "navic.dev.bindery.opds_url"
 private const val ReaderDevExtraBinderyApiKey = "navic.dev.bindery.api_key"
 private const val ReaderDevExtraBinderyLanguage = "navic.dev.bindery.language_filter"
 private const val ReaderDevExtraReaderWebDebugging = "navic.dev.reader.web_debugging"
+private const val ReaderDevExtraQaFaultRequestId =
+	"navic.dev.reader.qa_fault_request_id"
+private const val ReaderDevExtraQaFault = "navic.dev.reader.qa_fault"
 private const val ReaderDevExtraPublicationUrl = "navic.dev.reader.publication_url"
 private const val ReaderDevExtraBookId = "navic.dev.reader.book_id"
 private const val ReaderDevExtraResourceHref = "navic.dev.reader.resource_href"

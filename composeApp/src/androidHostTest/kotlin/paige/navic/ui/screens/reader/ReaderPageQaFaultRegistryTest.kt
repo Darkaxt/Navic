@@ -642,6 +642,107 @@ class ReaderPageQaFaultRegistryTest {
 	}
 
 	@Test
+	fun prearmedFaultTransfersToFirstAttachedRegistry() {
+		val transferredEvents = mutableListOf<ReaderPageQaFaultEvent>()
+		val attachedRegistry = ReaderPageQaFaultRegistry(
+			ReaderPageQaFaultEventSink(transferredEvents::add)
+		)
+		assertTrue(
+			ReaderPageQaFaultControl.enqueue(
+				"prearmed-persistence",
+				ReaderPageQaFault.FailNextPersistence
+			)
+		)
+		val registration = ReaderPageQaFaultControl.attach(attachedRegistry)
+		try {
+			assertNotNull(
+				attachedRegistry.consumeAndApply(
+					ReaderPageQaFault.FailNextPersistence,
+					ReaderPageQaFaultOperationContext(
+						publicationEpoch = 1L,
+						persistenceAttemptId = 1L
+					)
+				)
+			)
+			assertEquals(
+				listOf(
+					ReaderPageQaFaultState.Enqueued,
+					ReaderPageQaFaultState.Consumed,
+					ReaderPageQaFaultState.Applied
+				),
+				transferredEvents.map(ReaderPageQaFaultEvent::state)
+			)
+			assertFalse(
+				ReaderPageQaFaultControl.enqueue(
+					"prearmed-persistence",
+					ReaderPageQaFault.FailNextPersistence
+				),
+				"Activity recreation must not replay a consumed launch fault."
+			)
+		} finally {
+			ReaderPageQaFaultControl.detach(registration)
+			attachedRegistry.closeAndDrain()
+			ReaderPageQaFaultControl.clear("clear-prearmed-persistence")
+		}
+	}
+
+	@Test
+	fun prearmedFaultSurvivesRegistryReplacementBeforeConsumption() {
+		val oldEvents = mutableListOf<ReaderPageQaFaultEvent>()
+		val replacementEvents = mutableListOf<ReaderPageQaFaultEvent>()
+		val oldRegistry = ReaderPageQaFaultRegistry(
+			ReaderPageQaFaultEventSink(oldEvents::add)
+		)
+		val replacementRegistry = ReaderPageQaFaultRegistry(
+			ReaderPageQaFaultEventSink(replacementEvents::add)
+		)
+		assertTrue(
+			ReaderPageQaFaultControl.enqueue(
+				"recreated-persistence",
+				ReaderPageQaFault.FailNextPersistence
+			)
+		)
+		val oldRegistration = ReaderPageQaFaultControl.attach(oldRegistry)
+		ReaderPageQaFaultControl.detach(oldRegistration)
+		oldRegistry.closeAndDrain()
+		val replacementRegistration =
+			ReaderPageQaFaultControl.attach(replacementRegistry)
+		try {
+			assertNotNull(
+				replacementRegistry.consumeAndApply(
+					ReaderPageQaFault.FailNextPersistence,
+					ReaderPageQaFaultOperationContext(
+						publicationEpoch = 1L,
+						persistenceAttemptId = 1L
+					)
+				)
+			)
+			assertEquals(
+				listOf(
+					ReaderPageQaFaultState.Enqueued,
+					ReaderPageQaFaultState.Consumed,
+					ReaderPageQaFaultState.Applied
+				),
+				(oldEvents + replacementEvents)
+					.filter { it.ticket.requestId == "recreated-persistence" }
+					.map(ReaderPageQaFaultEvent::state),
+				"Registry replacement must transfer the unconsumed launch fault without duplicating its diagnostic chain."
+			)
+			assertFalse(
+				ReaderPageQaFaultControl.enqueue(
+					"recreated-persistence",
+					ReaderPageQaFault.FailNextPersistence
+				),
+				"The transferred launch fault must remain process-idempotent after consumption."
+			)
+		} finally {
+			ReaderPageQaFaultControl.detach(replacementRegistration)
+			replacementRegistry.closeAndDrain()
+			ReaderPageQaFaultControl.clear("clear-recreated-persistence")
+		}
+	}
+
+	@Test
 	fun replacementRegistrationSurvivesLateDetachFromOldHost() {
 		val oldRegistry = ReaderPageQaFaultRegistry()
 		val replacementRegistry = ReaderPageQaFaultRegistry()

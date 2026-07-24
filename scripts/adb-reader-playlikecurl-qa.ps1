@@ -773,82 +773,68 @@ function Invoke-ReaderQaPreparationRetry {
 }
 
 function Invoke-ReaderPersistenceFault(
-    [long] $ReaderSession,
-    [int] $PhysicalRight,
-    [int] $Y
+    [string] $RequestId
 ) {
-    $requestId = "persist-$($runId.Substring(0, 8))"
-    $seen = [Collections.Generic.HashSet[long]]::new()
-    ConvertFrom-ReaderGestureLog (
-        Read-ReaderPidLog -Context 'persistence fault baseline' -Full
-    ) |
-        Where-Object Session -eq $ReaderSession |
-        ForEach-Object { [void]$seen.Add($_.GestureId) }
-    Add-ReaderQaFault $requestId 'FailNextPersistence'
-    $turn = Invoke-ReaderQaCommittedTurn `
-        -SeenGestureIds $seen `
-        -ReaderSession $ReaderSession `
-        -StartX $PhysicalRight `
-        -EndX $PhysicalLeft `
-        -Y $Y `
-        -Context 'ReaderDev persistence fault turn'
-    [void](Wait-ReaderQaFaultState $requestId 'Applied' 'ReaderDev persistence fault')
-    $failed = Wait-ReaderQaCondition `
+    $enqueued = Wait-ReaderQaFaultState `
+        $RequestId 'Enqueued' 'ReaderDev prearmed persistence fault'
+    $readerSession = [long]$enqueued.Match.Session
+    [void](Wait-ReaderQaCondition `
         -Context 'ReaderDev injected persistence failure' `
         -WaitSeconds 30 `
         -Select {
             param($log)
             ConvertFrom-ReaderPublicationLog $log | Where-Object {
-                $_.QaFaultRequestId -eq $requestId -and
+                $_.Session -eq $readerSession -and
+                    $_.QaFaultRequestId -eq $RequestId -and
                     $_.QaFaultRelation -eq 'AppliedOperation' -and
                     $_.Result -eq 'Failed'
             }
-        }
-    [void](Wait-ReaderQaRelocationCompleted `
-        -ReaderSession $ReaderSession `
-        -GestureId $turn.GestureId `
-        -Context 'ReaderDev persistence fault relocation')
+        })
     $preparationFailure = Wait-ReaderQaCondition `
         -Context 'ReaderDev persistence preparation failure' `
         -WaitSeconds 30 `
         -Select {
             param($log)
             ConvertFrom-ReaderPreparationLog $log | Where-Object {
-                $_.Session -eq $ReaderSession -and $_.State -eq 'Failed'
+                $_.Session -eq $readerSession -and $_.State -eq 'Failed'
             }
         }
     Start-Sleep -Milliseconds 500
     Invoke-ReaderQaPreparationRetry
-    $durableRetry = Wait-ReaderQaCondition `
+    [void](Wait-ReaderQaCondition `
         -Context 'ReaderDev durable persistence retry' `
         -WaitSeconds 60 `
         -Select {
             param($log)
             ConvertFrom-ReaderPublicationLog $log | Where-Object {
-                $_.QaFaultRequestId -eq $requestId -and
+                $_.Session -eq $readerSession -and
+                    $_.QaFaultRequestId -eq $RequestId -and
                     $_.QaFaultRelation -eq 'Retry' -and
                     $_.Result -eq 'Durable'
             }
-        }
+        })
     [void](Wait-ReaderQaCondition `
         -Context 'ReaderDev persistence preparation retry' `
         -WaitSeconds 60 `
         -Select {
             param($log)
             ConvertFrom-ReaderPreparationLog $log | Where-Object {
-                $_.Session -eq $ReaderSession -and
+                $_.Session -eq $readerSession -and
                     $_.State -eq 'Ready' -and
                     $_.Attempt -ne $preparationFailure.Match.Attempt -and
                     $_.Index -gt $preparationFailure.Match.Index
             }
         })
-    [void](Assert-ReaderQaFaultSet `
-        -Log $durableRetry.Log `
-        -RequestIds @($requestId) `
-        -Context 'ReaderDev persistence fault correlation')
-    return Read-ReaderPidLog `
+    $evidenceLog = Read-ReaderPidLog `
         -Context 'ReaderDev persistence fault evidence' `
         -Full
+    [void](Assert-ReaderQaFaultSet `
+        -Log $evidenceLog `
+        -RequestIds @($RequestId) `
+        -Context 'ReaderDev persistence fault correlation')
+    return [pscustomobject]@{
+        ReaderSession = $readerSession
+    }
 }
 
 function Invoke-ReaderQaFaultMatrix(
@@ -1044,6 +1030,16 @@ if (-not $NoInstall) {
     Invoke-Adb @('install', '-r', '-t', $apkPath) | Out-Null
 }
 Assert-InstalledReaderDevIdentity 'ReaderDev pre-launch'
+$clearResult = (
+    Invoke-Adb @('shell', 'pm', 'clear', 'darkaxt.navic.readerdev') |
+        Out-String
+).Trim()
+if ($clearResult -cne 'Success') {
+    throw 'ReaderDev app-data reset failed before deterministic cold preparation'
+}
+Invoke-Adb @('logcat', '-c')
+Reset-ReaderLogAccumulator
+$persistenceRequestId = "persist-$($runId.Substring(0, 8))"
 pwsh -NoProfile -ExecutionPolicy Bypass -File `
     .\scripts\install-reader-dev.ps1 `
     -DeviceSerial $DeviceSerial `
@@ -1052,28 +1048,25 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
     -NoInstall `
     -RequireReaderLaunch `
     -SkipNativeShellCover `
+    -ReaderQaFaultRequestId $persistenceRequestId `
+    -ReaderQaFault 'FailNextPersistence' `
     -WaitTimeoutSeconds $readerLaunchTimeoutSeconds
 if ($LASTEXITCODE -ne 0) { throw "ReaderDev launch failed" }
 $script:ReaderPid = Wait-ReaderPid 'ReaderDev initial launch'
-
+$persistenceFault = Invoke-ReaderPersistenceFault `
+    -RequestId $persistenceRequestId
 $initialPreparationSnapshot = Wait-ReaderWarmupOwnership 'ReaderDev initial preparation'
 Assert-OwnershipWithinBounds @($initialPreparationSnapshot) 'ReaderDev initial preparation'
 $initialReaderSession = [long]$initialPreparationSnapshot.Session
+if ($initialReaderSession -ne [long]$persistenceFault.ReaderSession) {
+    throw 'ReaderDev persistence recovery changed the initial reader session'
+}
 [void](Wait-ReaderPreparedDeckOwnership `
     -ReaderSession $initialReaderSession `
     -Context 'ReaderDev initial prepared deck')
-$sizeText = (Invoke-Adb @("shell", "wm", "size") | Out-String)
-$match = [regex]::Matches($sizeText, '(\d+)x(\d+)') | Select-Object -Last 1
-if ($null -eq $match) { throw 'ReaderDev device dimensions were unavailable' }
-$width = [int]$match.Groups[1].Value
-$height = [int]$match.Groups[2].Value
-$physicalRight = [int]($width * 0.82)
-$physicalLeft = [int]($width * 0.18)
-$y = [int]($height * 0.50)
-$persistenceFaultLog = Invoke-ReaderPersistenceFault `
-    -ReaderSession $initialReaderSession `
-    -PhysicalRight $physicalRight `
-    -Y $y
+$persistenceFaultLog = Read-ReaderPidLog `
+    -Context 'ReaderDev completed persistence recovery' `
+    -Full
 Save-ReaderDiagnosticInterval `
     -Log $persistenceFaultLog `
     -ArtifactName 'logcat-fault-persistence.txt' `
