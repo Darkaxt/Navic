@@ -249,10 +249,12 @@ class ReaderDevEnvironmentContractTest {
 			.substringBefore("\$stressDeadline =")
 		assertTrue(
 			runner.contains("[long] \$AtOrAfterAttempt = -1") &&
+				runner.contains("\$preparationRecoveryTimeoutSeconds = 180") &&
 				runner.contains("-Full:(\$AfterIndex -ge 0)") &&
 				stressLoop.contains("-AtOrAfterAttempt \$latestPreparationAttempt") &&
+				stressLoop.contains("-WaitSeconds \$preparationRecoveryTimeoutSeconds") &&
 				!stressLoop.contains("-AfterIndex \$newTerminal.Index"),
-			"Stress readiness recovery must correlate with monotonic preparation attempts rather than rolling-window character offsets."
+			"Stress readiness recovery must correlate with monotonic preparation attempts and retain a bounded deadline long enough for serialized current-chapter capture."
 		)
 		val stressRetryOutcomes = runner
 			.substringAfter("\$transientRetryOutcomes = @(")

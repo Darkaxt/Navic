@@ -21,6 +21,7 @@ param(
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 $readerLaunchTimeoutSeconds = 120
+$preparationRecoveryTimeoutSeconds = 180
 if ($PSVersionTable.PSEdition -ne 'Core' -or
     $PSVersionTable.PSVersion -lt [version]'7.3') {
     throw 'Reader QA requires PowerShell Core 7.3 or newer; invoke it with pwsh.'
@@ -1516,7 +1517,8 @@ while ($attempt -lt $maximumAttempts -and
             [void](Wait-ReaderQaWorkingSetReady `
                 -ReaderSession $readerSession `
                 -AtOrAfterAttempt $latestPreparationAttempt `
-                -Context 'ReaderDev stress preparing recovery')
+                -Context 'ReaderDev stress preparing recovery' `
+                -WaitSeconds $preparationRecoveryTimeoutSeconds)
         } elseif ($newTerminal.Outcome -eq 'RejectedSettling') {
             Start-Sleep -Milliseconds 750
         } else {
