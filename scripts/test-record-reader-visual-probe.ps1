@@ -37,12 +37,32 @@ try {
             $plan.Orientation -ne 'landscape' -or
             $plan.DisplayWidth -ne 2400 -or
             $plan.DisplayHeight -ne 1080 -or
+            $plan.RecordingWidth -ne 1280 -or
+            $plan.RecordingHeight -ne 576 -or
             @($plan.Actions).Count -ne $expectedActions[$scenario]) {
             throw "Plan-only recorder emitted the wrong contract for $scenario"
         }
-        if ($plan.DurationMs -ge 30000) {
-            throw "Plan-only recorder exceeds its screenrecord safety limit for $scenario"
+        if ($plan.DurationMs + 10000 -ge 30000) {
+            throw "Plan-only recorder does not reserve startup time for $scenario"
         }
+    }
+
+    $shortLimitRejected = $false
+    try {
+        & $recorder `
+            -DeviceSerial 'plan-only-device' `
+            -Scenario idle `
+            -Orientation portrait `
+            -OutputRoot (Join-Path $testRoot 'short-limit') `
+            -DisplayWidth 1080 `
+            -DisplayHeight 2400 `
+            -TimeLimitSeconds 10 `
+            -PlanOnly | Out-Null
+    } catch {
+        $shortLimitRejected = $true
+    }
+    if (-not $shortLimitRejected) {
+        throw 'Recorder accepted a time limit that cannot cover startup and the probe'
     }
 
     $rtlRoot = Join-Path $testRoot 'rtl'
@@ -56,14 +76,36 @@ try {
         -DisplayHeight 2400 `
         -PlanOnly)[0]
     $rtl = Get-Content -LiteralPath $rtlPath -Raw | ConvertFrom-Json
+    if ($rtl.RecordingWidth -ne 576 -or $rtl.RecordingHeight -ne 1280) {
+        throw 'Portrait recording size is not codec-safe and aspect-preserving'
+    }
     if ($rtl.Actions[0].EndX -le $rtl.Actions[0].StartX) {
         throw 'RTL next probe did not reverse the physical swipe direction'
+    }
+
+    $nonExactPath = @(& $recorder `
+        -DeviceSerial 'plan-only-device' `
+        -Scenario idle `
+        -Orientation portrait `
+        -OutputRoot (Join-Path $testRoot 'non-exact-aspect') `
+        -DisplayWidth 1080 `
+        -DisplayHeight 2520 `
+        -PlanOnly)[0]
+    $nonExact = Get-Content -LiteralPath $nonExactPath -Raw | ConvertFrom-Json
+    $displayRatio = $nonExact.DisplayWidth / $nonExact.DisplayHeight
+    $recordingRatio = $nonExact.RecordingWidth / $nonExact.RecordingHeight
+    if ([Math]::Abs($displayRatio - $recordingRatio) -gt 0.001) {
+        throw 'Codec-safe recording size changes the active display aspect ratio'
     }
 
     $source = Get-Content -LiteralPath $recorder -Raw
     foreach ($required in @(
         'darkaxt.navic.readerdev',
         'screenrecord',
+        "'--size'",
+        'Wait-RecordingReady',
+        'Get-VideoDurationSeconds',
+        'VideoDurationSeconds',
         'pkill -2 screenrecord',
         'reader-visual-qa.py',
         '.events.json',

@@ -34,6 +34,8 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
 $ReaderDevPackage = 'darkaxt.navic.readerdev'
+$RecordingStartupTimeoutSeconds = 10
+$RecordingDurationToleranceSeconds = 0.5
 
 function Invoke-AdbText {
     param([string[]] $Arguments, [string] $Description)
@@ -80,6 +82,23 @@ function Get-LogicalDisplaySize {
     return [pscustomobject]@{ Width = $width; Height = $height }
 }
 
+function Get-RecordingSize([object] $Display) {
+    $maximumEdge = 1280.0
+    $scale = [Math]::Min(
+        1.0,
+        $maximumEdge / [Math]::Max($Display.Width, $Display.Height)
+    )
+    $width = [Math]::Max(
+        2,
+        [int]([Math]::Round(($Display.Width * $scale) / 2.0) * 2)
+    )
+    $height = [Math]::Max(
+        2,
+        [int]([Math]::Round(($Display.Height * $scale) / 2.0) * 2)
+    )
+    return [pscustomobject]@{ Width = $width; Height = $height }
+}
+
 function New-SwipeAction {
     param(
         [string] $Name,
@@ -105,6 +124,7 @@ function New-SwipeAction {
 function New-ReaderVisualProbePlan {
     param([object] $Display)
 
+    $recordingSize = Get-RecordingSize $Display
     $nextStart = if ($ReaderDirection -eq 'ltr') { 0.88 } else { 0.12 }
     $nextEnd = if ($ReaderDirection -eq 'ltr') { 0.18 } else { 0.82 }
     $snapEnd = if ($ReaderDirection -eq 'ltr') { 0.67 } else { 0.33 }
@@ -137,8 +157,9 @@ function New-ReaderVisualProbePlan {
     } else {
         [int]$lastActionEnd + 2500
     }
-    if ($durationMs -ge $TimeLimitSeconds * 1000) {
-        throw 'TimeLimitSeconds does not leave enough room for the selected probe.'
+    if ($durationMs + $RecordingStartupTimeoutSeconds * 1000 -ge
+        $TimeLimitSeconds * 1000) {
+        throw 'TimeLimitSeconds does not leave enough room for recorder startup and the selected probe.'
     }
     return [pscustomobject]@{
         SchemaVersion = 1
@@ -148,6 +169,8 @@ function New-ReaderVisualProbePlan {
         ReaderDirection = $ReaderDirection
         DisplayWidth = $Display.Width
         DisplayHeight = $Display.Height
+        RecordingWidth = $recordingSize.Width
+        RecordingHeight = $recordingSize.Height
         DurationMs = $durationMs
         Actions = @($actions)
     }
@@ -160,6 +183,50 @@ function Wait-UntilElapsed {
         $remaining = $TargetMs - $Stopwatch.ElapsedMilliseconds
         Start-Sleep -Milliseconds ([Math]::Min(50, [Math]::Max(1, $remaining)))
     }
+}
+
+function Wait-RecordingReady {
+    param(
+        [Diagnostics.Process] $Recording,
+        [string] $RemotePath
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($RecordingStartupTimeoutSeconds)
+    do {
+        if ($Recording.HasExited) {
+            throw "Android screen recording exited before capture started (exit=$($Recording.ExitCode))."
+        }
+        $sizeText = @(
+            & adb -s $DeviceSerial shell stat -c '%s' $RemotePath 2>$null
+        ) | Out-String
+        if ($LASTEXITCODE -eq 0 -and
+            $sizeText.Trim() -match '^\d+$' -and
+            [long]$sizeText.Trim() -gt 0) {
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Android screen recording did not become ready within $RecordingStartupTimeoutSeconds seconds."
+}
+
+function Get-VideoDurationSeconds([string] $Path) {
+    $durationText = @(
+        & ffprobe -v error -show_entries 'format=duration' `
+            -of 'default=noprint_wrappers=1:nokey=1' $Path 2>&1
+    ) | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Recorded video duration query failed.'
+    }
+    $duration = 0.0
+    if (-not [double]::TryParse(
+        $durationText.Trim(),
+        [Globalization.NumberStyles]::Float,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$duration
+    ) -or $duration -le 0) {
+        throw 'Recorded video duration is invalid.'
+    }
+    return $duration
 }
 
 function Invoke-ProbeAction {
@@ -192,8 +259,8 @@ foreach ($command in @('adb', 'python', 'ffmpeg', 'ffprobe')) {
         throw "Required visual QA command is unavailable: $command"
     }
 }
-$pid = Invoke-AdbText @('shell', 'pidof', $ReaderDevPackage) 'ReaderDev PID query'
-if ($pid -notmatch '^\d+(?:\s+\d+)*$') {
+$readerDevPid = Invoke-AdbText @('shell', 'pidof', $ReaderDevPackage) 'ReaderDev PID query'
+if ($readerDevPid -notmatch '^\d+(?:\s+\d+)*$') {
     throw 'ReaderDev is not running on the selected device.'
 }
 $resumed = Invoke-AdbText @('shell', 'dumpsys', 'activity', 'activities') 'Foreground activity query'
@@ -220,13 +287,19 @@ Invoke-AdbText @('shell', 'rm', '-f', $remotePath) 'Remote recording cleanup' | 
 $recording = $null
 $recordingStopped = $false
 $events = @()
+$videoDurationSeconds = $null
 try {
     $recording = Start-Process -FilePath 'adb' -ArgumentList @(
         '-s', $DeviceSerial, 'shell', 'screenrecord',
+        '--size', "$($plan.RecordingWidth)x$($plan.RecordingHeight)",
         '--time-limit', $TimeLimitSeconds, $remotePath
     ) -PassThru -NoNewWindow
+    Wait-RecordingReady -Recording $recording -RemotePath $remotePath
+    Start-Sleep -Milliseconds 500
+    if ($recording.HasExited) {
+        throw "Android screen recording exited during capture stabilization (exit=$($recording.ExitCode))."
+    }
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
-    Start-Sleep -Milliseconds 600
     foreach ($action in $plan.Actions) {
         Wait-UntilElapsed $stopwatch $action.AtMs
         $startedMs = $stopwatch.ElapsedMilliseconds
@@ -253,6 +326,12 @@ try {
     if (-not (Test-Path -LiteralPath $videoPath -PathType Leaf) -or
         (Get-Item -LiteralPath $videoPath).Length -eq 0) {
         throw 'Pulled visual QA recording is missing or empty.'
+    }
+    $videoDurationSeconds = Get-VideoDurationSeconds $videoPath
+    $minimumDurationSeconds =
+        $plan.DurationMs / 1000.0 - $RecordingDurationToleranceSeconds
+    if ($videoDurationSeconds -lt $minimumDurationSeconds) {
+        throw "Visual QA recording ended before the probe completed (duration=$videoDurationSeconds)."
     }
 } finally {
     if ($null -ne $recording -and -not $recording.HasExited) {
@@ -283,9 +362,12 @@ $manifest = [pscustomobject]@{
     ReaderDirection = $ReaderDirection
     DisplayWidth = $display.Width
     DisplayHeight = $display.Height
+    RecordingWidth = $plan.RecordingWidth
+    RecordingHeight = $plan.RecordingHeight
     DurationMs = $plan.DurationMs
     Events = $events
     VideoArtifact = [IO.Path]::GetFileName($videoPath)
+    VideoDurationSeconds = $videoDurationSeconds
     VideoBytes = (Get-Item -LiteralPath $videoPath).Length
     VideoSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $videoPath).Hash.ToLowerInvariant()
 }

@@ -22,6 +22,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
   -OutputRoot .codex-validation\reader-visual\portrait
 ```
 
+The recorder chooses an aspect-preserving, codec-safe capture size with a maximum edge of 1280 pixels, waits for Android's recording container to initialize, and verifies the final MP4 duration covers the complete probe. This avoids `screenrecord`'s slow, aspect-changing codec fallback on large emulator displays.
+
 Supported scenarios:
 
 - `slow-next` — a 1.5-second committed Next drag for deformation, travel, and threshold inspection.

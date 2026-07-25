@@ -160,20 +160,23 @@ def decoration_metrics(
     frame: np.ndarray,
     reference: np.ndarray,
     regions: Sequence[Region],
-) -> tuple[float, float]:
+) -> list[tuple[float, float]]:
     if not regions:
-        return 0.0, 0.0
+        return [(0.0, 0.0)]
     frame_height, frame_width = frame.shape[:2]
-    changed_fractions: list[float] = []
-    mean_errors: list[float] = []
+    samples: list[tuple[float, float]] = []
     for region in regions:
         rows, columns = region.slices(frame_width, frame_height)
         current = luma(frame[rows, columns])
         expected = luma(reference[rows, columns])
         difference = np.abs(current - expected)
-        changed_fractions.append(float(np.mean(difference > 18.0)))
-        mean_errors.append(float(np.mean(difference)))
-    return max(changed_fractions), max(mean_errors)
+        samples.append(
+            (
+                float(np.mean(difference > 18.0)),
+                float(np.mean(difference)),
+            )
+        )
+    return samples
 
 
 def check_result(status: str, metrics: dict, reason: str | None = None) -> dict:
@@ -243,15 +246,19 @@ def analyze_frames(
     }
 
     decoration_samples = [
-        decoration_metrics(frame, reference, decoration_regions) for frame in evaluated
+        sample
+        for frame in evaluated
+        for sample in decoration_metrics(frame, reference, decoration_regions)
     ]
     peak_changed = max(sample[0] for sample in decoration_samples)
     peak_decoration_mae = max(sample[1] for sample in decoration_samples)
+    decorations_disappeared = any(
+        changed_fraction > thresholds.max_decoration_changed_fraction
+        and mean_error > thresholds.max_decoration_mae
+        for changed_fraction, mean_error in decoration_samples
+    )
     checks["decorationContinuity"] = check_result(
-        "pass"
-        if peak_changed <= thresholds.max_decoration_changed_fraction
-        and peak_decoration_mae <= thresholds.max_decoration_mae
-        else "fail",
+        "fail" if decorations_disappeared else "pass",
         {
             "peakChangedFraction": peak_changed,
             "peakMeanAbsoluteError": peak_decoration_mae,

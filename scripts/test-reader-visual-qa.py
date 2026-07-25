@@ -86,6 +86,42 @@ class ReaderVisualQaTest(unittest.TestCase):
 
         self.assertEqual("fail", report["checks"]["gutterDrift"]["status"])
 
+    def test_localized_edge_motion_does_not_fail_decoration_continuity(self):
+        baseline = [bright_frame(width=120, height=200) for _ in range(12)]
+        moving = baseline[0].copy()
+        moving[50:100, :8] = 0
+        moving[50:100, -8:] = 0
+        roi = QA.Region(0.0, 0.0, 1.0, 1.0)
+
+        report = QA.analyze_frames(
+            frames=baseline + [moving.copy() for _ in range(12)],
+            sample_fps=10.0,
+            orientation="portrait",
+            scenario="slow-next",
+            roi=roi,
+            decoration_regions=QA.default_decoration_regions("portrait", roi),
+        )
+
+        self.assertEqual("pass", report["checks"]["decorationContinuity"]["status"])
+
+    def test_decoration_thresholds_must_fail_in_one_region_sample(self):
+        baseline = [bright_frame(width=120, height=200) for _ in range(12)]
+        changed = baseline[0].copy()
+        changed[:80, :8] = np.minimum(changed[:80, :8].astype(np.int16) + 20, 255)
+        changed[:60, -8:] = 0
+        roi = QA.Region(0.0, 0.0, 1.0, 1.0)
+
+        report = QA.analyze_frames(
+            frames=baseline + [changed.copy() for _ in range(12)],
+            sample_fps=10.0,
+            orientation="portrait",
+            scenario="slow-next",
+            roi=roi,
+            decoration_regions=QA.default_decoration_regions("portrait", roi),
+        )
+
+        self.assertEqual("pass", report["checks"]["decorationContinuity"]["status"])
+
     def test_disappearing_outer_decorations_fail_continuity(self):
         baseline = [bright_frame(width=120, height=200) for _ in range(12)]
         defect = baseline[0].copy()
