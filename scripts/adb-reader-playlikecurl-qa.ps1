@@ -966,6 +966,51 @@ function Invoke-ReaderQaBoundedAdb(
     }
 }
 
+function Get-ReaderQaRasterStorageState(
+    [string] $ArtifactName,
+    [DateTime] $DeadlineUtc
+) {
+    $storageCommand = @'
+root=files/reader/reader-page-rasters/v1
+count=$(ls "$root"/*.png 2>/dev/null | wc -l)
+bytes=$(wc -c < "$root"/manifest.json 2>/dev/null || printf 0)
+hash=$(sha256sum "$root"/manifest.json 2>/dev/null | cut -d" " -f1)
+printf "RasterFileCount=%s ManifestBytes=%s ManifestSha256=%s\n" "$count" "$bytes" "$hash"
+'@
+    $quotedStorageCommand = "'$storageCommand'"
+    $storageText = Invoke-ReaderQaBoundedAdb `
+        -Arguments @(
+            'shell',
+            'run-as',
+            'darkaxt.navic.readerdev',
+            'sh',
+            '-c',
+            $quotedStorageCommand
+        ) `
+        -DeadlineUtc $DeadlineUtc
+    $storageMatch = [regex]::Match(
+        $storageText,
+        'RasterFileCount=(?<Count>\d+)\s+' +
+            'ManifestBytes=(?<Bytes>\d+)\s+' +
+            'ManifestSha256=(?<Sha256>[0-9a-f]{64})'
+    )
+    if (-not $storageMatch.Success) {
+        throw 'ReaderDev raster storage state was unavailable'
+    }
+    $state = [pscustomobject][ordered]@{
+        SchemaVersion = 1
+        RasterFileCount = [int]$storageMatch.Groups['Count'].Value
+        ManifestBytes = [long]$storageMatch.Groups['Bytes'].Value
+        ManifestSha256 = $storageMatch.Groups['Sha256'].Value.ToUpperInvariant()
+    }
+    if ($state.RasterFileCount -lt 1 -or $state.ManifestBytes -lt 1) {
+        throw 'ReaderDev raster storage was empty after durable preparation'
+    }
+    $state | ConvertTo-Json -Depth 2 |
+        Set-Content (Join-Path $ArtifactRoot $ArtifactName)
+    return $state
+}
+
 function Get-ReaderQaDisplayGeometry([DateTime] $DeadlineUtc) {
     $displayText = Invoke-ReaderQaBoundedAdb `
         -Arguments @('shell', 'dumpsys', 'window', 'displays') `
@@ -1380,8 +1425,24 @@ Save-ReaderDiagnosticInterval `
     -Log $persistenceFaultLog `
     -ArtifactName 'logcat-fault-persistence.txt' `
     -Context 'ReaderDev persistence fault evidence'
+$rasterStorageBeforeForceStop = Get-ReaderQaRasterStorageState `
+    -ArtifactName 'raster-storage-before-force-stop.json' `
+    -DeadlineUtc ([DateTime]::UtcNow.AddSeconds(10))
 Invoke-Adb @("shell", "am", "force-stop", "darkaxt.navic.readerdev")
 $script:ReaderPid = $null
+$rasterStorageAfterForceStop = Get-ReaderQaRasterStorageState `
+    -ArtifactName 'raster-storage-after-force-stop.json' `
+    -DeadlineUtc ([DateTime]::UtcNow.AddSeconds(10))
+if (
+    $rasterStorageAfterForceStop.RasterFileCount -ne
+        $rasterStorageBeforeForceStop.RasterFileCount -or
+    $rasterStorageAfterForceStop.ManifestBytes -ne
+        $rasterStorageBeforeForceStop.ManifestBytes -or
+    $rasterStorageAfterForceStop.ManifestSha256 -cne
+        $rasterStorageBeforeForceStop.ManifestSha256
+) {
+    throw 'ReaderDev raster storage changed during force-stop'
+}
 Invoke-Adb @("logcat", "-c")
 Reset-ReaderLogAccumulator
 Open-ReaderDev -AtPublicationStart

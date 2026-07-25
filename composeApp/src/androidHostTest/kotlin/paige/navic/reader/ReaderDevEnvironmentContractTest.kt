@@ -236,6 +236,22 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("\$script:ReaderPid = \$null"),
 			"The first launch must finish and persist a prepared deck before force-stop so the warm reopen can prove persistent hydration."
 		)
+		val storageState = runner
+			.substringAfter("function Get-ReaderQaRasterStorageState")
+			.substringBefore("function Get-ReaderQaDisplayGeometry")
+		assertTrue(
+			runner.contains("function Get-ReaderQaRasterStorageState") &&
+				storageState.contains("'run-as',") &&
+				storageState.contains("'darkaxt.navic.readerdev',") &&
+				storageState.contains("reader-page-rasters/v1") &&
+				storageState.contains("RasterFileCount") &&
+				storageState.contains("ManifestBytes") &&
+				storageState.contains("ManifestSha256") &&
+				runner.contains("raster-storage-before-force-stop.json") &&
+				runner.contains("raster-storage-after-force-stop.json") &&
+				runner.contains("ReaderDev raster storage changed during force-stop"),
+			"The warm-reopen gate must attest privacy-safe raster storage structure immediately before and after force-stop."
+		)
 		assertTrue(
 			installer.contains("[switch] \$StartAtBeginning") &&
 				installer.contains("\$startHref = if (\$StartAtBeginning) {") &&
