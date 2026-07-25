@@ -15,14 +15,14 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 $script:ReaderRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:ReaderPackage = 'darkaxt.navic.readerdev'
-$script:ReaderFrozenImplementationCommit = 'ee033cc8415b5485acdecd500176f1922cb3f5e1'
-$script:ReaderFrozenApkSha256 = 'D9394211990743CE72844533C9F688B722C004E4BCEBC6DE46F4E3AA0B7D4831'
-$script:ReaderFrozenApkBytes = 90802423L
-$script:ReaderFrozenVersionCode = 552L
-$script:ReaderFrozenVersionName = 'v1.0.11-iota25'
-$script:ReaderFrozenHostTests = 2926
+$script:ReaderFrozenImplementationCommit = '118a001a7adb05c8a0b650a9433c45b5fbb6f80c'
+$script:ReaderFrozenApkSha256 = '89F0740C0CE9419AFF6E08713ECD9C7F1423C673A64E491CC450DC80CBB3882A'
+$script:ReaderFrozenApkBytes = 90852012L
+$script:ReaderFrozenVersionCode = 555L
+$script:ReaderFrozenVersionName = 'v1.0.11-iota28'
+$script:ReaderFrozenHostTests = 2983
 $script:ReaderFrozenHostFailures = 65
-$script:ReaderFrozenEmulatorRunCompleteSha256 = '11AAF4D9879A40156F70A678EC69DF4D65EE75B66A68720DD3D4775119E20F39'
+$script:ReaderFrozenEmulatorRunCompleteSha256 = 'AE12BE4E8808A49EE5B13EC777DC9245E4AEB799B8352C75C2DF1DCE39CE9D2E'
 
 function Assert-ReaderAcceptancePwshCore {
     if ($PSVersionTable.PSEdition -ne 'Core' -or
