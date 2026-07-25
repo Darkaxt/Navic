@@ -624,6 +624,31 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun preparedCaptureUsesExposedDestinationGeometryInsteadOfCurrentReference() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source
+			.substringAfter("private fun capturePreparedPage(")
+			.substringBefore("fun cacheCurrentSnapshot(")
+		val preparedSurface = source
+			.substringAfter("private fun capturePreparedSurface(")
+			.substringBefore("private fun captureCompositedSurface(")
+
+		assertContains(capture, "readerPagePreparedSnapshotGeometry(kind, it)")
+		assertContains(capture, "surfaceRectInWindow = snapshotGeometry.surfaceRectInWindow")
+		assertContains(capture, "leafGeometry = snapshotGeometry.leafGeometry")
+		assertContains(capture, "reverseFaceColor = snapshotGeometry.reverseFaceColor")
+		assertFalse(capture.contains("leafGeometry = reference.leafGeometry"))
+		assertTrue(
+			capture.indexOf("capturePreparedSurface(webView)") <
+				capture.lastIndexOf("restoreLiveComposition(webView, token)"),
+			"The exposed destination must be captured before live composition is restored."
+		)
+		assertContains(preparedSurface, "pageTurnCaptureGeometry")
+		assertContains(preparedSurface, "bitmapSource.parseGeometry(encodedGeometry)")
+		assertContains(preparedSurface, "geometry.surfaceRectInWindow(")
+	}
+
+	@Test
 	fun persistentRasterHydrationCopiesDecodedBitmapAndRebindsLiveSurface() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val hydration = source

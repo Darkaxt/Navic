@@ -39,6 +39,100 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderPageTurnBundleHydrationTest {
 	@Test
+	fun rasterGeometryMustMatchTheRequestedTransitionKind() {
+		val full = ReaderPageTurnPixelRect(0, 0, 20, 30)
+		val left = ReaderPageTurnPixelRect(0, 0, 10, 30)
+		val right = ReaderPageTurnPixelRect(10, 0, 20, 30)
+		val portrait = ReaderPageTurnLeafGeometry(full, null, null, null)
+		val spread = ReaderPageTurnLeafGeometry(null, left, null, right)
+
+		assertTrue(
+			readerPageRasterGeometryMatches(
+				ReaderPageTurnTransitionKind.PortraitSlide,
+				portrait
+			)
+		)
+		assertFalse(
+			readerPageRasterGeometryMatches(
+				ReaderPageTurnTransitionKind.PortraitSlide,
+				spread
+			)
+		)
+		assertTrue(
+			readerPageRasterGeometryMatches(
+				ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+				spread
+			)
+		)
+		assertFalse(
+			readerPageRasterGeometryMatches(
+				ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+				portrait
+			)
+		)
+	}
+
+	@Test
+	fun preparedSnapshotMetadataComesFromTheExposedDestinationCapture() {
+		val bitmap = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
+		val captured = ReaderPageTurnCaptureResult(
+			bitmap = bitmap,
+			sourceRectInWindow = Rect(4, 5, 24, 35),
+			geometry = ReaderPageTurnCaptureGeometry(
+				viewportWidth = 20.0,
+				viewportHeight = 30.0,
+				mode = ReaderPageTurnLayoutMode.Spread,
+				pages = listOf(
+					ReaderPageTurnPageRect(
+						ReaderPageTurnPageRole.Left,
+						0.0,
+						0.0,
+						10.0,
+						30.0
+					),
+					ReaderPageTurnPageRect(
+						ReaderPageTurnPageRole.Right,
+						10.0,
+						0.0,
+						10.0,
+						30.0
+					)
+				),
+				reverseFaceColorArgb = 0xff123456L
+			),
+			elapsedMs = 7L
+		)
+		try {
+			val geometry = assertNotNull(
+				readerPagePreparedSnapshotGeometry(
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					captured
+				)
+			)
+
+			assertEquals(Rect(4, 5, 24, 35), geometry.surfaceRectInWindow)
+			assertNull(geometry.leafGeometry.fullLeafRect)
+			assertEquals(
+				ReaderPageTurnPixelRect(0, 0, 10, 30),
+				geometry.leafGeometry.leftLeafRect
+			)
+			assertEquals(
+				ReaderPageTurnPixelRect(10, 0, 20, 30),
+				geometry.leafGeometry.rightLeafRect
+			)
+			assertEquals(0xff123456.toInt(), geometry.reverseFaceColor)
+			assertNull(
+				readerPagePreparedSnapshotGeometry(
+					ReaderPageTurnTransitionKind.PortraitSlide,
+					captured
+				)
+			)
+		} finally {
+			bitmap.recycle()
+		}
+	}
+
+	@Test
 	fun productionResolverUsesRetainedThenPersistentWithoutCapture() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()

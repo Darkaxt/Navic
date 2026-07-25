@@ -31,6 +31,7 @@ import paige.navic.reader.ReaderPageMaximumForegroundPublicationEntries
 import paige.navic.reader.ReaderPageMaximumPublicationCallbacks
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
+import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.readerPageRasterStorageRoot
 import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
@@ -38,6 +39,35 @@ import kotlin.math.roundToInt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
+
+internal fun readerPageRasterGeometryMatches(
+	kind: ReaderPageTurnTransitionKind,
+	geometry: ReaderPageTurnLeafGeometry?
+): Boolean = when (kind) {
+	ReaderPageTurnTransitionKind.PortraitSlide -> geometry?.fullLeafRect != null
+	ReaderPageTurnTransitionKind.LandscapeSpreadSlide ->
+		geometry?.leftLeafRect != null && geometry.rightLeafRect != null
+}
+
+internal data class ReaderPagePreparedSnapshotGeometry(
+	val surfaceRectInWindow: Rect,
+	val leafGeometry: ReaderPageTurnLeafGeometry,
+	val reverseFaceColor: Int
+)
+
+internal fun readerPagePreparedSnapshotGeometry(
+	kind: ReaderPageTurnTransitionKind,
+	captured: ReaderPageTurnCaptureResult
+): ReaderPagePreparedSnapshotGeometry? {
+	val bitmap = captured.bitmap
+	val leafGeometry = captured.geometry.leafGeometry(bitmap.width, bitmap.height)
+	if (!readerPageRasterGeometryMatches(kind, leafGeometry)) return null
+	return ReaderPagePreparedSnapshotGeometry(
+		surfaceRectInWindow = Rect(captured.sourceRectInWindow),
+		leafGeometry = checkNotNull(leafGeometry),
+		reverseFaceColor = readerPageTurnOpaqueColor(captured.geometry.reverseFaceColorArgb)
+	)
+}
 
 internal fun interface ReaderPageRasterDescriptorPort {
 	fun request(
@@ -605,13 +635,10 @@ internal class ReaderPageTurnBundleSource(
 				bitmapWidth = bitmap.width,
 				bitmapHeight = bitmap.height
 			)
-			val kindMatches = when (hydration.kind) {
-				ReaderPageTurnTransitionKind.PortraitSlide ->
-					leafGeometry?.fullLeafRect != null
-				ReaderPageTurnTransitionKind.LandscapeSpreadSlide ->
-					leafGeometry?.leftLeafRect != null &&
-						leafGeometry.rightLeafRect != null
-			}
+			val kindMatches = readerPageRasterGeometryMatches(
+				hydration.kind,
+				leafGeometry
+			)
 			if (!kindMatches) {
 				runCatching { removePersistentRaster(hydration.key) }
 				Logger.w(
@@ -795,52 +822,41 @@ internal class ReaderPageTurnBundleSource(
 			}
 			return
 		}
-		val destinationKey = snapshotKey(
-			pageIndex = pageIndex,
-			kind = kind,
-			bitmap = reference.bitmap,
-			surfaceRectInWindow = reference.surfaceRectInWindow
-		)
-		reference.retain()
 		capturePreparedPage(
 			webView = webView,
+			pageIndex = pageIndex,
+			kind = kind,
 			token = itemToken,
 			generation = generation,
-			reference = reference,
-			destinationKey = destinationKey,
 			isStillCurrent = isStillCurrent,
 			onStagingStarted = { onStagingStarted(reference) }
 		) { captured ->
-			try {
-				if (
-					captured == null ||
-					generation != activeGeneration ||
-					closed ||
-					!isStillCurrent()
-				) {
-					captured?.releaseCacheOwnership()
-					onCaptureFailed()
-					return@capturePreparedPage
-				}
-				putSnapshot(
-					snapshot = captured,
-					priority = priority,
-					onPersisted = { persisted ->
-						onCaptured(persisted)
-					}
-				)
-			} finally {
-				reference.release()
+			if (
+				captured == null ||
+				generation != activeGeneration ||
+				closed ||
+				!isStillCurrent()
+			) {
+				captured?.releaseCacheOwnership()
+				onCaptureFailed()
+				return@capturePreparedPage
 			}
+			putSnapshot(
+				snapshot = captured,
+				priority = priority,
+				onPersisted = { persisted ->
+					onCaptured(persisted)
+				}
+			)
 		}
 	}
 
 	private fun capturePreparedPage(
 		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
 		token: String,
 		generation: Long,
-		reference: ReaderPageSlideSnapshot,
-		destinationKey: ReaderPageSlideSnapshotKey,
 		isStillCurrent: () -> Boolean,
 		onStagingStarted: () -> Unit,
 		onCaptured: (ReaderPageSlideSnapshot?) -> Unit
@@ -868,10 +884,16 @@ internal class ReaderPageTurnBundleSource(
 					restoreLiveComposition(webView, token) { onCaptured(null) }
 					return@postOnAnimation
 				}
-				capturePreparedSurface(webView, reference) { bitmap ->
+				capturePreparedSurface(webView) { captured ->
 					restoreLiveComposition(webView, token) {
+						val bitmap = captured?.bitmap
+						val snapshotGeometry = captured?.let {
+							readerPagePreparedSnapshotGeometry(kind, it)
+						}
 						if (
+							captured == null ||
 							bitmap == null ||
+							snapshotGeometry == null ||
 							generation != activeGeneration ||
 							!isStillCurrent()
 						) {
@@ -881,11 +903,16 @@ internal class ReaderPageTurnBundleSource(
 						}
 						onCaptured(
 							ReaderPageSlideSnapshot(
-								key = destinationKey,
+								key = snapshotKey(
+									pageIndex,
+									kind,
+									bitmap,
+									snapshotGeometry.surfaceRectInWindow
+								),
 								bitmap = bitmap,
-								surfaceRectInWindow = Rect(reference.surfaceRectInWindow),
-								leafGeometry = reference.leafGeometry,
-								reverseFaceColor = reference.reverseFaceColor,
+								surfaceRectInWindow = snapshotGeometry.surfaceRectInWindow,
+								leafGeometry = snapshotGeometry.leafGeometry,
+								reverseFaceColor = snapshotGeometry.reverseFaceColor,
 								captureMillis = SystemClock.uptimeMillis() - captureStartedAt
 							)
 						)
@@ -1460,14 +1487,57 @@ internal class ReaderPageTurnBundleSource(
 
 	private fun capturePreparedSurface(
 		webView: WebView,
-		source: ReaderPageSlideSnapshot,
-		onCaptured: (Bitmap?) -> Unit
-	) = captureCompositedSurface(
-		webView = webView,
-		sourceRectInWindow = source.surfaceRectInWindow,
-		backgroundColor = source.reverseFaceColor,
-		onCaptured = onCaptured
-	)
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	) {
+		if (!webView.isAttachedToWindow) {
+			onCaptured(null)
+			return
+		}
+		val startedAt = SystemClock.uptimeMillis()
+		webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
+		) { encodedGeometry ->
+			val geometry = bitmapSource.parseGeometry(encodedGeometry)
+			if (geometry == null || !webView.isAttachedToWindow) {
+				onCaptured(null)
+				return@evaluateJavascript
+			}
+			val location = IntArray(2)
+			webView.getLocationInWindow(location)
+			val pixelRect = geometry.surfaceRectInWindow(
+				webViewWindowLeft = location[0],
+				webViewWindowTop = location[1],
+				webViewWidth = webView.width,
+				webViewHeight = webView.height
+			)
+			if (pixelRect == null) {
+				onCaptured(null)
+				return@evaluateJavascript
+			}
+			val sourceRect = Rect(
+				pixelRect.left,
+				pixelRect.top,
+				pixelRect.right,
+				pixelRect.bottom
+			)
+			captureCompositedSurface(
+				webView = webView,
+				sourceRectInWindow = sourceRect,
+				backgroundColor = readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb)
+			) { bitmap ->
+				onCaptured(
+					bitmap?.let {
+						ReaderPageTurnCaptureResult(
+							bitmap = it,
+							sourceRectInWindow = Rect(sourceRect),
+							geometry = geometry,
+							elapsedMs = SystemClock.uptimeMillis() - startedAt
+						)
+					}
+				)
+			}
+		}
+	}
 
 	private fun captureCompositedSurface(
 		webView: WebView,
