@@ -22,6 +22,20 @@ if ($parsed.Count -ne 1) { throw 'Valid ownership fixture did not parse' }
 if ($OwnershipBoundFields.Count -ne 11) {
     throw 'Ownership fixture did not enforce all eleven owner categories'
 }
+$expectedOwnershipPlateauFields = @(
+    'Residents',
+    'AdapterDecoded',
+    'CacheDecoded',
+    'Staged',
+    'Textures'
+)
+if (@(
+        Compare-Object `
+            ($expectedOwnershipPlateauFields | Sort-Object) `
+            ($OwnershipPlateauCountFields | Sort-Object)
+    ).Count -ne 0) {
+    throw 'Ownership plateau fixture did not enforce the stable resource categories'
+}
 foreach ($field in $OwnershipBoundFields) {
     if ($null -eq $parsed[0].PSObject.Properties[$field['Count']]) {
         throw "Missing parsed count field $($field['Count'])"
@@ -51,6 +65,35 @@ Assert-NoPostWarmupOwnershipGrowth `
     -Snapshots $plateauSnapshots `
     -WarmupCount 2 `
     -Context 'eventual ownership plateau fixture'
+$transientOwnershipSnapshots = @(
+    @{ Callbacks = 0; Reservations = 0; Queued = 0 },
+    @{ Callbacks = 1; Reservations = 1; Queued = 0 },
+    @{ Callbacks = 1; Reservations = 1; Queued = 0 },
+    @{ Callbacks = 1; Reservations = 0; Queued = 1 },
+    @{ Callbacks = 2; Reservations = 1; Queued = 1 },
+    @{ Callbacks = 2; Reservations = 1; Queued = 1 }
+) | ForEach-Object {
+    $relocations = $_.Reservations + $_.Queued
+    $snapshotLine = $success.Replace(
+        'phase=cold-start',
+        'phase=peak-preparation'
+    ).Replace(
+        'callbacks=1',
+        "callbacks=$($_.Callbacks)"
+    ).Replace(
+        'relocationReservations=0 queuedRelocations=0 relocations=0',
+        "relocationReservations=$($_.Reservations) " +
+            "queuedRelocations=$($_.Queued) relocations=$relocations"
+    )
+    ConvertFrom-ReaderOwnershipLog $snapshotLine
+}
+Assert-OwnershipWithinBounds `
+    -Snapshots $transientOwnershipSnapshots `
+    -Context 'transient ownership fixture'
+Assert-NoPostWarmupOwnershipGrowth `
+    -Snapshots $transientOwnershipSnapshots `
+    -WarmupCount 2 `
+    -Context 'transient ownership plateau fixture'
 Assert-Throws {
     $growingSnapshots = @(0, 1, 1, 1, 2, 3) | ForEach-Object {
         $snapshotLine = $success.Replace(

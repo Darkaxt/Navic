@@ -276,6 +276,17 @@ $ownerNames = @($OwnershipBoundFields | ForEach-Object { $_['Count'] })
 if (@($ownerNames | Sort-Object -Unique).Count -ne 11) {
     throw 'Ownership parser contains duplicate owner categories'
 }
+$OwnershipPlateauCountFields = @(
+    'Residents',
+    'AdapterDecoded',
+    'CacheDecoded',
+    'Staged',
+    'Textures'
+)
+if ($OwnershipPlateauCountFields.Count -ne 5 -or
+    @($OwnershipPlateauCountFields | Where-Object { $_ -notin $ownerNames }).Count -ne 0) {
+    throw 'Ownership plateau fields must be stable owner categories'
+}
 
 function ConvertFrom-ReaderOwnershipLog([string] $Log) {
     foreach ($match in $OwnershipPattern.Matches($Log)) {
@@ -1378,14 +1389,14 @@ function Assert-NoPostWarmupOwnershipGrowth(
             Select-Object -First $WarmupCount
     )
     $plateau = @($Snapshots | Select-Object -Last $WarmupCount)
-    foreach ($field in $OwnershipBoundFields) {
+    foreach ($countField in $OwnershipPlateauCountFields) {
         $ceiling = (
-            $baseline | Measure-Object -Property $field['Count'] -Maximum
+            $baseline | Measure-Object -Property $countField -Maximum
         ).Maximum
         foreach ($snapshot in $plateau) {
-            $value = [int]$snapshot.PSObject.Properties[$field['Count']].Value
+            $value = [int]$snapshot.PSObject.Properties[$countField].Value
             if ($value -gt $ceiling) {
-                throw "$Context grew during its final plateau for $($field['Count']): $($snapshot.LogLine)"
+                throw "$Context grew during its final plateau for ${countField}: $($snapshot.LogLine)"
             }
         }
     }
