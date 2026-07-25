@@ -227,20 +227,49 @@ function Wait-ReaderDevForeground {
     throw "ReaderDev did not become foreground within $WaitTimeoutSeconds seconds"
 }
 
+function Get-ReaderDevLogcatCursor {
+    param([Parameter(Mandatory = $true)][string] $AfterMarker)
+    $markerPattern = "^\s*([0-9]+\.[0-9]+).*" + [regex]::Escape($AfterMarker)
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $logLines = Invoke-Adb -Arguments @(
+            "logcat", "-d", "-v", "epoch", "-t", "20",
+            "NavicReaderDevLauncher:I", "*:S"
+        )
+        foreach ($line in $logLines) {
+            if ($line -match $markerPattern) {
+                return $Matches[1]
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "ReaderDev launch marker was not visible in logcat"
+}
+
 function Wait-ReaderDevPublicationReady {
-    param([Parameter(Mandatory = $true)][string] $Package)
+    param(
+        [Parameter(Mandatory = $true)][string] $Package,
+        [Parameter(Mandatory = $true)][string] $AfterMarker,
+        [Parameter(Mandatory = $true)][string] $AfterCursor
+    )
     $deadline = [DateTime]::UtcNow.AddSeconds($WaitTimeoutSeconds)
     do {
         $logLines = Invoke-Adb -Arguments @(
-            "logcat", "-d", "-v", "brief", "-t", "1000"
+            "logcat", "-d", "-v", "brief", "-T", $AfterCursor,
+            "NavicReaderDevLauncher:I", "ReaderEngineWebViewHost:I", "*:S"
         )
-        $readyLine = @(
-            $logLines | Where-Object {
-                $_ -match "Reader bridge event: publicationReady" -or
-                $_ -match '"type":"publicationReady"'
-            } | Select-Object -First 1
-        )
-        if ($readyLine.Count -gt 0) { return }
+        $markerSeen = $false
+        foreach ($line in $logLines) {
+            if (-not $markerSeen) {
+                if ($line.Contains($AfterMarker)) {
+                    $markerSeen = $true
+                }
+                continue
+            }
+            if ($line -match "Reader bridge event: publicationReady") {
+                return
+            }
+        }
         Start-Sleep -Seconds 1
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "ReaderDev publication was not ready within $WaitTimeoutSeconds seconds"
@@ -991,9 +1020,19 @@ if (!$NoLaunch) {
     if ($readerLaunchHasPublication -and -not $PreserveLogcat) {
         Invoke-Adb -Arguments @("logcat", "-c")
     }
+    $publicationReadyMarker = $null
+    $publicationReadyCursor = $null
+    if ($readerLaunchHasPublication) {
+        $publicationReadyMarker = "navic-reader-dev-launch-$([Guid]::NewGuid().ToString('N'))"
+        Invoke-Adb -Arguments @(
+            "shell", "log", "-t", "NavicReaderDevLauncher", $publicationReadyMarker
+        )
+        $publicationReadyCursor = Get-ReaderDevLogcatCursor -AfterMarker $publicationReadyMarker
+    }
     $launchArgs = [System.Collections.Generic.List[string]]::new()
     $launchArgs.AddRange([string[]] @("shell", "am", "start"))
     if (-not $NoForceStopLaunch) { $launchArgs.Add("-S") }
+    if ($NoForceStopLaunch) { $launchArgs.Add("--activity-single-top") }
     $launchArgs.AddRange([string[]] @("-n", "$Package/$Activity"))
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.bindery.opds_url" -Value $opdsBaseUrl
     Add-ShellStringExtra -Arguments $launchArgs -Name "navic.dev.bindery.api_key" -Value $apiKey
@@ -1032,7 +1071,7 @@ if (!$NoLaunch) {
     Invoke-Adb -Arguments $launchArgs.ToArray() -RedactFailure
     if ($readerLaunchHasPublication) {
         Wait-ReaderDevForeground -Package $Package
-        Wait-ReaderDevPublicationReady -Package $Package
+        Wait-ReaderDevPublicationReady -Package $Package -AfterMarker $publicationReadyMarker -AfterCursor $publicationReadyCursor
     }
 }
 

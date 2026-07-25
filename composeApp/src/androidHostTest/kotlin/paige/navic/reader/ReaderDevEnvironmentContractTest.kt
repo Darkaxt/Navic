@@ -21,6 +21,15 @@ class ReaderDevEnvironmentContractTest {
 	fun androidReaderDevBuildTypeIsLocalDebuggableAndSeparateFromPublicRelease() {
 		val androidBuild = root.resolve("androidApp/build.gradle.kts").readText()
 		val mainActivity = root.resolve("androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt").readText()
+		val onCreateBlock = mainActivity
+			.substringAfter(
+				"override fun onCreate(savedInstanceState: Bundle?)",
+				missingDelimiterValue = ""
+			)
+			.substringBefore("override fun onNewIntent(intent: Intent)", missingDelimiterValue = "")
+		val onNewIntentBlock = mainActivity
+			.substringAfter("override fun onNewIntent(intent: Intent)", missingDelimiterValue = "")
+			.substringBefore("override fun onDestroy()", missingDelimiterValue = "")
 		val app = root.resolve("composeApp/src/commonMain/kotlin/paige/navic/App.kt").readText()
 		val preferenceManager = root.resolve(
 			"composeApp/src/commonMain/kotlin/paige/navic/domain/manager/PreferenceManager.kt"
@@ -80,6 +89,20 @@ class ReaderDevEnvironmentContractTest {
 				mainActivity.contains("Screen.Reader(") &&
 				mainActivity.contains("NAVIC_READER_DEV_PUBLICATION_URL"),
 			"readerDev must support direct reader launch from env-driven intent extras."
+		)
+		assertTrue(
+			onCreateBlock.isNotEmpty() &&
+				onNewIntentBlock.isNotEmpty() &&
+				onNewIntentBlock.contains("val directReaderLaunch = applyReaderDevIntentSeed(intent)") &&
+				onNewIntentBlock.contains(
+					"if (BuildConfig.NAVIC_READER_DEV && directReaderLaunch)"
+				) &&
+				onNewIntentBlock.contains("readerDevNavigationGeneration += 1") &&
+				onCreateBlock.contains("key(readerDevNavigationGeneration)") &&
+				onCreateBlock.contains("App(initialScreenOverride = readerDevInitialScreen)") &&
+				mainActivity.contains("private fun applyReaderDevIntentSeed(intent: Intent?): Boolean") &&
+				mainActivity.contains("return directReaderScreen != null"),
+			"A reused readerDev activity must remount a fresh navigation host only when the new intent supplies a valid direct-reader route."
 		)
 		assertTrue(
 			mainActivity.contains("navic.dev.reader.start_progress") &&
@@ -620,12 +643,20 @@ class ReaderDevEnvironmentContractTest {
 			"The install script must recognize current and modern resumed-activity fields before capture; otherwise it can time out after a successful reader launch."
 		)
 		assertTrue(
-			installScriptText.contains("function Wait-ReaderDevPublicationReady") &&
+			installScriptText.contains("function Get-ReaderDevLogcatCursor") &&
+				installScriptText.contains("function Wait-ReaderDevPublicationReady") &&
+				installScriptText.contains("[string] \$AfterMarker") &&
+				installScriptText.contains("[string] \$AfterCursor") &&
 				installScriptText.contains("\"logcat\", \"-d\"") &&
-				installScriptText.contains("\"-t\", \"1000\"") &&
+				installScriptText.contains("\"-T\", \$AfterCursor") &&
+				installScriptText.contains("\"NavicReaderDevLauncher:I\"") &&
+				installScriptText.contains("\"ReaderEngineWebViewHost:I\"") &&
+				installScriptText.contains("\$line.Contains(\$AfterMarker)") &&
 				installScriptText.contains("publicationReady") &&
-				installScriptText.contains("Wait-ReaderDevPublicationReady -Package \$Package"),
-			"The install script must wait for the reader bridge publicationReady event after launch using a bounded recent logcat window; foreground alone can still capture the splash screen, while full logcat dumps can fail on noisy emulators."
+				installScriptText.contains(
+					"Wait-ReaderDevPublicationReady -Package \$Package -AfterMarker \$publicationReadyMarker -AfterCursor \$publicationReadyCursor"
+				),
+			"The install script must wait for a reader bridge publicationReady event emitted after this launch's unique logcat cursor and marker; foreground or a stale event can still capture the closed screen."
 		)
 		assertTrue(
 			installScriptText.contains("[switch] \$NoForceStopLaunch") &&
@@ -634,8 +665,9 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("[ValidateRange(1, 600)]") &&
 				installScriptText.contains("[DateTime]::UtcNow.AddSeconds(\$WaitTimeoutSeconds)") &&
 				installScriptText.contains("if (-not \$NoForceStopLaunch) { \$launchArgs.Add(\"-S\") }") &&
+				installScriptText.contains("if (\$NoForceStopLaunch) { \$launchArgs.Add(\"--activity-single-top\") }") &&
 				installScriptText.contains("if (\$readerLaunchHasPublication -and -not \$PreserveLogcat)"),
-			"ReaderDev relaunches must have a bounded timeout and let the QA runner preserve the process and measured logcat interval."
+			"ReaderDev relaunches must use single-top delivery, have a bounded timeout, and let the QA runner preserve the process and measured logcat interval."
 		)
 		assertTrue(
 			installScriptText.contains("[switch] \$RequireReaderLaunch") &&

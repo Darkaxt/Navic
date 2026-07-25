@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.koin.core.component.KoinComponent
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 	private val preferenceManager: PreferenceManager by inject()
 	private val player: MediaPlayerViewModel by inject()
 	private var readerDevInitialScreen by mutableStateOf<Screen?>(null)
+	private var readerDevNavigationGeneration by mutableStateOf(0)
 	private var readerDevWebDebuggingLease: AutoCloseable? = null
 
 	override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,13 +49,20 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		applyReaderDevIntentSeed(intent)
 		enableEdgeToEdge()
 		requestNotificationPermissionIfNeeded()
-		setContent { App(initialScreenOverride = readerDevInitialScreen) }
+		setContent {
+			key(readerDevNavigationGeneration) {
+				App(initialScreenOverride = readerDevInitialScreen)
+			}
+		}
 	}
 
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
 		setIntent(intent)
-		applyReaderDevIntentSeed(intent)
+		val directReaderLaunch = applyReaderDevIntentSeed(intent)
+		if (BuildConfig.NAVIC_READER_DEV && directReaderLaunch) {
+			readerDevNavigationGeneration += 1
+		}
 	}
 
 	override fun onDestroy() {
@@ -84,9 +93,9 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		super.onUserLeaveHint()
 	}
 
-	private fun applyReaderDevIntentSeed(intent: Intent?) {
+	private fun applyReaderDevIntentSeed(intent: Intent?): Boolean {
 		if (!BuildConfig.NAVIC_READER_DEV || intent == null) {
-			return
+			return false
 		}
 		applyReaderDevQaFaultSeed(intent)
 		var applied = false
@@ -137,6 +146,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 		if (applied) {
 			Log.i("MainActivity", "Applied readerDev seed extras")
 		}
+		return directReaderScreen != null
 	}
 
 	private fun applyReaderDevQaFaultSeed(intent: Intent) {
