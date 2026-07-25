@@ -1563,22 +1563,32 @@ while ($attempt -lt $maximumAttempts -and
                     throw 'ReaderDev stress preparing recovery has no preparation record'
                 }
                 $latestPreparation = $preparationRecords[-1]
-                $readyAfterTerminal =
-                    $latestPreparation.Index -gt $terminalInFullLog.Index -and
-                    $latestPreparation.State -eq 'Ready'
-                if (-not $readyAfterTerminal) {
-                    $recoveryAttemptBoundary = if (
-                        $latestPreparation.State -eq 'Attempted'
-                    ) {
-                        [long]$latestPreparation.Attempt
-                    } else {
-                        [long]$latestPreparation.Attempt + 1
+                $recoveryAction = Get-ReaderPreparationRecoveryAction `
+                    -State $latestPreparation.State `
+                    -PreparationIndex $latestPreparation.Index `
+                    -TerminalIndex $terminalInFullLog.Index
+                switch ($recoveryAction) {
+                    'ReadyAfterTerminal' {}
+                    'QuiesceReadyBeforeTerminal' {
+                        Start-Sleep -Milliseconds 750
                     }
-                    [void](Wait-ReaderQaWorkingSetReady `
-                        -ReaderSession $readerSession `
-                        -AtOrAfterAttempt $recoveryAttemptBoundary `
-                        -Context 'ReaderDev stress preparing recovery' `
-                        -WaitSeconds $preparationRecoveryTimeoutSeconds)
+                    'AwaitCurrentAttempt' {
+                        [void](Wait-ReaderQaWorkingSetReady `
+                            -ReaderSession $readerSession `
+                            -AtOrAfterAttempt $latestPreparation.Attempt `
+                            -Context 'ReaderDev stress preparing recovery' `
+                            -WaitSeconds $preparationRecoveryTimeoutSeconds)
+                    }
+                    'AwaitNextAttempt' {
+                        [void](Wait-ReaderQaWorkingSetReady `
+                            -ReaderSession $readerSession `
+                            -AtOrAfterAttempt ($latestPreparation.Attempt + 1) `
+                            -Context 'ReaderDev stress preparing recovery' `
+                            -WaitSeconds $preparationRecoveryTimeoutSeconds)
+                    }
+                    default {
+                        throw "ReaderDev stress preparing recovery chose an unknown action: $recoveryAction"
+                    }
                 }
             }
         } elseif ($newTerminal.Outcome -eq 'RejectedSettling') {

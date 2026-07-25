@@ -433,6 +433,27 @@ function ConvertFrom-ReaderPreparationLog([string] $Log) {
     }
 }
 
+function Get-ReaderPreparationRecoveryAction(
+    [ValidateSet('Attempted', 'Deferred', 'Resumed', 'Ready', 'Failed', 'Cancelled')]
+    [string] $State,
+    [int] $PreparationIndex,
+    [int] $TerminalIndex
+) {
+    if ($PreparationIndex -lt 0 -or $TerminalIndex -lt 0) {
+        throw 'Preparation recovery requires nonnegative diagnostic indices'
+    }
+    if ($State -eq 'Ready') {
+        if ($PreparationIndex -gt $TerminalIndex) {
+            return 'ReadyAfterTerminal'
+        }
+        return 'QuiesceReadyBeforeTerminal'
+    }
+    if ($State -in @('Attempted', 'Deferred', 'Resumed')) {
+        return 'AwaitCurrentAttempt'
+    }
+    'AwaitNextAttempt'
+}
+
 function ConvertFrom-ReaderRepairLog([string] $Log) {
     foreach ($match in $RepairPattern.Matches($Log)) {
         [pscustomobject]@{

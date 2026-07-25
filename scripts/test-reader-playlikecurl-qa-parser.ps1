@@ -202,6 +202,30 @@ Assert-Throws {
         -Context 'stale deferral resume fixture'
 } 'stale deferral resume fixture'
 
+@(
+    @{ State = 'Ready'; PreparationIndex = 20; Expected = 'ReadyAfterTerminal' },
+    @{ State = 'Ready'; PreparationIndex = 19; Expected = 'QuiesceReadyBeforeTerminal' },
+    @{ State = 'Attempted'; PreparationIndex = 19; Expected = 'AwaitCurrentAttempt' },
+    @{ State = 'Deferred'; PreparationIndex = 19; Expected = 'AwaitCurrentAttempt' },
+    @{ State = 'Resumed'; PreparationIndex = 19; Expected = 'AwaitCurrentAttempt' },
+    @{ State = 'Failed'; PreparationIndex = 19; Expected = 'AwaitNextAttempt' },
+    @{ State = 'Cancelled'; PreparationIndex = 19; Expected = 'AwaitNextAttempt' }
+) | ForEach-Object {
+    $actual = Get-ReaderPreparationRecoveryAction `
+        -State $_.State `
+        -PreparationIndex $_.PreparationIndex `
+        -TerminalIndex 19
+    if ($actual -ne $_.Expected) {
+        throw "Preparation recovery action for $($_.State) was $actual"
+    }
+}
+Assert-Throws {
+    Get-ReaderPreparationRecoveryAction `
+        -State 'Ready' `
+        -PreparationIndex -1 `
+        -TerminalIndex 19 | Out-Null
+} 'negative preparation recovery index fixture'
+
 $repairLog = @(
     ('reader-repair session=7 attempt=30 rasterGeneration=2 centerOrdinal=3 ' +
         'state=Started reason=None durationMs=0' + $NoQaCorrelationFields),
@@ -747,6 +771,13 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
     if ($candidateTreeText -notmatch
         'git diff HEAD --name-status --no-renames') {
         throw "Candidate-tree contract omits staged-only bytes: $candidateTreeSource"
+    }
+    if ($candidateTreeText -notmatch 'Get-ReaderPreparationRecoveryAction') {
+        throw "Runner omits typed preparation recovery policy: $candidateTreeSource"
+    }
+    if ($candidateTreeText -notmatch
+        "'QuiesceReadyBeforeTerminal'\s*\{\s*Start-Sleep -Milliseconds 750") {
+        throw "Runner omits bounded ready-state quiescence: $candidateTreeSource"
     }
 }
 
