@@ -86,6 +86,23 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun viewportResizeRefreshesSurfaceLayoutBeforeRasterPlanning() {
+		val viewport = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
+		val applyLayout = viewport
+			.substringAfter("function applyReaderViewportLayout(label = 'unknown', options = {}) {")
+			.substringBefore("\n}\n")
+
+		assertContains(applyLayout, "if (label === 'resize' && this.currentPagePosition)")
+		assertContains(applyLayout, "this.updateSurfacePaperTexture(")
+		assertContains(applyLayout, "this.lastRelocateDetail || {}")
+		assertContains(applyLayout, "this.currentPagePosition")
+		assertContains(applyLayout, "'viewport-layout:resize'")
+		val refresh = applyLayout.indexOf("this.updateSurfacePaperTexture(")
+		val preload = applyLayout.indexOf("this.preloadPageDragPreviewTargets?.(")
+		assertTrue(refresh >= 0 && refresh < preload)
+	}
+
+	@Test
 	fun paginatorAppliesSectionStylesBeforeResolvingItsExactTextPage() {
 		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val display = paginator

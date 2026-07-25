@@ -122,7 +122,15 @@ function applyReaderViewportLayout(label = 'unknown', options = {}) {
       this.view?.book?.metadata?.title || ''
     )
   }
-  this.renderSurfacePaperTextureLayers()
+  if (label === 'resize' && this.currentPagePosition) {
+    this.updateSurfacePaperTexture(
+      this.lastRelocateDetail || {},
+      this.currentPagePosition,
+      'viewport-layout:resize'
+    )
+  } else {
+    this.renderSurfacePaperTextureLayers()
+  }
   this.renderTapZoneOverlayLayer()
   this.preloadPageDragPreviewTargets?.(`viewport-layout:${label}`)
   log('viewport-layout', `label=${label}`, `${width}x${height}`)
