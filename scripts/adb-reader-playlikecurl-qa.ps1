@@ -1515,31 +1515,57 @@ while ($attempt -lt $maximumAttempts -and
             if ($terminalInFullLog.Count -ne 1) {
                 throw 'ReaderDev stress preparing recovery lost its gesture terminal'
             }
-            $preparationRecords = @(
-                ConvertFrom-ReaderPreparationLog $fullRecoveryLog |
-                    Where-Object Session -eq $readerSession
-            )
-            if ($preparationRecords.Count -eq 0) {
-                throw 'ReaderDev stress preparing recovery has no preparation record'
-            }
-            $latestPreparation = $preparationRecords[-1]
-            $readyAfterTerminal =
-                $latestPreparation.Index -gt $terminalInFullLog.Index -and
-                $latestPreparation.State -eq 'Ready'
-            if (-not $readyAfterTerminal) {
-                $recoveryAttemptBoundary = if (
-                    $latestPreparation.Index -gt $terminalInFullLog.Index -and
-                    $latestPreparation.State -eq 'Attempted'
-                ) {
-                    [long]$latestPreparation.Attempt
-                } else {
-                    [long]$latestPreparation.Attempt + 1
+            $inFlightRelocationGestureIds = @(
+                $relocationGroups = @(
+                    ConvertFrom-ReaderRelocationLog $fullRecoveryLog |
+                        Where-Object {
+                            $_.Session -eq $readerSession -and
+                                $committedGestureIds.Contains($_.GestureId)
+                        } |
+                        Group-Object GestureId
+                )
+                foreach ($group in $relocationGroups) {
+                    $latestRelocation = $group.Group[-1]
+                    if ($latestRelocation.State -notin @('Completed', 'Rejected')) {
+                        [long]$group.Name
+                    }
                 }
-                [void](Wait-ReaderQaWorkingSetReady `
-                    -ReaderSession $readerSession `
-                    -AtOrAfterAttempt $recoveryAttemptBoundary `
-                    -Context 'ReaderDev stress preparing recovery' `
-                    -WaitSeconds $preparationRecoveryTimeoutSeconds)
+            )
+            if ($inFlightRelocationGestureIds.Count -gt 0) {
+                foreach ($gestureId in $inFlightRelocationGestureIds) {
+                    [void](Wait-ReaderQaRelocationTerminal `
+                        -ReaderSession $readerSession `
+                        -GestureId $gestureId `
+                        -States @('Completed', 'Rejected') `
+                        -Context 'ReaderDev stress relocation recovery')
+                }
+            } else {
+                $preparationRecords = @(
+                    ConvertFrom-ReaderPreparationLog $fullRecoveryLog |
+                        Where-Object Session -eq $readerSession
+                )
+                if ($preparationRecords.Count -eq 0) {
+                    throw 'ReaderDev stress preparing recovery has no preparation record'
+                }
+                $latestPreparation = $preparationRecords[-1]
+                $readyAfterTerminal =
+                    $latestPreparation.Index -gt $terminalInFullLog.Index -and
+                    $latestPreparation.State -eq 'Ready'
+                if (-not $readyAfterTerminal) {
+                    $recoveryAttemptBoundary = if (
+                        $latestPreparation.Index -gt $terminalInFullLog.Index -and
+                        $latestPreparation.State -eq 'Attempted'
+                    ) {
+                        [long]$latestPreparation.Attempt
+                    } else {
+                        [long]$latestPreparation.Attempt + 1
+                    }
+                    [void](Wait-ReaderQaWorkingSetReady `
+                        -ReaderSession $readerSession `
+                        -AtOrAfterAttempt $recoveryAttemptBoundary `
+                        -Context 'ReaderDev stress preparing recovery' `
+                        -WaitSeconds $preparationRecoveryTimeoutSeconds)
+                }
             }
         } elseif ($newTerminal.Outcome -eq 'RejectedSettling') {
             Start-Sleep -Milliseconds 750
