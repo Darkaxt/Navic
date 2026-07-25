@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.PixelFormat;
 import android.opengl.GLSurfaceView;
 import android.os.Handler;
 import android.os.Looper;
@@ -156,6 +157,7 @@ public class PageSurfaceView extends GLSurfaceView {
     private VelocityTracker velocityTracker;
     private ReadingDirection readingDirection = ReadingDirection.LEFT_TO_RIGHT;
     private ReadingDirection activeGestureReadingDirection = ReadingDirection.LEFT_TO_RIGHT;
+    private PageDisplayRect activeGestureDisplayRect;
     private boolean settlementRunning;
     private boolean boundaryRestorationRunning;
     private boolean gestureAccepted;
@@ -278,6 +280,7 @@ public class PageSurfaceView extends GLSurfaceView {
                         },
                         OWNERSHIP_CALLBACK_LIMIT);
 
+        getHolder().setFormat(PixelFormat.TRANSLUCENT);
         setEGLContextClientVersion(2);
         setEGLConfigChooser(8, 8, 8, 8, 16, 0);
         GLSurfaceView.Renderer renderer = new GLSurfaceView.Renderer() {
@@ -537,6 +540,7 @@ public class PageSurfaceView extends GLSurfaceView {
         deckCoordinator.cancelSettlement();
         gestureAccepted = false;
         gestureMoved = false;
+        activeGestureDisplayRect = null;
         recycleVelocityTracker();
         requestRender();
         notifySettlementCancelled(cancelledSettlement);
@@ -1489,6 +1493,46 @@ public class PageSurfaceView extends GLSurfaceView {
                 : deck.getSettlementPage(PageChange.NONE).getOrdinal();
     }
 
+    static PageDisplayRect gestureDisplayRect(
+            PageDeck<?> deck,
+            float physicalX,
+            int surfaceWidth,
+            int surfaceHeight) {
+        int width = Math.max(1, surfaceWidth);
+        int height = Math.max(1, surfaceHeight);
+        PageDisplayRect full = new PageDisplayRect(0, 0, width, height);
+        if (deck instanceof PortraitPageDeck<?>) {
+            PageImage<?> current = ((PortraitPageDeck<?>) deck).getCurrent();
+            return current.hasExplicitDisplayRect() ? current.getDisplayRect() : full;
+        }
+        if (!(deck instanceof LandscapePageDeck<?>) || width < 2) {
+            return full;
+        }
+
+        LandscapePageDeck<?> spread = (LandscapePageDeck<?>) deck;
+        int split = width / 2;
+        PageDisplayRect leftFallback = new PageDisplayRect(0, 0, split, height);
+        PageDisplayRect rightFallback = new PageDisplayRect(split, 0, width, height);
+        PageDisplayRect left = spread.getCurrentLeft().hasExplicitDisplayRect()
+                ? spread.getCurrentLeft().getDisplayRect()
+                : leftFallback;
+        PageDisplayRect right = spread.getCurrentRight().hasExplicitDisplayRect()
+                ? spread.getCurrentRight().getDisplayRect()
+                : rightFallback;
+        float divider = (left.getRightPx() + right.getLeftPx()) / 2f;
+        return physicalX < divider ? left : right;
+    }
+
+    static float logicalGestureX(
+            float physicalX,
+            PageDisplayRect displayRect,
+            ReadingDirection readingDirection) {
+        Objects.requireNonNull(displayRect, "displayRect");
+        Objects.requireNonNull(readingDirection, "readingDirection");
+        float localX = physicalX - displayRect.getLeftPx();
+        return readingDirection.toLogicalX(localX, displayRect.getWidthPx());
+    }
+
     public OnPageChangeListener getOnPageChangeListener() {
         return onPageChangeListener;
     }
@@ -1507,6 +1551,7 @@ public class PageSurfaceView extends GLSurfaceView {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
             activeGestureId = gestureId;
+            activeGestureDisplayRect = null;
             gestureAccepted = gestureReady();
             gestureMoved = false;
             recycleVelocityTracker();
@@ -1540,9 +1585,16 @@ public class PageSurfaceView extends GLSurfaceView {
                 gestureDownY = event.getY();
                 activeGestureReadingDirection = readingDirection;
                 renderer.setReadingDirection(activeGestureReadingDirection);
+                activeGestureDisplayRect = gestureDisplayRect(
+                        deckCoordinator.getActiveDeck(),
+                        gestureDownX,
+                        getWidth(),
+                        getHeight());
                 obtainVelocityTracker().addMovement(event);
-                float logicalDownX = activeGestureReadingDirection.toLogicalX(
-                        gestureDownX, Math.max(1f, getWidth()));
+                float logicalDownX = logicalGestureX(
+                        gestureDownX,
+                        activeGestureDisplayRect,
+                        activeGestureReadingDirection);
                 interaction.beginGesture(logicalDownX);
                 return true;
             case MotionEvent.ACTION_MOVE:
@@ -1792,15 +1844,26 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     private void dragInteraction(float physicalX) {
-        float surfaceWidth = Math.max(1f, getWidth());
-        float logicalX = activeGestureReadingDirection.toLogicalX(physicalX, surfaceWidth);
-        float gestureWidth = activeDeckIsLandscape()
-                ? Math.max(1f, surfaceWidth / 2f)
-                : surfaceWidth;
-        if (landscapeModelOrNull() != null) {
-            landscapeModelOrNull().dragTo(logicalX, gestureWidth);
+        PageDisplayRect displayRect = activeGestureDisplayRect;
+        if (displayRect == null) {
+            displayRect = gestureDisplayRect(
+                    deckCoordinator.getActiveDeck(),
+                    gestureDownX,
+                    getWidth(),
+                    getHeight());
+            activeGestureDisplayRect = displayRect;
+        }
+        float logicalX = logicalGestureX(
+                physicalX, displayRect, activeGestureReadingDirection);
+        float gestureWidth = displayRect.getWidthPx();
+        LandscapeSpreadModel landscape = landscapeModelOrNull();
+        if (landscape != null) {
+            landscape.dragTo(logicalX, gestureWidth);
         } else {
-            interactionModelOrNull().dragTo(logicalX, gestureWidth);
+            PlayLikeCurlModel interaction = interactionModelOrNull();
+            if (interaction != null) {
+                interaction.dragTo(logicalX, gestureWidth);
+            }
         }
     }
 
@@ -2059,10 +2122,6 @@ public class PageSurfaceView extends GLSurfaceView {
         PageImage<Bitmap> source = deck.getSettlementPage(PageChange.NONE);
         PageImage<Bitmap> target = deck.getSettlementPage(pageChange);
         return SettlementContext.from(activeGestureId, source, target);
-    }
-
-    private boolean activeDeckIsLandscape() {
-        return deckCoordinator.getActiveDeck() instanceof LandscapePageDeck;
     }
 
     private PlayLikeCurlModel interactionModelOrNull() {

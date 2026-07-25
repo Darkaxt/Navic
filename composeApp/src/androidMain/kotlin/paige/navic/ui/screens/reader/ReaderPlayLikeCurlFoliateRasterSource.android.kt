@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import karacken.curl.PageDisplayRect
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
 import paige.navic.util.core.Logger
@@ -28,21 +29,191 @@ internal enum class ReaderPlayLikeCurlFoliateLeaf {
 	Right
 }
 
+internal fun readerPlayLikeCurlFillerFoliateLeaf(
+	orientation: ReaderPlayLikeCurlOrientation,
+	physicalLeaf: ReaderPlayLikeCurlPhysicalLeaf
+): ReaderPlayLikeCurlFoliateLeaf = if (orientation == ReaderPlayLikeCurlOrientation.Portrait) {
+	ReaderPlayLikeCurlFoliateLeaf.Full
+} else {
+	when (physicalLeaf) {
+		ReaderPlayLikeCurlPhysicalLeaf.Left -> ReaderPlayLikeCurlFoliateLeaf.Left
+		ReaderPlayLikeCurlPhysicalLeaf.Right -> ReaderPlayLikeCurlFoliateLeaf.Right
+	}
+}
+
 internal data class ReaderPlayLikeCurlFoliatePageRequest(
 	val logicalOrdinal: Int,
 	val sourcePageIndex: Int,
 	val leaf: ReaderPlayLikeCurlFoliateLeaf
 )
 
+internal data class ReaderPlayLikeCurlPhysicalRect(
+	val left: Int,
+	val top: Int,
+	val right: Int,
+	val bottom: Int
+) {
+	init {
+		require(right >= left) { "Physical rectangle width must not be negative" }
+		require(bottom > top) { "Physical rectangle height must be positive" }
+	}
+
+	val width: Int
+		get() = right - left
+
+	val height: Int
+		get() = bottom - top
+
+	fun asDisplayRect(): PageDisplayRect? = if (width > 0) {
+		PageDisplayRect(left, top, right, bottom)
+	} else {
+		null
+	}
+}
+
+internal data class ReaderPlayLikeCurlRasterLayout(
+	val surfaceRectInWindow: ReaderPlayLikeCurlPhysicalRect,
+	val fullLeafRect: ReaderPlayLikeCurlPhysicalRect?,
+	val leftLeafRect: ReaderPlayLikeCurlPhysicalRect?,
+	val gutterRect: ReaderPlayLikeCurlPhysicalRect?,
+	val rightLeafRect: ReaderPlayLikeCurlPhysicalRect?
+) {
+	init {
+		require(surfaceRectInWindow.width > 0)
+		listOfNotNull(fullLeafRect, leftLeafRect, gutterRect, rightLeafRect).forEach { rect ->
+			require(
+				rect.left >= 0 &&
+					rect.top >= 0 &&
+					rect.right <= surfaceRectInWindow.width &&
+					rect.bottom <= surfaceRectInWindow.height
+			) { "Physical leaf geometry must fit the Foliate surface" }
+		}
+	}
+
+	private fun physicalRect(leaf: ReaderPlayLikeCurlFoliateLeaf): ReaderPlayLikeCurlPhysicalRect? =
+		when (leaf) {
+			ReaderPlayLikeCurlFoliateLeaf.Full -> fullLeafRect
+			ReaderPlayLikeCurlFoliateLeaf.Left -> leftLeafRect
+			ReaderPlayLikeCurlFoliateLeaf.Right -> rightLeafRect
+		}
+
+	fun displayRect(leaf: ReaderPlayLikeCurlFoliateLeaf): PageDisplayRect? =
+		physicalRect(leaf)?.asDisplayRect()
+
+	fun displayRect(
+		leaf: ReaderPlayLikeCurlFoliateLeaf,
+		rendererLeftInWindow: Int,
+		rendererTopInWindow: Int,
+		rendererWidth: Int,
+		rendererHeight: Int
+	): PageDisplayRect? {
+		if (rendererWidth <= 0 || rendererHeight <= 0) return null
+		val rect = physicalRect(leaf) ?: return null
+		val surfaceLeft = surfaceRectInWindow.left.toLong() - rendererLeftInWindow
+		val surfaceTop = surfaceRectInWindow.top.toLong() - rendererTopInWindow
+		val left = surfaceLeft + rect.left
+		val top = surfaceTop + rect.top
+		val right = surfaceLeft + rect.right
+		val bottom = surfaceTop + rect.bottom
+		if (
+			left < 0L ||
+			top < 0L ||
+			right > rendererWidth.toLong() ||
+			bottom > rendererHeight.toLong() ||
+			right <= left ||
+			bottom <= top
+		) {
+			return null
+		}
+		return PageDisplayRect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
+	}
+}
+
 internal data class ReaderPlayLikeCurlRasterImage(
 	val bitmap: Bitmap,
-	val paperColorArgb: Int
+	val paperColorArgb: Int,
+	val layout: ReaderPlayLikeCurlRasterLayout,
+	val leaf: ReaderPlayLikeCurlFoliateLeaf
 ) {
 	init {
 		require((paperColorArgb ushr 24) == 0xFF) {
 			"PlayLikeCurl paper color must be opaque"
 		}
+		requireNotNull(layout.displayRect(leaf)) {
+			"PlayLikeCurl raster must have positive physical leaf placement"
+		}
 	}
+
+	val displayRect: PageDisplayRect
+		get() = checkNotNull(layout.displayRect(leaf))
+}
+
+internal fun readerPlayLikeCurlRasterLayout(
+	geometry: ReaderPageTurnLeafGeometry,
+	bitmapWidth: Int,
+	bitmapHeight: Int,
+	surfaceLeftInWindow: Int,
+	surfaceTopInWindow: Int,
+	surfaceRightInWindow: Int,
+	surfaceBottomInWindow: Int
+): ReaderPlayLikeCurlRasterLayout? {
+	if (
+		bitmapWidth <= 0 ||
+		bitmapHeight <= 0 ||
+		surfaceRightInWindow <= surfaceLeftInWindow ||
+		surfaceBottomInWindow <= surfaceTopInWindow
+	) {
+		return null
+	}
+	val surface = ReaderPlayLikeCurlPhysicalRect(
+		left = surfaceLeftInWindow,
+		top = surfaceTopInWindow,
+		right = surfaceRightInWindow,
+		bottom = surfaceBottomInWindow
+	)
+	val surfaceWidth = surface.width
+	val surfaceHeight = surface.height
+
+	fun scaleBoundary(value: Int, sourceExtent: Int, targetExtent: Int): Int =
+		((value.toLong() * targetExtent + sourceExtent / 2L) / sourceExtent).toInt()
+
+	fun map(
+		rect: ReaderPageTurnPixelRect?,
+		allowZeroWidth: Boolean
+	): ReaderPlayLikeCurlPhysicalRect? {
+		if (rect == null) return null
+		val validWidth = if (allowZeroWidth) rect.right >= rect.left else rect.right > rect.left
+		if (
+			rect.left < 0 ||
+			rect.top < 0 ||
+			rect.right > bitmapWidth ||
+			rect.bottom > bitmapHeight ||
+			!validWidth ||
+			rect.bottom <= rect.top
+		) {
+			return null
+		}
+		val mapped = ReaderPlayLikeCurlPhysicalRect(
+			left = scaleBoundary(rect.left, bitmapWidth, surfaceWidth),
+			top = scaleBoundary(rect.top, bitmapHeight, surfaceHeight),
+			right = scaleBoundary(rect.right, bitmapWidth, surfaceWidth),
+			bottom = scaleBoundary(rect.bottom, bitmapHeight, surfaceHeight)
+		)
+		return mapped.takeIf { allowZeroWidth || it.width > 0 }
+	}
+
+	val full = map(geometry.fullLeafRect, allowZeroWidth = false)
+	val left = map(geometry.leftLeafRect, allowZeroWidth = false)
+	val gutter = map(geometry.gutterRect, allowZeroWidth = true)
+	val right = map(geometry.rightLeafRect, allowZeroWidth = false)
+	if (full == null && left == null && right == null) return null
+	return ReaderPlayLikeCurlRasterLayout(
+		surfaceRectInWindow = surface,
+		fullLeafRect = full,
+		leftLeafRect = left,
+		gutterRect = gutter,
+		rightLeafRect = right
+	)
 }
 
 internal fun readerPlayLikeCurlFoliatePageRequest(
@@ -111,6 +282,17 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 		}
 		?: return null
 	if (snapshot.bitmap.isRecycled) return null
+	val surfaceRect = snapshot.surfaceRectInWindow
+	val layout = readerPlayLikeCurlRasterLayout(
+		geometry = snapshot.leafGeometry,
+		bitmapWidth = snapshot.bitmap.width,
+		bitmapHeight = snapshot.bitmap.height,
+		surfaceLeftInWindow = surfaceRect.left,
+		surfaceTopInWindow = surfaceRect.top,
+		surfaceRightInWindow = surfaceRect.right,
+		surfaceBottomInWindow = surfaceRect.bottom
+	) ?: return null
+	if (layout.displayRect(leaf) == null) return null
 
 	val targetWidth = sourceRect.width
 	val targetHeight = sourceRect.height
@@ -124,7 +306,12 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 		Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 	)
 	target.setHasAlpha(false)
-	ReaderPlayLikeCurlRasterImage(target, paperColorArgb)
+	ReaderPlayLikeCurlRasterImage(
+		bitmap = target,
+		paperColorArgb = paperColorArgb,
+		layout = layout,
+		leaf = leaf
+	)
 } finally {
 	snapshot.release()
 }

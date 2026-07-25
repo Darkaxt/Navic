@@ -416,7 +416,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             shadowOpacityUniform =
                     GLES20.glGetUniformLocation(shadowProgram, "uOpacity");
 
-            GLES20.glClearColor(0f, 0f, 0f, 1f);
+            GLES20.glClearColor(0f, 0f, 0f, 0f);
             GLES20.glClearDepthf(1f);
             GLES20.glEnable(GLES20.GL_DEPTH_TEST);
             GLES20.glDepthFunc(GLES20.GL_LEQUAL);
@@ -463,17 +463,20 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     boolean drawFrame(GL10 ignored) {
-        if (disposed || !glReady || activeDeck == null) {
+        if (disposed || !glReady) {
             return false;
         }
         try {
             GLES20.glViewport(0, 0, viewportWidth, viewportHeight);
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+            if (activeDeck == null) {
+                return false;
+            }
             GLES20.glUseProgram(program);
             GLES20.glUniform1i(textureUniform, 0);
             GLES20.glUniform1i(overlayTextureUniform, 1);
 
-            if (landscapeSpreadModel != null && viewportWidth > viewportHeight) {
+            if (landscapeSpreadModel != null) {
                 return drawLandscapeSpread();
             }
             if (portraitModel != null) {
@@ -767,8 +770,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     private boolean drawPortraitPage() {
-        GLES20.glViewport(0, 0, viewportWidth, viewportHeight);
-        updateMvp(viewportWidth, viewportHeight);
+        PageDisplayRect displayRect = displayRect(portraitFrontResource, fullViewportRect());
+        configureDisplayViewport(displayRect, PageOrientation.PORTRAIT, 0f);
+        int displayWidth = displayRect.getWidthPx();
+        int displayHeight = displayRect.getHeightPx();
         boolean rtl = readingDirection == ReadingDirection.RIGHT_TO_LEFT;
         GpuMesh leftPageMesh = rtl ? mirroredLeftMesh : leftMesh;
         GpuMesh frontPageMesh = rtl ? mirroredFrontMesh : frontMesh;
@@ -780,18 +785,24 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     portraitRightResource,
                     portraitModel.getRightPage(),
                     false,
-                    PageOrientation.PORTRAIT) && rendered;
+                    PageOrientation.PORTRAIT,
+                    displayWidth,
+                    displayHeight) && rendered;
             rendered = drawPage(
                     frontPageMesh,
                     portraitFrontResource,
                     portraitModel.getFrontPage(),
                     false,
-                    PageOrientation.PORTRAIT) && rendered;
+                    PageOrientation.PORTRAIT,
+                    displayWidth,
+                    displayHeight) && rendered;
             rendered = drawMovingPage(
                     leftPageMesh,
                     portraitLeftResource,
                     portraitModel.getLeftPage(),
-                    PageOrientation.PORTRAIT) && rendered;
+                    PageOrientation.PORTRAIT,
+                    displayWidth,
+                    displayHeight) && rendered;
             return rendered;
         }
         rendered = drawPage(
@@ -799,31 +810,37 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 portraitLeftResource,
                 portraitModel.getLeftPage(),
                 false,
-                PageOrientation.PORTRAIT) && rendered;
+                PageOrientation.PORTRAIT,
+                displayWidth,
+                displayHeight) && rendered;
         rendered = drawPage(
                 rightPageMesh,
                 portraitRightResource,
                 portraitModel.getRightPage(),
                 false,
-                PageOrientation.PORTRAIT) && rendered;
+                PageOrientation.PORTRAIT,
+                displayWidth,
+                displayHeight) && rendered;
         rendered = drawMovingPage(
                 frontPageMesh,
                 portraitFrontResource,
                 portraitModel.getFrontPage(),
-                PageOrientation.PORTRAIT) && rendered;
+                PageOrientation.PORTRAIT,
+                displayWidth,
+                displayHeight) && rendered;
         return rendered;
     }
 
     private boolean drawLandscapeSpread() {
         preloadSpreadWindow();
-        int leftWidth = viewportWidth / 2;
-        int rightWidth = viewportWidth - leftWidth;
+        PageDisplayRect leftFallback = leftHalfViewportRect();
+        PageDisplayRect rightFallback = rightHalfViewportRect();
         LandscapeSpreadTransition transition = landscapeSpreadModel.getTransition();
         boolean rendered = true;
 
         if (transition.getProgress() == 0f) {
-            rendered = drawFlatLeaf(0, leftWidth, spreadCurrentLeftResource) && rendered;
-            rendered = drawFlatLeaf(leftWidth, rightWidth, spreadCurrentRightResource) && rendered;
+            rendered = drawFlatLeaf(spreadCurrentLeftResource, leftFallback) && rendered;
+            rendered = drawFlatLeaf(spreadCurrentRightResource, rightFallback) && rendered;
             return rendered;
         }
 
@@ -841,43 +858,39 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         incomingState.setCurlPosition(transition.getIncomingCurlPosition());
 
         if (physicalRight) {
-            rendered = drawFlatLeaf(0, leftWidth, spreadCurrentLeftResource) && rendered;
-            rendered = drawFlatLeaf(leftWidth, rightWidth, destinationRight) && rendered;
+            rendered = drawFlatLeaf(spreadCurrentLeftResource, leftFallback) && rendered;
+            rendered = drawFlatLeaf(destinationRight, rightFallback) && rendered;
             if (transition.isTurningCurrentLeafVisible()) {
                 rendered = drawLeaf(
-                        leftWidth,
-                        rightWidth,
                         spreadCurrentRightResource,
+                        rightFallback,
                         frontMesh,
                         turningState,
                         true) && rendered;
             }
             if (transition.isIncomingReverseLeafVisible()) {
                 rendered = drawLeaf(
-                        0,
-                        leftWidth,
                         destinationLeft,
+                        leftFallback,
                         mirroredLeftMesh,
                         incomingState,
                         true) && rendered;
             }
         } else {
-            rendered = drawFlatLeaf(0, leftWidth, destinationLeft) && rendered;
-            rendered = drawFlatLeaf(leftWidth, rightWidth, spreadCurrentRightResource) && rendered;
+            rendered = drawFlatLeaf(destinationLeft, leftFallback) && rendered;
+            rendered = drawFlatLeaf(spreadCurrentRightResource, rightFallback) && rendered;
             if (transition.isTurningCurrentLeafVisible()) {
                 rendered = drawLeaf(
-                        0,
-                        leftWidth,
                         spreadCurrentLeftResource,
+                        leftFallback,
                         mirroredFrontMesh,
                         turningState,
                         true) && rendered;
             }
             if (transition.isIncomingReverseLeafVisible()) {
                 rendered = drawLeaf(
-                        leftWidth,
-                        rightWidth,
                         destinationRight,
+                        rightFallback,
                         leftMesh,
                         incomingState,
                         true) && rendered;
@@ -886,39 +899,123 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         return rendered;
     }
 
-    private boolean drawFlatLeaf(int x, int width, PageImage<Bitmap> resource) {
-        return drawLeaf(x, width, resource, rightMesh, flatState, false);
+    private boolean drawFlatLeaf(
+            PageImage<Bitmap> resource,
+            PageDisplayRect fallbackDisplayRect) {
+        return drawLeaf(resource, fallbackDisplayRect, rightMesh, flatState, false);
     }
 
     private boolean drawLeaf(
-            int x,
-            int width,
             PageImage<Bitmap> resource,
+            PageDisplayRect fallbackDisplayRect,
             GpuMesh mesh,
             PageState state,
             boolean active) {
-        GLES20.glViewport(x, 0, width, viewportHeight);
-        updateMvp(width, viewportHeight);
+        PageDisplayRect displayRect = displayRect(resource, fallbackDisplayRect);
+        configureDisplayViewport(
+                displayRect,
+                PageOrientation.PORTRAIT,
+                PlayLikeCurlModel.RIGHT_DEPTH);
+        int displayWidth = displayRect.getWidthPx();
+        int displayHeight = displayRect.getHeightPx();
         if (active) {
-            return drawMovingPage(mesh, resource, state, PageOrientation.PORTRAIT);
+            return drawMovingPage(
+                    mesh,
+                    resource,
+                    state,
+                    PageOrientation.PORTRAIT,
+                    displayWidth,
+                    displayHeight);
         }
-        return drawPage(mesh, resource, state, false, PageOrientation.PORTRAIT);
+        return drawPage(
+                mesh,
+                resource,
+                state,
+                false,
+                PageOrientation.PORTRAIT,
+                displayWidth,
+                displayHeight);
+    }
+
+    private PageDisplayRect fullViewportRect() {
+        return new PageDisplayRect(0, 0, viewportWidth, viewportHeight);
+    }
+
+    private PageDisplayRect leftHalfViewportRect() {
+        int split = viewportWidth / 2;
+        if (split <= 0) {
+            return fullViewportRect();
+        }
+        return new PageDisplayRect(0, 0, split, viewportHeight);
+    }
+
+    private PageDisplayRect rightHalfViewportRect() {
+        int split = viewportWidth / 2;
+        if (split <= 0 || split >= viewportWidth) {
+            return fullViewportRect();
+        }
+        return new PageDisplayRect(split, 0, viewportWidth, viewportHeight);
+    }
+
+    private PageDisplayRect displayRect(
+            PageImage<Bitmap> resource,
+            PageDisplayRect fallbackDisplayRect) {
+        return resource != null && resource.hasExplicitDisplayRect()
+                ? resource.getDisplayRect()
+                : fallbackDisplayRect;
+    }
+
+    private void configureDisplayViewport(
+            PageDisplayRect displayRect,
+            PageOrientation orientation,
+            float restingPlaneDepth) {
+        if (!displayRect.fitsWithin(viewportWidth, viewportHeight)) {
+            throw new IllegalArgumentException(
+                    "Page display rectangle exceeds the renderer surface");
+        }
+        GLES20.glViewport(
+                displayRect.getLeftPx(),
+                displayRect.glBottomPx(viewportHeight),
+                displayRect.getWidthPx(),
+                displayRect.getHeightPx());
+        updateMvp(
+                displayRect.getWidthPx(),
+                displayRect.getHeightPx(),
+                orientation,
+                restingPlaneDepth);
     }
 
     private boolean drawMovingPage(
             GpuMesh mesh,
             PageImage<Bitmap> resource,
             PageState state,
-            PageOrientation orientation) {
-        drawFoldShadow(mesh, resource, state, orientation);
-        return drawPage(mesh, resource, state, true, orientation);
+            PageOrientation orientation,
+            int displayWidth,
+            int displayHeight) {
+        drawFoldShadow(
+                mesh,
+                resource,
+                state,
+                orientation,
+                displayWidth,
+                displayHeight);
+        return drawPage(
+                mesh,
+                resource,
+                state,
+                true,
+                orientation,
+                displayWidth,
+                displayHeight);
     }
 
     private void drawFoldShadow(
             GpuMesh mesh,
             PageImage<Bitmap> resource,
             PageState state,
-            PageOrientation orientation) {
+            PageOrientation orientation,
+            int displayWidth,
+            int displayHeight) {
         if (resource == null) {
             return;
         }
@@ -932,13 +1029,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             return;
         }
 
-        int bitmapWidth = resource.isFiller() ? resource.getWidthPx() : texture.bitmapWidth;
-        int bitmapHeight = resource.isFiller() ? resource.getHeightPx() : texture.bitmapHeight;
-        float bitmapRatio = PlayLikeCurlGeometry.bitmapRatio(
-                bitmapWidth, bitmapHeight, orientation);
-        float heightCorrection = (bitmapRatio - 1f) / 2f;
+        float pageRatio = PlayLikeCurlGeometry.pageRatio(
+                displayWidth, displayHeight, orientation);
+        float heightCorrection = (pageRatio - 1f) / 2f;
         float bottom = -heightCorrection;
-        float top = bitmapRatio - heightCorrection;
+        float top = pageRatio - heightCorrection;
         shadowPositionBuffer.clear();
         shadowPositionBuffer.put(new float[] {
                 shadow.getStartX(), bottom, FoldShadowModel.SHADOW_DEPTH,
@@ -959,7 +1054,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniformMatrix4fv(shadowMatrixUniform, 1, false, mvpMatrix, 0);
         GLES20.glUniform1f(shadowOpacityUniform, shadow.getOpacity());
         GLES20.glEnable(GLES20.GL_BLEND);
-        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+        GLES20.glBlendFuncSeparate(
+                GLES20.GL_SRC_ALPHA,
+                GLES20.GL_ONE_MINUS_SRC_ALPHA,
+                GLES20.GL_ONE,
+                GLES20.GL_ONE_MINUS_SRC_ALPHA);
         GLES20.glDepthMask(false);
         GLES20.glDisable(GLES20.GL_DEPTH_TEST);
         GLES20.glEnableVertexAttribArray(shadowPositionAttribute);
@@ -992,7 +1091,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             PageImage<Bitmap> resource,
             PageState state,
             boolean active,
-            PageOrientation orientation) {
+            PageOrientation orientation,
+            int displayWidth,
+            int displayHeight) {
         if (resource == null) {
             return false;
         }
@@ -1004,7 +1105,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         if (resource.hasOverlay() && overlayTexture == null) {
             return false;
         }
-        mesh.ensureGeometry(resource.getWidthPx(), resource.getHeightPx(), orientation);
+        mesh.ensureGeometry(displayWidth, displayHeight, orientation);
         PlayLikeCurlGeometry.update(mesh.geometry, state.getCurlPosition(), active);
         mesh.uploadPositions();
 
@@ -1076,16 +1177,23 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         return texture != null && texture.uploaded ? texture : null;
     }
 
-    private void updateMvp(int width, int height) {
+    private void updateMvp(
+            int width,
+            int height,
+            PageOrientation orientation,
+            float restingPlaneDepth) {
         Matrix.perspectiveM(
                 projectionMatrix,
                 0,
-                45f,
+                PlayLikeCurlGeometry.FIELD_OF_VIEW_DEGREES,
                 PlayLikeCurlGeometry.projectionAspect(width, height),
                 0.1f,
                 100f);
         Matrix.setIdentityM(modelMatrix, 0);
         Matrix.translateM(modelMatrix, 0, 0f, 0f, -PlayLikeCurlGeometry.CAMERA_DISTANCE);
+        float scale = PlayLikeCurlGeometry.restingPlaneScale(
+                width, height, orientation, restingPlaneDepth);
+        Matrix.scaleM(modelMatrix, 0, scale, scale, 1f);
         Matrix.translateM(modelMatrix, 0, -0.5f, -0.5f, 0f);
         Matrix.multiplyMM(mvpMatrix, 0, projectionMatrix, 0, modelMatrix, 0);
     }
@@ -1108,8 +1216,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         private final PageImage<Bitmap> page;
         private final boolean overlay;
         private int textureId;
-        private int bitmapWidth;
-        private int bitmapHeight;
         private boolean uploaded;
 
         GpuTexture(PageImage<Bitmap> page, boolean overlay) {
@@ -1143,8 +1249,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             int[] ids = new int[1];
             GLES20.glGenTextures(1, ids, 0);
             textureId = ids[0];
-            bitmapWidth = bitmap.getWidth();
-            bitmapHeight = bitmap.getHeight();
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
             GLES20.glTexParameteri(
                     GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);

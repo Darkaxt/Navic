@@ -61,13 +61,7 @@ function Write-Candidate {
 Invoke-Verifier `
 	-Root $repositoryRootPath `
 	-ShouldPass $true `
-	-Case "Canonical API-2 source candidate"
-$immutableProvenancePath = Join-Path $repositoryRootPath (
-	"third_party/playlikecurl/provenance.json"
-)
-$immutableProvenance = Get-Content -LiteralPath $immutableProvenancePath -Raw |
-	ConvertFrom-Json
-$candidateRecordIsHistorical = $immutableProvenance.apiVersion -eq 2
+	-Case "Canonical API-3 source candidate"
 
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
 	"navic-playlikecurl-verifier-" + [guid]::NewGuid().ToString("N")
@@ -110,7 +104,7 @@ try {
 	Write-Candidate $temporaryRoot $candidate
 	Invoke-Verifier `
 		-Root $temporaryRoot `
-		-ShouldPass $candidateRecordIsHistorical `
+		-ShouldPass $false `
 		-Case "Wrong source blob"
 
 	Reset-Fixture
@@ -119,7 +113,7 @@ try {
 	Write-Candidate $temporaryRoot $candidate
 	Invoke-Verifier `
 		-Root $temporaryRoot `
-		-ShouldPass $candidateRecordIsHistorical `
+		-ShouldPass $false `
 		-Case "Wrong license blob"
 
 	Reset-Fixture
@@ -127,7 +121,7 @@ try {
 	Set-Content -LiteralPath $candidatePath -Value "{"
 	Invoke-Verifier `
 		-Root $temporaryRoot `
-		-ShouldPass $candidateRecordIsHistorical `
+		-ShouldPass $false `
 		-Case "Malformed candidate JSON"
 
 	Reset-Fixture
@@ -137,7 +131,7 @@ try {
 		Set-Content -LiteralPath $candidatePath
 	Invoke-Verifier `
 		-Root $temporaryRoot `
-		-ShouldPass $candidateRecordIsHistorical `
+		-ShouldPass $false `
 		-Case "Candidate root array"
 
 	Reset-Fixture
@@ -146,16 +140,16 @@ try {
 	Write-Candidate $temporaryRoot $candidate
 	Invoke-Verifier `
 		-Root $temporaryRoot `
-		-ShouldPass $candidateRecordIsHistorical `
+		-ShouldPass $false `
 		-Case "Extra candidate JSON field"
 
 	Reset-Fixture
 	$candidate = Read-Candidate $temporaryRoot
-	$candidate.apiVersion = 3
+	$candidate.apiVersion = 2
 	Write-Candidate $temporaryRoot $candidate
 	Invoke-Verifier `
 		-Root $temporaryRoot `
-		-ShouldPass $candidateRecordIsHistorical `
+		-ShouldPass $false `
 		-Case "Candidate API mismatch"
 
 	Reset-Fixture
@@ -164,7 +158,7 @@ try {
 	Write-Candidate $temporaryRoot $candidate
 	Invoke-Verifier `
 		-Root $temporaryRoot `
-		-ShouldPass $candidateRecordIsHistorical `
+		-ShouldPass $false `
 		-Case "Forged candidate release claim"
 
 	Reset-Fixture

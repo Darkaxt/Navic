@@ -36,6 +36,8 @@ public final class PortraitPageDeck<T> implements PageDeck<T> {
         generationId = current.getGenerationId();
         requireGeneration(previous);
         requireGeneration(next);
+        requireDisplayPlacement(previous);
+        requireDisplayPlacement(next);
         pages = Collections.unmodifiableList(Arrays.asList(previous, current, next));
     }
 
@@ -93,6 +95,13 @@ public final class PortraitPageDeck<T> implements PageDeck<T> {
     private void requireGeneration(PageImage<T> page) {
         if (page.getGenerationId() != generationId) {
             throw new IllegalArgumentException("All portrait pages must share one generation");
+        }
+    }
+
+    private void requireDisplayPlacement(PageImage<T> page) {
+        if (!Objects.equals(current.getDisplayRect(), page.getDisplayRect())) {
+            throw new IllegalArgumentException(
+                    "All portrait pages must share one physical display rectangle");
         }
     }
 }

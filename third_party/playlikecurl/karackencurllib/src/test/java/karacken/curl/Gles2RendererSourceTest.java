@@ -40,19 +40,53 @@ public class Gles2RendererSourceTest {
     }
 
     @Test
-    public void landscapeUsesTwoLeafViewportsWithoutChangingPortraitComposition() throws IOException {
+    public void rendererUsesPhysicalDisplayRectsForLeafViewportsAndGeometry() throws IOException {
         String source = Files.readString(
                 Path.of("src/main/java/karacken/curl/PageRenderer.java"),
                 StandardCharsets.UTF_8);
 
         assertTrue(source.contains("drawLandscapeSpread"));
-        assertTrue(source.contains("viewportWidth / 2"));
+        assertTrue(source.contains("displayRect("));
+        assertTrue(source.contains("resource.getDisplayRect()"));
+        assertTrue(source.contains("displayRect.glBottomPx(viewportHeight)"));
+        assertTrue(source.contains("displayRect.getWidthPx()"));
+        assertTrue(source.contains("displayRect.getHeightPx()"));
+        assertTrue(source.contains("mesh.ensureGeometry(displayWidth, displayHeight, orientation)"));
         assertTrue(source.contains("LandscapeSpreadTransition"));
         assertTrue(source.contains("spreadNextLeftResource"));
         assertTrue(source.contains("mirroredLeftMesh"));
         assertTrue(source.contains("mirroredFrontMesh"));
         assertTrue(source.contains("drawPortraitPage"));
-        assertTrue(source.contains("GLES20.glViewport(0, 0, viewportWidth, viewportHeight)"));
+        assertTrue(source.contains(
+                "configureDisplayViewport(displayRect, PageOrientation.PORTRAIT, 0f)"));
+        assertTrue(source.contains("PlayLikeCurlModel.RIGHT_DEPTH"));
+        assertTrue(source.contains("restingPlaneDepth"));
+    }
+
+    @Test
+    public void alphaSurfaceClearsUncoveredReaderDecorationsTransparently() throws IOException {
+        String renderer = Files.readString(
+                Path.of("src/main/java/karacken/curl/PageRenderer.java"),
+                StandardCharsets.UTF_8);
+        String surface = Files.readString(
+                Path.of("src/main/java/karacken/curl/PageSurfaceView.java"),
+                StandardCharsets.UTF_8);
+
+        assertTrue(surface.contains("setEGLConfigChooser(8, 8, 8, 8, 16, 0)"));
+        assertTrue(surface.contains("getHolder().setFormat(PixelFormat.TRANSLUCENT)"));
+        assertTrue(renderer.contains("GLES20.glClearColor(0f, 0f, 0f, 0f)"));
+        assertFalse(renderer.contains("GLES20.glClearColor(0f, 0f, 0f, 1f)"));
+    }
+
+    @Test
+    public void rendererClearsTransparentPixelsBeforeAnEmptyDeckReturn() throws IOException {
+        String renderer = source("PageRenderer.java");
+        String drawFrame = methodBody(renderer, "boolean drawFrame(GL10 ignored)");
+
+        int clear = drawFrame.indexOf("GLES20.glClear(");
+        int emptyDeck = drawFrame.indexOf("if (activeDeck == null)");
+        assertTrue(clear >= 0);
+        assertTrue(emptyDeck > clear);
     }
 
     @Test
@@ -64,9 +98,11 @@ public class Gles2RendererSourceTest {
         assertTrue(source.contains("SHADOW_FRAGMENT_SHADER"));
         assertTrue(source.contains("drawFoldShadow"));
         assertTrue(source.contains("GLES20.glEnable(GLES20.GL_BLEND)"));
-        assertTrue(source.contains("GLES20.glBlendFunc("));
+        assertTrue(source.contains("GLES20.glBlendFuncSeparate("));
         assertTrue(source.contains("GLES20.GL_SRC_ALPHA"));
         assertTrue(source.contains("GLES20.GL_ONE_MINUS_SRC_ALPHA"));
+        assertTrue(source.contains("GLES20.GL_ONE,"));
+        assertFalse(source.contains("GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA"));
     }
 
     @Test

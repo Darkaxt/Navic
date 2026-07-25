@@ -1067,21 +1067,25 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun portraitAnimationSurfaceStopsBeforeTheStaticBackCoverBoard() {
+	fun animationSurfacePreservesFoliatePlacementAndStaticDecorations() {
 		val source = controllerFile.readText()
 		val submit = source
 			.substringAfter("private fun submitLibraryDeck(")
 			.substringBefore("private fun PreparedPages.page(")
 
-		assertContains(source, "private fun updateSurfaceBounds(")
-		assertContains(submit, "updateSurfaceBounds(pages, ordinal)")
+		assertContains(source, "private fun updateSurfaceBounds()")
+		assertContains(submit, "updateSurfaceBounds()")
 		assertTrue(
-			submit.indexOf("updateSurfaceBounds(pages, ordinal)") <
+			submit.indexOf("updateSurfaceBounds()") <
 				submit.indexOf("surfaceView.submitDeck(deck)"),
-			"The imported surface must match Foliate's page rectangle before the deck becomes visible."
+			"The renderer surface must expose the complete Foliate composition before submission."
 		)
-		assertContains(source, "readerPlayLikeCurlPortraitSurfaceWidth(")
-		assertContains(source, "ReaderPlayLikeCurlOrientation.Landscape -> ViewGroup.LayoutParams.MATCH_PARENT")
+		assertContains(source, "params.width = ViewGroup.LayoutParams.MATCH_PARENT")
+		assertContains(source, "params.height = ViewGroup.LayoutParams.MATCH_PARENT")
+		assertContains(source, "image.layout.displayRectInHost(image.leaf)")
+		assertContains(source, "rendererLeftInWindow = location[0]")
+		assertContains(source, "PageImage.filler(")
+		assertFalse(source.contains("readerPlayLikeCurlPortraitSurfaceWidth("))
 	}
 
 	@Test

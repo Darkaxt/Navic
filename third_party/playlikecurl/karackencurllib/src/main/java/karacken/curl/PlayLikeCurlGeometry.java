@@ -2,23 +2,24 @@ package karacken.curl;
 
 final class PlayLikeCurlGeometry {
     static final float CAMERA_DISTANCE = 2f;
+    static final float FIELD_OF_VIEW_DEGREES = 45f;
 
     private PlayLikeCurlGeometry() {
     }
 
     static PageGeometry createPage(
             PageRole role,
-            int bitmapWidth,
-            int bitmapHeight,
+            int displayWidth,
+            int displayHeight,
             PageOrientation orientation) {
-        if (bitmapWidth <= 0 || bitmapHeight <= 0) {
-            throw new IllegalArgumentException("Bitmap dimensions must be positive");
+        if (displayWidth <= 0 || displayHeight <= 0) {
+            throw new IllegalArgumentException("Display dimensions must be positive");
         }
-        float bitmapRatio = bitmapRatio(bitmapWidth, bitmapHeight, orientation);
+        float pageRatio = pageRatio(displayWidth, displayHeight, orientation);
         int vertexCount = (PlayLikeCurlModel.GRID + 1) * (PlayLikeCurlModel.GRID + 1);
         PageGeometry page = new PageGeometry(
                 role,
-                bitmapRatio,
+                pageRatio,
                 new float[vertexCount * 3],
                 createTextureCoordinates(),
                 createIndices());
@@ -58,16 +59,46 @@ final class PlayLikeCurlGeometry {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("Viewport dimensions must be positive");
         }
-        return height > width ? width / (float) height : height / (float) width;
+        return width / (float) height;
     }
 
-    static float bitmapRatio(int width, int height, PageOrientation orientation) {
+    static float pageRatio(int width, int height, PageOrientation orientation) {
         if (width <= 0 || height <= 0) {
-            throw new IllegalArgumentException("Bitmap dimensions must be positive");
+            throw new IllegalArgumentException("Display dimensions must be positive");
         }
         return orientation == PageOrientation.PORTRAIT
                 ? height / (float) width
                 : width / (float) height;
+    }
+
+    static float visiblePlaneHeight() {
+        return visiblePlaneHeight(PlayLikeCurlModel.RIGHT_DEPTH);
+    }
+
+    static float visiblePlaneHeight(float planeDepth) {
+        if (!Float.isFinite(planeDepth) || planeDepth >= CAMERA_DISTANCE) {
+            throw new IllegalArgumentException("Plane depth must remain in front of the camera");
+        }
+        float restingDistance = CAMERA_DISTANCE - planeDepth;
+        return (float) (2f
+                * restingDistance
+                * Math.tan(Math.toRadians(FIELD_OF_VIEW_DEGREES / 2f)));
+    }
+
+    static float restingPlaneScale(
+            int width,
+            int height,
+            PageOrientation orientation) {
+        return restingPlaneScale(
+                width, height, orientation, PlayLikeCurlModel.RIGHT_DEPTH);
+    }
+
+    static float restingPlaneScale(
+            int width,
+            int height,
+            PageOrientation orientation,
+            float planeDepth) {
+        return visiblePlaneHeight(planeDepth) / pageRatio(width, height, orientation);
     }
 
     static float foldEdgeX(PageRole role, float curlPosition) {

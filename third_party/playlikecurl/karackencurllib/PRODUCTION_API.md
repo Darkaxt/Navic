@@ -1,6 +1,6 @@
 # Production Bitmap API
 
-Production API version `2` accepts client-prepared bitmap page decks through
+Production API version `3` accepts client-prepared bitmap page decks through
 `PageSurfaceView` and exposes typed asynchronous ownership snapshots.
 
 ## Bitmap Page Decks
@@ -8,6 +8,15 @@ Production API version `2` accepts client-prepared bitmap page decks through
 Clients submit a complete portrait or landscape interaction window. Each
 accepted deck has a generation ID, an active page, and the neighboring page
 images required by the current turn direction.
+
+Each `PageImage` may also carry a top-origin physical display rectangle relative
+to the complete `PageSurfaceView`. This placement is
+independent from texture resolution: clients may downsample bitmap pixels while
+retaining the exact page bounds, gutter, and surrounding transparent
+composition. Every portrait slot
+uses one rectangle; landscape left and right slots remain stable across the
+previous, current, and next spreads. Legacy constructors retain implicit full-
+or half-surface placement.
 
 ## Bitmap Lease
 

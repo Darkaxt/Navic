@@ -95,6 +95,17 @@ public final class LandscapePageDeck<T> implements PageDeck<T> {
         requireGeneration(this.currentRight);
         requireGeneration(this.nextLeft);
         requireGeneration(this.nextRight);
+        requireDisplayPlacement(
+                this.currentLeft,
+                this.previousLeft,
+                this.nextLeft,
+                "left");
+        requireDisplayPlacement(
+                this.currentRight,
+                this.previousRight,
+                this.nextRight,
+                "right");
+        requirePhysicalLeafOrder();
         pages = Collections.unmodifiableList(Arrays.asList(
                 this.previousLeft,
                 this.previousRight,
@@ -173,6 +184,33 @@ public final class LandscapePageDeck<T> implements PageDeck<T> {
     private void requireGeneration(PageImage<T> page) {
         if (page.getGenerationId() != generationId) {
             throw new IllegalArgumentException("All landscape leaves must share one generation");
+        }
+    }
+
+    private void requireDisplayPlacement(
+            PageImage<T> reference,
+            PageImage<T> first,
+            PageImage<T> second,
+            String physicalSlot) {
+        PageDisplayRect placement = reference.getDisplayRect();
+        if (!Objects.equals(placement, first.getDisplayRect())
+                || !Objects.equals(placement, second.getDisplayRect())) {
+            throw new IllegalArgumentException(
+                    "All " + physicalSlot + " leaves must share one physical display rectangle");
+        }
+    }
+
+    private void requirePhysicalLeafOrder() {
+        PageDisplayRect leftPlacement = currentLeft.getDisplayRect();
+        PageDisplayRect rightPlacement = currentRight.getDisplayRect();
+        if ((leftPlacement == null) != (rightPlacement == null)) {
+            throw new IllegalArgumentException(
+                    "Landscape display placement must describe both physical leaves");
+        }
+        if (leftPlacement != null
+                && leftPlacement.getRightPx() > rightPlacement.getLeftPx()) {
+            throw new IllegalArgumentException(
+                    "Physical landscape leaf display rectangles must not overlap");
         }
     }
 

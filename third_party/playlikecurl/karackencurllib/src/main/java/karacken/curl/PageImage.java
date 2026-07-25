@@ -21,6 +21,7 @@ public final class PageImage<T> {
     private final int ordinal;
     private final int widthPx;
     private final int heightPx;
+    private final PageDisplayRect displayRect;
     private final T content;
     private final T overlayContent;
     private final boolean filler;
@@ -39,6 +40,32 @@ public final class PageImage<T> {
                 ordinal,
                 widthPx,
                 heightPx,
+                null,
+                content,
+                null,
+                false,
+                0);
+    }
+
+    /**
+     * Creates a page whose texture is rendered into an explicit physical surface rectangle.
+     * Texture dimensions may be smaller than the display rectangle without changing placement.
+     */
+    public PageImage(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            PageDisplayRect displayRect,
+            T content) {
+        this(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                Objects.requireNonNull(displayRect, "displayRect"),
                 content,
                 null,
                 false,
@@ -65,6 +92,30 @@ public final class PageImage<T> {
                 ordinal,
                 widthPx,
                 heightPx,
+                null,
+                content,
+                overlayContent,
+                false,
+                0);
+    }
+
+    /** Creates an explicitly placed page with an optional ephemeral overlay. */
+    public PageImage(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            PageDisplayRect displayRect,
+            T content,
+            T overlayContent) {
+        this(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                Objects.requireNonNull(displayRect, "displayRect"),
                 content,
                 overlayContent,
                 false,
@@ -86,6 +137,30 @@ public final class PageImage<T> {
                 ordinal,
                 widthPx,
                 heightPx,
+                null,
+                borrowedContent,
+                null,
+                true,
+                fillerColorArgb);
+    }
+
+    /** Creates an explicitly placed paper-colored physical filler. */
+    public static <T> PageImage<T> filler(
+            long generationId,
+            String logicalPageId,
+            int ordinal,
+            int widthPx,
+            int heightPx,
+            PageDisplayRect displayRect,
+            T borrowedContent,
+            int fillerColorArgb) {
+        return new PageImage<>(
+                generationId,
+                logicalPageId,
+                ordinal,
+                widthPx,
+                heightPx,
+                Objects.requireNonNull(displayRect, "displayRect"),
                 borrowedContent,
                 null,
                 true,
@@ -98,6 +173,7 @@ public final class PageImage<T> {
             int ordinal,
             int widthPx,
             int heightPx,
+            PageDisplayRect displayRect,
             T content,
             T overlayContent,
             boolean filler,
@@ -125,6 +201,7 @@ public final class PageImage<T> {
         this.ordinal = ordinal;
         this.widthPx = widthPx;
         this.heightPx = heightPx;
+        this.displayRect = displayRect;
         this.content = Objects.requireNonNull(content, "content");
         this.overlayContent = overlayContent;
         this.filler = filler;
@@ -149,6 +226,14 @@ public final class PageImage<T> {
 
     public int getHeightPx() {
         return heightPx;
+    }
+
+    public boolean hasExplicitDisplayRect() {
+        return displayRect != null;
+    }
+
+    public PageDisplayRect getDisplayRect() {
+        return displayRect;
     }
 
     public T getContent() {

@@ -195,7 +195,39 @@ public class PlayLikeCurlReferenceModelTest {
         assertEquals(0f, page.getTextureCoordinates()[0], TOLERANCE);
         assertEquals(1f, page.getTextureCoordinates()[1], TOLERANCE);
         assertEquals(0.5f, PlayLikeCurlGeometry.projectionAspect(1000, 2000), TOLERANCE);
-        assertEquals(0.5f, PlayLikeCurlGeometry.projectionAspect(2000, 1000), TOLERANCE);
+        assertEquals(2f, PlayLikeCurlGeometry.projectionAspect(2000, 1000), TOLERANCE);
+    }
+
+    @Test
+    public void portraitActivePlaneFillsItsPhysicalViewportWithoutClipping() {
+        int displayWidth = 1450;
+        int displayHeight = 1848;
+        float aspect = PlayLikeCurlGeometry.projectionAspect(displayWidth, displayHeight);
+        float ratio = PlayLikeCurlGeometry.pageRatio(
+                displayWidth, displayHeight, PageOrientation.PORTRAIT);
+        float scale = PlayLikeCurlGeometry.restingPlaneScale(
+                displayWidth, displayHeight, PageOrientation.PORTRAIT, 0f);
+        float visibleHeight = PlayLikeCurlGeometry.visiblePlaneHeight(0f);
+        float visibleWidth = visibleHeight * aspect;
+
+        assertEquals(1f, scale / visibleWidth, TOLERANCE);
+        assertEquals(1f, scale * ratio / visibleHeight, TOLERANCE);
+    }
+
+    @Test
+    public void restingPagePlaneFillsItsPhysicalViewport() {
+        int displayWidth = 1450;
+        int displayHeight = 1848;
+        float aspect = PlayLikeCurlGeometry.projectionAspect(displayWidth, displayHeight);
+        float ratio = PlayLikeCurlGeometry.pageRatio(
+                displayWidth, displayHeight, PageOrientation.PORTRAIT);
+        float scale = PlayLikeCurlGeometry.restingPlaneScale(
+                displayWidth, displayHeight, PageOrientation.PORTRAIT);
+        float visibleHeight = PlayLikeCurlGeometry.visiblePlaneHeight();
+        float visibleWidth = visibleHeight * aspect;
+
+        assertEquals(1f, scale / visibleWidth, TOLERANCE);
+        assertEquals(1f, scale * ratio / visibleHeight, TOLERANCE);
     }
 
     private static int[] pageIndices(PlayLikeCurlModel model) {

@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "a16ea9aa46484f3068242577e1189af66fb1fa9d",
-  "apiVersion": 2,
-  "sourceManifestSha256": "4cde6ebc5b7d4ee385835687f9d839b4ecc83a1e20908d8082db0397965147a4",
+  "commit": "4769416472f10791109444c3719433a8f4e47879",
+  "apiVersion": 3,
+  "sourceManifestSha256": "1d2cb1e8af69d1013bfd360fb5684620da834162bbf274e44731970f91853f85",
   "licenseBlob": "8aa26455d23acf904be3ed9dfb3a3efe3e49245a",
   "sourceFiles": [
     {
       "mode": "100644",
-      "blob": "0011d0fa1ae84f9a63c80195279081e5a39b5eb6",
-      "path": "karackencurllib/src/test/java/myapp/com/karackencurllib/ExampleUnitTest.java"
+      "blob": "796b96d1c402326528b4ba3c12ee9d92d0e212e9",
+      "path": "karackencurllib/.gitignore"
     },
     {
       "mode": "100644",
-      "blob": "001b49ccfc841d6bedb72cd1c2347c541270d669",
-      "path": "karackencurllib/src/main/java/karacken/curl/RenderFailureReason.java"
+      "blob": "f01f7b1f70799d42ee904bc4778992ac290877a1",
+      "path": "karackencurllib/PRODUCTION_API.md"
     },
     {
       "mode": "100644",
@@ -23,203 +23,8 @@
     },
     {
       "mode": "100644",
-      "blob": "0115fb6c2f89a542f1fae7d335c0f9c7473692e2",
-      "path": "karackencurllib/src/main/java/karacken/curl/SettlementInterpolator.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "030f240656083c2b556bf690e75116eb3469957f",
-      "path": "karackencurllib/src/main/java/karacken/curl/PortraitPageDeck.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "04da71c3c88af6ac142ffb00d7894941920343db",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageDeck.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "067a2c69c32911c4b4c4b2fe2b833a077e8edaf2",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceTerminalCallbacks.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "0bf4c1dcb3d4c34a04a10290e2388f2877efc05b",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageDeckWindow.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "0c57a118881e5ac1ba5186706e4800f65d828452",
-      "path": "karackencurllib/src/main/java/karacken/curl/DeckRejectionReason.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "13a1af18481b32a17db2422bb9c30034b56e59bc",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageDeckCoordinator.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "16ea2dd096a1deb3f86796d9e65348527855ed1a",
-      "path": "karackencurllib/src/main/java/karacken/curl/LandscapeSpreadTransition.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "1a4cd640d630750b2fc0b99fd05ff461ea19a59b",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceRequiredTerminalCallback.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "1d4394bb83b4ba867805657f0acdea56ed2245df",
-      "path": "karackencurllib/src/test/java/karacken/curl/DeckLeaseRegistryTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "1f90943c04ea8e7e54ca8f6c6dff6d443f04ca19",
-      "path": "karackencurllib/PRODUCTION_API.md"
-    },
-    {
-      "mode": "100644",
-      "blob": "28b94f2e9ef4e0314b0da58f85b15ba9f8f1de37",
-      "path": "karackencurllib/src/main/java/karacken/curl/FoldShadowModel.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "28d335fc89b7a8d98be19accce06bc81de7a1ad7",
-      "path": "karackencurllib/src/main/java/karacken/curl/RenderCapabilities.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "2e1a9e69ccfc36c382f80e647b8536c64d58710a",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageRole.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "2f410d9da90fe187536f9162ddd9d61cdf77f735",
-      "path": "karackencurllib/src/test/java/karacken/curl/TextureBudgetTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "3853f1de3657e7580dbf940f68ca326aa3d9fd6a",
-      "path": "karackencurllib/src/test/java/karacken/curl/RenderFailureTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "395e8840df7b52df348de31e89bf3246cf8d7748",
-      "path": "karackencurllib/src/test/java/karacken/curl/ProductionBitmapApiSourceTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "3d0b4955bb895566e49a7d8115c1632271637c5c",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDisposalStage.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "4789da5ac28ae8cea416fe216560042c0855b099",
-      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlModel.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "47d0cd21d0457ba4ab25abe8d4145ed05a736f51",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageGeometry.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "53c8291e20e4d471bef1996804c42f1248df2ce8",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDisposalResult.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "5544bc724c25b80eba0652af6a3ad21f64d6c351",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceOwnershipRequestRegistryTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "56415670f24cf5f0d7857a076f2fc4c184963710",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceListener.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "5d2a99b5367a05c35ea048e261abf54b8c4573fd",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceDeckSubmissionGateTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "5fc568a1dad6f661b00a79e9cd452199a522e724",
-      "path": "karackencurllib/src/main/java/karacken/curl/GestureRejectionReason.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "63449e97e13e323043b91d705327c86d1758d19d",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipSnapshot.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "63f245abb46e4e737aedc47ffbb3372519fff4cf",
-      "path": "karackencurllib/src/test/java/karacken/curl/FoldShadowModelTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "666db8895c2573cec6ad08d68f14b7edf92d1166",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipRequestRegistry.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "6d80c7fb70b9ba421c9925deb0e1646be074b66b",
-      "path": "karackencurllib/src/main/java/karacken/curl/ActivePage.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "732771118bffbfea42ad9a8cc93db40c8aae101b",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceTerminalDisposalGate.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "745f347a948ab7934889a91fc2eee10e21b5c0be",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageState.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "796b96d1c402326528b4ba3c12ee9d92d0e212e9",
-      "path": "karackencurllib/.gitignore"
-    },
-    {
-      "mode": "100644",
-      "blob": "7f8a826b06fd5d13eb0483446b7c081f65d9c356",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageDeckContractTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "80c3e26cbe0c2a072ddeeff24000858ce7fc8341",
-      "path": "karackencurllib/src/test/java/karacken/curl/RenderCapabilitiesTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "8151341d3e0864491aa2099dc07b6eb5722d967e",
-      "path": "karackencurllib/src/main/java/karacken/curl/LandscapeSpreadModel.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "818e4a31a51baa950e1cbfef2b93d5cdc7789a55",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageDeckMode.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "86998733cf74301a495a3067086fd95489ee462f",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipResult.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "8e15d6c12cc58f159c743fe59cdd9cdff9e33705",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageImage.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "92a7d55c42f0e3e856de52786fe39dea1f1eb806",
-      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlGeometry.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "955a35b11f7ac77cdef22d6525ca008eba6ad146",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceSnapshotCallbacks.java"
+      "blob": "9ba7064ba61656d923cf68942f6d307dc01ee87b",
+      "path": "karackencurllib/proguard-rules.pro"
     },
     {
       "mode": "100644",
@@ -228,53 +33,8 @@
     },
     {
       "mode": "100644",
-      "blob": "9a7faf02283f4854bfe0954acf31d59ed1648fcd",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceSnapshotCallbacksTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "9ba7064ba61656d923cf68942f6d307dc01ee87b",
-      "path": "karackencurllib/proguard-rules.pro"
-    },
-    {
-      "mode": "100644",
-      "blob": "9bcb4dad18cca034fffd134289ef56d7c8cd4e80",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "a2afc3f7f67987ea2e6ceeae4e2b5ba1d269da5a",
-      "path": "karackencurllib/src/test/java/karacken/curl/LandscapeSpreadModelTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "a4cd8889693097552e7e93e2ce2fa6a2ee107fc6",
-      "path": "karackencurllib/src/main/java/karacken/curl/RenderFailure.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "a5dbc8f44075f262d841350c6745f65c9bb64c3d",
-      "path": "karackencurllib/src/main/java/karacken/curl/ReadingDirection.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "a68036dd614f4a98df8ecff35c5ae93517b9b27c",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageDeckCoordinatorTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "ad5986b778e4abd16983b150a1176f303c8e735e",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "b30351386f6c4b0c5ccfc6de6072127e485344f0",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceRequiredTerminalCallbackTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "c0d4822cc5f689c649e4e4596443ecc0a09b7e5c",
-      "path": "karackencurllib/src/main/java/karacken/curl/LandscapePageDeck.java"
+      "blob": "6d80c7fb70b9ba421c9925deb0e1646be074b66b",
+      "path": "karackencurllib/src/main/java/karacken/curl/ActivePage.java"
     },
     {
       "mode": "100644",
@@ -283,13 +43,8 @@
     },
     {
       "mode": "100644",
-      "blob": "c8b7c0cf72c727c407667574b906d02231820a67",
-      "path": "karackencurllib/src/test/java/karacken/curl/PlayLikeCurlReferenceModelTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "ce67acc342a2230f9a9dc46eaeee5c8677ae19a0",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipSnapshotCoordinator.java"
+      "blob": "0c57a118881e5ac1ba5186706e4800f65d828452",
+      "path": "karackencurllib/src/main/java/karacken/curl/DeckRejectionReason.java"
     },
     {
       "mode": "100644",
@@ -298,48 +53,28 @@
     },
     {
       "mode": "100644",
-      "blob": "d495cab91e37fa54d1a8adf6f5b58fc07b8a879e",
-      "path": "karackencurllib/src/main/java/karacken/curl/Settlement.java"
+      "blob": "28b94f2e9ef4e0314b0da58f85b15ba9f8f1de37",
+      "path": "karackencurllib/src/main/java/karacken/curl/FoldShadowModel.java"
     },
     {
       "mode": "100644",
-      "blob": "ddee9e86b1c71f161678a140848507af7d4cffee",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDeckSubmissionGate.java"
+      "blob": "5fc568a1dad6f661b00a79e9cd452199a522e724",
+      "path": "karackencurllib/src/main/java/karacken/curl/GestureRejectionReason.java"
     },
     {
       "mode": "100644",
-      "blob": "dfee7ab88355b584430f82b904198e72a4afe0c1",
-      "path": "karackencurllib/src/main/res/values/strings.xml"
+      "blob": "88f669929d718b9f421a2b7766dd052f4bf39d25",
+      "path": "karackencurllib/src/main/java/karacken/curl/LandscapePageDeck.java"
     },
     {
       "mode": "100644",
-      "blob": "e26c4a94de98624f7ef1a35c8fb8730e1650a845",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceTerminalCallbacksTest.java"
+      "blob": "8151341d3e0864491aa2099dc07b6eb5722d967e",
+      "path": "karackencurllib/src/main/java/karacken/curl/LandscapeSpreadModel.java"
     },
     {
       "mode": "100644",
-      "blob": "e3a1c0450f9aff6af63a69eebee5d5f1e82cdf14",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageOrientation.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "e3e16b35e8bbbe235ef68f98c0d795964ffab950",
-      "path": "karackencurllib/src/test/java/karacken/curl/Gles2RendererSourceTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "ef3b4824868f4cacf0af67cb186f9001116376b9",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDeckSubmissionResult.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "efee997c6fc9b0ad8dea85f18cfc5e95a718f53f",
-      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlApi.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "f1322e7edee6c49912fb898678733ca1a4b3c5a9",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceTerminalDisposalGateTest.java"
+      "blob": "16ea2dd096a1deb3f86796d9e65348527855ed1a",
+      "path": "karackencurllib/src/main/java/karacken/curl/LandscapeSpreadTransition.java"
     },
     {
       "mode": "100644",
@@ -348,13 +83,288 @@
     },
     {
       "mode": "100644",
+      "blob": "04da71c3c88af6ac142ffb00d7894941920343db",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageDeck.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "1036bff896717875525f8cd1991113f19f686529",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageDeckCoordinator.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "818e4a31a51baa950e1cbfef2b93d5cdc7789a55",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageDeckMode.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "0bf4c1dcb3d4c34a04a10290e2388f2877efc05b",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageDeckWindow.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "b8f59260b01a4a6c9e9ac55bfacb03551219ca9d",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageDisplayRect.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "47d0cd21d0457ba4ab25abe8d4145ed05a736f51",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageGeometry.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "d6b39f5bc3c9cccfa715b1a3bf13d37ecc5d7c88",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageImage.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "e3a1c0450f9aff6af63a69eebee5d5f1e82cdf14",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageOrientation.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "e17e94cd229bc041cec56e9ab03b3ac74d5298a5",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "2e1a9e69ccfc36c382f80e647b8536c64d58710a",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageRole.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "745f347a948ab7934889a91fc2eee10e21b5c0be",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageState.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "ddee9e86b1c71f161678a140848507af7d4cffee",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDeckSubmissionGate.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "ef3b4824868f4cacf0af67cb186f9001116376b9",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDeckSubmissionResult.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "53c8291e20e4d471bef1996804c42f1248df2ce8",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDisposalResult.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "3d0b4955bb895566e49a7d8115c1632271637c5c",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceDisposalStage.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "56415670f24cf5f0d7857a076f2fc4c184963710",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceListener.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "666db8895c2573cec6ad08d68f14b7edf92d1166",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipRequestRegistry.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "86998733cf74301a495a3067086fd95489ee462f",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipResult.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "63449e97e13e323043b91d705327c86d1758d19d",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipSnapshot.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "ce67acc342a2230f9a9dc46eaeee5c8677ae19a0",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipSnapshotCoordinator.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "1a4cd640d630750b2fc0b99fd05ff461ea19a59b",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceRequiredTerminalCallback.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "955a35b11f7ac77cdef22d6525ca008eba6ad146",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceSnapshotCallbacks.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "067a2c69c32911c4b4c4b2fe2b833a077e8edaf2",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceTerminalCallbacks.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "732771118bffbfea42ad9a8cc93db40c8aae101b",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceTerminalDisposalGate.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "d2197cf8933257cf38d37ea789a0d6dacc5aed8e",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "1ec83f0c26896445a201ccd883b3385fd0daca8e",
+      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlApi.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "cc983ce210bcdf235fc27742d0e0f146674cb8f9",
+      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlGeometry.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "4789da5ac28ae8cea416fe216560042c0855b099",
+      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlModel.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "deab48132869c84a50c41e67137de254628c9f8a",
+      "path": "karackencurllib/src/main/java/karacken/curl/PortraitPageDeck.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "a5dbc8f44075f262d841350c6745f65c9bb64c3d",
+      "path": "karackencurllib/src/main/java/karacken/curl/ReadingDirection.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "28d335fc89b7a8d98be19accce06bc81de7a1ad7",
+      "path": "karackencurllib/src/main/java/karacken/curl/RenderCapabilities.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "a4cd8889693097552e7e93e2ce2fa6a2ee107fc6",
+      "path": "karackencurllib/src/main/java/karacken/curl/RenderFailure.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "001b49ccfc841d6bedb72cd1c2347c541270d669",
+      "path": "karackencurllib/src/main/java/karacken/curl/RenderFailureReason.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "d495cab91e37fa54d1a8adf6f5b58fc07b8a879e",
+      "path": "karackencurllib/src/main/java/karacken/curl/Settlement.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "0115fb6c2f89a542f1fae7d335c0f9c7473692e2",
+      "path": "karackencurllib/src/main/java/karacken/curl/SettlementInterpolator.java"
+    },
+    {
+      "mode": "100644",
       "blob": "f390182e2090a806e2459613a9002de9eee76a21",
       "path": "karackencurllib/src/main/java/karacken/curl/TextureBudget.java"
     },
     {
       "mode": "100644",
+      "blob": "dfee7ab88355b584430f82b904198e72a4afe0c1",
+      "path": "karackencurllib/src/main/res/values/strings.xml"
+    },
+    {
+      "mode": "100644",
+      "blob": "1d4394bb83b4ba867805657f0acdea56ed2245df",
+      "path": "karackencurllib/src/test/java/karacken/curl/DeckLeaseRegistryTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "63f245abb46e4e737aedc47ffbb3372519fff4cf",
+      "path": "karackencurllib/src/test/java/karacken/curl/FoldShadowModelTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "7c79cf463a988390c597572800e136296de98ee7",
+      "path": "karackencurllib/src/test/java/karacken/curl/Gles2RendererSourceTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "a2afc3f7f67987ea2e6ceeae4e2b5ba1d269da5a",
+      "path": "karackencurllib/src/test/java/karacken/curl/LandscapeSpreadModelTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "7f8a826b06fd5d13eb0483446b7c081f65d9c356",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageDeckContractTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "a68036dd614f4a98df8ecff35c5ae93517b9b27c",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageDeckCoordinatorTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "2edb35054cf6c0db309929290c7444feee4ea947",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageDisplayRectTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "5d2a99b5367a05c35ea048e261abf54b8c4573fd",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceDeckSubmissionGateTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "5544bc724c25b80eba0652af6a3ad21f64d6c351",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceOwnershipRequestRegistryTest.java"
+    },
+    {
+      "mode": "100644",
       "blob": "ffa4831a37c0c1b456f164112c439395ef40206f",
       "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceOwnershipSnapshotCoordinatorTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "b30351386f6c4b0c5ccfc6de6072127e485344f0",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceRequiredTerminalCallbackTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "9a7faf02283f4854bfe0954acf31d59ed1648fcd",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceSnapshotCallbacksTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "e26c4a94de98624f7ef1a35c8fb8730e1650a845",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceTerminalCallbacksTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "f1322e7edee6c49912fb898678733ca1a4b3c5a9",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceTerminalDisposalGateTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "7513db03c666cbb314bd1c70eb43d466fd0362d3",
+      "path": "karackencurllib/src/test/java/karacken/curl/PlayLikeCurlReferenceModelTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "d03c4a23b2b1460b060a74e2a23b304012c43700",
+      "path": "karackencurllib/src/test/java/karacken/curl/ProductionBitmapApiSourceTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "80c3e26cbe0c2a072ddeeff24000858ce7fc8341",
+      "path": "karackencurllib/src/test/java/karacken/curl/RenderCapabilitiesTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "3853f1de3657e7580dbf940f68ca326aa3d9fd6a",
+      "path": "karackencurllib/src/test/java/karacken/curl/RenderFailureTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "2f410d9da90fe187536f9162ddd9d61cdf77f735",
+      "path": "karackencurllib/src/test/java/karacken/curl/TextureBudgetTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "0011d0fa1ae84f9a63c80195279081e5a39b5eb6",
+      "path": "karackencurllib/src/test/java/myapp/com/karackencurllib/ExampleUnitTest.java"
     }
   ]
 }

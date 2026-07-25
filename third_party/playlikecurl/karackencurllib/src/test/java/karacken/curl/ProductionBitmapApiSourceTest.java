@@ -293,9 +293,11 @@ public class ProductionBitmapApiSourceTest {
                 Path.of("PRODUCTION_API.md"),
                 StandardCharsets.UTF_8).toLowerCase(Locale.ROOT);
 
-        assertTrue(apiSource.contains("public static final int PRODUCTION_API_VERSION"));
+        assertTrue(apiSource.contains("public static final int PRODUCTION_API_VERSION = 3;"));
         assertTrue(apiDocumentation.contains("bitmap page decks"));
         assertTrue(apiDocumentation.contains("bitmap lease"));
+        assertTrue(apiDocumentation.contains("physical display rectangle"));
+        assertTrue(apiDocumentation.contains("independent from texture resolution"));
         assertTrue(apiDocumentation.contains("opaque argb_8888 base pages"));
         assertTrue(apiDocumentation.contains("premultiplied argb_8888 overlays"));
         assertTrue(apiDocumentation.contains("context recreation"));

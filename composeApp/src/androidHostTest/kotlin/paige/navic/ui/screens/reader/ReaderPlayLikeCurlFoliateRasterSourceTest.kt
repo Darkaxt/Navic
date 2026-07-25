@@ -189,6 +189,161 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	}
 
 	@Test
+	fun halfResolutionRasterMapsBackToTheFullPhysicalFoliateLayout() {
+		val geometry = ReaderPageTurnLeafGeometry(
+			fullLeafRect = null,
+			leftLeafRect = ReaderPageTurnPixelRect(0, 0, 725, 924),
+			gutterRect = ReaderPageTurnPixelRect(725, 0, 725, 924),
+			rightLeafRect = ReaderPageTurnPixelRect(725, 0, 1_450, 924)
+		)
+
+		val layout = checkNotNull(
+			readerPlayLikeCurlRasterLayout(
+				geometry = geometry,
+				bitmapWidth = 1_450,
+				bitmapHeight = 924,
+				surfaceLeftInWindow = 30,
+				surfaceTopInWindow = 100,
+				surfaceRightInWindow = 2_930,
+				surfaceBottomInWindow = 1_948
+			)
+		)
+
+		assertEquals(
+			ReaderPlayLikeCurlPhysicalRect(30, 100, 2_930, 1_948),
+			layout.surfaceRectInWindow
+		)
+		assertEquals(
+			ReaderPlayLikeCurlPhysicalRect(0, 0, 1_450, 1_848),
+			layout.leftLeafRect
+		)
+		assertEquals(
+			ReaderPlayLikeCurlPhysicalRect(1_450, 0, 1_450, 1_848),
+			layout.gutterRect
+		)
+		assertEquals(
+			ReaderPlayLikeCurlPhysicalRect(1_450, 0, 2_900, 1_848),
+			layout.rightLeafRect
+		)
+		assertEquals(1_450, checkNotNull(layout.displayRect(ReaderPlayLikeCurlFoliateLeaf.Left)).widthPx)
+		assertEquals(1_848, checkNotNull(layout.displayRect(ReaderPlayLikeCurlFoliateLeaf.Left)).heightPx)
+	}
+
+	@Test
+	fun physicalLeafPlacementIsRelativeToTheRendererSurface() {
+		val layout = checkNotNull(
+			readerPlayLikeCurlRasterLayout(
+				geometry = ReaderPageTurnLeafGeometry(
+					fullLeafRect = null,
+					leftLeafRect = ReaderPageTurnPixelRect(0, 0, 725, 924),
+					gutterRect = ReaderPageTurnPixelRect(725, 0, 725, 924),
+					rightLeafRect = ReaderPageTurnPixelRect(725, 0, 1_450, 924)
+				),
+				bitmapWidth = 1_450,
+				bitmapHeight = 924,
+				surfaceLeftInWindow = 30,
+				surfaceTopInWindow = 100,
+				surfaceRightInWindow = 2_930,
+				surfaceBottomInWindow = 1_948
+			)
+		)
+
+		val left = checkNotNull(
+			layout.displayRect(
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Left,
+				rendererLeftInWindow = 10,
+				rendererTopInWindow = 40,
+				rendererWidth = 3_000,
+				rendererHeight = 2_000
+			)
+		)
+		val right = checkNotNull(
+			layout.displayRect(
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Right,
+				rendererLeftInWindow = 10,
+				rendererTopInWindow = 40,
+				rendererWidth = 3_000,
+				rendererHeight = 2_000
+			)
+		)
+
+		assertEquals(20, left.leftPx)
+		assertEquals(60, left.topPx)
+		assertEquals(1_470, left.rightPx)
+		assertEquals(1_908, left.bottomPx)
+		assertEquals(1_470, right.leftPx)
+		assertEquals(2_920, right.rightPx)
+		assertNull(
+			layout.displayRect(
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Right,
+				rendererLeftInWindow = 10,
+				rendererTopInWindow = 40,
+				rendererWidth = 2_900,
+				rendererHeight = 2_000
+			)
+		)
+	}
+
+	@Test
+	fun portraitFillersBorrowTheFullLeafPlacement() {
+		assertEquals(
+			ReaderPlayLikeCurlFoliateLeaf.Full,
+			readerPlayLikeCurlFillerFoliateLeaf(
+				ReaderPlayLikeCurlOrientation.Portrait,
+				ReaderPlayLikeCurlPhysicalLeaf.Left
+			)
+		)
+		assertEquals(
+			ReaderPlayLikeCurlFoliateLeaf.Full,
+			readerPlayLikeCurlFillerFoliateLeaf(
+				ReaderPlayLikeCurlOrientation.Portrait,
+				ReaderPlayLikeCurlPhysicalLeaf.Right
+			)
+		)
+		assertEquals(
+			ReaderPlayLikeCurlFoliateLeaf.Left,
+			readerPlayLikeCurlFillerFoliateLeaf(
+				ReaderPlayLikeCurlOrientation.Landscape,
+				ReaderPlayLikeCurlPhysicalLeaf.Left
+			)
+		)
+	}
+
+	@Test
+	fun displayLayoutIsInvariantAcrossBalancedAndFullRasterQuality() {
+		val balanced = readerPlayLikeCurlRasterLayout(
+			geometry = ReaderPageTurnLeafGeometry(
+				fullLeafRect = null,
+				leftLeafRect = ReaderPageTurnPixelRect(0, 0, 725, 924),
+				gutterRect = ReaderPageTurnPixelRect(725, 0, 725, 924),
+				rightLeafRect = ReaderPageTurnPixelRect(725, 0, 1_450, 924)
+			),
+			bitmapWidth = 1_450,
+			bitmapHeight = 924,
+			surfaceLeftInWindow = 0,
+			surfaceTopInWindow = 0,
+			surfaceRightInWindow = 2_900,
+			surfaceBottomInWindow = 1_848
+		)
+		val full = readerPlayLikeCurlRasterLayout(
+			geometry = ReaderPageTurnLeafGeometry(
+				fullLeafRect = null,
+				leftLeafRect = ReaderPageTurnPixelRect(0, 0, 1_450, 1_848),
+				gutterRect = ReaderPageTurnPixelRect(1_450, 0, 1_450, 1_848),
+				rightLeafRect = ReaderPageTurnPixelRect(1_450, 0, 2_900, 1_848)
+			),
+			bitmapWidth = 2_900,
+			bitmapHeight = 1_848,
+			surfaceLeftInWindow = 0,
+			surfaceTopInWindow = 0,
+			surfaceRightInWindow = 2_900,
+			surfaceBottomInWindow = 1_848
+		)
+
+		assertEquals(full, balanced)
+	}
+
+	@Test
 	fun foliateRasterCopyOwnsAnIndependentOpaqueBitmap() {
 		val source = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
@@ -198,7 +353,9 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 		assertTrue(source.contains("Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)"))
 		assertTrue(source.contains("Canvas(target).drawBitmap("))
 		assertTrue(source.contains("target.eraseColor(paperColorArgb)"))
-		assertTrue(source.contains("ReaderPlayLikeCurlRasterImage(target, paperColorArgb)"))
+		assertTrue(source.contains("val layout = readerPlayLikeCurlRasterLayout("))
+		assertTrue(source.contains("layout = layout"))
+		assertTrue(source.contains("leaf = leaf"))
 		assertTrue(source.contains("snapshot.release()"))
 	}
 

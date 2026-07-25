@@ -243,21 +243,6 @@ internal sealed interface ReaderPageTapDispatchResult {
 	) : ReaderPageTapDispatchResult
 }
 
-internal fun readerPlayLikeCurlPortraitSurfaceWidth(
-	hostWidth: Int,
-	hostHeight: Int,
-	pageBitmapWidth: Int,
-	pageBitmapHeight: Int
-): Int {
-	if (hostWidth <= 0 || hostHeight <= 0 || pageBitmapWidth <= 0 || pageBitmapHeight <= 0) {
-		return hostWidth.coerceAtLeast(1)
-	}
-	val scaledWidth = (hostHeight.toDouble() * pageBitmapWidth / pageBitmapHeight)
-		.toInt()
-		.coerceAtLeast(1)
-	return scaledWidth.coerceAtMost(hostWidth)
-}
-
 /**
  * Production bridge between Foliate's passive raster cache and the imported PlayLikeCurl surface.
  * Foliate remains the pagination authority; this controller owns only immutable raster leases,
@@ -310,7 +295,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	val surfaceView = PageSurfaceView(host.context).apply {
 		holder.setFormat(PixelFormat.TRANSLUCENT)
-		setZOrderMediaOverlay(true)
+		setZOrderOnTop(true)
 		setVisible(true)
 		alpha = 0f
 		visibility = View.VISIBLE
@@ -2981,7 +2966,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			role = role,
 			qaFaultCorrelation = repairDiagnostic?.let(::qaFaultCorrelationForRepair)
 		)
-		updateSurfaceBounds(built.pages, built.ordinal)
+		updateSurfaceBounds()
 		setSurfaceReadingDirection(built.pages.profile)
 		logActivationState(
 			event = "recovered-deck-submitted",
@@ -3379,7 +3364,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 			}
 		}
-		updateSurfaceBounds(pages, ordinal)
+		updateSurfaceBounds()
 		logActivationState(
 			event = "deck-submitted",
 			detail = "generation=$generationId ordinal=$ordinal role=$role " +
@@ -3399,33 +3384,38 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
-	private fun updateSurfaceBounds(pages: PreparedPages, ordinal: Int) {
-		val targetWidth = when (pages.profile.orientation) {
-			ReaderPlayLikeCurlOrientation.Landscape -> ViewGroup.LayoutParams.MATCH_PARENT
-			ReaderPlayLikeCurlOrientation.Portrait -> {
-				val page = pages.deck.value(ordinal)
-				if (page == null || host.width <= 0 || host.height <= 0) {
-					ViewGroup.LayoutParams.MATCH_PARENT
-				} else {
-					readerPlayLikeCurlPortraitSurfaceWidth(
-						hostWidth = host.width,
-						hostHeight = host.height,
-						pageBitmapWidth = page.bitmap.width,
-						pageBitmapHeight = page.bitmap.height
-					)
-				}
-			}
-		}
+	private fun updateSurfaceBounds() {
 		val params = surfaceView.layoutParams ?: return
-		if (params.width == targetWidth && params.height == ViewGroup.LayoutParams.MATCH_PARENT) return
-		params.width = targetWidth
+		if (
+			params.width == ViewGroup.LayoutParams.MATCH_PARENT &&
+			params.height == ViewGroup.LayoutParams.MATCH_PARENT
+		) {
+			return
+		}
+		params.width = ViewGroup.LayoutParams.MATCH_PARENT
 		params.height = ViewGroup.LayoutParams.MATCH_PARENT
 		surfaceView.layoutParams = params
 		surfaceView.requestLayout()
 		logActivationState(
 			event = "surface-bounds-updated",
-			detail = "orientation=${pages.profile.orientation} width=$targetWidth host=${host.width}x${host.height}"
+			detail = "width=match-parent height=match-parent host=${host.width}x${host.height}"
 		)
+	}
+
+	private fun ReaderPlayLikeCurlRasterLayout.displayRectInHost(
+		leaf: ReaderPlayLikeCurlFoliateLeaf
+	) = run {
+		val location = IntArray(2)
+		host.getLocationInWindow(location)
+		checkNotNull(
+			displayRect(
+				leaf = leaf,
+				rendererLeftInWindow = location[0],
+				rendererTopInWindow = location[1],
+				rendererWidth = host.width,
+				rendererHeight = host.height
+			)
+		) { "Physical page placement does not fit the renderer host" }
 	}
 
 	private fun PreparedPages.page(
@@ -3441,6 +3431,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ordinal,
 			image.bitmap.width,
 			image.bitmap.height,
+			image.layout.displayRectInHost(image.leaf),
 			image.bitmap
 		)
 	}
@@ -3455,12 +3446,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val borrowed = checkNotNull(deck.value(fallbackOrdinal)) {
 			"Missing filler lease page $fallbackOrdinal for ${profile.orientation}"
 		}
+		val foliateLeaf = readerPlayLikeCurlFillerFoliateLeaf(profile.orientation, leaf)
+		val displayRect = borrowed.layout.displayRectInHost(foliateLeaf)
 		return PageImage.filler(
 			generationId,
 			"filler-${role.name}-$sourcePageIndex-${leaf.name}",
 			fallbackOrdinal,
 			borrowed.bitmap.width,
 			borrowed.bitmap.height,
+			displayRect,
 			borrowed.bitmap,
 			borrowed.paperColorArgb
 		)

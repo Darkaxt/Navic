@@ -14,9 +14,9 @@ $expectedReleaseArtifactUrl =
 	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.2.1/karackencurllib-release.aar"
 $expectedReleaseArtifactDigest =
 	"sha256:4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd"
-$expectedCandidateCommit = "a16ea9aa46484f3068242577e1189af66fb1fa9d"
+$expectedCandidateCommit = "4769416472f10791109444c3719433a8f4e47879"
 $expectedCandidateManifestSha256 =
-	"4cde6ebc5b7d4ee385835687f9d839b4ecc83a1e20908d8082db0397965147a4"
+	"1d2cb1e8af69d1013bfd360fb5684620da834162bbf274e44731970f91853f85"
 $expectedCandidateLicenseBlob = "8aa26455d23acf904be3ed9dfb3a3efe3e49245a"
 
 $repositoryRootPath = (Resolve-Path -LiteralPath $RepositoryRoot).Path
@@ -211,7 +211,7 @@ function Assert-CandidateSource {
 	param([string] $CandidatePath)
 
 	if (-not (Test-Path -LiteralPath $CandidatePath -PathType Leaf)) {
-		throw "API-2 candidate source record is missing: $CandidatePath"
+		throw "API-3 candidate source record is missing: $CandidatePath"
 	}
 	$candidateJson = Get-Content -LiteralPath $CandidatePath -Raw
 	Assert-JsonStructure $candidateJson "Candidate source record"
@@ -231,7 +231,7 @@ function Assert-CandidateSource {
 	Assert-JsonInteger $candidate.schemaVersion 1 "Wrong candidate schema version."
 	Assert-ExactString $candidate.repository $expectedRepository "Wrong candidate repository."
 	Assert-ExactString $candidate.commit $expectedCandidateCommit "Wrong candidate commit."
-	Assert-JsonInteger $candidate.apiVersion 2 "Wrong candidate API version."
+	Assert-JsonInteger $candidate.apiVersion 3 "Wrong candidate API version."
 	Assert-ExactString `
 		$candidate.sourceManifestSha256 `
 		$expectedCandidateManifestSha256 `
@@ -371,7 +371,7 @@ if (@($productionApiLines | Where-Object {
 	}).Count -ne 1) {
 	throw "PlayLikeCurl production document does not contain the exact API declaration."
 }
-$candidateActive = $provenance.apiVersion -eq 1 -and $importedApiVersion -eq 2
+$candidateActive = $provenance.apiVersion -eq 2 -and $importedApiVersion -eq 3
 
 if ($candidateActive) {
 	Assert-CandidateSource $candidatePath
