@@ -253,6 +253,8 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("-Full:(\$AfterIndex -ge 0)") &&
 				stressLoop.contains("\$terminalInFullLog") &&
 				stressLoop.contains("\$inFlightRelocationGestureIds") &&
+				stressLoop.contains("\$relocationStateAtTerminal") &&
+				stressLoop.contains("\$_.Index -le \$terminalInFullLog.Index") &&
 				stressLoop.contains("Wait-ReaderQaRelocationTerminal") &&
 				stressLoop.contains("\$latestPreparation.Index -gt \$terminalInFullLog.Index") &&
 				stressLoop.contains("\$latestPreparation.State -eq 'Ready'") &&

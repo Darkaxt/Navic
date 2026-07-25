@@ -1515,31 +1515,46 @@ while ($attempt -lt $maximumAttempts -and
             if ($terminalInFullLog.Count -ne 1) {
                 throw 'ReaderDev stress preparing recovery lost its gesture terminal'
             }
-            $inFlightRelocationGestureIds = @(
-                $relocationGroups = @(
-                    ConvertFrom-ReaderRelocationLog $fullRecoveryLog |
-                        Where-Object {
-                            $_.Session -eq $readerSession -and
-                                $committedGestureIds.Contains($_.GestureId)
-                        } |
-                        Group-Object GestureId
-                )
+            $relocationGroups = @(
+                ConvertFrom-ReaderRelocationLog $fullRecoveryLog |
+                    Where-Object {
+                        $_.Session -eq $readerSession -and
+                            $committedGestureIds.Contains($_.GestureId)
+                    } |
+                    Group-Object GestureId
+            )
+            $overlappingRelocationGroups = @(
                 foreach ($group in $relocationGroups) {
+                    $relocationStateAtTerminal = @(
+                        $group.Group | Where-Object {
+                            $_.Index -le $terminalInFullLog.Index
+                        }
+                    )[-1]
+                    if ($null -ne $relocationStateAtTerminal -and
+                        $relocationStateAtTerminal.State -notin @(
+                            'Completed',
+                            'Rejected'
+                        )) {
+                        $group
+                    }
+                }
+            )
+            $inFlightRelocationGestureIds = @(
+                foreach ($group in $overlappingRelocationGroups) {
                     $latestRelocation = $group.Group[-1]
                     if ($latestRelocation.State -notin @('Completed', 'Rejected')) {
                         [long]$group.Name
                     }
                 }
             )
-            if ($inFlightRelocationGestureIds.Count -gt 0) {
-                foreach ($gestureId in $inFlightRelocationGestureIds) {
-                    [void](Wait-ReaderQaRelocationTerminal `
-                        -ReaderSession $readerSession `
-                        -GestureId $gestureId `
-                        -States @('Completed', 'Rejected') `
-                        -Context 'ReaderDev stress relocation recovery')
-                }
-            } else {
+            foreach ($gestureId in $inFlightRelocationGestureIds) {
+                [void](Wait-ReaderQaRelocationTerminal `
+                    -ReaderSession $readerSession `
+                    -GestureId $gestureId `
+                    -States @('Completed', 'Rejected') `
+                    -Context 'ReaderDev stress relocation recovery')
+            }
+            if ($overlappingRelocationGroups.Count -eq 0) {
                 $preparationRecords = @(
                     ConvertFrom-ReaderPreparationLog $fullRecoveryLog |
                         Where-Object Session -eq $readerSession
