@@ -35,6 +35,10 @@ import paige.navic.domain.manager.AudioPlaybackOwnershipClaim
 import paige.navic.domain.manager.AudioPlaybackOwnershipCoordinator
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.NavidromeAvailability
+import paige.navic.domain.manager.NavidromeAvailabilityManager
+import paige.navic.domain.manager.NavidromeOutageTrigger
+import paige.navic.domain.manager.OfflineModeCoordinator
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
@@ -57,6 +61,7 @@ import paige.navic.domain.models.shouldHandlePlaybackErrorVisibly
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.SongRadioQueueDefaultSize
+import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
@@ -74,6 +79,8 @@ class AndroidMediaPlayerViewModel(
 	private val playbackQueueInteractor: PlaybackQueueInteractor,
 	downloadManager: DownloadManager,
 	connectivityManager: ConnectivityManager,
+	private val offlineModeCoordinator: OfflineModeCoordinator,
+	private val navidromeAvailabilityManager: NavidromeAvailabilityManager,
 	private val sessionManager: SessionManager,
 	private val platformContext: CoilPlatformContext,
 	private val artistPhotoCacheDao: ArtistPhotoCacheDao,
@@ -130,6 +137,7 @@ class AndroidMediaPlayerViewModel(
 	)
 	private val playbackRecovery = AndroidStablePlaybackRecoveryCoordinator(
 		downloadManager = downloadManager,
+		navidromeAvailabilityManager = navidromeAvailabilityManager,
 		diagnostics = playbackDiagnostics,
 		isAvailable = ::isAvailable,
 		skipMediaOnError = { preferenceManager.skipMediaOnError },
@@ -198,6 +206,45 @@ class AndroidMediaPlayerViewModel(
 		observePlaybackArtworkCache()
 		mediaControllerConnection.connect()
 		observeAudioPlaybackClaims()
+		observeNavidromeAvailability()
+	}
+
+	private fun observeNavidromeAvailability() {
+		viewModelScope.launch {
+			connectivityManager.isNetworkAvailable.collectLatest { networkAvailable ->
+				if (!networkAvailable && sessionManager.isLoggedIn.value) {
+					navidromeAvailabilityManager.reportUnavailable(NavidromeOutageTrigger.RawNetworkLost)
+				}
+			}
+		}
+		viewModelScope.launch {
+			combine(
+				navidromeAvailabilityManager.state,
+				connectivityManager.isOnline,
+				offlineModeCoordinator.state
+			) { availability, isOnline, offlineMode ->
+				Triple(availability, isOnline, offlineMode.selectedMode)
+			}.collectLatest { (availability, isOnline, selectedMode) ->
+				val player = controller ?: return@collectLatest
+				when {
+					availability is NavidromeAvailability.Unavailable ->
+						playbackRecovery.handleServiceUnavailable(
+							player,
+							_uiState.value,
+							"navidrome-unavailable"
+						)
+
+					!isOnline && selectedMode != OfflineMode.Auto ->
+						playbackRecovery.handleServiceUnavailable(
+							player,
+							_uiState.value,
+							"selected-offline-mode"
+						)
+
+					isOnline -> playbackRecovery.handleServiceRestored(player, _uiState.value)
+				}
+			}
+		}
 	}
 
 	private fun observePlaybackArtworkCache() {
@@ -365,6 +412,10 @@ class AndroidMediaPlayerViewModel(
 							}
 							return
 						}
+						if (playbackRecovery.isServiceUnavailable(error)) {
+							playbackRecovery.handlePlayerError(this@apply, currentUiState, error)
+							return
+						}
 						if (downloadedMediaRecovery.recover(this@apply)) {
 							return
 						}
@@ -392,6 +443,17 @@ class AndroidMediaPlayerViewModel(
 					}
 				})
 				updatePlaybackState()
+				when {
+					navidromeAvailabilityManager.state.value is NavidromeAvailability.Unavailable ->
+						playbackRecovery.handleServiceUnavailable(
+							this,
+							_uiState.value,
+							"controller-connected-offline"
+						)
+
+					connectivityManager.isOnline.value ->
+						playbackRecovery.handleServiceRestored(this, _uiState.value)
+				}
 				updatePlaybackProperties(currentTracks)
 				refreshAudioEffects()
 				playPendingQueueSelectionIfAvailable(this)
@@ -579,6 +641,10 @@ class AndroidMediaPlayerViewModel(
 
 	private fun updatePlaybackDownloadProgress() {
 		val recoverySongId = playbackRecovery.pendingSongId
+		if (playbackRecovery.isWaitingForService) {
+			_uiState.update { state -> state.copy(playbackDownloadProgress = null) }
+			return
+		}
 		val songId = recoverySongId ?: _uiState.value.currentSong?.id
 		val shouldShowProgress = recoverySongId != null || _uiState.value.isLoading
 		val download = songId?.let { latestDownloadsById[it] }

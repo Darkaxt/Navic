@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -12,13 +11,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import paige.navic.domain.models.settings.OfflineMode
+import paige.navic.domain.models.isOnlineForOfflineMode
 import android.net.ConnectivityManager as AndroidConnectivityManager
 
 private data class NetworkStatus(
@@ -41,13 +40,17 @@ private data class NetworkStatus(
 @OptIn(ExperimentalCoroutinesApi::class)
 actual class ConnectivityManager(
 	context: Context,
-	private val preferenceManager: PreferenceManager
+	private val offlineModeCoordinator: OfflineModeCoordinator
 ) {
 	private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 	private val dispatcher = Dispatchers.IO
 	private val started = SharingStarted.WhileSubscribed(5000)
 	private val connectivityManager =
 		context.getSystemService(Context.CONNECTIVITY_SERVICE) as AndroidConnectivityManager
+	private fun currentNetworkStatus(): NetworkStatus = connectivityManager
+		.getNetworkCapabilities(connectivityManager.activeNetwork)
+		?.let(NetworkStatus::fromCaps)
+		?: NetworkStatus()
 
 	private val networkStatus = callbackFlow {
 		val callback = object : AndroidConnectivityManager.NetworkCallback() {
@@ -58,44 +61,48 @@ actual class ConnectivityManager(
 
 			override fun onLost(network: Network) {
 				super.onLost(network)
-				trySend(NetworkStatus())
+				trySend(currentNetworkStatus())
 			}
 		}
 
-		val request = NetworkRequest.Builder()
-			.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-			.build()
+		connectivityManager.registerDefaultNetworkCallback(callback)
 
-		connectivityManager.registerNetworkCallback(request, callback)
-
-		trySend(
-			connectivityManager
-				.getNetworkCapabilities(connectivityManager.activeNetwork)
-				?.let { NetworkStatus.fromCaps(it) }
-				?: NetworkStatus()
-		)
+		trySend(currentNetworkStatus())
 
 		awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
 	}
 		.flowOn(dispatcher)
 		.conflate()
-		.stateIn(scope, started, NetworkStatus())
+		.stateIn(scope, started, currentNetworkStatus())
 
 	actual val isCellular = networkStatus
 		.map { it.isCellular }
 		.distinctUntilChanged()
 		.flowOn(dispatcher)
-		.stateIn(scope, started, false)
+		.stateIn(scope, started, networkStatus.value.isCellular)
 
-	actual val isOnline = networkStatus
-		.mapLatest { status ->
-			when (preferenceManager.offlineMode) {
-				OfflineMode.Forced -> false
-				OfflineMode.NoWiFi -> status.isOnline && !status.isCellular
-				else -> status.isOnline
-			}
-		}
+	actual val isNetworkAvailable = networkStatus
+		.map { it.isOnline }
 		.distinctUntilChanged()
 		.flowOn(dispatcher)
-		.stateIn(scope, started, true)
+		.stateIn(scope, started, networkStatus.value.isOnline)
+
+	actual val isOnline = combine(networkStatus, offlineModeCoordinator.state) { status, offline ->
+		isOnlineForOfflineMode(
+			isNetworkAvailable = status.isOnline,
+			isCellular = status.isCellular,
+			offlineMode = offline.effectiveMode
+		)
+	}
+		.distinctUntilChanged()
+		.flowOn(dispatcher)
+		.stateIn(
+			scope,
+			started,
+			isOnlineForOfflineMode(
+				isNetworkAvailable = networkStatus.value.isOnline,
+				isCellular = networkStatus.value.isCellular,
+				offlineMode = offlineModeCoordinator.state.value.effectiveMode
+			)
+		)
 }

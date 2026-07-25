@@ -73,6 +73,8 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.manager.AndroidScrobbleManager
 import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.DownloadManager
+import paige.navic.domain.manager.NavidromeAvailability
+import paige.navic.domain.manager.NavidromeAvailabilityManager
 import paige.navic.domain.manager.PlaybackOriginCredit
 import paige.navic.domain.manager.PlaybackOriginTracker
 import paige.navic.domain.manager.PreferenceManager
@@ -157,6 +159,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private val syncManager: SyncManager by inject()
 	private val sessionManager: SessionManager by inject()
 	private val preferenceManager: PreferenceManager by inject()
+	private val navidromeAvailabilityManager: NavidromeAvailabilityManager by inject()
 
 	@OptIn(UnstableApi::class)
 	override fun onCreate() {
@@ -171,9 +174,20 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			.setBackBuffer(10_000, true)
 			.build()
 
-		val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
+		val defaultNotificationProvider = DefaultMediaNotificationProvider.Builder(this)
 			.build().apply {
 				setSmallIcon(resourceProvider.icNavic)
+		}
+		val notificationProvider = OfflineAwareMediaNotificationProvider(
+			context = this,
+			delegate = defaultNotificationProvider
+		)
+		serviceScope.launch {
+			navidromeAvailabilityManager.state.collectLatest { availability ->
+				notificationProvider.setConnectionLost(
+					availability is NavidromeAvailability.Unavailable
+				)
+			}
 		}
 
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()

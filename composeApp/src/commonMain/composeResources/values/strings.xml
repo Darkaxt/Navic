@@ -218,9 +218,10 @@
 	<string name="subtitle_now_playing_screen_on_mode">Expanded Now Playing only</string>
 	<string name="subtitle_mini_player_queue_action">Open the Queue directly from the mini player</string>
 	<string name="subtitle_check_for_updates">It is recommended to leave this on, as some updates provide important bug fixes</string>
-	<string name="subtitle_offline_mode">Dictates when the app should go in an offline mode. Requires application restart</string>
+	<string name="subtitle_offline_mode">Controls when Navic uses downloaded content only</string>
 	<string name="subtitle_pause_search_history">Do not save new search queries or show recent searches</string>
 	<string name="subtitle_streaming_quality">Adjust the quality of streamed music</string>
+	<string name="subtitle_local_network_denied">Grant Navic local network access before connecting to a server on your network.</string>
 	<string name="subtitle_max_bitrates">Max Bitrates</string>
 	<string name="subtitle_lida_clips">Connect Navidrome tracks to LidaClips music video streams</string>
 	<string name="subtitle_lastfm">Validate the Last.fm API key used for native artist enrichment</string>
@@ -967,6 +968,7 @@
 	<string name="action_navigate_back">Back</string>
 	<string name="action_log_out">Logout</string>
 	<string name="action_log_in">Log in</string>
+	<string name="action_open_settings">Open settings</string>
 	<string name="action_view_shares">Shares</string>
 	<string name="action_clear_search">Clear</string>
 	<string name="action_more">More</string>
@@ -1024,6 +1026,7 @@
 	<string name="notice_created_radio">Created radio %1$s.</string>
 	<string name="notice_added_to_queue">Added to queue.</string>
 	<string name="notice_play_next">Playing next.</string>
+	<string name="notice_connection_lost_offline">Connection lost - Switching to Offline mode</string>
 	<string name="notice_added_to_playlist">Added to %1$s.</string>
 	<string name="notice_added_to_multiple_playlists">Added to multiple playlists.</string>
 	<string name="notice_download_started">Download started.</string>
@@ -1036,6 +1039,7 @@
 	<string name="notice_expiry">Expires in %1$s.</string>
 	<string name="notice_loading_lyrics">Loading lyrics...\nThis might take a while.</string>
 	<string name="notice_login_suggestion">Did you mean...</string>
+	<string name="notice_local_network_denied">Local network access required</string>
 	<string name="notice_queue_duplicate">This song is already in the queue. Do you really want to add it again?</string>
 	<string name="notice_update_latest">You're on the latest version.</string>
 

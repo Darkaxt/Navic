@@ -15,3 +15,9 @@ fun librarySyncDeletionPlan(
 		fetchedAlbumIds.containsAll(authoritativeAlbumIds)
 	}
 )
+
+fun LibrarySyncDeletionPlan.withRetainedPlaylistSongs(
+	playlistSongIds: Set<String>
+): LibrarySyncDeletionPlan = copy(
+	songIdsToKeep = songIdsToKeep?.plus(playlistSongIds)
+)

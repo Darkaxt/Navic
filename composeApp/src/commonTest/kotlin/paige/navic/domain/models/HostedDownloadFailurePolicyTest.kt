@@ -1,26 +1,43 @@
 package paige.navic.domain.models
 
 import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 
 class HostedDownloadFailurePolicyTest {
 	@Test
-	fun transientConnectionFailuresRemainRetryable() {
-		assertFalse(shouldFailHostedDownload(ConnectTimeoutException("failed to connect")))
-		assertFalse(shouldFailHostedDownload(SocketTimeoutException("timed out")))
-		assertFalse(shouldFailHostedDownload(UnknownHostException("unable to resolve host")))
+	fun transientConnectionFailuresWaitForServiceRecovery() {
+		assertEquals(
+			HostedDownloadFailureAction.WaitForService,
+			hostedDownloadFailureAction(ConnectTimeoutException("failed to connect"))
+		)
+		assertEquals(
+			HostedDownloadFailureAction.WaitForService,
+			hostedDownloadFailureAction(SocketTimeoutException("timed out"))
+		)
+		assertEquals(
+			HostedDownloadFailureAction.WaitForService,
+			hostedDownloadFailureAction(UnknownHostException("unable to resolve host"))
+		)
 	}
 
 	@Test
-	fun hostedHttpFailuresAreTerminalForCurrentQueuePass() {
-		assertTrue(shouldFailHostedDownload(IllegalStateException("Stream request failed: HTTP 503 Service Unavailable")))
-		assertTrue(shouldFailHostedDownload(IllegalStateException("status 524")))
+	fun hostedHttpFailuresWaitForServiceRecovery() {
+		assertEquals(
+			HostedDownloadFailureAction.WaitForService,
+			hostedDownloadFailureAction(IllegalStateException("Stream request failed: HTTP 503 Service Unavailable"))
+		)
+		assertEquals(
+			HostedDownloadFailureAction.WaitForService,
+			hostedDownloadFailureAction(IllegalStateException("status 524"))
+		)
 	}
 
 	@Test
 	fun nonAudioDownloadResponsesAreTerminalForCurrentQueuePass() {
-		assertTrue(shouldFailHostedDownload(IllegalStateException("Stream request returned non-audio content: text/html")))
+		assertEquals(
+			HostedDownloadFailureAction.Fail,
+			hostedDownloadFailureAction(IllegalStateException("Stream request returned non-audio content: text/html"))
+		)
 	}
 }
 

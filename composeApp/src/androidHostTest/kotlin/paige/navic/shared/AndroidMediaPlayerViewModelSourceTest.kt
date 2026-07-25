@@ -153,7 +153,7 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
-	fun playbackRecoveryWaitsForTheCurrentSongAndNeverMutatesQueueOrder() {
+	fun playbackRecoveryUsesCachedMedia3OrderAndNeverMutatesQueueOrder() {
 		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
 
@@ -163,10 +163,20 @@ class AndroidMediaPlayerViewModelSourceTest {
 		assertContains(viewModelText, "playbackRecovery.onUserPause()")
 		assertContains(viewModelText, "playbackRecovery.onUserResume(")
 		assertContains(viewModelText, "playbackRecovery.clear(\"queue-selection\")")
+		assertContains(viewModelText, "observeNavidromeAvailability()")
+		assertContains(viewModelText, "NavidromeOutageTrigger.RawNetworkLost")
+		assertContains(viewModelText, "playbackRecovery.handleServiceRestored")
 		assertContains(viewModelText, "notifyFailedDownload = playbackErrorNotifier::notifyFailedDownload")
 		assertContains(recoveryText, "refreshCurrentRemoteMediaItem")
 		assertContains(recoveryText, "private var pending: PendingPlaybackRecovery?")
-		assertContains(recoveryText, "downloadManager.prefetchPlaybackSongs(listOf(song))")
+		assertContains(recoveryText, "resolveOfflinePlaybackFallback(")
+		assertContains(recoveryText, "upcomingIndexes = state.upcomingIndexes")
+		assertContains(recoveryText, "OfflinePlaybackFallbackResolution.PlayUpcoming")
+		assertContains(recoveryText, "requestServiceProbe()")
+		val serviceFallbackBody = recoveryText
+			.substringAfter("fun handleServiceUnavailable(")
+			.substringBefore("fun handleServiceRestored(")
+		assertFalse("prefetchPlaybackSongs" in serviceFallbackBody)
 		assertContains(recoveryText, "playbackRecoveryResolution(")
 		assertContains(recoveryText, "PlaybackRecoveryResolution.ResumeCurrent")
 		assertContains(recoveryText, "setUri(File(localPath).toUri())")

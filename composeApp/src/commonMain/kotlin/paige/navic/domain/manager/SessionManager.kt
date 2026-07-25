@@ -123,6 +123,10 @@ class SessionManager(
 	internal suspend fun <T> withApi(block: suspend (SubsonicClient) -> T): T =
 		clientSlot.withResource(block)
 
+	suspend fun ping() {
+		withApi { it.ping() }
+	}
+
 	fun getStreamUrl(id: String): String =
 		clientSlot.snapshot().getStreamUrl(id)
 

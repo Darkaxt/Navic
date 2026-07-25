@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.notice_added_to_queue
+import navic.composeapp.generated.resources.notice_connection_lost_offline
 import navic.composeapp.generated.resources.notice_play_next
 import org.jetbrains.compose.resources.StringResource
 import paige.navic.domain.models.snackbars.PlayerEvent
@@ -27,4 +28,5 @@ class SnackBarManager {
 
 	fun notifyAddedToQueue() = notify(Res.string.notice_added_to_queue)
 	fun notifyPlayNext() = notify(Res.string.notice_play_next)
+	fun notifyConnectionLost() = notify(Res.string.notice_connection_lost_offline)
 }

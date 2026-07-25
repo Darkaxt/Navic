@@ -71,6 +71,9 @@ interface PlaylistDao {
 	@Query("SELECT DISTINCT songId FROM PlaylistSongCrossRef WHERE songId IN (:songIds)")
 	suspend fun getPlaylistSongIds(songIds: List<String>): List<String>
 
+	@Query("SELECT DISTINCT songId FROM PlaylistSongCrossRef")
+	suspend fun getAllPlaylistSongIds(): List<String>
+
 	@Query("SELECT DISTINCT songId FROM PlaylistSongCrossRef WHERE songId IN (:songIds)")
 	fun getPlaylistSongIdsFlow(songIds: List<String>): Flow<List<String>>
 

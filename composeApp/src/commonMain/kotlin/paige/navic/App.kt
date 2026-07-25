@@ -41,10 +41,12 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigation3.ui.NavDisplay.popTransitionSpec
 import androidx.navigation3.ui.NavDisplay.predictivePopTransitionSpec
@@ -66,6 +68,7 @@ import paige.navic.domain.manager.DownloadQueueNotificationCoordinator
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SessionManager
 import paige.navic.domain.manager.SnackBarManager
+import paige.navic.domain.manager.NavidromeAvailabilityManager
 import paige.navic.domain.manager.SyncManager
 import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.snackbars.NavicSnackbar
@@ -175,6 +178,7 @@ fun App(initialScreenOverride: Screen? = null) {
 	val downloadQueueNotificationCoordinator = koinInject<DownloadQueueNotificationCoordinator>()
 	val isLoggedIn by sessionManager.isLoggedIn.collectAsStateWithLifecycle()
 	val snackBarManager = koinInject<SnackBarManager>()
+	val navidromeAvailabilityManager = koinInject<NavidromeAvailabilityManager>()
 	val backStack = rememberNavBackStack(
 		config, initialScreenOverride ?: if (isLoggedIn) {
 			Screen.Library()
@@ -199,6 +203,14 @@ fun App(initialScreenOverride: Screen? = null) {
 	LaunchedEffect(snackBarManager) {
 		snackBarManager.events.collectLatest { event ->
 			snackbarState.showSnackbar(getString(event.resource, *event.args.toTypedArray()))
+		}
+	}
+
+	LaunchedEffect(navidromeAvailabilityManager, snackBarManager) {
+		navidromeAvailabilityManager.state.collect {
+			if (navidromeAvailabilityManager.claimConnectionLostNotice()) {
+				snackBarManager.notifyConnectionLost()
+			}
 		}
 	}
 
@@ -258,6 +270,10 @@ fun App(initialScreenOverride: Screen? = null) {
 							remember { NowPlayingSceneStrategy() },
 							remember { BottomSheetSceneStrategy() },
 							rememberListDetailSceneStrategy()
+						),
+						entryDecorators = listOf(
+							rememberSaveableStateHolderNavEntryDecorator(),
+							rememberViewModelStoreNavEntryDecorator()
 						),
 						onBack = {
 							handleNavicBack()
