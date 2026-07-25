@@ -313,6 +313,55 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun dispatchedRelocationHasBoundedIdentitySafeAcknowledgementRecovery() {
+		val source = controllerFile.readText()
+		val dispatch = source
+			.substringAfter("private fun dispatchExactVisualPage(")
+			.substringBefore("private fun releaseGeneration(")
+		val exactAcknowledgement = source
+			.substringAfter("ReaderPageVisualLocationOrigin.ExactPageTurn -> {")
+			.substringBefore("ReaderPageVisualLocationOrigin.PendingExactPageTurn")
+		val rejection = dispatch
+			.substringAfter("private fun rejectDispatchedRelocation(")
+		val cancellation = source
+			.substringAfter("private fun cancelRelocationsWithDiagnostics()")
+			.substringBefore("private fun drainRelocationOwnership(")
+		val metrics = source
+			.substringAfter("fun applicationOwnershipMetrics()")
+			.substringBefore("override fun requestOwnershipSnapshot(")
+
+		assertContains(source, "ReaderPageRelocationDispatchTimeout(")
+		assertContains(dispatch, "ReaderPageRelocationDiagnosticState.Dispatched")
+		assertContains(dispatch, "relocationDispatchTimeout.arm(request)")
+		assertTrue(
+			dispatch.indexOf("ReaderPageRelocationDiagnosticState.Dispatched") <
+				dispatch.indexOf("relocationDispatchTimeout.arm(request)")
+		)
+		assertContains(exactAcknowledgement, "relocationDispatchTimeout.cancel(acknowledged)")
+		assertTrue(
+			exactAcknowledgement.indexOf("relocationQueue.acknowledge(") <
+				exactAcknowledgement.indexOf("relocationDispatchTimeout.cancel(acknowledged)")
+		)
+		assertContains(rejection, "relocationQueue.matchesDispatchedHead(")
+		assertContains(rejection, "token = request.token.value")
+		assertContains(rejection, "rasterGeneration = request.rasterGeneration")
+		assertContains(rejection, "textureGeneration = request.textureGeneration")
+		assertContains(rejection, "foliateSessionId = request.foliateSessionId")
+		assertContains(rejection, "destinationOrdinal = request.destinationOrdinal")
+		assertContains(rejection, "readerPageRelocationDispatchRecoveryOrdinal(")
+		assertContains(rejection, "currentFoliateSessionId = currentFoliateSessionId")
+		assertContains(rejection, "currentWebViewOrdinal = currentWebViewOrdinal")
+		assertContains(rejection, "invalidate(\"relocation-dispatch-${'$'}reason\")")
+		assertContains(cancellation, "relocationDispatchTimeout.cancelAll()")
+		assertTrue(
+			cancellation.indexOf("relocationDispatchTimeout.cancelAll()") <
+				cancellation.indexOf("relocationGestureCoordinator.cancelAll()")
+		)
+		assertContains(metrics, "relocationDispatchTimeout.pendingCallbackCount()")
+		assertContains(metrics, "relocationDispatchTimeout.pendingCallbackLimit")
+	}
+
+	@Test
 	fun productionRoutesTypedVisualHandoffRetriesAndCancelsBeforeQueueDrain() {
 		val source = controllerFile.readText()
 		val host = hostFile.readText()

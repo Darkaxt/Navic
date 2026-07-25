@@ -46,6 +46,7 @@ import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPageRelocationDrain
 import paige.navic.reader.ReaderPageRelocationQueue
 import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageRendererReadinessState
@@ -361,6 +362,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>
 		>(ownerLimit = MAX_RASTER_ADAPTER_OWNERS)
 	private val mainHandler = Handler(Looper.getMainLooper())
+	private val relocationDispatchTimeout = ReaderPageRelocationDispatchTimeout(
+		scheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
+			override fun postDelayed(action: Runnable, delayMillis: Long): Boolean =
+				mainHandler.postDelayed(action, delayMillis)
+
+			override fun removeCallbacks(action: Runnable) {
+				mainHandler.removeCallbacks(action)
+			}
+		},
+		onTimeout = { request ->
+			rejectDispatchedRelocation(request, "acknowledgement-timeout")
+		}
+	)
 	private val rasterCapacityRefreshPosted = AtomicBoolean(false)
 	private var rasterRetirementFailure: Throwable? = null
 	private var disposedRasterResidencyMetrics: ReaderPlayLikeCurlRasterResidencyMetrics? = null
@@ -1364,6 +1378,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 					)
 				)
 				val acknowledged = requireNotNull(relocationQueue.head())
+				check(relocationDispatchTimeout.cancel(acknowledged)) {
+					"Acknowledged relocation did not own its dispatch timeout"
+				}
 				val delayed = qaFaultRegistry?.pauseRelocationAck(
 					relocationToken = acknowledged.token.value,
 					onAdmitted = { applied ->
@@ -1449,8 +1466,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
-	private fun cancelRelocationsWithDiagnostics() =
-		relocationGestureCoordinator.cancelAll().also { drained ->
+	private fun cancelRelocationsWithDiagnostics(): ReaderPageRelocationDrain {
+		relocationDispatchTimeout.cancelAll()
+		return relocationGestureCoordinator.cancelAll().also { drained ->
 			drained.queued.forEach { request ->
 				emitRelocationDiagnostic(
 					request,
@@ -1459,6 +1477,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 			}
 		}
+	}
 
 	private fun drainRelocationOwnership(reason: String) {
 		val drained = cancelRelocationsWithDiagnostics()
@@ -1790,9 +1809,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		ReaderPlayLikeCurlControllerOwnershipMetrics(
 			rasterResidency = rasterResidencyMetrics(),
 			pendingVisualCallbacks =
-				relocationVisualHandoffCoordinator.pendingCallbackCount(),
+				relocationVisualHandoffCoordinator.pendingCallbackCount() +
+					relocationDispatchTimeout.pendingCallbackCount(),
 			pendingVisualCallbackLimit =
-				relocationVisualHandoffCoordinator.pendingCallbackLimit(),
+				relocationVisualHandoffCoordinator.pendingCallbackLimit() +
+					relocationDispatchTimeout.pendingCallbackLimit,
 			relocation = relocationQueue.ownershipSnapshot()
 		)
 
@@ -3587,13 +3608,52 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPlayLikeCurlFoliateControllerTag,
 			"PlayLikeCurl exact page dispatched pageIndex=${request.destinationOrdinal}"
 		)
-		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.dispatch?.($command)"
-		) { }
+		try {
+			webView.evaluateJavascript(
+				"window.NavicReaderBridge?.dispatch?.($command)"
+			) { }
+		} catch (failure: Throwable) {
+			Logger.e(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl exact page dispatch failed " +
+					"failureClass=${failure::class.simpleName ?: "unknown"}"
+			)
+			rejectDispatchedRelocation(request, "javascript-dispatch-failed")
+			return
+		}
 		emitRelocationDiagnostic(
 			request,
 			ReaderPageRelocationDiagnosticState.Dispatched
 		)
+		relocationDispatchTimeout.arm(request)
+	}
+
+	private fun rejectDispatchedRelocation(
+		request: ReaderPageRelocationRequest,
+		reason: String
+	) {
+		if (!relocationQueue.matchesDispatchedHead(
+				token = request.token.value,
+				rasterGeneration = request.rasterGeneration,
+				textureGeneration = request.textureGeneration,
+				foliateSessionId = request.foliateSessionId,
+				destinationOrdinal = request.destinationOrdinal
+			)
+		) {
+			return
+		}
+		currentOrdinal = readerPageRelocationDispatchRecoveryOrdinal(
+			request = request,
+			currentFoliateSessionId = currentFoliateSessionId,
+			currentWebViewOrdinal = currentWebViewOrdinal
+		)
+		Logger.w(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl dispatched relocation rejected " +
+				"pageIndex=${request.destinationOrdinal} reason=$reason"
+		)
+		invalidate("relocation-dispatch-$reason")
+		if (enabled) onRequestPrewarm()
 	}
 
 	private fun releaseGeneration(generationId: Long) {
