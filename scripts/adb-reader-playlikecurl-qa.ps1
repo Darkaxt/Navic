@@ -1503,22 +1503,44 @@ while ($attempt -lt $maximumAttempts -and
             'RejectedPreparing',
             'RejectedRendererUnavailable'
         )) {
+            $fullRecoveryLog = Read-ReaderPidLog `
+                -Context 'ReaderDev stress preparing boundary' `
+                -Full
+            $terminalInFullLog = @(
+                ConvertFrom-ReaderGestureLog $fullRecoveryLog | Where-Object {
+                    $_.Session -eq $readerSession -and
+                        $_.GestureId -eq $newTerminal.GestureId
+                }
+            )
+            if ($terminalInFullLog.Count -ne 1) {
+                throw 'ReaderDev stress preparing recovery lost its gesture terminal'
+            }
             $preparationRecords = @(
-                ConvertFrom-ReaderPreparationLog (
-                    Read-ReaderPidLog `
-                        -Context 'ReaderDev stress preparing boundary' `
-                        -Full
-                ) | Where-Object Session -eq $readerSession
+                ConvertFrom-ReaderPreparationLog $fullRecoveryLog |
+                    Where-Object Session -eq $readerSession
             )
             if ($preparationRecords.Count -eq 0) {
                 throw 'ReaderDev stress preparing recovery has no preparation record'
             }
-            $latestPreparationAttempt = [long]$preparationRecords[-1].Attempt
-            [void](Wait-ReaderQaWorkingSetReady `
-                -ReaderSession $readerSession `
-                -AtOrAfterAttempt $latestPreparationAttempt `
-                -Context 'ReaderDev stress preparing recovery' `
-                -WaitSeconds $preparationRecoveryTimeoutSeconds)
+            $latestPreparation = $preparationRecords[-1]
+            $readyAfterTerminal =
+                $latestPreparation.Index -gt $terminalInFullLog.Index -and
+                $latestPreparation.State -eq 'Ready'
+            if (-not $readyAfterTerminal) {
+                $recoveryAttemptBoundary = if (
+                    $latestPreparation.Index -gt $terminalInFullLog.Index -and
+                    $latestPreparation.State -eq 'Attempted'
+                ) {
+                    [long]$latestPreparation.Attempt
+                } else {
+                    [long]$latestPreparation.Attempt + 1
+                }
+                [void](Wait-ReaderQaWorkingSetReady `
+                    -ReaderSession $readerSession `
+                    -AtOrAfterAttempt $recoveryAttemptBoundary `
+                    -Context 'ReaderDev stress preparing recovery' `
+                    -WaitSeconds $preparationRecoveryTimeoutSeconds)
+            }
         } elseif ($newTerminal.Outcome -eq 'RejectedSettling') {
             Start-Sleep -Milliseconds 750
         } else {

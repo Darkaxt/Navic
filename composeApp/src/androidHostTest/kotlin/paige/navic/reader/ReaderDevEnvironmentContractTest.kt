@@ -251,10 +251,14 @@ class ReaderDevEnvironmentContractTest {
 			runner.contains("[long] \$AtOrAfterAttempt = -1") &&
 				runner.contains("\$preparationRecoveryTimeoutSeconds = 180") &&
 				runner.contains("-Full:(\$AfterIndex -ge 0)") &&
-				stressLoop.contains("-AtOrAfterAttempt \$latestPreparationAttempt") &&
+				stressLoop.contains("\$terminalInFullLog") &&
+				stressLoop.contains("\$latestPreparation.Index -gt \$terminalInFullLog.Index") &&
+				stressLoop.contains("\$latestPreparation.State -eq 'Ready'") &&
+				stressLoop.contains("[long]\$latestPreparation.Attempt + 1") &&
+				stressLoop.contains("-AtOrAfterAttempt \$recoveryAttemptBoundary") &&
 				stressLoop.contains("-WaitSeconds \$preparationRecoveryTimeoutSeconds") &&
 				!stressLoop.contains("-AfterIndex \$newTerminal.Index"),
-			"Stress readiness recovery must correlate with monotonic preparation attempts and retain a bounded deadline long enough for serialized current-chapter capture."
+			"Stress readiness recovery must correlate the full-stream gesture with a monotonic current-or-next preparation attempt and retain a bounded deadline long enough for serialized current-chapter capture."
 		)
 		val stressRetryOutcomes = runner
 			.substringAfter("\$transientRetryOutcomes = @(")
