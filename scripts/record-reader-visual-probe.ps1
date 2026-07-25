@@ -209,24 +209,45 @@ function Wait-RecordingReady {
     throw "Android screen recording did not become ready within $RecordingStartupTimeoutSeconds seconds."
 }
 
-function Get-VideoDurationSeconds([string] $Path) {
-    $durationText = @(
-        & ffprobe -v error -show_entries 'format=duration' `
-            -of 'default=noprint_wrappers=1:nokey=1' $Path 2>&1
+function Get-VideoMetadata([string] $Path) {
+    $metadataText = @(
+        & ffprobe -v error -select_streams 'v:0' -count_frames `
+            -show_entries 'stream=duration,nb_read_frames:format=duration' `
+            -of json $Path 2>&1
     ) | Out-String
     if ($LASTEXITCODE -ne 0) {
-        throw 'Recorded video duration query failed.'
+        throw 'Recorded video metadata query failed.'
+    }
+    try {
+        $metadata = $metadataText | ConvertFrom-Json
+    } catch {
+        throw 'Recorded video metadata is invalid.'
+    }
+    $stream = @($metadata.streams)[0]
+    $frameCount = 0L
+    if ($null -eq $stream -or
+        -not [long]::TryParse("$($stream.nb_read_frames)", [ref]$frameCount) -or
+        $frameCount -le 0) {
+        throw 'Recorded video does not contain a decodable video frame.'
     }
     $duration = 0.0
-    if (-not [double]::TryParse(
-        $durationText.Trim(),
-        [Globalization.NumberStyles]::Float,
-        [Globalization.CultureInfo]::InvariantCulture,
-        [ref]$duration
-    ) -or $duration -le 0) {
-        throw 'Recorded video duration is invalid.'
+    $durationText = @(
+        "$($metadata.format.duration)",
+        "$($stream.duration)"
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -First 1
+    if (-not [string]::IsNullOrWhiteSpace($durationText)) {
+        [void][double]::TryParse(
+            $durationText,
+            [Globalization.NumberStyles]::Float,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$duration
+        )
     }
-    return $duration
+    return [pscustomobject]@{
+        DurationSeconds = $duration
+        FrameCount = $frameCount
+    }
 }
 
 function Invoke-ProbeAction {
@@ -287,7 +308,8 @@ Invoke-AdbText @('shell', 'rm', '-f', $remotePath) 'Remote recording cleanup' | 
 $recording = $null
 $recordingStopped = $false
 $events = @()
-$videoDurationSeconds = $null
+$videoMetadata = $null
+$captureElapsedMs = $null
 try {
     $recording = Start-Process -FilePath 'adb' -ArgumentList @(
         '-s', $DeviceSerial, 'shell', 'screenrecord',
@@ -313,6 +335,7 @@ try {
         }
     }
     Wait-UntilElapsed $stopwatch $plan.DurationMs
+    $captureElapsedMs = $stopwatch.ElapsedMilliseconds
     & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
     $recordingStopped = $true
     if (-not $recording.WaitForExit(10000)) {
@@ -327,11 +350,12 @@ try {
         (Get-Item -LiteralPath $videoPath).Length -eq 0) {
         throw 'Pulled visual QA recording is missing or empty.'
     }
-    $videoDurationSeconds = Get-VideoDurationSeconds $videoPath
+    $videoMetadata = Get-VideoMetadata $videoPath
     $minimumDurationSeconds =
         $plan.DurationMs / 1000.0 - $RecordingDurationToleranceSeconds
-    if ($videoDurationSeconds -lt $minimumDurationSeconds) {
-        throw "Visual QA recording ended before the probe completed (duration=$videoDurationSeconds)."
+    if ($Scenario -ne 'idle' -and
+        $videoMetadata.DurationSeconds -lt $minimumDurationSeconds) {
+        throw "Visual QA recording ended before the probe completed (duration=$($videoMetadata.DurationSeconds))."
     }
 } finally {
     if ($null -ne $recording -and -not $recording.HasExited) {
@@ -365,9 +389,12 @@ $manifest = [pscustomobject]@{
     RecordingWidth = $plan.RecordingWidth
     RecordingHeight = $plan.RecordingHeight
     DurationMs = $plan.DurationMs
+    CaptureElapsedMs = $captureElapsedMs
     Events = $events
     VideoArtifact = [IO.Path]::GetFileName($videoPath)
-    VideoDurationSeconds = $videoDurationSeconds
+    VideoDurationSeconds = $videoMetadata.DurationSeconds
+    VideoFrameCount = $videoMetadata.FrameCount
+    StaticIdleCapture = $Scenario -eq 'idle' -and $videoMetadata.FrameCount -eq 1
     VideoBytes = (Get-Item -LiteralPath $videoPath).Length
     VideoSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $videoPath).Hash.ToLowerInvariant()
 }
@@ -382,6 +409,13 @@ if (-not $SkipAnalysis) {
         '--orientation', $Orientation,
         '--output', $analysisPath
     )
+    if ($Scenario -eq 'idle') {
+        $expectedDuration = ($plan.DurationMs / 1000.0).ToString(
+            '0.###',
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+        $analysisArguments += @('--expected-duration-seconds', $expectedDuration)
+    }
     if ($RequireAllVisualChecks) { $analysisArguments += '--require-all' }
     & python @analysisArguments
     if ($LASTEXITCODE -ne 0) {

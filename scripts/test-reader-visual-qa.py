@@ -49,6 +49,39 @@ class ReaderVisualQaTest(unittest.TestCase):
         self.assertFalse(report["privacy"]["framesPersisted"])
         self.assertFalse(report["privacy"]["ocrPerformed"])
 
+    def test_single_frame_idle_capture_extends_to_expected_timeline(self):
+        frame = bright_frame()
+
+        frames, extended = QA.extend_idle_frames(
+            [frame],
+            sample_fps=10.0,
+            scenario="idle",
+            expected_duration_seconds=9.0,
+        )
+
+        self.assertTrue(extended)
+        self.assertEqual(90, len(frames))
+        self.assertIs(frame, frames[-1])
+        report = self.analyze(frames)
+        self.assertEqual("pass", report["checks"]["idleStability"]["status"])
+
+    def test_sparse_idle_changes_remain_visible_after_timeline_extension(self):
+        stable = bright_frame()
+        changed = stable.copy()
+        changed[18:102, 25:175] = (105, 130, 175)
+        decoded = [stable.copy() for _ in range(15)] + [changed, stable.copy()]
+
+        frames, extended = QA.extend_idle_frames(
+            decoded,
+            sample_fps=10.0,
+            scenario="idle",
+            expected_duration_seconds=9.0,
+        )
+
+        self.assertTrue(extended)
+        report = self.analyze(frames)
+        self.assertEqual("fail", report["checks"]["idleStability"]["status"])
+
     def test_zoomed_texture_with_black_borders_fails_geometry_checks(self):
         baseline = [bright_frame() for _ in range(12)]
         defect = bright_frame()

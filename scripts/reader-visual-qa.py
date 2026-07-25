@@ -112,6 +112,26 @@ def median_reference(frames: Sequence[np.ndarray]) -> np.ndarray:
     return np.median(np.stack(frames, axis=0), axis=0).astype(np.uint8)
 
 
+def extend_idle_frames(
+    frames: Sequence[np.ndarray],
+    sample_fps: float,
+    scenario: str,
+    expected_duration_seconds: float | None,
+) -> tuple[list[np.ndarray], bool]:
+    copied = list(frames)
+    if scenario != "idle" or expected_duration_seconds is None:
+        return copied, False
+    if expected_duration_seconds <= 0:
+        raise ValueError("expected idle duration must be positive")
+    if not copied:
+        return copied, False
+    target_count = max(6, math.ceil(sample_fps * expected_duration_seconds))
+    if len(copied) >= target_count:
+        return copied, False
+    copied.extend([copied[-1]] * (target_count - len(copied)))
+    return copied, True
+
+
 def leaf_metrics(frame: np.ndarray, roi: Region, black_luma: float) -> dict[str, float]:
     frame_height, frame_width = frame.shape[:2]
     rows, columns = roi.slices(frame_width, frame_height)
@@ -369,7 +389,7 @@ def probe_video(path: Path) -> tuple[int, int, float]:
     width = int(streams[0]["width"])
     height = int(streams[0]["height"])
     duration = float((payload.get("format") or {}).get("duration") or 0.0)
-    if width <= 0 or height <= 0 or duration <= 0:
+    if width <= 0 or height <= 0 or duration < 0:
         raise ValueError("recording has invalid video geometry or duration")
     return width, height, duration
 
@@ -414,6 +434,34 @@ def decode_video(path: Path, sample_fps: float, max_width: int = 720) -> list[np
     exit_code = process.wait()
     if exit_code != 0:
         raise RuntimeError(f"ffmpeg decode failed with exit {exit_code}: {stderr.strip()}")
+    if not frames:
+        fallback = subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                str(path),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale={target_width}:{target_height}",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "-",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        if len(fallback.stdout) != frame_bytes:
+            raise ValueError("recording does not contain a complete video frame")
+        frames.append(
+            np.frombuffer(fallback.stdout, dtype=np.uint8)
+            .reshape((target_height, target_width, 3))
+            .copy()
+        )
     return frames
 
 
@@ -433,6 +481,7 @@ def build_parser() -> argparse.ArgumentParser:
     ))
     parser.add_argument("--orientation", required=True, choices=("portrait", "landscape"))
     parser.add_argument("--sample-fps", type=float, default=12.0)
+    parser.add_argument("--expected-duration-seconds", type=float)
     parser.add_argument("--roi", type=parse_region, default=Region(0.02, 0.05, 0.96, 0.90))
     parser.add_argument("--decoration-region", action="append", type=parse_region, default=[])
     parser.add_argument("--output", type=Path)
@@ -446,7 +495,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not video.is_file() or video.stat().st_size == 0:
         raise FileNotFoundError(f"recording is missing or empty: {video}")
     regions = args.decoration_region or default_decoration_regions(args.orientation, args.roi)
-    frames = decode_video(video, args.sample_fps)
+    if args.expected_duration_seconds is not None and (
+        args.scenario != "idle" or args.expected_duration_seconds <= 0
+    ):
+        raise ValueError("expected duration is supported only for positive idle probes")
+    decoded_frames = decode_video(video, args.sample_fps)
+    frames, idle_extended = extend_idle_frames(
+        frames=decoded_frames,
+        sample_fps=args.sample_fps,
+        scenario=args.scenario,
+        expected_duration_seconds=args.expected_duration_seconds,
+    )
     report = analyze_frames(
         frames=frames,
         sample_fps=args.sample_fps,
@@ -455,6 +514,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         roi=args.roi,
         decoration_regions=regions,
     )
+    report["sourceDecodedFrames"] = len(decoded_frames)
+    report["idleTimelineExtended"] = idle_extended
+    if args.expected_duration_seconds is not None:
+        report["expectedDurationSeconds"] = args.expected_duration_seconds
     report["videoSha256"] = sha256(video)
     report["videoBytes"] = video.stat().st_size
     if args.require_all and any(

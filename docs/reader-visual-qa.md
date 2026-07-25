@@ -22,7 +22,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
   -OutputRoot .codex-validation\reader-visual\portrait
 ```
 
-The recorder chooses an aspect-preserving, codec-safe capture size with a maximum edge of 1280 pixels, waits for Android's recording container to initialize, and verifies the final MP4 duration covers the complete probe. This avoids `screenrecord`'s slow, aspect-changing codec fallback on large emulator displays.
+The recorder chooses an aspect-preserving, codec-safe capture size with a maximum edge of 1280 pixels, waits for Android's recording container to initialize, and verifies the final MP4 covers the probe. This avoids `screenrecord`'s slow, aspect-changing codec fallback on large emulator displays. Android can emit a single-frame variable-frame-rate MP4 when the display remains completely unchanged during `idle`; the recorder preserves the measured wall-clock interval and source frame count, and the analyzer extends only the final decoded frame in memory to represent that interval. Any emitted visual changes remain in sequence and are still evaluated.
 
 Supported scenarios:
 
