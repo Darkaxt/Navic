@@ -1553,7 +1553,6 @@ while ($attempt -lt $maximumAttempts -and
                     $latestPreparation.State -eq 'Ready'
                 if (-not $readyAfterTerminal) {
                     $recoveryAttemptBoundary = if (
-                        $latestPreparation.Index -gt $terminalInFullLog.Index -and
                         $latestPreparation.State -eq 'Attempted'
                     ) {
                         [long]$latestPreparation.Attempt

@@ -256,6 +256,10 @@ class ReaderDevEnvironmentContractTest {
 				stressLoop.contains("Wait-ReaderQaRelocationTerminal") &&
 				stressLoop.contains("\$latestPreparation.Index -gt \$terminalInFullLog.Index") &&
 				stressLoop.contains("\$latestPreparation.State -eq 'Ready'") &&
+				stressLoop.contains(
+					"\$recoveryAttemptBoundary = if (\n" +
+						"                        \$latestPreparation.State -eq 'Attempted'"
+				) &&
 				stressLoop.contains("[long]\$latestPreparation.Attempt + 1") &&
 				stressLoop.contains("-AtOrAfterAttempt \$recoveryAttemptBoundary") &&
 				stressLoop.contains("-WaitSeconds \$preparationRecoveryTimeoutSeconds") &&
