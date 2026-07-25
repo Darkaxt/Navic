@@ -20,9 +20,13 @@ internal fun readerPageRasterLeafGeometry(
 		left >= 0 && top >= 0 && right <= bitmapWidth && bottom <= bitmapHeight &&
 			right > left && bottom > top
 
+	fun ReaderPageRasterRect.validGutter(): Boolean =
+		left >= 0 && top >= 0 && right <= bitmapWidth && bottom <= bitmapHeight &&
+			right >= left && bottom > top
+
 	val full = metadata.fullLeafRect?.takeIf { rect -> rect.valid() }
 	val left = metadata.leftLeafRect?.takeIf { rect -> rect.valid() }
-	val gutter = metadata.gutterRect?.takeIf { rect -> rect.valid() }
+	val gutter = metadata.gutterRect?.takeIf { rect -> rect.validGutter() }
 	val right = metadata.rightLeafRect?.takeIf { rect -> rect.valid() }
 	if (metadata.fullLeafRect != null && full == null) return null
 	if (metadata.leftLeafRect != null && left == null) return null

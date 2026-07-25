@@ -23,6 +23,23 @@ class ReaderPageRasterHydrationTest {
 	}
 
 	@Test
+	fun zeroWidthSpreadGutterRestoresLeafGeometry() {
+		val metadata = metadata(
+			left = ReaderPageRasterRect(0, 0, 725, 924),
+			gutter = ReaderPageRasterRect(725, 0, 725, 924),
+			right = ReaderPageRasterRect(725, 0, 1_450, 924),
+			surfaceWidth = 1_450,
+			surfaceHeight = 924
+		)
+
+		val geometry = readerPageRasterLeafGeometry(metadata, bitmapWidth = 1_450, bitmapHeight = 924)
+
+		assertEquals(ReaderPageTurnPixelRect(0, 0, 725, 924), geometry?.leftLeafRect)
+		assertEquals(ReaderPageTurnPixelRect(725, 0, 725, 924), geometry?.gutterRect)
+		assertEquals(ReaderPageTurnPixelRect(725, 0, 1_450, 924), geometry?.rightLeafRect)
+	}
+
+	@Test
 	fun validSinglePageMetadataRestoresFullLeaf() {
 		val metadata = metadata(
 			full = ReaderPageRasterRect(0, 0, 600, 900),
