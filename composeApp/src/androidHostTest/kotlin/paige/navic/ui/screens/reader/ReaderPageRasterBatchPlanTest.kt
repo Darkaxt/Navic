@@ -67,20 +67,61 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
-	fun blockingPreparationIncludesImmediateDeckAndCompleteCurrentChapterOnly() {
+	fun blockingPreparationStopsAfterTheBoundedRendererLookahead() {
 		val targets = listOf(
-			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.Current),
-			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.NextTransition),
-			ReaderPageRasterBatchTarget(6, ReaderPageRasterPriority.PreviousTransition),
-			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.CurrentChapter),
-			ReaderPageRasterBatchTarget(4, ReaderPageRasterPriority.CurrentChapter),
-			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.CurrentChapter),
-			ReaderPageRasterBatchTarget(20, ReaderPageRasterPriority.NextChapter)
-		)
+			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.Current),
+			ReaderPageRasterBatchTarget(16, ReaderPageRasterPriority.NextTransition),
+			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.PreviousTransition),
+			ReaderPageRasterBatchTarget(18, ReaderPageRasterPriority.NextLookahead),
+			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.PreviousLookahead)
+		) + (20..76 step 2).map { pageIndex ->
+			ReaderPageRasterBatchTarget(pageIndex, ReaderPageRasterPriority.CurrentChapter)
+		} + ReaderPageRasterBatchTarget(78, ReaderPageRasterPriority.NextChapter)
 
 		assertEquals(
-			listOf(8, 10, 6, 12, 4, 14),
+			listOf(14, 16, 12, 18, 10),
 			readerPageRasterBlockingTargets(targets).map { it.pageIndex }
+		)
+	}
+
+	@Test
+	fun completeCurrentChapterRemainsEligibleForDemandDrivenRepair() {
+		val currentChapterPages = (10 until 44 step 2).toList()
+		val immediatePages = setOf(14, 16, 12, 18, 10)
+		val targets = listOf(
+			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.Current),
+			ReaderPageRasterBatchTarget(16, ReaderPageRasterPriority.NextTransition),
+			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.PreviousTransition),
+			ReaderPageRasterBatchTarget(18, ReaderPageRasterPriority.NextLookahead),
+			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.PreviousLookahead)
+		) + currentChapterPages
+			.filterNot(immediatePages::contains)
+			.map { pageIndex ->
+				ReaderPageRasterBatchTarget(
+					pageIndex,
+					ReaderPageRasterPriority.CurrentChapter
+				)
+			} + ReaderPageRasterBatchTarget(44, ReaderPageRasterPriority.NextChapter)
+		val plan = ReaderPageRasterPreparationPlan(
+			centerPageIndex = 14,
+			pageCount = 90,
+			layoutMode = "spread",
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+			step = 2,
+			currentChapterIndex = 3,
+			currentChapterPageStartIndex = 10,
+			currentChapterPageCount = 34,
+			previousChapterPageStartIndex = 0,
+			previousChapterPageCount = 10,
+			nextChapterPageStartIndex = 44,
+			nextChapterPageCount = 12,
+			targets = targets
+		)
+
+		assertEquals(currentChapterPages.toSet(), plan.preparedRepairPageIndices())
+		assertEquals(
+			listOf(14, 16, 12, 18, 10),
+			readerPageRasterBlockingTargets(plan.targets).map { target -> target.pageIndex }
 		)
 	}
 

@@ -279,6 +279,7 @@ class ReaderPageTurnBundleHydrationTest {
 						)
 					),
 					trigger = ReaderPageRasterAcquisitionTrigger.WarmReopen,
+					onStagingStarted = {},
 					onComplete = outcomes::add
 				)
 			)
@@ -461,6 +462,7 @@ class ReaderPageTurnBundleHydrationTest {
 							priority = ReaderPageRasterPriority.Current
 						)
 					),
+					onStagingStarted = {},
 					onComplete = outcomes::add
 				)
 			)

@@ -52,7 +52,11 @@ internal fun ReaderPageRasterPreparationPlan.preparedChapterRange(): ReaderPageR
 		?.let { start -> ReaderPageRasterPreparedChapterRange(start, currentChapterPageCount) }
 
 internal fun ReaderPageRasterPreparationPlan.preparedRepairPageIndices(): Set<Int> =
-	readerPageRasterBlockingTargets(targets).mapTo(linkedSetOf()) { target -> target.pageIndex }
+	targets
+		.filter { target ->
+			target.priority.rank <= ReaderPageRasterPriority.CurrentChapter.rank
+		}
+		.mapTo(linkedSetOf()) { target -> target.pageIndex }
 
 internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters():
 	List<ReaderPageAdjacentChapterPrefetchChapter> =
@@ -150,7 +154,7 @@ internal fun readerPageRasterCalibrationTargets(
 internal fun readerPageRasterBlockingTargets(
 	targets: List<ReaderPageRasterBatchTarget>
 ): List<ReaderPageRasterBatchTarget> = targets.filter { target ->
-	target.priority.rank <= ReaderPageRasterPriority.CurrentChapter.rank
+	target.priority.rank <= ReaderPageRasterPriority.PreviousLookahead.rank
 }
 
 internal fun readerPageRasterBackgroundTargets(
@@ -259,7 +263,7 @@ internal interface ReaderPageRasterBatchPort {
 		targets: List<ReaderPageRasterBatchTarget>,
 		trigger: ReaderPageRasterAcquisitionTrigger =
 			ReaderPageRasterAcquisitionTrigger.InitialPreparation,
-		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
+		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit = {},
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit = {},
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit = { _, _ -> },

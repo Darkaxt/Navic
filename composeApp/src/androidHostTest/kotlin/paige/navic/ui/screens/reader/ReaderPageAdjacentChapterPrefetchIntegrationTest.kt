@@ -302,6 +302,30 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun destroyWaitsForForegroundPreviewRestorationBeforeRemovingItsShield() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.foreground.stagePreview()
+			fixture.foreground.delayCancellationRestoration = true
+			assertEquals(2, fixture.hostChildCount())
+
+			val destruction = fixture.controller.destroy()
+
+			assertFalse(destruction.isCompleted)
+			assertEquals(2, fixture.hostChildCount())
+			fixture.foreground.completeCancellationRestoration()
+			destruction.await()
+			assertEquals(1, fixture.hostChildCount())
+		} finally {
+			fixture.foreground.completeCancellationRestoration()
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun cacheInitializationCompletingWhileDetachedDefersAndCanRetry() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val allowFirstInitialization = CompletableDeferred<Unit>()
@@ -599,6 +623,7 @@ private data class ReaderPageRasterBatchRequest(
 	val reference: ReaderPageSlideSnapshot,
 	val targets: List<ReaderPageRasterBatchTarget>,
 	val trigger: ReaderPageRasterAcquisitionTrigger,
+	val onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 	val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 	val onProgress: (Int, Int) -> Unit,
 	val onComplete: (ReaderPageRasterBatchOutcome) -> Unit
@@ -610,6 +635,8 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		private set
 	var cancellationCount = 0
 		private set
+	var delayCancellationRestoration = false
+	private var pendingCancellationRestoration: (() -> Unit)? = null
 
 	override fun start(
 		webView: WebView,
@@ -628,6 +655,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 			reference = reference,
 			targets = targets,
 			trigger = trigger,
+			onStagingStarted = onStagingStarted,
 			onTargetDurable = onTargetDurable,
 			onProgress = onProgress,
 			onComplete = onComplete
@@ -636,6 +664,18 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		active = request
 		onProgress(0, targets.size)
 		return true
+	}
+
+	fun stagePreview() {
+		val request = checkNotNull(active)
+		request.onStagingStarted(request.reference)
+	}
+
+	fun completeCancellationRestoration() {
+		pendingCancellationRestoration?.also {
+			pendingCancellationRestoration = null
+			it()
+		}
 	}
 
 	fun publishDurable(target: ReaderPageRasterBatchTarget) {
@@ -693,7 +733,12 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		cancellationCount += 1
 		request.reference.release()
 		request.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
-		onRestored()
+		if (delayCancellationRestoration) {
+			check(pendingCancellationRestoration == null)
+			pendingCancellationRestoration = onRestored
+		} else {
+			onRestored()
+		}
 	}
 }
 
@@ -747,6 +792,8 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	fun drainMainLooper() {
 		Shadows.shadowOf(Looper.getMainLooper()).idle()
 	}
+
+	fun hostChildCount(): Int = host.childCount
 
 	fun detachWebView() {
 		host.removeView(webView)
@@ -861,7 +908,7 @@ private fun task9PreparationPlan(): ReaderPageRasterPreparationPlan =
 			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.Current),
 			ReaderPageRasterBatchTarget(9, ReaderPageRasterPriority.NextTransition),
 			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.PreviousTransition),
-			ReaderPageRasterBatchTarget(11, ReaderPageRasterPriority.CurrentChapter),
+			ReaderPageRasterBatchTarget(11, ReaderPageRasterPriority.NextLookahead),
 			ReaderPageRasterBatchTarget(7, ReaderPageRasterPriority.PreviousChapter),
 			ReaderPageRasterBatchTarget(6, ReaderPageRasterPriority.PreviousChapterRemainder),
 			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.NextChapter),

@@ -806,7 +806,7 @@ internal class ReaderPageTurnBundleSource(
 		itemToken: String,
 		priority: ReaderPageRasterPriority,
 		isStillCurrent: () -> Boolean = { true },
-		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {},
+		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		onCaptureFailed: () -> Unit,
 		onCaptured: (Boolean) -> Unit
 	) {

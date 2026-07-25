@@ -112,9 +112,31 @@ class ReaderPageRasterPreparationSourceTest {
 			"private fun removePreparationShield("
 		).substringBefore("private fun shieldDetail(")
 
-		assertContains(cancellation, "rasterBatchController.cancel {")
+		assertContains(cancellation, "rasterBatchController.cancel(")
+		assertContains(cancellation, "trackVisualRestoration {")
 		assertContains(cancellation, "expectedSession = cancelledSession")
 		assertContains(removal, "preparationShieldSession != expectedSession")
+	}
+
+	@Test
+	fun shieldCleanupIsRestorationFencedAcrossDetachAndDestroy() {
+		val source = readerRasterPreparationSource()
+		val attachment = source.substringAfter(
+			"fun onWebViewAttachmentChanged(attached: Boolean) {"
+		).substringBefore("\n\tfun onPointerInteractionChanged(")
+		val teardown = source.substringAfter(
+			"private val teardown = ReaderPageReaderTeardown("
+		).substringBefore("\n\tprivate val memoryCallbacks")
+		val destroyFence = source.substringAfter(
+			"private fun fenceForDestroy() {"
+		).substringBefore("\n\tsuspend fun destroyAndJoin()")
+
+		assertContains(attachment, "if (!attached)")
+		assertContains(attachment, "cancelRasterRepairs(\"webview-detached\")")
+		assertContains(attachment, "deferPrewarmForWebViewDetach()")
+		assertContains(teardown, "awaitVisualRestorations()")
+		assertFalse(destroyFence.contains("removePreparationShield("))
+		assertFalse(destroyFence.contains("removeBackgroundPrefetchShield("))
 	}
 
 	@Test
@@ -160,15 +182,43 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun passiveFollowUpPrewarmNeverCoversTheVisibleReader() {
+	fun everyForegroundPreparedPreviewIsCoveredBeforeLiveExposure() {
 		val source = readerRasterPreparationSource()
 		val followUp = source.substringAfter(
 			"private fun startRasterFollowUp("
 		).substringBefore("\n\tprivate fun startRasterBatch(")
+		val batch = source.substringAfter(
+			"private fun startRasterBatch("
+		).substringBefore("\n\tprivate fun obtainRasterReference(")
 
-		assertContains(followUp, "protectForeground = false")
-		assertContains(source, "if (protectForeground) {")
-		assertContains(source, "event = \"shield-skipped\"")
+		assertContains(followUp, "targets = followUpTargets")
+		assertContains(batch, "reusePreparationShield(snapshot, session, batchLabel)")
+		assertFalse(source.contains("protectForeground"))
+		assertFalse(source.contains("event = \"shield-skipped\""))
+	}
+
+	@Test
+	fun preparedPreviewCaptureRequiresAnExplicitStagingGuard() {
+		val batch = readerRasterBatchSource()
+		val contract = batch.substringAfter(
+			"internal interface ReaderPageRasterBatchPort"
+		).substringBefore("internal class ReaderPageRasterBatchController")
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val capture = bundle.substringAfter(
+			"fun capturePreparedRasterPage("
+		).substringBefore(") {")
+		val exposure = bundle.substringAfter(
+			"private fun capturePreparedPage("
+		).substringBefore("fun cacheCurrentSnapshot(")
+
+		assertContains(contract, "onStagingStarted: (ReaderPageSlideSnapshot) -> Unit")
+		assertFalse(contract.contains("onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {}"))
+		assertContains(capture, "onStagingStarted: (ReaderPageSlideSnapshot) -> Unit")
+		assertFalse(capture.contains("onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {}"))
+		assertTrue(
+			exposure.indexOf("onStagingStarted()") <
+				exposure.indexOf("exposePageTurnPreviewFinal")
+		)
 	}
 
 	@Test
@@ -207,7 +257,7 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun singlePageRepairUsesAnIndependentBackgroundBatchWithoutChangingPresentationState() {
+	fun singlePageRepairUsesAnIndependentShieldedBatchWithoutChangingPresentationState() {
 		val source = readerRasterPreparationSource()
 		val repair = source.substringAfter(
 			"fun repairRasterPage("
@@ -219,11 +269,15 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "ReaderPageRasterBatchTarget(pageIndex")
 		assertContains(repair, "event = \"page-repair-requested\"")
 		assertContains(repair, "adjacentChapterPrefetchCoordinator.suspendForForegroundWork()")
+		assertContains(repair, "onStagingStarted = { snapshot ->")
+		assertContains(repair, "reusePreparationShield(")
+		assertContains(repair, "removePreparationShield(")
+		assertContains(repair, "rasterRepairBatchController.cancel(")
+		assertContains(repair, "trackVisualRestoration {")
 		assertContains(repair, "\"page-repair-completed\"")
 		assertContains(repair, "\"page-repair-failed\"")
 		assertContains(repair, "ReaderPageRasterRepairResult.Repaired")
 		assertFalse(repair.contains("publishPreparationState("))
-		assertFalse(repair.contains("reusePreparationShield("))
 		assertContains(
 			repair,
 			"detail = \"reference-unavailable:${'$'}centerOrdinal\""
@@ -264,7 +318,8 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(background, "rasterRepairCallbacks.isEmpty()")
 		assertContains(background, "showBackgroundPrefetchShield(snapshot, submission)")
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
-		assertContains(background, "rasterBackgroundBatchController.cancel {")
+		assertContains(background, "rasterBackgroundBatchController.cancel(")
+		assertContains(background, "trackVisualRestoration {")
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
 		assertFalse(background.contains("publishPreparationState("))
 		assertFalse(background.contains("reusePreparationShield("))
