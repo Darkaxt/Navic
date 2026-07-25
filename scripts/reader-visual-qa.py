@@ -238,14 +238,17 @@ def analyze_frames(
     coverage_ratios = [metric["coverage"] / baseline_coverage for metric in evaluated_leaf]
     bounds_ratios = [metric["boundsArea"] / baseline_bounds for metric in evaluated_leaf]
     peak_black = max(black_ratios)
-    black_limit = baseline_black + thresholds.max_black_delta
-    if baseline_black < 0.30:
-        black_limit = min(thresholds.max_black_ratio, black_limit)
+    black_limit = min(
+        thresholds.max_black_ratio,
+        baseline_black + thresholds.max_black_delta,
+    )
+    baseline_visible = baseline_black <= thresholds.max_black_ratio
     checks: dict[str, dict] = {
         "blackRegions": check_result(
-            "pass" if peak_black <= black_limit else "fail",
+            "pass" if baseline_visible and peak_black <= black_limit else "fail",
             {
                 "baselineRatio": baseline_black,
+                "baselineVisible": baseline_visible,
                 "peakRatio": peak_black,
                 "allowedRatio": black_limit,
                 "peakFrame": baseline_start + int(np.argmax(black_ratios)),
@@ -292,7 +295,11 @@ def analyze_frames(
         gutter_samples = [gutter_metrics(frame, roi) for frame in baseline_frames]
         baseline_gutter = statistics.median(sample[0] for sample in gutter_samples)
         baseline_contrast = statistics.median(sample[1] for sample in gutter_samples)
-        all_gutters = [gutter_metrics(frame, roi) for frame in evaluated]
+        settled_gutter_frames = evaluated
+        if scenario != "idle":
+            settled_count = max(3, math.ceil(sample_fps * 0.75))
+            settled_gutter_frames = list(frames[-settled_count:])
+        all_gutters = [gutter_metrics(frame, roi) for frame in settled_gutter_frames]
         peak_drift = max(abs(sample[0] - baseline_gutter) for sample in all_gutters)
         if baseline_contrast < thresholds.min_gutter_contrast:
             checks["gutterDrift"] = check_result(
@@ -300,6 +307,7 @@ def analyze_frames(
                 {
                     "baselineContrast": baseline_contrast,
                     "requiredContrast": thresholds.min_gutter_contrast,
+                    "evaluatedFrames": len(settled_gutter_frames),
                 },
                 "stable gutter could not be detected without inspecting content",
             )
@@ -311,6 +319,7 @@ def analyze_frames(
                     "peakDriftRatio": peak_drift,
                     "driftLimit": thresholds.max_gutter_drift_ratio,
                     "baselineContrast": baseline_contrast,
+                    "evaluatedFrames": len(settled_gutter_frames),
                 },
             )
     else:

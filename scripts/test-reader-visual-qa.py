@@ -49,6 +49,14 @@ class ReaderVisualQaTest(unittest.TestCase):
         self.assertFalse(report["privacy"]["framesPersisted"])
         self.assertFalse(report["privacy"]["ocrPerformed"])
 
+    def test_black_capture_baseline_is_not_accepted_as_page_geometry(self):
+        frames = [np.zeros((120, 200, 3), dtype=np.uint8) for _ in range(40)]
+
+        report = self.analyze(frames)
+
+        self.assertEqual("fail", report["overall"])
+        self.assertEqual("fail", report["checks"]["blackRegions"]["status"])
+
     def test_single_frame_idle_capture_extends_to_expected_timeline(self):
         frame = bright_frame()
 
@@ -118,6 +126,17 @@ class ReaderVisualQaTest(unittest.TestCase):
         report = self.analyze(frames, scenario="slow-next")
 
         self.assertEqual("fail", report["checks"]["gutterDrift"]["status"])
+
+    def test_transient_curl_fold_does_not_count_as_settled_gutter_drift(self):
+        baseline = [bright_frame() for _ in range(12)]
+        folding = bright_frame()
+        folding[:, 98:103] = 220
+        folding[:, 120:125] = 40
+        frames = baseline + [folding.copy() for _ in range(10)] + [bright_frame() for _ in range(8)]
+
+        report = self.analyze(frames, scenario="slow-next")
+
+        self.assertEqual("pass", report["checks"]["gutterDrift"]["status"])
 
     def test_localized_edge_motion_does_not_fail_decoration_continuity(self):
         baseline = [bright_frame(width=120, height=200) for _ in range(12)]

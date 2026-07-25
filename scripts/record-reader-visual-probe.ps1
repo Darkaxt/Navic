@@ -25,6 +25,9 @@ param(
     [ValidateRange(1, 10000)]
     [int] $DisplayHeight,
 
+    [ValidateRange(1, 180)]
+    [int] $VisualReadyTimeoutSeconds = 60,
+
     [switch] $PlanOnly,
     [switch] $SkipAnalysis,
     [switch] $RequireAllVisualChecks
@@ -35,7 +38,6 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 $ReaderDevPackage = 'darkaxt.navic.readerdev'
 $RecordingStartupTimeoutSeconds = 10
-$RecordingDurationToleranceSeconds = 0.5
 
 function Invoke-AdbText {
     param([string[]] $Arguments, [string] $Description)
@@ -45,6 +47,49 @@ function Invoke-AdbText {
         throw "$Description failed (exit=$LASTEXITCODE)."
     }
     return ($output | Out-String).Trim()
+}
+
+function Wait-ReaderDevVisualReady([string] $ReaderPid) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($VisualReadyTimeoutSeconds)
+    do {
+        $log = Invoke-AdbText @(
+            'logcat', '-d', '-v', 'brief', "--pid=$ReaderPid",
+            'ReaderPageRasterPreparation:I',
+            'KomikkuReaderNativeFrameHost:I',
+            '*:S'
+        ) 'ReaderDev visual-readiness query'
+        $latest = @($log -split '\r?\n' | Where-Object {
+            $_.Contains('Page preparation state phase=')
+        } | Select-Object -Last 1)
+        $latestRepair = @($log -split '\r?\n' | Where-Object {
+            $_.Contains('reader-repair ') && $_.Contains(' state=')
+        } | Select-Object -Last 1)
+        $repairBusy = $latestRepair.Count -gt 0 -and @(
+            'state=Started',
+            'state=Ready',
+            'state=Submitted'
+        ).Where({ $latestRepair[0].Contains($_) }).Count -gt 0
+        if ($latest.Count -gt 0) {
+            if ($latest[0].Contains('phase=Ready') -and
+                $latest[0].Contains('gestures=Allow') -and
+                -not $repairBusy) {
+                return
+            }
+            if ($latest[0].Contains('phase=Failed')) {
+                throw 'ReaderDev page preparation failed before visual capture.'
+            }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "ReaderDev did not become visually ready within $VisualReadyTimeoutSeconds seconds."
+}
+
+function Initialize-ReaderDevComposition {
+    & adb -s $DeviceSerial exec-out screencap -p 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'ReaderDev composition preflight failed.'
+    }
+    Start-Sleep -Milliseconds 250
 }
 
 function Get-DeviceKey([string] $Serial) {
@@ -292,6 +337,9 @@ $resumedReaderDev = @($resumed -split '\r?\n' | Where-Object {
 if ($resumedReaderDev.Count -eq 0) {
     throw 'ReaderDev is not the resumed Android activity.'
 }
+$readerDevMainPid = @($readerDevPid -split '\s+')[0]
+Start-Sleep -Milliseconds 2000
+Wait-ReaderDevVisualReady $readerDevMainPid
 
 $deviceKey = Get-DeviceKey $DeviceSerial
 $stem = "$Orientation-$Scenario-$deviceKey"
@@ -303,6 +351,7 @@ foreach ($ownedPath in @($videoPath, $manifestPath, $analysisPath)) {
         throw "Visual QA refuses to overwrite an existing artifact: $ownedPath"
     }
 }
+Initialize-ReaderDevComposition
 $remotePath = "/sdcard/navic-reader-visual-$Orientation-$Scenario.mp4"
 Invoke-AdbText @('shell', 'rm', '-f', $remotePath) 'Remote recording cleanup' | Out-Null
 $recording = $null
@@ -351,11 +400,8 @@ try {
         throw 'Pulled visual QA recording is missing or empty.'
     }
     $videoMetadata = Get-VideoMetadata $videoPath
-    $minimumDurationSeconds =
-        $plan.DurationMs / 1000.0 - $RecordingDurationToleranceSeconds
-    if ($Scenario -ne 'idle' -and
-        $videoMetadata.DurationSeconds -lt $minimumDurationSeconds) {
-        throw "Visual QA recording ended before the probe completed (duration=$($videoMetadata.DurationSeconds))."
+    if ($Scenario -ne 'idle' -and $videoMetadata.FrameCount -lt 2) {
+        throw 'Visual QA gesture recording contains no visible frame transition.'
     }
 } finally {
     if ($null -ne $recording -and -not $recording.HasExited) {
@@ -388,6 +434,10 @@ $manifest = [pscustomobject]@{
     DisplayHeight = $display.Height
     RecordingWidth = $plan.RecordingWidth
     RecordingHeight = $plan.RecordingHeight
+    CompositionPreflight = [pscustomobject]@{
+        Method = 'screencap-discarded'
+        FramePersisted = $false
+    }
     DurationMs = $plan.DurationMs
     CaptureElapsedMs = $captureElapsedMs
     Events = $events

@@ -108,6 +108,14 @@ try {
         'VideoDurationSeconds',
         'VideoFrameCount',
         'StaticIdleCapture',
+        'CaptureElapsedMs',
+        'CompositionPreflight',
+        'Initialize-ReaderDevComposition',
+        'exec-out screencap -p',
+        'Wait-ReaderDevVisualReady',
+        'Page preparation state phase=',
+        'reader-repair ',
+        'KomikkuReaderNativeFrameHost:I',
         '--expected-duration-seconds',
         'pkill -2 screenrecord',
         'reader-visual-qa.py',
@@ -117,6 +125,12 @@ try {
         if (-not $source.Contains($required)) {
             throw "Visual recorder omits required contract: $required"
         }
+    }
+    if ($source.Contains('minimumDurationSeconds')) {
+        throw 'Visual recorder treats variable-frame-rate duration as wall-clock coverage'
+    }
+    if ($source.Contains('SurfacePrime') -or $source.Contains("'surface-prime'")) {
+        throw 'Visual recorder mutates reader position while priming capture'
     }
     if (-not (Test-Path -LiteralPath $analyzer -PathType Leaf)) {
         throw 'Visual recorder analyzer is missing'
