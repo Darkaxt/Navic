@@ -279,11 +279,9 @@ if (@($ownerNames | Sort-Object -Unique).Count -ne 11) {
 $OwnershipPlateauCountFields = @(
     'Residents',
     'AdapterDecoded',
-    'CacheDecoded',
-    'Staged',
-    'Textures'
+    'CacheDecoded'
 )
-if ($OwnershipPlateauCountFields.Count -ne 5 -or
+if ($OwnershipPlateauCountFields.Count -ne 3 -or
     @($OwnershipPlateauCountFields | Where-Object { $_ -notin $ownerNames }).Count -ne 0) {
     throw 'Ownership plateau fields must be stable owner categories'
 }

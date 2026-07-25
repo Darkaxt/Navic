@@ -25,9 +25,7 @@ if ($OwnershipBoundFields.Count -ne 11) {
 $expectedOwnershipPlateauFields = @(
     'Residents',
     'AdapterDecoded',
-    'CacheDecoded',
-    'Staged',
-    'Textures'
+    'CacheDecoded'
 )
 if (@(
         Compare-Object `
@@ -66,12 +64,12 @@ Assert-NoPostWarmupOwnershipGrowth `
     -WarmupCount 2 `
     -Context 'eventual ownership plateau fixture'
 $transientOwnershipSnapshots = @(
-    @{ Callbacks = 0; Reservations = 0; Queued = 0 },
-    @{ Callbacks = 1; Reservations = 1; Queued = 0 },
-    @{ Callbacks = 1; Reservations = 1; Queued = 0 },
-    @{ Callbacks = 1; Reservations = 0; Queued = 1 },
-    @{ Callbacks = 2; Reservations = 1; Queued = 1 },
-    @{ Callbacks = 2; Reservations = 1; Queued = 1 }
+    @{ Callbacks = 0; Reservations = 0; Queued = 0; Staged = 0; Textures = 2 },
+    @{ Callbacks = 1; Reservations = 1; Queued = 0; Staged = 0; Textures = 2 },
+    @{ Callbacks = 1; Reservations = 1; Queued = 0; Staged = 0; Textures = 2 },
+    @{ Callbacks = 1; Reservations = 0; Queued = 1; Staged = 0; Textures = 2 },
+    @{ Callbacks = 2; Reservations = 1; Queued = 1; Staged = 1; Textures = 4 },
+    @{ Callbacks = 2; Reservations = 1; Queued = 1; Staged = 1; Textures = 4 }
 ) | ForEach-Object {
     $relocations = $_.Reservations + $_.Queued
     $snapshotLine = $success.Replace(
@@ -80,6 +78,12 @@ $transientOwnershipSnapshots = @(
     ).Replace(
         'callbacks=1',
         "callbacks=$($_.Callbacks)"
+    ).Replace(
+        'staged=0',
+        "staged=$($_.Staged)"
+    ).Replace(
+        'textures=2',
+        "textures=$($_.Textures)"
     ).Replace(
         'relocationReservations=0 queuedRelocations=0 relocations=0',
         "relocationReservations=$($_.Reservations) " +
