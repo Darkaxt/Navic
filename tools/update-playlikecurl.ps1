@@ -1,11 +1,11 @@
 param(
-	[string] $TagOrCommit = "1.2.0",
-	[string] $ExpectedCommit = "116ea75f86cff26199ab3e7180285e5b728913fa",
-	[string] $ReleaseTag = "1.2.0",
+	[string] $TagOrCommit = "1.2.1",
+	[string] $ExpectedCommit = "a16ea9aa46484f3068242577e1189af66fb1fa9d",
+	[string] $ReleaseTag = "1.2.1",
 	[int] $ApiVersion = 2,
 	[string] $ReleaseArtifact = "karackencurllib-release.aar",
 	[string] $ReleaseArtifactDigest =
-		"sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c",
+		"sha256:4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd",
 	[string] $Repository = "https://github.com/Darkaxt/PlayLikeCurl",
 	[string] $RepositoryRoot = (Join-Path $PSScriptRoot ".."),
 	[string] $VerifiedReleaseArtifactPath,

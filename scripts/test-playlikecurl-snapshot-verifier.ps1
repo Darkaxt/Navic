@@ -160,7 +160,7 @@ try {
 
 	Reset-Fixture
 	$candidate = Read-Candidate $temporaryRoot
-	$candidate | Add-Member -NotePropertyName "tag" -NotePropertyValue "1.2.0"
+	$candidate | Add-Member -NotePropertyName "tag" -NotePropertyValue "1.2.1"
 	Write-Candidate $temporaryRoot $candidate
 	Invoke-Verifier `
 		-Root $temporaryRoot `

@@ -281,6 +281,42 @@ public final class PageSurfaceTerminalDisposalGateTest {
         }
     }
 
+    @Test
+    public void detachedSurfaceLossIsAnExpectedOwnershipFallback() {
+        assertTrue(PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                PageSurfaceTerminalDisposalGate.FailureKind.SURFACE_UNAVAILABLE,
+                false,
+                false));
+        assertTrue(PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                PageSurfaceTerminalDisposalGate.FailureKind.SURFACE_LOST,
+                false,
+                false));
+    }
+
+    @Test
+    public void liveOrBrokenQueueFallbacksRemainFailures() {
+        assertFalse(PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                PageSurfaceTerminalDisposalGate.FailureKind.SURFACE_UNAVAILABLE,
+                false,
+                true));
+        assertFalse(PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                PageSurfaceTerminalDisposalGate.FailureKind.SURFACE_LOST,
+                false,
+                true));
+        assertFalse(PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                PageSurfaceTerminalDisposalGate.FailureKind.QUEUE,
+                false,
+                false));
+        assertFalse(PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                PageSurfaceTerminalDisposalGate.FailureKind.QUEUE_ENTRY_TIMEOUT,
+                false,
+                false));
+        assertFalse(PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                PageSurfaceTerminalDisposalGate.FailureKind.RESUME,
+                false,
+                false));
+    }
+
     @SuppressWarnings("unchecked")
     private static <E extends Throwable> void sneakyThrow(Throwable failure)
             throws E {

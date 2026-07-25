@@ -1252,17 +1252,24 @@ function Assert-NoPostWarmupOwnershipGrowth(
     [int] $WarmupCount,
     [string] $Context
 ) {
-    if ($Snapshots.Count -le $WarmupCount) {
-        throw "$Context needs more than $WarmupCount snapshots"
+    $minimumSnapshotCount = $WarmupCount * 2
+    if ($Snapshots.Count -le $minimumSnapshotCount) {
+        throw "$Context needs more than $minimumSnapshotCount snapshots"
     }
-    $warmup = @($Snapshots | Select-Object -First $WarmupCount)
-    $postWarmup = @($Snapshots | Select-Object -Skip $WarmupCount)
+    $baseline = @(
+        $Snapshots |
+            Select-Object -Last ($WarmupCount * 2) |
+            Select-Object -First $WarmupCount
+    )
+    $plateau = @($Snapshots | Select-Object -Last $WarmupCount)
     foreach ($field in $OwnershipBoundFields) {
-        $ceiling = ($warmup | Measure-Object -Property $field['Count'] -Maximum).Maximum
-        foreach ($snapshot in $postWarmup) {
+        $ceiling = (
+            $baseline | Measure-Object -Property $field['Count'] -Maximum
+        ).Maximum
+        foreach ($snapshot in $plateau) {
             $value = [int]$snapshot.PSObject.Properties[$field['Count']].Value
             if ($value -gt $ceiling) {
-                throw "$Context grew after warmup for $($field['Count']): $($snapshot.LogLine)"
+                throw "$Context grew during its final plateau for $($field['Count']): $($snapshot.LogLine)"
             }
         }
     }

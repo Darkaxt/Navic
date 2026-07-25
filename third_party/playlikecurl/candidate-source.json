@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "116ea75f86cff26199ab3e7180285e5b728913fa",
+  "commit": "a16ea9aa46484f3068242577e1189af66fb1fa9d",
   "apiVersion": 2,
-  "sourceManifestSha256": "69694c05f763d53a60dc9e76f0ff76b7405764ada83cd9daa10567354fb2a7f3",
+  "sourceManifestSha256": "4cde6ebc5b7d4ee385835687f9d839b4ecc83a1e20908d8082db0397965147a4",
   "licenseBlob": "8aa26455d23acf904be3ed9dfb3a3efe3e49245a",
   "sourceFiles": [
     {
@@ -88,11 +88,6 @@
     },
     {
       "mode": "100644",
-      "blob": "2c6d8cd401f06f4617d63a0c311743fa22daf698",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
-    },
-    {
-      "mode": "100644",
       "blob": "2e1a9e69ccfc36c382f80e647b8536c64d58710a",
       "path": "karackencurllib/src/main/java/karacken/curl/PageRole.java"
     },
@@ -100,11 +95,6 @@
       "mode": "100644",
       "blob": "2f410d9da90fe187536f9162ddd9d61cdf77f735",
       "path": "karackencurllib/src/test/java/karacken/curl/TextureBudgetTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "31b16dc9c412963041350e74d0976bc20c96c152",
-      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceTerminalDisposalGateTest.java"
     },
     {
       "mode": "100644",
@@ -178,6 +168,11 @@
     },
     {
       "mode": "100644",
+      "blob": "732771118bffbfea42ad9a8cc93db40c8aae101b",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceTerminalDisposalGate.java"
+    },
+    {
+      "mode": "100644",
       "blob": "745f347a948ab7934889a91fc2eee10e21b5c0be",
       "path": "karackencurllib/src/main/java/karacken/curl/PageState.java"
     },
@@ -213,11 +208,6 @@
     },
     {
       "mode": "100644",
-      "blob": "87b8705252f764da723351f5cec7ebb430ec3573",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceTerminalDisposalGate.java"
-    },
-    {
-      "mode": "100644",
       "blob": "8e15d6c12cc58f159c743fe59cdd9cdff9e33705",
       "path": "karackencurllib/src/main/java/karacken/curl/PageImage.java"
     },
@@ -245,6 +235,11 @@
       "mode": "100644",
       "blob": "9ba7064ba61656d923cf68942f6d307dc01ee87b",
       "path": "karackencurllib/proguard-rules.pro"
+    },
+    {
+      "mode": "100644",
+      "blob": "9bcb4dad18cca034fffd134289ef56d7c8cd4e80",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
     },
     {
       "mode": "100644",
@@ -340,6 +335,11 @@
       "mode": "100644",
       "blob": "efee997c6fc9b0ad8dea85f18cfc5e95a718f53f",
       "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlApi.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "f1322e7edee6c49912fb898678733ca1a4b3c5a9",
+      "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceTerminalDisposalGateTest.java"
     },
     {
       "mode": "100644",

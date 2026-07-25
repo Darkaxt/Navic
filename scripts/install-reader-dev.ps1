@@ -14,6 +14,7 @@ param(
     [int] $ReaderAssetServerPort = 0,
     [switch] $NoDiscoverPublication,
     [switch] $RequireReaderLaunch,
+    [switch] $StartAtBeginning,
     [switch] $EnableCanvasPageTurn,
     [string] $ReaderQaFaultRequestId,
     [string] $ReaderQaFault,
@@ -869,17 +870,23 @@ $format = if (![string]::IsNullOrWhiteSpace($ReaderFormat)) {
 } else {
     Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_FORMAT")
 }
-$startHref = if (![string]::IsNullOrWhiteSpace($ReaderStartHref)) {
+$startHref = if ($StartAtBeginning) {
+    $null
+} elseif (![string]::IsNullOrWhiteSpace($ReaderStartHref)) {
     $ReaderStartHref.Trim()
 } else {
     Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_HREF")
 }
-$startCfi = if (![string]::IsNullOrWhiteSpace($ReaderStartCfi)) {
+$startCfi = if ($StartAtBeginning) {
+    $null
+} elseif (![string]::IsNullOrWhiteSpace($ReaderStartCfi)) {
     $ReaderStartCfi.Trim()
 } else {
     Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_CFI")
 }
-$startProgress = if (![string]::IsNullOrWhiteSpace($StartProgress)) {
+$startProgress = if ($StartAtBeginning) {
+    '0'
+} elseif (![string]::IsNullOrWhiteSpace($StartProgress)) {
     $StartProgress
 } else {
     Get-EnvValue -Values $envValues -Keys @("NAVIC_READER_DEV_START_PROGRESS")

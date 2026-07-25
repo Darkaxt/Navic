@@ -40,6 +40,44 @@ Assert-Throws {
         'inconsistent relocation fixture'
 } 'relocation ownership breakdown fixture'
 
+$plateauSnapshots = @(0, 1, 2, 2, 1, 2) | ForEach-Object {
+    $snapshotLine = $success.Replace(
+        'phase=cold-start',
+        'phase=peak-preparation'
+    ).Replace('cacheDecoded=0', "cacheDecoded=$_")
+    ConvertFrom-ReaderOwnershipLog $snapshotLine
+}
+Assert-NoPostWarmupOwnershipGrowth `
+    -Snapshots $plateauSnapshots `
+    -WarmupCount 2 `
+    -Context 'eventual ownership plateau fixture'
+Assert-Throws {
+    $growingSnapshots = @(0, 1, 1, 1, 2, 3) | ForEach-Object {
+        $snapshotLine = $success.Replace(
+            'phase=cold-start',
+            'phase=peak-preparation'
+        ).Replace('cacheDecoded=0', "cacheDecoded=$_")
+        ConvertFrom-ReaderOwnershipLog $snapshotLine
+    }
+    Assert-NoPostWarmupOwnershipGrowth `
+        -Snapshots $growingSnapshots `
+        -WarmupCount 2 `
+        -Context 'late ownership growth fixture'
+} 'late ownership growth fixture'
+Assert-Throws {
+    $earlyPeakLateGrowthSnapshots = @(5, 4, 1, 1, 2, 3) | ForEach-Object {
+        $snapshotLine = $success.Replace(
+            'phase=cold-start',
+            'phase=peak-preparation'
+        ).Replace('cacheDecoded=0', "cacheDecoded=$_")
+        ConvertFrom-ReaderOwnershipLog $snapshotLine
+    }
+    Assert-NoPostWarmupOwnershipGrowth `
+        -Snapshots $earlyPeakLateGrowthSnapshots `
+        -WarmupCount 2 `
+        -Context 'early peak and late ownership growth fixture'
+} 'early peak and late ownership growth fixture'
+
 $gestureCommit =
     'reader-gesture session=7 gestureId=101 outcome=CommittedForward ' +
     'owner=Curl rasterGeneration=2 textureGeneration=9 ' +

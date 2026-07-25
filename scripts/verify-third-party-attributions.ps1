@@ -75,8 +75,8 @@ function Assert-Acknowledgements {
 		},
 		@{
 			id = "playlikecurl"
-			version = "1.2.0"
-			website = "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0"
+			version = "1.2.1"
+			website = "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.1"
 			license = "playlikecurl-mit"
 			copyright = "Originally created by Karan Kalsi; maintained fork by Darkaxt"
 			licenseFile = "third_party/playlikecurl/LICENSE.txt"
@@ -113,12 +113,12 @@ function Assert-Acknowledgements {
 }
 
 $repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$expectedPlayLikeCurlCommit = "116ea75f86cff26199ab3e7180285e5b728913fa"
-$expectedPlayLikeCurlArtifactDigest = "sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
-$script:playLikeCurlIdentity = "production API 2; source commit 116ea75f86cff26199ab3e7180285e5b728913fa; release AAR SHA-256 eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
+$expectedPlayLikeCurlCommit = "a16ea9aa46484f3068242577e1189af66fb1fa9d"
+$expectedPlayLikeCurlArtifactDigest = "sha256:4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd"
+$script:playLikeCurlIdentity = "production API 2; source commit a16ea9aa46484f3068242577e1189af66fb1fa9d; release AAR SHA-256 4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd"
 $provenancePath = Join-Path $repositoryRoot "third_party/playlikecurl/provenance.json"
 $provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
-if ($provenance.tag -ne "1.2.0" -or $provenance.apiVersion -ne 2 -or
+if ($provenance.tag -ne "1.2.1" -or $provenance.apiVersion -ne 2 -or
     $provenance.commit -ne $expectedPlayLikeCurlCommit -or
     $provenance.releaseArtifactDigest -ne $expectedPlayLikeCurlArtifactDigest) {
   throw "PlayLikeCurl provenance does not match the exact API-2 release identity."
@@ -136,8 +136,8 @@ foreach ($requiredText in @(
 	"107f4fa74db0e7247c846c49d6211df3edf9887c",
 	"f52d42c6127d0ad981a2c67634113541b17ae01e",
 	"ce87167432819f85df49b6b16c7a78556e9a4ee0",
-	"116ea75f86cff26199ab3e7180285e5b728913fa",
-	"https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0"
+	"a16ea9aa46484f3068242577e1189af66fb1fa9d",
+	"https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.1"
 )) {
 	if (-not $notices.Contains($requiredText)) {
 		throw "THIRD_PARTY.md omits '$requiredText'."

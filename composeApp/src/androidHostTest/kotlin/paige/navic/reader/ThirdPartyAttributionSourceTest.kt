@@ -47,7 +47,7 @@ class ThirdPartyAttributionSourceTest {
 		val license = repoFile("third_party/playlikecurl/LICENSE.txt").readText()
 			val verifier = repoFile("scripts/verify-third-party-attributions.ps1").readText()
 			val provenance = repoFile("third_party/playlikecurl/provenance.json").readText()
-			val releaseIdentity = "production API 2; source commit 116ea75f86cff26199ab3e7180285e5b728913fa; release AAR SHA-256 eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
+			val releaseIdentity = "production API 2; source commit a16ea9aa46484f3068242577e1189af66fb1fa9d; release AAR SHA-256 4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd"
 			val generatedLibraries = Json.parseToJsonElement(generated)
 				.jsonObject["libraries"]!!.jsonArray
 			val generatedPlayLikeCurl = generatedLibraries.single { library ->
@@ -61,9 +61,9 @@ class ThirdPartyAttributionSourceTest {
 
 			assertContains(notices, "PlayLikeCurl")
 		assertContains(notices, "https://github.com/karankalsi/PlayLikeCurl")
-		assertContains(notices, "116ea75f86cff26199ab3e7180285e5b728913fa")
+		assertContains(notices, "a16ea9aa46484f3068242577e1189af66fb1fa9d")
 		assertContains(notices, "third_party/playlikecurl/LICENSE.txt")
-		assertContains(libraryRecord, "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0")
+		assertContains(libraryRecord, "https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.1")
 		assertContains(libraryRecord, "https://github.com/karankalsi")
 		assertContains(libraryRecord, "playlikecurl-mit")
 		assertContains(licenseRecord, "MIT License - PlayLikeCurl")
@@ -78,10 +78,10 @@ class ThirdPartyAttributionSourceTest {
 					"Each PlayLikeCurl representation must contain one exact API/commit/AAR identity."
 				)
 			}
-			assertContains(provenance, "\"tag\": \"1.2.0\"")
+			assertContains(provenance, "\"tag\": \"1.2.1\"")
 			assertContains(provenance, "\"apiVersion\": 2")
-			assertContains(provenance, "\"commit\": \"116ea75f86cff26199ab3e7180285e5b728913fa\"")
-			assertContains(provenance, "\"releaseArtifactDigest\": \"sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c\"")
+			assertContains(provenance, "\"commit\": \"a16ea9aa46484f3068242577e1189af66fb1fa9d\"")
+			assertContains(provenance, "\"releaseArtifactDigest\": \"sha256:4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd\"")
 			assertEquals(0, Regex("production API 1").findAll(libraryRecord).count())
 			assertEquals(0, Regex("production API 1").findAll(generated).count())
 			assertEquals(

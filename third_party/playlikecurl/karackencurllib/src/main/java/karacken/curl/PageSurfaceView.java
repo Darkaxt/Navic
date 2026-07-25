@@ -903,11 +903,18 @@ public class PageSurfaceView extends GLSurfaceView {
             PageSurfaceTerminalDisposalGate.FailureKind kind,
             Throwable failure) {
         requireMainThread();
-        PageSurfaceDisposalStage stage =
-                kind == PageSurfaceTerminalDisposalGate.FailureKind.RESUME
-                        ? PageSurfaceDisposalStage.SURFACE_RESUME
-                        : PageSurfaceDisposalStage.GL_QUEUE_UNAVAILABLE;
-        disposalFailure.record(stage, failure);
+        boolean expectedDetachedFallback =
+                PageSurfaceTerminalDisposalGate.isExpectedDetachedFallback(
+                        kind,
+                        holderSurfaceAvailable,
+                        attached);
+        if (!expectedDetachedFallback) {
+            PageSurfaceDisposalStage stage =
+                    kind == PageSurfaceTerminalDisposalGate.FailureKind.RESUME
+                            ? PageSurfaceDisposalStage.SURFACE_RESUME
+                            : PageSurfaceDisposalStage.GL_QUEUE_UNAVAILABLE;
+            disposalFailure.record(stage, failure);
+        }
         finishDetachedDisposal();
     }
 

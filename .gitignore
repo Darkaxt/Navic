@@ -29,3 +29,4 @@ navic-reader-dev.env
 navic-release-login.env
 tools/reader-harness/fixtures/local/
 tools/reader-harness/output/
+.codex-validation/

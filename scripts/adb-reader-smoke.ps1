@@ -1422,20 +1422,69 @@ function Assert-ReaderShellGeometryProbe {
     if ($null -eq $contentRects -and $null -ne $pageBoxResult.shellGeometry) {
         $contentRects = $pageBoxResult.shellGeometry.contentRects
     }
+    $foliateRect = $pageBoxResult.rendererRect
+    $foliateContentRectValid = @(
+        @($pageBoxResult.contentRects) | Where-Object {
+            (Test-ReaderPositiveRect -Rect $_.documentElementRect) -or
+                (Test-ReaderPositiveRect -Rect $_.bodyRect)
+        }
+    ).Count -gt 0
+    $shellRectValid = Test-ReaderPositiveRect -Rect $shellRect
+    $layoutRect = if ($shellRectValid) {
+        $shellRect
+    } else {
+        $foliateRect
+    }
+    $usesFoliateGeometry = -not $shellRectValid
+
+    $maxColumnCount = 1
+    [void][int]::TryParse(
+        ([string] $pageBoxResult.rendererAttributes.maxColumnCount),
+        [ref] $maxColumnCount
+    )
+    $foliateMode = if ($maxColumnCount -ge 2) { 'spread' } else { 'single' }
+    if ($usesFoliateGeometry -or $mode -notin @('single', 'spread')) {
+        $mode = $foliateMode
+    }
+
     $singleRectValid = Test-ReaderPositiveRect -Rect $contentRects.single
     $leftRectValid = Test-ReaderPositiveRect -Rect $contentRects.left
     $rightRectValid = Test-ReaderPositiveRect -Rect $contentRects.right
+    $singleContentValid = if ($usesFoliateGeometry) {
+        $mode -eq 'single' -and $foliateContentRectValid
+    } else {
+        $singleRectValid
+    }
+    $spreadContentValid = if ($usesFoliateGeometry) {
+        $mode -eq 'spread' -and $foliateContentRectValid
+    } else {
+        $leftRectValid -and $rightRectValid
+    }
+
     $gutterWidth = 0.0
-    [void] [double]::TryParse(([string] $pageBoxResult.shellGutterWidth), [ref] $gutterWidth)
-    if ($mode -notin @('single', 'spread')) {
-        $mode = if ($leftRectValid -and $rightRectValid) {
-            'spread'
-        } elseif ($singleRectValid) {
-            'single'
-        } else {
-            ''
+    [void][double]::TryParse(
+        ([string] $pageBoxResult.shellGutterWidth),
+        [ref] $gutterWidth
+    )
+    if ($usesFoliateGeometry -and $mode -eq 'spread') {
+        $foliateGapText = [string] $pageBoxResult.rendererAttributes.contentGap
+        if ([string]::IsNullOrWhiteSpace($foliateGapText)) {
+            $foliateGapText = [string] $pageBoxResult.rendererAttributes.gap
+        }
+        $gapMatch = [regex]::Match(
+            $foliateGapText,
+            '^\s*(?<Value>\d+(?:\.\d+)?)\s*(?<Unit>%|px)?\s*$'
+        )
+        if ($gapMatch.Success) {
+            $gapValue = [double]$gapMatch.Groups['Value'].Value
+            $gutterWidth = if ($gapMatch.Groups['Unit'].Value -eq '%') {
+                [double]$pageBoxResult.viewport.width * $gapValue / 100.0
+            } else {
+                $gapValue
+            }
         }
     }
+
     $script:LayoutMode = $mode
     $script:ViewportWidthPx = [int]$pageBoxResult.viewport.width
     $script:ViewportHeightPx = [int]$pageBoxResult.viewport.height
@@ -1444,8 +1493,8 @@ function Assert-ReaderShellGeometryProbe {
         $probeResults | Where-Object { $null -ne $_ -and $_.probe -eq 'page-box' }
     ).Count
     $script:SpreadGeometryValid =
-        ($mode -eq 'single' -and $singleRectValid) -or
-        ($mode -eq 'spread' -and $leftRectValid -and $rightRectValid)
+        ($mode -eq 'single' -and $singleContentValid) -or
+        ($mode -eq 'spread' -and $spreadContentValid)
     $script:PositiveGutter =
         ($mode -eq 'single' -and $gutterWidth -ge 0) -or
         ($mode -eq 'spread' -and $gutterWidth -gt 0)
@@ -1454,16 +1503,16 @@ function Assert-ReaderShellGeometryProbe {
         @(
             "expectedMode=$ExpectedMode",
             "actualMode=$mode",
-            "shellRectValid=$(Test-ReaderPositiveRect -Rect $shellRect)",
-            "singleRectValid=$singleRectValid",
-            "leftRectValid=$leftRectValid",
-            "rightRectValid=$rightRectValid",
+            "layoutRectValid=$(Test-ReaderPositiveRect -Rect $layoutRect)",
+            "usesFoliateGeometry=$usesFoliateGeometry",
+            "singleContentValid=$singleContentValid",
+            "spreadContentValid=$spreadContentValid",
             "shellGutterWidth=$gutterWidth"
         ) | Out-File -Encoding utf8 $summaryPath
     }
 
-    if (-not (Test-ReaderPositiveRect -Rect $shellRect)) {
-        throw "Reader shell-geometry validation failed: shell rect was missing or empty. See $summaryPath"
+    if (-not (Test-ReaderPositiveRect -Rect $layoutRect)) {
+        throw "Reader shell-geometry validation failed: Foliate layout rect was missing or empty. See $summaryPath"
     }
     if ($PrivacySafeEvidence -and
         (-not $script:SpreadGeometryValid -or
@@ -1476,14 +1525,14 @@ function Assert-ReaderShellGeometryProbe {
         throw "Reader shell-geometry validation failed: expected mode '$ExpectedMode' but got '$mode'. See $summaryPath"
     }
     if ($ExpectedMode -eq "spread") {
-        if (-not ($leftRectValid -and $rightRectValid -and $gutterWidth -gt 0)) {
-            throw "Reader shell-geometry validation failed: spread mode requires left/right content rects and a positive gutter. See $summaryPath"
+        if (-not $spreadContentValid -or $gutterWidth -le 0) {
+            throw "Reader shell-geometry validation failed: spread mode requires readable Foliate content and a positive gutter. See $summaryPath"
         }
     } elseif ($ExpectedMode -eq "single") {
-        if (-not $singleRectValid) {
-            throw "Reader shell-geometry validation failed: single mode requires a single content rect. See $summaryPath"
+        if (-not $singleContentValid) {
+            throw "Reader shell-geometry validation failed: single mode requires readable Foliate content. See $summaryPath"
         }
-    } elseif (-not ($singleRectValid -or ($leftRectValid -and $rightRectValid))) {
+    } elseif (-not ($singleContentValid -or $spreadContentValid)) {
         throw "Reader shell-geometry validation failed: no readable content rects were reported. See $summaryPath"
     }
 }

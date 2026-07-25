@@ -1,13 +1,13 @@
 {
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "116ea75f86cff26199ab3e7180285e5b728913fa",
-  "tag": "1.2.0",
+  "commit": "a16ea9aa46484f3068242577e1189af66fb1fa9d",
+  "tag": "1.2.1",
   "apiVersion": 2,
   "module": "karackencurllib",
   "releaseArtifact": "karackencurllib-release.aar",
-  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.2.0/karackencurllib-release.aar",
-  "releaseArtifactDigest": "sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c",
-  "sourceDigest": "sha256:be3a2cdcd8db0d0b3b179f889a0a5b05ab4665dd7f30d044549deb4ccbd7b91f",
+  "releaseArtifactUrl": "https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.2.1/karackencurllib-release.aar",
+  "releaseArtifactDigest": "sha256:4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd",
+  "sourceDigest": "sha256:438d47fda05a891b93b3d8b58efc13db06d13d29d6041c7870641ac6aef1936e",
   "sourceFileCount": 70,
   "licenseDigest": "sha256:002c2696d92b5c8cf956c11072baa58eaf9f6ade995c031ea635c6a1ee342ad1",
   "files": [
@@ -161,11 +161,11 @@
     },
     {
       "path": "src/main/java/karacken/curl/PageSurfaceTerminalDisposalGate.java",
-      "sha256": "5ee65cf14458dcf53c12763d9edf152cfc114db0a56e236c8a091f551ecc4154"
+      "sha256": "5c8f88e518e61f26e7b34d866a72b8e6eb056a5ca0d258de3407b16f627033bc"
     },
     {
       "path": "src/main/java/karacken/curl/PageSurfaceView.java",
-      "sha256": "a9b3c64afbe1e1500fde6918162cb3c04c85fef769f4e885ff4dbbd1bb5e29af"
+      "sha256": "7dd6d079c3c81dee04ec6a9efd3970b1967840bc3d8283116572aa28f5c84a9a"
     },
     {
       "path": "src/main/java/karacken/curl/PlayLikeCurlApi.java",
@@ -265,7 +265,7 @@
     },
     {
       "path": "src/test/java/karacken/curl/PageSurfaceTerminalDisposalGateTest.java",
-      "sha256": "17baf523333a4043fe368b8b5303ec544fea3248db146eca93531f3035ca022e"
+      "sha256": "7ac0399b2fff3347b78c525ad89d0e8e4a42693e65426b9e063e516cd54419a3"
     },
     {
       "path": "src/test/java/karacken/curl/PlayLikeCurlReferenceModelTest.java",

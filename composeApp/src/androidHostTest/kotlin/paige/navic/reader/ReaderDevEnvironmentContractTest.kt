@@ -165,6 +165,7 @@ class ReaderDevEnvironmentContractTest {
 		val runner = root.resolve(
 			"scripts/adb-reader-playlikecurl-qa.ps1"
 		).readText()
+		val installer = root.resolve("scripts/install-reader-dev.ps1").readText()
 
 		assertTrue(
 			runner.contains("git diff HEAD --name-status --no-renames"),
@@ -183,8 +184,9 @@ class ReaderDevEnvironmentContractTest {
 		)
 		assertTrue(
 			runner.contains("\$readerLaunchTimeoutSeconds = 120") &&
-				runner.split("-WaitTimeoutSeconds \$readerLaunchTimeoutSeconds")
-					.size == 3,
+				runner.contains("'-WaitTimeoutSeconds',") &&
+				runner.contains("\"\$readerLaunchTimeoutSeconds\"") &&
+				runner.contains("-WaitTimeoutSeconds \$readerLaunchTimeoutSeconds"),
 			"The runner must allow both cold and warm publication launches enough time to finish on the bounded ReaderDev emulator."
 		)
 		assertTrue(
@@ -211,6 +213,47 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("\$script:ReaderPid = \$null"),
 			"The first launch must finish and persist a prepared deck before force-stop so the warm reopen can prove persistent hydration."
 		)
+		assertTrue(
+			installer.contains("[switch] \$StartAtBeginning") &&
+				installer.contains("\$startHref = if (\$StartAtBeginning) {") &&
+				installer.contains("\$startCfi = if (\$StartAtBeginning) {") &&
+				installer.contains("\$startProgress = if (\$StartAtBeginning) {") &&
+				installer.contains("'0'") &&
+				runner.split("-StartAtBeginning").size == 3,
+			"The cold and warm QA launches must override optional env locators with the publication start so the bounded boundary probe is deterministic."
+		)
+		assertTrue(
+			runner.contains("\$physicalDirectionByLogical = @{") &&
+				runner.contains("\$stressPhase = 'SeekPreviousBoundary'") &&
+				runner.contains("\$requestedLogicalDirection = 'Previous'") &&
+				runner.contains("\$stressPhase = 'ExpandNext'") &&
+				runner.contains("\$stressPhase = 'BacktrackPrevious'") &&
+				runner.contains("\$stressPhase = 'Alternating'") &&
+				runner.contains("\$nextCommitsAfterBoundary") &&
+				runner.contains("\$previousCommitsAfterExpansion") &&
+				runner.contains("ReaderDev stress preparing recovery") &&
+				!runner.contains("\$currentSweepLogicalDirection"),
+			"Stress must probe the nearby previous boundary, traverse a bounded ordinal window in both directions, and wait for preparation recovery instead of sweeping an unbounded publication."
+		)
+		assertTrue(
+			runner.contains("function Resolve-ReaderQaPhysicalDirections") &&
+				runner.contains("\$physicalDirectionByLogical = Resolve-ReaderQaPhysicalDirections") &&
+				runner.indexOf("\$physicalDirectionByLogical = Resolve-ReaderQaPhysicalDirections") <
+					runner.indexOf("\$faultMatrixLog = Invoke-ReaderQaFaultMatrix") &&
+				runner.contains("-PhysicalDirectionByLogical \$physicalDirectionByLogical") &&
+				runner.contains("function Get-ReaderQaSwipeCoordinates"),
+			"The publication-start probe must resolve logical-to-physical direction before any fault turn so both LTR and RTL books enter the matrix safely."
+		)
+		val stressLoop = runner
+			.substringAfter("\$stressPhase = 'SeekPreviousBoundary'")
+			.substringBefore("\$stressDeadline =")
+		assertTrue(
+			runner.contains("[long] \$AtOrAfterAttempt = -1") &&
+				runner.contains("-Full:(\$AfterIndex -ge 0)") &&
+				stressLoop.contains("-AtOrAfterAttempt \$latestPreparationAttempt") &&
+				!stressLoop.contains("-AfterIndex \$newTerminal.Index"),
+			"Stress readiness recovery must correlate with monotonic preparation attempts rather than rolling-window character offsets."
+		)
 		val stressRetryOutcomes = runner
 			.substringAfter("\$transientRetryOutcomes = @(")
 			.substringBefore(")")
@@ -221,6 +264,12 @@ class ReaderDevEnvironmentContractTest {
 				stressRetryOutcomes.contains("'RejectedRendererUnavailable'") &&
 				runner.contains("if (\$newTerminal.Outcome -in \$transientRetryOutcomes)"),
 			"The stress sweep must retry bounded snap-backs and transient readiness rejections instead of requiring turn directions from them."
+		)
+		assertTrue(
+			runner.contains("if (\$StressTurns -ge 20) {") &&
+				runner.contains("Assert-NoPostWarmupOwnershipGrowth \$peak 10") &&
+				runner.contains("Assert-NoPostWarmupOwnershipGrowth \$steady 10"),
+			"The release-sized run must prove a final ownership plateau, while bounded precommit probes rely on hard owner limits instead of an under-sampled plateau."
 		)
 		assertTrue(
 			runner.split("-AllowPendingRecovery").size == 3 &&
@@ -296,7 +345,8 @@ class ReaderDevEnvironmentContractTest {
 			runner.contains("function Wait-ReaderQaRelocationTerminal") &&
 				runner.contains("function Wait-ReaderQaWorkingSetReady") &&
 				runner.contains("-AfterIndex \$visualTurn.Index") &&
-				runner.contains("\$turnRightToLeft = \$repairFaultAttempt % 2 -eq 0") &&
+				runner.contains("\$repairLogicalDirection = if (\$repairFaultAttempt % 2 -eq 0)") &&
+				runner.contains("Get-ReaderQaSwipeCoordinates") &&
 				runner.contains("-States @('Completed', 'Rejected')") &&
 				runner.contains("ReaderDev repaired active deck proof turn"),
 			"Forced active repair must isolate the prior refill, turn away from the imminent publication boundary, accept either valid relocation terminal, and prove that the prepared recovery deck accepts the next turn."
@@ -633,6 +683,17 @@ class ReaderDevEnvironmentContractTest {
 					"\$smokeArgs.RequireNeutralReaderVisualState = \$true"
 				),
 			"Privacy-safe smoke orchestration must preserve the stress log and require a proven neutral visual state before sealing evidence."
+		)
+		assertTrue(
+			smokeScriptText.contains("\$foliateRect = \$pageBoxResult.rendererRect") &&
+				smokeScriptText.contains("\$foliateContentRectValid") &&
+				smokeScriptText.contains("\$pageBoxResult.rendererAttributes.maxColumnCount") &&
+				smokeScriptText.contains("\$pageBoxResult.rendererAttributes.gap") &&
+				smokeScriptText.contains("\$layoutRect = if (") &&
+				!smokeScriptText.contains(
+					"if (-not (Test-ReaderPositiveRect -Rect \$shellRect)) {"
+				),
+			"Privacy-safe smoke geometry must validate Foliate-owned renderer/content bounds and its resolved spread gap without requiring the removed synthetic shell rectangle."
 		)
 		assertTrue(
 			smokeScriptText.contains("\$script:NeutralVisualState = \$false") &&

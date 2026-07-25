@@ -33,6 +33,16 @@ final class PageSurfaceTerminalDisposalGate {
         QUEUE_ENTRY_TIMEOUT
     }
 
+    static boolean isExpectedDetachedFallback(
+            FailureKind kind,
+            boolean holderSurfaceAvailable,
+            boolean logicallyAttached) {
+        return !holderSurfaceAvailable
+                && !logicallyAttached
+                && (kind == FailureKind.SURFACE_UNAVAILABLE
+                        || kind == FailureKind.SURFACE_LOST);
+    }
+
     interface Fallback {
         void run(FailureKind kind, Throwable failure);
     }

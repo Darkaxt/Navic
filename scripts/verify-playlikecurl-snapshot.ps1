@@ -5,18 +5,18 @@ param(
 $ErrorActionPreference = "Stop"
 
 $expectedRepository = "https://github.com/Darkaxt/PlayLikeCurl"
-$expectedCommit = "116ea75f86cff26199ab3e7180285e5b728913fa"
-$expectedTag = "1.2.0"
+$expectedCommit = "a16ea9aa46484f3068242577e1189af66fb1fa9d"
+$expectedTag = "1.2.1"
 $expectedApiVersion = 2
 $expectedModule = "karackencurllib"
 $expectedReleaseArtifact = "karackencurllib-release.aar"
 $expectedReleaseArtifactUrl =
-	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.2.0/karackencurllib-release.aar"
+	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.2.1/karackencurllib-release.aar"
 $expectedReleaseArtifactDigest =
-	"sha256:eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c"
-$expectedCandidateCommit = "116ea75f86cff26199ab3e7180285e5b728913fa"
+	"sha256:4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd"
+$expectedCandidateCommit = "a16ea9aa46484f3068242577e1189af66fb1fa9d"
 $expectedCandidateManifestSha256 =
-	"69694c05f763d53a60dc9e76f0ff76b7405764ada83cd9daa10567354fb2a7f3"
+	"4cde6ebc5b7d4ee385835687f9d839b4ecc83a1e20908d8082db0397965147a4"
 $expectedCandidateLicenseBlob = "8aa26455d23acf904be3ed9dfb3a3efe3e49245a"
 
 $repositoryRootPath = (Resolve-Path -LiteralPath $RepositoryRoot).Path

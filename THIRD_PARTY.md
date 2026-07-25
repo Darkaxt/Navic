@@ -50,12 +50,12 @@ the reader vendor manifest.
 
 - Original project: <https://github.com/karankalsi/PlayLikeCurl>
 - Maintained fork: <https://github.com/Darkaxt/PlayLikeCurl>
-- Pinned release: <https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.0>
-- Pinned source: <https://github.com/Darkaxt/PlayLikeCurl/commit/116ea75f86cff26199ab3e7180285e5b728913fa>
+- Pinned release: <https://github.com/Darkaxt/PlayLikeCurl/releases/tag/1.2.1>
+- Pinned source: <https://github.com/Darkaxt/PlayLikeCurl/commit/a16ea9aa46484f3068242577e1189af66fb1fa9d>
 - License: MIT
 - Full notice: [`third_party/playlikecurl/LICENSE.txt`](third_party/playlikecurl/LICENSE.txt)
 - Provenance: [`third_party/playlikecurl/provenance.json`](third_party/playlikecurl/provenance.json)
-- Release identity: production API 2; source commit 116ea75f86cff26199ab3e7180285e5b728913fa; release AAR SHA-256 eeead972edb3e7727399e05f380c03bf14118c16d3b8ac25679df10910e0721c
+- Release identity: production API 2; source commit a16ea9aa46484f3068242577e1189af66fb1fa9d; release AAR SHA-256 4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd
 
 Navic vendors the fork's `karackencurllib` Android library as a mechanically
 generated, digest-locked source snapshot. The imported renderer keeps its own

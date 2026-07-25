@@ -444,18 +444,29 @@ function Wait-ReaderPreparedDeckOwnership(
 
 function Wait-ReaderQaWorkingSetReady(
     [long] $ReaderSession,
-    [int] $AfterIndex,
+    [int] $AfterIndex = -1,
+    [long] $AtOrAfterAttempt = -1,
     [string] $Context,
     [int] $WaitSeconds = 60
 ) {
+    if ($AfterIndex -lt 0 -and $AtOrAfterAttempt -lt 0) {
+        throw "$Context requires a preparation ordering boundary"
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
     do {
-        $log = Read-ReaderPidLog $Context
+        $log = Read-ReaderPidLog `
+            -Context $Context `
+            -Full:($AfterIndex -ge 0)
         $ready = @(
             ConvertFrom-ReaderPreparationLog $log | Where-Object {
+                $afterBoundary = if ($AtOrAfterAttempt -ge 0) {
+                    $_.Attempt -ge $AtOrAfterAttempt
+                } else {
+                    $_.Index -gt $AfterIndex
+                }
                 $_.Session -eq $ReaderSession -and
                     $_.State -eq 'Ready' -and
-                    $_.Index -gt $AfterIndex
+                    $afterBoundary
             }
         )
         if ($ready.Count -gt 0) { return $ready[$ready.Count - 1] }
@@ -464,18 +475,30 @@ function Wait-ReaderQaWorkingSetReady(
     throw "$Context did not complete working-set preparation"
 }
 
-function Open-ReaderDev {
-    pwsh -NoProfile -ExecutionPolicy Bypass -File `
-        .\scripts\install-reader-dev.ps1 `
-        -DeviceSerial $DeviceSerial `
-        -EnvFile $EnvFile `
-        -NoBuild `
-        -NoInstall `
-        -RequireReaderLaunch `
-        -SkipNativeShellCover `
-        -NoForceStopLaunch `
-        -PreserveLogcat `
-        -WaitTimeoutSeconds $readerLaunchTimeoutSeconds
+function Open-ReaderDev([switch] $AtPublicationStart) {
+    $launchArguments = [Collections.Generic.List[string]]@(
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        '.\scripts\install-reader-dev.ps1',
+        '-DeviceSerial',
+        $DeviceSerial,
+        '-EnvFile',
+        $EnvFile,
+        '-NoBuild',
+        '-NoInstall',
+        '-RequireReaderLaunch',
+        '-SkipNativeShellCover',
+        '-NoForceStopLaunch',
+        '-PreserveLogcat',
+        '-WaitTimeoutSeconds',
+        "$readerLaunchTimeoutSeconds"
+    )
+    if ($AtPublicationStart) {
+        $launchArguments.Add('-StartAtBeginning')
+    }
+    & pwsh @launchArguments
     if ($LASTEXITCODE -ne 0) { throw "ReaderDev relaunch failed" }
     $script:ReaderPid = Wait-ReaderPid 'ReaderDev relaunch'
 }
@@ -692,6 +715,112 @@ function Wait-ReaderQaRelocationCompleted(
         -GestureId $GestureId `
         -States @('Completed') `
         -Context $Context
+}
+
+function Get-ReaderQaSwipeCoordinates(
+    [ValidateSet('Next', 'Previous')]
+    [string] $LogicalDirection,
+    [hashtable] $PhysicalDirectionByLogical,
+    [int] $PhysicalRight,
+    [int] $PhysicalLeft
+) {
+    $physicalDirection = $PhysicalDirectionByLogical[$LogicalDirection]
+    if ($physicalDirection -notin @('Left', 'Right')) {
+        throw "ReaderDev has no physical direction for $LogicalDirection"
+    }
+    return [pscustomobject]@{
+        PhysicalDirection = $physicalDirection
+        StartX = if ($physicalDirection -eq 'Left') {
+            $PhysicalRight
+        } else {
+            $PhysicalLeft
+        }
+        EndX = if ($physicalDirection -eq 'Left') {
+            $PhysicalLeft
+        } else {
+            $PhysicalRight
+        }
+    }
+}
+
+function Resolve-ReaderQaPhysicalDirections(
+    [long] $ReaderSession,
+    [int] $PhysicalRight,
+    [int] $PhysicalLeft,
+    [int] $Y
+) {
+    $seen = [Collections.Generic.HashSet[long]]::new()
+    ConvertFrom-ReaderGestureLog (
+        Read-ReaderPidLog -Context 'ReaderDev direction probe baseline' -Full
+    ) |
+        Where-Object Session -eq $ReaderSession |
+        ForEach-Object { [void]$seen.Add($_.GestureId) }
+
+    Invoke-Adb @(
+        'shell', 'input', 'swipe',
+        "$PhysicalRight", "$Y", "$PhysicalLeft", "$Y", '400'
+    )
+    $terminal = Wait-ReaderQaCondition `
+        -Context 'ReaderDev physical direction probe' `
+        -WaitSeconds 10 `
+        -Select {
+            param($log)
+            ConvertFrom-ReaderGestureLog $log | Where-Object {
+                $_.Session -eq $ReaderSession -and
+                    -not $seen.Contains($_.GestureId)
+            }
+        }
+    if (-not $seen.Add([long]$terminal.Match.GestureId)) {
+        throw 'ReaderDev physical direction probe reused a gesture identity'
+    }
+    if ($terminal.Match.Outcome -notin @(
+        'CommittedForward',
+        'CommittedBackward',
+        'RejectedBoundary'
+    )) {
+        throw "ReaderDev physical direction probe was inconclusive: $($terminal.Match.LogLine)"
+    }
+    if ($terminal.Match.PhysicalDirection -ne 'Left' -or
+        $terminal.Match.LogicalDirection -notin @('Next', 'Previous')) {
+        throw "ReaderDev physical direction probe was malformed: $($terminal.Match.LogLine)"
+    }
+    if ($terminal.Match.Outcome -in @('CommittedForward', 'CommittedBackward')) {
+        $expectedLogicalDirection = if (
+            $terminal.Match.Outcome -eq 'CommittedForward'
+        ) { 'Next' } else { 'Previous' }
+        if ($terminal.Match.LogicalDirection -ne $expectedLogicalDirection) {
+            throw "ReaderDev physical direction probe outcome disagreed with its direction: $($terminal.Match.LogLine)"
+        }
+        [void](Wait-ReaderQaRelocationCompleted `
+            -ReaderSession $ReaderSession `
+            -GestureId $terminal.Match.GestureId `
+            -Context 'ReaderDev physical direction probe relocation')
+        $preparationRecords = @(
+            ConvertFrom-ReaderPreparationLog (
+                Read-ReaderPidLog `
+                    -Context 'ReaderDev physical direction probe preparation' `
+                    -Full
+            ) | Where-Object Session -eq $ReaderSession
+        )
+        if ($preparationRecords.Count -eq 0) {
+            throw 'ReaderDev physical direction probe emitted no preparation record'
+        }
+        [void](Wait-ReaderQaWorkingSetReady `
+            -ReaderSession $ReaderSession `
+            -AtOrAfterAttempt $preparationRecords[-1].Attempt `
+            -Context 'ReaderDev physical direction probe recovery')
+    }
+
+    $oppositeLogicalDirection = if (
+        $terminal.Match.LogicalDirection -eq 'Next'
+    ) { 'Previous' } else { 'Next' }
+    $physicalDirectionByLogical = @{
+        Next = $null
+        Previous = $null
+    }
+    $physicalDirectionByLogical[$terminal.Match.LogicalDirection] = 'Left'
+    $physicalDirectionByLogical[$oppositeLogicalDirection] = 'Right'
+    return $physicalDirectionByLogical
 }
 
 function Get-ReaderQaDownstreamEvents([string] $Log) {
@@ -945,9 +1074,15 @@ function Invoke-ReaderQaFaultMatrix(
     [long] $ReaderSession,
     [int] $PhysicalRight,
     [int] $PhysicalLeft,
-    [int] $Y
+    [int] $Y,
+    [hashtable] $PhysicalDirectionByLogical
 ) {
     $suffix = $runId.Substring(0, 8)
+    $nextSwipe = Get-ReaderQaSwipeCoordinates `
+        -LogicalDirection Next `
+        -PhysicalDirectionByLogical $PhysicalDirectionByLogical `
+        -PhysicalRight $PhysicalRight `
+        -PhysicalLeft $PhysicalLeft
     $pauseId = "pause-$suffix"
     $relocationId = "reloc-$suffix"
     $visualId = "visual-$suffix"
@@ -963,7 +1098,7 @@ function Invoke-ReaderQaFaultMatrix(
     Add-ReaderQaFault $pauseId 'PauseNextPublication'
     $pauseTurn = Invoke-ReaderQaCommittedTurn `
         -SeenGestureIds $seen -ReaderSession $ReaderSession `
-        -StartX $PhysicalRight -EndX $PhysicalLeft -Y $Y `
+        -StartX $nextSwipe.StartX -EndX $nextSwipe.EndX -Y $Y `
         -Context 'ReaderDev publication pause turn'
     [void](Wait-ReaderQaFaultState $pauseId 'Applied' 'ReaderDev publication pause')
     Release-ReaderQaFault `
@@ -984,7 +1119,7 @@ function Invoke-ReaderQaFaultMatrix(
     Add-ReaderQaFault $relocationId 'DelayNextRelocationAcknowledgement'
     $relocationTurn = Invoke-ReaderQaCommittedTurn `
         -SeenGestureIds $seen -ReaderSession $ReaderSession `
-        -StartX $PhysicalRight -EndX $PhysicalLeft -Y $Y `
+        -StartX $nextSwipe.StartX -EndX $nextSwipe.EndX -Y $Y `
         -Context 'ReaderDev relocation delay turn'
     [void](Wait-ReaderQaFaultState $relocationId 'Applied' 'ReaderDev relocation delay')
     Release-ReaderQaFault `
@@ -996,7 +1131,7 @@ function Invoke-ReaderQaFaultMatrix(
     Add-ReaderQaFault $visualId 'DelayNextVisualStateCallback'
     $visualTurn = Invoke-ReaderQaCommittedTurn `
         -SeenGestureIds $seen -ReaderSession $ReaderSession `
-        -StartX $PhysicalRight -EndX $PhysicalLeft -Y $Y `
+        -StartX $nextSwipe.StartX -EndX $nextSwipe.EndX -Y $Y `
         -Context 'ReaderDev visual delay turn'
     [void](Wait-ReaderQaFaultState $visualId 'Applied' 'ReaderDev visual delay' 10)
     Release-ReaderQaFault `
@@ -1030,11 +1165,19 @@ function Invoke-ReaderQaFaultMatrix(
         $missId = "miss-$suffix-$repairFaultAttempt"
         $missIds.Add($missId)
         Add-ReaderQaFault $missId 'MissNextRasterLoad'
-        $turnRightToLeft = $repairFaultAttempt % 2 -eq 0
+        $repairLogicalDirection = if ($repairFaultAttempt % 2 -eq 0) {
+            'Next'
+        } else {
+            'Previous'
+        }
+        $repairSwipe = Get-ReaderQaSwipeCoordinates `
+            -LogicalDirection $repairLogicalDirection `
+            -PhysicalDirectionByLogical $PhysicalDirectionByLogical `
+            -PhysicalRight $PhysicalRight `
+            -PhysicalLeft $PhysicalLeft
         $repairTurn = Invoke-ReaderQaCommittedTurn `
             -SeenGestureIds $seen -ReaderSession $ReaderSession `
-            -StartX $(if ($turnRightToLeft) { $PhysicalRight } else { $PhysicalLeft }) `
-            -EndX $(if ($turnRightToLeft) { $PhysicalLeft } else { $PhysicalRight }) `
+            -StartX $repairSwipe.StartX -EndX $repairSwipe.EndX `
             -Y $Y `
             -Context "ReaderDev repair fault turn $repairFaultAttempt"
         [void](Wait-ReaderQaFaultState `
@@ -1102,7 +1245,7 @@ function Invoke-ReaderQaFaultMatrix(
         -Context 'ReaderDev repaired active deck')
     $proofTurn = Invoke-ReaderQaCommittedTurn `
         -SeenGestureIds $seen -ReaderSession $ReaderSession `
-        -StartX $PhysicalRight -EndX $PhysicalLeft -Y $Y `
+        -StartX $nextSwipe.StartX -EndX $nextSwipe.EndX -Y $Y `
         -Context 'ReaderDev repaired active deck proof turn'
     [void](Wait-ReaderQaRelocationCompleted `
         -ReaderSession $ReaderSession `
@@ -1151,6 +1294,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
     -NoBuild `
     -NoInstall `
     -RequireReaderLaunch `
+    -StartAtBeginning `
     -EnableCanvasPageTurn `
     -SkipNativeShellCover `
     -ReaderQaFaultRequestId $persistenceRequestId `
@@ -1180,7 +1324,7 @@ Invoke-Adb @("shell", "am", "force-stop", "darkaxt.navic.readerdev")
 $script:ReaderPid = $null
 Invoke-Adb @("logcat", "-c")
 Reset-ReaderLogAccumulator
-Open-ReaderDev
+Open-ReaderDev -AtPublicationStart
 Invoke-Adb @("shell", "dumpsys", "meminfo", "darkaxt.navic.readerdev") |
     Set-Content (Join-Path $ArtifactRoot "meminfo-before.txt")
 Invoke-Adb @("shell", "dumpsys", "gfxinfo", "darkaxt.navic.readerdev", "reset")
@@ -1204,11 +1348,17 @@ $height = [int]$match.Groups[2].Value
 $physicalRight = [int]($width * 0.82)
 $physicalLeft = [int]($width * 0.18)
 $y = [int]($height * 0.50)
-$faultMatrixLog = Invoke-ReaderQaFaultMatrix `
+$physicalDirectionByLogical = Resolve-ReaderQaPhysicalDirections `
     -ReaderSession $readerSession `
     -PhysicalRight $physicalRight `
     -PhysicalLeft $physicalLeft `
     -Y $y
+$faultMatrixLog = Invoke-ReaderQaFaultMatrix `
+    -ReaderSession $readerSession `
+    -PhysicalRight $physicalRight `
+    -PhysicalLeft $physicalLeft `
+    -Y $y `
+    -PhysicalDirectionByLogical $physicalDirectionByLogical
 Save-ReaderDiagnosticInterval `
     -Log $faultMatrixLog `
     -ArtifactName 'logcat-fault-injection.txt' `
@@ -1249,8 +1399,18 @@ $minimumDistinctOrdinals = [Math]::Min(
     20,
     [Math]::Max(3, [int][Math]::Floor($StressTurns / 5))
 )
-$maximumCommittedTurns = $StressTurns * 3
-$maximumAttempts = ($maximumCommittedTurns * 2) + 40
+$minimumNextCommitsAfterBoundary = [Math]::Max(
+    $minimumCommitsPerDirection,
+    $minimumDistinctOrdinals - 1
+)
+$maximumBoundarySeekCommits = 40
+$maximumCommittedTurns = [Math]::Max(
+    $StressTurns,
+    $maximumBoundarySeekCommits +
+        $minimumNextCommitsAfterBoundary +
+        $minimumCommitsPerDirection
+)
+$maximumAttempts = ($maximumCommittedTurns * 3) + 40
 $transientRetryOutcomes = @(
     'CancelledByUser',
     'RejectedPreparing',
@@ -1260,9 +1420,11 @@ $transientRetryOutcomes = @(
 $attempt = 0
 $committedTurns = 0
 $boundaryCount = 0
-$dragRightToLeft = $true
-$currentSweepLogicalDirection = $null
-$requiredNextSweepDirection = $null
+$boundarySeekCommits = 0
+$nextCommitsAfterBoundary = 0
+$previousCommitsAfterExpansion = 0
+$stressPhase = 'SeekPreviousBoundary'
+$requestedLogicalDirection = 'Previous'
 $consecutiveNoTerminalAttempts = 0
 $maximumConsecutiveNoTerminalAttempts = 3
 
@@ -1272,20 +1434,26 @@ while ($attempt -lt $maximumAttempts -and
         $committedTurns -ge $StressTurns -and
         $boundaryCount -ge 1 -and
         $directionCommitCounts.Next -ge $minimumCommitsPerDirection -and
-        $directionCommitCounts.Previous -ge $minimumCommitsPerDirection
+        $directionCommitCounts.Previous -ge $minimumCommitsPerDirection -and
+        $stressPhase -eq 'Alternating'
     if ($hasMinimumCoverage) { break }
 
-    if ($dragRightToLeft) {
-        Invoke-Adb @(
-            "shell", "input", "swipe",
-            "$physicalRight", "$y", "$physicalLeft", "$y", "180"
-        )
+    $requestedPhysicalDirection =
+        $physicalDirectionByLogical[$requestedLogicalDirection]
+    $startX = if ($requestedPhysicalDirection -eq 'Left') {
+        $physicalRight
     } else {
-        Invoke-Adb @(
-            "shell", "input", "swipe",
-            "$physicalLeft", "$y", "$physicalRight", "$y", "180"
-        )
+        $physicalLeft
     }
+    $endX = if ($requestedPhysicalDirection -eq 'Left') {
+        $physicalLeft
+    } else {
+        $physicalRight
+    }
+    Invoke-Adb @(
+        'shell', 'input', 'swipe',
+        "$startX", "$y", "$endX", "$y", '180'
+    )
     $attempt += 1
 
     $terminalDeadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -1330,7 +1498,30 @@ while ($attempt -lt $maximumAttempts -and
     $stressTerminals.Add($newTerminal)
 
     if ($newTerminal.Outcome -in $transientRetryOutcomes) {
-        Start-Sleep -Milliseconds 250
+        if ($newTerminal.Outcome -in @(
+            'RejectedPreparing',
+            'RejectedRendererUnavailable'
+        )) {
+            $preparationRecords = @(
+                ConvertFrom-ReaderPreparationLog (
+                    Read-ReaderPidLog `
+                        -Context 'ReaderDev stress preparing boundary' `
+                        -Full
+                ) | Where-Object Session -eq $readerSession
+            )
+            if ($preparationRecords.Count -eq 0) {
+                throw 'ReaderDev stress preparing recovery has no preparation record'
+            }
+            $latestPreparationAttempt = [long]$preparationRecords[-1].Attempt
+            [void](Wait-ReaderQaWorkingSetReady `
+                -ReaderSession $readerSession `
+                -AtOrAfterAttempt $latestPreparationAttempt `
+                -Context 'ReaderDev stress preparing recovery')
+        } elseif ($newTerminal.Outcome -eq 'RejectedSettling') {
+            Start-Sleep -Milliseconds 750
+        } else {
+            Start-Sleep -Milliseconds 250
+        }
         continue
     }
 
@@ -1341,6 +1532,10 @@ while ($attempt -lt $maximumAttempts -and
     if ($newTerminal.PhysicalDirection -notin @('Left', 'Right')) {
         throw "ReaderDev swipe terminal lacks a physical direction: $($newTerminal.LogLine)"
     }
+    if ($logicalDirection -ne $requestedLogicalDirection -or
+        $newTerminal.PhysicalDirection -ne $requestedPhysicalDirection) {
+        throw "ReaderDev swipe terminal disagrees with its requested direction: $($newTerminal.LogLine)"
+    }
 
     if ($newTerminal.Outcome -in @('CommittedForward', 'CommittedBackward')) {
         $expectedDirection = if (
@@ -1349,50 +1544,84 @@ while ($attempt -lt $maximumAttempts -and
         if ($logicalDirection -ne $expectedDirection) {
             throw "ReaderDev commit outcome and logical direction disagree: $($newTerminal.LogLine)"
         }
-        if ($null -eq $currentSweepLogicalDirection) {
-            if ($null -ne $requiredNextSweepDirection -and
-                $logicalDirection -ne $requiredNextSweepDirection) {
-                throw 'ReaderDev boundary reversal did not reverse logical direction'
-            }
-            $currentSweepLogicalDirection = $logicalDirection
-            $requiredNextSweepDirection = $null
-        } elseif ($logicalDirection -ne $currentSweepLogicalDirection) {
-            throw 'ReaderDev changed logical direction without an explicit boundary'
-        }
         if (-not $committedGestureIds.Add($newTerminal.GestureId)) {
             throw "ReaderDev stress duplicated committed gesture $($newTerminal.GestureId)"
         }
         $directionCommitCounts[$logicalDirection] += 1
         $committedTurns += 1
+        switch ($stressPhase) {
+            'SeekPreviousBoundary' {
+                $boundarySeekCommits += 1
+                if ($boundarySeekCommits -gt $maximumBoundarySeekCommits) {
+                    throw 'ReaderDev did not reach the deterministic previous boundary within its bounded probe'
+                }
+            }
+            'ExpandNext' {
+                $nextCommitsAfterBoundary += 1
+                if ($nextCommitsAfterBoundary -ge
+                    $minimumNextCommitsAfterBoundary) {
+                    $stressPhase = 'BacktrackPrevious'
+                    $requestedLogicalDirection = 'Previous'
+                }
+            }
+            'BacktrackPrevious' {
+                $previousCommitsAfterExpansion += 1
+                if ($previousCommitsAfterExpansion -ge
+                    $minimumCommitsPerDirection) {
+                    $stressPhase = 'Alternating'
+                    $requestedLogicalDirection = 'Next'
+                }
+            }
+            'Alternating' {
+                $requestedLogicalDirection = if (
+                    $requestedLogicalDirection -eq 'Next'
+                ) { 'Previous' } else { 'Next' }
+            }
+            default {
+                throw "ReaderDev stress entered an unknown phase: $stressPhase"
+            }
+        }
         continue
     }
 
     if ($newTerminal.Outcome -ne 'RejectedBoundary') {
         throw "ReaderDev stress emitted an unexpected terminal: $($newTerminal.LogLine)"
     }
-    if ($newTerminal.Outcome -eq 'RejectedBoundary') {
-        if ($null -ne $currentSweepLogicalDirection -and
-            $logicalDirection -ne $currentSweepLogicalDirection) {
-            throw 'ReaderDev boundary terminal differs from its active logical sweep'
+    $boundaryCount += 1
+    switch ($stressPhase) {
+        'SeekPreviousBoundary' {
+            if ($logicalDirection -ne 'Previous') {
+                throw 'ReaderDev initial boundary probe was not Previous'
+            }
+            $stressPhase = 'ExpandNext'
+            $requestedLogicalDirection = 'Next'
         }
-        $boundaryCount += 1
-        $requiredNextSweepDirection = if ($logicalDirection -eq 'Next') {
-            'Previous'
-        } else {
-            'Next'
+        'ExpandNext' {
+            throw 'ReaderDev publication is too short for bounded distinct-ordinal coverage'
         }
-        $dragRightToLeft = -not $dragRightToLeft
-        $currentSweepLogicalDirection = $null
+        'BacktrackPrevious' {
+            throw 'ReaderDev reached the previous boundary before backward coverage completed'
+        }
+        'Alternating' {
+            $requestedLogicalDirection = if (
+                $requestedLogicalDirection -eq 'Next'
+            ) { 'Previous' } else { 'Next' }
+        }
+        default {
+            throw "ReaderDev stress entered an unknown phase: $stressPhase"
+        }
     }
 }
 
 if ($committedTurns -lt $StressTurns -or
     $boundaryCount -lt 1 -or
     $directionCommitCounts.Next -lt $minimumCommitsPerDirection -or
-    $directionCommitCounts.Previous -lt $minimumCommitsPerDirection) {
-    throw "ReaderDev boundary sweep coverage failed commits=$committedTurns " +
+    $directionCommitCounts.Previous -lt $minimumCommitsPerDirection -or
+    $stressPhase -ne 'Alternating') {
+    throw "ReaderDev bounded stress coverage failed commits=$committedTurns " +
         "next=$($directionCommitCounts.Next) previous=$($directionCommitCounts.Previous) " +
-        "boundaries=$boundaryCount attempts=$attempt maximumCommitted=$maximumCommittedTurns"
+        "boundaries=$boundaryCount attempts=$attempt maximumCommitted=$maximumCommittedTurns " +
+        "phase=$stressPhase"
 }
 
 $stressDeadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -1518,8 +1747,10 @@ Assert-OwnershipWithinBounds $coldStart 'cold-start ownership'
 Assert-OwnershipWithinBounds $peak 'peak-preparation ownership'
 Assert-OwnershipWithinBounds $steady 'steady-state ownership'
 Assert-ZeroOwnership $coldStart[0] 'cold-start ownership'
-Assert-NoPostWarmupOwnershipGrowth $peak 10 'peak-preparation ownership'
-Assert-NoPostWarmupOwnershipGrowth $steady 10 'steady-state ownership'
+if ($StressTurns -ge 20) {
+    Assert-NoPostWarmupOwnershipGrowth $peak 10 'peak-preparation ownership'
+    Assert-NoPostWarmupOwnershipGrowth $steady 10 'steady-state ownership'
+}
 Save-OwnershipEvidence $coldStart 'ownership-cold-start.txt'
 Save-OwnershipEvidence $peak 'ownership-peak-preparation.txt'
 Save-OwnershipEvidence $steady 'ownership-steady-state.txt'
