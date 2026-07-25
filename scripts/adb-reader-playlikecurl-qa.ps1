@@ -1705,36 +1705,40 @@ do {
     $steadyTurns = @(
         $ownership | Where-Object Phase -eq 'steady-state'
     ).Count - $initialSteadyCount
-    $completedRelocations = @(
-        ConvertFrom-ReaderRelocationLog $log | Where-Object {
-            $_.Session -eq $readerSession -and
-            $_.State -eq 'Completed' -and
-            $committedGestureIds.Contains($_.GestureId)
-        }
+    $relocationDrain = Get-ReaderCommittedRelocationDrainStatus `
+        -Log $log `
+        -ReaderSession $readerSession `
+        -CommittedGestureIds @($committedGestureIds) `
+        -Context 'ReaderDev stress drain'
+    $completedRelocations = @($relocationDrain.CompletedRelocations)
+    $rejectedRelocations = @($relocationDrain.RejectedRelocations)
+    $recoveredRejectedRelocations = @(
+        $relocationDrain.RecoveredRejectedRelocations
     )
-    if ($steadyTurns -ge $committedTurns -and
-        $completedRelocations.Count -ge $committedTurns) {
+    if ($relocationDrain.PendingCount -eq 0 -and
+        $steadyTurns -ge $completedRelocations.Count -and
+        $recoveredRejectedRelocations.Count -eq $rejectedRelocations.Count) {
         break
     }
     Start-Sleep -Milliseconds 250
 } while ([DateTime]::UtcNow -lt $stressDeadline)
-if ($steadyTurns -lt $committedTurns -or
-    $completedRelocations.Count -ne $committedTurns) {
+if ($relocationDrain.PendingCount -ne 0 -or
+    $steadyTurns -lt $completedRelocations.Count -or
+    $recoveredRejectedRelocations.Count -ne $rejectedRelocations.Count) {
     throw "ReaderDev stress drain failed commits=$committedTurns " +
         "steadySnapshots=$steadyTurns completedRelocations=$($completedRelocations.Count) " +
-        "session=$readerSession"
+        "rejectedRelocations=$($rejectedRelocations.Count) " +
+        "recoveredRejectedRelocations=$($recoveredRejectedRelocations.Count) " +
+        "pendingRelocations=$($relocationDrain.PendingCount) session=$readerSession"
 }
 Assert-ReaderOwnershipUnavailablePolicy `
     -Log $log `
     -ReaderSession $readerSession `
     -Context 'ReaderDev completed stress interval'
 
-$duplicateCompletedRelocations = @(
-    $completedRelocations | Group-Object GestureId | Where-Object Count -ne 1
+$orderedTerminalRelocations = @(
+    $relocationDrain.TerminalRelocations | Sort-Object Index
 )
-if ($duplicateCompletedRelocations.Count -ne 0) {
-    throw 'ReaderDev emitted duplicate completed relocation evidence'
-}
 $orderedRelocations = @($completedRelocations | Sort-Object Index)
 foreach ($relocation in $orderedRelocations) {
     if ($relocation.Direction -eq 'Next' -and
@@ -1760,13 +1764,16 @@ Save-ReaderDiagnosticRecords `
     -Name 'gesture-boundary-sweep.txt' `
     -Context 'ReaderDev boundary-sweep gesture evidence'
 Save-ReaderDiagnosticRecords `
-    -Records @($orderedRelocations.LogLine) `
+    -Records @($orderedTerminalRelocations.LogLine) `
     -Name 'relocation-boundary-sweep.txt' `
     -Context 'ReaderDev boundary-sweep relocation evidence'
 [ordered]@{
     SchemaVersion = 1
     MinimumCommittedTurns = $StressTurns
     ActualCommittedTurns = $committedTurns
+    CompletedRelocations = $completedRelocations.Count
+    RejectedRelocations = $rejectedRelocations.Count
+    RecoveredRejectedRelocations = $recoveredRejectedRelocations.Count
     BoundaryTerminals = $boundaryCount
     NextCommits = $directionCommitCounts.Next
     PreviousCommits = $directionCommitCounts.Previous

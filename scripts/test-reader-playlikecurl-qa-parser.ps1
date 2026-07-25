@@ -366,7 +366,7 @@ $qaRelocationApplied =
 $relocationWithFault =
     'reader-relocation session=7 token=move-1 gestureId=3 source=1 target=2 ' +
     'logicalDirection=Next rasterGeneration=2 textureGeneration=3 ' +
-    'state=Acknowledged queueDepth=0 durationMs=2 ' +
+    'state=Acknowledged rejectionReason=None queueDepth=0 durationMs=2 ' +
     'qaFaultRequestId=fault-relocation qaFaultRelation=AppliedOperation ' +
     'qaFaultPublicationEpoch=-1 qaFaultPersistenceAttemptId=-1 ' +
     'qaFaultRasterRequestEpoch=-1 qaFaultRepairAttemptId=-1 ' +
@@ -389,7 +389,7 @@ $relocationHandoffRecovery =
 $relocationCompletedRecovery =
     'reader-relocation session=7 token=move-1 gestureId=3 source=1 target=2 ' +
     'logicalDirection=Next rasterGeneration=2 textureGeneration=3 ' +
-    'state=Completed queueDepth=0 durationMs=4' +
+    'state=Completed rejectionReason=None queueDepth=0 durationMs=4' +
     $relocationRecoveryRootFields
 Assert-ReaderQaFaultCorrelation `
     -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaRelocationApplied) `
@@ -418,7 +418,7 @@ $visualHandoffRecovery =
 $visualRelocationRecovery =
     'reader-relocation session=7 token=move-2 gestureId=4 source=2 target=3 ' +
     'logicalDirection=Next rasterGeneration=2 textureGeneration=4 ' +
-    'state=Completed queueDepth=0 durationMs=4' +
+    'state=Completed rejectionReason=None queueDepth=0 durationMs=4' +
     $visualRootFields
 Assert-ReaderQaFaultCorrelation `
     -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
@@ -430,7 +430,7 @@ Assert-ReaderQaFaultCorrelation `
 $visualRelocationApplied =
     'reader-relocation session=7 token=move-2 gestureId=3 source=2 target=3 ' +
     'logicalDirection=Next rasterGeneration=2 textureGeneration=3 ' +
-    'state=Completed queueDepth=0 durationMs=4' +
+    'state=Completed rejectionReason=None queueDepth=0 durationMs=4' +
     $visualRootFields.Replace('qaFaultRelation=Recovery',
         'qaFaultRelation=AppliedOperation')
 Assert-ReaderQaFaultCorrelation `
@@ -590,6 +590,108 @@ Assert-Throws {
         -Log 'reader-repair malformed=true' `
         -Context 'malformed supported introducer fixture' | Out-Null
 } 'malformed supported introducer fixture'
+
+$relocationRecoveryLog = @(
+    'reader-relocation session=7 token=move-1 gestureId=3 source=2 target=1 ' +
+        'logicalDirection=Previous rasterGeneration=2 textureGeneration=3 ' +
+        'state=Queued rejectionReason=None queueDepth=1 durationMs=0' + $NoQaCorrelationFields,
+    'reader-relocation session=7 token=move-1 gestureId=3 source=2 target=1 ' +
+        'logicalDirection=Previous rasterGeneration=2 textureGeneration=3 ' +
+        'state=Dispatched rejectionReason=None queueDepth=1 durationMs=1' + $NoQaCorrelationFields,
+    'reader-relocation session=7 token=move-1 gestureId=3 source=2 target=1 ' +
+        'logicalDirection=Previous rasterGeneration=2 textureGeneration=3 ' +
+        'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0 durationMs=10001' + $NoQaCorrelationFields,
+    'reader-preparation session=7 attempt=40 rasterGeneration=2 ' +
+        'state=Attempted reason=None eventVersion=-1 durationMs=0' +
+        $NoQaCorrelationFields,
+    'reader-preparation session=7 attempt=40 rasterGeneration=2 ' +
+        'state=Ready reason=None eventVersion=-1 durationMs=200' +
+        $NoQaCorrelationFields,
+    'reader-relocation session=7 token=move-2 gestureId=4 source=1 target=2 ' +
+        'logicalDirection=Next rasterGeneration=2 textureGeneration=4 ' +
+        'state=Dispatched rejectionReason=None queueDepth=1 durationMs=1' + $NoQaCorrelationFields,
+    'reader-relocation session=7 token=move-2 gestureId=4 source=1 target=2 ' +
+        'logicalDirection=Next rasterGeneration=2 textureGeneration=4 ' +
+        'state=Completed rejectionReason=None queueDepth=0 durationMs=400' + $NoQaCorrelationFields
+) -join "`n"
+$relocationDrain = Get-ReaderCommittedRelocationDrainStatus `
+    -Log $relocationRecoveryLog `
+    -ReaderSession 7 `
+    -CommittedGestureIds @(3, 4) `
+    -Context 'acknowledgement timeout recovery fixture'
+if ($relocationDrain.TerminalRelocations.Count -ne 2 -or
+    $relocationDrain.CompletedRelocations.Count -ne 1 -or
+    $relocationDrain.RejectedRelocations.Count -ne 1 -or
+    $relocationDrain.RecoveredRejectedRelocations.Count -ne 1 -or
+    $relocationDrain.PendingCount -ne 0) {
+    throw 'Acknowledgement timeout recovery fixture did not drain exactly'
+}
+$pendingRecovery = Get-ReaderCommittedRelocationDrainStatus `
+    -Log $relocationRecoveryLog.Replace(
+        'state=Ready reason=None eventVersion=-1 durationMs=200',
+        'state=Attempted reason=None eventVersion=-1 durationMs=200'
+    ) `
+    -ReaderSession 7 `
+    -CommittedGestureIds @(3, 4) `
+    -Context 'pending timeout recovery fixture'
+if ($pendingRecovery.RecoveredRejectedRelocations.Count -ne 0) {
+    throw 'Pending acknowledgement timeout recovery was accepted as ready'
+}
+$staleDispatch =
+    'reader-relocation session=7 token=move-1 gestureId=3 source=2 target=1 ' +
+    'logicalDirection=Previous rasterGeneration=2 textureGeneration=3 ' +
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=10002' +
+    $NoQaCorrelationFields
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log ($relocationRecoveryLog + "`n" + $staleDispatch) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'stale post-terminal callback fixture' | Out-Null
+} 'stale post-terminal callback fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $relocationRecoveryLog.Replace('durationMs=10001', 'durationMs=100') `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'premature rejection fixture' | Out-Null
+} 'premature rejection fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $relocationRecoveryLog.Replace(
+            'rejectionReason=AcknowledgementTimeout',
+            'rejectionReason=QueueInvalidated'
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'non-timeout rejection fixture' | Out-Null
+} 'non-timeout rejection fixture'
+$rejectedFixtureLine = @(
+    ConvertFrom-ReaderRelocationLog $relocationRecoveryLog | Where-Object {
+        $_.GestureId -eq 3 -and $_.State -eq 'Rejected'
+    }
+)[0].LogLine
+$acknowledgedFixtureLine = $rejectedFixtureLine.Replace(
+    'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0 durationMs=10001',
+    'state=Acknowledged rejectionReason=None queueDepth=1 durationMs=500'
+)
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $relocationRecoveryLog.Replace(
+            $rejectedFixtureLine,
+            $acknowledgedFixtureLine + "`n" + $rejectedFixtureLine
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'post-acknowledgement rejection fixture' | Out-Null
+} 'post-acknowledgement rejection fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $relocationRecoveryLog.Replace('state=Dispatched', 'state=Queued') `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'rejected without dispatch fixture' | Out-Null
+} 'rejected without dispatch fixture'
 
 $candidateTreeSources = @(
     (Join-Path $PSScriptRoot 'adb-reader-playlikecurl-qa.ps1')

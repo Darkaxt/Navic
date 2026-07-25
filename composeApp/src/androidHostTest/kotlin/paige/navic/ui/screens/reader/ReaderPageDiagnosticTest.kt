@@ -135,6 +135,49 @@ class ReaderPageDiagnosticTest {
 	}
 
 	@Test
+	fun relocationRejectionHasOneClosedTypedCause() {
+		val line = ReaderPageDiagnostic.relocation(
+			readerSession = 7L,
+			token = "page-turn-31",
+			gestureId = 61L,
+			source = 16,
+			target = 15,
+			logicalDirection = ReaderPageTurnDirection.Previous,
+			rasterGeneration = 4L,
+			textureGeneration = 35L,
+			state = ReaderPageRelocationDiagnosticState.Rejected,
+			rejectionReason =
+				ReaderPageRelocationDiagnosticRejectionReason.AcknowledgementTimeout,
+			queueDepth = 0,
+			durationMs = 10_003L
+		)
+
+		assertTrue(
+			line.contains(
+				"state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0"
+			)
+		)
+		assertFailsWith<IllegalArgumentException> {
+			ReaderPageDiagnostic.relocation(
+				readerSession = 7L,
+				token = "page-turn-31",
+				gestureId = 61L,
+				source = 16,
+				target = 15,
+				logicalDirection = ReaderPageTurnDirection.Previous,
+				rasterGeneration = 4L,
+				textureGeneration = 35L,
+				state = ReaderPageRelocationDiagnosticState.Completed,
+				rejectionReason =
+					ReaderPageRelocationDiagnosticRejectionReason.AcknowledgementTimeout,
+				queueDepth = 0,
+				durationMs = 10_003L
+			)
+		}
+		assertPrivateSentinelsAbsent(line)
+	}
+
+	@Test
 	fun qaFaultProjectionContainsOnlyClosedReconstructableFields() {
 		val line = ReaderPageDiagnostic.qaFault(
 			readerSession = 42L,

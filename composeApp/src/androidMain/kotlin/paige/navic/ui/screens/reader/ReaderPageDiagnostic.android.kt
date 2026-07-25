@@ -77,6 +77,14 @@ internal enum class ReaderPageRelocationDiagnosticState {
 	Rejected
 }
 
+internal enum class ReaderPageRelocationDiagnosticRejectionReason {
+	None,
+	CommitPublicationFailed,
+	QueueInvalidated,
+	AcknowledgementTimeout,
+	JavascriptDispatchFailed
+}
+
 internal enum class ReaderPageHandoffDiagnosticResult {
 	Ready,
 	Detached,
@@ -275,6 +283,8 @@ internal class ReaderPageRuntimeDiagnostics(
 		state: ReaderPageRelocationDiagnosticState,
 		queueDepth: Int,
 		startedAtMs: Long,
+		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
+			ReaderPageRelocationDiagnosticRejectionReason.None,
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) = publish(
 		ReaderPageDiagnostic.relocation(
@@ -287,6 +297,7 @@ internal class ReaderPageRuntimeDiagnostics(
 			rasterGeneration = request.rasterGeneration,
 			textureGeneration = request.textureGeneration,
 			state = state,
+			rejectionReason = rejectionReason,
 			queueDepth = queueDepth,
 			durationMs = elapsed(startedAtMs),
 			qaFaultCorrelation = qaFaultCorrelation
@@ -580,15 +591,23 @@ internal object ReaderPageDiagnostic {
 		rasterGeneration: Long,
 		textureGeneration: Long,
 		state: ReaderPageRelocationDiagnosticState,
+		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
+			ReaderPageRelocationDiagnosticRejectionReason.None,
 		queueDepth: Int,
 		durationMs: Long,
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
-	): String =
-		"reader-relocation session=$readerSession token=$token gestureId=$gestureId " +
+	): String {
+		require(
+			(state == ReaderPageRelocationDiagnosticState.Rejected) ==
+				(rejectionReason != ReaderPageRelocationDiagnosticRejectionReason.None)
+		)
+		return "reader-relocation session=$readerSession token=$token gestureId=$gestureId " +
 			"source=$source target=$target logicalDirection=$logicalDirection " +
 			"rasterGeneration=$rasterGeneration textureGeneration=$textureGeneration " +
-			"state=$state queueDepth=$queueDepth durationMs=$durationMs " +
+			"state=$state rejectionReason=$rejectionReason " +
+			"queueDepth=$queueDepth durationMs=$durationMs " +
 			qaFaultCorrelationFields(qaFaultCorrelation)
+	}
 
 	fun handoff(
 		readerSession: Long,

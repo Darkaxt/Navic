@@ -1,3 +1,4 @@
+$ReaderRelocationAcknowledgementTimeoutFloorMs = 9500L
 $OwnershipPattern = [regex]::new(
     'reader-ownership session=(?<Session>\d+) ' +
     'phase=(?<Phase>cold-start|peak-preparation|steady-state|after-close) ' +
@@ -183,6 +184,8 @@ $RelocationPattern = [regex]::new(
     'rasterGeneration=(?<Raster>\d+) textureGeneration=(?<Texture>\d+) ' +
     'state=(?<State>Queued|Dispatched|Acknowledged|' +
         'AwaitingVisualHandoff|Completed|Rejected) ' +
+    'rejectionReason=(?<RejectionReason>None|CommitPublicationFailed|' +
+        'QueueInvalidated|AcknowledgementTimeout|JavascriptDispatchFailed) ' +
     'queueDepth=(?<Depth>\d+) durationMs=(?<DurationMs>\d+)' +
     $QaCorrelationPattern
 )
@@ -532,6 +535,7 @@ function ConvertFrom-ReaderRelocationLog([string] $Log) {
             RasterGeneration = [long]$match.Groups['Raster'].Value
             TextureGeneration = [long]$match.Groups['Texture'].Value
             State = $match.Groups['State'].Value
+            RejectionReason = $match.Groups['RejectionReason'].Value
             QueueDepth = [int]$match.Groups['Depth'].Value
             DurationMs = [long]$match.Groups['DurationMs'].Value
             QaFaultRequestId = $match.Groups['QaFaultRequestId'].Value
@@ -553,6 +557,118 @@ function ConvertFrom-ReaderRelocationLog([string] $Log) {
             Index = $match.Index
             LogLine = $match.Value
         }
+    }
+}
+
+function Get-ReaderCommittedRelocationDrainStatus(
+    [string] $Log,
+    [long] $ReaderSession,
+    [long[]] $CommittedGestureIds,
+    [string] $Context
+) {
+    $committed = @($CommittedGestureIds | Sort-Object -Unique)
+    if ($committed.Count -ne $CommittedGestureIds.Count) {
+        throw "$Context contains duplicate committed gesture IDs"
+    }
+    $relocations = @(
+        ConvertFrom-ReaderRelocationLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+            $_.GestureId -in $committed
+        }
+    )
+    $preparations = @(
+        ConvertFrom-ReaderPreparationLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession
+        }
+    )
+    $terminalRelocations = [Collections.Generic.List[object]]::new()
+    $completedRelocations = [Collections.Generic.List[object]]::new()
+    $rejectedRelocations = [Collections.Generic.List[object]]::new()
+    $recoveredRejectedRelocations = [Collections.Generic.List[object]]::new()
+
+    foreach ($gestureId in $committed) {
+        $records = @(
+            $relocations | Where-Object GestureId -eq $gestureId |
+                Sort-Object Index
+        )
+        $terminals = @(
+            $records | Where-Object State -in @('Completed', 'Rejected')
+        )
+        if ($terminals.Count -gt 1) {
+            throw "$Context emitted duplicate relocation terminals for gesture $gestureId"
+        }
+        if ($terminals.Count -eq 0) { continue }
+
+        $terminal = $terminals[0]
+        if (@($records | Where-Object Index -gt $terminal.Index).Count -ne 0) {
+            throw "$Context emitted relocation state after terminal for gesture $gestureId"
+        }
+        $terminalRelocations.Add($terminal)
+        if ($terminal.State -eq 'Completed') {
+            if ($terminal.RejectionReason -ne 'None') {
+                throw "$Context completed gesture $gestureId has a rejection reason"
+            }
+            $completedRelocations.Add($terminal)
+            continue
+        }
+
+        if ($terminal.RejectionReason -ne 'AcknowledgementTimeout') {
+            throw "$Context rejected gesture $gestureId for $($terminal.RejectionReason)"
+        }
+        $rejectedRelocations.Add($terminal)
+        $dispatches = @(
+            $records | Where-Object {
+                $_.State -eq 'Dispatched' -and
+                $_.Index -lt $terminal.Index -and
+                $_.Token -ceq $terminal.Token -and
+                $_.RasterGeneration -eq $terminal.RasterGeneration -and
+                $_.TextureGeneration -eq $terminal.TextureGeneration
+            }
+        )
+        if ($dispatches.Count -ne 1) {
+            throw "$Context rejected gesture $gestureId without one exact dispatch"
+        }
+        if (@(
+                $records | Where-Object {
+                    $_.Index -lt $terminal.Index -and
+                    $_.State -in @('Acknowledged', 'AwaitingVisualHandoff')
+                }
+            ).Count -ne 0) {
+            throw "$Context rejected gesture $gestureId after acknowledgement"
+        }
+        if ($terminal.DurationMs -lt
+            $ReaderRelocationAcknowledgementTimeoutFloorMs) {
+            throw "$Context rejected gesture $gestureId before the acknowledgement timeout"
+        }
+        $recoveryAttempts = @(
+            $preparations | Where-Object {
+                $_.State -eq 'Attempted' -and $_.Index -gt $terminal.Index
+            } | Sort-Object Index
+        )
+        foreach ($attempt in $recoveryAttempts) {
+            $ready = @(
+                $preparations | Where-Object {
+                    $_.Attempt -eq $attempt.Attempt -and
+                    $_.RasterGeneration -eq $attempt.RasterGeneration -and
+                    $_.State -eq 'Ready' -and $_.Index -gt $attempt.Index
+                }
+            )
+            if ($ready.Count -eq 1) {
+                $recoveredRejectedRelocations.Add($terminal)
+                break
+            }
+            if ($ready.Count -gt 1) {
+                throw "$Context emitted duplicate recovery readiness for attempt $($attempt.Attempt)"
+            }
+        }
+    }
+
+    [pscustomobject]@{
+        TerminalRelocations = @($terminalRelocations)
+        CompletedRelocations = @($completedRelocations)
+        RejectedRelocations = @($rejectedRelocations)
+        RecoveredRejectedRelocations = @($recoveredRejectedRelocations)
+        PendingCount = $committed.Count - $terminalRelocations.Count
     }
 }
 

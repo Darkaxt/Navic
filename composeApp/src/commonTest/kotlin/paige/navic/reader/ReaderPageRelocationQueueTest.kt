@@ -49,18 +49,22 @@ class ReaderPageRelocationQueueTest {
 	}
 
 	@Test
-	fun dispatchedHeadStateEndsWhenTheExactRelocationIsAcknowledged() {
+	fun inFlightHeadRemainsOwnedUntilVisualHandoffCompletes() {
 		val queue = ReaderPageRelocationQueue()
 		val current = enqueue(queue, gestureId = 1L, source = 3, destination = 4)
 		assertFalse(queue.hasDispatchedHead())
+		assertFalse(queue.hasInFlightHead())
 
 		assertEquals(current, queue.commandToDispatch())
 		assertTrue(queue.hasDispatchedHead())
+		assertTrue(queue.hasInFlightHead())
 		assertTrue(queue.acknowledge(current.token.value, 4, "session-a", 10L, 20L))
 		assertFalse(queue.hasDispatchedHead())
+		assertTrue(queue.hasInFlightHead())
 
 		assertTrue(queue.completeHandoff(current.token.value))
 		assertFalse(queue.hasDispatchedHead())
+		assertFalse(queue.hasInFlightHead())
 	}
 
 	@Test

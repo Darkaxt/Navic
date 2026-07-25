@@ -372,7 +372,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 		},
 		onTimeout = { request ->
-			rejectDispatchedRelocation(request, "acknowledgement-timeout")
+			rejectDispatchedRelocation(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.AcknowledgementTimeout
+			)
 		}
 	)
 	private val rasterCapacityRefreshPosted = AtomicBoolean(false)
@@ -439,7 +442,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				emitRelocationDiagnostic(
 					request,
 					ReaderPageRelocationDiagnosticState.Rejected,
-					terminal = true
+					terminal = true,
+					rejectionReason =
+						ReaderPageRelocationDiagnosticRejectionReason.CommitPublicationFailed
 				)
 			}
 		)
@@ -1332,29 +1337,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 		acknowledgement: ReaderPageTurnSettlementAck?
 	): ReaderPageVisualLocationOrigin {
 		val normalized = pageIndex?.takeIf { it >= 0 }
-		if (foliateSessionRelocationPending) {
-			return ReaderPageVisualLocationOrigin.External
-		}
-		if (
+		val exactAcknowledgementMatches =
 			normalized != null &&
-			acknowledgement != null &&
-			relocationQueue.matchesDispatchedHead(
-				token = acknowledgement.token,
-				rasterGeneration = acknowledgement.rasterGeneration,
-				textureGeneration = acknowledgement.textureGeneration,
-				foliateSessionId = acknowledgement.foliateSessionId,
-				destinationOrdinal = normalized
-			)
-		) {
-			return ReaderPageVisualLocationOrigin.ExactPageTurn
-		}
-		if (relocationQueue.hasDispatchedHead()) {
-			return ReaderPageVisualLocationOrigin.PendingExactPageTurn
-		}
-		if (acknowledgement != null && normalized == currentOrdinal) {
-			return ReaderPageVisualLocationOrigin.StaleAcknowledgement
-		}
-		return ReaderPageVisualLocationOrigin.External
+				acknowledgement != null &&
+				relocationQueue.matchesDispatchedHead(
+					token = acknowledgement.token,
+					rasterGeneration = acknowledgement.rasterGeneration,
+					textureGeneration = acknowledgement.textureGeneration,
+					foliateSessionId = acknowledgement.foliateSessionId,
+					destinationOrdinal = normalized
+				)
+		return readerPageVisualLocationOrigin(
+			foliateSessionRelocationPending = foliateSessionRelocationPending,
+			exactAcknowledgementMatches = exactAcknowledgementMatches,
+			acknowledgementPresent = acknowledgement != null,
+			relocationInFlight = relocationQueue.hasInFlightHead()
+		)
 	}
 
 	fun synchronizeVisualPageIndex(
@@ -1363,9 +1361,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		acknowledgement: ReaderPageTurnSettlementAck?
 	) {
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
-		authoritativeLocationReady = true
-		currentWebViewOrdinal = normalized
-		when (visualLocationOrigin(normalized, acknowledgement)) {
+		val origin = visualLocationOrigin(normalized, acknowledgement)
+		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+			authoritativeLocationReady = true
+			currentWebViewOrdinal = normalized
+		}
+		when (origin) {
 			ReaderPageVisualLocationOrigin.ExactPageTurn -> {
 				val matched = requireNotNull(acknowledgement)
 				check(
@@ -1466,21 +1467,33 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
-	private fun cancelRelocationsWithDiagnostics(): ReaderPageRelocationDrain {
+	private fun cancelRelocationsWithDiagnostics(): ReaderPageRelocationDrain =
+		cancelRelocationsWithDiagnostics(
+			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
+		)
+
+	private fun cancelRelocationsWithDiagnostics(
+		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason
+	): ReaderPageRelocationDrain {
 		relocationDispatchTimeout.cancelAll()
 		return relocationGestureCoordinator.cancelAll().also { drained ->
 			drained.queued.forEach { request ->
 				emitRelocationDiagnostic(
 					request,
 					ReaderPageRelocationDiagnosticState.Rejected,
-					terminal = true
+					terminal = true,
+					rejectionReason = rejectionReason
 				)
 			}
 		}
 	}
 
-	private fun drainRelocationOwnership(reason: String) {
-		val drained = cancelRelocationsWithDiagnostics()
+	private fun drainRelocationOwnership(
+		reason: String,
+		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
+			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
+	) {
+		val drained = cancelRelocationsWithDiagnostics(rejectionReason)
 		check(relocationGestureCoordinator.reservationCount() == 0)
 		check(relocationQueue.reservedCount() == 0)
 		check(relocationQueue.queuedCount() == 0)
@@ -1496,7 +1509,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun invalidate(
 		reason: String,
-		profileRegeneration: Boolean = false
+		profileRegeneration: Boolean = false,
+		relocationRejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
+			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
 	) {
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
@@ -1507,7 +1522,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		publishProtectedWindow(emptyList())
 		rasterRepairRequests.clear()
 		relocationVisualHandoffCoordinator.cancelForQueueInvalidation()
-		drainRelocationOwnership("invalidated:$reason")
+		drainRelocationOwnership(
+			"invalidated:$reason",
+			relocationRejectionReason
+		)
 		updateReadiness(
 			textureDeck = ReaderTextureDeckState.Empty,
 			pendingTextureDeck = ReaderTextureDeckState.Empty,
@@ -3506,6 +3524,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		request: ReaderPageRelocationRequest,
 		state: ReaderPageRelocationDiagnosticState,
 		terminal: Boolean = false,
+		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
+			ReaderPageRelocationDiagnosticRejectionReason.None,
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	) {
 		val startedAt = relocationDiagnosticStarts[request.token.value] ?: return
@@ -3519,6 +3539,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			state = state,
 			queueDepth = relocationQueue.ownershipSnapshot().queued,
 			startedAtMs = startedAt,
+			rejectionReason = rejectionReason,
 			qaFaultCorrelation = correlation
 		)
 		if (terminal) relocationDiagnosticStarts.remove(request.token.value)
@@ -3618,7 +3639,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 				"PlayLikeCurl exact page dispatch failed " +
 					"failureClass=${failure::class.simpleName ?: "unknown"}"
 			)
-			rejectDispatchedRelocation(request, "javascript-dispatch-failed")
+			rejectDispatchedRelocation(
+				request,
+				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed
+			)
 			return
 		}
 		emitRelocationDiagnostic(
@@ -3630,7 +3654,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private fun rejectDispatchedRelocation(
 		request: ReaderPageRelocationRequest,
-		reason: String
+		reason: ReaderPageRelocationDiagnosticRejectionReason
 	) {
 		if (!relocationQueue.matchesDispatchedHead(
 				token = request.token.value,
@@ -3652,7 +3676,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			"PlayLikeCurl dispatched relocation rejected " +
 				"pageIndex=${request.destinationOrdinal} reason=$reason"
 		)
-		invalidate("relocation-dispatch-$reason")
+		invalidate(
+			reason = "relocation-dispatch-${reason.name}",
+			relocationRejectionReason = reason
+		)
 		if (enabled) onRequestPrewarm()
 	}
 

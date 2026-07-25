@@ -1220,7 +1220,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			reason,
 			acknowledgement
 		)
-		pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
+		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+			pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
+		}
 	}
 
 	fun setShellCoverVisible(visible: Boolean) {

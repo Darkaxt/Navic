@@ -191,19 +191,31 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	fun visualLocationOriginUsesQueueIdentityRatherThanReasonText() {
 		val host = hostFile.readText()
 		val controller = controllerFile.readText()
+		val origin = controller
+			.substringAfter("fun visualLocationOrigin(")
+			.substringBefore("fun synchronizeVisualPageIndex(")
+		val synchronization = controller
+			.substringAfter("fun synchronizeVisualPageIndex(")
+			.substringBefore("private fun completeAcknowledgedRelocation(")
+		val pendingExact = synchronization
+			.substringAfter("ReaderPageVisualLocationOrigin.PendingExactPageTurn ->")
+			.substringBefore("ReaderPageVisualLocationOrigin.StaleAcknowledgement")
+		val stale = synchronization
+			.substringAfter("ReaderPageVisualLocationOrigin.StaleAcknowledgement ->")
+			.substringBefore("ReaderPageVisualLocationOrigin.External ->")
+		val hostSynchronization = host
+			.substringAfterLast("fun setPageTurnVisualLocation(")
+			.substringBefore("fun setShellCoverVisible(")
 
 		assertFalse(host.contains("readerPageVisualLocationOrigin(reason)"))
 		assertContains(host, "pageTurnSettlementAck == acknowledgement")
 		assertContains(host, "ReaderPageVisualLocationOrigin.External")
 		assertContains(controller, "fun visualLocationOrigin(")
-		assertContains(controller, "relocationQueue.matchesDispatchedHead(")
-		assertContains(controller, "if (relocationQueue.hasDispatchedHead())")
-		assertFalse(
-			controller.contains(
-				"acknowledgement == null && relocationQueue.hasDispatchedHead()"
-			),
-			"A retained stale acknowledgement must not reclassify an in-flight exact relocation as external."
-		)
+		assertContains(origin, "relocationQueue.matchesDispatchedHead(")
+		assertContains(origin, "readerPageVisualLocationOrigin(")
+		assertContains(origin, "foliateSessionRelocationPending =")
+		assertContains(origin, "acknowledgementPresent = acknowledgement != null")
+		assertContains(origin, "relocationInFlight = relocationQueue.hasInFlightHead()")
 		assertContains(
 			controller,
 			"ReaderPageVisualLocationOrigin.PendingExactPageTurn"
@@ -213,31 +225,26 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			controller,
 			"ReaderPageVisualLocationOrigin.StaleAcknowledgement"
 		)
-		val origin = controller
-			.substringAfter("fun visualLocationOrigin(")
-			.substringBefore("fun synchronizeVisualPageIndex(")
-		assertTrue(
-			origin.indexOf("if (foliateSessionRelocationPending)") <
-				origin.indexOf("if (relocationQueue.hasDispatchedHead())"),
-			"A genuine Foliate session replacement must still outrank pending exact relocation state."
+		assertFalse(origin.contains("page-turn:exact"))
+		assertContains(synchronization, "val origin = visualLocationOrigin(")
+		assertContains(
+			synchronization,
+			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
 		)
-		assertTrue(
-			origin.indexOf("relocationQueue.matchesDispatchedHead(") <
-				origin.indexOf("if (relocationQueue.hasDispatchedHead())"),
-			"An exact acknowledgement must be matched before transient dispatched state."
-		)
-		val synchronization = controller
-			.substringAfter("fun synchronizeVisualPageIndex(")
-			.substringBefore("private fun completeAcknowledgedRelocation(")
-		val pendingExact = synchronization
-			.substringAfter("ReaderPageVisualLocationOrigin.PendingExactPageTurn ->")
-			.substringBefore("ReaderPageVisualLocationOrigin.StaleAcknowledgement")
 		assertFalse(pendingExact.contains("invalidate("))
-		assertFalse(
-			controller
-				.substringAfter("fun visualLocationOrigin(")
-				.substringBefore("fun synchronizeVisualPageIndex(")
-				.contains("page-turn:exact")
+		assertFalse(stale.contains("currentOrdinal ="))
+		assertFalse(stale.contains("invalidate("))
+		assertContains(
+			hostSynchronization,
+			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
+		)
+		assertTrue(
+			hostSynchronization.indexOf(
+				"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
+			) < hostSynchronization.indexOf(
+				"pageRasterPreparationController.synchronizeVisualPageIndex("
+			),
+			"A stale exact acknowledgement must not move raster-preparation authority."
 		)
 	}
 
@@ -351,7 +358,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(rejection, "readerPageRelocationDispatchRecoveryOrdinal(")
 		assertContains(rejection, "currentFoliateSessionId = currentFoliateSessionId")
 		assertContains(rejection, "currentWebViewOrdinal = currentWebViewOrdinal")
-		assertContains(rejection, "invalidate(\"relocation-dispatch-${'$'}reason\")")
+		assertContains(rejection, "relocationRejectionReason = reason")
+		assertContains(
+			source,
+			"ReaderPageRelocationDiagnosticRejectionReason.AcknowledgementTimeout"
+		)
 		assertContains(cancellation, "relocationDispatchTimeout.cancelAll()")
 		assertTrue(
 			cancellation.indexOf("relocationDispatchTimeout.cancelAll()") <
@@ -397,7 +408,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "ReaderPageRelocationVisualRetryEvent.Reprepared(")
 		assertTrue(
 			invalidate.indexOf("relocationVisualHandoffCoordinator.cancelForQueueInvalidation()") <
-				invalidate.indexOf("drainRelocationOwnership(\"invalidated:${'$'}reason\")")
+				invalidate.indexOf("drainRelocationOwnership(")
 		)
 		assertContains(
 			destroyFence,
