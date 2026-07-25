@@ -112,7 +112,7 @@ class ReaderPageRasterCacheTest {
 			base.copy(layoutHash = "layout-2"),
 			base.copy(decorationHash = "decoration-2"),
 			base.copy(quality = ReaderPageBitmapQuality.Native),
-			base.copy(schemaVersion = 2)
+			base.copy(schemaVersion = base.schemaVersion + 1)
 		)
 
 		variants.forEach { variant ->
@@ -302,6 +302,39 @@ class ReaderPageRasterCacheTest {
 		fixture.cache.read(unprotected.first())
 		assertEquals(decodeCallsBeforeReads + 1, codec.decodeCalls)
 		assertEquals(4, fixture.cache.metrics().diskEntries)
+	}
+
+	@Test
+	fun obsoleteSchemaManifestAndRastersArePrunedOnCacheOpen() {
+		assertTrue(ReaderPageRasterSchemaVersion > 1)
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key()
+		assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes("obsolete")))
+		val obsoleteRaster = fixture.cache.pathFor(rasterKey)
+		val manifest = fixture.cache.manifestPath()
+		manifest.writeText(
+			manifest.readText().replace(
+				"\"schemaVersion\":$ReaderPageRasterSchemaVersion",
+				"\"schemaVersion\":1"
+			)
+		)
+
+		val reopened = ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = 1_024L,
+			maxDecodedEntries = 1
+		)
+
+		assertFalse(reopened.contains(rasterKey))
+		assertFalse(obsoleteRaster.exists())
+		assertEquals(0, reopened.metrics().diskEntries)
+		assertEquals(0L, reopened.metrics().diskBytes)
+		assertTrue(
+			manifest.readText().contains(
+				"\"schemaVersion\":$ReaderPageRasterSchemaVersion"
+			)
+		)
 	}
 
 	@Test
