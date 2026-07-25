@@ -256,17 +256,17 @@ class ReaderDevEnvironmentContractTest {
 				stressLoop.contains("\$relocationStateAtTerminal") &&
 				stressLoop.contains("\$_.Index -le \$terminalInFullLog.Index") &&
 				stressLoop.contains("Wait-ReaderQaRelocationTerminal") &&
-				stressLoop.contains("\$latestPreparation.Index -gt \$terminalInFullLog.Index") &&
-				stressLoop.contains("\$latestPreparation.State -eq 'Ready'") &&
-				stressLoop.contains(
-					"\$recoveryAttemptBoundary = if (\n" +
-						"                        \$latestPreparation.State -eq 'Attempted'"
-				) &&
-				stressLoop.contains("[long]\$latestPreparation.Attempt + 1") &&
-				stressLoop.contains("-AtOrAfterAttempt \$recoveryAttemptBoundary") &&
+				stressLoop.contains("Get-ReaderPreparationRecoveryAction") &&
+				stressLoop.contains("'ReadyAfterTerminal' {}") &&
+				stressLoop.contains("'QuiesceReadyBeforeTerminal'") &&
+				stressLoop.contains("Start-Sleep -Milliseconds 750") &&
+				stressLoop.contains("'AwaitCurrentAttempt'") &&
+				stressLoop.contains("-AtOrAfterAttempt \$latestPreparation.Attempt") &&
+				stressLoop.contains("'AwaitNextAttempt'") &&
+				stressLoop.contains("-AtOrAfterAttempt (\$latestPreparation.Attempt + 1)") &&
 				stressLoop.contains("-WaitSeconds \$preparationRecoveryTimeoutSeconds") &&
 				!stressLoop.contains("-AfterIndex \$newTerminal.Index"),
-			"Stress readiness recovery must first drain any correlated relocation, then bind actual preparation recovery to the current or next monotonic attempt under a bounded deadline."
+			"Stress readiness recovery must drain correlated relocation, quiesce already-ready state, and bind in-flight or terminal preparation to a bounded monotonic attempt."
 		)
 		val stressRetryOutcomes = runner
 			.substringAfter("\$transientRetryOutcomes = @(")
