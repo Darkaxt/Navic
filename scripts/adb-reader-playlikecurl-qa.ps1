@@ -9,6 +9,7 @@ param(
     [Parameter(Mandatory = $true)][ValidateRange(1, [long]::MaxValue)]
     [long] $ExpectedVersionCode,
     [Parameter(Mandatory = $true)][AllowEmptyString()][string] $ExpectedVersionName,
+    [string] $ImplementationCommit = '',
     [switch] $NoInstall,
     [string] $ArtifactRoot = ".codex-validation\reader-playlikecurl",
     [int] $StressTurns = 100,
@@ -84,10 +85,48 @@ if (Test-Path -LiteralPath $ArtifactRoot) {
 }
 New-Item -ItemType Directory -Path $ArtifactRoot | Out-Null
 $runId = [guid]::NewGuid().ToString('N')
-$gitCommit = (git rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $gitCommit -notmatch '^[0-9a-f]{40}$') {
+$acceptanceToolingCommit = (git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or
+    $acceptanceToolingCommit -notmatch '^[0-9a-f]{40}$') {
     throw 'Unable to resolve runner Git commit'
 }
+$implementationGitCommit = if ([string]::IsNullOrWhiteSpace($ImplementationCommit)) {
+    $acceptanceToolingCommit
+} else {
+    $ImplementationCommit.Trim().ToLowerInvariant()
+}
+if ($implementationGitCommit -notmatch '^[0-9a-f]{40}$') {
+    throw 'Reader QA implementation commit is invalid'
+}
+
+function Assert-RunnerPostImplementationPaths {
+    param(
+        [Parameter(Mandatory = $true)][string] $ImplementationGitCommit,
+        [Parameter(Mandatory = $true)][string] $ToolingCommit
+    )
+    if ($ImplementationGitCommit -ceq $ToolingCommit) { return }
+    git merge-base --is-ancestor $ImplementationGitCommit $ToolingCommit
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Acceptance tooling commit does not descend from the implementation commit'
+    }
+    $allowed = @(
+        'scripts/adb-reader-playlikecurl-qa.ps1',
+        'scripts/reader-playlikecurl-acceptance-state.ps1',
+        'scripts/test-reader-playlikecurl-acceptance-state.ps1',
+        'composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt',
+        'docs/superpowers/reports/2026-07-18-reader-playlikecurl-qa-remediation-validation.md'
+    )
+    $changedPaths = @(git diff --name-only "$ImplementationGitCommit..$ToolingCommit")
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to inspect post-implementation acceptance changes'
+    }
+    foreach ($path in $changedPaths) {
+        if ($path.Replace('\', '/') -cnotin $allowed) {
+            throw "Production source changed after the Reader QA implementation commit: $path"
+        }
+    }
+}
+
 $outsideValidation = @(Get-RunnerOutsideValidationStatus)
 $candidateTreeSha256Actual = $null
 if ($EvidenceMode -eq 'FrozenCommit') {
@@ -97,7 +136,12 @@ if ($EvidenceMode -eq 'FrozenCommit') {
     if (-not [string]::IsNullOrWhiteSpace($CandidateTreeSha256)) {
         throw 'FrozenCommit evidence cannot carry a candidate-tree digest'
     }
+    Assert-RunnerPostImplementationPaths `
+        $implementationGitCommit $acceptanceToolingCommit
 } else {
+    if (-not [string]::IsNullOrWhiteSpace($ImplementationCommit)) {
+        throw 'PrecommitCandidate evidence cannot override the implementation commit'
+    }
     if ($CandidateTreeSha256 -notmatch '^[0-9A-Fa-f]{64}$') {
         throw 'PrecommitCandidate evidence requires a candidate-tree SHA-256'
     }
@@ -108,8 +152,9 @@ if ($EvidenceMode -eq 'FrozenCommit') {
 }
 
 function Assert-RunnerSourceIdentity([string] $Context) {
-    $currentGitCommit = (git rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or $currentGitCommit -cne $gitCommit) {
+    $currentToolingCommit = (git rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or
+        $currentToolingCommit -cne $acceptanceToolingCommit) {
         throw "Runner Git commit changed while $Context was executing"
     }
     $currentOutsideValidation = @(Get-RunnerOutsideValidationStatus)
@@ -117,6 +162,8 @@ function Assert-RunnerSourceIdentity([string] $Context) {
         if ($currentOutsideValidation.Count -ne 0) {
             throw "FrozenCommit source tree changed while $Context was executing"
         }
+        Assert-RunnerPostImplementationPaths `
+            $implementationGitCommit $acceptanceToolingCommit
         return
     }
     $currentCandidateTreeSha256 = Get-PrecommitCandidateTreeSha256
@@ -141,7 +188,8 @@ $runStartedUtc = [DateTime]::UtcNow.ToString('o')
     Status = 'started'
     RunId = $runId
     DeviceSerial = $DeviceSerial
-    GitCommit = $gitCommit
+    GitCommit = $implementationGitCommit
+    AcceptanceToolingCommit = $acceptanceToolingCommit
     EvidenceMode = $EvidenceMode
     CandidateTreeSha256 = $candidateTreeSha256Actual
     ApkPath = $apkDisplayPath
@@ -918,30 +966,41 @@ function Invoke-ReaderQaBoundedAdb(
     }
 }
 
+function Get-ReaderQaDisplayGeometry([DateTime] $DeadlineUtc) {
+    $displayText = Invoke-ReaderQaBoundedAdb `
+        -Arguments @('shell', 'dumpsys', 'window', 'displays') `
+        -DeadlineUtc $DeadlineUtc
+    $displayMatch = [regex]::Matches(
+        $displayText,
+        'cur=(?<Width>\d+)x(?<Height>\d+)'
+    ) | Select-Object -First 1
+    if ($null -eq $displayMatch) {
+        throw 'ReaderDev current display geometry was unavailable'
+    }
+    [pscustomobject]@{
+        Width = [int]$displayMatch.Groups['Width'].Value
+        Height = [int]$displayMatch.Groups['Height'].Value
+    }
+}
+
 function Invoke-ReaderQaPreparationRetry(
     [long] $ReaderSession,
     [long] $AfterIndex
 ) {
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    $sizeText = Invoke-ReaderQaBoundedAdb `
-        -Arguments @('shell', 'wm', 'size') `
-        -DeadlineUtc $deadline
+    $geometry = Get-ReaderQaDisplayGeometry -DeadlineUtc $deadline
     $densityText = Invoke-ReaderQaBoundedAdb `
         -Arguments @('shell', 'wm', 'density') `
         -DeadlineUtc $deadline
-    $sizeMatch = [regex]::Matches(
-        $sizeText,
-        '(?<Width>\d+)x(?<Height>\d+)'
-    ) | Select-Object -Last 1
     $densityMatch = [regex]::Matches(
         $densityText,
         'density:\s*(?<Value>\d+)'
     ) | Select-Object -Last 1
-    if ($null -eq $sizeMatch -or $null -eq $densityMatch) {
-        throw 'ReaderDev display geometry was unavailable for Retry'
+    if ($null -eq $densityMatch) {
+        throw 'ReaderDev display density was unavailable for Retry'
     }
-    $width = [int]$sizeMatch.Groups['Width'].Value
-    $height = [int]$sizeMatch.Groups['Height'].Value
+    $width = [int]$geometry.Width
+    $height = [int]$geometry.Height
     $density = [int]$densityMatch.Groups['Value'].Value / 160.0
     $horizontalOffsetsDp = @(120, 160, 200, 220, 240)
     $bottomOffsetsDp = @(55, 70, 85)
@@ -1341,11 +1400,10 @@ Assert-WarmReopenUsesPersistentHydration `
     -Log $baselineLog `
     -ReaderSession $readerSession `
     -Context 'ReaderDev warm reopen'
-$sizeText = (Invoke-Adb @("shell", "wm", "size") | Out-String)
-$match = [regex]::Matches($sizeText, '(\d+)x(\d+)') | Select-Object -Last 1
-if ($null -eq $match) { throw 'ReaderDev device dimensions were unavailable' }
-$width = [int]$match.Groups[1].Value
-$height = [int]$match.Groups[2].Value
+$displayGeometry = Get-ReaderQaDisplayGeometry `
+    -DeadlineUtc ([DateTime]::UtcNow.AddSeconds(5))
+$width = [int]$displayGeometry.Width
+$height = [int]$displayGeometry.Height
 $physicalRight = [int]($width * 0.82)
 $physicalLeft = [int]($width * 0.18)
 $y = [int]($height * 0.50)
@@ -1921,7 +1979,8 @@ $artifactHashes = @(
     RunId = $runId
     DeviceSerial = $DeviceSerial
     ReaderPid = $script:ReaderPid
-    GitCommit = $gitCommit
+    GitCommit = $implementationGitCommit
+    AcceptanceToolingCommit = $acceptanceToolingCommit
     EvidenceMode = $EvidenceMode
     CandidateTreeSha256 = $candidateTreeSha256Actual
     ApkPath = $apkDisplayPath
@@ -1947,7 +2006,8 @@ $runSucceeded = $true
         Status = 'failed'
         RunId = $runId
         DeviceSerial = $DeviceSerial
-        GitCommit = $gitCommit
+        GitCommit = $implementationGitCommit
+        AcceptanceToolingCommit = $acceptanceToolingCommit
         EvidenceMode = $EvidenceMode
         CandidateTreeSha256 = $candidateTreeSha256Actual
         ApkSha256 = $apkSha256

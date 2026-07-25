@@ -338,6 +338,9 @@ class ReaderDevEnvironmentContractTest {
 		)
 		val boundedAdb = runner
 			.substringAfter("function Invoke-ReaderQaBoundedAdb")
+			.substringBefore("function Get-ReaderQaDisplayGeometry")
+		val displayGeometry = runner
+			.substringAfter("function Get-ReaderQaDisplayGeometry")
 			.substringBefore("function Invoke-ReaderQaPreparationRetry")
 		val retryControl = runner
 			.substringAfter("function Invoke-ReaderQaPreparationRetry")
@@ -345,6 +348,7 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(
 			runner.contains("function Wait-ReaderPreparedDeckOwnership") &&
 				runner.contains("function Invoke-ReaderQaPreparationRetry") &&
+				runner.contains("function Get-ReaderQaDisplayGeometry") &&
 				boundedAdb.split(
 					"if ([DateTime]::UtcNow -ge \$DeadlineUtc) { return '' }"
 				).size == 3 &&
@@ -352,7 +356,11 @@ class ReaderDevEnvironmentContractTest {
 				boundedAdb.contains("WaitForExit(\$remainingMilliseconds)") &&
 				boundedAdb.contains("Kill(\$true)") &&
 				boundedAdb.contains("@('-s', \$DeviceSerial) + \$Arguments") &&
-				retryControl.contains("@('shell', 'wm', 'size')") &&
+				displayGeometry.contains("@('shell', 'dumpsys', 'window', 'displays')") &&
+				displayGeometry.contains("cur=(?<Width>\\d+)x(?<Height>\\d+)") &&
+				retryControl.contains("Get-ReaderQaDisplayGeometry") &&
+				!runner.contains("@('shell', 'wm', 'size')") &&
+				!runner.contains("@(\"shell\", \"wm\", \"size\")") &&
 				retryControl.contains("@('shell', 'wm', 'density')") &&
 				retryControl.contains("\$horizontalOffsetsDp") &&
 				retryControl.contains("\$bottomOffsetsDp") &&
@@ -370,6 +378,15 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("\$_.QaFaultRelation -eq 'Retry'") &&
 				runner.contains("\$_.Result -eq 'Durable'"),
 			"The persistence fault interval must reach the visible Retry action with bounded device input and recover durably before warm-reopen validation."
+		)
+		assertTrue(
+			runner.contains("[string] \$ImplementationCommit") &&
+				runner.contains("\$acceptanceToolingCommit = (git rev-parse HEAD).Trim()") &&
+				runner.contains("GitCommit = \$implementationGitCommit") &&
+				runner.contains("AcceptanceToolingCommit = \$acceptanceToolingCommit") &&
+				!runner.contains("GitCommit = \$gitCommit") &&
+				runner.contains("Assert-RunnerPostImplementationPaths"),
+			"Frozen runs executed by later acceptance-only tooling must retain the APK implementation commit while recording and constraining the tooling commit."
 		)
 		assertTrue(
 			runner.contains("\$maximumRepairFaultAttempts = 5") &&

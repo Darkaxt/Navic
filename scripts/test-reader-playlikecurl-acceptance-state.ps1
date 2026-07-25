@@ -269,8 +269,10 @@ try {
     } 'missing physical device fixture'
 
     Assert-ReaderAcceptanceSourceBoundary @(
+        'scripts/adb-reader-playlikecurl-qa.ps1',
         'scripts/reader-playlikecurl-acceptance-state.ps1',
         'scripts/test-reader-playlikecurl-acceptance-state.ps1',
+        'composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt',
         'docs/superpowers/reports/2026-07-18-reader-playlikecurl-qa-remediation-validation.md'
     )
     $headCommit = (
