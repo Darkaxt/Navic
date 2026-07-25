@@ -80,6 +80,20 @@ fun ReaderPagePreparationState.withReadiness(
 	)
 }
 
+fun ReaderPagePreparationState.withRendererReadiness(
+	renderer: ReaderPageRendererReadinessState
+): ReaderPagePreparationState = withReadiness(
+	readiness.copy(
+		textureDeck = renderer.textureDeck,
+		pendingTextureDeck = renderer.pendingTextureDeck,
+		interaction = if (phase == ReaderPagePreparationPhase.Failed) {
+			ReaderPageInteractionState.Failed
+		} else {
+			renderer.interaction
+		}
+	)
+)
+
 fun readerPagePreparationState(
 	phase: ReaderPagePreparationPhase,
 	requiredCount: Int,

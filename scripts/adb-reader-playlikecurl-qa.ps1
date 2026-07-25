@@ -735,7 +735,8 @@ function Assert-ReaderQaFaultSet(
     return $downstream
 }
 
-function Invoke-ReaderQaUiHierarchy(
+function Invoke-ReaderQaBoundedAdb(
+    [string[]] $Arguments,
     [DateTime] $DeadlineUtc
 ) {
     if ([DateTime]::UtcNow -ge $DeadlineUtc) { return '' }
@@ -745,16 +746,15 @@ function Invoke-ReaderQaUiHierarchy(
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    @(
-        '-s', $DeviceSerial,
-        'exec-out', 'uiautomator', 'dump', '/dev/tty'
-    ) | ForEach-Object { [void]$startInfo.ArgumentList.Add($_) }
+    @('-s', $DeviceSerial) + $Arguments | ForEach-Object {
+        [void]$startInfo.ArgumentList.Add($_)
+    }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     try {
         if ([DateTime]::UtcNow -ge $DeadlineUtc) { return '' }
         if (-not $process.Start()) {
-            throw 'ReaderDev UiAutomator hierarchy process did not start'
+            throw 'ReaderDev bounded ADB process did not start'
         }
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
@@ -780,7 +780,7 @@ function Invoke-ReaderQaUiHierarchy(
         $stdout = $stdoutTask.GetAwaiter().GetResult()
         [void]$stderrTask.GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0) {
-            throw 'ReaderDev UiAutomator hierarchy command failed'
+            throw 'ReaderDev bounded ADB command failed'
         }
         return $stdout
     } finally {
@@ -788,70 +788,86 @@ function Invoke-ReaderQaUiHierarchy(
     }
 }
 
-function Invoke-ReaderQaPreparationRetry {
+function Invoke-ReaderQaPreparationRetry(
+    [long] $ReaderSession,
+    [long] $AfterIndex
+) {
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    $retryNode = $null
-    do {
-        $remainingMilliseconds = [int][Math]::Floor(
-            ($deadline - [DateTime]::UtcNow).TotalMilliseconds
-        )
-        if ($remainingMilliseconds -le 0) { break }
-        [string] $dump = Invoke-ReaderQaUiHierarchy `
-            -DeadlineUtc $deadline
-        $xmlStart = $dump.IndexOf('<?xml')
-        $xmlEnd = $dump.IndexOf('</hierarchy>')
-        if ($xmlStart -ge 0 -and $xmlEnd -ge $xmlStart) {
-            $hierarchy = $null
-            try {
-                $hierarchy = [xml]$dump.Substring(
-                    $xmlStart,
-                    $xmlEnd + '</hierarchy>'.Length - $xmlStart
-                )
-            } catch {
-                # UiAutomator can expose a partially changing hierarchy.
-            }
-            if ($null -ne $hierarchy) {
-                $retryNodes = @(
-                    $hierarchy.SelectNodes(
-                        "//node[@text='Retry' or @content-desc='Retry']"
+    $sizeText = Invoke-ReaderQaBoundedAdb `
+        -Arguments @('shell', 'wm', 'size') `
+        -DeadlineUtc $deadline
+    $densityText = Invoke-ReaderQaBoundedAdb `
+        -Arguments @('shell', 'wm', 'density') `
+        -DeadlineUtc $deadline
+    $sizeMatch = [regex]::Matches(
+        $sizeText,
+        '(?<Width>\d+)x(?<Height>\d+)'
+    ) | Select-Object -Last 1
+    $densityMatch = [regex]::Matches(
+        $densityText,
+        'density:\s*(?<Value>\d+)'
+    ) | Select-Object -Last 1
+    if ($null -eq $sizeMatch -or $null -eq $densityMatch) {
+        throw 'ReaderDev display geometry was unavailable for Retry'
+    }
+    $width = [int]$sizeMatch.Groups['Width'].Value
+    $height = [int]$sizeMatch.Groups['Height'].Value
+    $density = [int]$densityMatch.Groups['Value'].Value / 160.0
+    $horizontalOffsetsDp = @(120, 160, 200, 220, 240)
+    $bottomOffsetsDp = @(55, 70, 85)
+    $attemptedCoordinates = [Collections.Generic.HashSet[string]]::new()
+    foreach ($bottomOffsetDp in $bottomOffsetsDp) {
+        foreach ($horizontalOffsetDp in $horizontalOffsetsDp) {
+            if ([DateTime]::UtcNow -ge $deadline) { break }
+            $tapX = [Math]::Min(
+                $width - 1,
+                [Math]::Max(
+                    0,
+                    [int][Math]::Round(
+                        ($width / 2.0) + ($horizontalOffsetDp * $density)
                     )
                 )
-                if ($retryNodes.Count -gt 1) {
-                    throw 'ReaderDev failure overlay exposed multiple Retry controls'
+            )
+            $tapY = [Math]::Min(
+                $height - 1,
+                [Math]::Max(
+                    0,
+                    [int][Math]::Round(
+                        $height - ($bottomOffsetDp * $density)
+                    )
+                )
+            )
+            if (-not $attemptedCoordinates.Add("$tapX,$tapY")) { continue }
+            [void](Invoke-ReaderQaBoundedAdb `
+                -Arguments @('shell', 'input', 'tap', "$tapX", "$tapY") `
+                -DeadlineUtc $deadline)
+            $tapDeadline = [DateTime]::UtcNow.AddSeconds(1)
+            if ($tapDeadline -gt $deadline) { $tapDeadline = $deadline }
+            do {
+                $log = Read-ReaderPidLog `
+                    -Context 'ReaderDev preparation Retry action' `
+                    -Full
+                $retryAttempt = ConvertFrom-ReaderPreparationLog $log |
+                    Where-Object {
+                        $_.Session -eq $ReaderSession -and
+                            $_.State -eq 'Attempted' -and
+                            $_.Index -gt $AfterIndex
+                    } |
+                    Select-Object -First 1
+                if ($null -ne $retryAttempt) { return }
+                $remainingMilliseconds = [int][Math]::Floor(
+                    ($tapDeadline - [DateTime]::UtcNow).TotalMilliseconds
+                )
+                if ($remainingMilliseconds -gt 0) {
+                    Start-Sleep -Milliseconds (
+                        [Math]::Min(100, $remainingMilliseconds)
+                    )
                 }
-                if ($retryNodes.Count -eq 1) {
-                    $retryNode = $retryNodes[0]
-                    break
-                }
-            }
+            } while ([DateTime]::UtcNow -lt $tapDeadline)
         }
-        $remainingMilliseconds = [int][Math]::Floor(
-            ($deadline - [DateTime]::UtcNow).TotalMilliseconds
-        )
-        if ($remainingMilliseconds -gt 0) {
-            $sleepMilliseconds = [Math]::Min(250, $remainingMilliseconds)
-            Start-Sleep -Milliseconds $sleepMilliseconds
-        }
-    } while ([DateTime]::UtcNow -lt $deadline)
-    if ($null -eq $retryNode) {
-        throw 'ReaderDev failure overlay did not expose one Retry control'
+        if ([DateTime]::UtcNow -ge $deadline) { break }
     }
-    $bounds = [regex]::Match(
-        [string]$retryNode.bounds,
-        '^\[(?<Left>\d+),(?<Top>\d+)\]\[(?<Right>\d+),(?<Bottom>\d+)\]$'
-    )
-    if (-not $bounds.Success) {
-        throw 'ReaderDev Retry control bounds were malformed'
-    }
-    $retryX = [int]((
-        [int]$bounds.Groups['Left'].Value +
-        [int]$bounds.Groups['Right'].Value
-    ) / 2)
-    $retryY = [int]((
-        [int]$bounds.Groups['Top'].Value +
-        [int]$bounds.Groups['Bottom'].Value
-    ) / 2)
-    Invoke-Adb @('shell', 'input', 'tap', "$retryX", "$retryY")
+    throw 'ReaderDev failure overlay Retry action was not reachable'
 }
 
 function Invoke-ReaderPersistenceFault(
@@ -885,7 +901,9 @@ function Invoke-ReaderPersistenceFault(
                     $_.Index -gt $failedPublication.Match.Index
             }
         }
-    Invoke-ReaderQaPreparationRetry
+    Invoke-ReaderQaPreparationRetry `
+        -ReaderSession $readerSession `
+        -AfterIndex $preparationFailure.Match.Index
     [void](Wait-ReaderQaCondition `
         -Context 'ReaderDev durable persistence retry' `
         -WaitSeconds 60 `

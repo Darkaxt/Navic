@@ -157,4 +157,70 @@ class ReaderPagePreparationPolicyTest {
 		assertTrue(state.retryable)
 		assertEquals("Page preparation failed", state.error)
 	}
+
+	@Test
+	fun rendererReadyCannotHideInitialPersistenceFailure() {
+		val failed = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Failed,
+			requiredCount = 2,
+			completedCount = 0,
+			interactiveRequiredCount = 2,
+			interactiveCompletedCount = 0,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Failed,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Failed,
+				textureDeck = ReaderTextureDeckState.Empty,
+				interaction = ReaderPageInteractionState.Failed
+			),
+			error = "Page preparation failed",
+			retryable = true
+		)
+
+		val merged = failed.withRendererReadiness(
+			ReaderPageRendererReadinessState(
+				textureDeck = ReaderTextureDeckState.Empty,
+				interaction = ReaderPageInteractionState.Ready
+			)
+		)
+
+		assertEquals(ReaderPageInteractionState.Failed, merged.readiness.interaction)
+		assertEquals(ReaderPagePreparationPresentation.Cover, merged.presentation)
+		assertTrue(merged.retryable)
+		assertEquals(
+			ReaderPageNewPointerDecision.Reject(
+				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable
+			),
+			merged.operationPolicy.newPointer
+		)
+	}
+
+	@Test
+	fun rendererDeckMakesSubsequentPersistenceFailureCompactButStillVisible() {
+		val failed = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Failed,
+			requiredCount = 3,
+			completedCount = 2,
+			interactiveRequiredCount = 3,
+			interactiveCompletedCount = 2,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Failed,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Empty,
+				interaction = ReaderPageInteractionState.Failed
+			),
+			retryable = true
+		)
+
+		val merged = failed.withRendererReadiness(
+			ReaderPageRendererReadinessState(
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Ready
+			)
+		)
+
+		assertEquals(ReaderPageInteractionState.Failed, merged.readiness.interaction)
+		assertEquals(ReaderTextureDeckState.Ready, merged.readiness.textureDeck)
+		assertEquals(ReaderPagePreparationPresentation.Compact, merged.presentation)
+		assertTrue(merged.retryable)
+	}
 }

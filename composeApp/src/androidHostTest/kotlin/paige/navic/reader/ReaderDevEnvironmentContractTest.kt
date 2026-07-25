@@ -250,8 +250,8 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("logcat-fault-injection.txt"),
 			"The emulator runner must execute and persist operation-correlated persistence, repair, and delayed-callback fault evidence."
 		)
-		val hierarchyDump = runner
-			.substringAfter("function Invoke-ReaderQaUiHierarchy")
+		val boundedAdb = runner
+			.substringAfter("function Invoke-ReaderQaBoundedAdb")
 			.substringBefore("function Invoke-ReaderQaPreparationRetry")
 		val retryControl = runner
 			.substringAfter("function Invoke-ReaderQaPreparationRetry")
@@ -259,24 +259,31 @@ class ReaderDevEnvironmentContractTest {
 		assertTrue(
 			runner.contains("function Wait-ReaderPreparedDeckOwnership") &&
 				runner.contains("function Invoke-ReaderQaPreparationRetry") &&
-				hierarchyDump.split(
+				boundedAdb.split(
 					"if ([DateTime]::UtcNow -ge \$DeadlineUtc) { return '' }"
 				).size == 3 &&
-				hierarchyDump.contains("(\$DeadlineUtc - [DateTime]::UtcNow)") &&
-				hierarchyDump.contains("WaitForExit(\$remainingMilliseconds)") &&
-				hierarchyDump.contains("Kill(\$true)") &&
-				hierarchyDump.contains("'uiautomator', 'dump', '/dev/tty'") &&
-				retryControl.contains("Invoke-ReaderQaUiHierarchy `") &&
-				retryControl.contains("-DeadlineUtc \$deadline") &&
-				retryControl.contains("\$remainingMilliseconds") &&
+				boundedAdb.contains("(\$DeadlineUtc - [DateTime]::UtcNow)") &&
+				boundedAdb.contains("WaitForExit(\$remainingMilliseconds)") &&
+				boundedAdb.contains("Kill(\$true)") &&
+				boundedAdb.contains("@('-s', \$DeviceSerial) + \$Arguments") &&
+				retryControl.contains("@('shell', 'wm', 'size')") &&
+				retryControl.contains("@('shell', 'wm', 'density')") &&
+				retryControl.contains("\$horizontalOffsetsDp") &&
+				retryControl.contains("\$bottomOffsetsDp") &&
+				retryControl.contains("@('shell', 'input', 'tap'") &&
+				retryControl.contains("ReaderDev preparation Retry action") &&
+				retryControl.contains("\$_.State -eq 'Attempted'") &&
+				retryControl.contains("\$_.Index -gt \$AfterIndex") &&
 				retryControl.contains("\$deadline = [DateTime]::UtcNow.AddSeconds(15)") &&
-				retryControl.contains("[Math]::Min(250, \$remainingMilliseconds)") &&
-				retryControl.contains("Start-Sleep -Milliseconds \$sleepMilliseconds") &&
-				retryControl.contains("while ([DateTime]::UtcNow -lt \$deadline)") &&
+				retryControl.contains("[Math]::Min(100, \$remainingMilliseconds)") &&
+				retryControl.contains("while ([DateTime]::UtcNow -lt \$tapDeadline)") &&
+				runner.contains("-ReaderSession \$readerSession") &&
+				runner.contains("-AfterIndex \$preparationFailure.Match.Index") &&
+				!runner.contains("'uiautomator', 'dump', '/dev/tty'") &&
 				runner.contains("ReaderDev durable persistence retry") &&
 				runner.contains("\$_.QaFaultRelation -eq 'Retry'") &&
 				runner.contains("\$_.Result -eq 'Durable'"),
-			"The persistence fault interval must recover durably before the process is restarted for warm-reopen validation."
+			"The persistence fault interval must reach the visible Retry action with bounded device input and recover durably before warm-reopen validation."
 		)
 		assertTrue(
 			runner.contains("\$maximumRepairFaultAttempts = 5") &&

@@ -59,7 +59,7 @@ import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.reader.readerPublicationCacheRoot
 import paige.navic.reader.readerShellCoverSwipeAction
 import paige.navic.reader.readerTapZonePageTurnDirectionFor
-import paige.navic.reader.withReadiness
+import paige.navic.reader.withRendererReadiness
 import paige.navic.util.core.Logger
 import java.io.File
 import java.net.URLDecoder
@@ -229,7 +229,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		navigationOverlay.isClickable = false
 		navigationOverlay.isFocusable = false
 		navigationOverlay.visibility = GONE
-		shellCoverView.isClickable = true
+		shellCoverView.isClickable = false
 		shellCoverView.isFocusable = false
 		shellCoverView.visibility = GONE
 		composeOverlay.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
@@ -275,12 +275,14 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	fun setPagePreparationCoverVisible(visible: Boolean) {
 		if (pagePreparationCoverVisible == visible) return
 		pagePreparationCoverVisible = visible
+		composeOverlay.isClickable = visible
 		updateNativeCoverVisibility()
 	}
 
 	private fun updateNativeCoverVisibility() {
 		val visible = shellCoverVisible || pagePreparationCoverVisible
 		shellCoverView.visibility = if (visible) VISIBLE else GONE
+		shellCoverView.isClickable = shellCoverVisible
 		val trace =
 			"visible=$visible shell=$shellCoverVisible preparation=$pagePreparationCoverVisible"
 		if (lastNativeCoverVisibilityTrace != trace) {
@@ -1039,14 +1041,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	}
 
 	private fun publishMergedPagePreparationState() {
-		val raster = latestRasterPreparationState
-		val renderer = latestRendererReadinessState
-		val merged = raster.withReadiness(
-			raster.readiness.copy(
-				textureDeck = renderer.textureDeck,
-				pendingTextureDeck = renderer.pendingTextureDeck,
-				interaction = renderer.interaction
-			)
+		val merged = latestRasterPreparationState.withRendererReadiness(
+			latestRendererReadinessState
 		)
 		setPageOperationPolicy(merged.operationPolicy)
 		onPagePreparationStateChange(merged)
