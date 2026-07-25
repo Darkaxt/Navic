@@ -174,6 +174,50 @@ class ReaderVisualQaTest(unittest.TestCase):
 
         self.assertEqual("pass", report["checks"]["decorationContinuity"]["status"])
 
+    def test_require_all_ignores_checks_that_do_not_apply_to_scenario(self):
+        gesture_report = self.analyze(
+            [bright_frame() for _ in range(40)],
+            orientation="landscape",
+            scenario="snap-back",
+        )
+        portrait_report = self.analyze(
+            [bright_frame() for _ in range(40)],
+            orientation="portrait",
+            scenario="idle",
+        )
+
+        self.assertEqual(
+            "skipped", gesture_report["checks"]["idleStability"]["status"]
+        )
+        self.assertFalse(
+            QA.has_skipped_required_checks(
+                gesture_report["checks"], "landscape", "snap-back"
+            )
+        )
+        self.assertEqual(
+            "skipped", portrait_report["checks"]["gutterDrift"]["status"]
+        )
+        self.assertFalse(
+            QA.has_skipped_required_checks(
+                portrait_report["checks"], "portrait", "idle"
+            )
+        )
+
+    def test_require_all_rejects_unmeasurable_applicable_gutter(self):
+        flat = np.full((120, 200, 3), 220, dtype=np.uint8)
+        report = self.analyze(
+            [flat.copy() for _ in range(40)],
+            orientation="landscape",
+            scenario="idle",
+        )
+
+        self.assertEqual("skipped", report["checks"]["gutterDrift"]["status"])
+        self.assertTrue(
+            QA.has_skipped_required_checks(
+                report["checks"], "landscape", "idle"
+            )
+        )
+
     def test_disappearing_outer_decorations_fail_continuity(self):
         baseline = [bright_frame(width=120, height=200) for _ in range(12)]
         defect = baseline[0].copy()

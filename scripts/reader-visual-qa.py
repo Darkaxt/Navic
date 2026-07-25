@@ -206,6 +206,17 @@ def check_result(status: str, metrics: dict, reason: str | None = None) -> dict:
     return result
 
 
+def has_skipped_required_checks(
+    checks: dict[str, dict], orientation: str, scenario: str
+) -> bool:
+    required = {"blackRegions", "leafBounds", "decorationContinuity"}
+    if orientation == "landscape":
+        required.add("gutterDrift")
+    if scenario == "idle":
+        required.add("idleStability")
+    return any(checks[name]["status"] == "skipped" for name in required)
+
+
 def analyze_frames(
     frames: Sequence[np.ndarray],
     sample_fps: float,
@@ -529,8 +540,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         report["expectedDurationSeconds"] = args.expected_duration_seconds
     report["videoSha256"] = sha256(video)
     report["videoBytes"] = video.stat().st_size
-    if args.require_all and any(
-        check["status"] == "skipped" for check in report["checks"].values()
+    if args.require_all and has_skipped_required_checks(
+        report["checks"], args.orientation, args.scenario
     ):
         report["overall"] = "incomplete"
     output = args.output or video.with_suffix(".analysis.json")

@@ -22,14 +22,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
   -OutputRoot .codex-validation\reader-visual\portrait
 ```
 
-Before each capture, the recorder waits for ReaderDev's current page-preparation state to allow gestures, then performs a discarded in-memory `screencap` preflight to refresh Android composition without touching or advancing the publication. The manifest records that no preflight frame was persisted.
+Before each capture, the recorder waits for ReaderDev's current page-preparation state to allow gestures, then runs a one-second discarded `screenrecord` preflight at the target capture size. This warms Android's virtual-display composition after rotation without touching or advancing the publication. The preflight is never pulled to the host, its temporary device artifact is deleted, and the manifest records that no reader input was injected or preflight artifact retained.
 
 The recorder chooses an aspect-preserving, codec-safe capture size with a maximum edge of 1280 pixels, waits for Android's recording container to initialize, keeps the `screenrecord` process alive through the complete probe, and records both measured wall-clock time and source frame count. This avoids `screenrecord`'s slow, aspect-changing codec fallback on large emulator displays. Android uses variable-frame-rate capture and can emit a single-frame MP4 when the display remains completely unchanged during `idle`; the analyzer extends only the final decoded frame in memory to represent the measured idle interval. Any emitted visual changes remain in sequence and are still evaluated.
+
+For gesture scenarios, the recorder also verifies the new ReaderDev terminal outcomes emitted during that probe. A committed Next or Previous probe must relocate in the requested logical direction, while `snap-back` must emit `CancelledByUser` with no page change. Only aggregate outcome fields are retained in the local manifest.
 
 Supported scenarios:
 
 - `slow-next` — a 1.5-second committed Next drag for deformation, travel, and threshold inspection.
-- `snap-back` — a short drag that must settle back without relocation.
+- `snap-back` — a velocity-capped drag that must settle back without relocation.
 - `previous` — a committed Previous drag.
 - `rapid-turns` — four bounded fast Next gestures.
 - `idle` — nine seconds without injected input; detects unsolicited page cycling or blinking.

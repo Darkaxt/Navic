@@ -42,6 +42,17 @@ try {
             @($plan.Actions).Count -ne $expectedActions[$scenario]) {
             throw "Plan-only recorder emitted the wrong contract for $scenario"
         }
+        if ($scenario -eq 'snap-back') {
+            $snapAction = @($plan.Actions)[0]
+            $averageVelocity = [Math]::Abs(
+                $snapAction.EndX - $snapAction.StartX
+            ) / ($snapAction.DurationMs / 1000.0)
+            if ($averageVelocity -ge 150.0 -or
+                [Math]::Abs($snapAction.EndX - $snapAction.StartX) -gt
+                    $plan.DisplayWidth * 0.1) {
+                throw 'Snap-back probe can cross the renderer fling or release threshold'
+            }
+        }
         if ($plan.DurationMs + 10000 -ge 30000) {
             throw "Plan-only recorder does not reserve startup time for $scenario"
         }
@@ -111,7 +122,23 @@ try {
         'CaptureElapsedMs',
         'CompositionPreflight',
         'Initialize-ReaderDevComposition',
-        'exec-out screencap -p',
+        'discarded-screenrecord',
+        'HostArtifactPersisted',
+        'ReaderInputInjected',
+        'Get-ReaderGestureTerminals',
+        'ConvertFrom-ReaderGestureTerminalLog',
+        'Get-ReaderVisualMarkerTimestamp',
+        'Write-ReaderVisualLogMarker',
+        'NavicReaderVisualQa',
+        'Assert-ReaderGestureTerminalSet',
+        'Assert-ReaderGestureSemantics',
+        'GestureSemantics',
+        'Remove-RemoteReaderArtifact',
+        "'test', '!', '-e'",
+        "'-v', 'monotonic'",
+        'CancelledByUser',
+        'CommittedForward',
+        'CommittedBackward',
         'Wait-ReaderDevVisualReady',
         'Page preparation state phase=',
         'reader-repair ',
@@ -126,11 +153,76 @@ try {
             throw "Visual recorder omits required contract: $required"
         }
     }
+    $parserContract = @(& {
+        . $recorder `
+            -DeviceSerial 'plan-only-device' `
+            -Scenario snap-back `
+            -Orientation landscape `
+            -OutputRoot (Join-Path $testRoot 'terminal-parser') `
+            -DisplayWidth 2400 `
+            -DisplayHeight 1080 `
+            -PlanOnly | Out-Null
+        $markerLog = @'
+--------- beginning of main
+   100.000 2 2 I NavicReaderVisualQa: probe-start:synthetic-marker
+'@
+        $markerTimestamp = Get-ReaderVisualMarkerTimestamp `
+            -Log $markerLog `
+            -Token 'synthetic-marker'
+        if ($markerTimestamp -ne 100.0) {
+            throw 'Visual probe marker did not use the logcat monotonic timestamp'
+        }
+        $syntheticLog = @'
+--------- beginning of main
+    99.000 1 1 I KomikkuReaderNativeFrameHost: Reader gesture terminal gestureId=900 outcome=CommittedForward won=true detail=SettlementCompleted(pageChange=NEXT, ordinal=1)
+   101.000 1 1 W KomikkuReaderNativeFrameHost: Reader gesture terminal replay Reader gesture terminal gestureId=1 outcome=CancelledByUser won=false detail=SettlementCompleted(pageChange=NONE, ordinal=1)
+   102.000 1 1 I KomikkuReaderNativeFrameHost: Reader gesture terminal gestureId=1 outcome=CancelledByUser won=true detail=SettlementCompleted(pageChange=NONE, ordinal=1)
+'@
+        $parsed = @(ConvertFrom-ReaderGestureTerminalLog `
+            -Log $syntheticLog `
+            -AfterMonotonicSeconds $markerTimestamp)
+        if ($parsed.Count -ne 2 -or
+            @($parsed | Where-Object { $_.Replay }).Count -ne 1 -or
+            @($parsed | Where-Object { $_.Won }).Count -ne 1) {
+            throw 'Gesture-terminal parser does not isolate the current monotonic window'
+        }
+        $replayRejected = $false
+        try {
+            Assert-ReaderGestureTerminalSet `
+                -Terminals $parsed `
+                -ScenarioName snap-back `
+                -ExpectedTerminalCount 1 | Out-Null
+        } catch {
+            $replayRejected = $true
+        }
+        if (-not $replayRejected) {
+            throw 'Gesture-terminal semantics accepted a replay record'
+        }
+        $winner = @($parsed | Where-Object { $_.Won -and -not $_.Replay })
+        $evidence = Assert-ReaderGestureTerminalSet `
+            -Terminals $winner `
+            -ScenarioName snap-back `
+            -ExpectedTerminalCount 1
+        if (-not $evidence.Matched -or $evidence.ObservedTerminalCount -ne 1) {
+            throw 'Gesture-terminal semantics rejected the unique winning result'
+        }
+        Write-Output 'terminal-parser-pass'
+    })
+    if ($parserContract.Count -ne 1 -or
+        $parserContract[0] -ne 'terminal-parser-pass') {
+        throw 'Gesture-terminal parser contract did not execute completely'
+    }
     if ($source.Contains('minimumDurationSeconds')) {
         throw 'Visual recorder treats variable-frame-rate duration as wall-clock coverage'
     }
     if ($source.Contains('SurfacePrime') -or $source.Contains("'surface-prime'")) {
         throw 'Visual recorder mutates reader position while priming capture'
+    }
+    if ($source.Contains('exec-out screencap -p')) {
+        throw 'Visual recorder uses a still capture that cannot warm video composition'
+    }
+    if ($source.Contains('/proc/uptime')) {
+        throw 'Visual recorder compares different Android monotonic clock domains'
     }
     if (-not (Test-Path -LiteralPath $analyzer -PathType Leaf)) {
         throw 'Visual recorder analyzer is missing'

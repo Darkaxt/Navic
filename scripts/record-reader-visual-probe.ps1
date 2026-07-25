@@ -84,12 +84,197 @@ function Wait-ReaderDevVisualReady([string] $ReaderPid) {
     throw "ReaderDev did not become visually ready within $VisualReadyTimeoutSeconds seconds."
 }
 
-function Initialize-ReaderDevComposition {
-    & adb -s $DeviceSerial exec-out screencap -p 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw 'ReaderDev composition preflight failed.'
+function Remove-RemoteReaderArtifact {
+    param(
+        [string] $Path,
+        [string] $Description
+    )
+
+    Invoke-AdbText @('shell', 'rm', '-f', $Path) "$Description cleanup" |
+        Out-Null
+    Invoke-AdbText @('shell', 'test', '!', '-e', $Path) `
+        "$Description deletion verification" | Out-Null
+}
+
+function Initialize-ReaderDevComposition([object] $Plan) {
+    $remotePath = "/sdcard/navic-reader-visual-composition-preflight.mp4"
+    Remove-RemoteReaderArtifact $remotePath 'Composition preflight'
+    try {
+        & adb -s $DeviceSerial shell screenrecord `
+            --size "$($Plan.RecordingWidth)x$($Plan.RecordingHeight)" `
+            --time-limit 1 $remotePath 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'ReaderDev video-composition preflight failed.'
+        }
+    } finally {
+        Remove-RemoteReaderArtifact $remotePath 'Composition preflight'
     }
     Start-Sleep -Milliseconds 250
+}
+
+function Get-ReaderVisualMarkerTimestamp {
+    param(
+        [string] $Log,
+        [string] $Token
+    )
+
+    $escapedToken = [regex]::Escape($Token)
+    $pattern = '^\s*(?<timestamp>\d+(?:\.\d+)?)\s+\d+\s+\d+\s+[A-Z]\s+' +
+        "NavicReaderVisualQa:\s+probe-start:$escapedToken$"
+    $timestamps = @(
+        foreach ($line in @($Log -split '\r?\n')) {
+            $match = [regex]::Match($line, $pattern)
+            if ($match.Success) {
+                [double]::Parse(
+                    $match.Groups['timestamp'].Value,
+                    [Globalization.CultureInfo]::InvariantCulture
+                )
+            }
+        }
+    )
+    if ($timestamps.Count -eq 0) { return $null }
+    return [double]$timestamps[-1]
+}
+
+function Write-ReaderVisualLogMarker {
+    $token = [guid]::NewGuid().ToString('N')
+    Invoke-AdbText @(
+        'shell', 'log', '-p', 'i', '-t', 'NavicReaderVisualQa',
+        "probe-start:$token"
+    ) 'Reader visual log marker' | Out-Null
+    $deadline = [DateTime]::UtcNow.AddSeconds(2)
+    do {
+        $log = Invoke-AdbText @(
+            'logcat', '-d', '-v', 'monotonic',
+            'NavicReaderVisualQa:I',
+            '*:S'
+        ) 'Reader visual log-marker query'
+        $timestamp = Get-ReaderVisualMarkerTimestamp -Log $log -Token $token
+        if ($null -ne $timestamp) { return [double]$timestamp }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'Reader visual log marker did not become observable.'
+}
+
+function ConvertFrom-ReaderGestureTerminalLog {
+    param(
+        [string] $Log,
+        [double] $AfterMonotonicSeconds
+    )
+
+    $terminals = @()
+    $pattern = '^\s*(?<timestamp>\d+(?:\.\d+)?)\s+\d+\s+\d+\s+[A-Z]\s+' +
+        'KomikkuReaderNativeFrameHost:\s+' +
+        '(?:(?<replay>Reader gesture terminal replay)\s+)?' +
+        'Reader gesture terminal gestureId=(?<gestureId>\d+)\s+' +
+        'outcome=(?<outcome>[A-Za-z]+)\s+won=(?<won>true|false)\s+' +
+        'detail=(?<detail>.+)$'
+    foreach ($line in @($Log -split '\r?\n')) {
+        $match = [regex]::Match($line, $pattern)
+        if (-not $match.Success) { continue }
+        $timestamp = [double]::Parse(
+            $match.Groups['timestamp'].Value,
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+        if ($timestamp -lt $AfterMonotonicSeconds) { continue }
+        $pageChange = $null
+        $pageChangeMatch = [regex]::Match(
+            $match.Groups['detail'].Value,
+            '^SettlementCompleted\(pageChange=(NONE|NEXT|PREVIOUS),'
+        )
+        if ($pageChangeMatch.Success) {
+            $pageChange = $pageChangeMatch.Groups[1].Value
+        }
+        $terminals += [pscustomobject]@{
+            Timestamp = $timestamp
+            GestureId = [long]$match.Groups['gestureId'].Value
+            Outcome = $match.Groups['outcome'].Value
+            Won = $match.Groups['won'].Value -eq 'true'
+            Replay = $match.Groups['replay'].Success
+            PageChange = $pageChange
+        }
+    }
+    return @($terminals)
+}
+
+function Get-ReaderGestureTerminals {
+    param(
+        [string] $ReaderPid,
+        [double] $AfterMonotonicSeconds
+    )
+
+    $log = Invoke-AdbText @(
+        'logcat', '-d', '-v', 'monotonic', "--pid=$ReaderPid",
+        'KomikkuReaderNativeFrameHost:I',
+        '*:S'
+    ) 'ReaderDev gesture-terminal query'
+    return @(ConvertFrom-ReaderGestureTerminalLog `
+        -Log $log `
+        -AfterMonotonicSeconds $AfterMonotonicSeconds)
+}
+
+function Assert-ReaderGestureTerminalSet {
+    param(
+        [object[]] $Terminals,
+        [string] $ScenarioName,
+        [int] $ExpectedTerminalCount
+    )
+
+    $replays = @($Terminals | Where-Object { $_.Replay -or -not $_.Won })
+    if ($replays.Count -gt 0) {
+        throw "ReaderDev emitted a duplicate terminal attempt during $ScenarioName."
+    }
+    $winners = @($Terminals | Where-Object { $_.Won -and -not $_.Replay })
+    $uniqueGestureIds = @($winners | ForEach-Object { $_.GestureId } |
+        Sort-Object -Unique)
+    if ($winners.Count -ne $ExpectedTerminalCount -or
+        $uniqueGestureIds.Count -ne $ExpectedTerminalCount) {
+        throw "ReaderDev emitted $($winners.Count) unique winning terminal outcomes; expected $ExpectedTerminalCount for $ScenarioName."
+    }
+    $expectedOutcome = switch ($ScenarioName) {
+        'slow-next' { 'CommittedForward' }
+        'snap-back' { 'CancelledByUser' }
+        'previous' { 'CommittedBackward' }
+        'rapid-turns' { 'CommittedForward' }
+        'idle' { $null }
+    }
+    $expectedPageChange = switch ($ScenarioName) {
+        'slow-next' { 'NEXT' }
+        'snap-back' { 'NONE' }
+        'previous' { 'PREVIOUS' }
+        'rapid-turns' { 'NEXT' }
+        'idle' { $null }
+    }
+    foreach ($terminal in $winners) {
+        if ($terminal.Outcome -ne $expectedOutcome -or
+            $terminal.PageChange -ne $expectedPageChange) {
+            throw "ReaderDev gesture semantics did not match the $ScenarioName probe."
+        }
+    }
+    return [pscustomobject]@{
+        ExpectedTerminalCount = $ExpectedTerminalCount
+        ObservedTerminalCount = $winners.Count
+        ExpectedOutcome = $expectedOutcome
+        ExpectedPageChange = $expectedPageChange
+        Matched = $true
+    }
+}
+
+function Assert-ReaderGestureSemantics {
+    param(
+        [string] $ReaderPid,
+        [double] $ProbeStartedAtMonotonicSeconds,
+        [object] $Plan,
+        [string] $ScenarioName
+    )
+
+    $terminals = @(Get-ReaderGestureTerminals `
+        -ReaderPid $ReaderPid `
+        -AfterMonotonicSeconds $ProbeStartedAtMonotonicSeconds)
+    return Assert-ReaderGestureTerminalSet `
+        -Terminals $terminals `
+        -ScenarioName $ScenarioName `
+        -ExpectedTerminalCount $Plan.Actions.Count
 }
 
 function Get-DeviceKey([string] $Serial) {
@@ -172,7 +357,14 @@ function New-ReaderVisualProbePlan {
     $recordingSize = Get-RecordingSize $Display
     $nextStart = if ($ReaderDirection -eq 'ltr') { 0.88 } else { 0.12 }
     $nextEnd = if ($ReaderDirection -eq 'ltr') { 0.18 } else { 0.82 }
-    $snapEnd = if ($ReaderDirection -eq 'ltr') { 0.67 } else { 0.33 }
+    $snapEnd = if ($ReaderDirection -eq 'ltr') { 0.80 } else { 0.20 }
+    $snapDistancePixels = [Math]::Abs(
+        $Display.Width * ($nextStart - $snapEnd)
+    )
+    $snapDurationMs = [Math]::Max(
+        1200,
+        [int][Math]::Ceiling($snapDistancePixels / 125.0 * 1000.0)
+    )
     $previousStart = 1.0 - $nextStart
     $previousEnd = 1.0 - $nextEnd
     $actions = switch ($Scenario) {
@@ -180,7 +372,8 @@ function New-ReaderVisualProbePlan {
             @(New-SwipeAction 'slow-next' 1800 $nextStart $nextEnd 1500 $Display)
         }
         'snap-back' {
-            @(New-SwipeAction 'snap-back' 1800 $nextStart $snapEnd 1200 $Display)
+            @(New-SwipeAction 'snap-back' 1800 $nextStart $snapEnd `
+                $snapDurationMs $Display)
         }
         'previous' {
             @(New-SwipeAction 'previous' 1800 $previousStart $previousEnd 1100 $Display)
@@ -351,14 +544,16 @@ foreach ($ownedPath in @($videoPath, $manifestPath, $analysisPath)) {
         throw "Visual QA refuses to overwrite an existing artifact: $ownedPath"
     }
 }
-Initialize-ReaderDevComposition
+Initialize-ReaderDevComposition $plan
+$probeStartedAtMonotonicSeconds = Write-ReaderVisualLogMarker
 $remotePath = "/sdcard/navic-reader-visual-$Orientation-$Scenario.mp4"
-Invoke-AdbText @('shell', 'rm', '-f', $remotePath) 'Remote recording cleanup' | Out-Null
+Remove-RemoteReaderArtifact $remotePath 'Remote recording'
 $recording = $null
 $recordingStopped = $false
 $events = @()
 $videoMetadata = $null
 $captureElapsedMs = $null
+$gestureSemantics = $null
 try {
     $recording = Start-Process -FilePath 'adb' -ArgumentList @(
         '-s', $DeviceSerial, 'shell', 'screenrecord',
@@ -410,8 +605,13 @@ try {
         }
         if (-not $recording.WaitForExit(5000)) { $recording.Kill() }
     }
-    & adb -s $DeviceSerial shell rm -f $remotePath 2>$null | Out-Null
+    Remove-RemoteReaderArtifact $remotePath 'Remote recording'
 }
+$gestureSemantics = Assert-ReaderGestureSemantics `
+    -ReaderPid $readerDevMainPid `
+    -ProbeStartedAtMonotonicSeconds $probeStartedAtMonotonicSeconds `
+    -Plan $plan `
+    -ScenarioName $Scenario
 
 $commit = (& git -C (Join-Path $PSScriptRoot '..') rev-parse HEAD 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') {
@@ -435,9 +635,13 @@ $manifest = [pscustomobject]@{
     RecordingWidth = $plan.RecordingWidth
     RecordingHeight = $plan.RecordingHeight
     CompositionPreflight = [pscustomobject]@{
-        Method = 'screencap-discarded'
-        FramePersisted = $false
+        Method = 'discarded-screenrecord'
+        DurationSeconds = 1
+        HostArtifactPersisted = $false
+        RemoteArtifactRetained = $false
+        ReaderInputInjected = $false
     }
+    GestureSemantics = $gestureSemantics
     DurationMs = $plan.DurationMs
     CaptureElapsedMs = $captureElapsedMs
     Events = $events
