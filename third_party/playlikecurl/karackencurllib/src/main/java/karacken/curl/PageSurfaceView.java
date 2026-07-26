@@ -1673,6 +1673,7 @@ public class PageSurfaceView extends GLSurfaceView {
                     activeGestureId = NO_GESTURE_ID;
                     return true;
                 }
+                dragInteraction(event.getX());
                 VelocityTracker tracker = velocityTracker;
                 tracker.computeCurrentVelocity(1000);
                 float velocityX = tracker.getXVelocity();

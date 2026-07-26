@@ -198,6 +198,23 @@ public class ProductionBitmapApiSourceTest {
     }
 
     @Test
+    public void dragReleaseUsesTheFinalPointerPosition() throws IOException {
+        String source = source("PageSurfaceView.java");
+        String touchBody = methodBody(source, "private boolean handlePageTouchEvent");
+        String actionUp = touchBody.substring(
+                touchBody.indexOf("case MotionEvent.ACTION_UP:"),
+                touchBody.indexOf("case MotionEvent.ACTION_CANCEL:"));
+
+        assertTrue(actionUp.contains("dragInteraction(event.getX())"));
+        assertTrue(
+                actionUp.indexOf("dragInteraction(event.getX())")
+                        < actionUp.indexOf("computeCurrentVelocity(1000)"));
+        assertTrue(
+                actionUp.indexOf("dragInteraction(event.getX())")
+                        < actionUp.indexOf("interaction.release()"));
+    }
+
+    @Test
     public void preparedEdgeTapCanStartTheReferenceSettlementDirectly() throws IOException {
         String surfaceSource = source("PageSurfaceView.java");
         String modelSource = source("PlayLikeCurlModel.java");
