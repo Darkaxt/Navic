@@ -29,6 +29,20 @@ class DownloadQueueOwnershipSourceTest {
 		assertFalse(wakeups.tryReceive().isSuccess)
 	}
 
+	@Test
+	fun playbackRecoveryDownloadRequestReturnsAConclusiveSchedulingResult() {
+		val source = sourceFile().readText()
+
+		assertContains(source, "suspend fun requestPlaybackRecoveryDownload(")
+		assertContains(source, "sessionLifetime.currentScope() == null")
+		assertContains(source, "songDao.getSongById(song.id)")
+		assertContains(source, "PlaybackDownloadRequestResult.InactiveSession")
+		assertContains(source, "PlaybackDownloadRequestResult.MissingCatalogEntry")
+		assertContains(source, "PlaybackDownloadRequestResult.AlreadyDownloaded")
+		assertContains(source, "PlaybackDownloadRequestResult.AlreadyActive")
+		assertContains(source, "PlaybackDownloadRequestResult.Enqueued")
+	}
+
 	private fun sourceFile(): File = listOf(
 		File("src/commonMain/kotlin/paige/navic/domain/manager/DownloadManager.kt"),
 		File("composeApp/src/commonMain/kotlin/paige/navic/domain/manager/DownloadManager.kt")

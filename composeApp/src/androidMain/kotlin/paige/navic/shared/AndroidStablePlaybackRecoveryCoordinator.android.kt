@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import paige.navic.data.database.entities.DownloadEntity
+import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.NavidromeAvailabilityManager
 import paige.navic.domain.manager.NavidromeOutageTrigger
@@ -15,6 +16,8 @@ import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.NavidromeFailureDisposition
 import paige.navic.domain.models.OfflinePlaybackFallbackResolution
 import paige.navic.domain.models.PendingPlaybackRecovery
+import paige.navic.domain.models.PlaybackDownloadRequestResult
+import paige.navic.domain.models.PlaybackRecoveryDownloadLifecycle
 import paige.navic.domain.models.PlaybackRecoveryResolution
 import paige.navic.domain.models.StalePlaybackProbeResolution
 import paige.navic.domain.models.classifyNavidromeFailure
@@ -369,8 +372,32 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		downloadsById: Map<String, DownloadEntity>
 	) {
 		if (pendingServiceOutage) return
-		val recovery = pending ?: return
+		var recovery = pending ?: return
 		val download = downloadsById[recovery.songId]
+		val expectedGeneration = recovery.downloadIntentGeneration
+		if (
+			expectedGeneration != null &&
+			download != null &&
+			download.intentGeneration < expectedGeneration
+		) {
+			return
+		}
+		if (
+			expectedGeneration != null &&
+			download?.intentGeneration == expectedGeneration &&
+			download.status in setOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING)
+		) {
+			recovery = recovery.withDownloadLifecycle(PlaybackRecoveryDownloadLifecycle.Active)
+			pending = recovery
+		} else if (
+			expectedGeneration != null &&
+			download != null &&
+			download.intentGeneration > expectedGeneration &&
+			download.status == DownloadStatus.NOT_DOWNLOADED
+		) {
+			recovery = recovery.withDownloadLifecycle(PlaybackRecoveryDownloadLifecycle.Rejected)
+			pending = recovery
+		}
 		val localPath = downloadManager.getDownloadedFilePath(recovery.songId)
 		val resolution = playbackRecoveryResolution(
 			pending = recovery,
@@ -496,7 +523,62 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		markRecoveryPending()
 		diagnostics.onRecoveryPending(song, recovery.positionMs, recovery.shouldResume)
 		diagnostics.onDeferredDownloadRequested(song, currentIndex, reason, 1)
-		downloadManager.prefetchPlaybackSongs(listOf(song))
+		scope.launch {
+			val result = downloadManager.requestPlaybackRecoveryDownload(song)
+			val activeRecovery = pending?.takeIf { pendingRecovery ->
+				pendingRecovery.songId == recovery.songId &&
+					pendingRecovery.queueIndex == recovery.queueIndex
+			} ?: return@launch
+			if (
+				player.currentMediaItem?.mediaId != activeRecovery.songId ||
+				player.currentMediaItemIndex != activeRecovery.queueIndex
+			) {
+				clear("playback-download-request-obsolete")
+				return@launch
+			}
+
+			when (result) {
+				is PlaybackDownloadRequestResult.Enqueued,
+				is PlaybackDownloadRequestResult.AlreadyActive -> {
+					pending = activeRecovery.withAcceptedDownloadRequest(
+						requireNotNull(result.intentGeneration)
+					)
+				}
+
+				is PlaybackDownloadRequestResult.AlreadyDownloaded -> {
+					val accepted = activeRecovery
+						.withAcceptedDownloadRequest(result.intentGeneration)
+						.withDownloadLifecycle(PlaybackRecoveryDownloadLifecycle.Active)
+					pending = accepted
+					val localPath = downloadManager.getDownloadedFilePath(song.id)
+					if (localPath != null) {
+						resumeCurrentFromLocalFile(player, accepted, localPath, "download-request-ready")
+					} else {
+						pending = accepted.withDownloadLifecycle(PlaybackRecoveryDownloadLifecycle.Rejected)
+						finishTerminalFailure(
+							player = player,
+							state = state,
+							recovery = pending ?: accepted,
+							targetIndex = nextTerminalTarget(state, accepted)
+						)
+					}
+				}
+
+				PlaybackDownloadRequestResult.MissingCatalogEntry,
+				PlaybackDownloadRequestResult.InactiveSession -> {
+					val rejected = activeRecovery.withDownloadLifecycle(
+						PlaybackRecoveryDownloadLifecycle.Rejected
+					)
+					pending = rejected
+					finishTerminalFailure(
+						player = player,
+						state = state,
+						recovery = rejected,
+						targetIndex = nextTerminalTarget(state, rejected)
+					)
+				}
+			}
+		}
 	}
 
 	private fun resumeCurrentFromLocalFile(
@@ -628,6 +710,14 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			upcomingIndexes = state.upcomingIndexes
 		)
 	}
+
+	private fun nextTerminalTarget(
+		state: PlayerUiState,
+		recovery: PendingPlaybackRecovery
+	): Int? = playbackFailureTargetIndex(
+		skipMediaOnError = skipMediaOnError() && recovery.shouldResume,
+		nextPlayableIndex = nextPlayableIndex(state, recovery.queueIndex, recovery.songId)
+	)
 }
 
 private data class RemoteSourceRefreshKey(

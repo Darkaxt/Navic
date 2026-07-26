@@ -205,6 +205,22 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
+	fun playbackDownloadRecoveryUsesExplicitRequestAndTerminalLifecycle() {
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+
+		assertContains(recoveryText, "downloadManager.requestPlaybackRecoveryDownload(song)")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.Enqueued")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.AlreadyActive")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.AlreadyDownloaded")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.MissingCatalogEntry")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.InactiveSession")
+		assertContains(recoveryText, "withAcceptedDownloadRequest(")
+		assertContains(recoveryText, "PlaybackRecoveryDownloadLifecycle.Active")
+		assertContains(recoveryText, "PlaybackRecoveryDownloadLifecycle.Rejected")
+		assertFalse(recoveryText.contains("downloadManager.prefetchPlaybackSongs"))
+	}
+
+	@Test
 	fun bufferingDoesNotOverwriteUserPlaybackIntent() {
 		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 

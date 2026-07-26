@@ -235,6 +235,31 @@ class PlaybackQueueRecoveryPolicyTest {
 	}
 
 	@Test
+	fun downloadedRowWithoutAUsableFileIsTerminal() {
+		val pending = PendingPlaybackRecovery(
+			songId = "broken-file",
+			queueIndex = 1,
+			positionMs = 0L,
+			shouldResume = true,
+			reason = "source-error",
+			downloadLifecycle = PlaybackRecoveryDownloadLifecycle.Active
+		)
+
+		assertEquals(
+			PlaybackRecoveryResolution.Advance(2),
+			playbackRecoveryResolution(
+				pending = pending,
+				currentSongId = "broken-file",
+				currentIndex = 1,
+				downloadStatus = DownloadStatus.DOWNLOADED,
+				hasUsableLocalFile = false,
+				skipMediaOnError = true,
+				nextPlayableIndex = 2
+			)
+		)
+	}
+
+	@Test
 	fun explicitPauseAndResumeUpdateOnlyTheRetainedIntent() {
 		val pending = PendingPlaybackRecovery(
 			songId = "song",

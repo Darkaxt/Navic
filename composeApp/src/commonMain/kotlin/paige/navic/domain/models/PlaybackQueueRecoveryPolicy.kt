@@ -8,13 +8,20 @@ data class PendingPlaybackRecovery(
 	val positionMs: Long,
 	val shouldResume: Boolean,
 	val reason: String,
-	val downloadLifecycle: PlaybackRecoveryDownloadLifecycle = PlaybackRecoveryDownloadLifecycle.Requesting
+	val downloadLifecycle: PlaybackRecoveryDownloadLifecycle = PlaybackRecoveryDownloadLifecycle.Requesting,
+	val downloadIntentGeneration: Long? = null
 ) {
 	fun withPlaybackIntent(playWhenReady: Boolean): PendingPlaybackRecovery =
 		copy(shouldResume = playWhenReady)
 
 	fun withDownloadLifecycle(lifecycle: PlaybackRecoveryDownloadLifecycle): PendingPlaybackRecovery =
 		copy(downloadLifecycle = lifecycle)
+
+	fun withAcceptedDownloadRequest(intentGeneration: Long): PendingPlaybackRecovery =
+		copy(
+			downloadLifecycle = PlaybackRecoveryDownloadLifecycle.Accepted,
+			downloadIntentGeneration = intentGeneration
+		)
 }
 
 enum class PlaybackRecoveryDownloadLifecycle {

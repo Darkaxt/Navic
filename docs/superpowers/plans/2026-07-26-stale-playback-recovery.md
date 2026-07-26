@@ -74,17 +74,17 @@ Files:
 
 Tasks:
 
-- [ ] Add a suspend playback-recovery download request with explicit result.
-- [ ] Reject missing local catalog entries and inactive sessions directly.
-- [ ] Track accepted and active request lifecycle without polling deadlines.
-- [ ] Resume only from a verified usable local file.
-- [ ] Treat failed or vanished accepted requests as terminal.
+- [x] Add a suspend playback-recovery download request with explicit result.
+- [x] Reject missing local catalog entries and inactive sessions directly.
+- [x] Track accepted and active request lifecycle without polling deadlines.
+- [x] Resume only from a verified usable local file.
+- [x] Treat failed or vanished accepted requests as terminal.
 
 Gate:
 
-- [ ] Focused download/recovery policy tests pass.
-- [ ] Existing download scheduler tests pass.
-- [ ] Android debug Kotlin compilation passes.
+- [x] Focused download/recovery policy tests pass.
+- [x] Existing download scheduler tests pass.
+- [x] Android debug Kotlin compilation passes.
 
 ## Stage 4: Design Comparison and Regression Gates
 
