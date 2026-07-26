@@ -35,6 +35,7 @@ try {
         if ($plan.Package -ne 'darkaxt.navic.readerdev' -or
             $plan.Scenario -ne $scenario -or
             $plan.Orientation -ne 'landscape' -or
+            $plan.CaptureBackend -ne 'android-screenrecord' -or
             $plan.DisplayWidth -ne 2400 -or
             $plan.DisplayHeight -ne 1080 -or
             $plan.RecordingWidth -ne 1280 -or
@@ -122,6 +123,15 @@ try {
         'CaptureElapsedMs',
         'CompositionPreflight',
         'Initialize-ReaderDevComposition',
+        'emulator-framebuffer',
+        'Get-ReaderVisualCaptureBackend',
+        'Assert-EmulatorConsoleResponse',
+        'Invoke-EmulatorConsoleText',
+        'ConvertFrom-AndroidPhysicalDisplaySize',
+        'Start-EmulatorFrameBufferRecording',
+        'Stop-EmulatorFrameBufferRecording',
+        'Convert-EmulatorFrameBufferRecording',
+        'Remove-LocalReaderArtifact',
         'discarded-screenrecord',
         'HostArtifactPersisted',
         'ReaderInputInjected',
@@ -191,7 +201,9 @@ try {
             Assert-ReaderGestureTerminalSet `
                 -Terminals $parsed `
                 -ScenarioName snap-back `
-                -ExpectedTerminalCount 1 | Out-Null
+                -InjectedActionCount 1 `
+                -MinimumExpectedTerminalCount 1 `
+                -MaximumExpectedTerminalCount 1 | Out-Null
         } catch {
             $replayRejected = $true
         }
@@ -202,9 +214,74 @@ try {
         $evidence = Assert-ReaderGestureTerminalSet `
             -Terminals $winner `
             -ScenarioName snap-back `
-            -ExpectedTerminalCount 1
-        if (-not $evidence.Matched -or $evidence.ObservedTerminalCount -ne 1) {
+            -InjectedActionCount 1 `
+            -MinimumExpectedTerminalCount 1 `
+            -MaximumExpectedTerminalCount 1
+        if (-not $evidence.Matched -or $evidence.ObservedTerminalCount -ne 1 -or
+            $evidence.MinimumExpectedTerminalCount -ne 1 -or
+            $evidence.MaximumExpectedTerminalCount -ne 1) {
             throw 'Gesture-terminal semantics rejected the unique winning result'
+        }
+        $rapidWinners = @(1..2 | ForEach-Object {
+            [pscustomobject]@{
+                Timestamp = 103.0 + $_
+                GestureId = [long]$_
+                Outcome = 'CommittedForward'
+                Won = $true
+                Replay = $false
+                PageChange = 'NEXT'
+            }
+        })
+        $rapidEvidence = Assert-ReaderGestureTerminalSet `
+            -Terminals $rapidWinners `
+            -ScenarioName rapid-turns `
+            -InjectedActionCount 4 `
+            -MinimumExpectedTerminalCount 2 `
+            -MaximumExpectedTerminalCount 4
+        if (-not $rapidEvidence.Matched -or
+            $rapidEvidence.ObservedTerminalCount -ne 2) {
+            throw 'Rapid-turn semantics rejected two valid consecutive commits'
+        }
+        $underfilledRapidRejected = $false
+        try {
+            Assert-ReaderGestureTerminalSet `
+                -Terminals @($rapidWinners[0]) `
+                -ScenarioName rapid-turns `
+                -InjectedActionCount 4 `
+                -MinimumExpectedTerminalCount 2 `
+                -MaximumExpectedTerminalCount 4 | Out-Null
+        } catch {
+            $underfilledRapidRejected = $true
+        }
+        if (-not $underfilledRapidRejected) {
+            throw 'Rapid-turn semantics accepted fewer than two consecutive commits'
+        }
+        if ((Get-ReaderVisualCaptureBackend 'emulator-5554') -ne
+            'emulator-framebuffer' -or
+            (Get-ReaderVisualCaptureBackend 'physical-device') -ne
+            'android-screenrecord') {
+            throw 'Visual recorder selected the wrong capture backend'
+        }
+        Assert-EmulatorConsoleResponse `
+            -Response "recording started`nOK" `
+            -Description 'synthetic console success'
+        $consoleRejectionObserved = $false
+        try {
+            Assert-EmulatorConsoleResponse `
+                -Response 'KO: recording already in progress' `
+                -Description 'synthetic console rejection'
+        } catch {
+            $consoleRejectionObserved = $true
+        }
+        if (-not $consoleRejectionObserved) {
+            throw 'Visual recorder accepted an emulator console KO response'
+        }
+        $frameBufferSize = ConvertFrom-AndroidPhysicalDisplaySize `
+            -SizeText "Physical size: 1080x2400`nOverride size: 1848x2960" `
+            -OrientationName landscape
+        if ($frameBufferSize.Width -ne 2400 -or
+            $frameBufferSize.Height -ne 1080) {
+            throw 'Emulator framebuffer dimensions did not use the physical display'
         }
         Write-Output 'terminal-parser-pass'
     })

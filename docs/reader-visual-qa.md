@@ -22,18 +22,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
   -OutputRoot .codex-validation\reader-visual\portrait
 ```
 
-Before each capture, the recorder waits for ReaderDev's current page-preparation state to allow gestures, then runs a one-second discarded `screenrecord` preflight at the target capture size. This warms Android's virtual-display composition after rotation without touching or advancing the publication. The preflight is never pulled to the host, its temporary device artifact is deleted, and the manifest records that no reader input was injected or preflight artifact retained.
+Before each capture, the recorder waits for ReaderDev's current page-preparation state to allow gestures. On physical devices it runs a one-second discarded Android `screenrecord` preflight at the target capture size. On Android emulators it uses the emulator console's framebuffer recorder for both the discarded preflight and the retained MP4; this captures the display users actually see across rapid `SurfaceView`/WebView handoffs instead of the guest virtual display's transient missing-layer frames. Neither preflight touches or advances the publication. Its temporary artifact is deleted, and the manifest records that no reader input was injected or preflight artifact retained.
 
-The recorder chooses an aspect-preserving, codec-safe capture size with a maximum edge of 1280 pixels, waits for Android's recording container to initialize, keeps the `screenrecord` process alive through the complete probe, and records both measured wall-clock time and source frame count. This avoids `screenrecord`'s slow, aspect-changing codec fallback on large emulator displays. Android uses variable-frame-rate capture and can emit a single-frame MP4 when the display remains completely unchanged during `idle`; the analyzer extends only the final decoded frame in memory to represent the measured idle interval. Any emitted visual changes remain in sequence and are still evaluated.
+The physical-device backend chooses an aspect-preserving, codec-safe capture size with a maximum edge of 1280 pixels, waits for Android's recording container to initialize, and keeps the `screenrecord` process alive through the complete probe. The emulator backend records a temporary host-local WebM from the emulator framebuffer, converts its video stream to the retained MP4, then verifies deletion of the temporary WebM. Both backends record measured wall-clock time, decoded frame count, actual frame dimensions, and their backend identity. Android guest recording uses variable-frame-rate capture and can emit a single-frame MP4 when the display remains completely unchanged during `idle`; the analyzer extends only the final decoded frame in memory to represent the measured idle interval. Any emitted visual changes remain in sequence and are still evaluated.
 
-For gesture scenarios, the recorder also verifies the new ReaderDev terminal outcomes emitted during that probe. A committed Next or Previous probe must relocate in the requested logical direction, while `snap-back` must emit `CancelledByUser` with no page change. Only aggregate outcome fields are retained in the local manifest.
+For gesture scenarios, the recorder also verifies the new ReaderDev terminal outcomes emitted during that probe. A committed Next or Previous probe must relocate in the requested logical direction, while `snap-back` must emit `CancelledByUser` with no page change. `rapid-turns` injects four fast attempts and requires at least two distinct committed-forward terminals; additional attempts may be consumed while settlement or working-set refill intentionally closes new-pointer admission. Only aggregate outcome fields are retained in the local manifest.
 
 Supported scenarios:
 
 - `slow-next` — a 1.5-second committed Next drag for deformation, travel, and threshold inspection.
 - `snap-back` — a velocity-capped drag that must settle back without relocation.
 - `previous` — a committed Previous drag.
-- `rapid-turns` — four bounded fast Next gestures.
+- `rapid-turns` — four bounded fast Next attempts; at least two must commit consecutively while busy-state consumption remains permitted.
 - `idle` — nine seconds without injected input; detects unsolicited page cycling or blinking.
 
 Run each scenario in portrait and landscape. Add `-ReaderDirection rtl` for an RTL publication. The recorder refuses to overwrite existing artifacts.

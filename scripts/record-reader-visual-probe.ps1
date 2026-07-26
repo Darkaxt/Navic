@@ -39,6 +39,13 @@ $PSNativeCommandUseErrorActionPreference = $false
 $ReaderDevPackage = 'darkaxt.navic.readerdev'
 $RecordingStartupTimeoutSeconds = 10
 
+function Get-ReaderVisualCaptureBackend([string] $Serial) {
+    if ($Serial -match '^emulator-\d+$') {
+        return 'emulator-framebuffer'
+    }
+    return 'android-screenrecord'
+}
+
 function Invoke-AdbText {
     param([string[]] $Arguments, [string] $Description)
 
@@ -84,6 +91,31 @@ function Wait-ReaderDevVisualReady([string] $ReaderPid) {
     throw "ReaderDev did not become visually ready within $VisualReadyTimeoutSeconds seconds."
 }
 
+function Assert-EmulatorConsoleResponse {
+    param(
+        [string] $Response,
+        [string] $Description
+    )
+
+    if ($Response -match '(?m)^\s*KO(?::|\s|$)' -or
+        $Response -notmatch '(?m)^\s*OK\s*$') {
+        throw "$Description was rejected by the emulator console."
+    }
+}
+
+function Invoke-EmulatorConsoleText {
+    param(
+        [string[]] $Arguments,
+        [string] $Description
+    )
+
+    $response = Invoke-AdbText (@('emu') + $Arguments) $Description
+    Assert-EmulatorConsoleResponse `
+        -Response $response `
+        -Description $Description
+    return $response
+}
+
 function Remove-RemoteReaderArtifact {
     param(
         [string] $Path,
@@ -96,7 +128,103 @@ function Remove-RemoteReaderArtifact {
         "$Description deletion verification" | Out-Null
 }
 
-function Initialize-ReaderDevComposition([object] $Plan) {
+function Remove-LocalReaderArtifact {
+    param(
+        [string] $Path,
+        [string] $Description
+    )
+
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Force
+    }
+    if (Test-Path -LiteralPath $Path) {
+        throw "$Description deletion verification failed."
+    }
+}
+
+function Start-EmulatorFrameBufferRecording {
+    param(
+        [string] $Path,
+        [int] $LimitSeconds
+    )
+
+    $emulatorPath = [IO.Path]::GetFullPath($Path).Replace('\', '/')
+    Invoke-EmulatorConsoleText @(
+        'screenrecord', 'start',
+        '--time-limit', "$LimitSeconds",
+        $emulatorPath
+    ) 'Emulator framebuffer recording start' | Out-Null
+}
+
+function Stop-EmulatorFrameBufferRecording {
+    Invoke-EmulatorConsoleText @(
+        'screenrecord', 'stop'
+    ) 'Emulator framebuffer recording stop' | Out-Null
+}
+
+function Convert-EmulatorFrameBufferRecording {
+    param(
+        [string] $SourcePath,
+        [string] $TargetPath
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf) -or
+        (Get-Item -LiteralPath $SourcePath).Length -eq 0) {
+        throw 'Emulator framebuffer recording is missing or empty.'
+    }
+    $temporaryPath = "$TargetPath.$([guid]::NewGuid().ToString('N')).tmp.mp4"
+    try {
+        & ffmpeg -y -v error -i $SourcePath -map '0:v:0' -an `
+            -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p `
+            -movflags '+faststart' $temporaryPath
+        if ($LASTEXITCODE -ne 0 -or
+            -not (Test-Path -LiteralPath $temporaryPath -PathType Leaf) -or
+            (Get-Item -LiteralPath $temporaryPath).Length -eq 0) {
+            throw 'Emulator framebuffer recording conversion failed.'
+        }
+        [IO.File]::Move(
+            [IO.Path]::GetFullPath($temporaryPath),
+            [IO.Path]::GetFullPath($TargetPath)
+        )
+    } finally {
+        Remove-LocalReaderArtifact $temporaryPath 'Temporary MP4 conversion'
+    }
+}
+
+function Initialize-ReaderDevComposition {
+    param(
+        [object] $Plan,
+        [string] $OutputDirectory
+    )
+
+    if ($Plan.CaptureBackend -eq 'emulator-framebuffer') {
+        $preflightPath = Join-Path $OutputDirectory (
+            ".composition-preflight-$([guid]::NewGuid().ToString('N')).webm"
+        )
+        $started = $false
+        try {
+            Start-EmulatorFrameBufferRecording `
+                -Path $preflightPath `
+                -LimitSeconds 5
+            $started = $true
+            Start-Sleep -Milliseconds 1250
+            Stop-EmulatorFrameBufferRecording
+            $started = $false
+            if (-not (Test-Path -LiteralPath $preflightPath -PathType Leaf) -or
+                (Get-Item -LiteralPath $preflightPath).Length -eq 0) {
+                throw 'Emulator framebuffer preflight produced no video.'
+            }
+        } finally {
+            if ($started) {
+                Stop-EmulatorFrameBufferRecording
+                $started = $false
+            }
+            Remove-LocalReaderArtifact $preflightPath 'Composition preflight'
+        }
+        Start-Sleep -Milliseconds 250
+        return
+    }
+
     $remotePath = "/sdcard/navic-reader-visual-composition-preflight.mp4"
     Remove-RemoteReaderArtifact $remotePath 'Composition preflight'
     try {
@@ -217,9 +345,16 @@ function Assert-ReaderGestureTerminalSet {
     param(
         [object[]] $Terminals,
         [string] $ScenarioName,
-        [int] $ExpectedTerminalCount
+        [int] $InjectedActionCount,
+        [int] $MinimumExpectedTerminalCount,
+        [int] $MaximumExpectedTerminalCount
     )
 
+    if ($MinimumExpectedTerminalCount -lt 0 -or
+        $MaximumExpectedTerminalCount -lt $MinimumExpectedTerminalCount -or
+        $MaximumExpectedTerminalCount -gt $InjectedActionCount) {
+        throw "ReaderDev terminal expectations are invalid for $ScenarioName."
+    }
     $replays = @($Terminals | Where-Object { $_.Replay -or -not $_.Won })
     if ($replays.Count -gt 0) {
         throw "ReaderDev emitted a duplicate terminal attempt during $ScenarioName."
@@ -227,9 +362,10 @@ function Assert-ReaderGestureTerminalSet {
     $winners = @($Terminals | Where-Object { $_.Won -and -not $_.Replay })
     $uniqueGestureIds = @($winners | ForEach-Object { $_.GestureId } |
         Sort-Object -Unique)
-    if ($winners.Count -ne $ExpectedTerminalCount -or
-        $uniqueGestureIds.Count -ne $ExpectedTerminalCount) {
-        throw "ReaderDev emitted $($winners.Count) unique winning terminal outcomes; expected $ExpectedTerminalCount for $ScenarioName."
+    if ($winners.Count -lt $MinimumExpectedTerminalCount -or
+        $winners.Count -gt $MaximumExpectedTerminalCount -or
+        $uniqueGestureIds.Count -ne $winners.Count) {
+        throw "ReaderDev emitted $($winners.Count) unique winning terminal outcomes; expected $MinimumExpectedTerminalCount..$MaximumExpectedTerminalCount for $ScenarioName."
     }
     $expectedOutcome = switch ($ScenarioName) {
         'slow-next' { 'CommittedForward' }
@@ -252,7 +388,9 @@ function Assert-ReaderGestureTerminalSet {
         }
     }
     return [pscustomobject]@{
-        ExpectedTerminalCount = $ExpectedTerminalCount
+        InjectedActionCount = $InjectedActionCount
+        MinimumExpectedTerminalCount = $MinimumExpectedTerminalCount
+        MaximumExpectedTerminalCount = $MaximumExpectedTerminalCount
         ObservedTerminalCount = $winners.Count
         ExpectedOutcome = $expectedOutcome
         ExpectedPageChange = $expectedPageChange
@@ -271,10 +409,17 @@ function Assert-ReaderGestureSemantics {
     $terminals = @(Get-ReaderGestureTerminals `
         -ReaderPid $ReaderPid `
         -AfterMonotonicSeconds $ProbeStartedAtMonotonicSeconds)
+    $minimumExpectedTerminalCount = if ($ScenarioName -eq 'rapid-turns') {
+        [Math]::Min(2, $Plan.Actions.Count)
+    } else {
+        $Plan.Actions.Count
+    }
     return Assert-ReaderGestureTerminalSet `
         -Terminals $terminals `
         -ScenarioName $ScenarioName `
-        -ExpectedTerminalCount $Plan.Actions.Count
+        -InjectedActionCount $Plan.Actions.Count `
+        -MinimumExpectedTerminalCount $minimumExpectedTerminalCount `
+        -MaximumExpectedTerminalCount $Plan.Actions.Count
 }
 
 function Get-DeviceKey([string] $Serial) {
@@ -310,6 +455,35 @@ function Get-LogicalDisplaySize {
         $width, $height = $height, $width
     }
     return [pscustomobject]@{ Width = $width; Height = $height }
+}
+
+function ConvertFrom-AndroidPhysicalDisplaySize {
+    param(
+        [string] $SizeText,
+        [ValidateSet('portrait', 'landscape')]
+        [string] $OrientationName
+    )
+
+    $matches = [regex]::Matches($SizeText, 'Physical size:\s*(\d+)x(\d+)')
+    if ($matches.Count -eq 0) {
+        throw 'Unable to parse the Android physical display size.'
+    }
+    $selected = $matches[$matches.Count - 1]
+    $width = [int]$selected.Groups[1].Value
+    $height = [int]$selected.Groups[2].Value
+    if ($OrientationName -eq 'landscape' -and $width -lt $height) {
+        $width, $height = $height, $width
+    } elseif ($OrientationName -eq 'portrait' -and $width -gt $height) {
+        $width, $height = $height, $width
+    }
+    return [pscustomobject]@{ Width = $width; Height = $height }
+}
+
+function Get-EmulatorFrameBufferSize {
+    $sizeText = Invoke-AdbText @('shell', 'wm', 'size') 'Physical display-size query'
+    return ConvertFrom-AndroidPhysicalDisplaySize `
+        -SizeText $sizeText `
+        -OrientationName $Orientation
 }
 
 function Get-RecordingSize([object] $Display) {
@@ -354,7 +528,12 @@ function New-SwipeAction {
 function New-ReaderVisualProbePlan {
     param([object] $Display)
 
-    $recordingSize = Get-RecordingSize $Display
+    $captureBackend = Get-ReaderVisualCaptureBackend $DeviceSerial
+    $recordingSize = if ($captureBackend -eq 'emulator-framebuffer') {
+        Get-EmulatorFrameBufferSize
+    } else {
+        Get-RecordingSize $Display
+    }
     $nextStart = if ($ReaderDirection -eq 'ltr') { 0.88 } else { 0.12 }
     $nextEnd = if ($ReaderDirection -eq 'ltr') { 0.18 } else { 0.82 }
     $snapEnd = if ($ReaderDirection -eq 'ltr') { 0.80 } else { 0.20 }
@@ -405,6 +584,7 @@ function New-ReaderVisualProbePlan {
         Scenario = $Scenario
         Orientation = $Orientation
         ReaderDirection = $ReaderDirection
+        CaptureBackend = $captureBackend
         DisplayWidth = $Display.Width
         DisplayHeight = $Display.Height
         RecordingWidth = $recordingSize.Width
@@ -450,7 +630,7 @@ function Wait-RecordingReady {
 function Get-VideoMetadata([string] $Path) {
     $metadataText = @(
         & ffprobe -v error -select_streams 'v:0' -count_frames `
-            -show_entries 'stream=duration,nb_read_frames:format=duration' `
+            -show_entries 'stream=duration,nb_read_frames,width,height:format=duration' `
             -of json $Path 2>&1
     ) | Out-String
     if ($LASTEXITCODE -ne 0) {
@@ -482,9 +662,18 @@ function Get-VideoMetadata([string] $Path) {
             [ref]$duration
         )
     }
+    $width = 0
+    $height = 0
+    if (-not [int]::TryParse("$($stream.width)", [ref]$width) -or
+        -not [int]::TryParse("$($stream.height)", [ref]$height) -or
+        $width -le 0 -or $height -le 0) {
+        throw 'Recorded video has invalid frame dimensions.'
+    }
     return [pscustomobject]@{
         DurationSeconds = $duration
         FrameCount = $frameCount
+        Width = $width
+        Height = $height
     }
 }
 
@@ -539,31 +728,49 @@ $stem = "$Orientation-$Scenario-$deviceKey"
 $videoPath = Join-Path $outputDirectory "$stem.mp4"
 $manifestPath = Join-Path $outputDirectory "$stem.events.json"
 $analysisPath = Join-Path $outputDirectory "$stem.analysis.json"
-foreach ($ownedPath in @($videoPath, $manifestPath, $analysisPath)) {
+$emulatorSourcePath = Join-Path $outputDirectory "$stem.framebuffer.webm"
+$ownedPaths = @($videoPath, $manifestPath, $analysisPath)
+if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
+    $ownedPaths += $emulatorSourcePath
+}
+foreach ($ownedPath in $ownedPaths) {
     if (Test-Path -LiteralPath $ownedPath) {
         throw "Visual QA refuses to overwrite an existing artifact: $ownedPath"
     }
 }
-Initialize-ReaderDevComposition $plan
+Initialize-ReaderDevComposition `
+    -Plan $plan `
+    -OutputDirectory $outputDirectory
 $probeStartedAtMonotonicSeconds = Write-ReaderVisualLogMarker
 $remotePath = "/sdcard/navic-reader-visual-$Orientation-$Scenario.mp4"
-Remove-RemoteReaderArtifact $remotePath 'Remote recording'
+if ($plan.CaptureBackend -eq 'android-screenrecord') {
+    Remove-RemoteReaderArtifact $remotePath 'Remote recording'
+}
 $recording = $null
 $recordingStopped = $false
+$emulatorRecordingStarted = $false
 $events = @()
 $videoMetadata = $null
 $captureElapsedMs = $null
 $gestureSemantics = $null
 try {
-    $recording = Start-Process -FilePath 'adb' -ArgumentList @(
-        '-s', $DeviceSerial, 'shell', 'screenrecord',
-        '--size', "$($plan.RecordingWidth)x$($plan.RecordingHeight)",
-        '--time-limit', $TimeLimitSeconds, $remotePath
-    ) -PassThru -NoNewWindow
-    Wait-RecordingReady -Recording $recording -RemotePath $remotePath
-    Start-Sleep -Milliseconds 500
-    if ($recording.HasExited) {
-        throw "Android screen recording exited during capture stabilization (exit=$($recording.ExitCode))."
+    if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
+        Start-EmulatorFrameBufferRecording `
+            -Path $emulatorSourcePath `
+            -LimitSeconds $TimeLimitSeconds
+        $emulatorRecordingStarted = $true
+        Start-Sleep -Milliseconds 500
+    } else {
+        $recording = Start-Process -FilePath 'adb' -ArgumentList @(
+            '-s', $DeviceSerial, 'shell', 'screenrecord',
+            '--size', "$($plan.RecordingWidth)x$($plan.RecordingHeight)",
+            '--time-limit', $TimeLimitSeconds, $remotePath
+        ) -PassThru -NoNewWindow
+        Wait-RecordingReady -Recording $recording -RemotePath $remotePath
+        Start-Sleep -Milliseconds 500
+        if ($recording.HasExited) {
+            throw "Android screen recording exited during capture stabilization (exit=$($recording.ExitCode))."
+        }
     }
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     foreach ($action in $plan.Actions) {
@@ -580,32 +787,48 @@ try {
     }
     Wait-UntilElapsed $stopwatch $plan.DurationMs
     $captureElapsedMs = $stopwatch.ElapsedMilliseconds
-    & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
-    $recordingStopped = $true
-    if (-not $recording.WaitForExit(10000)) {
-        $recording.Kill()
-        throw 'Android screen recording did not stop within ten seconds.'
-    }
-    if ($recording.ExitCode -ne 0) {
-        throw "Android screen recording failed (exit=$($recording.ExitCode))."
-    }
-    Invoke-AdbText @('pull', $remotePath, $videoPath) 'Recording pull' | Out-Null
-    if (-not (Test-Path -LiteralPath $videoPath -PathType Leaf) -or
-        (Get-Item -LiteralPath $videoPath).Length -eq 0) {
-        throw 'Pulled visual QA recording is missing or empty.'
+    if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
+        Stop-EmulatorFrameBufferRecording
+        $emulatorRecordingStarted = $false
+        Convert-EmulatorFrameBufferRecording `
+            -SourcePath $emulatorSourcePath `
+            -TargetPath $videoPath
+    } else {
+        & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
+        $recordingStopped = $true
+        if (-not $recording.WaitForExit(10000)) {
+            $recording.Kill()
+            throw 'Android screen recording did not stop within ten seconds.'
+        }
+        if ($recording.ExitCode -ne 0) {
+            throw "Android screen recording failed (exit=$($recording.ExitCode))."
+        }
+        Invoke-AdbText @('pull', $remotePath, $videoPath) 'Recording pull' | Out-Null
+        if (-not (Test-Path -LiteralPath $videoPath -PathType Leaf) -or
+            (Get-Item -LiteralPath $videoPath).Length -eq 0) {
+            throw 'Pulled visual QA recording is missing or empty.'
+        }
     }
     $videoMetadata = Get-VideoMetadata $videoPath
     if ($Scenario -ne 'idle' -and $videoMetadata.FrameCount -lt 2) {
         throw 'Visual QA gesture recording contains no visible frame transition.'
     }
 } finally {
-    if ($null -ne $recording -and -not $recording.HasExited) {
-        if (-not $recordingStopped) {
-            & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
+    if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
+        if ($emulatorRecordingStarted) {
+            Stop-EmulatorFrameBufferRecording
+            $emulatorRecordingStarted = $false
         }
-        if (-not $recording.WaitForExit(5000)) { $recording.Kill() }
+        Remove-LocalReaderArtifact $emulatorSourcePath 'Emulator source recording'
+    } else {
+        if ($null -ne $recording -and -not $recording.HasExited) {
+            if (-not $recordingStopped) {
+                & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
+            }
+            if (-not $recording.WaitForExit(5000)) { $recording.Kill() }
+        }
+        Remove-RemoteReaderArtifact $remotePath 'Remote recording'
     }
-    Remove-RemoteReaderArtifact $remotePath 'Remote recording'
 }
 $gestureSemantics = Assert-ReaderGestureSemantics `
     -ReaderPid $readerDevMainPid `
@@ -630,12 +853,17 @@ $manifest = [pscustomobject]@{
     Scenario = $Scenario
     Orientation = $Orientation
     ReaderDirection = $ReaderDirection
+    CaptureBackend = $plan.CaptureBackend
     DisplayWidth = $display.Width
     DisplayHeight = $display.Height
-    RecordingWidth = $plan.RecordingWidth
-    RecordingHeight = $plan.RecordingHeight
+    RecordingWidth = $videoMetadata.Width
+    RecordingHeight = $videoMetadata.Height
     CompositionPreflight = [pscustomobject]@{
-        Method = 'discarded-screenrecord'
+        Method = if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
+            'discarded-emulator-framebuffer-recording'
+        } else {
+            'discarded-screenrecord'
+        }
         DurationSeconds = 1
         HostArtifactPersisted = $false
         RemoteArtifactRetained = $false
