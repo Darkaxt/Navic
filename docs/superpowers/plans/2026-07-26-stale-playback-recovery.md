@@ -101,9 +101,9 @@ Gate:
 
 ## Stage 5: Release and Cleanup
 
-- [ ] Verify commit `9c619f10` is in release ancestry.
-- [ ] Fetch `fork/master` again and reconcile any public drift.
-- [ ] Increment version exactly once to `v1.0.11-iota28` and the next Android
+- [x] Verify commit `9c619f10` is in release ancestry.
+- [x] Fetch `fork/master` again and reconcile any public drift.
+- [x] Increment version exactly once to `v1.0.11-iota28` and the next Android
   version code.
 - [ ] Build and inspect the signed Android APK.
 - [ ] Commit release metadata intentionally.
