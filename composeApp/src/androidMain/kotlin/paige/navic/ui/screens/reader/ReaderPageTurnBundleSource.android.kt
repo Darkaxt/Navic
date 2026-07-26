@@ -512,6 +512,25 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind
 	): ReaderPageSlideSnapshot? = cachedSnapshot(pageIndex, kind)?.also { snapshot -> snapshot.retain() }
 
+	fun retainedCurrentLayoutSnapshot(
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind
+	): ReaderPageSlideSnapshot? {
+		val authority = physicalLayoutAuthority?.takeIf { current -> current.kind == kind }
+			?: return null
+		return snapshotCache.entries
+			.lastOrNull { (key, snapshot) ->
+				key.visualPageIndex == pageIndex &&
+					key.kind == kind &&
+					readerPageRasterPhysicalLayout(snapshot)?.matches(authority.layout) == true
+			}
+			?.let { (key, value) ->
+				snapshotCache[key]
+				value
+			}
+			?.also { snapshot -> snapshot.retain() }
+	}
+
 	private fun retainedSnapshot(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,

@@ -184,6 +184,10 @@ internal class ReaderPageRasterPreparationController(
 		ReaderPageWebViewRasterPreparationPlanPort(),
 	private val currentReferencePort: ReaderPageRasterCurrentReferencePort =
 		ReaderPageBundleRasterCurrentReferencePort(bundleSource),
+	private val currentLayoutSnapshot: (
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind
+	) -> ReaderPageSlideSnapshot? = bundleSource::retainedCurrentLayoutSnapshot,
 	private val initializeRasterCache: suspend (WebView) -> Unit =
 		bundleSource::initializeRasterCache,
 	private val retainedSnapshot: (
@@ -1359,15 +1363,25 @@ internal class ReaderPageRasterPreparationController(
 		onResolved: (ReaderPageSlideSnapshot?) -> Unit
 	) {
 		val generation = bundleSource.currentGeneration()
+		val isCurrent = {
+			generation == bundleSource.currentGeneration() &&
+				isPrewarmActive(webView, session)
+		}
+		currentLayoutSnapshot(pageIndex, kind)?.let { reference ->
+			if (isCurrent()) {
+				onResolved(reference)
+			} else {
+				reference.release()
+				onResolved(null)
+			}
+			return
+		}
 		currentReferencePort.captureFresh(
 			webView = webView,
 			pageIndex = pageIndex,
 			kind = kind,
 			generation = generation,
-			isCurrent = {
-				generation == bundleSource.currentGeneration() &&
-					isPrewarmActive(webView, session)
-			},
+			isCurrent = isCurrent,
 			onResolved = onResolved
 		)
 	}

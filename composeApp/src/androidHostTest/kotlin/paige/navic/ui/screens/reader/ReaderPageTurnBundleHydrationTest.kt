@@ -113,6 +113,54 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun retainedCurrentLayoutSnapshotNeverReusesAnInactiveTransitionLayout() {
+		val source = ReaderPageTurnBundleSource()
+		try {
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = landscapeCaptureResult()
+				)
+			)
+			assertNotNull(
+				source.retainedCurrentLayoutSnapshot(
+					4,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			).release()
+
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					current = captureResult()
+				)
+			)
+			assertNotNull(
+				source.retainedSnapshot(
+					4,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			).release()
+			assertNull(
+				source.retainedCurrentLayoutSnapshot(
+					4,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			assertNotNull(
+				source.retainedCurrentLayoutSnapshot(
+					5,
+					ReaderPageTurnTransitionKind.PortraitSlide
+				)
+			).release()
+		} finally {
+			source.close()
+		}
+	}
+
+	@Test
 	fun staleContainedLandscapeRasterIsRejectedBeforePersistentPublication() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
