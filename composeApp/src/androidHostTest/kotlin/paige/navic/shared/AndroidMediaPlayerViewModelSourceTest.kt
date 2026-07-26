@@ -221,6 +221,21 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
+	fun stalePlaybackRecoveryEmitsBoundedDecisionDiagnostics() {
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+		val diagnosticsText = androidSharedSourceFile("AndroidPlaybackDiagnosticsLogger.android.kt").readText()
+
+		assertContains(recoveryText, "diagnostics.onStaleSongProbeStarted(")
+		assertContains(recoveryText, "diagnostics.onStaleSongProbeResult(")
+		assertContains(recoveryText, "diagnostics.onStaleSongReplacement(")
+		assertContains(recoveryText, "diagnostics.onPlaybackDownloadRequestResult(")
+		assertContains(diagnosticsText, "stale-song-probe-started")
+		assertContains(diagnosticsText, "stale-song-probe-result")
+		assertContains(diagnosticsText, "stale-song-replaced")
+		assertContains(diagnosticsText, "playback-download-request-result")
+	}
+
+	@Test
 	fun bufferingDoesNotOverwriteUserPlaybackIntent() {
 		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 

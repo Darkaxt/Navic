@@ -88,10 +88,10 @@ Gate:
 
 ## Stage 4: Design Comparison and Regression Gates
 
-- [ ] Add bounded diagnostics for probe, replacement, stale result, rejected
+- [x] Add bounded diagnostics for probe, replacement, stale result, rejected
   request, and terminal decision.
-- [ ] Run the duplicate Logs regression test.
-- [ ] Run stale identity and playback recovery tests.
+- [x] Run the duplicate Logs regression test.
+- [x] Run stale identity and playback recovery tests.
 - [ ] Run Android host tests and compare failures with the known baseline.
 - [ ] Run Android debug and release compilation/build gates.
 - [ ] Review every design invariant and acceptance row against code/tests.

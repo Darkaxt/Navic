@@ -5,8 +5,11 @@ import androidx.media3.common.Player
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.PlaybackDownloadRequestResult
 import paige.navic.domain.models.PlaybackDiagnosticsLogTag
 import paige.navic.domain.models.QueueSelectionRequest
+import paige.navic.domain.models.StalePlaybackMatchStrength
+import paige.navic.domain.models.StalePlaybackProbeResolution
 import paige.navic.domain.models.playbackDiagnosticMessage
 import paige.navic.util.core.Logger
 
@@ -138,6 +141,89 @@ internal class AndroidPlaybackDiagnosticsLogger {
 				"title" to song.title,
 				"positionMs" to positionMs,
 				"shouldResume" to shouldResume
+			)
+		)
+	}
+
+	fun onStaleSongProbeStarted(song: DomainSong, index: Int, errorCode: String) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"stale-song-probe-started",
+				"songId" to song.id,
+				"title" to song.title,
+				"index" to index,
+				"errorCode" to errorCode
+			)
+		)
+	}
+
+	fun onStaleSongProbeResult(
+		songId: String,
+		index: Int,
+		resolution: StalePlaybackProbeResolution,
+		appliesToCurrentItem: Boolean
+	) {
+		val result = when (resolution) {
+			StalePlaybackProbeResolution.Current -> "current"
+			StalePlaybackProbeResolution.Missing -> "missing"
+			StalePlaybackProbeResolution.Ambiguous -> "ambiguous"
+			is StalePlaybackProbeResolution.Replacement -> "replacement"
+			is StalePlaybackProbeResolution.ServiceUnavailable -> "service-unavailable"
+			is StalePlaybackProbeResolution.Unresolved -> "unresolved"
+		}
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"stale-song-probe-result",
+				"songId" to songId,
+				"index" to index,
+				"result" to result,
+				"appliesToCurrentItem" to appliesToCurrentItem,
+				"replacementSongId" to (resolution as? StalePlaybackProbeResolution.Replacement)?.song?.id
+			)
+		)
+	}
+
+	fun onStaleSongReplacement(
+		oldSongId: String,
+		replacement: DomainSong,
+		index: Int,
+		strength: StalePlaybackMatchStrength
+	) {
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"stale-song-replaced",
+				"oldSongId" to oldSongId,
+				"replacementSongId" to replacement.id,
+				"title" to replacement.title,
+				"index" to index,
+				"matchStrength" to strength.name
+			)
+		)
+	}
+
+	fun onPlaybackDownloadRequestResult(
+		songId: String,
+		index: Int,
+		result: PlaybackDownloadRequestResult
+	) {
+		val resultName = when (result) {
+			is PlaybackDownloadRequestResult.Enqueued -> "enqueued"
+			is PlaybackDownloadRequestResult.AlreadyActive -> "already-active"
+			is PlaybackDownloadRequestResult.AlreadyDownloaded -> "already-downloaded"
+			PlaybackDownloadRequestResult.MissingCatalogEntry -> "missing-catalog-entry"
+			PlaybackDownloadRequestResult.InactiveSession -> "inactive-session"
+		}
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"playback-download-request-result",
+				"songId" to songId,
+				"index" to index,
+				"result" to resultName,
+				"intentGeneration" to result.intentGeneration
 			)
 		)
 	}

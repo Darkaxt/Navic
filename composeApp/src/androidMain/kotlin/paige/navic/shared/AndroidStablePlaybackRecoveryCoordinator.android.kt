@@ -251,6 +251,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		pendingServiceOutage = false
 		markRecoveryPending()
 		diagnostics.onRecoveryPending(song, recovery.positionMs, recovery.shouldResume)
+		diagnostics.onStaleSongProbeStarted(song, currentIndex, error.errorCodeName)
 		staleSongProbeJob?.cancel()
 		staleSongProbeJob = scope.launch {
 			val resolution = staleSongResolver(song)
@@ -258,11 +259,17 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 				pendingRecovery.songId == recovery.songId &&
 					pendingRecovery.queueIndex == recovery.queueIndex
 			}
-			if (
-				activeRecovery == null ||
-				player.currentMediaItem?.mediaId != recovery.songId ||
-				player.currentMediaItemIndex != recovery.queueIndex
-			) {
+			val appliesToCurrentItem =
+				activeRecovery != null &&
+					player.currentMediaItem?.mediaId == recovery.songId &&
+					player.currentMediaItemIndex == recovery.queueIndex
+			diagnostics.onStaleSongProbeResult(
+				songId = recovery.songId,
+				index = recovery.queueIndex,
+				resolution = resolution,
+				appliesToCurrentItem = appliesToCurrentItem
+			)
+			if (!appliesToCurrentItem) {
 				clear("stale-song-probe-result-obsolete")
 				return@launch
 			}
@@ -273,6 +280,12 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 					continueAfterStaleSongProbe(player, state, song, activeRecovery, error)
 
 				is StalePlaybackProbeResolution.Replacement -> {
+					diagnostics.onStaleSongReplacement(
+						oldSongId = recovery.songId,
+						replacement = resolution.song,
+						index = currentIndex,
+						strength = resolution.strength
+					)
 					onQueueSongReplaced(currentIndex, resolution.song)
 					player.replaceMediaItem(currentIndex, mediaItemForSong(resolution.song))
 					player.seekTo(currentIndex, activeRecovery.positionMs)
@@ -525,6 +538,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		diagnostics.onDeferredDownloadRequested(song, currentIndex, reason, 1)
 		scope.launch {
 			val result = downloadManager.requestPlaybackRecoveryDownload(song)
+			diagnostics.onPlaybackDownloadRequestResult(song.id, currentIndex, result)
 			val activeRecovery = pending?.takeIf { pendingRecovery ->
 				pendingRecovery.songId == recovery.songId &&
 					pendingRecovery.queueIndex == recovery.queueIndex
