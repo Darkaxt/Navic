@@ -697,6 +697,202 @@ if ($relocationDrain.TerminalRelocations.Count -ne 2 -or
     $relocationDrain.PendingCount -ne 0) {
     throw 'Acknowledgement timeout recovery fixture did not drain exactly'
 }
+$leaderQueued = @(
+    ConvertFrom-ReaderRelocationLog $relocationRecoveryLog | Where-Object {
+        $_.GestureId -eq 3 -and $_.State -eq 'Queued'
+    }
+)[0].LogLine
+$leaderDispatch = @(
+    ConvertFrom-ReaderRelocationLog $relocationRecoveryLog | Where-Object {
+        $_.GestureId -eq 3 -and $_.State -eq 'Dispatched'
+    }
+)[0].LogLine
+$leaderRejection = @(
+    ConvertFrom-ReaderRelocationLog $relocationRecoveryLog | Where-Object {
+        $_.GestureId -eq 3 -and $_.State -eq 'Rejected'
+    }
+)[0].LogLine
+$followerQueued =
+    'reader-relocation session=7 token=move-follower gestureId=5 source=2 target=3 ' +
+    'logicalDirection=Next rasterGeneration=2 textureGeneration=5 ' +
+    'state=Queued rejectionReason=None queueDepth=2 durationMs=0' +
+    $NoQaCorrelationFields
+$followerRejected = $followerQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=2 durationMs=0',
+    'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0 durationMs=6000'
+)
+$timeoutCascadeLog = $relocationRecoveryLog.Replace(
+    $leaderDispatch,
+    $leaderDispatch + "`n" + $followerQueued
+).Replace(
+    $leaderRejection,
+    $leaderRejection + "`n" + $followerRejected
+)
+$timeoutCascadeDrain = Get-ReaderCommittedRelocationDrainStatus `
+    -Log $timeoutCascadeLog `
+    -ReaderSession 7 `
+    -CommittedGestureIds @(3, 5, 4) `
+    -Context 'acknowledgement timeout cascade fixture'
+if ($timeoutCascadeDrain.TerminalRelocations.Count -ne 3 -or
+    $timeoutCascadeDrain.CompletedRelocations.Count -ne 1 -or
+    $timeoutCascadeDrain.RejectedRelocations.Count -ne 2 -or
+    $timeoutCascadeDrain.RecoveredRejectedRelocations.Count -ne 2 -or
+    $timeoutCascadeDrain.PendingCount -ne 0) {
+    throw 'Acknowledgement timeout cascade fixture did not drain queued followers'
+}
+$followerTwoQueued = $followerQueued.Replace(
+    'token=move-follower gestureId=5 source=2 target=3',
+    'token=move-follower-2 gestureId=6 source=3 target=4'
+).Replace(
+    'textureGeneration=5',
+    'textureGeneration=6'
+).Replace(
+    'queueDepth=2',
+    'queueDepth=3'
+)
+$followerTwoRejected = $followerTwoQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=3 durationMs=0',
+    'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0 durationMs=4000'
+)
+$multiFollowerCascadeLog = $timeoutCascadeLog.Replace(
+    $followerQueued,
+    $followerQueued + "`n" + $followerTwoQueued
+).Replace(
+    $followerRejected,
+    $followerRejected + "`n" + $followerTwoRejected
+)
+$multiFollowerCascadeDrain = Get-ReaderCommittedRelocationDrainStatus `
+    -Log $multiFollowerCascadeLog `
+    -ReaderSession 7 `
+    -CommittedGestureIds @(3, 5, 6, 4) `
+    -Context 'multi-follower acknowledgement timeout cascade fixture'
+if ($multiFollowerCascadeDrain.TerminalRelocations.Count -ne 4 -or
+    $multiFollowerCascadeDrain.CompletedRelocations.Count -ne 1 -or
+    $multiFollowerCascadeDrain.RejectedRelocations.Count -ne 3 -or
+    $multiFollowerCascadeDrain.RecoveredRejectedRelocations.Count -ne 3 -or
+    $multiFollowerCascadeDrain.PendingCount -ne 0) {
+    throw 'Multi-follower timeout cascade fixture did not drain in queue order'
+}
+$equalDepthCascadeLog = $multiFollowerCascadeLog.Replace(
+    'state=Queued rejectionReason=None queueDepth=3 durationMs=0',
+    'state=Queued rejectionReason=None queueDepth=2 durationMs=0'
+)
+$equalDepthCascadeDrain = Get-ReaderCommittedRelocationDrainStatus `
+    -Log $equalDepthCascadeLog `
+    -ReaderSession 7 `
+    -CommittedGestureIds @(3, 5, 6, 4) `
+    -Context 'equal-depth acknowledgement timeout cascade fixture'
+if ($equalDepthCascadeDrain.RejectedRelocations.Count -ne 3 -or
+    $equalDepthCascadeDrain.RecoveredRejectedRelocations.Count -ne 3) {
+    throw 'Equal-depth timeout followers did not preserve queue-index ordering'
+}
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $multiFollowerCascadeLog.Replace(
+            $followerRejected + "`n" + $followerTwoRejected,
+            $followerTwoRejected + "`n" + $followerRejected
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 5, 6, 4) `
+        -Context 'reversed timeout follower fixture' | Out-Null
+} 'reversed timeout follower fixture'
+$unqueuedLeaderLog = $timeoutCascadeLog.Replace($leaderQueued, '')
+if (@(
+        ConvertFrom-ReaderRelocationLog $unqueuedLeaderLog | Where-Object {
+            $_.GestureId -eq 3 -and $_.State -eq 'Queued'
+        }
+    ).Count -ne 0) {
+    throw 'Unqueued timeout leader fixture retained its queue admission'
+}
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $unqueuedLeaderLog `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 5, 4) `
+        -Context 'unqueued timeout leader fixture' | Out-Null
+} 'unqueued timeout leader fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $timeoutCascadeLog.Replace(
+            'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0 durationMs=10001',
+            'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=1 durationMs=10001'
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 5, 4) `
+        -Context 'owned timeout leader terminal fixture' | Out-Null
+} 'owned timeout leader terminal fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $unqueuedLeaderLog `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'direct unqueued timeout leader fixture' | Out-Null
+} 'direct unqueued timeout leader fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $relocationRecoveryLog.Replace(
+            'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0 durationMs=10001',
+            'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=1 durationMs=10001'
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'direct owned timeout terminal fixture' | Out-Null
+} 'direct owned timeout terminal fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $timeoutCascadeLog.Replace('durationMs=6000', 'durationMs=12000') `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 5, 4) `
+        -Context 'late timeout follower fixture' | Out-Null
+} 'late timeout follower fixture'
+$followerMalformedDispatch = $followerQueued.Replace(
+    'textureGeneration=5 state=Queued rejectionReason=None queueDepth=2 durationMs=0',
+    'textureGeneration=6 state=Dispatched rejectionReason=None queueDepth=2 durationMs=1'
+)
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $timeoutCascadeLog.Replace(
+            $followerQueued,
+            $followerQueued + "`n" + $followerMalformedDispatch
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 5, 4) `
+        -Context 'malformed follower dispatch fixture' | Out-Null
+} 'malformed follower dispatch fixture'
+$unrelatedQueued =
+    'reader-relocation session=7 token=move-unrelated gestureId=7 source=4 target=5 ' +
+    'logicalDirection=Next rasterGeneration=3 textureGeneration=7 ' +
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0' +
+    $NoQaCorrelationFields
+$unrelatedDispatched = $unrelatedQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=1'
+)
+$unrelatedRejected = $unrelatedQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=Rejected rejectionReason=AcknowledgementTimeout queueDepth=0 durationMs=10001'
+)
+$interleavedTimeoutLog = $timeoutCascadeLog.Replace(
+    $followerQueued,
+    $followerQueued + "`n" + $unrelatedQueued + "`n" + $unrelatedDispatched
+).Replace(
+    $leaderRejection + "`n" + $followerRejected,
+    $leaderRejection + "`n" + $unrelatedRejected + "`n" + $followerRejected
+)
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $interleavedTimeoutLog `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 5, 7, 4) `
+        -Context 'interleaved unrelated timeout fixture' | Out-Null
+} 'interleaved unrelated timeout fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $timeoutCascadeLog.Replace('queueDepth=2', 'queueDepth=1') `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 5, 4) `
+        -Context 'unowned timeout follower fixture' | Out-Null
+} 'unowned timeout follower fixture'
 $pendingRecovery = Get-ReaderCommittedRelocationDrainStatus `
     -Log $relocationRecoveryLog.Replace(
         'state=Ready reason=None eventVersion=-1 durationMs=200',

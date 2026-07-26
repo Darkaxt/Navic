@@ -401,8 +401,10 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("GitCommit = \$implementationGitCommit") &&
 				runner.contains("AcceptanceToolingCommit = \$acceptanceToolingCommit") &&
 				!runner.contains("GitCommit = \$gitCommit") &&
-				runner.contains("Assert-RunnerPostImplementationPaths"),
-			"Frozen runs executed by later acceptance-only tooling must retain the APK implementation commit while recording and constraining the tooling commit."
+				runner.contains("Assert-RunnerPostImplementationPaths") &&
+				runner.contains("'scripts/reader-playlikecurl-qa-parser.ps1',") &&
+				runner.contains("'scripts/test-reader-playlikecurl-qa-parser.ps1',"),
+			"Frozen runs executed by later acceptance-only tooling must retain the APK implementation commit while recording and constraining the tooling commit, including the runner's parser and parser regression suite."
 		)
 		assertTrue(
 			runner.contains("\$maximumRepairFaultAttempts = 5") &&

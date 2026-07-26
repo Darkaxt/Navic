@@ -590,6 +590,120 @@ function ConvertFrom-ReaderRelocationLog([string] $Log) {
     }
 }
 
+function Test-ReaderAcknowledgementTimeoutCascadeFollower(
+    [object] $Terminal,
+    [object[]] $Relocations
+) {
+    $records = @(
+        $Relocations | Where-Object GestureId -eq $Terminal.GestureId |
+            Sort-Object Index
+    )
+    $queued = @(
+        $records | Where-Object {
+            $_.State -eq 'Queued' -and
+                $_.Index -lt $Terminal.Index -and
+                $_.Token -ceq $Terminal.Token -and
+                $_.RasterGeneration -eq $Terminal.RasterGeneration -and
+                $_.TextureGeneration -eq $Terminal.TextureGeneration
+        }
+    )
+    if ($queued.Count -ne 1 -or
+        $queued[0].QueueDepth -lt 2 -or
+        $Terminal.QueueDepth -ne 0 -or
+        @($records | Where-Object State -eq 'Dispatched').Count -ne 0) {
+        return $false
+    }
+
+    $leaders = @(
+        $Relocations | Where-Object {
+            $_.GestureId -ne $Terminal.GestureId -and
+                $_.State -eq 'Rejected' -and
+                $_.RejectionReason -eq 'AcknowledgementTimeout' -and
+                $_.RasterGeneration -eq $Terminal.RasterGeneration -and
+                $_.Index -gt $queued[0].Index -and
+                $_.Index -lt $Terminal.Index
+        } | Sort-Object Index -Descending
+    )
+    foreach ($leader in $leaders) {
+        $leaderRecords = @(
+            $Relocations | Where-Object GestureId -eq $leader.GestureId
+        )
+        $leaderDispatches = @(
+            $leaderRecords | Where-Object {
+                $_.State -eq 'Dispatched' -and
+                    $_.Index -lt $leader.Index -and
+                    $_.Token -ceq $leader.Token -and
+                    $_.RasterGeneration -eq $leader.RasterGeneration -and
+                    $_.TextureGeneration -eq $leader.TextureGeneration
+            }
+        )
+        $leaderQueued = @(
+            $leaderRecords | Where-Object {
+                $_.State -eq 'Queued' -and
+                    $_.Index -lt $leader.Index -and
+                    $_.Token -ceq $leader.Token -and
+                    $_.RasterGeneration -eq $leader.RasterGeneration -and
+                    $_.TextureGeneration -eq $leader.TextureGeneration
+            }
+        )
+        if ($leaderQueued.Count -ne 1 -or
+            $leaderQueued[0].QueueDepth -lt 1 -or
+            $leaderDispatches.Count -ne 1 -or
+            $leaderDispatches[0].Index -le $leaderQueued[0].Index -or
+            @($leaderRecords | Where-Object State -eq 'Dispatched').Count -ne 1 -or
+            $leader.QueueDepth -ne 0 -or
+            $leader.DurationMs -lt
+                $ReaderRelocationAcknowledgementTimeoutFloorMs) {
+            continue
+        }
+
+        $drainEvents = @(
+            $Relocations | Where-Object {
+                $_.Index -gt $leader.Index -and
+                    $_.Index -le $Terminal.Index
+            } | Sort-Object Index
+        )
+        if ($drainEvents.Count -eq 0 -or
+            $drainEvents[-1].GestureId -ne $Terminal.GestureId) {
+            continue
+        }
+        $valid = $true
+        $previousQueuedIndex = -1
+        foreach ($follower in $drainEvents) {
+            if ($follower.State -ne 'Rejected' -or
+                $follower.RejectionReason -ne 'AcknowledgementTimeout' -or
+                $follower.RasterGeneration -ne $leader.RasterGeneration -or
+                $follower.QueueDepth -ne 0 -or
+                $follower.DurationMs -ge $leader.DurationMs) {
+                $valid = $false
+                break
+            }
+            $followerRecords = @(
+                $Relocations | Where-Object GestureId -eq $follower.GestureId
+            )
+            $followerQueued = @(
+                $followerRecords | Where-Object {
+                    $_.State -eq 'Queued' -and
+                        $_.Index -lt $leader.Index -and
+                        $_.Token -ceq $follower.Token -and
+                        $_.RasterGeneration -eq $follower.RasterGeneration -and
+                        $_.TextureGeneration -eq $follower.TextureGeneration
+                }
+            )
+            if ($followerQueued.Count -ne 1 -or
+                $followerQueued[0].QueueDepth -lt 2 -or
+                $followerQueued[0].Index -le $previousQueuedIndex -or
+                @($followerRecords | Where-Object State -eq 'Dispatched').Count -ne 0) {
+                $valid = $false
+                break
+            }
+            $previousQueuedIndex = $followerQueued[0].Index
+        }
+        if ($valid) { return $true }
+    }
+    return $false
+}
+
 function Get-ReaderCommittedRelocationDrainStatus(
     [string] $Log,
     [long] $ReaderSession,
@@ -646,6 +760,27 @@ function Get-ReaderCommittedRelocationDrainStatus(
             throw "$Context rejected gesture $gestureId for $($terminal.RejectionReason)"
         }
         $rejectedRelocations.Add($terminal)
+        $queueAdmissions = @(
+            $records | Where-Object {
+                $_.State -eq 'Queued' -and
+                    $_.Index -lt $terminal.Index -and
+                    $_.Token -ceq $terminal.Token -and
+                    $_.RasterGeneration -eq $terminal.RasterGeneration -and
+                    $_.TextureGeneration -eq $terminal.TextureGeneration
+            }
+        )
+        $allQueueAdmissions = @(
+            $records | Where-Object {
+                $_.State -eq 'Queued' -and $_.Index -lt $terminal.Index
+            }
+        )
+        if ($queueAdmissions.Count -ne 1 -or
+            $allQueueAdmissions.Count -ne $queueAdmissions.Count) {
+            throw "$Context rejected gesture $gestureId without one exact queue admission"
+        }
+        if ($terminal.QueueDepth -ne 0) {
+            throw "$Context rejected gesture $gestureId while relocation ownership remained"
+        }
         $dispatches = @(
             $records | Where-Object {
                 $_.State -eq 'Dispatched' -and
@@ -655,7 +790,20 @@ function Get-ReaderCommittedRelocationDrainStatus(
                 $_.TextureGeneration -eq $terminal.TextureGeneration
             }
         )
-        if ($dispatches.Count -ne 1) {
+        $allDispatches = @(
+            $records | Where-Object {
+                $_.State -eq 'Dispatched' -and $_.Index -lt $terminal.Index
+            }
+        )
+        if ($dispatches.Count -gt 1 -or
+            $allDispatches.Count -ne $dispatches.Count) {
+            throw "$Context rejected gesture $gestureId without one exact dispatch"
+        }
+        $cascadeFollower = $dispatches.Count -eq 0 -and
+            (Test-ReaderAcknowledgementTimeoutCascadeFollower `
+                -Terminal $terminal `
+                -Relocations $relocations)
+        if ($dispatches.Count -eq 0 -and -not $cascadeFollower) {
             throw "$Context rejected gesture $gestureId without one exact dispatch"
         }
         if (@(
@@ -666,8 +814,9 @@ function Get-ReaderCommittedRelocationDrainStatus(
             ).Count -ne 0) {
             throw "$Context rejected gesture $gestureId after acknowledgement"
         }
-        if ($terminal.DurationMs -lt
-            $ReaderRelocationAcknowledgementTimeoutFloorMs) {
+        if (-not $cascadeFollower -and
+            $terminal.DurationMs -lt
+                $ReaderRelocationAcknowledgementTimeoutFloorMs) {
             throw "$Context rejected gesture $gestureId before the acknowledgement timeout"
         }
         $recoveryAttempts = @(
