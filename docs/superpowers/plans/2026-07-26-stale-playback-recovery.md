@@ -94,7 +94,7 @@ Gate:
 - [x] Run stale identity and playback recovery tests.
 - [x] Run Android host tests and compare failures with the known baseline.
 - [x] Run the Android debug compilation gate.
-- [ ] Run the Android release build gate.
+- [x] Run the Android release build gate.
 - [x] Review every design invariant and acceptance row against code/tests.
 - [x] Record deviations or residual risk in this plan; do not silently weaken
   the design.
@@ -105,12 +105,12 @@ Gate:
 - [x] Fetch `fork/master` again and reconcile any public drift.
 - [x] Increment version exactly once to `v1.0.11-iota28` and the next Android
   version code.
-- [ ] Build and inspect the signed Android APK.
-- [ ] Commit release metadata intentionally.
-- [ ] Push public master and tag.
-- [ ] Create the public GitHub release with Android artifact and digest.
-- [ ] Verify tag, release, asset, version, signature, and ancestry remotely.
-- [ ] Remove only this isolated worktree and temporary branches after public
+- [x] Build and inspect the signed Android APK.
+- [x] Commit release metadata intentionally.
+- [x] Push public master and tag.
+- [x] Create the public GitHub release with Android artifact and digest.
+- [x] Verify tag, release, asset, version, signature, and ancestry remotely.
+- [x] Remove only this isolated worktree and temporary branches after public
   ancestry is proven.
 
 ## Design Comparison
@@ -130,7 +130,7 @@ Gate:
 | Service errors preserve offline fallback | Resolver service classification feeds `handleServiceUnavailable`; unknown probe/catalog failures remain unresolved instead of claiming a stale ID | Pass |
 | Bounded, credential-safe diagnostics | Probe start/result, replacement, request outcome, and terminal decision log IDs and decisions only | Pass |
 | No timeout-based cancellation | The scoped recovery implementation contains no timeout, polling deadline, or cancellation delay | Pass |
-| Android-only release | No iOS implementation or artifact is part of this branch; Android artifact verification remains in Stage 5 | Pending release |
+| Android-only release | Tag CI skipped the iOS build/attachment jobs and published only the verified Android APK | Pass |
 
 ## Acceptance Comparison
 
@@ -182,3 +182,19 @@ Gate:
   merge because applying the 35-commit navigation/UI rewrite to this fork
   produced incompatible partial architecture and compile failures. The fork's
   working architecture and all release changes are preserved explicitly.
+
+## Release Record
+
+- Tag: `v1.0.11-iota28`, peeled commit `b823561316383cda04b417c6f617eab276b424f9`.
+- Public release: `https://github.com/Darkaxt/Navic/releases/tag/v1.0.11-iota28`.
+- Tag workflow: GitHub Actions run `30216808994`; Android build, expected
+  certificate, reader-vendor governance, and packaged attribution gates passed.
+- Android package: `darkaxt.navic`, versionCode `555`, versionName
+  `v1.0.11-iota28`, 46,436,880 bytes.
+- APK SHA-256: `9f0e82c50a9fe701d1a21f0c2272a7afa3f86ba3ab0b979ea64fe63355f4bd3e`.
+- Signing certificate SHA-256:
+  `ebbe97087182d720ffcb5125b1050e8adccc5db25b23b5b73c9495b9eaa1dae7`.
+- Required commit `9c619f10` and `origin/master` are both ancestors of the
+  released commit.
+- The iOS build and IPA attachment jobs were skipped; the release contains one
+  Android APK and no iOS asset.
