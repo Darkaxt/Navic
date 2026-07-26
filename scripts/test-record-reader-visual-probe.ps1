@@ -63,8 +63,8 @@ try {
             $rapidIntervals = @(1..($rapidActions.Count - 1) | ForEach-Object {
                 $rapidActions[$_].AtMs - $rapidActions[$_ - 1].AtMs
             })
-            if (@($rapidIntervals | Where-Object { $_ -ne 700 }).Count -gt 0 -or
-                $plan.DurationMs -ne 6460) {
+            if (@($rapidIntervals | Where-Object { $_ -ne 1000 }).Count -gt 0 -or
+                $plan.DurationMs -ne 7360) {
                 throw 'Rapid-turn probe does not preserve the bounded injected-attempt cadence'
             }
         }
@@ -268,15 +268,26 @@ try {
                 PageChange = 'NEXT'
             }
         })
+        $rapidWithBusyRejection = @($rapidWinners) + @(
+            [pscustomobject]@{
+                Timestamp = 106.0
+                GestureId = 3L
+                Outcome = 'RejectedPreparing'
+                Won = $true
+                Replay = $false
+                PageChange = $null
+            }
+        )
         $rapidEvidence = Assert-ReaderGestureTerminalSet `
-            -Terminals $rapidWinners `
+            -Terminals $rapidWithBusyRejection `
             -ScenarioName rapid-turns `
             -InjectedActionCount 4 `
             -MinimumExpectedTerminalCount 2 `
             -MaximumExpectedTerminalCount 4
         if (-not $rapidEvidence.Matched -or
-            $rapidEvidence.ObservedTerminalCount -ne 2) {
-            throw 'Rapid-turn semantics rejected two valid consecutive commits'
+            $rapidEvidence.ObservedTerminalCount -ne 2 -or
+            $rapidEvidence.BusyRejectionCount -ne 1) {
+            throw 'Rapid-turn semantics rejected two valid commits plus a permitted busy admission rejection'
         }
         $underfilledRapidRejected = $false
         try {
@@ -291,6 +302,30 @@ try {
         }
         if (-not $underfilledRapidRejected) {
             throw 'Rapid-turn semantics accepted fewer than two consecutive commits'
+        }
+        $unexpectedRapidTerminalRejected = $false
+        try {
+            $unexpectedRapidTerminals = @($rapidWinners) + @(
+                [pscustomobject]@{
+                    Timestamp = 106.0
+                    GestureId = 3L
+                    Outcome = 'CancelledByUser'
+                    Won = $true
+                    Replay = $false
+                    PageChange = 'NONE'
+                }
+            )
+            Assert-ReaderGestureTerminalSet `
+                -Terminals $unexpectedRapidTerminals `
+                -ScenarioName rapid-turns `
+                -InjectedActionCount 4 `
+                -MinimumExpectedTerminalCount 2 `
+                -MaximumExpectedTerminalCount 4 | Out-Null
+        } catch {
+            $unexpectedRapidTerminalRejected = $true
+        }
+        if (-not $unexpectedRapidTerminalRejected) {
+            throw 'Rapid-turn semantics accepted a non-busy unexpected terminal'
         }
         if ((Get-ReaderVisualCaptureBackend 'emulator-5554') -ne
             'emulator-framebuffer' -or

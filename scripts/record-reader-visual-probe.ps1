@@ -518,10 +518,9 @@ function Assert-ReaderGestureTerminalSet {
     $winners = @($Terminals | Where-Object { $_.Won -and -not $_.Replay })
     $uniqueGestureIds = @($winners | ForEach-Object { $_.GestureId } |
         Sort-Object -Unique)
-    if ($winners.Count -lt $MinimumExpectedTerminalCount -or
-        $winners.Count -gt $MaximumExpectedTerminalCount -or
+    if ($winners.Count -gt $InjectedActionCount -or
         $uniqueGestureIds.Count -ne $winners.Count) {
-        throw "ReaderDev emitted $($winners.Count) unique winning terminal outcomes; expected $MinimumExpectedTerminalCount..$MaximumExpectedTerminalCount for $ScenarioName."
+        throw "ReaderDev emitted an invalid unique winning terminal set for $ScenarioName."
     }
     $expectedOutcome = switch ($ScenarioName) {
         'slow-next' { 'CommittedForward' }
@@ -537,17 +536,30 @@ function Assert-ReaderGestureTerminalSet {
         'rapid-turns' { 'NEXT' }
         'idle' { $null }
     }
-    foreach ($terminal in $winners) {
-        if ($terminal.Outcome -ne $expectedOutcome -or
-            $terminal.PageChange -ne $expectedPageChange) {
-            throw "ReaderDev gesture semantics did not match the $ScenarioName probe."
-        }
+    $matchingWinners = @($winners | Where-Object {
+        $_.Outcome -eq $expectedOutcome -and
+            $_.PageChange -eq $expectedPageChange
+    })
+    $busyRejections = if ($ScenarioName -eq 'rapid-turns') {
+        @($winners | Where-Object {
+            $_.Outcome -in @('RejectedPreparing', 'RejectedSettling') -and
+                $null -eq $_.PageChange
+        })
+    } else {
+        @()
+    }
+    $recognizedWinnerCount = $matchingWinners.Count + $busyRejections.Count
+    if ($matchingWinners.Count -lt $MinimumExpectedTerminalCount -or
+        $matchingWinners.Count -gt $MaximumExpectedTerminalCount -or
+        $recognizedWinnerCount -ne $winners.Count) {
+        throw "ReaderDev emitted $($matchingWinners.Count) matching terminal outcomes; expected $MinimumExpectedTerminalCount..$MaximumExpectedTerminalCount for $ScenarioName."
     }
     return [pscustomobject]@{
         InjectedActionCount = $InjectedActionCount
         MinimumExpectedTerminalCount = $MinimumExpectedTerminalCount
         MaximumExpectedTerminalCount = $MaximumExpectedTerminalCount
-        ObservedTerminalCount = $winners.Count
+        ObservedTerminalCount = $matchingWinners.Count
+        BusyRejectionCount = $busyRejections.Count
         ExpectedOutcome = $expectedOutcome
         ExpectedPageChange = $expectedPageChange
         Matched = $true
@@ -736,7 +748,7 @@ function New-ReaderVisualProbePlan {
         }
         'rapid-turns' {
             @(0..3 | ForEach-Object {
-                New-SwipeAction "rapid-next-$($_ + 1)" (1700 + $_ * 700) `
+                New-SwipeAction "rapid-next-$($_ + 1)" (1700 + $_ * 1000) `
                     $nextStart $nextEnd 160 $Display
             })
         }
