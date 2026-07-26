@@ -41,10 +41,13 @@ public class PageSurfaceView extends GLSurfaceView {
     private static final int REQUIRED_DISPOSAL_CALLBACK_LIMIT = 1;
     private static final int AUXILIARY_DISPOSAL_CALLBACK_LIMIT = 2;
     private static final int OWNERSHIP_CALLBACK_LIMIT = 4;
+    private static final int PRESENTED_FRAME_CALLBACK_LIMIT = 1;
     private static final int MAIN_TERMINAL_ACTION_LIMIT =
             OWNERSHIP_CALLBACK_LIMIT + REQUIRED_DISPOSAL_CALLBACK_LIMIT;
     private static final long GL_QUEUE_ENTRY_WATCHDOG_MILLIS = 5_000L;
     public static final long NO_GESTURE_ID = -1L;
+    public static final long NO_PRESENTED_FRAME_REQUEST_ID =
+            PresentedFrameRequest.NO_REQUEST_ID;
     static final long NO_BOUNDARY_FRAME_TOKEN = 0L;
     private static final PageSurfaceListener NO_OP_LISTENER = new PageSurfaceListener() {};
 
@@ -113,6 +116,8 @@ public class PageSurfaceView extends GLSurfaceView {
             new PageSurfaceDeckSubmissionGate<>(deckCoordinator, leaseRegistry);
     private final BoundaryRestorationProtocol boundaryRestorationProtocol =
             new BoundaryRestorationProtocol();
+    private final PresentedFrameRequest presentedFrameRequest =
+            new PresentedFrameRequest();
     private final Set<Long> preparedGenerations = new LinkedHashSet<>();
     private final PageRenderer renderer;
     private final int touchSlop;
@@ -300,11 +305,18 @@ public class PageSurfaceView extends GLSurfaceView {
                 if (!frameRendered) {
                     return;
                 }
-                long frameToken = boundaryRestorationProtocol.armedToken();
-                if (frameToken == NO_BOUNDARY_FRAME_TOKEN) {
-                    return;
+                long presentedRequestId = presentedFrameRequest.markRendered();
+                if (presentedRequestId != NO_PRESENTED_FRAME_REQUEST_ID) {
+                    boolean posted = post(() -> postOnAnimation(
+                            () -> handlePresentedFrame(presentedRequestId)));
+                    if (!posted) {
+                        presentedFrameRequest.cancel(presentedRequestId);
+                    }
                 }
-                post(() -> postOnAnimation(() -> handleRenderedFrame(frameToken)));
+                long frameToken = boundaryRestorationProtocol.armedToken();
+                if (frameToken != NO_BOUNDARY_FRAME_TOKEN) {
+                    post(() -> postOnAnimation(() -> handleRenderedFrame(frameToken)));
+                }
             }
         };
         setRenderer(renderer);
@@ -502,10 +514,44 @@ public class PageSurfaceView extends GLSurfaceView {
         requireMainThread();
         surfaceVisible = visible;
         if (!visible) {
+            presentedFrameRequest.cancelAll();
             cancelGesture();
         } else {
             requestRender();
         }
+    }
+
+    /**
+     * Arms a one-shot callback for the next complete frame rendered after this request.
+     *
+     * <p>The callback runs on the Android main thread after the following animation pulse, so a
+     * hidden surface can update its buffer before the client reveals it. At most one request may
+     * be pending. The returned identifier can be cancelled when the associated gesture ends.
+     */
+    public long requestNextPresentedFrame(Runnable callback) {
+        requireMainThread();
+        Objects.requireNonNull(callback, "callback");
+        if (disposed || !attached || !surfaceVisible) {
+            return NO_PRESENTED_FRAME_REQUEST_ID;
+        }
+        long requestId = presentedFrameRequest.request(callback);
+        try {
+            queueEvent(() -> {
+                if (presentedFrameRequest.arm(requestId)) {
+                    requestRender();
+                }
+            });
+        } catch (RuntimeException | Error queueFailure) {
+            presentedFrameRequest.cancel(requestId);
+            throw queueFailure;
+        }
+        return requestId;
+    }
+
+    /** Cancels an outstanding frame-presentation callback without invoking it. */
+    public boolean cancelPresentedFrameRequest(long requestId) {
+        requireMainThread();
+        return presentedFrameRequest.cancel(requestId);
     }
 
     /** Sets the logical reading direction used by future gestures and turns. */
@@ -527,6 +573,7 @@ public class PageSurfaceView extends GLSurfaceView {
     /** Cancels the identified gesture or settlement without navigating. */
     public void cancelGesture(long gestureId) {
         requireMainThread();
+        presentedFrameRequest.cancelAll();
         SettlementContext cancelledSettlement = cancelSettlementAnimator();
         long cancelledGestureId = activeGestureId != NO_GESTURE_ID
                 ? activeGestureId
@@ -735,6 +782,7 @@ public class PageSurfaceView extends GLSurfaceView {
                 + disposeCallbacks.pendingCount()
                 + ownershipSnapshotCoordinator.size()
                 + terminalOwnershipCallbacks.pendingCount()
+                + presentedFrameRequest.pendingCount()
                 + pendingMainTerminalActions.get();
     }
 
@@ -742,6 +790,7 @@ public class PageSurfaceView extends GLSurfaceView {
         return REQUIRED_DISPOSAL_CALLBACK_LIMIT
                 + AUXILIARY_DISPOSAL_CALLBACK_LIMIT
                 + OWNERSHIP_CALLBACK_LIMIT
+                + PRESENTED_FRAME_CALLBACK_LIMIT
                 + MAIN_TERMINAL_ACTION_LIMIT;
     }
 
@@ -774,6 +823,7 @@ public class PageSurfaceView extends GLSurfaceView {
         if (disposedResult != null || disposeStarted) {
             return;
         }
+        presentedFrameRequest.cancelAll();
         ownershipCallbackCapacityListener = null;
         ownershipSnapshotCoordinator.clearCapacityAvailableListener(
                 ownershipSnapshotCapacityEdge);
@@ -1429,6 +1479,7 @@ public class PageSurfaceView extends GLSurfaceView {
         DECK_RELEASE,
         DECK_SUBMISSION_CAPACITY,
         OWNERSHIP,
+        PRESENTED_FRAME,
         DISPOSAL
     }
 
@@ -1686,6 +1737,7 @@ public class PageSurfaceView extends GLSurfaceView {
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         super.surfaceDestroyed(holder);
+        presentedFrameRequest.cancelAll();
         holderSurfaceAvailable = false;
         advanceOwnershipEpoch();
         drainRetainedMainTerminal();
@@ -1977,6 +2029,21 @@ public class PageSurfaceView extends GLSurfaceView {
                 requestRender();
             }
         });
+    }
+
+    private void handlePresentedFrame(long requestId) {
+        Runnable callback = presentedFrameRequest.complete(requestId);
+        if (callback == null) {
+            return;
+        }
+        try {
+            callback.run();
+        } catch (Throwable callbackFailure) {
+            reportIsolatedCallbackFailure(
+                    IsolatedCallbackKind.PRESENTED_FRAME,
+                    callback,
+                    callbackFailure);
+        }
     }
 
     private void handleRenderedFrame(long frameToken) {

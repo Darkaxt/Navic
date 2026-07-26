@@ -475,6 +475,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
+	private var presentedFrameRequestId: Long? = null
+	private var presentedFrameGestureId: Long? = null
 	private var tapTurnGestureId: Long? = null
 	private var tapTurnTerminalSink: ((
 		ReaderPageGestureTerminalOutcome,
@@ -628,11 +630,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 
 			override fun onGestureCancelled(gestureId: Long, generationId: Long) {
-				finishGesture(
-					gestureId,
-					ReaderPageGestureTerminalOutcome.CancelledByUser,
-					ReaderPageGestureTerminalDetail.RendererCancelled(generationId)
-				)
+				if (!finishGesture(
+						gestureId,
+						ReaderPageGestureTerminalOutcome.CancelledByUser,
+						ReaderPageGestureTerminalDetail.RendererCancelled(generationId)
+					)
+				) {
+					return
+				}
+				hideSurface()
 			}
 
 			override fun onSettlementStarted(
@@ -902,8 +908,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 			deckRecoveryCoordinator.canAcceptPointer &&
 			pageOperationPolicy.newPointer is ReaderPageNewPointerDecision.Accept
 
-	private val canContinueAcceptedPointer: Boolean
-		get() = enabled && attached && pageOperationPolicy.continueActivePointer
+	private val canPresentAcceptedGesture: Boolean
+		get() = enabled && attached && (
+			pageOperationPolicy.continueActivePointer ||
+				pageOperationPolicy.continueSettlement
+			)
 
 	fun setPageOperationPolicy(policy: ReaderPageOperationPolicy) {
 		pageOperationPolicy = policy
@@ -1138,6 +1147,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	): ReaderPageCurlDispatchResult {
 		if (event.actionMasked != MotionEvent.ACTION_DOWN) {
 			surfaceView.onPageTouchEvent(event, gestureId)
+			if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+				revealSurfaceAfterNextPresentedFrame(gestureId)
+			}
 			return ReaderPageCurlDispatchResult.Accepted
 		}
 
@@ -1235,7 +1247,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				metadata = metadata,
 				protocolActionMasked = MotionEvent.ACTION_DOWN,
 				rendererAdmission = {
-					surfaceView.alpha = 1f
 					surfaceView.turn(pageChange, gestureId)
 				},
 				publishTerminal = { outcome, detail ->
@@ -1244,6 +1255,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 		) {
 			ReaderPageRelocationStartResult.Admitted -> {
+				revealSurfaceAfterNextPresentedFrame(gestureId)
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl tap turn change=$pageChange accepted=true"
@@ -1264,9 +1276,38 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
-	fun showSurfaceForGesture() {
-		if (!canContinueAcceptedPointer) return
-		surfaceView.alpha = 1f
+	private fun revealSurfaceAfterNextPresentedFrame(gestureId: Long) {
+		if (
+			!canPresentAcceptedGesture ||
+			activeGestureId != gestureId ||
+			surfaceView.alpha != 0f ||
+			presentedFrameGestureId == gestureId
+		) {
+			return
+		}
+		presentedFrameRequestId?.let { requestId ->
+			surfaceView.cancelPresentedFrameRequest(requestId)
+		}
+		presentedFrameRequestId = null
+		presentedFrameGestureId = gestureId
+		val requestId = try {
+			surfaceView.requestNextPresentedFrame {
+				val gestureStillOwnsReveal = presentedFrameGestureId == gestureId
+				presentedFrameRequestId = null
+				presentedFrameGestureId = null
+				if (gestureStillOwnsReveal && enabled && attached && !destroyed) {
+					surfaceView.alpha = 1f
+				}
+			}
+		} catch (failure: Throwable) {
+			presentedFrameGestureId = null
+			throw failure
+		}
+		if (requestId == PageSurfaceView.NO_PRESENTED_FRAME_REQUEST_ID) {
+			presentedFrameGestureId = null
+			return
+		}
+		presentedFrameRequestId = requestId
 	}
 
 	fun cancelGesture(gestureId: Long) {
@@ -3772,6 +3813,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun hideSurface() {
+		presentedFrameRequestId?.let { requestId ->
+			surfaceView.cancelPresentedFrameRequest(requestId)
+		}
+		presentedFrameRequestId = null
+		presentedFrameGestureId = null
 		surfaceView.alpha = 0f
 	}
 

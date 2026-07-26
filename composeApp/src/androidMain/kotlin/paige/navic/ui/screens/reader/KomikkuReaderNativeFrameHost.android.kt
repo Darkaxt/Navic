@@ -1750,7 +1750,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 		is ReaderPagePointerRoute.ClaimCurl -> {
 			dispatchContentCancel(event)
-			playLikeCurlController.showSurfaceForGesture()
 			val originalDown = checkNotNull(retainedContentDown) {
 				"Curl claim has no retained content DOWN"
 			}

@@ -79,6 +79,30 @@ public class Gles2RendererSourceTest {
     }
 
     @Test
+    public void hiddenSurfacePresentationWaitsForAnArmedCompleteFrame() throws IOException {
+        String source = Files.readString(
+                Path.of("src/main/java/karacken/curl/PageSurfaceView.java"),
+                StandardCharsets.UTF_8);
+        String request = methodBody(
+                source,
+                "public long requestNextPresentedFrame(Runnable callback)");
+        String draw = methodBody(
+                source,
+                "public void onDrawFrame(GL10 gl)");
+
+        assertTrue(source.contains("PresentedFrameRequest"));
+        assertTrue(request.contains("queueEvent(() ->"));
+        assertTrue(request.contains("presentedFrameRequest.arm(requestId)"));
+        assertTrue(request.contains("requestRender()"));
+        assertTrue(draw.indexOf("renderer.drawFrame(gl)")
+                < draw.indexOf("presentedFrameRequest.markRendered()"));
+        assertTrue(draw.contains("postOnAnimation("));
+        assertTrue(source.contains("cancelPresentedFrameRequest(long requestId)"));
+        assertTrue(source.contains("presentedFrameRequest.cancelAll()"));
+        assertTrue(source.contains("presentedFrameRequest.pendingCount()"));
+    }
+
+    @Test
     public void rendererClearsTransparentPixelsBeforeAnEmptyDeckReturn() throws IOException {
         String renderer = source("PageRenderer.java");
         String drawFrame = methodBody(renderer, "boolean drawFrame(GL10 ignored)");

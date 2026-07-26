@@ -475,7 +475,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("override fun start(")
 		val tap = controller
 			.substringAfter("private fun startTapTurn(")
-			.substringBefore("fun showSurfaceForGesture()")
+			.substringBefore("private fun revealSurfaceAfterNextPresentedFrame(")
 		val settlement = controller
 			.substringAfter("override fun onSettlementCompleted(")
 			.substringBefore("override fun onSettlementCancelled(")
@@ -1110,6 +1110,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun rendererCancellationFencesLateFrameRevealAfterItsWinningTerminal() {
+		val source = controllerFile.readText()
+		val cancellation = source
+			.substringAfter("override fun onGestureCancelled(")
+			.substringBefore("override fun onSettlementStarted(")
+
+		assertContains(cancellation, "if (!finishGesture(")
+		assertContains(cancellation, "hideSurface()")
+		assertTrue(
+			cancellation.indexOf("finishGesture(") < cancellation.indexOf("hideSurface()")
+		)
+	}
+
+	@Test
 	fun everyRendererFailurePublishesSpecificTerminalBeforeUnsafeLifecycleCancellation() {
 		val source = controllerFile.readText()
 		val failure = source
@@ -1186,19 +1200,44 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val touch = source
 			.substringAfter("fun onPageTouchEvent(")
 			.substringBefore("override fun start(")
-		val show = source
-			.substringAfter("fun showSurfaceForGesture()")
+		val reveal = source
+			.substringAfter("private fun revealSurfaceAfterNextPresentedFrame(")
 			.substringBefore("fun cancelGesture(")
-		val continuation = source
-			.substringAfter("private val canContinueAcceptedPointer: Boolean")
+		val tap = source
+			.substringAfter("private fun startTapTurn(")
+			.substringBefore("private fun revealSurfaceAfterNextPresentedFrame(")
+		val admittedTap = tap
+			.substringAfter("ReaderPageRelocationStartResult.Admitted -> {")
+			.substringBefore("is ReaderPageRelocationStartResult.TerminalPublished -> {")
+		val hide = source
+			.substringAfter("private fun hideSurface()")
+			.substringBefore("private fun preparedInteractionState(")
+		val presentation = source
+			.substringAfter("private val canPresentAcceptedGesture: Boolean")
 			.substringBefore("fun setPageOperationPolicy(")
 
-		assertContains(continuation, "pageOperationPolicy.continueActivePointer")
+		assertContains(presentation, "pageOperationPolicy.continueActivePointer")
+		assertContains(presentation, "pageOperationPolicy.continueSettlement")
 		assertContains(touch, "if (!isAvailable || metadata == null)")
 		assertContains(touch, "relocationGestureCoordinator.start(")
 		assertContains(source, "deckRecoveryCoordinator.canAcceptPointer")
-		assertContains(show, "canContinueAcceptedPointer")
-		assertFalse(show.contains("!isAvailable"))
+		assertContains(reveal, "canPresentAcceptedGesture")
+		assertContains(reveal, "surfaceView.requestNextPresentedFrame")
+		assertContains(reveal, "activeGestureId != gestureId")
+		assertContains(reveal, "gestureStillOwnsReveal")
+		assertFalse(tap.contains("surfaceView.alpha = 1f"))
+		assertContains(admittedTap, "revealSurfaceAfterNextPresentedFrame(gestureId)")
+		assertTrue(
+			reveal.indexOf("surfaceView.requestNextPresentedFrame") <
+				reveal.indexOf("surfaceView.alpha = 1f"),
+			"A hidden surface must not be revealed until its requested GL frame is presented."
+		)
+		assertContains(hide, "surfaceView.cancelPresentedFrameRequest")
+		assertTrue(
+			hide.indexOf("surfaceView.cancelPresentedFrameRequest") <
+				hide.indexOf("surfaceView.alpha = 0f"),
+			"Hiding must fence a late frame-presentation callback."
+		)
 	}
 
 	@Test
@@ -1206,7 +1245,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val source = controllerFile.readText()
 		val startTapTurn = source
 			.substringAfter("private fun startTapTurn(")
-			.substringBefore("fun showSurfaceForGesture()")
+			.substringBefore("private fun revealSurfaceAfterNextPresentedFrame(")
 		val unavailable = startTapTurn
 			.substringAfter("if (!isAvailable || metadata == null) {")
 			.substringBefore("return when (")
@@ -1305,26 +1344,38 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val claim = apply
 			.substringAfter("is ReaderPagePointerRoute.ClaimCurl -> {")
 			.substringBefore("is ReaderPagePointerRoute.Curl -> {")
+		val controller = controllerFile.readText()
+		val touch = controller
+			.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("override fun start(")
+		val nonDown = touch
+			.substringAfter("if (event.actionMasked != MotionEvent.ACTION_DOWN) {")
+			.substringBefore("return ReaderPageCurlDispatchResult.Accepted")
 
 		assertContains(content, "MotionEvent.obtain(event)")
 		assertContains(content, "viewerContentContainer.dispatchTouchEvent(event)")
 		assertFalse(content.contains("super.dispatchTouchEvent(event)"))
 		assertFalse(content.contains("playLikeCurlController.onPageTouchEvent("))
 		val cancelIndex = claim.indexOf("dispatchContentCancel(event)")
-		val showIndex = claim.indexOf("playLikeCurlController.showSurfaceForGesture()")
 		val downIndex = claim.indexOf("val downResult =")
 		val accepted = claim
 			.substringAfter("ReaderPageCurlDispatchResult.Accepted -> {")
 			.substringBefore("ReaderPageCurlDispatchResult.TerminalPublished -> {")
 		val terminal = claim.substringAfter("ReaderPageCurlDispatchResult.TerminalPublished -> {")
 		assertTrue(cancelIndex >= 0)
-		assertTrue(showIndex > cancelIndex)
-		assertTrue(downIndex > showIndex)
+		assertTrue(downIndex > cancelIndex)
+		assertFalse(claim.contains("showSurfaceForGesture"))
 		assertContains(accepted, "dispatchClaimedReaderPageCurlEvent(event)")
 		assertContains(accepted, "dispatchedEvent,")
 		assertContains(accepted, "playLikeCurlGestureOwned = true")
 		assertFalse(terminal.contains("playLikeCurlController.onPageTouchEvent("))
 		assertContains(terminal, "playLikeCurlGestureOwned = false")
+		assertContains(nonDown, "revealSurfaceAfterNextPresentedFrame(gestureId)")
+		assertTrue(
+			nonDown.indexOf("surfaceView.onPageTouchEvent(event, gestureId)") <
+				nonDown.indexOf("revealSurfaceAfterNextPresentedFrame(gestureId)"),
+			"The claimed MOVE must update deformation before presentation is armed."
+		)
 	}
 
 	@Test
@@ -1427,7 +1478,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun startTapTurn(")
 		val startTapTurn = controller
 			.substringAfter("private fun startTapTurn(")
-			.substringBefore("fun showSurfaceForGesture()")
+			.substringBefore("private fun revealSurfaceAfterNextPresentedFrame(")
 		val finish = controller
 			.substringAfter("private fun finishGesture(")
 			.substringBefore("private fun finishActiveGesture(")
@@ -1579,15 +1630,14 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(apply, "ReaderPagePointerRoute.Ignore -> true")
 
 		val cancelIndex = claimCurl.indexOf("dispatchContentCancel(event)")
-		val showIndex = claimCurl.indexOf("playLikeCurlController.showSurfaceForGesture()")
 		val downIndex = claimCurl.indexOf("originalDown,")
 		val moveIndex = claimCurl.indexOf("dispatchClaimedReaderPageCurlEvent(event)")
 		val ownerIndex = claimCurl.indexOf("playLikeCurlGestureOwned = true")
 		assertTrue(cancelIndex >= 0)
-		assertTrue(showIndex > cancelIndex)
-		assertTrue(downIndex > showIndex)
+		assertTrue(downIndex > cancelIndex)
 		assertTrue(moveIndex > downIndex)
 		assertTrue(ownerIndex > moveIndex)
+		assertFalse(claimCurl.contains("showSurfaceForGesture"))
 		assertContains(claimCurl, "event.actionMasked == MotionEvent.ACTION_UP")
 		assertContains(claimCurl, "clearPlayLikeCurlPointerTapFlagsAfterUp()")
 	}
