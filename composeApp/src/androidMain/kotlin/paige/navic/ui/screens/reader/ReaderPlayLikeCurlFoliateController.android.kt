@@ -385,6 +385,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	)
 	private val rasterCapacityRefreshPosted = AtomicBoolean(false)
+	private val recoveredDeckSubmissionRetryPosted = AtomicBoolean(false)
 	private var rasterRetirementFailure: Throwable? = null
 	private var disposedRasterResidencyMetrics: ReaderPlayLikeCurlRasterResidencyMetrics? = null
 	private var ownershipCapacityListener: (() -> Unit)? = null
@@ -3287,6 +3288,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		check(!built.pages.obsolete && generationOwners[generationId] === built.pages) {
 			"Recovered deck generation is obsolete"
 		}
+		if (activeGestureId != null) {
+			return ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
+		}
 		val repairDiagnostic =
 			(deckRecoveryCoordinator.state as?
 				ReaderPageDeckRecoveryState.WaitingForPreparation)
@@ -4247,17 +4251,48 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	): Boolean {
-		if (activeGestureId == gestureId) activeGestureId = null
+		val activeGestureEnded = activeGestureId == gestureId
+		if (activeGestureEnded) activeGestureId = null
 		val tapSink = if (tapTurnGestureId == gestureId) {
 			tapTurnGestureId = null
 			tapTurnTerminalSink.also { tapTurnTerminalSink = null }
 		} else {
 			null
 		}
-		return if (tapSink == null) {
+		val published = if (tapSink == null) {
 			onGestureTerminal(gestureId, outcome, detail)
 		} else {
 			tapSink(outcome, detail)
+		}
+		if (activeGestureEnded && activeGestureId == null) {
+			scheduleRecoveredDeckSubmissionRetry()
+		}
+		return published
+	}
+
+	private fun scheduleRecoveredDeckSubmissionRetry() {
+		if (
+			destroyed ||
+			deckRecoveryCoordinator.state !is
+				ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity ||
+			!recoveredDeckSubmissionRetryPosted.compareAndSet(false, true)
+		) {
+			return
+		}
+		val posted = mainHandler.post {
+			recoveredDeckSubmissionRetryPosted.set(false)
+			if (
+				!destroyed &&
+				enabled &&
+				activeGestureId == null &&
+				!surfaceView.isSettlementRunning
+			) {
+				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()
+			}
+		}
+		if (!posted) {
+			recoveredDeckSubmissionRetryPosted.set(false)
+			deckRecoveryCoordinator.cancelAll()
 		}
 	}
 

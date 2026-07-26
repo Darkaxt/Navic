@@ -500,6 +500,68 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun recoveredDeckSubmissionWaitsForTheActiveGestureTerminal() {
+		val controller = controllerFile.readText()
+		val touch = controller
+			.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("override fun start(")
+		val tap = controller
+			.substringAfter("private fun startTapTurn(")
+			.substringBefore("private fun revealSurfaceAfterNextPresentedFrame(")
+		val submission = controller
+			.substringAfter("override fun submitRecoveredDeck(")
+			.substringBefore("private fun acceptRecoveredDeckOwnership(")
+		val terminal = controller
+			.substringAfter("private fun publishGestureTerminal(")
+			.substringBefore("private fun scheduleRecoveredDeckSubmissionRetry(")
+		val retry = controller
+			.substringAfter("private fun scheduleRecoveredDeckSubmissionRetry(")
+			.substringBefore("private fun finishActiveGesture(")
+
+		listOf("drag" to touch, "tap" to tap).forEach { (path, source) ->
+			assertContains(source, "activeGestureId = gestureId")
+			assertFalse(
+				source.contains("deckRecoveryCoordinator.cancelAll()"),
+				"$path must retain a valid repaired window until admission is terminal."
+			)
+		}
+		assertContains(submission, "if (activeGestureId != null)")
+		assertContains(
+			submission,
+			"ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity"
+		)
+		assertTrue(
+			submission.indexOf("if (activeGestureId != null)") <
+				submission.indexOf("surfaceView.submitDeckWithResult("),
+			"Recovered ownership must wait instead of entering the settlement pending slot."
+		)
+		assertContains(terminal, "val activeGestureEnded = activeGestureId == gestureId")
+		assertContains(terminal, "if (activeGestureEnded) activeGestureId = null")
+		assertContains(
+			terminal,
+			"if (activeGestureEnded && activeGestureId == null)"
+		)
+		assertContains(terminal, "scheduleRecoveredDeckSubmissionRetry()")
+		assertFalse(terminal.contains("onDeckSubmissionCapacityAvailable()"))
+		assertContains(retry, "val posted = mainHandler.post {")
+		assertContains(retry, "activeGestureId == null")
+		assertContains(retry, "!surfaceView.isSettlementRunning")
+		assertContains(retry, "deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()")
+		val rejectedPost = retry.substringAfter("if (!posted)")
+		assertContains(rejectedPost, "recoveredDeckSubmissionRetryPosted.set(false)")
+		assertContains(
+			rejectedPost,
+			"deckRecoveryCoordinator.cancelAll()",
+			message = "A rejected main-thread retry must release the retained generation."
+		)
+		assertTrue(
+			terminal.indexOf("activeGestureId = null") <
+				terminal.indexOf("scheduleRecoveredDeckSubmissionRetry()"),
+			"Deferred recovery must be scheduled only after gesture ownership ends."
+		)
+	}
+
+	@Test
 	fun edgeTapsUseThePreparedImportedDeckWithoutFallingThroughToFoliate() {
 		val hostSource = hostFile.readText()
 		val dispatch = hostSource
