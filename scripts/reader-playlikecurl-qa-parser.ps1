@@ -318,6 +318,7 @@ function ConvertFrom-ReaderOwnershipLog([string] $Log) {
             Relocations = [int]$match.Groups['Relocations'].Value
             RelocationLimit = [int]$match.Groups['RelocationLimit'].Value
             WithinBounds = $match.Groups['WithinBounds'].Value -eq 'true'
+            Index = $match.Index
             LogLine = $match.Value
         }
     }
@@ -1389,6 +1390,248 @@ function Assert-TypedDeferralsResumeOnNewerEvent(
                 throw "$Context did not resume $reason exactly once on a newer event"
             }
         }
+    }
+}
+
+function Assert-ForcedRepairAttemptResolution(
+    [string] $Log,
+    [long] $ReaderSession,
+    [string] $RepairFaultRequestId,
+    [string] $RasterMissRequestId,
+    [long] $GestureId,
+    [long] $TextureGeneration,
+    [string] $Context
+) {
+    $appliedFaults = @(
+        ConvertFrom-ReaderQaFaultLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.RequestId -ceq $RepairFaultRequestId -and
+                $_.Fault -eq 'ForceRepairWithoutPreparedDeck' -and
+                $_.State -eq 'Applied'
+        }
+    )
+    if ($appliedFaults.Count -ne 1) {
+        throw "$Context did not apply one forced repair attempt"
+    }
+    $appliedFault = $appliedFaults[0]
+    Assert-ReaderQaFaultAppliedContext $appliedFault "$Context forced repair"
+
+    $repairEvents = @(
+        ConvertFrom-ReaderRepairLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.Attempt -eq $appliedFault.RepairAttemptId
+        } | Sort-Object Index
+    )
+    $started = @($repairEvents | Where-Object State -eq 'Started')
+    $ready = @($repairEvents | Where-Object State -eq 'Ready')
+    $submitted = @($repairEvents | Where-Object State -eq 'Submitted')
+    $terminals = @(
+        $repairEvents | Where-Object State -in @('Completed', 'Failed', 'Cancelled')
+    )
+    if ($started.Count -ne 1 -or $ready.Count -ne 1 -or $terminals.Count -ne 1) {
+        throw "$Context did not emit one Started, Ready, and terminal repair event"
+    }
+    $start = $started[0]
+    $readyEvent = $ready[0]
+    $terminal = $terminals[0]
+    if ($terminal.State -eq 'Failed') {
+        throw "$Context forced repair failed"
+    }
+    if (@($repairEvents | Where-Object Index -gt $terminal.Index).Count -ne 0) {
+        throw "$Context forced repair emitted events after its terminal"
+    }
+    foreach ($event in @($start, $readyEvent, $terminal)) {
+        if ($event.RasterGeneration -ne $start.RasterGeneration -or
+            $event.CenterOrdinal -ne $start.CenterOrdinal) {
+            throw "$Context changed repair window identity"
+        }
+    }
+    foreach ($event in @($start, $readyEvent)) {
+        if ($event.QaFaultRequestId -cne $RasterMissRequestId -or
+            $event.QaFaultRelation -ne 'Recovery' -or
+            $event.QaFaultRasterRequestEpoch -lt 0) {
+            throw "$Context did not preserve raster-miss recovery correlation"
+        }
+    }
+    if ($start.Index -ge $readyEvent.Index -or
+        $readyEvent.Index -ge $appliedFault.Index -or
+        $appliedFault.Index -ge $terminal.Index) {
+        throw "$Context forced repair ordering is invalid"
+    }
+    if ($terminal.QaFaultRequestId -cne $RepairFaultRequestId -or
+        $terminal.QaFaultRelation -ne 'AppliedOperation' -or
+        $terminal.QaFaultRepairAttemptId -ne $appliedFault.RepairAttemptId) {
+        throw "$Context terminal lost forced-repair correlation"
+    }
+
+    if (@(
+            ConvertFrom-ReaderGestureLog $Log | Where-Object {
+                $_.Session -eq $ReaderSession -and $_.Outcome -eq 'FailedRecovery'
+            }
+        ).Count -ne 0) {
+        throw "$Context emitted FailedRecovery"
+    }
+
+    $decks = @(
+        ConvertFrom-ReaderDeckLog $Log | Where-Object Session -eq $ReaderSession
+    )
+    $resolutionBoundary = $terminal.Index
+    $resolution = if ($terminal.State -eq 'Completed') {
+        if ($submitted.Count -ne 1 -or
+            $submitted[0].Index -le $appliedFault.Index -or
+            $submitted[0].Index -ge $terminal.Index -or
+            $submitted[0].RasterGeneration -ne $start.RasterGeneration -or
+            $submitted[0].CenterOrdinal -ne $start.CenterOrdinal -or
+            $submitted[0].QaFaultRequestId -cne $RepairFaultRequestId -or
+            $submitted[0].QaFaultRelation -ne 'AppliedOperation' -or
+            $submitted[0].QaFaultRepairAttemptId -ne $appliedFault.RepairAttemptId) {
+            throw "$Context completed repair did not reach valid submission"
+        }
+        $repairDecks = @(
+            $decks | Where-Object RepairAttempt -eq $appliedFault.RepairAttemptId
+        )
+        $repairGenerations = @(
+            $repairDecks | Select-Object -ExpandProperty Generation -Unique
+        )
+        $preparedRepairDecks = @(
+            $repairDecks | Where-Object {
+                $_.Prepared -and
+                    $_.Role -eq 'Active' -and
+                    $_.Active -eq $_.Generation -and
+                    $_.Index -gt $terminal.Index -and
+                    $_.QaFaultRequestId -ceq $RepairFaultRequestId -and
+                    $_.QaFaultRelation -eq 'AppliedOperation' -and
+                    $_.QaFaultRepairAttemptId -eq $appliedFault.RepairAttemptId
+            }
+        )
+        if ($repairGenerations.Count -ne 1 -or
+            $preparedRepairDecks.Count -eq 0 -or
+            @($repairDecks | Where-Object Role -ne 'Active').Count -ne 0) {
+            throw "$Context completed repair did not prepare one active repair deck"
+        }
+        $resolutionBoundary = $preparedRepairDecks[-1].Index
+        'Completed'
+    } else {
+        $gestures = @(
+            ConvertFrom-ReaderGestureLog $Log | Where-Object {
+                $_.Session -eq $ReaderSession -and $_.GestureId -eq $GestureId
+            }
+        )
+        if ($gestures.Count -ne 1) {
+            throw "$Context did not emit exactly one repair-turn terminal"
+        }
+        $gesture = $gestures[0]
+        $expectedDirection = if ($gesture.Outcome -eq 'CommittedForward') {
+            'Next'
+        } else {
+            'Previous'
+        }
+        if ($gesture.Outcome -notin @('CommittedForward', 'CommittedBackward') -or
+            $gesture.Owner -ne 'Curl' -or
+            $gesture.LogicalDirection -ne $expectedDirection -or
+            $gesture.RasterGeneration -ne $start.RasterGeneration -or
+            $gesture.TextureGeneration -ne $TextureGeneration -or
+            $appliedFault.Index -ge $gesture.Index -or
+            $terminal.Index -le $gesture.Index) {
+            throw "$Context repair turn did not supersede the forced repair"
+        }
+
+        $relocations = @(
+            ConvertFrom-ReaderRelocationLog $Log | Where-Object {
+                $_.Session -eq $ReaderSession -and $_.GestureId -eq $GestureId
+            } | Sort-Object Index
+        )
+        $expectedRelocationStates = @(
+            'Queued',
+            'Dispatched',
+            'Acknowledged',
+            'AwaitingVisualHandoff',
+            'Completed'
+        )
+        if ($relocations.Count -ne $expectedRelocationStates.Count) {
+            throw "$Context repair turn did not emit one complete relocation sequence"
+        }
+        for ($index = 0; $index -lt $expectedRelocationStates.Count; $index += 1) {
+            if ($relocations[$index].State -ne $expectedRelocationStates[$index]) {
+                throw "$Context repair turn relocation sequence is invalid"
+            }
+        }
+        $queued = $relocations[0]
+        $relocationTerminal = $relocations[$relocations.Count - 1]
+        foreach ($relocation in $relocations) {
+            if ($relocation.Token -cne $queued.Token -or
+                $relocation.Source -ne $start.CenterOrdinal -or
+                $relocation.Target -eq $start.CenterOrdinal -or
+                ($expectedDirection -eq 'Next' -and
+                    $relocation.Target -le $relocation.Source) -or
+                ($expectedDirection -eq 'Previous' -and
+                    $relocation.Target -ge $relocation.Source) -or
+                $relocation.Target -ne $queued.Target -or
+                $relocation.Direction -ne $expectedDirection -or
+                $relocation.RasterGeneration -ne $start.RasterGeneration -or
+                $relocation.TextureGeneration -ne $TextureGeneration -or
+                $relocation.RejectionReason -ne 'None') {
+                throw "$Context repair turn changed relocation identity"
+            }
+        }
+        if ($queued.Index -ge $gesture.Index -or
+            $gesture.Index -ge $relocations[1].Index) {
+            throw "$Context repair turn did not publish its terminal between queue and dispatch"
+        }
+
+        $normalTextureDecks = @(
+            $decks | Where-Object Generation -eq $TextureGeneration
+        )
+        $preparedNormalDecks = @(
+            $normalTextureDecks | Where-Object {
+                $_.RepairAttempt -eq -1 -and
+                    $_.Role -eq 'Pending' -and
+                    $_.Prepared -and
+                    $_.Active -eq $_.Generation -and
+                    $null -eq $_.Pending -and
+                    $_.Index -gt $appliedFault.Index -and
+                    $_.Index -lt $relocationTerminal.Index
+            }
+        )
+        if ($preparedNormalDecks.Count -eq 0 -or
+            @($normalTextureDecks | Where-Object RepairAttempt -ne -1).Count -ne 0) {
+            throw "$Context did not prepare the promoted normal texture generation"
+        }
+        if ($submitted.Count -ne 0 -or
+            @($decks | Where-Object RepairAttempt -eq $appliedFault.RepairAttemptId).Count -ne 0) {
+            throw "$Context superseded repair entered renderer ownership"
+        }
+        $resolutionBoundary = [Math]::Max(
+            $terminal.Index,
+            $relocationTerminal.Index
+        )
+        'Superseded'
+    }
+
+    $drainedOwnership = @(
+        ConvertFrom-ReaderOwnershipLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.Phase -eq 'steady-state' -and
+                $_.Index -gt $resolutionBoundary -and
+                $_.Staged -eq 0 -and
+                $_.PendingLeases -eq 0 -and
+                $_.ReleaseInFlightLeases -eq 0 -and
+                $_.OrphanLeases -eq 0 -and
+                $_.Callbacks -eq 0 -and
+                $_.RelocationReservations -eq 0 -and
+                $_.QueuedRelocations -eq 0 -and
+                $_.Relocations -eq 0
+        }
+    )
+    if ($drainedOwnership.Count -eq 0) {
+        throw "$Context did not drain repair-turn ownership"
+    }
+    Assert-OwnershipWithinBounds @($drainedOwnership[-1]) $Context
+    [pscustomobject]@{
+        Kind = $resolution
+        RepairAttempt = $appliedFault.RepairAttemptId
+        RasterGeneration = $start.RasterGeneration
+        TextureGeneration = $TextureGeneration
     }
 }
 

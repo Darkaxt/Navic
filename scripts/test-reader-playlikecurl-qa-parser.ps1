@@ -263,6 +263,288 @@ Assert-Throws {
         -Context 'cancelled-only repair fixture'
 } 'cancelled-only repair fixture'
 
+$forcedRepairFault =
+    'reader-qa-fault session=7 requestId=fault-repair ' +
+    'fault=ForceRepairWithoutPreparedDeck seam=repair-role state=Applied ' +
+    'publicationEpoch=-1 persistenceAttemptId=-1 rasterRequestEpoch=-1 ' +
+    'repairAttemptId=30 preparationAttemptId=-1 relocationToken=none ' +
+    'handoffAttemptId=-1 releaseRequestId=none result=fault-applied'
+$forcedRepairStarted =
+    'reader-repair session=7 attempt=30 rasterGeneration=2 centerOrdinal=3 ' +
+    'state=Started reason=None durationMs=0 ' +
+    'qaFaultRequestId=fault-raster qaFaultRelation=Recovery ' +
+    'qaFaultPublicationEpoch=-1 qaFaultPersistenceAttemptId=-1 ' +
+    'qaFaultRasterRequestEpoch=31 qaFaultRepairAttemptId=-1 ' +
+    'qaFaultPreparationAttemptId=-1 qaFaultRelocationToken=none ' +
+    'qaFaultHandoffAttemptId=-1'
+$forcedRepairReady = $forcedRepairStarted.Replace(
+    'state=Started reason=None durationMs=0',
+    'state=Ready reason=None durationMs=4'
+)
+$forcedRepairCancelled =
+    'reader-repair session=7 attempt=30 rasterGeneration=2 centerOrdinal=3 ' +
+    'state=Cancelled reason=None durationMs=9 ' +
+    'qaFaultRequestId=fault-repair qaFaultRelation=AppliedOperation ' +
+    'qaFaultPublicationEpoch=-1 qaFaultPersistenceAttemptId=-1 ' +
+    'qaFaultRasterRequestEpoch=-1 qaFaultRepairAttemptId=30 ' +
+    'qaFaultPreparationAttemptId=-1 qaFaultRelocationToken=none ' +
+    'qaFaultHandoffAttemptId=-1'
+$forcedRepairQueued =
+    'reader-relocation session=7 token=move-repair gestureId=101 source=3 target=4 ' +
+    'logicalDirection=Next rasterGeneration=2 textureGeneration=9 ' +
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0' +
+    $NoQaCorrelationFields
+$forcedRepairDispatched = $forcedRepairQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=5'
+)
+$forcedRepairAcknowledged = $forcedRepairQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=Acknowledged rejectionReason=None queueDepth=1 durationMs=10'
+)
+$forcedRepairAwaitingHandoff = $forcedRepairQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=AwaitingVisualHandoff rejectionReason=None queueDepth=1 durationMs=11'
+)
+$forcedRepairRelocationCompleted = $forcedRepairQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=Completed rejectionReason=None queueDepth=0 durationMs=12'
+)
+$promotedNormalDeck =
+    'reader-deck session=7 generation=9 repairAttempt=-1 role=Pending ' +
+    'prepared=true active=9 pending=null durationMs=8' +
+    $NoQaCorrelationFields
+$drainedRepairOwnership = $success.Replace(
+    'phase=cold-start',
+    'phase=steady-state'
+).Replace(
+    'callbacks=1',
+    'callbacks=0'
+)
+$forcedRepairTurnTail = @(
+    $forcedRepairQueued,
+    $gestureCommit,
+    $forcedRepairDispatched,
+    $promotedNormalDeck,
+    $forcedRepairAcknowledged,
+    $forcedRepairAwaitingHandoff,
+    $forcedRepairRelocationCompleted,
+    $drainedRepairOwnership
+)
+$safelySupersededRepairLog = @(
+    $forcedRepairStarted,
+    $forcedRepairReady,
+    $forcedRepairFault,
+    $forcedRepairTurnTail[0],
+    $forcedRepairTurnTail[1],
+    $forcedRepairTurnTail[2],
+    $forcedRepairCancelled,
+    $forcedRepairTurnTail[3],
+    $forcedRepairTurnTail[4],
+    $forcedRepairTurnTail[5],
+    $forcedRepairTurnTail[6],
+    $forcedRepairTurnTail[7]
+) -join "`n"
+[void](Assert-ForcedRepairAttemptResolution `
+    -Log $safelySupersededRepairLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'safely superseded forced repair fixture')
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace(
+            $forcedRepairCancelled,
+            $forcedRepairCancelled.Replace('state=Cancelled', 'state=Submitted') +
+                "`n" + $forcedRepairCancelled
+        )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'submitted superseded repair fixture'
+} 'submitted superseded repair fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace('prepared=true', 'prepared=false')) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'unprepared promoted repair texture fixture'
+} 'unprepared promoted repair texture fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog + "`n" +
+            $gestureRejectedPreparing.Replace(
+                'gestureId=102 outcome=RejectedPreparing',
+                'gestureId=102 outcome=FailedRecovery'
+            )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'failed recovery terminal fixture'
+} 'failed recovery terminal fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace(
+            'state=Completed rejectionReason=None queueDepth=0 durationMs=12',
+            'state=Rejected rejectionReason=QueueInvalidated queueDepth=0 durationMs=12'
+        )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'rejected supersession relocation fixture'
+} 'rejected supersession relocation fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace('callbacks=0', 'callbacks=1')) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'undrained supersession ownership fixture'
+} 'undrained supersession ownership fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace(
+            'generation=9 repairAttempt=-1',
+            'generation=9 repairAttempt=30'
+        )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'repair pending overwrite fixture'
+} 'repair pending overwrite fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace(
+            'prepared=true active=9 pending=null durationMs=8',
+            'prepared=true active=8 pending=9 durationMs=8'
+        )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'unpromoted normal repair deck fixture'
+} 'unpromoted normal repair deck fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log (($safelySupersededRepairLog.Replace(
+            $forcedRepairCancelled + "`n",
+            ''
+        )) + "`n" + $forcedRepairCancelled) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'ownership sampled before repair cancellation fixture'
+} 'ownership sampled before repair cancellation fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace(
+            'physicalDirection=Left logicalDirection=Next',
+            'physicalDirection=Left logicalDirection=Previous'
+        )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'mismatched committed direction fixture'
+} 'mismatched committed direction fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($safelySupersededRepairLog.Replace('source=3 target=4', 'source=3 target=2')) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'opposite relocation movement fixture'
+} 'opposite relocation movement fixture'
+
+$completedForcedRepairSubmitted = $forcedRepairCancelled.Replace(
+    'state=Cancelled reason=None durationMs=9',
+    'state=Submitted reason=None durationMs=6'
+)
+$completedForcedRepairTerminal = $forcedRepairCancelled.Replace(
+    'state=Cancelled reason=None durationMs=9',
+    'state=Completed reason=None durationMs=8'
+)
+$completedRepairDeckUnprepared = $promotedNormalDeck.Replace(
+    'generation=9 repairAttempt=-1 role=Pending prepared=true active=9',
+    'generation=8 repairAttempt=30 role=Active prepared=false active=8'
+).Replace(
+    $NoQaCorrelationFields,
+    ' qaFaultRequestId=fault-repair qaFaultRelation=AppliedOperation ' +
+        'qaFaultPublicationEpoch=-1 qaFaultPersistenceAttemptId=-1 ' +
+        'qaFaultRasterRequestEpoch=-1 qaFaultRepairAttemptId=30 ' +
+        'qaFaultPreparationAttemptId=-1 qaFaultRelocationToken=none ' +
+        'qaFaultHandoffAttemptId=-1'
+).Replace('durationMs=8', 'durationMs=7')
+$completedRepairDeckPrepared = $completedRepairDeckUnprepared.Replace(
+    'prepared=false',
+    'prepared=true'
+).Replace('durationMs=7', 'durationMs=9')
+$completedForcedRepairLog = @(
+    $forcedRepairStarted,
+    $forcedRepairReady,
+    $forcedRepairFault,
+    $completedForcedRepairSubmitted,
+    $completedRepairDeckUnprepared,
+    $completedForcedRepairTerminal,
+    $completedRepairDeckPrepared,
+    $drainedRepairOwnership
+) -join "`n"
+[void](Assert-ForcedRepairAttemptResolution `
+    -Log $completedForcedRepairLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'completed forced repair fixture')
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($completedForcedRepairLog.Replace(
+            'centerOrdinal=3 state=Submitted reason=None durationMs=6',
+            'centerOrdinal=4 state=Submitted reason=None durationMs=6'
+        )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'changed submitted repair window fixture'
+} 'changed submitted repair window fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log ($completedForcedRepairLog.Replace(
+            'prepared=true active=8 pending=null durationMs=9',
+            'prepared=true active=9 pending=null durationMs=9'
+        )) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'mismatched active repair deck fixture'
+} 'mismatched active repair deck fixture'
+
 $qaFaultApplied =
     'reader-qa-fault session=7 requestId=fault-repair ' +
     'fault=ForceRepairWithoutPreparedDeck seam=repair-role state=Applied ' +
@@ -978,6 +1260,38 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
     if ($candidateTreeText -notmatch
         "'QuiesceReadyBeforeTerminal'\s*\{\s*Start-Sleep -Milliseconds 750") {
         throw "Runner omits bounded ready-state quiescence: $candidateTreeSource"
+    }
+    $forcedRepairFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf(
+            "Add-ReaderQaFault `$repairId 'ForceRepairWithoutPreparedDeck'"
+        ),
+        $candidateTreeText.IndexOf('$requestIds = @(') -
+            $candidateTreeText.IndexOf(
+                "Add-ReaderQaFault `$repairId 'ForceRepairWithoutPreparedDeck'"
+            )
+    )
+    if ($forcedRepairFlow -notmatch
+        "State\s+-in\s+@\('Completed',\s*'Cancelled'\)") {
+        throw "Runner omits the forced-repair supersession terminal: $candidateTreeSource"
+    }
+    if ($forcedRepairFlow -notmatch 'Wait-ReaderQaPreparedTextureGeneration') {
+        throw "Runner omits promoted normal-deck preparation: $candidateTreeSource"
+    }
+    if ($forcedRepairFlow -match 'ReaderDev repair completion') {
+        throw "Runner still requires completion-only repair semantics: $candidateTreeSource"
+    }
+    if ($forcedRepairFlow -match 'Wait-ReaderPreparedDeckOwnership') {
+        throw "Runner accepts a stale prepared deck for forced repair: $candidateTreeSource"
+    }
+    if ($forcedRepairFlow -notmatch
+        'RepairAttempt\s+-eq\s+\$forcedRepairAttemptId') {
+        throw "Runner omits exact completed repair-deck ownership: $candidateTreeSource"
+    }
+    if ($candidateTreeText -notmatch 'Assert-ForcedRepairAttemptResolution') {
+        throw "Runner omits exact forced-repair resolution proof: $candidateTreeSource"
+    }
+    if ($candidateTreeText -match 'Assert-RepairAttemptReachesSubmission') {
+        throw "Runner still accepts an unrelated completed repair: $candidateTreeSource"
     }
 }
 

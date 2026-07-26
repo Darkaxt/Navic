@@ -545,7 +545,9 @@ function Wait-ReaderQaPreparedTextureGeneration(
                 $_.Session -eq $ReaderSession -and
                     $_.Generation -eq $TextureGeneration -and
                     $_.Role -eq 'Pending' -and
-                    $_.Prepared
+                    $_.Prepared -and
+                    $_.Active -eq $_.Generation -and
+                    $null -eq $_.Pending
             }
         }
 }
@@ -1288,6 +1290,7 @@ function Invoke-ReaderQaFaultMatrix(
     $maximumRepairFaultAttempts = 5
     $repairTurn = $null
     $successfulRepairMissId = $null
+    $forcedRepairAttemptId = -1L
     for (
         $repairFaultAttempt = 1;
         $repairFaultAttempt -le $maximumRepairFaultAttempts;
@@ -1327,7 +1330,10 @@ function Invoke-ReaderQaFaultMatrix(
                     }
                 )
                 if ($applied.Count -gt 0) {
-                    return [pscustomobject]@{ Kind = 'ForceApplied' }
+                    return [pscustomobject]@{
+                        Kind = 'ForceApplied'
+                        RepairAttempt = $applied[-1].RepairAttemptId
+                    }
                 }
                 $cancelled = @(
                     ConvertFrom-ReaderRepairLog $log | Where-Object {
@@ -1341,6 +1347,7 @@ function Invoke-ReaderQaFaultMatrix(
             }
         if ($resolution.Match.Kind -eq 'ForceApplied') {
             $successfulRepairMissId = $missId
+            $forcedRepairAttemptId = $resolution.Match.RepairAttempt
             break
         }
         [void](Wait-ReaderQaRelocationTerminal `
@@ -1353,27 +1360,54 @@ function Invoke-ReaderQaFaultMatrix(
             -TextureGeneration $repairTurn.TextureGeneration `
             -Context "ReaderDev superseded repair texture preparation $repairFaultAttempt")
     }
-    if ($null -eq $successfulRepairMissId) {
+    if ($null -eq $successfulRepairMissId -or $forcedRepairAttemptId -lt 0) {
         throw 'ReaderDev forced repair exhausted its bounded attempts'
     }
-    $repairComplete = Wait-ReaderQaCondition `
-        -Context 'ReaderDev repair completion' `
+    $forcedRepairTerminal = Wait-ReaderQaCondition `
+        -Context 'ReaderDev forced repair terminal' `
         -WaitSeconds 60 `
         -Select {
             param($log)
             ConvertFrom-ReaderRepairLog $log | Where-Object {
-                $_.QaFaultRequestId -in @($successfulRepairMissId, $repairId) -and
-                    $_.State -eq 'Completed'
+                $_.Session -eq $ReaderSession -and
+                    $_.Attempt -eq $forcedRepairAttemptId -and
+                    $_.State -in @('Completed', 'Cancelled')
             }
         }
-    [void](Wait-ReaderQaRelocationTerminal `
-        -ReaderSession $ReaderSession `
-        -GestureId $repairTurn.GestureId `
-        -States @('Completed', 'Rejected') `
-        -Context 'ReaderDev forced active repair relocation')
-    [void](Wait-ReaderPreparedDeckOwnership `
-        -ReaderSession $ReaderSession `
-        -Context 'ReaderDev repaired active deck')
+    if ($forcedRepairTerminal.Match.State -eq 'Cancelled') {
+        [void](Wait-ReaderQaRelocationTerminal `
+            -ReaderSession $ReaderSession `
+            -GestureId $repairTurn.GestureId `
+            -States @('Completed') `
+            -Context 'ReaderDev superseding repair relocation')
+        [void](Wait-ReaderQaPreparedTextureGeneration `
+            -ReaderSession $ReaderSession `
+            -TextureGeneration $repairTurn.TextureGeneration `
+            -Context 'ReaderDev superseding repair texture preparation')
+    } else {
+        [void](Wait-ReaderQaRelocationTerminal `
+            -ReaderSession $ReaderSession `
+            -GestureId $repairTurn.GestureId `
+            -States @('Completed', 'Rejected') `
+            -Context 'ReaderDev completed active repair relocation')
+        [void](Wait-ReaderQaCondition `
+            -Context 'ReaderDev completed active repair deck' `
+            -WaitSeconds 60 `
+            -Select {
+                param($log)
+                ConvertFrom-ReaderDeckLog $log | Where-Object {
+                    $_.Session -eq $ReaderSession -and
+                        $_.RepairAttempt -eq $forcedRepairAttemptId -and
+                        $_.Role -eq 'Active' -and
+                        $_.Prepared -and
+                        $_.Active -eq $_.Generation -and
+                        $null -eq $_.Pending -and
+                        $_.QaFaultRequestId -eq $repairId -and
+                        $_.QaFaultRelation -eq 'AppliedOperation' -and
+                        $_.QaFaultRepairAttemptId -eq $forcedRepairAttemptId
+                }
+            })
+    }
     $proofTurn = Invoke-ReaderQaCommittedTurn `
         -SeenGestureIds $seen -ReaderSession $ReaderSession `
         -StartX $nextSwipe.StartX -EndX $nextSwipe.EndX -Y $Y `
@@ -1395,10 +1429,14 @@ function Invoke-ReaderQaFaultMatrix(
         -Log $finalLog `
         -RequestIds $requestIds `
         -Context 'ReaderDev fault matrix correlation')
-    Assert-RepairAttemptReachesSubmission `
+    [void](Assert-ForcedRepairAttemptResolution `
         -Log $finalLog `
         -ReaderSession $ReaderSession `
-        -Context 'ReaderDev fault matrix repair'
+        -RepairFaultRequestId $repairId `
+        -RasterMissRequestId $successfulRepairMissId `
+        -GestureId $repairTurn.GestureId `
+        -TextureGeneration $repairTurn.TextureGeneration `
+        -Context 'ReaderDev fault matrix repair')
     return $finalLog
 }
 
