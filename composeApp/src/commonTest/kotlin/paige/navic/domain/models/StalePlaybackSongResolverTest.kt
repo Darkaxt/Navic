@@ -56,6 +56,21 @@ class StalePlaybackSongResolverTest {
 	}
 
 	@Test
+	fun catalogFailureAfterConfirmedMissingIdBecomesAnUnresolvedDecision() = runBlocking {
+		val failure = IllegalArgumentException("catalog read failed")
+		val resolver = StalePlaybackSongResolver(
+			fetchSongById = {
+				throw SubsonicException("Song not found", SubsonicErrorCode.DATA_NOT_FOUND)
+			},
+			loadCurrentSongs = { throw failure }
+		)
+
+		val resolution = resolver.resolve(song("old"))
+		assertIs<StalePlaybackProbeResolution.Unresolved>(resolution)
+		assertEquals(failure, resolution.error)
+	}
+
+	@Test
 	fun serviceFailureRemainsAnOfflineFallbackDecision() = runBlocking {
 		val failure = IllegalStateException("failed to connect to Navidrome")
 		val resolver = StalePlaybackSongResolver(

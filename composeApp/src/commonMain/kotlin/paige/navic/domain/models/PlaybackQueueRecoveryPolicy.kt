@@ -17,16 +17,15 @@ data class PendingPlaybackRecovery(
 	fun withDownloadLifecycle(lifecycle: PlaybackRecoveryDownloadLifecycle): PendingPlaybackRecovery =
 		copy(downloadLifecycle = lifecycle)
 
-	fun withAcceptedDownloadRequest(intentGeneration: Long): PendingPlaybackRecovery =
+	fun withActiveDownloadRequest(intentGeneration: Long): PendingPlaybackRecovery =
 		copy(
-			downloadLifecycle = PlaybackRecoveryDownloadLifecycle.Accepted,
+			downloadLifecycle = PlaybackRecoveryDownloadLifecycle.Active,
 			downloadIntentGeneration = intentGeneration
 		)
 }
 
 enum class PlaybackRecoveryDownloadLifecycle {
 	Requesting,
-	Accepted,
 	Active,
 	Rejected
 }

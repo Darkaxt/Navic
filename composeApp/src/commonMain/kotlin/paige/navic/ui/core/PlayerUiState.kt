@@ -23,3 +23,12 @@ data class PlayerUiState(
 	val playbackSampleRate: Int? = null,
 	val playbackMimeType: String? = null
 )
+
+fun PlayerUiState.withQueueSongReplacement(index: Int, replacement: DomainSong): PlayerUiState {
+	if (index !in queue.indices) return this
+	val repairedQueue = queue.toMutableList().apply { this[index] = replacement }
+	return copy(
+		queue = repairedQueue,
+		currentSong = if (currentIndex == index) replacement else currentSong
+	)
+}

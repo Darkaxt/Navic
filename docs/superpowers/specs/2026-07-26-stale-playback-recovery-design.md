@@ -157,13 +157,16 @@ Playback recovery uses a dedicated suspend request rather than fire-and-forget
 - `MissingCatalogEntry`
 - `InactiveSession`
 
-`MissingCatalogEntry` and `InactiveSession` are terminal. `Enqueued` and
-`AlreadyActive` establish an accepted lifecycle. `AlreadyDownloaded` resumes
+`MissingCatalogEntry` and `InactiveSession` are terminal. `Enqueued` is
+returned only after the DAO commits `QUEUED`, and `AlreadyActive` is returned
+only after reading `QUEUED` or `DOWNLOADING`; either result therefore records
+the returned generation as active immediately. `AlreadyDownloaded` resumes
 only after `getDownloadedFilePath` verifies a usable file.
 
-The recovery policy tracks whether an accepted request has been observed as
-`QUEUED` or `DOWNLOADING`. A later `NOT_DOWNLOADED`/missing row is terminal,
-covering cancellation and queue-worker rejection without using a deadline.
+The recovery policy tracks the active generation. A later
+`NOT_DOWNLOADED`/missing row is terminal, covering cancellation and
+queue-worker rejection without using a deadline. Older generation snapshots
+are ignored.
 
 ## State Transitions
 

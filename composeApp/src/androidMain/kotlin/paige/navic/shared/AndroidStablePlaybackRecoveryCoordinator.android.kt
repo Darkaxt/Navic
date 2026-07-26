@@ -554,15 +554,13 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			when (result) {
 				is PlaybackDownloadRequestResult.Enqueued,
 				is PlaybackDownloadRequestResult.AlreadyActive -> {
-					pending = activeRecovery.withAcceptedDownloadRequest(
+					pending = activeRecovery.withActiveDownloadRequest(
 						requireNotNull(result.intentGeneration)
 					)
 				}
 
 				is PlaybackDownloadRequestResult.AlreadyDownloaded -> {
-					val accepted = activeRecovery
-						.withAcceptedDownloadRequest(result.intentGeneration)
-						.withDownloadLifecycle(PlaybackRecoveryDownloadLifecycle.Active)
+					val accepted = activeRecovery.withActiveDownloadRequest(result.intentGeneration)
 					pending = accepted
 					val localPath = downloadManager.getDownloadedFilePath(song.id)
 					if (localPath != null) {

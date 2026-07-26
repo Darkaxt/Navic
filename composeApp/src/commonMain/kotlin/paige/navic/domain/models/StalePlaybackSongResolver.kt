@@ -38,10 +38,21 @@ class StalePlaybackSongResolver(
 			}
 		}
 
+		val currentSongs = try {
+			loadCurrentSongs().filterNot { song -> song.id == staleSong.id }
+		} catch (error: Throwable) {
+			if (error is CancellationException) throw error
+			return if (classifyNavidromeFailure(error) == NavidromeFailureDisposition.ServiceUnavailable) {
+				StalePlaybackProbeResolution.ServiceUnavailable(error)
+			} else {
+				StalePlaybackProbeResolution.Unresolved(error)
+			}
+		}
+
 		return when (
 			val resolution = resolveStalePlaybackSong(
 				staleSong = staleSong,
-				currentSongs = loadCurrentSongs().filterNot { song -> song.id == staleSong.id }
+				currentSongs = currentSongs
 			)
 		) {
 			StalePlaybackSongResolution.Current -> StalePlaybackProbeResolution.Missing
