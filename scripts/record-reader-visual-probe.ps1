@@ -46,6 +46,90 @@ function Get-ReaderVisualCaptureBackend([string] $Serial) {
     return 'android-screenrecord'
 }
 
+function Test-DisplaySizeMatchesOrientation {
+    param(
+        [int] $Width,
+        [int] $Height,
+        [string] $ExpectedOrientation
+    )
+
+    if ($ExpectedOrientation -eq 'landscape') {
+        return $Width -gt $Height
+    }
+    return $Width -lt $Height
+}
+
+function Get-EmulatorFrameBufferNormalization {
+    param(
+        [int] $FrameBufferWidth,
+        [int] $FrameBufferHeight,
+        [int] $PhysicalDisplayWidth,
+        [int] $PhysicalDisplayHeight,
+        [int] $DisplayWidth,
+        [int] $DisplayHeight
+    )
+
+    foreach ($dimension in @(
+        $FrameBufferWidth,
+        $FrameBufferHeight,
+        $PhysicalDisplayWidth,
+        $PhysicalDisplayHeight,
+        $DisplayWidth,
+        $DisplayHeight
+    )) {
+        if ($dimension -le 0) {
+            throw 'Framebuffer normalization dimensions must be positive.'
+        }
+    }
+    $upright = $FrameBufferWidth -eq $PhysicalDisplayWidth -and
+        $FrameBufferHeight -eq $PhysicalDisplayHeight
+    $rotatedClockwise = -not $upright -and
+        $FrameBufferWidth -eq $PhysicalDisplayHeight -and
+        $FrameBufferHeight -eq $PhysicalDisplayWidth
+    if (-not $upright -and -not $rotatedClockwise) {
+        throw 'Emulator framebuffer dimensions do not match the physical display in an upright or clockwise-rotated orientation.'
+    }
+    $contentAspect = if ($rotatedClockwise) {
+        $DisplayHeight / [double]$DisplayWidth
+    } else {
+        $DisplayWidth / [double]$DisplayHeight
+    }
+    $widthFromHeight = [int]([Math]::Round(
+        ($FrameBufferHeight * $contentAspect) / 2.0
+    ) * 2)
+    if ($widthFromHeight -le $FrameBufferWidth) {
+        $cropWidth = [Math]::Max(2, $widthFromHeight)
+        $cropHeight = $FrameBufferHeight - ($FrameBufferHeight % 2)
+        $cropX = [int]([Math]::Floor(
+            (($FrameBufferWidth - $cropWidth) / 2.0) / 2.0
+        ) * 2)
+        $cropY = 0
+    } else {
+        $cropWidth = $FrameBufferWidth - ($FrameBufferWidth % 2)
+        $cropHeight = [int]([Math]::Round(
+            ($FrameBufferWidth / $contentAspect) / 2.0
+        ) * 2)
+        $cropHeight = [Math]::Min($cropHeight, $FrameBufferHeight)
+        $cropY = [int]([Math]::Floor(
+            (($FrameBufferHeight - $cropHeight) / 2.0) / 2.0
+        ) * 2)
+        $cropX = 0
+    }
+    $filter = "crop=$($cropWidth):$($cropHeight):$($cropX):$($cropY)"
+    if ($rotatedClockwise) {
+        $filter += ',transpose=clock'
+    }
+    return [pscustomobject]@{
+        CropX = $cropX
+        CropY = $cropY
+        CropWidth = $cropWidth
+        CropHeight = $cropHeight
+        OutputWidth = if ($rotatedClockwise) { $cropHeight } else { $cropWidth }
+        OutputHeight = if ($rotatedClockwise) { $cropWidth } else { $cropHeight }
+        Filter = $filter
+    }
+}
+
 function Invoke-AdbText {
     param([string[]] $Arguments, [string] $Description)
 
@@ -54,6 +138,29 @@ function Invoke-AdbText {
         throw "$Description failed (exit=$LASTEXITCODE)."
     }
     return ($output | Out-String).Trim()
+}
+
+function Assert-DeterministicEmulatorViewport([object] $Display) {
+    if ((Get-ReaderVisualCaptureBackend $DeviceSerial) -ne
+        'emulator-framebuffer') {
+        return
+    }
+    $accelerometerRotation = Invoke-AdbText @(
+        'shell', 'settings', 'get', 'system', 'accelerometer_rotation'
+    ) 'Emulator auto-rotation query'
+    $userRotation = Invoke-AdbText @(
+        'shell', 'settings', 'get', 'system', 'user_rotation'
+    ) 'Emulator user-rotation query'
+    if ($accelerometerRotation -ne '0' -or $userRotation -ne '0') {
+        throw 'Emulator visual QA requires accelerometer_rotation=0 and user_rotation=0. Apply set-reader-dev-viewport.ps1 before recording.'
+    }
+    $orientationMatches = Test-DisplaySizeMatchesOrientation `
+        -Width $Display.Width `
+        -Height $Display.Height `
+        -ExpectedOrientation $Orientation
+    if (-not $orientationMatches) {
+        throw "Emulator wm override does not match requested $Orientation orientation."
+    }
 }
 
 function Wait-ReaderDevVisualReady([string] $ReaderPid) {
@@ -165,16 +272,31 @@ function Stop-EmulatorFrameBufferRecording {
 function Convert-EmulatorFrameBufferRecording {
     param(
         [string] $SourcePath,
-        [string] $TargetPath
+        [string] $TargetPath,
+        [int] $DisplayWidth,
+        [int] $DisplayHeight
     )
 
     if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf) -or
         (Get-Item -LiteralPath $SourcePath).Length -eq 0) {
         throw 'Emulator framebuffer recording is missing or empty.'
     }
+    $sourceMetadata = Get-VideoMetadata $SourcePath
+    $physicalSizeText = Invoke-AdbText @(
+        'shell', 'wm', 'size'
+    ) 'Physical display-size query'
+    $physicalDisplay = ConvertFrom-AndroidRawPhysicalDisplaySize $physicalSizeText
+    $normalization = Get-EmulatorFrameBufferNormalization `
+        -FrameBufferWidth $sourceMetadata.Width `
+        -FrameBufferHeight $sourceMetadata.Height `
+        -PhysicalDisplayWidth $physicalDisplay.Width `
+        -PhysicalDisplayHeight $physicalDisplay.Height `
+        -DisplayWidth $DisplayWidth `
+        -DisplayHeight $DisplayHeight
     $temporaryPath = "$TargetPath.$([guid]::NewGuid().ToString('N')).tmp.mp4"
     try {
         & ffmpeg -y -v error -i $SourcePath -map '0:v:0' -an `
+            -vf $normalization.Filter `
             -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p `
             -movflags '+faststart' $temporaryPath
         if ($LASTEXITCODE -ne 0 -or
@@ -243,12 +365,14 @@ function Initialize-ReaderDevComposition {
 function Get-ReaderVisualMarkerTimestamp {
     param(
         [string] $Log,
-        [string] $Token
+        [string] $Token,
+        [string] $MarkerName = 'probe-start'
     )
 
     $escapedToken = [regex]::Escape($Token)
+    $escapedMarkerName = [regex]::Escape($MarkerName)
     $pattern = '^\s*(?<timestamp>\d+(?:\.\d+)?)\s+\d+\s+\d+\s+[A-Z]\s+' +
-        "NavicReaderVisualQa:\s+probe-start:$escapedToken$"
+        "NavicReaderVisualQa:\s+$escapedMarkerName`:$escapedToken$"
     $timestamps = @(
         foreach ($line in @($Log -split '\r?\n')) {
             $match = [regex]::Match($line, $pattern)
@@ -282,6 +406,38 @@ function Write-ReaderVisualLogMarker {
         Start-Sleep -Milliseconds 50
     } while ([DateTime]::UtcNow -lt $deadline)
     throw 'Reader visual log marker did not become observable.'
+}
+
+function Get-ReaderActionDeviceTimings([object[]] $PendingActions) {
+    $pending = @($PendingActions)
+    if ($pending.Count -eq 0) { return @() }
+    $log = Invoke-AdbText @(
+        'logcat', '-d', '-v', 'monotonic',
+        'NavicReaderVisualQa:I',
+        '*:S'
+    ) 'Reader visual action-marker query'
+    return @(
+        foreach ($action in $pending) {
+            $start = Get-ReaderVisualMarkerTimestamp `
+                -Log $log `
+                -Token $action.MarkerToken `
+                -MarkerName 'action-start'
+            $finish = Get-ReaderVisualMarkerTimestamp `
+                -Log $log `
+                -Token $action.MarkerToken `
+                -MarkerName 'action-finish'
+            if ($null -eq $start -or $null -eq $finish) {
+                throw "Gesture $($action.Event.Name) device timing markers are incomplete."
+            }
+            if ($finish -lt $start) {
+                throw "Gesture $($action.Event.Name) device timing markers are reversed."
+            }
+            [pscustomobject]@{
+                StartSeconds = [double]$start
+                FinishSeconds = [double]$finish
+            }
+        }
+    )
 }
 
 function ConvertFrom-ReaderGestureTerminalLog {
@@ -434,6 +590,9 @@ function Get-DeviceKey([string] $Serial) {
 
 function Get-LogicalDisplaySize {
     if ($DisplayWidth -gt 0 -and $DisplayHeight -gt 0) {
+        if (-not $PlanOnly) {
+            throw 'DisplayWidth and DisplayHeight may only be supplied with PlanOnly.'
+        }
         return [pscustomobject]@{ Width = $DisplayWidth; Height = $DisplayHeight }
     }
     if (($DisplayWidth -gt 0) -xor ($DisplayHeight -gt 0)) {
@@ -449,12 +608,34 @@ function Get-LogicalDisplaySize {
     if ($null -eq $selected) { $selected = $matches[$matches.Count - 1] }
     $width = [int]$selected.Groups[1].Value
     $height = [int]$selected.Groups[2].Value
-    if ($Orientation -eq 'landscape' -and $width -lt $height) {
+    $isEmulator = (Get-ReaderVisualCaptureBackend $DeviceSerial) -eq
+        'emulator-framebuffer'
+    if ($isEmulator) {
+        $orientationMatches = Test-DisplaySizeMatchesOrientation `
+            -Width $width `
+            -Height $height `
+            -ExpectedOrientation $Orientation
+        if (-not $orientationMatches) {
+            throw "Emulator wm override does not match requested $Orientation orientation."
+        }
+    } elseif ($Orientation -eq 'landscape' -and $width -lt $height) {
         $width, $height = $height, $width
     } elseif ($Orientation -eq 'portrait' -and $width -gt $height) {
         $width, $height = $height, $width
     }
     return [pscustomobject]@{ Width = $width; Height = $height }
+}
+
+function ConvertFrom-AndroidRawPhysicalDisplaySize([string] $SizeText) {
+    $matches = [regex]::Matches($SizeText, 'Physical size:\s*(\d+)x(\d+)')
+    if ($matches.Count -eq 0) {
+        throw 'Unable to parse the Android physical display size.'
+    }
+    $selected = $matches[$matches.Count - 1]
+    return [pscustomobject]@{
+        Width = [int]$selected.Groups[1].Value
+        Height = [int]$selected.Groups[2].Value
+    }
 }
 
 function ConvertFrom-AndroidPhysicalDisplaySize {
@@ -464,13 +645,9 @@ function ConvertFrom-AndroidPhysicalDisplaySize {
         [string] $OrientationName
     )
 
-    $matches = [regex]::Matches($SizeText, 'Physical size:\s*(\d+)x(\d+)')
-    if ($matches.Count -eq 0) {
-        throw 'Unable to parse the Android physical display size.'
-    }
-    $selected = $matches[$matches.Count - 1]
-    $width = [int]$selected.Groups[1].Value
-    $height = [int]$selected.Groups[2].Value
+    $physicalDisplay = ConvertFrom-AndroidRawPhysicalDisplaySize $SizeText
+    $width = $physicalDisplay.Width
+    $height = $physicalDisplay.Height
     if ($OrientationName -eq 'landscape' -and $width -lt $height) {
         $width, $height = $height, $width
     } elseif ($OrientationName -eq 'portrait' -and $width -gt $height) {
@@ -603,6 +780,85 @@ function Wait-UntilElapsed {
     }
 }
 
+function Assert-ReaderActionCadence {
+    param(
+        [object] $Plan,
+        [object[]] $Events,
+        [object[]] $DeviceTimings
+    )
+
+    $allowedStartLagMs = 350
+    $actions = @($Plan.Actions)
+    $observedEvents = @($Events)
+    $observedDeviceTimings = @($DeviceTimings)
+    if ($observedEvents.Count -ne $actions.Count -or
+        $observedDeviceTimings.Count -ne $actions.Count) {
+        throw 'Visual probe action cadence does not cover every planned action.'
+    }
+    $maximumHostStartLagMs = 0L
+    $maximumDeviceCommandStartDriftMs = 0L
+    $overlappingCommandCount = 0
+    $firstScheduledAtMs = if ($actions.Count -gt 0) {
+        [long]$actions[0].AtMs
+    } else {
+        0L
+    }
+    $firstDeviceStartSeconds = if ($actions.Count -gt 0) {
+        [double]$observedDeviceTimings[0].StartSeconds
+    } else {
+        0.0
+    }
+    for ($index = 0; $index -lt $actions.Count; $index += 1) {
+        $action = $actions[$index]
+        $event = $observedEvents[$index]
+        $timing = $observedDeviceTimings[$index]
+        if ($event.Name -ne $action.Name -or
+            [long]$event.ScheduledAtMs -ne [long]$action.AtMs) {
+            throw 'Visual probe action cadence does not match the planned sequence.'
+        }
+        $hostStartLagMs = [long]$event.StartedAtMs - [long]$action.AtMs
+        if ($hostStartLagMs -lt 0) {
+            throw 'Visual probe action started before its scheduled cadence.'
+        }
+        $maximumHostStartLagMs = [Math]::Max(
+            $maximumHostStartLagMs,
+            $hostStartLagMs
+        )
+        $scheduledOffsetMs = [long]$action.AtMs - $firstScheduledAtMs
+        $deviceOffsetMs = [long][Math]::Round(
+            ([double]$timing.StartSeconds - $firstDeviceStartSeconds) * 1000.0
+        )
+        $deviceStartDriftMs = [Math]::Abs(
+            $deviceOffsetMs - $scheduledOffsetMs
+        )
+        $maximumDeviceCommandStartDriftMs = [Math]::Max(
+            $maximumDeviceCommandStartDriftMs,
+            $deviceStartDriftMs
+        )
+        if ([double]$timing.FinishSeconds -lt [double]$timing.StartSeconds) {
+            throw 'Visual probe action device timing is reversed.'
+        }
+        if ($index + 1 -lt $actions.Count -and
+            [double]$timing.FinishSeconds -gt
+                [double]$observedDeviceTimings[$index + 1].StartSeconds) {
+            $overlappingCommandCount += 1
+        }
+    }
+    if ($maximumHostStartLagMs -gt $allowedStartLagMs) {
+        throw "Visual probe host action cadence drifted by $maximumHostStartLagMs ms; allowed maximum is $allowedStartLagMs ms."
+    }
+    if ($maximumDeviceCommandStartDriftMs -gt $allowedStartLagMs) {
+        throw "Visual probe device command cadence drifted by $maximumDeviceCommandStartDriftMs ms; allowed maximum is $allowedStartLagMs ms."
+    }
+    return [pscustomobject]@{
+        Matched = $true
+        AllowedStartLagMs = $allowedStartLagMs
+        MaximumHostStartLagMs = $maximumHostStartLagMs
+        MaximumDeviceCommandStartDriftMs = $maximumDeviceCommandStartDriftMs
+        OverlappingCommandCount = $overlappingCommandCount
+    }
+}
+
 function Wait-RecordingReady {
     param(
         [Diagnostics.Process] $Recording,
@@ -677,18 +933,83 @@ function Get-VideoMetadata([string] $Path) {
     }
 }
 
-function Invoke-ProbeAction {
-    param([object] $Action)
+function Start-ReaderProbeAction {
+    param(
+        [object] $Action,
+        [Diagnostics.Stopwatch] $Stopwatch
+    )
 
     if ($Action.Kind -ne 'swipe') {
         throw "Unsupported visual probe action: $($Action.Kind)"
     }
-    Invoke-AdbText @(
-        'shell', 'input', 'swipe',
-        $Action.StartX, $Action.StartY,
-        $Action.EndX, $Action.EndY,
-        $Action.DurationMs
-    ) "Gesture $($Action.Name)" | Out-Null
+    $token = [guid]::NewGuid().ToString('N')
+    $remoteCommand =
+        "log -p i -t NavicReaderVisualQa action-start:$token; " +
+        "input swipe $($Action.StartX) $($Action.StartY) " +
+        "$($Action.EndX) $($Action.EndY) $($Action.DurationMs); " +
+        "result=`$?; log -p i -t NavicReaderVisualQa action-finish:$token; " +
+        'exit $result'
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'adb'
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    foreach ($argument in @(
+        '-s', $DeviceSerial,
+        'shell', $remoteCommand
+    )) {
+        [void]$startInfo.ArgumentList.Add("$argument")
+    }
+    $process = [Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) {
+        throw "Gesture $($Action.Name) process did not start."
+    }
+    $event = [pscustomobject]@{
+        Name = $Action.Name
+        Kind = $Action.Kind
+        ScheduledAtMs = $Action.AtMs
+        StartedAtMs = $Stopwatch.ElapsedMilliseconds
+        FinishedAtMs = $null
+    }
+    return [pscustomobject]@{
+        Process = $process
+        Event = $event
+        MarkerToken = $token
+    }
+}
+
+function Complete-ReaderProbeActions {
+    param([object[]] $PendingActions)
+
+    $deadline = [DateTime]::UtcNow.AddMilliseconds(500)
+    foreach ($pending in @($PendingActions)) {
+        $process = $pending.Process
+        if (-not $process.HasExited) {
+            $remainingMs = [Math]::Max(
+                0,
+                [int][Math]::Ceiling(
+                    ($deadline - [DateTime]::UtcNow).TotalMilliseconds
+                )
+            )
+            if ($remainingMs -gt 0) {
+                [void]$process.WaitForExit($remainingMs)
+            }
+        }
+        if (-not $process.HasExited) {
+            $process.Kill($true)
+            throw "Gesture $($pending.Event.Name) did not complete within the bounded capture cadence."
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "Gesture $($pending.Event.Name) failed (exit=$($process.ExitCode))."
+        }
+        $durationMs = [Math]::Max(
+            0,
+            [long][Math]::Round(
+                ($process.ExitTime - $process.StartTime).TotalMilliseconds
+            )
+        )
+        $pending.Event.FinishedAtMs =
+            [long]$pending.Event.StartedAtMs + $durationMs
+    }
 }
 
 $display = Get-LogicalDisplaySize
@@ -707,6 +1028,7 @@ foreach ($command in @('adb', 'python', 'ffmpeg', 'ffprobe')) {
         throw "Required visual QA command is unavailable: $command"
     }
 }
+Assert-DeterministicEmulatorViewport $display
 $readerDevPid = Invoke-AdbText @('shell', 'pidof', $ReaderDevPackage) 'ReaderDev PID query'
 if ($readerDevPid -notmatch '^\d+(?:\s+\d+)*$') {
     throw 'ReaderDev is not running on the selected device.'
@@ -753,6 +1075,8 @@ $events = @()
 $videoMetadata = $null
 $captureElapsedMs = $null
 $gestureSemantics = $null
+$actionCadence = $null
+$pendingActions = @()
 try {
     if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
         Start-EmulatorFrameBufferRecording `
@@ -775,24 +1099,23 @@ try {
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     foreach ($action in $plan.Actions) {
         Wait-UntilElapsed $stopwatch $action.AtMs
-        $startedMs = $stopwatch.ElapsedMilliseconds
-        Invoke-ProbeAction $action
-        $events += [pscustomobject]@{
-            Name = $action.Name
-            Kind = $action.Kind
-            ScheduledAtMs = $action.AtMs
-            StartedAtMs = $startedMs
-            FinishedAtMs = $stopwatch.ElapsedMilliseconds
-        }
+        $pending = Start-ReaderProbeAction `
+            -Action $action `
+            -Stopwatch $stopwatch
+        $pendingActions += $pending
+        $events += $pending.Event
     }
     Wait-UntilElapsed $stopwatch $plan.DurationMs
+    Complete-ReaderProbeActions -PendingActions $pendingActions
     $captureElapsedMs = $stopwatch.ElapsedMilliseconds
     if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
         Stop-EmulatorFrameBufferRecording
         $emulatorRecordingStarted = $false
         Convert-EmulatorFrameBufferRecording `
             -SourcePath $emulatorSourcePath `
-            -TargetPath $videoPath
+            -TargetPath $videoPath `
+            -DisplayWidth $plan.DisplayWidth `
+            -DisplayHeight $plan.DisplayHeight
     } else {
         & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
         $recordingStopped = $true
@@ -814,22 +1137,48 @@ try {
         throw 'Visual QA gesture recording contains no visible frame transition.'
     }
 } finally {
-    if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
-        if ($emulatorRecordingStarted) {
-            Stop-EmulatorFrameBufferRecording
-            $emulatorRecordingStarted = $false
-        }
-        Remove-LocalReaderArtifact $emulatorSourcePath 'Emulator source recording'
-    } else {
-        if ($null -ne $recording -and -not $recording.HasExited) {
-            if (-not $recordingStopped) {
-                & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
+    try {
+        foreach ($pending in @($pendingActions)) {
+            $process = $pending.Process
+            try {
+                if (-not $process.HasExited) {
+                    try {
+                        $process.Kill($true)
+                    } catch [InvalidOperationException] {
+                        if (-not $process.HasExited) { throw }
+                    }
+                    if (-not $process.HasExited -and
+                        -not $process.WaitForExit(1000)) {
+                        throw "Gesture $($pending.Event.Name) process cleanup did not terminate."
+                    }
+                }
+            } finally {
+                $process.Dispose()
             }
-            if (-not $recording.WaitForExit(5000)) { $recording.Kill() }
         }
-        Remove-RemoteReaderArtifact $remotePath 'Remote recording'
+    } finally {
+        if ($plan.CaptureBackend -eq 'emulator-framebuffer') {
+            if ($emulatorRecordingStarted) {
+                Stop-EmulatorFrameBufferRecording
+                $emulatorRecordingStarted = $false
+            }
+            Remove-LocalReaderArtifact $emulatorSourcePath 'Emulator source recording'
+        } else {
+            if ($null -ne $recording -and -not $recording.HasExited) {
+                if (-not $recordingStopped) {
+                    & adb -s $DeviceSerial shell pkill -2 screenrecord 2>$null | Out-Null
+                }
+                if (-not $recording.WaitForExit(5000)) { $recording.Kill() }
+            }
+            Remove-RemoteReaderArtifact $remotePath 'Remote recording'
+        }
     }
 }
+$deviceActionTimings = @(Get-ReaderActionDeviceTimings $pendingActions)
+$actionCadence = Assert-ReaderActionCadence `
+    -Plan $plan `
+    -Events $events `
+    -DeviceTimings $deviceActionTimings
 $gestureSemantics = Assert-ReaderGestureSemantics `
     -ReaderPid $readerDevMainPid `
     -ProbeStartedAtMonotonicSeconds $probeStartedAtMonotonicSeconds `
@@ -869,6 +1218,7 @@ $manifest = [pscustomobject]@{
         RemoteArtifactRetained = $false
         ReaderInputInjected = $false
     }
+    ActionCadence = $actionCadence
     GestureSemantics = $gestureSemantics
     DurationMs = $plan.DurationMs
     CaptureElapsedMs = $captureElapsedMs

@@ -4,6 +4,21 @@ $PSNativeCommandUseErrorActionPreference = $false
 $recorder = Join-Path $PSScriptRoot 'record-reader-visual-probe.ps1'
 $analyzer = Join-Path $PSScriptRoot 'reader-visual-qa.py'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+function Assert-FrameBufferNormalization {
+    param(
+        [object] $Actual,
+        [hashtable] $Expected,
+        [string] $FailureMessage
+    )
+
+    foreach ($propertyName in $Expected.Keys) {
+        if ($Actual.$propertyName -ne $Expected[$propertyName]) {
+            throw $FailureMessage
+        }
+    }
+}
+
 $testRoot = Join-Path $repositoryRoot '.codex-validation/reader-visual-plan-tests'
 if (Test-Path -LiteralPath $testRoot) {
     Remove-Item -LiteralPath $testRoot -Recurse -Force
@@ -42,6 +57,16 @@ try {
             $plan.RecordingHeight -ne 576 -or
             @($plan.Actions).Count -ne $expectedActions[$scenario]) {
             throw "Plan-only recorder emitted the wrong contract for $scenario"
+        }
+        if ($scenario -eq 'rapid-turns') {
+            $rapidActions = @($plan.Actions)
+            $rapidIntervals = @(1..($rapidActions.Count - 1) | ForEach-Object {
+                $rapidActions[$_].AtMs - $rapidActions[$_ - 1].AtMs
+            })
+            if (@($rapidIntervals | Where-Object { $_ -ne 700 }).Count -gt 0 -or
+                $plan.DurationMs -ne 6460) {
+                throw 'Rapid-turn probe does not preserve the bounded injected-attempt cadence'
+            }
         }
         if ($scenario -eq 'snap-back') {
             $snapAction = @($plan.Actions)[0]
@@ -128,9 +153,20 @@ try {
         'Assert-EmulatorConsoleResponse',
         'Invoke-EmulatorConsoleText',
         'ConvertFrom-AndroidPhysicalDisplaySize',
+        'Get-EmulatorFrameBufferNormalization',
+        'Assert-DeterministicEmulatorViewport',
+        'accelerometer_rotation=0 and user_rotation=0',
         'Start-EmulatorFrameBufferRecording',
         'Stop-EmulatorFrameBufferRecording',
         'Convert-EmulatorFrameBufferRecording',
+        'Assert-ReaderActionCadence',
+        'Start-ReaderProbeAction',
+        'Complete-ReaderProbeActions',
+        'Get-ReaderActionDeviceTimings',
+        'action-start:',
+        'action-finish:',
+        'DisplayWidth and DisplayHeight may only be supplied with PlanOnly',
+        'ActionCadence',
         'Remove-LocalReaderArtifact',
         'discarded-screenrecord',
         'HostArtifactPersisted',
@@ -283,11 +319,150 @@ try {
             $frameBufferSize.Height -ne 1080) {
             throw 'Emulator framebuffer dimensions did not use the physical display'
         }
+        $landscapeNormalization = Get-EmulatorFrameBufferNormalization `
+            -FrameBufferWidth 2400 `
+            -FrameBufferHeight 1080 `
+            -PhysicalDisplayWidth 1080 `
+            -PhysicalDisplayHeight 2400 `
+            -DisplayWidth 2960 `
+            -DisplayHeight 1848
+        Assert-FrameBufferNormalization `
+            -Actual $landscapeNormalization `
+            -FailureMessage 'Landscape framebuffer normalization does not recover the upright guest viewport' `
+            -Expected @{
+                CropX = 862
+                CropY = 0
+                CropWidth = 674
+                CropHeight = 1080
+                OutputWidth = 1080
+                OutputHeight = 674
+                Filter = 'crop=674:1080:862:0,transpose=clock'
+            }
+        $portraitNormalization = Get-EmulatorFrameBufferNormalization `
+            -FrameBufferWidth 2400 `
+            -FrameBufferHeight 1080 `
+            -PhysicalDisplayWidth 1080 `
+            -PhysicalDisplayHeight 2400 `
+            -DisplayWidth 1848 `
+            -DisplayHeight 2960
+        Assert-FrameBufferNormalization `
+            -Actual $portraitNormalization `
+            -FailureMessage 'Portrait framebuffer normalization does not recover the upright guest viewport' `
+            -Expected @{
+                CropX = 334
+                CropY = 0
+                CropWidth = 1730
+                CropHeight = 1080
+                OutputWidth = 1080
+                OutputHeight = 1730
+            }
+        $uprightLandscapeNormalization = Get-EmulatorFrameBufferNormalization `
+            -FrameBufferWidth 2400 `
+            -FrameBufferHeight 1080 `
+            -PhysicalDisplayWidth 2400 `
+            -PhysicalDisplayHeight 1080 `
+            -DisplayWidth 2960 `
+            -DisplayHeight 1848
+        Assert-FrameBufferNormalization `
+            -Actual $uprightLandscapeNormalization `
+            -FailureMessage 'Upright landscape framebuffer normalization rotates valid content' `
+            -Expected @{
+                CropX = 334
+                CropY = 0
+                CropWidth = 1730
+                CropHeight = 1080
+                OutputWidth = 1730
+                OutputHeight = 1080
+                Filter = 'crop=1730:1080:334:0'
+            }
+        $uprightPortraitNormalization = Get-EmulatorFrameBufferNormalization `
+            -FrameBufferWidth 1080 `
+            -FrameBufferHeight 2400 `
+            -PhysicalDisplayWidth 1080 `
+            -PhysicalDisplayHeight 2400 `
+            -DisplayWidth 1848 `
+            -DisplayHeight 2960
+        Assert-FrameBufferNormalization `
+            -Actual $uprightPortraitNormalization `
+            -FailureMessage 'Upright portrait framebuffer normalization rotates valid content' `
+            -Expected @{
+                CropX = 0
+                CropY = 334
+                CropWidth = 1080
+                CropHeight = 1730
+                OutputWidth = 1080
+                OutputHeight = 1730
+                Filter = 'crop=1080:1730:0:334'
+            }
+        $cadencePlan = [pscustomobject]@{
+            Actions = @(
+                [pscustomobject]@{ Name = 'one'; AtMs = 1700 },
+                [pscustomobject]@{ Name = 'two'; AtMs = 2400 },
+                [pscustomobject]@{ Name = 'three'; AtMs = 3100 },
+                [pscustomobject]@{ Name = 'four'; AtMs = 3800 }
+            )
+        }
+        $boundedEvents = @(
+            [pscustomobject]@{ Name = 'one'; ScheduledAtMs = 1700; StartedAtMs = 1710 },
+            [pscustomobject]@{ Name = 'two'; ScheduledAtMs = 2400; StartedAtMs = 2450 },
+            [pscustomobject]@{ Name = 'three'; ScheduledAtMs = 3100; StartedAtMs = 3399 },
+            [pscustomobject]@{ Name = 'four'; ScheduledAtMs = 3800; StartedAtMs = 3800 }
+        )
+        $boundedDeviceTimings = @(
+            [pscustomobject]@{ StartSeconds = 100.0; FinishSeconds = 100.2 },
+            [pscustomobject]@{ StartSeconds = 100.7; FinishSeconds = 100.9 },
+            [pscustomobject]@{ StartSeconds = 101.4; FinishSeconds = 101.6 },
+            [pscustomobject]@{ StartSeconds = 102.1; FinishSeconds = 102.3 }
+        )
+        $cadence = Assert-ReaderActionCadence `
+            -Plan $cadencePlan `
+            -Events $boundedEvents `
+            -DeviceTimings $boundedDeviceTimings
+        if (-not $cadence.Matched -or
+            $cadence.MaximumHostStartLagMs -ne 299 -or
+            $cadence.MaximumDeviceCommandStartDriftMs -ne 0 -or
+            $cadence.OverlappingCommandCount -ne 0 -or
+            $cadence.AllowedStartLagMs -ne 350) {
+            throw 'Visual recorder rejected a bounded rapid-turn cadence'
+        }
+        $driftRejected = $false
+        try {
+            $driftedDeviceTimings = @($boundedDeviceTimings)
+            $driftedDeviceTimings[2] = [pscustomobject]@{
+                StartSeconds = 101.751
+                FinishSeconds = 101.9
+            }
+            Assert-ReaderActionCadence `
+                -Plan $cadencePlan `
+                -Events $boundedEvents `
+                -DeviceTimings $driftedDeviceTimings | Out-Null
+        } catch {
+            $driftRejected = $true
+        }
+        if (-not $driftRejected) {
+            throw 'Visual recorder accepted excessive device-observed action schedule drift'
+        }
+        $overlappingDeviceTimings = @($boundedDeviceTimings)
+        $overlappingDeviceTimings[0] = [pscustomobject]@{
+            StartSeconds = 100.0
+            FinishSeconds = 100.8
+        }
+        $overlapEvidence = Assert-ReaderActionCadence `
+            -Plan $cadencePlan `
+            -Events $boundedEvents `
+            -DeviceTimings $overlappingDeviceTimings
+        if (-not $overlapEvidence.Matched -or
+            $overlapEvidence.OverlappingCommandCount -ne 1) {
+            throw 'Visual recorder did not disclose overlapping device input commands'
+        }
         Write-Output 'terminal-parser-pass'
     })
     if ($parserContract.Count -ne 1 -or
         $parserContract[0] -ne 'terminal-parser-pass') {
         throw 'Gesture-terminal parser contract did not execute completely'
+    }
+    if ($source.Contains('Invoke-ProbeAction')) {
+        throw 'Visual recorder serializes adb input commands and can drift off the planned cadence'
     }
     if ($source.Contains('minimumDurationSeconds')) {
         throw 'Visual recorder treats variable-frame-rate duration as wall-clock coverage'

@@ -798,9 +798,18 @@ class ReaderDevEnvironmentContractTest {
 			"The viewport script must simulate the user's Fold7 and Tab S9 Ultra reader dimensions."
 		)
 		assertTrue(
-			viewportScriptText.contains("LockRotation = \$false") &&
+			viewportScriptText.contains(
+				"\"settings\", \"put\", \"system\", \"accelerometer_rotation\", \"0\""
+			) &&
+				viewportScriptText.contains(
+					"\"settings\", \"put\", \"system\", \"user_rotation\", \"0\""
+				) &&
+				!viewportScriptText.contains("LockRotation") &&
+				Regex(
+					""""accelerometer_rotation",\s*"1""""
+				).findAll(viewportScriptText).count() == 1 &&
 				!Regex("""Rotation\s*=\s*"1"""").containsMatchIn(viewportScriptText),
-			"Viewport profiles must simulate tablet/foldable dimensions through wm size/density, not by forcing Android rotation over an already-landscape override."
+			"Simulated reader viewports must disable sensor rotation and retain user rotation zero so already-oriented wm overrides stay deterministic for framebuffer recording. Only reset may restore auto-rotation."
 		)
 	}
 
