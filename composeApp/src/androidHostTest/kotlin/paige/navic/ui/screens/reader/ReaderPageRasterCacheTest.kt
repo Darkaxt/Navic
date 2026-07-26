@@ -306,7 +306,7 @@ class ReaderPageRasterCacheTest {
 
 	@Test
 	fun obsoleteSchemaManifestAndRastersArePrunedOnCacheOpen() {
-		assertTrue(ReaderPageRasterSchemaVersion > 1)
+		assertTrue(ReaderPageRasterSchemaVersion > 2)
 		val fixture = fixture(maxDecodedEntries = 0)
 		val rasterKey = key()
 		assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes("obsolete")))

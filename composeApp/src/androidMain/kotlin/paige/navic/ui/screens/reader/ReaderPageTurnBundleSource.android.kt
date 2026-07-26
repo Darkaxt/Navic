@@ -1609,6 +1609,8 @@ internal class ReaderPageTurnBundleSource(
 					-(sourceRectInWindow.top - location[1]).toFloat()
 				)
 				webView.draw(canvas)
+				bitmap.setHasAlpha(false)
+				bitmap.setPremultiplied(true)
 				onCaptured(bitmap)
 			}
 		}

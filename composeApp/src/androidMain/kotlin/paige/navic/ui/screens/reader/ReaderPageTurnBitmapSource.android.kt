@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
@@ -157,6 +156,7 @@ internal class ReaderPageTurnBitmapSource(
 				onCaptured(null)
 				return
 			}
+			bitmap.eraseColor(readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb))
 			try {
 				PixelCopy.request(
 					window,
@@ -173,12 +173,20 @@ internal class ReaderPageTurnBitmapSource(
 							result == PixelCopy.SUCCESS &&
 							foreground?.renderable == false &&
 							webView.isAttachedToWindow &&
-							drawWebViewIntoBitmap(webView, location, sourceRect, bitmap)
+							drawWebViewIntoBitmap(
+								webView,
+								location,
+								sourceRect,
+								bitmap,
+								readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb)
+							)
 						) {
 							captureMethod = "webview-draw"
 							foreground = bitmap.analyzeRenderableForeground()
 						}
 						if (result == PixelCopy.SUCCESS && foreground?.renderable == true) {
+							bitmap.setHasAlpha(false)
+							bitmap.setPremultiplied(true)
 							val elapsedMs = SystemClock.uptimeMillis() - startedAt
 							Logger.i(
 								ReaderPageTurnBitmapSourceTag,
@@ -258,9 +266,10 @@ private fun drawWebViewIntoBitmap(
 	webView: WebView,
 	webViewLocationInWindow: IntArray,
 	sourceRectInWindow: Rect,
-	bitmap: Bitmap
+	bitmap: Bitmap,
+	backgroundColorArgb: Int
 ): Boolean = runCatching {
-	bitmap.eraseColor(Color.TRANSPARENT)
+	bitmap.eraseColor(backgroundColorArgb)
 	val canvas = Canvas(bitmap)
 	val checkpoint = canvas.save()
 	canvas.scale(

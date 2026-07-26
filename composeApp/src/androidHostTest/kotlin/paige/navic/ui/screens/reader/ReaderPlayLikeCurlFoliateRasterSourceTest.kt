@@ -344,15 +344,20 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	}
 
 	@Test
-	fun foliateRasterCopyOwnsAnIndependentOpaqueBitmap() {
+	fun foliateRasterCopyUsesANativeOpaqueCropAndFlattensOnlyAlphaSources() {
 		val source = sourceFile(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPlayLikeCurlFoliateRasterSource.android.kt"
 		).readText()
 
-		assertTrue(source.contains("Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)"))
-		assertTrue(source.contains("Canvas(target).drawBitmap("))
-		assertTrue(source.contains("target.eraseColor(paperColorArgb)"))
+		assertTrue(source.contains("if (snapshot.bitmap.hasAlpha())"))
+		assertTrue(source.contains("readerPlayLikeCurlFlattenLeafOverPaper("))
+		assertTrue(source.contains("val cropped = Bitmap.createBitmap("))
+		assertTrue(source.contains("if (cropped === source || cropped.config != Bitmap.Config.ARGB_8888)"))
+		assertTrue(source.contains("source.getPixels("))
+		assertTrue(source.contains("target.setPixels("))
+		assertTrue(source.contains("target.setHasAlpha(false)"))
+		assertTrue(!source.contains("Paint.FILTER_BITMAP_FLAG"))
 		assertTrue(source.contains("val layout = readerPlayLikeCurlRasterLayout("))
 		assertTrue(source.contains("layout = layout"))
 		assertTrue(source.contains("leaf = leaf"))

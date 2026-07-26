@@ -1,9 +1,6 @@
 package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Rect
 import android.webkit.WebView
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -263,8 +260,71 @@ internal fun readerPlayLikeCurlFoliateLeafRect(
 	ReaderPlayLikeCurlFoliateLeaf.Right -> geometry.rightLeafRect
 }
 
+private fun readerPlayLikeCurlCopyOpaqueLeaf(
+	source: Bitmap,
+	sourceRect: ReaderPageTurnPixelRect
+): Bitmap {
+	val cropped = Bitmap.createBitmap(
+		source,
+		sourceRect.left,
+		sourceRect.top,
+		sourceRect.width,
+		sourceRect.height
+	)
+	val target = if (cropped === source || cropped.config != Bitmap.Config.ARGB_8888) {
+		try {
+			checkNotNull(cropped.copy(Bitmap.Config.ARGB_8888, false))
+		} finally {
+			if (cropped !== source) cropped.recycle()
+		}
+	} else {
+		cropped
+	}
+	target.setHasAlpha(false)
+	target.setPremultiplied(true)
+	return target
+}
+
+private fun readerPlayLikeCurlFlattenLeafOverPaper(
+	source: Bitmap,
+	sourceRect: ReaderPageTurnPixelRect,
+	paperColorArgb: Int
+): Bitmap {
+	val width = sourceRect.width
+	val height = sourceRect.height
+	val pixels = IntArray(width * height)
+	source.getPixels(
+		pixels,
+		0,
+		width,
+		sourceRect.left,
+		sourceRect.top,
+		width,
+		height
+	)
+	val paperRed = paperColorArgb ushr 16 and 0xff
+	val paperGreen = paperColorArgb ushr 8 and 0xff
+	val paperBlue = paperColorArgb and 0xff
+	pixels.indices.forEach { index ->
+		val color = pixels[index]
+		val alpha = color ushr 24
+		if (alpha < 0xff) {
+			val inverseAlpha = 0xff - alpha
+			val red = ((color ushr 16 and 0xff) * alpha + paperRed * inverseAlpha + 127) / 255
+			val green = ((color ushr 8 and 0xff) * alpha + paperGreen * inverseAlpha + 127) / 255
+			val blue = ((color and 0xff) * alpha + paperBlue * inverseAlpha + 127) / 255
+			pixels[index] = -0x1000000 or (red shl 16) or (green shl 8) or blue
+		}
+	}
+	return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { target ->
+		target.setPixels(pixels, 0, width, 0, 0, width, height)
+		target.setHasAlpha(false)
+		target.setPremultiplied(true)
+	}
+}
+
 /**
- * Converts one retained Foliate snapshot into a PlayLikeCurl-owned immutable page bitmap.
+ * Converts one retained Foliate snapshot into a PlayLikeCurl-owned independent page bitmap.
  * The retained snapshot is always released before this function returns.
  */
 internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
@@ -294,18 +354,12 @@ internal fun readerPlayLikeCurlCopyRetainedFoliateLeaf(
 	) ?: return null
 	if (layout.displayRect(leaf) == null) return null
 
-	val targetWidth = sourceRect.width
-	val targetHeight = sourceRect.height
 	val paperColorArgb = snapshot.reverseFaceColor
-	val target = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-	target.eraseColor(paperColorArgb)
-	Canvas(target).drawBitmap(
-		snapshot.bitmap,
-		Rect(sourceRect.left, sourceRect.top, sourceRect.right, sourceRect.bottom),
-		Rect(0, 0, targetWidth, targetHeight),
-		Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-	)
-	target.setHasAlpha(false)
+	val target = if (snapshot.bitmap.hasAlpha()) {
+		readerPlayLikeCurlFlattenLeafOverPaper(snapshot.bitmap, sourceRect, paperColorArgb)
+	} else {
+		readerPlayLikeCurlCopyOpaqueLeaf(snapshot.bitmap, sourceRect)
+	}
 	ReaderPlayLikeCurlRasterImage(
 		bitmap = target,
 		paperColorArgb = paperColorArgb,

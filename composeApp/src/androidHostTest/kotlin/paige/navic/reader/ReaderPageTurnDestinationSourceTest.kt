@@ -666,6 +666,21 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun compositedCapturePublishesOpaquePreparedRasters() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source
+			.substringAfter("private fun captureCompositedSurface(")
+			.substringBefore("fun invalidatePage(")
+
+		assertContains(capture, "canvas.drawColor(backgroundColor)")
+		assertContains(capture, "webView.draw(canvas)")
+		assertContains(capture, "bitmap.setHasAlpha(false)")
+		assertContains(capture, "bitmap.setPremultiplied(true)")
+		assertTrue(capture.indexOf("webView.draw(canvas)") < capture.indexOf("bitmap.setHasAlpha(false)"))
+		assertTrue(capture.indexOf("bitmap.setPremultiplied(true)") < capture.indexOf("onCaptured(bitmap)"))
+	}
+
+	@Test
 	fun persistentRasterHydrationCopiesDecodedBitmapAndRebindsLiveSurface() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val hydration = source
