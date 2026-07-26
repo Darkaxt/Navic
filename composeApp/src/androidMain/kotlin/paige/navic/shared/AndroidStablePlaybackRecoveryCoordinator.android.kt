@@ -4,6 +4,9 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.session.MediaController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import paige.navic.data.database.entities.DownloadEntity
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.NavidromeAvailabilityManager
@@ -13,27 +16,36 @@ import paige.navic.domain.models.NavidromeFailureDisposition
 import paige.navic.domain.models.OfflinePlaybackFallbackResolution
 import paige.navic.domain.models.PendingPlaybackRecovery
 import paige.navic.domain.models.PlaybackRecoveryResolution
+import paige.navic.domain.models.StalePlaybackProbeResolution
 import paige.navic.domain.models.classifyNavidromeFailure
 import paige.navic.domain.models.firstPlayableUpcomingIndex
+import paige.navic.domain.models.playbackFailureTargetIndex
 import paige.navic.domain.models.playbackRecoveryResolution
 import paige.navic.domain.models.resolveOfflinePlaybackFallback
+import paige.navic.domain.models.shouldProbeStalePlaybackSong
 import paige.navic.ui.core.PlayerUiState
 import java.io.File
 
 internal class AndroidStablePlaybackRecoveryCoordinator(
+	private val scope: CoroutineScope,
 	private val downloadManager: DownloadManager,
 	private val navidromeAvailabilityManager: NavidromeAvailabilityManager,
 	private val diagnostics: AndroidPlaybackDiagnosticsLogger,
 	private val isAvailable: (String) -> Boolean,
 	private val skipMediaOnError: () -> Boolean,
+	private val staleSongResolver: suspend (DomainSong) -> StalePlaybackProbeResolution,
+	private val onQueueSongReplaced: (Int, DomainSong) -> Unit,
 	private val mediaItemForSong: (DomainSong) -> MediaItem,
 	private val claimMusicPlayback: () -> Unit,
 	private val notifyPlaybackError: (PlaybackException) -> Unit,
 	private val notifyFailedDownload: () -> Unit,
+	private val notifySongNotFound: () -> Unit,
 	private val markRecoveryPending: () -> Unit,
 	private val clearRecoveryUi: () -> Unit
 ) {
 	private var refreshedRemoteSourceKey: RemoteSourceRefreshKey? = null
+	private var staleSongProbeKey: RemoteSourceRefreshKey? = null
+	private var staleSongProbeJob: Job? = null
 	private var pending: PendingPlaybackRecovery? = null
 	private var pendingError: PlaybackException? = null
 	private var pendingServiceOutage = false
@@ -188,6 +200,7 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		val currentIndex = player.currentMediaItemIndex
 		val currentSongId = player.currentMediaItem?.mediaId
 		if (pending?.let { it.songId == currentSongId && it.queueIndex == currentIndex } == true) return
+		if (beginStaleSongProbe(player, state, error)) return
 		if (refreshCurrentRemoteMediaItem(player, state)) return
 
 		val song = state.queue.getOrNull(currentIndex) ?: state.currentSong
@@ -205,6 +218,149 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 			reason = error.errorCodeName,
 			error = error
 		)
+	}
+
+	private fun beginStaleSongProbe(
+		player: MediaController,
+		state: PlayerUiState,
+		error: PlaybackException
+	): Boolean {
+		val currentItem = player.currentMediaItem ?: return false
+		if (
+			!shouldProbeStalePlaybackSong(
+				errorCodeName = error.errorCodeName,
+				usesLocalFile = currentItem.localConfiguration?.uri?.scheme == "file"
+			)
+		) {
+			return false
+		}
+		val currentIndex = player.currentMediaItemIndex
+		val key = RemoteSourceRefreshKey(currentItem.mediaId, currentIndex)
+		if (staleSongProbeKey == key) return false
+		val song = state.queue.getOrNull(currentIndex)
+			?: state.currentSong?.takeIf { it.id == currentItem.mediaId }
+			?: return false
+		val recovery = pendingRecovery(player, state, song, currentIndex, error.errorCodeName)
+
+		staleSongProbeKey = key
+		pending = recovery
+		pendingError = error
+		pendingServiceOutage = false
+		markRecoveryPending()
+		diagnostics.onRecoveryPending(song, recovery.positionMs, recovery.shouldResume)
+		staleSongProbeJob?.cancel()
+		staleSongProbeJob = scope.launch {
+			val resolution = staleSongResolver(song)
+			val activeRecovery = pending?.takeIf { pendingRecovery ->
+				pendingRecovery.songId == recovery.songId &&
+					pendingRecovery.queueIndex == recovery.queueIndex
+			}
+			if (
+				activeRecovery == null ||
+				player.currentMediaItem?.mediaId != recovery.songId ||
+				player.currentMediaItemIndex != recovery.queueIndex
+			) {
+				clear("stale-song-probe-result-obsolete")
+				return@launch
+			}
+
+			when (resolution) {
+				StalePlaybackProbeResolution.Current,
+				is StalePlaybackProbeResolution.Unresolved ->
+					continueAfterStaleSongProbe(player, state, song, activeRecovery, error)
+
+				is StalePlaybackProbeResolution.Replacement -> {
+					onQueueSongReplaced(currentIndex, resolution.song)
+					player.replaceMediaItem(currentIndex, mediaItemForSong(resolution.song))
+					player.seekTo(currentIndex, activeRecovery.positionMs)
+					diagnostics.onPlaybackRetry(
+						songId = resolution.song.id,
+						title = resolution.song.title,
+						index = currentIndex,
+						positionMs = activeRecovery.positionMs,
+						shouldResume = activeRecovery.shouldResume,
+						source = "stale-id-${resolution.strength.name.lowercase()}"
+					)
+					player.prepare()
+					if (activeRecovery.shouldResume) {
+						claimMusicPlayback()
+						player.play()
+					}
+					clear("stale-song-replaced")
+				}
+
+				StalePlaybackProbeResolution.Missing,
+				StalePlaybackProbeResolution.Ambiguous ->
+					finishConfirmedMissingSong(player, state, activeRecovery, resolution)
+
+				is StalePlaybackProbeResolution.ServiceUnavailable -> {
+					navidromeAvailabilityManager.reportUnavailable(
+						NavidromeOutageTrigger.Playback,
+						resolution.error
+					)
+					handleServiceUnavailable(
+						player = player,
+						state = state,
+						reason = "stale-song-probe-service-unavailable"
+					)
+				}
+			}
+		}
+		return true
+	}
+
+	private fun continueAfterStaleSongProbe(
+		player: MediaController,
+		state: PlayerUiState,
+		song: DomainSong,
+		recovery: PendingPlaybackRecovery,
+		error: PlaybackException
+	) {
+		pending = null
+		pendingError = null
+		staleSongProbeJob = null
+		clearRecoveryUi()
+		if (refreshCurrentRemoteMediaItem(player, state)) return
+		beginDownloadRecovery(
+			player = player,
+			state = state,
+			song = song,
+			currentIndex = recovery.queueIndex,
+			reason = error.errorCodeName,
+			error = error
+		)
+	}
+
+	private fun finishConfirmedMissingSong(
+		player: MediaController,
+		state: PlayerUiState,
+		recovery: PendingPlaybackRecovery,
+		resolution: StalePlaybackProbeResolution
+	) {
+		val targetIndex = playbackFailureTargetIndex(
+			skipMediaOnError = skipMediaOnError() && recovery.shouldResume,
+			nextPlayableIndex = nextPlayableIndex(state, recovery.queueIndex, recovery.songId)
+		)
+		diagnostics.onPlaybackRecoveryDecision(
+			event = if (targetIndex == null) "stale-song-terminal-held" else "stale-song-terminal-advanced",
+			song = state.queue.getOrNull(recovery.queueIndex),
+			currentIndex = recovery.queueIndex,
+			targetIndex = targetIndex,
+			reason = resolution::class.simpleName ?: "stale-song-missing",
+			deferredCount = 0,
+			fallbackAvailable = targetIndex != null
+		)
+		notifySongNotFound()
+		if (targetIndex == null) {
+			player.pause()
+			clear("stale-song-terminal-hold")
+			return
+		}
+		player.seekTo(targetIndex, 0L)
+		player.prepare()
+		claimMusicPlayback()
+		player.play()
+		clear("stale-song-terminal-skip")
 	}
 
 	fun handleDownloadSnapshot(
@@ -284,6 +440,9 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 	fun clear(reason: String = "cleared") {
 		val songId = pending?.songId
 		refreshedRemoteSourceKey = null
+		staleSongProbeKey = null
+		staleSongProbeJob?.cancel()
+		staleSongProbeJob = null
 		pending = null
 		pendingError = null
 		pendingServiceOutage = false
@@ -465,7 +624,8 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		return firstPlayableUpcomingIndex(
 			currentIndex = currentIndex,
 			queueSongIds = state.queue.map { it.id },
-			availableSongIds = availableSongIds
+			availableSongIds = availableSongIds,
+			upcomingIndexes = state.upcomingIndexes
 		)
 	}
 }

@@ -16,6 +16,10 @@ internal class AndroidPlaybackErrorNotifier(
 		snackBarManager.notify(Res.string.notice_failed_download)
 	}
 
+	fun notifySongNotFound() {
+		snackBarManager.notify(Res.string.notice_song_not_found)
+	}
+
 	fun notify(error: PlaybackException) {
 		val notice = playbackErrorNotice(
 			errorCodeName = error.errorCodeName,

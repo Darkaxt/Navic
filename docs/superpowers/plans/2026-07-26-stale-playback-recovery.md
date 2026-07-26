@@ -49,20 +49,20 @@ Files:
 
 Tasks:
 
-- [ ] Probe the old ID with authenticated `getSong` only for eligible remote
+- [x] Probe the old ID with authenticated `getSong` only for eligible remote
   parser/container failures.
-- [ ] Classify `DATA_NOT_FOUND`, service unavailable, current, and unresolved.
-- [ ] Resolve a confirmed stale song against current catalog data.
-- [ ] Validate current song/index before applying async results.
-- [ ] Replace the logical queue and Media3 item in place.
-- [ ] Preserve position and user playback intent.
-- [ ] Notify and hold/advance once when no unique replacement exists.
+- [x] Classify `DATA_NOT_FOUND`, service unavailable, current, and unresolved.
+- [x] Resolve a confirmed stale song against current catalog data.
+- [x] Validate current song/index before applying async results.
+- [x] Replace the logical queue and Media3 item in place.
+- [x] Preserve position and user playback intent.
+- [x] Notify and hold/advance once when no unique replacement exists.
 
 Gate:
 
-- [ ] Android source/contract tests fail before wiring.
-- [ ] Android source/contract tests pass after wiring.
-- [ ] Android debug Kotlin compilation passes.
+- [x] Android source/contract tests fail before wiring.
+- [x] Android source/contract tests pass after wiring.
+- [x] Android debug Kotlin compilation passes.
 
 ## Stage 3: Terminal Download Recovery
 

@@ -61,6 +61,7 @@ import paige.navic.domain.models.shouldHandlePlaybackErrorVisibly
 import paige.navic.domain.models.shouldReplaceQueuedMediaItemForDownloadAvailability
 import paige.navic.domain.models.shouldRestartCurrentOnPrevious
 import paige.navic.domain.models.SongRadioQueueDefaultSize
+import paige.navic.domain.models.StalePlaybackSongResolver
 import paige.navic.domain.models.settings.OfflineMode
 import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
@@ -135,19 +136,42 @@ class AndroidMediaPlayerViewModel(
 		playbackArtworkForSong = playbackArtworkResolver::resolve,
 		streamUriForSongId = ::getStreamUrl
 	)
+	private val staleSongResolver = StalePlaybackSongResolver(
+		fetchSongById = { songId ->
+			sessionManager.withApi { api -> api.getSong(songId) }.let { }
+		},
+		loadCurrentSongs = playbackQueueInteractor::librarySongs
+	)
 	private val playbackRecovery = AndroidStablePlaybackRecoveryCoordinator(
+		scope = viewModelScope,
 		downloadManager = downloadManager,
 		navidromeAvailabilityManager = navidromeAvailabilityManager,
 		diagnostics = playbackDiagnostics,
 		isAvailable = ::isAvailable,
 		skipMediaOnError = { preferenceManager.skipMediaOnError },
+		staleSongResolver = staleSongResolver::resolve,
+		onQueueSongReplaced = ::replaceQueuedSong,
 		mediaItemForSong = mediaItemFactory::toMediaItem,
 		claimMusicPlayback = ::claimMusicPlayback,
 		notifyPlaybackError = playbackErrorNotifier::notify,
 		notifyFailedDownload = playbackErrorNotifier::notifyFailedDownload,
+		notifySongNotFound = playbackErrorNotifier::notifySongNotFound,
 		markRecoveryPending = ::markPlaybackRecoveryPending,
 		clearRecoveryUi = ::clearPlaybackRecoveryUi
 	)
+
+	private fun replaceQueuedSong(index: Int, replacement: DomainSong) {
+		_uiState.update { state ->
+			if (index !in state.queue.indices) return@update state
+			val queue = state.queue.toMutableList()
+			queue[index] = replacement
+			state.copy(
+				queue = queue,
+				currentSong = if (state.currentIndex == index) replacement else state.currentSong
+			)
+		}
+	}
+
 	private val downloadedMediaRecovery: AndroidDownloadedMediaRecovery =
 		DefaultAndroidDownloadedMediaRecovery(
 			downloadManager = downloadManager,

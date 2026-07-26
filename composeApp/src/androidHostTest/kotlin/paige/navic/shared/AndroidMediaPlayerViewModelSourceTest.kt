@@ -187,6 +187,24 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
+	fun parserFailuresResolveStaleIdsAndRepairTheLogicalQueueInPlace() {
+		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+
+		assertContains(viewModelText, "private val staleSongResolver = StalePlaybackSongResolver(")
+		assertContains(viewModelText, "staleSongResolver = staleSongResolver::resolve")
+		assertContains(viewModelText, "onQueueSongReplaced = ::replaceQueuedSong")
+		assertContains(viewModelText, "private fun replaceQueuedSong(index: Int, replacement: DomainSong)")
+		assertContains(viewModelText, "queue[index] = replacement")
+		assertContains(recoveryText, "shouldProbeStalePlaybackSong(")
+		assertContains(recoveryText, "StalePlaybackProbeResolution.Replacement")
+		assertContains(recoveryText, "staleSongResolver(song)")
+		assertContains(recoveryText, "val activeRecovery = pending?.takeIf")
+		assertContains(recoveryText, "onQueueSongReplaced(currentIndex, resolution.song)")
+		assertContains(recoveryText, "upcomingIndexes = state.upcomingIndexes")
+	}
+
+	@Test
 	fun bufferingDoesNotOverwriteUserPlaybackIntent() {
 		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 
