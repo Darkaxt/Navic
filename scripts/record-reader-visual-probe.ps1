@@ -38,6 +38,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 $ReaderDevPackage = 'darkaxt.navic.readerdev'
 $RecordingStartupTimeoutSeconds = 10
+$GesturePostRollMilliseconds = 4000
 
 function Get-ReaderVisualCaptureBackend([string] $Serial) {
     if ($Serial -match '^emulator-\d+$') {
@@ -761,7 +762,7 @@ function New-ReaderVisualProbePlan {
     } elseif ($null -eq $lastActionEnd) {
         5000
     } else {
-        [int]$lastActionEnd + 2500
+        [int]$lastActionEnd + $GesturePostRollMilliseconds
     }
     if ($durationMs + $RecordingStartupTimeoutSeconds * 1000 -ge
         $TimeLimitSeconds * 1000) {

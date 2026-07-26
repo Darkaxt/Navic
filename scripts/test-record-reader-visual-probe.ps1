@@ -64,8 +64,16 @@ try {
                 $rapidActions[$_].AtMs - $rapidActions[$_ - 1].AtMs
             })
             if (@($rapidIntervals | Where-Object { $_ -ne 1000 }).Count -gt 0 -or
-                $plan.DurationMs -ne 7360) {
+                $plan.DurationMs -ne 8860) {
                 throw 'Rapid-turn probe does not preserve the bounded injected-attempt cadence'
+            }
+        }
+        if ($scenario -ne 'idle') {
+            $lastActionEnd = @($plan.Actions | ForEach-Object {
+                $_.AtMs + $_.DurationMs
+            } | Measure-Object -Maximum).Maximum
+            if ($plan.DurationMs - $lastActionEnd -lt 4000) {
+                throw 'Gesture probe does not reserve a full settlement and handoff tail'
             }
         }
         if ($scenario -eq 'snap-back') {
