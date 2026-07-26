@@ -27,17 +27,17 @@ Files:
 
 Tasks:
 
-- [ ] Add a parser-error eligibility policy.
-- [ ] Add tiered unique identity matching for MusicBrainz ID, ISRC, and exact
+- [x] Add a parser-error eligibility policy.
+- [x] Add tiered unique identity matching for MusicBrainz ID, ISRC, and exact
   metadata signature.
-- [ ] Add accepted/active/rejected download lifecycle state.
-- [ ] Make failed, rejected, and vanished accepted requests terminal.
-- [ ] Select terminal targets from Media3 `upcomingIndexes`.
+- [x] Add accepted/active/rejected download lifecycle state.
+- [x] Make failed, rejected, and vanished accepted requests terminal.
+- [x] Select terminal targets from Media3 `upcomingIndexes`.
 
 Gate:
 
-- [ ] New tests fail before production code.
-- [ ] Focused common tests pass after production code.
+- [x] New tests fail before production code.
+- [x] Focused common tests pass after production code.
 
 ## Stage 2: Authenticated Stale-ID Resolution
 

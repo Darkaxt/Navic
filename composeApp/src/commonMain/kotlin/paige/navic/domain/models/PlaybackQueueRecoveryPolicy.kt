@@ -7,10 +7,21 @@ data class PendingPlaybackRecovery(
 	val queueIndex: Int,
 	val positionMs: Long,
 	val shouldResume: Boolean,
-	val reason: String
+	val reason: String,
+	val downloadLifecycle: PlaybackRecoveryDownloadLifecycle = PlaybackRecoveryDownloadLifecycle.Requesting
 ) {
 	fun withPlaybackIntent(playWhenReady: Boolean): PendingPlaybackRecovery =
 		copy(shouldResume = playWhenReady)
+
+	fun withDownloadLifecycle(lifecycle: PlaybackRecoveryDownloadLifecycle): PendingPlaybackRecovery =
+		copy(downloadLifecycle = lifecycle)
+}
+
+enum class PlaybackRecoveryDownloadLifecycle {
+	Requesting,
+	Accepted,
+	Active,
+	Rejected
 }
 
 sealed interface PlaybackRecoveryResolution {
@@ -24,14 +35,13 @@ sealed interface PlaybackRecoveryResolution {
 fun firstPlayableUpcomingIndex(
 	currentIndex: Int,
 	queueSongIds: List<String>,
-	availableSongIds: Set<String>
+	availableSongIds: Set<String>,
+	upcomingIndexes: List<Int> = (currentIndex + 1 until queueSongIds.size).toList()
 ): Int? =
-	queueSongIds
+	upcomingIndexes
 		.asSequence()
-		.drop(currentIndex + 1)
-		.withIndex()
-		.firstOrNull { (_, songId) -> songId in availableSongIds }
-		?.let { (offset, _) -> currentIndex + 1 + offset }
+		.filter { index -> index != currentIndex && index in queueSongIds.indices }
+		.firstOrNull { index -> queueSongIds[index] in availableSongIds }
 
 fun playbackFailureTargetIndex(
 	skipMediaOnError: Boolean,
@@ -59,7 +69,15 @@ fun playbackRecoveryResolution(
 	if (downloadStatus == DownloadStatus.DOWNLOADED && hasUsableLocalFile) {
 		return PlaybackRecoveryResolution.ResumeCurrent
 	}
-	if (downloadStatus != DownloadStatus.FAILED) {
+	val isTerminalFailure =
+		pending.downloadLifecycle == PlaybackRecoveryDownloadLifecycle.Rejected ||
+			downloadStatus == DownloadStatus.FAILED ||
+			(downloadStatus == DownloadStatus.DOWNLOADED && !hasUsableLocalFile) ||
+			(
+				pending.downloadLifecycle == PlaybackRecoveryDownloadLifecycle.Active &&
+					downloadStatus in setOf(null, DownloadStatus.NOT_DOWNLOADED)
+			)
+	if (!isTerminalFailure) {
 		return PlaybackRecoveryResolution.Wait
 	}
 
