@@ -802,6 +802,18 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(fence, "activeGestureId == prefetch.gestureId")
 		assertContains(fence, "currentOrdinal == prefetch.sourceOrdinal")
 		assertContains(fence, "currentOrdinal == prefetch.targetOrdinal")
+		val uncommittedFence = fence
+			.substringAfter("return if (!prefetch.committed) {")
+			.substringBefore("} else {")
+		val committedFence = fence.substringAfter("} else {")
+		assertContains(
+			uncommittedFence,
+			"requestGeneration == prefetch.expectedRequestGeneration"
+		)
+		assertFalse(
+			committedFence.contains("requestGeneration == prefetch.expectedRequestGeneration"),
+			"A committed destination prefetch must survive benign plan refresh generations."
+		)
 		assertContains(fence, "committedTurnVersion ==")
 		assertContains(fence, "Math.incrementExact(prefetch.expectedCommittedTurnVersion)")
 	}

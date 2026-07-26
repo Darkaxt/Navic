@@ -2349,13 +2349,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			!enabled ||
 			currentFoliateSessionId != prefetch.foliateSessionId ||
 			requestedProfile != prefetch.profile ||
-			bundleSource.currentGeneration() != prefetch.profile.rasterGeneration ||
-			requestGeneration != prefetch.expectedRequestGeneration
+			bundleSource.currentGeneration() != prefetch.profile.rasterGeneration
 		) {
 			return false
 		}
 		return if (!prefetch.committed) {
-			activeGestureId == prefetch.gestureId &&
+			requestGeneration == prefetch.expectedRequestGeneration &&
+				activeGestureId == prefetch.gestureId &&
 				currentOrdinal == prefetch.sourceOrdinal &&
 				committedTurnVersion == prefetch.expectedCommittedTurnVersion &&
 				protectedWindowVersion == prefetch.sourceProtectedWindowVersion &&
