@@ -3,10 +3,12 @@ package paige.navic.ui.screens.reader
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import paige.navic.reader.ReaderPageBitmapQuality
 import kotlin.test.AfterTest
@@ -72,6 +74,99 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	}
 
 	@Test
+	fun cancellingPreparationCancelsItsRasterLoadsAndReturnsWorkerCapacity() = runBlocking {
+		val started = CompletableDeferred<Unit>()
+		val cancelled = CompletableDeferred<Unit>()
+		val loader = ReaderPlayLikeCurlRasterLoader<String> { key ->
+			if (key.pageIndex == 0) {
+				started.complete(Unit)
+				try {
+					CompletableDeferred<Unit>().await()
+					"unused"
+				} finally {
+					cancelled.complete(Unit)
+				}
+			} else {
+				"replacement-page-${key.pageIndex}"
+			}
+		}
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = 1,
+			release = {}
+		)
+		val preparation = adapter.prepare(profile("cancelled"), listOf(0))
+		started.await()
+
+		preparation.cancel()
+
+		withTimeout(1_000L) { cancelled.await() }
+		withTimeout(1_000L) {
+			while (adapter.metrics().activePreparationWorkers != 0) delay(10L)
+		}
+		val replacement = checkNotNull(
+			adapter.prepare(profile("cancelled"), listOf(1)).await()
+		)
+		assertEquals("replacement-page-1", replacement.value(1))
+		replacement.close()
+		adapter.closeAndJoin()
+	}
+
+	@Test
+	fun cancelledSoleWaiterCannotPublishAValueReturnedAfterCancellation() = runBlocking {
+		val started = CompletableDeferred<Unit>()
+		val releaseLoad = CompletableDeferred<Unit>()
+		val released = CompletableDeferred<String>()
+		val profile = profile("late-cancelled")
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = ReaderPlayLikeCurlRasterLoader { key ->
+				started.complete(Unit)
+				withContext(NonCancellable) {
+					releaseLoad.await()
+					"late-cancelled-page-${key.pageIndex}"
+				}
+			},
+			rendererDeckLeaseLimit = 1,
+			release = released::complete
+		)
+		val preparation = adapter.prepare(profile, listOf(0))
+		started.await()
+
+		preparation.cancel()
+		releaseLoad.complete(Unit)
+
+		assertEquals("late-cancelled-page-0", withTimeout(1_000L) { released.await() })
+		assertEquals(false, adapter.hasDecoded(profile, 0))
+		adapter.closeAndJoin()
+	}
+
+	@Test
+	fun cancellingOnePreparationDoesNotCancelASecondPreparation() = runBlocking {
+		val gate = CompletableDeferred<Unit>()
+		val loader = FakeRasterLoader(gateProfile = "shared-cancellation", gate = gate)
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = {}
+		)
+		val profile = profile("shared-cancellation")
+		val cancelled = adapter.prepare(profile, listOf(0))
+		loader.firstStarted.await()
+		val survivor = adapter.prepare(profile, listOf(0))
+		cancelled.cancel()
+
+		gate.complete(Unit)
+		val deck = checkNotNull(survivor.await())
+
+		assertEquals("shared-cancellation-page-0", deck.value(0))
+		deck.close()
+		adapter.closeAndJoin()
+	}
+
+	@Test
 	fun unavailableConcurrentLoadCancelsEarlierWaiterPromptly() = runBlocking {
 		val firstStarted = CompletableDeferred<Unit>()
 		val firstFinished = CompletableDeferred<Unit>()
@@ -99,15 +194,13 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 		firstStarted.await()
 
 		withTimeout(1_000L) { assertNull(preparation.await()) }
-		withTimeout(1_000L) {
-			while (adapter.metrics().activeMaterializationWorkers != 1) delay(10L)
-		}
-		assertEquals(1, adapter.metrics().activeMaterializationWorkers)
-
-		adapter.close()
-		firstGate.complete(Unit)
-		adapter.closeAndJoin()
 		withTimeout(1_000L) { firstFinished.await() }
+		withTimeout(1_000L) {
+			while (adapter.metrics().activeMaterializationWorkers != 0) delay(10L)
+		}
+		assertEquals(0, adapter.metrics().activeMaterializationWorkers)
+
+		adapter.closeAndJoin()
 		assertEquals(0, adapter.metrics().activePreparationWorkers)
 		assertEquals(0, adapter.metrics().activeMaterializationWorkers)
 	}

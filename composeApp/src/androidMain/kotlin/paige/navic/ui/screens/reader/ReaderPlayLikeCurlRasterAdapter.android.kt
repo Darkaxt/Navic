@@ -258,6 +258,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		val result: CompletableDeferred<CacheEntry<T>?>
 	) {
 		lateinit var worker: Job
+		val preparationWaiters = mutableSetOf<Job>()
 	}
 
 	private enum class CapacityKind {
@@ -302,6 +303,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 	)
 	private val inFlight = mutableMapOf<ReaderPlayLikeCurlRasterKey, InFlight<T>>()
 	private val workers = linkedMapOf<Job, WorkerOwnership<T>>()
+	private val preparationCancellationPending = mutableSetOf<Job>()
 	private val blockedCapacities = linkedSetOf<CapacityKind>()
 	private val closedSignal = CompletableDeferred<Unit>()
 	private var activeProfile: ReaderPlayLikeCurlRasterProfile? = null
@@ -388,6 +390,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 						requestedKeys = requestedKeys,
 						requestedCacheKeys = requestedCacheKeys,
 						preparationGeneration = admittedGeneration,
+						preparationWorker = worker,
 						publicationFence = publicationFence,
 						onProgress = onProgress
 					)
@@ -399,6 +402,11 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 					throw cancelled
 				} catch (failure: Throwable) {
 					preparationResult.completeExceptionally(failure)
+				}
+			}
+			preparationResult.invokeOnCompletion { completion ->
+				if (completion is CancellationException) {
+					cancelPreparationWorker(worker, completion)
 				}
 			}
 			registerWorkerLocked(
@@ -423,6 +431,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		requestedKeys: List<ReaderPlayLikeCurlRasterKey>,
 		requestedCacheKeys: Set<ReaderPlayLikeCurlRasterCacheKey>,
 		preparationGeneration: Long,
+		preparationWorker: Job,
 		publicationFence: ReaderPlayLikeCurlRasterPublicationFence,
 		onProgress: (ReaderPlayLikeCurlRasterProgress) -> Unit
 	): ReaderPlayLikeCurlRasterDeck<T>? {
@@ -436,8 +445,11 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 			coroutineScope {
 				val pending = requestedKeys.map { key ->
 					async(start = CoroutineStart.UNDISPATCHED) {
-						val entry = loadEntry(key, preparationGeneration)
-							?: throw RasterLoadUnavailable()
+						val entry = loadEntry(
+							key = key,
+							preparationGeneration = preparationGeneration,
+							preparationWorker = preparationWorker
+						) ?: throw RasterLoadUnavailable()
 						key to entry
 					}
 				}
@@ -457,6 +469,11 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 				values
 			}
 		} catch (_: RasterLoadUnavailable) {
+			abandonPreparationMaterializations(
+				preparationWorker = preparationWorker,
+				profile = profile,
+				preparationGeneration = preparationGeneration
+			)
 			return null
 		}
 
@@ -545,10 +562,13 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 
 	private suspend fun loadEntry(
 		key: ReaderPlayLikeCurlRasterKey,
-		preparationGeneration: Long
+		preparationGeneration: Long,
+		preparationWorker: Job
 	): CacheEntry<T>? {
 		val acquisitionIsCurrent = synchronized(lock) {
-			!closed &&
+			preparationWorker.isActive &&
+				preparationWorker !in preparationCancellationPending &&
+				!closed &&
 				generation == preparationGeneration &&
 				activeProfile == key.profile
 		}
@@ -557,13 +577,18 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		var workerToStart: Job? = null
 		val work = synchronized(lock) {
 			if (
+				!preparationWorker.isActive ||
+				preparationWorker in preparationCancellationPending ||
 				closed || generation != preparationGeneration ||
 				activeProfile != key.profile
 			) return null
 			entries[key.cacheKey]?.let { entry -> return entry }
 			inFlight[key]
 				?.takeIf { active -> active.generation == preparationGeneration }
-				?.let { active -> return@synchronized active }
+				?.let { active ->
+					active.preparationWaiters += preparationWorker
+					return@synchronized active
+				}
 			if (!canAdmitWorkerLocked(WorkerKind.Materialization)) {
 				rejectForCapacityLocked(CapacityKind.MaterializationWorkerOrIdentity)
 				return null
@@ -573,6 +598,7 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 				generation = preparationGeneration,
 				result = CompletableDeferred()
 			)
+			created.preparationWaiters += preparationWorker
 			lateinit var worker: Job
 			worker = scope.launch(start = CoroutineStart.LAZY) {
 				materialize(key, created, worker)
@@ -596,6 +622,60 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		return work.result.await()
 	}
 
+	private fun cancelPreparationWorker(
+		preparationWorker: Job,
+		cancellation: CancellationException
+	) {
+		val abandonedMaterializations = synchronized(lock) {
+			preparationCancellationPending += preparationWorker
+			collectAbandonedMaterializationsLocked(preparationWorker)
+		}
+		try {
+			preparationWorker.cancel(cancellation)
+			abandonedMaterializations.forEach { worker -> worker.cancel(cancellation) }
+		} finally {
+			synchronized(lock) {
+				preparationCancellationPending -= preparationWorker
+			}
+		}
+	}
+
+	private fun abandonPreparationMaterializations(
+		preparationWorker: Job,
+		profile: ReaderPlayLikeCurlRasterProfile,
+		preparationGeneration: Long
+	) {
+		val cancellation = CancellationException("Raster preparation became unavailable")
+		val abandonedMaterializations = synchronized(lock) {
+			if (
+				closed ||
+				generation != preparationGeneration ||
+				activeProfile != profile
+			) {
+				emptyList()
+			} else {
+				collectAbandonedMaterializationsLocked(preparationWorker)
+			}
+		}
+		abandonedMaterializations.forEach { worker -> worker.cancel(cancellation) }
+	}
+
+	private fun collectAbandonedMaterializationsLocked(
+		preparationWorker: Job
+	): List<Job> = buildList {
+		val iterator = inFlight.entries.iterator()
+		while (iterator.hasNext()) {
+			val (_, work) = iterator.next()
+			if (
+				work.preparationWaiters.remove(preparationWorker) &&
+				work.preparationWaiters.isEmpty()
+			) {
+				iterator.remove()
+				add(work.worker)
+			}
+		}
+	}
+
 	private suspend fun materialize(
 		key: ReaderPlayLikeCurlRasterKey,
 		work: InFlight<T>,
@@ -617,12 +697,12 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 			val residencySlotsToRelease =
 				mutableListOf<ReaderPlayLikeCurlRasterResidencyBudget.Slot>()
 			val published = synchronized(lock) {
-				if (inFlight[key] === work) {
-					inFlight.remove(key)
-				}
+				val ownsInFlight = inFlight[key] === work
+				if (ownsInFlight) inFlight.remove(key)
 				val owner = ownerForMaterializedValueLocked(worker, value)
 				val current =
-					cancellation == null &&
+					ownsInFlight &&
+						cancellation == null &&
 						loaderFailure == null &&
 						value != null &&
 						owner != null &&

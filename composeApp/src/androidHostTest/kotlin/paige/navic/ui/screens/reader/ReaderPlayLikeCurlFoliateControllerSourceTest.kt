@@ -696,12 +696,114 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			message = "Settlement must offer the already-decoded replacement for automatic promotion."
 		)
 		assertContains(settlementStarted, "ReaderDeckSubmissionRole.Pending")
+		assertContains(
+			settlementStarted,
+			"prefetchDecodedWorkingSet(gestureId, targetOrdinal)"
+		)
+		assertTrue(
+			settlementStarted.indexOf("submitLibraryDeck(") <
+				settlementStarted.indexOf("prefetchDecodedWorkingSet(")
+		)
 		assertFalse(
 			settlementStarted.contains("adapter.prepare("),
-			"Settlement must never decode or perform IO on the gesture frame."
+			"Settlement must never decode or perform IO synchronously on the gesture frame."
 		)
 		assertContains(settlementStarted, "ReaderTextureDeckState.Settling")
 		assertContains(settlementStarted, "ReaderPageInteractionState.Settling")
+	}
+
+	@Test
+	fun destinationDecodedWindowPrefetchIsGestureScopedAndReusedAfterCommit() {
+		val source = controllerFile.readText()
+		val settlementStarted = source
+			.substringAfter("override fun onSettlementStarted(")
+			.substringBefore("override fun onSettlementCompleted(")
+		val settlementCompleted = source
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
+		val prefetch = source
+			.substringAfter("private fun prefetchDecodedWorkingSet(")
+			.substringBefore("private fun commitDecodedWorkingSetPrefetch(")
+		val commit = source
+			.substringAfter("private fun commitDecodedWorkingSetPrefetch(")
+			.substringBefore("private fun takeCommittedDecodedWorkingSetPrefetch(")
+		val refill = source
+			.substringAfter("private fun refillDecodedWorkingSet(")
+			.substringBefore("private fun scheduleDecodedWorkingSetRefillRetry(")
+		val discard = source
+			.substringAfter("private fun discardDecodedWorkingSetPrefetch(")
+			.substringBefore("private fun isDecodedWorkingSetPrefetchCurrent(")
+		val fence = source
+			.substringAfter("private fun isDecodedWorkingSetPrefetchCurrent(")
+			.substringBefore("private fun refillDecodedWorkingSet(")
+		val finishGesture = source
+			.substringAfter("private fun finishGesture(")
+			.substringBefore("private fun publishGestureTerminal(")
+		val sessionChange = source
+			.substringAfter("fun setFoliateSessionId(")
+			.substringBefore("fun visualLocationOrigin(")
+		val invalidate = source
+			.substringAfter("fun invalidate(")
+			.substringBefore("private val destroyFence")
+
+		assertContains(source, "private var decodedWorkingSetPrefetch:")
+		assertContains(source, "gestureId: Long")
+		assertContains(source, "sourceOrdinal: Int")
+		assertContains(source, "targetOrdinal: Int")
+		assertContains(source, "foliateSessionId: String")
+		assertContains(source, "expectedRequestGeneration: Long")
+		assertContains(source, "expectedCommittedTurnVersion: Long")
+		assertContains(source, "pageIndices: List<Int>")
+		assertContains(source, "preparation: Deferred<")
+		assertContains(settlementStarted, "prefetchDecodedWorkingSet(gestureId, targetOrdinal)")
+		assertContains(prefetch, "profile.preparedPageIndices(targetOrdinal)")
+		assertContains(prefetch, "adapter.prepare(")
+		assertFalse(prefetch.contains("currentOrdinal ="))
+		assertFalse(prefetch.contains("activePages ="))
+		assertFalse(prefetch.contains("publishProtectedWindow("))
+		assertFalse(prefetch.contains("submitLibraryDeck("))
+		assertFalse(prefetch.contains("publishGestureTerminal("))
+
+		val committedPublication = settlementCompleted
+			.substringAfter("publishCommittedTerminal = {")
+			.substringBefore("publishGestureTerminal(")
+		assertContains(committedPublication, "commitDecodedWorkingSetPrefetch(")
+		assertContains(committedPublication, "gestureId,")
+		assertContains(committedPublication, "currentPageOrdinal,")
+		assertContains(committedPublication, "destinationWindow")
+		assertTrue(
+			committedPublication.indexOf("publishProtectedWindow(destinationWindow)") <
+				committedPublication.indexOf("commitDecodedWorkingSetPrefetch(")
+		)
+		assertTrue(
+			committedPublication.indexOf("commitDecodedWorkingSetPrefetch(") <
+				committedPublication.indexOf("refillDecodedWorkingSet(")
+		)
+		assertContains(commit, "prefetch.committed = true")
+		assertContains(refill, "takeCommittedDecodedWorkingSetPrefetch(")
+		assertContains(refill, "prefetch?.preparation ?: adapter.prepare(")
+		assertContains(refill, "prefetch?.publicationFence ?: rasterPublicationFence(")
+
+		assertContains(finishGesture, "discardDecodedWorkingSetPrefetch(")
+		assertTrue(
+			finishGesture.indexOf("discardDecodedWorkingSetPrefetch(") <
+				finishGesture.indexOf("relocationGestureCoordinator.finish(")
+		)
+		assertTrue(
+			sessionChange.indexOf("discardDecodedWorkingSetPrefetch(") <
+				sessionChange.indexOf("drainRelocationOwnership(")
+		)
+		assertContains(invalidate, "discardDecodedWorkingSetPrefetch(")
+		assertContains(discard, "prefetch.publicationAllowed = false")
+		assertContains(discard, "prefetch.preparation.cancel()")
+		assertContains(discard, "deck?.close()")
+		assertContains(fence, "prefetch.publicationAllowed")
+		assertContains(fence, "currentFoliateSessionId != prefetch.foliateSessionId")
+		assertContains(fence, "activeGestureId == prefetch.gestureId")
+		assertContains(fence, "currentOrdinal == prefetch.sourceOrdinal")
+		assertContains(fence, "currentOrdinal == prefetch.targetOrdinal")
+		assertContains(fence, "committedTurnVersion ==")
+		assertContains(fence, "Math.incrementExact(prefetch.expectedCommittedTurnVersion)")
 	}
 
 	@Test

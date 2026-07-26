@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -287,6 +288,25 @@ internal class ReaderPlayLikeCurlFoliateController(
 		var obsolete = false
 	}
 
+	private class PendingDecodedWorkingSetPrefetch(
+		val gestureId: Long,
+		val sourceOrdinal: Int,
+		val targetOrdinal: Int,
+		val foliateSessionId: String,
+		val profile: ReaderPlayLikeCurlRasterProfile,
+		val expectedRequestGeneration: Long,
+		val expectedCommittedTurnVersion: Long,
+		val sourceProtectedWindowVersion: Long,
+		val sourceProtectedWindow: List<Int>,
+		val pageIndices: List<Int>
+	) {
+		var publicationAllowed = true
+		var committed = false
+		lateinit var publicationFence: ReaderPlayLikeCurlRasterPublicationFence
+		lateinit var preparation:
+			Deferred<ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>?>
+	}
+
 	private data class BuiltRecoveredDeck(
 		val pages: PreparedPages,
 		val ordinal: Int,
@@ -400,6 +420,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var decodedRefillGeneration = 0L
 	private var decodedRefillCenterOrdinal: Int? = null
 	private var deferredDecodedRefillCenterOrdinal: Int? = null
+	private var decodedWorkingSetPrefetch: PendingDecodedWorkingSetPrefetch? = null
 	private var committedTurnVersion = 0L
 	private var protectedWindowVersion = 0L
 	private var currentProtectedWindow = emptyList<Int>()
@@ -671,6 +692,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						ordinal = targetOrdinal,
 						role = ReaderDeckSubmissionRole.Pending
 					)
+					prefetchDecodedWorkingSet(gestureId, targetOrdinal)
 				}
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
@@ -724,6 +746,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						ReaderPageGestureTerminalDetail.RelocationGenerationOrSessionDrift(
 							gestureId
 						)
+					discardDecodedWorkingSetPrefetch("settlement-generation-drift", gestureId)
 					publishGestureTerminal(
 						gestureId,
 						ReaderPageGestureTerminalOutcome.FailedRecovery,
@@ -768,6 +791,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 					logicalDirection = direction,
 					currentFoliateSessionId = checkNotNull(currentFoliateSessionId),
 					publishDriftTerminal = { driftOutcome, detail ->
+						discardDecodedWorkingSetPrefetch(
+							"settlement-commit-drift",
+							gestureId
+						)
 						publishGestureTerminal(gestureId, driftOutcome, detail)
 					},
 					publishCommittedTerminal = {
@@ -775,9 +802,19 @@ internal class ReaderPlayLikeCurlFoliateController(
 						committedTurnVersion = Math.incrementExact(committedTurnVersion)
 						val destinationWindow = profile.preparedPageIndices(currentPageOrdinal)
 						publishProtectedWindow(destinationWindow)
+						commitDecodedWorkingSetPrefetch(
+							gestureId,
+							currentPageOrdinal,
+							destinationWindow
+						)
 						gateForDecodedWorkingSetRefill(profile, destinationWindow)
 						if (!hasDecodedWorkingSetForCurrentOrdinal()) {
 							refillDecodedWorkingSet(currentPageOrdinal, "settlement-committed")
+						} else {
+							discardDecodedWorkingSetPrefetch(
+								"settlement-committed-window-ready",
+								gestureId
+							)
 						}
 						publishGestureTerminal(
 							gestureId,
@@ -1358,6 +1395,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val previous = currentFoliateSessionId
 		if (previous == sessionId) return
 		if (previous != null) {
+			discardDecodedWorkingSetPrefetch("foliate-session-changed")
 			relocationVisualHandoffCoordinator.cancelForQueueInvalidation()
 			drainRelocationOwnership("foliate-session-changed")
 			foliateSessionRelocationPending = true
@@ -1551,6 +1589,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		decodedRefillGeneration += 1L
 		decodedRefillCenterOrdinal = null
 		deferredDecodedRefillCenterOrdinal = null
+		discardDecodedWorkingSetPrefetch("invalidated:$reason")
 		deckRecoveryCoordinator.cancelAll()
 		repairQaFaultCorrelations.clear()
 		publishProtectedWindow(emptyList())
@@ -1601,6 +1640,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			decodedRefillGeneration += 1L
 			decodedRefillCenterOrdinal = null
 			deferredDecodedRefillCenterOrdinal = null
+			discardDecodedWorkingSetPrefetch("destroyed")
 		},
 		cancelActiveGesture = {
 			cancelActiveGesture(
@@ -2198,24 +2238,165 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
+	private fun prefetchDecodedWorkingSet(gestureId: Long, targetOrdinal: Int) {
+		discardDecodedWorkingSetPrefetch("superseded")
+		val profile = requestedProfile ?: return
+		val adapter = rasterAdapter ?: return
+		val pages = activePages ?: return
+		val foliateSessionId = currentFoliateSessionId ?: return
+		if (
+			activeGestureId != gestureId ||
+			pages.profile != profile ||
+			targetOrdinal == currentOrdinal
+		) {
+			return
+		}
+		val pageIndices = profile.preparedPageIndices(targetOrdinal)
+		if (pages.deck.pageIndices.containsAll(pageIndices)) return
+		val prefetch = PendingDecodedWorkingSetPrefetch(
+			gestureId = gestureId,
+			sourceOrdinal = currentOrdinal,
+			targetOrdinal = targetOrdinal,
+			foliateSessionId = foliateSessionId,
+			profile = profile,
+			expectedRequestGeneration = requestGeneration,
+			expectedCommittedTurnVersion = committedTurnVersion,
+			sourceProtectedWindowVersion = protectedWindowVersion,
+			sourceProtectedWindow = currentProtectedWindow.toList(),
+			pageIndices = pageIndices
+		)
+		prefetch.publicationFence = ReaderPlayLikeCurlRasterPublicationFence {
+			isDecodedWorkingSetPrefetchCurrent(prefetch)
+		}
+		prefetch.preparation = adapter.prepare(
+			profile = profile,
+			pageIndices = pageIndices,
+			publicationFence = prefetch.publicationFence
+		)
+		decodedWorkingSetPrefetch = prefetch
+		logActivationState(
+			event = "decoded-prefetch-started",
+			detail = "gestureId=$gestureId target=$targetOrdinal"
+		)
+	}
+
+	private fun commitDecodedWorkingSetPrefetch(
+		gestureId: Long,
+		targetOrdinal: Int,
+		destinationWindow: List<Int>
+	) {
+		val prefetch = decodedWorkingSetPrefetch ?: return
+		if (
+			prefetch.gestureId != gestureId ||
+			prefetch.targetOrdinal != targetOrdinal ||
+			prefetch.pageIndices != destinationWindow ||
+			prefetch.committed
+		) {
+			discardDecodedWorkingSetPrefetch("commit-mismatch", gestureId)
+			return
+		}
+		prefetch.committed = true
+		if (!prefetch.publicationFence.isCurrent()) {
+			discardDecodedWorkingSetPrefetch("commit-fence-expired", gestureId)
+		}
+	}
+
+	private fun takeCommittedDecodedWorkingSetPrefetch(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		centerOrdinal: Int,
+		pageIndices: List<Int>
+	): PendingDecodedWorkingSetPrefetch? {
+		val prefetch = decodedWorkingSetPrefetch ?: return null
+		if (
+			!prefetch.committed ||
+			prefetch.profile != profile ||
+			prefetch.targetOrdinal != centerOrdinal ||
+			prefetch.pageIndices != pageIndices ||
+			!prefetch.publicationFence.isCurrent()
+		) {
+			discardDecodedWorkingSetPrefetch("refill-mismatch")
+			return null
+		}
+		decodedWorkingSetPrefetch = null
+		return prefetch
+	}
+
+	private fun discardDecodedWorkingSetPrefetch(
+		reason: String,
+		gestureId: Long? = null
+	) {
+		val prefetch = decodedWorkingSetPrefetch ?: return
+		if (gestureId != null && prefetch.gestureId != gestureId) return
+		decodedWorkingSetPrefetch = null
+		prefetch.publicationAllowed = false
+		prefetch.preparation.cancel()
+		rasterScope.launch(start = CoroutineStart.UNDISPATCHED) {
+			val deck = runCatching { prefetch.preparation.await() }.getOrNull()
+			deck?.close()
+		}
+		logActivationState(
+			event = "decoded-prefetch-discarded",
+			detail = "gestureId=${prefetch.gestureId} reason=$reason"
+		)
+	}
+
+	private fun isDecodedWorkingSetPrefetchCurrent(
+		prefetch: PendingDecodedWorkingSetPrefetch
+	): Boolean {
+		if (
+			!prefetch.publicationAllowed ||
+			destroyed ||
+			!enabled ||
+			currentFoliateSessionId != prefetch.foliateSessionId ||
+			requestedProfile != prefetch.profile ||
+			bundleSource.currentGeneration() != prefetch.profile.rasterGeneration ||
+			requestGeneration != prefetch.expectedRequestGeneration
+		) {
+			return false
+		}
+		return if (!prefetch.committed) {
+			activeGestureId == prefetch.gestureId &&
+				currentOrdinal == prefetch.sourceOrdinal &&
+				committedTurnVersion == prefetch.expectedCommittedTurnVersion &&
+				protectedWindowVersion == prefetch.sourceProtectedWindowVersion &&
+				currentProtectedWindow == prefetch.sourceProtectedWindow
+		} else {
+			currentOrdinal == prefetch.targetOrdinal &&
+				committedTurnVersion ==
+					Math.incrementExact(prefetch.expectedCommittedTurnVersion) &&
+				currentProtectedWindow == prefetch.pageIndices
+		}
+	}
+
 	private fun refillDecodedWorkingSet(centerOrdinal: Int, reason: String) {
 		val profile = requestedProfile ?: return
 		val adapter = rasterAdapter ?: return
 		val pageIndices = profile.preparedPageIndices(centerOrdinal)
 		publishProtectedWindow(pageIndices)
-		val publicationFence = rasterPublicationFence(
-			profile = profile,
-			centerOrdinal = centerOrdinal,
-			protectedWindow = pageIndices,
-			expectedRequestGeneration = requestGeneration
-		)
 		val pages = activePages
 		if (
 			pages?.profile == profile &&
 			pages.centerOrdinal == centerOrdinal &&
 			pages.deck.pageIndices.containsAll(pageIndices)
-		) return
-		if (decodedRefillCenterOrdinal == centerOrdinal) return
+		) {
+			discardDecodedWorkingSetPrefetch("refill-window-ready")
+			return
+		}
+		if (decodedRefillCenterOrdinal == centerOrdinal) {
+			discardDecodedWorkingSetPrefetch("refill-already-active")
+			return
+		}
+		val prefetch = takeCommittedDecodedWorkingSetPrefetch(
+			profile = profile,
+			centerOrdinal = centerOrdinal,
+			pageIndices = pageIndices
+		)
+		val publicationFence = prefetch?.publicationFence ?: rasterPublicationFence(
+			profile = profile,
+			centerOrdinal = centerOrdinal,
+			protectedWindow = pageIndices,
+			expectedRequestGeneration = requestGeneration
+		)
 		deferredDecodedRefillCenterOrdinal = null
 		val refill = ++decodedRefillGeneration
 		decodedRefillCenterOrdinal = centerOrdinal
@@ -2231,7 +2412,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			detail = "refill=$refill center=$centerOrdinal reason=$reason " +
 				"pages=${pageIndices.joinToString(",")}"
 		)
-		val preparation = adapter.prepare(
+		val preparation = prefetch?.preparation ?: adapter.prepare(
 			profile = profile,
 			pageIndices = pageIndices,
 			publicationFence = publicationFence
@@ -2241,6 +2422,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			withContext(Dispatchers.Main.immediate) {
 				val failure = preparationResult.exceptionOrNull()
 				if (failure != null) {
+					prefetch?.publicationAllowed = false
 					if (refill == decodedRefillGeneration) {
 						decodedRefillCenterOrdinal = null
 						Logger.e(
@@ -2273,6 +2455,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					requestedProfile != profile ||
 					!publicationFence.isCurrent()
 				) {
+					prefetch?.publicationAllowed = false
 					deck?.close()
 					val isCurrentRefill = refill == decodedRefillGeneration
 					val waitsForPreparation =
@@ -2322,6 +2505,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					}
 					return@withContext
 				}
+				prefetch?.publicationAllowed = false
 				decodedRefillCenterOrdinal = null
 				deferredDecodedRefillCenterOrdinal = null
 				activePages?.let { previous ->
@@ -3966,6 +4150,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	): Boolean {
+		discardDecodedWorkingSetPrefetch("gesture-finished", gestureId)
 		if (!relocationGestureCoordinator.finish(gestureId, outcome, detail)) return false
 		return publishGestureTerminal(gestureId, outcome, detail)
 	}
