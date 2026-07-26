@@ -1513,18 +1513,18 @@ class NavicReaderRuntime {
   pageTurnCaptureGeometry() {
     const viewport = readerViewportSize()
     const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings)
-    const spreadMode = this.surfaceSpreadMode || readerSurfaceSpreadMode({
+    const spreadMode = readerSurfaceSpreadMode({
       flowMode: this.readerFlowModeValue,
       width: viewport.width,
       height: viewport.height,
     })
-    const layoutProfile = this.surfacePaperLayoutProfile || readerPaperLayoutProfile({
+    const layoutProfile = readerPaperLayoutProfile({
       flowMode: this.readerFlowModeValue,
       width: viewport.width,
       height: viewport.height,
       spreadMode,
     })
-    const geometry = this.surfacePageDecorationGeometry || readerSurfacePageDecorationGeometry({
+    const geometry = readerSurfacePageDecorationGeometry({
       settings: this.readerSettings,
       spreadMode,
       foliateGap: pageBox.foliateGap,

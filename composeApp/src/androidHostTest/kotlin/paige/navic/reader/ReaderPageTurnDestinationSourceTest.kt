@@ -507,6 +507,21 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun physicalRasterGeometryIsRecomputedFromTheCurrentViewport() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val captureGeometry = runtime
+			.substringAfter("pageTurnCaptureGeometry() {")
+			.substringBefore("\n  }\n}\n\nObject.assign")
+
+		assertContains(captureGeometry, "const spreadMode = readerSurfaceSpreadMode({")
+		assertContains(captureGeometry, "const layoutProfile = readerPaperLayoutProfile({")
+		assertContains(captureGeometry, "const geometry = readerSurfacePageDecorationGeometry({")
+		assertFalse(captureGeometry.contains("this.surfaceSpreadMode ||"))
+		assertFalse(captureGeometry.contains("this.surfacePaperLayoutProfile ||"))
+		assertFalse(captureGeometry.contains("this.surfacePageDecorationGeometry ||"))
+	}
+
+	@Test
 	fun passiveRendererExposesReadOnlyParityContext() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
@@ -666,6 +681,47 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun capturedDestinationMustMatchTheBatchPhysicalLayoutBeforePublication() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source
+			.substringAfter("fun capturePreparedRasterPage(")
+			.substringBefore("private fun capturePreparedPage(")
+
+		assertContains(
+			capture,
+			"readerPageRasterPhysicalLayoutMatches(captured, reference)"
+		)
+		assertTrue(
+			capture.indexOf("readerPageRasterPhysicalLayoutMatches(captured, reference)") <
+				capture.indexOf("putSnapshot(")
+		)
+	}
+
+	@Test
+	fun physicalLayoutReplacementFencesPendingAndDurableRasterWork() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val authority = source
+			.substringAfter("private fun activatePhysicalLayout(")
+			.substringBefore("private fun currentPhysicalLayoutEpoch(")
+		val persistence = source
+			.substringAfter("private fun schedulePersistentSnapshot(")
+			.substringBefore("private fun rasterPersistenceSkipped(")
+		val removal = source
+			.substringAfter("private suspend fun removePersistentRaster(")
+			.substringBefore("private fun isHydrationCurrent(")
+
+		assertContains(authority, "rasterPhysicalLayoutEpoch.incrementAndGet()")
+		assertContains(authority, "publicationLedger.invalidate()")
+		assertContains(authority, "publicationScheduler.cancelBeforeEpoch(")
+		assertContains(persistence, "currentPhysicalLayoutEpoch(snapshot.key.kind, layout)")
+		assertContains(persistence, "physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()")
+		assertContains(persistence, "store?.contains(value.key, metadata)")
+		assertContains(persistence, "val persistedForCurrentLayout = write.persisted &&")
+		assertContains(persistence, "if (!accepted || !persistedForCurrentLayout)")
+		assertContains(removal, "store.remove(key, expectedMetadata)")
+	}
+
+	@Test
 	fun compositedCapturePublishesOpaquePreparedRasters() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
 		val capture = source
@@ -690,7 +746,9 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(hydration, "persistentStore")
 		assertContains(hydration, "productionStore?.readCopy(key)")
 		assertContains(hydration, "cached.copy(Bitmap.Config.ARGB_8888, false)")
-		assertContains(hydration, "Rect(reference.surfaceRectInWindow)")
+		assertContains(hydration, "readerPageRasterPhysicalLayout(reference)")
+		assertContains(hydration, "physicalLayout = request.identity.physicalLayout")
+		assertContains(hydration, "surfaceRectInWindow = Rect(surfaceRectInWindow)")
 		assertContains(hydration, "readerPageRasterLeafGeometry(")
 		assertContains(hydration, "persist = false")
 		assertContains(hydration, "generation != activeGeneration")

@@ -121,6 +121,13 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 	override fun contains(key: ReaderPageRasterKey): Boolean =
 		withOpen(false) { cache.contains(key) }
 
+	fun contains(
+		key: ReaderPageRasterKey,
+		expectedMetadata: ReaderPageRasterMetadata
+	): Boolean = withOpen(false) {
+		cache.contains(key, expectedMetadata)
+	}
+
 	override fun <R : Any> readCopy(
 		key: ReaderPageRasterKey,
 		copy: (T) -> R?
@@ -175,6 +182,13 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 
 	override fun remove(key: ReaderPageRasterKey): Boolean =
 		withOpen(false) { cache.remove(key) }
+
+	fun remove(
+		key: ReaderPageRasterKey,
+		expectedMetadata: ReaderPageRasterMetadata
+	): Boolean = withOpen(false) {
+		cache.remove(key, expectedMetadata)
+	}
 
 	override fun retainProfile(profile: ReaderPageRasterProfile): Int =
 		withOpen(0) { cache.retainProfile(profile) }

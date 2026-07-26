@@ -32,9 +32,11 @@ import paige.navic.reader.ReaderPageMaximumPublicationCallbacks
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnLeafGeometry
+import paige.navic.reader.ReaderPageTurnPixelRect
 import paige.navic.reader.readerPageRasterStorageRoot
 import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
@@ -48,6 +50,119 @@ internal fun readerPageRasterGeometryMatches(
 	ReaderPageTurnTransitionKind.PortraitSlide -> geometry?.fullLeafRect != null
 	ReaderPageTurnTransitionKind.LandscapeSpreadSlide ->
 		geometry?.leftLeafRect != null && geometry.rightLeafRect != null
+}
+
+private data class ReaderPageRasterPhysicalLayout(
+	val surfaceRectInWindow: ReaderPageTurnPixelRect,
+	val fullLeafRectInWindow: ReaderPageTurnPixelRect?,
+	val leftLeafRectInWindow: ReaderPageTurnPixelRect?,
+	val gutterRectInWindow: ReaderPageTurnPixelRect?,
+	val rightLeafRectInWindow: ReaderPageTurnPixelRect?
+)
+
+private data class ReaderPageRasterPhysicalLayoutAuthority(
+	val kind: ReaderPageTurnTransitionKind,
+	val layout: ReaderPageRasterPhysicalLayout,
+	val epoch: Long
+)
+
+private fun readerPageRasterPhysicalLayout(
+	surfaceRectInWindow: Rect,
+	bitmapWidth: Int,
+	bitmapHeight: Int,
+	geometry: ReaderPageTurnLeafGeometry
+): ReaderPageRasterPhysicalLayout? {
+	val surfaceWidth = surfaceRectInWindow.width()
+	val surfaceHeight = surfaceRectInWindow.height()
+	if (
+		bitmapWidth <= 0 ||
+		bitmapHeight <= 0 ||
+		surfaceWidth <= 0 ||
+		surfaceHeight <= 0
+	) {
+		return null
+	}
+
+	fun scaleBoundary(value: Int, sourceExtent: Int, targetExtent: Int): Int =
+		((value.toLong() * targetExtent + sourceExtent / 2L) / sourceExtent).toInt()
+
+	fun mapToSurface(
+		rect: ReaderPageTurnPixelRect?,
+		allowZeroWidth: Boolean
+	): ReaderPageTurnPixelRect? {
+		if (rect == null) return null
+		val validWidth = if (allowZeroWidth) rect.right >= rect.left else rect.right > rect.left
+		if (
+			rect.left < 0 ||
+			rect.top < 0 ||
+			rect.right > bitmapWidth ||
+			rect.bottom > bitmapHeight ||
+			!validWidth ||
+			rect.bottom <= rect.top
+		) {
+			return null
+		}
+		return ReaderPageTurnPixelRect(
+			left = surfaceRectInWindow.left + scaleBoundary(rect.left, bitmapWidth, surfaceWidth),
+			top = surfaceRectInWindow.top + scaleBoundary(rect.top, bitmapHeight, surfaceHeight),
+			right = surfaceRectInWindow.left + scaleBoundary(rect.right, bitmapWidth, surfaceWidth),
+			bottom = surfaceRectInWindow.top + scaleBoundary(rect.bottom, bitmapHeight, surfaceHeight)
+		).takeIf { allowZeroWidth || it.width > 0 }
+	}
+
+	val fullLeaf = mapToSurface(geometry.fullLeafRect, allowZeroWidth = false)
+	val leftLeaf = mapToSurface(geometry.leftLeafRect, allowZeroWidth = false)
+	val gutter = mapToSurface(geometry.gutterRect, allowZeroWidth = true)
+	val rightLeaf = mapToSurface(geometry.rightLeafRect, allowZeroWidth = false)
+	if (fullLeaf == null && leftLeaf == null && rightLeaf == null) return null
+	return ReaderPageRasterPhysicalLayout(
+		surfaceRectInWindow = ReaderPageTurnPixelRect(
+			left = surfaceRectInWindow.left,
+			top = surfaceRectInWindow.top,
+			right = surfaceRectInWindow.right,
+			bottom = surfaceRectInWindow.bottom
+		),
+		fullLeafRectInWindow = fullLeaf,
+		leftLeafRectInWindow = leftLeaf,
+		gutterRectInWindow = gutter,
+		rightLeafRectInWindow = rightLeaf
+	)
+}
+
+private fun readerPageRasterPhysicalLayout(snapshot: ReaderPageSlideSnapshot): ReaderPageRasterPhysicalLayout? =
+	readerPageRasterPhysicalLayout(
+		surfaceRectInWindow = snapshot.surfaceRectInWindow,
+		bitmapWidth = snapshot.bitmap.width,
+		bitmapHeight = snapshot.bitmap.height,
+		geometry = snapshot.leafGeometry
+	)
+
+private fun ReaderPageTurnPixelRect?.matchesPhysicalRect(
+	other: ReaderPageTurnPixelRect?,
+	tolerancePixels: Int = 1
+): Boolean {
+	if (this == null || other == null) return this == other
+	return abs(left - other.left) <= tolerancePixels &&
+		abs(top - other.top) <= tolerancePixels &&
+		abs(right - other.right) <= tolerancePixels &&
+		abs(bottom - other.bottom) <= tolerancePixels
+}
+
+private fun ReaderPageRasterPhysicalLayout.matches(
+	other: ReaderPageRasterPhysicalLayout
+): Boolean = surfaceRectInWindow.matchesPhysicalRect(other.surfaceRectInWindow) &&
+	fullLeafRectInWindow.matchesPhysicalRect(other.fullLeafRectInWindow) &&
+	leftLeafRectInWindow.matchesPhysicalRect(other.leftLeafRectInWindow) &&
+	gutterRectInWindow.matchesPhysicalRect(other.gutterRectInWindow) &&
+	rightLeafRectInWindow.matchesPhysicalRect(other.rightLeafRectInWindow)
+
+internal fun readerPageRasterPhysicalLayoutMatches(
+	candidate: ReaderPageSlideSnapshot,
+	reference: ReaderPageSlideSnapshot
+): Boolean {
+	val candidateLayout = readerPageRasterPhysicalLayout(candidate) ?: return false
+	val referenceLayout = readerPageRasterPhysicalLayout(reference) ?: return false
+	return candidateLayout.matches(referenceLayout)
 }
 
 internal data class ReaderPagePreparedSnapshotGeometry(
@@ -80,7 +195,10 @@ internal fun interface ReaderPageRasterDescriptorPort {
 
 internal interface ReaderPageRasterHydrationStorePort {
 	suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>?
-	suspend fun remove(key: ReaderPageRasterKey): Boolean
+	suspend fun remove(
+		key: ReaderPageRasterKey,
+		expectedMetadata: ReaderPageRasterMetadata
+	): Boolean
 }
 
 internal fun interface ReaderPageRasterHydrationRequest {
@@ -117,7 +235,8 @@ private data class ReaderPageRasterDescriptorIdentity(
 	val quality: ReaderPageBitmapQuality,
 	val pageIndex: Int,
 	val kind: ReaderPageTurnTransitionKind,
-	val surfaceRectInWindow: Rect
+	val physicalLayout: ReaderPageRasterPhysicalLayout,
+	val physicalLayoutEpoch: Long
 )
 
 private class ReaderPageRasterDescriptorRequest(
@@ -130,7 +249,8 @@ private class ReaderPageRasterDescriptorRequest(
 private data class ReaderPageRasterHydrationIdentity(
 	val rasterIdentity: String,
 	val kind: ReaderPageTurnTransitionKind,
-	val surfaceRectInWindow: Rect
+	val physicalLayout: ReaderPageRasterPhysicalLayout,
+	val physicalLayoutEpoch: Long
 )
 
 private class InFlightRasterHydration(
@@ -140,7 +260,6 @@ private class InFlightRasterHydration(
 	val quality: ReaderPageBitmapQuality,
 	val key: ReaderPageRasterKey,
 	val kind: ReaderPageTurnTransitionKind,
-	val surfaceRectInWindow: Rect,
 	val webView: WeakReference<WebView>,
 	val recipients: MutableMap<Long, ReaderPageRasterHydrationRecipient>,
 	var job: Job? = null
@@ -185,6 +304,8 @@ internal class ReaderPageTurnBundleSource(
 	)
 	private val visualStateRequestId = AtomicLong()
 	private val persistenceAttemptIds = AtomicLong()
+	private val rasterPhysicalLayoutEpoch = AtomicLong()
+	private var physicalLayoutAuthority: ReaderPageRasterPhysicalLayoutAuthority? = null
 	private val snapshotCache = LinkedHashMap<ReaderPageSlideSnapshotKey, ReaderPageSlideSnapshot>(0, 0.75f, true)
 	private val descriptorRequests =
 		mutableMapOf<Long, ReaderPageRasterDescriptorRequest>()
@@ -391,6 +512,13 @@ internal class ReaderPageTurnBundleSource(
 		kind: ReaderPageTurnTransitionKind
 	): ReaderPageSlideSnapshot? = cachedSnapshot(pageIndex, kind)?.also { snapshot -> snapshot.retain() }
 
+	private fun retainedSnapshot(
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot
+	): ReaderPageSlideSnapshot? = cachedSnapshot(pageIndex, kind, reference)
+		?.also { snapshot -> snapshot.retain() }
+
 	fun cachedSnapshotPageIndices(kind: ReaderPageTurnTransitionKind): List<Int> =
 		snapshotCache.keys
 			.filter { key -> key.kind == kind }
@@ -422,7 +550,7 @@ internal class ReaderPageTurnBundleSource(
 		publicationFence: () -> Boolean
 	): ReaderPageSlideSnapshot? = withContext(Dispatchers.Main.immediate) {
 		if (!runCatching(publicationFence).getOrDefault(false)) return@withContext null
-		retainedSnapshot(pageIndex, kind)?.let { retained ->
+		retainedSnapshot(pageIndex, kind, reference)?.let { retained ->
 			return@withContext suspendCancellableCoroutine { continuation ->
 				continuation.resume(
 					retained,
@@ -461,7 +589,7 @@ internal class ReaderPageTurnBundleSource(
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
 	): ReaderPageRasterHydrationRequest {
 		activeWebView = WeakReference(webView)
-		retainedSnapshot(pageIndex, kind)?.let { retained ->
+		retainedSnapshot(pageIndex, kind, reference)?.let { retained ->
 			deliverHydrationResult(onHydrated, retained)
 			return ReaderPageRasterHydrationRequest { }
 		}
@@ -477,7 +605,10 @@ internal class ReaderPageTurnBundleSource(
 			webView = webView,
 			pageIndex = pageIndex,
 			kind = kind,
-			surfaceRectInWindow = Rect(reference.surfaceRectInWindow),
+			physicalLayout = readerPageRasterPhysicalLayout(reference) ?: run {
+				onHydrated(null)
+				return ReaderPageRasterHydrationRequest { }
+			},
 			publicationFence = publicationFence,
 			onHydrated = onHydrated
 		)
@@ -487,10 +618,14 @@ internal class ReaderPageTurnBundleSource(
 		webView: WebView,
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
-		surfaceRectInWindow: Rect,
+		physicalLayout: ReaderPageRasterPhysicalLayout,
 		publicationFence: () -> Boolean,
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
 	): ReaderPageRasterHydrationRequest {
+		val physicalLayoutEpoch = admitPhysicalLayout(kind, physicalLayout) ?: run {
+			onHydrated(null)
+			return ReaderPageRasterHydrationRequest { }
+		}
 		val recipientToken = Math.incrementExact(nextHydrationToken)
 		nextHydrationToken = recipientToken
 		val recipient = ReaderPageRasterHydrationRecipient(
@@ -503,7 +638,8 @@ internal class ReaderPageTurnBundleSource(
 			quality = bitmapQuality,
 			pageIndex = pageIndex,
 			kind = kind,
-			surfaceRectInWindow = Rect(surfaceRectInWindow)
+			physicalLayout = physicalLayout,
+			physicalLayoutEpoch = physicalLayoutEpoch
 		)
 		val existing = descriptorRequestTokens[identity]
 			?.let(descriptorRequests::get)
@@ -545,6 +681,7 @@ internal class ReaderPageTurnBundleSource(
 		if (
 			identity.generation != activeGeneration ||
 			identity.quality != bitmapQuality ||
+			identity.physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
 			descriptor.visualPageOrdinal != identity.pageIndex
 		) {
 			return
@@ -573,6 +710,7 @@ internal class ReaderPageTurnBundleSource(
 			closed ||
 			request.identity.generation != activeGeneration ||
 			request.identity.quality != bitmapQuality ||
+			request.identity.physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
 			webView?.isAttachedToWindow != true
 		) {
 			recipients.forEach { recipient ->
@@ -592,7 +730,8 @@ internal class ReaderPageTurnBundleSource(
 		val hydrationIdentity = ReaderPageRasterHydrationIdentity(
 			rasterIdentity = key.identity,
 			kind = request.identity.kind,
-			surfaceRectInWindow = Rect(request.identity.surfaceRectInWindow)
+			physicalLayout = request.identity.physicalLayout,
+			physicalLayoutEpoch = request.identity.physicalLayoutEpoch
 		)
 		inFlightRasterHydrations[hydrationIdentity]
 			?.takeIf { hydration ->
@@ -614,7 +753,6 @@ internal class ReaderPageTurnBundleSource(
 			quality = request.identity.quality,
 			key = key,
 			kind = request.identity.kind,
-			surfaceRectInWindow = Rect(request.identity.surfaceRectInWindow),
 			webView = WeakReference(webView),
 			recipients = currentRecipients.associateByTo(linkedMapOf()) { it.token }
 		)
@@ -653,6 +791,7 @@ internal class ReaderPageTurnBundleSource(
 			if (!isHydrationCurrent(hydration)) return
 			val webView = hydration.webView.get() ?: return
 			raster = readPersistentRaster(webView, hydration.key)
+			if (!isHydrationCurrent(hydration)) return
 			val value = raster ?: return
 			if (value.key.identity != hydration.key.identity) return
 			val bitmap = value.value
@@ -661,12 +800,30 @@ internal class ReaderPageTurnBundleSource(
 				bitmapWidth = bitmap.width,
 				bitmapHeight = bitmap.height
 			)
+			val physicalLayout = hydration.identity.physicalLayout
+			val surface = physicalLayout.surfaceRectInWindow
+			val surfaceRectInWindow = Rect(
+				surface.left,
+				surface.top,
+				surface.right,
+				surface.bottom
+			)
 			val kindMatches = readerPageRasterGeometryMatches(
 				hydration.kind,
 				leafGeometry
 			)
-			if (!kindMatches) {
-				runCatching { removePersistentRaster(hydration.key) }
+			val physicalLayoutMatches = leafGeometry?.let { geometry ->
+				readerPageRasterPhysicalLayout(
+					surfaceRectInWindow = surfaceRectInWindow,
+					bitmapWidth = bitmap.width,
+					bitmapHeight = bitmap.height,
+					geometry = geometry
+				)?.matches(physicalLayout)
+			} == true
+			if (!kindMatches || !physicalLayoutMatches) {
+				if (!kindMatches) {
+					runCatching { removePersistentRaster(hydration.key, value.metadata) }
+				}
 				Logger.w(
 					ReaderPageTurnBundleSourceTag,
 					"Discarded incompatible page raster page=${hydration.key.visualPageOrdinal} " +
@@ -681,6 +838,7 @@ internal class ReaderPageTurnBundleSource(
 				val sourceCurrent = !closed &&
 					hydration.generation == activeGeneration &&
 					hydration.quality == bitmapQuality &&
+					hydration.identity.physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
 					hydration.webView.get()?.isAttachedToWindow == true
 				inFlightRasterHydrations.remove(hydration.identity)
 				val recipients = hydration.recipients.values.toList()
@@ -697,10 +855,10 @@ internal class ReaderPageTurnBundleSource(
 						hydration.key.visualPageOrdinal,
 						hydration.kind,
 						bitmap,
-						hydration.surfaceRectInWindow
+						surfaceRectInWindow
 					),
 					bitmap = bitmap,
-					surfaceRectInWindow = Rect(hydration.surfaceRectInWindow),
+					surfaceRectInWindow = Rect(surfaceRectInWindow),
 					leafGeometry = checkNotNull(leafGeometry),
 					reverseFaceColor = value.metadata.reverseFaceColor
 				)
@@ -771,16 +929,20 @@ internal class ReaderPageTurnBundleSource(
 		return result
 	}
 
-	private suspend fun removePersistentRaster(key: ReaderPageRasterKey): Boolean {
-		hydrationStorePort?.let { store -> return store.remove(key) }
+	private suspend fun removePersistentRaster(
+		key: ReaderPageRasterKey,
+		expectedMetadata: ReaderPageRasterMetadata
+	): Boolean {
+		hydrationStorePort?.let { store -> return store.remove(key, expectedMetadata) }
 		val store = persistentStore ?: return false
-		return withContext(Dispatchers.IO) { store.remove(key) }
+		return withContext(Dispatchers.IO) { store.remove(key, expectedMetadata) }
 	}
 
 	private fun isHydrationCurrent(hydration: InFlightRasterHydration): Boolean =
 		!closed &&
 			hydration.generation == activeGeneration &&
 			hydration.quality == bitmapQuality &&
+			hydration.identity.physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get() &&
 			hydration.webView.get()?.isAttachedToWindow == true &&
 			inFlightRasterHydrations[hydration.identity] === hydration
 
@@ -837,12 +999,21 @@ internal class ReaderPageTurnBundleSource(
 		onCaptured: (Boolean) -> Unit
 	) {
 		activeWebView = WeakReference(webView)
+		val referenceLayout = readerPageRasterPhysicalLayout(reference)
+		val physicalLayoutEpoch = referenceLayout?.let { layout ->
+			admitPhysicalLayout(kind, layout)
+		}
 		val generation = activeGeneration
-		if (closed || !webView.isAttachedToWindow || !isStillCurrent()) {
+		if (
+			closed ||
+			!webView.isAttachedToWindow ||
+			!isStillCurrent() ||
+			physicalLayoutEpoch == null
+		) {
 			onCaptureFailed()
 			return
 		}
-		cachedSnapshot(pageIndex, kind)?.let { cached ->
+		cachedSnapshot(pageIndex, kind, reference)?.let { cached ->
 			schedulePersistentSnapshot(cached, priority) { persisted ->
 				if (isStillCurrent()) onCaptured(persisted)
 			}
@@ -859,7 +1030,9 @@ internal class ReaderPageTurnBundleSource(
 		) { captured ->
 			if (
 				captured == null ||
+				!readerPageRasterPhysicalLayoutMatches(captured, reference) ||
 				generation != activeGeneration ||
+				physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
 				closed ||
 				!isStillCurrent()
 			) {
@@ -978,33 +1151,96 @@ internal class ReaderPageTurnBundleSource(
 			current.bitmap.takeUnless { it.isRecycled }?.recycle()
 			return null
 		}
-		snapshotCache[key]?.let { cached ->
-			snapshotCache[key]
-			if (cached.bitmap !== current.bitmap) current.bitmap.takeUnless { it.isRecycled }?.recycle()
-			return cached
+		if (!readerPageRasterGeometryMatches(kind, leafGeometry)) {
+			current.bitmap.takeUnless { it.isRecycled }?.recycle()
+			return null
 		}
-		return putSnapshot(
-			ReaderPageSlideSnapshot(
-				key = key,
-				bitmap = current.bitmap,
-				surfaceRectInWindow = Rect(current.sourceRectInWindow),
-				leafGeometry = leafGeometry,
-				reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb),
-				captureMillis = current.elapsedMs
-			),
-			ReaderPageRasterPriority.Current
+		val snapshot = ReaderPageSlideSnapshot(
+			key = key,
+			bitmap = current.bitmap,
+			surfaceRectInWindow = Rect(current.sourceRectInWindow),
+			leafGeometry = leafGeometry,
+			reverseFaceColor = readerPageTurnOpaqueColor(current.geometry.reverseFaceColorArgb),
+			captureMillis = current.elapsedMs
 		)
+		val physicalLayout = readerPageRasterPhysicalLayout(snapshot) ?: run {
+			snapshot.releaseCacheOwnership()
+			return null
+		}
+		activatePhysicalLayout(kind, physicalLayout)
+		return putSnapshot(snapshot, ReaderPageRasterPriority.Current)
 	}
 
 	private fun cachedSnapshot(
 		pageIndex: Int,
-		kind: ReaderPageTurnTransitionKind
-	): ReaderPageSlideSnapshot? = snapshotCache.entries
-		.lastOrNull { (key, _) -> key.visualPageIndex == pageIndex && key.kind == kind }
-		?.let { (key, value) ->
-			snapshotCache[key]
-			value
+		kind: ReaderPageTurnTransitionKind,
+		reference: ReaderPageSlideSnapshot? = null
+	): ReaderPageSlideSnapshot? {
+		val referenceLayout = reference?.let(::readerPageRasterPhysicalLayout)
+		if (reference != null && referenceLayout == null) return null
+		if (referenceLayout != null && admitPhysicalLayout(kind, referenceLayout) == null) return null
+		return snapshotCache.entries
+			.lastOrNull { (key, snapshot) ->
+				key.visualPageIndex == pageIndex &&
+					key.kind == kind &&
+					(reference == null || readerPageRasterPhysicalLayoutMatches(snapshot, reference))
+			}
+			?.let { (key, value) ->
+				snapshotCache[key]
+				value
+			}
+	}
+
+	private fun admitPhysicalLayout(
+		kind: ReaderPageTurnTransitionKind,
+		layout: ReaderPageRasterPhysicalLayout
+	): Long? {
+		physicalLayoutAuthority?.let { authority ->
+			return authority.epoch.takeIf {
+				authority.kind == kind && layout.matches(authority.layout)
+			}
 		}
+		return activatePhysicalLayout(kind, layout)
+	}
+
+	private fun activatePhysicalLayout(
+		kind: ReaderPageTurnTransitionKind,
+		layout: ReaderPageRasterPhysicalLayout
+	): Long {
+		physicalLayoutAuthority?.let { authority ->
+			if (authority.kind == kind && layout.matches(authority.layout)) return authority.epoch
+		}
+		val epoch = rasterPhysicalLayoutEpoch.incrementAndGet()
+		physicalLayoutAuthority = ReaderPageRasterPhysicalLayoutAuthority(kind, layout, epoch)
+		publicationLedger.invalidate()
+		publicationScheduler.cancelBeforeEpoch(publicationLedger.currentEpoch())
+		removeIncompatibleSnapshots(kind, layout)
+		return epoch
+	}
+
+	private fun currentPhysicalLayoutEpoch(
+		kind: ReaderPageTurnTransitionKind,
+		layout: ReaderPageRasterPhysicalLayout
+	): Long? = physicalLayoutAuthority?.let { authority ->
+		authority.epoch.takeIf {
+			authority.kind == kind && layout.matches(authority.layout)
+		}
+	}
+
+	private fun removeIncompatibleSnapshots(
+		kind: ReaderPageTurnTransitionKind,
+		layout: ReaderPageRasterPhysicalLayout
+	) {
+		val incompatible = snapshotCache.entries
+			.filter { (key, snapshot) ->
+				key.kind == kind &&
+					readerPageRasterPhysicalLayout(snapshot)?.matches(layout) != true
+			}
+			.map { entry -> entry.key to entry.value }
+		incompatible.forEach { (key, snapshot) ->
+			if (snapshotCache.remove(key) === snapshot) snapshot.releaseCacheOwnership()
+		}
+	}
 
 	private fun putSnapshot(
 		snapshot: ReaderPageSlideSnapshot,
@@ -1012,6 +1248,10 @@ internal class ReaderPageTurnBundleSource(
 		persist: Boolean = true,
 		onPersisted: (Boolean) -> Unit = {}
 	): ReaderPageSlideSnapshot {
+		val physicalLayout = checkNotNull(readerPageRasterPhysicalLayout(snapshot))
+		check(currentPhysicalLayoutEpoch(snapshot.key.kind, physicalLayout) != null) {
+			"Cannot cache a page snapshot outside the active physical layout"
+		}
 		snapshotCache[snapshot.key]?.let { cached ->
 			snapshot.releaseCacheOwnership()
 			if (persist) schedulePersistentSnapshot(cached, priority, onPersisted)
@@ -1063,6 +1303,15 @@ internal class ReaderPageTurnBundleSource(
 				return
 			}
 		val generation = activeGeneration
+		val physicalLayout = readerPageRasterPhysicalLayout(snapshot)
+		val physicalLayoutEpoch = physicalLayout?.let { layout ->
+			currentPhysicalLayoutEpoch(snapshot.key.kind, layout)
+		}
+		if (physicalLayout == null || physicalLayoutEpoch == null) {
+			rasterPersistenceSkipped(pageIndex, "physical-layout-stale", generation)
+			onPersisted(false)
+			return
+		}
 		val descriptorOwner = pendingDescriptorOwners.acquire(snapshot) {
 			onPersisted(false)
 		} ?: run {
@@ -1081,10 +1330,14 @@ internal class ReaderPageTurnBundleSource(
 				val claimedOwner = pendingDescriptorOwners.claim(descriptorOwner)
 					?: return@callback
 				try {
-				if (closed || generation != activeGeneration) {
+				if (
+					closed ||
+					generation != activeGeneration ||
+					physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
+				) {
 					rasterPersistenceSkipped(
 						pageIndex,
-						"generation-changed",
+						"generation-or-physical-layout-changed",
 						generation
 					)
 					onPersisted(false)
@@ -1106,7 +1359,8 @@ internal class ReaderPageTurnBundleSource(
 						quality = snapshot.key.bitmapQuality,
 						pageIndex = pageIndex,
 						kind = snapshot.key.kind,
-						surfaceRectInWindow = Rect(snapshot.surfaceRectInWindow)
+						physicalLayout = physicalLayout,
+						physicalLayoutEpoch = physicalLayoutEpoch
 					),
 					descriptor
 				)
@@ -1132,10 +1386,14 @@ internal class ReaderPageTurnBundleSource(
 					var publicationValueTransferred = false
 					try {
 						val scheduler = rasterScheduler(webView)
-						if (closed || generation != activeGeneration) {
+						if (
+							closed ||
+							generation != activeGeneration ||
+							physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get()
+						) {
 							rasterPersistenceSkipped(
 								pageIndex,
-								"generation-changed",
+								"generation-or-physical-layout-changed",
 								generation
 							)
 							onPersisted(false)
@@ -1198,6 +1456,7 @@ internal class ReaderPageTurnBundleSource(
 							is ReaderPageRasterPublicationRegistration.Started -> {
 								scheduleRasterPublication(
 									request = registration.request,
+									physicalLayoutEpoch = physicalLayoutEpoch,
 									persistenceAttemptId = persistenceAttemptId,
 									onQaFaultApplied = { correlation ->
 										publicationQaFaultCorrelation = correlation
@@ -1260,6 +1519,7 @@ internal class ReaderPageTurnBundleSource(
 
 	private fun scheduleRasterPublication(
 		request: ReaderPageRasterPublicationRequest,
+		physicalLayoutEpoch: Long,
 		persistenceAttemptId: ReaderPagePersistenceAttemptId,
 		onQaFaultApplied: (ReaderPageQaFaultCorrelation) -> Unit
 	) {
@@ -1288,19 +1548,29 @@ internal class ReaderPageTurnBundleSource(
 				try {
 					withContext(NonCancellable + Dispatchers.IO) {
 						try {
-							write = if (store?.contains(value.key) == true) {
-								ReaderPageRasterWriteResult(
-									persisted = true,
-									ownership =
-										ReaderPageRasterValueOwnership.Caller
-								)
-							} else {
-								store?.writePublication(
+							val metadata = value.generation.metadata
+							val commitFence = ReaderPageRasterCommitFence { action ->
+								if (physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get()) {
+									publicationLedger.commitFence(request).commit(action)
+								} else {
+									ReaderPageRasterWriteResult(
+										persisted = false,
+										ownership = ReaderPageRasterValueOwnership.Caller
+									)
+								}
+							}
+							write = when {
+								physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() -> write
+								store?.contains(value.key, metadata) == true ->
+									ReaderPageRasterWriteResult(
+										persisted = true,
+										ownership = ReaderPageRasterValueOwnership.Caller
+									)
+								else -> store?.writePublication(
 									key = value.key,
-									metadata = value.generation.metadata,
+									metadata = metadata,
 									value = value.generation.value,
-									commitFence =
-										publicationLedger.commitFence(request)
+									commitFence = commitFence
 								) ?: write
 							}
 							if (publicationQaFault != null && write.persisted) {
@@ -1333,11 +1603,13 @@ internal class ReaderPageTurnBundleSource(
 						onQaFaultApplied(applied.correlation())
 					}
 			} finally {
+				val persistedForCurrentLayout = write.persisted &&
+					physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get()
 				val accepted = publicationLedger.complete(
 					request = request,
-					persisted = write.persisted
+					persisted = persistedForCurrentLayout
 				)
-				if (!accepted) {
+				if (!accepted || !persistedForCurrentLayout) {
 					write.receipt?.let { receipt ->
 						var rollbackFailure: Throwable? = null
 						try {
@@ -1655,6 +1927,7 @@ internal class ReaderPageTurnBundleSource(
 		}
 		publicationLedger.invalidate()
 		publicationScheduler.cancelBeforeEpoch(publicationLedger.currentEpoch())
+		physicalLayoutAuthority = null
 		protectedSnapshotPageIndices = emptySet()
 		rasterCache?.protectDecodedPageIndices(emptySet())
 		val descriptorRecipients = descriptorRequests.values

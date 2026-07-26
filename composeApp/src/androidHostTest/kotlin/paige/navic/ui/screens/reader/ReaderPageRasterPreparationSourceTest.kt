@@ -55,6 +55,23 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun prewarmReferenceRecapturesTheCurrentPhysicalLayout() {
+		val preparation = readerRasterPreparationSource()
+		val productionPort = preparation
+			.substringAfter("private class ReaderPageBundleRasterCurrentReferencePort(")
+			.substringBefore("internal fun readerPageTurnCanStartPassivePrewarm(")
+		val reference = preparation
+			.substringAfter("private fun obtainRasterReference(")
+			.substringBefore("private fun isPrewarmSessionActive(")
+
+		assertContains(productionPort, "bundleSource.captureCurrentSurface(webView, generation)")
+		assertContains(productionPort, "bundleSource.cacheCurrentSnapshot(pageIndex, kind, current, generation)")
+		assertContains(productionPort, "snapshot.retain()")
+		assertContains(reference, "currentReferencePort.captureFresh(")
+		assertFalse(reference.contains("retainedSnapshot(pageIndex, kind)?.let"))
+	}
+
+	@Test
 	fun publicationCapacityRetriesUseTheExactPreparationListener() {
 		val preparation = readerRasterPreparationSource()
 		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")

@@ -330,10 +330,16 @@ internal class ReaderPageRasterCache<T : Any>(
 		)
 	}
 
-	fun contains(key: ReaderPageRasterKey): Boolean = synchronized(this) {
+	fun contains(key: ReaderPageRasterKey): Boolean = contains(key, expectedMetadata = null)
+
+	fun contains(
+		key: ReaderPageRasterKey,
+		expectedMetadata: ReaderPageRasterMetadata?
+	): Boolean = synchronized(this) {
 		if (!storageAvailable) return@synchronized false
 		val entry = entries[key.digest]?.takeIf { candidate ->
-			candidate.key.identity == key.identity
+			candidate.key.identity == key.identity &&
+				(expectedMetadata == null || candidate.metadata == expectedMetadata)
 		} ?: return@synchronized false
 		val path = root.resolve(entry.rasterFileName)
 		path.isFile && path.length() > 0L
@@ -537,11 +543,17 @@ internal class ReaderPageRasterCache<T : Any>(
 		return removed
 	}
 
-	fun remove(key: ReaderPageRasterKey): Boolean {
+	fun remove(key: ReaderPageRasterKey): Boolean = remove(key, expectedMetadata = null)
+
+	fun remove(
+		key: ReaderPageRasterKey,
+		expectedMetadata: ReaderPageRasterMetadata?
+	): Boolean {
 		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
 		val removed = synchronized(this) {
 			val entry = entries[key.digest]?.takeIf { candidate ->
-				candidate.key.identity == key.identity
+				candidate.key.identity == key.identity &&
+					(expectedMetadata == null || candidate.metadata == expectedMetadata)
 			} ?: return@synchronized false
 			entries.remove(key.digest)
 			entryRevisions.remove(key.digest)

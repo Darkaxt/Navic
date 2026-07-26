@@ -73,6 +73,349 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun physicalLayoutMustMatchTheCurrentLandscapeReference() {
+		val reference = landscapeReferenceSnapshot()
+		val matching = landscapeReferenceSnapshot()
+		val containedButSmaller = landscapeReferenceSnapshot(
+			surfaceRectInWindow = Rect(0, 0, 100, 60),
+			left = ReaderPageTurnPixelRect(10, 5, 40, 55),
+			right = ReaderPageTurnPixelRect(60, 5, 90, 55)
+		)
+		val shiftedSurface = landscapeReferenceSnapshot(
+			surfaceRectInWindow = Rect(10, 5, 110, 65)
+		)
+		val snapshots = listOf(reference, matching, containedButSmaller, shiftedSurface)
+		try {
+			assertTrue(readerPageRasterPhysicalLayoutMatches(matching, reference))
+			assertFalse(readerPageRasterPhysicalLayoutMatches(containedButSmaller, reference))
+			assertFalse(readerPageRasterPhysicalLayoutMatches(shiftedSurface, reference))
+		} finally {
+			snapshots.forEach { snapshot -> snapshot.releaseCacheOwnership() }
+		}
+	}
+
+	@Test
+	fun currentCaptureMustMatchItsDeclaredTransitionKind() {
+		val source = ReaderPageTurnBundleSource()
+		val captured = captureResult()
+		try {
+			assertNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 0,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = captured
+				)
+			)
+			assertTrue(captured.bitmap.isRecycled)
+		} finally {
+			source.close()
+		}
+	}
+
+	@Test
+	fun staleContainedLandscapeRasterIsRejectedBeforePersistentPublication() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val events = mutableListOf<String>()
+		var removeCount = 0
+		val store = object : ReaderPageRasterHydrationStorePort {
+			override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap> =
+				ReaderPageRaster(
+					key = key,
+					metadata = ReaderPageRasterMetadata(
+						surfaceLeft = 0,
+						surfaceTop = 0,
+						surfaceRight = 100,
+						surfaceBottom = 60,
+						fullLeafRect = null,
+						leftLeafRect = ReaderPageRasterRect(10, 5, 40, 55),
+						gutterRect = ReaderPageRasterRect(40, 5, 60, 55),
+						rightLeafRect = ReaderPageRasterRect(60, 5, 90, 55),
+						reverseFaceColor = 0xffead9ae.toInt()
+					),
+					value = Bitmap.createBitmap(100, 60, Bitmap.Config.ARGB_8888)
+				)
+
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean {
+				removeCount += 1
+				return true
+			}
+		}
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(events),
+			hydrationStorePort = store
+		)
+		val reference = landscapeReferenceSnapshot()
+		try {
+			val result = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+				reference = reference
+			) { result.complete(it) }
+
+			assertNull(result.await())
+			assertEquals(0, removeCount)
+		} finally {
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun staleHydrationWorkerCannotRemoveRasterAfterLayoutInvalidation() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val readStarted = CompletableDeferred<Unit>()
+		val finishRead = CompletableDeferred<Unit>()
+		var removeCount = 0
+		val store = object : ReaderPageRasterHydrationStorePort {
+			override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap> {
+				readStarted.complete(Unit)
+				finishRead.await()
+				return persistentLandscapeRaster(
+					key = key,
+					left = ReaderPageRasterRect(10, 5, 40, 55),
+					right = ReaderPageRasterRect(60, 5, 90, 55)
+				)
+			}
+
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean {
+				removeCount += 1
+				return true
+			}
+		}
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(mutableListOf()),
+			hydrationStorePort = store
+		)
+		val reference = landscapeReferenceSnapshot()
+		try {
+			val result = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+				reference = reference
+			) { result.complete(it) }
+			readStarted.await()
+
+			source.invalidate("physical-layout-changed")
+			finishRead.complete(Unit)
+			runCurrent()
+
+			assertNull(result.await())
+			assertEquals(0, removeCount)
+		} finally {
+			finishRead.complete(Unit)
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun hydrationCannotPublishAfterAnotherPageDetectsANewPhysicalLayout() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val readStarted = CompletableDeferred<Unit>()
+		val finishRead = CompletableDeferred<Unit>()
+		val store = object : ReaderPageRasterHydrationStorePort {
+			override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap> {
+				readStarted.complete(Unit)
+				finishRead.await()
+				return persistentLandscapeRaster(
+					key = key,
+					left = ReaderPageRasterRect(0, 0, 50, 60),
+					right = ReaderPageRasterRect(50, 0, 100, 60)
+				)
+			}
+
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean = false
+		}
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(mutableListOf()),
+			hydrationStorePort = store
+		)
+		val reference = landscapeReferenceSnapshot()
+		try {
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = landscapeCaptureResult()
+				)
+			)
+			val result = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+				reference = reference
+			) { result.complete(it) }
+			readStarted.await()
+
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = landscapeCaptureResult(Rect(10, 5, 110, 65))
+				)
+			)
+			finishRead.complete(Unit)
+			runCurrent()
+
+			assertNull(result.await())
+			assertFalse(
+				source.hasSnapshot(
+					4,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+		} finally {
+			finishRead.complete(Unit)
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun staleReferenceCannotEvictTheCurrentPhysicalLayout() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val events = mutableListOf<String>()
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(events),
+			hydrationStorePort = FakeHydrationStore(events, durablePages = emptySet())
+		)
+		var staleReference: ReaderPageSlideSnapshot? = null
+		try {
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = landscapeCaptureResult()
+				)
+			)
+			val stale = assertNotNull(
+				source.retainedSnapshot(
+					4,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			staleReference = stale
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = landscapeCaptureResult(Rect(10, 5, 110, 65))
+				)
+			)
+
+			val result = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = 6,
+				kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+				reference = stale
+			) { result.complete(it) }
+
+			assertNull(result.await())
+			assertTrue(
+				source.hasSnapshot(
+					5,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+			assertTrue(events.isEmpty())
+		} finally {
+			staleReference?.release()
+			source.close()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun staleInMemoryLandscapeSnapshotIsRejectedAgainstTheCurrentReference() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val events = mutableListOf<String>()
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(events),
+			hydrationStorePort = FakeHydrationStore(events, durablePages = emptySet())
+		)
+		val reference = landscapeReferenceSnapshot()
+		try {
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = landscapeCaptureResult(Rect(20, 10, 80, 50))
+				)
+			)
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 0,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					current = landscapeCaptureResult()
+				)
+			)
+			val result = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView = webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+				reference = reference
+			) { result.complete(it) }
+
+			assertNull(result.await())
+			assertEquals(listOf("descriptor:4", "persistent:4"), events)
+			assertFalse(
+				source.hasSnapshot(
+					4,
+					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+				)
+			)
+		} finally {
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun preparedSnapshotMetadataComesFromTheExposedDestinationCapture() {
 		val bitmap = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
 		val captured = ReaderPageTurnCaptureResult(
@@ -437,7 +780,10 @@ class ReaderPageTurnBundleHydrationTest {
 			override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap> =
 				persistentRaster(key).also { raster -> durableBitmap = raster.value }
 
-			override suspend fun remove(key: ReaderPageRasterKey): Boolean = false
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean = false
 		}
 		val source = ReaderPageTurnBundleSource(
 			descriptorPort = FakeDescriptorPort(mutableListOf()),
@@ -701,7 +1047,10 @@ class ReaderPageTurnBundleHydrationTest {
 				)
 			}
 
-			override suspend fun remove(key: ReaderPageRasterKey): Boolean {
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean {
 				removed += key.visualPageOrdinal
 				return true
 			}
@@ -754,7 +1103,10 @@ class ReaderPageTurnBundleHydrationTest {
 				}
 			}
 
-			override suspend fun remove(key: ReaderPageRasterKey): Boolean = false
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean = false
 		}
 		val source = ReaderPageTurnBundleSource(
 			descriptorPort = FakeDescriptorPort(mutableListOf()),
@@ -814,7 +1166,10 @@ class ReaderPageTurnBundleHydrationTest {
 				return persistentRaster(key)
 			}
 
-			override suspend fun remove(key: ReaderPageRasterKey): Boolean = false
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean = false
 		}
 		val source = ReaderPageTurnBundleSource(
 			descriptorPort = FakeDescriptorPort(events),
@@ -920,7 +1275,10 @@ class ReaderPageTurnBundleHydrationTest {
 				}
 			}
 
-			override suspend fun remove(key: ReaderPageRasterKey): Boolean = false
+			override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean = false
 		}
 		val source = ReaderPageTurnBundleSource(
 			descriptorPort = FakeDescriptorPort(events),
@@ -988,7 +1346,10 @@ class ReaderPageTurnBundleHydrationTest {
 			return if (key.visualPageOrdinal in durablePages) persistentRaster(key) else null
 		}
 
-		override suspend fun remove(key: ReaderPageRasterKey): Boolean = false
+		override suspend fun remove(
+				key: ReaderPageRasterKey,
+				expectedMetadata: ReaderPageRasterMetadata
+			): Boolean = false
 	}
 }
 
@@ -1024,6 +1385,55 @@ private fun persistentRaster(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>
 		value = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888)
 	)
 
+private fun persistentLandscapeRaster(
+	key: ReaderPageRasterKey,
+	left: ReaderPageRasterRect,
+	right: ReaderPageRasterRect
+): ReaderPageRaster<Bitmap> = ReaderPageRaster(
+	key = key,
+	metadata = ReaderPageRasterMetadata(
+		surfaceLeft = 0,
+		surfaceTop = 0,
+		surfaceRight = 100,
+		surfaceBottom = 60,
+		fullLeafRect = null,
+		leftLeafRect = left,
+		gutterRect = ReaderPageRasterRect(left.right, 0, right.left, 60),
+		rightLeafRect = right,
+		reverseFaceColor = 0xffead9ae.toInt()
+	),
+	value = Bitmap.createBitmap(100, 60, Bitmap.Config.ARGB_8888)
+)
+
+private fun landscapeCaptureResult(
+	surfaceRectInWindow: Rect = Rect(0, 0, 100, 60)
+): ReaderPageTurnCaptureResult = ReaderPageTurnCaptureResult(
+	bitmap = Bitmap.createBitmap(100, 60, Bitmap.Config.ARGB_8888),
+	sourceRectInWindow = Rect(surfaceRectInWindow),
+	geometry = ReaderPageTurnCaptureGeometry(
+		viewportWidth = 100.0,
+		viewportHeight = 60.0,
+		mode = ReaderPageTurnLayoutMode.Spread,
+		pages = listOf(
+			ReaderPageTurnPageRect(
+				role = ReaderPageTurnPageRole.Left,
+				left = 0.0,
+				top = 0.0,
+				width = 50.0,
+				height = 60.0
+			),
+			ReaderPageTurnPageRect(
+				role = ReaderPageTurnPageRole.Right,
+				left = 50.0,
+				top = 0.0,
+				width = 50.0,
+				height = 60.0
+			)
+		)
+	),
+	elapsedMs = 1L
+)
+
 private fun captureResult(): ReaderPageTurnCaptureResult = ReaderPageTurnCaptureResult(
 	bitmap = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888),
 	sourceRectInWindow = Rect(0, 0, 20, 30),
@@ -1042,6 +1452,31 @@ private fun captureResult(): ReaderPageTurnCaptureResult = ReaderPageTurnCapture
 		)
 	),
 	elapsedMs = 1L
+)
+
+private fun landscapeReferenceSnapshot(
+	surfaceRectInWindow: Rect = Rect(0, 0, 100, 60),
+	left: ReaderPageTurnPixelRect = ReaderPageTurnPixelRect(0, 0, 50, 60),
+	right: ReaderPageTurnPixelRect = ReaderPageTurnPixelRect(50, 0, 100, 60)
+): ReaderPageSlideSnapshot = ReaderPageSlideSnapshot(
+	key = ReaderPageSlideSnapshotKey(
+		visualPageIndex = 0,
+		kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+		bitmapQuality = ReaderPageBitmapQuality.Balanced,
+		bitmapWidth = 100,
+		bitmapHeight = 60,
+		surfaceWidth = surfaceRectInWindow.width(),
+		surfaceHeight = surfaceRectInWindow.height()
+	),
+	bitmap = Bitmap.createBitmap(100, 60, Bitmap.Config.ARGB_8888),
+	surfaceRectInWindow = Rect(surfaceRectInWindow),
+	leafGeometry = ReaderPageTurnLeafGeometry(
+		fullLeafRect = null,
+		leftLeafRect = left,
+		gutterRect = ReaderPageTurnPixelRect(left.right, 0, right.left, 60),
+		rightLeafRect = right
+	),
+	reverseFaceColor = 0xffead9ae.toInt()
 )
 
 private fun referenceSnapshot(

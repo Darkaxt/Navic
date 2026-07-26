@@ -864,6 +864,15 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 				rasterPlanPort = ReaderPageRasterPreparationPlanPort { _, _, onPlan ->
 					onPlan(task9PreparationPlan())
 				},
+				currentReferencePort = ReaderPageRasterCurrentReferencePort {
+					_, _, _, generation, isCurrent, onResolved ->
+					if (generation == bundleSource.currentGeneration() && isCurrent()) {
+						reference.retain()
+						onResolved(reference)
+					} else {
+						onResolved(null)
+					}
+				},
 				initializeRasterCache = initializeRasterCache
 					?: bundleSource::initializeRasterCache,
 				retainedSnapshot = { _, _ ->

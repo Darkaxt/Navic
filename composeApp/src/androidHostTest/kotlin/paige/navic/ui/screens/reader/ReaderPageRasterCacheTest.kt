@@ -656,6 +656,27 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun conditionalRemovalCannotDeleteAReplacementRaster() {
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key()
+		val staleMetadata = metadata()
+		val currentMetadata = staleMetadata.copy(
+			leftLeafRect = ReaderPageRasterRect(0, 0, 40, 100),
+			rightLeafRect = ReaderPageRasterRect(60, 0, 100, 100)
+		)
+		assertTrue(fixture.cache.write(rasterKey, staleMetadata, pngBytes("stale")))
+		val staleRead = assertNotNull(
+			fixture.cache.readCopy(rasterKey) { cached -> cached.copyOf() }
+		)
+		assertTrue(fixture.cache.write(rasterKey, currentMetadata, pngBytes("current")))
+
+		assertFalse(fixture.cache.remove(rasterKey, staleRead.metadata))
+		assertFalse(fixture.cache.contains(rasterKey, staleMetadata))
+		assertTrue(fixture.cache.contains(rasterKey, currentMetadata))
+		assertContentEquals(pngBytes("current"), fixture.cache.read(rasterKey)?.value)
+	}
+
+	@Test
 	fun sharedIdentitySurvivesSingleKeyRemovalAndCapacityEviction() {
 		val attempts = mutableListOf<Any>()
 		val shared = Any()

@@ -88,6 +88,53 @@ private class ReaderPageWebViewRasterPreparationPlanPort :
 	}
 }
 
+internal fun interface ReaderPageRasterCurrentReferencePort {
+	fun captureFresh(
+		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		generation: Long,
+		isCurrent: () -> Boolean,
+		onResolved: (ReaderPageSlideSnapshot?) -> Unit
+	)
+}
+
+private class ReaderPageBundleRasterCurrentReferencePort(
+	private val bundleSource: ReaderPageTurnBundleSource
+) : ReaderPageRasterCurrentReferencePort {
+	override fun captureFresh(
+		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		generation: Long,
+		isCurrent: () -> Boolean,
+		onResolved: (ReaderPageSlideSnapshot?) -> Unit
+	) {
+		bundleSource.captureCurrentSurface(webView, generation) { current ->
+			if (
+				current == null ||
+				generation != bundleSource.currentGeneration() ||
+				!isCurrent()
+			) {
+				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+				onResolved(null)
+				return@captureCurrentSurface
+			}
+			val snapshot = bundleSource.cacheCurrentSnapshot(pageIndex, kind, current, generation)
+			if (
+				snapshot == null ||
+				generation != bundleSource.currentGeneration() ||
+				!isCurrent()
+			) {
+				onResolved(null)
+				return@captureCurrentSurface
+			}
+			snapshot.retain()
+			onResolved(snapshot)
+		}
+	}
+}
+
 internal fun readerPageTurnCanStartPassivePrewarm(
 	destroyed: Boolean,
 	sessionEnabled: Boolean,
@@ -135,6 +182,8 @@ internal class ReaderPageRasterPreparationController(
 		ReaderPageRasterBatchController(bundleSource, diagnostics),
 	private val rasterPlanPort: ReaderPageRasterPreparationPlanPort =
 		ReaderPageWebViewRasterPreparationPlanPort(),
+	private val currentReferencePort: ReaderPageRasterCurrentReferencePort =
+		ReaderPageBundleRasterCurrentReferencePort(bundleSource),
 	private val initializeRasterCache: suspend (WebView) -> Unit =
 		bundleSource::initializeRasterCache,
 	private val retainedSnapshot: (
@@ -1309,21 +1358,18 @@ internal class ReaderPageRasterPreparationController(
 		kind: ReaderPageTurnTransitionKind,
 		onResolved: (ReaderPageSlideSnapshot?) -> Unit
 	) {
-		retainedSnapshot(pageIndex, kind)?.let { retained ->
-			onResolved(retained)
-			return
-		}
 		val generation = bundleSource.currentGeneration()
-		bundleSource.captureCurrentSurface(webView, generation) { current ->
-			if (current == null || !isPrewarmActive(webView, session)) {
-				current?.bitmap?.takeUnless { it.isRecycled }?.recycle()
-				onResolved(null)
-				return@captureCurrentSurface
-			}
-			val snapshot = bundleSource.cacheCurrentSnapshot(pageIndex, kind, current, generation)
-			snapshot?.retain()
-			onResolved(snapshot)
-		}
+		currentReferencePort.captureFresh(
+			webView = webView,
+			pageIndex = pageIndex,
+			kind = kind,
+			generation = generation,
+			isCurrent = {
+				generation == bundleSource.currentGeneration() &&
+					isPrewarmActive(webView, session)
+			},
+			onResolved = onResolved
+		)
 	}
 
 	private fun isPrewarmSessionActive(session: Long): Boolean =
