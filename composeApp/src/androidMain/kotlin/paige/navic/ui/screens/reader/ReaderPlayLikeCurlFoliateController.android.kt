@@ -453,7 +453,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			currentState = ::relocationVisualState,
 			dispatch = ::dispatchRelocation,
 			publishRecovery = ::publishRelocationVisualRecovery,
-			hideSurface = ::hideSurface,
+			hideSurface = ::hideSurfaceAfterHandoff,
 			canRecover = { qaFaultRegistry?.isClosed() != true },
 			onOwnershipMutated = onOwnershipMutated,
 			attemptEventSink =
@@ -477,6 +477,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var activeGestureId: Long? = null
 	private var presentedFrameRequestId: Long? = null
 	private var presentedFrameGestureId: Long? = null
+	private var presentedSurfaceGestureId: Long? = null
 	private var tapTurnGestureId: Long? = null
 	private var tapTurnTerminalSink: ((
 		ReaderPageGestureTerminalOutcome,
@@ -626,7 +627,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				) {
 					return
 				}
-				hideSurface()
+				hideSurfaceAfterGesture(gestureId)
 			}
 
 			override fun onGestureCancelled(gestureId: Long, generationId: Long) {
@@ -638,7 +639,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				) {
 					return
 				}
-				hideSurface()
+				hideSurfaceAfterGesture(gestureId)
 			}
 
 			override fun onSettlementStarted(
@@ -703,7 +704,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						"PlayLikeCurl settlement completed generation=$generationId " +
 							"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
 					)
-					hideSurface()
+					hideSurfaceAfterGesture(gestureId)
 					updateReadiness(
 						textureDeck = ReaderTextureDeckState.Ready,
 						interaction = preparedInteractionState(),
@@ -831,7 +832,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						reason = "settlement-cancelled:$gestureId"
 					)
 				}
-				hideSurface()
+				hideSurfaceAfterGesture(gestureId)
 			}
 
 			override fun onRenderFailure(failure: RenderFailure) {
@@ -1164,7 +1165,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					detail
 				)
 			) { "Unavailable touch terminal was not published" }
-			hideSurface()
+			hideSurfaceAfterGesture(gestureId)
 			return ReaderPageCurlDispatchResult.TerminalPublished
 		}
 
@@ -1183,7 +1184,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPageRelocationStartResult.Admitted ->
 				ReaderPageCurlDispatchResult.Accepted
 			is ReaderPageRelocationStartResult.TerminalPublished -> {
-				hideSurface()
+				hideSurfaceAfterGesture(gestureId)
 				ReaderPageCurlDispatchResult.TerminalPublished
 			}
 		}
@@ -1263,7 +1264,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				ReaderPageTurnStartResult.Settling
 			}
 			is ReaderPageRelocationStartResult.TerminalPublished -> {
-				hideSurface()
+				hideSurfaceAfterGesture(gestureId)
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"PlayLikeCurl tap turn change=$pageChange accepted=false"
@@ -1280,9 +1281,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (
 			!canPresentAcceptedGesture ||
 			activeGestureId != gestureId ||
-			surfaceView.alpha != 0f ||
 			presentedFrameGestureId == gestureId
 		) {
+			return
+		}
+		if (surfaceView.alpha != 0f) {
+			presentedSurfaceGestureId = gestureId
 			return
 		}
 		presentedFrameRequestId?.let { requestId ->
@@ -1296,6 +1300,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				presentedFrameRequestId = null
 				presentedFrameGestureId = null
 				if (gestureStillOwnsReveal && enabled && attached && !destroyed) {
+					presentedSurfaceGestureId = gestureId
 					surfaceView.alpha = 1f
 				}
 			}
@@ -1320,7 +1325,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				ReaderPageGestureTerminalDetail.ControllerCancelled
 			)
 		}
-		hideSurface()
+		hideSurfaceAfterGesture(gestureId)
 	}
 
 	private fun cancelRendererWork(cancellationReason: ReaderPageLifecycleCancellationReason) {
@@ -2516,6 +2521,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 						currentProtectedWindow == fence.protectedWindow
 				}
 			)
+			if (
+				!destroyed &&
+				requestedProfile == expectedProfile &&
+				requestGeneration == expectedGeneration &&
+				currentOrdinal == destinationOrdinal &&
+				committedTurnVersion == expectedTurnVersion
+			) {
+				refillDecodedWorkingSet(
+					destinationOrdinal,
+					"persistent-refill-completed"
+				)
+			}
 		}
 	}
 
@@ -3812,12 +3829,35 @@ internal class ReaderPlayLikeCurlFoliateController(
 		pages.deck.close()
 	}
 
+	private fun hideSurfaceAfterGesture(gestureId: Long) {
+		if (relocationQueue.ownershipSnapshot().queued > 0) return
+		if (
+			presentedFrameGestureId != gestureId &&
+			presentedSurfaceGestureId != gestureId
+		) {
+			return
+		}
+		hideSurface()
+	}
+
+	private fun hideSurfaceAfterHandoff(request: ReaderPageRelocationRequest) {
+		val newerFrameOwner = presentedFrameGestureId?.let { gestureId ->
+			gestureId > request.gestureId
+		} == true
+		val newerSurfaceOwner = presentedSurfaceGestureId?.let { gestureId ->
+			gestureId > request.gestureId
+		} == true
+		if (newerFrameOwner || newerSurfaceOwner) return
+		hideSurface()
+	}
+
 	private fun hideSurface() {
 		presentedFrameRequestId?.let { requestId ->
 			surfaceView.cancelPresentedFrameRequest(requestId)
 		}
 		presentedFrameRequestId = null
 		presentedFrameGestureId = null
+		presentedSurfaceGestureId = null
 		surfaceView.alpha = 0f
 	}
 

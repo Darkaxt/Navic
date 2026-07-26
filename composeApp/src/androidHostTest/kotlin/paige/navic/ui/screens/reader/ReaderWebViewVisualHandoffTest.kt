@@ -359,14 +359,14 @@ class ReaderWebViewVisualHandoffTest {
 		val state = visualStateFor(request)
 		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
 		val awaiting = mutableListOf<ReaderPageRelocationRequest>()
-		var hideCount = 0
+		val hiddenRequests = mutableListOf<ReaderPageRelocationRequest>()
 		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
 			queue = queue,
 			host = host,
 			currentState = { state },
 			dispatch = { error("No later request expected: $it") },
 			publishRecovery = { _, reason -> recoveries += reason },
-			hideSurface = { hideCount += 1 },
+			hideSurface = hiddenRequests::add,
 			onAwaiting = awaiting::add
 		)
 
@@ -383,7 +383,7 @@ class ReaderWebViewVisualHandoffTest {
 		)
 		assertEquals(request, queue.head())
 		assertEquals(listOf(request), awaiting)
-		assertEquals(0, hideCount)
+		assertEquals(0, hiddenRequests.size)
 		assertFalse(
 			coordinator.onRetryEvent(
 				ReaderPageRelocationVisualRetryEvent.Reprepared(
@@ -400,9 +400,9 @@ class ReaderWebViewVisualHandoffTest {
 		host.completeVisualState()
 		host.runNextFrame()
 		assertNull(queue.head())
-		assertEquals(1, hideCount)
+		assertEquals(listOf(request), hiddenRequests)
 		assertFalse(host.redeliverLastVisualState())
-		assertEquals(1, hideCount)
+		assertEquals(listOf(request), hiddenRequests)
 	}
 
 	@Test

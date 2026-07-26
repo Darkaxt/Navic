@@ -786,7 +786,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		ReaderPageRelocationRequest,
 		ReaderWebViewVisualHandoffFailure
 	) -> Unit,
-	private val hideSurface: () -> Unit,
+	private val hideSurface: (ReaderPageRelocationRequest) -> Unit,
 	private val canRecover: () -> Boolean = { true },
 	timeoutMillis: Long = 2_000L,
 	private val onOwnershipMutated: () -> Unit = {},
@@ -994,7 +994,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		head = null
 		clearQaFaultCorrelation()
 		val next = queue.commandToDispatch()
-		if (next == null) hideSurface() else dispatch(next)
+		if (next == null) hideSurface(request) else dispatch(next)
 	}
 
 	private fun recover(

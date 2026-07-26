@@ -460,10 +460,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(complete, "queue.completeHandoff(request.token.value)")
 		assertContains(complete, "val next = queue.commandToDispatch()")
-		assertContains(complete, "if (next == null) hideSurface() else dispatch(next)")
+		assertContains(complete, "if (next == null) hideSurface(request) else dispatch(next)")
 		assertTrue(
 			complete.indexOf("queue.completeHandoff(request.token.value)") <
-				complete.indexOf("if (next == null) hideSurface() else dispatch(next)")
+				complete.indexOf("if (next == null) hideSurface(request) else dispatch(next)")
 		)
 	}
 
@@ -625,6 +625,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"Persistent hydration must remain asynchronous after the synchronous window advance."
 		)
 		assertContains(schedule, "rasterScope.launch(Dispatchers.Main.immediate)")
+		assertContains(schedule, "refillDecodedWorkingSet(")
+		assertTrue(
+			schedule.indexOf("persistentRefillCoordinator.onTurnCommitted(") <
+				schedule.indexOf("refillDecodedWorkingSet("),
+			"Persistent hydration must feed the promoted decoded deck before Foliate acknowledgement."
+		)
 		assertContains(schedule, "requestGeneration == expectedGeneration")
 		assertContains(schedule, "committedTurnVersion == fence.committedTurnVersion")
 		assertContains(schedule, "protectedWindowVersion == fence.protectedWindowVersion")
@@ -1097,7 +1103,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(rejection, "ReaderPageGestureTerminalOutcome.RejectedBoundary")
 		assertContains(rejection, "ReaderPageGestureTerminalDetail.RendererRejected(")
-		assertTrue(rejection.indexOf("finishGesture(") < rejection.indexOf("hideSurface()"))
+		assertTrue(
+			rejection.indexOf("finishGesture(") <
+				rejection.indexOf("hideSurfaceAfterGesture(gestureId)")
+		)
 		assertFalse(
 			rejection.contains("if (reason == GestureRejectionReason.BOUNDARY)"),
 			"Every rejected revealed curl gesture must restore the content surface."
@@ -1117,9 +1126,41 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("override fun onSettlementStarted(")
 
 		assertContains(cancellation, "if (!finishGesture(")
-		assertContains(cancellation, "hideSurface()")
+		assertContains(cancellation, "hideSurfaceAfterGesture(gestureId)")
 		assertTrue(
-			cancellation.indexOf("finishGesture(") < cancellation.indexOf("hideSurface()")
+			cancellation.indexOf("finishGesture(") <
+				cancellation.indexOf("hideSurfaceAfterGesture(gestureId)")
+		)
+	}
+
+	@Test
+	fun rejectedRapidPointerCannotHideCommittedVisualHandoffShield() {
+		val source = controllerFile.readText()
+		val rejection = source
+			.substringAfter("override fun onGestureRejected(")
+			.substringBefore("override fun onGestureCancelled(")
+		val unavailable = source
+			.substringAfter("if (!isAvailable || metadata == null) {")
+			.substringBefore("return ReaderPageCurlDispatchResult.TerminalPublished")
+		val gestureHide = source
+			.substringAfter("private fun hideSurfaceAfterGesture(")
+			.substringBefore("private fun hideSurfaceAfterHandoff(")
+		val handoffHide = source
+			.substringAfter("private fun hideSurfaceAfterHandoff(")
+			.substringBefore("private fun hideSurface()")
+
+		assertContains(source, "hideSurface = ::hideSurfaceAfterHandoff")
+		assertContains(rejection, "hideSurfaceAfterGesture(gestureId)")
+		assertContains(unavailable, "hideSurfaceAfterGesture(gestureId)")
+		assertContains(gestureHide, "relocationQueue.ownershipSnapshot().queued > 0")
+		assertContains(gestureHide, "presentedFrameGestureId != gestureId")
+		assertContains(gestureHide, "presentedSurfaceGestureId != gestureId")
+		assertContains(handoffHide, "request.gestureId")
+		assertContains(handoffHide, "> request.gestureId")
+		assertTrue(
+			gestureHide.indexOf("relocationQueue.ownershipSnapshot().queued > 0") <
+				gestureHide.indexOf("hideSurface()"),
+			"A rejected rapid pointer must not expose WebView while a committed handoff owns the shield."
 		)
 	}
 
@@ -1185,7 +1226,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		listOf(
 			"discardPendingDeck(",
 			"updateReadiness(",
-			"hideSurface()"
+			"hideSurfaceAfterGesture(gestureId)"
 		).forEach { sideEffect ->
 			assertTrue(
 				fence < cancellation.indexOf(sideEffect),
@@ -1268,9 +1309,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("return ReaderPageCurlDispatchResult.TerminalPublished")
 
 		assertContains(unavailable, "publishGestureTerminal(")
-		assertContains(unavailable, "hideSurface()")
+		assertContains(unavailable, "hideSurfaceAfterGesture(gestureId)")
 		assertTrue(
-			unavailable.indexOf("publishGestureTerminal(") < unavailable.indexOf("hideSurface()")
+			unavailable.indexOf("publishGestureTerminal(") <
+				unavailable.indexOf("hideSurfaceAfterGesture(gestureId)")
 		)
 	}
 
