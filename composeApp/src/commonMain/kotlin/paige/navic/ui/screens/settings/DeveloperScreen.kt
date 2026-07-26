@@ -131,20 +131,6 @@ fun SettingsDeveloperScreen() {
 						Text(stringResource(Res.string.option_custom_headers))
 						Icon(Icons.Outlined.ChevronForward, null)
 					}
-					if (platformContext.platformType == PlatformType.Android) {
-						FormRow(
-							onClick = dropUnlessResumed {
-								backStack.lastOrNull()?.let {
-									if (it is Screen.Settings.Developer) {
-										backStack.add(Screen.Settings.Logs)
-									}
-								}
-							}
-						) {
-							Text(stringResource(Res.string.title_logs))
-							Icon(Icons.Outlined.ChevronForward, null)
-						}
-					}
 				}
 				Form {
 					FormRow(onClick = {
