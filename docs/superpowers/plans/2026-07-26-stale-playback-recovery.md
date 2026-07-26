@@ -92,10 +92,11 @@ Gate:
   request, and terminal decision.
 - [x] Run the duplicate Logs regression test.
 - [x] Run stale identity and playback recovery tests.
-- [ ] Run Android host tests and compare failures with the known baseline.
-- [ ] Run Android debug and release compilation/build gates.
-- [ ] Review every design invariant and acceptance row against code/tests.
-- [ ] Record deviations or residual risk in this plan; do not silently weaken
+- [x] Run Android host tests and compare failures with the known baseline.
+- [x] Run the Android debug compilation gate.
+- [ ] Run the Android release build gate.
+- [x] Review every design invariant and acceptance row against code/tests.
+- [x] Record deviations or residual risk in this plan; do not silently weaken
   the design.
 
 ## Stage 5: Release and Cleanup
@@ -114,16 +115,70 @@ Gate:
 
 ## Design Comparison
 
-Complete this section after implementation.
-
 | Design requirement | Implementation evidence | Result |
 | --- | --- | --- |
-| Authenticated stale-ID confirmation | Pending | Pending |
-| Conservative unique matching | Pending | Pending |
-| In-place logical/media replacement | Pending | Pending |
-| Async stale-result rejection | Pending | Pending |
-| Actual upcoming-order terminal target | Pending | Pending |
-| Explicit download request result | Pending | Pending |
-| No indefinite `NOT_DOWNLOADED` wait | Pending | Pending |
-| No timeout-based cancellation | Pending | Pending |
-| Android-only release | Pending | Pending |
+| Parser work stays off the player callback | `AndroidStablePlaybackRecoveryCoordinator.beginStaleSongProbe` launches the resolver in its injected coroutine scope | Pass |
+| Authenticated stale-ID confirmation | `AndroidStalePlaybackSongResolverFactory` uses `SessionManager.withApi { getSong(id) }`; `StalePlaybackSongResolver` only remaps after typed `DATA_NOT_FOUND` | Pass |
+| Conservative unique matching | `StalePlaybackSongPolicy` implements ordered unique MusicBrainz, ISRC, and exact metadata tiers; fuzzy/incomplete and ambiguous tests reject replacement | Pass |
+| In-place logical/media replacement | `withQueueSongReplacement` repairs one logical index; the coordinator calls `replaceMediaItem` at the same index and seeks to the retained position | Pass |
+| Queue order and playback intent preservation | `PlayerUiStateQueueRepairTest`, the Media3 source contract, retained `shouldResume`, and the pause-during-probe guard preserve order and current user intent | Pass |
+| Async stale-result rejection | The coordinator re-reads `pending` and validates captured song ID plus queue index before applying either probe or request results | Pass |
+| Actual upcoming-order terminal target | `firstPlayableUpcomingIndex` consumes `PlayerUiState.upcomingIndexes`; shuffled-order and unavailable-item tests pass | Pass |
+| Missing/ambiguous terminal behavior | `finishConfirmedMissingSong` emits one notice and holds or advances once according to `skipMediaOnError` and retained Play intent | Pass |
+| Explicit download request result | `PlaybackDownloadRequestResult` and `DownloadManager.requestPlaybackRecoveryDownload` return all five specified outcomes | Pass |
+| No indefinite `NOT_DOWNLOADED` wait | Enqueued/active results record their committed generation as Active; matching cancellation, missing row, failure, and unusable downloaded file are terminal in `playbackRecoveryResolution` | Pass |
+| Service errors preserve offline fallback | Resolver service classification feeds `handleServiceUnavailable`; unknown probe/catalog failures remain unresolved instead of claiming a stale ID | Pass |
+| Bounded, credential-safe diagnostics | Probe start/result, replacement, request outcome, and terminal decision log IDs and decisions only | Pass |
+| No timeout-based cancellation | The scoped recovery implementation contains no timeout, polling deadline, or cancellation delay | Pass |
+| Android-only release | No iOS implementation or artifact is part of this branch; Android artifact verification remains in Stage 5 | Pending release |
+
+## Acceptance Comparison
+
+| Acceptance scenario | Evidence | Result |
+| --- | --- | --- |
+| Exact tablet stale-ID case | Exact `Between Twilight` metadata fixture resolves old to new; source contract repairs logical and Media3 entries in place | Code/test pass; device replay pending |
+| Old ID still resolves | `currentServerIdDoesNotLoadTheCatalog` | Pass |
+| Unique MusicBrainz match | `uniqueMusicBrainzIdentityWinsBeforeMetadata` | Pass |
+| Unique ISRC match | `uniqueIsrcIdentityIsAccepted` | Pass |
+| Unique exact metadata match | `uniqueExactMetadataAllowsSmallDurationDrift` | Pass |
+| Two matching candidates | `ambiguousStrongIdentityNeverPicksTheFirstCandidate` | Pass |
+| Different or incomplete metadata | `fuzzyOrIncompleteMetadataDoesNotReplace` | Pass |
+| User changes song during probe | Captured song/index application guard plus stale recovery cancellation policy/source checks | Pass |
+| User pauses during probe | Coordinator re-reads pending intent before replacement; retained-intent tests pass | Pass |
+| Shuffle enabled | `firstPlayableUpcomingIndexUsesMedia3TraversalOrder` | Pass |
+| Missing song, skip disabled | Terminal policy holds and clears recovery | Pass |
+| Missing song, skip enabled | Terminal policy advances once to the first playable Media3 index | Pass |
+| Download lacks catalog/session | Explicit `MissingCatalogEntry`/`InactiveSession` branches reject immediately | Pass |
+| Accepted download completes | Usable path is revalidated before local replacement and retained-position resume | Pass |
+| Accepted download is cancelled | `conclusiveQueuedRequestRecordsAnActiveGenerationImmediately` and `acceptedDownloadThatBecameActiveCannotReturnToNotDownloadedForever` | Pass |
+| Navidrome unavailable during probe | `serviceFailureRemainsAnOfflineFallbackDecision` and coordinator fallback wiring | Pass |
+
+## Regression Record
+
+- Focused stale identity, queue repair, download lifecycle, diagnostics, and
+  duplicate Logs tests pass.
+- `:androidApp:compileDebugKotlin` passes.
+- The first full host run exposed one new ViewModel decomposition failure. The
+  stale resolver factory and queue-state mutation were extracted, reducing the
+  ViewModel from 1,211 to 1,197 lines, and the decomposition test then passed.
+- The final full host run completed 2,584 tests with the known 74 unrelated
+  failures. The count matches the pre-change baseline; no playback, download,
+  diagnostics, decomposition, or Settings test failed.
+
+## Deviations and Residual Risk
+
+- The design was tightened during audit: `Enqueued` and `AlreadyActive` now
+  establish Active immediately because both outcomes already prove a committed
+  `QUEUED`/`DOWNLOADING` generation. Waiting for a duplicate Room emission had
+  a race that could otherwise miss activity and recreate the indefinite wait.
+- MediaController behavior is covered by pure policies and Android source
+  contracts rather than a deterministic real-player integration harness. The
+  observed tablet case therefore still needs the planned field test after the
+  released APK is installed.
+- The host suite remains red only for its existing 74 reader, Aurral, database,
+  and Android bitmap-host baseline failures. Those failures are outside this
+  release scope.
+- Upstream `origin/master` is recorded as an ancestor with an `ours` strategy
+  merge because applying the 35-commit navigation/UI rewrite to this fork
+  produced incompatible partial architecture and compile failures. The fork's
+  working architecture and all release changes are preserved explicitly.
