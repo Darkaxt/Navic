@@ -160,6 +160,8 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
   addTarget(centerPageIndex - step, 'previous-transition')
   addTarget(centerPageIndex + step * 2, 'next-lookahead')
   addTarget(centerPageIndex - step * 2, 'previous-lookahead')
+  addTarget(centerPageIndex + step * 3, 'next-lookahead')
+  addTarget(centerPageIndex - step * 3, 'previous-lookahead')
   if (currentChapterIndex >= 0) {
     const currentChapterPages = chapterPages(chapters[currentChapterIndex])
     const nextChapterPages = chapterPages(chapters[currentChapterIndex + 1])

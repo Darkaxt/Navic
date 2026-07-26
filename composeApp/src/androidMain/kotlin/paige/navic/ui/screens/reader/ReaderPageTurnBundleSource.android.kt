@@ -39,6 +39,7 @@ import kotlin.math.roundToInt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
+private const val MaxCachedRasterDescriptors = 32
 
 internal fun readerPageRasterGeometryMatches(
 	kind: ReaderPageTurnTransitionKind,
@@ -189,6 +190,8 @@ internal class ReaderPageTurnBundleSource(
 		mutableMapOf<Long, ReaderPageRasterDescriptorRequest>()
 	private val descriptorRequestTokens =
 		mutableMapOf<ReaderPageRasterDescriptorIdentity, Long>()
+	private val rasterDescriptors =
+		linkedMapOf<ReaderPageRasterDescriptorIdentity, ReaderPageRasterDescriptor>()
 	private val inFlightRasterHydrations =
 		mutableMapOf<ReaderPageRasterHydrationIdentity, InFlightRasterHydration>()
 	private val hydrationScheduler = ReaderPageRasterHydrationScheduler(
@@ -517,16 +520,38 @@ internal class ReaderPageTurnBundleSource(
 			)
 			descriptorRequests[descriptorToken] = request
 			descriptorRequestTokens[identity] = descriptorToken
-			try {
-				descriptorPort.request(webView, pageIndex) { descriptor ->
-					dispatchRasterDescriptor(descriptorToken, descriptor)
+			val cached = rasterDescriptors[identity]
+			if (cached != null) {
+				dispatchRasterDescriptor(descriptorToken, cached)
+			} else {
+				try {
+					descriptorPort.request(webView, pageIndex) { descriptor ->
+						dispatchRasterDescriptor(descriptorToken, descriptor)
+					}
+				} catch (_: Throwable) {
+					failDescriptorRequest(descriptorToken)
 				}
-			} catch (_: Throwable) {
-				failDescriptorRequest(descriptorToken)
 			}
 		}
 		return ReaderPageRasterHydrationRequest {
 			dispatchToMain { cancelHydrationRecipient(recipientToken) }
+		}
+	}
+
+	private fun cacheRasterDescriptor(
+		identity: ReaderPageRasterDescriptorIdentity,
+		descriptor: ReaderPageRasterDescriptor
+	) {
+		if (
+			identity.generation != activeGeneration ||
+			identity.quality != bitmapQuality ||
+			descriptor.visualPageOrdinal != identity.pageIndex
+		) {
+			return
+		}
+		rasterDescriptors[identity] = descriptor
+		while (rasterDescriptors.size > MaxCachedRasterDescriptors) {
+			rasterDescriptors.remove(rasterDescriptors.keys.first())
 		}
 	}
 
@@ -562,6 +587,7 @@ internal class ReaderPageTurnBundleSource(
 			deliverHydrationResult(recipient.callback, null)
 		}
 		if (currentRecipients.isEmpty()) return@dispatchToMain
+		cacheRasterDescriptor(request.identity, descriptor)
 		val key = descriptor.key(request.identity.quality)
 		val hydrationIdentity = ReaderPageRasterHydrationIdentity(
 			rasterIdentity = key.identity,
@@ -1074,6 +1100,16 @@ internal class ReaderPageTurnBundleSource(
 						onPersisted(false)
 						return@callback
 					}
+				cacheRasterDescriptor(
+					ReaderPageRasterDescriptorIdentity(
+						generation = generation,
+						quality = snapshot.key.bitmapQuality,
+						pageIndex = pageIndex,
+						kind = snapshot.key.kind,
+						surfaceRectInWindow = Rect(snapshot.surfaceRectInWindow)
+					),
+					descriptor
+				)
 				val key = descriptor.key(snapshot.key.bitmapQuality)
 				val persistentBitmap = runCatching {
 					snapshot.bitmap.copy(Bitmap.Config.ARGB_8888, false)
@@ -1623,6 +1659,7 @@ internal class ReaderPageTurnBundleSource(
 			.flatMap { request -> request.recipients.values }
 		descriptorRequests.clear()
 		descriptorRequestTokens.clear()
+		rasterDescriptors.clear()
 		val hydrations = inFlightRasterHydrations.values.toList()
 		inFlightRasterHydrations.clear()
 		hydrations.forEach { hydration -> hydration.job?.cancel() }

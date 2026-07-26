@@ -199,6 +199,25 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
+	fun jsPlanBlocksOnOnePersistentRefillReserveBeyondTheDecodedWindow() {
+		val source = File("src/androidMain/assets/reader/navic-reader-page-turn-preview.js").readText()
+		val plan = source
+			.substringAfter("function pageTurnRasterPreparationPlan(")
+			.substringBefore("function pageTurnPreviewContext()")
+
+		val nextReserve = plan.indexOf(
+			"addTarget(centerPageIndex + step * 3, 'next-lookahead')"
+		)
+		val previousReserve = plan.indexOf(
+			"addTarget(centerPageIndex - step * 3, 'previous-lookahead')"
+		)
+		val chapterRemainder = plan.indexOf("currentChapterPages.forEach")
+		assertTrue(nextReserve >= 0)
+		assertTrue(previousReserve > nextReserve)
+		assertTrue(chapterRemainder > previousReserve)
+	}
+
+	@Test
 	fun jsPlanBuildsAdjacentWindowsBeforeChapterRemainders() {
 		val source = File("src/androidMain/assets/reader/navic-reader-page-turn-preview.js").readText()
 		val plan = source

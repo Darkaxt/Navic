@@ -190,6 +190,51 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun cachedDescriptorBypassesWebViewDuringRapidTurnHydration() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val events = mutableListOf<String>()
+		val descriptors = FakeDescriptorPort(events)
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = descriptors,
+			hydrationStorePort = FakeHydrationStore(events, durablePages = setOf(4))
+		)
+		val reference = referenceSnapshot(Rect(0, 0, 40, 60))
+		try {
+			val first = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference
+			) { first.complete(it) }
+			assertNotNull(first.await()).release()
+			source.invalidatePage(4, "exercise-descriptor-cache")
+			events.clear()
+
+			val second = CompletableDeferred<ReaderPageSlideSnapshot?>()
+			source.hydrateSnapshot(
+				webView,
+				pageIndex = 4,
+				kind = ReaderPageTurnTransitionKind.PortraitSlide,
+				reference = reference
+			) { second.complete(it) }
+
+			assertNotNull(second.await()).release()
+			assertEquals(listOf("persistent:4"), events)
+			assertEquals(1, descriptors.requestCount)
+		} finally {
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun hydratedRecipientLeaseSurvivesImmediateCacheTrim() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -987,18 +1032,20 @@ private fun captureResult(): ReaderPageTurnCaptureResult = ReaderPageTurnCapture
 	elapsedMs = 1L
 )
 
-private fun referenceSnapshot(): ReaderPageSlideSnapshot = ReaderPageSlideSnapshot(
+private fun referenceSnapshot(
+	surfaceRectInWindow: Rect = Rect(0, 0, 20, 30)
+): ReaderPageSlideSnapshot = ReaderPageSlideSnapshot(
 	key = ReaderPageSlideSnapshotKey(
 		visualPageIndex = 0,
 		kind = ReaderPageTurnTransitionKind.PortraitSlide,
 		bitmapQuality = ReaderPageBitmapQuality.Balanced,
 		bitmapWidth = 20,
 		bitmapHeight = 30,
-		surfaceWidth = 20,
-		surfaceHeight = 30
+		surfaceWidth = surfaceRectInWindow.width(),
+		surfaceHeight = surfaceRectInWindow.height()
 	),
 	bitmap = Bitmap.createBitmap(20, 30, Bitmap.Config.ARGB_8888),
-	surfaceRectInWindow = Rect(0, 0, 20, 30),
+	surfaceRectInWindow = Rect(surfaceRectInWindow),
 	leafGeometry = ReaderPageTurnLeafGeometry(
 		fullLeafRect = ReaderPageTurnPixelRect(0, 0, 20, 30),
 		leftLeafRect = null,
