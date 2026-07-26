@@ -524,6 +524,30 @@ function Wait-ReaderQaWorkingSetReady(
     throw "$Context did not complete working-set preparation"
 }
 
+function Wait-ReaderQaPreparedTextureGeneration(
+    [long] $ReaderSession,
+    [long] $TextureGeneration,
+    [string] $Context,
+    [int] $WaitSeconds = 60
+) {
+    if ($TextureGeneration -lt 0) {
+        throw "$Context requires a promoted texture generation"
+    }
+    return Wait-ReaderQaCondition `
+        -Context $Context `
+        -WaitSeconds $WaitSeconds `
+        -Full `
+        -Select {
+            param($log)
+            ConvertFrom-ReaderDeckLog $log | Where-Object {
+                $_.Session -eq $ReaderSession -and
+                    $_.Generation -eq $TextureGeneration -and
+                    $_.Role -eq 'Pending' -and
+                    $_.Prepared
+            }
+        }
+}
+
 function Open-ReaderDev([switch] $AtPublicationStart) {
     $launchArguments = [Collections.Generic.List[string]]@(
         '-NoProfile',
@@ -1253,10 +1277,10 @@ function Invoke-ReaderQaFaultMatrix(
             }
         })
     [void](Wait-ReaderQaRelocationCompleted $ReaderSession $visualTurn.GestureId 'ReaderDev visual relocation')
-    [void](Wait-ReaderQaWorkingSetReady `
+    [void](Wait-ReaderQaPreparedTextureGeneration `
         -ReaderSession $ReaderSession `
-        -AfterIndex $visualTurn.Index `
-        -Context 'ReaderDev visual refill isolation')
+        -TextureGeneration $visualTurn.TextureGeneration `
+        -Context 'ReaderDev visual promoted texture preparation')
 
     Add-ReaderQaFault $repairId 'ForceRepairWithoutPreparedDeck'
     $maximumRepairFaultAttempts = 5

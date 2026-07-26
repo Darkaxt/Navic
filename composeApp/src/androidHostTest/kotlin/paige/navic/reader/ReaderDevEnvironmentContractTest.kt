@@ -413,13 +413,13 @@ class ReaderDevEnvironmentContractTest {
 		)
 		assertTrue(
 			runner.contains("function Wait-ReaderQaRelocationTerminal") &&
-				runner.contains("function Wait-ReaderQaWorkingSetReady") &&
-				runner.contains("-AfterIndex \$visualTurn.Index") &&
+				runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&
+				runner.contains("-TextureGeneration \$visualTurn.TextureGeneration") &&
 				runner.contains("\$repairLogicalDirection = if (\$repairFaultAttempt % 2 -eq 0)") &&
 				runner.contains("Get-ReaderQaSwipeCoordinates") &&
 				runner.contains("-States @('Completed', 'Rejected')") &&
 				runner.contains("ReaderDev repaired active deck proof turn"),
-			"Forced active repair must isolate the prior refill, turn away from the imminent publication boundary, accept either valid relocation terminal, and prove that the prepared recovery deck accepts the next turn."
+			"Forced active repair must isolate the prepared promoted texture, turn away from the imminent publication boundary, accept either valid relocation terminal, and prove that the prepared recovery deck accepts the next turn."
 		)
 		assertTrue(
 			runner.contains("\$script:ReaderAccumulatedLogLines") &&
@@ -445,6 +445,32 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("--es command clear") &&
 				runner.contains("} finally {"),
 			"Unexpected outcomes must preserve only closed-schema diagnostics before every failed run releases QA-owned callbacks."
+		)
+	}
+
+	@Test
+	fun readerQaVisualFaultAcceptsThePreparedPromotedTextureDeck() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+		val visualFault = runner
+			.substringAfter("Add-ReaderQaFault \$visualId 'DelayNextVisualStateCallback'")
+			.substringBefore("Add-ReaderQaFault \$repairId 'ForceRepairWithoutPreparedDeck'")
+
+		assertTrue(
+			runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&
+				visualFault.contains(
+					"-TextureGeneration \$visualTurn.TextureGeneration"
+				) &&
+				visualFault.contains(
+					"-Context 'ReaderDev visual promoted texture preparation'"
+				),
+			"Visual-fault recovery must bind readiness to the exact promoted texture generation prepared for the committed turn."
+		)
+		assertFalse(
+			visualFault.contains("Wait-ReaderQaWorkingSetReady") ||
+				visualFault.contains("-AfterIndex \$visualTurn.Index"),
+			"An exact turn inside the prepared chapter reuses its raster generation, so visual-fault recovery must not require a redundant raster-preparation Ready event."
 		)
 	}
 
