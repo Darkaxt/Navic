@@ -1,16 +1,10 @@
 package paige.navic.ui.screens.reader
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
-import android.view.PixelCopy
 import android.webkit.WebView
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
@@ -42,7 +36,6 @@ internal data class ReaderPageTurnCaptureResult(
 )
 
 internal class ReaderPageTurnBitmapSource(
-	private val mainHandler: Handler = Handler(Looper.getMainLooper()),
 	private var bitmapQuality: ReaderPageBitmapQuality = ReaderPageBitmapQuality.Balanced
 ) {
 	private var visualStateRequestId = 0L
@@ -105,8 +98,7 @@ internal class ReaderPageTurnBitmapSource(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
 		) { encodedGeometry ->
 			val geometry = parseGeometry(encodedGeometry)
-			val window = webView.context.findActivityOrNull()?.window
-			if (geometry == null || window == null || !webView.isAttachedToWindow) {
+			if (geometry == null || !webView.isAttachedToWindow) {
 				onCaptured(null)
 				return@evaluateJavascript
 			}
@@ -118,7 +110,7 @@ internal class ReaderPageTurnBitmapSource(
 						return
 					}
 					webView.postOnAnimation {
-						captureVisualState(webView, geometry, window, startedAt, onCaptured, resolveRect)
+						captureVisualState(webView, geometry, startedAt, onCaptured, resolveRect)
 					}
 				}
 			})
@@ -128,7 +120,6 @@ internal class ReaderPageTurnBitmapSource(
 	private fun captureVisualState(
 		webView: WebView,
 		geometry: ReaderPageTurnCaptureGeometry,
-		window: android.view.Window,
 		startedAt: Long,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
@@ -137,87 +128,57 @@ internal class ReaderPageTurnBitmapSource(
 			onCaptured(null)
 			return
 		}
-			val location = IntArray(2)
-			webView.getLocationInWindow(location)
-			val pixelRect = resolveRect(geometry, location)
-			if (pixelRect == null) {
-				onCaptured(null)
-				return
-			}
-			val sourceRect = Rect(pixelRect.left, pixelRect.top, pixelRect.right, pixelRect.bottom)
-			val bitmap = runCatching {
-				Bitmap.createBitmap(
-					readerPageTurnAnimationBitmapDimension(pixelRect.width, bitmapQuality),
-					readerPageTurnAnimationBitmapDimension(pixelRect.height, bitmapQuality),
-					Bitmap.Config.ARGB_8888
-				)
-			}.getOrElse { error ->
-				Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn bitmap allocation failed", error)
-				onCaptured(null)
-				return
-			}
-			bitmap.eraseColor(readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb))
-			try {
-				PixelCopy.request(
-					window,
-					sourceRect,
-					bitmap,
-					{ result ->
-						var captureMethod = "pixel-copy"
-						var foreground = if (result == PixelCopy.SUCCESS) {
-							bitmap.analyzeRenderableForeground()
-						} else {
-							null
-						}
-						if (
-							result == PixelCopy.SUCCESS &&
-							foreground?.renderable == false &&
-							webView.isAttachedToWindow &&
-							drawWebViewIntoBitmap(
-								webView,
-								location,
-								sourceRect,
-								bitmap,
-								readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb)
-							)
-						) {
-							captureMethod = "webview-draw"
-							foreground = bitmap.analyzeRenderableForeground()
-						}
-						if (result == PixelCopy.SUCCESS && foreground?.renderable == true) {
-							bitmap.setHasAlpha(false)
-							bitmap.setPremultiplied(true)
-							val elapsedMs = SystemClock.uptimeMillis() - startedAt
-							Logger.i(
-								ReaderPageTurnBitmapSourceTag,
-								"Page-turn capture success method=$captureMethod rect=$sourceRect " +
-									"bitmap=${bitmap.width}x${bitmap.height} elapsedMs=$elapsedMs"
-							)
-							onCaptured(ReaderPageTurnCaptureResult(bitmap, sourceRect, geometry, elapsedMs))
-						} else if (result == PixelCopy.SUCCESS) {
-							bitmap.recycle()
-							Logger.i(
-								ReaderPageTurnBitmapSourceTag,
-								"Page-turn capture rejected unpainted surface rect=$sourceRect " +
-									"samples=${foreground?.sampleCount ?: 0} " +
-									"range=${foreground?.luminanceRange ?: 0} " +
-									"distant=${foreground?.distantSampleCount ?: 0} " +
-									"required=${foreground?.requiredDistantSampleCount ?: 0}"
-							)
-							onCaptured(null)
-						} else {
-							bitmap.recycle()
-							Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn PixelCopy failed result=$result rect=$sourceRect")
-							onCaptured(null)
-						}
-					},
-					mainHandler
-				)
-			} catch (error: Throwable) {
-				bitmap.recycle()
-				Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn PixelCopy threw", error)
-				onCaptured(null)
-			}
+		val location = IntArray(2)
+		webView.getLocationInWindow(location)
+		val pixelRect = resolveRect(geometry, location)
+		if (pixelRect == null) {
+			onCaptured(null)
+			return
+		}
+		val sourceRect = Rect(pixelRect.left, pixelRect.top, pixelRect.right, pixelRect.bottom)
+		val bitmap = runCatching {
+			Bitmap.createBitmap(
+				readerPageTurnAnimationBitmapDimension(pixelRect.width, bitmapQuality),
+				readerPageTurnAnimationBitmapDimension(pixelRect.height, bitmapQuality),
+				Bitmap.Config.ARGB_8888
+			)
+		}.getOrElse { error ->
+			Logger.w(ReaderPageTurnBitmapSourceTag, "Page-turn bitmap allocation failed", error)
+			onCaptured(null)
+			return
+		}
+		val backgroundColor = readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb)
+		bitmap.eraseColor(backgroundColor)
+		val drawn = drawWebViewIntoBitmap(
+			webView,
+			location,
+			sourceRect,
+			bitmap,
+			backgroundColor
+		)
+		val foreground = if (drawn) bitmap.analyzeRenderableForeground() else null
+		if (foreground?.renderable == true) {
+			bitmap.setHasAlpha(false)
+			bitmap.setPremultiplied(true)
+			val elapsedMs = SystemClock.uptimeMillis() - startedAt
+			Logger.i(
+				ReaderPageTurnBitmapSourceTag,
+				"Page-turn capture success method=webview-draw rect=$sourceRect " +
+					"bitmap=${bitmap.width}x${bitmap.height} elapsedMs=$elapsedMs"
+			)
+			onCaptured(ReaderPageTurnCaptureResult(bitmap, sourceRect, geometry, elapsedMs))
+		} else {
+			bitmap.recycle()
+			Logger.i(
+				ReaderPageTurnBitmapSourceTag,
+				"Page-turn capture rejected unpainted surface rect=$sourceRect " +
+					"samples=${foreground?.sampleCount ?: 0} " +
+					"range=${foreground?.luminanceRange ?: 0} " +
+					"distant=${foreground?.distantSampleCount ?: 0} " +
+					"required=${foreground?.requiredDistantSampleCount ?: 0}"
+			)
+			onCaptured(null)
+		}
 	}
 
 	internal fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? = runCatching {
@@ -351,9 +312,3 @@ private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnFo
 
 internal fun readerPageTurnPixelsContainForeground(pixels: IntArray): Boolean =
 	readerPageTurnForegroundAnalysis(pixels).renderable
-
-private tailrec fun Context.findActivityOrNull(): Activity? = when (this) {
-	is Activity -> this
-	is ContextWrapper -> baseContext.findActivityOrNull()
-	else -> null
-}

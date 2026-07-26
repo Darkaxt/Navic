@@ -11,7 +11,7 @@ private const val ReaderPageTestLowContrast = 0xE1DCD4
 
 class ReaderPageTurnBitmapSourceTest {
 	@Test
-	fun successfulWindowCapturePublishesAnExplicitlyOpaqueBitmap() {
+	fun successfulWebViewCapturePublishesAnExplicitlyOpaqueBitmap() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 				"ReaderPageTurnBitmapSource.android.kt"
@@ -23,15 +23,54 @@ class ReaderPageTurnBitmapSourceTest {
 			.substringAfter("foreground?.renderable == true")
 			.substringBefore("onCaptured(ReaderPageTurnCaptureResult")
 
-		assertTrue(capture.contains("bitmap.eraseColor(readerPageTurnOpaqueColor("))
 		assertTrue(
 			capture.contains(
-				"readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb)"
+				"val backgroundColor = readerPageTurnOpaqueColor(geometry.reverseFaceColorArgb)"
 			)
 		)
+		assertTrue(capture.contains("bitmap.eraseColor(backgroundColor)"))
 		assertTrue(source.contains("bitmap.eraseColor(backgroundColorArgb)"))
 		assertTrue(accepted.contains("bitmap.setHasAlpha(false)"))
 		assertTrue(accepted.contains("bitmap.setPremultiplied(true)"))
+	}
+
+	@Test
+	fun currentSurfaceCaptureExcludesWindowOverlays() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageTurnBitmapSource.android.kt"
+		).readText()
+		val request = source
+			.substringAfter("private fun capture(")
+			.substringBefore("private fun captureVisualState(")
+		val capture = source
+			.substringAfter("private fun captureVisualState(")
+			.substringBefore("internal fun parseGeometry(")
+		val helper = source
+			.substringAfter("private fun drawWebViewIntoBitmap(")
+			.substringBefore("private data class ReaderPageTurnForegroundAnalysis")
+		val draw = "drawWebViewIntoBitmap("
+		val analyze = "bitmap.analyzeRenderableForeground()"
+		val visualFence = "webView.postVisualStateCallback("
+		val nextFrame = "webView.postOnAnimation {"
+		val captureVisualState = "captureVisualState(webView, geometry, startedAt, onCaptured, resolveRect)"
+
+		assertFalse(source.contains("PixelCopy"))
+		assertTrue(request.indexOf(visualFence) < request.indexOf(nextFrame))
+		assertTrue(request.indexOf(nextFrame) < request.indexOf(captureVisualState))
+		assertTrue(capture.contains(draw))
+		assertTrue(capture.indexOf(draw) < capture.indexOf(analyze))
+		assertTrue(helper.contains("webView.draw(canvas)"))
+		assertTrue(
+			helper.contains(
+				"webViewLocationInWindow[0] - sourceRectInWindow.left.toFloat()"
+			)
+		)
+		assertTrue(
+			helper.contains(
+				"webViewLocationInWindow[1] - sourceRectInWindow.top.toFloat()"
+			)
+		)
 	}
 
 	@Test
