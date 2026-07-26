@@ -609,6 +609,14 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"val destinationWindow = profile.preparedPageIndices(currentPageOrdinal)"
 		)
 		assertContains(committedPublication, "publishProtectedWindow(destinationWindow)")
+		assertContains(
+			committedPublication,
+			"if (!hasDecodedWorkingSetForCurrentOrdinal()) {"
+		)
+		assertContains(
+			committedPublication,
+			"refillDecodedWorkingSet(currentPageOrdinal, \"settlement-committed\")"
+		)
 		assertTrue(
 			committedPublication.indexOf("currentOrdinal = currentPageOrdinal") <
 				committedPublication.indexOf("publishGestureTerminal("),
@@ -618,6 +626,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			committedPublication.indexOf("publishProtectedWindow(") <
 				committedPublication.indexOf("publishGestureTerminal("),
 			"The destination window must advance before relocation dispatch can request its far edge."
+		)
+		assertTrue(
+			committedPublication.indexOf("refillDecodedWorkingSet(") <
+				committedPublication.indexOf("publishGestureTerminal("),
+			"The destination refill must start before a rapid follow-up pointer can observe the commit."
 		)
 		assertTrue(
 			settlement.indexOf("schedulePersistentRefill(") >

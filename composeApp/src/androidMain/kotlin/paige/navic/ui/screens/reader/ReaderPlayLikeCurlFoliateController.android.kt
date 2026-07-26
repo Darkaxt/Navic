@@ -776,6 +776,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 						val destinationWindow = profile.preparedPageIndices(currentPageOrdinal)
 						publishProtectedWindow(destinationWindow)
 						gateForDecodedWorkingSetRefill(profile, destinationWindow)
+						if (!hasDecodedWorkingSetForCurrentOrdinal()) {
+							refillDecodedWorkingSet(currentPageOrdinal, "settlement-committed")
+						}
 						publishGestureTerminal(
 							gestureId,
 							outcome,
