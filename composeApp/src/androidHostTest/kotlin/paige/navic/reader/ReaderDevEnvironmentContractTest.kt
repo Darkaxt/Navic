@@ -449,13 +449,16 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
-	fun readerQaVisualFaultAcceptsThePreparedPromotedTextureDeck() {
+	fun readerQaFaultRecoveryAcceptsPreparedPromotedTextureDecks() {
 		val runner = root.resolve(
 			"scripts/adb-reader-playlikecurl-qa.ps1"
 		).readText()
 		val visualFault = runner
 			.substringAfter("Add-ReaderQaFault \$visualId 'DelayNextVisualStateCallback'")
 			.substringBefore("Add-ReaderQaFault \$repairId 'ForceRepairWithoutPreparedDeck'")
+		val supersededRepair = runner
+			.substringAfter("if (\$resolution.Match.Kind -eq 'ForceApplied')")
+			.substringBefore("if (\$null -eq \$successfulRepairMissId)")
 
 		assertTrue(
 			runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&
@@ -471,6 +474,18 @@ class ReaderDevEnvironmentContractTest {
 			visualFault.contains("Wait-ReaderQaWorkingSetReady") ||
 				visualFault.contains("-AfterIndex \$visualTurn.Index"),
 			"An exact turn inside the prepared chapter reuses its raster generation, so visual-fault recovery must not require a redundant raster-preparation Ready event."
+		)
+		assertTrue(
+			supersededRepair.contains("Wait-ReaderQaPreparedTextureGeneration") &&
+				supersededRepair.contains(
+					"-TextureGeneration \$repairTurn.TextureGeneration"
+				),
+			"A superseded synthetic repair must recover through the exact promoted texture generation prepared by the normal turn."
+		)
+		assertFalse(
+			supersededRepair.contains("Wait-ReaderQaWorkingSetReady") ||
+				supersededRepair.contains("-AfterIndex \$repairTurn.Index"),
+			"Superseded repair recovery must not require a passive raster-preparation restart after the committed terminal."
 		)
 	}
 

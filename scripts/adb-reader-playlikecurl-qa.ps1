@@ -1346,10 +1346,10 @@ function Invoke-ReaderQaFaultMatrix(
             -GestureId $repairTurn.GestureId `
             -States @('Completed', 'Rejected') `
             -Context "ReaderDev superseded repair relocation $repairFaultAttempt")
-        [void](Wait-ReaderQaWorkingSetReady `
+        [void](Wait-ReaderQaPreparedTextureGeneration `
             -ReaderSession $ReaderSession `
-            -AfterIndex $repairTurn.Index `
-            -Context "ReaderDev superseded repair refill $repairFaultAttempt")
+            -TextureGeneration $repairTurn.TextureGeneration `
+            -Context "ReaderDev superseded repair texture preparation $repairFaultAttempt")
     }
     if ($null -eq $successfulRepairMissId) {
         throw 'ReaderDev forced repair exhausted its bounded attempts'
