@@ -302,6 +302,44 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 	}
 
 	@Test
+	fun protectedWindowCanBeRestoredWithoutStartingAnotherPreparation() = runBlocking {
+		val reserveStarted = CompletableDeferred<Unit>()
+		val releaseReserve = CompletableDeferred<Unit>()
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = ReaderPlayLikeCurlRasterLoader { key ->
+				if (key.pageIndex == 2) {
+					reserveStarted.complete(Unit)
+					releaseReserve.await()
+				}
+				"protected-window-page-${key.pageIndex}"
+			},
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			residentEntryLimit = 2,
+			release = {}
+		)
+		val profile = profile("protected-window")
+		checkNotNull(adapter.prepare(profile, listOf(0, 1)).await()).close()
+		val reserve = adapter.prepare(profile, listOf(2))
+		reserveStarted.await()
+
+		assertTrue(adapter.updateProtectedPageIndices(profile, listOf(0)))
+		releaseReserve.complete(Unit)
+		val reserveDeck = checkNotNull(reserve.await())
+		assertTrue(adapter.hasDecoded(profile, 0))
+		assertEquals(false, adapter.hasDecoded(profile, 1))
+		assertTrue(adapter.hasDecoded(profile, 2))
+		assertEquals(
+			false,
+			adapter.updateProtectedPageIndices(profile("other-profile"), listOf(0))
+		)
+		adapter.close()
+		assertEquals(false, adapter.updateProtectedPageIndices(profile, listOf(0)))
+		reserveDeck.close()
+		adapter.closeAndJoin()
+	}
+
+	@Test
 	fun acquisitionInterceptorCanMissResidentEntryWithoutReloadingOrReleasingIt() = runBlocking {
 		val loader = FakeRasterLoader()
 		val released = mutableListOf<String>()

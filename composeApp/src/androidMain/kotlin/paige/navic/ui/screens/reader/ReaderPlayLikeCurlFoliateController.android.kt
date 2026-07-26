@@ -289,7 +289,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private class PendingDecodedWorkingSetPrefetch(
-		val gestureId: Long,
+		var gestureId: Long?,
 		val sourceOrdinal: Int,
 		val targetOrdinal: Int,
 		val foliateSessionId: String,
@@ -302,6 +302,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) {
 		var publicationAllowed = true
 		var committed = false
+		var transferredToRefill = false
 		lateinit var publicationFence: ReaderPlayLikeCurlRasterPublicationFence
 		lateinit var preparation:
 			Deferred<ReaderPlayLikeCurlRasterDeck<ReaderPlayLikeCurlRasterImage>?>
@@ -2238,8 +2239,54 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	}
 
+	private fun reserveNextDecodedWorkingSet() {
+		if (
+			activeGestureId != null ||
+			decodedWorkingSetPrefetch != null ||
+			!enabled ||
+			!attached ||
+			destroyed
+		) {
+			return
+		}
+		val profile = requestedProfile ?: return
+		val pages = activePages?.takeIf { prepared -> prepared.profile == profile } ?: return
+		val targetOrdinal = readerPlayLikeCurlSettlementTargetOrdinal(
+			orientation = profile.orientation,
+			currentOrdinal = currentOrdinal,
+			pageCount = profile.pageCount,
+			pageChange = PageChange.NEXT,
+			readerDirection = profile.readerDirection,
+			spreadAnchorParity = profile.spreadAnchorParity
+		) ?: return
+		if (pages.deck.pageIndices.containsAll(profile.preparedPageIndices(targetOrdinal))) return
+		startDecodedWorkingSetPrefetch(null, targetOrdinal)
+	}
+
 	private fun prefetchDecodedWorkingSet(gestureId: Long, targetOrdinal: Int) {
+		val existing = decodedWorkingSetPrefetch
+		if (
+			existing != null &&
+			activeGestureId == gestureId &&
+			!existing.committed &&
+			existing.gestureId == null &&
+			existing.preparation.isActive &&
+			existing.sourceOrdinal == currentOrdinal &&
+			existing.targetOrdinal == targetOrdinal &&
+			existing.publicationFence.isCurrent()
+		) {
+			existing.gestureId = gestureId
+			logActivationState(
+				event = "decoded-prefetch-attached",
+				detail = "gestureId=$gestureId target=$targetOrdinal"
+			)
+			return
+		}
 		discardDecodedWorkingSetPrefetch("superseded")
+		startDecodedWorkingSetPrefetch(gestureId, targetOrdinal)
+	}
+
+	private fun startDecodedWorkingSetPrefetch(gestureId: Long?, targetOrdinal: Int) {
 		val profile = requestedProfile ?: return
 		val adapter = rasterAdapter ?: return
 		val pages = activePages ?: return
@@ -2271,13 +2318,47 @@ internal class ReaderPlayLikeCurlFoliateController(
 		prefetch.preparation = adapter.prepare(
 			profile = profile,
 			pageIndices = pageIndices,
-			publicationFence = prefetch.publicationFence
+			publicationFence = prefetch.publicationFence,
+			missingRasterPolicy = if (gestureId == null) {
+				ReaderPlayLikeCurlMissingRasterPolicy.CacheOnly
+			} else {
+				ReaderPlayLikeCurlMissingRasterPolicy.RequestRepair
+			}
 		)
+		adapter.updateProtectedPageIndices(profile, prefetch.sourceProtectedWindow)
 		decodedWorkingSetPrefetch = prefetch
+		observeIdleDecodedWorkingSetReserve(prefetch)
 		logActivationState(
 			event = "decoded-prefetch-started",
 			detail = "gestureId=$gestureId target=$targetOrdinal"
 		)
+	}
+
+	private fun observeIdleDecodedWorkingSetReserve(
+		prefetch: PendingDecodedWorkingSetPrefetch
+	) {
+		rasterScope.launch {
+			val preparationResult = awaitRasterPreparation(prefetch.preparation)
+			withContext(Dispatchers.Main.immediate) {
+				val deck = preparationResult.getOrNull()
+				if (decodedWorkingSetPrefetch !== prefetch) {
+					if (!prefetch.transferredToRefill) deck?.close()
+					return@withContext
+				}
+				if (prefetch.gestureId != null || prefetch.committed) return@withContext
+				decodedWorkingSetPrefetch = null
+				prefetch.publicationAllowed = false
+				deck?.close()
+				rasterAdapter?.updateProtectedPageIndices(
+					prefetch.profile,
+					currentProtectedWindow
+				)
+				logActivationState(
+					event = "decoded-reserve-completed",
+					detail = "target=${prefetch.targetOrdinal} available=${deck != null}"
+				)
+			}
+		}
 	}
 
 	private fun commitDecodedWorkingSetPrefetch(
@@ -2317,6 +2398,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			discardDecodedWorkingSetPrefetch("refill-mismatch")
 			return null
 		}
+		prefetch.transferredToRefill = true
 		decodedWorkingSetPrefetch = null
 		return prefetch
 	}
@@ -2355,7 +2437,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		return if (!prefetch.committed) {
 			requestGeneration == prefetch.expectedRequestGeneration &&
-				activeGestureId == prefetch.gestureId &&
+				(prefetch.gestureId == null || activeGestureId == prefetch.gestureId) &&
 				currentOrdinal == prefetch.sourceOrdinal &&
 				committedTurnVersion == prefetch.expectedCommittedTurnVersion &&
 				protectedWindowVersion == prefetch.sourceProtectedWindowVersion &&
@@ -2417,9 +2499,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			pageIndices = pageIndices,
 			publicationFence = publicationFence
 		)
-		rasterScope.launch {
+		teardownScope.launch {
 			val preparationResult = awaitRasterPreparation(preparation)
-			withContext(Dispatchers.Main.immediate) {
+			withContext(NonCancellable + Dispatchers.Main.immediate) {
 				val failure = preparationResult.exceptionOrNull()
 				if (failure != null) {
 					prefetch?.publicationAllowed = false
@@ -2540,6 +2622,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						role = ReaderDeckSubmissionRole.Active
 					)
 				}
+				reserveNextDecodedWorkingSet()
 			}
 		}
 	}
@@ -2649,6 +2732,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun applyProtectedWindow(window: List<Int>, version: Long) {
 		currentProtectedWindow = window
 		protectedWindowVersion = version
+		requestedProfile?.let { profile ->
+			rasterAdapter?.updateProtectedPageIndices(profile, window)
+		}
 		publishProtectedRasterOrdinals(window)
 	}
 
@@ -2995,6 +3081,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					ordinal = currentOrdinal,
 					role = ReaderDeckSubmissionRole.Active
 				)
+				reserveNextDecodedWorkingSet()
 			}
 		}
 	}

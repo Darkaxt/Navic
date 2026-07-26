@@ -721,21 +721,39 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val settlementCompleted = source
 			.substringAfter("override fun onSettlementCompleted(")
 			.substringBefore("override fun onSettlementCancelled(")
+		val reserve = source
+			.substringAfter("private fun reserveNextDecodedWorkingSet(")
+			.substringBefore("private fun prefetchDecodedWorkingSet(")
 		val prefetch = source
 			.substringAfter("private fun prefetchDecodedWorkingSet(")
+			.substringBefore("private fun startDecodedWorkingSetPrefetch(")
+		val startPrefetch = source
+			.substringAfter("private fun startDecodedWorkingSetPrefetch(")
+			.substringBefore("private fun observeIdleDecodedWorkingSetReserve(")
+		val observeReserve = source
+			.substringAfter("private fun observeIdleDecodedWorkingSetReserve(")
 			.substringBefore("private fun commitDecodedWorkingSetPrefetch(")
 		val commit = source
 			.substringAfter("private fun commitDecodedWorkingSetPrefetch(")
 			.substringBefore("private fun takeCommittedDecodedWorkingSetPrefetch(")
+		val takeCommittedPrefetch = source
+			.substringAfter("private fun takeCommittedDecodedWorkingSetPrefetch(")
+			.substringBefore("private fun discardDecodedWorkingSetPrefetch(")
 		val refill = source
 			.substringAfter("private fun refillDecodedWorkingSet(")
 			.substringBefore("private fun scheduleDecodedWorkingSetRefillRetry(")
+		val initialPreparation = source
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("override fun isCurrentRepairWindow(")
 		val discard = source
 			.substringAfter("private fun discardDecodedWorkingSetPrefetch(")
 			.substringBefore("private fun isDecodedWorkingSetPrefetchCurrent(")
 		val fence = source
 			.substringAfter("private fun isDecodedWorkingSetPrefetchCurrent(")
 			.substringBefore("private fun refillDecodedWorkingSet(")
+		val protectedWindowPublication = source
+			.substringAfter("private fun applyProtectedWindow(")
+			.substringBefore("private fun publishProtectedRasterOrdinals(")
 		val finishGesture = source
 			.substringAfter("private fun finishGesture(")
 			.substringBefore("private fun publishGestureTerminal(")
@@ -754,15 +772,37 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(source, "expectedRequestGeneration: Long")
 		assertContains(source, "expectedCommittedTurnVersion: Long")
 		assertContains(source, "pageIndices: List<Int>")
+		assertContains(source, "transferredToRefill")
 		assertContains(source, "preparation: Deferred<")
 		assertContains(settlementStarted, "prefetchDecodedWorkingSet(gestureId, targetOrdinal)")
-		assertContains(prefetch, "profile.preparedPageIndices(targetOrdinal)")
-		assertContains(prefetch, "adapter.prepare(")
-		assertFalse(prefetch.contains("currentOrdinal ="))
-		assertFalse(prefetch.contains("activePages ="))
-		assertFalse(prefetch.contains("publishProtectedWindow("))
-		assertFalse(prefetch.contains("submitLibraryDeck("))
-		assertFalse(prefetch.contains("publishGestureTerminal("))
+		assertContains(reserve, "PageChange.NEXT")
+		assertContains(reserve, "startDecodedWorkingSetPrefetch(null, targetOrdinal)")
+		assertFalse(reserve.contains("publishProtectedWindow("))
+		assertFalse(reserve.contains("publishGestureTerminal("))
+		assertContains(prefetch, "activeGestureId == gestureId")
+		assertContains(prefetch, "existing.preparation.isActive")
+		assertContains(prefetch, "existing.gestureId = gestureId")
+		assertContains(prefetch, "startDecodedWorkingSetPrefetch(gestureId, targetOrdinal)")
+		assertContains(startPrefetch, "ReaderPlayLikeCurlMissingRasterPolicy.CacheOnly")
+		assertContains(startPrefetch, "observeIdleDecodedWorkingSetReserve(prefetch)")
+		assertContains(startPrefetch, "adapter.updateProtectedPageIndices(")
+		assertContains(startPrefetch, "profile.preparedPageIndices(targetOrdinal)")
+		assertContains(startPrefetch, "adapter.prepare(")
+		assertContains(observeReserve, "if (!prefetch.transferredToRefill) deck?.close()")
+		assertContains(observeReserve, "deck?.close()")
+		assertTrue(
+			takeCommittedPrefetch.indexOf("prefetch.transferredToRefill = true") <
+				takeCommittedPrefetch.indexOf("decodedWorkingSetPrefetch = null")
+		)
+		assertContains(initialPreparation, "reserveNextDecodedWorkingSet()")
+		assertContains(refill, "reserveNextDecodedWorkingSet()")
+		listOf(prefetch, startPrefetch, observeReserve).forEach { operation ->
+			assertFalse(operation.contains("currentOrdinal ="))
+			assertFalse(operation.contains("activePages ="))
+			assertFalse(operation.contains("publishProtectedWindow("))
+			assertFalse(operation.contains("submitLibraryDeck("))
+			assertFalse(operation.contains("publishGestureTerminal("))
+		}
 
 		val committedPublication = settlementCompleted
 			.substringAfter("publishCommittedTerminal = {")
@@ -775,6 +815,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			committedPublication.indexOf("publishProtectedWindow(destinationWindow)") <
 				committedPublication.indexOf("commitDecodedWorkingSetPrefetch(")
 		)
+		assertContains(
+			protectedWindowPublication,
+			"rasterAdapter?.updateProtectedPageIndices(profile, window)"
+		)
 		assertTrue(
 			committedPublication.indexOf("commitDecodedWorkingSetPrefetch(") <
 				committedPublication.indexOf("refillDecodedWorkingSet(")
@@ -782,6 +826,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(commit, "prefetch.committed = true")
 		assertContains(refill, "takeCommittedDecodedWorkingSetPrefetch(")
 		assertContains(refill, "prefetch?.preparation ?: adapter.prepare(")
+		assertContains(refill, "teardownScope.launch")
+		assertContains(refill, "withContext(NonCancellable + Dispatchers.Main.immediate)")
 		assertContains(refill, "prefetch?.publicationFence ?: rasterPublicationFence(")
 
 		assertContains(finishGesture, "discardDecodedWorkingSetPrefetch(")
@@ -2047,7 +2093,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val prepare = source
 			.substringAfter("private fun prepareProfile(")
 			.substringBefore("override fun isCurrentRepairWindow(")
-		assertContains(refill, "withContext(Dispatchers.Main.immediate)")
+		assertContains(
+			refill,
+			"withContext(NonCancellable + Dispatchers.Main.immediate)"
+		)
 		assertContains(prepare, "withContext(Dispatchers.Main.immediate)")
 		assertFalse(refill.contains("host.post {"))
 		assertFalse(prepare.contains("host.post {"))

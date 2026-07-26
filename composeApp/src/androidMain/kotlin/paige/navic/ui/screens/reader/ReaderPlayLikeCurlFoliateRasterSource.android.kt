@@ -409,7 +409,11 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 		val snapshot = resolve(request, key.publicationFence::isCurrent)
 		if (snapshot == null) {
 			withContext(Dispatchers.Main.immediate) {
-				if (key.publicationFence.isCurrent()) {
+				if (
+					key.missingRasterPolicy ==
+						ReaderPlayLikeCurlMissingRasterPolicy.RequestRepair &&
+					key.publicationFence.isCurrent()
+				) {
 					onMissingRaster(request.sourcePageIndex)
 					Logger.w(
 						ReaderPlayLikeCurlFoliateRasterSourceTag,
@@ -435,7 +439,13 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 	}
 
 	internal suspend fun consumeQaMiss(key: ReaderPlayLikeCurlRasterKey): Boolean {
-		if (key.profile != profile || key.pageIndex !in 0 until profile.pageCount) return false
+		if (
+			key.profile != profile ||
+			key.pageIndex !in 0 until profile.pageCount ||
+			key.missingRasterPolicy == ReaderPlayLikeCurlMissingRasterPolicy.CacheOnly
+		) {
+			return false
+		}
 		val registry = qaFaultRegistry ?: return false
 		return withContext(Dispatchers.Main.immediate) {
 			val request = pageRequest(key.pageIndex)

@@ -39,11 +39,18 @@ internal fun interface ReaderPlayLikeCurlRasterPublicationFence {
 private val AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence =
 	ReaderPlayLikeCurlRasterPublicationFence { true }
 
+internal enum class ReaderPlayLikeCurlMissingRasterPolicy {
+	RequestRepair,
+	CacheOnly
+}
+
 internal data class ReaderPlayLikeCurlRasterKey(
 	val profile: ReaderPlayLikeCurlRasterProfile,
 	val pageIndex: Int,
 	val publicationFence: ReaderPlayLikeCurlRasterPublicationFence =
-		AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence
+		AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence,
+	val missingRasterPolicy: ReaderPlayLikeCurlMissingRasterPolicy =
+		ReaderPlayLikeCurlMissingRasterPolicy.RequestRepair
 )
 
 private data class ReaderPlayLikeCurlRasterCacheKey(
@@ -341,6 +348,8 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		pageIndices: List<Int>,
 		publicationFence: ReaderPlayLikeCurlRasterPublicationFence =
 			AlwaysCurrentReaderPlayLikeCurlRasterPublicationFence,
+		missingRasterPolicy: ReaderPlayLikeCurlMissingRasterPolicy =
+			ReaderPlayLikeCurlMissingRasterPolicy.RequestRepair,
 		onProgress: (ReaderPlayLikeCurlRasterProgress) -> Unit = {}
 	): Deferred<ReaderPlayLikeCurlRasterDeck<T>?> {
 		val uniquePageIndices = pageIndices.distinct()
@@ -348,7 +357,8 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 			ReaderPlayLikeCurlRasterKey(
 				profile = profile,
 				pageIndex = pageIndex,
-				publicationFence = publicationFence
+				publicationFence = publicationFence,
+				missingRasterPolicy = missingRasterPolicy
 			)
 		}
 		val requestedCacheKeys = requestedKeys.mapTo(linkedSetOf()) { key -> key.cacheKey }
@@ -524,6 +534,21 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 				onCancellation = { _, undelivered, _ -> undelivered?.close() }
 			)
 		}
+	}
+
+	fun updateProtectedPageIndices(
+		profile: ReaderPlayLikeCurlRasterProfile,
+		pageIndices: List<Int>
+	): Boolean {
+		val capacityReturned = synchronized(lock) {
+			if (closed || activeProfile != profile) return false
+			protectedKeys = pageIndices.mapTo(linkedSetOf()) { pageIndex ->
+				ReaderPlayLikeCurlRasterCacheKey(profile, pageIndex)
+			}
+			collectCapacitySignalsLocked()
+		}
+		dispatchCapacitySignals(capacityReturned)
+		return true
 	}
 
 	fun hasDecoded(

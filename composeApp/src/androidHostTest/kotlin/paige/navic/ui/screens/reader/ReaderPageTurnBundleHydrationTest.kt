@@ -405,6 +405,18 @@ class ReaderPageTurnBundleHydrationTest {
 			assertNull(missing)
 			assertEquals(listOf("descriptor:5", "persistent:5"), events)
 			assertEquals(listOf(5), repairs)
+
+			events.clear()
+			val cacheOnlyMissing = loader.load(
+				ReaderPlayLikeCurlRasterKey(
+					profile = profile,
+					pageIndex = 6,
+					missingRasterPolicy = ReaderPlayLikeCurlMissingRasterPolicy.CacheOnly
+				)
+			)
+			assertNull(cacheOnlyMissing)
+			assertEquals(listOf("descriptor:6", "persistent:6"), events)
+			assertEquals(listOf(5), repairs)
 		} finally {
 			source.close()
 			reference.releaseCacheOwnership()
