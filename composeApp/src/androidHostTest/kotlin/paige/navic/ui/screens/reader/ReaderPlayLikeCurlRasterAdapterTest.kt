@@ -5,7 +5,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import paige.navic.reader.ReaderPageBitmapQuality
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -39,12 +41,75 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 		val deck = adapter.prepare(profile, listOf(0, 0, 1)).await()
 
 		checkNotNull(deck)
-		assertEquals(listOf(0, 1), loader.calls.map { key -> key.pageIndex })
+		assertEquals(setOf(0, 1), loader.calls.mapTo(mutableSetOf()) { key -> key.pageIndex })
+		assertEquals(2, loader.calls.size)
 		assertEquals("reference-page-0", deck.value(0))
 		assertEquals("reference-page-1", deck.value(1))
 		assertSame(deck.value(0), deck.value(0))
 		deck.close()
 		adapter.close()
+	}
+
+	@Test
+	fun onePreparationStartsDistinctRasterLoadsConcurrently() = runBlocking {
+		val gate = CompletableDeferred<Unit>()
+		val loader = FakeRasterLoader(gateProfile = "parallel", gate = gate)
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = {}
+		)
+		val preparation = adapter.prepare(profile("parallel"), listOf(0, 1))
+
+		withTimeout(1_000L) { loader.secondStarted.await() }
+		gate.complete(Unit)
+		val deck = checkNotNull(preparation.await())
+
+		assertEquals(setOf(0, 1), loader.calls.mapTo(mutableSetOf()) { it.pageIndex })
+		deck.close()
+		adapter.close()
+	}
+
+	@Test
+	fun unavailableConcurrentLoadCancelsEarlierWaiterPromptly() = runBlocking {
+		val firstStarted = CompletableDeferred<Unit>()
+		val firstFinished = CompletableDeferred<Unit>()
+		val firstGate = CompletableDeferred<Unit>()
+		val loader = ReaderPlayLikeCurlRasterLoader<String> { key ->
+			if (key.pageIndex == 0) {
+				firstStarted.complete(Unit)
+				try {
+					firstGate.await()
+					"unused"
+				} finally {
+					firstFinished.complete(Unit)
+				}
+			} else {
+				null
+			}
+		}
+		val adapter = ReaderPlayLikeCurlRasterAdapter(
+			scope = scope,
+			loader = loader,
+			rendererDeckLeaseLimit = TestRendererDeckLeaseLimit,
+			release = {}
+		)
+		val preparation = adapter.prepare(profile("unavailable-parallel"), listOf(0, 1))
+		firstStarted.await()
+
+		withTimeout(1_000L) { assertNull(preparation.await()) }
+		withTimeout(1_000L) {
+			while (adapter.metrics().activeMaterializationWorkers != 1) delay(10L)
+		}
+		assertEquals(1, adapter.metrics().activeMaterializationWorkers)
+
+		adapter.close()
+		firstGate.complete(Unit)
+		adapter.closeAndJoin()
+		withTimeout(1_000L) { firstFinished.await() }
+		assertEquals(0, adapter.metrics().activePreparationWorkers)
+		assertEquals(0, adapter.metrics().activeMaterializationWorkers)
 	}
 
 	@Test
@@ -285,7 +350,8 @@ class ReaderPlayLikeCurlRasterAdapterTest {
 		val first = checkNotNull(adapter.prepare(profile, listOf(0, 1, 2, 3, 4)).await())
 		val second = checkNotNull(adapter.prepare(profile, listOf(1, 2, 3, 4, 5)).await())
 
-		assertEquals(listOf(0, 1, 2, 3, 4, 5), loader.calls.map { key -> key.pageIndex })
+		assertEquals((0..5).toSet(), loader.calls.mapTo(mutableSetOf()) { key -> key.pageIndex })
+		assertEquals(6, loader.calls.size)
 		first.close()
 		second.close()
 		adapter.close()

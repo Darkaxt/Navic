@@ -9,6 +9,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -269,6 +271,8 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 		Materialization
 	}
 
+	private class RasterLoadUnavailable : RuntimeException(null, null, false, false)
+
 	private class WorkerOwnership<T : Any>(
 		val kind: WorkerKind,
 		var materializationReservationHeld: Boolean,
@@ -428,18 +432,32 @@ internal class ReaderPlayLikeCurlRasterAdapter<T : Any>(
 				total = requestedKeys.size
 			)
 		)
-		val loaded = LinkedHashMap<ReaderPlayLikeCurlRasterKey, CacheEntry<T>>(
-			requestedKeys.size
-		)
-		for ((position, key) in requestedKeys.withIndex()) {
-			val entry = loadEntry(key, preparationGeneration) ?: return null
-			loaded[key] = entry
-			onProgress(
-				ReaderPlayLikeCurlRasterProgress(
-					completed = position + 1,
-					total = requestedKeys.size
+		val loaded = try {
+			coroutineScope {
+				val pending = requestedKeys.map { key ->
+					async(start = CoroutineStart.UNDISPATCHED) {
+						val entry = loadEntry(key, preparationGeneration)
+							?: throw RasterLoadUnavailable()
+						key to entry
+					}
+				}
+				val values = LinkedHashMap<ReaderPlayLikeCurlRasterKey, CacheEntry<T>>(
+					requestedKeys.size
 				)
-			)
+				for ((position, load) in pending.withIndex()) {
+					val (key, entry) = load.await()
+					values[key] = entry
+					onProgress(
+						ReaderPlayLikeCurlRasterProgress(
+							completed = position + 1,
+							total = requestedKeys.size
+						)
+					)
+				}
+				values
+			}
+		} catch (_: RasterLoadUnavailable) {
+			return null
 		}
 
 		return retainDeck(
