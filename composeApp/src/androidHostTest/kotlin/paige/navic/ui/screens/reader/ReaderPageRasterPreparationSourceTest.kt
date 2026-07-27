@@ -207,7 +207,9 @@ class ReaderPageRasterPreparationSourceTest {
 			readerPageCanReusePreparedChapterTurn(
 				reason = "page-turn:exact",
 				preparedChapterContainsPage = true,
-				rasterRepairPending = false
+				visualCenterChanging = true,
+				rasterRepairPending = false,
+				prewarmPending = false
 			)
 		)
 	}
@@ -234,7 +236,48 @@ class ReaderPageRasterPreparationSourceTest {
 			readerPageCanReusePreparedChapterTurn(
 				reason = "page-turn:exact",
 				preparedChapterContainsPage = true,
-				rasterRepairPending = true
+				visualCenterChanging = true,
+				rasterRepairPending = true,
+				prewarmPending = false
+			)
+		)
+	}
+
+	@Test
+	fun exactTurnWithDeferredPrewarmUsesCenterChangeRecovery() {
+		val source = readerRasterPreparationSource()
+		val function = source.substringAfter(
+			"fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {"
+		).substringBefore("\n\tfun prewarmAdjacent()")
+
+		assertContains(
+			function,
+			"visualCenterChanging = currentVisualPageIndex != pageIndex"
+		)
+		assertContains(
+			function,
+			"prewarmPending = prewarmInProgress || deferredPrewarmSessionId != null"
+		)
+		assertFalse(
+			readerPageCanReusePreparedChapterTurn(
+				reason = "page-turn:exact",
+				preparedChapterContainsPage = true,
+				visualCenterChanging = true,
+				rasterRepairPending = false,
+				prewarmPending = true
+			)
+		)
+	}
+
+	@Test
+	fun sameCenterExactUpdatePreservesDeferredPrewarmOwnership() {
+		assertTrue(
+			readerPageCanReusePreparedChapterTurn(
+				reason = "page-turn:exact",
+				preparedChapterContainsPage = true,
+				visualCenterChanging = false,
+				rasterRepairPending = false,
+				prewarmPending = true
 			)
 		)
 	}

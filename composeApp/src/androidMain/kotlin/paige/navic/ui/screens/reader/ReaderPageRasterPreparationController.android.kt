@@ -145,10 +145,15 @@ internal fun readerPageTurnCanStartPassivePrewarm(
 internal fun readerPageCanReusePreparedChapterTurn(
 	reason: String?,
 	preparedChapterContainsPage: Boolean,
-	rasterRepairPending: Boolean
+	visualCenterChanging: Boolean,
+	rasterRepairPending: Boolean,
+	prewarmPending: Boolean
 ): Boolean = reason == "page-turn:exact" &&
 	preparedChapterContainsPage &&
-	!rasterRepairPending
+	(
+		!visualCenterChanging ||
+			(!rasterRepairPending && !prewarmPending)
+	)
 
 internal fun readerPageRasterAcquisitionTrigger(
 	hasPreparedBefore: Boolean,
@@ -577,7 +582,9 @@ internal class ReaderPageRasterPreparationController(
 				reason = reason,
 				preparedChapterContainsPage =
 					preparedChapterRange?.contains(pageIndex) == true,
-				rasterRepairPending = rasterRepairCallbacks.isNotEmpty()
+				visualCenterChanging = currentVisualPageIndex != pageIndex,
+				rasterRepairPending = rasterRepairCallbacks.isNotEmpty(),
+				prewarmPending = prewarmInProgress || deferredPrewarmSessionId != null
 			)
 		) {
 			currentVisualPageIndex = pageIndex
