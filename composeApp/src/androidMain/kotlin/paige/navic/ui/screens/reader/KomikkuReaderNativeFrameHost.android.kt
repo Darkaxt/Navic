@@ -712,7 +712,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			override fun cancelForPointerInterruption(gestureId: Long) {
 				dispatchContentCancel()
 				if (playLikeCurlGestureOwned) {
-					playLikeCurlController.cancelGesture(gestureId)
+					playLikeCurlController.cancelGestureAfterHostTerminal(gestureId)
 				} else {
 					cancelReadableViewerDragPreview()
 				}

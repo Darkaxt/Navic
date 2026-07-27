@@ -1754,6 +1754,28 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun pointerInterruptionDoesNotRepublishAHostOwnedCurlTerminal() {
+		val controller = controllerFile.readText()
+		val host = hostFile.readText()
+		val cancelAfterHostTerminal = controller
+			.substringAfter("fun cancelGestureAfterHostTerminal(gestureId: Long) {")
+			.substringBefore("\n\t}")
+		val publishTerminal = controller
+			.substringAfter("private fun publishGestureTerminal(")
+			.substringBefore("\n\t}")
+		val pointerInterruption = host
+			.substringAfter("override fun cancelForPointerInterruption(gestureId: Long) {")
+			.substringBefore("\n\t\t\t}")
+
+		assertContains(pointerInterruption, "cancelGestureAfterHostTerminal(gestureId)")
+		assertFalse(pointerInterruption.contains("cancelGesture(gestureId)"))
+		assertContains(cancelAfterHostTerminal, "hostOwnedTerminalGestureIds.add(gestureId)")
+		assertContains(cancelAfterHostTerminal, "cancelGesture(gestureId)")
+		assertContains(cancelAfterHostTerminal, "hostOwnedTerminalGestureIds.remove(gestureId)")
+		assertContains(publishTerminal, "gestureId in hostOwnedTerminalGestureIds -> true")
+	}
+
+	@Test
 	fun tapTurnReturnContractHasOneControllerCallbackPublicationOwner() {
 		val controller = controllerFile.readText()
 		val host = hostFile.readText()

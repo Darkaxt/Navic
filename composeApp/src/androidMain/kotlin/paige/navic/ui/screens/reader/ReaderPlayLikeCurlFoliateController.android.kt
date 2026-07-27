@@ -498,6 +498,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
+	private val hostOwnedTerminalGestureIds = mutableSetOf<Long>()
 	private var presentedFrameRequestId: Long? = null
 	private var presentedFrameGestureId: Long? = null
 	private var presentedSurfaceGestureId: Long? = null
@@ -1359,6 +1360,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		presentedFrameRequestId = requestId
+	}
+
+	fun cancelGestureAfterHostTerminal(gestureId: Long) {
+		check(hostOwnedTerminalGestureIds.add(gestureId))
+		try {
+			cancelGesture(gestureId)
+		} finally {
+			hostOwnedTerminalGestureIds.remove(gestureId)
+		}
 	}
 
 	fun cancelGesture(gestureId: Long) {
@@ -4263,10 +4273,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		} else {
 			null
 		}
-		val published = if (tapSink == null) {
-			onGestureTerminal(gestureId, outcome, detail)
-		} else {
-			tapSink(outcome, detail)
+		val published = when {
+			gestureId in hostOwnedTerminalGestureIds -> true
+			tapSink == null -> onGestureTerminal(gestureId, outcome, detail)
+			else -> tapSink(outcome, detail)
 		}
 		if (activeGestureEnded && activeGestureId == null) {
 			scheduleRecoveredDeckSubmissionRetry()
