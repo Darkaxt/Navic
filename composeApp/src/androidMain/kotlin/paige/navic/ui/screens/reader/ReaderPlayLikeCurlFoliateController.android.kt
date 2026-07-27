@@ -4078,6 +4078,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return
 		}
+		cancelActiveGesture(
+			ReaderPageLifecycleCancellationReason.RasterProfileInvalidated
+		)
 		currentOrdinal = readerPageRelocationDispatchRecoveryOrdinal(
 			request = request,
 			currentFoliateSessionId = currentFoliateSessionId,

@@ -358,6 +358,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(rejection, "readerPageRelocationDispatchRecoveryOrdinal(")
 		assertContains(rejection, "currentFoliateSessionId = currentFoliateSessionId")
 		assertContains(rejection, "currentWebViewOrdinal = currentWebViewOrdinal")
+		assertContains(rejection, "cancelActiveGesture(")
+		assertContains(
+			rejection,
+			"ReaderPageLifecycleCancellationReason.RasterProfileInvalidated"
+		)
+		assertTrue(
+			rejection.indexOf("cancelActiveGesture(") <
+				rejection.indexOf("currentOrdinal = readerPageRelocationDispatchRecoveryOrdinal(")
+		)
 		assertContains(rejection, "relocationRejectionReason = reason")
 		assertContains(
 			source,
