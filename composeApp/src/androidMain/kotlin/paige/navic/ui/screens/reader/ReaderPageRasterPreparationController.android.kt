@@ -975,10 +975,16 @@ internal class ReaderPageRasterPreparationController(
 		if (!canStartPreparation()) return false
 		if (prewarmInProgress) return true
 		if (
-			activeRasterRepairPageIndex != null ||
-			deferredRasterRepairPageIndex != null ||
+			activeRasterRepairPageIndex == null &&
+			deferredRasterRepairPageIndex == null &&
 			rasterRepairCallbacks.isNotEmpty()
-		) return false
+		) {
+			startNextRasterRepair()
+		}
+		if (activeRasterRepairPageIndex != null) {
+			resumePrewarmAfterRasterRepairs = true
+			return true
+		}
 		if (!readerPageTurnCanStartPassivePrewarm(
 			destroyed = destroyed,
 			sessionEnabled = true,

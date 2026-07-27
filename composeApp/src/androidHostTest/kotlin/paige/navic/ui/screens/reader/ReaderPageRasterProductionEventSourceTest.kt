@@ -30,6 +30,33 @@ class ReaderPageRasterProductionEventSourceTest {
 	}
 
 	@Test
+	fun prewarmRequestedDuringRasterRepairIsResumedAfterRepair() {
+		val source = deferredRetrySource("ReaderPageRasterPreparationController.android.kt")
+		val prewarm = source.substringAfter("fun prewarmAdjacent(): Boolean {")
+			.substringBefore("private fun initializeRasterCacheAndQueryPlan(")
+		val repairGate = prewarm.substringAfter("if (prewarmInProgress) return true")
+			.substringBefore("if (!readerPageTurnCanStartPassivePrewarm(")
+		val repairCompletion = source.substringAfter("private fun finishRasterRepair(")
+			.substringBefore("private fun readerPageRasterDeferralReason(")
+
+		assertContains(repairGate, "activeRasterRepairPageIndex == null")
+		assertContains(repairGate, "deferredRasterRepairPageIndex == null")
+		assertContains(repairGate, "rasterRepairCallbacks.isNotEmpty()")
+		assertContains(repairGate, "startNextRasterRepair()")
+		val activeRepairGate = repairGate.substringAfter("startNextRasterRepair()")
+		assertContains(activeRepairGate, "if (activeRasterRepairPageIndex != null)")
+		assertContains(activeRepairGate, "resumePrewarmAfterRasterRepairs = true")
+		assertContains(activeRepairGate, "return true")
+		assertFalse(activeRepairGate.contains("deferredRasterRepairPageIndex != null"))
+		assertFalse(activeRepairGate.contains("rasterRepairCallbacks.isNotEmpty()"))
+		assertContains(
+			repairCompletion,
+			"rasterRepairCallbacks.isEmpty() && resumePrewarmAfterRasterRepairs"
+		)
+		assertContains(repairCompletion, "onRequestPrewarm()")
+	}
+
+	@Test
 	fun oneHostControllerPublishesEveryAuthoritativeRisingEdgeAndClosesOnTeardown() {
 		val host = deferredRetrySource("KomikkuReaderNativeFrameHost.android.kt")
 		val foliate = deferredRetrySource("ReaderPlayLikeCurlFoliateController.android.kt")
