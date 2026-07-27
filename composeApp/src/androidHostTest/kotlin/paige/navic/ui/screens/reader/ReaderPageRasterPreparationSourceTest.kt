@@ -202,7 +202,41 @@ class ReaderPageRasterPreparationSourceTest {
 
 		assertContains(function, "preparedChapterRange?.contains(pageIndex) == true")
 		assertContains(function, "event = \"ordinary-turn-reused\"")
-		assertContains(function, "if (reason == \"page-turn:exact\"")
+		assertContains(function, "readerPageCanReusePreparedChapterTurn(")
+		assertTrue(
+			readerPageCanReusePreparedChapterTurn(
+				reason = "page-turn:exact",
+				preparedChapterContainsPage = true,
+				rasterRepairPending = false
+			)
+		)
+	}
+
+	@Test
+	fun exactTurnWithPendingRasterRepairUsesCenterChangeRecovery() {
+		val source = readerRasterPreparationSource()
+		val function = source.substringAfter(
+			"fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {"
+		).substringBefore("\n\tfun prewarmAdjacent()")
+		val reuseDecision = "readerPageCanReusePreparedChapterTurn("
+		val repairCancellation = "cancelRasterRepairs(\"visual-index-changed:"
+
+		assertContains(
+			function,
+			"rasterRepairPending = rasterRepairCallbacks.isNotEmpty()"
+		)
+		assertContains(function, repairCancellation)
+		assertTrue(
+			function.indexOf(reuseDecision) < function.indexOf(repairCancellation),
+			"A non-reusable exact turn must fall through to center-change repair cancellation"
+		)
+		assertFalse(
+			readerPageCanReusePreparedChapterTurn(
+				reason = "page-turn:exact",
+				preparedChapterContainsPage = true,
+				rasterRepairPending = true
+			)
+		)
 	}
 
 	@Test

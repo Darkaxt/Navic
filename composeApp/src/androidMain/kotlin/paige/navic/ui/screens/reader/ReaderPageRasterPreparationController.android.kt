@@ -142,6 +142,14 @@ internal fun readerPageTurnCanStartPassivePrewarm(
 	idle: Boolean
 ): Boolean = !destroyed && sessionEnabled && !visualCommitPending && idle
 
+internal fun readerPageCanReusePreparedChapterTurn(
+	reason: String?,
+	preparedChapterContainsPage: Boolean,
+	rasterRepairPending: Boolean
+): Boolean = reason == "page-turn:exact" &&
+	preparedChapterContainsPage &&
+	!rasterRepairPending
+
 internal fun readerPageRasterAcquisitionTrigger(
 	hasPreparedBefore: Boolean,
 	persistentRasterEntries: Int
@@ -565,7 +573,13 @@ internal class ReaderPageRasterPreparationController(
 			return
 		}
 		if (pageIndex < 0) return
-		if (reason == "page-turn:exact" && preparedChapterRange?.contains(pageIndex) == true) {
+		if (readerPageCanReusePreparedChapterTurn(
+				reason = reason,
+				preparedChapterContainsPage =
+					preparedChapterRange?.contains(pageIndex) == true,
+				rasterRepairPending = rasterRepairCallbacks.isNotEmpty()
+			)
+		) {
 			currentVisualPageIndex = pageIndex
 			logLoadingEvent(
 				event = "ordinary-turn-reused",
