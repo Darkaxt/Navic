@@ -790,10 +790,14 @@ export class Paginator extends HTMLElement {
             this.#replaceBackground(this.#view.docBackground, this.columnCount)
         }
         this.#mediaQuery.addEventListener('change', this.#mediaQueryListener)
-        this.#visualViewportResizeListener = debounce(() => this.render(), 100)
+        this.#visualViewportResizeListener = debounce(() => {
+            this.commitTextPageAnchor()
+            this.render()
+        }, 100)
         globalThis.visualViewport?.addEventListener('resize', this.#visualViewportResizeListener)
     }
     attributeChangedCallback(name, _, value) {
+        this.commitTextPageAnchor()
         switch (name) {
             case 'flow':
                 this.render()
@@ -1169,8 +1173,21 @@ export class Paginator extends HTMLElement {
     async scrollToAnchor(anchor, select) {
         return this.#scrollToAnchor(anchor, select ? 'selection' : 'navigation')
     }
+    commitTextPageAnchor() {
+        if (!Number.isInteger(Number(this.#anchor?.textPageIndex))) return false
+        const range = this.#lastVisibleRange
+        if (!range?.startContainer?.isConnected) return false
+        this.#anchor = range
+        return true
+    }
     async #scrollToAnchor(anchor, reason = 'anchor') {
         this.#anchor = anchor
+        const exactTextPageIndex = Number(anchor?.textPageIndex)
+        if (anchor?.textPageIndex != null) {
+            if (!Number.isInteger(exactTextPageIndex) || exactTextPageIndex < 0) return
+            await this.#scrollToPage(exactTextPageIndex + 1, reason)
+            return
+        }
         const rects = uncollapse(anchor)?.getClientRects?.()
         // if anchor is an element or a range
         if (rects) {
@@ -1205,7 +1222,8 @@ export class Paginator extends HTMLElement {
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
-        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor')
+        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor' &&
+            !String(reason || '').startsWith('page-turn'))
             this.#anchor = range
         else this.#justAnchored = true
 
@@ -1337,20 +1355,24 @@ export class Paginator extends HTMLElement {
     }
     async goToTextPage(index, pageIndex, reason = 'navigation') {
         if (!this.#canGoToIndex(index)) return false
+        if (this.scrolled) return false
+        const numericPageIndex = Number(pageIndex)
+        if (!Number.isFinite(numericPageIndex)) return false
         if (!await this.#acquireExactNavigationLock()) return false
         const generation = ++this.#navigationGeneration
         try {
-            const requestedPageIndex = Math.max(0, Math.floor(Number(pageIndex) || 0))
+            if (this.scrolled) return false
+            const requestedPageIndex = Math.max(0, Math.floor(numericPageIndex))
+            const requestedAnchor = Object.freeze({ textPageIndex: requestedPageIndex })
             let committed = true
             if (index !== this.#index || !this.#view?.committed)
                 committed = await this.#goTo({ index, anchor: 0 }, generation)
             if (!committed || this.#destroyed || index !== this.#index ||
-                !this.#view?.committed) return false
-            const textPageCount = Math.max(1, this.pages - 2)
-            const textPageIndex = Math.min(textPageCount - 1, requestedPageIndex)
-            await this.#scrollToPage(textPageIndex + 1, reason)
+                this.scrolled || !this.#view?.committed) return false
+            await this.#scrollToAnchor(requestedAnchor, reason)
             if (this.#destroyed || generation !== this.#navigationGeneration ||
-                index !== this.#index || !this.#view?.committed) return false
+                this.scrolled || index !== this.#index ||
+                !this.#view?.committed) return false
             return true
         } finally {
             this.#locked = false
@@ -1440,6 +1462,7 @@ export class Paginator extends HTMLElement {
         return []
     }
     setStyles(styles) {
+        this.commitTextPageAnchor()
         this.#styles = styles
         const view = this.#view
         const $$styles = this.#styleMap.get(view?.document)

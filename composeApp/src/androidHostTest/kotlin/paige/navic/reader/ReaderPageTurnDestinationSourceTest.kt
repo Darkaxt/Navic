@@ -44,7 +44,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(paginator, "await this.#acquireExactNavigationLock()")
 		assertContains(paginator, "async #acquireExactNavigationLock()")
 		assertContains(paginator, "throw new Error('Exact page navigation timed out waiting for paginator unlock')")
-		assertContains(paginator, "this.#scrollToPage(textPageIndex + 1, reason)")
+		assertContains(paginator, "await this.#scrollToAnchor(requestedAnchor, reason)")
 		assertContains(exactNavigation, "this.view.history?.pushState?.(")
 		val applyStableLayout = exactNavigation.indexOf(
 			"this.applyReaderViewportLayout('page-turn:exact', { renderSynchronously: true })"
@@ -137,6 +137,21 @@ class ReaderPageTurnDestinationSourceTest {
 		val exact = paginator
 			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
 			.substringBefore("\n    #scrollPrev(distance) {")
+		val scrollToAnchor = paginator
+			.substringAfter("async #scrollToAnchor(anchor, reason = 'anchor') {")
+			.substringBefore("\n    #getVisibleRange() {")
+		val commitTextPageAnchor = paginator
+			.substringAfter("commitTextPageAnchor() {")
+			.substringBefore("\n    async #scrollToAnchor(anchor, reason = 'anchor') {")
+		val afterScroll = paginator
+			.substringAfter("#afterScroll(reason) {")
+			.substringBefore("\n    async #display(promise) {")
+		val attributeChanged = paginator
+			.substringAfter("attributeChangedCallback(name, _, value) {")
+			.substringBefore("\n    open(book) {")
+		val setStyles = paginator
+			.substringAfter("setStyles(styles) {")
+			.substringBefore("\n    focusView()")
 		val acquireExactLock = paginator
 			.substringAfter("async #acquireExactNavigationLock() {")
 			.substringBefore("\n    async goToTextPage(")
@@ -147,12 +162,47 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("async #goTo({ index, anchor, select }")
 			.substringBefore("\n    async goTo(target) {")
 
+		assertContains(exact, "if (!Number.isFinite(numericPageIndex)) return false")
+		assertContains(exact, "if (this.scrolled) return false")
 		assertContains(exact, "if (!await this.#acquireExactNavigationLock()) return false")
 		assertContains(exact, "const generation = ++this.#navigationGeneration")
-		assertContains(exact, "await this.#scrollToPage(textPageIndex + 1, reason)")
+		assertContains(
+			exact,
+			"const requestedAnchor = Object.freeze({ textPageIndex: requestedPageIndex })"
+		)
+		assertContains(exact, "await this.#scrollToAnchor(requestedAnchor, reason)")
+		assertFalse(
+			exact.contains("this.pages"),
+			"A newly loaded section can report transient page geometry; exact navigation must preserve the requested page identity rather than clamp it to the live count."
+		)
+		assertContains(scrollToAnchor, "const exactTextPageIndex = Number(anchor?.textPageIndex)")
+		assertContains(scrollToAnchor, "if (anchor?.textPageIndex != null) {")
+		assertContains(scrollToAnchor, "if (!Number.isInteger(exactTextPageIndex) || exactTextPageIndex < 0) return")
+		assertContains(scrollToAnchor, "await this.#scrollToPage(exactTextPageIndex + 1, reason)")
+		assertContains(commitTextPageAnchor, "this.#anchor?.textPageIndex")
+		assertContains(commitTextPageAnchor, "this.#lastVisibleRange")
+		assertContains(commitTextPageAnchor, "range?.startContainer?.isConnected")
+		assertContains(commitTextPageAnchor, "this.#anchor = range")
+		assertContains(afterScroll, "!String(reason || '').startsWith('page-turn')")
+		assertContains(attributeChanged, "this.commitTextPageAnchor()")
+		assertContains(setStyles, "this.commitTextPageAnchor()")
+		assertTrue(
+			attributeChanged.indexOf("this.commitTextPageAnchor()") <
+				attributeChanged.indexOf("this.render()"),
+			"Explicit paginator layout changes must retire an exact page identity to its semantic range before reflow."
+		)
+		assertTrue(
+			setStyles.indexOf("this.commitTextPageAnchor()") <
+				setStyles.indexOf("\$style.textContent"),
+			"Typography changes must retire an exact page identity before mutating document styles."
+		)
+		assertTrue(
+			Regex("""\bthis\.scrolled\b""").findAll(exact).count() >= 3,
+			"Exact navigation must recheck paginated flow after each suspension point."
+		)
 		assertTrue(
 			exact.lastIndexOf("this.#destroyed || generation !== this.#navigationGeneration") >
-				exact.indexOf("await this.#scrollToPage(textPageIndex + 1, reason)"),
+				exact.indexOf("await this.#scrollToAnchor(requestedAnchor, reason)"),
 			"Exact navigation destroyed during its final scroll must not report success."
 		)
 		assertContains(exact, "return false")
@@ -228,8 +278,15 @@ class ReaderPageTurnDestinationSourceTest {
 	fun settlementRequiresTokenAndExactVisualPage() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
 		val exactNavigation = turns
 			.substringAfter("async function goToVisualPage(")
+			.substringBefore("\n}\n")
+		val completeSettlement = turns
+			.substringAfter("function maybeCompleteNativePageTurnSettlement(")
+			.substringBefore("\n}\n")
+		val postLocationChanged = location
+			.substringAfter("function postLocationChanged(")
 			.substringBefore("\n}\n")
 
 		assertContains(runtime, "nativePageTurnSettledState")
@@ -252,10 +309,20 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(turns, "readerTrace('page-turn:exact-settle-pending'")
 		assertContains(turns, "requestedSpineIndex: pending.spineIndex")
 		assertContains(turns, "actualSpineIndex: Number.isFinite(spineIndex) ? Math.floor(spineIndex) : null")
+		assertFalse(
+			completeSettlement.contains("commitTextPageAnchor"),
+			"Settlement must retain the exact page identity through asynchronous paginator reflows."
+		)
 		assertTrue(
 			exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)") <
 				exactNavigation.indexOf("this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)"),
-			"Settlement must be published only after the exact renderer navigation resolves."
+			"The synchronous exact position may settle only after renderer navigation resolves."
+		)
+		assertContains(postLocationChanged, "this.maybeCompleteNativePageTurnSettlement(pagePosition)")
+		assertTrue(
+			postLocationChanged.indexOf("this.tryUpdateReaderPageNumberLayer(") <
+				postLocationChanged.indexOf("this.maybeCompleteNativePageTurnSettlement(pagePosition)"),
+			"Settlement must use the delayed committed relocation's exact physical page identity."
 		)
 	}
 
