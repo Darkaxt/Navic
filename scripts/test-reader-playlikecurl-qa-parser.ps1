@@ -345,6 +345,41 @@ $safelySupersededRepairLog = @(
     $forcedRepairTurnTail[6],
     $forcedRepairTurnTail[7]
 ) -join "`n"
+$promotedTexture = @(Get-ReaderPreparedPromotedTexture `
+    -Log $safelySupersededRepairLog `
+    -ReaderSession 7 `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'already-promoted texture fixture')
+if ($promotedTexture.Count -ne 1) {
+    throw 'Already-promoted texture preparation was not recognized'
+}
+$preparedWhilePendingDeck = $promotedNormalDeck.Replace(
+    'prepared=true active=9 pending=null',
+    'prepared=true active=8 pending=9'
+)
+$preparedWhilePendingLog = $safelySupersededRepairLog.Replace(
+    $promotedNormalDeck,
+    $preparedWhilePendingDeck
+)
+$preparedWhilePending = @(Get-ReaderPreparedPromotedTexture `
+    -Log $preparedWhilePendingLog `
+    -ReaderSession 7 `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'prepared-while-pending texture fixture')
+if ($preparedWhilePending.Count -ne 1) {
+    throw 'Texture prepared before promotion was not recognized after relocation completion'
+}
+$uncompletedPreparedTexture = @(Get-ReaderPreparedPromotedTexture `
+    -Log $preparedWhilePendingLog.Replace($forcedRepairRelocationCompleted, '') `
+    -ReaderSession 7 `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'uncompleted prepared texture fixture')
+if ($uncompletedPreparedTexture.Count -ne 0) {
+    throw 'Uncompleted relocation was accepted as texture promotion'
+}
 [void](Assert-ForcedRepairAttemptResolution `
     -Log $safelySupersededRepairLog `
     -ReaderSession 7 `

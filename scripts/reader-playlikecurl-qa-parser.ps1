@@ -591,6 +591,45 @@ function ConvertFrom-ReaderRelocationLog([string] $Log) {
     }
 }
 
+function Get-ReaderPreparedPromotedTexture(
+    [string] $Log,
+    [long] $ReaderSession,
+    [long] $GestureId,
+    [long] $TextureGeneration,
+    [string] $Context
+) {
+    $completed = @(
+        ConvertFrom-ReaderRelocationLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.GestureId -eq $GestureId -and
+                $_.TextureGeneration -eq $TextureGeneration -and
+                $_.State -eq 'Completed'
+        }
+    )
+    if ($completed.Count -gt 1) {
+        throw "$Context emitted duplicate completed relocations"
+    }
+    if ($completed.Count -eq 0) { return @() }
+
+    $prepared = @(
+        ConvertFrom-ReaderDeckLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.Generation -eq $TextureGeneration -and
+                $_.Role -eq 'Pending' -and
+                $_.Prepared -and
+                $_.Index -lt $completed[0].Index -and
+                (
+                    ($_.Active -eq $_.Generation -and $null -eq $_.Pending) -or
+                    ($_.Active -ne $_.Generation -and $_.Pending -eq $_.Generation)
+                )
+        }
+    )
+    if ($prepared.Count -gt 1) {
+        throw "$Context emitted duplicate prepared promoted texture records"
+    }
+    return $prepared
+}
+
 function Test-ReaderAcknowledgementTimeoutCascadeFollower(
     [object] $Terminal,
     [object[]] $Relocations

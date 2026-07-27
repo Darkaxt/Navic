@@ -528,6 +528,7 @@ function Wait-ReaderQaWorkingSetReady(
 
 function Wait-ReaderQaPreparedTextureGeneration(
     [long] $ReaderSession,
+    [long] $GestureId,
     [long] $TextureGeneration,
     [string] $Context,
     [int] $WaitSeconds = 60
@@ -541,14 +542,12 @@ function Wait-ReaderQaPreparedTextureGeneration(
         -Full `
         -Select {
             param($log)
-            ConvertFrom-ReaderDeckLog $log | Where-Object {
-                $_.Session -eq $ReaderSession -and
-                    $_.Generation -eq $TextureGeneration -and
-                    $_.Role -eq 'Pending' -and
-                    $_.Prepared -and
-                    $_.Active -eq $_.Generation -and
-                    $null -eq $_.Pending
-            }
+            Get-ReaderPreparedPromotedTexture `
+                -Log $log `
+                -ReaderSession $ReaderSession `
+                -GestureId $GestureId `
+                -TextureGeneration $TextureGeneration `
+                -Context $Context
         }
 }
 
@@ -1283,6 +1282,7 @@ function Invoke-ReaderQaFaultMatrix(
     [void](Wait-ReaderQaRelocationCompleted $ReaderSession $visualTurn.GestureId 'ReaderDev visual relocation')
     [void](Wait-ReaderQaPreparedTextureGeneration `
         -ReaderSession $ReaderSession `
+        -GestureId $visualTurn.GestureId `
         -TextureGeneration $visualTurn.TextureGeneration `
         -Context 'ReaderDev visual promoted texture preparation')
 
@@ -1357,6 +1357,7 @@ function Invoke-ReaderQaFaultMatrix(
             -Context "ReaderDev superseded repair relocation $repairFaultAttempt")
         [void](Wait-ReaderQaPreparedTextureGeneration `
             -ReaderSession $ReaderSession `
+            -GestureId $repairTurn.GestureId `
             -TextureGeneration $repairTurn.TextureGeneration `
             -Context "ReaderDev superseded repair texture preparation $repairFaultAttempt")
     }
@@ -1382,6 +1383,7 @@ function Invoke-ReaderQaFaultMatrix(
             -Context 'ReaderDev superseding repair relocation')
         [void](Wait-ReaderQaPreparedTextureGeneration `
             -ReaderSession $ReaderSession `
+            -GestureId $repairTurn.GestureId `
             -TextureGeneration $repairTurn.TextureGeneration `
             -Context 'ReaderDev superseding repair texture preparation')
     } else {
