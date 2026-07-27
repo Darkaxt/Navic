@@ -407,21 +407,25 @@ class ReaderDevEnvironmentContractTest {
 			"Frozen runs executed by later acceptance-only tooling must retain the APK implementation commit while recording and constraining the tooling commit, including the runner's parser and parser regression suite."
 		)
 		assertTrue(
-			runner.contains("\$maximumRepairFaultAttempts = 5") &&
-				runner.contains("\$missIds = [Collections.Generic.List[string]]::new()") &&
-				runner.contains("Kind = 'RepairTerminated'") &&
-				runner.contains("ReaderDev forced repair exhausted its bounded attempts"),
-			"A full preparation may validly supersede a synthetic miss repair, so the fault matrix must retry with fresh miss identities until the queued forced-role seam is applied."
+			runner.contains("Add-ReaderQaFault \$repairId 'ForceRepairWithoutPreparedDeck'") &&
+				runner.contains("\$missId = \"miss-\$suffix\"") &&
+				runner.contains("-Context 'ReaderDev settlement-fenced repair fault turn'") &&
+				runner.contains("-MaximumAttempts 1") &&
+				runner.contains("if (\$forcedRepairTerminal.Match.State -eq 'Cancelled')") &&
+				runner.contains("-States @('Completed', 'Rejected')"),
+			"The fault matrix must inject one settlement-fenced forced repair and accept either cancellation by the committed turn or completed active-deck recovery."
 		)
 		assertTrue(
 			runner.contains("function Wait-ReaderQaRelocationTerminal") &&
 				runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&
 				runner.contains("-TextureGeneration \$visualTurn.TextureGeneration") &&
-				runner.contains("\$repairLogicalDirection = if (\$repairFaultAttempt % 2 -eq 0)") &&
-				runner.contains("Get-ReaderQaSwipeCoordinates") &&
-				runner.contains("-States @('Completed', 'Rejected')") &&
+				runner.contains("-LogicalDirection 'Previous'") &&
+				runner.contains("ReaderDev superseding repair relocation") &&
+				runner.contains("ReaderDev superseding repair texture preparation") &&
+				runner.contains("ReaderDev completed active repair relocation") &&
+				runner.contains("ReaderDev completed active repair deck") &&
 				runner.contains("ReaderDev repaired active deck proof turn"),
-			"Forced active repair must isolate the prepared promoted texture, turn away from the imminent publication boundary, accept either valid relocation terminal, and prove that the prepared recovery deck accepts the next turn."
+			"Forced repair must accept both settlement supersession and completed active-deck recovery before proving the recovered reader can turn again."
 		)
 		assertTrue(
 			runner.contains("\$script:ReaderAccumulatedLogLines") &&
@@ -459,8 +463,8 @@ class ReaderDevEnvironmentContractTest {
 			.substringAfter("Add-ReaderQaFault \$visualId 'DelayNextVisualStateCallback'")
 			.substringBefore("Add-ReaderQaFault \$repairId 'ForceRepairWithoutPreparedDeck'")
 		val supersededRepair = runner
-			.substringAfter("if (\$resolution.Match.Kind -eq 'ForceApplied')")
-			.substringBefore("if (\$null -eq \$successfulRepairMissId -or")
+			.substringAfter("if (\$forcedRepairTerminal.Match.State -eq 'Cancelled')")
+			.substringBefore("} else {")
 
 		assertTrue(
 			runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&

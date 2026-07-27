@@ -105,18 +105,18 @@ class ReaderRuntimeNavigationFlowTest {
 	@Test
 	fun androidReaderUsesSectionIndexTargetForFixedLayoutPageTurns() {
 		val bridgeText = readerBridgeText()
-		val turnPage = bridgeText
-			.substringAfter("turnPage(direction) {")
+		val performPageTurn = bridgeText
+			.substringAfter("async function performPageTurn(direction) {")
 			.substringBefore("\nfunction attachScrolledEdgeTurnGestures")
 
 		assertContains(bridgeText, "fixedLayoutAdjacentPageTarget(direction)")
 		assertContains(bridgeText, "fixedLayoutCurrentPageIndex()")
-		assertContains(turnPage, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
-		assertContains(turnPage, "if (directFixedLayoutPageTarget != null)")
-		assertContains(turnPage, "await this.view.goTo({ index: directFixedLayoutPageTarget })")
-		assertContains(turnPage, "page-turn:fixed-direct")
+		assertContains(performPageTurn, "directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(performPageTurn, "if (directFixedLayoutPageTarget != null)")
+		assertContains(performPageTurn, "await this.view.goTo({ index: directFixedLayoutPageTarget })")
+		assertContains(performPageTurn, "page-turn:fixed-direct")
 		assertFalse(
-			turnPage.contains("page-turn:fixed-fallback"),
+			performPageTurn.contains("page-turn:fixed-fallback"),
 			"Fixed-layout/PDF taps should navigate by direct adjacent section target, not by slow fallback after next/prev."
 		)
 	}
@@ -152,7 +152,7 @@ class ReaderRuntimeNavigationFlowTest {
 		assertContains(startPageTurn, "if (this.pageTurnPromise === completionPromise)")
 		assertContains(startPageTurn, "this.pageTurnPromise = null")
 		assertContains(bridgeText, "startNextQueuedPageTurn()")
-		assertContains(performPageTurn, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(performPageTurn, "directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
 		assertContains(performPageTurn, "await this.view.goTo({ index: directFixedLayoutPageTarget })")
 		assertTrue(
 			startPageTurn.indexOf("this.pageTurnPromise = completionPromise") <
@@ -211,10 +211,28 @@ class ReaderRuntimeNavigationFlowTest {
 		val performPageTurn = bridgeText
 			.substringAfter("async function performPageTurn(direction) {")
 			.substringBefore("\nfunction attachScrolledEdgeTurnGestures")
+		val deferredBranch = performPageTurn
+			.substringAfter("if (!pageTurnIssued) {")
+			.substringBefore("\n      }")
 		assertContains(
-			performPageTurn,
-			"if (!pageTurnIssued) return",
-			message = "A deferred reflowable turn must not mark recentPageTurnDirection before Foliate actually navigates."
+			deferredBranch,
+			"this.cancelControlledRelocation(controlledRelocationOwner)",
+			message = "A deferred reflowable turn must release its controlled relocation owner."
+		)
+		assertContains(
+			deferredBranch,
+			"return false",
+			message = "A deferred reflowable turn must stop before marking the turn as committed."
+		)
+		assertTrue(
+			deferredBranch.indexOf("this.cancelControlledRelocation(controlledRelocationOwner)") <
+				deferredBranch.indexOf("return false"),
+			"Deferred reflowable cleanup must precede the early return."
+		)
+		assertTrue(
+			performPageTurn.indexOf("if (!pageTurnIssued) {") <
+				performPageTurn.indexOf("this.recentPageTurnDirection = direction"),
+			"A deferred reflowable turn must not mark recentPageTurnDirection before Foliate actually navigates."
 		)
 		assertTrue(
 			issueReflowablePageTurn.indexOf("if (!readiness.ready)") <
@@ -293,7 +311,7 @@ class ReaderRuntimeNavigationFlowTest {
 			.substringAfter("async function performPageTurn(direction) {")
 			.substringBefore("\nfunction attachScrolledEdgeTurnGestures")
 
-		assertContains(performPageTurn, "const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
+		assertContains(performPageTurn, "directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)")
 		assertContains(performPageTurn, "if (directFixedLayoutPageTarget != null)")
 		assertContains(performPageTurn, "page-turn:fixed-direct")
 		assertContains(performPageTurn, "await this.view.goTo({ index: directFixedLayoutPageTarget })")
