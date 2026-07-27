@@ -1377,6 +1377,15 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
         "'QuiesceReadyBeforeTerminal'\s*\{\s*Start-Sleep -Milliseconds 750") {
         throw "Runner omits bounded ready-state quiescence: $candidateTreeSource"
     }
+    $committedTurnFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf('function Invoke-ReaderQaCommittedTurn('),
+        $candidateTreeText.IndexOf('function Wait-ReaderQaRelocationTerminal(') -
+            $candidateTreeText.IndexOf('function Invoke-ReaderQaCommittedTurn(')
+    )
+    if ($committedTurnFlow -notmatch '\$MaximumAttempts = 20' -or
+        $committedTurnFlow -notmatch '\$attempt -le \$MaximumAttempts') {
+        throw "Runner does not enforce a configurable committed-turn attempt bound: $candidateTreeSource"
+    }
     $forcedRepairFlow = $candidateTreeText.Substring(
         $candidateTreeText.IndexOf(
             "Add-ReaderQaFault `$repairId 'ForceRepairWithoutPreparedDeck'"
@@ -1389,6 +1398,68 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
     if ($forcedRepairFlow -notmatch
         "State\s+-in\s+@\('Completed',\s*'Cancelled'\)") {
         throw "Runner omits the forced-repair supersession terminal: $candidateTreeSource"
+    }
+    $forcedRepairTriggerFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf(
+            "Add-ReaderQaFault `$repairId 'ForceRepairWithoutPreparedDeck'"
+        ),
+        $candidateTreeText.IndexOf('$forcedRepairTerminal =') -
+            $candidateTreeText.IndexOf(
+                "Add-ReaderQaFault `$repairId 'ForceRepairWithoutPreparedDeck'"
+            )
+    )
+    if ($forcedRepairTriggerFlow -notmatch (
+            '(?s)' +
+                '\$repairTurn\s*=\s*Invoke-ReaderQaCommittedTurn.*' +
+                '-MaximumAttempts 1.*' +
+                '\$forcedRepairApplied\s*=\s*Wait-ReaderQaFaultState\s+`.*' +
+                '\$repairId\s+`.*' +
+                "'Applied'"
+        )) {
+        throw "Runner does not wait for one settlement-fenced repair-role application: $candidateTreeSource"
+    }
+    if ($forcedRepairTriggerFlow -match
+        'maximumRepairFaultAttempts|repairFaultAttempt|SwipeDurationMs') {
+        throw "Runner still retries or delays input instead of settlement: $candidateTreeSource"
+    }
+    $outerRunStart = $candidateTreeText.IndexOf('$runSucceeded = $false')
+    $pmClear = $candidateTreeText.IndexOf('$clearResult = (', $outerRunStart)
+    $scaleCapture = $candidateTreeText.IndexOf(
+        '$originalAnimatorDurationScale = Get-ReaderAnimatorDurationScale',
+        $pmClear
+    )
+    $scaleSet = $candidateTreeText.IndexOf(
+        "Set-ReaderAnimatorDurationScale '20.0'",
+        $scaleCapture
+    )
+    $readerLaunch = $candidateTreeText.IndexOf(
+        'pwsh -NoProfile -ExecutionPolicy Bypass -File',
+        $outerRunStart
+    )
+    $faultMatrix = $candidateTreeText.IndexOf(
+        '$faultMatrixLog = Invoke-ReaderQaFaultMatrix',
+        $readerLaunch
+    )
+    $scaleRestore = $candidateTreeText.IndexOf(
+        'Restore-ReaderAnimatorDurationScale $originalAnimatorDurationScale',
+        $faultMatrix
+    )
+    $stressBaseline = $candidateTreeText.IndexOf(
+        "-Context 'ReaderDev post-fault stress baseline'",
+        $scaleRestore
+    )
+    if ($outerRunStart -lt 0 -or $pmClear -le $outerRunStart -or
+        $scaleCapture -le $pmClear -or $scaleSet -le $scaleCapture -or
+        $readerLaunch -le $scaleSet -or $faultMatrix -le $readerLaunch -or
+        $scaleRestore -le $faultMatrix -or $stressBaseline -le $scaleRestore) {
+        throw "Runner does not launch ReaderDev under the bounded settlement scale: $candidateTreeSource"
+    }
+    if ($candidateTreeText -notmatch (
+            '(?s)' +
+                'finally\s*\{\s*if \(\$animatorDurationScaleOverridePending\).*' +
+                'Restore-ReaderAnimatorDurationScale \$originalAnimatorDurationScale'
+        )) {
+        throw "Runner omits final animator-scale restoration: $candidateTreeSource"
     }
     if ($forcedRepairFlow -notmatch 'Wait-ReaderQaPreparedTextureGeneration') {
         throw "Runner omits promoted normal-deck preparation: $candidateTreeSource"
@@ -1409,6 +1480,45 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
     if ($candidateTreeText -match 'Assert-RepairAttemptReachesSubmission') {
         throw "Runner still accepts an unrelated completed repair: $candidateTreeSource"
     }
+    if ($candidateTreeText -notmatch (
+            '(?s)' +
+                'function Get-ReaderAnimatorDurationScale.*' +
+                "'settings', 'get', 'global', 'animator_duration_scale'.*" +
+                'function Set-ReaderAnimatorDurationScale.*' +
+                "'settings', 'put', 'global', 'animator_duration_scale'.*" +
+                'function Restore-ReaderAnimatorDurationScale.*' +
+                'foreach \(\$attempt in 1\.\.3\)'
+        )) {
+        throw "Runner omits authenticated animator-scale control: $candidateTreeSource"
+    }
+}
+
+$rendererSource = Join-Path $PSScriptRoot (
+    '../third_party/playlikecurl/karackencurllib/src/main/java/' +
+        'karacken/curl/PageSurfaceView.java'
+)
+if (-not (Test-Path -LiteralPath $rendererSource -PathType Leaf)) {
+    throw "Settlement renderer contract is absent: $rendererSource"
+}
+$rendererText = Get-Content -LiteralPath $rendererSource -Raw
+$settleFlow = $rendererText.Substring(
+    $rendererText.IndexOf('private void settle(Settlement settlement) {'),
+    $rendererText.IndexOf('private void startBoundaryRestoration(') -
+        $rendererText.IndexOf('private void settle(Settlement settlement) {')
+)
+$settlementAnimationFlow = $rendererText.Substring(
+    $rendererText.IndexOf('private void startSettlementAnimation('),
+    $rendererText.IndexOf('private void completeBoundaryRestorationAnimation()') -
+        $rendererText.IndexOf('private void startSettlementAnimation(')
+)
+if ($settleFlow.IndexOf('onSettlementStarted(') -lt 0 -or
+    $settleFlow.IndexOf('startSettlementAnimation(') -le
+        $settleFlow.IndexOf('onSettlementStarted(') -or
+    $settlementAnimationFlow -notmatch 'ValueAnimator\.ofFloat\(' -or
+    $settlementAnimationFlow -notmatch
+        'settlementAnimator\.setDuration\(settlement\.getDurationMillis\(\)\)' -or
+    $settlementAnimationFlow -notmatch 'settlementAnimator\.start\(\)') {
+    throw 'Animator slowdown no longer fences the repair-triggering settlement interval'
 }
 
 Write-Output 'Reader PlayLikeCurl QA parser PASS'

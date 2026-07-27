@@ -721,13 +721,66 @@ function Release-ReaderQaFault(
     }
 }
 
+function Get-ReaderAnimatorDurationScale {
+    $scale = (@(
+        Invoke-Adb @(
+            'shell', 'settings', 'get', 'global', 'animator_duration_scale'
+        )
+    ) -join '').Trim()
+    if ($scale -notmatch '^(?:null|\d+(?:\.\d+)?)$') {
+        throw 'ReaderDev animator duration scale is invalid'
+    }
+    return $scale
+}
+
+function Set-ReaderAnimatorDurationScale([string] $Scale) {
+    if ($Scale -notmatch '^(?:null|\d+(?:\.\d+)?)$') {
+        throw 'ReaderDev animator duration scale request is invalid'
+    }
+    if ($Scale -ceq 'null') {
+        [void](Invoke-Adb @(
+            'shell', 'settings', 'delete', 'global', 'animator_duration_scale'
+        ))
+    } else {
+        [void](Invoke-Adb @(
+            'shell', 'settings', 'put', 'global', 'animator_duration_scale', $Scale
+        ))
+    }
+    $observed = Get-ReaderAnimatorDurationScale
+    $scaleMatches = if ($Scale -ceq 'null' -or $observed -ceq 'null') {
+        $Scale -ceq $observed
+    } else {
+        [decimal]::Parse($Scale, [Globalization.CultureInfo]::InvariantCulture) -eq
+            [decimal]::Parse($observed, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    if (-not $scaleMatches) {
+        throw 'ReaderDev animator duration scale did not reach its requested value'
+    }
+}
+
+function Restore-ReaderAnimatorDurationScale([string] $Scale) {
+    foreach ($attempt in 1..3) {
+        try {
+            Set-ReaderAnimatorDurationScale $Scale
+            return $true
+        } catch {
+            if ($attempt -lt 3) {
+                Start-Sleep -Milliseconds 250
+            }
+        }
+    }
+    return $false
+}
+
 function Invoke-ReaderQaCommittedTurn(
     [Collections.Generic.HashSet[long]] $SeenGestureIds,
     [long] $ReaderSession,
     [int] $StartX,
     [int] $EndX,
     [int] $Y,
-    [string] $Context
+    [string] $Context,
+    [ValidateRange(1, 20)]
+    [int] $MaximumAttempts = 20
 ) {
     $retryOutcomes = @(
         'CancelledByUser',
@@ -735,7 +788,7 @@ function Invoke-ReaderQaCommittedTurn(
         'RejectedSettling',
         'RejectedRendererUnavailable'
     )
-    for ($attempt = 1; $attempt -le 20; $attempt += 1) {
+    for ($attempt = 1; $attempt -le $MaximumAttempts; $attempt += 1) {
         Invoke-Adb @(
             'shell', 'input', 'swipe',
             "$StartX", "$Y", "$EndX", "$Y", '400'
@@ -1287,82 +1340,33 @@ function Invoke-ReaderQaFaultMatrix(
         -Context 'ReaderDev visual promoted texture preparation')
 
     Add-ReaderQaFault $repairId 'ForceRepairWithoutPreparedDeck'
-    $maximumRepairFaultAttempts = 5
-    $repairTurn = $null
-    $successfulRepairMissId = $null
-    $forcedRepairAttemptId = -1L
-    for (
-        $repairFaultAttempt = 1;
-        $repairFaultAttempt -le $maximumRepairFaultAttempts;
-        $repairFaultAttempt += 1
-    ) {
-        $missId = "miss-$suffix-$repairFaultAttempt"
-        $missIds.Add($missId)
-        Add-ReaderQaFault $missId 'MissNextRasterLoad'
-        $repairLogicalDirection = if ($repairFaultAttempt % 2 -eq 0) {
-            'Next'
-        } else {
-            'Previous'
-        }
-        $repairSwipe = Get-ReaderQaSwipeCoordinates `
-            -LogicalDirection $repairLogicalDirection `
-            -PhysicalDirectionByLogical $PhysicalDirectionByLogical `
-            -PhysicalRight $PhysicalRight `
-            -PhysicalLeft $PhysicalLeft
-        $repairTurn = Invoke-ReaderQaCommittedTurn `
-            -SeenGestureIds $seen -ReaderSession $ReaderSession `
-            -StartX $repairSwipe.StartX -EndX $repairSwipe.EndX `
-            -Y $Y `
-            -Context "ReaderDev repair fault turn $repairFaultAttempt"
-        [void](Wait-ReaderQaFaultState `
-            $missId `
-            'Applied' `
-            "ReaderDev raster miss $repairFaultAttempt" `
-            60)
-        $resolution = Wait-ReaderQaCondition `
-            -Context "ReaderDev forced repair attempt $repairFaultAttempt" `
-            -WaitSeconds 60 `
-            -Select {
-                param($log)
-                $applied = @(
-                    ConvertFrom-ReaderQaFaultLog $log | Where-Object {
-                        $_.RequestId -eq $repairId -and $_.State -eq 'Applied'
-                    }
-                )
-                if ($applied.Count -gt 0) {
-                    return [pscustomobject]@{
-                        Kind = 'ForceApplied'
-                        RepairAttempt = $applied[-1].RepairAttemptId
-                    }
-                }
-                $cancelled = @(
-                    ConvertFrom-ReaderRepairLog $log | Where-Object {
-                        $_.QaFaultRequestId -eq $missId -and
-                            $_.State -eq 'Cancelled'
-                    }
-                )
-                if ($cancelled.Count -gt 0) {
-                    return [pscustomobject]@{ Kind = 'RepairTerminated' }
-                }
-            }
-        if ($resolution.Match.Kind -eq 'ForceApplied') {
-            $successfulRepairMissId = $missId
-            $forcedRepairAttemptId = $resolution.Match.RepairAttempt
-            break
-        }
-        [void](Wait-ReaderQaRelocationTerminal `
-            -ReaderSession $ReaderSession `
-            -GestureId $repairTurn.GestureId `
-            -States @('Completed', 'Rejected') `
-            -Context "ReaderDev superseded repair relocation $repairFaultAttempt")
-        [void](Wait-ReaderQaPreparedTextureGeneration `
-            -ReaderSession $ReaderSession `
-            -GestureId $repairTurn.GestureId `
-            -TextureGeneration $repairTurn.TextureGeneration `
-            -Context "ReaderDev superseded repair texture preparation $repairFaultAttempt")
-    }
-    if ($null -eq $successfulRepairMissId -or $forcedRepairAttemptId -lt 0) {
-        throw 'ReaderDev forced repair exhausted its bounded attempts'
+    $missId = "miss-$suffix"
+    $missIds.Add($missId)
+    Add-ReaderQaFault $missId 'MissNextRasterLoad'
+    $repairSwipe = Get-ReaderQaSwipeCoordinates `
+        -LogicalDirection 'Previous' `
+        -PhysicalDirectionByLogical $PhysicalDirectionByLogical `
+        -PhysicalRight $PhysicalRight `
+        -PhysicalLeft $PhysicalLeft
+    $repairTurn = Invoke-ReaderQaCommittedTurn `
+        -SeenGestureIds $seen -ReaderSession $ReaderSession `
+        -StartX $repairSwipe.StartX -EndX $repairSwipe.EndX `
+        -Y $Y `
+        -Context 'ReaderDev settlement-fenced repair fault turn' `
+        -MaximumAttempts 1
+    [void](Wait-ReaderQaFaultState `
+        $missId `
+        'Applied' `
+        'ReaderDev settlement-fenced raster miss' `
+        60)
+    $forcedRepairApplied = Wait-ReaderQaFaultState `
+        $repairId `
+        'Applied' `
+        'ReaderDev settlement-fenced forced repair' `
+        60
+    $forcedRepairAttemptId = [long]$forcedRepairApplied.Match.RepairAttemptId
+    if ($forcedRepairAttemptId -lt 0) {
+        throw 'ReaderDev forced repair omitted its repair attempt identity'
     }
     $forcedRepairTerminal = Wait-ReaderQaCondition `
         -Context 'ReaderDev forced repair terminal' `
@@ -1435,7 +1439,7 @@ function Invoke-ReaderQaFaultMatrix(
         -Log $finalLog `
         -ReaderSession $ReaderSession `
         -RepairFaultRequestId $repairId `
-        -RasterMissRequestId $successfulRepairMissId `
+        -RasterMissRequestId $missId `
         -GestureId $repairTurn.GestureId `
         -TextureGeneration $repairTurn.TextureGeneration `
         -Context 'ReaderDev fault matrix repair')
@@ -1443,6 +1447,8 @@ function Invoke-ReaderQaFaultMatrix(
 }
 
 $runSucceeded = $false
+$originalAnimatorDurationScale = $null
+$animatorDurationScaleOverridePending = $false
 try {
 if (-not $NoInstall) {
     Invoke-Adb @('install', '-r', '-t', $apkPath) | Out-Null
@@ -1455,6 +1461,9 @@ $clearResult = (
 if ($clearResult -cne 'Success') {
     throw 'ReaderDev app-data reset failed before deterministic cold preparation'
 }
+$originalAnimatorDurationScale = Get-ReaderAnimatorDurationScale
+$animatorDurationScaleOverridePending = $true
+Set-ReaderAnimatorDurationScale '20.0'
 Invoke-Adb @('logcat', '-c')
 Reset-ReaderLogAccumulator
 $persistenceRequestId = "persist-$($runId.Substring(0, 8))"
@@ -1545,6 +1554,11 @@ $faultMatrixLog = Invoke-ReaderQaFaultMatrix `
     -PhysicalLeft $physicalLeft `
     -Y $y `
     -PhysicalDirectionByLogical $physicalDirectionByLogical
+if (-not (Restore-ReaderAnimatorDurationScale $originalAnimatorDurationScale)) {
+    throw 'ReaderDev animator duration scale restoration failed'
+}
+$animatorDurationScaleOverridePending = $false
+Start-Sleep -Milliseconds 500
 Save-ReaderDiagnosticInterval `
     -Log $faultMatrixLog `
     -ArtifactName 'logcat-fault-injection.txt' `
@@ -2145,6 +2159,17 @@ $runSucceeded = $true
         Set-Content (Join-Path $ArtifactRoot 'run-failed.json')
     throw
 } finally {
+    if ($animatorDurationScaleOverridePending) {
+        $animatorDurationScaleRestored =
+            Restore-ReaderAnimatorDurationScale $originalAnimatorDurationScale
+        if ($animatorDurationScaleRestored) {
+            $animatorDurationScaleOverridePending = $false
+        } elseif ($runSucceeded) {
+            throw 'ReaderDev successful run did not restore animator duration scale'
+        } else {
+            Write-Warning 'ReaderDev failed and animator duration scale restoration also failed'
+        }
+    }
     $cleanupRequestId = "cleanup-$($runId.Substring(0, 8))"
     & adb -s $DeviceSerial shell am broadcast `
         -f 0x20 `
