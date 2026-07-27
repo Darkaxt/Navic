@@ -979,6 +979,87 @@ if ($relocationDrain.TerminalRelocations.Count -ne 2 -or
     $relocationDrain.PendingCount -ne 0) {
     throw 'Acknowledgement timeout recovery fixture did not drain exactly'
 }
+$preparationAttemptRecord =
+    'reader-preparation session=7 attempt=40 rasterGeneration=2 ' +
+    'state=Attempted reason=None eventVersion=-1 durationMs=0' +
+    $NoQaCorrelationFields
+$preparationReadyRecord =
+    'reader-preparation session=7 attempt=40 rasterGeneration=2 ' +
+    'state=Ready reason=None eventVersion=-1 durationMs=200' +
+    $NoQaCorrelationFields
+$activeDeckAttemptRecord =
+    'reader-deck session=7 generation=5 repairAttempt=-1 role=Active ' +
+    'prepared=false active=5 pending=null durationMs=0' +
+    $NoQaCorrelationFields
+$activeDeckReadyRecord =
+    'reader-deck session=7 generation=5 repairAttempt=-1 role=Active ' +
+    'prepared=true active=5 pending=null durationMs=200' +
+    $NoQaCorrelationFields
+$activeDeckRecoveryLog = $relocationRecoveryLog.
+    Replace($preparationAttemptRecord, $activeDeckAttemptRecord).
+    Replace($preparationReadyRecord, $activeDeckReadyRecord)
+if ($activeDeckRecoveryLog -ceq $relocationRecoveryLog -or
+    $activeDeckRecoveryLog.Contains('reader-preparation session=7 attempt=40')) {
+    throw 'Active deck timeout recovery fixture did not replace preparation records'
+}
+$activeDeckRecoveryDrain = Get-ReaderCommittedRelocationDrainStatus `
+    -Log $activeDeckRecoveryLog `
+    -ReaderSession 7 `
+    -CommittedGestureIds @(3, 4) `
+    -Context 'active deck acknowledgement timeout recovery fixture'
+if ($activeDeckRecoveryDrain.RecoveredRejectedRelocations.Count -ne 1) {
+    throw 'Prepared active deck did not recover an acknowledgement timeout'
+}
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $activeDeckRecoveryLog.Replace('prepared=true', 'prepared=false') `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'unprepared active deck timeout recovery fixture' | Out-Null
+} 'unprepared active deck timeout recovery fixture'
+foreach ($staleGeneration in @(3, 1)) {
+    $staleDeckLog = $activeDeckRecoveryLog.
+        Replace('generation=5 repairAttempt=-1', "generation=$staleGeneration repairAttempt=-1").
+        Replace('active=5 pending=null', "active=$staleGeneration pending=null")
+    $staleDeckDrain = Get-ReaderCommittedRelocationDrainStatus `
+        -Log $staleDeckLog `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context "stale active deck generation $staleGeneration fixture"
+    if ($staleDeckDrain.RecoveredRejectedRelocations.Count -ne 0) {
+        throw "Stale active deck generation $staleGeneration was accepted as timeout recovery"
+    }
+}
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $activeDeckRecoveryLog.Replace(
+            $activeDeckAttemptRecord,
+            $activeDeckAttemptRecord + "`n" + $activeDeckAttemptRecord
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'duplicate active deck attempt fixture' | Out-Null
+} 'duplicate active deck attempt fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $activeDeckRecoveryLog.Replace(
+            $activeDeckReadyRecord,
+            $activeDeckReadyRecord + "`n" + $activeDeckAttemptRecord
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'active deck post-ready regression fixture' | Out-Null
+} 'active deck post-ready regression fixture'
+Assert-Throws {
+    Get-ReaderCommittedRelocationDrainStatus `
+        -Log $activeDeckRecoveryLog.Replace(
+            $activeDeckReadyRecord,
+            $activeDeckReadyRecord.Replace('repairAttempt=-1', 'repairAttempt=9')
+        ) `
+        -ReaderSession 7 `
+        -CommittedGestureIds @(3, 4) `
+        -Context 'active deck changed identity fixture' | Out-Null
+} 'active deck changed identity fixture'
 $leaderQueued = @(
     ConvertFrom-ReaderRelocationLog $relocationRecoveryLog | Where-Object {
         $_.GestureId -eq 3 -and $_.State -eq 'Queued'

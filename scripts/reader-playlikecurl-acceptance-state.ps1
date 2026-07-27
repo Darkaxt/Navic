@@ -83,6 +83,8 @@ function Get-ReaderAcceptanceChangedPaths([string] $BaseCommit) {
 function Assert-ReaderAcceptanceSourceBoundary([string[]] $ChangedPaths) {
     $allowed = @(
         'scripts/adb-reader-playlikecurl-qa.ps1',
+        'scripts/reader-playlikecurl-qa-parser.ps1',
+        'scripts/test-reader-playlikecurl-qa-parser.ps1',
         'scripts/reader-playlikecurl-acceptance-state.ps1',
         'scripts/test-reader-playlikecurl-acceptance-state.ps1',
         'composeApp/src/androidHostTest/kotlin/paige/navic/reader/ReaderDevEnvironmentContractTest.kt',

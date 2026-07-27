@@ -726,6 +726,11 @@ function Get-ReaderCommittedRelocationDrainStatus(
             $_.Session -eq $ReaderSession
         }
     )
+    $decks = @(
+        ConvertFrom-ReaderDeckLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession
+        }
+    )
     $terminalRelocations = [Collections.Generic.List[object]]::new()
     $completedRelocations = [Collections.Generic.List[object]]::new()
     $rejectedRelocations = [Collections.Generic.List[object]]::new()
@@ -820,6 +825,7 @@ function Get-ReaderCommittedRelocationDrainStatus(
                 $ReaderRelocationAcknowledgementTimeoutFloorMs) {
             throw "$Context rejected gesture $gestureId before the acknowledgement timeout"
         }
+        $recovered = $false
         $recoveryAttempts = @(
             $preparations | Where-Object {
                 $_.State -eq 'Attempted' -and $_.Index -gt $terminal.Index
@@ -835,11 +841,61 @@ function Get-ReaderCommittedRelocationDrainStatus(
             )
             if ($ready.Count -eq 1) {
                 $recoveredRejectedRelocations.Add($terminal)
+                $recovered = $true
                 break
             }
             if ($ready.Count -gt 1) {
                 throw "$Context emitted duplicate recovery readiness for attempt $($attempt.Attempt)"
             }
+        }
+        if ($recovered) { continue }
+
+        $activeDeckAttempts = @(
+            $decks | Where-Object {
+                $_.Role -eq 'Active' -and
+                -not $_.Prepared -and
+                $_.Active -eq $_.Generation -and
+                $_.Generation -gt $terminal.TextureGeneration -and
+                $_.Index -gt $terminal.Index
+            } | Sort-Object Index
+        )
+        foreach ($attempt in $activeDeckAttempts) {
+            $lifecycle = @(
+                $decks | Where-Object {
+                    $_.Generation -eq $attempt.Generation
+                } | Sort-Object Index
+            )
+            if ($lifecycle.Count -ne 2 -or
+                $lifecycle[0].Index -ne $attempt.Index -or
+                $lifecycle[0].Prepared -or
+                -not $lifecycle[1].Prepared -or
+                $lifecycle[1].Index -le $attempt.Index -or
+                @($lifecycle | Where-Object {
+                    $_.Role -ne 'Active' -or
+                    $_.Active -ne $attempt.Generation -or
+                    $null -ne $_.Pending
+                }).Count -ne 0) {
+                throw "$Context emitted a malformed active deck recovery lifecycle for generation $($attempt.Generation)"
+            }
+            $identityProperties = @(
+                'RepairAttempt',
+                'QaFaultRequestId',
+                'QaFaultRelation',
+                'QaFaultPublicationEpoch',
+                'QaFaultPersistenceAttemptId',
+                'QaFaultRasterRequestEpoch',
+                'QaFaultRepairAttemptId',
+                'QaFaultPreparationAttemptId',
+                'QaFaultRelocationToken',
+                'QaFaultHandoffAttemptId'
+            )
+            foreach ($property in $identityProperties) {
+                if ($lifecycle[0].$property -cne $lifecycle[1].$property) {
+                    throw "$Context changed active deck recovery identity $property for generation $($attempt.Generation)"
+                }
+            }
+            $recoveredRejectedRelocations.Add($terminal)
+            break
         }
     }
 
