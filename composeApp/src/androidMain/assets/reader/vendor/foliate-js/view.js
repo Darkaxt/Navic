@@ -274,7 +274,8 @@ export class View extends HTMLElement {
             this.mediaOverlay.addEventListener('highlight', e => {
                 const resolved = this.resolveNavigation(e.detail.text)
                 this.renderer.goTo(resolved)
-                    .then(() => {
+                    .then(committed => {
+                        if (committed === false) return
                         const { doc } = this.renderer.getContents()
                             .find(x => x.index = resolved.index)
                         const el = resolved.anchor(doc)
@@ -314,8 +315,8 @@ export class View extends HTMLElement {
     async init({ lastLocation, showTextStart }) {
         const resolved = lastLocation ? this.resolveNavigation(lastLocation) : null
         if (resolved) {
-            await this.renderer.goTo(resolved)
-            this.history.pushState(lastLocation)
+            const committed = await this.renderer.goTo(resolved)
+            if (committed !== false) this.history.pushState(lastLocation)
         }
         else if (showTextStart) await this.goToTextStart()
         else {
@@ -464,27 +465,34 @@ export class View extends HTMLElement {
     async goTo(target) {
         const resolved = this.resolveNavigation(target)
         try {
-            await this.renderer.goTo(resolved)
+            const committed = await this.renderer.goTo(resolved)
+            if (committed === false) return false
             this.history.pushState(target)
             return resolved
         } catch(e) {
             console.error(e)
             console.error(`Could not go to ${target}`)
+            return false
         }
     }
     async goToFraction(frac) {
         const [index, anchor] = this.#sectionProgress.getSection(frac)
-        await this.renderer.goTo({ index, anchor })
+        const committed = await this.renderer.goTo({ index, anchor })
+        if (committed === false) return false
         this.history.pushState({ fraction: frac })
+        return true
     }
     async select(target) {
         try {
             const obj = await this.resolveNavigation(target)
-            await this.renderer.goTo({ ...obj, select: true })
+            const committed = await this.renderer.goTo({ ...obj, select: true })
+            if (committed === false) return false
             this.history.pushState(target)
+            return true
         } catch(e) {
             console.error(e)
             console.error(`Could not go to ${target}`)
+            return false
         }
     }
     deselect() {
@@ -515,10 +523,10 @@ export class View extends HTMLElement {
         }
     }
     async prev(distance) {
-        await this.renderer.prev(distance)
+        return await this.renderer.prev(distance)
     }
     async next(distance) {
-        await this.renderer.next(distance)
+        return await this.renderer.next(distance)
     }
     goLeft() {
         return this.book.dir === 'rtl' ? this.next() : this.prev()

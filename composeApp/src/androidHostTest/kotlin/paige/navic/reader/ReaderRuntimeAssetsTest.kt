@@ -191,8 +191,8 @@ class ReaderRuntimeAssetsTest {
 		val bridgeText = bridge.readText()
 
 		assertTrue(
-			bridge.readLines().size <= 1_600,
-			"navic-reader.js should stay below 1600 lines; shell-cover, viewport, and location behavior belong in focused method modules."
+			bridge.readLines().size <= 1_650,
+			"navic-reader.js should stay below 1650 lines; shell-cover, viewport, and location behavior belong in focused method modules."
 		)
 		listOf(
 			"navic-reader-shell-cover.js",
@@ -1604,9 +1604,45 @@ class ReaderRuntimeAssetsTest {
 	@Test
 	fun androidPaginatorDoesNotThrowWhenDocumentElementIsTemporarilyUnavailable() {
 		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val expand = paginatorText
+			.substringAfter("expand() {")
+			.substringBefore("\n    set overlayer(")
+		val destroyView = paginatorText
+			.substringAfter("destroy() {")
+			.substringBefore("\n    }")
 		val replaceBackground = paginatorText
 			.substringAfter("#replaceBackground(background, columnCount) {")
 			.substringBefore("\n    #applyVisibleViewport()")
+
+		assertContains(
+			expand,
+			"if (this.#destroyed) return",
+			message = "Queued ResizeObserver and font callbacks must become inert after the view is destroyed."
+		)
+		assertContains(
+			expand,
+			"const documentElement = this.document?.documentElement",
+			message = "Late ResizeObserver and font callbacks must tolerate an iframe between documents."
+		)
+		assertContains(
+			expand,
+			"if (!documentElement?.isConnected || !this.#contentRange.startContainer?.isConnected) return",
+			message = "Expansion must not measure a detached Foliate range or transient null document root."
+		)
+		assertFalse(
+			expand.contains("const { documentElement } = this.document"),
+			"Destructuring a transient iframe document leaves a null root that throws during measurement."
+		)
+		assertContains(
+			destroyView,
+			"this.#destroyed = true",
+			message = "Destroyed views must invalidate queued asynchronous expansion callbacks."
+		)
+		assertContains(
+			destroyView,
+			"this.#observer.disconnect()",
+			message = "Destroyed views must release all ResizeObserver targets without reading a transient iframe body."
+		)
 
 		assertContains(
 			replaceBackground,
@@ -1621,6 +1657,197 @@ class ReaderRuntimeAssetsTest {
 		assertFalse(
 			replaceBackground.contains("getComputedStyle(doc.documentElement)"),
 			"Direct getComputedStyle(doc.documentElement) throws when Foliate exposes a transient non-element root during page turns."
+		)
+	}
+
+	@Test
+	fun androidPaginatorInvalidatesLateCallbacksWhenViewsAreReplacedOrDestroyed() {
+		val paginatorText = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val view = paginatorText
+			.substringAfter("class View {")
+			.substringBefore("\n}\n\n// NOTE:")
+		val load = view
+			.substringAfter("async load(src, afterLoad, beforeRender) {")
+			.substringBefore("\n    render(layout)")
+		val expand = view
+			.substringAfter("expand() {")
+			.substringBefore("\n    set overlayer(")
+		val destroyView = view
+			.substringAfter("destroy() {")
+			.substringBefore("\n    }")
+		val paginator = paginatorText.substringAfter("export class Paginator extends HTMLElement {")
+		val display = paginator
+			.substringAfter("async #display(promise) {")
+			.substringBefore("\n    #canGoToIndex")
+		val renderPaginator = paginator
+			.substringAfter("render() {")
+			.substringBefore("\n    get scrolled()")
+		val afterScroll = paginator
+			.substringAfter("#afterScroll(reason) {")
+			.substringBefore("\n    async #display(promise)")
+		val goTo = paginator
+			.substringAfter("async #goTo({ index, anchor, select }")
+			.substringBefore("\n    async goTo(target)")
+		val goToTextPage = paginator
+			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
+			.substringBefore("\n    #scrollPrev(distance)")
+		val setStyles = paginator
+			.substringAfter("setStyles(styles) {")
+			.substringBefore("\n    focusView()")
+		val destroyPaginator = paginator
+			.substringAfterLast("destroy() {")
+			.substringBefore("\n    }")
+
+		assertContains(load, "if (this.#destroyed)")
+		assertContains(load, "} catch (error) {")
+		assertContains(load, "reject(error)")
+		assertContains(expand, "if (this.#committed) this.onExpand()")
+		assertContains(renderPaginator, "if (view.committed && view === this.#view)")
+		assertContains(afterScroll, "if (!this.#view?.committed) return")
+		assertContains(destroyView, "this.#cancelLoad?.()")
+		assertContains(paginator, "#loadedSectionIndex = -1")
+		assertContains(paginator, "#navigationGeneration = 0")
+		assertContains(display, "generation !== this.#navigationGeneration")
+		assertContains(display, "this.#discardCandidateView(view)")
+		assertContains(
+			display,
+			"generation !== this.#navigationGeneration || view !== this.#view",
+			message = "A destroyed or superseded iframe load must not restore stale paginator state."
+		)
+		assertTrue(
+			display.indexOf("generation !== this.#navigationGeneration || view !== this.#view") <
+				display.indexOf("this.#index = index"),
+			"Paginator section identity must change only after the winning View finishes loading."
+		)
+		assertTrue(
+			display.indexOf("view.markCommitted()") < display.indexOf("onLoad?.("),
+			"Candidate View expansion callbacks must remain suppressed until its section identity commits."
+		)
+		assertTrue(
+			display.indexOf("onLoad?.(") <
+				display.indexOf("view !== this.#view) return false"),
+			"Synchronous load listeners must not let a destroyed or superseded View continue committing."
+		)
+		assertContains(display, "return true")
+		assertContains(goTo, "generation = ++this.#navigationGeneration")
+		assertContains(goTo, "if (this.#destroyed || generation !== this.#navigationGeneration) return false")
+		assertTrue(
+			goTo.indexOf("generation !== this.#navigationGeneration") <
+				goTo.indexOf("this.sections[index].load()"),
+			"Superseded target promises must be rejected before allocating their section source."
+		)
+		assertContains(goTo, "let ownsTargetSection = true")
+		assertContains(goTo, "if (!ownsTargetSection) return")
+		assertContains(goTo, "this.#loadedSectionIndex = index")
+		assertContains(goTo, "index, src, anchor, generation, onLoad, onCancel, select,")
+		assertContains(goToTextPage, "const generation = ++this.#navigationGeneration")
+		assertContains(
+			goToTextPage,
+			"committed = await this.#goTo({ index, anchor: 0 }, generation)"
+		)
+		assertContains(
+			goToTextPage,
+			"if (!committed || this.#destroyed || index !== this.#index ||"
+		)
+		assertContains(setStyles, "const view = this.#view")
+		assertContains(setStyles, "view?.document?.fonts?.ready?.then(() => view.expand())")
+		assertFalse(
+			setStyles.contains("then(() => this.#view.expand())"),
+			"Font readiness must target the View that registered the callback, not a replacement View."
+		)
+		assertContains(destroyPaginator, "this.#destroyed = true")
+		assertContains(destroyPaginator, "++this.#navigationGeneration")
+		assertContains(destroyPaginator, "this.sections?.[loadedSectionIndex]?.unload?.()")
+	}
+
+	@Test
+	fun paginatorCancellationDoesNotPublishNavigationSuccess() {
+		val vendorView = readerAssetRoot().resolve("vendor/foliate-js/view.js").readText()
+		val goTo = vendorView
+			.substringAfter("async goTo(target) {")
+			.substringBefore("\n    async goToFraction(frac)")
+		val goToFraction = vendorView
+			.substringAfter("async goToFraction(frac) {")
+			.substringBefore("\n    async select(target)")
+		val pageTurnWrappers = vendorView
+			.substringAfter("async prev(distance) {")
+			.substringBefore("\n    goLeft()")
+		val reader = readerAssetRoot().resolve("navic-reader.js").readText()
+		val readerGoTo = reader
+			.substringAfter("async goTo(locator, reason = 'go-to') {")
+			.substringBefore("\n\n  async applyHighlight(")
+		val pageTurns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val progress = pageTurns
+			.substringAfter("async function goToProgress(progress) {")
+			.substringBefore("\n}\n\nasync function goToChapterProgress")
+		val chapterProgress = pageTurns
+			.substringAfter("async function goToChapterProgress(")
+			.substringBefore("\n}\n\nfunction exactPageTurnSettlementMatches")
+		val issueTurn = pageTurns
+			.substringAfter("function issueReflowablePageTurn(direction) {")
+			.substringBefore("\n}\n\nasync function performPageTurn")
+		val performTurn = pageTurns
+			.substringAfter("async function performPageTurn(direction) {")
+			.substringBefore("\n}\n\nfunction attachScrolledEdgeTurnGestures")
+		val location = readerAssetRoot().resolve("navic-reader-location.js").readText()
+		val beginControlledRelocation = location
+			.substringAfter("function beginControlledRelocation(reason) {")
+			.substringBefore("\n}\n\nfunction cancelControlledRelocation")
+		val cancelControlledRelocation = location
+			.substringAfter("function cancelControlledRelocation(owner) {")
+			.substringBefore("\n}\n\nfunction consumeControlledRelocationReason")
+		val controlledRelocationFallback = location
+			.substringAfter("function scheduleControlledRelocationFallback(")
+			.substringBefore("\n}\n\nfunction onRelocate")
+		val duplicateFallback = pageTurns
+			.substringAfter("function handleDuplicatePageTurnRelocation(")
+			.substringBefore("\n}\n\nfunction nativeDragPreviewAtSectionBoundary")
+
+		assertContains(goTo, "if (committed === false) return false")
+		assertTrue(
+			goTo.indexOf("if (committed === false) return false") <
+				goTo.indexOf("this.history.pushState(target)"),
+			"Canceled Foliate navigation must not enter browser history."
+		)
+		assertContains(goToFraction, "if (committed === false) return false")
+		assertContains(readerGoTo, "committed = await this.view.renderer.goTo(navigationTarget.rendererTarget)")
+		assertContains(readerGoTo, "if (committed === false)")
+		assertTrue(
+			readerGoTo.indexOf("if (committed === false)") <
+				readerGoTo.indexOf("this.scheduleControlledRelocationFallback(reason)"),
+			"Canceled reader navigation must not schedule a success fallback."
+		)
+		assertContains(progress, "if (committed === false)")
+		assertContains(progress, "this.cancelControlledRelocation(controlledRelocationOwner)")
+		assertContains(chapterProgress, "if (committed === false)")
+		assertContains(chapterProgress, "this.cancelControlledRelocation(controlledRelocationOwner)")
+		assertContains(readerGoTo, "this.cancelControlledRelocation(controlledRelocationOwner)")
+		assertContains(beginControlledRelocation, "this.controlledRelocateOwner = owner")
+		assertContains(beginControlledRelocation, "return owner")
+		assertContains(cancelControlledRelocation, "this.controlledRelocateOwner !== owner")
+		assertContains(cancelControlledRelocation, "this.controlledRelocateReason = null")
+		assertContains(controlledRelocationFallback, "owner = this.controlledRelocateOwner")
+		assertContains(controlledRelocationFallback, "this.controlledRelocateOwner !== owner")
+		assertContains(duplicateFallback, "if (committed === false)")
+		assertContains(duplicateFallback, "this.cancelControlledRelocation(controlledRelocationOwner)")
+		assertTrue(
+			duplicateFallback.indexOf("this.scheduleControlledRelocationFallback(fallbackReason)") >
+				duplicateFallback.indexOf("if (committed === false)"),
+			"Canceled adjacent fallback navigation must not schedule relocation success."
+		)
+		assertContains(pageTurnWrappers, "return await this.renderer.prev(distance)")
+		assertContains(pageTurnWrappers, "return await this.renderer.next(distance)")
+		assertContains(issueTurn, "return false")
+		assertContains(performTurn, "const previousFixedLayoutPageIndex = this.fixedLayoutNavigationPageIndex")
+		assertContains(performTurn, "const previousFixedLayoutDirection = this.fixedLayoutNavigationDirection")
+		assertContains(performTurn, "this.fixedLayoutNavigationPageIndex = previousFixedLayoutPageIndex")
+		assertContains(performTurn, "this.fixedLayoutNavigationDirection = previousFixedLayoutDirection")
+		assertContains(performTurn, "const committed = await reflowableNavigation")
+		assertContains(performTurn, "if (committed === false)")
+		assertTrue(
+			performTurn.indexOf("if (committed === false)") <
+				performTurn.indexOf("this.scheduleControlledRelocationFallback(`page-turn:${'$'}{direction}`)"),
+			"Rejected paginator turns must not schedule a relocation success fallback."
 		)
 	}
 

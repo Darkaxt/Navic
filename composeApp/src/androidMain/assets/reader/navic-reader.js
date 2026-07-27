@@ -351,6 +351,7 @@ class NavicReaderRuntime {
   mediaOverlayProgressDisplayedFraction = 0
   pendingRelocateDetail = null
   pendingRelocateReason = 'relocate-committed'
+  controlledRelocateOwner = null
   controlledRelocateReason = null
   controlledRelocateStartSequence = 0
   relocateSequence = 0
@@ -807,24 +808,32 @@ class NavicReaderRuntime {
 
   async goTo(locator, reason = 'go-to') {
     if (!this.view || !locator) return
+    let controlledRelocationOwner = null
     try {
       const navigationTarget = await this.resolveReaderNavigationTarget(locator)
       if (!navigationTarget) return
+      controlledRelocationOwner = this.beginControlledRelocation(reason)
+      let committed
       if (navigationTarget.rendererTarget && this.view.renderer?.goTo) {
         log('go-to:resolved', navigationTarget.target, `index=${navigationTarget.rendererTarget.index}`)
-        this.beginControlledRelocation(reason)
-        await this.view.renderer.goTo(navigationTarget.rendererTarget)
-        this.view.history?.pushState?.(navigationTarget.target)
+        committed = await this.view.renderer.goTo(navigationTarget.rendererTarget)
+        if (committed !== false) this.view.history?.pushState?.(navigationTarget.target)
       } else {
         log('go-to:fallback', navigationTarget.target)
-        this.beginControlledRelocation(reason)
-        await this.view.goTo(navigationTarget.target)
+        committed = await this.view.goTo(navigationTarget.target)
+      }
+      if (committed === false) {
+        this.cancelControlledRelocation(controlledRelocationOwner)
+        return false
       }
       this.scheduleControlledRelocationFallback(reason)
       this.applyReaderViewportLayout(reason)
       requestAnimationFrame(() => this.logContentLayout(reason))
+      return true
     } catch (error) {
+      this.cancelControlledRelocation(controlledRelocationOwner)
       reportError(error, 'navigation_failed')
+      return false
     }
   }
 

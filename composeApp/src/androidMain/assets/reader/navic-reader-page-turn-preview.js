@@ -20,8 +20,12 @@ export async function readerGoToExactVisualPage(view, locator, reason = 'page-tu
   if (typeof renderer?.goToTextPage !== 'function') {
     throw new Error('Exact paginated text navigation is unavailable')
   }
-  await renderer.goToTextPage(locator.spineIndex, locator.chapterPageIndex, reason)
-  return locator
+  const committed = await renderer.goToTextPage(
+    locator.spineIndex,
+    locator.chapterPageIndex,
+    reason
+  )
+  return committed === false ? null : locator
 }
 
 async function ensurePageTurnPreviewRenderer() {
@@ -251,12 +255,14 @@ function beginPageTurnPreviewPreparation(token, pageIndex) {
 async function preparePageTurnPreview(generation, token, pageIndex) {
   try {
     const previewView = await this.ensurePageTurnPreviewRenderer()
-    if (!previewView || generation !== this.pageTurnPreviewGeneration) return
+    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!previewView) throw new Error('Passive preview renderer is unavailable')
     const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
     if (!locator) throw new Error(`Passive preview page ${pageIndex} is unavailable`)
     this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-    await readerGoToExactVisualPage(previewView, locator, 'page-turn-preview')
+    const reached = await readerGoToExactVisualPage(previewView, locator, 'page-turn-preview')
     if (generation !== this.pageTurnPreviewGeneration) return
+    if (!reached) throw new Error(`Passive preview navigation to page ${pageIndex} was canceled`)
     this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
     await nextAnimationFrame()
     await nextAnimationFrame()
@@ -323,12 +329,14 @@ async function preparePageTurnPreviewBatchItem(generation, token, cursor) {
   const pageIndex = state.pageIndexes[cursor]
   try {
     const previewView = await this.ensurePageTurnPreviewRenderer()
-    if (!previewView || generation !== this.pageTurnPreviewGeneration) return
+    if (generation !== this.pageTurnPreviewGeneration) return
+    if (!previewView) throw new Error('Passive raster renderer is unavailable')
     const locator = readerPageLocatorForVisualIndex(this.paginationProfile, pageIndex)
     if (!locator) throw new Error(`Passive raster page ${pageIndex} is unavailable`)
     this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-    await readerGoToExactVisualPage(previewView, locator, 'page-turn-raster-batch')
+    const reached = await readerGoToExactVisualPage(previewView, locator, 'page-turn-raster-batch')
     if (generation !== this.pageTurnPreviewGeneration) return
+    if (!reached) throw new Error(`Passive raster navigation to page ${pageIndex} was canceled`)
     this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
     await nextAnimationFrame()
     await nextAnimationFrame()

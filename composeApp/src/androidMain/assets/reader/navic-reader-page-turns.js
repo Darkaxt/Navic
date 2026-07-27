@@ -219,22 +219,26 @@ async function goToProgress(progress) {
   const fraction = Number.isFinite(numericProgress)
     ? Math.min(1, Math.max(0, numericProgress))
     : 0
+  let controlledRelocationOwner = null
   try {
     log('progress-seek:start', fraction)
     const canUseFraction = typeof this.view?.goToFraction === 'function' &&
       this.view?.book?.splitTOCHref &&
       this.view?.book?.getTOCFragment
     const progressTarget = this.progressTargetForSections(fraction)
+    controlledRelocationOwner = this.beginControlledRelocation('progress-seek')
+    let committed
     if (canUseFraction) {
-      this.beginControlledRelocation('progress-seek')
-      await this.view.goToFraction(fraction)
+      committed = await this.view.goToFraction(fraction)
     } else if (progressTarget != null) {
       log('progress-seek:fallback-section', progressTarget)
-      this.beginControlledRelocation('progress-seek')
-      await this.view.goTo(progressTarget)
+      committed = await this.view.goTo(progressTarget)
     } else {
-      this.beginControlledRelocation('progress-seek')
-      await this.view.goTo({ fraction })
+      committed = await this.view.goTo({ fraction })
+    }
+    if (committed === false) {
+      this.cancelControlledRelocation(controlledRelocationOwner)
+      return false
     }
     this.scheduleControlledRelocationFallback('progress-seek')
     this.applyReaderViewportLayout('progress-seek')
@@ -242,8 +246,11 @@ async function goToProgress(progress) {
       this.logContentLayout('progress-seek')
       log('progress-seek:done', fraction)
     })
+    return true
   } catch (error) {
+    this.cancelControlledRelocation(controlledRelocationOwner)
     reportError(error, 'navigation_failed')
+    return false
   }
 }
 
@@ -265,6 +272,7 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
   const targetFraction = hasExactTargetPage
     ? Math.min(1, Math.max(0, targetPageIndex / (targetPageCount - 1)))
     : fraction
+  let controlledRelocationOwner = null
   try {
     log('chapter-progress-seek:start', targetHref, fraction, targetPageIndex, targetPageCount)
     const resolved = await Promise.resolve(
@@ -273,18 +281,22 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
     )
     const index = Number(resolved?.index)
     const targetAnchor = this.reflowableChapterProgressAnchor(targetFraction)
+    controlledRelocationOwner = this.beginControlledRelocation('chapter-progress-seek')
+    let committed
     if (Number.isFinite(index) && this.view.renderer?.goTo) {
-      this.beginControlledRelocation('chapter-progress-seek')
-      await this.view.renderer.goTo({ index, anchor: targetAnchor })
-      this.view.history?.pushState?.({
+      committed = await this.view.renderer.goTo({ index, anchor: targetAnchor })
+      if (committed !== false) this.view.history?.pushState?.({
         href: targetHref,
         chapterFraction: targetFraction,
         chapterPageIndex: hasExactTargetPage ? targetPageIndex : undefined,
         chapterPageCount: hasExactTargetPage ? targetPageCount : undefined,
       })
     } else {
-      this.beginControlledRelocation('chapter-progress-seek')
-      await this.view.goTo(targetHref)
+      committed = await this.view.goTo(targetHref)
+    }
+    if (committed === false) {
+      this.cancelControlledRelocation(controlledRelocationOwner)
+      return false
     }
     this.scheduleControlledRelocationFallback('chapter-progress-seek')
     this.applyReaderViewportLayout('chapter-progress-seek')
@@ -292,8 +304,11 @@ async function goToChapterProgress(href, progress, chapterPageIndex = null, chap
       this.logContentLayout('chapter-progress-seek')
       log('chapter-progress-seek:done', targetHref, targetFraction)
     })
+    return true
   } catch (error) {
+    this.cancelControlledRelocation(controlledRelocationOwner)
     reportError(error, 'navigation_failed')
+    return false
   }
 }
 
@@ -400,7 +415,14 @@ async function goToVisualPage(command = {}) {
     this.exactPageTurnNavigationInProgress = true
     try {
       this.applyReaderViewportLayout('page-turn:exact', { renderSynchronously: true })
-      await readerGoToExactVisualPage(this.view, locator)
+      const reached = await readerGoToExactVisualPage(this.view, locator)
+      if (!reached) {
+        if (
+          this.activeExactPageTurnSettlementToken !== token ||
+          this.pendingExactPageTurnSettlements.get(token) !== pending
+        ) return locator
+        throw new Error('Exact paginated text navigation was cancelled')
+      }
     } finally {
       if (this.exactPageTurnNavigationToken === token) {
         this.exactPageTurnNavigationToken = null
@@ -606,15 +628,26 @@ function handleDuplicatePageTurnRelocation(_detail, reason) {
     reason: reasonText,
   })
   this.pageTurnDuplicateFallbackInProgress = true
-  this.beginControlledRelocation(fallbackReason)
+  const controlledRelocationOwner = this.beginControlledRelocation(fallbackReason)
   const navigationPromise = this.view?.goTo?.(targetIndex)
   const fallbackPromise = Promise.resolve(navigationPromise)
-    .catch(error => reportError(error, 'navigation_failed'))
+    .then(committed => {
+      if (committed === false) {
+        this.cancelControlledRelocation(controlledRelocationOwner)
+        return false
+      }
+      this.scheduleControlledRelocationFallback(fallbackReason)
+      return true
+    })
+    .catch(error => {
+      this.cancelControlledRelocation(controlledRelocationOwner)
+      reportError(error, 'navigation_failed')
+      return false
+    })
     .finally(() => {
       this.pageTurnDuplicateFallbackInProgress = false
     })
   this.pageTurnAdjacentFallbackPromise = fallbackPromise
-  this.scheduleControlledRelocationFallback(fallbackReason)
   return true
 }
 
@@ -2469,17 +2502,22 @@ function issueReflowablePageTurn(direction) {
   const navigationPromise = direction === 'next'
     ? this.view?.next?.()
     : this.view?.prev?.()
-  this.reflowablePageTurnNavigationPromise =
-    navigationPromise?.catch(error => reportError(error, 'navigation_failed')) ?? null
+  this.reflowablePageTurnNavigationPromise = navigationPromise?.catch(error => {
+    reportError(error, 'navigation_failed')
+    return false
+  }) ?? null
   return true
 }
 
 async function performPageTurn(direction) {
   if (!this.view) return
+  const previousFixedLayoutPageIndex = this.fixedLayoutNavigationPageIndex
+  const previousFixedLayoutDirection = this.fixedLayoutNavigationDirection
+  let directFixedLayoutPageTarget = null
+  let controlledRelocationOwner = null
   try {
     log('page-turn:start', direction)
-    const directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)
-    let pageTurnIssued = true
+    directFixedLayoutPageTarget = this.fixedLayoutAdjacentPageTarget(direction)
     if (directFixedLayoutPageTarget != null) {
       log('page-turn:fixed-direct', direction, directFixedLayoutPageTarget)
       readerTrace('page-turn:fixed-direct', {
@@ -2490,29 +2528,29 @@ async function performPageTurn(direction) {
       })
       this.fixedLayoutNavigationPageIndex = directFixedLayoutPageTarget
       this.fixedLayoutNavigationDirection = direction
-      await this.view.goTo({ index: directFixedLayoutPageTarget })
-    } else if (direction === 'next') {
-      this.beginControlledRelocation(`page-turn:${direction}`)
-      pageTurnIssued = this.issueReflowablePageTurn(direction)
-      if (pageTurnIssued) {
-        this.scheduleControlledRelocationFallback(`page-turn:${direction}`)
-      } else {
-        this.controlledRelocateReason = null
+      const committed = await this.view.goTo({ index: directFixedLayoutPageTarget })
+      if (committed === false) {
+        this.fixedLayoutNavigationPageIndex = previousFixedLayoutPageIndex
+        this.fixedLayoutNavigationDirection = previousFixedLayoutDirection
+        return false
       }
     } else {
-      this.beginControlledRelocation(`page-turn:${direction}`)
-      pageTurnIssued = this.issueReflowablePageTurn(direction)
-      if (pageTurnIssued) {
-        this.scheduleControlledRelocationFallback(`page-turn:${direction}`)
-      } else {
-        this.controlledRelocateReason = null
+      controlledRelocationOwner = this.beginControlledRelocation(`page-turn:${direction}`)
+      const pageTurnIssued = this.issueReflowablePageTurn(direction)
+      if (!pageTurnIssued) {
+        this.cancelControlledRelocation(controlledRelocationOwner)
+        return false
       }
     }
-    if (!pageTurnIssued) return
     const reflowableNavigation = this.reflowablePageTurnNavigationPromise
     if (reflowableNavigation) {
       readerTrace('page-turn:await-reflowable-navigation', { direction })
-      await reflowableNavigation
+      const committed = await reflowableNavigation
+      if (committed === false) {
+        this.cancelControlledRelocation(controlledRelocationOwner)
+        return false
+      }
+      this.scheduleControlledRelocationFallback(`page-turn:${direction}`)
     }
     this.recentPageTurnDirection = direction
     this.applyReaderViewportLayout(`page-turn:${direction}`)
@@ -2523,8 +2561,19 @@ async function performPageTurn(direction) {
       }
       log('page-turn:done', direction)
     })
+    return true
   } catch (error) {
+    if (
+      directFixedLayoutPageTarget != null &&
+      this.fixedLayoutNavigationPageIndex === directFixedLayoutPageTarget &&
+      this.fixedLayoutNavigationDirection === direction
+    ) {
+      this.fixedLayoutNavigationPageIndex = previousFixedLayoutPageIndex
+      this.fixedLayoutNavigationDirection = previousFixedLayoutDirection
+    }
+    this.cancelControlledRelocation(controlledRelocationOwner)
     reportError(error, 'navigation_failed')
+    return false
   }
 }
 

@@ -2525,7 +2525,6 @@ async function runTextureSlotsProbe(page) {
         // The probe samples current DOM state; dispatch failure is reflected by missing layers below.
       }
     }
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     const readerRoot = document.body
     const view = document.querySelector('foliate-view')
     const renderer = view?.renderer

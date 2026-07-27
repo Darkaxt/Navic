@@ -325,6 +325,9 @@ class View {
     #column = true
     #size
     #layout = {}
+    #destroyed = false
+    #committed = false
+    #cancelLoad
     constructor({ container, onExpand }) {
         this.container = container
         this.onExpand = onExpand
@@ -357,50 +360,73 @@ class View {
     get document() {
         return this.#iframe.contentDocument
     }
+    get committed() {
+        return this.#committed
+    }
+    markCommitted() {
+        this.#committed = true
+    }
     async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(`${src} is not string`)
         return new Promise((resolve, reject) => {
+            const fail = error => {
+                this.#cancelLoad = null
+                reject(error)
+            }
+            this.#cancelLoad = () => {
+                this.#cancelLoad = null
+                resolve(false)
+            }
             this.#iframe.addEventListener('load', () => {
-                const doc = this.document
-                afterLoad?.(doc)
+                if (this.#destroyed) {
+                    this.#cancelLoad?.()
+                    return
+                }
+                try {
+                    const doc = this.document
+                    afterLoad?.(doc)
 
-                // it needs to be visible for Firefox to get computed style
-                this.#iframe.style.display = 'block'
-                const { vertical, rtl } = getDirection(doc)
-                this.docBackground = getBackground(doc)
-                doc.body.style.background = 'none'
-                const background = this.docBackground
-                this.#iframe.style.display = 'none'
+                    // it needs to be visible for Firefox to get computed style
+                    this.#iframe.style.display = 'block'
+                    const { vertical, rtl } = getDirection(doc)
+                    this.docBackground = getBackground(doc)
+                    doc.body.style.background = 'none'
+                    const background = this.docBackground
+                    this.#iframe.style.display = 'none'
 
-                this.#vertical = vertical
-                this.#rtl = rtl
+                    this.#vertical = vertical
+                    this.#rtl = rtl
 
-                this.#contentRange.selectNodeContents(doc.body)
-                const layout = beforeRender?.({ vertical, rtl, background })
-                // Navic: keep the iframe invisible (visibility, not display — display must
-                // stay 'block' so foliate can still measure columns) while render() applies
-                // the page margins/columns, then reveal on the next frame once layout has
-                // committed. This closes the flash of unstyled, margin-less text when a new
-                // chapter section first paints.
-                this.#iframe.style.visibility = 'hidden'
-                this.#iframe.style.display = 'block'
-                this.render(layout)
-                this.#observer.observe(doc.body)
-                requestAnimationFrame(() => {
-                    this.#iframe.style.visibility = ''
-                })
+                    this.#contentRange.selectNodeContents(doc.body)
+                    const layout = beforeRender?.({ vertical, rtl, background })
+                    // Navic: keep the iframe invisible (visibility, not display — display must
+                    // stay 'block' so foliate can still measure columns) while render() applies
+                    // the page margins/columns, then reveal on the next frame once layout has
+                    // committed. This closes the flash of unstyled, margin-less text when a new
+                    // chapter section first paints.
+                    this.#iframe.style.visibility = 'hidden'
+                    this.#iframe.style.display = 'block'
+                    this.render(layout)
+                    this.#observer.observe(doc.body)
+                    requestAnimationFrame(() => {
+                        this.#iframe.style.visibility = ''
+                    })
 
-                // the resize observer above doesn't work in Firefox
-                // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
-                // until the bug is fixed we can at least account for font load
-                doc.fonts.ready.then(() => this.expand())
+                    // the resize observer above doesn't work in Firefox
+                    // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
+                    // until the bug is fixed we can at least account for font load
+                    doc.fonts.ready.then(() => this.expand())
 
-                resolve()
+                    this.#cancelLoad = null
+                    resolve(true)
+                } catch (error) {
+                    fail(error)
+                }
             }, { once: true })
             this.#iframe.addEventListener('error', () => {
-                reject(new Error(`Failed to load iframe source ${src.slice(0, 80)}`))
+                fail(new Error('Failed to load iframe source'))
             }, { once: true })
-            loadIframeSource(this.#iframe, src).catch(reject)
+            loadIframeSource(this.#iframe, src).catch(fail)
         })
     }
     render(layout) {
@@ -483,7 +509,9 @@ class View {
         }
     }
     expand() {
-        const { documentElement } = this.document
+        if (this.#destroyed) return
+        const documentElement = this.document?.documentElement
+        if (!documentElement?.isConnected || !this.#contentRange.startContainer?.isConnected) return
         if (this.#column) {
             const side = this.#vertical ? 'height' : 'width'
             const otherSide = this.#vertical ? 'width' : 'height'
@@ -529,7 +557,7 @@ class View {
                 this.#overlayer.redraw()
             }
         }
-        this.onExpand()
+        if (this.#committed) this.onExpand()
     }
     set overlayer(overlayer) {
         this.#overlayer = overlayer
@@ -539,7 +567,9 @@ class View {
         return this.#overlayer
     }
     destroy() {
-        if (this.document) this.#observer.unobserve(this.document.body)
+        this.#destroyed = true
+        this.#cancelLoad?.()
+        this.#observer.disconnect()
     }
 }
 
@@ -562,9 +592,12 @@ export class Paginator extends HTMLElement {
     #rtl = false
     #margin = 0
     #index = -1
+    #loadedSectionIndex = -1
+    #navigationGeneration = 0
     #anchor = 0 // anchor view to a fraction (0-1), Range, or Element
     #justAnchored = false
     #locked = false // while true, prevent any further navigation
+    #destroyed = false
     #styles
     #styleMap = new WeakMap()
     #mediaQuery = matchMedia('(prefers-color-scheme: dark)')
@@ -815,6 +848,16 @@ export class Paginator extends HTMLElement {
         this.#container.append(this.#view.element)
         return this.#view
     }
+    #discardCandidateView(view) {
+        if (view !== this.#view) return
+        view.destroy()
+        view.element.remove()
+        this.#view = null
+        this.#index = -1
+        const loadedSectionIndex = this.#loadedSectionIndex
+        this.#loadedSectionIndex = -1
+        this.sections?.[loadedSectionIndex]?.unload?.()
+    }
     #replaceBackground(background, columnCount) {
         const doc = this.#view?.document
         if (!doc) return
@@ -942,12 +985,13 @@ export class Paginator extends HTMLElement {
         return { height, width, margin, gap, columnWidth }
     }
     render() {
-        if (!this.#view) return
-        this.#view.render(this.#beforeRender({
+        const view = this.#view
+        if (!view) return
+        view.render(this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl,
         }))
-        this.#scrollToAnchor(this.#anchor)
+        if (view.committed && view === this.#view) this.#scrollToAnchor(this.#anchor)
     }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
@@ -1157,6 +1201,7 @@ export class Paginator extends HTMLElement {
             this.start - size, this.end - size, this.#getRectMapper())
     }
     #afterScroll(reason) {
+        if (!this.#view?.committed) return
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
@@ -1176,8 +1221,15 @@ export class Paginator extends HTMLElement {
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
     async #display(promise) {
-        const { index, src, anchor, onLoad, select } = await promise
-        this.#index = index
+        const { index, src, anchor, generation, onLoad, onCancel, select } = await promise
+        if (this.#destroyed || generation !== this.#navigationGeneration) {
+            onCancel?.()
+            return false
+        }
+        if (!src && onCancel) {
+            onCancel()
+            return false
+        }
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
             const view = this.#createView()
@@ -1189,10 +1241,27 @@ export class Paginator extends HTMLElement {
                     doc.head.append($style)
                     this.#styleMap.set(doc, [$styleBefore, $style])
                 }
-                onLoad?.({ doc, index })
             }
             const beforeRender = this.#beforeRender.bind(this)
-            await view.load(src, afterLoad, beforeRender)
+            let loaded
+            try {
+                loaded = await view.load(src, afterLoad, beforeRender)
+            } catch (error) {
+                onCancel?.()
+                this.#discardCandidateView(view)
+                throw error
+            }
+            if (!loaded || this.#destroyed ||
+                generation !== this.#navigationGeneration || view !== this.#view) {
+                onCancel?.()
+                this.#discardCandidateView(view)
+                return false
+            }
+            this.#index = index
+            view.markCommitted()
+            onLoad?.({ doc: view.document, index })
+            if (this.#destroyed || generation !== this.#navigationGeneration ||
+                view !== this.#view) return false
             logPaginatorContentLayout(index, view, this.#container, this.getAttribute('flow') || 'paginated')
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: {
@@ -1200,27 +1269,49 @@ export class Paginator extends HTMLElement {
                     attach: overlayer => view.overlayer = overlayer,
                 },
             }))
-            this.#view = view
+            if (this.#destroyed || generation !== this.#navigationGeneration ||
+                view !== this.#view) return false
             this.setStyles(this.#styles)
         }
+        if (this.#destroyed || generation !== this.#navigationGeneration ||
+            index !== this.#index || !this.#view?.committed) return false
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(this.#view.document) : anchor) ?? 0, select)
+        if (this.#destroyed || generation !== this.#navigationGeneration ||
+            index !== this.#index || !this.#view?.committed) return false
         if (hasFocus) this.focusView()
+        return true
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
-    async #goTo({ index, anchor, select }) {
-        if (index === this.#index) await this.#display({ index, anchor, select })
+    async #goTo({ index, anchor, select },
+        generation = ++this.#navigationGeneration) {
+        if (this.#destroyed || generation !== this.#navigationGeneration) return false
+        if (index === this.#index && this.#view?.committed)
+            return await this.#display({ index, anchor, generation, select })
         else {
-            const oldIndex = this.#index
+            let ownsTargetSection = true
             const onLoad = detail => {
-                this.sections[oldIndex]?.unload?.()
+                if (!ownsTargetSection) return
+                ownsTargetSection = false
+                const loadedSectionIndex = this.#loadedSectionIndex
+                this.#loadedSectionIndex = index
+                this.sections[loadedSectionIndex]?.unload?.()
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
-            await this.#display(Promise.resolve(this.sections[index].load())
-                .then(src => ({ index, src, anchor, onLoad, select }))
+            const onCancel = () => {
+                if (!ownsTargetSection) return
+                ownsTargetSection = false
+                this.sections[index]?.unload?.()
+            }
+            return await this.#display(Promise.resolve()
+                .then(() => this.sections[index].load())
+                .then(src => ({
+                    index, src, anchor, generation, onLoad, onCancel, select,
+                }))
                 .catch(e => {
+                    onCancel()
                     console.warn(e)
                     console.warn(new Error(`Failed to load section ${index}`))
                     throw e
@@ -1228,27 +1319,39 @@ export class Paginator extends HTMLElement {
         }
     }
     async goTo(target) {
-        if (this.#locked) return
+        if (this.#locked) return false
+        const generation = ++this.#navigationGeneration
         const resolved = await target
-        if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
+        if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved, generation)
+        return false
     }
     async #acquireExactNavigationLock() {
         const deadline = performance.now() + exactNavigationUnlockTimeoutMs
-        while (this.#locked && performance.now() < deadline)
+        while (!this.#destroyed && this.#locked && performance.now() < deadline)
             await wait(exactNavigationUnlockPollMs)
+        if (this.#destroyed) return false
         if (this.#locked)
             throw new Error('Exact page navigation timed out waiting for paginator unlock')
         this.#locked = true
+        return true
     }
     async goToTextPage(index, pageIndex, reason = 'navigation') {
-        if (!this.#canGoToIndex(index)) return
-        await this.#acquireExactNavigationLock()
+        if (!this.#canGoToIndex(index)) return false
+        if (!await this.#acquireExactNavigationLock()) return false
+        const generation = ++this.#navigationGeneration
         try {
             const requestedPageIndex = Math.max(0, Math.floor(Number(pageIndex) || 0))
-            if (index !== this.#index) await this.#goTo({ index, anchor: 0 })
+            let committed = true
+            if (index !== this.#index || !this.#view?.committed)
+                committed = await this.#goTo({ index, anchor: 0 }, generation)
+            if (!committed || this.#destroyed || index !== this.#index ||
+                !this.#view?.committed) return false
             const textPageCount = Math.max(1, this.pages - 2)
             const textPageIndex = Math.min(textPageCount - 1, requestedPageIndex)
-            return await this.#scrollToPage(textPageIndex + 1, reason)
+            await this.#scrollToPage(textPageIndex + 1, reason)
+            if (this.#destroyed || generation !== this.#navigationGeneration ||
+                index !== this.#index || !this.#view?.committed) return false
+            return true
         } finally {
             this.#locked = false
         }
@@ -1287,16 +1390,23 @@ export class Paginator extends HTMLElement {
             if (this.sections[index]?.linear !== 'no') return index
     }
     async #turnPage(dir, distance) {
-        if (this.#locked) return
+        if (this.#locked || (this.#view && !this.#view.committed) ||
+            (!this.#view && dir < 0)) return false
         this.#locked = true
+        const generation = ++this.#navigationGeneration
         try {
             const prev = dir === -1
             const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
-            if (shouldGo) await this.#goTo({
-                index: this.#adjacentIndex(dir),
-                anchor: prev ? () => 1 : () => 0,
-            })
+            if (shouldGo) {
+                const committed = await this.#goTo({
+                    index: this.#adjacentIndex(dir),
+                    anchor: prev ? () => 1 : () => 0,
+                }, generation)
+                if (!committed) return false
+            }
             if (shouldGo || !this.hasAttribute('animated')) await wait(100)
+            if (this.#destroyed || generation !== this.#navigationGeneration) return false
+            return true
         } finally {
             this.#locked = false
         }
@@ -1322,7 +1432,7 @@ export class Paginator extends HTMLElement {
         return this.goTo({ index })
     }
     getContents() {
-        if (this.#view) return [{
+        if (this.#view?.committed) return [{
             index: this.#index,
             overlayer: this.#view.overlayer,
             doc: this.#view.document,
@@ -1331,7 +1441,8 @@ export class Paginator extends HTMLElement {
     }
     setStyles(styles) {
         this.#styles = styles
-        const $$styles = this.#styleMap.get(this.#view?.document)
+        const view = this.#view
+        const $$styles = this.#styleMap.get(view?.document)
         if (!$$styles) return
         const [$beforeStyle, $style] = $$styles
         if (Array.isArray(styles)) {
@@ -1342,25 +1453,29 @@ export class Paginator extends HTMLElement {
 
         // NOTE: needs `requestAnimationFrame` in Chromium
         requestAnimationFrame(() => {
-            const view = this.#view
-            if (!view) return
+            if (view !== this.#view) return
             this.#replaceBackground(view.docBackground, this.columnCount)
         })
 
         // needed because the resize observer doesn't work in Firefox
-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+        view?.document?.fonts?.ready?.then(() => view.expand())
     }
     focusView() {
         this.#view.document.defaultView.focus()
     }
     destroy() {
+        this.#destroyed = true
+        ++this.#navigationGeneration
         this.#observer.unobserve(this.#container)
         if (this.#visualViewportResizeListener) {
             globalThis.visualViewport?.removeEventListener('resize', this.#visualViewportResizeListener)
         }
         this.#view?.destroy()
         this.#view = null
-        this.sections?.[this.#index]?.unload?.()
+        this.#index = -1
+        const loadedSectionIndex = this.#loadedSectionIndex
+        this.#loadedSectionIndex = -1
+        this.sections?.[loadedSectionIndex]?.unload?.()
         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
     }
 }

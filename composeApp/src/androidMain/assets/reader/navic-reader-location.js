@@ -343,12 +343,30 @@ function currentVisibleTextRangeForHref(href = '') {
 
 
 function beginControlledRelocation(reason) {
+  const owner = {}
+  this.controlledRelocateOwner = owner
   this.controlledRelocateReason = reason || null
   if (!String(reason || '').startsWith('page-turn:')) {
     this.surfacePaperTextureFallbackDirection = null
   }
   this.controlledRelocateStartSequence = this.relocateSequence
   log('controlled-relocate:begin', this.controlledRelocateReason || 'none', `seq=${this.controlledRelocateStartSequence}`)
+  return owner
+}
+
+
+function cancelControlledRelocation(owner) {
+  if (!owner || this.controlledRelocateOwner !== owner) return false
+  log(
+    'controlled-relocate:cancel',
+    this.controlledRelocateReason || 'none',
+    `seq=${this.relocateSequence}`,
+    `start=${this.controlledRelocateStartSequence}`
+  )
+  this.controlledRelocateOwner = null
+  this.controlledRelocateReason = null
+  this.controlledRelocateStartSequence = this.relocateSequence
+  return true
 }
 
 
@@ -362,6 +380,7 @@ function consumeControlledRelocationReason(fallback = 'relocate-committed') {
     `seq=${this.relocateSequence}`,
     `start=${this.controlledRelocateStartSequence}`
   )
+  this.controlledRelocateOwner = null
   this.controlledRelocateReason = null
   return reason
 }
@@ -473,11 +492,18 @@ function scheduleSettledControlledPageTurnRelocation(direction) {
 }
 
 
-function scheduleControlledRelocationFallback(reason) {
+function scheduleControlledRelocationFallback(
+  reason,
+  owner = this.controlledRelocateOwner
+) {
   const startSequence = this.controlledRelocateStartSequence
   log('controlled-relocate:fallback-scheduled', reason, `start=${startSequence}`)
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      if (this.controlledRelocateOwner !== owner) {
+        log('controlled-relocate:fallback-skipped', reason, 'owner-changed')
+        return
+      }
       if (this.controlledRelocateReason !== reason) {
         log('controlled-relocate:fallback-skipped', reason, `stored=${this.controlledRelocateReason || 'none'}`)
         return
@@ -522,6 +548,7 @@ function onRelocate(detail) {
 function cancelPendingCommittedRelocation() {
   this.pendingRelocateDetail = null
   this.pendingRelocateReason = 'relocate-committed'
+  this.controlledRelocateOwner = null
   this.controlledRelocateReason = null
   this.controlledRelocateStartSequence = this.relocateSequence
   this.relocatePostScheduled = false
@@ -564,6 +591,7 @@ export const NavicReaderLocationMethods = {
   postCurrentLocationSnapshot,
   postLocationChanged,
   beginControlledRelocation,
+  cancelControlledRelocation,
   consumeControlledRelocationReason,
   pageTurnRelocationDetailIsStale,
   scheduleSettledControlledPageTurnRelocation,

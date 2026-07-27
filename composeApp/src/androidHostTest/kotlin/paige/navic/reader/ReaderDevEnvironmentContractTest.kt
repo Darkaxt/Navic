@@ -460,7 +460,7 @@ class ReaderDevEnvironmentContractTest {
 			.substringBefore("Add-ReaderQaFault \$repairId 'ForceRepairWithoutPreparedDeck'")
 		val supersededRepair = runner
 			.substringAfter("if (\$resolution.Match.Kind -eq 'ForceApplied')")
-			.substringBefore("if (\$null -eq \$successfulRepairMissId)")
+			.substringBefore("if (\$null -eq \$successfulRepairMissId -or")
 
 		assertTrue(
 			runner.contains("function Wait-ReaderQaPreparedTextureGeneration") &&
@@ -600,6 +600,31 @@ class ReaderDevEnvironmentContractTest {
 					"preferenceManager.readerDragAnimationMode = ReaderDragAnimationCanvas"
 				),
 			"ReaderDev must synchronously enable the canvas and prearm the validated fault before Compose attaches the reader registry."
+		)
+	}
+
+	@Test
+	fun rapidVisualProbeAllowsOneBoundedDecodedRefillBetweenAttempts() {
+		val recorder = root.resolve(
+			"scripts/record-reader-visual-probe.ps1"
+		).readText()
+		val rapidTurns = recorder
+			.substringAfter("'rapid-turns' {")
+			.substringBefore("'idle' { @() }")
+
+		assertTrue(
+			rapidTurns.contains("@(0..3 | ForEach-Object {") &&
+				rapidTurns.contains("(1700 + ${'$'}_ * 1500)") &&
+				rapidTurns.contains("${'$'}nextStart ${'$'}nextEnd 160 ${'$'}Display"),
+			"Rapid visual QA must inject exactly four short swipes while leaving a bounded refill interval that can produce the required second commit."
+		)
+		assertFalse(
+			rapidTurns.contains("(1700 + ${'$'}_ * 1000)"),
+			"A one-second command interval reaches the next pointer almost immediately after settlement and deterministically samples only RejectedPreparing."
+		)
+		assertTrue(
+			recorder.contains("${'$'}GesturePostRollMilliseconds = 4000"),
+			"Rapid probes must retain enough post-roll to observe the final refill and handoff."
 		)
 	}
 

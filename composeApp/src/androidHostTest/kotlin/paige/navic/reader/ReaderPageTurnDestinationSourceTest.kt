@@ -38,7 +38,8 @@ class ReaderPageTurnDestinationSourceTest {
 
 		assertContains(exactNavigation, "readerGoToExactVisualPage(this.view, locator)")
 		assertContains(preview, "export async function readerGoToExactVisualPage(view, locator, reason = 'page-turn:exact')")
-		assertContains(preview, "renderer.goToTextPage(locator.spineIndex, locator.chapterPageIndex, reason)")
+		assertContains(preview, "const committed = await renderer.goToTextPage(")
+		assertContains(preview, "return committed === false ? null : locator")
 		assertContains(paginator, "async goToTextPage(index, pageIndex, reason = 'navigation')")
 		assertContains(paginator, "await this.#acquireExactNavigationLock()")
 		assertContains(paginator, "async #acquireExactNavigationLock()")
@@ -108,15 +109,21 @@ class ReaderPageTurnDestinationSourceTest {
 		val display = paginator
 			.substringAfter("async #display(promise) {")
 			.substringBefore("\n    #canGoToIndex(index) {")
+		val createView = paginator
+			.substringAfter("#createView() {")
+			.substringBefore("\n    #discardCandidateView(view) {")
 		val goTo = paginator
-			.substringAfter("async #goTo({ index, anchor, select }) {")
+			.substringAfter("async #goTo({ index, anchor, select }")
 			.substringBefore("\n    async goTo(target) {")
 
-		val installView = display.indexOf("this.#view = view")
+		val createCandidate = display.indexOf("const view = this.#createView()")
+		val commitView = display.indexOf("view.markCommitted()")
 		val applyStyles = display.indexOf("this.setStyles(this.#styles)")
 		val resolveAnchor = display.indexOf("await this.scrollToAnchor(")
-		assertTrue(installView >= 0, "The newly loaded section must become the active paginator view.")
-		assertTrue(applyStyles > installView, "Saved reader styles must target the newly loaded section.")
+		assertContains(createView, "this.#view = new View({")
+		assertTrue(createCandidate >= 0, "The section load must create and install a candidate paginator view.")
+		assertTrue(commitView > createCandidate, "Only the successfully loaded candidate may become committed.")
+		assertTrue(applyStyles > commitView, "Saved reader styles must target the committed section.")
 		assertTrue(resolveAnchor > applyStyles, "Exact page geometry must be measured only after reader styles apply.")
 		assertFalse(
 			goTo.contains("this.setStyles(this.#styles)"),
@@ -130,22 +137,48 @@ class ReaderPageTurnDestinationSourceTest {
 		val exact = paginator
 			.substringAfter("async goToTextPage(index, pageIndex, reason = 'navigation') {")
 			.substringBefore("\n    #scrollPrev(distance) {")
+		val acquireExactLock = paginator
+			.substringAfter("async #acquireExactNavigationLock() {")
+			.substringBefore("\n    async goToTextPage(")
 		val turn = paginator
 			.substringAfter("async #turnPage(dir, distance) {")
 			.substringBefore("\n    async prev(distance) {")
 		val goTo = paginator
-			.substringAfter("async #goTo({ index, anchor, select }) {")
+			.substringAfter("async #goTo({ index, anchor, select }")
 			.substringBefore("\n    async goTo(target) {")
 
-		assertContains(exact, "await this.#acquireExactNavigationLock()")
+		assertContains(exact, "if (!await this.#acquireExactNavigationLock()) return false")
+		assertContains(exact, "const generation = ++this.#navigationGeneration")
+		assertContains(exact, "await this.#scrollToPage(textPageIndex + 1, reason)")
+		assertTrue(
+			exact.lastIndexOf("this.#destroyed || generation !== this.#navigationGeneration") >
+				exact.indexOf("await this.#scrollToPage(textPageIndex + 1, reason)"),
+			"Exact navigation destroyed during its final scroll must not report success."
+		)
+		assertContains(exact, "return false")
+		assertContains(exact, "return true")
 		assertContains(exact, "try {")
 		assertContains(exact, "finally {")
 		assertContains(exact, "this.#locked = false")
+		assertContains(acquireExactLock, "if (this.#destroyed) return false")
+		assertContains(acquireExactLock, "return true")
 		assertContains(turn, "this.#locked = true")
+		assertContains(turn, "const generation = ++this.#navigationGeneration")
+		assertContains(turn, "}, generation)")
+		assertContains(turn, "if (this.#destroyed || generation !== this.#navigationGeneration) return false")
+		assertTrue(
+			turn.indexOf("if (this.#destroyed || generation !== this.#navigationGeneration) return false") >
+				turn.indexOf("await wait(100)"),
+			"A turn destroyed or superseded during settlement delay must not report success."
+		)
 		assertContains(turn, "try {")
 		assertContains(turn, "finally {")
 		assertContains(turn, "this.#locked = false")
 		assertContains(goTo, "throw e")
+		assertTrue(
+			goTo.lastIndexOf("onCancel()") > goTo.indexOf(".catch(e =>"),
+			"A rejected section load must release its target-section ownership."
+		)
 		assertFalse(goTo.contains("return {}"))
 	}
 
@@ -156,9 +189,19 @@ class ReaderPageTurnDestinationSourceTest {
 		val prepare = preview
 			.substringAfter("async function preparePageTurnPreview(")
 			.substringBefore("\n}\n")
+		val prepareBatchItem = preview
+			.substringAfter("async function preparePageTurnPreviewBatchItem(")
+			.substringBefore("\n}\n")
 
 		assertContains(turns, "readerGoToExactVisualPage(this.view, locator)")
 		assertContains(prepare, "readerGoToExactVisualPage(previewView, locator, 'page-turn-preview')")
+		assertContains(prepare, "if (!reached) throw new Error")
+		assertContains(prepareBatchItem, "if (!reached) throw new Error")
+		assertTrue(
+			prepare.indexOf("generation !== this.pageTurnPreviewGeneration") <
+				prepare.indexOf("if (!reached) throw new Error"),
+			"Only superseded preview preparation may return silently after canceled navigation."
+		)
 		assertFalse(prepare.contains("anchor: locator.anchor"))
 	}
 

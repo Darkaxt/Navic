@@ -63,8 +63,8 @@ try {
             $rapidIntervals = @(1..($rapidActions.Count - 1) | ForEach-Object {
                 $rapidActions[$_].AtMs - $rapidActions[$_ - 1].AtMs
             })
-            if (@($rapidIntervals | Where-Object { $_ -ne 1000 }).Count -gt 0 -or
-                $plan.DurationMs -ne 8860) {
+            if (@($rapidIntervals | Where-Object { $_ -ne 1500 }).Count -gt 0 -or
+                $plan.DurationMs -ne 10360) {
                 throw 'Rapid-turn probe does not preserve the bounded injected-attempt cadence'
             }
         }

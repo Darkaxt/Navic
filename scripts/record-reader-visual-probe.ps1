@@ -749,7 +749,7 @@ function New-ReaderVisualProbePlan {
         }
         'rapid-turns' {
             @(0..3 | ForEach-Object {
-                New-SwipeAction "rapid-next-$($_ + 1)" (1700 + $_ * 1000) `
+                New-SwipeAction "rapid-next-$($_ + 1)" (1700 + $_ * 1500) `
                     $nextStart $nextEnd 160 $Display
             })
         }

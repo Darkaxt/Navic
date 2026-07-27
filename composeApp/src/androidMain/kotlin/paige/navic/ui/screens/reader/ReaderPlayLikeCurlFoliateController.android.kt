@@ -813,6 +813,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						if (!hasDecodedWorkingSetForCurrentOrdinal()) {
 							refillDecodedWorkingSet(currentPageOrdinal, "settlement-committed")
 						} else {
+							deferredDecodedRefillCenterOrdinal = null
 							discardDecodedWorkingSetPrefetch(
 								"settlement-committed-window-ready",
 								gestureId
@@ -1086,13 +1087,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (activePages == null) {
 					refreshPreparedDeck()
 				} else {
-					deferredDecodedRefillCenterOrdinal?.let { centerOrdinal ->
-						deferredDecodedRefillCenterOrdinal = null
-						refillDecodedWorkingSet(
-							centerOrdinal,
-							"raster-preparation-ready"
-						)
-					}
+					val deferredCenterOrdinal = deferredDecodedRefillCenterOrdinal
+					deferredDecodedRefillCenterOrdinal = null
+					deferredCenterOrdinal
+						?.takeIf { centerOrdinal -> centerOrdinal == currentOrdinal }
+						?.let { centerOrdinal ->
+							refillDecodedWorkingSet(
+								centerOrdinal,
+								"raster-preparation-ready"
+							)
+						}
 				}
 			}
 			ReaderPagePreparationPhase.Failed -> {

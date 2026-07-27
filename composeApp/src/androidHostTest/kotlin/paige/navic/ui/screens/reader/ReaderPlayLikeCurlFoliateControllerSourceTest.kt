@@ -644,6 +644,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	@Test
 	fun committedTurnsPublishOneVersionedWindowBeforePersistentFarEdgeRefill() {
 		val source = controllerFile.readText()
+		val preparation = source
+			.substringAfter("fun onPreparationStateChanged(")
+			.substringBefore("fun onHostAttached()")
 		val settlement = source
 			.substringAfter("override fun onSettlementCompleted(")
 			.substringBefore("override fun onSettlementCancelled(")
@@ -678,6 +681,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(
 			committedPublication,
 			"refillDecodedWorkingSet(currentPageOrdinal, \"settlement-committed\")"
+		)
+		assertContains(committedPublication, "deferredDecodedRefillCenterOrdinal = null")
+		assertContains(
+			preparation,
+			"takeIf { centerOrdinal -> centerOrdinal == currentOrdinal }"
 		)
 		assertTrue(
 			committedPublication.indexOf("currentOrdinal = currentPageOrdinal") <
@@ -1110,9 +1118,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(refill, "mainHandler.post {")
 		assertContains(refill, "!hasDecodedWorkingSetForCurrentOrdinal()")
 		assertContains(refill, "decoded-refill-fence-retry:${'$'}refill")
+		assertContains(preparation, "val deferredCenterOrdinal = deferredDecodedRefillCenterOrdinal")
 		assertContains(
 			preparation,
-			"deferredDecodedRefillCenterOrdinal?.let { centerOrdinal ->"
+			"takeIf { centerOrdinal -> centerOrdinal == currentOrdinal }"
 		)
 		assertContains(refill, "if (previous.generations.isEmpty())")
 		assertContains(
