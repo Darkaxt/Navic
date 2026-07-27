@@ -276,12 +276,8 @@ $ownerNames = @($OwnershipBoundFields | ForEach-Object { $_['Count'] })
 if (@($ownerNames | Sort-Object -Unique).Count -ne 11) {
     throw 'Ownership parser contains duplicate owner categories'
 }
-$OwnershipPlateauCountFields = @(
-    'Residents',
-    'AdapterDecoded',
-    'CacheDecoded'
-)
-if ($OwnershipPlateauCountFields.Count -ne 3 -or
+$OwnershipPlateauCountFields = @('CacheDecoded')
+if ($OwnershipPlateauCountFields.Count -ne 1 -or
     @($OwnershipPlateauCountFields | Where-Object { $_ -notin $ownerNames }).Count -ne 0) {
     throw 'Ownership plateau fields must be stable owner categories'
 }

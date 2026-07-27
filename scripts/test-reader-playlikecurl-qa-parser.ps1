@@ -22,11 +22,7 @@ if ($parsed.Count -ne 1) { throw 'Valid ownership fixture did not parse' }
 if ($OwnershipBoundFields.Count -ne 11) {
     throw 'Ownership fixture did not enforce all eleven owner categories'
 }
-$expectedOwnershipPlateauFields = @(
-    'Residents',
-    'AdapterDecoded',
-    'CacheDecoded'
-)
+$expectedOwnershipPlateauFields = @('CacheDecoded')
 if (@(
         Compare-Object `
             ($expectedOwnershipPlateauFields | Sort-Object) `
@@ -63,6 +59,20 @@ Assert-NoPostWarmupOwnershipGrowth `
     -Snapshots $plateauSnapshots `
     -WarmupCount 2 `
     -Context 'eventual ownership plateau fixture'
+$dynamicWorkingSetSnapshots = @(1, 1, 1, 1, 2, 2) | ForEach-Object {
+    $snapshotLine = $success.Replace(
+        'phase=cold-start',
+        'phase=peak-preparation'
+    ).Replace('residents=1', "residents=$_").Replace(
+        'adapterDecoded=1',
+        "adapterDecoded=$_"
+    )
+    ConvertFrom-ReaderOwnershipLog $snapshotLine
+}
+Assert-NoPostWarmupOwnershipGrowth `
+    -Snapshots $dynamicWorkingSetSnapshots `
+    -WarmupCount 2 `
+    -Context 'dynamic pinned working-set plateau fixture'
 $transientOwnershipSnapshots = @(
     @{ Callbacks = 0; Reservations = 0; Queued = 0; Staged = 0; Textures = 2 },
     @{ Callbacks = 1; Reservations = 1; Queued = 0; Staged = 0; Textures = 2 },
