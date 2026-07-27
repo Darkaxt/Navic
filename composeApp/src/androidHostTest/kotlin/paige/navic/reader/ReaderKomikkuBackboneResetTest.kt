@@ -1775,7 +1775,7 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun nativeFrameHostDefersComposeDisposalPastHierarchyMutation() {
+	fun nativeFrameHostDetachesNestedComposeBeforeOuterHierarchyMutationAndDefersDisposal() {
 		val androidHostText = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
@@ -1792,6 +1792,12 @@ class ReaderKomikkuBackboneResetTest {
 		val rootClose = androidHostText
 			.substringAfter("private class KomikkuReaderNativeFrameRoot")
 			.substringAfter("fun closeReader()")
+			.substringBefore("\n\t}")
+		val nestedDetach = androidHostText
+			.substringAfter("private fun detachNestedCompositionViews()")
+			.substringBefore("\n\t}")
+		val viewerDetach = androidHostText
+			.substringAfter("fun detachViewerContent(viewerView: View?)")
 			.substringBefore("\n\t}")
 
 		val lifecycleStrategy =
@@ -1823,11 +1829,26 @@ class ReaderKomikkuBackboneResetTest {
 				detach.indexOf("scheduleNestedCompositionDisposal()"),
 			"Root detach must finish hierarchy dispatch before scheduling nested composition disposal."
 		)
-		assertTrue(rootClose.contains("viewerContainer.closeReader()"))
-		assertTrue(rootClose.contains("scheduleNestedCompositionDisposal()"))
+		val closeIndex = rootClose.indexOf("viewerContainer.closeReader()")
+		val detachIndex = rootClose.indexOf("detachNestedCompositionViews()")
+		val scheduleIndex = rootClose.indexOf("scheduleNestedCompositionDisposal()")
+		assertTrue(
+			closeIndex >= 0 && detachIndex > closeIndex && scheduleIndex > detachIndex,
+			"AndroidView release must detach nested ComposeViews before the outer holder starts hierarchy detach."
+		)
+		assertTrue(
+			nestedDetach.contains("viewerContainer.detachViewerContent(currentViewerComposeView)") &&
+				nestedDetach.contains("(composeOverlay.parent as? ViewGroup)?.removeView(composeOverlay)"),
+			"Both nested Compose roots must leave the outer native hierarchy before its holder is removed."
+		)
+		assertTrue(
+			viewerDetach.contains("viewerView?.parent === viewerContentContainer") &&
+				viewerDetach.contains("viewerContentContainer.removeView(viewerView)"),
+			"Viewer detach must remove only the currently owned nested ComposeView."
+		)
 		assertFalse(
 			rootClose.contains(".disposeComposition()"),
-			"AndroidView release must not synchronously mutate a nested AndroidComposeView."
+			"AndroidView release must not synchronously mutate a nested AndroidComposeView composition."
 		)
 	}
 

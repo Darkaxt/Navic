@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.reader
 
+import android.os.Handler
+import android.os.Looper
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -40,6 +42,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderEngineWebViewHostTag = "ReaderEngineWebViewHost"
+
+private object ReaderWebViewReleaseQueue {
+	private val handler = Handler(Looper.getMainLooper())
+
+	fun enqueue(release: () -> Unit) {
+		handler.post { release() }
+	}
+}
 
 @Composable
 actual fun ReaderEngineWebViewHost(
@@ -186,6 +196,7 @@ actual fun ReaderEngineWebViewHost(
 	key(webViewGeneration) {
 		val generation = webViewGeneration
 		val generationDisposed = remember(generation) { AtomicBoolean(false) }
+		val generationReleased = remember(generation) { AtomicBoolean(false) }
 		val generationWebView = remember(generation) { AtomicReference<WebView?>(null) }
 		val bridge = remember(generation) {
 			ReaderJavascriptBridge(
@@ -203,11 +214,19 @@ actual fun ReaderEngineWebViewHost(
 				}
 			)
 		}
-		val disposeGeneration: (WebView?) -> Boolean = { requestedView ->
-			if (!generationDisposed.compareAndSet(false, true)) {
+		val retireGeneration: () -> Boolean = {
+			if (generationDisposed.compareAndSet(false, true)) {
+				bridge.deactivate()
+				true
+			} else {
+				false
+			}
+		}
+		val releaseGeneration: (WebView?) -> Boolean = { requestedView ->
+			retireGeneration()
+			if (!generationReleased.compareAndSet(false, true)) {
 				false
 			} else {
-				bridge.deactivate()
 				val targetView = generationWebView.getAndSet(null) ?: requestedView
 				targetView?.removeJavascriptInterface(ReaderWebRuntime.AndroidBridgeName)
 				if (webView === targetView) webView = null
@@ -218,7 +237,7 @@ actual fun ReaderEngineWebViewHost(
 
 		DisposableEffect(bridge, generation) {
 			onDispose {
-				disposeGeneration(generationWebView.get())
+				retireGeneration()
 			}
 		}
 
@@ -310,7 +329,7 @@ actual fun ReaderEngineWebViewHost(
 									)
 								)
 							)
-							if (disposeGeneration(view) && generation == webViewGeneration) {
+							if (retireGeneration() && generation == webViewGeneration) {
 								webViewGeneration += 1
 							}
 							return true
@@ -321,6 +340,11 @@ actual fun ReaderEngineWebViewHost(
 						bridge,
 						enableDebugging = settings.webContentsDebuggingEnabled == true
 					)
+				}
+			},
+			onRelease = { view ->
+				ReaderWebViewReleaseQueue.enqueue {
+					releaseGeneration(view)
 				}
 			},
 			update = { view ->

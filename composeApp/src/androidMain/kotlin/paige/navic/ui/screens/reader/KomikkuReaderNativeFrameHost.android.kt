@@ -423,12 +423,18 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun closeReader() {
 		viewerContainer.closeReader()
+		detachNestedCompositionViews()
 		scheduleNestedCompositionDisposal()
 	}
 
 	override fun onDetachedFromWindow() {
 		super.onDetachedFromWindow()
 		scheduleNestedCompositionDisposal()
+	}
+
+	private fun detachNestedCompositionViews() {
+		viewerContainer.detachViewerContent(currentViewerComposeView)
+		(composeOverlay.parent as? ViewGroup)?.removeView(composeOverlay)
 	}
 
 	private fun scheduleNestedCompositionDisposal() {
@@ -1114,6 +1120,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			viewerContentContainer.findDescendantWebView()?.isAttachedToWindow == true
 		)
 		requestPageTurnPrewarmWhenReady()
+	}
+
+	fun detachViewerContent(viewerView: View?) {
+		if (viewerView?.parent === viewerContentContainer) {
+			viewerContentContainer.removeView(viewerView)
+		}
 	}
 
 	fun setVerticalPageDragPreview(value: Boolean) {
