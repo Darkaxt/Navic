@@ -371,6 +371,69 @@ $preparedWhilePending = @(Get-ReaderPreparedPromotedTexture `
 if ($preparedWhilePending.Count -ne 1) {
     throw 'Texture prepared before promotion was not recognized after relocation completion'
 }
+foreach ($invalidActiveGeneration in @('null', '10')) {
+    $invalidPreparedPending = @(Get-ReaderPreparedPromotedTexture `
+        -Log $preparedWhilePendingLog.Replace(
+            'prepared=true active=8 pending=9',
+            "prepared=true active=$invalidActiveGeneration pending=9"
+        ) `
+        -ReaderSession 7 `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context "invalid pending active generation $invalidActiveGeneration fixture")
+    if ($invalidPreparedPending.Count -ne 0) {
+        throw "Invalid pending active generation $invalidActiveGeneration proved promotion"
+    }
+}
+$preparedBeforeForcedRepairLog = @(
+    $forcedRepairStarted,
+    $forcedRepairReady,
+    $preparedWhilePendingDeck,
+    $forcedRepairFault,
+    $forcedRepairQueued,
+    $gestureCommit,
+    $forcedRepairDispatched,
+    $forcedRepairCancelled,
+    $forcedRepairAcknowledged,
+    $forcedRepairAwaitingHandoff,
+    $forcedRepairRelocationCompleted,
+    $drainedRepairOwnership
+) -join "`n"
+$preparedBeforeForcedRepair = Assert-ForcedRepairAttemptResolution `
+    -Log $preparedBeforeForcedRepairLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'prepared-before-forced-repair fixture'
+if ($preparedBeforeForcedRepair.Kind -ne 'Superseded') {
+    throw 'Prepared-before-forced-repair fixture did not prove safe supersession'
+}
+$preparedBeforeRepairStartLog = @(
+    $preparedWhilePendingDeck,
+    $forcedRepairStarted,
+    $forcedRepairReady,
+    $forcedRepairFault,
+    $forcedRepairQueued,
+    $gestureCommit,
+    $forcedRepairDispatched,
+    $forcedRepairCancelled,
+    $forcedRepairAcknowledged,
+    $forcedRepairAwaitingHandoff,
+    $forcedRepairRelocationCompleted,
+    $drainedRepairOwnership
+) -join "`n"
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $preparedBeforeRepairStartLog `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'prepared-before-repair-start fixture' | Out-Null
+} 'prepared-before-repair-start fixture'
 $uncompletedPreparedTexture = @(Get-ReaderPreparedPromotedTexture `
     -Log $preparedWhilePendingLog.Replace($forcedRepairRelocationCompleted, '') `
     -ReaderSession 7 `
@@ -466,7 +529,7 @@ Assert-Throws {
     Assert-ForcedRepairAttemptResolution `
         -Log ($safelySupersededRepairLog.Replace(
             'prepared=true active=9 pending=null durationMs=8',
-            'prepared=true active=8 pending=9 durationMs=8'
+            'prepared=true active=8 pending=10 durationMs=8'
         )) `
         -ReaderSession 7 `
         -RepairFaultRequestId 'fault-repair' `

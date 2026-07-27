@@ -620,7 +620,11 @@ function Get-ReaderPreparedPromotedTexture(
                 $_.Index -lt $completed[0].Index -and
                 (
                     ($_.Active -eq $_.Generation -and $null -eq $_.Pending) -or
-                    ($_.Active -ne $_.Generation -and $_.Pending -eq $_.Generation)
+                    (
+                        $null -ne $_.Active -and
+                            $_.Active -lt $_.Generation -and
+                            $_.Pending -eq $_.Generation
+                    )
                 )
         }
     )
@@ -1678,17 +1682,15 @@ function Assert-ForcedRepairAttemptResolution(
             $decks | Where-Object Generation -eq $TextureGeneration
         )
         $preparedNormalDecks = @(
-            $normalTextureDecks | Where-Object {
-                $_.RepairAttempt -eq -1 -and
-                    $_.Role -eq 'Pending' -and
-                    $_.Prepared -and
-                    $_.Active -eq $_.Generation -and
-                    $null -eq $_.Pending -and
-                    $_.Index -gt $appliedFault.Index -and
-                    $_.Index -lt $relocationTerminal.Index
-            }
+            Get-ReaderPreparedPromotedTexture `
+                -Log $Log `
+                -ReaderSession $ReaderSession `
+                -GestureId $GestureId `
+                -TextureGeneration $TextureGeneration `
+                -Context "$Context superseding texture" |
+                Where-Object Index -gt $start.Index
         )
-        if ($preparedNormalDecks.Count -eq 0 -or
+        if ($preparedNormalDecks.Count -ne 1 -or
             @($normalTextureDecks | Where-Object RepairAttempt -ne -1).Count -ne 0) {
             throw "$Context did not prepare the promoted normal texture generation"
         }
