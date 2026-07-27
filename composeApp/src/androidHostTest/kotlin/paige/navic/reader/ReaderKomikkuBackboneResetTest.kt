@@ -1775,28 +1775,59 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun nativeFrameHostDefersComposeDisposalToSafeDetachCallbacks() {
+	fun nativeFrameHostDefersComposeDisposalPastHierarchyMutation() {
 		val androidHostText = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
+		val disposalQueue = androidHostText
+			.substringAfter("private class ReaderNestedComposeDisposalQueue")
+			.substringBefore("private class KomikkuReaderNativeFrameRoot")
+		val viewerSwap = androidHostText
+			.substringAfter("fun setViewerContent(viewerKey: ReaderViewerKey")
+			.substringBefore("fun closeReader()")
+		val detach = androidHostText
+			.substringAfter("private class KomikkuReaderNativeFrameRoot")
+			.substringAfter("override fun onDetachedFromWindow()")
+			.substringBefore("\n\t}")
+		val rootClose = androidHostText
+			.substringAfter("private class KomikkuReaderNativeFrameRoot")
+			.substringAfter("fun closeReader()")
+			.substringBefore("\n\t}")
 
-		val detachStrategy =
-			"ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool"
+		val lifecycleStrategy =
+			"ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed"
 		assertTrue(
-			Regex(Regex.escape(detachStrategy))
+			Regex(Regex.escape(lifecycleStrategy))
 				.findAll(androidHostText)
 				.count() >= 2,
-			"Both nested ComposeViews must dispose from their own detach callbacks."
+			"Nested ComposeViews must not dispose reentrantly from ViewGroup detach dispatch."
 		)
-		assertFalse(
-			androidHostText.contains(".disposeComposition()"),
-			"Parent release or detach must not synchronously mutate a nested AndroidComposeView while its ViewGroup is detaching."
+		val postIndex = disposalQueue.indexOf("handler.post {")
+		val observerReleaseIndex = disposalQueue.indexOf(
+			"ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool"
+		)
+		val disposeIndex = disposalQueue.indexOf("view.disposeComposition()")
+		assertTrue(
+			postIndex >= 0 &&
+				observerReleaseIndex > postIndex &&
+				disposeIndex > observerReleaseIndex,
+			"Deferred disposal must first unregister the view-tree lifecycle observer, then dispose the composition."
 		)
 		assertTrue(
-			androidHostText.contains(
-				"onRelease = { root -> root.closeReader() }"
-			) && androidHostText.contains("viewerContainer.closeReader()"),
-			"AndroidView release must still close native reader ownership before detach-driven composition disposal."
+			viewerSwap.contains("val previousViewer = currentViewerComposeView") &&
+				viewerSwap.contains("nestedCompositionDisposalQueue.enqueue(previousViewer)"),
+			"Viewer replacement must dispose the detached prior composition through the deferred queue."
+		)
+		assertTrue(
+			detach.indexOf("super.onDetachedFromWindow()") <
+				detach.indexOf("scheduleNestedCompositionDisposal()"),
+			"Root detach must finish hierarchy dispatch before scheduling nested composition disposal."
+		)
+		assertTrue(rootClose.contains("viewerContainer.closeReader()"))
+		assertTrue(rootClose.contains("scheduleNestedCompositionDisposal()"))
+		assertFalse(
+			rootClose.contains(".disposeComposition()"),
+			"AndroidView release must not synchronously mutate a nested AndroidComposeView."
 		)
 	}
 

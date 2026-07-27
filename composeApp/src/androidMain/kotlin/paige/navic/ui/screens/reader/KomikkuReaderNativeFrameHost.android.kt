@@ -205,12 +205,30 @@ actual fun KomikkuReaderNativeFrameHost(
 	)
 }
 
+private class ReaderNestedComposeDisposalQueue {
+	private val handler = Handler(Looper.getMainLooper())
+	private val pending = linkedSetOf<ComposeView>()
+
+	fun enqueue(view: ComposeView?) {
+		if (view == null || !pending.add(view)) return
+		val accepted = handler.post {
+			pending.remove(view)
+			view.setViewCompositionStrategy(
+				ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
+			)
+			view.disposeComposition()
+		}
+		if (!accepted) pending.remove(view)
+	}
+}
+
 private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(context) {
 	private val readerContainer = FrameLayout(context)
 	private val viewerContainer = KomikkuReaderNativeViewerContainer(context)
 	private val shellCoverView = KomikkuReaderNativeShellCoverView(context)
 	private val navigationOverlay = KomikkuReaderNativeNavigationOverlayView(context)
 	private val composeOverlay = ComposeView(context)
+	private val nestedCompositionDisposalQueue = ReaderNestedComposeDisposalQueue()
 	private var currentViewerKey: ReaderViewerKey? = null
 	private var currentViewerComposeView: ComposeView? = null
 	private var shellCoverVisible: Boolean = false
@@ -233,7 +251,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		shellCoverView.isFocusable = false
 		shellCoverView.visibility = GONE
 		composeOverlay.setViewCompositionStrategy(
-			ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
+			ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
 		)
 		composeOverlay.isClickable = false
 		composeOverlay.isFocusable = false
@@ -387,14 +405,17 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setViewerContent(viewerKey: ReaderViewerKey, content: @Composable () -> Unit) {
 		if (currentViewerKey != viewerKey || currentViewerComposeView == null) {
-			currentViewerComposeView = ComposeView(context).also { viewerView ->
-				viewerView.setViewCompositionStrategy(
-					ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
+			val previousViewer = currentViewerComposeView
+			val viewerView = ComposeView(context).apply {
+				setViewCompositionStrategy(
+					ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
 				)
-				viewerView.setContent(content)
-				viewerContainer.replaceViewerContent(viewerView)
+				setContent(content)
 			}
+			viewerContainer.replaceViewerContent(viewerView)
+			currentViewerComposeView = viewerView
 			currentViewerKey = viewerKey
+			nestedCompositionDisposalQueue.enqueue(previousViewer)
 		} else {
 			currentViewerComposeView?.setContent(content)
 		}
@@ -402,6 +423,19 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun closeReader() {
 		viewerContainer.closeReader()
+		scheduleNestedCompositionDisposal()
+	}
+
+	override fun onDetachedFromWindow() {
+		super.onDetachedFromWindow()
+		scheduleNestedCompositionDisposal()
+	}
+
+	private fun scheduleNestedCompositionDisposal() {
+		nestedCompositionDisposalQueue.enqueue(currentViewerComposeView)
+		nestedCompositionDisposalQueue.enqueue(composeOverlay)
+		currentViewerComposeView = null
+		currentViewerKey = null
 	}
 }
 
