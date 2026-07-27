@@ -60,6 +60,9 @@ class ReaderPageTurnBitmapSourceTest {
 		assertTrue(request.indexOf(nextFrame) < request.indexOf(captureVisualState))
 		assertTrue(capture.contains(draw))
 		assertTrue(capture.indexOf(draw) < capture.indexOf(analyze))
+		assertTrue(capture.contains("previousSparseSignature: Int? = null"))
+		assertTrue(capture.contains("foreground?.sparseSignature == previousSparseSignature"))
+		assertTrue(capture.contains("previousSparseSignature == null"))
 		assertTrue(helper.contains("webView.draw(canvas)"))
 		assertTrue(
 			helper.contains(
@@ -71,6 +74,20 @@ class ReaderPageTurnBitmapSourceTest {
 				"webViewLocationInWindow[1] - sourceRectInWindow.top.toFloat()"
 			)
 		)
+	}
+
+	@Test
+	fun preparedGeometryCaptureAvoidsASecondRuntimeGeometryQuery() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageTurnBitmapSource.android.kt"
+		).readText()
+		val preparedCapture = source
+			.substringAfter("geometry: ReaderPageTurnCaptureGeometry,")
+			.substringBefore("suspend fun captureSurfaceAwait")
+
+		assertTrue(preparedCapture.contains("captureResolvedGeometry(webView, geometry, onCaptured)"))
+		assertFalse(preparedCapture.contains("evaluateJavascript"))
 	}
 
 	@Test
@@ -99,6 +116,33 @@ class ReaderPageTurnBitmapSourceTest {
 		pixels[106] = ReaderPageTestForeground
 
 		assertFalse(readerPageTurnPixelsContainForeground(pixels))
+	}
+
+	@Test
+	fun stableSparseSurfaceIsAcceptedOnlyAfterASecondObservation() {
+		val first = IntArray(1_120) { ReaderPageTestBackground }
+		first[105] = ReaderPageTestForeground
+		val second = first.copyOf()
+
+		assertFalse(readerPageTurnPixelsContainForeground(first))
+		assertTrue(readerPageTurnSparseForegroundSettled(first, second))
+	}
+
+	@Test
+	fun changingSparseSurfaceIsNotAcceptedAsSettled() {
+		val first = IntArray(1_120) { ReaderPageTestBackground }
+		val second = first.copyOf()
+		first[105] = ReaderPageTestForeground
+		second[106] = ReaderPageTestForeground
+
+		assertFalse(readerPageTurnSparseForegroundSettled(first, second))
+	}
+
+	@Test
+	fun stableUniformSurfaceIsNotAcceptedAsSettled() {
+		val pixels = IntArray(1_120) { ReaderPageTestBackground }
+
+		assertFalse(readerPageTurnSparseForegroundSettled(pixels, pixels.copyOf()))
 	}
 
 	@Test

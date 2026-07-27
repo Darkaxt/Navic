@@ -865,7 +865,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 					onPlan(task9PreparationPlan())
 				},
 				currentReferencePort = ReaderPageRasterCurrentReferencePort {
-					_, _, _, generation, isCurrent, onResolved ->
+					_, _, _, _, generation, isCurrent, onResolved ->
 					if (generation == bundleSource.currentGeneration() && isCurrent()) {
 						reference.retain()
 						onResolved(reference)

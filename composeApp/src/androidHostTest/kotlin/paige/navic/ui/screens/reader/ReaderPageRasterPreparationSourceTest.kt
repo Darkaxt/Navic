@@ -67,13 +67,18 @@ class ReaderPageRasterPreparationSourceTest {
 		val retained = "currentLayoutSnapshot(pageIndex, kind)?.let"
 		val fresh = "currentReferencePort.captureFresh("
 
-		assertContains(productionPort, "bundleSource.captureCurrentSurface(webView, generation)")
+		assertContains(
+			productionPort,
+			"bundleSource.captureCurrentSurface(webView, generation, captureGeometry)"
+		)
 		assertContains(productionPort, "bundleSource.cacheCurrentSnapshot(pageIndex, kind, current, generation)")
 		assertContains(productionPort, "snapshot.retain()")
 		assertContains(bundle, "fun retainedCurrentLayoutSnapshot(")
 		assertContains(bundle, "physicalLayoutAuthority?.takeIf")
 		assertContains(reference, retained)
 		assertContains(reference, fresh)
+		assertContains(preparation, "plan.captureGeometry")
+		assertContains(reference, "captureGeometry = captureGeometry")
 		assertTrue(reference.indexOf(retained) < reference.indexOf(fresh))
 		assertFalse(reference.contains("retainedSnapshot(pageIndex, kind)?.let"))
 	}

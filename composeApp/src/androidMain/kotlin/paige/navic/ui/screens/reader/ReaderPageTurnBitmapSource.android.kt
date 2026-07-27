@@ -7,9 +7,13 @@ import android.os.Build
 import android.os.SystemClock
 import android.webkit.WebView
 import kotlinx.coroutines.suspendCancellableCoroutine
-import org.json.JSONArray
-import org.json.JSONObject
-import org.json.JSONTokener
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageTurnLayoutMode
@@ -73,6 +77,19 @@ internal class ReaderPageTurnBitmapSource(
 		)
 	}
 
+	fun captureSurface(
+		webView: WebView,
+		geometry: ReaderPageTurnCaptureGeometry,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	) = captureResolvedGeometry(webView, geometry, onCaptured) { resolved, location ->
+		resolved.surfaceRectInWindow(
+			webViewWindowLeft = location[0],
+			webViewWindowTop = location[1],
+			webViewWidth = webView.width,
+			webViewHeight = webView.height
+		)
+	}
+
 	suspend fun captureSurfaceAwait(webView: WebView): ReaderPageTurnCaptureResult? =
 		suspendCancellableCoroutine { continuation ->
 			captureSurface(webView) { result ->
@@ -84,12 +101,18 @@ internal class ReaderPageTurnBitmapSource(
 			}
 		}
 
+	private fun canCapture(webView: WebView): Boolean =
+		isAvailable &&
+			webView.isAttachedToWindow &&
+			webView.width > 0 &&
+			webView.height > 0
+
 	private fun capture(
 		webView: WebView,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
 		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
 	) {
-		if (!isAvailable || !webView.isAttachedToWindow || webView.width <= 0 || webView.height <= 0) {
+		if (!canCapture(webView)) {
 			onCaptured(null)
 			return
 		}
@@ -98,23 +121,60 @@ internal class ReaderPageTurnBitmapSource(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
 		) { encodedGeometry ->
 			val geometry = parseGeometry(encodedGeometry)
-			if (geometry == null || !webView.isAttachedToWindow) {
+			if (geometry == null) {
+				Logger.i(
+					ReaderPageTurnBitmapSourceTag,
+					"Page-turn capture unavailable reason=geometry-unavailable"
+				)
 				onCaptured(null)
 				return@evaluateJavascript
 			}
-			val requestId = ++visualStateRequestId
-			webView.postVisualStateCallback(requestId, object : WebView.VisualStateCallback() {
-				override fun onComplete(requestId: Long) {
-					if (!webView.isAttachedToWindow) {
-						onCaptured(null)
-						return
-					}
-					webView.postOnAnimation {
-						captureVisualState(webView, geometry, startedAt, onCaptured, resolveRect)
-					}
-				}
-			})
+			captureResolvedGeometry(webView, geometry, startedAt, onCaptured, resolveRect)
 		}
+	}
+
+	private fun captureResolvedGeometry(
+		webView: WebView,
+		geometry: ReaderPageTurnCaptureGeometry,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
+	) {
+		if (!canCapture(webView)) {
+			onCaptured(null)
+			return
+		}
+		captureResolvedGeometry(
+			webView = webView,
+			geometry = geometry,
+			startedAt = SystemClock.uptimeMillis(),
+			onCaptured = onCaptured,
+			resolveRect = resolveRect
+		)
+	}
+
+	private fun captureResolvedGeometry(
+		webView: WebView,
+		geometry: ReaderPageTurnCaptureGeometry,
+		startedAt: Long,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
+		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
+	) {
+		if (!webView.isAttachedToWindow) {
+			onCaptured(null)
+			return
+		}
+		val requestId = ++visualStateRequestId
+		webView.postVisualStateCallback(requestId, object : WebView.VisualStateCallback() {
+			override fun onComplete(requestId: Long) {
+				if (!webView.isAttachedToWindow) {
+					onCaptured(null)
+					return
+				}
+				webView.postOnAnimation {
+					captureVisualState(webView, geometry, startedAt, onCaptured, resolveRect)
+				}
+			}
+		})
 	}
 
 	private fun captureVisualState(
@@ -122,7 +182,8 @@ internal class ReaderPageTurnBitmapSource(
 		geometry: ReaderPageTurnCaptureGeometry,
 		startedAt: Long,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit,
-		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?
+		resolveRect: (ReaderPageTurnCaptureGeometry, IntArray) -> paige.navic.reader.ReaderPageTurnPixelRect?,
+		previousSparseSignature: Int? = null
 	) {
 		if (!webView.isAttachedToWindow) {
 			onCaptured(null)
@@ -157,71 +218,103 @@ internal class ReaderPageTurnBitmapSource(
 			backgroundColor
 		)
 		val foreground = if (drawn) bitmap.analyzeRenderableForeground() else null
-		if (foreground?.renderable == true) {
+		val settledSparse = previousSparseSignature != null &&
+			foreground?.sparseSignature == previousSparseSignature
+		if (foreground?.renderable == true || settledSparse) {
 			bitmap.setHasAlpha(false)
 			bitmap.setPremultiplied(true)
 			val elapsedMs = SystemClock.uptimeMillis() - startedAt
 			Logger.i(
 				ReaderPageTurnBitmapSourceTag,
 				"Page-turn capture success method=webview-draw rect=$sourceRect " +
-					"bitmap=${bitmap.width}x${bitmap.height} elapsedMs=$elapsedMs"
+					"bitmap=${bitmap.width}x${bitmap.height} " +
+					"settledSparse=$settledSparse elapsedMs=$elapsedMs"
 			)
 			onCaptured(ReaderPageTurnCaptureResult(bitmap, sourceRect, geometry, elapsedMs))
-		} else {
-			bitmap.recycle()
+			return
+		}
+
+		bitmap.recycle()
+		if (foreground?.sparseSignature != null && previousSparseSignature == null) {
 			Logger.i(
 				ReaderPageTurnBitmapSourceTag,
-				"Page-turn capture rejected unpainted surface rect=$sourceRect " +
-					"samples=${foreground?.sampleCount ?: 0} " +
-					"range=${foreground?.luminanceRange ?: 0} " +
-					"distant=${foreground?.distantSampleCount ?: 0} " +
-					"required=${foreground?.requiredDistantSampleCount ?: 0}"
+				"Page-turn capture awaiting stable sparse surface rect=$sourceRect " +
+					"samples=${foreground.sampleCount} " +
+					"range=${foreground.luminanceRange} " +
+					"distant=${foreground.distantSampleCount} " +
+					"required=${foreground.requiredDistantSampleCount}"
 			)
-			onCaptured(null)
+			webView.postOnAnimation {
+				captureVisualState(
+					webView = webView,
+					geometry = geometry,
+					startedAt = startedAt,
+					onCaptured = onCaptured,
+					resolveRect = resolveRect,
+					previousSparseSignature = foreground.sparseSignature
+				)
+			}
+			return
 		}
+
+		Logger.i(
+			ReaderPageTurnBitmapSourceTag,
+			"Page-turn capture rejected unpainted surface rect=$sourceRect " +
+				"samples=${foreground?.sampleCount ?: 0} " +
+				"range=${foreground?.luminanceRange ?: 0} " +
+				"distant=${foreground?.distantSampleCount ?: 0} " +
+				"required=${foreground?.requiredDistantSampleCount ?: 0}"
+		)
+		onCaptured(null)
 	}
 
-	internal fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? = runCatching {
-		val decoded = JSONTokener(encoded.orEmpty()).nextValue()
-		val jsonText = when (decoded) {
-			is String -> decoded
-			is JSONObject -> decoded.toString()
-			else -> return null
-		}
-		val json = JSONObject(jsonText)
-		val viewportWidth = json.optDouble("viewportWidth")
-		val viewportHeight = json.optDouble("viewportHeight")
-		if (!viewportWidth.isFinite() || !viewportHeight.isFinite()) return null
-		ReaderPageTurnCaptureGeometry(
-			viewportWidth = viewportWidth,
-			viewportHeight = viewportHeight,
-			mode = if (json.optString("mode") == "spread") ReaderPageTurnLayoutMode.Spread else ReaderPageTurnLayoutMode.Single,
-			pages = json.optJSONArray("pages").toPageRects(),
-			reverseFaceColorArgb = json.optLong("reverseFaceColorArgb").takeIf { json.has("reverseFaceColorArgb") }
-		)
-	}.getOrNull()
+	internal fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? =
+		readerPageTurnCaptureGeometry(encoded)
+}
 
-	private fun JSONArray?.toPageRects(): List<ReaderPageTurnPageRect> = buildList {
-		val array = this@toPageRects ?: return@buildList
-		for (index in 0 until array.length()) {
-			val item = array.optJSONObject(index) ?: continue
-			val role = when (item.optString("role")) {
+internal fun readerPageTurnCaptureGeometry(
+	encoded: String?
+): ReaderPageTurnCaptureGeometry? = runCatching {
+	val raw = encoded.orEmpty().trim()
+	val firstPass = Json.parseToJsonElement(raw)
+	val json = if (raw.startsWith('"')) {
+		Json.parseToJsonElement(firstPass.jsonPrimitive.contentOrNull.orEmpty()).jsonObject
+	} else {
+		firstPass.jsonObject
+	}
+	val viewportWidth = json["viewportWidth"]?.jsonPrimitive?.doubleOrNull ?: return null
+	val viewportHeight = json["viewportHeight"]?.jsonPrimitive?.doubleOrNull ?: return null
+	if (!viewportWidth.isFinite() || !viewportHeight.isFinite()) return null
+	val pages = json["pages"]?.jsonArray.orEmpty().mapNotNull { element ->
+		val item = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
+		val left = item["left"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+		val top = item["top"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+		val width = item["width"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+		val height = item["height"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+		ReaderPageTurnPageRect(
+			role = when (item["role"]?.jsonPrimitive?.contentOrNull) {
 				"left" -> ReaderPageTurnPageRole.Left
 				"right" -> ReaderPageTurnPageRole.Right
 				else -> ReaderPageTurnPageRole.Full
-			}
-			add(
-				ReaderPageTurnPageRect(
-					role = role,
-					left = item.optDouble("left"),
-					top = item.optDouble("top"),
-					width = item.optDouble("width"),
-					height = item.optDouble("height")
-				)
-			)
-		}
+			},
+			left = left,
+			top = top,
+			width = width,
+			height = height
+		)
 	}
-}
+	ReaderPageTurnCaptureGeometry(
+		viewportWidth = viewportWidth,
+		viewportHeight = viewportHeight,
+		mode = if (json["mode"]?.jsonPrimitive?.contentOrNull == "spread") {
+			ReaderPageTurnLayoutMode.Spread
+		} else {
+			ReaderPageTurnLayoutMode.Single
+		},
+		pages = pages,
+		reverseFaceColorArgb = json["reverseFaceColorArgb"]?.jsonPrimitive?.longOrNull
+	)
+}.getOrNull()
 
 private fun drawWebViewIntoBitmap(
 	webView: WebView,
@@ -257,14 +350,15 @@ private data class ReaderPageTurnForegroundAnalysis(
 	val luminanceRange: Int,
 	val distantSampleCount: Int,
 	val requiredDistantSampleCount: Int,
-	val renderable: Boolean
+	val renderable: Boolean,
+	val sparseSignature: Int?
 )
 
 private fun Bitmap.analyzeRenderableForeground(): ReaderPageTurnForegroundAnalysis {
 	val columns = PageTurnCaptureSampleColumns.coerceAtMost(width)
 	val rows = PageTurnCaptureSampleRows.coerceAtMost(height)
 	if (columns <= 0 || rows <= 0) {
-		return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false)
+		return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false, null)
 	}
 	val pixels = ArrayList<Int>(columns * rows)
 	for (row in 0 until rows) {
@@ -281,7 +375,7 @@ private fun Bitmap.analyzeRenderableForeground(): ReaderPageTurnForegroundAnalys
 }
 
 private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnForegroundAnalysis {
-	if (pixels.isEmpty()) return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false)
+	if (pixels.isEmpty()) return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false, null)
 	val luminance = IntArray(pixels.size) { index ->
 		val color = pixels[index]
 		val red = color ushr 16 and 0xff
@@ -299,16 +393,36 @@ private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnFo
 	val distantSamples = luminance.count { value ->
 		abs(value - baseline) >= PageTurnCaptureForegroundDistance
 	}
+	val renderable =
+		range >= PageTurnCaptureMinimumLuminanceRange &&
+			distantSamples >= requiredDistantSamples
+	val sparseSignature = if (
+		!renderable &&
+		range >= PageTurnCaptureMinimumLuminanceRange &&
+		distantSamples > 0
+	) {
+		luminance.contentHashCode()
+	} else {
+		null
+	}
 	return ReaderPageTurnForegroundAnalysis(
 		sampleCount = pixels.size,
 		luminanceRange = range,
 		distantSampleCount = distantSamples,
 		requiredDistantSampleCount = requiredDistantSamples,
-		renderable =
-			range >= PageTurnCaptureMinimumLuminanceRange &&
-				distantSamples >= requiredDistantSamples
+		renderable = renderable,
+		sparseSignature = sparseSignature
 	)
 }
 
 internal fun readerPageTurnPixelsContainForeground(pixels: IntArray): Boolean =
 	readerPageTurnForegroundAnalysis(pixels).renderable
+
+internal fun readerPageTurnSparseForegroundSettled(
+	previousPixels: IntArray,
+	currentPixels: IntArray
+): Boolean {
+	val previous = readerPageTurnForegroundAnalysis(previousPixels).sparseSignature
+	return previous != null &&
+		readerPageTurnForegroundAnalysis(currentPixels).sparseSignature == previous
+}

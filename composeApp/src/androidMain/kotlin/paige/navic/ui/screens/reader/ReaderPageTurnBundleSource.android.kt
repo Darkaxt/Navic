@@ -549,15 +549,27 @@ internal class ReaderPageTurnBundleSource(
 		webView: WebView,
 		generation: Long,
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	) = captureCurrentSurface(webView, generation, null, onCaptured)
+
+	fun captureCurrentSurface(
+		webView: WebView,
+		generation: Long,
+		captureGeometry: ReaderPageTurnCaptureGeometry?,
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
 	) {
 		activeWebView = WeakReference(webView)
-		bitmapSource.captureSurface(webView) { result ->
+		val publishResult: (ReaderPageTurnCaptureResult?) -> Unit = { result ->
 			if (generation != activeGeneration) {
 				result?.bitmap?.takeUnless { it.isRecycled }?.recycle()
 				onCaptured(null)
 			} else {
 				onCaptured(result)
 			}
+		}
+		if (captureGeometry == null) {
+			bitmapSource.captureSurface(webView, publishResult)
+		} else {
+			bitmapSource.captureSurface(webView, captureGeometry, publishResult)
 		}
 	}
 

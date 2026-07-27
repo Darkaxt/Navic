@@ -703,6 +703,17 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun rasterPreparationPlanCarriesTheGeometryFromTheSameRuntimeObservation() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val plan = preview
+			.substringAfter("function pageTurnRasterPreparationPlan(")
+			.substringBefore("function pageTurnPreviewContext()")
+
+		assertContains(plan, "const geometry = this.pageTurnCaptureGeometry()")
+		assertContains(plan, "captureGeometry: geometry")
+	}
+
+	@Test
 	fun transitionPlannerAcceptsTheNativeVisualPageOverride() {
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val planner = preview

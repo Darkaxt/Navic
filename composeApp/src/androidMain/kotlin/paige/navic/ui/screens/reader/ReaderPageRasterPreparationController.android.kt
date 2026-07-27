@@ -25,6 +25,7 @@ import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageReadinessState
+import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.readerPagePreparationState
@@ -93,6 +94,7 @@ internal fun interface ReaderPageRasterCurrentReferencePort {
 		webView: WebView,
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
+		captureGeometry: ReaderPageTurnCaptureGeometry?,
 		generation: Long,
 		isCurrent: () -> Boolean,
 		onResolved: (ReaderPageSlideSnapshot?) -> Unit
@@ -106,11 +108,12 @@ private class ReaderPageBundleRasterCurrentReferencePort(
 		webView: WebView,
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
+		captureGeometry: ReaderPageTurnCaptureGeometry?,
 		generation: Long,
 		isCurrent: () -> Boolean,
 		onResolved: (ReaderPageSlideSnapshot?) -> Unit
 	) {
-		bundleSource.captureCurrentSurface(webView, generation) { current ->
+		bundleSource.captureCurrentSurface(webView, generation, captureGeometry) { current ->
 			if (
 				current == null ||
 				generation != bundleSource.currentGeneration() ||
@@ -1218,7 +1221,13 @@ internal class ReaderPageRasterPreparationController(
 				generation = bundleSource.currentGeneration()
 			)
 			val calibrationTargets = readerPageRasterCalibrationTargets(plan.targets)
-			obtainRasterReference(webView, session, plan.centerPageIndex, kind) { reference ->
+			obtainRasterReference(
+				webView,
+				session,
+				plan.centerPageIndex,
+				kind,
+				plan.captureGeometry
+			) { reference ->
 				if (!isPrewarmActive(webView, session)) {
 					reference?.release()
 					return@obtainRasterReference
@@ -1381,6 +1390,7 @@ internal class ReaderPageRasterPreparationController(
 		session: Long,
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind,
+		captureGeometry: ReaderPageTurnCaptureGeometry?,
 		onResolved: (ReaderPageSlideSnapshot?) -> Unit
 	) {
 		val generation = bundleSource.currentGeneration()
@@ -1401,6 +1411,7 @@ internal class ReaderPageRasterPreparationController(
 			webView = webView,
 			pageIndex = pageIndex,
 			kind = kind,
+			captureGeometry = captureGeometry,
 			generation = generation,
 			isCurrent = isCurrent,
 			onResolved = onResolved

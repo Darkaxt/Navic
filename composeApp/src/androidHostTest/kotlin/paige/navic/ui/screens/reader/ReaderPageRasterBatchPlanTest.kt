@@ -35,6 +35,20 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
+	fun parsedPreparationPlanCarriesItsCaptureGeometry() {
+		val plan = readerPageRasterPreparationPlan(
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"single","readerDirection":"ltr","step":1},"captureGeometry":{"viewportWidth":1232,"viewportHeight":1974,"mode":"single","pages":[{"role":"full","left":0,"top":0,"width":1219.68,"height":1974}],"reverseFaceColorArgb":4294967295},"targets":[{"pageIndex":8,"priority":"current"}]}"""
+		)
+
+		assertNotNull(plan)
+		val geometry = assertNotNull(plan.captureGeometry)
+		assertEquals(1232.0, geometry.viewportWidth)
+		assertEquals(1974.0, geometry.viewportHeight)
+		assertEquals(1, geometry.pages.size)
+		assertEquals(1219.68, geometry.pages.single().width)
+	}
+
+	@Test
 	fun preparedChapterRangeRecognizesOrdinaryTurnsAndChapterBoundaries() {
 		val range = ReaderPageRasterPreparedChapterRange(startPageIndex = 6, pageCount = 8)
 

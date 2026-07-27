@@ -13,6 +13,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPageAdjacentChapterDirection
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.adjacentChapterDirection
 
 internal data class ReaderPageRasterBatchTarget(
@@ -33,7 +34,8 @@ internal data class ReaderPageRasterPreparationPlan(
 	val previousChapterPageCount: Int,
 	val nextChapterPageStartIndex: Int,
 	val nextChapterPageCount: Int,
-	val targets: List<ReaderPageRasterBatchTarget>
+	val targets: List<ReaderPageRasterBatchTarget>,
+	val captureGeometry: ReaderPageTurnCaptureGeometry? = null
 )
 
 internal data class ReaderPageRasterPreparedChapterRange(
@@ -141,7 +143,10 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 			context["nextChapterPageStartIndex"]?.jsonPrimitive?.intOrNull ?: -1,
 		nextChapterPageCount =
 			(context["nextChapterPageCount"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0),
-		targets = targets
+		targets = targets,
+		captureGeometry = root["captureGeometry"]?.let { encodedGeometry ->
+			readerPageTurnCaptureGeometry(encodedGeometry.toString())
+		}
 	)
 }
 
