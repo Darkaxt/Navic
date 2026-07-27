@@ -2092,9 +2092,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("private fun closePhysicalPointerDelivery()")
 			.substringBefore("private fun teardownTask4Resources()")
 		val teardown = viewer.substringAfter("private fun teardownTask4Resources()")
-		val rootClose = root
-			.substringAfter("fun closeReader()")
-			.substringBefore("override fun onDetachedFromWindow()")
+		val rootClose = root.substringAfter("fun closeReader()")
 
 		assertContains(hostSource, "onRelease = { root -> root.closeReader() }")
 		assertContains(hostSource, "findViewTreeLifecycleOwner()")
@@ -2121,9 +2119,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertTrue(eventIndex > removeIndex)
 		assertTrue(rasterIndex > eventIndex)
 		assertFalse(teardown.contains("playLikeCurlController.destroy()"))
-		assertTrue(
-			rootClose.indexOf("viewerContainer.closeReader()") <
-				rootClose.indexOf("currentViewerComposeView?.disposeComposition()")
+		assertContains(rootClose, "viewerContainer.closeReader()")
+		assertFalse(
+			rootClose.contains("disposeComposition()"),
+			"Root close must not re-enter nested Compose hierarchy mutation while AndroidView is releasing."
 		)
 	}
 

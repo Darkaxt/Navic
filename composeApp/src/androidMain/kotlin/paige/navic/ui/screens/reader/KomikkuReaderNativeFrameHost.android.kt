@@ -232,7 +232,9 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		shellCoverView.isClickable = false
 		shellCoverView.isFocusable = false
 		shellCoverView.visibility = GONE
-		composeOverlay.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+		composeOverlay.setViewCompositionStrategy(
+			ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
+		)
 		composeOverlay.isClickable = false
 		composeOverlay.isFocusable = false
 		composeOverlay.elevation = 32f
@@ -385,9 +387,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setViewerContent(viewerKey: ReaderViewerKey, content: @Composable () -> Unit) {
 		if (currentViewerKey != viewerKey || currentViewerComposeView == null) {
-			currentViewerComposeView?.disposeComposition()
 			currentViewerComposeView = ComposeView(context).also { viewerView ->
-				viewerView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+				viewerView.setViewCompositionStrategy(
+					ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
+				)
 				viewerView.setContent(content)
 				viewerContainer.replaceViewerContent(viewerView)
 			}
@@ -399,18 +402,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun closeReader() {
 		viewerContainer.closeReader()
-		currentViewerComposeView?.disposeComposition()
-		composeOverlay.disposeComposition()
-		currentViewerComposeView = null
-		currentViewerKey = null
-	}
-
-	override fun onDetachedFromWindow() {
-		currentViewerComposeView?.disposeComposition()
-		composeOverlay.disposeComposition()
-		currentViewerComposeView = null
-		currentViewerKey = null
-		super.onDetachedFromWindow()
 	}
 }
 

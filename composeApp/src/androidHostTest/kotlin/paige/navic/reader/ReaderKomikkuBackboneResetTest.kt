@@ -1775,26 +1775,28 @@ class ReaderKomikkuBackboneResetTest {
 	}
 
 	@Test
-	fun nativeFrameHostDisposesOldViewerCompositionWhenSwappingLikeKomikkuUpdateViewer() {
+	fun nativeFrameHostDefersComposeDisposalToSafeDetachCallbacks() {
 		val androidHostText = root.resolve(
 			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt"
 		).readText()
 
-		val swapBody = androidHostText
-			.substringAfter("fun setViewerContent(viewerKey: ReaderViewerKey")
-			.substringBefore("override fun onDetachedFromWindow()")
-
+		val detachStrategy =
+			"ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool"
 		assertTrue(
-			swapBody.contains("currentViewerComposeView?.disposeComposition()") &&
-				swapBody.indexOf("currentViewerComposeView?.disposeComposition()") <
-				swapBody.indexOf("viewerContainer.replaceViewerContent(viewerView)"),
-			"Android native frame must dispose the old viewer composition before replacing the renderer child."
+			Regex(Regex.escape(detachStrategy))
+				.findAll(androidHostText)
+				.count() >= 2,
+			"Both nested ComposeViews must dispose from their own detach callbacks."
+		)
+		assertFalse(
+			androidHostText.contains(".disposeComposition()"),
+			"Parent release or detach must not synchronously mutate a nested AndroidComposeView while its ViewGroup is detaching."
 		)
 		assertTrue(
-			androidHostText.contains("override fun onDetachedFromWindow()") &&
-				androidHostText.contains("currentViewerComposeView?.disposeComposition()") &&
-				androidHostText.contains("composeOverlay.disposeComposition()"),
-			"Android native frame must dispose both the active viewer composition and the native top chrome overlay composition."
+			androidHostText.contains(
+				"onRelease = { root -> root.closeReader() }"
+			) && androidHostText.contains("viewerContainer.closeReader()"),
+			"AndroidView release must still close native reader ownership before detach-driven composition disposal."
 		)
 	}
 
