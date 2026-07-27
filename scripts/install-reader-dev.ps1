@@ -233,8 +233,8 @@ function Get-ReaderDevLogcatCursor {
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
         $logLines = Invoke-Adb -Arguments @(
-            "logcat", "-d", "-v", "epoch", "-t", "20",
-            "NavicReaderDevLauncher:I", "*:S"
+            "logcat", "-d", "-v", "epoch", "-s",
+            "NavicReaderDevLauncher:I"
         )
         foreach ($line in $logLines) {
             if ($line -match $markerPattern) {

@@ -659,11 +659,19 @@ class ReaderDevEnvironmentContractTest {
 		val spec = root.resolve("docs/superpowers/specs/2026-06-13-komikku-reader-port-design.md").readText()
 		val mainActivity = root.resolve("androidApp/src/main/kotlin/paige/navic/androidApp/MainActivity.kt").readText()
 		val installScriptText = installScript.readText()
+		val logcatCursorBody =
+			installScriptText.substringAfter("function Get-ReaderDevLogcatCursor")
+				.substringBefore("function Wait-ReaderDevPublicationReady")
 
 		assertTrue(setupScript.exists(), "The local Android reader lab must have an SDK/AVD setup script.")
 		assertTrue(installScript.exists(), "The local Android reader lab must have a dirty build/install script.")
 		assertTrue(viewportScript.exists(), "The local Android reader lab must have a viewport simulation script.")
 		assertTrue(envExample.exists(), "The local Android reader lab must document the ignored credential env file.")
+		assertTrue(
+			logcatCursorBody.contains("\"-s\"") &&
+				!logcatCursorBody.contains("\"-t\", \"20\""),
+			"The launch-marker cursor query must filter the complete bounded logcat buffer by tag; applying a global last-line cap before the tag filter can lose a fresh marker on a noisy device."
+		)
 		assertTrue(
 			gitignore.contains("navic-reader-dev.env"),
 			"Local reader dev credentials must be ignored."
