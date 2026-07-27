@@ -174,6 +174,60 @@ class ReaderVisualQaTest(unittest.TestCase):
 
         self.assertEqual("pass", report["checks"]["decorationContinuity"]["status"])
 
+    def test_committed_turn_that_returns_to_baseline_fails_settled_page_change(self):
+        baseline = bright_frame(width=120, height=200)
+        folding = baseline.copy()
+        folding[45:155, 30:95] = (75, 95, 130)
+        frames = [baseline.copy() for _ in range(12)]
+        frames += [folding.copy() for _ in range(10)]
+        frames += [baseline.copy() for _ in range(10)]
+
+        report = self.analyze(
+            frames,
+            orientation="portrait",
+            scenario="slow-next",
+        )
+
+        self.assertEqual("fail", report["checks"]["settledPageChange"]["status"])
+        self.assertGreater(
+            report["checks"]["settledPageChange"]["metrics"]["peakChangedFraction"],
+            report["checks"]["settledPageChange"]["metrics"]["settledChangedFraction"],
+        )
+
+    def test_committed_turn_with_distinct_settled_page_passes_page_change(self):
+        baseline = bright_frame(width=120, height=200)
+        folding = baseline.copy()
+        folding[45:155, 30:95] = (75, 95, 130)
+        settled = baseline.copy()
+        settled[20:180, 25:105] = (125, 145, 175)
+        frames = [baseline.copy() for _ in range(12)]
+        frames += [folding.copy() for _ in range(10)]
+        frames += [settled.copy() for _ in range(10)]
+
+        report = self.analyze(
+            frames,
+            orientation="portrait",
+            scenario="slow-next",
+        )
+
+        self.assertEqual("pass", report["checks"]["settledPageChange"]["status"])
+
+    def test_snap_back_does_not_require_a_distinct_settled_page(self):
+        baseline = bright_frame(width=120, height=200)
+        folding = baseline.copy()
+        folding[45:155, 30:95] = (75, 95, 130)
+        frames = [baseline.copy() for _ in range(12)]
+        frames += [folding.copy() for _ in range(10)]
+        frames += [baseline.copy() for _ in range(10)]
+
+        report = self.analyze(
+            frames,
+            orientation="portrait",
+            scenario="snap-back",
+        )
+
+        self.assertEqual("skipped", report["checks"]["settledPageChange"]["status"])
+
     def test_require_all_ignores_checks_that_do_not_apply_to_scenario(self):
         gesture_report = self.analyze(
             [bright_frame() for _ in range(40)],

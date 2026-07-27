@@ -48,6 +48,8 @@ class Thresholds:
     min_gutter_contrast: float = 0.015
     max_decoration_changed_fraction: float = 0.35
     max_decoration_mae: float = 12.0
+    min_settled_page_changed_fraction: float = 0.015
+    min_settled_page_mae: float = 2.0
     max_idle_changed_fraction: float = 0.12
     max_idle_mae: float = 4.0
 
@@ -212,6 +214,8 @@ def has_skipped_required_checks(
     required = {"blackRegions", "leafBounds", "decorationContinuity"}
     if orientation == "landscape":
         required.add("gutterDrift")
+    if scenario in {"slow-next", "previous", "rapid-turns"}:
+        required.add("settledPageChange")
     if scenario == "idle":
         required.add("idleStability")
     return any(checks[name]["status"] == "skipped" for name in required)
@@ -301,6 +305,50 @@ def analyze_frames(
             "regions": len(decoration_regions),
         },
     )
+
+    committed_scenarios = {"slow-next", "previous", "rapid-turns"}
+    if scenario in committed_scenarios:
+        frame_height, frame_width = shape[:2]
+        rows, columns = roi.slices(frame_width, frame_height)
+        baseline_page = resized_luma(reference[rows, columns])
+        settled_count = max(3, math.ceil(sample_fps * 0.75))
+        settled_reference = median_reference(frames[-settled_count:])
+        settled_page = resized_luma(settled_reference[rows, columns])
+        settled_difference = np.abs(settled_page - baseline_page)
+        settled_changed_fraction = float(np.mean(settled_difference > 15.0))
+        settled_mae = float(np.mean(settled_difference))
+        evaluated_page_differences = [
+            np.abs(resized_luma(frame[rows, columns]) - baseline_page)
+            for frame in evaluated
+        ]
+        peak_changed_fraction = max(
+            float(np.mean(difference > 15.0))
+            for difference in evaluated_page_differences
+        )
+        peak_page_mae = max(
+            float(np.mean(difference))
+            for difference in evaluated_page_differences
+        )
+        settled_page_changed = (
+            settled_changed_fraction >= thresholds.min_settled_page_changed_fraction
+            and settled_mae >= thresholds.min_settled_page_mae
+        )
+        checks["settledPageChange"] = check_result(
+            "pass" if settled_page_changed else "fail",
+            {
+                "settledChangedFraction": settled_changed_fraction,
+                "settledMeanAbsoluteError": settled_mae,
+                "peakChangedFraction": peak_changed_fraction,
+                "peakMeanAbsoluteError": peak_page_mae,
+                "changedFractionMinimum": thresholds.min_settled_page_changed_fraction,
+                "meanAbsoluteErrorMinimum": thresholds.min_settled_page_mae,
+                "evaluatedSettledFrames": settled_count,
+            },
+        )
+    else:
+        checks["settledPageChange"] = check_result(
+            "skipped", {}, "scenario does not commit a visual page change"
+        )
 
     if orientation == "landscape":
         gutter_samples = [gutter_metrics(frame, roi) for frame in baseline_frames]
