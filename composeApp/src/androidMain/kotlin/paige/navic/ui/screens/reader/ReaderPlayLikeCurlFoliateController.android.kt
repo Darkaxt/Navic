@@ -498,6 +498,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
+	private val settlementMutationFence = ReaderPageSettlementMutationFence()
 	private val hostOwnedTerminalGestureIds = mutableSetOf<Long>()
 	private var presentedFrameRequestId: Long? = null
 	private var presentedFrameGestureId: Long? = null
@@ -673,6 +674,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 				targetLogicalPageId: String,
 				pageChange: PageChange
 			) {
+				check(activeGestureId == gestureId) {
+					"Settlement source does not own the active gesture"
+				}
+				settlementMutationFence.onSettlementStarted(
+					gestureId = gestureId,
+					sourceGenerationId = generationId
+				)
 				updateReadiness(
 					textureDeck = ReaderTextureDeckState.Settling,
 					interaction = ReaderPageInteractionState.Settling,
@@ -711,141 +719,149 @@ internal class ReaderPlayLikeCurlFoliateController(
 				currentPageOrdinal: Int,
 				pageChange: PageChange
 			) {
-				if (pageChange == PageChange.NONE) {
-					if (!finishGesture(
-							gestureId,
-							ReaderPageGestureTerminalOutcome.CancelledByUser,
-							ReaderPageGestureTerminalDetail.SettlementCompleted(
-								pageChange,
-								currentPageOrdinal
+				try {
+					if (pageChange == PageChange.NONE) {
+						if (!finishGesture(
+								gestureId,
+								ReaderPageGestureTerminalOutcome.CancelledByUser,
+								ReaderPageGestureTerminalDetail.SettlementCompleted(
+									pageChange,
+									currentPageOrdinal
+								)
 							)
+						) {
+							return
+						}
+						discardPendingDeck("settlement-none")
+						Logger.i(
+							ReaderPlayLikeCurlFoliateControllerTag,
+							"PlayLikeCurl settlement completed generation=$generationId " +
+								"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
 						)
-					) {
+						hideSurfaceAfterGesture(gestureId)
+						updateReadiness(
+							textureDeck = ReaderTextureDeckState.Ready,
+							interaction = preparedInteractionState(),
+							reason = "settlement-completed-none:$gestureId"
+						)
 						return
 					}
-					discardPendingDeck("settlement-none")
-					Logger.i(
-						ReaderPlayLikeCurlFoliateControllerTag,
-						"PlayLikeCurl settlement completed generation=$generationId " +
-							"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=false"
-					)
-					hideSurfaceAfterGesture(gestureId)
-					updateReadiness(
-						textureDeck = ReaderTextureDeckState.Ready,
-						interaction = preparedInteractionState(),
-						reason = "settlement-completed-none:$gestureId"
-					)
-					return
-				}
 
-				val rasterGeneration = bundleSource.currentGeneration()
-				val profile = activePages?.profile
-				if (activeGestureId != gestureId) return
-				if (
-					activeDeckGenerationId != generationId ||
-					profile?.rasterGeneration != rasterGeneration
-				) {
-					val detail =
-						ReaderPageGestureTerminalDetail.RelocationGenerationOrSessionDrift(
-							gestureId
-						)
-					discardDecodedWorkingSetPrefetch("settlement-generation-drift", gestureId)
-					publishGestureTerminal(
-						gestureId,
-						ReaderPageGestureTerminalOutcome.FailedRecovery,
-						detail
-					)
-					check(
-						relocationGestureCoordinator.finish(
+					val rasterGeneration = bundleSource.currentGeneration()
+					val profile = activePages?.profile
+					if (activeGestureId != gestureId) return
+					if (
+						activeDeckGenerationId != generationId ||
+						profile?.rasterGeneration != rasterGeneration
+					) {
+						val detail =
+							ReaderPageGestureTerminalDetail.RelocationGenerationOrSessionDrift(
+								gestureId
+							)
+						discardDecodedWorkingSetPrefetch("settlement-generation-drift", gestureId)
+						publishGestureTerminal(
 							gestureId,
 							ReaderPageGestureTerminalOutcome.FailedRecovery,
 							detail
 						)
-					) { "Drift terminal lost its relocation reservation" }
-					return
-				}
+						check(
+							relocationGestureCoordinator.finish(
+								gestureId,
+								ReaderPageGestureTerminalOutcome.FailedRecovery,
+								detail
+							)
+						) { "Drift terminal lost its relocation reservation" }
+						return
+					}
 
-				val sourceOrdinal = currentOrdinal
-				val promotedGeneration = promotePendingDeck(currentPageOrdinal)
-				if (promotedGeneration == null) {
-					finishGesture(
-						gestureId,
-						ReaderPageGestureTerminalOutcome.FailedRecovery,
-						ReaderPageGestureTerminalDetail.RecoveryFailed
-					)
-					return
-				}
-				val direction = when (pageChange) {
-					PageChange.NEXT -> ReaderPageTurnDirection.Next
-					PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous
-					PageChange.NONE -> error("Non-committed settlement reached relocation")
-				}
-				val outcome = when (pageChange) {
-					PageChange.NEXT -> ReaderPageGestureTerminalOutcome.CommittedForward
-					PageChange.PREVIOUS -> ReaderPageGestureTerminalOutcome.CommittedBackward
-					PageChange.NONE -> error("Non-committed settlement reached relocation")
-				}
-				val result = relocationGestureCoordinator.commit(
-					gestureId = gestureId,
-					settledSourceTextureGeneration = generationId,
-					promotedRasterGeneration = rasterGeneration,
-					promotedTextureGeneration = promotedGeneration,
-					destinationOrdinal = currentPageOrdinal,
-					logicalDirection = direction,
-					currentFoliateSessionId = checkNotNull(currentFoliateSessionId),
-					publishDriftTerminal = { driftOutcome, detail ->
-						discardDecodedWorkingSetPrefetch(
-							"settlement-commit-drift",
-							gestureId
-						)
-						publishGestureTerminal(gestureId, driftOutcome, detail)
-					},
-					publishCommittedTerminal = {
-						currentOrdinal = currentPageOrdinal
-						committedTurnVersion = Math.incrementExact(committedTurnVersion)
-						val destinationWindow = profile.preparedPageIndices(currentPageOrdinal)
-						publishProtectedWindow(destinationWindow)
-						commitDecodedWorkingSetPrefetch(
+					val sourceOrdinal = currentOrdinal
+					val promotedGeneration = promotePendingDeck(currentPageOrdinal)
+					if (promotedGeneration == null) {
+						finishGesture(
 							gestureId,
-							currentPageOrdinal,
-							destinationWindow
+							ReaderPageGestureTerminalOutcome.FailedRecovery,
+							ReaderPageGestureTerminalDetail.RecoveryFailed
 						)
-						gateForDecodedWorkingSetRefill(profile, destinationWindow)
-						if (!hasDecodedWorkingSetForCurrentOrdinal()) {
-							refillDecodedWorkingSet(currentPageOrdinal, "settlement-committed")
-						} else {
-							deferredDecodedRefillCenterOrdinal = null
+						return
+					}
+					val direction = when (pageChange) {
+						PageChange.NEXT -> ReaderPageTurnDirection.Next
+						PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous
+						PageChange.NONE -> error("Non-committed settlement reached relocation")
+					}
+					val outcome = when (pageChange) {
+						PageChange.NEXT -> ReaderPageGestureTerminalOutcome.CommittedForward
+						PageChange.PREVIOUS -> ReaderPageGestureTerminalOutcome.CommittedBackward
+						PageChange.NONE -> error("Non-committed settlement reached relocation")
+					}
+					val result = relocationGestureCoordinator.commit(
+						gestureId = gestureId,
+						settledSourceTextureGeneration = generationId,
+						promotedRasterGeneration = rasterGeneration,
+						promotedTextureGeneration = promotedGeneration,
+						destinationOrdinal = currentPageOrdinal,
+						logicalDirection = direction,
+						currentFoliateSessionId = checkNotNull(currentFoliateSessionId),
+						publishDriftTerminal = { driftOutcome, detail ->
 							discardDecodedWorkingSetPrefetch(
-								"settlement-committed-window-ready",
+								"settlement-commit-drift",
 								gestureId
 							)
-						}
-						publishGestureTerminal(
-							gestureId,
-							outcome,
-							ReaderPageGestureTerminalDetail.SettlementCompleted(
-								pageChange,
-								currentPageOrdinal
+							publishGestureTerminal(gestureId, driftOutcome, detail)
+						},
+						publishCommittedTerminal = {
+							currentOrdinal = currentPageOrdinal
+							committedTurnVersion = Math.incrementExact(committedTurnVersion)
+							val destinationWindow = profile.preparedPageIndices(currentPageOrdinal)
+							publishProtectedWindow(destinationWindow)
+							commitDecodedWorkingSetPrefetch(
+								gestureId,
+								currentPageOrdinal,
+								destinationWindow
 							)
-						)
-					},
-					dispatch = { dispatchNextRelocation() }
-				)
-				if (result !is ReaderPageRelocationCommitResult.Published) {
-					recoverRejectedSettlement(sourceOrdinal, promotedGeneration)
-					return
-				}
+							gateForDecodedWorkingSetRefill(profile, destinationWindow)
+							if (!hasDecodedWorkingSetForCurrentOrdinal()) {
+								refillDecodedWorkingSet(currentPageOrdinal, "settlement-committed")
+							} else {
+								deferredDecodedRefillCenterOrdinal = null
+								discardDecodedWorkingSetPrefetch(
+									"settlement-committed-window-ready",
+									gestureId
+								)
+							}
+							publishGestureTerminal(
+								gestureId,
+								outcome,
+								ReaderPageGestureTerminalDetail.SettlementCompleted(
+									pageChange,
+									currentPageOrdinal
+								)
+							)
+						},
+						dispatch = { dispatchNextRelocation() }
+					)
+					if (result !is ReaderPageRelocationCommitResult.Published) {
+						recoverRejectedSettlement(sourceOrdinal, promotedGeneration)
+						return
+					}
 
-				Logger.i(
-					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl settlement completed generation=$generationId " +
-						"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=true"
-				)
-				schedulePersistentRefill(
-					direction = direction,
-					destinationOrdinal = currentPageOrdinal,
-					expectedTurnVersion = committedTurnVersion
-				)
+					Logger.i(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"PlayLikeCurl settlement completed generation=$generationId " +
+							"ordinal=$currentPageOrdinal change=$pageChange exactDispatch=true"
+					)
+					schedulePersistentRefill(
+						direction = direction,
+						destinationOrdinal = currentPageOrdinal,
+						expectedTurnVersion = committedTurnVersion
+					)
+				} finally {
+					completeSettlementReconciliation(
+						gestureId = gestureId,
+						sourceGenerationId = generationId,
+						retryDeferredRefresh = pageChange == PageChange.NONE
+					)
+				}
 			}
 
 			override fun onSettlementCancelled(
@@ -853,30 +869,40 @@ internal class ReaderPlayLikeCurlFoliateController(
 				generationId: Long,
 				currentLogicalPageId: String
 			) {
-				if (!finishGesture(
-						gestureId,
-						ReaderPageGestureTerminalOutcome.CancelledByUser,
-						ReaderPageGestureTerminalDetail.SettlementCancelled(generationId)
+				try {
+					if (!finishGesture(
+							gestureId,
+							ReaderPageGestureTerminalOutcome.CancelledByUser,
+							ReaderPageGestureTerminalDetail.SettlementCancelled(generationId)
+						)
+					) {
+						return
+					}
+					Logger.i(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"PlayLikeCurl settlement cancelled generation=$generationId"
 					)
-				) {
-					return
+					discardPendingDeck("settlement-cancelled")
+					if (
+						readinessState.textureDeck != ReaderTextureDeckState.Failed &&
+						readinessState.interaction != ReaderPageInteractionState.Failed
+					) {
+						updateReadiness(
+							textureDeck = ReaderTextureDeckState.Ready,
+							interaction = preparedInteractionState(),
+							reason = "settlement-cancelled:$gestureId"
+						)
+					}
+					hideSurfaceAfterGesture(gestureId)
+				} finally {
+					if (settlementMutationFence.hasUnreconciledSettlement) {
+						completeSettlementReconciliation(
+							gestureId = gestureId,
+							sourceGenerationId = generationId,
+							retryDeferredRefresh = true
+						)
+					}
 				}
-				Logger.i(
-					ReaderPlayLikeCurlFoliateControllerTag,
-					"PlayLikeCurl settlement cancelled generation=$generationId"
-				)
-				discardPendingDeck("settlement-cancelled")
-				if (
-					readinessState.textureDeck != ReaderTextureDeckState.Failed &&
-					readinessState.interaction != ReaderPageInteractionState.Failed
-				) {
-					updateReadiness(
-						textureDeck = ReaderTextureDeckState.Ready,
-						interaction = preparedInteractionState(),
-						reason = "settlement-cancelled:$gestureId"
-					)
-				}
-				hideSurfaceAfterGesture(gestureId)
 			}
 
 			override fun onRenderFailure(failure: RenderFailure) {
@@ -2158,11 +2184,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 		return adapter
 	}
 
+	private fun isAwaitingAuthoritativeRelocation(): Boolean =
+		relocationQueue.hasInFlightHead() && currentWebViewOrdinal != currentOrdinal
+
 	private fun refreshPreparedDeck(planRetryAttempt: Int = 0) {
 		val gate = when {
 			!enabled -> "disabled"
 			!attached -> "host-detached"
 			destroyed -> "destroyed"
+			settlementMutationFence.deferRefreshIfBlocked(activeGestureId) ->
+				"gesture-deck-mutation"
+			isAwaitingAuthoritativeRelocation() -> "awaiting-authoritative-relocation"
 			!capabilitiesAvailable -> "capabilities-unavailable"
 			!authoritativeLocationReady -> "authoritative-location-unavailable"
 			preparationPhase == ReaderPagePreparationPhase.Preparing -> "preparation-in-progress"
@@ -2177,8 +2209,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			logActivationState("refresh-gated", "webview-unavailable")
 			return
 		}
+		val expectedCenterOrdinal = currentOrdinal
+		val expectedTurnVersion = committedTurnVersion
 		val request = ++requestGeneration
-		val centerExpression = currentOrdinal.toString()
+		val centerExpression = expectedCenterOrdinal.toString()
 		logActivationState("refresh-requested", "request=$request center=$centerExpression")
 		webView.evaluateJavascript(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(" +
@@ -2186,6 +2220,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) { encoded ->
 			if (!isRequestActive(request, webView)) {
 				logActivationState("refresh-gated", "stale-request=$request")
+				return@evaluateJavascript
+			}
+			if (settlementMutationFence.deferRefreshIfBlocked(activeGestureId)) {
+				logActivationState("refresh-gated", "gesture-deck-mutation-after-plan")
+				return@evaluateJavascript
+			}
+			if (isAwaitingAuthoritativeRelocation()) {
+				logActivationState("refresh-gated", "relocation-drift-after-plan")
+				return@evaluateJavascript
+			}
+			if (
+				committedTurnVersion != expectedTurnVersion ||
+				currentOrdinal != expectedCenterOrdinal
+			) {
+				logActivationState("refresh-gated", "stale-turn-request=$request")
 				return@evaluateJavascript
 			}
 			if (preparationPhase == ReaderPagePreparationPhase.Preparing) {
@@ -3000,6 +3049,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rasterScope.launch {
 			val preparationResult = awaitRasterPreparation(preparation)
 			withContext(Dispatchers.Main.immediate) {
+				if (settlementMutationFence.deferRefreshIfBlocked(activeGestureId)) {
+					preparationResult.getOrNull()?.close()
+					logActivationState(
+						"refresh-gated",
+						"gesture-deck-mutation-before-publication:$request"
+					)
+					return@withContext
+				}
+				if (isAwaitingAuthoritativeRelocation()) {
+					preparationResult.getOrNull()?.close()
+					logActivationState(
+						"refresh-gated",
+						"relocation-drift-before-publication:$request"
+					)
+					return@withContext
+				}
 				val failure = preparationResult.exceptionOrNull()
 				if (failure != null) {
 					if (
@@ -3285,7 +3350,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return ReaderDeckSubmissionRole.Active
 		}
-		return if (surfaceView.isSettlementRunning) {
+		return if (
+			settlementMutationFence.hasUnreconciledSettlement ||
+			surfaceView.isSettlementRunning
+		) {
 			ReaderDeckSubmissionRole.Pending
 		} else {
 			ReaderDeckSubmissionRole.Active
@@ -3302,7 +3370,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		check(!built.pages.obsolete && generationOwners[generationId] === built.pages) {
 			"Recovered deck generation is obsolete"
 		}
-		if (activeGestureId != null) {
+		if (settlementMutationFence.blocksExternalDeckMutation(activeGestureId)) {
 			return ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
 		}
 		val repairDiagnostic =
@@ -4250,6 +4318,40 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun elapsedMillis(startedAtNanos: Long): Long =
 		((System.nanoTime() - startedAtNanos).coerceAtLeast(0L) / 1_000_000L)
 
+	private fun completeSettlementReconciliation(
+		gestureId: Long,
+		sourceGenerationId: Long,
+		retryDeferredRefresh: Boolean
+	) {
+		val refreshDeferred = settlementMutationFence.onSettlementReconciled(
+			gestureId = gestureId,
+			sourceGenerationId = sourceGenerationId,
+			activeGestureId = activeGestureId
+		)
+		scheduleRecoveredDeckSubmissionRetry()
+		if (!refreshDeferred) return
+		if (!retryDeferredRefresh) {
+			logActivationState(
+				"refresh-gated",
+				"stale-refresh-awaiting-authoritative-relocation:$gestureId"
+			)
+			return
+		}
+		schedulePreparedDeckRefresh("settlement-reconciled:$gestureId")
+	}
+
+	private fun schedulePreparedDeckRefresh(reason: String) {
+		val posted = mainHandler.post {
+			if (!destroyed && enabled) refreshPreparedDeck()
+		}
+		if (!posted) {
+			updateReadiness(
+				interaction = ReaderPageInteractionState.Failed,
+				reason = "refresh-dispatch-rejected:$reason"
+			)
+		}
+	}
+
 	private fun finishGesture(
 		gestureId: Long,
 		outcome: ReaderPageGestureTerminalOutcome,
@@ -4280,6 +4382,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		if (activeGestureEnded && activeGestureId == null) {
 			scheduleRecoveredDeckSubmissionRetry()
+			if (settlementMutationFence.takeDeferredRefreshIfUnblocked(activeGestureId)) {
+				schedulePreparedDeckRefresh("gesture-terminal:$gestureId")
+			}
 		}
 		return published
 	}
@@ -4298,7 +4403,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			if (
 				!destroyed &&
 				enabled &&
-				activeGestureId == null &&
+				!settlementMutationFence.blocksExternalDeckMutation(activeGestureId) &&
 				!surfaceView.isSettlementRunning
 			) {
 				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()

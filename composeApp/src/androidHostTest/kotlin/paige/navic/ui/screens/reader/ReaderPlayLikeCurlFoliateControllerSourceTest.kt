@@ -518,6 +518,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("private fun scheduleRecoveredDeckSubmissionRetry(")
 			.substringBefore("private fun finishActiveGesture(")
 
+		val mutationFenceCheck =
+			"settlementMutationFence.blocksExternalDeckMutation(activeGestureId)"
+
 		listOf("drag" to touch, "tap" to tap).forEach { (path, source) ->
 			assertContains(source, "activeGestureId = gestureId")
 			assertFalse(
@@ -525,13 +528,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 				"$path must retain a valid repaired window until admission is terminal."
 			)
 		}
-		assertContains(submission, "if (activeGestureId != null)")
+		assertContains(submission, mutationFenceCheck)
 		assertContains(
 			submission,
 			"ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity"
 		)
 		assertTrue(
-			submission.indexOf("if (activeGestureId != null)") <
+			submission.indexOf(mutationFenceCheck) <
 				submission.indexOf("surfaceView.submitDeckWithResult("),
 			"Recovered ownership must wait instead of entering the settlement pending slot."
 		)
@@ -544,7 +547,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(terminal, "scheduleRecoveredDeckSubmissionRetry()")
 		assertFalse(terminal.contains("onDeckSubmissionCapacityAvailable()"))
 		assertContains(retry, "val posted = mainHandler.post {")
-		assertContains(retry, "activeGestureId == null")
+		assertContains(retry, "!$mutationFenceCheck")
 		assertContains(retry, "!surfaceView.isSettlementRunning")
 		assertContains(retry, "deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()")
 		val rejectedPost = retry.substringAfter("if (!posted)")
@@ -558,6 +561,71 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			terminal.indexOf("activeGestureId = null") <
 				terminal.indexOf("scheduleRecoveredDeckSubmissionRetry()"),
 			"Deferred recovery must be scheduled only after gesture ownership ends."
+		)
+	}
+
+	@Test
+	fun externalDeckMutationsWaitForControllerSettlementReconciliation() {
+		val controller = controllerFile.readText()
+		val settlementStarted = controller
+			.substringAfter("override fun onSettlementStarted(")
+			.substringBefore("override fun onSettlementCompleted(")
+		val settlementCompleted = controller
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
+		val settlementCancelled = controller
+			.substringAfter("override fun onSettlementCancelled(")
+			.substringBefore("override fun onRenderFailure(")
+		val refresh = controller
+			.substringAfter("private fun refreshPreparedDeck(")
+			.substringBefore("private fun gateForDecodedWorkingSetRefill(")
+		val preparation = controller
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("override fun isCurrentRepairWindow(")
+		val recoveredRole = controller
+			.substringAfter("override fun currentRecoveredDeckRole(")
+			.substringBefore("override fun submitRecoveredDeck(")
+		val recoveredSubmission = controller
+			.substringAfter("override fun submitRecoveredDeck(")
+			.substringBefore("private fun acceptRecoveredDeckOwnership(")
+		val deferredRefreshCheck = "settlementMutationFence.deferRefreshIfBlocked("
+		val relocationFenceCheck = "isAwaitingAuthoritativeRelocation()"
+
+		assertContains(controller, "private val settlementMutationFence")
+		assertContains(
+			controller,
+			"relocationQueue.hasInFlightHead() && currentWebViewOrdinal != currentOrdinal"
+		)
+		assertContains(settlementStarted, "settlementMutationFence.onSettlementStarted(")
+		listOf(settlementCompleted, settlementCancelled).forEach { settlement ->
+			assertContains(settlement, "try {")
+			assertContains(settlement, "finally {")
+			assertContains(settlement, "completeSettlementReconciliation(")
+		}
+		assertContains(
+			settlementCancelled,
+			"if (settlementMutationFence.hasUnreconciledSettlement)"
+		)
+		assertTrue(
+			Regex(Regex.escape(deferredRefreshCheck)).findAll(refresh).count() >= 2,
+			"Refresh must be fenced before and after the asynchronous WebView plan."
+		)
+		assertContains(refresh, "val expectedTurnVersion = committedTurnVersion")
+		assertContains(refresh, "committedTurnVersion != expectedTurnVersion")
+		assertTrue(
+			Regex(Regex.escape(relocationFenceCheck)).findAll(refresh).count() >= 2,
+			"Relocation authority must be checked before and after the WebView plan."
+		)
+		assertContains(preparation, deferredRefreshCheck)
+		assertContains(preparation, relocationFenceCheck)
+		assertContains(
+			recoveredRole,
+			"settlementMutationFence.hasUnreconciledSettlement"
+		)
+		assertContains(recoveredRole, "surfaceView.isSettlementRunning")
+		assertContains(
+			recoveredSubmission,
+			"settlementMutationFence.blocksExternalDeckMutation(activeGestureId)"
 		)
 	}
 
@@ -1257,6 +1325,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(buildOperation, "undeliveredResult?.close()")
 		assertContains(build, "builtRecoveredDecks[generationId]")
 		assertContains(cancellation, "operation.cancel()")
+		assertContains(
+			roleSelection,
+			"settlementMutationFence.hasUnreconciledSettlement"
+		)
 		assertContains(roleSelection, "surfaceView.isSettlementRunning")
 		assertContains(submission, "submissionCallbackFence.submit(generationId)")
 		assertContains(submission, "surfaceView.submitDeckWithResult(built.deck) {")
