@@ -473,6 +473,24 @@ internal class ReaderPageRasterPreparationController(
 		)
 	}
 
+	fun onPaginationReadinessLost() {
+		if (destroyed) return
+		cancelBackgroundPrefetch("pagination-not-ready")
+		cancelRasterRepairs("pagination-not-ready")
+		enterBlockingPreparation("pagination-not-ready")
+		cancelPrewarm(reason = "pagination-not-ready")
+	}
+
+	fun onPaginationBootstrapFailed() {
+		if (destroyed) return
+		onPaginationReadinessLost()
+		publishPreparationState(
+			phase = ReaderPagePreparationPhase.Failed,
+			error = "Page preparation could not read pagination.",
+			retryable = true
+		)
+	}
+
 	fun onRetryEvent(event: ReaderPageRasterRetryEvent): Boolean =
 		deferredRetryCoordinator.onRetryEvent(event)
 

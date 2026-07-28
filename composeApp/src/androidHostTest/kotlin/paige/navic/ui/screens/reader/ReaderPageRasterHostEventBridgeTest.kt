@@ -6,6 +6,10 @@ import kotlin.test.assertEquals
 class ReaderPageRasterHostEventBridgeTest {
 	@Test
 	fun paginationStatusMapsToTypedReadiness() {
+		val readiness = listOf(null, "measuring", "cached", "ready", "failed").map(
+			::readerPagePaginationReadiness
+		)
+
 		assertEquals(
 			listOf(
 				ReaderPagePaginationReadiness.Loading,
@@ -14,9 +18,53 @@ class ReaderPageRasterHostEventBridgeTest {
 				ReaderPagePaginationReadiness.Ready,
 				ReaderPagePaginationReadiness.Failed
 			),
-			listOf(null, "measuring", "cached", "ready", "failed").map(
-				::readerPagePaginationReadiness
+			readiness
+		)
+		assertEquals(
+			listOf(false, false, true, true, false),
+			readiness.map { value -> value.isReadyForRasterization }
+		)
+	}
+
+	@Test
+	fun rasterReadinessRequiresAnActivePaginationProfile() {
+		assertEquals(
+			ReaderPagePaginationReadiness.Loading,
+			readerPageActivePaginationReadiness(
+				profileAvailable = false,
+				readiness = ReaderPagePaginationReadiness.Ready
 			)
+		)
+		assertEquals(
+			ReaderPagePaginationReadiness.Cached,
+			readerPageActivePaginationReadiness(
+				profileAvailable = true,
+				readiness = ReaderPagePaginationReadiness.Cached
+			)
+		)
+	}
+
+	@Test
+	fun profileLossRearmsAnUnchangedReadyPaginationStatus() {
+		val published = mutableListOf<ReaderPageRasterRetryEvent>()
+		val bridge = ReaderPageRasterHostEventBridge(published::add)
+		val paginationReadiness = ReaderPagePaginationReadiness.Ready
+
+		listOf(true, false, true).forEach { profileAvailable ->
+			bridge.paginationReadinessChanged(
+				readerPageActivePaginationReadiness(
+					profileAvailable = profileAvailable,
+					readiness = paginationReadiness
+				)
+			)
+		}
+
+		assertEquals(
+			listOf(
+				ReaderPageRasterRetryEvent.PaginationReady,
+				ReaderPageRasterRetryEvent.PaginationReady
+			),
+			published
 		)
 	}
 

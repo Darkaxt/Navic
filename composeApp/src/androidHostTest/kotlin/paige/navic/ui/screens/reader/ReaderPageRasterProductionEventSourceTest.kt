@@ -59,6 +59,7 @@ class ReaderPageRasterProductionEventSourceTest {
 	@Test
 	fun oneHostControllerPublishesEveryAuthoritativeRisingEdgeAndClosesOnTeardown() {
 		val host = deferredRetrySource("KomikkuReaderNativeFrameHost.android.kt")
+		val preparation = deferredRetrySource("ReaderPageRasterPreparationController.android.kt")
 		val foliate = deferredRetrySource("ReaderPlayLikeCurlFoliateController.android.kt")
 		val root = deferredRetrySource(
 			"ReaderRoot.kt",
@@ -83,6 +84,20 @@ class ReaderPageRasterProductionEventSourceTest {
 		assertContains(host, "onRasterProfileEpochChanged = ::onRasterProfileEpochChanged")
 		assertContains(host, "rasterProfileEpoch = epoch")
 		assertContains(host, "if (epoch == null && !task4ResourceTeardownStarted)")
+		assertContains(host, "private var rasterPaginationReady = false")
+		assertContains(
+			host,
+			"canStartPreparation = { coldOwnershipAdmitted && rasterPaginationReady }"
+		)
+		assertContains(host, "readerPageActivePaginationReadiness(")
+		assertContains(host, "readerPagePaginationReadiness(pageTurnPaginationStatus)")
+		assertContains(host, "rasterPaginationReady = readiness.isReadyForRasterization")
+		assertContains(host, "pageRasterPreparationController.onPaginationReadinessLost()")
+		assertContains(host, "pageRasterPreparationController.onPaginationBootstrapFailed()")
+		assertContains(host, "if (!rasterPaginationReady)")
+		assertContains(preparation, "fun onPaginationReadinessLost()")
+		assertContains(preparation, "cancelPrewarm(reason = \"pagination-not-ready\")")
+		assertContains(preparation, "fun onPaginationBootstrapFailed()")
 		assertContains(host, "pageRasterPreparationController::onRetryEvent")
 		assertContains(host, "pageRasterPreparationController::cancelAllDeferredRetries")
 		assertContains(foliate, "private var nextRasterProfileEpoch = 1L")
@@ -100,16 +115,19 @@ class ReaderPageRasterProductionEventSourceTest {
 	}
 
 	@Test
-	fun stableWebViewBootstrapsProfileBeforeProfileQualifiedLayoutAdmission() {
+	fun stableWebViewBootstrapsProfileAndPaginationBeforeLayoutAdmission() {
 		val host = deferredRetrySource("KomikkuReaderNativeFrameHost.android.kt")
 		val listener = host.substringAfter("val listener = ViewTreeObserver.OnPreDrawListener {")
 			.substringBefore("pageTurnPrewarmLayoutListener = listener")
 
 		val refresh = listener.indexOf("playLikeCurlController.onHostContentReady()")
-		val nullProfileGate = listener.indexOf("if (profileEpoch == null)")
+		val profileGate = listener.indexOf("if (profileEpoch == null)")
+		val paginationGate = listener.indexOf("if (!rasterPaginationReady)")
+		val stopWaiting = listener.indexOf("removePageTurnPrewarmLayoutListener()", paginationGate)
 		val prewarm = listener.indexOf("pageRasterPreparationController.prewarmAdjacent()")
-		assertEquals(true, refresh >= 0 && refresh < nullProfileGate)
-		assertEquals(true, nullProfileGate < prewarm)
+		assertEquals(true, refresh >= 0 && refresh < profileGate)
+		assertEquals(true, profileGate < paginationGate)
+		assertEquals(true, paginationGate < stopWaiting && stopWaiting < prewarm)
 	}
 
 	@Test

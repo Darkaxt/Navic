@@ -685,6 +685,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var pageTurnPrewarmLayoutSignature: ReaderPageLayoutSignature? = null
 	private var pageTurnPrewarmStableFrameCount: Int = 0
 	private var rasterProfileEpoch: Long? = null
+	private var rasterPaginationReady = false
 	private var latestRasterPreparationState = ReaderPagePreparationState()
 	private var latestRendererReadinessState = ReaderPageRendererReadinessState()
 	private val ownershipMainHandler = Handler(Looper.getMainLooper())
@@ -803,9 +804,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		onPreparedActiveDeckChanged = { deck ->
 			pageRasterPreparationController.onPreparedActiveDeckChanged(deck)
 		},
-		onPaginationReadinessChanged = { readiness ->
-			pageRasterHostEventController.paginationReadinessChanged(readiness)
-		},
+		onPaginationReadinessChanged = ::onPaginationReadinessChanged,
 		onProfileBootstrapFailed = {
 			removePageTurnPrewarmLayoutListener()
 			pageRasterPreparationController.onProfileBootstrapFailed()
@@ -867,7 +866,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			playLikeCurlController.destroyAndJoin()
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
-		canStartPreparation = { coldOwnershipAdmitted },
+		canStartPreparation = { coldOwnershipAdmitted && rasterPaginationReady },
 		onAwaitHostEvent = { reason ->
 			if (reason == ReaderPageRasterDeferralReason.LayoutUnstable) {
 				pageRasterHostEventController.layoutStabilityInvalidated()
@@ -1040,9 +1039,45 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		)
 	}
 
+	private fun onPaginationReadinessChanged(readiness: ReaderPagePaginationReadiness) {
+		updateRasterPaginationReadiness(
+			readerPageActivePaginationReadiness(
+				profileAvailable = rasterProfileEpoch != null,
+				readiness = readiness
+			)
+		)
+	}
+
+	private fun updateRasterPaginationReadiness(
+		readiness: ReaderPagePaginationReadiness
+	) {
+		val wasReady = rasterPaginationReady
+		rasterPaginationReady = readiness.isReadyForRasterization
+		pageRasterHostEventController.paginationReadinessChanged(readiness)
+		if (
+			wasReady &&
+			!rasterPaginationReady &&
+			readiness != ReaderPagePaginationReadiness.Failed
+		) {
+			pageRasterPreparationController.onPaginationReadinessLost()
+		}
+		when {
+			readiness == ReaderPagePaginationReadiness.Failed -> {
+				removePageTurnPrewarmLayoutListener()
+				pageRasterPreparationController.onPaginationBootstrapFailed()
+			}
+			rasterPaginationReady -> requestPageTurnPrewarmWhenReady()
+		}
+	}
+
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
 		rasterProfileEpoch = epoch
+		val activeReadiness = readerPageActivePaginationReadiness(
+			profileAvailable = epoch != null,
+			readiness = readerPagePaginationReadiness(pageTurnPaginationStatus)
+		)
 		pageRasterPreparationController.onRasterProfileEpochChanged(epoch)
+		updateRasterPaginationReadiness(activeReadiness)
 		if (epoch == null && !task4ResourceTeardownStarted) {
 			removePageTurnPrewarmLayoutListener()
 			requestPageTurnPrewarmWhenReady()
@@ -1344,6 +1379,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			}
 			if (profileEpoch == null) {
 				postInvalidateOnAnimation()
+				return@OnPreDrawListener true
+			}
+			if (!rasterPaginationReady) {
+				removePageTurnPrewarmLayoutListener()
 				return@OnPreDrawListener true
 			}
 			if (pageRasterPreparationController.prewarmAdjacent()) {

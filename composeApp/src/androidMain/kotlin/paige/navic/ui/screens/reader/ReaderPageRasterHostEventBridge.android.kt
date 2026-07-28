@@ -7,6 +7,19 @@ internal enum class ReaderPagePaginationReadiness {
 	Failed
 }
 
+internal val ReaderPagePaginationReadiness.isReadyForRasterization: Boolean
+	get() = this == ReaderPagePaginationReadiness.Cached ||
+		this == ReaderPagePaginationReadiness.Ready
+
+internal fun readerPageActivePaginationReadiness(
+	profileAvailable: Boolean,
+	readiness: ReaderPagePaginationReadiness
+): ReaderPagePaginationReadiness = if (profileAvailable) {
+	readiness
+} else {
+	ReaderPagePaginationReadiness.Loading
+}
+
 internal fun readerPagePaginationReadiness(status: String?): ReaderPagePaginationReadiness =
 	when (status?.trim()?.lowercase()) {
 		"cached" -> ReaderPagePaginationReadiness.Cached
@@ -54,8 +67,7 @@ internal class ReaderPageRasterHostEventBridge(
 	}
 
 	fun paginationReadinessChanged(readiness: ReaderPagePaginationReadiness) {
-		val ready = readiness == ReaderPagePaginationReadiness.Cached ||
-			readiness == ReaderPagePaginationReadiness.Ready
+		val ready = readiness.isReadyForRasterization
 		if (ready && !paginationReady) {
 			publish(ReaderPageRasterRetryEvent.PaginationReady)
 		}
