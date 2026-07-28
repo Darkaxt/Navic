@@ -101,37 +101,55 @@ A page raster whose required persistent cache write and manifest publication
 have completed successfully for the active raster profile and generation.
 Capturing or decoding a bitmap does not by itself make the raster durable.
 
-### 4.2 Protected decoded window
+### 4.2 Blocking encoded window
 
-The decoded pages that cannot be evicted because they are required for immediate
-interaction:
+The durable encoded rasters required before the reader may be exposed. Starting
+from the current physical turn position, the ordered window is:
 
-- portrait: the current page plus two pages in each direction;
-- landscape: the current spread plus two complete spreads in each direction,
-  yielding five protected spreads and up to ten protected raster entries.
+1. current;
+2. next one;
+3. previous one;
+4. next two through next five;
+5. previous two through previous five.
 
-The window is clipped at real chapter boundaries. Clipping must not manufacture
-navigable duplicate pages.
+The window is clipped only at publication boundaries. It therefore contains at
+most eleven physical turn positions. Portrait uses `step = 1`; landscape spread
+mode uses `step = 2`. Every member must be durably represented by an atomic raster
+file plus its manifest entry for the active profile before the loading cover can
+be released.
 
-### 4.3 Prepared texture generation
+### 4.3 Immediate decoded working set
+
+The decoded/GPU-ready pages required for immediate interaction:
+
+- current;
+- next one and next two;
+- previous one and previous two.
+
+This set contains at most five decoded raster snapshots and is clipped at
+publication boundaries. In landscape, each snapshot represents one complete
+physical spread. Expanding the encoded blocking window to eleven does not expand
+this decoded limit or the active PlayLikeCurl texture deck.
+
+### 4.4 Prepared texture generation
 
 A PlayLikeCurl deck generation for which the renderer has delivered its
 successful deck-prepared callback. Submission, decode completion, or Navic-side
 materialization is not equivalent to renderer preparation.
 
-### 4.4 Pointer sequence
+### 4.5 Pointer sequence
 
 The complete Android pointer stream beginning with `ACTION_DOWN` and ending in
 `ACTION_UP`, `ACTION_CANCEL`, lifecycle cancellation, or another explicit
 terminal result. One sequence owns one stable gesture ID.
 
-### 4.5 Relocation token
+### 4.6 Relocation token
 
 A unique identifier assigned to one exact Foliate visual-page relocation. It is
 carried through dispatch, JavaScript acknowledgement, location notification,
 WebView visual-state confirmation, and GL handoff.
 
-### 4.6 Candidate fix
+### 4.7 Candidate fix
 
 Code that appears to address a requirement but has not passed the behavior and
 runtime evidence required by this document.
@@ -157,7 +175,7 @@ Unknown
 
 Required invariants:
 
-- A cold current-chapter target is complete only in `Durable` or `DurableHit`.
+- A blocking-window target is complete only in `Durable` or `DurableHit`.
 - `Persisting` is not interactive cold readiness.
 - `Deferred` has an explicit resumption event and visible presentation when no
   valid active deck exists.
@@ -290,8 +308,8 @@ The following rules apply across every remediation workstream:
    produced it.
 3. Normal settlement never returns the reader to cold blocking preparation.
 4. A valid persistent raster is hydrated before capture is considered.
-5. Current-chapter rasters are captured at most once per raster profile unless
-   explicit invalidation makes them invalid.
+5. A valid encoded raster is captured at most once per raster profile unless
+   explicit invalidation makes it invalid.
 6. Background work cannot change the current gesture disposition when a valid
    prepared active deck exists.
 7. Every asynchronous callback is fenced by the identity relevant to its
@@ -302,6 +320,9 @@ The following rules apply across every remediation workstream:
     source of lifecycle truth.
 11. A throwing callback or failure reporter is isolated from the sole terminal
     drain owner and cannot strand later accepted terminal actions.
+12. Background rasterization is strictly ordered as current chapter, all forward
+    pages and chapters, then all backward pages. Missing higher-priority work
+    blocks lower-priority work until an explicit retry event.
 
 ## 7. Normative remediation requirements
 
@@ -437,25 +458,30 @@ with a typed capacity result when every local candidate is pinned or protected.
 
 **Failure mechanism:** Batch completion can be recorded after capture or
 hydration while persistent publication is still asynchronous. Publication
-failure only logs, allowing cold preparation to report success without satisfying
-the persistent current-chapter contract.
+failure only logs, allowing blocking preparation to report success without
+satisfying the durable current ±5 physical-position contract.
 
 **Required design:**
 
 - Distinguish capture completion from durable publication completion.
-- Cold current-chapter readiness awaits successful persistence and manifest
-  publication for every required target.
-- Publication failure enters a visible failure state with a user-initiated
-  `Retry preparation` action; it cannot silently count as ready.
+- Blocking readiness awaits successful persistence and manifest publication for
+  every target in the exact current ±5 physical-position window, clipped only at
+  publication boundaries.
+- Keep the normal full loading cover visible until the complete blocking window is
+  durable, the immediate decoded working set is ready, and the matching
+  PlayLikeCurl texture deck is prepared.
+- Publication failure enters a visible full-cover failure state with a
+  user-initiated `Retry preparation` action; an older ready renderer deck cannot
+  reduce a required-window failure to compact presentation.
 - Retry submits only targets that are still non-durable. It does not recapture
   targets whose raster file and manifest entry were already published durably.
-- Asynchronous background publication is permitted only when the initial durable
-  chapter contract was already satisfied.
+- Asynchronous background publication is permitted only while the current blocking
+  window remains complete.
 
-**Acceptance:** Inject persistent-write failure during a cold open. The reader
-must not become falsely ready. Restore storage, invoke `Retry preparation`, and
-verify that readiness completes without duplicate capture of already durable
-pages.
+**Acceptance:** Inject persistent-write failure while preparing the required
+window. The reader must not become falsely ready or expose the old deck. Restore
+storage, invoke `Retry preparation`, and verify that readiness completes without
+duplicate capture of already durable pages.
 
 ### QA-06 — Invalidation-generation race in raster publication
 
@@ -627,29 +653,36 @@ it represents the current logical page.
 fling remain stable, dispatch no exact relocation, preserve the current ordinal,
 and publish one `RejectedBoundary` outcome.
 
-### QA-13 — Adjacent chapters are classified but never scheduled
+### QA-13 — Ordered background rasterization is not scheduled
 
 **Severity:** P1 readiness and performance blocker
 
-**Failure mechanism:** Adjacent-chapter targets exist in planning and
-classification, but no production batch consumes them after the current chapter
-becomes ready.
+**Failure mechanism:** Targets outside the blocking window can exist in planning
+and classification without a production batch consuming them. Earlier designs
+also restricted background work to small adjacent-chapter slices, so the
+publication may never receive complete forward and backward raster coverage.
 
 **Required design:**
 
-- Schedule previous- and next-chapter raster work after current-chapter
-  interactive readiness.
-- Use separate lower-priority, cancellable batches.
+- After the blocking window and active deck are ready, schedule encoded background
+  work in this strict order: remaining current-chapter positions, every forward
+  position through publication end, then every backward position to publication
+  start.
+- Use separate lower-priority, cancellable range batches. A failed or deferred
+  higher-priority range blocks later ranges until an explicit retry event; it is
+  not silently marked complete or skipped.
 - Do not attach the cold-open preparation shield or change current gesture
-  disposition.
-- Pause or cancel adjacent work when foreground repair or current-chapter work
+  disposition while the blocking window remains complete.
+- Pause or cancel background work when foreground repair or blocking-window work
   needs the same constrained resource.
-- Persist successful adjacent results under their correct chapter and profile
-  identity.
+- Persist successful results under their correct page, chapter, and profile
+  identity. Apply the latest profile-qualified encoded-window pins before any
+  in-flight write can enforce disk eviction.
 
-**Acceptance:** After current readiness, adjacent work begins and produces
-persistent raster evidence while continuous current-chapter gestures remain
-accepted and no preparation shield appears.
+**Acceptance:** After current readiness, all three ordered ranges produce
+persistent raster evidence while continuous gestures remain accepted and no
+preparation cover appears. Inject a current-range failure and verify that forward
+and backward work do not start until that missing current work is retried.
 
 ### QA-14 — GL surface hides before WebView composition
 
@@ -746,28 +779,39 @@ coordinates. Replayed or late callbacks are ignored.
 
 ## 8. Required data flows
 
-### 8.1 Cold chapter opening
+### 8.1 Cold opening and blocking cover re-entry
 
 1. Resolve the active raster profile and allocate its raster generation.
-2. Query persistent current-chapter coverage.
-3. Capture only missing or invalid current-chapter targets.
-4. Await durable publication of all required targets.
-5. Hydrate the protected decoded window.
-6. Materialize and submit the initial renderer deck.
-7. Await PlayLikeCurl's prepared-generation callback.
-8. Remove the preparation shield and allow new gestures.
-9. Start adjacent-chapter work without changing interaction readiness.
+2. Compute the exact current ±5 physical-position window in the order defined in
+   Section 4.2, using `step = 1` for portrait and `step = 2` for spread mode.
+3. Hydrate every target from persistent storage first; capture only targets whose
+   durable raster is absent or invalid.
+4. Await atomic file and manifest publication for every target in the complete
+   blocking window.
+5. Hydrate only the immediate five-position decoded working set.
+6. Materialize and submit the active renderer deck.
+7. Await PlayLikeCurl's matching prepared-generation callback without allowing an
+   older renderer-ready state to supersede incomplete raster preparation.
+8. Remove the normal full loading cover and allow new gestures only after durable
+   blocking-window, immediate decoded-set, and texture-deck readiness all pass.
+9. Start ordered background rasterization: current chapter, all forward positions,
+   then all backward positions.
 
-A persistent-write or deck-preparation failure cannot silently advance to
-interactive readiness.
+Cold start, resume, seek, rotation, settings or raster-profile change, cache miss,
+large jump, or repair must re-enter this same cover path whenever the required
+window is incomplete. A failure while an old deck remains resident keeps the full
+cover; it must not expose stale content or downgrade to compact presentation.
 
 ### 8.2 Warm reopen
 
-1. Validate the profile, manifest, dimensions, page identity, and raster files.
-2. Hydrate the protected window from persistent storage.
-3. Submit and prepare the initial deck.
-4. Enable interaction.
-5. Schedule only missing background targets.
+1. Validate the profile, manifest, dimensions, page identity, and every file in the
+   exact blocking window.
+2. If any required target is missing or invalid, retain the full cover and use the
+   blocking path in Section 8.1.
+3. Hydrate the immediate decoded working set from persistent storage.
+4. Submit and prepare the initial deck.
+5. Enable interaction only after all three readiness gates pass.
+6. Schedule only missing ordered background targets.
 
 A valid warm reopen performs zero WebView captures.
 
@@ -779,19 +823,28 @@ A valid warm reopen performs zero WebView captures.
 4. Reject new pointers while allowing the accepted settlement to finish.
 5. Promote only a prepared usable deck, or keep interaction unavailable until
    preparation completes.
-6. Advance the protected window and hydrate the new far edge without capture
-   when persistent data exists.
-7. Queue a tokenized exact Foliate relocation.
-8. Keep the GL surface visible through the matching WebView composition barrier.
-9. Publish one terminal outcome and release obsolete ownership.
+6. Advance encoded pins and the immediate decoded window to the destination before
+   requesting the new far edge.
+7. If the destination ±5 window is known complete, keep validation invisible and
+   hydrate it from disk; the first required hydration miss restores the full cover
+   before passive capture begins. If it is already known incomplete, restore the
+   cover immediately.
+8. Queue a tokenized exact Foliate relocation.
+9. Keep the GL surface visible through the matching WebView composition barrier.
+10. Publish one terminal outcome and release obsolete ownership.
 
-### 8.4 Background adjacent-chapter preparation
+### 8.4 Ordered background raster preparation
 
-1. Begin only after the current chapter has a prepared interactive deck.
-2. Run under a distinct background batch and cancellation policy.
-3. Yield constrained resources to foreground repair and current-chapter work.
-4. Persist valid outputs without changing the active interaction state.
-5. End without attaching or removing the current reader's cold-open shield.
+1. Begin only after the blocking encoded window and active texture deck are ready.
+2. Process remaining current-chapter positions, then every forward position, then
+   every backward position.
+3. Run under distinct background batches and cancellation policy.
+4. Yield constrained resources to foreground repair and blocking-window work.
+5. Persist valid outputs without changing active interaction state while the
+   blocking window remains complete.
+6. Stop at a failed higher-priority range until an explicit retry event; do not
+   advance to a lower-priority range.
+7. End without attaching or removing the current reader's full loading cover.
 
 ### 8.5 Teardown and invalidation
 
@@ -820,8 +873,10 @@ A valid warm reopen performs zero WebView captures.
 | Failure | Required response | Forbidden response |
 | --- | --- | --- |
 | Decoded memory miss with valid persistent raster | Hydrate from persistent storage | Immediate WebView recapture |
-| Missing durable raster | Schedule explicit capture or repair | Pretend the decoded set is complete |
-| Cold persistent-write failure | Remain visibly preparing or enter explicit error/retry | Publish ready and only log a warning |
+| Missing durable raster in the required ±5 window | Restore or retain the full cover before capture, then persist the complete window | Expose an old deck, partial content, or compact-only error |
+| Missing durable raster outside the required window | Schedule ordered background capture without changing interaction while the blocking window remains complete | Interrupt reading or attach the full cover |
+| Background range failure | Stop before lower-priority ranges and wait for an explicit retry event | Mark the range complete or skip ahead |
+| Cold or blocking persistent-write failure | Retain full-cover error and user-driven retry | Publish ready and only log a warning |
 | Deferred prerequisite | Resume on the prerequisite event | Invisible blocking with no retry |
 | Deck-preparation failure with old valid deck | Retain old deck and enter non-blocking recovery | Promote the failed generation |
 | Deck-preparation failure without valid deck | Keep visible recovery and retry or fail explicitly | Accept gestures against unprepared content |
@@ -1008,10 +1063,14 @@ separate visual artifacts and are not treated as diagnostic logs.
 Use executable state-machine tests for:
 
 - cold and warm raster readiness;
-- durable publication and failure;
+- exact ±5 blocking-window order, spread step, and publication-boundary clipping;
+- cover re-entry before capture on a required hydration miss;
+- durable publication and full-cover failure, including an older renderer-ready deck;
 - deferred resumption;
-- protected-window movement;
-- bounded eviction with pins;
+- immediate five-position decoded-window movement without decoded-limit expansion;
+- encoded byte-budget eviction with profile-qualified pins, unequal raster sizes,
+  and farthest-unpinned-behind-first ordering;
+- strict current, forward, backward background ordering and failure barriers;
 - texture preparation and promotion;
 - settlement continuation versus new-pointer rejection;
 - terminal compare-and-set behavior;
@@ -1032,6 +1091,9 @@ PlayLikeCurl, persistent cache, and scheduler callbacks. Verify:
 - LTR and RTL logical direction;
 - first/last boundary rejection;
 - persistent-only far-edge refill;
+- full-cover re-entry and handoff after seek, rotation, profile change, repair, and
+  required hydration miss;
+- hidden background continuation while the blocking window remains complete;
 - repaired-deck submission and prepared gating;
 - unprepared promotion rejection;
 - rapid relocation serialization;
@@ -1068,6 +1130,8 @@ Behavior must be validated in:
 - LTR and RTL;
 - first and last page/spread boundaries;
 - cold open and valid warm reopen;
+- emulator and physical-device MP4 review of full-cover re-entry, progress, final
+  handoff, and the first turns after handoff;
 - rapid repeated turns;
 - slow drag, fling, snap-back, and cancellation;
 - rotation and resize;
@@ -1089,7 +1153,15 @@ focused runtime requirements.
 - New pointers are rejected during settlement without interrupting settlement.
 - A valid warm reopen performs zero WebView captures.
 - Persistent-only far-edge refill performs zero WebView captures.
-- Cold current-chapter readiness waits for durable publication.
+- Cold and blocking readiness waits for durable publication of the exact current ±5
+  physical-position window, clipped only at publication boundaries.
+- The cover remains until the required encoded window, immediate decoded working
+  set, and matching PlayLikeCurl texture deck are all ready.
+- Renderer texture readiness or an older resident deck cannot hide or compact the
+  full cover while required-window preparation is incomplete or failed.
+- Ordinary turns keep preparation invisible only while the destination blocking
+  window is complete; the first required hydration miss restores the cover before
+  passive capture.
 - Invalidating a raster epoch prevents every old publication or callback from
   satisfying or mutating the new epoch, and releases every stale staged bitmap.
 - Deferred initial preparation is visible and has a deterministic resume event.
@@ -1107,14 +1179,20 @@ focused runtime requirements.
   next turn while the prior relocation awaits Foliate acknowledgement or visual
   handoff; the later accepted relocation is appended to the queue.
 - GL remains visible until WebView visual composition and the next frame.
-- Adjacent chapters are scheduled after readiness without blocking interaction.
+- Background rasters are scheduled strictly as current chapter, all forward pages
+  and chapters, then all backward pages, without blocking interaction while the
+  required window remains complete.
 
 ### 15.2 Performance and ownership gates
 
 - Gesture-frame paths perform no disk I/O, WebView capture, bitmap decode,
   bitmap scaling, or texture upload.
-- Current-chapter rasters are captured at most once per valid profile generation.
-- The portrait and landscape protected windows meet the required sizes.
+- Valid encoded rasters are captured at most once per profile generation unless
+  explicit invalidation or verified absence requires repair.
+- The encoded blocking window contains at most eleven physical positions; the
+  decoded working set remains capped at five snapshots.
+- Encoded retention remains under its byte budget, keeps active-profile window
+  pins, and evicts farthest unpinned pages behind before nearer pages.
 - Adapter and decoded residency remain within centralized configured bounds.
 - Active, pending, release-in-flight, and orphan deck leases remain within the
   library contract and drain on teardown.
@@ -1135,9 +1213,11 @@ focused runtime requirements.
 - After publication, Navic immutably re-imports the released artifact and reruns
   every automated gate. Candidate-source evidence never substitutes for this
   post-publication pass.
-- ReaderDev and emulator validation pass.
-- Physical-device validation passes for portrait, landscape, LTR, RTL, rapid
-  turning, rotation, background/resume, and GL recreation.
+- ReaderDev and emulator validation pass, including local MP4 review of cover
+  re-entry and final handoff.
+- Physical-device validation and local MP4 visual review pass before physical
+  automation for portrait, landscape, LTR, RTL, rapid turning, rotation,
+  background/resume, and GL recreation.
 - Evidence records the exact Navic commit, PlayLikeCurl commit or release,
   configuration, device, and observed diagnostics.
 
@@ -1154,7 +1234,8 @@ verifiable units aligned with these boundaries:
 6. explicit boundary representation;
 7. relocation queue and WebView visual handoff;
 8. bounded adapter ownership and deterministic teardown;
-9. adjacent-chapter scheduling;
+9. bounded encoded-window retention and ordered current/forward/backward background
+   scheduling;
 10. behavior, stress, emulator, and device verification.
 
 The plan must account for dependencies between these units, but it must not merge

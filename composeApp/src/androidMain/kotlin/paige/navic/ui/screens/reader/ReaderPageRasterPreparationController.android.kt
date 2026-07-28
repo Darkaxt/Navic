@@ -145,14 +145,14 @@ internal fun readerPageTurnCanStartPassivePrewarm(
 	idle: Boolean
 ): Boolean = !destroyed && sessionEnabled && !visualCommitPending && idle
 
-internal fun readerPageCanReusePreparedChapterTurn(
+internal fun readerPageCanReusePreparedWindow(
 	reason: String?,
-	preparedChapterContainsPage: Boolean,
+	requiredWindowDurable: Boolean,
 	visualCenterChanging: Boolean,
 	rasterRepairPending: Boolean,
 	prewarmPending: Boolean
 ): Boolean = reason == "page-turn:exact" &&
-	preparedChapterContainsPage &&
+	requiredWindowDurable &&
 	(
 		!visualCenterChanging ||
 			(!rasterRepairPending && !prewarmPending)
@@ -250,6 +250,12 @@ internal class ReaderPageRasterPreparationController(
 	private var currentVisualPageIndex: Int? = null
 	private var preparedChapterRange: ReaderPageRasterPreparedChapterRange? = null
 	private var candidateChapterRange: ReaderPageRasterPreparedChapterRange? = null
+	private var candidateBlockingPageIndices: Set<Int> = emptySet()
+	private var preparedPageCount = 0
+	private var candidatePageCount = 0
+	private var preparedStep = 1
+	private var candidateStep = 1
+	private val durableRasterPageIndices = linkedSetOf<Int>()
 	private var preparedRepairPageIndices: Set<Int> = emptySet()
 	private var candidateRepairPageIndices: Set<Int> = emptySet()
 	private var candidateBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
@@ -425,11 +431,31 @@ internal class ReaderPageRasterPreparationController(
 		onPreparationStateChange(state)
 	}
 
+	private fun enterBlockingPreparation(reason: String) {
+		if (!hasPreparedBefore) return
+		hasPreparedBefore = false
+		logLoadingEvent(
+			event = "cover-restored",
+			detail = "reason=$reason visual=$currentVisualPageIndex " +
+				"generation=${bundleSource.currentGeneration()}"
+		)
+		publishPreparationState(
+			if (prewarmInProgress) {
+				ReaderPagePreparationPhase.Preparing
+			} else {
+				ReaderPagePreparationPhase.Idle
+			}
+		)
+	}
+
 	fun updateBitmapQuality(value: String?) {
 		if (!bundleSource.updateBitmapQuality(normalizeReaderPageBitmapQuality(value))) return
 		cancelBackgroundPrefetch("bitmap-quality-changed")
 		cancelRasterRepairs("bitmap-quality-changed")
 		cancelPrewarm(reason = "bitmap-quality-changed")
+		hasPreparedBefore = false
+		durableRasterPageIndices.clear()
+		publishPreparationState(ReaderPagePreparationPhase.Idle)
 		onRequestPrewarm()
 	}
 
@@ -457,6 +483,9 @@ internal class ReaderPageRasterPreparationController(
 		if (replacedProfile) {
 			cancelBackgroundPrefetch("raster-profile-replaced")
 			cancelPrewarm(reason = "raster-profile-replaced")
+			hasPreparedBefore = false
+				durableRasterPageIndices.clear()
+			publishPreparationState(ReaderPagePreparationPhase.Idle)
 			onRequestPrewarm()
 			return
 		}
@@ -546,11 +575,19 @@ internal class ReaderPageRasterPreparationController(
 		cancelRasterRepairs("invalidate:$reason")
 		cancelPrewarm(reason = "invalidate:$reason")
 		bundleSource.invalidate(reason)
+		hasPreparedBefore = false
 		preparedChapterRange = null
 		candidateChapterRange = null
+		candidateBlockingPageIndices = emptySet()
+		preparedPageCount = 0
+		candidatePageCount = 0
+		preparedStep = 1
+		candidateStep = 1
+		durableRasterPageIndices.clear()
 		preparedRepairPageIndices = emptySet()
 		candidateRepairPageIndices = emptySet()
 		if (clearVisualPageIndex) currentVisualPageIndex = null
+		publishPreparationState(ReaderPagePreparationPhase.Idle)
 		logLoadingEvent(
 			event = "invalidated",
 			detail = "reason=$reason clearVisualPageIndex=$clearVisualPageIndex " +
@@ -578,29 +615,53 @@ internal class ReaderPageRasterPreparationController(
 			cancelRasterRepairs("visual-index-cleared:${reason ?: "unspecified"}")
 			cancelPrewarm(reason = "visual-index-cleared:${reason ?: "unspecified"}")
 			currentVisualPageIndex = null
+			enterBlockingPreparation("visual-index-cleared:${reason ?: "unspecified"}")
 			return
 		}
 		if (pageIndex < 0) return
-		if (readerPageCanReusePreparedChapterTurn(
+		val visualCenterChanging = currentVisualPageIndex != pageIndex
+		val requiredWindow = readerPageRasterBlockingWindow(
+			centerPageIndex = pageIndex,
+			step = preparedStep,
+			pageCount = preparedPageCount
+		)
+		val requiredWindowDurable = requiredWindow.isNotEmpty() &&
+			requiredWindow.all(durableRasterPageIndices::contains)
+		val prewarmPending = prewarmInProgress || deferredPrewarmSessionId != null
+		if (readerPageCanReusePreparedWindow(
 				reason = reason,
-				preparedChapterContainsPage =
-					preparedChapterRange?.contains(pageIndex) == true,
-				visualCenterChanging = currentVisualPageIndex != pageIndex,
+				requiredWindowDurable = requiredWindowDurable,
+				visualCenterChanging = visualCenterChanging,
 				rasterRepairPending = rasterRepairCallbacks.isNotEmpty(),
-				prewarmPending = prewarmInProgress || deferredPrewarmSessionId != null
+				prewarmPending = prewarmPending
 			)
 		) {
 			currentVisualPageIndex = pageIndex
+			bundleSource.protectEncodedWindow(pageIndex, preparedStep, preparedPageCount)
+			bundleSource.protectDecodedWindow(pageIndex, preparedStep, preparedPageCount)
 			logLoadingEvent(
 				event = "ordinary-turn-reused",
-				detail = "page=$pageIndex chapter=$preparedChapterRange " +
+				detail = "page=$pageIndex blocking=${requiredWindow.sorted()} " +
 					"generation=${bundleSource.currentGeneration()}"
 			)
+			if (visualCenterChanging && !prewarmPending) onRequestPrewarm()
 			return
 		}
 		if (currentVisualPageIndex == pageIndex) {
-			if (reason == "page-turn:exact") onRequestPrewarm()
+			if (reason == "page-turn:exact" && !prewarmPending) {
+				if (!requiredWindowDurable) {
+					enterBlockingPreparation("incomplete-window-same-center")
+				}
+				onRequestPrewarm()
+			}
 			return
+		}
+		if (
+			reason != "page-turn:exact" ||
+				!requiredWindowDurable ||
+				rasterRepairCallbacks.isNotEmpty()
+		) {
+			enterBlockingPreparation("visual-index-changed:${reason ?: "unspecified"}")
 		}
 		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("visual-index-changed:${reason ?: "unspecified"}")
@@ -608,7 +669,8 @@ internal class ReaderPageRasterPreparationController(
 		currentVisualPageIndex = pageIndex
 		logLoadingEvent(
 			event = "visual-index-synchronized",
-			detail = "page=$pageIndex reason=$reason generation=${bundleSource.currentGeneration()} retained=true"
+			detail = "page=$pageIndex reason=$reason generation=${bundleSource.currentGeneration()} " +
+				"blockingComplete=$requiredWindowDurable"
 		)
 		onRequestPrewarm()
 	}
@@ -653,6 +715,8 @@ internal class ReaderPageRasterPreparationController(
 			onComplete(immediateFailure)
 			return
 		}
+		enterBlockingPreparation("required-raster-repair:$pageIndex")
+		resumePrewarmAfterRasterRepairs = true
 		val callbacks = rasterRepairCallbacks.getOrPut(pageIndex) { mutableListOf() }
 		callbacks += onComplete
 		qaFaultCorrelation?.let { correlation ->
@@ -1036,6 +1100,9 @@ internal class ReaderPageRasterPreparationController(
 		pendingPrewarmRetryCount = 0
 		prewarmInProgress = true
 		candidateChapterRange = null
+		candidateBlockingPageIndices = emptySet()
+		candidatePageCount = 0
+		candidateStep = 1
 		candidateRepairPageIndices = emptySet()
 		candidateBackgroundPrefetch = null
 		rasterPreparationCompleted = 0
@@ -1204,8 +1271,28 @@ internal class ReaderPageRasterPreparationController(
 				detail = "session=$session layout=${plan.layoutMode} center=${plan.centerPageIndex} " +
 					"targets=${plan.targets.size}"
 			)
+			val blockingTargets = plan.blockingTargetsOrNull()
+			if (blockingTargets == null) {
+				finishPrewarm(
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "blocking-window-plan",
+						pageIndex = plan.centerPageIndex,
+						reason = "incomplete-current-plus-minus-five"
+					)
+				)
+				return@plan
+			}
 			candidateChapterRange = plan.preparedChapterRange()
+			candidateBlockingPageIndices = blockingTargets
+				.mapTo(linkedSetOf()) { target -> target.pageIndex }
+			candidatePageCount = plan.pageCount
+			candidateStep = plan.step
 			candidateRepairPageIndices = plan.preparedRepairPageIndices()
+			bundleSource.protectEncodedWindow(
+				centerPageIndex = plan.centerPageIndex,
+				step = plan.step,
+				pageCount = plan.pageCount
+			)
 			bundleSource.protectDecodedWindow(
 				centerPageIndex = plan.centerPageIndex,
 				step = plan.step,
@@ -1312,7 +1399,9 @@ internal class ReaderPageRasterPreparationController(
 		calibrationTargets: List<ReaderPageRasterBatchTarget>
 	) {
 		val calibratedPages = calibrationTargets.mapTo(mutableSetOf()) { target -> target.pageIndex }
-		val blockingTargets = readerPageRasterBlockingTargets(plan.targets)
+		val blockingTargets = checkNotNull(plan.blockingTargetsOrNull()) {
+			"Accepted raster preparation plan lost its blocking window"
+		}
 		val followUpTargets = blockingTargets.filterNot { target -> target.pageIndex in calibratedPages }
 		if (followUpTargets.isEmpty()) {
 			finishPrewarm(ReaderPageRasterBatchOutcome.Ready)
@@ -1369,6 +1458,16 @@ internal class ReaderPageRasterPreparationController(
 				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
 					activePreparationPageNumber = target.pageIndex + 1
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
+				}
+			},
+			onHydrationMiss = { target ->
+				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
+					enterBlockingPreparation("required-cache-miss:${target.pageIndex}")
+				}
+			},
+			onTargetDurable = { target ->
+				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
+					durableRasterPageIndices += target.pageIndex
 				}
 			},
 			onProgress = { completedCount, _ ->
@@ -1459,8 +1558,11 @@ internal class ReaderPageRasterPreparationController(
 				val backgroundPrefetch = candidateBackgroundPrefetch
 				rasterPreparationCompleted = rasterPreparationRequired
 				rasterInteractiveCompleted = rasterInteractiveRequired
-				hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore
+				hasPreparedBefore = candidateBlockingPageIndices.isNotEmpty()
 				preparedChapterRange = candidateChapterRange ?: preparedChapterRange
+				preparedPageCount = candidatePageCount
+				preparedStep = candidateStep
+				durableRasterPageIndices += candidateBlockingPageIndices
 				preparedRepairPageIndices = candidateRepairPageIndices
 				publishPreparationState(ReaderPagePreparationPhase.Ready)
 				backgroundPrefetch?.let(::publishDurableAdjacentChapterPlan)
@@ -1537,6 +1639,9 @@ internal class ReaderPageRasterPreparationController(
 		}
 		if (outcome != ReaderPageRasterBatchOutcome.Ready) {
 			candidateChapterRange = null
+			candidateBlockingPageIndices = emptySet()
+			candidatePageCount = 0
+			candidateStep = 1
 			candidateRepairPageIndices = emptySet()
 		}
 		candidateBackgroundPrefetch = null
@@ -1723,10 +1828,14 @@ internal class ReaderPageRasterPreparationController(
 				showBackgroundPrefetchShield(snapshot, submission)
 			},
 			onTargetDurable = { target ->
-				adjacentChapterPrefetchCoordinator.onTargetDurable(
-					submission = submission,
-					pageIndex = target.pageIndex
-				)
+				if (
+					adjacentChapterPrefetchCoordinator.onTargetDurable(
+						submission = submission,
+						pageIndex = target.pageIndex
+					)
+				) {
+					durableRasterPageIndices += target.pageIndex
+				}
 			},
 			onProgress = { completed, required ->
 				if (isBackgroundPrefetchActive(submission, prefetch)) {

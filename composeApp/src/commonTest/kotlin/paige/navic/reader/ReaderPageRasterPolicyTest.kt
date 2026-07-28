@@ -12,7 +12,7 @@ class ReaderPageRasterPolicyTest {
 
 	@Test
 	fun publicationLimitsMatchForegroundAndPrefetchOwnerArithmetic() {
-		assertEquals(10, ReaderPageMaximumForegroundPublicationEntries)
+		assertEquals(11, ReaderPageMaximumForegroundPublicationEntries)
 		assertEquals(1, ReaderPageAdjacentPrefetchPublicationAllowance)
 		assertEquals(
 			(
@@ -66,24 +66,22 @@ class ReaderPageRasterPolicyTest {
 	}
 
 	@Test
-	fun adjacentChapterPrioritiesExposeOneSchedulingDirection() {
+	fun backgroundRasterPrioritiesExposeOneSchedulingDirection() {
 		assertEquals(
 			listOf(
+				ReaderPageAdjacentChapterDirection.Current,
 				ReaderPageAdjacentChapterDirection.Next,
 				ReaderPageAdjacentChapterDirection.Previous,
 				ReaderPageAdjacentChapterDirection.Next,
 				ReaderPageAdjacentChapterDirection.Previous
 			),
 			listOf(
+				ReaderPageRasterPriority.CurrentChapter,
 				ReaderPageRasterPriority.NextChapter,
 				ReaderPageRasterPriority.PreviousChapter,
 				ReaderPageRasterPriority.NextChapterRemainder,
 				ReaderPageRasterPriority.PreviousChapterRemainder
 			).map { priority -> priority.adjacentChapterDirection }
-		)
-		assertEquals(
-			null,
-			ReaderPageRasterPriority.CurrentChapter.adjacentChapterDirection
 		)
 	}
 

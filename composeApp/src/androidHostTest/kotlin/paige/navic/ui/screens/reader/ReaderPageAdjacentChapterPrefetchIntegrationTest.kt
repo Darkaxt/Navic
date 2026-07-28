@@ -59,7 +59,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	)
 
 	@Test
-	fun productionControllerStartsAndPersistsBothChaptersOnlyAfterReadiness() = runTest {
+	fun productionControllerStartsBackgroundRangesInPriorityOrderOnlyAfterReadiness() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
@@ -68,13 +68,13 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.completeCalibrationDurably()
 			assertTrue(fixture.background.starts.isEmpty())
 
-			fixture.completeCurrentChapterDurably()
+			fixture.completeBlockingWindowDurably()
 			assertTrue(fixture.background.starts.isEmpty())
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
 
 			assertEquals(
-				listOf(listOf(7, 6)),
+				listOf(listOf(32, 34)),
 				fixture.background.starts.map { request ->
 					request.targets.map { target -> target.pageIndex }
 				}
@@ -82,7 +82,19 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.background.completeReady(durably = true)
 			fixture.drainMainLooper()
 			assertEquals(
-				listOf(listOf(7, 6), listOf(14, 15)),
+				listOf(listOf(32, 34), listOf(36, 38, 40, 42)),
+				fixture.background.starts.map { request ->
+					request.targets.map { target -> target.pageIndex }
+				}
+			)
+			fixture.background.completeReady(durably = true)
+			fixture.drainMainLooper()
+			assertEquals(
+				listOf(
+					listOf(32, 34),
+					listOf(36, 38, 40, 42),
+					listOf(8, 6, 4, 2, 0)
+				),
 				fixture.background.starts.map { request ->
 					request.targets.map { target -> target.pageIndex }
 				}
@@ -93,7 +105,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.controller.onPointerInteractionChanged(true)
 			fixture.controller.onPointerInteractionChanged(false)
 			fixture.drainMainLooper()
-			assertEquals(2, fixture.background.starts.size)
+			assertEquals(3, fixture.background.starts.size)
 			assertIs<ReaderPageNewPointerDecision.Accept>(
 				fixture.latestState.operationPolicy.newPointer
 			)
@@ -108,13 +120,13 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun foregroundRepairCancelsThenResumesProductionBackgroundPrefetch() = runTest {
+	fun foregroundRepairRestoresCoverWhileCancellingThenResumingBackgroundPrefetch() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
-			fixture.completeCurrentChapterDurably()
+			fixture.completeBlockingWindowDurably()
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
 			val interrupted = fixture.background.active
@@ -122,13 +134,13 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.background.publishDurable(interrupted.targets.first())
 
 			var repairResult: ReaderPageRasterRepairResult? = null
-			fixture.controller.repairRasterPage(8) { repairResult = it }
+			fixture.controller.repairRasterPage(20) { repairResult = it }
 			assertEquals(1, fixture.background.cancellationCount)
-			assertIs<ReaderPageNewPointerDecision.Accept>(
+			assertIs<ReaderPageNewPointerDecision.Reject>(
 				fixture.latestState.operationPolicy.newPointer
 			)
 			assertEquals(
-				ReaderPagePreparationPresentation.Hidden,
+				ReaderPagePreparationPresentation.Cover,
 				fixture.latestState.presentation
 			)
 
@@ -138,7 +150,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.drainMainLooper()
 
 			assertEquals(
-				listOf(6),
+				listOf(34),
 				fixture.background.active?.targets?.map { target -> target.pageIndex }
 			)
 		} finally {
@@ -148,13 +160,13 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun failedPersistenceAdvancesTheOtherDirectionAndRetriesOnlyMissingWork() = runTest {
+	fun failedCurrentPersistenceBlocksForwardWorkAndRetriesOnlyMissingCurrentPages() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
-			fixture.completeCurrentChapterDurably()
+			fixture.completeBlockingWindowDurably()
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
 			val failed = checkNotNull(fixture.background.active)
@@ -162,18 +174,14 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.background.completeFailed()
 			fixture.drainMainLooper()
 
-			assertEquals(
-				listOf(14, 15),
-				fixture.background.active?.targets?.map { target -> target.pageIndex }
-			)
+			assertEquals(null, fixture.background.active)
 			failed.onTargetDurable(failed.targets.last())
-			fixture.background.completeReady(durably = true)
 			fixture.controller.onPointerInteractionChanged(true)
 			fixture.controller.onPointerInteractionChanged(false)
 			fixture.drainMainLooper()
 
 			assertEquals(
-				listOf(6),
+				listOf(34),
 				fixture.background.active?.targets?.map { target -> target.pageIndex }
 			)
 			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
@@ -190,7 +198,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
-			fixture.completeCurrentChapterDurably()
+			fixture.completeBlockingWindowDurably()
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
 			assertEquals(1, fixture.background.starts.size)
@@ -200,7 +208,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 				ReaderPagePreparedActiveDeck(
 					rasterProfileEpoch = 8L,
 					rasterEpoch = fixture.rasterEpoch,
-					sourceCenterPageIndex = 8,
+					sourceCenterPageIndex = 20,
 					generationId = 42L
 				)
 			)
@@ -226,7 +234,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			)
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
-			fixture.completeCurrentChapterDurably()
+			fixture.completeBlockingWindowDurably()
 
 			val preparation = fixture.diagnosticMessages.filter {
 				it.startsWith("reader-preparation ")
@@ -366,9 +374,9 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
-			fixture.completeCurrentChapterDurably()
+			fixture.completeBlockingWindowDurably()
 			var result: ReaderPageRasterRepairResult? = null
-			fixture.controller.repairRasterPage(8) { result = it }
+			fixture.controller.repairRasterPage(20) { result = it }
 
 			fixture.controller.invalidate("diagnostic-cancel")
 
@@ -401,7 +409,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		try {
 			fixture.startCurrentChapterPreparation()
 			fixture.completeCalibrationDurably()
-			fixture.completeCurrentChapterDurably()
+			fixture.completeBlockingWindowDurably()
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
 			val firstQueued = fixture.diagnosticMessages.first { message ->
@@ -646,6 +654,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		trigger: ReaderPageRasterAcquisitionTrigger,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+		onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
@@ -773,7 +782,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 		assertTrue(background.starts.isEmpty())
 	}
 
-	fun completeCurrentChapterDurably() {
+	fun completeBlockingWindowDurably() {
 		foreground.completeReady(durably = true)
 		assertEquals(ReaderPagePreparationPhase.Ready, latestState.phase)
 	}
@@ -783,7 +792,7 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 			ReaderPagePreparedActiveDeck(
 				rasterProfileEpoch = 7L,
 				rasterEpoch = bundleSource.currentGeneration(),
-				sourceCenterPageIndex = 8,
+				sourceCenterPageIndex = 20,
 				generationId = generationId
 			)
 		)
@@ -901,33 +910,47 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 
 private fun task9PreparationPlan(): ReaderPageRasterPreparationPlan =
 	ReaderPageRasterPreparationPlan(
-		centerPageIndex = 8,
-		pageCount = 20,
+		centerPageIndex = 20,
+		pageCount = 44,
 		layoutMode = "spread",
 		readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-		step = 1,
+		step = 2,
 		currentChapterIndex = 4,
-		currentChapterPageStartIndex = 8,
-		currentChapterPageCount = 6,
+		currentChapterPageStartIndex = 12,
+		currentChapterPageCount = 24,
 		previousChapterPageStartIndex = 4,
-		previousChapterPageCount = 4,
-		nextChapterPageStartIndex = 14,
-		nextChapterPageCount = 3,
+		previousChapterPageCount = 8,
+		nextChapterPageStartIndex = 36,
+		nextChapterPageCount = 4,
 		targets = listOf(
-			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.Current),
-			ReaderPageRasterBatchTarget(9, ReaderPageRasterPriority.NextTransition),
-			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.PreviousTransition),
-			ReaderPageRasterBatchTarget(11, ReaderPageRasterPriority.NextLookahead),
-			ReaderPageRasterBatchTarget(7, ReaderPageRasterPriority.PreviousChapter),
-			ReaderPageRasterBatchTarget(6, ReaderPageRasterPriority.PreviousChapterRemainder),
-			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.NextChapter),
-			ReaderPageRasterBatchTarget(15, ReaderPageRasterPriority.NextChapterRemainder)
+			ReaderPageRasterBatchTarget(20, ReaderPageRasterPriority.Current),
+			ReaderPageRasterBatchTarget(22, ReaderPageRasterPriority.NextTransition),
+			ReaderPageRasterBatchTarget(18, ReaderPageRasterPriority.PreviousTransition),
+			ReaderPageRasterBatchTarget(24, ReaderPageRasterPriority.NextLookahead),
+			ReaderPageRasterBatchTarget(26, ReaderPageRasterPriority.NextLookahead),
+			ReaderPageRasterBatchTarget(28, ReaderPageRasterPriority.NextLookahead),
+			ReaderPageRasterBatchTarget(30, ReaderPageRasterPriority.NextLookahead),
+			ReaderPageRasterBatchTarget(16, ReaderPageRasterPriority.PreviousLookahead),
+			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.PreviousLookahead),
+			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.PreviousLookahead),
+			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.PreviousLookahead),
+			ReaderPageRasterBatchTarget(32, ReaderPageRasterPriority.CurrentChapter),
+			ReaderPageRasterBatchTarget(34, ReaderPageRasterPriority.CurrentChapter),
+			ReaderPageRasterBatchTarget(36, ReaderPageRasterPriority.NextChapter),
+			ReaderPageRasterBatchTarget(38, ReaderPageRasterPriority.NextChapter),
+			ReaderPageRasterBatchTarget(40, ReaderPageRasterPriority.NextChapter),
+			ReaderPageRasterBatchTarget(42, ReaderPageRasterPriority.NextChapter),
+			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.PreviousChapter),
+			ReaderPageRasterBatchTarget(6, ReaderPageRasterPriority.PreviousChapter),
+			ReaderPageRasterBatchTarget(4, ReaderPageRasterPriority.PreviousChapter),
+			ReaderPageRasterBatchTarget(2, ReaderPageRasterPriority.PreviousChapter),
+			ReaderPageRasterBatchTarget(0, ReaderPageRasterPriority.PreviousChapter)
 		)
 	)
 
 private fun task9ReferenceSnapshot(): ReaderPageSlideSnapshot = ReaderPageSlideSnapshot(
 	key = ReaderPageSlideSnapshotKey(
-		visualPageIndex = 8,
+		visualPageIndex = 20,
 		kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
 		bitmapQuality = ReaderPageBitmapQuality.Balanced,
 		bitmapWidth = 20,

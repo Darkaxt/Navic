@@ -36,16 +36,17 @@ class ReaderPageRasterPreparationSourceTest {
 		val initializationPath = preparation
 			.substringAfter("private fun initializeRasterCacheAndQueryPlan(")
 			.substringBefore("private fun consumeQaDeferral(")
+		val prewarm = preparation
+			.substringAfter("fun prewarmAdjacent(): Boolean {")
+			.substringBefore("private fun initializeRasterCacheAndQueryPlan(")
 		val initialization = "initializeRasterCache(webView)"
 		val metrics = "bundleSource.rasterCacheMetrics().diskEntries"
 		assertContains(bundle, "suspend fun initializeRasterCache(webView: WebView)")
 		assertContains(initializationPath, initialization)
 		assertContains(initializationPath, "if (!prewarmAcquisitionTriggerClassified)")
 		assertContains(initializationPath, "prewarmAcquisitionTriggerClassified = true")
-		assertContains(
-			preparation,
-			"if (resumedDiagnostic == null) {\n\t\t\tprewarmAcquisitionTriggerClassified = false"
-		)
+		assertContains(prewarm, "if (resumedDiagnostic == null)")
+		assertContains(prewarm, "prewarmAcquisitionTriggerClassified = false")
 		assertContains(preparation, "persistentRasterEntries = $metrics")
 		assertTrue(
 			initializationPath.indexOf(initialization) < initializationPath.indexOf(metrics),
@@ -169,6 +170,43 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun invalidationImmediatelyRestoresTheFullPreparationCover() {
+		val source = readerRasterPreparationSource()
+		val invalidation = source.substringAfter(
+			"fun invalidate(reason: String, clearVisualPageIndex: Boolean = false) {"
+		).substringBefore("\n\tfun invalidateCurrentVisualSnapshot(")
+
+		assertContains(invalidation, "hasPreparedBefore = false")
+		assertContains(invalidation, "durableRasterPageIndices.clear()")
+		assertContains(
+			invalidation,
+			"publishPreparationState(ReaderPagePreparationPhase.Idle)"
+		)
+	}
+
+	@Test
+	fun requiredRasterHydrationMissRestoresCoverBeforePassiveCapture() {
+		val batch = readerRasterBatchSource()
+		val contract = batch.substringAfter(
+			"internal interface ReaderPageRasterBatchPort"
+		).substringBefore("internal class ReaderPageRasterBatchController")
+		val hydration = batch.substringAfter(
+			"private fun hydrateTarget(session: Session, targetIndex: Int)"
+		).substringBefore("private fun submitMissingTargets(")
+		val preparation = readerRasterPreparationSource()
+		val foreground = preparation.substringAfter(
+			"private fun startRasterBatch("
+		).substringBefore("private fun obtainRasterReference(")
+
+		assertContains(contract, "onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit")
+		assertTrue(
+			hydration.indexOf("session.onHydrationMiss(target)") <
+				hydration.indexOf("session.missingTargets += target")
+		)
+		assertContains(foreground, "enterBlockingPreparation(\"required-cache-miss")
+	}
+
+	@Test
 	fun preparationLifecycleLogsEveryRemovalAndInvalidationCause() {
 		val source = readerRasterPreparationSource()
 
@@ -199,19 +237,20 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun exactTurnInsidePreparedChapterDoesNotRestartPassiveCapture() {
+	fun exactTurnInsideDurableBlockingWindowStartsAnInvisibleWindowValidation() {
 		val source = readerRasterPreparationSource()
 		val function = source.substringAfter(
 			"fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {"
 		).substringBefore("\n\tfun prewarmAdjacent()")
 
-		assertContains(function, "preparedChapterRange?.contains(pageIndex) == true")
+		assertContains(function, "requiredWindow.all(durableRasterPageIndices::contains)")
 		assertContains(function, "event = \"ordinary-turn-reused\"")
-		assertContains(function, "readerPageCanReusePreparedChapterTurn(")
+		assertContains(function, "readerPageCanReusePreparedWindow(")
+		assertContains(function, "onRequestPrewarm()")
 		assertTrue(
-			readerPageCanReusePreparedChapterTurn(
+			readerPageCanReusePreparedWindow(
 				reason = "page-turn:exact",
-				preparedChapterContainsPage = true,
+				requiredWindowDurable = true,
 				visualCenterChanging = true,
 				rasterRepairPending = false,
 				prewarmPending = false
@@ -225,7 +264,7 @@ class ReaderPageRasterPreparationSourceTest {
 		val function = source.substringAfter(
 			"fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {"
 		).substringBefore("\n\tfun prewarmAdjacent()")
-		val reuseDecision = "readerPageCanReusePreparedChapterTurn("
+		val reuseDecision = "readerPageCanReusePreparedWindow("
 		val repairCancellation = "cancelRasterRepairs(\"visual-index-changed:"
 
 		assertContains(
@@ -238,9 +277,9 @@ class ReaderPageRasterPreparationSourceTest {
 			"A non-reusable exact turn must fall through to center-change repair cancellation"
 		)
 		assertFalse(
-			readerPageCanReusePreparedChapterTurn(
+			readerPageCanReusePreparedWindow(
 				reason = "page-turn:exact",
-				preparedChapterContainsPage = true,
+				requiredWindowDurable = true,
 				visualCenterChanging = true,
 				rasterRepairPending = true,
 				prewarmPending = false
@@ -264,9 +303,9 @@ class ReaderPageRasterPreparationSourceTest {
 			"prewarmPending = prewarmInProgress || deferredPrewarmSessionId != null"
 		)
 		assertFalse(
-			readerPageCanReusePreparedChapterTurn(
+			readerPageCanReusePreparedWindow(
 				reason = "page-turn:exact",
-				preparedChapterContainsPage = true,
+				requiredWindowDurable = true,
 				visualCenterChanging = true,
 				rasterRepairPending = false,
 				prewarmPending = true
@@ -277,9 +316,9 @@ class ReaderPageRasterPreparationSourceTest {
 	@Test
 	fun sameCenterExactUpdatePreservesDeferredPrewarmOwnership() {
 		assertTrue(
-			readerPageCanReusePreparedChapterTurn(
+			readerPageCanReusePreparedWindow(
 				reason = "page-turn:exact",
-				preparedChapterContainsPage = true,
+				requiredWindowDurable = true,
 				visualCenterChanging = false,
 				rasterRepairPending = false,
 				prewarmPending = true
@@ -328,7 +367,7 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
-	fun immediateDeckCannotPublishReadyBeforeTheCurrentChapterIsComplete() {
+	fun immediateDeckCannotPublishReadyBeforeTheBlockingWindowIsDurable() {
 		val source = readerRasterPreparationSource()
 		val initialDeck = source.substringAfter(
 			"private fun startRasterCalibration("
@@ -345,9 +384,10 @@ class ReaderPageRasterPreparationSourceTest {
 
 		assertFalse(initialDeck.contains("hasPreparedBefore ="))
 		assertFalse(batch.contains("hasPreparedBefore ="))
-		assertContains(followUp, "readerPageRasterBlockingTargets(plan.targets)")
+		assertContains(followUp, "checkNotNull(plan.blockingTargetsOrNull())")
 		assertContains(followUp, "totalRequired = blockingTargets.size")
-		assertContains(finish, "hasPreparedBefore = rasterInteractiveRequired > 0 || hasPreparedBefore")
+		assertContains(finish, "hasPreparedBefore = candidateBlockingPageIndices.isNotEmpty()")
+		assertContains(finish, "durableRasterPageIndices += candidateBlockingPageIndices")
 	}
 
 	@Test
@@ -355,7 +395,7 @@ class ReaderPageRasterPreparationSourceTest {
 		val source = readerRasterPreparationSource()
 		val callbacks = source.substringAfter(
 			"private val memoryCallbacks = object : ComponentCallbacks2 {"
-		).substringBefore("\n\t}\n\n\tinit {")
+		).substringBefore("\tinit {")
 
 		assertContains(callbacks, "bundleSource.trimMemory(")
 		assertFalse(callbacks.contains("invalidate("))

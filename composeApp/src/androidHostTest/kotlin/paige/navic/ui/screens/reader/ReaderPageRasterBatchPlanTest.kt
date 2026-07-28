@@ -4,6 +4,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import paige.navic.reader.ReaderPageAdjacentChapterDirection
 import paige.navic.reader.ReaderPageRasterPriority
@@ -81,172 +82,135 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
-	fun blockingPreparationStopsAfterTheBoundedRendererLookahead() {
-		val targets = listOf(
-			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.Current),
-			ReaderPageRasterBatchTarget(16, ReaderPageRasterPriority.NextTransition),
-			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.PreviousTransition),
-			ReaderPageRasterBatchTarget(18, ReaderPageRasterPriority.NextLookahead),
-			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.PreviousLookahead)
-		) + (20..76 step 2).map { pageIndex ->
+	fun blockingWindowIsCurrentPlusFivePhysicalTurnsInEachDirection() {
+		assertEquals(
+			listOf(14, 16, 12, 18, 20, 22, 24, 10, 8, 6, 4),
+			readerPageRasterBlockingWindow(
+				centerPageIndex = 14,
+				step = 2,
+				pageCount = 90
+			)
+		)
+	}
+
+	@Test
+	fun blockingWindowTruncatesAtPublicationBoundaries() {
+		assertEquals(
+			listOf(0, 1, 2, 3),
+			readerPageRasterBlockingWindow(0, step = 1, pageCount = 4)
+		)
+		assertEquals(
+			listOf(9, 8, 7, 6, 5, 4),
+			readerPageRasterBlockingWindow(9, step = 1, pageCount = 10)
+		)
+	}
+
+	@Test
+	fun blockingPreparationExcludesCurrentChapterRemainder() {
+		val blockingPages = listOf(14, 16, 12, 18, 20, 22, 24, 10, 8, 6, 4)
+		val targets = blockingPages.mapIndexed { index, pageIndex ->
+			ReaderPageRasterBatchTarget(
+				pageIndex,
+				when (index) {
+					0 -> ReaderPageRasterPriority.Current
+					1 -> ReaderPageRasterPriority.NextTransition
+					2 -> ReaderPageRasterPriority.PreviousTransition
+					in 3..6 -> ReaderPageRasterPriority.NextLookahead
+					else -> ReaderPageRasterPriority.PreviousLookahead
+				}
+			)
+		} + (26..76 step 2).map { pageIndex ->
 			ReaderPageRasterBatchTarget(pageIndex, ReaderPageRasterPriority.CurrentChapter)
-		} + ReaderPageRasterBatchTarget(78, ReaderPageRasterPriority.NextChapter)
+		}
 
 		assertEquals(
-			listOf(14, 16, 12, 18, 10),
-			readerPageRasterBlockingTargets(targets).map { it.pageIndex }
+			blockingPages,
+			readerPageRasterBlockingTargets(targets).map { target -> target.pageIndex }
+		)
+		assertEquals(
+			(26..76 step 2).toList(),
+			readerPageRasterBackgroundTargets(targets).map { target -> target.pageIndex }
 		)
 	}
 
 	@Test
-	fun completeCurrentChapterRemainsEligibleForDemandDrivenRepair() {
-		val currentChapterPages = (10 until 44 step 2).toList()
-		val immediatePages = setOf(14, 16, 12, 18, 10)
-		val targets = listOf(
-			ReaderPageRasterBatchTarget(14, ReaderPageRasterPriority.Current),
-			ReaderPageRasterBatchTarget(16, ReaderPageRasterPriority.NextTransition),
-			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.PreviousTransition),
-			ReaderPageRasterBatchTarget(18, ReaderPageRasterPriority.NextLookahead),
-			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.PreviousLookahead)
-		) + currentChapterPages
-			.filterNot(immediatePages::contains)
-			.map { pageIndex ->
-				ReaderPageRasterBatchTarget(
-					pageIndex,
-					ReaderPageRasterPriority.CurrentChapter
-				)
-			} + ReaderPageRasterBatchTarget(44, ReaderPageRasterPriority.NextChapter)
+	fun planRejectsAnIncompleteBlockingWindow() {
 		val plan = ReaderPageRasterPreparationPlan(
-			centerPageIndex = 14,
-			pageCount = 90,
-			layoutMode = "spread",
+			centerPageIndex = 5,
+			pageCount = 20,
+			layoutMode = "single",
 			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-			step = 2,
-			currentChapterIndex = 3,
-			currentChapterPageStartIndex = 10,
-			currentChapterPageCount = 34,
-			previousChapterPageStartIndex = 0,
-			previousChapterPageCount = 10,
-			nextChapterPageStartIndex = 44,
-			nextChapterPageCount = 12,
-			targets = targets
+			step = 1,
+			currentChapterIndex = 0,
+			currentChapterPageStartIndex = 0,
+			currentChapterPageCount = 20,
+			previousChapterPageStartIndex = -1,
+			previousChapterPageCount = 0,
+			nextChapterPageStartIndex = -1,
+			nextChapterPageCount = 0,
+			targets = listOf(
+				ReaderPageRasterBatchTarget(5, ReaderPageRasterPriority.Current),
+				ReaderPageRasterBatchTarget(6, ReaderPageRasterPriority.NextTransition),
+				ReaderPageRasterBatchTarget(4, ReaderPageRasterPriority.PreviousTransition)
+			)
 		)
 
-		assertEquals(currentChapterPages.toSet(), plan.preparedRepairPageIndices())
-		assertEquals(
-			listOf(14, 16, 12, 18, 10),
-			readerPageRasterBlockingTargets(plan.targets).map { target -> target.pageIndex }
-		)
+		assertNull(plan.blockingTargetsOrNull())
 	}
 
 	@Test
-	fun onePageChapterBlocksUntilTheFivePageRendererDeckIsResident() {
+	fun currentForwardAndBackwardTargetsBecomeOrderedBackgroundBatches() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":5,"pageCount":12,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterPageStartIndex":5,"currentChapterPageCount":1},"targets":[{"pageIndex":5,"priority":"current"},{"pageIndex":6,"priority":"next-transition"},{"pageIndex":4,"priority":"previous-transition"},{"pageIndex":7,"priority":"next-lookahead"},{"pageIndex":3,"priority":"previous-lookahead"},{"pageIndex":8,"priority":"next-chapter"},{"pageIndex":2,"priority":"previous-chapter"}]}"""
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":12,"priority":"current-chapter"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":18,"priority":"next-chapter-remainder"},{"pageIndex":4,"priority":"previous-chapter"},{"pageIndex":2,"priority":"previous-chapter-remainder"}]}"""
 		)
 
 		assertNotNull(plan)
-		assertEquals(setOf(5, 6, 4, 7, 3), plan.preparedRepairPageIndices())
-		assertEquals(
-			listOf(5, 6, 4, 7, 3),
-			readerPageRasterBlockingTargets(plan.targets).map { target -> target.pageIndex }
-		)
-		assertEquals(
-			listOf(8, 2),
-			readerPageRasterBackgroundTargets(plan.targets).map { target -> target.pageIndex }
-		)
-	}
-
-	@Test
-	fun adjacentChapterTargetsAreBackgroundWork() {
-		val targets = listOf(
-			ReaderPageRasterBatchTarget(8, ReaderPageRasterPriority.Current),
-			ReaderPageRasterBatchTarget(10, ReaderPageRasterPriority.NextTransition),
-			ReaderPageRasterBatchTarget(6, ReaderPageRasterPriority.PreviousTransition),
-			ReaderPageRasterBatchTarget(12, ReaderPageRasterPriority.CurrentChapter),
-			ReaderPageRasterBatchTarget(20, ReaderPageRasterPriority.NextChapter),
-			ReaderPageRasterBatchTarget(4, ReaderPageRasterPriority.PreviousChapter)
-		)
-
-		assertEquals(
-			listOf(20, 4),
-			readerPageRasterBackgroundTargets(targets).map { it.pageIndex }
-		)
-	}
-
-	@Test
-	fun adjacentChapterWindowsPrecedeIdleRemainders() {
-		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":40,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterPageStartIndex":6,"currentChapterPageCount":6},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":12,"priority":"next-chapter"},{"pageIndex":5,"priority":"previous-chapter"},{"pageIndex":15,"priority":"next-chapter-remainder"},{"pageIndex":2,"priority":"previous-chapter-remainder"}]}"""
-		)
-
-		assertNotNull(plan)
+		val batches = plan.adjacentChapterPrefetchChapters()
 		assertEquals(
 			listOf(
-				ReaderPageRasterPriority.NextChapter,
-				ReaderPageRasterPriority.PreviousChapter,
-				ReaderPageRasterPriority.NextChapterRemainder,
-				ReaderPageRasterPriority.PreviousChapterRemainder
+				ReaderPageAdjacentChapterDirection.Current,
+				ReaderPageAdjacentChapterDirection.Next,
+				ReaderPageAdjacentChapterDirection.Previous
 			),
-			readerPageRasterBackgroundTargets(plan.targets).map { target -> target.priority }
+			batches.map { batch -> batch.identity.direction }
 		)
+		assertEquals(listOf(12), batches[0].targets.map { target -> target.pageIndex })
+		assertEquals(listOf(20, 18), batches[1].targets.map { target -> target.pageIndex })
+		assertEquals(listOf(4, 2), batches[2].targets.map { target -> target.pageIndex })
+		assertEquals(listOf(2, 3, 1), batches.map { batch -> batch.identity.chapterIndex })
+		assertEquals(listOf(6, 14, 0), batches.map { batch -> batch.identity.pageStartIndex })
+		assertEquals(listOf(8, 16, 6), batches.map { batch -> batch.identity.pageCount })
 	}
 
 	@Test
-	fun adjacentChapterTargetsBecomeSeparateIdentityQualifiedBatches() {
+	fun pagesBeforeTheFirstChapterRemainBackwardBackgroundWork() {
 		val plan = readerPageRasterPreparationPlan(
-			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"rtl","step":2,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":0,"previousChapterPageCount":6,"nextChapterPageStartIndex":14,"nextChapterPageCount":8},"targets":[{"pageIndex":8,"priority":"current"},{"pageIndex":20,"priority":"next-chapter"},{"pageIndex":18,"priority":"next-chapter-remainder"},{"pageIndex":4,"priority":"previous-chapter"},{"pageIndex":2,"priority":"previous-chapter-remainder"}]}"""
+			"""{"context":{"centerPageIndex":4,"pageCount":12,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":2,"currentChapterPageCount":6},"targets":[{"pageIndex":1,"priority":"previous-chapter"},{"pageIndex":0,"priority":"previous-chapter"}]}"""
 		)
 
 		assertNotNull(plan)
-		val chapters = plan.adjacentChapterPrefetchChapters()
-		assertEquals(
-			listOf(
-				ReaderPageAdjacentChapterDirection.Previous,
-				ReaderPageAdjacentChapterDirection.Next
-			),
-			chapters.map { chapter -> chapter.identity.direction }
-		)
-		assertEquals(listOf(4, 2), chapters[0].targets.map { target -> target.pageIndex })
-		assertEquals(listOf(20, 18), chapters[1].targets.map { target -> target.pageIndex })
-		assertEquals(listOf(1, 3), chapters.map { chapter -> chapter.identity.chapterIndex })
+		val backward = plan.adjacentChapterPrefetchChapters().single()
+		assertEquals(ReaderPageAdjacentChapterDirection.Previous, backward.identity.direction)
+		assertEquals(0, backward.identity.chapterIndex)
+		assertEquals(listOf(1, 0), backward.targets.map { target -> target.pageIndex })
 	}
 
 	@Test
-	fun jsPlanBlocksOnOnePersistentRefillReserveBeyondTheDecodedWindow() {
+	fun jsPlanBuildsBlockingWindowBeforeCurrentForwardAndBackwardBackgroundWork() {
 		val source = File("src/androidMain/assets/reader/navic-reader-page-turn-preview.js").readText()
 		val plan = source
 			.substringAfter("function pageTurnRasterPreparationPlan(")
 			.substringBefore("function pageTurnPreviewContext()")
 
-		val nextReserve = plan.indexOf(
-			"addTarget(centerPageIndex + step * 3, 'next-lookahead')"
-		)
-		val previousReserve = plan.indexOf(
-			"addTarget(centerPageIndex - step * 3, 'previous-lookahead')"
-		)
-		val chapterRemainder = plan.indexOf("currentChapterPages.forEach")
-		assertTrue(nextReserve >= 0)
-		assertTrue(previousReserve > nextReserve)
-		assertTrue(chapterRemainder > previousReserve)
-	}
-
-	@Test
-	fun jsPlanBuildsAdjacentWindowsBeforeChapterRemainders() {
-		val source = File("src/androidMain/assets/reader/navic-reader-page-turn-preview.js").readText()
-		val plan = source
-			.substringAfter("function pageTurnRasterPreparationPlan(")
-			.substringBefore("function pageTurnPreviewContext()")
-
-		val nextWindow = plan.indexOf("'next-chapter'")
-		val previousWindow = plan.indexOf("'previous-chapter'")
-		val nextRemainder = plan.indexOf("'next-chapter-remainder'")
-		val previousRemainder = plan.indexOf("'previous-chapter-remainder'")
-		assertTrue(nextWindow >= 0)
-		assertTrue(previousWindow > nextWindow)
-		assertTrue(nextRemainder > previousWindow)
-		assertTrue(previousRemainder > nextRemainder)
-		assertTrue(plan.contains("slice(0, 3)"))
-		assertTrue(plan.contains("slice(-3).reverse()"))
+		val nextFive = plan.indexOf("centerPageIndex + step * 5")
+		val previousFive = plan.indexOf("centerPageIndex - step * 5")
+		val currentChapter = plan.indexOf("'current-chapter'")
+		val forward = plan.indexOf("'next-chapter'")
+		val backward = plan.indexOf("'previous-chapter'")
+		assertTrue(nextFive >= 0)
+		assertTrue(previousFive > nextFive)
+		assertTrue(currentChapter > previousFive)
+		assertTrue(forward > currentChapter)
+		assertTrue(backward > forward)
 	}
 }

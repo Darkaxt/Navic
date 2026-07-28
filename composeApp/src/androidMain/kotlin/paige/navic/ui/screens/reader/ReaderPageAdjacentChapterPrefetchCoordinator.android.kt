@@ -204,9 +204,9 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			activeSubmission != null
 		) return
 		val chapter = currentPlan.chapters.firstOrNull { candidate ->
-			candidate.identity !in attemptedChapterIdentities &&
-				candidate.targets.any { target -> target.pageIndex !in durablePageIndices }
+			candidate.targets.any { target -> target.pageIndex !in durablePageIndices }
 		} ?: return
+		if (chapter.identity in attemptedChapterIdentities) return
 		val missingTargets = chapter.targets.filter { target ->
 			target.pageIndex !in durablePageIndices
 		}
@@ -247,8 +247,10 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		require(chapter.identity.chapterIndex >= 0)
 		require(
 			chapter.identity.chapterIndex == when (chapter.identity.direction) {
-				ReaderPageAdjacentChapterDirection.Previous -> key.currentChapterIndex - 1
+				ReaderPageAdjacentChapterDirection.Current -> key.currentChapterIndex
 				ReaderPageAdjacentChapterDirection.Next -> key.currentChapterIndex + 1
+				ReaderPageAdjacentChapterDirection.Previous ->
+					(key.currentChapterIndex - 1).coerceAtLeast(0)
 			}
 		)
 		require(chapter.identity.pageStartIndex >= 0)

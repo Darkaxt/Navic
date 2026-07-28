@@ -561,20 +561,38 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(plan, "addTarget(centerPageIndex, 'current')")
 		assertContains(plan, "addTarget(centerPageIndex + step, 'next-transition')")
 		assertContains(plan, "addTarget(centerPageIndex - step, 'previous-transition')")
-		assertContains(plan, "addTarget(centerPageIndex + step * 2, 'next-lookahead')")
-		assertContains(plan, "addTarget(centerPageIndex - step * 2, 'previous-lookahead')")
-		assertContains(plan, "const currentChapterPages = chapterPages(chapters[currentChapterIndex])")
-		assertContains(plan, "const nextChapterPages = chapterPages(chapters[currentChapterIndex + 1])")
-		assertContains(plan, "const previousChapterPages = chapterPages(chapters[currentChapterIndex - 1])")
-		assertContains(plan, "currentChapterPages.forEach(pageIndex => addTarget(pageIndex, 'current-chapter'))")
-		assertContains(plan, "nextChapterPages.slice(0, 3).forEach(pageIndex => addTarget(pageIndex, 'next-chapter'))")
-		assertContains(plan, "previousChapterPages.slice(-3).reverse()")
-		assertContains(plan, "addTarget(pageIndex, 'previous-chapter')")
-		assertContains(plan, "addTarget(pageIndex, 'next-chapter-remainder')")
-		assertContains(plan, "addTarget(pageIndex, 'previous-chapter-remainder')")
+		(2..5).forEach { offset ->
+			assertContains(
+				plan,
+				"addTarget(centerPageIndex + step * $offset, 'next-lookahead')"
+			)
+		}
+		(2..5).forEach { offset ->
+			assertContains(
+				plan,
+				"addTarget(centerPageIndex - step * $offset, 'previous-lookahead')"
+			)
+		}
+		assertContains(plan, "chapterPages(currentChapter)")
+		assertContains(plan, ".forEach(pageIndex => addTarget(pageIndex, 'current-chapter'))")
+		assertContains(plan, "physicalPagesInRange(currentChapterEnd, pageCount)")
+		assertContains(plan, ".forEach(pageIndex => addTarget(pageIndex, 'next-chapter'))")
+		assertContains(plan, "physicalPagesInRange(0, currentChapterStart, true)")
+		assertContains(plan, ".forEach(pageIndex => addTarget(pageIndex, 'previous-chapter'))")
+		val blockingEnd = plan.indexOf(
+			"addTarget(centerPageIndex - step * 5, 'previous-lookahead')"
+		)
+		val currentChapter = plan.indexOf("chapterPages(currentChapter)")
+		val forward = plan.indexOf("physicalPagesInRange(currentChapterEnd, pageCount)")
+		val backward = plan.indexOf("physicalPagesInRange(0, currentChapterStart, true)")
+		assertTrue(blockingEnd >= 0 && currentChapter > blockingEnd)
+		assertTrue(forward > currentChapter)
+		assertTrue(backward > forward)
 		assertContains(plan, "layoutMode === 'spread' ? 2 : 1")
 		assertContains(plan, "pageStartIndex")
 		assertContains(plan, "pageCount")
+		assertFalse(plan.contains("next-chapter-remainder"))
+		assertFalse(plan.contains("previous-chapter-remainder"))
 		assertFalse(plan.contains("setTimeout"))
 	}
 
@@ -584,15 +602,28 @@ class ReaderPageTurnDestinationSourceTest {
 		val plan = preview
 			.substringAfter("function pageTurnRasterPreparationPlan(")
 			.substringBefore("function pageTurnPreviewContext(")
+		val physicalPagesInRange = plan
+			.substringAfter("const physicalPagesInRange = (start, end, reverse = false) => {")
+			.substringBefore("\n  }\n  const chapterPages = chapter => {")
 		val chapterPages = plan
 			.substringAfter("const chapterPages = chapter => {")
 			.substringBefore("\n  }\n\n  addTarget(centerPageIndex")
 
+		assertContains(physicalPagesInRange, "const pageStartIndex = Math.max(0")
+		assertContains(
+			physicalPagesInRange,
+			"const pageEndIndex = Math.min(pageCount, Math.max(pageStartIndex"
+		)
+		assertContains(physicalPagesInRange, "pageIndex < pageEndIndex")
+		assertContains(physicalPagesInRange, "Math.abs(pageIndex - centerPageIndex) % step === 0")
+		assertContains(physicalPagesInRange, "return reverse ? pages.reverse() : pages")
 		assertContains(chapterPages, "const pageStartIndex = Math.max(0")
-		assertContains(chapterPages, "const pageEndIndex = Math.min(pageCount, pageStartIndex + chapterPageCount)")
-		assertContains(chapterPages, "pageIndex < pageEndIndex")
-		assertContains(chapterPages, "pages.push(pageIndex)")
-		assertContains(chapterPages, "return pages")
+		assertContains(chapterPages, "const chapterPageCount = Math.max(0")
+		assertContains(
+			chapterPages,
+			"return physicalPagesInRange(pageStartIndex, pageStartIndex + chapterPageCount)"
+		)
+		assertFalse(physicalPagesInRange.contains("% pageCount"))
 		assertFalse(chapterPages.contains("% pageCount"))
 		assertFalse(chapterPages.contains("currentChapterIndex"))
 	}

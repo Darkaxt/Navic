@@ -47,6 +47,41 @@ class ReaderPagePreparationPolicyTest {
 	}
 
 	@Test
+	fun rendererDeckCannotReleaseCoverWhileTheBlockingWindowIsIncomplete() {
+		val preparing = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Preparing,
+			requiredCount = 11,
+			completedCount = 3,
+			interactiveRequiredCount = 3,
+			interactiveCompletedCount = 3,
+			readiness = ReaderPageReadinessState(
+				rasterGeneration = ReaderChapterRasterGenerationState.Generating,
+				decodedWorkingSet = ReaderDecodedWorkingSetState.Ready,
+				textureDeck = ReaderTextureDeckState.Empty,
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
+		)
+
+		val merged = preparing.withRendererReadiness(
+			ReaderPageRendererReadinessState(
+				textureDeck = ReaderTextureDeckState.Ready,
+				interaction = ReaderPageInteractionState.Ready
+			)
+		)
+
+		assertEquals(
+			ReaderPageInteractionState.BlockingInitialPreparation,
+			merged.readiness.interaction
+		)
+		assertEquals(ReaderPagePreparationPresentation.Cover, merged.presentation)
+		assertFalse(merged.interactiveReady)
+		assertEquals(
+			ReaderPagePreparationGestureDisposition.ConsumeWhilePreparing,
+			merged.gestureDisposition
+		)
+	}
+
+	@Test
 	fun availableBoundaryNeighborsAreEnoughForInteractiveReadiness() {
 		val state = readerPagePreparationState(
 			phase = ReaderPagePreparationPhase.Ready,
@@ -178,12 +213,13 @@ class ReaderPagePreparationPolicyTest {
 
 		val merged = failed.withRendererReadiness(
 			ReaderPageRendererReadinessState(
-				textureDeck = ReaderTextureDeckState.Empty,
+				textureDeck = ReaderTextureDeckState.Ready,
 				interaction = ReaderPageInteractionState.Ready
 			)
 		)
 
 		assertEquals(ReaderPageInteractionState.Failed, merged.readiness.interaction)
+		assertEquals(ReaderTextureDeckState.Ready, merged.readiness.textureDeck)
 		assertEquals(ReaderPagePreparationPresentation.Cover, merged.presentation)
 		assertTrue(merged.retryable)
 		assertEquals(

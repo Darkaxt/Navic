@@ -52,7 +52,8 @@ private fun readerPagePreparationPresentation(
 	ReaderPageInteractionState.BlockingInitialPreparation,
 	ReaderPageInteractionState.BlockingProfileRegeneration -> ReaderPagePreparationPresentation.Cover
 	ReaderPageInteractionState.Failed -> if (
-		readiness.textureDeck == ReaderTextureDeckState.Ready
+		readiness.textureDeck == ReaderTextureDeckState.Ready &&
+			readiness.decodedWorkingSet == ReaderDecodedWorkingSetState.Ready
 	) {
 		ReaderPagePreparationPresentation.Compact
 	} else {
@@ -86,10 +87,14 @@ fun ReaderPagePreparationState.withRendererReadiness(
 	readiness.copy(
 		textureDeck = renderer.textureDeck,
 		pendingTextureDeck = renderer.pendingTextureDeck,
-		interaction = if (phase == ReaderPagePreparationPhase.Failed) {
-			ReaderPageInteractionState.Failed
-		} else {
-			renderer.interaction
+		interaction = when {
+			phase == ReaderPagePreparationPhase.Failed ||
+				renderer.interaction == ReaderPageInteractionState.Failed ->
+				ReaderPageInteractionState.Failed
+			readiness.interaction == ReaderPageInteractionState.BlockingInitialPreparation ||
+				readiness.interaction == ReaderPageInteractionState.BlockingProfileRegeneration ->
+				readiness.interaction
+			else -> renderer.interaction
 		}
 	)
 )

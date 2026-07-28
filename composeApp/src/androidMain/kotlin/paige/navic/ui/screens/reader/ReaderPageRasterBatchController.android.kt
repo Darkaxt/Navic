@@ -60,39 +60,87 @@ internal fun ReaderPageRasterPreparationPlan.preparedRepairPageIndices(): Set<In
 		}
 		.mapTo(linkedSetOf()) { target -> target.pageIndex }
 
-internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters():
-	List<ReaderPageAdjacentChapterPrefetchChapter> =
-	ReaderPageAdjacentChapterDirection.entries.mapNotNull { direction ->
-		val identity = when (direction) {
-			ReaderPageAdjacentChapterDirection.Previous -> ReaderPageAdjacentChapterIdentity(
-				direction = direction,
-				chapterIndex = currentChapterIndex - 1,
-				pageStartIndex = previousChapterPageStartIndex,
-				pageCount = previousChapterPageCount
-			)
-			ReaderPageAdjacentChapterDirection.Next -> ReaderPageAdjacentChapterIdentity(
-				direction = direction,
-				chapterIndex = currentChapterIndex + 1,
-				pageStartIndex = nextChapterPageStartIndex,
-				pageCount = nextChapterPageCount
-			)
+internal const val ReaderPageRasterBlockingRadius = 5
+
+internal fun readerPageRasterBlockingWindow(
+	centerPageIndex: Int,
+	step: Int,
+	pageCount: Int
+): List<Int> {
+	if (centerPageIndex !in 0 until pageCount || step <= 0) return emptyList()
+	return buildList {
+		add(centerPageIndex)
+		listOf(1, -1).forEach { offset ->
+			(centerPageIndex + offset * step)
+				.takeIf { pageIndex -> pageIndex in 0 until pageCount }
+				?.let(::add)
 		}
-		val chapterTargets = targets.filter { target ->
-			target.priority.adjacentChapterDirection == direction &&
-				identity.contains(target.pageIndex)
+		(2..ReaderPageRasterBlockingRadius).forEach { offset ->
+			(centerPageIndex + offset * step)
+				.takeIf { pageIndex -> pageIndex in 0 until pageCount }
+				?.let(::add)
 		}
-		if (
-			currentChapterIndex >= 0 &&
-			identity.chapterIndex >= 0 &&
-			identity.pageStartIndex >= 0 &&
-			identity.pageCount > 0 &&
-			chapterTargets.isNotEmpty()
-		) {
-			ReaderPageAdjacentChapterPrefetchChapter(identity, chapterTargets)
-		} else {
-			null
+		(2..ReaderPageRasterBlockingRadius).forEach { offset ->
+			(centerPageIndex - offset * step)
+				.takeIf { pageIndex -> pageIndex in 0 until pageCount }
+				?.let(::add)
 		}
 	}
+}
+
+internal fun ReaderPageRasterPreparationPlan.blockingTargetsOrNull():
+	List<ReaderPageRasterBatchTarget>? {
+	val blocking = readerPageRasterBlockingTargets(targets)
+	val expected = readerPageRasterBlockingWindow(
+		centerPageIndex = centerPageIndex,
+		step = step,
+		pageCount = pageCount
+	)
+	return blocking.takeIf { candidates ->
+		candidates.map { target -> target.pageIndex } == expected
+	}
+}
+
+internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters():
+	List<ReaderPageAdjacentChapterPrefetchChapter> =
+		ReaderPageAdjacentChapterDirection.entries.mapNotNull { direction ->
+			val currentEnd = currentChapterPageStartIndex + currentChapterPageCount
+			val identity = when (direction) {
+				ReaderPageAdjacentChapterDirection.Current -> ReaderPageAdjacentChapterIdentity(
+					direction = direction,
+					chapterIndex = currentChapterIndex,
+					pageStartIndex = currentChapterPageStartIndex,
+					pageCount = currentChapterPageCount
+				)
+				ReaderPageAdjacentChapterDirection.Next -> ReaderPageAdjacentChapterIdentity(
+					direction = direction,
+					chapterIndex = currentChapterIndex + 1,
+					pageStartIndex = currentEnd,
+					pageCount = (pageCount - currentEnd).coerceAtLeast(0)
+				)
+				ReaderPageAdjacentChapterDirection.Previous -> ReaderPageAdjacentChapterIdentity(
+					direction = direction,
+					chapterIndex = (currentChapterIndex - 1).coerceAtLeast(0),
+					pageStartIndex = 0,
+					pageCount = currentChapterPageStartIndex.coerceAtLeast(0)
+				)
+			}
+			val chapterTargets = targets.filter { target ->
+				target.priority.adjacentChapterDirection == direction &&
+					identity.contains(target.pageIndex)
+			}
+			if (
+				currentChapterIndex >= 0 &&
+					identity.chapterIndex >= 0 &&
+					identity.pageStartIndex >= 0 &&
+					identity.pageCount > 0 &&
+					chapterTargets.isNotEmpty()
+			) {
+				ReaderPageAdjacentChapterPrefetchChapter(identity, chapterTargets)
+			} else {
+				null
+			}
+		}
 
 internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRasterPreparationPlan? {
 	val raw = encoded.orEmpty().trim()
@@ -165,7 +213,7 @@ internal fun readerPageRasterBlockingTargets(
 internal fun readerPageRasterBackgroundTargets(
 	targets: List<ReaderPageRasterBatchTarget>
 ): List<ReaderPageRasterBatchTarget> = targets.filter { target ->
-	target.priority.rank > ReaderPageRasterPriority.CurrentChapter.rank
+	target.priority.rank > ReaderPageRasterPriority.PreviousLookahead.rank
 }
 
 private fun readerPageRasterPriority(value: String): ReaderPageRasterPriority? = when (value) {
@@ -270,6 +318,7 @@ internal interface ReaderPageRasterBatchPort {
 			ReaderPageRasterAcquisitionTrigger.InitialPreparation,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit = {},
+		onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit = {},
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit = {},
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit = { _, _ -> },
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
@@ -307,6 +356,7 @@ internal class ReaderPageRasterBatchController(
 		val progressRequiredCount: Int,
 		val onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		val onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+		val onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
 		val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 		val onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
@@ -339,6 +389,7 @@ internal class ReaderPageRasterBatchController(
 		trigger: ReaderPageRasterAcquisitionTrigger,
 		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
+		onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 		onProgress: (completedCount: Int, requiredCount: Int) -> Unit,
 		onComplete: (ReaderPageRasterBatchOutcome) -> Unit
@@ -396,6 +447,7 @@ internal class ReaderPageRasterBatchController(
 			progressRequiredCount = originalPageIndices.size,
 			onStagingStarted = onStagingStarted,
 			onActiveTarget = onActiveTarget,
+			onHydrationMiss = onHydrationMiss,
 			onTargetDurable = onTargetDurable,
 			onProgress = onProgress,
 			onComplete = onComplete
@@ -556,6 +608,7 @@ internal class ReaderPageRasterBatchController(
 					target.pageIndex,
 					ReaderPageRasterAcquisitionResult.Miss
 				)
+				session.onHydrationMiss(target)
 				session.missingTargets += target
 				hydrateTarget(session, targetIndex + 1)
 				return@hydrateSnapshot

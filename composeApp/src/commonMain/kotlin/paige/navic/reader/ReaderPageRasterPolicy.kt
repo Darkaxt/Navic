@@ -2,7 +2,7 @@ package paige.navic.reader
 
 internal const val ReaderPageMaximumRasterImagesPerDeck = 6
 internal const val ReaderPageMaximumProtectedRasterEntriesPerLease = 10
-internal const val ReaderPageMaximumForegroundPublicationEntries = 10
+internal const val ReaderPageMaximumForegroundPublicationEntries = 11
 internal const val ReaderPageAdjacentPrefetchPublicationAllowance = 1
 internal const val ReaderPageMaximumPublicationCallbacks =
 	(ReaderPageMaximumForegroundPublicationEntries +
@@ -32,12 +32,15 @@ enum class ReaderPageRasterPriority(val rank: Int) {
 }
 
 enum class ReaderPageAdjacentChapterDirection {
-	Previous,
-	Next
+	Current,
+	Next,
+	Previous
 }
 
 val ReaderPageRasterPriority.adjacentChapterDirection: ReaderPageAdjacentChapterDirection?
 	get() = when (this) {
+		ReaderPageRasterPriority.CurrentChapter ->
+			ReaderPageAdjacentChapterDirection.Current
 		ReaderPageRasterPriority.PreviousChapter,
 		ReaderPageRasterPriority.PreviousChapterRemainder ->
 			ReaderPageAdjacentChapterDirection.Previous

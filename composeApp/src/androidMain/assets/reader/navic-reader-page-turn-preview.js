@@ -148,36 +148,48 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
     seen.add(normalized)
     targets.push(Object.freeze({ pageIndex: normalized, priority }))
   }
-  const chapterPages = chapter => {
-    const pageStartIndex = Math.max(0, Math.floor(Number(chapter?.pageStartIndex) || 0))
-    const chapterPageCount = Math.max(0, Math.floor(Number(chapter?.pageCount) || 0))
-    const pageEndIndex = Math.min(pageCount, pageStartIndex + chapterPageCount)
+  const physicalPagesInRange = (start, end, reverse = false) => {
     const pages = []
+    const pageStartIndex = Math.max(0, Math.floor(Number(start) || 0))
+    const pageEndIndex = Math.min(pageCount, Math.max(pageStartIndex, Math.floor(Number(end) || 0)))
     for (let pageIndex = pageStartIndex; pageIndex < pageEndIndex; pageIndex += 1) {
       if (Math.abs(pageIndex - centerPageIndex) % step === 0) pages.push(pageIndex)
     }
-    return pages
+    return reverse ? pages.reverse() : pages
+  }
+  const chapterPages = chapter => {
+    const pageStartIndex = Math.max(0, Math.floor(Number(chapter?.pageStartIndex) || 0))
+    const chapterPageCount = Math.max(0, Math.floor(Number(chapter?.pageCount) || 0))
+    return physicalPagesInRange(pageStartIndex, pageStartIndex + chapterPageCount)
   }
 
   addTarget(centerPageIndex, 'current')
   addTarget(centerPageIndex + step, 'next-transition')
   addTarget(centerPageIndex - step, 'previous-transition')
   addTarget(centerPageIndex + step * 2, 'next-lookahead')
-  addTarget(centerPageIndex - step * 2, 'previous-lookahead')
   addTarget(centerPageIndex + step * 3, 'next-lookahead')
+  addTarget(centerPageIndex + step * 4, 'next-lookahead')
+  addTarget(centerPageIndex + step * 5, 'next-lookahead')
+  addTarget(centerPageIndex - step * 2, 'previous-lookahead')
   addTarget(centerPageIndex - step * 3, 'previous-lookahead')
+  addTarget(centerPageIndex - step * 4, 'previous-lookahead')
+  addTarget(centerPageIndex - step * 5, 'previous-lookahead')
   if (currentChapterIndex >= 0) {
-    const currentChapterPages = chapterPages(chapters[currentChapterIndex])
-    const nextChapterPages = chapterPages(chapters[currentChapterIndex + 1])
-    const previousChapterPages = chapterPages(chapters[currentChapterIndex - 1])
-    currentChapterPages.forEach(pageIndex => addTarget(pageIndex, 'current-chapter'))
-    nextChapterPages.slice(0, 3).forEach(pageIndex => addTarget(pageIndex, 'next-chapter'))
-    previousChapterPages.slice(-3).reverse()
+    const currentChapter = chapters[currentChapterIndex]
+    const currentChapterStart = Math.max(
+      0,
+      Math.floor(Number(currentChapter?.pageStartIndex) || 0)
+    )
+    const currentChapterEnd = Math.min(
+      pageCount,
+      currentChapterStart + Math.max(0, Math.floor(Number(currentChapter?.pageCount) || 0))
+    )
+    chapterPages(currentChapter)
+      .forEach(pageIndex => addTarget(pageIndex, 'current-chapter'))
+    physicalPagesInRange(currentChapterEnd, pageCount)
+      .forEach(pageIndex => addTarget(pageIndex, 'next-chapter'))
+    physicalPagesInRange(0, currentChapterStart, true)
       .forEach(pageIndex => addTarget(pageIndex, 'previous-chapter'))
-    nextChapterPages.slice(3)
-      .forEach(pageIndex => addTarget(pageIndex, 'next-chapter-remainder'))
-    previousChapterPages.slice(0, -3).reverse()
-      .forEach(pageIndex => addTarget(pageIndex, 'previous-chapter-remainder'))
   }
   const currentChapter = currentChapterIndex >= 0 ? chapters[currentChapterIndex] : null
   const previousChapter = currentChapterIndex > 0 ? chapters[currentChapterIndex - 1] : null

@@ -184,6 +184,103 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun encodedBlockingWindowIsPinnedAndFarthestBehindIsEvictedFirst() {
+		val fixture = fixture(maxDiskBytes = 5L, maxDecodedEntries = 0)
+		val farBehind = ownedKey(0)
+		val nearBehind = ownedKey(3)
+		val blocking = listOf(ownedKey(4), ownedKey(5), ownedKey(6))
+		val forward = ownedKey(7)
+		listOf(farBehind, nearBehind).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), byteArrayOf(1)))
+		}
+		fixture.cache.protectEncodedWindow(
+			profile = blocking.first().profile,
+			centerPageOrdinal = 5,
+			pinnedPageOrdinals = blocking.mapTo(linkedSetOf()) { key ->
+				key.visualPageOrdinal
+			}
+		)
+		blocking.forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), byteArrayOf(1)))
+		}
+
+		assertTrue(fixture.cache.write(forward, metadata(), byteArrayOf(1)))
+
+		assertFalse(fixture.cache.contains(farBehind))
+		assertTrue(fixture.cache.contains(nearBehind))
+		blocking.forEach { rasterKey -> assertTrue(fixture.cache.contains(rasterKey)) }
+		assertTrue(fixture.cache.contains(forward))
+		assertEquals(5, fixture.cache.metrics().diskEntries)
+	}
+
+	@Test
+	fun stagedEncodedWindowProtectionAppliesToTheNextInFlightWrite() {
+		val fixture = fixture(maxDiskBytes = 4L, maxDecodedEntries = 0)
+		val newBackwardEdge = ownedKey(0)
+		val unpinned = ownedKey(4)
+		val oldCenter = ownedKey(5)
+		listOf(newBackwardEdge, unpinned, oldCenter).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), byteArrayOf(1)))
+		}
+		fixture.cache.protectEncodedWindow(
+			profile = oldCenter.profile,
+			centerPageOrdinal = oldCenter.visualPageOrdinal,
+			pinnedPageOrdinals = setOf(oldCenter.visualPageOrdinal)
+		)
+		fixture.cache.stageEncodedWindowProtection(
+			profile = newBackwardEdge.profile,
+			centerPageOrdinal = 1,
+			pinnedPageOrdinals = setOf(newBackwardEdge.visualPageOrdinal)
+		)
+
+		fixture.cache.write(ownedKey(6), metadata(), byteArrayOf(1, 1))
+
+		assertTrue(fixture.cache.contains(newBackwardEdge))
+	}
+
+	@Test
+	fun unequalEncodedSizesNeverRetainFarBehindAfterDroppingNearBehind() {
+		val fixture = fixture(maxDiskBytes = 5L, maxDecodedEntries = 0)
+		val farBehind = ownedKey(0)
+		val nearBehind = ownedKey(4)
+		val pinned = ownedKey(5)
+		assertTrue(fixture.cache.write(farBehind, metadata(), byteArrayOf(1)))
+		assertTrue(fixture.cache.write(nearBehind, metadata(), byteArrayOf(1, 1, 1)))
+		fixture.cache.protectEncodedWindow(
+			profile = pinned.profile,
+			centerPageOrdinal = pinned.visualPageOrdinal,
+			pinnedPageOrdinals = setOf(pinned.visualPageOrdinal)
+		)
+
+		assertTrue(fixture.cache.write(pinned, metadata(), byteArrayOf(1, 1, 1)))
+
+		assertTrue(fixture.cache.contains(pinned))
+		assertFalse(fixture.cache.contains(nearBehind))
+		assertFalse(fixture.cache.contains(farBehind))
+	}
+
+	@Test
+	fun encodedPinsAreQualifiedByTheActiveRasterProfile() {
+		val fixture = fixture(maxDiskBytes = 2L, maxDecodedEntries = 0)
+		val active = ownedKey(5)
+		val activeForward = ownedKey(6)
+		val staleProfile = ownedKey(5).copy(layoutHash = "stale-layout")
+		fixture.cache.protectEncodedWindow(
+			profile = active.profile,
+			centerPageOrdinal = active.visualPageOrdinal,
+			pinnedPageOrdinals = setOf(active.visualPageOrdinal, activeForward.visualPageOrdinal)
+		)
+		assertTrue(fixture.cache.write(staleProfile, metadata(), byteArrayOf(1)))
+		assertTrue(fixture.cache.write(active, metadata(), byteArrayOf(1)))
+
+		assertTrue(fixture.cache.write(activeForward, metadata(), byteArrayOf(1)))
+
+		assertFalse(fixture.cache.contains(staleProfile))
+		assertTrue(fixture.cache.contains(active))
+		assertTrue(fixture.cache.contains(activeForward))
+	}
+
+	@Test
 	fun protectedChapterLargerThanDiskLimitIsNotRetained() {
 		val value = pngBytes("oversized")
 		val fixture = fixture(
@@ -726,6 +823,37 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun fullyProtectedDecodedWindowStillAllowsTransientCopiedRead() {
+		val codec = ByteArrayRasterCodec()
+		val fixture = fixture(codec = codec, maxDecodedEntries = 5)
+		val protected = (0 until 5).map(::ownedKey)
+		fixture.cache.protectDecodedPageIndices(
+			protected.mapTo(linkedSetOf()) { key -> key.visualPageOrdinal }
+		)
+		protected.forEach { key ->
+			assertTrue(fixture.cache.write(key, metadata(), pngBytes("protected-${key.visualPageOrdinal}")))
+		}
+		val transient = ownedKey(5)
+		assertTrue(
+			fixture.cache.write(
+				transient,
+				metadata(),
+				pngBytes("transient"),
+				ReaderPageRasterWriteMode.PersistOnly
+			)
+		)
+
+		val copied = fixture.cache.readCopy(transient) { value -> value.copyOf() }
+
+		assertContentEquals(pngBytes("transient"), copied?.value)
+		assertEquals(metadata(), copied?.metadata)
+		assertEquals(5, fixture.cache.metrics().decodedEntries)
+		assertEquals(5, fixture.cache.metrics().uniqueDecodedBitmaps)
+		assertEquals(1, codec.decodeCalls)
+		assertEquals(1, codec.releaseCalls)
+	}
+
+	@Test
 	fun profileRetentionReleasesSharedIdentityOnlyOnLastDetach() {
 		val attempts = mutableListOf<Any>()
 		val shared = Any()
@@ -1174,6 +1302,8 @@ class ReaderPageRasterCacheTest {
 		var beforeEncode: (() -> Unit)? = null
 		var decodeCalls = 0
 			private set
+		var releaseCalls = 0
+			private set
 
 		override fun encode(value: ByteArray, target: File): Boolean {
 			beforeEncode?.invoke()
@@ -1187,6 +1317,8 @@ class ReaderPageRasterCacheTest {
 			return source.readBytes().takeIf { bytes -> bytes.decodeToString().startsWith("PNG:") }
 		}
 
-		override fun release(value: ByteArray) = Unit
+		override fun release(value: ByteArray) {
+			releaseCalls += 1
+		}
 	}
 }

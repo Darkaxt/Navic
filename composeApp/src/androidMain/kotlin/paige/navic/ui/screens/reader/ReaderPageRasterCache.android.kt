@@ -44,6 +44,12 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val onDiagnostic: (String) -> Unit = {},
 	private val onOwnershipMutated: () -> Unit = {}
 ) {
+	private data class EncodedWindowProtection(
+		val profile: ReaderPageRasterProfile,
+		val centerPageOrdinal: Int,
+		val pinnedPageOrdinals: Set<Int>
+	)
+
 	private enum class DecodedCacheOwnerState {
 		Active,
 		ReleasePendingForEncode,
@@ -61,6 +67,11 @@ internal class ReaderPageRasterCache<T : Any>(
 		val key: ReaderPageRasterKey,
 		val metadata: ReaderPageRasterMetadata,
 		val owner: DecodedCacheOwner<T>
+	)
+
+	private data class DecodedDiskRaster<T : Any>(
+		val entry: ReaderPageRasterManifestEntry,
+		val value: T
 	)
 
 	private class DecodedCacheEncodePin<T : Any>(
@@ -97,6 +108,7 @@ internal class ReaderPageRasterCache<T : Any>(
 	private val decodedEncodePins = IdentityHashMap<T, Int>()
 	private var nextInProcessRevision = 1L
 	private var protectedChapter: ReaderPageRasterChapterKey? = null
+	private var encodedWindowProtection: EncodedWindowProtection? = null
 	private var protectedDecodedPageIndices = emptySet<Int>()
 	private var activeEncodePins = 0
 	private var pendingDecodedReleases = 0
@@ -362,22 +374,9 @@ internal class ReaderPageRasterCache<T : Any>(
 			)
 		}
 
-		val entry = synchronized(this) {
-			if (decodedClosed) return@synchronized null
-			entries[key.digest]?.takeIf { candidate ->
-				candidate.key.identity == key.identity
-			}
-		} ?: return null
-		val path = root.resolve(entry.rasterFileName)
-		if (!path.isRegularRaster(entry.byteSize)) {
-			removeEntry(key.digest, entry)
-			return null
-		}
-		val value = runCatching { codec.decode(path) }.getOrNull()
-		if (value == null) {
-			removeEntry(key.digest, entry)
-			return null
-		}
+		val diskRaster = decodeDiskRaster(key) ?: return null
+		val entry = diskRaster.entry
+		val value = diskRaster.value
 		if (uniqueDecodedBitmapLimit <= 0) {
 			val current = synchronized(this) {
 				(entries[key.digest] == entry && !decodedClosed).also { retained ->
@@ -416,6 +415,27 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 	}
 
+	private fun decodeDiskRaster(key: ReaderPageRasterKey): DecodedDiskRaster<T>? {
+		if (!storageAvailable) return null
+		val entry = synchronized(this) {
+			if (decodedClosed) return@synchronized null
+			entries[key.digest]?.takeIf { candidate ->
+				candidate.key.identity == key.identity
+			}
+		} ?: return null
+		val path = root.resolve(entry.rasterFileName)
+		if (!path.isRegularRaster(entry.byteSize)) {
+			removeEntry(key.digest, entry)
+			return null
+		}
+		val value = runCatching { codec.decode(path) }.getOrNull()
+		if (value == null) {
+			removeEntry(key.digest, entry)
+			return null
+		}
+		return DecodedDiskRaster(entry, value)
+	}
+
 	fun <R : Any> readCopy(
 		key: ReaderPageRasterKey,
 		copy: (T) -> R?
@@ -436,31 +456,60 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 		if (decodedFound) return decodedCopy
 
-		val raster = read(key) ?: return null
+		val diskRaster = decodeDiskRaster(key) ?: return null
+		val result = if (uniqueDecodedBitmapLimit <= 0) {
+			copyTransientDiskRaster(key, diskRaster, copy)
+		} else {
+			when (
+				adoptDecodedValue(
+					key = key,
+					metadata = diskRaster.entry.metadata,
+					value = diskRaster.value,
+					expectedDiskEntry = diskRaster.entry
+				)
+			) {
+				DecodedCacheAdoption.Adopted -> synchronized(this) {
+					decoded[key.digest]?.takeIf { entry ->
+						entry.owner.value === diskRaster.value &&
+							entry.owner.state == DecodedCacheOwnerState.Active
+					}?.let { entry ->
+						copy(entry.owner.value)?.let { copied ->
+							ReaderPageRaster(key, entry.metadata, copied)
+						}
+					}
+				}
+				DecodedCacheAdoption.ConsumedByStore -> null
+				DecodedCacheAdoption.Caller ->
+					copyTransientDiskRaster(key, diskRaster, copy)
+				DecodedCacheAdoption.RetryAfterRelease ->
+					error("Decoded adoption retry escaped")
+			}
+		}
 		val lockWaitMillis = elapsedMillis(lockRequestedAt)
 		if (lockWaitMillis >= ReaderPageRasterContentionDiagnosticMillis) {
 			onDiagnostic(
 				"read-copy-lock-contention key=${key.digest.take(12)} waitMillis=$lockWaitMillis"
 			)
 		}
-		if (uniqueDecodedBitmapLimit <= 0) {
-			return try {
-				copy(raster.value)?.let { copied ->
-					ReaderPageRaster(key, raster.metadata, copied)
-				}
-			} finally {
-				releaseUnadoptedDecodedValue(raster.value)
+		return result
+	}
+
+	private fun <R : Any> copyTransientDiskRaster(
+		key: ReaderPageRasterKey,
+		diskRaster: DecodedDiskRaster<T>,
+		copy: (T) -> R?
+	): ReaderPageRaster<R>? {
+		val current = synchronized(this) {
+			(entries[key.digest] == diskRaster.entry && !decodedClosed).also { retained ->
+				if (retained) touchLocked(key.digest)
 			}
 		}
-		return synchronized(this) {
-			decoded[key.digest]?.takeIf { entry ->
-				entry.owner.value === raster.value &&
-					entry.owner.state == DecodedCacheOwnerState.Active
-			}?.let { entry ->
-				copy(entry.owner.value)?.let { copied ->
-					ReaderPageRaster(key, entry.metadata, copied)
-				}
+		return try {
+			if (!current) null else copy(diskRaster.value)?.let { copied ->
+				ReaderPageRaster(key, diskRaster.entry.metadata, copied)
 			}
+		} finally {
+			releaseUnadoptedDecodedValue(diskRaster.value)
 		}
 	}
 
@@ -491,6 +540,67 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 		releaseDecodedOwners(scheduled)
 		return removed
+	}
+
+	private fun encodedWindowProtection(
+		profile: ReaderPageRasterProfile,
+		centerPageOrdinal: Int,
+		pinnedPageOrdinals: Set<Int>
+	): EncodedWindowProtection = EncodedWindowProtection(
+		profile = profile,
+		centerPageOrdinal = centerPageOrdinal,
+		pinnedPageOrdinals = pinnedPageOrdinals.filterTo(linkedSetOf()) { it >= 0 }
+	)
+
+	fun stageEncodedWindowProtection(
+		profile: ReaderPageRasterProfile,
+		centerPageOrdinal: Int,
+		pinnedPageOrdinals: Set<Int>
+	) {
+		require(centerPageOrdinal >= 0)
+		synchronized(this) {
+			encodedWindowProtection = encodedWindowProtection(
+				profile = profile,
+				centerPageOrdinal = centerPageOrdinal,
+				pinnedPageOrdinals = pinnedPageOrdinals
+			)
+		}
+	}
+
+	fun protectEncodedWindow(
+		profile: ReaderPageRasterProfile,
+		centerPageOrdinal: Int,
+		pinnedPageOrdinals: Set<Int>
+	) {
+		require(centerPageOrdinal >= 0)
+		val protection = encodedWindowProtection(
+			profile = profile,
+			centerPageOrdinal = centerPageOrdinal,
+			pinnedPageOrdinals = pinnedPageOrdinals
+		)
+		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
+		synchronized(this) {
+			if (!storageAvailable || encodedWindowProtection == protection) return@synchronized
+			encodedWindowProtection = protection
+			val retained = retainedWithinDiskLimit(entries.values)
+			if (!manifest.write(retained)) return@synchronized
+			val retainedIds = retained.mapTo(mutableSetOf()) { entry -> entry.key.digest }
+			entries.values
+				.filter { entry -> entry.key.digest !in retainedIds }
+				.forEach { entry ->
+					detachDecodedEntryLocked(entry.key.digest, scheduled)
+					deleteEntryFile(entry)
+				}
+			entries.clear()
+			entries.putAll(retained.associateBy { entry -> entry.key.digest })
+			entryRevisions.keys.retainAll(entries.keys)
+			assertDiskBoundLocked()
+		}
+		releaseDecodedOwners(scheduled)
+	}
+
+	fun clearEncodedWindowProtection() {
+		synchronized(this) { encodedWindowProtection = null }
 	}
 
 	fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
@@ -936,22 +1046,55 @@ internal class ReaderPageRasterCache<T : Any>(
 	private fun retainedWithinDiskLimit(
 		candidates: Collection<ReaderPageRasterManifestEntry>
 	): List<ReaderPageRasterManifestEntry> {
-		val ordered = candidates
-			.filter { entry -> entry.key.chapter == protectedChapter }
-			.sortedByDescending { entry -> entry.lastAccessEpochMillis }
-			.plus(
-				candidates
-					.filterNot { entry -> entry.key.chapter == protectedChapter }
-					.sortedByDescending { entry -> entry.lastAccessEpochMillis }
-			)
+		val protection = encodedWindowProtection
+		val ordered = if (protection == null) {
+			candidates
+				.filter { entry -> entry.key.chapter == protectedChapter }
+				.sortedByDescending { entry -> entry.lastAccessEpochMillis }
+				.plus(
+					candidates
+						.filterNot { entry -> entry.key.chapter == protectedChapter }
+						.sortedByDescending { entry -> entry.lastAccessEpochMillis }
+				)
+		} else {
+			val activeProfile = candidates.filter { entry ->
+				entry.key.profile == protection.profile
+			}
+			val pinned = activeProfile
+				.filter { entry ->
+					entry.key.visualPageOrdinal in protection.pinnedPageOrdinals
+				}
+				.sortedBy { entry ->
+					kotlin.math.abs(entry.key.visualPageOrdinal - protection.centerPageOrdinal)
+				}
+			val forward = activeProfile
+				.filter { entry ->
+					entry.key.visualPageOrdinal > protection.centerPageOrdinal &&
+						entry.key.visualPageOrdinal !in protection.pinnedPageOrdinals
+				}
+				.sortedBy { entry -> entry.key.visualPageOrdinal }
+			val behind = activeProfile
+				.filter { entry ->
+					entry.key.visualPageOrdinal <= protection.centerPageOrdinal &&
+						entry.key.visualPageOrdinal !in protection.pinnedPageOrdinals
+				}
+				.sortedByDescending { entry -> entry.key.visualPageOrdinal }
+			val otherProfiles = candidates
+				.filterNot { entry -> entry.key.profile == protection.profile }
+				.sortedByDescending { entry -> entry.lastAccessEpochMillis }
+			pinned + forward + behind + otherProfiles
+		}
 		val retained = mutableListOf<ReaderPageRasterManifestEntry>()
 		var bytes = 0L
-		ordered.forEach { entry ->
+		for (entry in ordered) {
 			val entryBytes = entry.byteSize.coerceAtLeast(0L)
-			if (entryBytes > 0L && bytes <= diskByteLimit - entryBytes) {
-				retained += entry
-				bytes += entryBytes
+			val fits = entryBytes > 0L && entryBytes <= diskByteLimit - bytes
+			if (!fits) {
+				if (protection != null) break
+				continue
 			}
+			retained += entry
+			bytes += entryBytes
 		}
 		return retained
 	}

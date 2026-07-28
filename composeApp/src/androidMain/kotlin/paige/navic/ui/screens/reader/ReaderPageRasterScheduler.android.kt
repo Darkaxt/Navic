@@ -85,6 +85,11 @@ internal interface ReaderPageRasterStore<T : Any> {
 	fun remove(key: ReaderPageRasterKey): Boolean
 	fun rollbackPublication(receipt: ReaderPageRasterWriteReceipt): Boolean
 	fun retainProfile(profile: ReaderPageRasterProfile): Int
+	fun protectEncodedWindow(
+		profile: ReaderPageRasterProfile,
+		centerPageOrdinal: Int,
+		pinnedPageOrdinals: Set<Int>
+	) = Unit
 	fun protectChapter(chapter: ReaderPageRasterChapterKey?)
 	fun encodedBytes(key: ReaderPageRasterKey): Long
 }
@@ -192,6 +197,16 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 
 	override fun retainProfile(profile: ReaderPageRasterProfile): Int =
 		withOpen(0) { cache.retainProfile(profile) }
+
+	override fun protectEncodedWindow(
+		profile: ReaderPageRasterProfile,
+		centerPageOrdinal: Int,
+		pinnedPageOrdinals: Set<Int>
+	) {
+		withOpen(Unit) {
+			cache.protectEncodedWindow(profile, centerPageOrdinal, pinnedPageOrdinals)
+		}
+	}
 
 	override fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
 		withOpen(Unit) { cache.protectChapter(chapter) }
@@ -350,6 +365,16 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			val first = retainedWorkerFailure
 			if (first == null) retainedWorkerFailure = failure
 			else if (failure !== first) first.addSuppressed(failure)
+		}
+	}
+
+	suspend fun protectEncodedWindow(
+		profile: ReaderPageRasterProfile,
+		centerPageOrdinal: Int,
+		pinnedPageOrdinals: Set<Int>
+	) {
+		withContext(ioDispatcher) {
+			store.protectEncodedWindow(profile, centerPageOrdinal, pinnedPageOrdinals)
 		}
 	}
 

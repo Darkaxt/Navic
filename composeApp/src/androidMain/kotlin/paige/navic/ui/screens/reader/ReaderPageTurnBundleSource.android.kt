@@ -342,6 +342,9 @@ internal class ReaderPageTurnBundleSource(
 	private val persistenceRetryCorrelations =
 		mutableMapOf<String, ReaderPageQaFaultCorrelation>()
 	private var protectedSnapshotPageIndices = emptySet<Int>()
+	private var protectedEncodedCenterPageIndex: Int? = null
+	private var protectedEncodedPageIndices = emptySet<Int>()
+	private var protectedEncodedProfile: ReaderPageRasterProfile? = null
 	private var rasterCache: ReaderPageRasterCache<Bitmap>? = null
 	private var persistentStore: ReaderPageRasterCacheStore<Bitmap>? = null
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
@@ -454,6 +457,33 @@ internal class ReaderPageTurnBundleSource(
 			readWorkers = hydrationScheduler.activeWorkerCount,
 			readRecipients = inFlightRasterHydrations.values.sumOf { it.recipients.size }
 		)
+
+	fun protectEncodedWindow(centerPageIndex: Int, step: Int, pageCount: Int) {
+		protectedEncodedCenterPageIndex = centerPageIndex
+		protectedEncodedPageIndices = readerPageRasterBlockingWindow(
+			centerPageIndex = centerPageIndex,
+			step = step,
+			pageCount = pageCount
+		).toSet()
+		protectedEncodedProfile?.let(::stageEncodedWindowProtection)
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Encoded page window protected center=$centerPageIndex step=$step " +
+				"rasters=${protectedEncodedPageIndices.size} " +
+				"pages=${protectedEncodedPageIndices.sorted()} generation=$activeGeneration"
+		)
+	}
+
+	private fun stageEncodedWindowProtection(profile: ReaderPageRasterProfile) {
+		protectedEncodedProfile = profile
+		val centerPageIndex = protectedEncodedCenterPageIndex ?: return
+		if (protectedEncodedPageIndices.isEmpty()) return
+		rasterCache?.stageEncodedWindowProtection(
+			profile = profile,
+			centerPageOrdinal = centerPageIndex,
+			pinnedPageOrdinals = protectedEncodedPageIndices
+		)
+	}
 
 	fun protectDecodedWindow(centerPageIndex: Int, step: Int, pageCount: Int) {
 		protectDecodedPageIndices(
@@ -758,6 +788,7 @@ internal class ReaderPageTurnBundleSource(
 		if (currentRecipients.isEmpty()) return@dispatchToMain
 		cacheRasterDescriptor(request.identity, descriptor)
 		val key = descriptor.key(request.identity.quality)
+		stageEncodedWindowProtection(key.profile)
 		val hydrationIdentity = ReaderPageRasterHydrationIdentity(
 			rasterIdentity = key.identity,
 			kind = request.identity.kind,
@@ -1430,10 +1461,16 @@ internal class ReaderPageTurnBundleSource(
 							onPersisted(false)
 							return@launch
 						}
-						if (priority == ReaderPageRasterPriority.Current) {
-							scheduler.protectChapter(key.chapter)
-						}
 						scheduler.activateProfile(key.profile)
+						stageEncodedWindowProtection(key.profile)
+						val protectedCenter = protectedEncodedCenterPageIndex
+						if (protectedCenter != null && protectedEncodedPageIndices.isNotEmpty()) {
+							scheduler.protectEncodedWindow(
+								profile = key.profile,
+								centerPageOrdinal = protectedCenter,
+								pinnedPageOrdinals = protectedEncodedPageIndices
+							)
+						}
 						val value = ReaderPageRasterPublicationValue(
 							key = key,
 							generation = rasterGeneration
@@ -1722,6 +1759,19 @@ internal class ReaderPageTurnBundleSource(
 				scheduler = createdScheduler
 				requireRasterInitializationOpen()
 				createdCache.protectDecodedPageIndices(protectedSnapshotPageIndices)
+				val protectedCenter = protectedEncodedCenterPageIndex
+				val protectedProfile = protectedEncodedProfile
+				if (
+					protectedCenter != null &&
+					protectedProfile != null &&
+					protectedEncodedPageIndices.isNotEmpty()
+				) {
+					createdCache.stageEncodedWindowProtection(
+						profile = protectedProfile,
+						centerPageOrdinal = protectedCenter,
+						pinnedPageOrdinals = protectedEncodedPageIndices
+					)
+				}
 				rasterCache = createdCache
 				persistentStore = createdStore
 				rasterScheduler = createdScheduler
@@ -1960,7 +2010,11 @@ internal class ReaderPageTurnBundleSource(
 		publicationScheduler.cancelBeforeEpoch(publicationLedger.currentEpoch())
 		physicalLayoutAuthority = null
 		protectedSnapshotPageIndices = emptySet()
+		protectedEncodedCenterPageIndex = null
+		protectedEncodedPageIndices = emptySet()
+		protectedEncodedProfile = null
 		rasterCache?.protectDecodedPageIndices(emptySet())
+		rasterCache?.clearEncodedWindowProtection()
 		val descriptorRecipients = descriptorRequests.values
 			.flatMap { request -> request.recipients.values }
 		descriptorRequests.clear()
