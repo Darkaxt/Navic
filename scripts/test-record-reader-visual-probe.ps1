@@ -161,6 +161,8 @@ try {
         'Assert-EmulatorConsoleResponse',
         'Invoke-EmulatorConsoleText',
         'ConvertFrom-AndroidPhysicalDisplaySize',
+        'ConvertFrom-AndroidCurrentDisplaySize',
+        'Physical device current display does not match requested',
         'Get-EmulatorFrameBufferNormalization',
         'Assert-DeterministicEmulatorViewport',
         'accelerometer_rotation=0 and user_rotation=0',
@@ -216,6 +218,13 @@ try {
             -DisplayWidth 2400 `
             -DisplayHeight 1080 `
             -PlanOnly | Out-Null
+        $currentDisplay = ConvertFrom-AndroidCurrentDisplaySize @'
+    init=1848x2960 280dpi cur=2960x1848 app=2960x1848
+  overrideConfig={ mBounds=Rect(0, 0 - 2960, 1848) }
+'@
+        if ($currentDisplay.Width -ne 2960 -or $currentDisplay.Height -ne 1848) {
+            throw 'Physical display parser did not use the rotated current window dimensions'
+        }
         $markerLog = @'
 --------- beginning of main
    100.000 2 2 I NavicReaderVisualQa: probe-start:synthetic-marker

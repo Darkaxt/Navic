@@ -601,6 +601,20 @@ function Get-DeviceKey([string] $Serial) {
     }
 }
 
+function ConvertFrom-AndroidCurrentDisplaySize([string] $WindowDisplayText) {
+    $match = [regex]::Match(
+        $WindowDisplayText,
+        '(?m)^\s*init=\d+x\d+.*?\bcur=(\d+)x(\d+)\b'
+    )
+    if (-not $match.Success) {
+        throw 'Unable to parse the current Android window display size.'
+    }
+    return [pscustomobject]@{
+        Width = [int]$match.Groups[1].Value
+        Height = [int]$match.Groups[2].Value
+    }
+}
+
 function Get-LogicalDisplaySize {
     if ($DisplayWidth -gt 0 -and $DisplayHeight -gt 0) {
         if (-not $PlanOnly) {
@@ -611,6 +625,21 @@ function Get-LogicalDisplaySize {
     if (($DisplayWidth -gt 0) -xor ($DisplayHeight -gt 0)) {
         throw 'DisplayWidth and DisplayHeight must be supplied together.'
     }
+    $captureBackend = Get-ReaderVisualCaptureBackend $DeviceSerial
+    if ($captureBackend -eq 'android-screenrecord') {
+        $windowDisplayText = Invoke-AdbText @(
+            'shell', 'dumpsys', 'window', 'displays'
+        ) 'Current Android window display query'
+        $currentDisplay = ConvertFrom-AndroidCurrentDisplaySize $windowDisplayText
+        $orientationMatches = Test-DisplaySizeMatchesOrientation `
+            -Width $currentDisplay.Width `
+            -Height $currentDisplay.Height `
+            -ExpectedOrientation $Orientation
+        if (-not $orientationMatches) {
+            throw "Physical device current display does not match requested $Orientation orientation."
+        }
+        return $currentDisplay
+    }
     $sizeText = Invoke-AdbText @('shell', 'wm', 'size') 'Display-size query'
     $matches = [regex]::Matches($sizeText, '(?:Override|Physical) size:\s*(\d+)x(\d+)')
     if ($matches.Count -eq 0) {
@@ -619,24 +648,18 @@ function Get-LogicalDisplaySize {
     $selected = @($matches) | Where-Object { $_.Value.StartsWith('Override') } |
         Select-Object -Last 1
     if ($null -eq $selected) { $selected = $matches[$matches.Count - 1] }
-    $width = [int]$selected.Groups[1].Value
-    $height = [int]$selected.Groups[2].Value
-    $isEmulator = (Get-ReaderVisualCaptureBackend $DeviceSerial) -eq
-        'emulator-framebuffer'
-    if ($isEmulator) {
-        $orientationMatches = Test-DisplaySizeMatchesOrientation `
-            -Width $width `
-            -Height $height `
-            -ExpectedOrientation $Orientation
-        if (-not $orientationMatches) {
-            throw "Emulator wm override does not match requested $Orientation orientation."
-        }
-    } elseif ($Orientation -eq 'landscape' -and $width -lt $height) {
-        $width, $height = $height, $width
-    } elseif ($Orientation -eq 'portrait' -and $width -gt $height) {
-        $width, $height = $height, $width
+    $display = [pscustomobject]@{
+        Width = [int]$selected.Groups[1].Value
+        Height = [int]$selected.Groups[2].Value
     }
-    return [pscustomobject]@{ Width = $width; Height = $height }
+    $orientationMatches = Test-DisplaySizeMatchesOrientation `
+        -Width $display.Width `
+        -Height $display.Height `
+        -ExpectedOrientation $Orientation
+    if (-not $orientationMatches) {
+        throw "Emulator wm override does not match requested $Orientation orientation."
+    }
+    return $display
 }
 
 function ConvertFrom-AndroidRawPhysicalDisplaySize([string] $SizeText) {
