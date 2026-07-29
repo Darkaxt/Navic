@@ -317,15 +317,12 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.startCurrentChapterPreparation()
 			fixture.foreground.stagePreview()
 			fixture.foreground.delayCancellationRestoration = true
-			assertEquals(2, fixture.hostChildCount())
 
 			val destruction = fixture.controller.destroy()
 
 			assertFalse(destruction.isCompleted)
-			assertEquals(2, fixture.hostChildCount())
 			fixture.foreground.completeCancellationRestoration()
 			destruction.await()
-			assertEquals(1, fixture.hostChildCount())
 		} finally {
 			fixture.foreground.completeCancellationRestoration()
 			fixture.close()
@@ -608,7 +605,15 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			.substringAfter("private fun scheduleBackgroundPrefetch(")
 			.substringBefore("private fun logPrewarmBoundary(")
 
-		assertContains(background, "showBackgroundPrefetchShield(snapshot, submission)")
+		assertContains(
+			background,
+			"showBackgroundPrefetchShield(snapshot, submission, onPresented)"
+		)
+		assertContains(preparation, "ReaderPageStaticWindowShield(host)")
+		assertContains(preparation, "surfaceRectInWindow = snapshot.surfaceRectInWindow")
+		assertContains(preparation, "shield?.dismiss()")
+		assertFalse(foliate.contains("acquirePassiveCaptureCover"))
+		assertFalse(host.contains("onAcquireBackgroundCaptureCover"))
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
 		assertContains(background, "backgroundPrefetchShieldSessionId != sessionId")
 		assertFalse(background.contains("publishPreparationState("))
@@ -631,7 +636,7 @@ private data class ReaderPageRasterBatchRequest(
 	val reference: ReaderPageSlideSnapshot,
 	val targets: List<ReaderPageRasterBatchTarget>,
 	val trigger: ReaderPageRasterAcquisitionTrigger,
-	val onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
+	val onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 	val onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
 	val onProgress: (Int, Int) -> Unit,
 	val onComplete: (ReaderPageRasterBatchOutcome) -> Unit
@@ -652,7 +657,7 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		reference: ReaderPageSlideSnapshot,
 		targets: List<ReaderPageRasterBatchTarget>,
 		trigger: ReaderPageRasterAcquisitionTrigger,
-		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
+		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 		onActiveTarget: (ReaderPageRasterBatchTarget) -> Unit,
 		onHydrationMiss: (ReaderPageRasterBatchTarget) -> Unit,
 		onTargetDurable: (ReaderPageRasterBatchTarget) -> Unit,
@@ -675,9 +680,9 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		return true
 	}
 
-	fun stagePreview() {
+	fun stagePreview(onPresented: (Boolean) -> Unit = {}) {
 		val request = checkNotNull(active)
-		request.onStagingStarted(request.reference)
+		request.onStagingStarted(request.reference, onPresented)
 	}
 
 	fun completeCancellationRestoration() {
@@ -801,8 +806,6 @@ private class ReaderPageRasterPreparationControllerFixture private constructor(
 	fun drainMainLooper() {
 		Shadows.shadowOf(Looper.getMainLooper()).idle()
 	}
-
-	fun hostChildCount(): Int = host.childCount
 
 	fun detachWebView() {
 		host.removeView(webView)

@@ -1056,7 +1056,7 @@ internal class ReaderPageTurnBundleSource(
 		itemToken: String,
 		priority: ReaderPageRasterPriority,
 		isStillCurrent: () -> Boolean = { true },
-		onStagingStarted: (ReaderPageSlideSnapshot) -> Unit,
+		onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit,
 		onCaptureFailed: () -> Unit,
 		onCaptured: (Boolean) -> Unit
 	) {
@@ -1088,7 +1088,7 @@ internal class ReaderPageTurnBundleSource(
 			token = itemToken,
 			generation = generation,
 			isStillCurrent = isStillCurrent,
-			onStagingStarted = { onStagingStarted(reference) }
+			onStagingStarted = { onPresented -> onStagingStarted(reference, onPresented) }
 		) { captured ->
 			if (
 				captured == null ||
@@ -1119,7 +1119,7 @@ internal class ReaderPageTurnBundleSource(
 		token: String,
 		generation: Long,
 		isStillCurrent: () -> Boolean,
-		onStagingStarted: () -> Unit,
+		onStagingStarted: ((Boolean) -> Unit) -> Unit,
 		onCaptured: (ReaderPageSlideSnapshot?) -> Unit
 	) {
 		if (!isStillCurrent()) {
@@ -1128,55 +1128,64 @@ internal class ReaderPageTurnBundleSource(
 		}
 		val captureStartedAt = SystemClock.uptimeMillis()
 		val quotedToken = JSONObject.quote(token)
-		onStagingStarted()
-		webView.evaluateJavascript(
-			"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
-		) { encoded ->
+		onStagingStarted staging@{ presented ->
 			if (
+				!presented ||
 				generation != activeGeneration ||
-				!isStillCurrent() ||
-				!encoded.isJavascriptTrue()
+				!isStillCurrent()
 			) {
-				restoreLiveComposition(webView, token) { onCaptured(null) }
-				return@evaluateJavascript
+				onCaptured(null)
+				return@staging
 			}
-			webView.postOnAnimation {
-				if (!isStillCurrent()) {
+			webView.evaluateJavascript(
+				"window.NavicReaderBridge?.exposePageTurnPreviewFinal?.($quotedToken) === true"
+			) { encoded ->
+				if (
+					generation != activeGeneration ||
+					!isStillCurrent() ||
+					!encoded.isJavascriptTrue()
+				) {
 					restoreLiveComposition(webView, token) { onCaptured(null) }
-					return@postOnAnimation
+					return@evaluateJavascript
 				}
-				capturePreparedSurface(webView) { captured ->
-					restoreLiveComposition(webView, token) {
-						val bitmap = captured?.bitmap
-						val snapshotGeometry = captured?.let {
-							readerPagePreparedSnapshotGeometry(kind, it)
-						}
-						if (
-							captured == null ||
-							bitmap == null ||
-							snapshotGeometry == null ||
-							generation != activeGeneration ||
-							!isStillCurrent()
-						) {
-							bitmap?.takeUnless { it.isRecycled }?.recycle()
-							onCaptured(null)
-							return@restoreLiveComposition
-						}
-						onCaptured(
-							ReaderPageSlideSnapshot(
-								key = snapshotKey(
-									pageIndex,
-									kind,
-									bitmap,
-									snapshotGeometry.surfaceRectInWindow
-								),
-								bitmap = bitmap,
-								surfaceRectInWindow = snapshotGeometry.surfaceRectInWindow,
-								leafGeometry = snapshotGeometry.leafGeometry,
-								reverseFaceColor = snapshotGeometry.reverseFaceColor,
-								captureMillis = SystemClock.uptimeMillis() - captureStartedAt
+				webView.postOnAnimation {
+					if (!isStillCurrent()) {
+						restoreLiveComposition(webView, token) { onCaptured(null) }
+						return@postOnAnimation
+					}
+					capturePreparedSurface(webView) { captured ->
+						restoreLiveComposition(webView, token) {
+							val bitmap = captured?.bitmap
+							val snapshotGeometry = captured?.let {
+								readerPagePreparedSnapshotGeometry(kind, it)
+							}
+							if (
+								captured == null ||
+								bitmap == null ||
+								snapshotGeometry == null ||
+								generation != activeGeneration ||
+								!isStillCurrent()
+							) {
+								bitmap?.takeUnless { it.isRecycled }?.recycle()
+								onCaptured(null)
+								return@restoreLiveComposition
+							}
+							onCaptured(
+								ReaderPageSlideSnapshot(
+									key = snapshotKey(
+										pageIndex,
+										kind,
+										bitmap,
+										snapshotGeometry.surfaceRectInWindow
+									),
+									bitmap = bitmap,
+									surfaceRectInWindow = snapshotGeometry.surfaceRectInWindow,
+									leafGeometry = snapshotGeometry.leafGeometry,
+									reverseFaceColor = snapshotGeometry.reverseFaceColor,
+									captureMillis = SystemClock.uptimeMillis() - captureStartedAt
+								)
 							)
-						)
+						}
 					}
 				}
 			}

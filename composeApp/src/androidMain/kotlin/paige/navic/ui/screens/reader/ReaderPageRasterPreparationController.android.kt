@@ -6,8 +6,6 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
-import android.widget.FrameLayout
-import android.widget.ImageView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -263,7 +261,7 @@ internal class ReaderPageRasterPreparationController(
 	private var currentRasterProfileEpoch: Long? = null
 	private var backgroundBatchSubmission: ReaderPageAdjacentChapterPrefetchSubmission? = null
 	private val backgroundPrefetchDiagnosticStarts = mutableMapOf<Long, Long>()
-	private var backgroundPrefetchShield: ImageView? = null
+	private var backgroundPrefetchShield: ReaderPageStaticWindowShield? = null
 	private var backgroundPrefetchShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var backgroundPrefetchShieldSessionId: Long? = null
 	private var prewarmSession = 0L
@@ -286,7 +284,7 @@ internal class ReaderPageRasterPreparationController(
 	private var prewarmAcquisitionTriggerClassified = false
 	private var activeAcquisitionTrigger =
 		ReaderPageRasterAcquisitionTrigger.InitialPreparation
-	private var preparationShield: ImageView? = null
+	private var preparationShield: ReaderPageStaticWindowShield? = null
 	private var preparationShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var preparationShieldSession: Long? = null
 	private var preparationShieldBatchLabel: String? = null
@@ -839,11 +837,12 @@ internal class ReaderPageRasterPreparationController(
 				ReaderPageRasterBatchTarget(pageIndex, ReaderPageRasterPriority.CurrentChapter)
 			),
 			trigger = ReaderPageRasterAcquisitionTrigger.Repair,
-			onStagingStarted = { snapshot ->
+			onStagingStarted = { snapshot, onPresented ->
 				reusePreparationShield(
 					snapshot = snapshot,
 					session = repairShieldSession,
-					batchLabel = "repair"
+					batchLabel = "repair",
+					onPresented = onPresented
 				)
 			},
 			onComplete = { outcome ->
@@ -1469,8 +1468,13 @@ internal class ReaderPageRasterPreparationController(
 			reference = reference,
 			targets = targets,
 			trigger = activeAcquisitionTrigger,
-			onStagingStarted = { snapshot ->
-				reusePreparationShield(snapshot, session, batchLabel)
+			onStagingStarted = { snapshot, onPresented ->
+				reusePreparationShield(
+					snapshot = snapshot,
+					session = session,
+					batchLabel = batchLabel,
+					onPresented = onPresented
+				)
 			},
 			onActiveTarget = { target ->
 				if (isPrewarmActive(webView, session) && generation == bundleSource.currentGeneration()) {
@@ -1842,8 +1846,8 @@ internal class ReaderPageRasterPreparationController(
 			reference = reference,
 			targets = submission.targets,
 			trigger = ReaderPageRasterAcquisitionTrigger.WorkingSetRefill,
-			onStagingStarted = { snapshot ->
-				showBackgroundPrefetchShield(snapshot, submission)
+			onStagingStarted = { snapshot, onPresented ->
+				showBackgroundPrefetchShield(snapshot, submission, onPresented)
 			},
 			onTargetDurable = { target ->
 				if (
@@ -1923,12 +1927,16 @@ internal class ReaderPageRasterPreparationController(
 
 	private fun showBackgroundPrefetchShield(
 		snapshot: ReaderPageSlideSnapshot,
-		submission: ReaderPageAdjacentChapterPrefetchSubmission
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		onPresented: (Boolean) -> Unit
 	) {
 		if (
 			backgroundBatchSubmission != submission ||
 			!adjacentChapterPrefetchCoordinator.isActive(submission)
-		) return
+		) {
+			onPresented(false)
+			return
+		}
 
 		val currentShield = backgroundPrefetchShield
 		val currentSnapshot = backgroundPrefetchShieldSnapshot
@@ -1939,32 +1947,38 @@ internal class ReaderPageRasterPreparationController(
 			!currentSnapshot.bitmap.isRecycled
 		if (sameVisualSurface) {
 			backgroundPrefetchShieldSessionId = submission.sessionId
-			currentShield.bringToFront()
+			currentShield.present(
+				bitmap = snapshot.bitmap,
+				surfaceRectInWindow = snapshot.surfaceRectInWindow
+			) { presented ->
+				onPresented(
+					presented &&
+						backgroundPrefetchShield === currentShield &&
+						backgroundPrefetchShieldSessionId == submission.sessionId &&
+						adjacentChapterPrefetchCoordinator.isActive(submission)
+				)
+			}
 			return
 		}
 
 		snapshot.retain()
-		val hostLocation = IntArray(2)
-		host.getLocationInWindow(hostLocation)
-		val rect = snapshot.surfaceRectInWindow
-		val layout = FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
-			leftMargin = rect.left - hostLocation[0]
-			topMargin = rect.top - hostLocation[1]
-		}
-		val shield = currentShield ?: ImageView(host.context).apply {
-			scaleType = ImageView.ScaleType.FIT_XY
-			isClickable = false
-			isFocusable = false
-			importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-		}
-		shield.setImageBitmap(snapshot.bitmap)
-		shield.layoutParams = layout
-		if (currentShield == null) host.addView(shield) else shield.bringToFront()
+		val shield = currentShield ?: ReaderPageStaticWindowShield(host)
 
 		backgroundPrefetchShield = shield
 		backgroundPrefetchShieldSnapshot = snapshot
 		backgroundPrefetchShieldSessionId = submission.sessionId
 		currentSnapshot?.release()
+		shield.present(
+			bitmap = snapshot.bitmap,
+			surfaceRectInWindow = snapshot.surfaceRectInWindow
+		) { presented ->
+			onPresented(
+				presented &&
+					backgroundPrefetchShield === shield &&
+					backgroundPrefetchShieldSessionId == submission.sessionId &&
+					adjacentChapterPrefetchCoordinator.isActive(submission)
+			)
+		}
 	}
 
 	private fun removeBackgroundPrefetchShield(sessionId: Long? = null) {
@@ -1977,8 +1991,7 @@ internal class ReaderPageRasterPreparationController(
 		backgroundPrefetchShield = null
 		backgroundPrefetchShieldSnapshot = null
 		backgroundPrefetchShieldSessionId = null
-		shield?.setImageDrawable(null)
-		(shield?.parent as? ViewGroup)?.removeView(shield)
+		shield?.dismiss()
 		snapshot?.release()
 	}
 
@@ -2111,7 +2124,8 @@ internal class ReaderPageRasterPreparationController(
 	private fun reusePreparationShield(
 		snapshot: ReaderPageSlideSnapshot,
 		session: Long,
-		batchLabel: String
+		batchLabel: String,
+		onPresented: (Boolean) -> Unit
 	) {
 		val currentShield = preparationShield
 		val currentSnapshot = preparationShieldSnapshot
@@ -2123,31 +2137,26 @@ internal class ReaderPageRasterPreparationController(
 		if (sameVisualSurface) {
 			preparationShieldSession = session
 			preparationShieldBatchLabel = batchLabel
-			currentShield.bringToFront()
 			logLoadingEvent(
 				event = "shield-reused",
 				detail = shieldDetail(snapshot, session, batchLabel)
 			)
+			currentShield.present(
+				bitmap = snapshot.bitmap,
+				surfaceRectInWindow = snapshot.surfaceRectInWindow
+			) { presented ->
+				onPresented(
+					presented &&
+						preparationShield === currentShield &&
+						preparationShieldSession == session &&
+						preparationShieldBatchLabel == batchLabel
+				)
+			}
 			return
 		}
 
 		snapshot.retain()
-		val hostLocation = IntArray(2)
-		host.getLocationInWindow(hostLocation)
-		val rect = snapshot.surfaceRectInWindow
-		val layout = FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
-			leftMargin = rect.left - hostLocation[0]
-			topMargin = rect.top - hostLocation[1]
-		}
-		val shield = currentShield ?: ImageView(host.context).apply {
-			scaleType = ImageView.ScaleType.FIT_XY
-			isClickable = false
-			isFocusable = false
-			importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-		}
-		shield.setImageBitmap(snapshot.bitmap)
-		shield.layoutParams = layout
-		if (currentShield == null) host.addView(shield) else shield.bringToFront()
+		val shield = currentShield ?: ReaderPageStaticWindowShield(host)
 
 		preparationShieldSnapshot = snapshot
 		preparationShield = shield
@@ -2158,6 +2167,17 @@ internal class ReaderPageRasterPreparationController(
 			event = if (currentShield == null) "shield-attached" else "shield-updated",
 			detail = shieldDetail(snapshot, session, batchLabel)
 		)
+		shield.present(
+			bitmap = snapshot.bitmap,
+			surfaceRectInWindow = snapshot.surfaceRectInWindow
+		) { presented ->
+			onPresented(
+				presented &&
+					preparationShield === shield &&
+					preparationShieldSession == session &&
+					preparationShieldBatchLabel == batchLabel
+			)
+		}
 	}
 
 	private fun removePreparationShield(
@@ -2177,8 +2197,7 @@ internal class ReaderPageRasterPreparationController(
 		preparationShieldSession = null
 		preparationShieldBatchLabel = null
 		if (shield != null) {
-			shield.setImageDrawable(null)
-			(shield.parent as? ViewGroup)?.removeView(shield)
+			shield.dismiss()
 			logLoadingEvent(
 				event = "shield-removed",
 				detail = "reason=$reason session=${session ?: "none"} " +

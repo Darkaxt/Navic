@@ -127,7 +127,8 @@ class ReaderPageRasterPreparationSourceTest {
 	fun preparationShieldIsReusedWithinOneRasterSession() {
 		val source = readerRasterPreparationSource()
 
-		assertContains(source, "reusePreparationShield(snapshot, session, batchLabel)")
+		assertContains(source, "reusePreparationShield(")
+		assertContains(source, "batchLabel = batchLabel")
 		assertContains(source, "event = \"shield-reused\"")
 		assertFalse(source.contains("private fun attachPreparationShield(snapshot: ReaderPageSlideSnapshot) {\n\t\tremovePreparationShield()"))
 	}
@@ -337,7 +338,8 @@ class ReaderPageRasterPreparationSourceTest {
 		).substringBefore("\n\tprivate fun obtainRasterReference(")
 
 		assertContains(followUp, "targets = followUpTargets")
-		assertContains(batch, "reusePreparationShield(snapshot, session, batchLabel)")
+		assertContains(batch, "reusePreparationShield(")
+		assertContains(batch, "onPresented = onPresented")
 		assertFalse(source.contains("protectForeground"))
 		assertFalse(source.contains("event = \"shield-skipped\""))
 	}
@@ -356,14 +358,19 @@ class ReaderPageRasterPreparationSourceTest {
 			"private fun capturePreparedPage("
 		).substringBefore("fun cacheCurrentSnapshot(")
 
-		assertContains(contract, "onStagingStarted: (ReaderPageSlideSnapshot) -> Unit")
-		assertFalse(contract.contains("onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {}"))
-		assertContains(capture, "onStagingStarted: (ReaderPageSlideSnapshot) -> Unit")
-		assertFalse(capture.contains("onStagingStarted: (ReaderPageSlideSnapshot) -> Unit = {}"))
-		assertTrue(
-			exposure.indexOf("onStagingStarted()") <
-				exposure.indexOf("exposePageTurnPreviewFinal")
+		assertContains(
+			contract,
+			"onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit"
 		)
+		assertContains(
+			capture,
+			"onStagingStarted: (ReaderPageSlideSnapshot, (Boolean) -> Unit) -> Unit"
+		)
+		val stagingGate = exposure.indexOf("onStagingStarted staging@")
+		val presentationCheck = exposure.indexOf("!presented")
+		val liveExposure = exposure.indexOf("exposePageTurnPreviewFinal")
+		assertTrue(stagingGate >= 0 && stagingGate < presentationCheck)
+		assertTrue(presentationCheck < liveExposure)
 	}
 
 	@Test
@@ -415,7 +422,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(repair, "ReaderPageRasterBatchTarget(pageIndex")
 		assertContains(repair, "event = \"page-repair-requested\"")
 		assertContains(repair, "adjacentChapterPrefetchCoordinator.suspendForForegroundWork()")
-		assertContains(repair, "onStagingStarted = { snapshot ->")
+		assertContains(repair, "onStagingStarted = { snapshot, onPresented ->")
 		assertContains(repair, "reusePreparationShield(")
 		assertContains(repair, "removePreparationShield(")
 		assertContains(repair, "rasterRepairBatchController.cancel(")
@@ -462,7 +469,10 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(background, "event = \"background-prefetch-failed\"")
 		assertContains(background, "activeRasterRepairPageIndex == null")
 		assertContains(background, "rasterRepairCallbacks.isEmpty()")
-		assertContains(background, "showBackgroundPrefetchShield(snapshot, submission)")
+		assertContains(
+			background,
+			"showBackgroundPrefetchShield(snapshot, submission, onPresented)"
+		)
 		assertContains(background, "removeBackgroundPrefetchShield(submission.sessionId)")
 		assertContains(background, "rasterBackgroundBatchController.cancel(")
 		assertContains(background, "trackVisualRestoration {")
@@ -474,6 +484,7 @@ class ReaderPageRasterPreparationSourceTest {
 	@Test
 	fun adjacentChapterShieldHasIndependentSessionFencedLeaseOwnership() {
 		val source = readerRasterPreparationSource()
+		val window = readerSource("ReaderPageStaticWindowShield.android.kt")
 		val shield = source.substringAfter(
 			"private fun showBackgroundPrefetchShield("
 		).substringBefore("\n\tprivate fun cancelBackgroundPrefetchSubmission(")
@@ -485,8 +496,27 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(shield, "currentSnapshot?.release()")
 		assertContains(shield, "backgroundPrefetchShieldSessionId != sessionId")
 		assertContains(shield, "snapshot?.release()")
-		assertContains(shield, "isClickable = false")
-		assertContains(shield, "importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO")
+		assertContains(shield, "ReaderPageStaticWindowShield(host)")
+		assertContains(shield, "surfaceRectInWindow = snapshot.surfaceRectInWindow")
+		assertContains(shield, "shield?.dismiss()")
+		assertContains(shield, "onPresented(false)")
+		assertFalse(shield.contains("host.addView(shield)"))
+		assertContains(window, "WindowManager.LayoutParams.TYPE_APPLICATION_PANEL")
+		assertContains(window, "WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE")
+		assertContains(window, "WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE")
+		assertContains(window, "windowManager.addView(imageView, params)")
+		assertContains(window, "windowManager.updateViewLayout(imageView, params)")
+		assertContains(window, "imageView.setImageBitmap(bitmap)")
+		assertContains(window, "imageView.addOnAttachStateChangeListener(listener)")
+		assertContains(window, "observer.registerFrameCommitCallback")
+		assertContains(window, "ReaderPageStaticWindowShieldTimeoutMillis")
+		assertContains(window, "windowManager.removeViewImmediate(imageView)")
+		assertContains(window, "isClickable = false")
+		assertContains(window, "importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO")
+		assertTrue(
+			window.indexOf("imageView.setImageBitmap(bitmap)") <
+				window.indexOf("awaitCommittedWindowFrame(request)")
+		)
 		assertFalse(shield.contains("publishPreparationState("))
 		assertFalse(shield.contains("reusePreparationShield("))
 	}
