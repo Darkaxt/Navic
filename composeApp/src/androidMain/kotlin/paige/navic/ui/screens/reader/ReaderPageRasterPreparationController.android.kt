@@ -186,6 +186,7 @@ internal class ReaderPageRasterPreparationController(
 	private val closeBundleOwners: suspend () -> Unit = bundleSource::closeAndJoin,
 	private val onRequestPrewarm: () -> Unit = {},
 	private val canStartPreparation: () -> Boolean = { true },
+	private val shouldPreserveCurrentPresentation: () -> Boolean = { false },
 	private val onAwaitHostEvent: (ReaderPageRasterDeferralReason) -> Unit = {},
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
 	private val rasterBatchController: ReaderPageRasterBatchPort =
@@ -1949,7 +1950,8 @@ internal class ReaderPageRasterPreparationController(
 			backgroundPrefetchShieldSessionId = submission.sessionId
 			currentShield.present(
 				bitmap = snapshot.bitmap,
-				surfaceRectInWindow = snapshot.surfaceRectInWindow
+				surfaceRectInWindow = snapshot.surfaceRectInWindow,
+				preserveCurrentPresentation = shouldPreserveCurrentPresentation()
 			) { presented ->
 				onPresented(
 					presented &&
@@ -1970,7 +1972,8 @@ internal class ReaderPageRasterPreparationController(
 		currentSnapshot?.release()
 		shield.present(
 			bitmap = snapshot.bitmap,
-			surfaceRectInWindow = snapshot.surfaceRectInWindow
+			surfaceRectInWindow = snapshot.surfaceRectInWindow,
+			preserveCurrentPresentation = shouldPreserveCurrentPresentation()
 		) { presented ->
 			onPresented(
 				presented &&
@@ -2143,7 +2146,8 @@ internal class ReaderPageRasterPreparationController(
 			)
 			currentShield.present(
 				bitmap = snapshot.bitmap,
-				surfaceRectInWindow = snapshot.surfaceRectInWindow
+				surfaceRectInWindow = snapshot.surfaceRectInWindow,
+				preserveCurrentPresentation = shouldPreserveCurrentPresentation()
 			) { presented ->
 				onPresented(
 					presented &&
@@ -2169,7 +2173,8 @@ internal class ReaderPageRasterPreparationController(
 		)
 		shield.present(
 			bitmap = snapshot.bitmap,
-			surfaceRectInWindow = snapshot.surfaceRectInWindow
+			surfaceRectInWindow = snapshot.surfaceRectInWindow,
+			preserveCurrentPresentation = shouldPreserveCurrentPresentation()
 		) { presented ->
 			onPresented(
 				presented &&

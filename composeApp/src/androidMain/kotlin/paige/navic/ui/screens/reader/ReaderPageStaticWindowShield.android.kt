@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
@@ -25,6 +26,7 @@ internal class ReaderPageStaticWindowShield(
 	private var nextRequest = 0L
 	private var activeRequest: Long? = null
 	private var requestedBitmap: Bitmap? = null
+	private var ownedBitmap: Bitmap? = null
 	private var presentationCallback: ((Boolean) -> Unit)? = null
 	private var attachmentListener: View.OnAttachStateChangeListener? = null
 	private var windowAdded = false
@@ -32,6 +34,7 @@ internal class ReaderPageStaticWindowShield(
 	fun present(
 		bitmap: Bitmap,
 		surfaceRectInWindow: Rect,
+		preserveCurrentPresentation: Boolean = false,
 		onPresented: (Boolean) -> Unit
 	) {
 		cancelPresentation()
@@ -46,9 +49,19 @@ internal class ReaderPageStaticWindowShield(
 		}
 		val request = Math.incrementExact(nextRequest).also { nextRequest = it }
 		activeRequest = request
-		requestedBitmap = bitmap
 		presentationCallback = onPresented
-		imageView.setImageBitmap(bitmap)
+		val capturedPresentation = if (preserveCurrentPresentation) {
+			captureCurrentPresentation(bitmap, surfaceRectInWindow)
+		} else {
+			null
+		}
+		if (preserveCurrentPresentation && capturedPresentation == null) {
+			complete(request, false)
+			return
+		}
+		val presentedBitmap = capturedPresentation ?: bitmap
+		requestedBitmap = presentedBitmap
+		replacePresentedBitmap(presentedBitmap, capturedPresentation)
 		val params = WindowManager.LayoutParams(
 			surfaceRectInWindow.width(),
 			surfaceRectInWindow.height(),
@@ -96,10 +109,65 @@ internal class ReaderPageStaticWindowShield(
 	fun dismiss() {
 		cancelPresentation()
 		imageView.setImageDrawable(null)
+		releaseOwnedBitmap()
 		if (windowAdded) {
 			runCatching { windowManager.removeViewImmediate(imageView) }
 			windowAdded = false
 		}
+	}
+
+	private fun captureCurrentPresentation(
+		referenceBitmap: Bitmap,
+		surfaceRectInWindow: Rect
+	): Bitmap? {
+		val presentationRoot = host.rootView
+		if (presentationRoot.width <= 0 || presentationRoot.height <= 0) return null
+		val rootLocation = IntArray(2)
+		presentationRoot.getLocationInWindow(rootLocation)
+		val sourceLeft = surfaceRectInWindow.left - rootLocation[0]
+		val sourceTop = surfaceRectInWindow.top - rootLocation[1]
+		val sourceRight = sourceLeft + surfaceRectInWindow.width()
+		val sourceBottom = sourceTop + surfaceRectInWindow.height()
+		if (
+			sourceLeft < 0 ||
+			sourceTop < 0 ||
+			sourceRight > presentationRoot.width ||
+			sourceBottom > presentationRoot.height
+		) return null
+
+		val captured = runCatching {
+			Bitmap.createBitmap(
+				referenceBitmap.width,
+				referenceBitmap.height,
+				Bitmap.Config.ARGB_8888
+			)
+		}.getOrNull() ?: return null
+		return runCatching {
+			captured.density = referenceBitmap.density
+			val canvas = Canvas(captured)
+			canvas.scale(
+				captured.width / surfaceRectInWindow.width().toFloat(),
+				captured.height / surfaceRectInWindow.height().toFloat()
+			)
+			canvas.translate(-sourceLeft.toFloat(), -sourceTop.toFloat())
+			presentationRoot.draw(canvas)
+			captured
+		}.getOrElse {
+			captured.recycle()
+			null
+		}
+	}
+
+	private fun replacePresentedBitmap(bitmap: Bitmap, owned: Bitmap?) {
+		val previousOwnedBitmap = ownedBitmap
+		imageView.setImageBitmap(bitmap)
+		ownedBitmap = owned
+		if (previousOwnedBitmap !== owned) previousOwnedBitmap?.recycle()
+	}
+
+	private fun releaseOwnedBitmap() {
+		ownedBitmap?.recycle()
+		ownedBitmap = null
 	}
 
 	private fun awaitWindowAttachment(request: Long) {

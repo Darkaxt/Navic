@@ -45,6 +45,7 @@ import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPagePointerOwnership
 import paige.navic.reader.ReaderPagePointerRoute
 import paige.navic.reader.ReaderPagePointerRouter
+import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderPageReadinessState
@@ -867,6 +868,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		canStartPreparation = { coldOwnershipAdmitted && rasterPaginationReady },
+		shouldPreserveCurrentPresentation = {
+			shellCoverVisible ||
+				latestRasterPreparationState.presentation ==
+				ReaderPagePreparationPresentation.Cover
+		},
 		onAwaitHostEvent = { reason ->
 			if (reason == ReaderPageRasterDeferralReason.LayoutUnstable) {
 				pageRasterHostEventController.layoutStabilityInvalidated()

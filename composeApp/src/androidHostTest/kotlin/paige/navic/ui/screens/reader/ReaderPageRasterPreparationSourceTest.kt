@@ -520,6 +520,32 @@ class ReaderPageRasterPreparationSourceTest {
 		assertFalse(shield.contains("publishPreparationState("))
 		assertFalse(shield.contains("reusePreparationShield("))
 	}
+
+	@Test
+	fun applicationPanelShieldPreservesCoverAndProgressComposition() {
+		val preparation = readerRasterPreparationSource()
+		val host = readerSource("KomikkuReaderNativeFrameHost.android.kt")
+		val window = readerSource("ReaderPageStaticWindowShield.android.kt")
+		val preservationArgument =
+			"preserveCurrentPresentation = shouldPreserveCurrentPresentation()"
+
+		assertContains(preparation, "private val shouldPreserveCurrentPresentation")
+		assertEquals(
+			4,
+			Regex(Regex.escape(preservationArgument)).findAll(preparation).count()
+		)
+		assertContains(host, "shouldPreserveCurrentPresentation = {")
+		assertContains(host, "shellCoverVisible ||")
+		assertContains(host, "latestRasterPreparationState.presentation ==")
+		assertContains(host, "ReaderPagePreparationPresentation.Cover")
+		assertContains(window, "preserveCurrentPresentation: Boolean = false")
+		assertContains(window, "captureCurrentPresentation(")
+		assertContains(window, "val presentationRoot = host.rootView")
+		assertContains(window, "presentationRoot.draw(canvas)")
+		assertFalse(window.contains("host.draw(canvas)"))
+		assertContains(window, "private var ownedBitmap: Bitmap? = null")
+		assertContains(window, "ownedBitmap?.recycle()")
+	}
 }
 
 private fun readerRasterBatchSource(): String = readerSource(
