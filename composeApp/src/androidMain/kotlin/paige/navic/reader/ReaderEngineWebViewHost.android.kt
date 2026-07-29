@@ -1,7 +1,9 @@
 package paige.navic.ui.screens.reader
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -42,6 +44,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 private const val ReaderEngineWebViewHostTag = "ReaderEngineWebViewHost"
+
+private class ReaderEngineWebView(context: Context) : WebView(context) {
+	var windowVisibilityListener: ((Int) -> Unit)? = null
+
+	override fun onWindowVisibilityChanged(visibility: Int) {
+		super.onWindowVisibilityChanged(visibility)
+		windowVisibilityListener?.invoke(visibility)
+	}
+}
 
 private object ReaderWebViewReleaseQueue {
 	private val handler = Handler(Looper.getMainLooper())
@@ -139,6 +150,21 @@ actual fun ReaderEngineWebViewHost(
 	var webViewGeneration by remember { mutableStateOf(0) }
 	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
 	var readerRuntimeReady by remember { mutableStateOf(false) }
+	val runtimeRecovery = remember { ReaderEngineRuntimeRecovery() }
+
+	fun restartInterruptedReaderRuntime(
+		generation: Int,
+		retireGeneration: () -> Boolean
+	) {
+		if (generation != webViewGeneration || !retireGeneration()) return
+		runtimeRecovery.reset()
+		readerRuntimeReady = false
+		Logger.i(
+			ReaderEngineWebViewHostTag,
+			"Restarting interrupted reader runtime after window visibility restored"
+		)
+		webViewGeneration += 1
+	}
 
 	fun WebView.dispatchReadyReaderCommands() {
 		if (
@@ -177,6 +203,7 @@ actual fun ReaderEngineWebViewHost(
 		Logger.i(ReaderEngineWebViewHostTag, "Reader bridge event: ${event.engineDebugLabel()}")
 		when (event) {
 			ReaderBridgeEvent.Ready -> {
+				runtimeRecovery.onRuntimeReady()
 				readerRuntimeReady = true
 				webView?.dispatchReadyReaderCommands()
 			}
@@ -235,6 +262,22 @@ actual fun ReaderEngineWebViewHost(
 			}
 		}
 
+		val runtimeStartGate = remember(generation) { ReaderEngineRuntimeStartGate() }
+		fun WebView.startReaderRuntimeIfVisible() {
+			if (
+				generationDisposed.get() ||
+				generation != webViewGeneration ||
+				webView !== this ||
+				!runtimeStartGate.startIfVisible(windowVisibility == View.VISIBLE)
+			) return
+			runtimeRecovery.onRuntimeLoadStarted()
+			ReaderWebRuntime.configure(
+				this,
+				bridge,
+				enableDebugging = settings.webContentsDebuggingEnabled == true
+			)
+		}
+
 		DisposableEffect(bridge, generation) {
 			onDispose {
 				retireGeneration()
@@ -244,9 +287,20 @@ actual fun ReaderEngineWebViewHost(
 		AndroidView(
 			modifier = modifier,
 			factory = {
-				WebView(context).apply {
+				ReaderEngineWebView(context).apply {
 					webView = this
 					generationWebView.set(this)
+					windowVisibilityListener = { visibility ->
+						val visible = visibility == View.VISIBLE
+						if (runtimeRecovery.onWindowVisibilityChanged(visible)) {
+							restartInterruptedReaderRuntime(
+								generation = generation,
+								retireGeneration = retireGeneration
+							)
+						} else if (visible) {
+							startReaderRuntimeIfVisible()
+						}
+					}
 					isLongClickable = false
 					setOnLongClickListener {
 						Logger.i(
@@ -314,12 +368,18 @@ actual fun ReaderEngineWebViewHost(
 							view: WebView,
 							detail: RenderProcessGoneDetail
 						): Boolean {
+							if (
+								generationDisposed.get() ||
+								generation != webViewGeneration ||
+								webView !== view
+							) return true
 							Logger.e(
 								ReaderEngineWebViewHostTag,
 								"Reader engine WebView render process gone didCrash=${detail.didCrash()} " +
 									"priorityAtExit=${detail.rendererPriorityAtExit()} " +
 									"publication=${currentPublicationKey.hashCode()}"
 							)
+							runtimeRecovery.reset()
 							readerRuntimeReady = false
 							currentOnEvent(
 								ReaderEngineHostEvent.FoliateBridge(
@@ -335,14 +395,11 @@ actual fun ReaderEngineWebViewHost(
 							return true
 						}
 					}
-					ReaderWebRuntime.configure(
-						this,
-						bridge,
-						enableDebugging = settings.webContentsDebuggingEnabled == true
-					)
+					post { startReaderRuntimeIfVisible() }
 				}
 			},
 			onRelease = { view ->
+				view.windowVisibilityListener = null
 				ReaderWebViewReleaseQueue.enqueue {
 					releaseGeneration(view)
 				}

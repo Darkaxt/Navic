@@ -152,6 +152,7 @@ public class PageSurfaceView extends GLSurfaceView {
                             callback,
                             failure));
     private final PageSurfaceOwnershipSnapshotCoordinator ownershipSnapshotCoordinator;
+    private final PageSurfaceOwnershipRetryEdge ownershipRetryEdge;
     private Runnable ownershipCallbackCapacityListener;
 
     private PageSurfaceListener pageSurfaceListener = NO_OP_LISTENER;
@@ -186,12 +187,7 @@ public class PageSurfaceView extends GLSurfaceView {
     private float gestureDownY;
     private OnPageChangeListener onPageChangeListener;
     private final Runnable ownershipSnapshotCapacityEdge = () ->
-            mainHandler.post(() -> {
-                Runnable listener = ownershipCallbackCapacityListener;
-                if (!disposeStarted && listener != null) {
-                    listener.run();
-                }
-            });
+            mainHandler.post(this::scheduleOwnershipRetryEdge);
 
     public PageSurfaceView(Context context) {
         super(context);
@@ -284,6 +280,26 @@ public class PageSurfaceView extends GLSurfaceView {
                             }
                         },
                         OWNERSHIP_CALLBACK_LIMIT);
+        ownershipRetryEdge = new PageSurfaceOwnershipRetryEdge(
+                new PageSurfaceOwnershipRetryEdge.Host() {
+                    @Override
+                    public boolean isOwnershipAvailable() {
+                        return !disposeStarted
+                                && attached
+                                && windowAttached
+                                && holderSurfaceAvailable;
+                    }
+
+                    @Override
+                    public Runnable ownershipRetryListener() {
+                        return ownershipCallbackCapacityListener;
+                    }
+
+                    @Override
+                    public boolean post(Runnable action) {
+                        return mainHandler.post(action);
+                    }
+                });
 
         getHolder().setFormat(PixelFormat.TRANSLUCENT);
         setEGLContextClientVersion(2);
@@ -337,6 +353,7 @@ public class PageSurfaceView extends GLSurfaceView {
         advanceOwnershipEpoch();
         onResume();
         requestRender();
+        scheduleOwnershipRetryEdge();
     }
 
     /** Cancels interaction and pauses frame production without releasing the active deck. */
@@ -758,12 +775,21 @@ public class PageSurfaceView extends GLSurfaceView {
         }
     }
 
+    private void scheduleOwnershipRetryEdge() {
+        requireMainThread();
+        ownershipRetryEdge.schedule();
+    }
+
     public void setOwnershipCallbackCapacityListener(Runnable listener) {
         requireMainThread();
-        ownershipCallbackCapacityListener =
-                Objects.requireNonNull(listener, "listener");
+        Runnable exact = Objects.requireNonNull(listener, "listener");
+        if (ownershipCallbackCapacityListener == exact) {
+            return;
+        }
+        ownershipCallbackCapacityListener = exact;
         ownershipSnapshotCoordinator.setCapacityAvailableListener(
                 ownershipSnapshotCapacityEdge);
+        scheduleOwnershipRetryEdge();
     }
 
     public void clearOwnershipCallbackCapacityListener(Runnable listener) {
@@ -1725,6 +1751,7 @@ public class PageSurfaceView extends GLSurfaceView {
         windowAttached = true;
         advanceOwnershipEpoch();
         drainRetainedMainTerminal();
+        scheduleOwnershipRetryEdge();
     }
 
     @Override
@@ -1733,6 +1760,7 @@ public class PageSurfaceView extends GLSurfaceView {
         holderSurfaceAvailable = true;
         advanceOwnershipEpoch();
         drainRetainedMainTerminal();
+        scheduleOwnershipRetryEdge();
     }
 
     @Override
