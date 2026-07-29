@@ -142,7 +142,6 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 
 	fun suspendForForegroundWork() {
 		suspended = true
-		preparedActiveDeck = null
 		attemptedChapterIdentities.clear()
 		cancelActive()
 	}

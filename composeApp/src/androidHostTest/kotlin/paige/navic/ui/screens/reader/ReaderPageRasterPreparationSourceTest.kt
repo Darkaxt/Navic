@@ -156,8 +156,8 @@ class ReaderPageRasterPreparationSourceTest {
 			"fun onWebViewAttachmentChanged(attached: Boolean) {"
 		).substringBefore("\n\tfun onPointerInteractionChanged(")
 		val teardown = source.substringAfter(
-			"private val teardown = ReaderPageReaderTeardown("
-		).substringBefore("\n\tprivate val memoryCallbacks")
+			"closeRendererAndAdapter = {"
+		).substringBefore("closeBundleOwners = closeBundleOwners")
 		val destroyFence = source.substringAfter(
 			"private fun fenceForDestroy() {"
 		).substringBefore("\n\tsuspend fun destroyAndJoin()")
@@ -166,6 +166,14 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(attachment, "cancelRasterRepairs(\"webview-detached\")")
 		assertContains(attachment, "deferPrewarmForWebViewDetach()")
 		assertContains(teardown, "awaitVisualRestorations()")
+		assertTrue(
+			teardown.indexOf("awaitVisualRestorations()") <
+				teardown.indexOf("removePreparationShield(")
+		)
+		assertTrue(
+			teardown.indexOf("awaitVisualRestorations()") <
+				teardown.indexOf("removeBackgroundPrefetchShield()")
+		)
 		assertFalse(destroyFence.contains("removePreparationShield("))
 		assertFalse(destroyFence.contains("removeBackgroundPrefetchShield("))
 	}
@@ -205,6 +213,172 @@ class ReaderPageRasterPreparationSourceTest {
 				hydration.indexOf("session.missingTargets += target")
 		)
 		assertContains(foreground, "enterBlockingPreparation(\"required-cache-miss")
+	}
+
+	@Test
+	fun cancelledWebViewRestorationFencesTheNextPreparation() {
+		val preparation = readerRasterPreparationSource()
+		val prewarm = preparation.substringAfter(
+			"fun prewarmAdjacent(): Boolean {"
+		).substringBefore("private fun initializeRasterCacheAndQueryPlan(")
+		val restoration = preparation.substringAfter(
+			"private fun trackVisualRestoration("
+		).substringBefore("private fun deferPreparationForVisualRestoration()")
+		val recovery = preparation.substringAfter(
+			"private fun restoreTimedOutVisualComposition()"
+		).substringBefore("private val teardown")
+		val batch = readerRasterBatchSource()
+		val cancellation = batch.substringAfter(
+			"override fun restoreLiveComposition("
+		).substringBefore("private fun startAcquisition(")
+
+		val restorationFence =
+			"if (deferPreparationForVisualRestoration()) return true"
+		assertContains(prewarm, restorationFence)
+		assertTrue(
+			prewarm.indexOf(restorationFence) <
+				prewarm.indexOf("val webView = webViewProvider()")
+		)
+		val prewarmCancellation = prewarm.indexOf("beginBlockingBackgroundPrefetchSession()")
+		val prewarmPostCancellationFence = prewarm.indexOf(
+			restorationFence,
+			prewarmCancellation + 1
+		)
+		assertTrue(
+			prewarmCancellation >= 0 &&
+				prewarmPostCancellationFence > prewarmCancellation &&
+				prewarmPostCancellationFence < prewarm.indexOf("cancelRasterRepairs(")
+		)
+		val repair = preparation.substringAfter(
+			"private fun startNextRasterRepair() {"
+		).substringBefore("private fun deferRasterRepair(")
+		val repairCancellation = repair.indexOf(
+			"adjacentChapterPrefetchCoordinator.suspendForForegroundWork()"
+		)
+		val repairFence = "if (deferPreparationForVisualRestoration()) return"
+		val repairPostCancellationFence = repair.indexOf(
+			repairFence,
+			repairCancellation + 1
+		)
+		assertTrue(
+			repairCancellation >= 0 &&
+				repairPostCancellationFence > repairCancellation &&
+				repairPostCancellationFence <
+				repair.indexOf("rasterRepairBatchController.start(")
+		)
+		val synchronization = preparation.substringAfter(
+			"fun synchronizeVisualPageIndex(pageIndex: Int?, reason: String?) {"
+		).substringBefore("fun attachRasterRepairQaFault(")
+		val centerChange = synchronization.substringAfter(
+			"beginBlockingBackgroundPrefetchSession()"
+		)
+		assertTrue(
+			centerChange.indexOf("cancelPrewarm(") <
+				centerChange.indexOf("deferPreparationForVisualRestoration()") &&
+				centerChange.indexOf("deferPreparationForVisualRestoration()") <
+				centerChange.indexOf("onRequestPrewarm()")
+		)
+		assertContains(restoration, "if (pendingVisualRestorations.isEmpty() && !destroyed)")
+		assertContains(restoration, "onRequestPrewarm()")
+		assertContains(restoration, "if (restoration.canRevealContent || destroyed)")
+		assertContains(
+			restoration,
+			"restoration == ReaderPageRasterCancellationRestoration.TimedOut"
+		)
+		assertContains(
+			restoration,
+			"timedOutPreparationShieldSession = preparationShieldSession"
+		)
+		assertContains(
+			restoration,
+			"timedOutBackgroundPrefetchShieldSessionId = backgroundPrefetchShieldSessionId"
+		)
+		assertContains(
+			restoration,
+			"timedOutVisualRestorationRecoveryRequired = true"
+		)
+		assertContains(restoration, "beginBlockingBackgroundPrefetchSession()")
+		assertTrue(
+			restoration.indexOf("beginBlockingBackgroundPrefetchSession()") <
+				restoration.indexOf("onRequestPrewarm()")
+		)
+		assertContains(restoration, "enterBlockingPreparation(\"visual-restoration-timeout\")")
+		assertContains(restoration, "resumePreparationAfterVisualRestoration = true")
+		assertContains(prewarm, "if (timedOutVisualRestorationRecoveryRequired)")
+		assertTrue(
+			prewarm.indexOf("if (timedOutVisualRestorationRecoveryRequired)") <
+				prewarm.indexOf("if (prewarmInProgress)")
+		)
+		assertContains(recovery, "rasterBatchController.restoreLiveComposition(webView)")
+		assertContains(recovery, "if (restoration.canRevealContent)")
+		assertContains(recovery, "timedOutVisualRestorationRecoveryRequired = false")
+		assertContains(recovery, "removePreparationShield(")
+		assertContains(recovery, "removeBackgroundPrefetchShield(backgroundSession)")
+		assertContains(recovery, "ReaderPagePreparationPhase.Failed")
+		assertContains(
+			cancellation,
+			"completeRestoration(ReaderPageRasterCancellationRestoration.TimedOut)"
+		)
+		assertContains(
+			cancellation,
+			"completeRestoration(ReaderPageRasterCancellationRestoration.Detached)"
+		)
+		assertContains(
+			cancellation,
+			"ReaderPageRasterCancellationRestoration.Restored"
+		)
+		assertContains(batch, "override fun restoreLiveComposition(")
+		assertContains(cancellation, "restorePageTurnLiveComposition?.()")
+		assertContains(cancellation, "removeCallbacks(restorationTimeout)")
+		assertContains(cancellation, "webView.postDelayed(")
+		assertContains(
+			cancellation,
+			"ReaderPageRasterCancellationRestorationTimeoutMillis"
+		)
+		assertTrue(
+			cancellation.indexOf("webView.postDelayed(") <
+				cancellation.indexOf("webView.evaluateJavascript(javascript)")
+		)
+	}
+
+	@Test
+	fun visualRestorationResumesOnlyDeferredEligibleWork() {
+		val source = readerRasterPreparationSource()
+		val restoration = source.substringAfter(
+			"private fun trackVisualRestoration("
+		).substringBefore("private fun deferPreparationForVisualRestoration()")
+		val pointer = source.substringAfter(
+			"fun onPointerInteractionChanged(active: Boolean) {"
+		).substringBefore("fun cancelAllDeferredRetries()")
+		val background = source.substringAfter(
+			"private fun startBackgroundPrefetch("
+		).substringBefore("private fun isBackgroundPrefetchActive(")
+		val cancellation = source.substringAfter(
+			"private fun cancelBackgroundPrefetchSubmission("
+		).substringBefore("private fun cancelBackgroundPrefetch(reason: String)")
+
+		assertContains(source, "private var resumePreparationAfterVisualRestoration = false")
+		assertContains(source, "private var pointerInteractionActive = false")
+		assertContains(restoration, "if (resumePreparationAfterVisualRestoration) {")
+		assertContains(restoration, "!pointerInteractionActive")
+		assertContains(restoration, "resumePreparationAfterVisualRestoration = false")
+		assertContains(restoration, "onRequestPrewarm()")
+		assertContains(restoration, "} else {")
+		assertContains(restoration, "resumeDeferredBackgroundPrefetchStart()")
+		assertTrue(
+			restoration.indexOf("onRequestPrewarm()") <
+				restoration.indexOf("resumeDeferredBackgroundPrefetchStart()"),
+			"Pending foreground restoration demand must suppress background resumption"
+		)
+		assertContains(pointer, "pointerInteractionActive = active")
+		assertContains(pointer, "pendingVisualRestorations.isEmpty()")
+		assertContains(background, "pendingVisualRestorations.isNotEmpty()")
+		assertTrue(
+			background.indexOf("pendingVisualRestorations.isNotEmpty()") <
+				background.indexOf("retainedSnapshot(")
+		)
+		assertContains(background, "deferredBackgroundPrefetchStart =")
+		assertContains(cancellation, "deferredBackgroundPrefetchStart")
 	}
 
 	@Test
@@ -398,6 +572,25 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun persistenceRetryCorrelationStartsOnlyAfterLedgerAdmission() {
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val publication = bundle.substringAfter(
+			"val persistenceAttemptId = ReaderPagePersistenceAttemptId("
+		).substringBefore("publicationValueTransferred = true")
+		val registration = publication.indexOf("val registration = publicationLedger.begin(")
+		val correlation = publication.indexOf(
+			"readerPageRasterPublicationRetryCorrelation("
+		)
+
+		assertTrue(registration >= 0 && registration < correlation)
+		assertFalse(
+			publication.contains(
+				"persistenceRetryCorrelations[key.digest]?.withRelation("
+			)
+		)
+	}
+
+	@Test
 	fun memoryPressureTrimsWorkingSetsWithoutInvalidatingRasterGeneration() {
 		val source = readerRasterPreparationSource()
 		val callbacks = source.substringAfter(
@@ -545,6 +738,17 @@ class ReaderPageRasterPreparationSourceTest {
 		assertFalse(window.contains("host.draw(canvas)"))
 		assertContains(window, "private var ownedBitmap: Bitmap? = null")
 		assertContains(window, "ownedBitmap?.recycle()")
+		assertContains(preparation, "private var timedOutPreparationShieldSession: Long? = null")
+		assertContains(
+			preparation,
+			"private var timedOutBackgroundPrefetchShieldSessionId: Long? = null"
+		)
+		val handoff = preparation.substringAfter(
+			"private fun completePreparationShieldPresentation("
+		).substringBefore("private fun removePreparationShield(")
+		assertContains(handoff, "timedOutPreparationShieldSession = null")
+		assertContains(handoff, "timedOutBackgroundPrefetchShieldSessionId")
+		assertContains(handoff, "removeBackgroundPrefetchShield(timedOutBackgroundSession)")
 	}
 }
 

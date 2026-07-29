@@ -330,13 +330,12 @@ class ReaderDevEnvironmentContractTest {
 			"Stress polling must admit a pending recoverable ownership callback, then require recovery before accepting the completed interval."
 		)
 		assertTrue(
-			runner.contains("\$maximumConsecutiveNoTerminalAttempts = 3") &&
-				runner.contains("\$consecutiveNoTerminalAttempts += 1") &&
-				runner.contains("\$consecutiveNoTerminalAttempts = 0") &&
-				runner.contains("ReaderDev stress emitted no gesture terminal for") &&
-				runner.contains("Start-Sleep -Milliseconds 250") &&
-				runner.contains("continue"),
-			"A swipe that lands during a bounded refill must be retried, while repeated missing terminals still fail the gate."
+			runner.contains("function Invoke-ReaderQaCorrelatedSwipeTerminal") &&
+				runner.contains("\$newTerminal = Invoke-ReaderQaCorrelatedSwipeTerminal") &&
+				runner.contains("-DurationMs 180") &&
+				!runner.contains("\$consecutiveNoTerminalAttempts") &&
+				!runner.contains("ReaderDev stress emitted no gesture terminal for"),
+			"Stress must retry only input identities proven unconsumed; an admitted gesture waits for its exact terminal without retransmission."
 		)
 		assertTrue(
 			runner.contains("function Invoke-ReaderQaFaultMatrix") &&
@@ -410,10 +409,13 @@ class ReaderDevEnvironmentContractTest {
 			runner.contains("Add-ReaderQaFault \$repairId 'ForceRepairWithoutPreparedDeck'") &&
 				runner.contains("\$missId = \"miss-\$suffix\"") &&
 				runner.contains("-Context 'ReaderDev settlement-fenced repair fault turn'") &&
-				runner.contains("-MaximumAttempts 1") &&
+				runner.contains("-MaximumAttempts 3") &&
+					runner.contains(
+						"-RetryOnlyWhileFaultsRemainEnqueued @(\$missId, \$repairId)"
+					) &&
 				runner.contains("if (\$forcedRepairTerminal.Match.State -eq 'Cancelled')") &&
 				runner.contains("-States @('Completed', 'Rejected')"),
-			"The fault matrix must inject one settlement-fenced forced repair and accept either cancellation by the committed turn or completed active-deck recovery."
+			"The fault matrix must inject one settlement-fenced forced repair, retry only unconsumed user-cancelled input, and accept either cancellation by the committed turn or completed active-deck recovery."
 		)
 		assertTrue(
 			runner.contains("function Wait-ReaderQaRelocationTerminal") &&
@@ -426,6 +428,28 @@ class ReaderDevEnvironmentContractTest {
 				runner.contains("ReaderDev completed active repair deck") &&
 				runner.contains("ReaderDev repaired active deck proof turn"),
 			"Forced repair must accept both settlement supersession and completed active-deck recovery before proving the recovered reader can turn again."
+		)
+		val faultMatrix = runner
+			.substringAfter("function Invoke-ReaderQaFaultMatrix(")
+			.substringBefore("\n\$runSucceeded = \$false")
+		val relocationWait = runner
+			.substringAfter("function Wait-ReaderQaRelocationTerminal(")
+			.substringBefore("function Wait-ReaderQaRelocationCompleted(")
+		assertTrue(
+			faultMatrix.contains("\$repairRelocation = Wait-ReaderQaRelocationTerminal") &&
+				faultMatrix.contains("\$repairDeck = Wait-ReaderQaCondition") &&
+				faultMatrix.contains("\$repairResolutionIndex = [Math]::Max(") &&
+				faultMatrix.contains("\$forcedRepairTerminal.Match.Index") &&
+				faultMatrix.contains("\$repairRelocation.Match.Index") &&
+				faultMatrix.contains("\$repairDeck.Match.Index") &&
+				faultMatrix.contains("\$_.Index -gt \$repairResolutionIndex") &&
+				relocationWait.contains("[switch] \$Full") &&
+				relocationWait.contains("-Full:\$Full") &&
+				faultMatrix.indexOf("ReaderDev fault matrix ownership drain") <
+				faultMatrix.indexOf("\$proofTurn = Invoke-ReaderQaCommittedTurn") &&
+				faultMatrix.indexOf("ReaderDev fault matrix ownership drain") <
+				faultMatrix.indexOf("\$finalLog = Read-ReaderPidLog"),
+			"Fault-matrix parsing must drain repair ownership before the proof turn can acquire new staged work."
 		)
 		assertTrue(
 			runner.contains("\$script:ReaderAccumulatedLogLines") &&
@@ -604,6 +628,102 @@ class ReaderDevEnvironmentContractTest {
 					"preferenceManager.readerDragAnimationMode = ReaderDragAnimationCanvas"
 				),
 			"ReaderDev must synchronously enable the canvas and prearm the validated fault before Compose attaches the reader registry."
+		)
+	}
+
+	@Test
+	fun committedTurnRetriesBoundedInputDropsWithoutMaskingDiagnosticErrors() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+		val wait = runner
+			.substringAfter("function Wait-ReaderQaCondition(")
+			.substringBefore("function Wait-ReaderQaFaultState(")
+		val correlatedSwipe = runner
+			.substringAfter("function Invoke-ReaderQaCorrelatedSwipeTerminal(")
+			.substringBefore("function Invoke-ReaderQaCommittedTurn(")
+		val preparationTerminalWait = runner
+			.substringAfter("function Wait-ReaderQaPreparationAttemptTerminal(")
+			.substringBefore("function Wait-ReaderQaPreparedTextureGeneration(")
+		val turn = runner
+			.substringAfter("function Invoke-ReaderQaCommittedTurn(")
+			.substringBefore("function Wait-ReaderQaRelocationTerminal(")
+
+		assertTrue(
+			wait.contains("[switch] \$ReturnNullOnTimeout") &&
+				wait.contains("if (\$ReturnNullOnTimeout) { return \$null }")
+		)
+		assertTrue(
+			turn.contains("[int] \$MaximumInputAttempts = 3") &&
+				turn.contains("Invoke-ReaderQaCorrelatedSwipeTerminal") &&
+				turn.contains("-MaximumInputAttempts \$MaximumInputAttempts") &&
+				correlatedSwipe.contains(
+					"for (\$inputAttempt = 1; " +
+						"\$inputAttempt -le \$MaximumInputAttempts; " +
+						"\$inputAttempt += 1) {"
+				) &&
+				correlatedSwipe.contains("-Command 'arm-input'") &&
+				correlatedSwipe.contains("-Command 'clear-input'")
+		)
+		assertTrue(
+			correlatedSwipe.contains("\$_.GestureId -eq \$gestureId") &&
+				correlatedSwipe.contains("-WaitSeconds 60") &&
+				!correlatedSwipe.contains("-not \$SeenGestureIds.Contains")
+		)
+		val silentFailedRecovery = correlatedSwipe
+			.substringAfter("'AwaitNextAttempt' {")
+			.substringBefore("default {")
+		assertTrue(
+			correlatedSwipe.contains("\$silentInputRecoveryLog = Read-ReaderPidLog") &&
+				correlatedSwipe.contains("-Full") &&
+				correlatedSwipe.contains("Get-ReaderPreparationRecoveryAction") &&
+				correlatedSwipe.contains("Wait-ReaderQaPreparationAttemptTerminal") &&
+				correlatedSwipe.contains("-WaitSeconds \$preparationRecoveryTimeoutSeconds") &&
+				!correlatedSwipe.contains("Wait-ReaderQaWorkingSetReady") &&
+				silentFailedRecovery.contains("Start-Sleep -Milliseconds 750") &&
+				preparationTerminalWait.contains("\$_.Attempt -eq \$Attempt") &&
+				preparationTerminalWait.contains("\$_.RasterGeneration -eq \$RasterGeneration") &&
+				preparationTerminalWait.contains("\$_.Index -gt \$AfterIndex") &&
+				preparationTerminalWait.contains("\$_.State -in @('Ready', 'Failed', 'Cancelled')"),
+			"A proven-unconsumed swipe must wait for an exact in-progress terminal, but an already failed or cancelled attempt must only quiesce before the bounded physical retry because a prepared deck may have superseded it without a newer preparation attempt."
+		)
+		assertTrue(
+			turn.contains("[string[]] \$RetryOnlyWhileFaultsRemainEnqueued = @()") &&
+				turn.contains("\$terminal.Outcome -ne 'CancelledByUser'") &&
+				turn.contains("Test-ReaderQaFaultRequestsRemainEnqueued")
+		)
+		val faultMatrix = runner
+			.substringAfter("function Invoke-ReaderQaFaultMatrix(")
+			.substringBefore("function Invoke-ReaderQaRendererLossRecovery(")
+		assertTrue(
+			faultMatrix.contains("-MaximumAttempts 3") &&
+				faultMatrix.contains(
+					"-RetryOnlyWhileFaultsRemainEnqueued @(\$missId, \$repairId)"
+				),
+			"Observed terminals may retry only when user cancellation left both repair faults unconsumed."
+		)
+	}
+
+	@Test
+	fun stressDrainAcceptsOneDrainedSnapshotAfterOverlappingRelocations() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+		val drain = runner
+			.substringAfter("\$stressDeadline = [DateTime]::UtcNow.AddSeconds(60)")
+			.substringBefore("Assert-ReaderOwnershipUnavailablePolicy `\n" +
+				"    -Log \$log `\n" +
+				"    -ReaderSession \$readerSession `\n" +
+				"    -Context 'ReaderDev completed stress interval'")
+
+		assertTrue(
+			drain.contains("\$lastTerminalRelocationIndex") &&
+				drain.contains("\$_.Index -gt \$lastTerminalRelocationIndex") &&
+				drain.contains("\$drainedOwnership.Count -gt 0")
+		)
+		assertFalse(
+			drain.contains("\$steadyTurns -ge \$completedRelocations.Count"),
+			"Overlapping relocations may share one final steady-state snapshot."
 		)
 	}
 

@@ -17,6 +17,10 @@ sealed interface ReaderPageQaFaultCommand {
 	data class ReleaseVisualState(override val requestId: String) :
 		ReaderPageQaFaultCommand
 
+	data class ArmInput(override val requestId: String) : ReaderPageQaFaultCommand
+
+	data class ClearInput(override val requestId: String) : ReaderPageQaFaultCommand
+
 	data class Clear(override val requestId: String) : ReaderPageQaFaultCommand
 
 	data class Rejected(
@@ -61,6 +65,8 @@ object ReaderPageQaFaultCommandDecoder {
 				ReaderPageQaFaultCommand.ReleaseRelocation(safeId)
 			"release-visual-state" ->
 				ReaderPageQaFaultCommand.ReleaseVisualState(safeId)
+			"arm-input" -> ReaderPageQaFaultCommand.ArmInput(safeId)
+			"clear-input" -> ReaderPageQaFaultCommand.ClearInput(safeId)
 			"clear" -> ReaderPageQaFaultCommand.Clear(safeId)
 			else -> ReaderPageQaFaultCommand.Rejected(
 				safeId,

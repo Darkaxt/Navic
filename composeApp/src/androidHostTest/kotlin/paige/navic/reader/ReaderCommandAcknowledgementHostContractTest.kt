@@ -14,7 +14,7 @@ class ReaderCommandAcknowledgementHostContractTest {
 			.substringBefore("val bridge = remember")
 		val rendererGoneBlock = hostText
 			.substringAfter("override fun onRenderProcessGone")
-			.substringBefore("return true")
+			.substringBefore("post { startReaderRuntimeIfVisible() }")
 
 		assertContains(hostText, "runtimeGeneration = webViewGeneration")
 		assertContains(hostText, "ReaderWebRuntime.commandScript(dispatch)")

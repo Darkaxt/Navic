@@ -274,6 +274,7 @@ $script:ReaderLogcatCursor = $null
 $script:ReaderAccumulatedLogLineSet = [Collections.Generic.HashSet[string]]::new()
 $script:ReaderAccumulatedLogLines = [Collections.Generic.List[string]]::new()
 $script:ReaderAccumulatedDiagnosticLogLines = [Collections.Generic.List[string]]::new()
+$script:ReaderAccumulatedQaInputLogLines = [Collections.Generic.List[string]]::new()
 $recentDiagnosticWindow = 1024
 
 function Reset-ReaderLogAccumulator {
@@ -281,6 +282,7 @@ function Reset-ReaderLogAccumulator {
     $script:ReaderAccumulatedLogLineSet.Clear()
     $script:ReaderAccumulatedLogLines.Clear()
     $script:ReaderAccumulatedDiagnosticLogLines.Clear()
+    $script:ReaderAccumulatedQaInputLogLines.Clear()
 }
 
 function Get-ReaderPid {
@@ -362,6 +364,9 @@ function Read-ReaderPidLog(
     if ($newRawLines.Count -gt 0) {
         $newRawLog = $newRawLines -join "`n"
         Assert-ReaderRuntimeLogSafe -Log $newRawLog -Context $Context
+        foreach ($qaInput in @(ConvertFrom-ReaderQaInputLog $newRawLog)) {
+            $script:ReaderAccumulatedQaInputLogLines.Add($qaInput.LogLine)
+        }
         if ($ReaderDiagnosticIntroducerPattern.IsMatch($newRawLog)) {
             $newDiagnostics = @(
                 ConvertTo-ReaderDiagnosticRecordSet `
@@ -526,6 +531,30 @@ function Wait-ReaderQaWorkingSetReady(
     throw "$Context did not complete working-set preparation"
 }
 
+function Wait-ReaderQaPreparationAttemptTerminal(
+    [long] $ReaderSession,
+    [long] $Attempt,
+    [long] $RasterGeneration,
+    [int] $AfterIndex,
+    [string] $Context,
+    [int] $WaitSeconds = 60
+) {
+    return Wait-ReaderQaCondition `
+        -Context $Context `
+        -WaitSeconds $WaitSeconds `
+        -Full `
+        -Select {
+            param($log)
+            ConvertFrom-ReaderPreparationLog $log | Where-Object {
+                $_.Session -eq $ReaderSession -and
+                    $_.Attempt -eq $Attempt -and
+                    $_.RasterGeneration -eq $RasterGeneration -and
+                    $_.Index -gt $AfterIndex -and
+                    $_.State -in @('Ready', 'Failed', 'Cancelled')
+            }
+        }
+}
+
 function Wait-ReaderQaPreparedTextureGeneration(
     [long] $ReaderSession,
     [long] $GestureId,
@@ -659,7 +688,8 @@ function Wait-ReaderQaCondition(
     [string] $Context,
     [scriptblock] $Select,
     [int] $WaitSeconds = 30,
-    [switch] $Full
+    [switch] $Full,
+    [switch] $ReturnNullOnTimeout
 ) {
     $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
     do {
@@ -673,7 +703,36 @@ function Wait-ReaderQaCondition(
         }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
+    if ($ReturnNullOnTimeout) { return $null }
     throw "$Context did not emit its required diagnostic"
+}
+
+function Wait-ReaderQaInputState(
+    [string] $RequestId,
+    [string] $State,
+    [string] $Context,
+    [int] $WaitSeconds = 10,
+    [switch] $ReturnNullOnTimeout
+) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
+    do {
+        [void](Read-ReaderPidLog $Context)
+        $log = $script:ReaderAccumulatedQaInputLogLines -join "`n"
+        $matches = @(
+            ConvertFrom-ReaderQaInputLog $log | Where-Object {
+                $_.RequestId -eq $RequestId -and $_.State -eq $State
+            }
+        )
+        if ($matches.Count -gt 0) {
+            return [pscustomobject]@{
+                Log = $log
+                Match = $matches[$matches.Count - 1]
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($ReturnNullOnTimeout) { return $null }
+    throw "$Context did not emit its required QA-input state"
 }
 
 function Wait-ReaderQaFaultState(
@@ -772,6 +831,143 @@ function Restore-ReaderAnimatorDurationScale([string] $Scale) {
     return $false
 }
 
+function Test-ReaderQaFaultRequestsRemainEnqueued(
+    [string[]] $RequestIds,
+    [string] $Context
+) {
+    $events = @(
+        ConvertFrom-ReaderQaFaultLog (
+            Read-ReaderPidLog -Context $Context -Full
+        )
+    )
+    foreach ($requestId in $RequestIds) {
+        $latest = @(
+            $events | Where-Object RequestId -eq $requestId
+        ) | Select-Object -Last 1
+        if ($null -eq $latest -or $latest.State -ne 'Enqueued') {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Invoke-ReaderQaCorrelatedSwipeTerminal(
+    [Collections.Generic.HashSet[long]] $SeenGestureIds,
+    [long] $ReaderSession,
+    [int] $StartX,
+    [int] $EndX,
+    [int] $Y,
+    [int] $DurationMs,
+    [string] $Context,
+    [ValidateRange(1, 5)]
+    [int] $MaximumInputAttempts = 3
+) {
+    for ($inputAttempt = 1; $inputAttempt -le $MaximumInputAttempts; $inputAttempt += 1) {
+        $inputRequestId = "input-$([guid]::NewGuid().ToString('N'))"
+        Invoke-ReaderQaFaultCommand `
+            -RequestId $inputRequestId `
+            -Command 'arm-input'
+        $armed = Wait-ReaderQaInputState `
+            -RequestId $inputRequestId `
+            -State 'Armed' `
+            -Context "$Context input arm $inputAttempt"
+        if (-not $armed.Match.Accepted) {
+            throw "$Context could not arm input correlation $inputRequestId"
+        }
+
+        Invoke-Adb @(
+            'shell', 'input', 'swipe',
+            "$StartX", "$Y", "$EndX", "$Y", "$DurationMs"
+        )
+        $admitted = Wait-ReaderQaInputState `
+            -RequestId $inputRequestId `
+            -State 'Admitted' `
+            -Context "$Context input admission $inputAttempt" `
+            -WaitSeconds 3 `
+            -ReturnNullOnTimeout
+        if ($null -eq $admitted) {
+            Invoke-ReaderQaFaultCommand `
+                -RequestId $inputRequestId `
+                -Command 'clear-input'
+            $cleared = Wait-ReaderQaInputState `
+                -RequestId $inputRequestId `
+                -State 'Cleared' `
+                -Context "$Context input clear $inputAttempt"
+            if (-not $cleared.Match.Accepted) {
+                $admitted = Wait-ReaderQaInputState `
+                    -RequestId $inputRequestId `
+                    -State 'Admitted' `
+                    -Context "$Context delayed input admission $inputAttempt" `
+                    -WaitSeconds 10 `
+                    -ReturnNullOnTimeout
+                if ($null -eq $admitted) {
+                    throw "$Context consumed input correlation without an admission record"
+                }
+            } elseif ($inputAttempt -lt $MaximumInputAttempts) {
+                $silentInputRecoveryLog = Read-ReaderPidLog `
+                    -Context "$Context silent input recovery $inputAttempt" `
+                    -Full
+                $preparationRecords = @(
+                    ConvertFrom-ReaderPreparationLog $silentInputRecoveryLog |
+                        Where-Object Session -eq $ReaderSession
+                )
+                if ($preparationRecords.Count -eq 0) {
+                    Start-Sleep -Milliseconds 250
+                    continue
+                }
+                $latestPreparation = $preparationRecords[-1]
+                $recoveryAction = Get-ReaderPreparationRecoveryAction `
+                    -State $latestPreparation.State `
+                    -PreparationIndex $latestPreparation.Index `
+                    -TerminalIndex ([int]::MaxValue)
+                switch ($recoveryAction) {
+                    'QuiesceReadyBeforeTerminal' {
+                        Start-Sleep -Milliseconds 750
+                    }
+                    'AwaitCurrentAttempt' {
+                        [void](Wait-ReaderQaPreparationAttemptTerminal `
+                            -ReaderSession $ReaderSession `
+                            -Attempt $latestPreparation.Attempt `
+                            -RasterGeneration $latestPreparation.RasterGeneration `
+                            -AfterIndex $latestPreparation.Index `
+                            -Context "$Context silent input recovery $inputAttempt" `
+                            -WaitSeconds $preparationRecoveryTimeoutSeconds)
+                        Start-Sleep -Milliseconds 750
+                    }
+                    'AwaitNextAttempt' {
+                        Start-Sleep -Milliseconds 750
+                    }
+                    default {
+                        throw "$Context silent input recovery chose an unknown action: $recoveryAction"
+                    }
+                }
+                continue
+            } else {
+                throw "$Context input was dropped within its bounded retry count"
+            }
+        }
+        if ($admitted.Match.Session -ne $ReaderSession) {
+            throw "$Context input was admitted by a different reader session"
+        }
+        $gestureId = [long]$admitted.Match.GestureId
+        if ($SeenGestureIds.Contains($gestureId)) {
+            throw "$Context input reused a gesture identity"
+        }
+        $terminal = Wait-ReaderQaCondition `
+            -Context "$Context gesture $gestureId terminal" `
+            -WaitSeconds 60 `
+            -Select {
+                param($log)
+                ConvertFrom-ReaderGestureLog $log | Where-Object {
+                    $_.Session -eq $ReaderSession -and
+                        $_.GestureId -eq $gestureId
+                }
+            }
+        return $terminal.Match
+    }
+    throw "$Context input was dropped within its bounded retry count"
+}
+
 function Invoke-ReaderQaCommittedTurn(
     [Collections.Generic.HashSet[long]] $SeenGestureIds,
     [long] $ReaderSession,
@@ -780,7 +976,10 @@ function Invoke-ReaderQaCommittedTurn(
     [int] $Y,
     [string] $Context,
     [ValidateRange(1, 20)]
-    [int] $MaximumAttempts = 20
+    [int] $MaximumAttempts = 20,
+    [ValidateRange(1, 5)]
+    [int] $MaximumInputAttempts = 3,
+    [string[]] $RetryOnlyWhileFaultsRemainEnqueued = @()
 ) {
     $retryOutcomes = @(
         'CancelledByUser',
@@ -789,28 +988,33 @@ function Invoke-ReaderQaCommittedTurn(
         'RejectedRendererUnavailable'
     )
     for ($attempt = 1; $attempt -le $MaximumAttempts; $attempt += 1) {
-        Invoke-Adb @(
-            'shell', 'input', 'swipe',
-            "$StartX", "$Y", "$EndX", "$Y", '400'
-        )
-        $terminal = Wait-ReaderQaCondition `
+        $terminal = Invoke-ReaderQaCorrelatedSwipeTerminal `
+            -SeenGestureIds $SeenGestureIds `
+            -ReaderSession $ReaderSession `
+            -StartX $StartX `
+            -EndX $EndX `
+            -Y $Y `
+            -DurationMs 400 `
             -Context "$Context attempt $attempt" `
-            -WaitSeconds 10 `
-            -Select {
-                param($log)
-                ConvertFrom-ReaderGestureLog $log | Where-Object {
-                    $_.Session -eq $ReaderSession -and
-                        -not $SeenGestureIds.Contains($_.GestureId)
-                }
-            }
-        if (-not $SeenGestureIds.Add([long]$terminal.Match.GestureId)) {
+            -MaximumInputAttempts $MaximumInputAttempts
+        if (-not $SeenGestureIds.Add([long]$terminal.GestureId)) {
             throw "$Context reused a gesture identity"
         }
-        if ($terminal.Match.Outcome -in @('CommittedForward', 'CommittedBackward')) {
-            return $terminal.Match
+        if ($terminal.Outcome -in @('CommittedForward', 'CommittedBackward')) {
+            return $terminal
         }
-        if ($terminal.Match.Outcome -notin $retryOutcomes) {
-            throw "$Context produced a non-retryable terminal: $($terminal.Match.LogLine)"
+        if ($terminal.Outcome -notin $retryOutcomes) {
+            throw "$Context produced a non-retryable terminal: $($terminal.LogLine)"
+        }
+        if ($RetryOnlyWhileFaultsRemainEnqueued.Count -gt 0) {
+            if (
+                $terminal.Outcome -ne 'CancelledByUser' -or
+                -not (Test-ReaderQaFaultRequestsRemainEnqueued `
+                    -RequestIds $RetryOnlyWhileFaultsRemainEnqueued `
+                    -Context "$Context fault retry guard")
+            ) {
+                throw "$Context cannot retry after fault consumption: $($terminal.LogLine)"
+            }
         }
         Start-Sleep -Milliseconds 250
     }
@@ -822,28 +1026,35 @@ function Wait-ReaderQaRelocationTerminal(
     [long] $GestureId,
     [ValidateSet('Completed', 'Rejected')]
     [string[]] $States,
-    [string] $Context
+    [string] $Context,
+    [switch] $Full
 ) {
-    return Wait-ReaderQaCondition -Context $Context -WaitSeconds 30 -Select {
-        param($log)
-        ConvertFrom-ReaderRelocationLog $log | Where-Object {
-            $_.Session -eq $ReaderSession -and
-                $_.GestureId -eq $GestureId -and
-                $_.State -in $States
+    return Wait-ReaderQaCondition `
+        -Context $Context `
+        -WaitSeconds 30 `
+        -Full:$Full `
+        -Select {
+            param($log)
+            ConvertFrom-ReaderRelocationLog $log | Where-Object {
+                $_.Session -eq $ReaderSession -and
+                    $_.GestureId -eq $GestureId -and
+                    $_.State -in $States
+            }
         }
-    }
 }
 
 function Wait-ReaderQaRelocationCompleted(
     [long] $ReaderSession,
     [long] $GestureId,
-    [string] $Context
+    [string] $Context,
+    [switch] $Full
 ) {
     return Wait-ReaderQaRelocationTerminal `
         -ReaderSession $ReaderSession `
         -GestureId $GestureId `
         -States @('Completed') `
-        -Context $Context
+        -Context $Context `
+        -Full:$Full
 }
 
 function Get-ReaderQaSwipeCoordinates(
@@ -1353,7 +1564,8 @@ function Invoke-ReaderQaFaultMatrix(
         -StartX $repairSwipe.StartX -EndX $repairSwipe.EndX `
         -Y $Y `
         -Context 'ReaderDev settlement-fenced repair fault turn' `
-        -MaximumAttempts 1
+        -MaximumAttempts 3 `
+        -RetryOnlyWhileFaultsRemainEnqueued @($missId, $repairId)
     [void](Wait-ReaderQaFaultState `
         $missId `
         'Applied' `
@@ -1371,6 +1583,7 @@ function Invoke-ReaderQaFaultMatrix(
     $forcedRepairTerminal = Wait-ReaderQaCondition `
         -Context 'ReaderDev forced repair terminal' `
         -WaitSeconds 60 `
+        -Full `
         -Select {
             param($log)
             ConvertFrom-ReaderRepairLog $log | Where-Object {
@@ -1379,26 +1592,31 @@ function Invoke-ReaderQaFaultMatrix(
                     $_.State -in @('Completed', 'Cancelled')
             }
         }
+    $repairRelocation = $null
+    $repairDeck = $null
     if ($forcedRepairTerminal.Match.State -eq 'Cancelled') {
-        [void](Wait-ReaderQaRelocationTerminal `
+        $repairRelocation = Wait-ReaderQaRelocationTerminal `
             -ReaderSession $ReaderSession `
             -GestureId $repairTurn.GestureId `
             -States @('Completed') `
-            -Context 'ReaderDev superseding repair relocation')
+            -Context 'ReaderDev superseding repair relocation' `
+            -Full
         [void](Wait-ReaderQaPreparedTextureGeneration `
             -ReaderSession $ReaderSession `
             -GestureId $repairTurn.GestureId `
             -TextureGeneration $repairTurn.TextureGeneration `
             -Context 'ReaderDev superseding repair texture preparation')
     } else {
-        [void](Wait-ReaderQaRelocationTerminal `
+        $repairRelocation = Wait-ReaderQaRelocationTerminal `
             -ReaderSession $ReaderSession `
             -GestureId $repairTurn.GestureId `
             -States @('Completed', 'Rejected') `
-            -Context 'ReaderDev completed active repair relocation')
-        [void](Wait-ReaderQaCondition `
+            -Context 'ReaderDev completed active repair relocation' `
+            -Full
+        $repairDeck = Wait-ReaderQaCondition `
             -Context 'ReaderDev completed active repair deck' `
             -WaitSeconds 60 `
+            -Full `
             -Select {
                 param($log)
                 ConvertFrom-ReaderDeckLog $log | Where-Object {
@@ -1412,8 +1630,39 @@ function Invoke-ReaderQaFaultMatrix(
                         $_.QaFaultRelation -eq 'AppliedOperation' -and
                         $_.QaFaultRepairAttemptId -eq $forcedRepairAttemptId
                 }
-            })
+            }
     }
+    $repairResolutionIndex = [Math]::Max(
+        $forcedRepairTerminal.Match.Index,
+        $repairRelocation.Match.Index
+    )
+    if ($null -ne $repairDeck) {
+        $repairResolutionIndex = [Math]::Max(
+            $repairResolutionIndex,
+            $repairDeck.Match.Index
+        )
+    }
+    [void](Wait-ReaderQaCondition `
+        -Context 'ReaderDev fault matrix ownership drain' `
+        -WaitSeconds 60 `
+        -Full `
+        -Select {
+            param($log)
+            ConvertFrom-ReaderOwnershipLog $log | Where-Object {
+                $_.Session -eq $ReaderSession -and
+                    $_.Phase -eq 'steady-state' -and
+                    $_.Index -gt $repairResolutionIndex -and
+                    $_.Staged -eq 0 -and
+                    $_.PendingLeases -eq 0 -and
+                    $_.ReleaseInFlightLeases -eq 0 -and
+                    $_.OrphanLeases -eq 0 -and
+                    $_.Callbacks -eq 0 -and
+                    $_.RelocationReservations -eq 0 -and
+                    $_.QueuedRelocations -eq 0 -and
+                    $_.Relocations -eq 0
+            }
+        })
+
     $proofTurn = Invoke-ReaderQaCommittedTurn `
         -SeenGestureIds $seen -ReaderSession $ReaderSession `
         -StartX $nextSwipe.StartX -EndX $nextSwipe.EndX -Y $Y `
@@ -1625,8 +1874,6 @@ $nextCommitsAfterBoundary = 0
 $previousCommitsAfterExpansion = 0
 $stressPhase = 'SeekPreviousBoundary'
 $requestedLogicalDirection = 'Previous'
-$consecutiveNoTerminalAttempts = 0
-$maximumConsecutiveNoTerminalAttempts = 3
 
 while ($attempt -lt $maximumAttempts -and
     $committedTurns -lt $maximumCommittedTurns) {
@@ -1650,48 +1897,22 @@ while ($attempt -lt $maximumAttempts -and
     } else {
         $physicalRight
     }
-    Invoke-Adb @(
-        'shell', 'input', 'swipe',
-        "$startX", "$y", "$endX", "$y", '180'
-    )
     $attempt += 1
-
-    $terminalDeadline = [DateTime]::UtcNow.AddSeconds(10)
-    $newTerminal = $null
-    do {
-        Start-Sleep -Milliseconds 100
-        $log = Read-ReaderPidLog "ReaderDev stress attempt $attempt"
-        Assert-ReaderOwnershipUnavailablePolicy `
-            -Log $log `
-            -ReaderSession $readerSession `
-            -Context "ReaderDev stress attempt $attempt" `
-            -AllowPendingRecovery
-        [void](Get-CommittedTurnCount $log $readerSession)
-        $newTerminals = @(
-            ConvertFrom-ReaderGestureLog $log | Where-Object {
-                $_.Session -eq $readerSession -and
-                -not $seenGestureIds.Contains($_.GestureId)
-            }
-        )
-        if ($newTerminals.Count -gt 1) {
-            throw "ReaderDev stress attempt $attempt emitted multiple gesture terminals"
-        }
-        if ($newTerminals.Count -eq 1) {
-            $newTerminal = $newTerminals[0]
-            break
-        }
-    } while ([DateTime]::UtcNow -lt $terminalDeadline)
-    if ($null -eq $newTerminal) {
-        $consecutiveNoTerminalAttempts += 1
-        if ($consecutiveNoTerminalAttempts -gt
-            $maximumConsecutiveNoTerminalAttempts) {
-            throw "ReaderDev stress emitted no gesture terminal for " +
-                "$consecutiveNoTerminalAttempts consecutive attempts"
-        }
-        Start-Sleep -Milliseconds 250
-        continue
-    }
-    $consecutiveNoTerminalAttempts = 0
+    $newTerminal = Invoke-ReaderQaCorrelatedSwipeTerminal `
+        -SeenGestureIds $seenGestureIds `
+        -ReaderSession $readerSession `
+        -StartX $startX `
+        -EndX $endX `
+        -Y $y `
+        -DurationMs 180 `
+        -Context "ReaderDev stress attempt $attempt"
+    $log = Read-ReaderPidLog "ReaderDev stress attempt $attempt"
+    Assert-ReaderOwnershipUnavailablePolicy `
+        -Log $log `
+        -ReaderSession $readerSession `
+        -Context "ReaderDev stress attempt $attempt" `
+        -AllowPendingRecovery
+    [void](Get-CommittedTurnCount $log $readerSession)
     if (-not $seenGestureIds.Add($newTerminal.GestureId)) {
         throw "ReaderDev stress reused gesture $($newTerminal.GestureId)"
     }
@@ -1924,15 +2145,33 @@ do {
     $recoveredRejectedRelocations = @(
         $relocationDrain.RecoveredRejectedRelocations
     )
+    $lastTerminalRelocationIndex = [long](
+        @($relocationDrain.TerminalRelocations |
+            Measure-Object -Property Index -Maximum)[0].Maximum
+    )
+    $drainedOwnership = @(
+        $ownership | Where-Object {
+            $_.Phase -eq 'steady-state' -and
+                $_.Index -gt $lastTerminalRelocationIndex -and
+                $_.Staged -eq 0 -and
+                $_.PendingLeases -eq 0 -and
+                $_.ReleaseInFlightLeases -eq 0 -and
+                $_.OrphanLeases -eq 0 -and
+                $_.Callbacks -eq 0 -and
+                $_.RelocationReservations -eq 0 -and
+                $_.QueuedRelocations -eq 0 -and
+                $_.Relocations -eq 0
+        }
+    )
     if ($relocationDrain.PendingCount -eq 0 -and
-        $steadyTurns -ge $completedRelocations.Count -and
+        $drainedOwnership.Count -gt 0 -and
         $recoveredRejectedRelocations.Count -eq $rejectedRelocations.Count) {
         break
     }
     Start-Sleep -Milliseconds 250
 } while ([DateTime]::UtcNow -lt $stressDeadline)
 if ($relocationDrain.PendingCount -ne 0 -or
-    $steadyTurns -lt $completedRelocations.Count -or
+    $drainedOwnership.Count -eq 0 -or
     $recoveredRejectedRelocations.Count -ne $rejectedRelocations.Count) {
     throw "ReaderDev stress drain failed commits=$committedTurns " +
         "steadySnapshots=$steadyTurns completedRelocations=$($completedRelocations.Count) " +

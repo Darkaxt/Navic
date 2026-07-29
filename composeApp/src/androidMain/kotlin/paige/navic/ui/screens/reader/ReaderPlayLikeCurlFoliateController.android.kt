@@ -4095,6 +4095,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			reason = "relocation-dispatch-${reason.name}",
 			relocationRejectionReason = reason
 		)
+		onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
 		if (enabled) onRequestPrewarm()
 	}
 

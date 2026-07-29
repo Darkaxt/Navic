@@ -124,6 +124,37 @@ class ReaderPageRasterPublicationLedgerTest {
 	}
 
 	@Test
+	fun coalescedPublicationCannotConsumePendingFaultRetryCorrelation() {
+		val ledger = ReaderPageRasterPublicationLedger<String> { }
+		val correlation = ReaderPageQaFaultCorrelation(
+			requestId = "persist-retry",
+			appliedOperation = ReaderPageQaFaultOperationContext(
+				persistenceAttemptId = 1L
+			),
+			relation = ReaderPageQaFaultRelation.AppliedOperation
+		)
+		val started = assertIs<ReaderPageRasterPublicationRegistration.Started>(
+			ledger.begin("digest", "producer") { }
+		)
+		assertEquals("producer", ledger.acquireForPersistence(started.request))
+		val duplicate = assertIs<ReaderPageRasterPublicationRegistration.Coalesced>(
+			ledger.begin("digest", "duplicate") { }
+		)
+
+		assertNull(
+			readerPageRasterPublicationRetryCorrelation(duplicate, correlation)
+		)
+		assertTrue(ledger.complete(started.request, persisted = false))
+		val retry = assertIs<ReaderPageRasterPublicationRegistration.Started>(
+			ledger.begin("digest", "retry") { }
+		)
+		assertEquals(
+			correlation.withRelation(ReaderPageQaFaultRelation.Retry),
+			readerPageRasterPublicationRetryCorrelation(retry, correlation)
+		)
+	}
+
+	@Test
 	fun callbackAndReleaseFailuresDoNotStrandEntriesOrSuppressLaterDispatch() {
 		val callbacks = mutableListOf<String>()
 		val releases = mutableListOf<String>()

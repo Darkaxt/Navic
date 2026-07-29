@@ -146,7 +146,6 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 
 			fixture.repair.completeReady(durably = true)
 			assertIs<ReaderPageRasterRepairResult.Repaired>(repairResult)
-			fixture.deliverMatchingActiveDeckPrepared(generationId = 42L)
 			fixture.drainMainLooper()
 
 			assertEquals(
@@ -154,6 +153,83 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 				fixture.background.active?.targets?.map { target -> target.pageIndex }
 			)
 		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun backgroundRestorationTimeoutFailsClosedUnderThePreparationCover() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertNotNull(fixture.background.active)
+			fixture.background.stagePreview()
+			fixture.background.delayCancellationRestoration = true
+
+			fixture.controller.onPointerInteractionChanged(true)
+			assertEquals(1, fixture.background.cancellationCount)
+			assertEquals(
+				ReaderPagePreparationPresentation.Hidden,
+				fixture.latestState.presentation
+			)
+
+			fixture.background.completeCancellationRestoration(
+				ReaderPageRasterCancellationRestoration.TimedOut
+			)
+
+			assertEquals(
+				ReaderPagePreparationPresentation.Cover,
+				fixture.latestState.presentation
+			)
+			val backgroundStartCount = fixture.background.starts.size
+			fixture.controller.onPointerInteractionChanged(false)
+			fixture.drainMainLooper()
+			assertEquals(
+				backgroundStartCount,
+				fixture.background.starts.size,
+				"Foreground restoration recovery must remain ahead of adjacent prefetch"
+			)
+
+			fixture.foreground.delayLiveCompositionRestoration = true
+			assertTrue(fixture.controller.prewarmAdjacent())
+			assertEquals(1, fixture.foreground.liveCompositionRestorationCount)
+			assertEquals(null, fixture.foreground.active)
+			assertEquals(
+				ReaderPagePreparationPresentation.Cover,
+				fixture.latestState.presentation,
+				"Cache hydration cannot begin before live WebView restoration is verified"
+			)
+
+			fixture.foreground.completeLiveCompositionRestoration(
+				ReaderPageRasterCancellationRestoration.TimedOut
+			)
+			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
+			assertEquals(
+				ReaderPagePreparationPresentation.Cover,
+				fixture.latestState.presentation
+			)
+
+			fixture.controller.retryPreparation()
+			assertTrue(fixture.controller.prewarmAdjacent())
+			assertEquals(2, fixture.foreground.liveCompositionRestorationCount)
+			fixture.foreground.completeLiveCompositionRestoration()
+			assertTrue(fixture.controller.prewarmAdjacent())
+			fixture.foreground.completeReady(durably = true)
+			assertNotNull(fixture.foreground.active)
+			fixture.foreground.completeReady(durably = true)
+			assertEquals(
+				ReaderPagePreparationPresentation.Hidden,
+				fixture.latestState.presentation,
+				"Verified live restoration permits normal cache hydration readiness"
+			)
+		} finally {
+			fixture.background.completeCancellationRestoration()
 			fixture.close()
 			Dispatchers.resetMain()
 		}
@@ -321,7 +397,9 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			val destruction = fixture.controller.destroy()
 
 			assertFalse(destruction.isCompleted)
-			fixture.foreground.completeCancellationRestoration()
+			fixture.foreground.completeCancellationRestoration(
+				ReaderPageRasterCancellationRestoration.TimedOut
+			)
 			destruction.await()
 		} finally {
 			fixture.foreground.completeCancellationRestoration()
@@ -533,10 +611,16 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		val outerCapture = capture.substringBefore("private fun capturePreparedPage(")
 		val nativeCapture = capture.substringAfter("private fun capturePreparedPage(")
 		assertContains(batch, "isStillCurrent = { isSessionActive(session) }")
-		assertContains(batch, "override fun cancel(onRestored: () -> Unit)")
+		assertContains(batch, "internal enum class ReaderPageRasterCancellationRestoration")
+		assertContains(batch, "val canRevealContent: Boolean")
+		assertContains(batch, "override fun cancel(")
 		assertContains(batch, "postVisualStateCallback(")
 		assertContains(batch, "addOnAttachStateChangeListener(attachmentListener)")
-		assertContains(batch, "postOnAnimation(::completeRestoration)")
+		assertContains(batch, "postOnAnimation {")
+		assertContains(
+			batch,
+			"ReaderPageRasterCancellationRestoration.Restored"
+		)
 		assertContains(capture, "isStillCurrent: () -> Boolean")
 		assertContains(capture, "!isStillCurrent()")
 		assertTrue(
@@ -577,7 +661,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
-	fun pointerInputSuspendsHiddenCaptureUntilTheGestureTerminates() {
+	fun pointerInputSuspendsHiddenCaptureUntilThePhysicalStreamTerminates() {
 		val dispatch = host
 			.substringAfter("override fun dispatchTouchEvent(event: MotionEvent): Boolean {")
 			.substringBefore("private fun dispatchPlayLikeCurlTouchEvent(")
@@ -586,16 +670,30 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		assertContains(dispatch, "onPointerInteractionChanged(true)")
 		assertContains(dispatch, "event.actionMasked == MotionEvent.ACTION_UP ||")
 		assertContains(dispatch, "event.actionMasked == MotionEvent.ACTION_CANCEL")
-		assertContains(dispatch, "physicalDispatchMode != ReaderPagePhysicalDispatchMode.PlayLikeCurl")
-		assertContains(dispatch, "onPointerInteractionChanged(false)")
-		val terminals = host
+		assertFalse(
+			dispatch.contains(
+				"physicalDispatchMode != ReaderPagePhysicalDispatchMode.PlayLikeCurl"
+			)
+		)
+		val interactionEnded = dispatch.indexOf("onPointerInteractionChanged(false)")
+		val dispatchModeCleared = dispatch.indexOf("physicalDispatchMode = null")
+		assertTrue(
+			interactionEnded >= 0 && interactionEnded < dispatchModeCleared,
+			"Every physical pointer tail must end preparation interaction before clearing its route"
+		)
+		val lifecycle = host
 			.substringAfter("private fun dispatchPageHostLifecycleEvent(")
-			.substringBefore("private fun logGestureTerminal(")
-		assertContains(terminals, "if (cancelled.isNotEmpty()) {")
-		assertContains(terminals, "private fun completeHostDelayedTap(")
-		assertContains(terminals, "if (won) {")
-		assertContains(terminals, "pageRasterPreparationController.onPointerInteractionChanged(false)")
-		assertContains(terminals, "val won = completeHostGesture(")
+			.substringBefore("private fun completeHostGesture(")
+		assertContains(lifecycle, "pageInputSettlementHostController.onLifecycleEvent(event)")
+		assertFalse(lifecycle.contains("onPointerInteractionChanged(false)"))
+		val gestureCompletion = host
+			.substringAfter("private fun completeHostGesture(")
+			.substringBefore("private fun emitGestureDiagnostic(")
+		val delayedTapCompletion = host
+			.substringAfter("private fun completeHostDelayedTap(")
+			.substringBefore("private fun completePageGesture(")
+		assertFalse(gestureCompletion.contains("onPointerInteractionChanged(false)"))
+		assertFalse(delayedTapCompletion.contains("onPointerInteractionChanged(false)"))
 		assertContains(preparation, "onInteractionActiveChanged(active)")
 	}
 
@@ -649,7 +747,13 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 	var cancellationCount = 0
 		private set
 	var delayCancellationRestoration = false
-	private var pendingCancellationRestoration: (() -> Unit)? = null
+	private var pendingCancellationRestoration:
+		((ReaderPageRasterCancellationRestoration) -> Unit)? = null
+	var delayLiveCompositionRestoration = false
+	var liveCompositionRestorationCount = 0
+		private set
+	private var pendingLiveCompositionRestoration:
+		((ReaderPageRasterCancellationRestoration) -> Unit)? = null
 
 	override fun start(
 		webView: WebView,
@@ -685,10 +789,23 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		request.onStagingStarted(request.reference, onPresented)
 	}
 
-	fun completeCancellationRestoration() {
+	fun completeCancellationRestoration(
+		restoration: ReaderPageRasterCancellationRestoration =
+			ReaderPageRasterCancellationRestoration.Restored
+	) {
 		pendingCancellationRestoration?.also {
 			pendingCancellationRestoration = null
-			it()
+			it(restoration)
+		}
+	}
+
+	fun completeLiveCompositionRestoration(
+		restoration: ReaderPageRasterCancellationRestoration =
+			ReaderPageRasterCancellationRestoration.Restored
+	) {
+		pendingLiveCompositionRestoration?.also {
+			pendingLiveCompositionRestoration = null
+			it(restoration)
 		}
 	}
 
@@ -737,10 +854,25 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 
 	override fun resetRetryState() = Unit
 
-	override fun cancel(onRestored: () -> Unit) {
+	override fun restoreLiveComposition(
+		webView: WebView,
+		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
+	) {
+		liveCompositionRestorationCount += 1
+		if (delayLiveCompositionRestoration) {
+			check(pendingLiveCompositionRestoration == null)
+			pendingLiveCompositionRestoration = onRestorationFinished
+		} else {
+			onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
+		}
+	}
+
+	override fun cancel(
+		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
+	) {
 		val request = active
 		if (request == null) {
-			onRestored()
+			onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
 			return
 		}
 		active = null
@@ -749,9 +881,9 @@ private class FakeReaderPageRasterBatchPort : ReaderPageRasterBatchPort {
 		request.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
 		if (delayCancellationRestoration) {
 			check(pendingCancellationRestoration == null)
-			pendingCancellationRestoration = onRestored
+			pendingCancellationRestoration = onRestorationFinished
 		} else {
-			onRestored()
+			onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
 		}
 	}
 }

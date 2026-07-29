@@ -8,6 +8,7 @@ import android.util.Log
 import paige.navic.ui.screens.reader.ReaderPageQaFaultCommand
 import paige.navic.ui.screens.reader.ReaderPageQaFaultCommandDecoder
 import paige.navic.ui.screens.reader.ReaderPageQaFaultControl
+import paige.navic.ui.screens.reader.ReaderPageQaInputControl
 
 class ReaderPageQaFaultReceiver : BroadcastReceiver() {
 	private companion object {
@@ -56,6 +57,16 @@ class ReaderPageQaFaultReceiver : BroadcastReceiver() {
 				Tag,
 				"requestId=${decoded.requestId} releaseVisualState=" +
 					ReaderPageQaFaultControl.releaseVisualState(decoded.requestId)
+			)
+			is ReaderPageQaFaultCommand.ArmInput -> Log.i(
+				Tag,
+				"reader-qa-input requestId=${decoded.requestId} state=Armed accepted=" +
+					ReaderPageQaInputControl.arm(decoded.requestId)
+			)
+			is ReaderPageQaFaultCommand.ClearInput -> Log.i(
+				Tag,
+				"reader-qa-input requestId=${decoded.requestId} state=Cleared accepted=" +
+					ReaderPageQaInputControl.clear(decoded.requestId)
 			)
 			is ReaderPageQaFaultCommand.Clear -> Log.i(
 				Tag,

@@ -732,6 +732,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 					)
 				) == null
 			) { "Gesture diagnostics already own gesture $gestureId" }
+			ReaderPageQaInputControl.consume()?.let { requestId ->
+				Logger.i(
+					"ReaderPageQaInput",
+					"reader-qa-input requestId=$requestId state=Admitted " +
+						"accepted=true session=$readerDiagnosticSession gestureId=$gestureId"
+				)
+			}
 		},
 		publishTerminal = { gestureId, outcome ->
 			emitGestureDiagnostic(gestureId, outcome)
@@ -1738,9 +1745,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			event.actionMasked == MotionEvent.ACTION_UP ||
 			event.actionMasked == MotionEvent.ACTION_CANCEL
 		) {
-			if (physicalDispatchMode != ReaderPagePhysicalDispatchMode.PlayLikeCurl) {
-				pageRasterPreparationController.onPointerInteractionChanged(false)
-			}
+			pageRasterPreparationController.onPointerInteractionChanged(false)
 			physicalDispatchMode = null
 		}
 		return handled
@@ -2120,11 +2125,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 
 	private fun dispatchPageHostLifecycleEvent(
 		event: ReaderPageHostLifecycleEvent
-	): List<Long> = pageInputSettlementHostController.onLifecycleEvent(event).also { cancelled ->
-		if (cancelled.isNotEmpty()) {
-			pageRasterPreparationController.onPointerInteractionChanged(false)
-		}
-	}
+	): List<Long> = pageInputSettlementHostController.onLifecycleEvent(event)
 
 	private fun completeHostGesture(
 		gestureId: Long,
@@ -2132,11 +2133,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	): Boolean = pageInputSettlementHostController.complete(
 		gestureId,
 		outcome
-	).also { won ->
-		if (won) {
-			pageRasterPreparationController.onPointerInteractionChanged(false)
-		}
-	}
+	)
 
 	private fun emitGestureDiagnostic(
 		gestureId: Long,
@@ -2167,11 +2164,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	): Boolean = pageInputSettlementHostController.completeDelayedTap(
 		gestureId,
 		outcome
-	).also { won ->
-		if (won) {
-			pageRasterPreparationController.onPointerInteractionChanged(false)
-		}
-	}
+	)
 
 	private fun completePageGesture(
 		gestureId: Long,

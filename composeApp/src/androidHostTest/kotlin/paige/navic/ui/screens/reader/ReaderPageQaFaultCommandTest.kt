@@ -41,6 +41,8 @@ class ReaderPageQaFaultCommandTest {
 				ReaderPageQaFaultCommand.ReleaseRelocation("request_2"),
 			"release-visual-state" to
 				ReaderPageQaFaultCommand.ReleaseVisualState("request_2"),
+			"arm-input" to ReaderPageQaFaultCommand.ArmInput("request_2"),
+			"clear-input" to ReaderPageQaFaultCommand.ClearInput("request_2"),
 			"clear" to ReaderPageQaFaultCommand.Clear("request_2")
 		)
 

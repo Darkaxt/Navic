@@ -1490,10 +1490,7 @@ internal class ReaderPageTurnBundleSource(
 							persistenceAttemptIds.incrementAndGet()
 						)
 						var publicationQaFaultCorrelation:
-							ReaderPageQaFaultCorrelation? =
-							persistenceRetryCorrelations[key.digest]?.withRelation(
-								ReaderPageQaFaultRelation.Retry
-							)
+							ReaderPageQaFaultCorrelation? = null
 						val registration = publicationLedger.begin(
 							digest = key.digest,
 							value = value
@@ -1528,6 +1525,11 @@ internal class ReaderPageTurnBundleSource(
 							}
 							onPersisted(persisted)
 						}
+						publicationQaFaultCorrelation =
+							readerPageRasterPublicationRetryCorrelation(
+								registration,
+								persistenceRetryCorrelations[key.digest]
+							)
 						publicationValueTransferred = true
 						when (registration) {
 							is ReaderPageRasterPublicationRegistration.Started -> {

@@ -61,6 +61,15 @@ internal fun ReaderPageRasterPreparationPlan.preparedRepairPageIndices(): Set<In
 		.mapTo(linkedSetOf()) { target -> target.pageIndex }
 
 internal const val ReaderPageRasterBlockingRadius = 5
+private const val ReaderPageRasterCancellationRestorationTimeoutMillis = 10_000L
+
+internal enum class ReaderPageRasterCancellationRestoration(
+	val canRevealContent: Boolean
+) {
+	Restored(canRevealContent = true),
+	Detached(canRevealContent = true),
+	TimedOut(canRevealContent = false)
+}
 
 internal fun readerPageRasterBlockingWindow(
 	centerPageIndex: Int,
@@ -326,7 +335,14 @@ internal interface ReaderPageRasterBatchPort {
 
 	fun resetRetryState()
 
-	fun cancel(onRestored: () -> Unit = {})
+	fun restoreLiveComposition(
+		webView: WebView,
+		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
+	)
+
+	fun cancel(
+		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit = { _ -> }
+	)
 }
 
 /**
@@ -465,9 +481,26 @@ internal class ReaderPageRasterBatchController(
 		retryState = null
 	}
 
-	override fun cancel(onRestored: () -> Unit) {
+	override fun restoreLiveComposition(
+		webView: WebView,
+		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
+	) {
+		requestVisualRestoration(
+			webView = webView,
+			javascript = "(() => {" +
+				"const bridge = window.NavicReaderBridge;" +
+				"bridge?.cancelPageTurnPreviewBatch?.();" +
+				"bridge?.restorePageTurnLiveComposition?.();" +
+				"})()",
+			onRestorationFinished = onRestorationFinished
+		)
+	}
+
+	override fun cancel(
+		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
+	) {
 		val session = activeSession ?: run {
-			onRestored()
+			onRestorationFinished(ReaderPageRasterCancellationRestoration.Restored)
 			return
 		}
 		activeSession = null
@@ -475,48 +508,75 @@ internal class ReaderPageRasterBatchController(
 		session.hydrationToken += 1L
 		session.hydrationRequest?.cancel()
 		session.hydrationRequest = null
-		val attached = session.webView.isAttachedToWindow
-		if (attached) {
-			var restorationCompleted = false
-			lateinit var attachmentListener: View.OnAttachStateChangeListener
-			fun completeRestoration() {
-				if (restorationCompleted) return
-				restorationCompleted = true
-				session.webView.removeOnAttachStateChangeListener(attachmentListener)
-				onRestored()
-			}
-			attachmentListener = object : View.OnAttachStateChangeListener {
-				override fun onViewAttachedToWindow(view: View) = Unit
-
-				override fun onViewDetachedFromWindow(view: View) {
-					completeRestoration()
-				}
-			}
-			session.webView.addOnAttachStateChangeListener(attachmentListener)
-			session.webView.evaluateJavascript(
-				"window.NavicReaderBridge?.cancelPageTurnPreviewBatch?.(" +
-					"${JSONObject.quote(session.token)})"
-			) {
-				if (!session.webView.isAttachedToWindow) {
-					completeRestoration()
-					return@evaluateJavascript
-				}
-				val visualStateId = Math.incrementExact(nextCancellationVisualStateId).also {
-					nextCancellationVisualStateId = it
-				}
-				session.webView.postVisualStateCallback(
-					visualStateId,
-					object : WebView.VisualStateCallback() {
-						override fun onComplete(requestId: Long) {
-							session.webView.postOnAnimation(::completeRestoration)
-						}
-					}
-				)
-			}
-		}
+		requestVisualRestoration(
+			webView = session.webView,
+			javascript = "window.NavicReaderBridge?.cancelPageTurnPreviewBatch?.(" +
+				"${JSONObject.quote(session.token)})",
+			onRestorationFinished = onRestorationFinished
+		)
 		session.reference.release()
 		session.onComplete(ReaderPageRasterBatchOutcome.Cancelled)
-		if (!attached) onRestored()
+	}
+
+	private fun requestVisualRestoration(
+		webView: WebView,
+		javascript: String,
+		onRestorationFinished: (ReaderPageRasterCancellationRestoration) -> Unit
+	) {
+		if (!webView.isAttachedToWindow) {
+			onRestorationFinished(ReaderPageRasterCancellationRestoration.Detached)
+			return
+		}
+		var restorationCompleted = false
+		lateinit var restorationTimeout: Runnable
+		lateinit var attachmentListener: View.OnAttachStateChangeListener
+
+		fun completeRestoration(
+			restoration: ReaderPageRasterCancellationRestoration
+		) {
+			if (restorationCompleted) return
+			restorationCompleted = true
+			webView.removeCallbacks(restorationTimeout)
+			webView.removeOnAttachStateChangeListener(attachmentListener)
+			onRestorationFinished(restoration)
+		}
+
+		restorationTimeout = Runnable {
+			completeRestoration(ReaderPageRasterCancellationRestoration.TimedOut)
+		}
+		attachmentListener = object : View.OnAttachStateChangeListener {
+			override fun onViewAttachedToWindow(view: View) = Unit
+
+			override fun onViewDetachedFromWindow(view: View) {
+				completeRestoration(ReaderPageRasterCancellationRestoration.Detached)
+			}
+		}
+		webView.addOnAttachStateChangeListener(attachmentListener)
+		webView.postDelayed(
+			restorationTimeout,
+			ReaderPageRasterCancellationRestorationTimeoutMillis
+		)
+		webView.evaluateJavascript(javascript) {
+			if (!webView.isAttachedToWindow) {
+				completeRestoration(ReaderPageRasterCancellationRestoration.Detached)
+				return@evaluateJavascript
+			}
+			val visualStateId = Math.incrementExact(nextCancellationVisualStateId).also {
+				nextCancellationVisualStateId = it
+			}
+			webView.postVisualStateCallback(
+				visualStateId,
+				object : WebView.VisualStateCallback() {
+					override fun onComplete(requestId: Long) {
+						webView.postOnAnimation {
+							completeRestoration(
+								ReaderPageRasterCancellationRestoration.Restored
+							)
+						}
+					}
+				}
+			)
+		}
 	}
 
 	private fun startAcquisition(

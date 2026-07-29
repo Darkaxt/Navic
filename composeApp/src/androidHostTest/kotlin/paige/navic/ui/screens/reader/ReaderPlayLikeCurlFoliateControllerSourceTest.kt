@@ -369,6 +369,16 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(rejection, "relocationRejectionReason = reason")
 		assertContains(
+			rejection,
+			"onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)"
+		)
+		assertTrue(
+			rejection.indexOf("invalidate(") <
+				rejection.indexOf(
+					"onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)"
+				)
+		)
+		assertContains(
 			source,
 			"ReaderPageRelocationDiagnosticRejectionReason.AcknowledgementTimeout"
 		)

@@ -79,7 +79,7 @@ class ReaderPageAdjacentChapterPrefetchTest {
 	}
 
 	@Test
-	fun foregroundRepairCancelsAndResumesOnlyMissingTargetsAfterReplacementDeck() {
+	fun foregroundRepairRetainsDeckAndResumesOnlyMissingTargets() {
 		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
 		val cancellations = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
 		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
@@ -96,8 +96,6 @@ class ReaderPageAdjacentChapterPrefetchTest {
 		assertFalse(coordinator.onBatchFinished(interrupted))
 
 		coordinator.resumeAfterForegroundWork()
-		assertEquals(1, submissions.size)
-		coordinator.onPreparedActiveDeckChanged(preparedDeck(generationId = 42L))
 		assertEquals(2, submissions.size)
 		assertEquals(
 			interrupted.targets.drop(1).map { target -> target.pageIndex },

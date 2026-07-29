@@ -164,6 +164,19 @@ Assert-Throws {
     ) 7 | Out-Null
 } 'unknown gesture terminal fixture'
 
+$qaInputLog = @(
+    'reader-qa-input requestId=input-1 state=Armed accepted=true',
+    'reader-qa-input requestId=input-1 state=Admitted accepted=true session=7 gestureId=101',
+    'reader-qa-input requestId=input-2 state=Cleared accepted=true'
+) -join "`n"
+$qaInputs = @(ConvertFrom-ReaderQaInputLog $qaInputLog)
+if ($qaInputs.Count -ne 3 -or
+    $qaInputs[1].Session -ne 7 -or
+    $qaInputs[1].GestureId -ne 101 -or
+    $qaInputs[0].GestureId -ne -1) {
+    throw 'QA input admission fixture did not preserve exact correlation'
+}
+
 $warmHydration =
     'reader-raster-acquisition session=7 attempt=1 rasterGeneration=2 ' +
     'ordinal=3 source=PersistentHydration trigger=WarmReopen result=Hit durationMs=4' +
@@ -434,16 +447,17 @@ $preparedBeforeRepairStartLog = @(
     $forcedRepairRelocationCompleted,
     $drainedRepairOwnership
 ) -join "`n"
-Assert-Throws {
-    Assert-ForcedRepairAttemptResolution `
-        -Log $preparedBeforeRepairStartLog `
-        -ReaderSession 7 `
-        -RepairFaultRequestId 'fault-repair' `
-        -RasterMissRequestId 'fault-raster' `
-        -GestureId 101 `
-        -TextureGeneration 9 `
-        -Context 'prepared-before-repair-start fixture' | Out-Null
-} 'prepared-before-repair-start fixture'
+$preparedBeforeRepairStart = Assert-ForcedRepairAttemptResolution `
+    -Log $preparedBeforeRepairStartLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'prepared-before-repair-start fixture'
+if ($preparedBeforeRepairStart.Kind -ne 'Superseded') {
+    throw 'Prepared-before-repair-start fixture did not prove safe supersession'
+}
 $uncompletedPreparedTexture = @(Get-ReaderPreparedPromotedTexture `
     -Log $preparedWhilePendingLog.Replace($forcedRepairRelocationCompleted, '') `
     -ReaderSession 7 `
@@ -1439,6 +1453,30 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
         throw "Candidate-tree contract is absent: $candidateTreeSource"
     }
     $candidateTreeText = Get-Content -LiteralPath $candidateTreeSource -Raw
+    $pidLogFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf('function Read-ReaderPidLog('),
+        $candidateTreeText.IndexOf('$intervalEvidence = @()') -
+            $candidateTreeText.IndexOf('function Read-ReaderPidLog(')
+    )
+    $qaInputWaitFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf('function Wait-ReaderQaInputState('),
+        $candidateTreeText.IndexOf('function Wait-ReaderQaFaultState(') -
+            $candidateTreeText.IndexOf('function Wait-ReaderQaInputState(')
+    )
+    if ($candidateTreeText -notmatch
+            '\$script:ReaderAccumulatedQaInputLogLines\s*=\s*\[Collections\.Generic\.List\[string\]\]::new\(\)' -or
+        $candidateTreeText -notmatch
+            '\$script:ReaderAccumulatedQaInputLogLines\.Clear\(\)' -or
+        $pidLogFlow -notmatch
+            'ConvertFrom-ReaderQaInputLog\s+\$newRawLog' -or
+        $pidLogFlow -notmatch
+            '\$script:ReaderAccumulatedQaInputLogLines\.Add\(' -or
+        $qaInputWaitFlow -notmatch 'Read-ReaderPidLog\s+\$Context' -or
+        $qaInputWaitFlow -notmatch
+            '\$script:ReaderAccumulatedQaInputLogLines\s+-join\s+"`n"' -or
+        $qaInputWaitFlow -match 'Wait-ReaderQaCondition') {
+        throw "Runner does not preserve transient QA-input records from raw PID ingestion: $candidateTreeSource"
+    }
     if ($candidateTreeText -notmatch
         'git diff HEAD --name-status --no-renames') {
         throw "Candidate-tree contract omits staged-only bytes: $candidateTreeSource"
@@ -1450,6 +1488,16 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
         "'QuiesceReadyBeforeTerminal'\s*\{\s*Start-Sleep -Milliseconds 750") {
         throw "Runner omits bounded ready-state quiescence: $candidateTreeSource"
     }
+    $preparationTerminalFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf('function Wait-ReaderQaPreparationAttemptTerminal('),
+        $candidateTreeText.IndexOf('function Wait-ReaderQaPreparedTextureGeneration(') -
+            $candidateTreeText.IndexOf('function Wait-ReaderQaPreparationAttemptTerminal(')
+    )
+    $correlatedInputFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf('function Invoke-ReaderQaCorrelatedSwipeTerminal('),
+        $candidateTreeText.IndexOf('function Invoke-ReaderQaCommittedTurn(') -
+            $candidateTreeText.IndexOf('function Invoke-ReaderQaCorrelatedSwipeTerminal(')
+    )
     $committedTurnFlow = $candidateTreeText.Substring(
         $candidateTreeText.IndexOf('function Invoke-ReaderQaCommittedTurn('),
         $candidateTreeText.IndexOf('function Wait-ReaderQaRelocationTerminal(') -
@@ -1458,6 +1506,25 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
     if ($committedTurnFlow -notmatch '\$MaximumAttempts = 20' -or
         $committedTurnFlow -notmatch '\$attempt -le \$MaximumAttempts') {
         throw "Runner does not enforce a configurable committed-turn attempt bound: $candidateTreeSource"
+    }
+    if ($committedTurnFlow -notmatch '\$MaximumInputAttempts = 3' -or
+        $correlatedInputFlow -notmatch "-Command 'arm-input'" -or
+        $correlatedInputFlow -notmatch "-Command 'clear-input'" -or
+        $correlatedInputFlow -notmatch '\$silentInputRecoveryLog = Read-ReaderPidLog' -or
+        $correlatedInputFlow -notmatch 'Get-ReaderPreparationRecoveryAction' -or
+        $correlatedInputFlow -notmatch 'Wait-ReaderQaPreparationAttemptTerminal' -or
+        $correlatedInputFlow -match 'Wait-ReaderQaWorkingSetReady' -or
+        $correlatedInputFlow -notmatch
+            "'AwaitNextAttempt'\s*\{\s*Start-Sleep -Milliseconds 750" -or
+        $correlatedInputFlow -notmatch '-WaitSeconds \$preparationRecoveryTimeoutSeconds' -or
+        $preparationTerminalFlow -notmatch '\$_.Attempt -eq \$Attempt' -or
+        $preparationTerminalFlow -notmatch '\$_.RasterGeneration -eq \$RasterGeneration' -or
+        $preparationTerminalFlow -notmatch '\$_.Index -gt \$AfterIndex' -or
+        $preparationTerminalFlow -notmatch
+            '\$_.State -in @\(''Ready'', ''Failed'', ''Cancelled''\)' -or
+        $correlatedInputFlow -notmatch '\$_.GestureId -eq \$gestureId' -or
+        $correlatedInputFlow -match '-not \$SeenGestureIds.Contains') {
+        throw "Runner does not correlate silent-input retries before terminal waiting: $candidateTreeSource"
     }
     $forcedRepairFlow = $candidateTreeText.Substring(
         $candidateTreeText.IndexOf(
@@ -1484,7 +1551,8 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
     if ($forcedRepairTriggerFlow -notmatch (
             '(?s)' +
                 '\$repairTurn\s*=\s*Invoke-ReaderQaCommittedTurn.*' +
-                '-MaximumAttempts 1.*' +
+                '-MaximumAttempts 3.*' +
+                '-RetryOnlyWhileFaultsRemainEnqueued @\(\$missId, \$repairId\).*' +
                 '\$forcedRepairApplied\s*=\s*Wait-ReaderQaFaultState\s+`.*' +
                 '\$repairId\s+`.*' +
                 "'Applied'"

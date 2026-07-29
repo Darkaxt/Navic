@@ -55,6 +55,11 @@ private data class ReaderPageRasterBackgroundPrefetch(
 		)
 }
 
+private data class ReaderPageRasterDeferredBackgroundPrefetchStart(
+	val submission: ReaderPageAdjacentChapterPrefetchSubmission,
+	val prefetch: ReaderPageRasterBackgroundPrefetch
+)
+
 private data class ReaderPageRasterRetryAttempt(
 	val sessionId: Long,
 	val retryCount: Int,
@@ -289,7 +294,15 @@ internal class ReaderPageRasterPreparationController(
 	private var preparationShieldSnapshot: ReaderPageSlideSnapshot? = null
 	private var preparationShieldSession: Long? = null
 	private var preparationShieldBatchLabel: String? = null
+	private var timedOutPreparationShieldSession: Long? = null
+	private var timedOutBackgroundPrefetchShieldSessionId: Long? = null
 	private val pendingVisualRestorations = linkedSetOf<CompletableDeferred<Unit>>()
+	private var resumePreparationAfterVisualRestoration = false
+	private var timedOutVisualRestorationRecoveryRequired = false
+	private var timedOutVisualRestorationRecoveryInProgress = false
+	private var pointerInteractionActive = false
+	private var deferredBackgroundPrefetchStart:
+		ReaderPageRasterDeferredBackgroundPrefetchStart? = null
 	private var destroyed = false
 	private val applicationContext = host.context.applicationContext
 	private val teardownJob = SupervisorJob()
@@ -298,23 +311,110 @@ internal class ReaderPageRasterPreparationController(
 	)
 	private val rasterCacheInitializationJobs = linkedSetOf<Job>()
 
-	private fun trackVisualRestoration(onRestored: () -> Unit): () -> Unit {
+	private fun trackVisualRestoration(
+		onRestored: () -> Unit
+	): (ReaderPageRasterCancellationRestoration) -> Unit {
 		val completion = CompletableDeferred<Unit>()
 		pendingVisualRestorations += completion
-		return {
+		return { restoration ->
 			try {
-				onRestored()
+				if (restoration.canRevealContent || destroyed) onRestored()
 			} finally {
+				if (
+					restoration == ReaderPageRasterCancellationRestoration.TimedOut &&
+					!destroyed
+				) {
+					timedOutPreparationShieldSession = preparationShieldSession
+					timedOutBackgroundPrefetchShieldSessionId = backgroundPrefetchShieldSessionId
+					timedOutVisualRestorationRecoveryRequired = true
+					beginBlockingBackgroundPrefetchSession()
+					enterBlockingPreparation("visual-restoration-timeout")
+					resumePreparationAfterVisualRestoration = true
+					logLoadingEvent(
+						event = "visual-restoration-timeout",
+						detail = "visual=$currentVisualPageIndex " +
+							"generation=${bundleSource.currentGeneration()}"
+					)
+				}
 				pendingVisualRestorations -= completion
 				completion.complete(Unit)
+				if (pendingVisualRestorations.isEmpty() && !destroyed) {
+					if (resumePreparationAfterVisualRestoration) {
+						if (!pointerInteractionActive) {
+							resumePreparationAfterVisualRestoration = false
+							onRequestPrewarm()
+						}
+					} else {
+						resumeDeferredBackgroundPrefetchStart()
+					}
+				}
 			}
 		}
+	}
+
+	private fun deferPreparationForVisualRestoration(): Boolean {
+		if (pendingVisualRestorations.isEmpty()) return false
+		resumePreparationAfterVisualRestoration = true
+		return true
 	}
 
 	private suspend fun awaitVisualRestorations() {
 		while (pendingVisualRestorations.isNotEmpty()) {
 			pendingVisualRestorations.toList().awaitAll()
 		}
+	}
+
+	private fun restoreTimedOutVisualComposition(): Boolean {
+		if (timedOutVisualRestorationRecoveryInProgress) return true
+		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
+		val completion = CompletableDeferred<Unit>()
+		pendingVisualRestorations += completion
+		timedOutVisualRestorationRecoveryInProgress = true
+		rasterBatchController.restoreLiveComposition(webView) restoration@{ restoration ->
+			try {
+				if (destroyed) return@restoration
+				if (restoration.canRevealContent) {
+					timedOutVisualRestorationRecoveryRequired = false
+					val preparationSession = timedOutPreparationShieldSession
+					val backgroundSession = timedOutBackgroundPrefetchShieldSessionId
+					if (preparationSession == null) {
+						timedOutPreparationShieldSession = null
+					} else {
+						removePreparationShield(
+							reason = "visual-restoration-recovered",
+							expectedSession = preparationSession
+						)
+					}
+					if (backgroundSession == null) {
+						timedOutBackgroundPrefetchShieldSessionId = null
+					} else {
+						removeBackgroundPrefetchShield(backgroundSession)
+					}
+					logLoadingEvent(
+						event = "visual-restoration-recovered",
+						detail = "visual=$currentVisualPageIndex " +
+							"generation=${bundleSource.currentGeneration()}"
+					)
+					if (pointerInteractionActive) {
+						resumePreparationAfterVisualRestoration = true
+					} else {
+						onRequestPrewarm()
+					}
+				} else {
+					resumePreparationAfterVisualRestoration = false
+					publishPreparationState(
+						phase = ReaderPagePreparationPhase.Failed,
+						error = "Page preparation could not restore the current page.",
+						retryable = true
+					)
+				}
+			} finally {
+				timedOutVisualRestorationRecoveryInProgress = false
+				pendingVisualRestorations -= completion
+				completion.complete(Unit)
+			}
+		}
+		return true
 	}
 
 	private val teardown = ReaderPageReaderTeardown(
@@ -326,6 +426,8 @@ internal class ReaderPageRasterPreparationController(
 			rasterCacheInitializationJobs.clear()
 			initializationJobs.forEach { job -> job.cancelAndJoin() }
 			awaitVisualRestorations()
+			removePreparationShield(reason = "destroy-restoration-drained")
+			removeBackgroundPrefetchShield()
 			closeRendererAndAdapter()
 		},
 		closeBundleOwners = closeBundleOwners,
@@ -532,7 +634,16 @@ internal class ReaderPageRasterPreparationController(
 
 	fun onPointerInteractionChanged(active: Boolean) {
 		if (destroyed) return
+		pointerInteractionActive = active
 		adjacentChapterPrefetchCoordinator.onInteractionActiveChanged(active)
+		if (
+			!active &&
+			pendingVisualRestorations.isEmpty() &&
+			resumePreparationAfterVisualRestoration
+		) {
+			resumePreparationAfterVisualRestoration = false
+			onRequestPrewarm()
+		}
 	}
 
 	fun cancelAllDeferredRetries() {
@@ -683,6 +794,7 @@ internal class ReaderPageRasterPreparationController(
 		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("visual-index-changed:${reason ?: "unspecified"}")
 		cancelPrewarm(reason = "visual-index-changed:${reason ?: "unspecified"}")
+		deferPreparationForVisualRestoration()
 		currentVisualPageIndex = pageIndex
 		logLoadingEvent(
 			event = "visual-index-synchronized",
@@ -769,6 +881,7 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	private fun startNextRasterRepair() {
+		if (deferPreparationForVisualRestoration()) return
 		if (
 			activeRasterRepairPageIndex != null ||
 			deferredRasterRepairPageIndex != null ||
@@ -795,6 +908,7 @@ internal class ReaderPageRasterPreparationController(
 			}
 		}
 		adjacentChapterPrefetchCoordinator.suspendForForegroundWork()
+		if (deferPreparationForVisualRestoration()) return
 		val retryAttempt = newRetryAttempt()
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		if (webView == null) {
@@ -1054,8 +1168,12 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	fun prewarmAdjacent(): Boolean {
-		if (!canStartPreparation()) return false
+		if (!canStartPreparation() || destroyed) return false
+		if (timedOutVisualRestorationRecoveryRequired) {
+			return restoreTimedOutVisualComposition()
+		}
 		if (prewarmInProgress) return true
+		if (deferPreparationForVisualRestoration()) return true
 		if (
 			activeRasterRepairPageIndex == null &&
 			deferredRasterRepairPageIndex == null &&
@@ -1076,6 +1194,7 @@ internal class ReaderPageRasterPreparationController(
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return false
 		deferredPrewarmSessionId?.let(deferredRetryCoordinator::cancel)
 		beginBlockingBackgroundPrefetchSession()
+		if (deferPreparationForVisualRestoration()) return true
 		cancelRasterRepairs("blocking-session-started")
 		val resumedDiagnostic = deferredPrewarmDiagnostic
 		if (resumedDiagnostic == null) {
@@ -1804,6 +1923,13 @@ internal class ReaderPageRasterPreparationController(
 				"direction=${submission.chapter.identity.direction} pages=${submission.targets.size} " +
 				"generation=${prefetch.generation}"
 		)
+		scheduleBackgroundPrefetchStart(submission, prefetch)
+	}
+
+	private fun scheduleBackgroundPrefetchStart(
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		prefetch: ReaderPageRasterBackgroundPrefetch
+	) {
 		host.post {
 			if (!isBackgroundPrefetchActive(submission, prefetch)) return@post
 			Looper.myQueue().addIdleHandler {
@@ -1815,11 +1941,25 @@ internal class ReaderPageRasterPreparationController(
 		}
 	}
 
+	private fun resumeDeferredBackgroundPrefetchStart() {
+		val deferred = deferredBackgroundPrefetchStart ?: return
+		deferredBackgroundPrefetchStart = null
+		if (isBackgroundPrefetchActive(deferred.submission, deferred.prefetch)) {
+			scheduleBackgroundPrefetchStart(deferred.submission, deferred.prefetch)
+		}
+	}
+
 	private fun startBackgroundPrefetch(
 		submission: ReaderPageAdjacentChapterPrefetchSubmission,
 		prefetch: ReaderPageRasterBackgroundPrefetch
 	) {
 		if (!isBackgroundPrefetchActive(submission, prefetch)) return
+		if (pendingVisualRestorations.isNotEmpty()) {
+			deferredBackgroundPrefetchStart =
+				ReaderPageRasterDeferredBackgroundPrefetchStart(submission, prefetch)
+			return
+		}
+		deferredBackgroundPrefetchStart = null
 		emitPrefetchDiagnostic(submission, ReaderPagePrefetchDiagnosticState.Running)
 		val reference = retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
 		if (reference == null) {
@@ -1991,9 +2131,16 @@ internal class ReaderPageRasterPreparationController(
 		) return
 		val shield = backgroundPrefetchShield
 		val snapshot = backgroundPrefetchShieldSnapshot
+		val removedSession = backgroundPrefetchShieldSessionId
 		backgroundPrefetchShield = null
 		backgroundPrefetchShieldSnapshot = null
 		backgroundPrefetchShieldSessionId = null
+		if (
+			sessionId == null ||
+			timedOutBackgroundPrefetchShieldSessionId == removedSession
+		) {
+			timedOutBackgroundPrefetchShieldSessionId = null
+		}
 		shield?.dismiss()
 		snapshot?.release()
 	}
@@ -2005,6 +2152,9 @@ internal class ReaderPageRasterPreparationController(
 			submission,
 			ReaderPagePrefetchDiagnosticState.Cancelled
 		)
+		if (deferredBackgroundPrefetchStart?.submission == submission) {
+			deferredBackgroundPrefetchStart = null
+		}
 		val batchStarted = backgroundBatchSubmission == submission
 		if (batchStarted) {
 			backgroundBatchSubmission = null
@@ -2150,10 +2300,12 @@ internal class ReaderPageRasterPreparationController(
 				preserveCurrentPresentation = shouldPreserveCurrentPresentation()
 			) { presented ->
 				onPresented(
-					presented &&
-						preparationShield === currentShield &&
-						preparationShieldSession == session &&
-						preparationShieldBatchLabel == batchLabel
+					completePreparationShieldPresentation(
+						presented = presented,
+						shield = currentShield,
+						session = session,
+						batchLabel = batchLabel
+					)
 				)
 			}
 			return
@@ -2177,12 +2329,33 @@ internal class ReaderPageRasterPreparationController(
 			preserveCurrentPresentation = shouldPreserveCurrentPresentation()
 		) { presented ->
 			onPresented(
-				presented &&
-					preparationShield === shield &&
-					preparationShieldSession == session &&
-					preparationShieldBatchLabel == batchLabel
+				completePreparationShieldPresentation(
+					presented = presented,
+					shield = shield,
+					session = session,
+					batchLabel = batchLabel
+				)
 			)
 		}
+	}
+
+	private fun completePreparationShieldPresentation(
+		presented: Boolean,
+		shield: ReaderPageStaticWindowShield,
+		session: Long,
+		batchLabel: String
+	): Boolean {
+		val effectivePresentation = presented &&
+			preparationShield === shield &&
+			preparationShieldSession == session &&
+			preparationShieldBatchLabel == batchLabel
+		if (!effectivePresentation) return false
+		timedOutPreparationShieldSession = null
+		val timedOutBackgroundSession = timedOutBackgroundPrefetchShieldSessionId
+		if (timedOutBackgroundSession != null) {
+			removeBackgroundPrefetchShield(timedOutBackgroundSession)
+		}
+		return true
 	}
 
 	private fun removePreparationShield(
@@ -2201,6 +2374,7 @@ internal class ReaderPageRasterPreparationController(
 		preparationShieldSnapshot = null
 		preparationShieldSession = null
 		preparationShieldBatchLabel = null
+		timedOutPreparationShieldSession = null
 		if (shield != null) {
 			shield.dismiss()
 			logLoadingEvent(

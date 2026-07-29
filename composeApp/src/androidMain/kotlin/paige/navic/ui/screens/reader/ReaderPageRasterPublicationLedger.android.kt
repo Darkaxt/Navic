@@ -24,6 +24,14 @@ internal sealed interface ReaderPageRasterPublicationRegistration {
 	) : ReaderPageRasterPublicationRegistration
 }
 
+internal fun readerPageRasterPublicationRetryCorrelation(
+	registration: ReaderPageRasterPublicationRegistration,
+	correlation: ReaderPageQaFaultCorrelation?
+): ReaderPageQaFaultCorrelation? =
+	correlation
+		?.takeIf { registration is ReaderPageRasterPublicationRegistration.Started }
+		?.withRelation(ReaderPageQaFaultRelation.Retry)
+
 internal class ReaderPageRasterPublicationLedger<T : Any>(
 	val currentEpochEntryLimit: Int,
 	private val persistenceWorkerLimit: Int,

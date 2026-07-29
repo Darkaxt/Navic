@@ -30,7 +30,7 @@ class ReaderBridgeGenerationLifecycleHostContractTest {
 			.substringBefore("\n\t}")
 		val rendererGoneBlock = hostText
 			.substringAfter("override fun onRenderProcessGone")
-			.substringBefore("return true")
+			.substringBefore("post { startReaderRuntimeIfVisible() }")
 
 		assertFalse(
 			beforeGeneration.contains("ReaderJavascriptBridge("),

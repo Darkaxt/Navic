@@ -77,6 +77,12 @@ $GesturePattern = [regex]::new(
     'logicalDirection=(?<LogicalDirection>null|Previous|Next) ' +
     'durationMs=(?<DurationMs>\d+)'
 )
+$QaInputPattern = [regex]::new(
+    'reader-qa-input requestId=(?<RequestId>[A-Za-z0-9_-]{1,64}) ' +
+    'state=(?<State>Armed|Admitted|Cleared) ' +
+    'accepted=(?<Accepted>true|false)' +
+    '(?: session=(?<Session>\d+) gestureId=(?<Gesture>\d+))?'
+)
 $LifecycleCancellationPattern = [regex]::new(
     'reader-lifecycle-cancellation session=(?<Session>\d+) ' +
     'gestureId=(?<Gesture>\d+) ' +
@@ -1683,8 +1689,7 @@ function Assert-ForcedRepairAttemptResolution(
                 -ReaderSession $ReaderSession `
                 -GestureId $GestureId `
                 -TextureGeneration $TextureGeneration `
-                -Context "$Context superseding texture" |
-                Where-Object Index -gt $start.Index
+                -Context "$Context superseding texture"
         )
         if ($preparedNormalDecks.Count -ne 1 -or
             @($normalTextureDecks | Where-Object RepairAttempt -ne -1).Count -ne 0) {
@@ -1786,6 +1791,28 @@ function Assert-RepairAttemptReachesSubmission(
     }
     if ($completedAttemptCount -eq 0) {
         throw "$Context emitted no submitted and completed repair attempt"
+    }
+}
+
+function ConvertFrom-ReaderQaInputLog([string] $Log) {
+    foreach ($match in $QaInputPattern.Matches($Log)) {
+        [pscustomobject]@{
+            RequestId = $match.Groups['RequestId'].Value
+            State = $match.Groups['State'].Value
+            Accepted = $match.Groups['Accepted'].Value -eq 'true'
+            Session = if ($match.Groups['Session'].Success) {
+                [long]$match.Groups['Session'].Value
+            } else {
+                -1L
+            }
+            GestureId = if ($match.Groups['Gesture'].Success) {
+                [long]$match.Groups['Gesture'].Value
+            } else {
+                -1L
+            }
+            Index = $match.Index
+            LogLine = $match.Value
+        }
     }
 }
 
