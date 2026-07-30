@@ -256,6 +256,27 @@ $ReaderDiagnosticIntroducers = @(
 if ($ReaderDiagnosticIntroducers.Count -ne $ReaderDiagnosticSchemas.Count) {
     throw 'Reader diagnostic introducers must map one-to-one to schemas'
 }
+$ReaderDiagnosticSchemaByIntroducer = @{
+    'reader-ownership' = $OwnershipPattern
+    'reader-ownership-unavailable' = $OwnershipUnavailablePattern
+    'reader-raster-cache' = $RasterCachePattern
+    'reader-residency' = $ResidencyPattern
+    'reader-gesture' = $GesturePattern
+    'reader-lifecycle-cancellation' = $LifecycleCancellationPattern
+    'reader-teardown-failure' = $TeardownFailurePattern
+    'reader-prefetch' = $PrefetchPattern
+    'reader-raster-acquisition' = $RasterAcquisitionPattern
+    'reader-preparation' = $PreparationPattern
+    'reader-repair' = $RepairPattern
+    'reader-qa-fault' = $QaFaultPattern
+    'reader-deck' = $DeckPattern
+    'reader-relocation' = $RelocationPattern
+    'reader-handoff' = $HandoffPattern
+    'reader-raster-publication' = $PublicationPattern
+}
+if ($ReaderDiagnosticSchemaByIntroducer.Count -ne $ReaderDiagnosticSchemas.Count) {
+    throw 'Reader diagnostic schema index must contain every schema exactly once'
+}
 $ReaderDiagnosticIntroducerPattern = [regex]::new(
     '(?<![A-Za-z0-9_-])(?<Introducer>' +
     (($ReaderDiagnosticIntroducers | ForEach-Object {
@@ -1357,14 +1378,15 @@ function Assert-ReaderDiagnosticRecordSet(
             $forbidden.IsMatch($record)) {
             throw "$Context contains a prohibited diagnostic record"
         }
-        $matches = @(
-            $ReaderDiagnosticSchemas | Where-Object {
-                $candidate = $_.Match($record)
-                $candidate.Success -and $candidate.Index -eq 0 -and
-                    $candidate.Length -eq $record.Length
-            }
-        )
-        if ($matches.Count -ne 1) {
+        $introducer = $ReaderDiagnosticIntroducerPattern.Match($record)
+        $schema = $ReaderDiagnosticSchemaByIntroducer[$introducer.Groups['Introducer'].Value]
+        if (-not $introducer.Success -or $introducer.Index -ne 0 -or
+            $null -eq $schema) {
+            throw "$Context contains an unknown, partial, or ambiguous schema: $record"
+        }
+        $candidate = $schema.Match($record)
+        if (-not $candidate.Success -or $candidate.Index -ne 0 -or
+            $candidate.Length -ne $record.Length) {
             throw "$Context contains an unknown, partial, or ambiguous schema: $record"
         }
     }

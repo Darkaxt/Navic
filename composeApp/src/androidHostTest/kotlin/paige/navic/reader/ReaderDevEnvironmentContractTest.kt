@@ -504,6 +504,28 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun readerQaDiagnosticValidationUsesItsIndexedSchema() {
+		val parser = root.resolve(
+			"scripts/reader-playlikecurl-qa-parser.ps1"
+		).readText()
+		val validation = parser
+			.substringAfter("function Assert-ReaderDiagnosticRecordSet(")
+			.substringBefore("function ConvertTo-ReaderDiagnosticRecordSet(")
+
+		assertTrue(parser.contains("\$ReaderDiagnosticSchemaByIntroducer = @{"))
+		assertTrue(
+			validation.contains(
+				"\$schema = \$ReaderDiagnosticSchemaByIntroducer[" +
+					"\$introducer.Groups['Introducer'].Value]"
+			)
+		)
+		assertFalse(
+			validation.contains("\$ReaderDiagnosticSchemas | Where-Object"),
+			"Large stress logs must not test every diagnostic record against every schema."
+		)
+	}
+
+	@Test
 	fun readerQaFaultRecoveryAcceptsPreparedPromotedTextureDecks() {
 		val runner = root.resolve(
 			"scripts/adb-reader-playlikecurl-qa.ps1"
