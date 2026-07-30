@@ -547,6 +547,49 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun readerPublicationWaitExtendsOnlyForBoundedPaginationProgress() {
+		val installer = root.resolve("scripts/install-reader-dev.ps1").readText()
+		val wait = installer
+			.substringAfter("function Wait-ReaderDevPublicationReady")
+			.substringBefore("function Get-EnvValue")
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+		val postImplementationPaths = runner
+			.substringAfter("\$allowed = @(")
+			.substringBefore(")\n    \$changedPaths")
+
+		assertTrue(
+			wait.contains("\$idleDeadline = [DateTime]::UtcNow.AddSeconds(") &&
+				wait.contains("\$absoluteDeadline = [DateTime]::UtcNow.AddSeconds(") &&
+				wait.contains("[Math]::Min(600, \$WaitTimeoutSeconds * 3)") &&
+				wait.contains("\$launchMarkerConfirmed = \$false") &&
+				wait.contains("[Collections.Generic.HashSet[string]]::new()") &&
+				wait.contains("\$logLines = @(Invoke-Adb -Arguments @(") &&
+				wait.contains("\"-v\", \"epoch\", \"-T\", \$AfterCursor") &&
+				wait.contains("if (-not \$launchMarkerConfirmed)") &&
+				wait.contains(
+					"\$eventStartIndex = if (\$launchMarkerIndex -ge 0)"
+				) &&
+				wait.contains("\$paginationProgressCount") &&
+				wait.contains("paginationProfileStatus(measuring)") &&
+				wait.contains(
+					"\$paginationProgressCount -gt \$lastPaginationProgressCount"
+				) &&
+				wait.contains("\$candidateDeadline -lt \$absoluteDeadline") &&
+				wait.contains(
+					"[DateTime]::UtcNow -lt \$idleDeadline -and"
+				) &&
+				wait.contains("[DateTime]::UtcNow -lt \$absoluteDeadline"),
+			"Cold pagination that emits new section progress must extend its idle timeout without permitting an unbounded launch wait."
+		)
+		assertTrue(
+			postImplementationPaths.contains("'scripts/install-reader-dev.ps1',"),
+			"The launch-timeout fix is acceptance tooling and must be permitted after the frozen implementation commit."
+		)
+	}
+
+	@Test
 	fun readerQaFaultRecoveryAcceptsPreparedPromotedTextureDecks() {
 		val runner = root.resolve(
 			"scripts/adb-reader-playlikecurl-qa.ps1"
@@ -977,7 +1020,7 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("\"-T\", \$AfterCursor") &&
 				installScriptText.contains("\"NavicReaderDevLauncher:I\"") &&
 				installScriptText.contains("\"ReaderEngineWebViewHost:I\"") &&
-				installScriptText.contains("\$line.Contains(\$AfterMarker)") &&
+				installScriptText.contains("\$logLines[\$index].Contains(\$AfterMarker)") &&
 				installScriptText.contains("publicationReady") &&
 				installScriptText.contains(
 					"Wait-ReaderDevPublicationReady -Package \$Package -AfterMarker \$publicationReadyMarker -AfterCursor \$publicationReadyCursor"
@@ -989,7 +1032,9 @@ class ReaderDevEnvironmentContractTest {
 				installScriptText.contains("[switch] \$PreserveLogcat") &&
 				installScriptText.contains("[int] \$WaitTimeoutSeconds = 60") &&
 				installScriptText.contains("[ValidateRange(1, 600)]") &&
-				installScriptText.contains("[DateTime]::UtcNow.AddSeconds(\$WaitTimeoutSeconds)") &&
+				installScriptText.contains(
+					"\$idleDeadline = [DateTime]::UtcNow.AddSeconds("
+				) &&
 				installScriptText.contains("if (-not \$NoForceStopLaunch) { \$launchArgs.Add(\"-S\") }") &&
 				installScriptText.contains("if (\$NoForceStopLaunch) { \$launchArgs.Add(\"--activity-single-top\") }") &&
 				installScriptText.contains("if (\$readerLaunchHasPublication -and -not \$PreserveLogcat)"),

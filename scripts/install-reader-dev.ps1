@@ -252,27 +252,72 @@ function Wait-ReaderDevPublicationReady {
         [Parameter(Mandatory = $true)][string] $AfterMarker,
         [Parameter(Mandatory = $true)][string] $AfterCursor
     )
-    $deadline = [DateTime]::UtcNow.AddSeconds($WaitTimeoutSeconds)
+    $idleDeadline = [DateTime]::UtcNow.AddSeconds(
+        $WaitTimeoutSeconds
+    )
+    $absoluteDeadline = [DateTime]::UtcNow.AddSeconds(
+        [Math]::Min(600, $WaitTimeoutSeconds * 3)
+    )
+    $launchMarkerConfirmed = $false
+    $seenPaginationProgress = [Collections.Generic.HashSet[string]]::new()
+    $lastPaginationProgressCount = 0
     do {
-        $logLines = Invoke-Adb -Arguments @(
-            "logcat", "-d", "-v", "brief", "-T", $AfterCursor,
+        $logLines = @(Invoke-Adb -Arguments @(
+            "logcat", "-d", "-v", "epoch", "-T", $AfterCursor,
             "NavicReaderDevLauncher:I", "ReaderEngineWebViewHost:I", "*:S"
-        )
-        $markerSeen = $false
-        foreach ($line in $logLines) {
-            if (-not $markerSeen) {
-                if ($line.Contains($AfterMarker)) {
-                    $markerSeen = $true
-                }
+        ))
+        $launchMarkerIndex = -1
+        for ($index = 0; $index -lt $logLines.Count; $index += 1) {
+            if ($logLines[$index].Contains($AfterMarker)) {
+                $launchMarkerIndex = $index
+                break
+            }
+        }
+        if (-not $launchMarkerConfirmed) {
+            if ($launchMarkerIndex -lt 0) {
+                Start-Sleep -Seconds 1
                 continue
             }
+            $launchMarkerConfirmed = $true
+        }
+        $eventStartIndex = if ($launchMarkerIndex -ge 0) {
+            $launchMarkerIndex + 1
+        } else {
+            0
+        }
+        for (
+            $index = $eventStartIndex
+            $index -lt $logLines.Count
+            $index += 1
+        ) {
+            $line = $logLines[$index]
             if ($line -match "Reader bridge event: publicationReady") {
                 return
             }
+            if ($line.Contains(
+                    'Reader bridge event: paginationProfileStatus(measuring)'
+                )) {
+                [void]$seenPaginationProgress.Add($line)
+            }
+        }
+        $paginationProgressCount = $seenPaginationProgress.Count
+        if ($paginationProgressCount -gt $lastPaginationProgressCount) {
+            $lastPaginationProgressCount = $paginationProgressCount
+            $candidateDeadline = [DateTime]::UtcNow.AddSeconds(
+                $WaitTimeoutSeconds
+            )
+            $idleDeadline = if ($candidateDeadline -lt $absoluteDeadline) {
+                $candidateDeadline
+            } else {
+                $absoluteDeadline
+            }
         }
         Start-Sleep -Seconds 1
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "ReaderDev publication was not ready within $WaitTimeoutSeconds seconds"
+    } while (
+        [DateTime]::UtcNow -lt $idleDeadline -and
+        [DateTime]::UtcNow -lt $absoluteDeadline
+    )
+    throw "ReaderDev publication was not ready before its bounded active-progress deadline"
 }
 
 function Get-EnvValue {

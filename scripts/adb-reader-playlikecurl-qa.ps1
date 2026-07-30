@@ -111,6 +111,7 @@ function Assert-RunnerPostImplementationPaths {
     }
     $allowed = @(
         'scripts/adb-reader-playlikecurl-qa.ps1',
+        'scripts/install-reader-dev.ps1',
         'scripts/reader-playlikecurl-qa-parser.ps1',
         'scripts/test-reader-playlikecurl-qa-parser.ps1',
         'scripts/reader-playlikecurl-acceptance-state.ps1',
