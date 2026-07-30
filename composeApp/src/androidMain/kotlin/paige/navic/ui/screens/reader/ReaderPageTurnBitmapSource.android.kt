@@ -27,6 +27,8 @@ import kotlin.math.abs
 private const val ReaderPageTurnBitmapSourceTag = "ReaderPageTurnBitmapSource"
 private const val PageTurnCaptureSampleColumns = 48
 private const val PageTurnCaptureSampleRows = 32
+private const val PageTurnCapturePrimarySamplePhase = 0.5f
+private const val PageTurnCaptureShiftedSamplePhase = 0f
 private const val PageTurnCaptureMinimumLuminanceRange = 32
 private const val PageTurnCaptureForegroundDistance = 24
 private const val PageTurnCaptureMinimumForegroundSamples = 3
@@ -354,7 +356,44 @@ private data class ReaderPageTurnForegroundAnalysis(
 	val sparseSignature: Int?
 )
 
-private fun Bitmap.analyzeRenderableForeground(): ReaderPageTurnForegroundAnalysis {
+private fun Bitmap.analyzeRenderableForeground(): ReaderPageTurnForegroundAnalysis =
+	readerPageTurnCaptureForegroundAnalysis(width, height) { x, y -> getPixel(x, y) }
+
+private fun readerPageTurnCaptureForegroundAnalysis(
+	width: Int,
+	height: Int,
+	pixelAt: (Int, Int) -> Int
+): ReaderPageTurnForegroundAnalysis {
+	val primary = readerPageTurnSampledForegroundAnalysis(
+		width = width,
+		height = height,
+		samplePhase = PageTurnCapturePrimarySamplePhase,
+		pixelAt = pixelAt
+	)
+	if (primary.renderable) return primary
+	val shifted = readerPageTurnSampledForegroundAnalysis(
+		width = width,
+		height = height,
+		samplePhase = PageTurnCaptureShiftedSamplePhase,
+		pixelAt = pixelAt
+	)
+	if (shifted.renderable) return shifted
+	return when {
+		primary.sparseSignature != null && shifted.sparseSignature == null -> primary
+		shifted.sparseSignature != null && primary.sparseSignature == null -> shifted
+		shifted.luminanceRange > primary.luminanceRange -> shifted
+		shifted.luminanceRange == primary.luminanceRange &&
+			shifted.distantSampleCount > primary.distantSampleCount -> shifted
+		else -> primary
+	}
+}
+
+private fun readerPageTurnSampledForegroundAnalysis(
+	width: Int,
+	height: Int,
+	samplePhase: Float,
+	pixelAt: (Int, Int) -> Int
+): ReaderPageTurnForegroundAnalysis {
 	val columns = PageTurnCaptureSampleColumns.coerceAtMost(width)
 	val rows = PageTurnCaptureSampleRows.coerceAtMost(height)
 	if (columns <= 0 || rows <= 0) {
@@ -362,17 +401,23 @@ private fun Bitmap.analyzeRenderableForeground(): ReaderPageTurnForegroundAnalys
 	}
 	val pixels = ArrayList<Int>(columns * rows)
 	for (row in 0 until rows) {
-		val y = ((row + 0.5f) * height / rows).toInt().coerceIn(0, height - 1)
+		val y = ((row + samplePhase) * height / rows).toInt().coerceIn(0, height - 1)
 		if (y < height * 0.06f || y > height * 0.94f) continue
 		for (column in 0 until columns) {
-			val xFraction = (column + 0.5f) / columns
+			val xFraction = (column + samplePhase) / columns
 			if (xFraction < 0.06f || xFraction > 0.94f || xFraction in 0.47f..0.53f) continue
-			val x = ((column + 0.5f) * width / columns).toInt().coerceIn(0, width - 1)
-			pixels += getPixel(x, y)
+			val x = ((column + samplePhase) * width / columns).toInt().coerceIn(0, width - 1)
+			pixels += pixelAt(x, y)
 		}
 	}
 	return readerPageTurnForegroundAnalysis(pixels.toIntArray())
 }
+
+internal fun readerPageTurnCaptureContainsForeground(
+	width: Int,
+	height: Int,
+	pixelAt: (Int, Int) -> Int
+): Boolean = readerPageTurnCaptureForegroundAnalysis(width, height, pixelAt).renderable
 
 private fun readerPageTurnForegroundAnalysis(pixels: IntArray): ReaderPageTurnForegroundAnalysis {
 	if (pixels.isEmpty()) return ReaderPageTurnForegroundAnalysis(0, 0, 0, 0, false, null)

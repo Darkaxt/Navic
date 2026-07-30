@@ -154,4 +154,36 @@ class ReaderPageTurnBitmapSourceTest {
 
 		assertFalse(readerPageTurnPixelsContainForeground(pixels))
 	}
+
+	@Test
+	fun shiftedSamplingFindsForegroundMissedByThePrimaryLandscapeGrid() {
+		val width = 480
+		val height = 320
+		val pixels = IntArray(width * height) { ReaderPageTestBackground }
+		listOf(30 to 30, 40 to 40, 50 to 50).forEach { (x, y) ->
+			pixels[y * width + x] = ReaderPageTestForeground
+		}
+
+		assertTrue(
+			readerPageTurnCaptureContainsForeground(width, height) { x, y ->
+				pixels[y * width + x]
+			}
+		)
+	}
+
+	@Test
+	fun shiftedSamplingStillRejectsLowContrastDecoration() {
+		val width = 480
+		val height = 320
+		val pixels = IntArray(width * height) { ReaderPageTestBackground }
+		listOf(30 to 30, 40 to 40, 50 to 50).forEach { (x, y) ->
+			pixels[y * width + x] = ReaderPageTestLowContrast
+		}
+
+		assertFalse(
+			readerPageTurnCaptureContainsForeground(width, height) { x, y ->
+				pixels[y * width + x]
+			}
+		)
+	}
 }
