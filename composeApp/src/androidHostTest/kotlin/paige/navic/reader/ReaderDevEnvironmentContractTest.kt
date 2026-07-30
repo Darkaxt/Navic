@@ -486,6 +486,24 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun readerQaFaultStateWaitSearchesTheCompleteAccumulatedInterval() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+		val faultStateWait = runner
+			.substringAfter("function Wait-ReaderQaFaultState(")
+			.substringBefore("function Add-ReaderQaFault(")
+
+		assertTrue(
+			faultStateWait.contains(
+				"return Wait-ReaderQaCondition -Context \$Context " +
+					"-WaitSeconds \$WaitSeconds -Full -Select {"
+			),
+			"Fault-state polling must search the complete accumulated interval because a high-volume raster refill can push an already-applied request outside the bounded recent window before the turn returns."
+		)
+	}
+
+	@Test
 	fun readerQaFaultRecoveryAcceptsPreparedPromotedTextureDecks() {
 		val runner = root.resolve(
 			"scripts/adb-reader-playlikecurl-qa.ps1"

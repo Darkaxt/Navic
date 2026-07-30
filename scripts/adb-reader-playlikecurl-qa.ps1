@@ -741,7 +741,7 @@ function Wait-ReaderQaFaultState(
     [string] $Context,
     [int] $WaitSeconds = 30
 ) {
-    return Wait-ReaderQaCondition -Context $Context -WaitSeconds $WaitSeconds -Select {
+    return Wait-ReaderQaCondition -Context $Context -WaitSeconds $WaitSeconds -Full -Select {
         param($log)
         ConvertFrom-ReaderQaFaultLog $log | Where-Object {
             $_.RequestId -eq $RequestId -and $_.State -eq $State
