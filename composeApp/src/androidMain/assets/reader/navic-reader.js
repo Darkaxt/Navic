@@ -377,6 +377,10 @@ class NavicReaderRuntime {
   exactPageTurnNavigationToken = null
   exactPageTurnNavigationInProgress = false
   nativePageTurnSettledState = null
+  pageTurnPresentationSequence = 0
+  pageTurnPreviewPresentationReceiptValue = null
+  pageTurnLivePresentationReceiptValue = null
+  pageTurnLivePresentationTargetValue = null
   pageTurnPreviewView = null
   pageTurnPreviewPublicationUrl = ''
   pageTurnPreviewGeneration = 0
@@ -705,6 +709,9 @@ class NavicReaderRuntime {
     this.exactPageTurnNavigationToken = null
     this.exactPageTurnNavigationInProgress = false
     this.nativePageTurnSettledState = null
+    this.pageTurnPreviewPresentationReceiptValue = null
+    this.pageTurnLivePresentationReceiptValue = null
+    this.pageTurnLivePresentationTargetValue = null
     this.recentPageTurnDirection = null
     this.nativePageDragPreview = null
     this.removePageDragPreviewLayer()
@@ -1612,6 +1619,7 @@ window.NavicReaderBridge = {
       })
   },
   armNativePageTurnSettle: token => {
+    runtime.clearPageTurnLivePresentationTarget()
     runtime.pendingNativePageTurnSettleToken = String(token || '') || null
     runtime.nativePageTurnSettledToken = null
     runtime.pendingExactPageTurnSettlements.clear()
@@ -1621,6 +1629,8 @@ window.NavicReaderBridge = {
   nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
   nativePageTurnSettledState: () => runtime.nativePageTurnSettledState,
   nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),
+  pageTurnPreviewPresentationReceipt: () => runtime.pageTurnPreviewPresentationReceipt(),
+  pageTurnLivePresentationReceipt: () => runtime.pageTurnLivePresentationReceipt(),
   beginPageTurnPreviewPreparation: (token, pageIndex) =>
     runtime.beginPageTurnPreviewPreparation(token, pageIndex),
   beginPageTurnPreviewBatch: (token, pageIndexes) =>

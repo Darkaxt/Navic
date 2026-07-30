@@ -158,6 +158,11 @@ import {
 } from './navic-reader-helpers.js'
 import { readerPageLocatorForVisualIndex } from './navic-reader-page-turn-model.js'
 import { readerGoToExactVisualPage } from './navic-reader-page-turn-preview.js'
+import {
+  ReaderPageTurnPresentationScopeLive,
+  issueReaderPageTurnPresentationReceipt,
+  readerPageTurnPresentationReceiptMatches,
+} from './navic-reader-page-turn-presentation.js'
 
 const ViewportScrollStepRatio = 0.75
 
@@ -335,6 +340,104 @@ function rememberCompletedExactPageTurnSettlement(runtime, settlement) {
   runtime.completedExactPageTurnSettlements.set(token, settlement)
 }
 
+function clearPageTurnLivePresentationReceipt() {
+  const cleared = this.pageTurnLivePresentationReceiptValue != null
+  this.pageTurnLivePresentationReceiptValue = null
+  return cleared
+}
+
+function clearPageTurnLivePresentationTarget() {
+  const cleared = this.pageTurnLivePresentationTargetValue != null
+  this.pageTurnLivePresentationTargetValue = null
+  this.clearPageTurnLivePresentationReceipt()
+  return cleared
+}
+
+function replacePageTurnLivePresentationTarget(target) {
+  this.clearPageTurnLivePresentationTarget()
+  this.pageTurnLivePresentationTargetValue = Object.freeze(target)
+  return this.pageTurnLivePresentationTargetValue
+}
+
+function pageTurnLivePresentationReceiptTarget(target) {
+  return {
+    scope: ReaderPageTurnPresentationScopeLive,
+    token: target.token,
+    pageIndex: target.pageIndex,
+    foliateSessionId: target.foliateSessionId,
+    rasterGeneration: target.rasterGeneration,
+    textureGeneration: target.textureGeneration,
+  }
+}
+
+function pageTurnLivePresentationTargetMatchesCurrent(target) {
+  if (!target) return false
+  const pagePosition = this.currentPagePosition
+  if (
+    target.relocationEpoch !== this.relocateSequence ||
+    target.foliateSessionId !== this.foliateSessionId ||
+    target.paginationProfile !== this.paginationProfile ||
+    !Number.isFinite(Number(pagePosition?.pageIndex)) ||
+    Math.floor(Number(pagePosition.pageIndex)) !== target.pageIndex ||
+    !Number.isFinite(Number(pagePosition?.spineIndex)) ||
+    Math.floor(Number(pagePosition.spineIndex)) !== target.spineIndex ||
+    !Number.isFinite(Number(pagePosition?.chapterPageIndex)) ||
+    Math.floor(Number(pagePosition.chapterPageIndex)) !== target.chapterPageIndex
+  ) return false
+  const settlement = this.nativePageTurnSettledState?.token === target.token
+    ? this.nativePageTurnSettledState
+    : this.completedExactPageTurnSettlements.get(target.token)
+  return exactPageTurnSettlementMatches(
+    settlement,
+    target,
+    target.foliateSessionId,
+    target.rasterGeneration,
+    target.textureGeneration,
+    target.paginationProfile
+  )
+}
+
+function issuePageTurnLivePresentationReceipt(target) {
+  const receipt = issueReaderPageTurnPresentationReceipt(
+    target,
+    this.pageTurnPresentationSequence
+  )
+  this.pageTurnPresentationSequence = receipt.presentationSequence
+  this.pageTurnLivePresentationReceiptValue = receipt
+  return receipt
+}
+
+function restorePageTurnLivePresentationReceipt() {
+  const target = this.pageTurnLivePresentationTargetValue
+  if (!this.pageTurnLivePresentationTargetMatchesCurrent(target)) {
+    this.clearPageTurnLivePresentationTarget()
+    return null
+  }
+  return this.issuePageTurnLivePresentationReceipt(
+    this.pageTurnLivePresentationReceiptTarget(target)
+  )
+}
+
+function pageTurnLivePresentationReceipt() {
+  const target = this.pageTurnLivePresentationTargetValue
+  if (this.pageTurnPreviewExposedToken) {
+    this.clearPageTurnLivePresentationReceipt()
+    return null
+  }
+  if (!this.pageTurnLivePresentationTargetMatchesCurrent(target)) {
+    this.clearPageTurnLivePresentationTarget()
+    return null
+  }
+  const receipt = this.pageTurnLivePresentationReceiptValue
+  if (!receipt) return null
+  const receiptTarget = this.pageTurnLivePresentationReceiptTarget(target)
+  if (!readerPageTurnPresentationReceiptMatches(receipt, receiptTarget)) {
+    this.clearPageTurnLivePresentationReceipt()
+    return null
+  }
+  return receipt
+}
+
 async function goToVisualPage(command = {}) {
   const pageIndex = command.pageIndex
   const token = typeof command.settleToken === 'string' ? command.settleToken.trim() : ''
@@ -395,6 +498,8 @@ async function goToVisualPage(command = {}) {
   ) {
     this.cancelPendingExactPageTurnSettlement('superseded')
   }
+  this.clearPageTurnPreviewPresentationReceipt()
+  this.clearPageTurnLivePresentationTarget()
   const pending = Object.freeze({
     token,
     foliateSessionId: settleSessionId,
@@ -512,6 +617,25 @@ function maybeCompleteNativePageTurnSettlement(pagePosition = this.currentPagePo
     chapterPageIndex: pending.chapterPageIndex,
     paginationProfile: pending.paginationProfile,
   })
+  const presentationTarget = this.replacePageTurnLivePresentationTarget({
+    scope: ReaderPageTurnPresentationScopeLive,
+    token: pending.token,
+    pageIndex: settledPageIndex,
+    foliateSessionId: pending.foliateSessionId,
+    rasterGeneration: pending.rasterGeneration,
+    textureGeneration: pending.textureGeneration,
+    relocationEpoch: this.relocateSequence,
+    spineIndex: pending.spineIndex,
+    chapterPageIndex: pending.chapterPageIndex,
+    paginationProfile: pending.paginationProfile,
+  })
+  if (!this.pageTurnPreviewExposedToken) {
+    this.issuePageTurnLivePresentationReceipt(
+      this.pageTurnLivePresentationReceiptTarget(presentationTarget)
+    )
+  } else {
+    this.clearPageTurnLivePresentationReceipt()
+  }
   this.nativePageTurnSettledToken = pending.token
   if (this.pendingExactPageTurnSettlements.get(pending.token) === pending) {
     this.pendingExactPageTurnSettlements.delete(pending.token)
@@ -558,6 +682,7 @@ function consumeNativePageTurnSettlement(token) {
 }
 
 function cancelPendingExactPageTurnSettlement(reason = 'superseded') {
+  this.clearPageTurnLivePresentationTarget()
   const pending = this.activeExactPageTurnSettlement()
   const settled = this.nativePageTurnSettledState
   if (!pending && !settled) return false
@@ -2708,6 +2833,14 @@ export const NavicReaderPageTurnMethods = {
   goToProgress,
   goToChapterProgress,
   goToVisualPage,
+  clearPageTurnLivePresentationReceipt,
+  clearPageTurnLivePresentationTarget,
+  replacePageTurnLivePresentationTarget,
+  pageTurnLivePresentationReceiptTarget,
+  pageTurnLivePresentationTargetMatchesCurrent,
+  issuePageTurnLivePresentationReceipt,
+  restorePageTurnLivePresentationReceipt,
+  pageTurnLivePresentationReceipt,
   activeExactPageTurnSettlement,
   maybeCompleteNativePageTurnSettlement,
   peekNativePageTurnSettlement,

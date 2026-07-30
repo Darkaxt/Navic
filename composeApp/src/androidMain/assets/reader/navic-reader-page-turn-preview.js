@@ -12,6 +12,11 @@ import {
   setStylesImportant,
 } from './navic-reader-helpers.js'
 import { stableHash } from './navic-reader-identity.js'
+import {
+  ReaderPageTurnPresentationScopePreview,
+  issueReaderPageTurnPresentationReceipt,
+  readerPageTurnPresentationReceiptMatches,
+} from './navic-reader-page-turn-presentation.js'
 
 const nextAnimationFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
 
@@ -81,6 +86,49 @@ function pageTurnPreviewState(token = '') {
     return Object.freeze({ token: requestedToken, status: 'missing' })
   }
   return state
+}
+
+function clearPageTurnPreviewPresentationReceipt() {
+  const cleared = this.pageTurnPreviewPresentationReceiptValue != null
+  this.pageTurnPreviewPresentationReceiptValue = null
+  return cleared
+}
+
+function issuePageTurnPreviewPresentationReceipt(target) {
+  const receipt = issueReaderPageTurnPresentationReceipt(
+    target,
+    this.pageTurnPresentationSequence
+  )
+  this.pageTurnPresentationSequence = receipt.presentationSequence
+  this.pageTurnPreviewPresentationReceiptValue = receipt
+  return receipt
+}
+
+function pageTurnPreviewPresentationReceipt() {
+  const receipt = this.pageTurnPreviewPresentationReceiptValue
+  const state = this.pageTurnPreviewStateValue
+  if (
+    !receipt ||
+    !state ||
+    state.status !== 'ready' ||
+    state.generation !== this.pageTurnPreviewGeneration ||
+    !this.pageTurnPreviewView ||
+    this.pageTurnPreviewExposedToken !== state.token
+  ) {
+    this.clearPageTurnPreviewPresentationReceipt()
+    return null
+  }
+  const target = {
+    scope: ReaderPageTurnPresentationScopePreview,
+    token: state.token,
+    pageIndex: state.pageIndex,
+    previewGeneration: state.generation,
+  }
+  if (!readerPageTurnPresentationReceiptMatches(receipt, target)) {
+    this.clearPageTurnPreviewPresentationReceipt()
+    return null
+  }
+  return receipt
 }
 
 function pageTurnRasterDescriptor(pageIndex) {
@@ -254,6 +302,7 @@ function pageTurnTransitionPlan(physicalDirection = '', currentPageIndexOverride
 
 function beginPageTurnPreviewPreparation(token, pageIndex) {
   const requestedToken = String(token || '')
+  this.clearPageTurnPreviewPresentationReceipt()
   const generation = ++this.pageTurnPreviewGeneration
   this.pageTurnPreviewStateValue = Object.freeze({
     token: requestedToken,
@@ -315,6 +364,7 @@ function pageTurnPreviewBatchState(token = '') {
 
 function beginPageTurnPreviewBatch(token, pageIndexes = []) {
   const requestedToken = String(token || '')
+  this.clearPageTurnPreviewPresentationReceipt()
   const requestedPageIndexes = Array.from(new Set(
     (Array.isArray(pageIndexes) ? pageIndexes : [])
       .map(value => Number(value))
@@ -392,6 +442,7 @@ function advancePageTurnPreviewBatch(token, pageIndex) {
   const state = this.pageTurnPreviewBatchState(token)
   const completedPageIndex = Math.max(0, Math.floor(Number(pageIndex)))
   if (state.status !== 'ready' || state.pageIndex !== completedPageIndex) return state
+  this.clearPageTurnPreviewPresentationReceipt()
   const nextCursor = state.cursor + 1
   if (nextCursor >= state.total) {
     this.pageTurnPreviewBatchStateValue = Object.freeze({
@@ -468,6 +519,13 @@ function exposePageTurnPreviewFinal(token = '') {
     'z-index': '1',
   })
   this.pageTurnPreviewExposedToken = state.token
+  this.clearPageTurnLivePresentationReceipt()
+  this.issuePageTurnPreviewPresentationReceipt({
+    scope: ReaderPageTurnPresentationScopePreview,
+    token: state.token,
+    pageIndex: state.pageIndex,
+    previewGeneration: state.generation,
+  })
   readerTrace('page-turn-preview:exposed', state)
   return true
 }
@@ -479,10 +537,18 @@ function restorePageTurnLiveComposition(token = '') {
     this.pageTurnPreviewExposedToken &&
     requestedToken !== this.pageTurnPreviewExposedToken
   ) return false
+  const restoringExposedPreview = Boolean(this.pageTurnPreviewExposedToken)
   const previewView = this.pageTurnPreviewView
   if (previewView) this.applyReaderViewportLayoutToProfilerView(previewView, this.readerSettings)
-  if (this.pageTurnPreviewLivePagePosition) {
-    this.updateReaderPageNumberLayer(this.pageTurnPreviewLivePagePosition)
+  const retainedLivePositionIsCurrent = restoringExposedPreview &&
+    this.pageTurnLivePresentationTargetMatchesCurrent(
+      this.pageTurnLivePresentationTargetValue
+    )
+  const restoredLivePagePosition = retainedLivePositionIsCurrent
+    ? this.currentPagePosition
+    : this.pageTurnPreviewLivePagePosition
+  if (restoredLivePagePosition) {
+    this.updateReaderPageNumberLayer(restoredLivePagePosition)
   }
   if (this.view) {
     if (this.pageTurnPreviewLiveVisibility) {
@@ -499,9 +565,11 @@ function restorePageTurnLiveComposition(token = '') {
   this.pageTurnPreviewLiveVisibility = ''
   this.pageTurnPreviewLiveOpacity = ''
   this.pageTurnPreviewExposedToken = ''
+  this.clearPageTurnPreviewPresentationReceipt()
   this.pageTurnPreviewLivePagePosition = null
   this.pageTurnPreviewDecorationPageIndex = null
   this.renderSurfacePaperTextureLayers()
+  if (restoringExposedPreview) this.restorePageTurnLivePresentationReceipt()
   readerTrace('page-turn-preview:restored', { token: requestedToken })
   return true
 }
@@ -509,6 +577,8 @@ function restorePageTurnLiveComposition(token = '') {
 function destroyPageTurnPreviewRenderer(reason = 'destroy') {
   this.pageTurnPreviewGeneration += 1
   this.restorePageTurnLiveComposition()
+  this.clearPageTurnPreviewPresentationReceipt()
+  this.clearPageTurnLivePresentationTarget()
   const previewView = this.pageTurnPreviewView
   this.pageTurnPreviewView = null
   this.pageTurnPreviewPublicationUrl = ''
@@ -533,6 +603,9 @@ export const NavicReaderPageTurnPreviewMethods = {
   advancePageTurnPreviewBatch,
   cancelPageTurnPreviewBatch,
   pageTurnPreviewState,
+  clearPageTurnPreviewPresentationReceipt,
+  issuePageTurnPreviewPresentationReceipt,
+  pageTurnPreviewPresentationReceipt,
   pageTurnPreviewContext,
   pageTurnTransitionPlan,
   exposePageTurnPreviewFinal,

@@ -705,7 +705,8 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(expose, "pageTurnPreviewLivePagePosition")
 		assertContains(expose, "pageIndex: state.pageIndex")
 		assertContains(expose, "this.updateReaderPageNumberLayer(previewPagePosition)")
-		assertContains(restore, "this.updateReaderPageNumberLayer(this.pageTurnPreviewLivePagePosition)")
+		assertContains(restore, "this.pageTurnPreviewLivePagePosition")
+		assertContains(restore, "this.updateReaderPageNumberLayer(restoredLivePagePosition)")
 	}
 
 	@Test
@@ -928,5 +929,102 @@ class ReaderPageTurnDestinationSourceTest {
 			insertion.indexOf("schedulePersistentSnapshot(") < insertion.indexOf("trimSnapshotCacheToCapacity()"),
 			"Persistence must retain the inserted snapshot before an LRU trim can release cache ownership"
 		)
+	}
+
+	@Test
+	fun presentationReceiptModuleLoadsThroughTheReaderBundleAndExposesBridgeGetters() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+
+		assertContains(preview, "from './navic-reader-page-turn-presentation.js'")
+		assertContains(turns, "from './navic-reader-page-turn-presentation.js'")
+		assertContains(runtime, "pageTurnPresentationSequence = 0")
+		assertContains(runtime, "pageTurnPreviewPresentationReceiptValue = null")
+		assertContains(runtime, "pageTurnLivePresentationReceiptValue = null")
+		assertContains(runtime, "pageTurnLivePresentationTargetValue = null")
+		assertContains(
+			runtime,
+			"pageTurnPreviewPresentationReceipt: () => runtime.pageTurnPreviewPresentationReceipt()"
+		)
+		assertContains(
+			runtime,
+			"pageTurnLivePresentationReceipt: () => runtime.pageTurnLivePresentationReceipt()"
+		)
+	}
+
+	@Test
+	fun previewReceiptIsIssuedOnlyAfterExposureAndClearedWithItsComposition() {
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val expose = preview
+			.substringAfter("function exposePageTurnPreviewFinal(")
+			.substringBefore("function restorePageTurnLiveComposition(")
+		val restore = preview
+			.substringAfter("function restorePageTurnLiveComposition(")
+			.substringBefore("function destroyPageTurnPreviewRenderer(")
+		val destroy = preview
+			.substringAfter("function destroyPageTurnPreviewRenderer(")
+			.substringBefore("export const NavicReaderPageTurnPreviewMethods")
+
+		assertContains(expose, "scope: ReaderPageTurnPresentationScopePreview")
+		assertContains(expose, "token: state.token")
+		assertContains(expose, "pageIndex: state.pageIndex")
+		assertContains(expose, "previewGeneration: state.generation")
+		assertTrue(
+			expose.indexOf("this.pageTurnPreviewExposedToken = state.token") <
+				expose.indexOf("this.issuePageTurnPreviewPresentationReceipt("),
+			"A preview receipt may be issued only after the preview owns the exposed composition."
+		)
+		assertContains(preview, "function pageTurnPreviewPresentationReceipt()")
+		assertContains(preview, "readerPageTurnPresentationReceiptMatches(receipt, target)")
+		assertContains(restore, "this.clearPageTurnPreviewPresentationReceipt()")
+		assertContains(destroy, "this.clearPageTurnPreviewPresentationReceipt()")
+		assertContains(preview, "this.clearPageTurnPreviewPresentationReceipt()")
+	}
+
+	@Test
+	fun liveReceiptFollowsExactSettlementAndRevalidatesCurrentLiveState() {
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val complete = turns
+			.substringAfter("function maybeCompleteNativePageTurnSettlement(")
+			.substringBefore("function peekNativePageTurnSettlement(")
+		val cancellation = turns
+			.substringAfter("function cancelPendingExactPageTurnSettlement(")
+			.substringBefore("function nextPage()")
+		val getter = turns
+			.substringAfter("function pageTurnLivePresentationTargetMatchesCurrent(")
+			.substringBefore("async function goToVisualPage(")
+		val restore = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+			.substringAfter("function restorePageTurnLiveComposition(")
+			.substringBefore("function destroyPageTurnPreviewRenderer(")
+
+		assertContains(complete, "scope: ReaderPageTurnPresentationScopeLive")
+		assertContains(complete, "token: pending.token")
+		assertContains(complete, "pageIndex: settledPageIndex")
+		assertContains(complete, "foliateSessionId: pending.foliateSessionId")
+		assertContains(complete, "rasterGeneration: pending.rasterGeneration")
+		assertContains(complete, "textureGeneration: pending.textureGeneration")
+		assertContains(complete, "relocationEpoch: this.relocateSequence")
+		assertTrue(
+			complete.indexOf("this.nativePageTurnSettledState = Object.freeze({") <
+				complete.indexOf("this.issuePageTurnLivePresentationReceipt("),
+			"The live receipt must follow exact settlement."
+		)
+		assertContains(turns, "function pageTurnLivePresentationReceipt()")
+		assertContains(getter, "this.pageTurnLivePresentationTargetValue")
+		assertContains(getter, "this.completedExactPageTurnSettlements.get(target.token)")
+		assertContains(getter, "target.relocationEpoch !== this.relocateSequence")
+		assertContains(getter, "readerPageTurnPresentationReceiptMatches(receipt, receiptTarget)")
+		assertFalse(
+			getter.contains("peekNativePageTurnSettlement"),
+			"Receipt lookup must survive settlement acknowledgement consumption."
+		)
+		assertContains(cancellation, "this.clearPageTurnLivePresentationTarget()")
+		assertContains(runtime, "runtime.clearPageTurnLivePresentationTarget()")
+		assertContains(restore, "const retainedLivePositionIsCurrent =")
+		assertContains(restore, "this.pageTurnLivePresentationTargetMatchesCurrent(")
+		assertContains(restore, "? this.currentPagePosition")
+		assertContains(restore, "this.restorePageTurnLivePresentationReceipt()")
 	}
 }
