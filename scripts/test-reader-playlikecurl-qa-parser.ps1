@@ -458,6 +458,99 @@ $preparedBeforeRepairStart = Assert-ForcedRepairAttemptResolution `
 if ($preparedBeforeRepairStart.Kind -ne 'Superseded') {
     throw 'Prepared-before-repair-start fixture did not prove safe supersession'
 }
+$foregroundRefillAttempted =
+    'reader-preparation session=7 attempt=31 rasterGeneration=2 ' +
+    'state=Attempted reason=None eventVersion=-1 durationMs=0' +
+    $NoQaCorrelationFields
+$foregroundRefillReady = $foregroundRefillAttempted.Replace(
+    'state=Attempted reason=None eventVersion=-1 durationMs=0',
+    'state=Ready reason=None eventVersion=-1 durationMs=3200'
+)
+$transientForegroundRefillOwnership = $drainedRepairOwnership.Replace(
+    'staged=0',
+    'staged=1'
+).Replace(
+    'callbacks=0',
+    'callbacks=1'
+)
+$foregroundRefillDrainLog = $safelySupersededRepairLog.Replace(
+    $forcedRepairCancelled + "`n",
+    $forcedRepairCancelled + "`n" + $foregroundRefillAttempted + "`n"
+).Replace(
+    $drainedRepairOwnership,
+    $transientForegroundRefillOwnership + "`n" + $foregroundRefillReady
+)
+$foregroundRefillResolution = Assert-ForcedRepairAttemptResolution `
+    -Log $foregroundRefillDrainLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'foreground-refill ownership drain fixture'
+if ($foregroundRefillResolution.Kind -ne 'Superseded') {
+    throw 'Foreground-refill readiness did not prove safe supersession ownership drain'
+}
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $foregroundRefillDrainLog.Replace(
+            "`n" + $foregroundRefillReady,
+            ''
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'unterminated foreground-refill ownership fixture' | Out-Null
+} 'unterminated foreground-refill ownership fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $foregroundRefillDrainLog.Replace(
+            $foregroundRefillReady,
+            $foregroundRefillReady.Replace('rasterGeneration=2', 'rasterGeneration=3')
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'wrong-generation foreground-refill ownership fixture' | Out-Null
+} 'wrong-generation foreground-refill ownership fixture'
+$unrelatedForegroundRefillAttempted = $foregroundRefillAttempted.Replace(
+    'attempt=31',
+    'attempt=32'
+)
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $foregroundRefillDrainLog.Replace(
+            $foregroundRefillAttempted + "`n",
+            $foregroundRefillAttempted + "`n" +
+                $unrelatedForegroundRefillAttempted + "`n"
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'ambiguous foreground-refill ownership fixture' | Out-Null
+} 'ambiguous foreground-refill ownership fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $foregroundRefillDrainLog.Replace(
+            $transientForegroundRefillOwnership,
+            $transientForegroundRefillOwnership.Replace(
+                'pendingLeases=0',
+                'pendingLeases=1'
+            )
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'owned foreground-refill drain fixture' | Out-Null
+} 'owned foreground-refill drain fixture'
 $uncompletedPreparedTexture = @(Get-ReaderPreparedPromotedTexture `
     -Log $preparedWhilePendingLog.Replace($forcedRepairRelocationCompleted, '') `
     -ReaderSession 7 `
@@ -1601,6 +1694,9 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
                 'Restore-ReaderAnimatorDurationScale \$originalAnimatorDurationScale'
         )) {
         throw "Runner omits final animator-scale restoration: $candidateTreeSource"
+    }
+    if ($forcedRepairFlow -notmatch 'Get-ReaderFaultMatrixOwnershipDrainProof') {
+        throw "Runner does not accept exact foreground-refill ownership drain proof: $candidateTreeSource"
     }
     if ($forcedRepairFlow -notmatch 'Wait-ReaderQaPreparedTextureGeneration') {
         throw "Runner omits promoted normal-deck preparation: $candidateTreeSource"

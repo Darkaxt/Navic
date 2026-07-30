@@ -1648,19 +1648,12 @@ function Invoke-ReaderQaFaultMatrix(
         -Full `
         -Select {
             param($log)
-            ConvertFrom-ReaderOwnershipLog $log | Where-Object {
-                $_.Session -eq $ReaderSession -and
-                    $_.Phase -eq 'steady-state' -and
-                    $_.Index -gt $repairResolutionIndex -and
-                    $_.Staged -eq 0 -and
-                    $_.PendingLeases -eq 0 -and
-                    $_.ReleaseInFlightLeases -eq 0 -and
-                    $_.OrphanLeases -eq 0 -and
-                    $_.Callbacks -eq 0 -and
-                    $_.RelocationReservations -eq 0 -and
-                    $_.QueuedRelocations -eq 0 -and
-                    $_.Relocations -eq 0
-            }
+            Get-ReaderFaultMatrixOwnershipDrainProof `
+                -Log $log `
+                -ReaderSession $ReaderSession `
+                -ResolutionBoundary $repairResolutionIndex `
+                -RepairTerminalIndex $forcedRepairTerminal.Match.Index `
+                -RasterGeneration $forcedRepairTerminal.Match.RasterGeneration
         })
 
     $proofTurn = Invoke-ReaderQaCommittedTurn `

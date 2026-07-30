@@ -1494,6 +1494,71 @@ function Assert-TypedDeferralsResumeOnNewerEvent(
     }
 }
 
+function Get-ReaderFaultMatrixOwnershipDrainProof(
+    [string] $Log,
+    [long] $ReaderSession,
+    [int] $ResolutionBoundary,
+    [int] $RepairTerminalIndex,
+    [long] $RasterGeneration
+) {
+    $preparations = @(
+        ConvertFrom-ReaderPreparationLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.RasterGeneration -eq $RasterGeneration
+        }
+    )
+    $snapshots = @(
+        ConvertFrom-ReaderOwnershipLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.Phase -eq 'steady-state' -and
+                $_.Index -gt $ResolutionBoundary -and
+                $_.PendingLeases -eq 0 -and
+                $_.ReleaseInFlightLeases -eq 0 -and
+                $_.OrphanLeases -eq 0 -and
+                $_.RelocationReservations -eq 0 -and
+                $_.QueuedRelocations -eq 0 -and
+                $_.Relocations -eq 0
+        } | Sort-Object Index
+    )
+    foreach ($snapshot in $snapshots) {
+        if ($snapshot.Staged -eq 0 -and $snapshot.Callbacks -eq 0) {
+            return [pscustomobject]@{
+                Kind = 'Snapshot'
+                Snapshot = $snapshot
+                PreparationAttempt = -1L
+            }
+        }
+        if ($snapshot.Staged -ne 1 -or $snapshot.Callbacks -ne 1) {
+            continue
+        }
+        $attempts = @(
+            $preparations | Where-Object {
+                $_.State -eq 'Attempted' -and
+                    $_.Index -gt $RepairTerminalIndex -and
+                    $_.Index -lt $snapshot.Index
+            } | Sort-Object Index -Descending
+        )
+        if ($attempts.Count -ne 1) { continue }
+        $attempt = $attempts[0]
+        $lifecycle = @(
+            $preparations | Where-Object Attempt -eq $attempt.Attempt |
+                Sort-Object Index
+        )
+        if ($lifecycle.Count -eq 2 -and
+            $lifecycle[0].Index -eq $attempt.Index -and
+            $lifecycle[0].State -eq 'Attempted' -and
+            $lifecycle[1].State -eq 'Ready' -and
+            $lifecycle[1].Index -gt $snapshot.Index) {
+            return [pscustomobject]@{
+                Kind = 'ForegroundPreparationReady'
+                Snapshot = $snapshot
+                PreparationAttempt = $attempt.Attempt
+            }
+        }
+    }
+    return $null
+}
+
 function Assert-ForcedRepairAttemptResolution(
     [string] $Log,
     [long] $ReaderSession,
@@ -1706,25 +1771,16 @@ function Assert-ForcedRepairAttemptResolution(
         'Superseded'
     }
 
-    $drainedOwnership = @(
-        ConvertFrom-ReaderOwnershipLog $Log | Where-Object {
-            $_.Session -eq $ReaderSession -and
-                $_.Phase -eq 'steady-state' -and
-                $_.Index -gt $resolutionBoundary -and
-                $_.Staged -eq 0 -and
-                $_.PendingLeases -eq 0 -and
-                $_.ReleaseInFlightLeases -eq 0 -and
-                $_.OrphanLeases -eq 0 -and
-                $_.Callbacks -eq 0 -and
-                $_.RelocationReservations -eq 0 -and
-                $_.QueuedRelocations -eq 0 -and
-                $_.Relocations -eq 0
-        }
-    )
-    if ($drainedOwnership.Count -eq 0) {
+    $drainProof = Get-ReaderFaultMatrixOwnershipDrainProof `
+        -Log $Log `
+        -ReaderSession $ReaderSession `
+        -ResolutionBoundary $resolutionBoundary `
+        -RepairTerminalIndex $terminal.Index `
+        -RasterGeneration $start.RasterGeneration
+    if ($null -eq $drainProof) {
         throw "$Context did not drain repair-turn ownership"
     }
-    Assert-OwnershipWithinBounds @($drainedOwnership[-1]) $Context
+    Assert-OwnershipWithinBounds @($drainProof.Snapshot) $Context
     [pscustomobject]@{
         Kind = $resolution
         RepairAttempt = $appliedFault.RepairAttemptId

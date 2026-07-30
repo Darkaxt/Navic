@@ -442,14 +442,21 @@ class ReaderDevEnvironmentContractTest {
 				faultMatrix.contains("\$forcedRepairTerminal.Match.Index") &&
 				faultMatrix.contains("\$repairRelocation.Match.Index") &&
 				faultMatrix.contains("\$repairDeck.Match.Index") &&
-				faultMatrix.contains("\$_.Index -gt \$repairResolutionIndex") &&
+				faultMatrix.contains("Get-ReaderFaultMatrixOwnershipDrainProof") &&
+				faultMatrix.contains("-ResolutionBoundary \$repairResolutionIndex") &&
+				faultMatrix.contains(
+					"-RepairTerminalIndex \$forcedRepairTerminal.Match.Index"
+				) &&
+				faultMatrix.contains(
+					"-RasterGeneration \$forcedRepairTerminal.Match.RasterGeneration"
+				) &&
 				relocationWait.contains("[switch] \$Full") &&
 				relocationWait.contains("-Full:\$Full") &&
 				faultMatrix.indexOf("ReaderDev fault matrix ownership drain") <
 				faultMatrix.indexOf("\$proofTurn = Invoke-ReaderQaCommittedTurn") &&
 				faultMatrix.indexOf("ReaderDev fault matrix ownership drain") <
 				faultMatrix.indexOf("\$finalLog = Read-ReaderPidLog"),
-			"Fault-matrix parsing must drain repair ownership before the proof turn can acquire new staged work."
+			"Fault-matrix parsing must prove repair ownership drained through an exact snapshot or its foreground-refill terminal before the proof turn can acquire new staged work."
 		)
 		assertTrue(
 			runner.contains("\$script:ReaderAccumulatedLogLines") &&
