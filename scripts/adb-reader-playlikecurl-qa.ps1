@@ -2166,11 +2166,9 @@ do {
         $ownership | Where-Object {
             $_.Phase -eq 'steady-state' -and
                 $_.Index -gt $lastTerminalRelocationIndex -and
-                $_.Staged -eq 0 -and
                 $_.PendingLeases -eq 0 -and
                 $_.ReleaseInFlightLeases -eq 0 -and
                 $_.OrphanLeases -eq 0 -and
-                $_.Callbacks -eq 0 -and
                 $_.RelocationReservations -eq 0 -and
                 $_.QueuedRelocations -eq 0 -and
                 $_.Relocations -eq 0

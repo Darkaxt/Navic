@@ -929,6 +929,27 @@ class ReaderDevEnvironmentContractTest {
 			drain.contains("\$steadyTurns -ge \$completedRelocations.Count"),
 			"Overlapping relocations may share one final steady-state snapshot."
 		)
+		assertFalse(
+			drain.contains("\$_.Staged -eq 0") ||
+				drain.contains("\$_.Callbacks -eq 0"),
+			"An open reader may publish a bounded background raster after the final relocation; one-shot ownership diagnostics cannot prove later publication quiescence."
+		)
+		assertTrue(
+			drain.contains("\$_.PendingLeases -eq 0") &&
+				drain.contains("\$_.ReleaseInFlightLeases -eq 0") &&
+				drain.contains("\$_.OrphanLeases -eq 0") &&
+				drain.contains("\$_.RelocationReservations -eq 0") &&
+				drain.contains("\$_.QueuedRelocations -eq 0") &&
+				drain.contains("\$_.Relocations -eq 0"),
+			"Stress drain must still prove that relocation ownership and leases reached zero."
+		)
+		val afterClose = runner
+			.substringAfter("function Wait-ClosedOwnershipBaseline(")
+			.substringBefore("function Invoke-ReaderQaFaultCommand(")
+		assertTrue(
+			afterClose.contains("Assert-ZeroOwnership \$latest"),
+			"Global staged-publication and callback ownership must still reach zero after close."
+		)
 	}
 
 	@Test
