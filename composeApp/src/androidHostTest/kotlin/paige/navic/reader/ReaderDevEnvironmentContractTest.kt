@@ -816,6 +816,74 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun stressPhaseCoverageCountsOnlyCompletedExactRelocations() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText().replace("\r\n", "\n")
+		val stressLoop = runner
+			.substringAfter("\$stressPhase = 'SeekPreviousBoundary'")
+			.substringBefore("\$stressDeadline = [DateTime]::UtcNow.AddSeconds(60)")
+		val phaseRelocationWait = stressLoop
+			.substringAfter(
+				"if (\$stressPhase -in @('ExpandNext', 'BacktrackPrevious'))"
+			)
+			.substringBefore("switch (\$stressPhase)")
+		val phaseAccountingPrefix = stressLoop.substringBefore(
+			"if (\$stressPhase -in @('ExpandNext', 'BacktrackPrevious'))"
+		)
+
+		val expandNextPhase = stressLoop
+			.substringAfter("'ExpandNext' {")
+			.substringBefore("'BacktrackPrevious' {")
+		val backtrackPreviousPhase = stressLoop
+			.substringAfter("'BacktrackPrevious' {")
+			.substringBefore("'Alternating' {")
+
+		assertTrue(
+			!stressLoop.contains(
+				"\$committedTurns -lt \$maximumCommittedTurns"
+			) &&
+				phaseAccountingPrefix.contains("\$committedTurns += 1") &&
+				phaseAccountingPrefix.contains(
+					"\$directionCommitCounts[\$logicalDirection] += 1"
+				) &&
+				phaseRelocationWait.contains(
+					"\$phaseRelocation = Wait-ReaderQaRelocationTerminal"
+				) &&
+				phaseRelocationWait.contains("-ReaderSession \$readerSession") &&
+				phaseRelocationWait.contains(
+					"-GestureId \$newTerminal.GestureId"
+				) &&
+				phaseRelocationWait.contains("-States @('Completed', 'Rejected')") &&
+				phaseRelocationWait.contains(
+					"\$phaseRelocationCompleted = " +
+						"\$phaseRelocation.Match.State -eq 'Completed'"
+				) &&
+				expandNextPhase.contains(
+					"if (\$phaseRelocationCompleted) {\n" +
+						"                    \$nextCommitsAfterBoundary += 1"
+				) &&
+				expandNextPhase.contains(
+					"\$nextCommitsAfterBoundary -ge\n" +
+						"                        \$minimumNextCommitsAfterBoundary) {\n" +
+						"                        \$stressPhase = 'BacktrackPrevious'\n" +
+						"                        \$requestedLogicalDirection = 'Previous'"
+				) &&
+				backtrackPreviousPhase.contains(
+					"if (\$phaseRelocationCompleted) {\n" +
+						"                    \$previousCommitsAfterExpansion += 1"
+				) &&
+				backtrackPreviousPhase.contains(
+					"\$previousCommitsAfterExpansion -ge\n" +
+						"                        \$minimumCommitsPerDirection) {\n" +
+						"                        \$stressPhase = 'Alternating'\n" +
+						"                        \$requestedLogicalDirection = 'Next'"
+				),
+			"Phase traversal must not count a curl settlement whose exact Foliate relocation later timed out."
+		)
+	}
+
+	@Test
 	fun stressDrainRefreshesTheFinalRelocationBeforeFullEvidenceAnalysis() {
 		val runner = root.resolve(
 			"scripts/adb-reader-playlikecurl-qa.ps1"

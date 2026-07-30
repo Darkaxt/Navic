@@ -1870,8 +1870,7 @@ $previousCommitsAfterExpansion = 0
 $stressPhase = 'SeekPreviousBoundary'
 $requestedLogicalDirection = 'Previous'
 
-while ($attempt -lt $maximumAttempts -and
-    $committedTurns -lt $maximumCommittedTurns) {
+while ($attempt -lt $maximumAttempts) {
     $hasMinimumCoverage =
         $committedTurns -ge $StressTurns -and
         $boundaryCount -ge 1 -and
@@ -2039,6 +2038,15 @@ while ($attempt -lt $maximumAttempts -and
         $directionCommitCounts[$logicalDirection] += 1
         $committedTurns += 1
         $lastCommittedGestureId = [long]$newTerminal.GestureId
+        $phaseRelocationCompleted = $true
+        if ($stressPhase -in @('ExpandNext', 'BacktrackPrevious')) {
+            $phaseRelocation = Wait-ReaderQaRelocationTerminal `
+                -ReaderSession $readerSession `
+                -GestureId $newTerminal.GestureId `
+                -States @('Completed', 'Rejected') `
+                -Context "ReaderDev stress $stressPhase relocation"
+            $phaseRelocationCompleted = $phaseRelocation.Match.State -eq 'Completed'
+        }
         switch ($stressPhase) {
             'SeekPreviousBoundary' {
                 $boundarySeekCommits += 1
@@ -2047,19 +2055,23 @@ while ($attempt -lt $maximumAttempts -and
                 }
             }
             'ExpandNext' {
-                $nextCommitsAfterBoundary += 1
-                if ($nextCommitsAfterBoundary -ge
-                    $minimumNextCommitsAfterBoundary) {
-                    $stressPhase = 'BacktrackPrevious'
-                    $requestedLogicalDirection = 'Previous'
+                if ($phaseRelocationCompleted) {
+                    $nextCommitsAfterBoundary += 1
+                    if ($nextCommitsAfterBoundary -ge
+                        $minimumNextCommitsAfterBoundary) {
+                        $stressPhase = 'BacktrackPrevious'
+                        $requestedLogicalDirection = 'Previous'
+                    }
                 }
             }
             'BacktrackPrevious' {
-                $previousCommitsAfterExpansion += 1
-                if ($previousCommitsAfterExpansion -ge
-                    $minimumCommitsPerDirection) {
-                    $stressPhase = 'Alternating'
-                    $requestedLogicalDirection = 'Next'
+                if ($phaseRelocationCompleted) {
+                    $previousCommitsAfterExpansion += 1
+                    if ($previousCommitsAfterExpansion -ge
+                        $minimumCommitsPerDirection) {
+                        $stressPhase = 'Alternating'
+                        $requestedLogicalDirection = 'Next'
+                    }
                 }
             }
             'Alternating' {
