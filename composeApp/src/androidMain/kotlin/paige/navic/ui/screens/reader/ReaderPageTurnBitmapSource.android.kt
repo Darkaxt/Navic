@@ -92,6 +92,43 @@ internal class ReaderPageTurnBitmapSource(
 		)
 	}
 
+	fun capturePresentedSurface(
+		webView: WebView,
+		target: ReaderPageTurnPresentationTarget,
+		isStillCurrent: () -> Boolean = { true },
+		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
+	) {
+		if (!isStillCurrent() || !canCapture(webView)) {
+			onCaptured(null)
+			return
+		}
+		queryPresentationReceipt(webView, target) initial@{ initialReceipt ->
+			if (!isStillCurrent() || initialReceipt?.matches(target) != true) {
+				onCaptured(null)
+				return@initial
+			}
+			captureSurface(webView) { candidate ->
+				queryPresentationReceipt(webView, target) { finalReceipt ->
+					onCaptured(
+						readerPageTurnPresentedSurfaceCandidate(
+							target = target,
+							initialReceipt = initialReceipt,
+							finalReceipt = finalReceipt,
+							candidate = candidate,
+							foregroundSuccess = candidate != null,
+							isStillCurrent = isStillCurrent(),
+							recycle = { rejected ->
+								rejected.bitmap
+									.takeUnless { it.isRecycled }
+									?.recycle()
+							}
+						)
+					)
+				}
+			}
+		}
+	}
+
 	suspend fun captureSurfaceAwait(webView: WebView): ReaderPageTurnCaptureResult? =
 		suspendCancellableCoroutine { continuation ->
 			captureSurface(webView) { result ->
@@ -102,6 +139,28 @@ internal class ReaderPageTurnBitmapSource(
 				}
 			}
 		}
+
+	private fun queryPresentationReceipt(
+		webView: WebView,
+		target: ReaderPageTurnPresentationTarget,
+		onReceipt: (ReaderPageTurnPresentationReceipt?) -> Unit
+	) {
+		if (!webView.isAttachedToWindow) {
+			onReceipt(null)
+			return
+		}
+		val getter = when (target) {
+			is ReaderPageTurnPresentationTarget.Preview ->
+				"pageTurnPreviewPresentationReceipt"
+			is ReaderPageTurnPresentationTarget.Live ->
+				"pageTurnLivePresentationReceipt"
+		}
+		webView.evaluateJavascript(
+			"JSON.stringify(window.NavicReaderBridge?.$getter?.() ?? null)"
+		) { encodedReceipt ->
+			onReceipt(readerPageTurnPresentationReceipt(encodedReceipt))
+		}
+	}
 
 	private fun canCapture(webView: WebView): Boolean =
 		isAvailable &&
@@ -272,6 +331,25 @@ internal class ReaderPageTurnBitmapSource(
 
 	internal fun parseGeometry(encoded: String?): ReaderPageTurnCaptureGeometry? =
 		readerPageTurnCaptureGeometry(encoded)
+}
+
+internal fun <T : Any> readerPageTurnPresentedSurfaceCandidate(
+	target: ReaderPageTurnPresentationTarget,
+	initialReceipt: ReaderPageTurnPresentationReceipt?,
+	finalReceipt: ReaderPageTurnPresentationReceipt?,
+	candidate: T?,
+	foregroundSuccess: Boolean,
+	isStillCurrent: Boolean,
+	recycle: (T) -> Unit
+): T? {
+	val accepted = readerPageTurnPresentationReceiptAccepted(
+		target = target,
+		initialReceipt = initialReceipt,
+		finalReceipt = finalReceipt,
+		foregroundSuccess = foregroundSuccess
+	) && isStillCurrent
+	if (!accepted) candidate?.let(recycle)
+	return candidate?.takeIf { accepted }
 }
 
 internal fun readerPageTurnCaptureGeometry(

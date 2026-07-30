@@ -809,8 +809,9 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun preparedCaptureUsesExposedDestinationGeometryInsteadOfCurrentReference() {
+	fun preparedCaptureUsesPresentedDestinationGeometryInsteadOfCurrentReference() {
 		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val bitmapSource = readerAndroidFile("ReaderPageTurnBitmapSource.android.kt").readText()
 		val capture = source
 			.substringAfter("private fun capturePreparedPage(")
 			.substringBefore("fun cacheCurrentSnapshot(")
@@ -824,13 +825,15 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(capture, "reverseFaceColor = snapshotGeometry.reverseFaceColor")
 		assertFalse(capture.contains("leafGeometry = reference.leafGeometry"))
 		assertTrue(
-			capture.indexOf("capturePreparedSurface(webView)") <
+			capture.indexOf("capturePreparedSurface(") <
 				capture.lastIndexOf("restoreLiveComposition(webView, token)"),
 			"The exposed destination must be captured before live composition is restored."
 		)
-		assertContains(preparedSurface, "pageTurnCaptureGeometry")
-		assertContains(preparedSurface, "bitmapSource.parseGeometry(encodedGeometry)")
-		assertContains(preparedSurface, "geometry.surfaceRectInWindow(")
+		assertContains(preparedSurface, "bitmapSource.capturePresentedSurface(")
+		assertFalse(preparedSurface.contains("captureCompositedSurface("))
+		assertContains(bitmapSource, "pageTurnCaptureGeometry")
+		assertContains(bitmapSource, "parseGeometry(encodedGeometry)")
+		assertContains(bitmapSource, "resolved.surfaceRectInWindow(")
 	}
 
 	@Test

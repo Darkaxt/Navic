@@ -402,18 +402,23 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
-	fun obsoleteSchemaManifestAndRastersArePrunedOnCacheOpen() {
-		assertTrue(ReaderPageRasterSchemaVersion > 2)
+	fun versionThreeManifestAndRasterArePrunedOnVersionFourCacheOpen() {
+		assertEquals(4, ReaderPageRasterSchemaVersion)
 		val fixture = fixture(maxDecodedEntries = 0)
 		val rasterKey = key()
-		assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes("obsolete")))
-		val obsoleteRaster = fixture.cache.pathFor(rasterKey)
+		assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes("version-three")))
+		val currentRaster = fixture.cache.pathFor(rasterKey)
+		val versionThreeKey = rasterKey.copy(schemaVersion = 3)
+		val obsoleteRaster = fixture.cache.pathFor(versionThreeKey)
+		assertTrue(currentRaster.renameTo(obsoleteRaster))
 		val manifest = fixture.cache.manifestPath()
 		manifest.writeText(
-			manifest.readText().replace(
-				"\"schemaVersion\":$ReaderPageRasterSchemaVersion",
-				"\"schemaVersion\":1"
-			)
+			manifest.readText()
+				.replace(currentRaster.name, obsoleteRaster.name)
+				.replace(
+					"\"schemaVersion\":$ReaderPageRasterSchemaVersion",
+					"\"schemaVersion\":3"
+				)
 		)
 
 		val reopened = ReaderPageRasterCache(
@@ -429,9 +434,32 @@ class ReaderPageRasterCacheTest {
 		assertEquals(0L, reopened.metrics().diskBytes)
 		assertTrue(
 			manifest.readText().contains(
-				"\"schemaVersion\":$ReaderPageRasterSchemaVersion"
+				"\"schemaVersion\":4"
 			)
 		)
+	}
+
+	@Test
+	fun versionFourManifestAndRasterRemainReadableOnCacheReopen() {
+		assertEquals(4, ReaderPageRasterSchemaVersion)
+		val fixture = fixture(maxDecodedEntries = 0)
+		val rasterKey = key(chapterPageIndex = 4)
+		val rasterMetadata = metadata()
+		val value = pngBytes("version-four")
+		assertTrue(fixture.cache.write(rasterKey, rasterMetadata, value))
+
+		val reopened = ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = 1_024L,
+			maxDecodedEntries = 1
+		)
+		val restored = reopened.read(rasterKey)
+
+		assertEquals(rasterMetadata, restored?.metadata)
+		assertContentEquals(value, restored?.value)
+		assertTrue(reopened.contains(rasterKey))
+		assertEquals(1, reopened.metrics().diskEntries)
 	}
 
 	@Test

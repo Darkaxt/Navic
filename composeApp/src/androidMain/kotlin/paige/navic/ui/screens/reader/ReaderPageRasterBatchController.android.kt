@@ -756,8 +756,14 @@ internal class ReaderPageRasterBatchController(
 		if (!isSessionActive(session)) return
 		val pageIndex = state.optInt("pageIndex", -1)
 		val itemToken = state.optString("itemToken")
+		val previewGeneration = state.optLong("generation", -1L)
 		val target = session.missingTargets.firstOrNull { candidate -> candidate.pageIndex == pageIndex }
-		if (pageIndex < 0 || itemToken.isBlank() || target == null) {
+		if (
+			pageIndex < 0 ||
+			itemToken.isBlank() ||
+			previewGeneration !in 0L..ReaderPageTurnPresentationMaximumSafeInteger ||
+			target == null
+		) {
 			finish(
 				session,
 				ReaderPageRasterBatchOutcome.Failed(
@@ -780,6 +786,7 @@ internal class ReaderPageRasterBatchController(
 			kind = session.kind,
 			reference = session.reference,
 			itemToken = itemToken,
+			previewGeneration = previewGeneration,
 			priority = target.priority,
 			isStillCurrent = { isSessionActive(session) },
 			onStagingStarted = session.onStagingStarted,

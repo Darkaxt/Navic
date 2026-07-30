@@ -548,6 +548,52 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun preparedRasterCaptureUsesPresentedSurfaceWithoutTheDivergentCompositeRoute() {
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val preparedSurface = bundle.substringAfter(
+			"private fun capturePreparedSurface("
+		).substringBefore("private fun captureCompositedSurface(")
+		val preparedPage = bundle.substringAfter(
+			"private fun capturePreparedPage("
+		).substringBefore("fun cacheCurrentSnapshot(")
+		val captureCallback = preparedPage.indexOf("capturePreparedSurface(")
+		val restore = preparedPage.indexOf("restoreLiveComposition(", captureCallback)
+
+		assertContains(preparedSurface, "bitmapSource.capturePresentedSurface(")
+		assertFalse(preparedSurface.contains("captureCompositedSurface("))
+		assertContains(preparedPage, "ReaderPageTurnPresentationTarget.Preview(")
+		assertContains(preparedPage, "previewGeneration = previewGeneration")
+		assertTrue(captureCallback >= 0 && captureCallback < restore)
+	}
+
+	@Test
+	fun rejectedPreparedSurfaceCannotPublishOrAdvanceReadiness() {
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val capture = bundle.substringAfter(
+			"fun capturePreparedRasterPage("
+		).substringBefore("fun cacheCurrentSnapshot(")
+		val rejection = capture.indexOf("captured == null")
+		val failure = capture.indexOf("onCaptureFailed()", rejection)
+		val publication = capture.indexOf("putSnapshot(")
+		val controller = readerRasterBatchSource().substringAfter(
+			"private fun captureReadyItem("
+		).substringBefore("private fun advancePageTurnPreviewBatch(")
+		val failedCallback = controller.substringAfter(
+			"onCaptureFailed = captureFailed@{"
+		).substringBefore("onCaptured = captured@{")
+
+		assertTrue(rejection >= 0 && rejection < failure)
+		assertTrue(failure < publication)
+		assertContains(
+			capture.substring(rejection, publication),
+			"return@capturePreparedPage"
+		)
+		assertContains(failedCallback, "ReaderPageRasterAcquisitionResult.Failed")
+		assertContains(failedCallback, "prepared-raster-capture-failed")
+		assertFalse(failedCallback.contains("advancePageTurnPreviewBatch("))
+	}
+
+	@Test
 	fun immediateDeckCannotPublishReadyBeforeTheBlockingWindowIsDurable() {
 		val source = readerRasterPreparationSource()
 		val initialDeck = source.substringAfter(

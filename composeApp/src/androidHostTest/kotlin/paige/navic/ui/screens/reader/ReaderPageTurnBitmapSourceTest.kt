@@ -2,7 +2,10 @@ package paige.navic.ui.screens.reader
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 private const val ReaderPageTestBackground = 0xF5F0E8
@@ -88,6 +91,141 @@ class ReaderPageTurnBitmapSourceTest {
 
 		assertTrue(preparedCapture.contains("captureResolvedGeometry(webView, geometry, onCaptured)"))
 		assertFalse(preparedCapture.contains("evaluateJavascript"))
+	}
+
+	@Test
+	fun presentedSurfaceCaptureFencesTheExistingPipelineWithScopeSpecificReceipts() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageTurnBitmapSource.android.kt"
+		).readText()
+		val presented = source
+			.substringAfter("fun capturePresentedSurface(")
+			.substringBefore("suspend fun captureSurfaceAwait")
+		val initialReceipt = presented.indexOf("queryPresentationReceipt(")
+		val capture = presented.indexOf("captureSurface(webView)")
+		val finalReceipt = presented.indexOf("queryPresentationReceipt(", initialReceipt + 1)
+
+		assertTrue(initialReceipt >= 0 && initialReceipt < capture)
+		assertTrue(capture < finalReceipt)
+		assertTrue(presented.contains("readerPageTurnPresentedSurfaceCandidate("))
+		assertTrue(source.contains("pageTurnPreviewPresentationReceipt"))
+		assertTrue(source.contains("pageTurnLivePresentationReceipt"))
+	}
+
+	@Test
+	fun missingInitialReceiptRejectsAndRecyclesTheCandidateExactlyOnce() {
+		val candidate = PresentedCandidate()
+		var recycleCount = 0
+
+		val accepted = readerPageTurnPresentedSurfaceCandidate(
+			target = previewTarget(),
+			initialReceipt = null,
+			finalReceipt = previewReceipt(),
+			candidate = candidate,
+			foregroundSuccess = true,
+			isStillCurrent = true,
+			recycle = { recycleCount += 1 }
+		)
+
+		assertNull(accepted)
+		assertEquals(1, recycleCount)
+	}
+
+	@Test
+	fun receiptForAnotherTargetRejectsTheCandidate() {
+		val candidate = PresentedCandidate()
+		val mismatched = previewReceipt().copy(token = "neutral-preview-beta")
+		var recycleCount = 0
+
+		val accepted = readerPageTurnPresentedSurfaceCandidate(
+			target = previewTarget(),
+			initialReceipt = mismatched,
+			finalReceipt = mismatched,
+			candidate = candidate,
+			foregroundSuccess = true,
+			isStillCurrent = true,
+			recycle = { recycleCount += 1 }
+		)
+
+		assertNull(accepted)
+		assertEquals(1, recycleCount)
+	}
+
+	@Test
+	fun changedFinalPresentationSequenceRejectsTheCandidate() {
+		val candidate = PresentedCandidate()
+		var recycleCount = 0
+
+		val accepted = readerPageTurnPresentedSurfaceCandidate(
+			target = previewTarget(),
+			initialReceipt = previewReceipt(),
+			finalReceipt = previewReceipt().copy(presentationSequence = 42),
+			candidate = candidate,
+			foregroundSuccess = true,
+			isStillCurrent = true,
+			recycle = { recycleCount += 1 }
+		)
+
+		assertNull(accepted)
+		assertEquals(1, recycleCount)
+	}
+
+	@Test
+	fun foregroundFailureRejectsTheCandidate() {
+		val candidate = PresentedCandidate()
+		var recycleCount = 0
+
+		val accepted = readerPageTurnPresentedSurfaceCandidate(
+			target = previewTarget(),
+			initialReceipt = previewReceipt(),
+			finalReceipt = previewReceipt(),
+			candidate = candidate,
+			foregroundSuccess = false,
+			isStillCurrent = true,
+			recycle = { recycleCount += 1 }
+		)
+
+		assertNull(accepted)
+		assertEquals(1, recycleCount)
+	}
+
+	@Test
+	fun canceledCaptureRejectsTheCandidate() {
+		val candidate = PresentedCandidate()
+		var recycleCount = 0
+
+		val accepted = readerPageTurnPresentedSurfaceCandidate(
+			target = previewTarget(),
+			initialReceipt = previewReceipt(),
+			finalReceipt = previewReceipt(),
+			candidate = candidate,
+			foregroundSuccess = true,
+			isStillCurrent = false,
+			recycle = { recycleCount += 1 }
+		)
+
+		assertNull(accepted)
+		assertEquals(1, recycleCount)
+	}
+
+	@Test
+	fun stableCurrentForegroundCandidateIsDeliveredWithoutRecycling() {
+		val candidate = PresentedCandidate()
+		var recycleCount = 0
+
+		val accepted = readerPageTurnPresentedSurfaceCandidate(
+			target = previewTarget(),
+			initialReceipt = previewReceipt(),
+			finalReceipt = previewReceipt(),
+			candidate = candidate,
+			foregroundSuccess = true,
+			isStillCurrent = true,
+			recycle = { recycleCount += 1 }
+		)
+
+		assertSame(candidate, accepted)
+		assertEquals(0, recycleCount)
 	}
 
 	@Test
@@ -186,4 +324,20 @@ class ReaderPageTurnBitmapSourceTest {
 			}
 		)
 	}
+
+	private fun previewTarget() = ReaderPageTurnPresentationTarget.Preview(
+		token = "neutral-preview-alpha",
+		pageIndex = 7,
+		previewGeneration = 11
+	)
+
+	private fun previewReceipt() = ReaderPageTurnPresentationReceipt(
+		scope = ReaderPageTurnPresentationScope.Preview,
+		token = "neutral-preview-alpha",
+		pageIndex = 7,
+		previewGeneration = 11,
+		presentationSequence = 41
+	)
+
+	private class PresentedCandidate
 }
