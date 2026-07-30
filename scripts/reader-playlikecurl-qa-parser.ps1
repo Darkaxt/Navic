@@ -1418,6 +1418,10 @@ function Assert-ReaderOwnershipUnavailablePolicy(
         ConvertFrom-ReaderOwnershipUnavailableLog $Log |
             Where-Object Session -eq $ReaderSession
     )
+    $ownership = @(
+        ConvertFrom-ReaderOwnershipLog $Log |
+            Where-Object Session -eq $ReaderSession
+    )
     foreach ($event in $unavailable) {
         if ($event.Status -in @('CALLBACK_CAPACITY', 'QUEUE_REJECTED')) {
             throw "$Context observed ownership admission failure: $($event.LogLine)"
@@ -1430,12 +1434,9 @@ function Assert-ReaderOwnershipUnavailablePolicy(
             throw "$Context observed unexpected surface unavailability: $($event.LogLine)"
         }
         $laterSuccess = @(
-            $OwnershipPattern.Matches($Log) |
-                Where-Object {
-                    $_.Index -gt $event.Index -and
-                    [long]$_.Groups['Session'].Value -eq $ReaderSession -and
-                    $_.Groups['Phase'].Value -eq $event.Phase
-                }
+            $ownership | Where-Object {
+                $_.Index -gt $event.Index -and $_.Phase -eq $event.Phase
+            }
         )
         if ($laterSuccess.Count -eq 0 -and -not $AllowPendingRecovery) {
             throw "$Context never recovered unavailable ownership phase: $($event.LogLine)"

@@ -526,6 +526,27 @@ class ReaderDevEnvironmentContractTest {
 	}
 
 	@Test
+	fun readerQaOwnershipUnavailablePolicyParsesSuccessfulSnapshotsOnce() {
+		val parser = root.resolve(
+			"scripts/reader-playlikecurl-qa-parser.ps1"
+		).readText()
+		val policy = parser
+			.substringAfter("function Assert-ReaderOwnershipUnavailablePolicy(")
+			.substringBefore("function Assert-WarmReopenUsesPersistentHydration(")
+
+		assertTrue(
+			policy.contains("\$ownership = @(") &&
+				policy.contains("ConvertFrom-ReaderOwnershipLog \$Log") &&
+				policy.contains("\$ownership | Where-Object"),
+			"High-volume unavailable-ownership validation must parse successful snapshots once before checking recovery."
+		)
+		assertFalse(
+			policy.contains("\$OwnershipPattern.Matches(\$Log)"),
+			"Each unavailable event must not rescan the complete stress log for ownership recovery."
+		)
+	}
+
+	@Test
 	fun readerQaFaultRecoveryAcceptsPreparedPromotedTextureDecks() {
 		val runner = root.resolve(
 			"scripts/adb-reader-playlikecurl-qa.ps1"
@@ -748,6 +769,31 @@ class ReaderDevEnvironmentContractTest {
 					"-RetryOnlyWhileFaultsRemainEnqueued @(\$missId, \$repairId)"
 				),
 			"Observed terminals may retry only when user cancellation left both repair faults unconsumed."
+		)
+	}
+
+	@Test
+	fun stressDrainRefreshesTheFinalRelocationBeforeFullEvidenceAnalysis() {
+		val runner = root.resolve(
+			"scripts/adb-reader-playlikecurl-qa.ps1"
+		).readText()
+		val wait = runner
+			.substringAfter("ReaderDev bounded stress coverage failed commits=")
+			.substringBefore("\$stressDeadline = [DateTime]::UtcNow.AddSeconds(60)")
+
+		assertTrue(
+			runner.contains(
+				"\$lastCommittedGestureId = [long]\$newTerminal.GestureId"
+			) &&
+				wait.contains("[void](Wait-ReaderQaRelocationTerminal `") &&
+				wait.contains("-GestureId \$lastCommittedGestureId `") &&
+				wait.contains("-States @('Completed', 'Rejected') `") &&
+				wait.contains("-Context 'ReaderDev final stress relocation'"),
+			"The runner must incrementally collect the final relocation terminal before CPU-heavy full-log ownership analysis."
+		)
+		assertFalse(
+			wait.contains("-Full"),
+			"The final relocation wait must use the bounded recent window so a full stress-log scan cannot consume its evidence deadline."
 		)
 	}
 

@@ -1861,6 +1861,7 @@ $transientRetryOutcomes = @(
 )
 $attempt = 0
 $committedTurns = 0
+$lastCommittedGestureId = 0L
 $boundaryCount = 0
 $boundarySeekCommits = 0
 $nextCommitsAfterBoundary = 0
@@ -2036,6 +2037,7 @@ while ($attempt -lt $maximumAttempts -and
         }
         $directionCommitCounts[$logicalDirection] += 1
         $committedTurns += 1
+        $lastCommittedGestureId = [long]$newTerminal.GestureId
         switch ($stressPhase) {
             'SeekPreviousBoundary' {
                 $boundarySeekCommits += 1
@@ -2110,6 +2112,11 @@ if ($committedTurns -lt $StressTurns -or
         "boundaries=$boundaryCount attempts=$attempt maximumCommitted=$maximumCommittedTurns " +
         "phase=$stressPhase"
 }
+[void](Wait-ReaderQaRelocationTerminal `
+    -ReaderSession $readerSession `
+    -GestureId $lastCommittedGestureId `
+    -States @('Completed', 'Rejected') `
+    -Context 'ReaderDev final stress relocation')
 
 $stressDeadline = [DateTime]::UtcNow.AddSeconds(60)
 do {
