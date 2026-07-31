@@ -368,6 +368,17 @@ $safelySupersededRepairLog = @(
     $forcedRepairTurnTail[6],
     $forcedRepairTurnTail[7]
 ) -join "`n"
+$preparedAfterInitialDispatch = Assert-ForcedRepairAttemptResolution `
+    -Log $safelySupersededRepairLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'initial preparation after dispatch fixture'
+if ($preparedAfterInitialDispatch.Kind -ne 'Superseded') {
+    throw 'Initial preparation after dispatch did not prove safe repair supersession'
+}
 $promotedTexture = @(Get-ReaderPreparedPromotedTexture `
     -Log $safelySupersededRepairLog `
     -ReaderSession 7 `
@@ -425,6 +436,163 @@ foreach ($invalidActiveGeneration in @('null', '10')) {
         throw "Invalid pending active generation $invalidActiveGeneration proved promotion"
     }
 }
+$replacementDispatched = $forcedRepairDispatched.Replace(
+    'token=move-repair',
+    'token=move-repair-replacement'
+).Replace('textureGeneration=9', 'textureGeneration=10')
+$replacementAcknowledged = $forcedRepairAcknowledged.Replace(
+    'token=move-repair',
+    'token=move-repair-replacement'
+).Replace('textureGeneration=9', 'textureGeneration=10')
+$replacementAwaitingHandoff = $forcedRepairAwaitingHandoff.Replace(
+    'token=move-repair',
+    'token=move-repair-replacement'
+).Replace('textureGeneration=9', 'textureGeneration=10')
+$replacementRelocationCompleted = $forcedRepairRelocationCompleted.Replace(
+    'token=move-repair',
+    'token=move-repair-replacement'
+).Replace('textureGeneration=9', 'textureGeneration=10')
+$replacementNormalDeck = $promotedNormalDeck.Replace(
+    'generation=9',
+    'generation=10'
+).Replace('active=9', 'active=10')
+$replacementSupersededRepairLog = @(
+    $forcedRepairStarted,
+    $forcedRepairReady,
+    $forcedRepairFault,
+    $forcedRepairQueued,
+    $gestureCommit,
+    $preparedWhilePendingDeck,
+    $forcedRepairDispatched,
+    $forcedRepairCancelled,
+    $forcedRepairAcknowledged,
+    $forcedRepairAwaitingHandoff,
+    $replacementNormalDeck,
+    $replacementDispatched,
+    $replacementAcknowledged,
+    $replacementAwaitingHandoff,
+    $replacementRelocationCompleted,
+    $drainedRepairOwnership
+) -join "`n"
+$replacementSupersession = Assert-ForcedRepairAttemptResolution `
+    -Log $replacementSupersededRepairLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'replacement superseded repair fixture'
+if ($replacementSupersession.Kind -ne 'Superseded' -or
+    $replacementSupersession.TextureGeneration -ne 10) {
+    throw 'Replacement relocation did not prove safe repair supersession'
+}
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $replacementSupersededRepairLog.Replace(
+            $replacementNormalDeck + "`n" + $replacementDispatched,
+            $replacementDispatched + "`n" + $replacementNormalDeck
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'late replacement preparation fixture' | Out-Null
+} 'late replacement preparation fixture'
+$secondReplacementDispatched = $replacementDispatched.Replace(
+    'token=move-repair-replacement',
+    'token=move-repair-replacement-2'
+).Replace('textureGeneration=10', 'textureGeneration=11')
+$secondReplacementAcknowledged = $replacementAcknowledged.Replace(
+    'token=move-repair-replacement',
+    'token=move-repair-replacement-2'
+).Replace('textureGeneration=10', 'textureGeneration=11')
+$secondReplacementAwaitingHandoff = $replacementAwaitingHandoff.Replace(
+    'token=move-repair-replacement',
+    'token=move-repair-replacement-2'
+).Replace('textureGeneration=10', 'textureGeneration=11')
+$secondReplacementCompleted = $replacementRelocationCompleted.Replace(
+    'token=move-repair-replacement',
+    'token=move-repair-replacement-2'
+).Replace('textureGeneration=10', 'textureGeneration=11')
+$secondReplacementNormalDeck = $replacementNormalDeck.Replace(
+    'generation=10',
+    'generation=11'
+).Replace('active=10', 'active=11')
+$twiceReplacedRepairLog = $replacementSupersededRepairLog.Replace(
+    $replacementRelocationCompleted,
+    @(
+        $secondReplacementNormalDeck,
+        $secondReplacementDispatched,
+        $secondReplacementAcknowledged,
+        $secondReplacementAwaitingHandoff,
+        $secondReplacementCompleted
+    ) -join "`n"
+)
+$twiceReplacedSupersession = Assert-ForcedRepairAttemptResolution `
+    -Log $twiceReplacedRepairLog `
+    -ReaderSession 7 `
+    -RepairFaultRequestId 'fault-repair' `
+    -RasterMissRequestId 'fault-raster' `
+    -GestureId 101 `
+    -TextureGeneration 9 `
+    -Context 'twice-replaced repair fixture'
+if ($twiceReplacedSupersession.Kind -ne 'Superseded' -or
+    $twiceReplacedSupersession.TextureGeneration -ne 11) {
+    throw 'Two replacement relocations did not prove safe repair supersession'
+}
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $twiceReplacedRepairLog.Replace(
+            $replacementNormalDeck + "`n",
+            ''
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'missing intermediate preparation fixture' | Out-Null
+} 'missing intermediate preparation fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $replacementSupersededRepairLog.Replace(
+            'token=move-repair-replacement gestureId=101 source=3 target=4',
+            'token=move-repair-replacement gestureId=101 source=3 target=5'
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'changed replacement destination fixture' | Out-Null
+} 'changed replacement destination fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $replacementSupersededRepairLog.Replace(
+            'textureGeneration=10',
+            'textureGeneration=8'
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'regressed replacement generation fixture' | Out-Null
+} 'regressed replacement generation fixture'
+Assert-Throws {
+    Assert-ForcedRepairAttemptResolution `
+        -Log $replacementSupersededRepairLog.Replace(
+            $replacementNormalDeck + "`n",
+            ''
+        ) `
+        -ReaderSession 7 `
+        -RepairFaultRequestId 'fault-repair' `
+        -RasterMissRequestId 'fault-raster' `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context 'unprepared replacement generation fixture' | Out-Null
+} 'unprepared replacement generation fixture'
 $preparedBeforeForcedRepairLog = @(
     $forcedRepairStarted,
     $forcedRepairReady,
@@ -1749,6 +1917,12 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
     }
     if ($forcedRepairFlow -notmatch 'Wait-ReaderQaPreparedTextureGeneration') {
         throw "Runner omits promoted normal-deck preparation: $candidateTreeSource"
+    }
+    if ($forcedRepairFlow -notmatch
+            '-TextureGeneration \$repairRelocation\.Match\.TextureGeneration' -or
+        $forcedRepairFlow -match
+            '-TextureGeneration \$repairTurn\.TextureGeneration') {
+        throw "Runner does not validate the completed repair replacement texture: $candidateTreeSource"
     }
     if ($forcedRepairFlow -match 'ReaderDev repair completion') {
         throw "Runner still requires completion-only repair semantics: $candidateTreeSource"

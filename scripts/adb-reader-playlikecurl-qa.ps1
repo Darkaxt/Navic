@@ -1608,7 +1608,7 @@ function Invoke-ReaderQaFaultMatrix(
         [void](Wait-ReaderQaPreparedTextureGeneration `
             -ReaderSession $ReaderSession `
             -GestureId $repairTurn.GestureId `
-            -TextureGeneration $repairTurn.TextureGeneration `
+            -TextureGeneration $repairRelocation.Match.TextureGeneration `
             -Context 'ReaderDev superseding repair texture preparation')
     } else {
         $repairRelocation = Wait-ReaderQaRelocationTerminal `

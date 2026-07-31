@@ -615,32 +615,20 @@ function ConvertFrom-ReaderRelocationLog([string] $Log) {
     }
 }
 
-function Get-ReaderPreparedPromotedTexture(
+function Get-ReaderPreparedNormalTextureDeckBefore(
     [string] $Log,
     [long] $ReaderSession,
-    [long] $GestureId,
     [long] $TextureGeneration,
+    [long] $BeforeIndex,
     [string] $Context
 ) {
-    $completed = @(
-        ConvertFrom-ReaderRelocationLog $Log | Where-Object {
-            $_.Session -eq $ReaderSession -and
-                $_.GestureId -eq $GestureId -and
-                $_.TextureGeneration -eq $TextureGeneration -and
-                $_.State -eq 'Completed'
-        }
-    )
-    if ($completed.Count -gt 1) {
-        throw "$Context emitted duplicate completed relocations"
-    }
-    if ($completed.Count -eq 0) { return @() }
-
     $prepared = @(
         ConvertFrom-ReaderDeckLog $Log | Where-Object {
             $_.Session -eq $ReaderSession -and
                 $_.Generation -eq $TextureGeneration -and
+                $_.RepairAttempt -eq -1 -and
                 $_.Prepared -and
-                $_.Index -lt $completed[0].Index -and
+                $_.Index -lt $BeforeIndex -and
                 (
                     (
                         $_.Role -eq 'Active' -and
@@ -665,9 +653,37 @@ function Get-ReaderPreparedPromotedTexture(
         }
     )
     if ($prepared.Count -gt 1) {
-        throw "$Context emitted duplicate prepared promoted texture records"
+        throw "$Context emitted duplicate prepared normal texture records"
     }
     return $prepared
+}
+
+function Get-ReaderPreparedPromotedTexture(
+    [string] $Log,
+    [long] $ReaderSession,
+    [long] $GestureId,
+    [long] $TextureGeneration,
+    [string] $Context
+) {
+    $completed = @(
+        ConvertFrom-ReaderRelocationLog $Log | Where-Object {
+            $_.Session -eq $ReaderSession -and
+                $_.GestureId -eq $GestureId -and
+                $_.TextureGeneration -eq $TextureGeneration -and
+                $_.State -eq 'Completed'
+        }
+    )
+    if ($completed.Count -gt 1) {
+        throw "$Context emitted duplicate completed relocations"
+    }
+    if ($completed.Count -eq 0) { return @() }
+
+    return Get-ReaderPreparedNormalTextureDeckBefore `
+        -Log $Log `
+        -ReaderSession $ReaderSession `
+        -TextureGeneration $TextureGeneration `
+        -BeforeIndex $completed[0].Index `
+        -Context $Context
 }
 
 function Test-ReaderAcknowledgementTimeoutCascadeFollower(
@@ -1678,6 +1694,7 @@ function Assert-ForcedRepairAttemptResolution(
         ConvertFrom-ReaderDeckLog $Log | Where-Object Session -eq $ReaderSession
     )
     $resolutionBoundary = $terminal.Index
+    $resolvedTextureGeneration = $TextureGeneration
     $resolution = if ($terminal.State -eq 'Completed') {
         if ($submitted.Count -ne 1 -or
             $submitted[0].Index -le $appliedFault.Index -or
@@ -1743,63 +1760,113 @@ function Assert-ForcedRepairAttemptResolution(
                 $_.Session -eq $ReaderSession -and $_.GestureId -eq $GestureId
             } | Sort-Object Index
         )
-        $expectedRelocationStates = @(
-            'Queued',
-            'Dispatched',
-            'Acknowledged',
-            'AwaitingVisualHandoff',
-            'Completed'
+        $queuedRelocations = @($relocations | Where-Object State -eq 'Queued')
+        $completedRelocations = @($relocations | Where-Object State -eq 'Completed')
+        if ($queuedRelocations.Count -ne 1 -or
+            $completedRelocations.Count -ne 1 -or
+            $relocations[0].State -ne 'Queued' -or
+            $relocations[-1].State -ne 'Completed') {
+            throw "$Context repair turn did not emit one terminal relocation chain"
+        }
+        $queued = $queuedRelocations[0]
+        $relocationTerminal = $completedRelocations[0]
+        $relocationGroups = @(
+            $relocations | Group-Object -CaseSensitive -Property Token | ForEach-Object {
+                $records = @($_.Group | Sort-Object Index)
+                [pscustomobject]@{
+                    Token = $_.Name
+                    Records = $records
+                    FirstIndex = $records[0].Index
+                    LastIndex = $records[-1].Index
+                    TextureGeneration = $records[0].TextureGeneration
+                }
+            } | Sort-Object FirstIndex
         )
-        if ($relocations.Count -ne $expectedRelocationStates.Count) {
-            throw "$Context repair turn did not emit one complete relocation sequence"
-        }
-        for ($index = 0; $index -lt $expectedRelocationStates.Count; $index += 1) {
-            if ($relocations[$index].State -ne $expectedRelocationStates[$index]) {
-                throw "$Context repair turn relocation sequence is invalid"
+        $previousLastIndex = -1
+        $previousTextureGeneration = -1L
+        for ($groupIndex = 0; $groupIndex -lt $relocationGroups.Count; $groupIndex += 1) {
+            $group = $relocationGroups[$groupIndex]
+            $records = @($group.Records)
+            $expectedStates = @(
+                if ($groupIndex -eq 0) { 'Queued' }
+                'Dispatched'
+                'Acknowledged'
+                'AwaitingVisualHandoff'
+                if ($groupIndex -eq $relocationGroups.Count - 1) { 'Completed' }
+            )
+            $states = @($records | Select-Object -ExpandProperty State)
+            if (($states -join ',') -cne ($expectedStates -join ',') -or
+                $group.FirstIndex -le $previousLastIndex) {
+                throw "$Context repair turn relocation replacement sequence is invalid"
             }
-        }
-        $queued = $relocations[0]
-        $relocationTerminal = $relocations[$relocations.Count - 1]
-        foreach ($relocation in $relocations) {
-            if ($relocation.Token -cne $queued.Token -or
-                $relocation.Source -ne $start.CenterOrdinal -or
-                $relocation.Target -eq $start.CenterOrdinal -or
-                ($expectedDirection -eq 'Next' -and
-                    $relocation.Target -le $relocation.Source) -or
-                ($expectedDirection -eq 'Previous' -and
-                    $relocation.Target -ge $relocation.Source) -or
-                $relocation.Target -ne $queued.Target -or
-                $relocation.Direction -ne $expectedDirection -or
-                $relocation.RasterGeneration -ne $start.RasterGeneration -or
-                $relocation.TextureGeneration -ne $TextureGeneration -or
-                $relocation.RejectionReason -ne 'None') {
-                throw "$Context repair turn changed relocation identity"
+            $textureGenerations = @(
+                $records | Select-Object -ExpandProperty TextureGeneration -Unique
+            )
+            if ($textureGenerations.Count -ne 1 -or
+                ($groupIndex -eq 0 -and
+                    $group.TextureGeneration -ne $TextureGeneration) -or
+                ($groupIndex -gt 0 -and
+                    $group.TextureGeneration -le $previousTextureGeneration)) {
+                throw "$Context repair turn replacement texture identity is invalid"
             }
+            $dispatch = @($records | Where-Object State -eq 'Dispatched')[0]
+            $preparationBoundary = if ($groupIndex -eq 0) {
+                $relocationTerminal.Index
+            } else {
+                $dispatch.Index
+            }
+            $preparedDecks = @(
+                Get-ReaderPreparedNormalTextureDeckBefore `
+                    -Log $Log `
+                    -ReaderSession $ReaderSession `
+                    -TextureGeneration $group.TextureGeneration `
+                    -BeforeIndex $preparationBoundary `
+                    -Context "$Context relocation texture $($group.TextureGeneration)"
+            )
+            if ($preparedDecks.Count -ne 1 -or
+                ($groupIndex -gt 0 -and
+                    $preparedDecks[0].Index -le $previousLastIndex)) {
+                throw "$Context did not causally prepare each relocation generation"
+            }
+            foreach ($relocation in $records) {
+                if ($relocation.Source -ne $start.CenterOrdinal -or
+                    $relocation.Target -eq $start.CenterOrdinal -or
+                    ($expectedDirection -eq 'Next' -and
+                        $relocation.Target -le $relocation.Source) -or
+                    ($expectedDirection -eq 'Previous' -and
+                        $relocation.Target -ge $relocation.Source) -or
+                    $relocation.Target -ne $queued.Target -or
+                    $relocation.Direction -ne $expectedDirection -or
+                    $relocation.RasterGeneration -ne $start.RasterGeneration -or
+                    $relocation.RejectionReason -ne 'None') {
+                    throw "$Context repair turn changed relocation identity"
+                }
+            }
+            $previousLastIndex = $group.LastIndex
+            $previousTextureGeneration = $group.TextureGeneration
         }
         if ($queued.Index -ge $gesture.Index -or
-            $gesture.Index -ge $relocations[1].Index) {
+            $gesture.Index -ge $relocationGroups[0].Records[1].Index) {
             throw "$Context repair turn did not publish its terminal between queue and dispatch"
         }
 
+        $completedTextureGeneration = $relocationTerminal.TextureGeneration
+        $relocationTextureGenerations = @(
+            $relocationGroups | Select-Object -ExpandProperty TextureGeneration
+        )
         $normalTextureDecks = @(
-            $decks | Where-Object Generation -eq $TextureGeneration
+            $decks | Where-Object Generation -in $relocationTextureGenerations
         )
-        $preparedNormalDecks = @(
-            Get-ReaderPreparedPromotedTexture `
-                -Log $Log `
-                -ReaderSession $ReaderSession `
-                -GestureId $GestureId `
-                -TextureGeneration $TextureGeneration `
-                -Context "$Context superseding texture"
-        )
-        if ($preparedNormalDecks.Count -ne 1 -or
-            @($normalTextureDecks | Where-Object RepairAttempt -ne -1).Count -ne 0) {
-            throw "$Context did not prepare the promoted normal texture generation"
+        if (@(
+                $normalTextureDecks | Where-Object RepairAttempt -ne -1
+            ).Count -ne 0) {
+            throw "$Context replacement chain reused repair deck ownership"
         }
         if ($submitted.Count -ne 0 -or
             @($decks | Where-Object RepairAttempt -eq $appliedFault.RepairAttemptId).Count -ne 0) {
             throw "$Context superseded repair entered renderer ownership"
         }
+        $resolvedTextureGeneration = $completedTextureGeneration
         $resolutionBoundary = [Math]::Max(
             $terminal.Index,
             $relocationTerminal.Index
@@ -1821,7 +1888,7 @@ function Assert-ForcedRepairAttemptResolution(
         Kind = $resolution
         RepairAttempt = $appliedFault.RepairAttemptId
         RasterGeneration = $start.RasterGeneration
-        TextureGeneration = $TextureGeneration
+        TextureGeneration = $resolvedTextureGeneration
     }
 }
 
