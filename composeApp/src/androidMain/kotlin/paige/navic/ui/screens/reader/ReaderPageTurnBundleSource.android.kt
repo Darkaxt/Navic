@@ -30,6 +30,7 @@ import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageMaximumForegroundPublicationEntries
 import paige.navic.reader.ReaderPageMaximumPublicationCallbacks
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
@@ -42,6 +43,19 @@ import kotlin.math.roundToInt
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
 private const val MaxCachedRasterDescriptors = 32
+
+internal fun <T : Any> readerPageTransientLiveValidationResult(
+	candidate: T?,
+	isStillCurrent: Boolean,
+	release: (T) -> Unit
+): ReaderPageRelocationContentValidationResult {
+	candidate?.let(release)
+	return when {
+		!isStillCurrent -> ReaderPageRelocationContentValidationResult.Invalidated
+		candidate == null -> ReaderPageRelocationContentValidationResult.ContentRejected
+		else -> ReaderPageRelocationContentValidationResult.Accepted
+	}
+}
 
 internal fun readerPageRasterGeometryMatches(
 	kind: ReaderPageTurnTransitionKind,
@@ -1046,6 +1060,48 @@ internal class ReaderPageTurnBundleSource(
 	private fun dispatchToMain(action: () -> Unit) {
 		if (Looper.myLooper() == Looper.getMainLooper()) action()
 		else mainHandler.post(action)
+	}
+
+	fun validateLivePresentation(
+		webView: WebView,
+		request: ReaderPageRelocationRequest,
+		isStillCurrent: () -> Boolean,
+		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
+	): ReaderPageRelocationContentValidationHandle {
+		if (!isStillCurrent()) {
+			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			return ReaderPageRelocationContentValidationHandle.Completed
+		}
+		val target = runCatching {
+			ReaderPageTurnPresentationTarget.Live(
+				token = request.token.value,
+				pageIndex = request.destinationOrdinal.toLong(),
+				foliateSessionId = request.foliateSessionId,
+				rasterGeneration = request.rasterGeneration,
+				textureGeneration = request.textureGeneration
+			)
+		}.getOrNull()
+		if (target == null) {
+			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			return ReaderPageRelocationContentValidationHandle.Completed
+		}
+		return bitmapSource.capturePresentedSurface(
+			webView = webView,
+			target = target,
+			isStillCurrent = isStillCurrent
+		) { captured ->
+			onValidated(
+				readerPageTransientLiveValidationResult(
+					candidate = captured,
+					isStillCurrent = isStillCurrent(),
+					release = { transient ->
+						transient.bitmap
+							.takeUnless { it.isRecycled }
+							?.recycle()
+					}
+				)
+			)
+		}
 	}
 
 	fun capturePreparedRasterPage(

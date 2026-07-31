@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -46,6 +47,80 @@ class ReaderPageRelocationQueueTest {
 		assertTrue(queue.matchesAcknowledgedHead(current.token.value, 10L, 20L, "session-a", 4))
 		assertFalse(queue.matchesDispatchedHead(current.token.value, 10L, 20L, "session-a", 4))
 		assertTrue(queue.matchesHead(current.token.value, 10L, 20L, "session-a", 4))
+	}
+
+	@Test
+	fun acknowledgedHeadCanBeReplacedByDifferentGenerationWithNewToken() {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueue(queue, gestureId = 1L, source = 3, destination = 4)
+		assertEquals(original, queue.commandToDispatch())
+		assertTrue(queue.acknowledge(original.token.value, 4, "session-a", 10L, 20L))
+
+		val replacement = queue.replaceAcknowledgedHead(
+			token = original.token.value,
+			foliateSessionId = "session-a",
+			destinationOrdinal = 4,
+			expectedRasterGeneration = 10L,
+			expectedTextureGeneration = 20L,
+			replacementRasterGeneration = 11L,
+			replacementTextureGeneration = 21L
+		)
+
+		assertNotEquals(null, replacement)
+		assertNotEquals(original.token, replacement?.token)
+		assertEquals(original.gestureId, replacement?.gestureId)
+		assertEquals(original.sourceOrdinal, replacement?.sourceOrdinal)
+		assertEquals(original.destinationOrdinal, replacement?.destinationOrdinal)
+		assertEquals(original.logicalDirection, replacement?.logicalDirection)
+		assertEquals(11L, replacement?.rasterGeneration)
+		assertEquals(21L, replacement?.textureGeneration)
+		assertEquals(replacement, queue.head())
+		assertFalse(queue.hasInFlightHead())
+		assertEquals(replacement, queue.commandToDispatch())
+	}
+
+	@Test
+	fun acknowledgedHeadReplacementRejectsSameGenerationAndStaleIdentity() {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueue(queue, gestureId = 1L, source = 3, destination = 4)
+		assertEquals(original, queue.commandToDispatch())
+		assertTrue(queue.acknowledge(original.token.value, 4, "session-a", 10L, 20L))
+
+		assertNull(
+			queue.replaceAcknowledgedHead(
+				token = original.token.value,
+				foliateSessionId = "session-a",
+				destinationOrdinal = 4,
+				expectedRasterGeneration = 10L,
+				expectedTextureGeneration = 20L,
+				replacementRasterGeneration = 10L,
+				replacementTextureGeneration = 20L
+			)
+		)
+		assertNull(
+			queue.replaceAcknowledgedHead(
+				token = "stale-token",
+				foliateSessionId = "session-a",
+				destinationOrdinal = 4,
+				expectedRasterGeneration = 10L,
+				expectedTextureGeneration = 20L,
+				replacementRasterGeneration = 11L,
+				replacementTextureGeneration = 21L
+			)
+		)
+		assertNull(
+			queue.replaceAcknowledgedHead(
+				token = original.token.value,
+				foliateSessionId = "stale-session",
+				destinationOrdinal = 4,
+				expectedRasterGeneration = 10L,
+				expectedTextureGeneration = 20L,
+				replacementRasterGeneration = 11L,
+				replacementTextureGeneration = 21L
+			)
+		)
+		assertEquals(original, queue.head())
+		assertTrue(queue.hasInFlightHead())
 	}
 
 	@Test

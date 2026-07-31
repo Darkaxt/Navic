@@ -195,6 +195,46 @@ class ReaderPageRelocationQueue(
 		true
 	}
 
+	fun replaceAcknowledgedHead(
+		token: String,
+		foliateSessionId: String,
+		destinationOrdinal: Int,
+		expectedRasterGeneration: Long,
+		expectedTextureGeneration: Long,
+		replacementRasterGeneration: Long,
+		replacementTextureGeneration: Long
+	): ReaderPageRelocationRequest? = synchronized(lock) {
+		val head = requests.firstOrNull() ?: return@synchronized null
+		if (
+			acknowledgedToken != head.token ||
+			!matches(
+				head,
+				token,
+				expectedRasterGeneration,
+				expectedTextureGeneration,
+				foliateSessionId,
+				destinationOrdinal
+			) ||
+			replacementRasterGeneration < 0L ||
+			replacementTextureGeneration < 0L ||
+			(
+				replacementRasterGeneration == head.rasterGeneration &&
+					replacementTextureGeneration == head.textureGeneration
+			)
+		) {
+			return@synchronized null
+		}
+		val replacement = head.copy(
+			token = ReaderPageRelocationToken("page-turn-${nextToken++}"),
+			rasterGeneration = replacementRasterGeneration,
+			textureGeneration = replacementTextureGeneration
+		)
+		requests[0] = replacement
+		acknowledgedToken = null
+		onOwnershipMutated()
+		replacement
+	}
+
 	fun matchesDispatchedHead(
 		token: String,
 		rasterGeneration: Long,

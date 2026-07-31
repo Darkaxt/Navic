@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import paige.navic.reader.ReaderPageInteractionState
+import paige.navic.reader.ReaderPagePreparationPhase
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -455,6 +457,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(controller, "onCompleted = { request ->")
 		assertContains(controller, "if (terminal) relocationDiagnosticStarts.remove(")
 		assertContains(controller, "handoffAttemptId = event.handoffAttemptId")
+		assertContains(controller, "private val handoffDiagnosticTargets")
+		assertContains(
+			controller,
+			"handoffDiagnosticTargets[event.handoffAttemptId] ="
+		)
+		assertContains(controller, "target = target")
 		assertContains(controller, "ReaderPageRepairDiagnosticState.Completed")
 		assertContains(controller, "deckDiagnosticTracker?.prepared(")
 		assertContains(controller, "deckDiagnosticTracker?.submitted(")
@@ -1466,6 +1474,152 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			cancellation.indexOf("finishGesture(") <
 				cancellation.indexOf("hideSurfaceAfterGesture(gestureId)")
 		)
+	}
+
+	@Test
+	fun failedLivePresentationLatchesEveryReadinessAuthorityUnavailable() {
+		listOf(
+			ReaderPageInteractionState.BlockingInitialPreparation,
+			ReaderPageInteractionState.BlockingProfileRegeneration,
+			ReaderPageInteractionState.BackgroundPrefetch,
+			ReaderPageInteractionState.RefillingWorkingSet,
+			ReaderPageInteractionState.Ready,
+			ReaderPageInteractionState.Settling
+		).forEach { proposed ->
+			assertEquals(
+				ReaderPageInteractionState.Failed,
+				readerPageLivePresentationInteractionState(
+					hasFailedLivePresentation = true,
+					proposed = proposed
+				)
+			)
+		}
+		assertFalse(
+			readerPageLivePresentationAvailable(
+				hasFailedLivePresentation = true,
+				otherwiseAvailable = true
+			)
+		)
+
+		val source = controllerFile.readText()
+		val readiness = source.substringAfter(
+			"private fun updateReadiness("
+		).substringBefore("private fun requestPrewarmIfIdle(")
+		val availability = source.substringAfter(
+			"val isAvailable: Boolean"
+		).substringBefore("private val canPresentAcceptedGesture")
+		assertContains(readiness, "readerPageLivePresentationInteractionState(")
+		assertContains(readiness, "failedLivePresentationGeneration != null")
+		assertContains(
+			availability,
+			"hasFailedLivePresentation = failedLivePresentationGeneration != null"
+		)
+	}
+
+	@Test
+	fun preparationActiveContentRejectionRetainsOneFreshDeckRecovery() {
+		val recovery = ReaderPageLivePresentationRecoveryRequest()
+		recovery.request()
+		assertFalse(
+			recovery.shouldForcePreparation(ReaderPagePreparationPhase.Preparing)
+		)
+		assertTrue(recovery.pending)
+		assertTrue(recovery.shouldForcePreparation(ReaderPagePreparationPhase.Ready))
+		assertTrue(recovery.claimPreparation())
+		assertFalse(recovery.pending)
+		assertFalse(recovery.claimPreparation())
+
+		val source = controllerFile.readText()
+		val preparation = source.substringAfter(
+			"fun onPreparationStateChanged(state: ReaderPagePreparationState)"
+		).substringBefore("fun onHostAttached()")
+		val recoveryFailure = source.substringAfter(
+			"if (reason == ReaderWebViewVisualHandoffFailure.ContentRejected) {"
+		).substringBefore("return")
+		val recoveryHelper = source.substringAfter(
+			"private fun requestLivePresentationRecovery()"
+		).substringBefore("private fun requestPrewarmIfIdle(")
+		val prepareProfile = source.substringAfter(
+			"private fun prepareProfile("
+		).substringBefore("override fun isCurrentRepairWindow(")
+		assertContains(source, "private val livePresentationRecoveryRequest")
+		assertContains(recoveryFailure, "requestLivePresentationRecovery()")
+		assertContains(recoveryHelper, "livePresentationRecoveryRequest.request()")
+		assertContains(
+			preparation,
+			"livePresentationRecoveryRequest.shouldForcePreparation(state.phase)"
+		)
+		assertContains(preparation, "refreshPreparedDeck()")
+		assertContains(prepareProfile, "livePresentationRecoveryRequest.claimPreparation()")
+		assertTrue(
+			prepareProfile.indexOf("livePresentationRecoveryRequest.claimPreparation()") <
+				prepareProfile.indexOf("val preparation = adapter.prepare(")
+		)
+	}
+
+	@Test
+	fun liveHandoffUsesReceiptBoundTransientValidationBeforeSurfaceHide() {
+		val source = controllerFile.readText()
+		val validator = source.substringAfter(
+			"private fun validateLivePresentation("
+		).substringBefore("private fun relocationVisualState()")
+		val visualState = source.substringAfter(
+			"private fun relocationVisualState()"
+		).substringBefore("private fun livePresentationValidationIsCurrent(")
+
+		assertContains(source, "validateContent = ::validateLivePresentation")
+		assertContains(validator, "bundleSource.validateLivePresentation(")
+		assertContains(validator, "isStillCurrent = { livePresentationValidationIsCurrent(request) }")
+		assertContains(validator, "onValidated = onValidated")
+		assertContains(
+			validator,
+			"onValidated(ReaderPageRelocationContentValidationResult.Invalidated)"
+		)
+		assertContains(validator, "activeDeckGenerationId == request.textureGeneration")
+		assertContains(validator, "?.rasterGeneration == request.rasterGeneration")
+		assertContains(validator, "relocationQueue.matchesAcknowledgedHead(")
+		assertContains(visualState, "activeDeckGenerationId?.takeIf")
+		assertContains(visualState, "generationId in preparedDeckGenerations")
+		assertContains(visualState, "rasterGeneration = preparedGeneration?.second")
+		assertContains(visualState, "textureGeneration = preparedGeneration?.first")
+		assertFalse(validator.contains("hideSurface("))
+	}
+
+	@Test
+	fun exhaustedLiveValidationFailsInteractionClosedAndRequestsPreparation() {
+		val source = controllerFile.readText()
+		val recovery = source.substringAfter(
+			"private fun publishRelocationVisualRecovery("
+		).substringBefore("private fun dispatchRelocation(")
+		val contentFailure = recovery.substringAfter(
+			"if (reason == ReaderWebViewVisualHandoffFailure.ContentRejected) {"
+		).substringBefore("return")
+
+		assertContains(
+			contentFailure,
+			"failedLivePresentationGeneration = FailedLivePresentationGeneration(request)"
+		)
+		assertContains(contentFailure, "interaction = ReaderPageInteractionState.Failed")
+		assertContains(contentFailure, "requestLivePresentationRecovery()")
+		assertFalse(contentFailure.contains("hideSurface("))
+		assertFalse(contentFailure.contains("token"))
+		val preparedInteraction = source.substringAfter(
+			"private fun preparedInteractionState()"
+		).substringBefore("private fun blockingPreparationState()")
+		assertContains(
+			preparedInteraction,
+			"failedLivePresentationGeneration != null"
+		)
+		val deckPrepared = source.substringAfter(
+			"override fun onDeckPrepared(generationId: Long)"
+		).substringBefore("override fun onDeckRejected(")
+		assertFalse(deckPrepared.contains("failedLivePresentationGeneration = null"))
+		val completed = source.substringAfter(
+			"private fun completeRelocationVisualHandoff("
+		).substringBefore("private fun publishRelocationVisualRecovery(")
+		assertContains(completed, "!failedGeneration.matches(request)")
+		assertContains(completed, "failedLivePresentationGeneration = null")
+		assertContains(completed, "interaction = preparedInteractionState()")
 	}
 
 	@Test

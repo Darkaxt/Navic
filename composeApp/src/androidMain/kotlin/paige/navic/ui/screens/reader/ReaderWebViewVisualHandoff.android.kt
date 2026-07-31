@@ -14,6 +14,7 @@ internal enum class ReaderWebViewVisualHandoffFailure {
 	TimedOut,
 	Invalidated,
 	CallbackCapacity,
+	ContentRejected,
 	Cancelled
 }
 
@@ -752,8 +753,24 @@ internal data class ReaderPageRelocationVisualState(
 	val attached: Boolean,
 	val resumed: Boolean,
 	val foliateSessionId: String?,
-	val webViewOrdinal: Int?
+	val webViewOrdinal: Int?,
+	val rasterGeneration: Long?,
+	val textureGeneration: Long?
 )
+
+internal enum class ReaderPageRelocationContentValidationResult {
+	Accepted,
+	ContentRejected,
+	Invalidated
+}
+
+internal fun interface ReaderPageRelocationContentValidationHandle {
+	fun cancel(): Boolean
+
+	companion object {
+		val Completed = ReaderPageRelocationContentValidationHandle { false }
+	}
+}
 
 internal sealed interface ReaderPageRelocationVisualRetryEvent {
 	val foliateSessionId: String
@@ -777,9 +794,40 @@ internal sealed interface ReaderPageRelocationVisualRetryEvent {
 	) : ReaderPageRelocationVisualRetryEvent
 }
 
+private const val MaximumContentValidationAttempts = 3
+
+private class ReaderPageRelocationContentValidationHandleCell {
+	private val lock = Any()
+	private var cancelled = false
+	private var handle: ReaderPageRelocationContentValidationHandle? = null
+
+	fun attach(candidate: ReaderPageRelocationContentValidationHandle) {
+		val cancelImmediately = synchronized(lock) {
+			if (cancelled) {
+				true
+			} else {
+				check(handle == null)
+				handle = candidate
+				false
+			}
+		}
+		if (cancelImmediately) candidate.cancel()
+	}
+
+	fun cancel(): Boolean {
+		val owned = synchronized(lock) {
+			if (cancelled) return false
+			cancelled = true
+			handle.also { handle = null }
+		}
+		owned?.cancel()
+		return true
+	}
+}
+
 internal class ReaderPageRelocationVisualHandoffCoordinator(
 	private val queue: ReaderPageRelocationQueue,
-	host: ReaderWebViewVisualHandoffHost,
+	private val host: ReaderWebViewVisualHandoffHost,
 	private val currentState: () -> ReaderPageRelocationVisualState,
 	private val dispatch: (ReaderPageRelocationRequest) -> Unit,
 	private val publishRecovery: (
@@ -787,23 +835,43 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		ReaderWebViewVisualHandoffFailure
 	) -> Unit,
 	private val hideSurface: (ReaderPageRelocationRequest) -> Unit,
+	private val validateContent: (
+		ReaderPageRelocationRequest,
+		(ReaderPageRelocationContentValidationResult) -> Unit
+	) -> ReaderPageRelocationContentValidationHandle,
 	private val canRecover: () -> Boolean = { true },
 	timeoutMillis: Long = 2_000L,
+	private val contentValidationTimeoutMillis: Long = timeoutMillis,
 	private val onOwnershipMutated: () -> Unit = {},
 	private val attemptEventSink: ReaderWebViewVisualHandoffAttemptEventSink =
 		ReaderWebViewVisualHandoffAttemptEventSink { },
 	private val onAwaiting: (ReaderPageRelocationRequest) -> Unit = {},
-	private val onCompleted: (ReaderPageRelocationRequest) -> Unit = {}
+	private val onCompleted: (ReaderPageRelocationRequest) -> Unit = {},
+	private val onReplaced: (
+		ReaderPageRelocationRequest,
+		ReaderPageRelocationRequest
+	) -> Unit = { _, _ -> }
 ) {
 	private enum class Phase {
 		Idle,
 		Awaiting,
+		ValidatingContent,
 		Recovering,
 		Closed
 	}
 
 	private var phase = Phase.Idle
 	private var head: ReaderPageRelocationRequest? = null
+	private var contentValidationFailures = 0
+	private var contentValidationEpoch = 0L
+	private var contentValidationExhausted = false
+	private var contentValidationTimeoutAction: (() -> Unit)? = null
+	private var contentValidationHandleCell:
+		ReaderPageRelocationContentValidationHandleCell? = null
+	private var retainedPreparedReplacement:
+		ReaderPageRelocationVisualRetryEvent.Reprepared? = null
+	private var pendingVisualReadyTerminal:
+		ReaderWebViewVisualHandoffAttemptEvent.Terminal? = null
 	private var headQaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	private var qaFaultAppliedHandoffAttemptId: Long? = null
 	private var currentHandoffAttemptId: Long? = null
@@ -820,15 +888,20 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 					}
 					attemptEventSink.emit(event)
 				}
-				is ReaderWebViewVisualHandoffAttemptEvent.Terminal ->
-					attemptEventSink.emit(
-						event.copy(
-							qaFaultCorrelation = qaFaultCorrelationForAttempt(
-								event.relocationToken,
-								event.handoffAttemptId
-							)
+				is ReaderWebViewVisualHandoffAttemptEvent.Terminal -> {
+					val correlated = event.copy(
+						qaFaultCorrelation = qaFaultCorrelationForAttempt(
+							event.relocationToken,
+							event.handoffAttemptId
 						)
 					)
+					if (event.result is ReaderWebViewVisualHandoffResult.Ready) {
+						check(pendingVisualReadyTerminal == null)
+						pendingVisualReadyTerminal = correlated
+					} else {
+						attemptEventSink.emit(correlated)
+					}
+				}
 				is ReaderWebViewVisualHandoffAttemptEvent.StalePhysicalCallbackReleased ->
 					attemptEventSink.emit(
 						event.copy(
@@ -848,9 +921,15 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		onOwnershipMutated = onOwnershipMutated
 	)
 
-	fun pendingCallbackCount(): Int = handoff.applicationOwnedCallbackCount()
+	fun pendingCallbackCount(): Int =
+		handoff.applicationOwnedCallbackCount() +
+			(if (contentValidationTimeoutAction != null) 1 else 0) +
+			(if (contentValidationHandleCell != null) 1 else 0)
 
-	fun pendingCallbackLimit(): Int = handoff.pendingCallbackLimit
+	fun pendingCallbackLimit(): Int = handoff.pendingCallbackLimit + 2
+
+	fun pendingCapacityRetryEdgeCount(): Int =
+		handoff.pendingCapacityRetryEdgeCount()
 
 	fun onAcknowledged(
 		request: ReaderPageRelocationRequest,
@@ -858,6 +937,13 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	): Boolean {
 		if (phase != Phase.Idle || !matchesAcknowledgedHead(request)) return false
 		head = request
+		contentValidationFailures = 0
+		contentValidationExhausted = false
+		contentValidationEpoch += 1L
+		check(contentValidationTimeoutAction == null)
+		check(contentValidationHandleCell == null)
+		check(retainedPreparedReplacement == null)
+		check(pendingVisualReadyTerminal == null)
 		headQaFaultCorrelation = qaFaultCorrelation
 		qaFaultAppliedHandoffAttemptId = null
 		return begin(request)
@@ -915,18 +1001,161 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	fun onRetryEvent(event: ReaderPageRelocationVisualRetryEvent): Boolean {
 		if (!canRecover()) return false
 		val request = head ?: return false
+		discardRetainedPreparedReplacementIfStale(request)
+		if (phase == Phase.Awaiting || phase == Phase.ValidatingContent) {
+			(event as? ReaderPageRelocationVisualRetryEvent.Reprepared)?.let {
+				retainPreparedReplacementIfCurrent(request, it)
+			}
+			return false
+		}
+		if (phase != Phase.Recovering) return false
 		if (
-			phase != Phase.Recovering ||
-			!event.matches(request) ||
-			!currentStateMatches(request)
+			!contentValidationExhausted &&
+			event.matches(request) &&
+			currentStateMatches(request)
+		) {
+			retainedPreparedReplacement = null
+			return begin(request)
+		}
+		return when (event) {
+			is ReaderPageRelocationVisualRetryEvent.Reprepared -> {
+				if (replaceHeadForDifferentGeneration(request, event)) {
+					true
+				} else {
+					retainPreparedReplacementIfCurrent(request, event)
+					false
+				}
+			}
+			is ReaderPageRelocationVisualRetryEvent.Attached,
+			is ReaderPageRelocationVisualRetryEvent.Resumed ->
+				replayRetainedPreparedReplacement(request, event)
+		}
+	}
+
+	private fun retainPreparedReplacementIfCurrent(
+		request: ReaderPageRelocationRequest,
+		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared
+	) {
+		if (
+			preparedReplacementEvidenceMatches(
+				request = request,
+				reprepared = reprepared,
+				state = currentState(),
+				requireLifecycleReady = false
+			)
+		) {
+			retainedPreparedReplacement = reprepared
+		}
+	}
+
+	private fun replayRetainedPreparedReplacement(
+		request: ReaderPageRelocationRequest,
+		lifecycleEvent: ReaderPageRelocationVisualRetryEvent
+	): Boolean {
+		if (
+			lifecycleEvent.foliateSessionId != request.foliateSessionId ||
+			lifecycleEvent.destinationOrdinal != request.destinationOrdinal
 		) {
 			return false
 		}
-		return begin(request)
+		return consumeRetainedPreparedReplacement(request)
+	}
+
+	private fun consumeRetainedPreparedReplacement(
+		request: ReaderPageRelocationRequest
+	): Boolean {
+		val reprepared = retainedPreparedReplacement ?: return false
+		if (
+			!preparedReplacementEvidenceMatches(
+				request = request,
+				reprepared = reprepared,
+				state = currentState(),
+				requireLifecycleReady = false
+			)
+		) {
+			retainedPreparedReplacement = null
+			return false
+		}
+		return replaceHeadForDifferentGeneration(request, reprepared)
+	}
+
+	private fun discardRetainedPreparedReplacementIfStale(
+		request: ReaderPageRelocationRequest
+	) {
+		val reprepared = retainedPreparedReplacement ?: return
+		if (
+			!preparedReplacementEvidenceMatches(
+				request = request,
+				reprepared = reprepared,
+				state = currentState(),
+				requireLifecycleReady = false
+			)
+		) {
+			retainedPreparedReplacement = null
+		}
+	}
+
+	private fun preparedReplacementEvidenceMatches(
+		request: ReaderPageRelocationRequest,
+		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared,
+		state: ReaderPageRelocationVisualState,
+		requireLifecycleReady: Boolean
+	): Boolean =
+		(!requireLifecycleReady || (state.attached && state.resumed)) &&
+			matchesAcknowledgedHead(request) &&
+			reprepared.foliateSessionId == request.foliateSessionId &&
+			reprepared.destinationOrdinal == request.destinationOrdinal &&
+			state.foliateSessionId == request.foliateSessionId &&
+			state.webViewOrdinal == request.destinationOrdinal &&
+			state.rasterGeneration == reprepared.rasterGeneration &&
+			state.textureGeneration == reprepared.textureGeneration &&
+			(
+				reprepared.rasterGeneration != request.rasterGeneration ||
+				reprepared.textureGeneration != request.textureGeneration
+			)
+
+	private fun replaceHeadForDifferentGeneration(
+		request: ReaderPageRelocationRequest,
+		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared
+	): Boolean {
+		if (
+			!preparedReplacementEvidenceMatches(
+				request = request,
+				reprepared = reprepared,
+				state = currentState(),
+				requireLifecycleReady = true
+			)
+		) {
+			return false
+		}
+		val replacement = queue.replaceAcknowledgedHead(
+			token = request.token.value,
+			foliateSessionId = request.foliateSessionId,
+			destinationOrdinal = request.destinationOrdinal,
+			expectedRasterGeneration = request.rasterGeneration,
+			expectedTextureGeneration = request.textureGeneration,
+			replacementRasterGeneration = reprepared.rasterGeneration,
+			replacementTextureGeneration = reprepared.textureGeneration
+		) ?: return false
+		retainedPreparedReplacement = null
+		clearContentValidationAttempt()
+		handoff.cancelPendingCapacityRetryEdge(request.token.value)
+		check(handoff.pendingCapacityRetryEdgeCount() == 0)
+		onReplaced(request, replacement)
+		head = null
+		phase = Phase.Idle
+		contentValidationFailures = 0
+		contentValidationExhausted = false
+		contentValidationEpoch += 1L
+		clearQaFaultCorrelation()
+		val command = queue.commandToDispatch()
+		check(command == replacement)
+		dispatch(replacement)
+		return true
 	}
 
 	private fun onCapacityRetry(event: ReaderWebViewVisualHandoffRetryEvent): Boolean {
-		if (!canRecover()) return true
+		if (!canRecover() || contentValidationExhausted) return true
 		val request = head ?: return false
 		val edge = event as?
 			ReaderWebViewVisualHandoffRetryEvent.CallbackCapacityAvailable
@@ -965,9 +1194,18 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 
 	private fun onHandoffResult(result: ReaderWebViewVisualHandoffResult) {
 		val request = head?.takeIf { it.token.value == result.token } ?: return
-		if (phase == Phase.Closed) return
+		if (phase != Phase.Awaiting) return
 		when (result) {
-			is ReaderWebViewVisualHandoffResult.Ready -> complete(request)
+			is ReaderWebViewVisualHandoffResult.Ready -> {
+				if (
+					matchesAcknowledgedHead(request) &&
+					currentStateMatches(request)
+				) {
+					beginContentValidation(request)
+				} else {
+					recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+				}
+			}
 			is ReaderWebViewVisualHandoffResult.Failed -> {
 				if (result.reason == ReaderWebViewVisualHandoffFailure.Cancelled) {
 					check(phase == Phase.Closed) {
@@ -980,6 +1218,163 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		}
 	}
 
+	private fun beginContentValidation(request: ReaderPageRelocationRequest) {
+		if (
+			head != request ||
+			(phase != Phase.Awaiting && phase != Phase.ValidatingContent) ||
+			contentValidationExhausted
+		) {
+			return
+		}
+		phase = Phase.ValidatingContent
+		val validationEpoch = ++contentValidationEpoch
+		val handleCell = ReaderPageRelocationContentValidationHandleCell()
+		check(contentValidationHandleCell == null)
+		contentValidationHandleCell = handleCell
+		onOwnershipMutated()
+		lateinit var timeoutAction: () -> Unit
+		timeoutAction = {
+			onContentValidationTimeout(request, validationEpoch, timeoutAction)
+		}
+		check(contentValidationTimeoutAction == null)
+		contentValidationTimeoutAction = timeoutAction
+		onOwnershipMutated()
+		try {
+			host.postDelayed(contentValidationTimeoutMillis, timeoutAction)
+		} catch (_: Throwable) {
+			clearContentValidationAttempt(
+				expectedTimeout = timeoutAction,
+				removeTimeoutFromHost = false
+			)
+			onContentValidated(
+				request,
+				validationEpoch,
+				ReaderPageRelocationContentValidationResult.Invalidated
+			)
+			return
+		}
+		try {
+			val handle = validateContent(request) { result ->
+				onContentValidated(request, validationEpoch, result)
+			}
+			handleCell.attach(handle)
+		} catch (_: Throwable) {
+			onContentValidated(
+				request,
+				validationEpoch,
+				ReaderPageRelocationContentValidationResult.Invalidated
+			)
+		}
+	}
+
+	private fun onContentValidated(
+		request: ReaderPageRelocationRequest,
+		validationEpoch: Long,
+		result: ReaderPageRelocationContentValidationResult
+	) {
+		if (
+			phase != Phase.ValidatingContent ||
+			head != request ||
+			contentValidationEpoch != validationEpoch
+		) {
+			return
+		}
+		clearContentValidationAttempt()
+		when (result) {
+			ReaderPageRelocationContentValidationResult.Accepted -> {
+				if (validationIsCurrent(request)) {
+					complete(request)
+				} else {
+					recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+				}
+			}
+			ReaderPageRelocationContentValidationResult.ContentRejected -> {
+				if (validationIsCurrent(request)) {
+					recordContentValidationFailure(request)
+				} else {
+					recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+				}
+			}
+			ReaderPageRelocationContentValidationResult.Invalidated ->
+				recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+		}
+	}
+
+	private fun onContentValidationTimeout(
+		request: ReaderPageRelocationRequest,
+		validationEpoch: Long,
+		timeoutAction: () -> Unit
+	) {
+		if (
+			phase != Phase.ValidatingContent ||
+			head != request ||
+			contentValidationEpoch != validationEpoch ||
+			contentValidationTimeoutAction !== timeoutAction
+		) {
+			return
+		}
+		clearContentValidationAttempt(
+			expectedTimeout = timeoutAction,
+			removeTimeoutFromHost = false
+		)
+		contentValidationEpoch += 1L
+		if (validationIsCurrent(request)) {
+			recordContentValidationFailure(request)
+		} else {
+			recover(request, ReaderWebViewVisualHandoffFailure.Invalidated)
+		}
+	}
+
+	private fun recordContentValidationFailure(request: ReaderPageRelocationRequest) {
+		contentValidationFailures += 1
+		if (contentValidationFailures < MaximumContentValidationAttempts) {
+			beginContentValidation(request)
+			return
+		}
+		contentValidationExhausted = true
+		phase = Phase.Recovering
+		publishPendingVisualTerminal(
+			request,
+			ReaderWebViewVisualHandoffFailure.ContentRejected
+		)
+		publishRecovery(request, ReaderWebViewVisualHandoffFailure.ContentRejected)
+	}
+
+	private fun validationIsCurrent(
+		request: ReaderPageRelocationRequest
+	): Boolean = matchesAcknowledgedHead(request) && currentStateMatches(request)
+
+	private fun clearContentValidationAttempt(
+		expectedTimeout: (() -> Unit)? = null,
+		removeTimeoutFromHost: Boolean = true
+	) {
+		if (
+			expectedTimeout != null &&
+			contentValidationTimeoutAction !== expectedTimeout
+		) {
+			return
+		}
+		clearContentValidationTimeout(
+			expected = expectedTimeout,
+			removeFromHost = removeTimeoutFromHost
+		)
+		val handleCell = contentValidationHandleCell ?: return
+		contentValidationHandleCell = null
+		handleCell.cancel()
+		onOwnershipMutated()
+	}
+
+	private fun clearContentValidationTimeout(
+		expected: (() -> Unit)? = null,
+		removeFromHost: Boolean = true
+	) {
+		val action = contentValidationTimeoutAction ?: return
+		if (expected != null && action !== expected) return
+		contentValidationTimeoutAction = null
+		if (removeFromHost) host.removeCallbacks(action)
+		onOwnershipMutated()
+	}
+
 	private fun complete(request: ReaderPageRelocationRequest) {
 		if (
 			!matchesAcknowledgedHead(request) ||
@@ -990,6 +1385,11 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			return
 		}
 		phase = Phase.Idle
+		retainedPreparedReplacement = null
+		contentValidationEpoch += 1L
+		contentValidationFailures = 0
+		contentValidationExhausted = false
+		publishPendingVisualTerminal(request)
 		onCompleted(request)
 		head = null
 		clearQaFaultCorrelation()
@@ -1002,7 +1402,11 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		reason: ReaderWebViewVisualHandoffFailure
 	) {
 		if (phase == Phase.Closed || head != request) return
+		clearContentValidationAttempt()
+		contentValidationEpoch += 1L
 		phase = Phase.Recovering
+		publishPendingVisualTerminal(request, reason)
+		if (canRecover() && consumeRetainedPreparedReplacement(request)) return
 		publishRecovery(request, reason)
 		if (!canRecover()) return
 		if (
@@ -1020,6 +1424,27 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			}
 			begin(request)
 		}
+	}
+
+	private fun publishPendingVisualTerminal(
+		request: ReaderPageRelocationRequest,
+		failure: ReaderWebViewVisualHandoffFailure? = null
+	) {
+		val terminal = pendingVisualReadyTerminal ?: return
+		check(terminal.relocationToken == request.token.value)
+		pendingVisualReadyTerminal = null
+		attemptEventSink.emit(
+			if (failure == null) {
+				terminal
+			} else {
+				terminal.copy(
+					result = ReaderWebViewVisualHandoffResult.Failed(
+						request.token.value,
+						failure
+					)
+				)
+			}
+		)
 	}
 
 	private fun clearQaFaultCorrelation() {
@@ -1044,7 +1469,9 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		state.attached &&
 			state.resumed &&
 			state.foliateSessionId == request.foliateSessionId &&
-			state.webViewOrdinal == request.destinationOrdinal
+			state.webViewOrdinal == request.destinationOrdinal &&
+			state.rasterGeneration == request.rasterGeneration &&
+			state.textureGeneration == request.textureGeneration
 	}
 
 	private fun ReaderPageRelocationVisualRetryEvent.matches(
@@ -1067,8 +1494,17 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 
 	fun cancelForQueueInvalidation() {
 		val request = head ?: return
+		clearContentValidationAttempt()
+		publishPendingVisualTerminal(
+			request,
+			ReaderWebViewVisualHandoffFailure.Invalidated
+		)
 		head = null
 		phase = Phase.Idle
+		retainedPreparedReplacement = null
+		contentValidationEpoch += 1L
+		contentValidationFailures = 0
+		contentValidationExhausted = false
 		handoff.cancelPendingCapacityRetryEdge(request.token.value)
 		handoff.invalidate()
 		clearQaFaultCorrelation()
@@ -1077,8 +1513,19 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	fun close() {
 		if (phase == Phase.Closed) return
 		val request = head
+		clearContentValidationAttempt()
+		request?.let {
+			publishPendingVisualTerminal(
+				it,
+				ReaderWebViewVisualHandoffFailure.Cancelled
+			)
+		}
 		head = null
 		phase = Phase.Closed
+		retainedPreparedReplacement = null
+		contentValidationEpoch += 1L
+		contentValidationFailures = 0
+		contentValidationExhausted = true
 		request?.let { handoff.cancelPendingCapacityRetryEdge(it.token.value) }
 		handoff.close()
 		clearQaFaultCorrelation()

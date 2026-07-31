@@ -108,9 +108,52 @@ class ReaderPageTurnBitmapSourceTest {
 
 		assertTrue(initialReceipt >= 0 && initialReceipt < capture)
 		assertTrue(capture < finalReceipt)
+		assertTrue(presented.contains("ReaderPageTurnPresentedCaptureOwnership("))
+		assertTrue(presented.contains("ownership.retain(candidate)"))
+		assertTrue(presented.contains("ownership.complete()"))
+		assertTrue(presented.contains("return ownership"))
 		assertTrue(presented.contains("readerPageTurnPresentedSurfaceCandidate("))
 		assertTrue(source.contains("pageTurnPreviewPresentationReceipt"))
 		assertTrue(source.contains("pageTurnLivePresentationReceipt"))
+	}
+
+	@Test
+	fun canceledPresentedCaptureReleasesRetainedCandidateExactlyOnce() {
+		val candidate = PresentedCandidate()
+		var releases = 0
+		val ownership = ReaderPageTurnPresentedCaptureOwnership<PresentedCandidate> {
+			releases += 1
+		}
+		assertTrue(ownership.retain(candidate))
+		assertEquals(1, ownership.retainedCandidateCount)
+
+		assertTrue(ownership.cancel())
+		assertEquals(0, ownership.retainedCandidateCount)
+		assertEquals(1, releases)
+		assertNull(ownership.complete())
+		assertFalse(ownership.cancel())
+		assertEquals(1, releases)
+	}
+
+	@Test
+	fun threeTimedOutPresentedCapturesCannotRetainCandidates() {
+		var releases = 0
+		val owners = List(3) {
+			ReaderPageTurnPresentedCaptureOwnership<PresentedCandidate> {
+				releases += 1
+			}.also { owner ->
+				assertTrue(owner.retain(PresentedCandidate()))
+			}
+		}
+
+		owners.forEach { owner -> assertTrue(owner.cancel()) }
+		assertEquals(3, releases)
+		assertEquals(0, owners.sumOf { it.retainedCandidateCount })
+		owners.forEach { owner ->
+			assertNull(owner.complete())
+			assertFalse(owner.cancel())
+		}
+		assertEquals(3, releases)
 	}
 
 	@Test

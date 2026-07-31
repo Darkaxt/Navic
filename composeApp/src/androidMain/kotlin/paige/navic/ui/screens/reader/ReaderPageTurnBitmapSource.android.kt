@@ -41,6 +41,57 @@ internal data class ReaderPageTurnCaptureResult(
 	val elapsedMs: Long
 )
 
+internal class ReaderPageTurnPresentedCaptureOwnership<T : Any>(
+	private val release: (T) -> Unit
+) : ReaderPageRelocationContentValidationHandle {
+	internal data class Completion<T>(val candidate: T?)
+
+	private enum class State {
+		Open,
+		Completed,
+		Cancelled
+	}
+
+	private val lock = Any()
+	private var state = State.Open
+	private var candidate: T? = null
+	private var candidateRetained = false
+
+	val retainedCandidateCount: Int
+		get() = synchronized(lock) {
+			if (candidateRetained) 1 else 0
+		}
+
+	fun retain(candidate: T?): Boolean = synchronized(lock) {
+		if (state != State.Open || candidateRetained) return@synchronized false
+		this.candidate = candidate
+		candidateRetained = candidate != null
+		true
+	}
+
+	fun complete(): Completion<T>? = synchronized(lock) {
+		if (state != State.Open) return@synchronized null
+		state = State.Completed
+		val completed = Completion(candidate)
+		candidate = null
+		candidateRetained = false
+		completed
+	}
+
+	override fun cancel(): Boolean {
+		val retained = synchronized(lock) {
+			if (state != State.Open) return false
+			state = State.Cancelled
+			val owned = candidate.takeIf { candidateRetained }
+			candidate = null
+			candidateRetained = false
+			owned
+		}
+		retained?.let(release)
+		return true
+	}
+}
+
 internal class ReaderPageTurnBitmapSource(
 	private var bitmapQuality: ReaderPageBitmapQuality = ReaderPageBitmapQuality.Balanced
 ) {
@@ -97,25 +148,36 @@ internal class ReaderPageTurnBitmapSource(
 		target: ReaderPageTurnPresentationTarget,
 		isStillCurrent: () -> Boolean = { true },
 		onCaptured: (ReaderPageTurnCaptureResult?) -> Unit
-	) {
+	): ReaderPageRelocationContentValidationHandle {
+		val ownership = ReaderPageTurnPresentedCaptureOwnership(
+			release = { rejected: ReaderPageTurnCaptureResult ->
+				rejected.bitmap.takeUnless { it.isRecycled }?.recycle()
+			}
+		)
 		if (!isStillCurrent() || !canCapture(webView)) {
+			ownership.complete()
 			onCaptured(null)
-			return
+			return ownership
 		}
 		queryPresentationReceipt(webView, target) initial@{ initialReceipt ->
 			if (!isStillCurrent() || initialReceipt?.matches(target) != true) {
-				onCaptured(null)
+				if (ownership.complete() != null) onCaptured(null)
 				return@initial
 			}
 			captureSurface(webView) { candidate ->
+				if (!ownership.retain(candidate)) {
+					candidate?.bitmap?.takeUnless { it.isRecycled }?.recycle()
+					return@captureSurface
+				}
 				queryPresentationReceipt(webView, target) { finalReceipt ->
+					val completed = ownership.complete() ?: return@queryPresentationReceipt
 					onCaptured(
 						readerPageTurnPresentedSurfaceCandidate(
 							target = target,
 							initialReceipt = initialReceipt,
 							finalReceipt = finalReceipt,
-							candidate = candidate,
-							foregroundSuccess = candidate != null,
+							candidate = completed.candidate,
+							foregroundSuccess = completed.candidate != null,
 							isStillCurrent = isStillCurrent(),
 							recycle = { rejected ->
 								rejected.bitmap
@@ -127,6 +189,7 @@ internal class ReaderPageTurnBitmapSource(
 				}
 			}
 		}
+		return ownership
 	}
 
 	suspend fun captureSurfaceAwait(webView: WebView): ReaderPageTurnCaptureResult? =

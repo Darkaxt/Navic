@@ -1,9 +1,12 @@
 package paige.navic.ui.screens.reader
 
+import java.io.File
 import paige.navic.reader.ReaderPageBitmapQuality
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class ReaderPageTurnBundleTest {
 	@Test
@@ -50,4 +53,74 @@ class ReaderPageTurnBundleTest {
 		)
 	}
 
+	@Test
+	fun transientLiveValidationCandidateIsReleasedExactlyOnce() {
+		val candidate = Any()
+		var releases = 0
+
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.Accepted,
+			readerPageTransientLiveValidationResult(
+				candidate = candidate,
+				isStillCurrent = true,
+				release = { releases += 1 }
+			)
+		)
+		assertEquals(1, releases)
+	}
+
+	@Test
+	fun staleTransientLiveValidationCandidateIsInvalidatedAndReleased() {
+		val candidate = Any()
+		var releases = 0
+
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.Invalidated,
+			readerPageTransientLiveValidationResult(
+				candidate = candidate,
+				isStillCurrent = false,
+				release = { releases += 1 }
+			)
+		)
+		assertEquals(1, releases)
+	}
+
+	@Test
+	fun currentMissingLiveValidationCandidateIsContentRejected() {
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.ContentRejected,
+			readerPageTransientLiveValidationResult(
+				candidate = null,
+				isStillCurrent = true,
+				release = { _: Any -> error("Missing candidate cannot be released") }
+			)
+		)
+	}
+
+	@Test
+	fun liveValidatorBuildsExactTargetAndNeverPublishesTransientCapture() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageTurnBundleSource.android.kt"
+		).readText()
+		val validator = source.substringAfter(
+			"fun validateLivePresentation("
+		).substringBefore("fun capturePreparedRasterPage(")
+
+		assertTrue(validator.contains("ReaderPageTurnPresentationTarget.Live("))
+		assertTrue(validator.contains("token = request.token.value"))
+		assertTrue(validator.contains("pageIndex = request.destinationOrdinal.toLong()"))
+		assertTrue(validator.contains("foliateSessionId = request.foliateSessionId"))
+		assertTrue(validator.contains("rasterGeneration = request.rasterGeneration"))
+		assertTrue(validator.contains("textureGeneration = request.textureGeneration"))
+		assertTrue(validator.contains("bitmapSource.capturePresentedSurface("))
+		assertTrue(validator.contains("readerPageTransientLiveValidationResult("))
+		assertTrue(validator.contains("?.recycle()"))
+		listOf(
+			"putSnapshot(",
+			"cacheSnapshot(",
+			"schedulePersistentSnapshot(",
+			"publicationLedger.begin("
+		).forEach { forbidden -> assertFalse(validator.contains(forbidden)) }
+	}
 }
