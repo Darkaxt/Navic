@@ -409,6 +409,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val resumed = source
 			.substringAfter("fun onHostResumedChanged(")
 			.substringBefore("fun onHostWindowHidden()")
+		val preparationReady = source
+			.substringAfter("ReaderPagePreparationPhase.Ready -> {")
+			.substringBefore("ReaderPagePreparationPhase.Failed -> {")
 		val deckPrepared = source
 			.substringAfter("override fun onDeckPrepared(")
 			.substringBefore("override fun onDeckRejected(")
@@ -423,6 +426,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(contentReady, "retryRelocationVisualHandoffAttached()")
 		assertContains(webViewAttach, "retryRelocationVisualHandoffAttached()")
 		assertContains(resumed, "retryRelocationVisualHandoffResumed()")
+		assertContains(
+			preparationReady,
+			"activeDeckGenerationId?.let(::retryRelocationVisualHandoffForPreparedDeck)"
+		)
 		assertContains(deckPrepared, "retryRelocationVisualHandoffForPreparedDeck(generationId)")
 		assertContains(source, "ReaderPageRelocationVisualRetryEvent.Attached(")
 		assertContains(source, "ReaderPageRelocationVisualRetryEvent.Resumed(")
@@ -487,6 +494,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(validation, "activeDeckGenerationId != request.textureGeneration")
 		assertContains(validation, "generationOwners[request.textureGeneration]")
+		assertFalse(
+			validation.contains("activePages"),
+			"Decoded refill pages must not replace the immutable visible-generation owner."
+		)
 		assertContains(validation, "profile.rasterGeneration != request.rasterGeneration")
 		assertContains(validation, "profile.transitionKind()")
 		assertContains(validation, "profile.pageRequest(request.destinationOrdinal).sourcePageIndex")
@@ -1597,14 +1608,21 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(source, "validateContent = ::validateLivePresentation")
 		assertContains(validator, "bundleSource.validateLivePresentation(")
-		assertContains(validator, "isStillCurrent = { livePresentationValidationIsCurrent(request) }")
+		assertContains(
+			validator,
+			"isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) }"
+		)
 		assertContains(validator, "onValidated = onValidated")
 		assertContains(
 			validator,
 			"onValidated(ReaderPageRelocationContentValidationResult.Invalidated)"
 		)
 		assertContains(validator, "activeDeckGenerationId == request.textureGeneration")
-		assertContains(validator, "?.rasterGeneration == request.rasterGeneration")
+		assertContains(
+			validator,
+			"generationOwners[request.textureGeneration] === generationOwner"
+		)
+		assertContains(validator, "generationOwner.profile.rasterGeneration == request.rasterGeneration")
 		assertContains(validator, "relocationQueue.matchesAcknowledgedHead(")
 		assertContains(visualState, "activeDeckGenerationId?.takeIf")
 		assertContains(visualState, "generationId in preparedDeckGenerations")

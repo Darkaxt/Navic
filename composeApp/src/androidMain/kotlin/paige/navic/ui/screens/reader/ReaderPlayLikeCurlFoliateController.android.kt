@@ -1165,6 +1165,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 						reason = "raster-preparation-ready"
 					)
 				}
+				activeDeckGenerationId?.let(::retryRelocationVisualHandoffForPreparedDeck)
 				if (
 					livePresentationRecoveryRequest.shouldForcePreparation(state.phase)
 				) {
@@ -4034,10 +4035,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (
 			webView == null ||
 			activeDeckGenerationId != request.textureGeneration ||
-			activePages !== generationOwner ||
+			generationOwner == null ||
 			profile == null ||
 			profile.rasterGeneration != request.rasterGeneration ||
-			!livePresentationValidationIsCurrent(request)
+			!livePresentationValidationIsCurrent(request, generationOwner)
 		) {
 			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
@@ -4077,7 +4078,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 			retained
 		}
-		if (!livePresentationValidationIsCurrent(request)) {
+		if (!livePresentationValidationIsCurrent(request, generationOwner)) {
 			expectedTarget.release()
 			expectedSource?.release()
 			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
@@ -4088,20 +4089,20 @@ internal class ReaderPlayLikeCurlFoliateController(
 			request = request,
 			expectedTarget = expectedTarget,
 			expectedSource = expectedSource,
-			isStillCurrent = { livePresentationValidationIsCurrent(request) },
+			isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) },
 			onValidated = onValidated
 		)
 	}
 
 	private fun livePresentationValidationIsCurrent(
-		request: ReaderPageRelocationRequest
+		request: ReaderPageRelocationRequest,
+		generationOwner: PreparedPages
 	): Boolean =
 		!destroyed &&
 			enabled &&
 			activeDeckGenerationId == request.textureGeneration &&
-			generationOwners[request.textureGeneration]
-				?.profile
-				?.rasterGeneration == request.rasterGeneration &&
+			generationOwners[request.textureGeneration] === generationOwner &&
+			generationOwner.profile.rasterGeneration == request.rasterGeneration &&
 			relocationQueue.matchesAcknowledgedHead(
 				token = request.token.value,
 				rasterGeneration = request.rasterGeneration,
@@ -4153,13 +4154,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun retryRelocationVisualHandoffForPreparedDeck(generationId: Long) {
-		if (generationId != activeDeckGenerationId) return
-		val sessionId = currentFoliateSessionId ?: return
-		val ordinal = currentWebViewOrdinal ?: return
-		val rasterGeneration = generationOwners[generationId]
-			?.profile
-			?.rasterGeneration
-			?: return
+		val state = relocationVisualState()
+		if (state.textureGeneration != generationId) return
+		val sessionId = state.foliateSessionId ?: return
+		val ordinal = state.webViewOrdinal ?: return
+		val rasterGeneration = state.rasterGeneration ?: return
 		relocationVisualHandoffCoordinator.onRetryEvent(
 			ReaderPageRelocationVisualRetryEvent.Reprepared(
 				foliateSessionId = sessionId,

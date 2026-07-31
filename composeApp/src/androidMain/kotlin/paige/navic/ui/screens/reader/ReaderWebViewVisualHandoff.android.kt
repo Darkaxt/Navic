@@ -868,7 +868,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	private var contentValidationTimeoutAction: (() -> Unit)? = null
 	private var contentValidationHandleCell:
 		ReaderPageRelocationContentValidationHandleCell? = null
-	private var retainedPreparedReplacement:
+	private var retainedRepreparedEvidence:
 		ReaderPageRelocationVisualRetryEvent.Reprepared? = null
 	private var pendingVisualReadyTerminal:
 		ReaderWebViewVisualHandoffAttemptEvent.Terminal? = null
@@ -942,7 +942,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		check(contentValidationTimeoutAction == null)
 		check(contentValidationHandleCell == null)
-		check(retainedPreparedReplacement == null)
+		check(retainedRepreparedEvidence == null)
 		check(pendingVisualReadyTerminal == null)
 		headQaFaultCorrelation = qaFaultCorrelation
 		qaFaultAppliedHandoffAttemptId = null
@@ -1001,10 +1001,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	fun onRetryEvent(event: ReaderPageRelocationVisualRetryEvent): Boolean {
 		if (!canRecover()) return false
 		val request = head ?: return false
-		discardRetainedPreparedReplacementIfStale(request)
+		discardRetainedRepreparedEvidenceIfStale(request)
 		if (phase == Phase.Awaiting || phase == Phase.ValidatingContent) {
 			(event as? ReaderPageRelocationVisualRetryEvent.Reprepared)?.let {
-				retainPreparedReplacementIfCurrent(request, it)
+				retainRepreparedEvidenceIfCurrent(request, it)
 			}
 			return false
 		}
@@ -1014,7 +1014,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			event.matches(request) &&
 			currentStateMatches(request)
 		) {
-			retainedPreparedReplacement = null
+			retainedRepreparedEvidence = null
 			return begin(request)
 		}
 		return when (event) {
@@ -1022,33 +1022,35 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 				if (replaceHeadForDifferentGeneration(request, event)) {
 					true
 				} else {
-					retainPreparedReplacementIfCurrent(request, event)
+					if (!contentValidationExhausted || !event.matchesGenerations(request)) {
+						retainRepreparedEvidenceIfCurrent(request, event)
+					}
 					false
 				}
 			}
 			is ReaderPageRelocationVisualRetryEvent.Attached,
 			is ReaderPageRelocationVisualRetryEvent.Resumed ->
-				replayRetainedPreparedReplacement(request, event)
+				replayRetainedRepreparedEvidence(request, event)
 		}
 	}
 
-	private fun retainPreparedReplacementIfCurrent(
+	private fun retainRepreparedEvidenceIfCurrent(
 		request: ReaderPageRelocationRequest,
 		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared
 	) {
 		if (
-			preparedReplacementEvidenceMatches(
+			repreparedEvidenceMatches(
 				request = request,
 				reprepared = reprepared,
 				state = currentState(),
 				requireLifecycleReady = false
 			)
 		) {
-			retainedPreparedReplacement = reprepared
+			retainedRepreparedEvidence = reprepared
 		}
 	}
 
-	private fun replayRetainedPreparedReplacement(
+	private fun replayRetainedRepreparedEvidence(
 		request: ReaderPageRelocationRequest,
 		lifecycleEvent: ReaderPageRelocationVisualRetryEvent
 	): Boolean {
@@ -1058,44 +1060,56 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		) {
 			return false
 		}
-		return consumeRetainedPreparedReplacement(request)
+		return consumeRetainedRepreparedEvidence(request)
 	}
 
-	private fun consumeRetainedPreparedReplacement(
+	private fun consumeRetainedRepreparedEvidence(
 		request: ReaderPageRelocationRequest
 	): Boolean {
-		val reprepared = retainedPreparedReplacement ?: return false
+		val reprepared = retainedRepreparedEvidence ?: return false
+		val state = currentState()
 		if (
-			!preparedReplacementEvidenceMatches(
+			!repreparedEvidenceMatches(
 				request = request,
 				reprepared = reprepared,
-				state = currentState(),
+				state = state,
 				requireLifecycleReady = false
 			)
 		) {
-			retainedPreparedReplacement = null
+			retainedRepreparedEvidence = null
 			return false
 		}
-		return replaceHeadForDifferentGeneration(request, reprepared)
+		if (!state.attached || !state.resumed) return false
+		val sameGeneration = reprepared.matchesGenerations(request)
+		if (sameGeneration && contentValidationExhausted) {
+			retainedRepreparedEvidence = null
+			return false
+		}
+		retainedRepreparedEvidence = null
+		return if (sameGeneration) {
+			begin(request)
+		} else {
+			replaceHeadForDifferentGeneration(request, reprepared)
+		}
 	}
 
-	private fun discardRetainedPreparedReplacementIfStale(
+	private fun discardRetainedRepreparedEvidenceIfStale(
 		request: ReaderPageRelocationRequest
 	) {
-		val reprepared = retainedPreparedReplacement ?: return
+		val reprepared = retainedRepreparedEvidence ?: return
 		if (
-			!preparedReplacementEvidenceMatches(
+			!repreparedEvidenceMatches(
 				request = request,
 				reprepared = reprepared,
 				state = currentState(),
 				requireLifecycleReady = false
 			)
 		) {
-			retainedPreparedReplacement = null
+			retainedRepreparedEvidence = null
 		}
 	}
 
-	private fun preparedReplacementEvidenceMatches(
+	private fun repreparedEvidenceMatches(
 		request: ReaderPageRelocationRequest,
 		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared,
 		state: ReaderPageRelocationVisualState,
@@ -1108,18 +1122,21 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			state.foliateSessionId == request.foliateSessionId &&
 			state.webViewOrdinal == request.destinationOrdinal &&
 			state.rasterGeneration == reprepared.rasterGeneration &&
-			state.textureGeneration == reprepared.textureGeneration &&
-			(
-				reprepared.rasterGeneration != request.rasterGeneration ||
-				reprepared.textureGeneration != request.textureGeneration
-			)
+			state.textureGeneration == reprepared.textureGeneration
+
+	private fun ReaderPageRelocationVisualRetryEvent.Reprepared.matchesGenerations(
+		request: ReaderPageRelocationRequest
+	): Boolean =
+		rasterGeneration == request.rasterGeneration &&
+			textureGeneration == request.textureGeneration
 
 	private fun replaceHeadForDifferentGeneration(
 		request: ReaderPageRelocationRequest,
 		reprepared: ReaderPageRelocationVisualRetryEvent.Reprepared
 	): Boolean {
+		if (reprepared.matchesGenerations(request)) return false
 		if (
-			!preparedReplacementEvidenceMatches(
+			!repreparedEvidenceMatches(
 				request = request,
 				reprepared = reprepared,
 				state = currentState(),
@@ -1137,7 +1154,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			replacementRasterGeneration = reprepared.rasterGeneration,
 			replacementTextureGeneration = reprepared.textureGeneration
 		) ?: return false
-		retainedPreparedReplacement = null
+		retainedRepreparedEvidence = null
 		clearContentValidationAttempt()
 		handoff.cancelPendingCapacityRetryEdge(request.token.value)
 		check(handoff.pendingCapacityRetryEdgeCount() == 0)
@@ -1385,7 +1402,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			return
 		}
 		phase = Phase.Idle
-		retainedPreparedReplacement = null
+		retainedRepreparedEvidence = null
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = false
@@ -1406,7 +1423,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		contentValidationEpoch += 1L
 		phase = Phase.Recovering
 		publishPendingVisualTerminal(request, reason)
-		if (canRecover() && consumeRetainedPreparedReplacement(request)) return
+		if (canRecover() && consumeRetainedRepreparedEvidence(request)) return
 		publishRecovery(request, reason)
 		if (!canRecover()) return
 		if (
@@ -1501,7 +1518,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		)
 		head = null
 		phase = Phase.Idle
-		retainedPreparedReplacement = null
+		retainedRepreparedEvidence = null
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = false
@@ -1522,7 +1539,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		}
 		head = null
 		phase = Phase.Closed
-		retainedPreparedReplacement = null
+		retainedRepreparedEvidence = null
 		contentValidationEpoch += 1L
 		contentValidationFailures = 0
 		contentValidationExhausted = true
