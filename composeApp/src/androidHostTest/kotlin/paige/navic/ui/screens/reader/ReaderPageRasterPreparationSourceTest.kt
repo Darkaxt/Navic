@@ -567,6 +567,24 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun preparedPreviewReceiptIsConfirmedOnlyAfterTheExposedFrameFence() {
+		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val preparedPage = bundle.substringAfter(
+			"private fun capturePreparedPage("
+		).substringBefore("fun cacheCurrentSnapshot(")
+		val frameFence = preparedPage.indexOf("webView.postVisualStateCallback(")
+		val frame = preparedPage.indexOf("webView.postOnAnimation")
+		val confirmation = preparedPage.indexOf(
+			"confirmPageTurnPreviewPresentation"
+		)
+		val capture = preparedPage.indexOf("capturePreparedSurface(")
+
+		assertTrue(frameFence >= 0 && frameFence < frame)
+		assertTrue(frame < confirmation)
+		assertTrue(confirmation < capture)
+	}
+
+	@Test
 	fun preparedRasterCaptureUsesPresentedSurfaceWithoutTheDivergentCompositeRoute() {
 		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
 		val preparedSurface = bundle.substringAfter(

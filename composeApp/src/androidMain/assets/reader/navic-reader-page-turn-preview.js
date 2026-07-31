@@ -7,10 +7,16 @@ import {
   readerPhysicalPageSide,
 } from './navic-reader-page-turn-model.js'
 import {
+  readerAdaptiveFoliatePageBox,
+  readerPaperLayoutProfile,
   readerRoot,
+  readerSurfacePageDecorationGeometry,
+  readerSurfaceSpreadMode,
   readerTrace,
+  readerViewportSize,
   setStylesImportant,
 } from './navic-reader-helpers.js'
+import { readerThemePalette } from './navic-reader-settings.js'
 import { stableHash } from './navic-reader-identity.js'
 import {
   ReaderPageTurnPresentationScopePreview,
@@ -129,6 +135,64 @@ function pageTurnPreviewPresentationReceipt() {
     return null
   }
   return receipt
+}
+
+const readerCssColorToArgb = color => {
+  const normalized = String(color || '').trim()
+  const rgb = /^#[0-9a-f]{6}$/i.test(normalized)
+    ? parseInt(normalized.slice(1), 16)
+    : /^#[0-9a-f]{3}$/i.test(normalized)
+      ? parseInt(normalized.slice(1).split('').map(value => `${value}${value}`).join(''), 16)
+      : 0xead9ae
+  return (0xff000000 | rgb) >>> 0
+}
+
+function pageTurnCaptureGeometry() {
+  const viewport = readerViewportSize()
+  const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings)
+  const spreadMode = readerSurfaceSpreadMode({
+    flowMode: this.readerFlowModeValue,
+    width: viewport.width,
+    height: viewport.height,
+  })
+  const layoutProfile = readerPaperLayoutProfile({
+    flowMode: this.readerFlowModeValue,
+    width: viewport.width,
+    height: viewport.height,
+    spreadMode,
+  })
+  const geometry = readerSurfacePageDecorationGeometry({
+    settings: this.readerSettings,
+    spreadMode,
+    foliateGap: pageBox.foliateGap,
+    shellCoverVisible: this.shellCoverVisible,
+    coverTint: this.shellCoverDominantColor,
+    layoutProfile,
+  })
+  const percentPixels = (value, axisSize) => {
+    const text = String(value || '').trim()
+    if (text.endsWith('%')) return Number.parseFloat(text) * axisSize / 100
+    return Number.parseFloat(text) || 0
+  }
+  const pageRect = (role, page) => ({
+    role,
+    left: percentPixels(page?.left, viewport.width),
+    top: 0,
+    width: percentPixels(page?.width, viewport.width),
+    height: viewport.height,
+  })
+  const pages = spreadMode === 'spread'
+    ? [pageRect('left', geometry.pages.left), pageRect('right', geometry.pages.right)]
+    : [pageRect('full', geometry.pages.full)]
+  const background = readerThemePalette(this.readerSettings?.theme).background
+  const reverseFaceColorArgb = readerCssColorToArgb(background)
+  return {
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    mode: spreadMode === 'spread' ? 'spread' : 'single',
+    pages,
+    reverseFaceColorArgb,
+  }
 }
 
 function pageTurnRasterDescriptor(pageIndex) {
@@ -520,13 +584,35 @@ function exposePageTurnPreviewFinal(token = '') {
   })
   this.pageTurnPreviewExposedToken = state.token
   this.clearPageTurnLivePresentationReceipt()
+  readerTrace('page-turn-preview:exposed', state)
+  return true
+}
+
+function confirmPageTurnPreviewPresentation(token = '') {
+  const state = this.pageTurnPreviewState(token)
+  const previewView = this.pageTurnPreviewView
+  if (
+    state.status !== 'ready' ||
+    !previewView ||
+    !this.view ||
+    this.pageTurnPreviewExposedToken !== state.token
+  ) return false
+  const previewStyle = window.getComputedStyle(previewView)
+  const liveStyle = window.getComputedStyle(this.view)
+  if (
+    previewStyle.display === 'none' ||
+    previewStyle.visibility !== 'visible' ||
+    Number.parseFloat(previewStyle.opacity || '0') <= 0 ||
+    liveStyle.visibility !== 'hidden' ||
+    Number.parseFloat(liveStyle.opacity || '1') > 0
+  ) return false
   this.issuePageTurnPreviewPresentationReceipt({
     scope: ReaderPageTurnPresentationScopePreview,
     token: state.token,
     pageIndex: state.pageIndex,
     previewGeneration: state.generation,
   })
-  readerTrace('page-turn-preview:exposed', state)
+  readerTrace('page-turn-preview:confirmed', state)
   return true
 }
 
@@ -595,6 +681,7 @@ export const NavicReaderPageTurnPreviewMethods = {
   ensurePageTurnPreviewRenderer,
   beginPageTurnPreviewPreparation,
   preparePageTurnPreview,
+  pageTurnCaptureGeometry,
   pageTurnRasterDescriptor,
   pageTurnRasterPreparationPlan,
   beginPageTurnPreviewBatch,
@@ -609,6 +696,7 @@ export const NavicReaderPageTurnPreviewMethods = {
   pageTurnPreviewContext,
   pageTurnTransitionPlan,
   exposePageTurnPreviewFinal,
+  confirmPageTurnPreviewPresentation,
   restorePageTurnLiveComposition,
   destroyPageTurnPreviewRenderer,
 }

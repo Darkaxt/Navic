@@ -315,7 +315,7 @@ class ReaderPageTurnDestinationSourceTest {
 		)
 		assertTrue(
 			exactNavigation.indexOf("await readerGoToExactVisualPage(this.view, locator)") <
-				exactNavigation.indexOf("this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)"),
+				exactNavigation.indexOf("this.maybeCompleteNativePageTurnSettlement("),
 			"The synchronous exact position may settle only after renderer navigation resolves."
 		)
 		assertContains(postLocationChanged, "this.maybeCompleteNativePageTurnSettlement(pagePosition)")
@@ -323,6 +323,40 @@ class ReaderPageTurnDestinationSourceTest {
 			postLocationChanged.indexOf("this.tryUpdateReaderPageNumberLayer(") <
 				postLocationChanged.indexOf("this.maybeCompleteNativePageTurnSettlement(pagePosition)"),
 			"Settlement must use the delayed committed relocation's exact physical page identity."
+		)
+	}
+
+	@Test
+	fun synchronousExactSettlementForcesItsTokenizedLocationDelivery() {
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val exactNavigation = turns
+			.substringAfter("async function goToVisualPage(")
+			.substringBefore("\n}\n")
+		val navigation = exactNavigation.indexOf(
+			"await readerGoToExactVisualPage(this.view, locator)"
+		)
+		val settlement = exactNavigation.indexOf(
+			"const settledSynchronously = this.maybeCompleteNativePageTurnSettlement("
+		)
+		val delivery = exactNavigation.indexOf(
+			"const synchronousDelivery = this.postCurrentLocationSnapshot("
+		)
+		val successfulDelivery = exactNavigation.indexOf(
+			"if (synchronousDelivery?.posted) {"
+		)
+		val delayedDelivery = exactNavigation.indexOf(
+			"if (!this.scheduleSettledControlledPageTurnRelocation('exact')) {"
+		)
+
+		assertTrue(navigation >= 0 && navigation < settlement)
+		assertTrue(settlement < delivery)
+		assertTrue(delivery < successfulDelivery)
+		assertTrue(successfulDelivery < delayedDelivery)
+		assertContains(exactNavigation, "if (settledSynchronously) {")
+		assertContains(exactNavigation, "forceDuplicatePost: true")
+		assertContains(
+			exactNavigation.substring(successfulDelivery, delayedDelivery),
+			"return locator"
 		)
 	}
 
@@ -650,10 +684,13 @@ class ReaderPageTurnDestinationSourceTest {
 	@Test
 	fun physicalRasterGeometryIsRecomputedFromTheCurrentViewport() {
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
-		val captureGeometry = runtime
-			.substringAfter("pageTurnCaptureGeometry() {")
-			.substringBefore("\n  }\n}\n\nObject.assign")
+		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
+		val captureGeometry = preview
+			.substringAfter("function pageTurnCaptureGeometry() {")
+			.substringBefore("\n}\n")
 
+		assertContains(runtime, "pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry()")
+		assertFalse(runtime.contains("\n  pageTurnCaptureGeometry() {"))
 		assertContains(captureGeometry, "const spreadMode = readerSurfaceSpreadMode({")
 		assertContains(captureGeometry, "const layoutProfile = readerPaperLayoutProfile({")
 		assertContains(captureGeometry, "const geometry = readerSurfacePageDecorationGeometry({")
@@ -957,10 +994,13 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
-	fun previewReceiptIsIssuedOnlyAfterExposureAndClearedWithItsComposition() {
+	fun previewReceiptRequiresPostExposureNativeConfirmationAndClearsWithItsComposition() {
 		val preview = readerAssetRoot().resolve("navic-reader-page-turn-preview.js").readText()
 		val expose = preview
 			.substringAfter("function exposePageTurnPreviewFinal(")
+			.substringBefore("function confirmPageTurnPreviewPresentation(")
+		val confirm = preview
+			.substringAfter("function confirmPageTurnPreviewPresentation(")
 			.substringBefore("function restorePageTurnLiveComposition(")
 		val restore = preview
 			.substringAfter("function restorePageTurnLiveComposition(")
@@ -969,15 +1009,14 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("function destroyPageTurnPreviewRenderer(")
 			.substringBefore("export const NavicReaderPageTurnPreviewMethods")
 
-		assertContains(expose, "scope: ReaderPageTurnPresentationScopePreview")
-		assertContains(expose, "token: state.token")
-		assertContains(expose, "pageIndex: state.pageIndex")
-		assertContains(expose, "previewGeneration: state.generation")
-		assertTrue(
-			expose.indexOf("this.pageTurnPreviewExposedToken = state.token") <
-				expose.indexOf("this.issuePageTurnPreviewPresentationReceipt("),
-			"A preview receipt may be issued only after the preview owns the exposed composition."
-		)
+		assertContains(expose, "this.pageTurnPreviewExposedToken = state.token")
+		assertFalse(expose.contains("this.issuePageTurnPreviewPresentationReceipt("))
+		assertContains(confirm, "scope: ReaderPageTurnPresentationScopePreview")
+		assertContains(confirm, "token: state.token")
+		assertContains(confirm, "pageIndex: state.pageIndex")
+		assertContains(confirm, "previewGeneration: state.generation")
+		assertContains(confirm, "this.pageTurnPreviewExposedToken !== state.token")
+		assertContains(confirm, "this.issuePageTurnPreviewPresentationReceipt(")
 		assertContains(preview, "function pageTurnPreviewPresentationReceipt()")
 		assertContains(preview, "readerPageTurnPresentationReceiptMatches(receipt, target)")
 		assertContains(restore, "this.clearPageTurnPreviewPresentationReceipt()")

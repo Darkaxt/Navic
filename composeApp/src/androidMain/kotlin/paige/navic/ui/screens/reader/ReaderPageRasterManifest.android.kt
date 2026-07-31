@@ -21,7 +21,7 @@ import kotlinx.serialization.json.put
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 
-internal const val ReaderPageRasterSchemaVersion = 4
+internal const val ReaderPageRasterSchemaVersion = 5
 internal const val ReaderPageRasterManifestFileName = "manifest.json"
 
 internal data class ReaderPageRasterProfile(

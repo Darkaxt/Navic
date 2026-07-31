@@ -53,8 +53,7 @@ import {
   readerFlowMode,
   readerFoliateFlow,
   readerFontSource,
-  readerThemeKey,
-  readerThemePalette
+  readerThemeKey
 } from './navic-reader-settings.js'
 import {
   readerRoot,
@@ -105,9 +104,6 @@ import {
   readerPaperTextureVariantForPage,
   readerPageBorderOverlayVariantForPage,
   readerPaperTextureTransform,
-  readerPaperLayoutProfile,
-  readerSurfacePageDecorationGeometry,
-  readerSurfaceSpreadMode,
   readerPaperTextureCssOffset,
   readerPaperTextureBackgroundPosition,
   readerPaperTextureDragDirection,
@@ -139,8 +135,6 @@ import {
   isReaderParagraphBlock,
   classifyReaderParagraphBlocks,
   setStylesImportant,
-  readerViewportSize,
-  readerAdaptiveFoliatePageBox,
   readerStartLocatorHasPosition,
   flattenReaderNavigationItems,
   readerNavigationItemMatches,
@@ -257,16 +251,6 @@ const readerDrawNoteAnnotation = (rects, options = {}) => {
     })
   )
   return group
-}
-
-const readerCssColorToArgb = color => {
-  const normalized = String(color || '').trim()
-  const rgb = /^#[0-9a-f]{6}$/i.test(normalized)
-    ? parseInt(normalized.slice(1), 16)
-    : /^#[0-9a-f]{3}$/i.test(normalized)
-      ? parseInt(normalized.slice(1).split('').map(value => `${value}${value}`).join(''), 16)
-      : 0xead9ae
-  return (0xff000000 | rgb) >>> 0
 }
 
 class NavicReaderRuntime {
@@ -1525,54 +1509,6 @@ class NavicReaderRuntime {
   contentDocuments() {
     return this.contentEntries().map(content => content.doc)
   }
-
-  pageTurnCaptureGeometry() {
-    const viewport = readerViewportSize()
-    const pageBox = readerAdaptiveFoliatePageBox(viewport, this.readerSettings)
-    const spreadMode = readerSurfaceSpreadMode({
-      flowMode: this.readerFlowModeValue,
-      width: viewport.width,
-      height: viewport.height,
-    })
-    const layoutProfile = readerPaperLayoutProfile({
-      flowMode: this.readerFlowModeValue,
-      width: viewport.width,
-      height: viewport.height,
-      spreadMode,
-    })
-    const geometry = readerSurfacePageDecorationGeometry({
-      settings: this.readerSettings,
-      spreadMode,
-      foliateGap: pageBox.foliateGap,
-      shellCoverVisible: this.shellCoverVisible,
-      coverTint: this.shellCoverDominantColor,
-      layoutProfile,
-    })
-    const percentPixels = (value, axisSize) => {
-      const text = String(value || '').trim()
-      if (text.endsWith('%')) return Number.parseFloat(text) * axisSize / 100
-      return Number.parseFloat(text) || 0
-    }
-    const pageRect = (role, page) => ({
-      role,
-      left: percentPixels(page?.left, viewport.width),
-      top: 0,
-      width: percentPixels(page?.width, viewport.width),
-      height: viewport.height,
-    })
-    const pages = spreadMode === 'spread'
-      ? [pageRect('left', geometry.pages.left), pageRect('right', geometry.pages.right)]
-      : [pageRect('full', geometry.pages.full)]
-    const background = readerThemePalette(this.readerSettings?.theme).background
-    const reverseFaceColorArgb = readerCssColorToArgb(background)
-    return {
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height,
-      mode: spreadMode === 'spread' ? 'spread' : 'single',
-      pages,
-      reverseFaceColorArgb,
-    }
-  }
 }
 
 Object.assign(NavicReaderRuntime.prototype,
@@ -1646,6 +1582,8 @@ window.NavicReaderBridge = {
   pageTurnTransitionPlan: (physicalDirection, currentPageIndexOverride = null) =>
     runtime.pageTurnTransitionPlan(physicalDirection, currentPageIndexOverride),
   exposePageTurnPreviewFinal: token => runtime.exposePageTurnPreviewFinal(token),
+  confirmPageTurnPreviewPresentation: token =>
+    runtime.confirmPageTurnPreviewPresentation(token),
   restorePageTurnLiveComposition: token => runtime.restorePageTurnLiveComposition(token),
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>

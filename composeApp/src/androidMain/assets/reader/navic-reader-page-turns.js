@@ -543,10 +543,22 @@ async function goToVisualPage(command = {}) {
       chapterPageIndex: locator.chapterPageIndex,
       chapterPageCount: locator.chapterPageCount,
     })
+    const settledSynchronously = this.maybeCompleteNativePageTurnSettlement(
+      this.currentPagePosition
+    )
+    if (settledSynchronously) {
+      const synchronousDelivery = this.postCurrentLocationSnapshot(
+        'page-turn:exact-synchronous',
+        { forceDuplicatePost: true }
+      )
+      if (synchronousDelivery?.posted) {
+        this.consumeControlledRelocationReason('page-turn:exact-synchronous')
+        return locator
+      }
+    }
     if (!this.scheduleSettledControlledPageTurnRelocation('exact')) {
       this.scheduleControlledRelocationFallback('page-turn:exact')
     }
-    this.maybeCompleteNativePageTurnSettlement(this.currentPagePosition)
     return locator
   } catch (error) {
     const ownsPendingExactNavigation =

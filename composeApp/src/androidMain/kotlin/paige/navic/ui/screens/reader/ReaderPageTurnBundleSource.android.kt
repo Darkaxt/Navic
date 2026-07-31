@@ -2009,52 +2009,80 @@ internal class ReaderPageTurnBundleSource(
 					restoreLiveComposition(webView, token) { onCaptured(null) }
 					return@evaluateJavascript
 				}
-				webView.postOnAnimation {
-					if (!isStillCurrent()) {
-						restoreLiveComposition(webView, token) { onCaptured(null) }
-						return@postOnAnimation
-					}
-					capturePreparedSurface(
-						webView = webView,
-						target = presentationTarget,
-						isStillCurrent = {
-							generation == activeGeneration && isStillCurrent()
-						}
-					) { captured ->
-						restoreLiveComposition(webView, token) {
-							val bitmap = captured?.bitmap
-							val snapshotGeometry = captured?.let {
-								readerPagePreparedSnapshotGeometry(kind, it)
-							}
+				webView.postVisualStateCallback(
+					visualStateRequestId.incrementAndGet(),
+					object : WebView.VisualStateCallback() {
+						override fun onComplete(requestId: Long) {
 							if (
-								captured == null ||
-								bitmap == null ||
-								snapshotGeometry == null ||
 								generation != activeGeneration ||
+								!webView.isAttachedToWindow ||
 								!isStillCurrent()
 							) {
-								bitmap?.takeUnless { it.isRecycled }?.recycle()
-								onCaptured(null)
-								return@restoreLiveComposition
+								restoreLiveComposition(webView, token) { onCaptured(null) }
+								return
 							}
-							onCaptured(
-								ReaderPageSlideSnapshot(
-									key = snapshotKey(
-										pageIndex,
-										kind,
-										bitmap,
-										snapshotGeometry.surfaceRectInWindow
-									),
-									bitmap = bitmap,
-									surfaceRectInWindow = snapshotGeometry.surfaceRectInWindow,
-									leafGeometry = snapshotGeometry.leafGeometry,
-									reverseFaceColor = snapshotGeometry.reverseFaceColor,
-									captureMillis = SystemClock.uptimeMillis() - captureStartedAt
-								)
-							)
+							webView.postOnAnimation frame@{
+								if (!isStillCurrent()) {
+									restoreLiveComposition(webView, token) { onCaptured(null) }
+									return@frame
+								}
+								webView.evaluateJavascript(
+									"window.NavicReaderBridge?." +
+										"confirmPageTurnPreviewPresentation?.($quotedToken) === true"
+								) confirmation@{ confirmed ->
+									if (
+										generation != activeGeneration ||
+										!isStillCurrent() ||
+										!confirmed.isJavascriptTrue()
+									) {
+										restoreLiveComposition(webView, token) { onCaptured(null) }
+										return@confirmation
+									}
+									capturePreparedSurface(
+										webView = webView,
+										target = presentationTarget,
+										isStillCurrent = {
+											generation == activeGeneration && isStillCurrent()
+										}
+									) { captured ->
+										restoreLiveComposition(webView, token) {
+											val bitmap = captured?.bitmap
+											val snapshotGeometry = captured?.let {
+												readerPagePreparedSnapshotGeometry(kind, it)
+											}
+											if (
+												captured == null ||
+												bitmap == null ||
+												snapshotGeometry == null ||
+												generation != activeGeneration ||
+												!isStillCurrent()
+											) {
+												bitmap?.takeUnless { it.isRecycled }?.recycle()
+												onCaptured(null)
+												return@restoreLiveComposition
+											}
+											onCaptured(
+												ReaderPageSlideSnapshot(
+													key = snapshotKey(
+														pageIndex,
+														kind,
+														bitmap,
+														snapshotGeometry.surfaceRectInWindow
+													),
+													bitmap = bitmap,
+													surfaceRectInWindow = snapshotGeometry.surfaceRectInWindow,
+													leafGeometry = snapshotGeometry.leafGeometry,
+													reverseFaceColor = snapshotGeometry.reverseFaceColor,
+													captureMillis = SystemClock.uptimeMillis() - captureStartedAt
+												)
+											)
+										}
+									}
+								}
+							}
 						}
 					}
-				}
+				)
 			}
 		}
 	}

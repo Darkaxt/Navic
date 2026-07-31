@@ -402,14 +402,14 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
-	fun versionThreeManifestAndRasterArePrunedOnVersionFourCacheOpen() {
-		assertEquals(4, ReaderPageRasterSchemaVersion)
+	fun versionFourManifestAndRasterArePrunedOnVersionFiveCacheOpen() {
+		assertEquals(5, ReaderPageRasterSchemaVersion)
 		val fixture = fixture(maxDecodedEntries = 0)
 		val rasterKey = key()
-		assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes("version-three")))
+		assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes("version-four")))
 		val currentRaster = fixture.cache.pathFor(rasterKey)
-		val versionThreeKey = rasterKey.copy(schemaVersion = 3)
-		val obsoleteRaster = fixture.cache.pathFor(versionThreeKey)
+		val versionFourKey = rasterKey.copy(schemaVersion = 4)
+		val obsoleteRaster = fixture.cache.pathFor(versionFourKey)
 		assertTrue(currentRaster.renameTo(obsoleteRaster))
 		val manifest = fixture.cache.manifestPath()
 		manifest.writeText(
@@ -417,7 +417,7 @@ class ReaderPageRasterCacheTest {
 				.replace(currentRaster.name, obsoleteRaster.name)
 				.replace(
 					"\"schemaVersion\":$ReaderPageRasterSchemaVersion",
-					"\"schemaVersion\":3"
+					"\"schemaVersion\":4"
 				)
 		)
 
@@ -434,18 +434,18 @@ class ReaderPageRasterCacheTest {
 		assertEquals(0L, reopened.metrics().diskBytes)
 		assertTrue(
 			manifest.readText().contains(
-				"\"schemaVersion\":4"
+				"\"schemaVersion\":5"
 			)
 		)
 	}
 
 	@Test
-	fun versionFourManifestAndRasterRemainReadableOnCacheReopen() {
-		assertEquals(4, ReaderPageRasterSchemaVersion)
+	fun versionFiveManifestAndRasterRemainReadableOnCacheReopen() {
+		assertEquals(5, ReaderPageRasterSchemaVersion)
 		val fixture = fixture(maxDecodedEntries = 0)
 		val rasterKey = key(chapterPageIndex = 4)
 		val rasterMetadata = metadata()
-		val value = pngBytes("version-four")
+		val value = pngBytes("version-five")
 		assertTrue(fixture.cache.write(rasterKey, rasterMetadata, value))
 
 		val reopened = ReaderPageRasterCache(
