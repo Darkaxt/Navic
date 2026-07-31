@@ -549,7 +549,10 @@ async function goToVisualPage(command = {}) {
     if (settledSynchronously) {
       const synchronousDelivery = this.postCurrentLocationSnapshot(
         'page-turn:exact-synchronous',
-        { forceDuplicatePost: true }
+        {
+          forceDuplicatePost: true,
+          preserveCurrentPagePosition: true,
+        }
       )
       if (synchronousDelivery?.posted) {
         this.consumeControlledRelocationReason('page-turn:exact-synchronous')

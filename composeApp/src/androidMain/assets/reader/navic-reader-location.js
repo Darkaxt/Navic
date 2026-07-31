@@ -185,7 +185,9 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
   const tocItem = sectionHref && rawTocItem.href && !readerHrefMatches(sectionHref, rawTocItem.href)
     ? {}
     : rawTocItem
-  const pagePosition = this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
+  const pagePosition = options.preserveCurrentPagePosition === true
+    ? this.currentPagePosition
+    : this.tryUpdateReaderPageNumberLayer(detail, this.currentPagePosition, reason)
   this.maybeCompleteNativePageTurnSettlement(pagePosition)
   const settlement = this.peekNativePageTurnSettlement(pagePosition)
   const chapterPosition = this.chapterPagePosition(detail, pagePosition)

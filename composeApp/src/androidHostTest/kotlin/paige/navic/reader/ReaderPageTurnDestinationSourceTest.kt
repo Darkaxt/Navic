@@ -329,8 +329,12 @@ class ReaderPageTurnDestinationSourceTest {
 	@Test
 	fun synchronousExactSettlementForcesItsTokenizedLocationDelivery() {
 		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val locations = readerAssetRoot().resolve("navic-reader-location.js").readText()
 		val exactNavigation = turns
 			.substringAfter("async function goToVisualPage(")
+			.substringBefore("\n}\n")
+		val locationDelivery = locations
+			.substringAfter("function postLocationChanged(")
 			.substringBefore("\n}\n")
 		val navigation = exactNavigation.indexOf(
 			"await readerGoToExactVisualPage(this.view, locator)"
@@ -354,6 +358,15 @@ class ReaderPageTurnDestinationSourceTest {
 		assertTrue(successfulDelivery < delayedDelivery)
 		assertContains(exactNavigation, "if (settledSynchronously) {")
 		assertContains(exactNavigation, "forceDuplicatePost: true")
+		assertContains(exactNavigation, "preserveCurrentPagePosition: true")
+		assertContains(
+			locationDelivery,
+			"options.preserveCurrentPagePosition === true"
+		)
+		assertTrue(
+			locationDelivery.indexOf("? this.currentPagePosition") <
+				locationDelivery.indexOf(": this.tryUpdateReaderPageNumberLayer(")
+		)
 		assertContains(
 			exactNavigation.substring(successfulDelivery, delayedDelivery),
 			"return locator"

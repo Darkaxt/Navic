@@ -30,6 +30,10 @@ const pageTurnModuleUrl = pathToFileURL(resolve(
   'composeApp/src/androidMain/assets/reader/navic-reader-page-turns.js'
 )).href
 const { NavicReaderPageTurnMethods } = await import(pageTurnModuleUrl)
+const locationModuleUrl = pathToFileURL(resolve(
+  'composeApp/src/androidMain/assets/reader/navic-reader-location.js'
+)).href
+const { NavicReaderLocationMethods } = await import(locationModuleUrl)
 const paginationProfile = Object.freeze({
   pageCount: 64,
   chapters: Object.freeze([
@@ -42,6 +46,7 @@ const paginationProfile = Object.freeze({
   ]),
 })
 let navigationCount = 0
+let synchronousSnapshotOptions = null
 const runtime = {
   foliateSessionId: 'foliate-test',
   paginationProfile,
@@ -51,6 +56,10 @@ const runtime = {
   activeExactPageTurnSettlementToken: null,
   nativePageTurnSettledState: null,
   nativePageTurnSettledToken: null,
+  pageTurnPresentationSequence: 0,
+  pageTurnPreviewExposedToken: null,
+  pageTurnLivePresentationTargetValue: null,
+  pageTurnLivePresentationReceiptValue: null,
   view: {
     renderer: {
       goToTextPage: async () => { navigationCount += 1 },
@@ -60,6 +69,11 @@ const runtime = {
     },
   },
   beginControlledRelocation: () => {},
+  clearPageTurnPreviewPresentationReceipt: () => {},
+  postCurrentLocationSnapshot: (_reason, options) => {
+    synchronousSnapshotOptions = options
+    return { posted: false }
+  },
   scheduleSettledControlledPageTurnRelocation: () => true,
   scheduleControlledRelocationFallback: () => {},
   applyReaderViewportLayout: () => {},
@@ -87,6 +101,8 @@ for (let pageIndex = 0; pageIndex < 33; pageIndex += 1) {
 }
 assert.equal(navigationCount, 33)
 assert.equal(runtime.completedExactPageTurnSettlements.size, 33)
+assert.equal(synchronousSnapshotOptions?.forceDuplicatePost, true)
+assert.equal(synchronousSnapshotOptions?.preserveCurrentPagePosition, true)
 
 runtime.currentPagePosition = positionAt(0)
 await runtime.goToVisualPage(settlementCommand('settle-0', 0))
@@ -122,5 +138,66 @@ await assert.rejects(
   /settlement token cannot be reused/
 )
 assert.equal(runtime.cancelPendingExactPageTurnSettlement('test-pending'), true)
+
+let staleRecomputationCount = 0
+delivered = null
+const preservedPosition = positionAt(7)
+const locationRuntime = {
+  foliateSessionId: runtime.foliateSessionId,
+  paginationProfile,
+  currentPagePosition: preservedPosition,
+  lastRelocateDetail: {
+    href: 'test-chapter',
+    fraction: 0.1,
+  },
+  nativePageTurnSettledState: Object.freeze({
+    token: 'settle-preserved',
+    foliateSessionId: runtime.foliateSessionId,
+    rasterGeneration: 7,
+    textureGeneration: 107,
+    pageIndex: preservedPosition.pageIndex,
+    spineIndex: preservedPosition.spineIndex,
+    chapterPageIndex: preservedPosition.chapterPageIndex,
+    paginationProfile,
+  }),
+  nativePageTurnSettledToken: 'settle-preserved',
+  completedExactPageTurnSettlements: new Map(),
+  activeExactPageTurnSettlementToken: null,
+  pendingExactPageTurnSettlements: new Map(),
+  lastPostedLocationKey: null,
+  nativePageDragPreview: null,
+  pendingPageDragPreviewCommand: null,
+}
+Object.assign(
+  locationRuntime,
+  NavicReaderPageTurnMethods,
+  NavicReaderLocationMethods,
+  {
+    removePageDragPreviewLayer: () => {},
+    detailTargetsCover: () => false,
+    hasNonCoverReadableContent: () => false,
+    sectionHrefForDetail: detail => detail.href,
+    tryUpdateReaderPageNumberLayer: () => {
+      staleRecomputationCount += 1
+      return positionAt(0)
+    },
+    chapterPagePosition: (_detail, pagePosition) => ({
+      progress: 0,
+      pageIndex: pagePosition.chapterPageIndex,
+      pageCount: 64,
+    }),
+    updateSurfacePaperTexture: () => {},
+    postCurrentVisibleTextRange: () => ({ posted: false }),
+  }
+)
+const preservedDelivery = locationRuntime.postCurrentLocationSnapshot(
+  'page-turn:exact-synchronous',
+  { forceDuplicatePost: true, preserveCurrentPagePosition: true }
+)
+assert.equal(preservedDelivery.posted, true)
+assert.equal(staleRecomputationCount, 0)
+assert.equal(delivered.pageIndex, preservedPosition.pageIndex)
+assert.equal(delivered.pageTurnSettleToken, 'settle-preserved')
+assert.equal(locationRuntime.nativePageTurnSettledState, null)
 
 console.log('Reader relocation bridge and settlement PASS')
