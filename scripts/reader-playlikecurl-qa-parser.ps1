@@ -1124,12 +1124,408 @@ function Assert-ReaderQaFaultAppliedContext(
     }
 }
 
+function Assert-ReaderQaFaultReplacementLineage(
+    [object] $Root,
+    [object[]] $AppliedFaults,
+    [object[]] $DownstreamEvents,
+    [object[]] $EvidenceEvents,
+    [string] $Context
+) {
+    if ($Root.RelocationToken -eq 'none') { return }
+    $tokenEvents = @(
+        $DownstreamEvents | Where-Object {
+            $null -ne $_.PSObject.Properties['Token'] -and
+                $_.QaFaultRequestId -ceq $Root.RequestId
+        }
+    )
+    $replacementEvents = @(
+        $tokenEvents | Where-Object Token -CNE $Root.RelocationToken
+    )
+    if ($replacementEvents.Count -eq 0) { return }
+    if ($Root.Fault -notin @(
+            'DelayNextVisualStateCallback',
+            'DelayNextRelocationAcknowledgement'
+        ) -or
+        @($replacementEvents | Where-Object QaFaultRelation -ne 'Recovery').Count -ne 0) {
+        throw "$Context has invalid cross-token recovery"
+    }
+
+    $rootRelocations = @(
+        $EvidenceEvents | Where-Object {
+            $null -ne $_.PSObject.Properties['QueueDepth'] -and
+                $_.Session -eq $Root.Session -and
+                $_.Token -ceq $Root.RelocationToken
+        } | Sort-Object Index
+    )
+    $originalRootStates = @(
+        'Queued',
+        'Dispatched',
+        'Acknowledged',
+        'AwaitingVisualHandoff'
+    )
+    $replacementOwnedRootStates = @(
+        'Dispatched',
+        'Acknowledged',
+        'AwaitingVisualHandoff'
+    )
+    $rootStateSequence = @(
+        $rootRelocations | Select-Object -ExpandProperty State
+    ) -join ','
+    $rootWasReplacement = $rootStateSequence -ceq
+        ($replacementOwnedRootStates -join ',')
+    if ($rootStateSequence -cne ($originalRootStates -join ',') -and
+        -not $rootWasReplacement) {
+        throw "$Context lacks the complete original relocation"
+    }
+    if ($rootWasReplacement) {
+        $inheritedDispatch = $rootRelocations[0]
+        $predecessorRoots = @(
+            $AppliedFaults | Where-Object {
+                $_.RequestId -ceq $inheritedDispatch.QaFaultRequestId -and
+                    $_.RelocationToken -ceq
+                        $inheritedDispatch.QaFaultRelocationToken -and
+                    $_.Session -eq $Root.Session
+            }
+        )
+        $dispatchIsInherited =
+            $inheritedDispatch.QaFaultRelation -eq 'Recovery' -and
+            $inheritedDispatch.QaFaultRelocationToken -cne
+                $Root.RelocationToken -and
+            $predecessorRoots.Count -eq 1
+        $pureInheritedLifecycle =
+            @($rootRelocations | Where-Object {
+                $_.QaFaultRequestId -cne $inheritedDispatch.QaFaultRequestId -or
+                    $_.QaFaultRelation -ne 'Recovery' -or
+                    $_.QaFaultRelocationToken -cne
+                        $inheritedDispatch.QaFaultRelocationToken
+            }).Count -eq 0
+        $ownedAcknowledgementTail = @(
+            $rootRelocations | Select-Object -Skip 1 | Where-Object {
+                $_.QaFaultRequestId -cne $Root.RequestId -or
+                    $_.QaFaultRelation -ne 'AppliedOperation' -or
+                    $_.QaFaultRelocationToken -cne $Root.RelocationToken
+            }
+        ).Count -eq 0
+        $acknowledgementOwnershipTransfer =
+            $Root.Fault -eq 'DelayNextRelocationAcknowledgement' -and
+            $inheritedDispatch.Index -lt $Root.Index -and
+            $Root.Index -lt $rootRelocations[1].Index -and
+            $ownedAcknowledgementTail
+        if (-not $dispatchIsInherited -or
+            (-not $pureInheritedLifecycle -and
+                -not $acknowledgementOwnershipTransfer)) {
+            throw "$Context replacement-owned root lacks inherited lineage"
+        }
+    }
+    $original = $rootRelocations[0]
+    foreach ($relocation in $rootRelocations) {
+        if ($relocation.Session -ne $original.Session -or
+            $relocation.GestureId -ne $original.GestureId -or
+            $relocation.Source -ne $original.Source -or
+            $relocation.Target -ne $original.Target -or
+            $relocation.Direction -ne $original.Direction -or
+            $relocation.RasterGeneration -ne $original.RasterGeneration -or
+            $relocation.TextureGeneration -ne $original.TextureGeneration -or
+            $relocation.RejectionReason -ne 'None') {
+            throw "$Context original relocation changed logical identity"
+        }
+    }
+
+    $replacementTokens = @(
+        $replacementEvents |
+            Group-Object -CaseSensitive -Property Token |
+            Select-Object -ExpandProperty Name
+    )
+    $replacementRelocations = @(
+        $EvidenceEvents | Where-Object {
+            $null -ne $_.PSObject.Properties['QueueDepth'] -and
+                $_.Session -eq $Root.Session -and
+                $_.Token -cin $replacementTokens
+        }
+    )
+    $replacementGroups = @(
+        $replacementRelocations |
+            Group-Object -CaseSensitive -Property Token |
+            ForEach-Object {
+                $records = @($_.Group | Sort-Object Index)
+                [pscustomobject]@{
+                    Token = $_.Name
+                    Records = $records
+                    FirstIndex = $records[0].Index
+                }
+            } |
+            Sort-Object FirstIndex
+    )
+    if ($replacementGroups.Count -eq 0 -or
+        $replacementGroups.Count -ne $replacementTokens.Count -or
+        @($replacementGroups | Where-Object {
+            $_.Token -cnotin $replacementTokens
+        }).Count -ne 0) {
+        throw "$Context recovery used an unrelated replacement token"
+    }
+    $originalHandoffs = @(
+        $tokenEvents | Where-Object {
+            $null -ne $_.PSObject.Properties['VisualState'] -and
+                $_.Token -ceq $Root.RelocationToken
+        } | Sort-Object Index
+    )
+    if (@($originalHandoffs | Where-Object {
+        $_.Target -ne $original.Target
+    }).Count -ne 0) {
+        throw "$Context original handoff changed logical identity"
+    }
+    if (@($originalHandoffs | Where-Object {
+        $_.Result -ne 'StalePhysicalCallbackReleased' -and
+            ($_.Index -le $rootRelocations[-1].Index -or
+                $_.Index -ge $replacementGroups[0].FirstIndex)
+    }).Count -ne 0) {
+        throw "$Context original handoff escaped its relocation interval"
+    }
+
+    $recoverableResults = @(
+        'Detached',
+        'TimedOut',
+        'Invalidated',
+        'CallbackCapacity',
+        'ContentRejected'
+    )
+    $sameTokenRetryableResults = @(
+        'Detached',
+        'TimedOut',
+        'Invalidated',
+        'CallbackCapacity'
+    )
+    $previousToken = $Root.RelocationToken
+    $previousAwaitingIndex = $rootRelocations[-1].Index
+    $previousTextureGeneration = $original.TextureGeneration
+    for ($groupIndex = 0; $groupIndex -lt $replacementGroups.Count; $groupIndex++) {
+        $group = $replacementGroups[$groupIndex]
+        $relocations = @($group.Records)
+        $incompleteStates = @(
+            'Dispatched',
+            'Acknowledged',
+            'AwaitingVisualHandoff'
+        )
+        $completedStates = @($incompleteStates) + 'Completed'
+        $stateSequence = @(
+            $relocations | Select-Object -ExpandProperty State
+        ) -join ','
+        $isFinalGroup = $groupIndex -eq $replacementGroups.Count - 1
+        $ownershipTransfer = $null
+        if (-not $isFinalGroup) {
+            if ($stateSequence -cne ($incompleteStates -join ',')) {
+                throw "$Context intermediate replacement sequence is invalid"
+            }
+        } elseif ($stateSequence -ceq ($incompleteStates -join ',')) {
+            $ownershipTransfers = @(
+                $AppliedFaults | Where-Object {
+                    $_.Session -eq $original.Session -and
+                        $_.RequestId -cne $Root.RequestId -and
+                        $_.RelocationToken -ceq $group.Token
+                } | ForEach-Object {
+                    $transferRoot = $_
+                    $nextRelocations = @(
+                        $DownstreamEvents | Where-Object {
+                            $null -ne $_.PSObject.Properties['QueueDepth'] -and
+                                $_.QaFaultRequestId -ceq $transferRoot.RequestId -and
+                                $_.QaFaultRelation -eq 'Recovery' -and
+                                $_.QaFaultRelocationToken -ceq $group.Token -and
+                                $_.Token -cne $group.Token
+                        } | Sort-Object Index
+                    )
+                    if ($nextRelocations.Count -gt 0) {
+                        [pscustomobject]@{
+                            Root = $transferRoot
+                            NextRelocations = $nextRelocations
+                        }
+                    }
+                }
+            )
+            if ($ownershipTransfers.Count -ne 1) {
+                throw "$Context incomplete replacement lacks one ownership transfer"
+            }
+            $ownershipTransfer = $ownershipTransfers[0]
+        } elseif ($stateSequence -cne ($completedStates -join ',')) {
+            throw "$Context final replacement sequence is invalid"
+        }
+        $replacement = $relocations[0]
+        foreach ($relocation in $relocations) {
+            if ($relocation.Token -cne $group.Token -or
+                $relocation.Session -ne $original.Session -or
+                $relocation.GestureId -ne $original.GestureId -or
+                $relocation.Source -ne $original.Source -or
+                $relocation.Target -ne $original.Target -or
+                $relocation.Direction -ne $original.Direction -or
+                $relocation.RasterGeneration -ne $replacement.RasterGeneration -or
+                $relocation.TextureGeneration -ne $replacement.TextureGeneration -or
+                $relocation.RejectionReason -ne 'None') {
+                throw "$Context replacement relocation changed logical identity"
+            }
+            $relocationRoots = @(
+                $AppliedFaults | Where-Object {
+                    $_.RequestId -ceq $relocation.QaFaultRequestId
+                }
+            )
+            $validatedRelocations = @(
+                $DownstreamEvents | Where-Object {
+                    $_.Index -eq $relocation.Index -and
+                        $_.LogLine -ceq $relocation.LogLine
+                }
+            )
+            if ($relocationRoots.Count -ne 1 -or
+                $validatedRelocations.Count -ne 1) {
+                throw "$Context replacement relocation lacks its own Applied root"
+            }
+        }
+        if ($replacement.TextureGeneration -le $previousTextureGeneration) {
+            throw "$Context replacement texture generation did not advance"
+        }
+
+        $priorTerminals = @(
+            $tokenEvents | Where-Object {
+                $null -ne $_.PSObject.Properties['VisualState'] -and
+                    $_.Token -ceq $previousToken -and
+                    $_.Index -gt $previousAwaitingIndex -and
+                    $_.Index -lt $replacement.Index -and
+                    $_.Result -notin @('StalePhysicalCallbackReleased')
+            } | Sort-Object Index
+        )
+        if ($priorTerminals.Count -eq 0 -or
+            @($priorTerminals | Where-Object {
+                $_.Result -notin $recoverableResults
+            }).Count -ne 0 -or
+            @($priorTerminals | Where-Object {
+                $_.Session -ne $original.Session -or
+                    $_.Target -ne $original.Target
+            }).Count -ne 0) {
+            throw "$Context replacement lacks a causal recoverable handoff terminal"
+        }
+        $contentRejectedTerminals = @(
+            $priorTerminals | Where-Object Result -eq 'ContentRejected'
+        )
+        if ($contentRejectedTerminals.Count -gt 0 -and
+            ($contentRejectedTerminals.Count -ne 1 -or
+                $priorTerminals[-1].Result -ne 'ContentRejected')) {
+            throw "$Context continued a token after content rejection"
+        }
+
+        $replacementHandoffs = @(
+            $EvidenceEvents | Where-Object {
+                $null -ne $_.PSObject.Properties['VisualState'] -and
+                    $_.Session -eq $Root.Session -and
+                    $_.Token -ceq $group.Token
+            } | Sort-Object Index
+        )
+        if (@($replacementHandoffs | Where-Object {
+            $_.Session -ne $original.Session -or
+                $_.Target -ne $original.Target
+        }).Count -ne 0) {
+            throw "$Context replacement handoff changed logical identity"
+        }
+        foreach ($handoff in @(
+                $replacementHandoffs | Where-Object {
+                    $_.Result -ne 'StalePhysicalCallbackReleased'
+                }
+            )) {
+            $handoffRoots = @(
+                $AppliedFaults | Where-Object {
+                    $_.RequestId -ceq $handoff.QaFaultRequestId
+                }
+            )
+            $validatedHandoffs = @(
+                $DownstreamEvents | Where-Object {
+                    $_.Index -eq $handoff.Index -and
+                        $_.LogLine -ceq $handoff.LogLine
+                }
+            )
+            if ($handoffRoots.Count -ne 1 -or
+                $validatedHandoffs.Count -ne 1) {
+                throw "$Context replacement handoff lacks its own Applied root"
+            }
+        }
+        $handoffUpperBound = if ($null -ne $ownershipTransfer) {
+            $ownershipTransfer.NextRelocations[0].Index
+        } elseif ($isFinalGroup) {
+            $relocations[-1].Index
+        } else {
+            $replacementGroups[$groupIndex + 1].FirstIndex
+        }
+        if (@($replacementHandoffs | Where-Object {
+            $_.Result -ne 'StalePhysicalCallbackReleased' -and
+                ($_.Index -le $relocations[2].Index -or
+                    $_.Index -ge $handoffUpperBound)
+        }).Count -ne 0) {
+            throw "$Context replacement handoff escaped its relocation interval"
+        }
+        $nonStaleHandoffs = @(
+            $replacementHandoffs | Where-Object {
+                $_.Result -ne 'StalePhysicalCallbackReleased'
+            }
+        )
+        if ($null -ne $ownershipTransfer) {
+            $transferContentRejected = @(
+                $nonStaleHandoffs | Where-Object Result -eq 'ContentRejected'
+            )
+            if ($nonStaleHandoffs.Count -eq 0 -or
+                @($nonStaleHandoffs | Where-Object {
+                    $_.Result -notin $recoverableResults
+                }).Count -ne 0 -or
+                $nonStaleHandoffs[-1].QaFaultRequestId -cne
+                    $ownershipTransfer.Root.RequestId -or
+                ($transferContentRejected.Count -gt 0 -and
+                    ($transferContentRejected.Count -ne 1 -or
+                        $nonStaleHandoffs[-1].Result -ne 'ContentRejected'))) {
+                throw "$Context ownership transfer lacks one causal terminal"
+            }
+        } elseif ($isFinalGroup) {
+            $ready = @(
+                $nonStaleHandoffs | Where-Object {
+                    $_.Result -eq 'Ready' -and
+                        $_.Index -gt $relocations[2].Index -and
+                        $_.Index -lt $relocations[3].Index
+                }
+            )
+            $invalidBeforeReady = if ($ready.Count -eq 1) {
+                @(
+                    $nonStaleHandoffs | Where-Object {
+                        $_.Index -lt $ready[0].Index -and
+                            $_.Result -notin $sameTokenRetryableResults
+                    }
+                )
+            } else {
+                @()
+            }
+            if ($ready.Count -ne 1 -or
+                $invalidBeforeReady.Count -ne 0 -or
+                $nonStaleHandoffs[-1].Result -ne 'Ready') {
+                throw "$Context final replacement lacks one terminal ready handoff"
+            }
+        }
+
+        $previousToken = $group.Token
+        $previousAwaitingIndex = $relocations[2].Index
+        $previousTextureGeneration = $replacement.TextureGeneration
+    }
+}
+
 function Assert-ReaderQaFaultCorrelation(
     [object[]] $FaultEvents,
     [object[]] $DownstreamEvents,
+    [object[]] $EvidenceEvents = @(),
     [string] $Context
 ) {
+    if ($EvidenceEvents.Count -eq 0) {
+        $EvidenceEvents = $DownstreamEvents
+    }
     $applied = @($FaultEvents | Where-Object State -eq 'Applied')
+    foreach ($root in $applied) {
+        Assert-ReaderQaFaultReplacementLineage `
+            -Root $root `
+            -AppliedFaults $applied `
+            -DownstreamEvents $DownstreamEvents `
+            -EvidenceEvents $EvidenceEvents `
+            -Context "$Context request $($root.RequestId)"
+    }
     foreach ($event in $DownstreamEvents) {
         $hasRequest = $event.QaFaultRequestId -ne 'none'
         if (($hasRequest -and $event.QaFaultRelation -eq 'None') -or
@@ -1138,11 +1534,18 @@ function Assert-ReaderQaFaultCorrelation(
         }
         if (-not $hasRequest) { continue }
 
-        $root = @($applied | Where-Object RequestId -eq $event.QaFaultRequestId)
+        $root = @(
+            $applied | Where-Object {
+                $_.RequestId -ceq $event.QaFaultRequestId
+            }
+        )
         if ($root.Count -ne 1) {
             throw "$Context downstream event lacks one Applied root: $($event.LogLine)"
         }
         $root = $root[0]
+        if ($event.Session -ne $root.Session) {
+            throw "$Context downstream event changed reader session: $($event.LogLine)"
+        }
         Assert-ReaderQaFaultAppliedContext `
             -Event $root `
             -Context "$Context Applied root"
@@ -1152,7 +1555,7 @@ function Assert-ReaderQaFaultCorrelation(
             $event.QaFaultRasterRequestEpoch -eq $root.RasterRequestEpoch -and
             $event.QaFaultRepairAttemptId -eq $root.RepairAttemptId -and
             $event.QaFaultPreparationAttemptId -eq $root.PreparationAttemptId -and
-            $event.QaFaultRelocationToken -eq $root.RelocationToken -and
+            $event.QaFaultRelocationToken -ceq $root.RelocationToken -and
             $event.QaFaultHandoffAttemptId -eq $root.HandoffAttemptId
         if (-not $rootEqual) {
             throw "$Context downstream event changed its Applied root: $($event.LogLine)"
@@ -1281,7 +1684,10 @@ function Assert-ReaderQaFaultCorrelation(
             }
             $stable = $identity.Key -in $stableIdentityNames
             if ($stable) {
-                if ($current -cne $identity.Value) {
+                $replacementRecovery =
+                    $identity.Key -eq 'RelocationToken' -and
+                    $event.QaFaultRelation -eq 'Recovery'
+                if ($current -cne $identity.Value -and -not $replacementRecovery) {
                     throw "$Context changed stable $($identity.Key): $($event.LogLine)"
                 }
                 continue

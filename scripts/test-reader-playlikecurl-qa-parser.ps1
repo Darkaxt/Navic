@@ -1129,6 +1129,32 @@ Assert-ReaderQaFaultCorrelation `
     -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaRelocationApplied) `
     -DownstreamEvents @(ConvertFrom-ReaderRelocationLog $relocationWithFault) `
     -Context 'typed relocation schema fixture'
+Assert-Throws {
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaRelocationApplied) `
+        -DownstreamEvents @(
+            ConvertFrom-ReaderRelocationLog (
+                $relocationWithFault.Replace(
+                    'qaFaultRelocationToken=move-1',
+                    'qaFaultRelocationToken=MOVE-1'
+                )
+            )
+        ) `
+        -Context 'immutable relocation-token case fixture'
+} 'immutable relocation-token case fixture'
+Assert-Throws {
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaRelocationApplied) `
+        -DownstreamEvents @(
+            ConvertFrom-ReaderRelocationLog (
+                $relocationWithFault.Replace(
+                    'reader-relocation session=7',
+                    'reader-relocation session=8'
+                )
+            )
+        ) `
+        -Context 'correlated reader-session drift fixture'
+} 'correlated reader-session drift fixture'
 $relocationRecoveryRootFields =
     ' qaFaultRequestId=fault-relocation qaFaultRelation=Recovery ' +
     'qaFaultPublicationEpoch=-1 qaFaultPersistenceAttemptId=-1 ' +
@@ -1204,6 +1230,707 @@ Assert-ReaderQaFaultCorrelation `
     -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
     -DownstreamEvents @(ConvertFrom-ReaderRelocationLog $visualRelocationApplied) `
     -Context 'visual direct relocation aggregate fixture'
+$visualOriginalQueued =
+    'reader-relocation session=7 token=move-2 gestureId=3 source=2 target=3 ' +
+    'logicalDirection=Next rasterGeneration=2 textureGeneration=3 ' +
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0' +
+    $NoQaCorrelationFields
+$visualOriginalDispatched = $visualOriginalQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=1'
+)
+$visualOriginalAcknowledged = $visualOriginalQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=Acknowledged rejectionReason=None queueDepth=1 durationMs=2'
+)
+$visualOriginalAwaiting = $visualOriginalQueued.Replace(
+    'state=Queued rejectionReason=None queueDepth=1 durationMs=0',
+    'state=AwaitingVisualHandoff rejectionReason=None queueDepth=1 durationMs=3'
+)
+$visualReplacementTrigger = $visualHandoffRecovery.Replace(
+    'result=Ready',
+    'result=ContentRejected'
+)
+$visualReplacementDispatched =
+    'reader-relocation session=7 token=move-3 gestureId=3 source=2 target=3 ' +
+    'logicalDirection=Next rasterGeneration=2 textureGeneration=4 ' +
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=5' +
+    $visualRootFields
+$visualReplacementAcknowledged = $visualReplacementDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=5',
+    'state=Acknowledged rejectionReason=None queueDepth=1 durationMs=6'
+)
+$visualReplacementAwaiting = $visualReplacementDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=5',
+    'state=AwaitingVisualHandoff rejectionReason=None queueDepth=1 durationMs=7'
+)
+$visualReplacementCompleted = $visualReplacementDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=5',
+    'state=Completed rejectionReason=None queueDepth=0 durationMs=9'
+)
+$visualReplacementReady =
+    'reader-handoff session=7 token=move-3 handoffAttemptId=5 target=3 ' +
+    'visualState=true nextFrame=true result=Ready durationMs=8' +
+    $visualRootFields
+$visualOriginalLog = @(
+    $visualOriginalQueued,
+    $visualOriginalDispatched,
+    $visualOriginalAcknowledged,
+    $visualOriginalAwaiting
+) -join "`n"
+$visualReplacementLog = @(
+    $visualOriginalLog,
+    $visualReplacementTrigger,
+    $visualReplacementDispatched,
+    $visualReplacementAcknowledged,
+    $visualReplacementAwaiting,
+    $visualReplacementReady,
+    $visualReplacementCompleted
+) -join "`n"
+$visualReplacementEvidence = @(
+    @(ConvertFrom-ReaderRelocationLog $visualReplacementLog) +
+        @(ConvertFrom-ReaderHandoffLog $visualReplacementLog)
+)
+$visualReplacementEvents = @(
+    $visualReplacementEvidence | Where-Object {
+        $_.QaFaultRequestId -ceq 'fault-visual'
+    }
+)
+Assert-ReaderQaFaultCorrelation `
+    -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+    -DownstreamEvents $visualReplacementEvents `
+    -EvidenceEvents $visualReplacementEvidence `
+    -Context 'visual replacement lineage fixture'
+$qaReplacementVisualApplied =
+    'reader-qa-fault session=7 requestId=fault-replacement-visual ' +
+    'fault=DelayNextVisualStateCallback seam=visual-state state=Applied ' +
+    'publicationEpoch=-1 persistenceAttemptId=-1 rasterRequestEpoch=-1 ' +
+    'repairAttemptId=-1 preparationAttemptId=-1 relocationToken=move-3 ' +
+    'handoffAttemptId=5 releaseRequestId=none result=fault-applied'
+$replacementOwnedRootFields =
+    ' qaFaultRequestId=fault-replacement-visual ' +
+    'qaFaultRelation=AppliedOperation qaFaultPublicationEpoch=-1 ' +
+    'qaFaultPersistenceAttemptId=-1 qaFaultRasterRequestEpoch=-1 ' +
+    'qaFaultRepairAttemptId=-1 qaFaultPreparationAttemptId=-1 ' +
+    'qaFaultRelocationToken=move-3 qaFaultHandoffAttemptId=5'
+$replacementOwnedReady = $visualReplacementReady.Replace(
+    $visualRootFields,
+    $replacementOwnedRootFields
+)
+$replacementOwnedCompleted = $visualReplacementCompleted.Replace(
+    $visualRootFields,
+    $replacementOwnedRootFields
+)
+$replacementOwnedLog = $visualReplacementLog.
+    Replace(
+        $visualReplacementReady,
+        $qaReplacementVisualApplied + "`n" + $replacementOwnedReady
+    ).
+    Replace($visualReplacementCompleted, $replacementOwnedCompleted)
+$replacementOwnedEvidence = @(
+    @(ConvertFrom-ReaderRelocationLog $replacementOwnedLog) +
+        @(ConvertFrom-ReaderHandoffLog $replacementOwnedLog)
+)
+Assert-ReaderQaFaultCorrelation `
+    -FaultEvents @(
+        @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) +
+            @(ConvertFrom-ReaderQaFaultLog $qaReplacementVisualApplied)
+    ) `
+    -DownstreamEvents @(
+        $replacementOwnedEvidence | Where-Object {
+            $_.QaFaultRequestId -ne 'none'
+        }
+    ) `
+    -EvidenceEvents $replacementOwnedEvidence `
+    -Context 'replacement-owned visual fault fixture'
+$replacementOwnedContentRejected = $replacementOwnedReady.Replace(
+    'result=Ready',
+    'result=ContentRejected'
+)
+$replacementRecoveryRootFields = $replacementOwnedRootFields.Replace(
+    'qaFaultRelation=AppliedOperation',
+    'qaFaultRelation=Recovery'
+)
+$ownershipSecondDispatched =
+    'reader-relocation session=7 token=move-4 gestureId=3 source=2 target=3 ' +
+    'logicalDirection=Next rasterGeneration=3 textureGeneration=5 ' +
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=10' +
+    $replacementRecoveryRootFields
+$ownershipSecondAcknowledged = $ownershipSecondDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=10',
+    'state=Acknowledged rejectionReason=None queueDepth=1 durationMs=11'
+)
+$ownershipSecondAwaiting = $ownershipSecondDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=10',
+    'state=AwaitingVisualHandoff rejectionReason=None queueDepth=1 durationMs=12'
+)
+$ownershipSecondReady =
+    'reader-handoff session=7 token=move-4 handoffAttemptId=6 target=3 ' +
+    'visualState=true nextFrame=true result=Ready durationMs=13' +
+    $replacementRecoveryRootFields
+$ownershipSecondCompleted = $ownershipSecondDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=10',
+    'state=Completed rejectionReason=None queueDepth=0 durationMs=14'
+)
+$sequentialOwnershipLog = @(
+    $visualOriginalLog,
+    $visualReplacementTrigger,
+    $visualReplacementDispatched,
+    $visualReplacementAcknowledged,
+    $visualReplacementAwaiting,
+    $qaReplacementVisualApplied,
+    $replacementOwnedContentRejected,
+    $ownershipSecondDispatched,
+    $ownershipSecondAcknowledged,
+    $ownershipSecondAwaiting,
+    $ownershipSecondReady,
+    $ownershipSecondCompleted
+) -join "`n"
+$sequentialOwnershipEvidence = @(
+    @(ConvertFrom-ReaderRelocationLog $sequentialOwnershipLog) +
+        @(ConvertFrom-ReaderHandoffLog $sequentialOwnershipLog)
+)
+Assert-ReaderQaFaultCorrelation `
+    -FaultEvents @(
+        @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) +
+            @(ConvertFrom-ReaderQaFaultLog $qaReplacementVisualApplied)
+    ) `
+    -DownstreamEvents @(
+        $sequentialOwnershipEvidence | Where-Object {
+            $_.QaFaultRequestId -ne 'none'
+        }
+    ) `
+    -EvidenceEvents $sequentialOwnershipEvidence `
+    -Context 'sequential replacement ownership fixture'
+$qaReplacementAcknowledgementApplied =
+    'reader-qa-fault session=7 requestId=fault-replacement-ack ' +
+    'fault=DelayNextRelocationAcknowledgement seam=relocation-ack state=Applied ' +
+    'publicationEpoch=-1 persistenceAttemptId=-1 rasterRequestEpoch=-1 ' +
+    'repairAttemptId=-1 preparationAttemptId=-1 relocationToken=move-3 ' +
+    'handoffAttemptId=-1 releaseRequestId=none result=fault-applied'
+$replacementAckAppliedFields =
+    ' qaFaultRequestId=fault-replacement-ack ' +
+    'qaFaultRelation=AppliedOperation qaFaultPublicationEpoch=-1 ' +
+    'qaFaultPersistenceAttemptId=-1 qaFaultRasterRequestEpoch=-1 ' +
+    'qaFaultRepairAttemptId=-1 qaFaultPreparationAttemptId=-1 ' +
+    'qaFaultRelocationToken=move-3 qaFaultHandoffAttemptId=-1'
+$replacementAckRecoveryFields = $replacementAckAppliedFields.Replace(
+    'qaFaultRelation=AppliedOperation',
+    'qaFaultRelation=Recovery'
+)
+$replacementAckAcknowledged = $visualReplacementAcknowledged.Replace(
+    $visualRootFields,
+    $replacementAckAppliedFields
+)
+$replacementAckAwaiting = $visualReplacementAwaiting.Replace(
+    $visualRootFields,
+    $replacementAckAppliedFields
+)
+$replacementAckContentRejected = $replacementOwnedContentRejected.Replace(
+    $replacementOwnedRootFields,
+    $replacementAckRecoveryFields
+)
+$ackSecondDispatched = $ownershipSecondDispatched.Replace(
+    $replacementRecoveryRootFields,
+    $replacementAckRecoveryFields
+)
+$ackSecondAcknowledged = $ownershipSecondAcknowledged.Replace(
+    $replacementRecoveryRootFields,
+    $replacementAckRecoveryFields
+)
+$ackSecondAwaiting = $ownershipSecondAwaiting.Replace(
+    $replacementRecoveryRootFields,
+    $replacementAckRecoveryFields
+)
+$ackSecondReady = $ownershipSecondReady.Replace(
+    $replacementRecoveryRootFields,
+    $replacementAckRecoveryFields
+)
+$ackSecondCompleted = $ownershipSecondCompleted.Replace(
+    $replacementRecoveryRootFields,
+    $replacementAckRecoveryFields
+)
+$sequentialAcknowledgementOwnershipLog = @(
+    $visualOriginalLog,
+    $qaVisualApplied,
+    $visualReplacementTrigger,
+    $visualReplacementDispatched,
+    $qaReplacementAcknowledgementApplied,
+    $replacementAckAcknowledged,
+    $replacementAckAwaiting,
+    $replacementAckContentRejected,
+    $ackSecondDispatched,
+    $ackSecondAcknowledged,
+    $ackSecondAwaiting,
+    $ackSecondReady,
+    $ackSecondCompleted
+) -join "`n"
+$sequentialAcknowledgementOwnershipEvidence = @(
+    @(ConvertFrom-ReaderRelocationLog $sequentialAcknowledgementOwnershipLog) +
+        @(ConvertFrom-ReaderHandoffLog $sequentialAcknowledgementOwnershipLog)
+)
+Assert-ReaderQaFaultCorrelation `
+    -FaultEvents @(
+        ConvertFrom-ReaderQaFaultLog $sequentialAcknowledgementOwnershipLog
+    ) `
+    -DownstreamEvents @(
+        $sequentialAcknowledgementOwnershipEvidence | Where-Object {
+            $_.QaFaultRequestId -ne 'none'
+        }
+    ) `
+    -EvidenceEvents $sequentialAcknowledgementOwnershipEvidence `
+    -Context 'replacement-owned acknowledgement fixture'
+Assert-Throws {
+    $lateAcknowledgementAppliedLog =
+        $sequentialAcknowledgementOwnershipLog.Replace(
+            $qaReplacementAcknowledgementApplied + "`n" +
+                $replacementAckAcknowledged + "`n" +
+                $replacementAckAwaiting,
+            $replacementAckAcknowledged + "`n" +
+                $replacementAckAwaiting + "`n" +
+                $qaReplacementAcknowledgementApplied
+        )
+    $lateAcknowledgementAppliedEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $lateAcknowledgementAppliedLog) +
+            @(ConvertFrom-ReaderHandoffLog $lateAcknowledgementAppliedLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(
+            ConvertFrom-ReaderQaFaultLog $lateAcknowledgementAppliedLog
+        ) `
+        -DownstreamEvents @(
+            $lateAcknowledgementAppliedEvidence | Where-Object {
+                $_.QaFaultRequestId -ne 'none'
+            }
+        ) `
+        -EvidenceEvents $lateAcknowledgementAppliedEvidence `
+        -Context 'late acknowledgement Applied fixture'
+} 'late acknowledgement Applied fixture'
+foreach ($recoverableResult in @(
+        'Detached',
+        'TimedOut',
+        'Invalidated',
+        'CallbackCapacity',
+        'ContentRejected'
+    )) {
+    $recoverableLog = $visualReplacementLog.Replace(
+        'result=ContentRejected',
+        "result=$recoverableResult"
+    )
+    $recoverableEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $recoverableLog) +
+            @(ConvertFrom-ReaderHandoffLog $recoverableLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $recoverableEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $recoverableEvidence `
+        -Context "$recoverableResult replacement trigger fixture"
+}
+Assert-Throws {
+    $caseDriftRecovery = $visualReplacementCompleted.
+        Replace('token=move-3', 'token=move-9').
+        Replace('qaFaultRequestId=fault-visual', 'qaFaultRequestId=Fault-Visual')
+    $caseDriftLog = @(
+        $visualOriginalLog,
+        $caseDriftRecovery
+    ) -join "`n"
+    $caseDriftEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $caseDriftLog) +
+            @(ConvertFrom-ReaderHandoffLog $caseDriftLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents $caseDriftEvidence `
+        -EvidenceEvents $caseDriftEvidence `
+        -Context 'case-drift replacement request fixture'
+} 'case-drift replacement request fixture'
+Assert-Throws {
+    $readyBeforeFailureLog = $visualReplacementLog.Replace(
+        $visualReplacementTrigger,
+        $visualHandoffRecovery + "`n" + $visualReplacementTrigger
+    )
+    $readyBeforeFailureEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $readyBeforeFailureLog) +
+            @(ConvertFrom-ReaderHandoffLog $readyBeforeFailureLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $readyBeforeFailureEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $readyBeforeFailureEvidence `
+        -Context 'ready-before-failure replacement fixture'
+} 'ready-before-failure replacement fixture'
+$earlierRecoverableTerminal = $visualReplacementTrigger.Replace(
+    'result=ContentRejected',
+    'result=TimedOut'
+)
+$earlierTerminalIdentityMutations = [ordered]@{
+    'session' = @(
+        'session=7 token=move-2',
+        'session=8 token=move-2'
+    )
+    'target' = @(
+        'handoffAttemptId=4 target=3',
+        'handoffAttemptId=4 target=99'
+    )
+}
+foreach ($terminalMutation in $earlierTerminalIdentityMutations.GetEnumerator()) {
+    Assert-Throws {
+        $driftedTerminal = $earlierRecoverableTerminal.Replace(
+            $terminalMutation.Value[0],
+            $terminalMutation.Value[1]
+        )
+        $driftedTerminalLog = $visualReplacementLog.Replace(
+            $visualReplacementTrigger,
+            $driftedTerminal + "`n" + $visualReplacementTrigger
+        )
+        $driftedTerminalEvidence = @(
+            @(ConvertFrom-ReaderRelocationLog $driftedTerminalLog) +
+                @(ConvertFrom-ReaderHandoffLog $driftedTerminalLog)
+        )
+        Assert-ReaderQaFaultCorrelation `
+            -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+            -DownstreamEvents @(
+                $driftedTerminalEvidence | Where-Object {
+                    $_.QaFaultRequestId -ceq 'fault-visual'
+                }
+            ) `
+            -EvidenceEvents $driftedTerminalEvidence `
+            -Context "earlier terminal $($terminalMutation.Key) drift fixture"
+    } "earlier terminal $($terminalMutation.Key) drift fixture"
+}
+Assert-Throws {
+    $lateReplacementTerminal = $visualReplacementReady.
+        Replace('handoffAttemptId=5', 'handoffAttemptId=6').
+        Replace('result=Ready', 'result=TimedOut').
+        Replace('durationMs=8', 'durationMs=10')
+    $lateReplacementTerminalLog =
+        $visualReplacementLog + "`n" + $lateReplacementTerminal
+    $lateReplacementTerminalEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $lateReplacementTerminalLog) +
+            @(ConvertFrom-ReaderHandoffLog $lateReplacementTerminalLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $lateReplacementTerminalEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $lateReplacementTerminalEvidence `
+        -Context 'late replacement terminal fixture'
+} 'late replacement terminal fixture'
+Assert-Throws {
+    $lateOriginalTerminal = $visualReplacementTrigger.
+        Replace('handoffAttemptId=4', 'handoffAttemptId=6').
+        Replace('result=ContentRejected', 'result=TimedOut').
+        Replace('durationMs=3', 'durationMs=10')
+    $lateOriginalTerminalLog =
+        $visualReplacementLog + "`n" + $lateOriginalTerminal
+    $lateOriginalTerminalEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $lateOriginalTerminalLog) +
+            @(ConvertFrom-ReaderHandoffLog $lateOriginalTerminalLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $lateOriginalTerminalEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $lateOriginalTerminalEvidence `
+        -Context 'late original-token terminal fixture'
+} 'late original-token terminal fixture'
+Assert-Throws {
+    $failureAfterReady = $visualReplacementReady.
+        Replace('handoffAttemptId=5', 'handoffAttemptId=6').
+        Replace('result=Ready', 'result=TimedOut').
+        Replace('durationMs=8', 'durationMs=9')
+    $failureAfterReadyLog = $visualReplacementLog.Replace(
+        $visualReplacementCompleted,
+        $failureAfterReady + "`n" + $visualReplacementCompleted
+    )
+    $failureAfterReadyEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $failureAfterReadyLog) +
+            @(ConvertFrom-ReaderHandoffLog $failureAfterReadyLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $failureAfterReadyEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $failureAfterReadyEvidence `
+        -Context 'failure after final ready fixture'
+} 'failure after final ready fixture'
+foreach ($terminalBeforeReadyResult in @('Cancelled', 'ContentRejected')) {
+    Assert-Throws {
+        $terminalBeforeReady = $visualReplacementReady.
+            Replace('handoffAttemptId=5', 'handoffAttemptId=6').
+            Replace('result=Ready', "result=$terminalBeforeReadyResult").
+            Replace('durationMs=8', 'durationMs=7')
+        $terminalBeforeReadyLog = $visualReplacementLog.Replace(
+            $visualReplacementReady,
+            $terminalBeforeReady + "`n" + $visualReplacementReady
+        )
+        $terminalBeforeReadyEvidence = @(
+            @(ConvertFrom-ReaderRelocationLog $terminalBeforeReadyLog) +
+                @(ConvertFrom-ReaderHandoffLog $terminalBeforeReadyLog)
+        )
+        Assert-ReaderQaFaultCorrelation `
+            -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+            -DownstreamEvents @(
+                $terminalBeforeReadyEvidence | Where-Object {
+                    $_.QaFaultRequestId -ceq 'fault-visual'
+                }
+            ) `
+            -EvidenceEvents $terminalBeforeReadyEvidence `
+            -Context "$terminalBeforeReadyResult before final ready fixture"
+    } "$terminalBeforeReadyResult before final ready fixture"
+}
+$visualIntermediateTimeout =
+    'reader-handoff session=7 token=move-3 handoffAttemptId=5 target=3 ' +
+    'visualState=false nextFrame=false result=TimedOut durationMs=8' +
+    $visualRootFields
+$visualSecondDispatched =
+    'reader-relocation session=7 token=move-4 gestureId=3 source=2 target=3 ' +
+    'logicalDirection=Next rasterGeneration=3 textureGeneration=5 ' +
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=9' +
+    $visualRootFields
+$visualSecondAcknowledged = $visualSecondDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=9',
+    'state=Acknowledged rejectionReason=None queueDepth=1 durationMs=10'
+)
+$visualSecondAwaiting = $visualSecondDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=9',
+    'state=AwaitingVisualHandoff rejectionReason=None queueDepth=1 durationMs=11'
+)
+$visualSecondReady =
+    'reader-handoff session=7 token=move-4 handoffAttemptId=6 target=3 ' +
+    'visualState=true nextFrame=true result=Ready durationMs=12' +
+    $visualRootFields
+$visualSecondCompleted = $visualSecondDispatched.Replace(
+    'state=Dispatched rejectionReason=None queueDepth=1 durationMs=9',
+    'state=Completed rejectionReason=None queueDepth=0 durationMs=13'
+)
+$visualRepeatedReplacementLog = @(
+    $visualOriginalLog,
+    $visualReplacementTrigger,
+    $visualReplacementDispatched,
+    $visualReplacementAcknowledged,
+    $visualReplacementAwaiting,
+    $visualIntermediateTimeout,
+    $visualSecondDispatched,
+    $visualSecondAcknowledged,
+    $visualSecondAwaiting,
+    $visualSecondReady,
+    $visualSecondCompleted
+) -join "`n"
+$visualRepeatedReplacementEvidence = @(
+    @(ConvertFrom-ReaderRelocationLog $visualRepeatedReplacementLog) +
+        @(ConvertFrom-ReaderHandoffLog $visualRepeatedReplacementLog)
+)
+Assert-ReaderQaFaultCorrelation `
+    -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+    -DownstreamEvents @(
+        $visualRepeatedReplacementEvidence | Where-Object {
+            $_.QaFaultRequestId -ceq 'fault-visual'
+        }
+    ) `
+    -EvidenceEvents $visualRepeatedReplacementEvidence `
+    -Context 'repeated replacement lineage fixture'
+Assert-Throws {
+    $intermediateContentRejected = $visualIntermediateTimeout.Replace(
+        'result=TimedOut',
+        'result=ContentRejected'
+    )
+    $continuedAfterContentRejectedLog = $visualRepeatedReplacementLog.Replace(
+        $visualIntermediateTimeout,
+        $intermediateContentRejected + "`n" + $visualIntermediateTimeout
+    )
+    $continuedAfterContentRejectedEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $continuedAfterContentRejectedLog) +
+            @(ConvertFrom-ReaderHandoffLog $continuedAfterContentRejectedLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $continuedAfterContentRejectedEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $continuedAfterContentRejectedEvidence `
+        -Context 'continued intermediate token after content rejection fixture'
+} 'continued intermediate token after content rejection fixture'
+Assert-Throws {
+    $missingTriggerLog = $visualReplacementLog.Replace(
+        $visualReplacementTrigger + "`n",
+        ''
+    )
+    $missingTriggerEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $missingTriggerLog) +
+            @(ConvertFrom-ReaderHandoffLog $missingTriggerLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $missingTriggerEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $missingTriggerEvidence `
+        -Context 'replacement without trigger fixture'
+} 'replacement without trigger fixture'
+Assert-Throws {
+    $cancelledTriggerLog = $visualReplacementLog.Replace(
+        'result=ContentRejected',
+        'result=Cancelled'
+    )
+    $cancelledTriggerEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $cancelledTriggerLog) +
+            @(ConvertFrom-ReaderHandoffLog $cancelledTriggerLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $cancelledTriggerEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $cancelledTriggerEvidence `
+        -Context 'cancelled replacement trigger fixture'
+} 'cancelled replacement trigger fixture'
+Assert-Throws {
+    $missingRootEvidenceLog = $visualReplacementLog.Replace(
+        $visualOriginalAwaiting + "`n",
+        ''
+    )
+    $missingRootEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $missingRootEvidenceLog) +
+            @(ConvertFrom-ReaderHandoffLog $missingRootEvidenceLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $missingRootEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $missingRootEvidence `
+        -Context 'incomplete original relocation fixture'
+} 'incomplete original relocation fixture'
+$replacementIdentityMutations = [ordered]@{
+    'session' = @(
+        'session=7 token=move-3',
+        'session=8 token=move-3'
+    )
+    'gesture' = @(
+        'token=move-3 gestureId=3',
+        'token=move-3 gestureId=4'
+    )
+    'source' = @(
+        'token=move-3 gestureId=3 source=2',
+        'token=move-3 gestureId=3 source=1'
+    )
+    'direction' = @(
+        'token=move-3 gestureId=3 source=2 target=3 logicalDirection=Next',
+        'token=move-3 gestureId=3 source=2 target=3 logicalDirection=Previous'
+    )
+}
+foreach ($identityMutation in $replacementIdentityMutations.GetEnumerator()) {
+    $changedReplacementLog = $visualReplacementLog.Replace(
+        $identityMutation.Value[0],
+        $identityMutation.Value[1]
+    )
+    $changedReplacementEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $changedReplacementLog) +
+            @(ConvertFrom-ReaderHandoffLog $changedReplacementLog)
+    )
+    Assert-Throws {
+        Assert-ReaderQaFaultCorrelation `
+            -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+            -DownstreamEvents @(
+                $changedReplacementEvidence | Where-Object {
+                    $_.QaFaultRequestId -ceq 'fault-visual'
+                }
+            ) `
+            -EvidenceEvents $changedReplacementEvidence `
+            -Context "replacement $($identityMutation.Key) mismatch fixture"
+    } "replacement $($identityMutation.Key) mismatch fixture"
+}
+Assert-Throws {
+    $changedTargetLog = $visualReplacementLog.
+        Replace(
+            'token=move-3 gestureId=3 source=2 target=3',
+            'token=move-3 gestureId=3 source=2 target=4'
+        ).
+        Replace(
+            'token=move-3 handoffAttemptId=5 target=3',
+            'token=move-3 handoffAttemptId=5 target=4'
+        )
+    $changedTargetEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $changedTargetLog) +
+            @(ConvertFrom-ReaderHandoffLog $changedTargetLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $changedTargetEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $changedTargetEvidence `
+        -Context 'replacement target mismatch fixture'
+} 'replacement target mismatch fixture'
+Assert-Throws {
+    $regressedGenerationLog = $visualReplacementLog.Replace(
+        'token=move-3 gestureId=3 source=2 target=3 logicalDirection=Next ' +
+            'rasterGeneration=2 textureGeneration=4',
+        'token=move-3 gestureId=3 source=2 target=3 logicalDirection=Next ' +
+            'rasterGeneration=2 textureGeneration=3'
+    )
+    $regressedGenerationEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $regressedGenerationLog) +
+            @(ConvertFrom-ReaderHandoffLog $regressedGenerationLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $regressedGenerationEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $regressedGenerationEvidence `
+        -Context 'regressed replacement generation fixture'
+} 'regressed replacement generation fixture'
+Assert-Throws {
+    $unrelatedReplacementLog = $visualReplacementLog.Replace(
+        $visualReplacementAcknowledged,
+        $visualReplacementAcknowledged.Replace('token=move-3', 'token=move-4')
+    )
+    $unrelatedReplacementEvidence = @(
+        @(ConvertFrom-ReaderRelocationLog $unrelatedReplacementLog) +
+            @(ConvertFrom-ReaderHandoffLog $unrelatedReplacementLog)
+    )
+    Assert-ReaderQaFaultCorrelation `
+        -FaultEvents @(ConvertFrom-ReaderQaFaultLog $qaVisualApplied) `
+        -DownstreamEvents @(
+            $unrelatedReplacementEvidence | Where-Object {
+                $_.QaFaultRequestId -ceq 'fault-visual'
+            }
+        ) `
+        -EvidenceEvents $unrelatedReplacementEvidence `
+        -Context 'unrelated replacement token fixture'
+} 'unrelated replacement token fixture'
 
 $residencySuccess =
     'reader-residency session=7 residents=3 residentLimit=6 ' +
@@ -1745,6 +2472,20 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
         throw "Candidate-tree contract is absent: $candidateTreeSource"
     }
     $candidateTreeText = Get-Content -LiteralPath $candidateTreeSource -Raw
+    $faultSetFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf('function Assert-ReaderQaFaultSet('),
+        $candidateTreeText.IndexOf('function Invoke-ReaderQaBoundedAdb(') -
+            $candidateTreeText.IndexOf('function Assert-ReaderQaFaultSet(')
+    )
+    if ($faultSetFlow -notmatch
+            '\$allDownstream\s*=\s*@\(Get-ReaderQaDownstreamEvents \$Log\)' -or
+        $faultSetFlow -notmatch '-EvidenceEvents \$allDownstream' -or
+        $faultSetFlow -notmatch
+            '\$_.RequestId\s+-ceq\s+\$requestId\s+-and' -or
+        $faultSetFlow -notmatch
+            '\$_.QaFaultRequestId\s+-in\s+\$RequestIds') {
+        throw "Runner does not supply complete strict relocation lineage evidence: $candidateTreeSource"
+    }
     $pidLogFlow = $candidateTreeText.Substring(
         $candidateTreeText.IndexOf('function Read-ReaderPidLog('),
         $candidateTreeText.IndexOf('$intervalEvidence = @()') -

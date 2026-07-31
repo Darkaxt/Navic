@@ -1188,19 +1188,21 @@ function Assert-ReaderQaFaultSet(
     )
     foreach ($requestId in $RequestIds) {
         if (@($faultEvents | Where-Object {
-            $_.RequestId -eq $requestId -and $_.State -eq 'Applied'
+            $_.RequestId -ceq $requestId -and $_.State -eq 'Applied'
         }).Count -ne 1) {
             throw "$Context did not apply $requestId exactly once"
         }
     }
+    $allDownstream = @(Get-ReaderQaDownstreamEvents $Log)
     $downstream = @(
-        Get-ReaderQaDownstreamEvents $Log | Where-Object {
+        $allDownstream | Where-Object {
             $_.QaFaultRequestId -in $RequestIds
         }
     )
     Assert-ReaderQaFaultCorrelation `
         -FaultEvents $faultEvents `
         -DownstreamEvents $downstream `
+        -EvidenceEvents $allDownstream `
         -Context $Context
     return $downstream
 }
