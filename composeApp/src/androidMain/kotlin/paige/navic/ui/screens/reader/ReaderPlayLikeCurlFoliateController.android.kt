@@ -4029,13 +4029,65 @@ internal class ReaderPlayLikeCurlFoliateController(
 		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
 	): ReaderPageRelocationContentValidationHandle {
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
-		if (webView == null) {
+		val generationOwner = generationOwners[request.textureGeneration]
+		val profile = generationOwner?.profile
+		if (
+			webView == null ||
+			activeDeckGenerationId != request.textureGeneration ||
+			activePages !== generationOwner ||
+			profile == null ||
+			profile.rasterGeneration != request.rasterGeneration ||
+			!livePresentationValidationIsCurrent(request)
+		) {
+			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			return ReaderPageRelocationContentValidationHandle.Completed
+		}
+		val kind = profile.transitionKind()
+		val snapshotPageIndices = runCatching {
+			profile.pageRequest(request.destinationOrdinal).sourcePageIndex to
+				profile.pageRequest(request.sourceOrdinal).sourcePageIndex
+		}.getOrNull()
+		if (snapshotPageIndices == null) {
+			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			return ReaderPageRelocationContentValidationHandle.Completed
+		}
+		val expectedTarget = bundleSource.retainedCurrentLayoutSnapshot(
+			pageIndex = snapshotPageIndices.first,
+			kind = kind,
+			expectedGeneration = request.rasterGeneration,
+			expectedQuality = profile.quality
+		)
+		if (expectedTarget == null) {
+			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			return ReaderPageRelocationContentValidationHandle.Completed
+		}
+		val expectedSource = if (snapshotPageIndices.second == snapshotPageIndices.first) {
+			null
+		} else {
+			val retained = bundleSource.retainedCurrentLayoutSnapshot(
+				pageIndex = snapshotPageIndices.second,
+				kind = kind,
+				expectedGeneration = request.rasterGeneration,
+				expectedQuality = profile.quality
+			)
+			if (retained == null) {
+				expectedTarget.release()
+				onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+				return ReaderPageRelocationContentValidationHandle.Completed
+			}
+			retained
+		}
+		if (!livePresentationValidationIsCurrent(request)) {
+			expectedTarget.release()
+			expectedSource?.release()
 			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
 		return bundleSource.validateLivePresentation(
 			webView = webView,
 			request = request,
+			expectedTarget = expectedTarget,
+			expectedSource = expectedSource,
 			isStillCurrent = { livePresentationValidationIsCurrent(request) },
 			onValidated = onValidated
 		)

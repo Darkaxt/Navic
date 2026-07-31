@@ -479,6 +479,34 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun livePresentationValidationBindsExactGenerationProfileAndPreparedRasters() {
+		val controller = controllerFile.readText()
+		val validation = controller
+			.substringAfter("private fun validateLivePresentation(")
+			.substringBefore("private fun livePresentationValidationIsCurrent(")
+
+		assertContains(validation, "activeDeckGenerationId != request.textureGeneration")
+		assertContains(validation, "generationOwners[request.textureGeneration]")
+		assertContains(validation, "profile.rasterGeneration != request.rasterGeneration")
+		assertContains(validation, "profile.transitionKind()")
+		assertContains(validation, "profile.pageRequest(request.destinationOrdinal).sourcePageIndex")
+		assertContains(validation, "profile.pageRequest(request.sourceOrdinal).sourcePageIndex")
+		assertContains(validation, "bundleSource.retainedCurrentLayoutSnapshot(")
+		assertContains(validation, "expectedGeneration = request.rasterGeneration")
+		assertContains(validation, "expectedQuality = profile.quality")
+		assertContains(validation, "expectedTarget = expectedTarget")
+		assertContains(validation, "expectedSource = expectedSource")
+		assertContains(validation, "if (retained == null)")
+		assertContains(validation, "expectedTarget.release()")
+		assertContains(validation, "expectedSource?.release()")
+		assertTrue(
+			validation.indexOf("generationOwners[request.textureGeneration]") <
+				validation.indexOf("bundleSource.retainedCurrentLayoutSnapshot("),
+			"Snapshot lookup must be derived from the exact active generation profile."
+		)
+	}
+
+	@Test
 	fun successfulQueueHandoffAloneOwnsGlShieldRemoval() {
 		val source = visualHandoffFile.readText()
 		val complete = source

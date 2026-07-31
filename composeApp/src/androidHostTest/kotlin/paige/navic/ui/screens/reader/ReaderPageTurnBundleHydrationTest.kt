@@ -113,6 +113,47 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun currentLayoutSnapshotRequiresExactGenerationAndQuality() {
+		val source = ReaderPageTurnBundleSource()
+		try {
+			assertNotNull(
+				source.cacheCurrentSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					current = captureResult()
+				)
+			)
+			val generation = source.currentGeneration()
+			assertNotNull(
+				source.retainedCurrentLayoutSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					expectedGeneration = generation,
+					expectedQuality = ReaderPageBitmapQuality.Balanced
+				)
+			).release()
+			assertNull(
+				source.retainedCurrentLayoutSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					expectedGeneration = generation + 1L,
+					expectedQuality = ReaderPageBitmapQuality.Balanced
+				)
+			)
+			assertNull(
+				source.retainedCurrentLayoutSnapshot(
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					expectedGeneration = generation,
+					expectedQuality = ReaderPageBitmapQuality.High
+				)
+			)
+		} finally {
+			source.close()
+		}
+	}
+
+	@Test
 	fun retainedCurrentLayoutSnapshotNeverReusesAnInactiveTransitionLayout() {
 		val source = ReaderPageTurnBundleSource()
 		try {
@@ -125,8 +166,10 @@ class ReaderPageTurnBundleHydrationTest {
 			)
 			assertNotNull(
 				source.retainedCurrentLayoutSnapshot(
-					4,
-					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					expectedGeneration = source.currentGeneration(),
+					expectedQuality = ReaderPageBitmapQuality.Balanced
 				)
 			).release()
 
@@ -145,14 +188,18 @@ class ReaderPageTurnBundleHydrationTest {
 			).release()
 			assertNull(
 				source.retainedCurrentLayoutSnapshot(
-					4,
-					ReaderPageTurnTransitionKind.LandscapeSpreadSlide
+					pageIndex = 4,
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					expectedGeneration = source.currentGeneration(),
+					expectedQuality = ReaderPageBitmapQuality.Balanced
 				)
 			)
 			assertNotNull(
 				source.retainedCurrentLayoutSnapshot(
-					5,
-					ReaderPageTurnTransitionKind.PortraitSlide
+					pageIndex = 5,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					expectedGeneration = source.currentGeneration(),
+					expectedQuality = ReaderPageBitmapQuality.Balanced
 				)
 			).release()
 		} finally {

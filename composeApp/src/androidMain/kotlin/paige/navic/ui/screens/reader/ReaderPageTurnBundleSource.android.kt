@@ -18,6 +18,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -39,21 +41,424 @@ import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private const val ReaderPageTurnBundleSourceTag = "ReaderPageTurnBundleSource"
 private const val MaxCachedSnapshots = 5
 private const val MaxCachedRasterDescriptors = 32
+private const val LiveValidationStripRows = 64
+private const val LiveValidationAbsoluteMeanDistance = 8.0
+private const val LiveValidationAbsoluteRmsDistance = 18.0
+private const val LiveValidationAbsoluteCloseRatio = 0.96
+private const val LiveValidationRelativeDistanceRatio = 0.72
+private const val LiveValidationEquivalentMaximumDistance = 8
+private const val LiveValidationCloseDistance = 24
+private const val LiveValidationFarDistance = 48
 
-internal fun <T : Any> readerPageTransientLiveValidationResult(
+internal interface ReaderPageRasterPixels {
+	val width: Int
+	val height: Int
+	fun readRows(top: Int, rowCount: Int, destination: IntArray)
+}
+
+private data class ReaderPageRasterDistance(
+	val mean: Double,
+	val rms: Double,
+	val closeRatio: Double,
+	val farPixelCount: Long,
+	val maximumDistance: Int
+)
+
+private class ReaderPageRasterDistanceAccumulator {
+	private var pixelCount = 0L
+	private var distanceSum = 0L
+	private var squaredDistanceSum = 0L
+	private var closePixelCount = 0L
+	private var farPixelCount = 0L
+	private var maximumDistance = 0
+
+	fun add(firstColor: Int, secondColor: Int) {
+		val distance = maxOf(
+			abs((firstColor ushr 16 and 0xff) - (secondColor ushr 16 and 0xff)),
+			abs((firstColor ushr 8 and 0xff) - (secondColor ushr 8 and 0xff)),
+			abs((firstColor and 0xff) - (secondColor and 0xff))
+		)
+		pixelCount += 1L
+		distanceSum += distance
+		squaredDistanceSum += distance.toLong() * distance
+		if (distance <= LiveValidationCloseDistance) closePixelCount += 1L
+		if (distance > LiveValidationFarDistance) farPixelCount += 1L
+		if (distance > maximumDistance) maximumDistance = distance
+	}
+
+	fun result(): ReaderPageRasterDistance? {
+		if (pixelCount == 0L) return null
+		return ReaderPageRasterDistance(
+			mean = distanceSum.toDouble() / pixelCount,
+			rms = sqrt(squaredDistanceSum.toDouble() / pixelCount),
+			closeRatio = closePixelCount.toDouble() / pixelCount,
+			farPixelCount = farPixelCount,
+			maximumDistance = maximumDistance
+		)
+	}
+}
+
+private data class ReaderPageLiveRasterDistances(
+	val target: ReaderPageRasterDistance,
+	val sourceTarget: ReaderPageRasterDistance?,
+	val source: ReaderPageRasterDistance?
+)
+
+private fun readerPageLiveRasterDistances(
+	candidate: ReaderPageRasterPixels,
+	expectedTarget: ReaderPageRasterPixels,
+	expectedSource: ReaderPageRasterPixels?,
+	cancellationCheck: () -> Unit
+): ReaderPageLiveRasterDistances? {
+	if (
+		candidate.width <= 0 ||
+		candidate.height <= 0 ||
+		candidate.width != expectedTarget.width ||
+		candidate.height != expectedTarget.height ||
+		(
+			expectedSource != null &&
+			(
+				expectedSource.width != candidate.width ||
+				expectedSource.height != candidate.height
+			)
+		)
+	) {
+		return null
+	}
+	val rowCapacity = minOf(LiveValidationStripRows, candidate.height)
+	val stripPixelCapacity = candidate.width.toLong() * rowCapacity
+	if (stripPixelCapacity <= 0L || stripPixelCapacity > Int.MAX_VALUE) return null
+	val candidatePixels = IntArray(stripPixelCapacity.toInt())
+	val targetPixels = IntArray(stripPixelCapacity.toInt())
+	val sourcePixels = expectedSource?.let { IntArray(stripPixelCapacity.toInt()) }
+	val targetDistance = ReaderPageRasterDistanceAccumulator()
+	val sourceTargetDistance = expectedSource?.let { ReaderPageRasterDistanceAccumulator() }
+	val sourceDistance = expectedSource?.let { ReaderPageRasterDistanceAccumulator() }
+	var top = 0
+	while (top < candidate.height) {
+		cancellationCheck()
+		val rowCount = minOf(rowCapacity, candidate.height - top)
+		val pixelCount = candidate.width * rowCount
+		candidate.readRows(top, rowCount, candidatePixels)
+		cancellationCheck()
+		expectedTarget.readRows(top, rowCount, targetPixels)
+		if (expectedSource != null && sourcePixels != null) {
+			cancellationCheck()
+			expectedSource.readRows(top, rowCount, sourcePixels)
+		}
+		for (index in 0 until pixelCount) {
+			targetDistance.add(candidatePixels[index], targetPixels[index])
+			if (sourcePixels != null) {
+				sourceTargetDistance?.add(sourcePixels[index], targetPixels[index])
+				sourceDistance?.add(candidatePixels[index], sourcePixels[index])
+			}
+		}
+		top += rowCount
+	}
+	return ReaderPageLiveRasterDistances(
+		target = targetDistance.result() ?: return null,
+		sourceTarget = sourceTargetDistance?.result(),
+		source = sourceDistance?.result()
+	)
+}
+
+private fun ReaderPageRasterDistance.isAbsoluteTargetMatch(): Boolean =
+	mean <= LiveValidationAbsoluteMeanDistance &&
+		rms <= LiveValidationAbsoluteRmsDistance &&
+		closeRatio >= LiveValidationAbsoluteCloseRatio &&
+		farPixelCount == 0L
+
+private fun ReaderPageRasterDistance.isAuthoredEquivalent(): Boolean =
+	mean <= 2.0 &&
+		rms <= 4.0 &&
+		maximumDistance <= LiveValidationEquivalentMaximumDistance
+
+internal fun readerPageLiveRasterMatchesExpected(
+	candidate: ReaderPageRasterPixels,
+	expectedTarget: ReaderPageRasterPixels,
+	expectedSource: ReaderPageRasterPixels?,
+	cancellationCheck: () -> Unit = {}
+): Boolean {
+	val distances = readerPageLiveRasterDistances(
+		candidate = candidate,
+		expectedTarget = expectedTarget,
+		expectedSource = expectedSource,
+		cancellationCheck = cancellationCheck
+	) ?: return false
+	val targetDistance = distances.target
+	if (!targetDistance.isAbsoluteTargetMatch()) return false
+	val sourceTargetDistance = distances.sourceTarget ?: return expectedSource == null
+	if (sourceTargetDistance.isAuthoredEquivalent()) return true
+	val sourceDistance = distances.source ?: return false
+	if (targetDistance.farPixelCount != sourceDistance.farPixelCount) {
+		return targetDistance.farPixelCount < sourceDistance.farPixelCount
+	}
+	if (targetDistance.maximumDistance != sourceDistance.maximumDistance) {
+		return targetDistance.maximumDistance < sourceDistance.maximumDistance
+	}
+	return targetDistance.rms <=
+			sourceDistance.rms * LiveValidationRelativeDistanceRatio + 1.5 &&
+		targetDistance.mean <=
+			sourceDistance.mean * LiveValidationRelativeDistanceRatio + 0.75
+}
+
+internal fun <T : ReaderPageRasterPixels> readerPageSemanticLiveValidationResult(
 	candidate: T?,
+	expectedTarget: ReaderPageRasterPixels,
+	expectedSource: ReaderPageRasterPixels?,
 	isStillCurrent: Boolean,
-	release: (T) -> Unit
+	releaseCandidate: (T) -> Unit
 ): ReaderPageRelocationContentValidationResult {
-	candidate?.let(release)
-	return when {
-		!isStillCurrent -> ReaderPageRelocationContentValidationResult.Invalidated
-		candidate == null -> ReaderPageRelocationContentValidationResult.ContentRejected
-		else -> ReaderPageRelocationContentValidationResult.Accepted
+	return try {
+		when {
+			!isStillCurrent -> ReaderPageRelocationContentValidationResult.Invalidated
+			candidate == null -> ReaderPageRelocationContentValidationResult.ContentRejected
+			readerPageLiveRasterMatchesExpected(candidate, expectedTarget, expectedSource) ->
+				ReaderPageRelocationContentValidationResult.Accepted
+			else -> ReaderPageRelocationContentValidationResult.ContentRejected
+		}
+	} finally {
+		candidate?.let(releaseCandidate)
+	}
+}
+
+internal data class ReaderPageLiveValidationWork<T : Any, C : Any>(
+	val expectedTarget: T,
+	val expectedSource: T?,
+	val candidate: C
+)
+
+internal class ReaderPageLiveValidationSnapshotOwnership<T : Any, C : Any>(
+	expectedTarget: T,
+	expectedSource: T?,
+	private val releaseExpected: (T) -> Unit,
+	private val releaseCandidate: (C) -> Unit,
+	private val onTerminal: () -> Unit = {}
+) : ReaderPageRelocationContentValidationHandle {
+	private enum class State {
+		Capturing,
+		Working,
+		AwaitingMain,
+		Cancelling,
+		Terminal
+	}
+
+	private data class Owned<T : Any, C : Any>(
+		val expectedTarget: T,
+		val expectedSource: T?,
+		val candidate: C?
+	)
+
+	private data class Publication<T : Any, C : Any>(
+		val owned: Owned<T, C>,
+		val result: ReaderPageRelocationContentValidationResult
+	)
+
+	private val lock = Any()
+	private var state = State.Capturing
+	private var expectedTarget: T? = expectedTarget
+	private var expectedSource: T? = expectedSource
+	private var candidate: C? = null
+	private var captureHandle: ReaderPageRelocationContentValidationHandle? = null
+	private var workerHandle: ReaderPageRelocationContentValidationHandle? = null
+	private var workerActive = false
+	private var workerResult: ReaderPageRelocationContentValidationResult? = null
+
+	fun attachCapture(handle: ReaderPageRelocationContentValidationHandle) {
+		val cancelImmediately = synchronized(lock) {
+			if (state == State.Capturing) {
+				check(captureHandle == null) { "Live validation capture handle already attached" }
+				captureHandle = handle
+				false
+			} else {
+				true
+			}
+		}
+		if (cancelImmediately) handle.cancel()
+	}
+
+	fun beginWorker(candidate: C): ReaderPageLiveValidationWork<T, C>? {
+		val work = synchronized(lock) {
+			if (state != State.Capturing) return@synchronized null
+			state = State.Working
+			captureHandle = null
+			workerActive = true
+			this.candidate = candidate
+			ReaderPageLiveValidationWork(
+				expectedTarget = checkNotNull(expectedTarget),
+				expectedSource = expectedSource,
+				candidate = candidate
+			)
+		}
+		if (work == null) releaseCandidate(candidate)
+		return work
+	}
+
+	fun completeCapture(
+		candidate: C?,
+		result: ReaderPageRelocationContentValidationResult
+	): Boolean {
+		val accepted = synchronized(lock) {
+			if (state != State.Capturing) return@synchronized false
+			state = State.AwaitingMain
+			captureHandle = null
+			this.candidate = candidate
+			workerResult = result
+			true
+		}
+		if (!accepted) candidate?.let(releaseCandidate)
+		return accepted
+	}
+
+	fun attachWorker(handle: ReaderPageRelocationContentValidationHandle) {
+		val cancelImmediately = synchronized(lock) {
+			if (state == State.Working && workerActive) {
+				check(workerHandle == null) { "Live validation worker handle already attached" }
+				workerHandle = handle
+				false
+			} else {
+				true
+			}
+		}
+		if (cancelImmediately) handle.cancel()
+	}
+
+	fun recordWorkerResult(result: ReaderPageRelocationContentValidationResult): Boolean =
+		synchronized(lock) {
+			if (
+				state != State.Working ||
+				!workerActive ||
+				workerResult != null
+			) {
+				return@synchronized false
+			}
+			workerResult = result
+			true
+		}
+
+	fun workerFinished(cancelled: Boolean): Boolean {
+		var released: Owned<T, C>? = null
+		val shouldPost = synchronized(lock) {
+			if (!workerActive) return@synchronized false
+			workerActive = false
+			workerHandle = null
+			when {
+				state == State.Cancelling -> {
+					state = State.Terminal
+					released = takeOwnedLocked()
+					false
+				}
+				state != State.Working -> false
+				cancelled || workerResult == null -> {
+					state = State.Terminal
+					released = takeOwnedLocked()
+					false
+				}
+				else -> {
+					state = State.AwaitingMain
+					true
+				}
+			}
+		}
+		released?.let(::releaseOwned)
+		return shouldPost
+	}
+
+	fun publish(
+		action: (T, T?, C?, ReaderPageRelocationContentValidationResult) -> Unit
+	): Boolean {
+		val publication = synchronized(lock) {
+			if (state != State.AwaitingMain) return false
+			state = State.Terminal
+			val result = checkNotNull(workerResult)
+			Publication(
+				owned = takeOwnedLocked(),
+				result = result
+			)
+		}
+		try {
+			action(
+				publication.owned.expectedTarget,
+				publication.owned.expectedSource,
+				publication.owned.candidate,
+				publication.result
+			)
+		} finally {
+			releaseOwned(publication.owned)
+		}
+		return true
+	}
+
+	override fun cancel(): Boolean {
+		var released: Owned<T, C>? = null
+		var capture: ReaderPageRelocationContentValidationHandle? = null
+		var worker: ReaderPageRelocationContentValidationHandle? = null
+		val cancelled = synchronized(lock) {
+			when (state) {
+				State.Capturing -> {
+					state = State.Terminal
+					capture = captureHandle
+					captureHandle = null
+					released = takeOwnedLocked()
+					true
+				}
+				State.Working -> {
+					state = State.Cancelling
+					worker = workerHandle
+					workerHandle = null
+					true
+				}
+				State.AwaitingMain -> {
+					state = State.Terminal
+					released = takeOwnedLocked()
+					true
+				}
+				State.Cancelling,
+				State.Terminal -> false
+			}
+		}
+		if (!cancelled) return false
+		try {
+			capture?.cancel()
+			worker?.cancel()
+		} finally {
+			released?.let(::releaseOwned)
+		}
+		return true
+	}
+
+	private fun takeOwnedLocked(): Owned<T, C> {
+		val owned = Owned(
+			expectedTarget = checkNotNull(expectedTarget),
+			expectedSource = expectedSource,
+			candidate = candidate
+		)
+		expectedTarget = null
+		expectedSource = null
+		candidate = null
+		workerResult = null
+		return owned
+	}
+
+	private fun releaseOwned(owned: Owned<T, C>) {
+		try {
+			releaseExpected(owned.expectedTarget)
+		} finally {
+			try {
+				owned.expectedSource?.let(releaseExpected)
+			} finally {
+				try {
+					owned.candidate?.let(releaseCandidate)
+				} finally {
+					onTerminal()
+				}
+			}
+		}
 	}
 }
 
@@ -178,6 +583,91 @@ internal fun readerPageRasterPhysicalLayoutMatches(
 	val referenceLayout = readerPageRasterPhysicalLayout(reference) ?: return false
 	return candidateLayout.matches(referenceLayout)
 }
+
+private class ReaderPageBitmapRasterPixels(
+	private val bitmap: Bitmap
+) : ReaderPageRasterPixels {
+	override val width: Int
+		get() = bitmap.width
+	override val height: Int
+		get() = bitmap.height
+
+	override fun readRows(top: Int, rowCount: Int, destination: IntArray) {
+		bitmap.getPixels(
+			destination,
+			0,
+			bitmap.width,
+			0,
+			top,
+			bitmap.width,
+			rowCount
+		)
+	}
+}
+
+private fun readerPageLiveCaptureMatchesExpected(
+	candidate: ReaderPageTurnCaptureResult,
+	expectedTarget: ReaderPageSlideSnapshot,
+	expectedSource: ReaderPageSlideSnapshot?,
+	cancellationCheck: () -> Unit
+): Boolean {
+	if (
+		candidate.bitmap.isRecycled ||
+		expectedTarget.bitmap.isRecycled ||
+		expectedSource?.bitmap?.isRecycled == true
+	) {
+		return false
+	}
+	val kind = expectedTarget.key.kind
+	val candidateGeometry = candidate.geometry.leafGeometry(
+		candidate.bitmap.width,
+		candidate.bitmap.height
+	) ?: return false
+	if (!readerPageRasterGeometryMatches(kind, candidateGeometry)) return false
+	val candidateLayout = readerPageRasterPhysicalLayout(
+		surfaceRectInWindow = candidate.sourceRectInWindow,
+		bitmapWidth = candidate.bitmap.width,
+		bitmapHeight = candidate.bitmap.height,
+		geometry = candidateGeometry
+	) ?: return false
+	val targetLayout = readerPageRasterPhysicalLayout(expectedTarget) ?: return false
+	if (!candidateLayout.matches(targetLayout)) return false
+	if (
+		expectedSource != null &&
+		(
+			expectedSource.key.kind != kind ||
+			expectedSource.key.bitmapQuality != expectedTarget.key.bitmapQuality ||
+			readerPageRasterPhysicalLayout(expectedSource)?.matches(targetLayout) != true
+		)
+	) {
+		return false
+	}
+	return readerPageLiveRasterMatchesExpected(
+		candidate = ReaderPageBitmapRasterPixels(candidate.bitmap),
+		expectedTarget = ReaderPageBitmapRasterPixels(expectedTarget.bitmap),
+		expectedSource = expectedSource?.bitmap?.let(::ReaderPageBitmapRasterPixels),
+		cancellationCheck = cancellationCheck
+	)
+}
+
+private fun readerPageLiveCaptureValidationResult(
+	candidate: ReaderPageTurnCaptureResult,
+	expectedTarget: ReaderPageSlideSnapshot,
+	expectedSource: ReaderPageSlideSnapshot?,
+	cancellationCheck: () -> Unit
+): ReaderPageRelocationContentValidationResult =
+	if (
+		readerPageLiveCaptureMatchesExpected(
+			candidate = candidate,
+			expectedTarget = expectedTarget,
+			expectedSource = expectedSource,
+			cancellationCheck = cancellationCheck
+		)
+	) {
+		ReaderPageRelocationContentValidationResult.Accepted
+	} else {
+		ReaderPageRelocationContentValidationResult.ContentRejected
+	}
 
 internal data class ReaderPagePreparedSnapshotGeometry(
 	val surfaceRectInWindow: Rect,
@@ -309,6 +799,8 @@ internal class ReaderPageTurnBundleSource(
 	private val teardownJob = SupervisorJob()
 	private val teardownScope = CoroutineScope(teardownJob + Dispatchers.Default)
 	private val closeFenceLock = Any()
+	private val activeLiveValidations =
+		linkedSetOf<ReaderPageRelocationContentValidationHandle>()
 	private val rasterInitializationMutex = Mutex()
 	private val rasterPersistenceJobLock = Any()
 	private val rasterPersistenceJobs = linkedSetOf<Job>()
@@ -559,13 +1051,32 @@ internal class ReaderPageTurnBundleSource(
 	fun retainedCurrentLayoutSnapshot(
 		pageIndex: Int,
 		kind: ReaderPageTurnTransitionKind
+	): ReaderPageSlideSnapshot? = retainedCurrentLayoutSnapshot(
+		pageIndex = pageIndex,
+		kind = kind,
+		expectedGeneration = activeGeneration,
+		expectedQuality = bitmapQuality
+	)
+
+	fun retainedCurrentLayoutSnapshot(
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		expectedGeneration: Long,
+		expectedQuality: ReaderPageBitmapQuality
 	): ReaderPageSlideSnapshot? {
+		if (
+			expectedGeneration != activeGeneration ||
+			expectedQuality != bitmapQuality
+		) {
+			return null
+		}
 		val authority = physicalLayoutAuthority?.takeIf { current -> current.kind == kind }
 			?: return null
 		return snapshotCache.entries
 			.lastOrNull { (key, snapshot) ->
 				key.visualPageIndex == pageIndex &&
 					key.kind == kind &&
+					key.bitmapQuality == expectedQuality &&
 					readerPageRasterPhysicalLayout(snapshot)?.matches(authority.layout) == true
 			}
 			?.let { (key, value) ->
@@ -1062,14 +1573,74 @@ internal class ReaderPageTurnBundleSource(
 		else mainHandler.post(action)
 	}
 
+	private fun registerLiveValidation(
+		handle: ReaderPageRelocationContentValidationHandle
+	): Boolean = synchronized(closeFenceLock) {
+		if (closed) false else activeLiveValidations.add(handle)
+	}
+
+	private fun unregisterLiveValidation(
+		handle: ReaderPageRelocationContentValidationHandle
+	) {
+		synchronized(closeFenceLock) {
+			activeLiveValidations.remove(handle)
+		}
+	}
+
+	private fun postLiveValidationResult(
+		ownership: ReaderPageLiveValidationSnapshotOwnership<
+			ReaderPageSlideSnapshot,
+			ReaderPageTurnCaptureResult
+		>,
+		isStillCurrent: () -> Boolean,
+		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
+	) {
+		val posted = mainHandler.post {
+			ownership.publish { _, _, _, workerResult ->
+				val current = synchronized(closeFenceLock) { !closed } &&
+					runCatching(isStillCurrent).getOrDefault(false)
+				onValidated(
+					if (current) workerResult
+					else ReaderPageRelocationContentValidationResult.Invalidated
+				)
+			}
+		}
+		if (!posted) ownership.cancel()
+	}
+
 	fun validateLivePresentation(
 		webView: WebView,
 		request: ReaderPageRelocationRequest,
+		expectedTarget: ReaderPageSlideSnapshot,
+		expectedSource: ReaderPageSlideSnapshot?,
 		isStillCurrent: () -> Boolean,
 		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
 	): ReaderPageRelocationContentValidationHandle {
-		if (!isStillCurrent()) {
-			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+		lateinit var ownership: ReaderPageLiveValidationSnapshotOwnership<
+			ReaderPageSlideSnapshot,
+			ReaderPageTurnCaptureResult
+		>
+		ownership = ReaderPageLiveValidationSnapshotOwnership(
+			expectedTarget = expectedTarget,
+			expectedSource = expectedSource,
+			releaseExpected = ReaderPageSlideSnapshot::release,
+			releaseCandidate = { captured ->
+				captured.bitmap.takeUnless { bitmap -> bitmap.isRecycled }?.recycle()
+			},
+			onTerminal = { unregisterLiveValidation(ownership) }
+		)
+		fun completeImmediately(
+			result: ReaderPageRelocationContentValidationResult
+		): Boolean {
+			if (!ownership.completeCapture(candidate = null, result = result)) return false
+			return ownership.publish { _, _, _, completed -> onValidated(completed) }
+		}
+		if (!registerLiveValidation(ownership)) {
+			completeImmediately(ReaderPageRelocationContentValidationResult.Invalidated)
+			return ReaderPageRelocationContentValidationHandle.Completed
+		}
+		if (!runCatching(isStillCurrent).getOrDefault(false)) {
+			completeImmediately(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
 		val target = runCatching {
@@ -1082,26 +1653,91 @@ internal class ReaderPageTurnBundleSource(
 			)
 		}.getOrNull()
 		if (target == null) {
-			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			completeImmediately(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
-		return bitmapSource.capturePresentedSurface(
-			webView = webView,
-			target = target,
-			isStillCurrent = isStillCurrent
-		) { captured ->
-			onValidated(
-				readerPageTransientLiveValidationResult(
-					candidate = captured,
-					isStillCurrent = isStillCurrent(),
-					release = { transient ->
-						transient.bitmap
-							.takeUnless { it.isRecycled }
-							?.recycle()
+		val captureHandle = try {
+			bitmapSource.capturePresentedSurface(
+				webView = webView,
+				target = target,
+				isStillCurrent = isStillCurrent
+			) { captured ->
+				if (captured == null) {
+					if (
+						ownership.completeCapture(
+							candidate = null,
+							result = ReaderPageRelocationContentValidationResult.ContentRejected
+						)
+					) {
+						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+					}
+					return@capturePresentedSurface
+				}
+				if (!runCatching(isStillCurrent).getOrDefault(false)) {
+					if (
+						ownership.completeCapture(
+							candidate = captured,
+							result = ReaderPageRelocationContentValidationResult.Invalidated
+						)
+					) {
+						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+					}
+					return@capturePresentedSurface
+				}
+				val work = ownership.beginWorker(captured)
+					?: return@capturePresentedSurface
+				val workerJob = try {
+					rasterScope.launch(Dispatchers.Default) {
+						val workerContext = currentCoroutineContext()
+						val result = try {
+							workerContext.ensureActive()
+							readerPageLiveCaptureValidationResult(
+								candidate = work.candidate,
+								expectedTarget = work.expectedTarget,
+								expectedSource = work.expectedSource,
+								cancellationCheck = { workerContext.ensureActive() }
+							)
+						} catch (cancelled: CancellationException) {
+							throw cancelled
+						} catch (_: Throwable) {
+							ReaderPageRelocationContentValidationResult.Invalidated
+						}
+						ownership.recordWorkerResult(result)
+					}
+				} catch (_: Throwable) {
+					ownership.recordWorkerResult(
+						ReaderPageRelocationContentValidationResult.Invalidated
+					)
+					if (ownership.workerFinished(cancelled = false)) {
+						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+					}
+					return@capturePresentedSurface
+				}
+				ownership.attachWorker(
+					ReaderPageRelocationContentValidationHandle {
+						workerJob.cancel()
+						true
 					}
 				)
-			)
+				workerJob.invokeOnCompletion { failure ->
+					if (
+						ownership.workerFinished(
+							cancelled = failure is CancellationException
+						)
+					) {
+						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+					}
+				}
+			}
+		} catch (failure: Throwable) {
+			if (!completeImmediately(ReaderPageRelocationContentValidationResult.Invalidated)) {
+				ownership.cancel()
+				throw failure
+			}
+			return ReaderPageRelocationContentValidationHandle.Completed
 		}
+		ownership.attachCapture(captureHandle)
+		return ownership
 	}
 
 	fun capturePreparedRasterPage(
@@ -2081,6 +2717,7 @@ internal class ReaderPageTurnBundleSource(
 		synchronized(closeFenceLock) {
 			if (closed) return
 			closed = true
+			activeLiveValidations.toList().forEach { validation -> validation.cancel() }
 			persistenceRetryCorrelations.clear()
 			rasterJob.cancel()
 			try {
