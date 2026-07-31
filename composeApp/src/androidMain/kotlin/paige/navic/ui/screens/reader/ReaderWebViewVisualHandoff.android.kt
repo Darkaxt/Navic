@@ -860,6 +860,16 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		Closed
 	}
 
+	private data class PendingQaFaultInheritance(
+		val replacementToken: String,
+		val correlation: ReaderPageQaFaultCorrelation
+	) {
+		init {
+			require(correlation.relation == ReaderPageQaFaultRelation.Recovery)
+			require(correlation.appliedOperation.relocationToken != null)
+		}
+	}
+
 	private var phase = Phase.Idle
 	private var head: ReaderPageRelocationRequest? = null
 	private var contentValidationFailures = 0
@@ -873,6 +883,8 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	private var pendingVisualReadyTerminal:
 		ReaderWebViewVisualHandoffAttemptEvent.Terminal? = null
 	private var headQaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
+	private var inheritedHeadQaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
+	private var pendingQaFaultInheritance: PendingQaFaultInheritance? = null
 	private var qaFaultAppliedHandoffAttemptId: Long? = null
 	private var currentHandoffAttemptId: Long? = null
 	private val correlatedAttemptEventSink =
@@ -880,8 +892,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			when (event) {
 				is ReaderWebViewVisualHandoffAttemptEvent.Started -> {
 					currentHandoffAttemptId = event.handoffAttemptId
+					val correlation = headQaFaultCorrelation
 					if (
-						headQaFaultCorrelation != null &&
+						correlation != null &&
+						correlation.relation != ReaderPageQaFaultRelation.Recovery &&
 						qaFaultAppliedHandoffAttemptId == null
 					) {
 						qaFaultAppliedHandoffAttemptId = event.handoffAttemptId
@@ -936,6 +950,20 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		qaFaultCorrelation: ReaderPageQaFaultCorrelation? = null
 	): Boolean {
 		if (phase != Phase.Idle || !matchesAcknowledgedHead(request)) return false
+		if (
+			qaFaultCorrelation != null &&
+			qaFaultCorrelation.appliedOperation.relocationToken != request.token.value
+		) {
+			return false
+		}
+		val pendingInheritance = pendingQaFaultInheritance
+		if (
+			pendingInheritance != null &&
+			pendingInheritance.replacementToken != request.token.value
+		) {
+			return false
+		}
+		val inheritedCorrelation = pendingInheritance?.correlation
 		head = request
 		contentValidationFailures = 0
 		contentValidationExhausted = false
@@ -945,7 +973,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		check(retainedRepreparedEvidence == null)
 		check(pendingVisualReadyTerminal == null)
 		headQaFaultCorrelation = qaFaultCorrelation
-		qaFaultAppliedHandoffAttemptId = null
+		inheritedHeadQaFaultCorrelation = inheritedCorrelation
+		pendingQaFaultInheritance = null
+		qaFaultAppliedHandoffAttemptId =
+			qaFaultCorrelation?.appliedOperation?.handoffAttemptId
 		return begin(request)
 	}
 
@@ -974,7 +1005,13 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		relocationToken: String,
 		handoffAttemptId: Long? = null
 	): ReaderPageQaFaultCorrelation? {
-		val root = headQaFaultCorrelation ?: return null
+		if (head?.token?.value != relocationToken) return null
+		val root = headQaFaultCorrelation
+		if (root == null) {
+			return inheritedHeadQaFaultCorrelation?.withRelation(
+				ReaderPageQaFaultRelation.Recovery
+			)
+		}
 		if (root.appliedOperation.relocationToken != relocationToken) return null
 		val attemptId = handoffAttemptId ?: currentHandoffAttemptId
 		return attemptId?.let {
@@ -986,8 +1023,17 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		relocationToken: String,
 		handoffAttemptId: Long
 	): ReaderPageQaFaultCorrelation? {
-		val root = headQaFaultCorrelation ?: return null
+		if (head?.token?.value != relocationToken) return null
+		val root = headQaFaultCorrelation
+		if (root == null) {
+			return inheritedHeadQaFaultCorrelation?.withRelation(
+				ReaderPageQaFaultRelation.Recovery
+			)
+		}
 		if (root.appliedOperation.relocationToken != relocationToken) return null
+		if (root.relation == ReaderPageQaFaultRelation.Recovery) {
+			return root.withRelation(ReaderPageQaFaultRelation.Recovery)
+		}
 		val appliedAttempt = qaFaultAppliedHandoffAttemptId ?: return null
 		return root.withRelation(
 			if (handoffAttemptId == appliedAttempt) {
@@ -1158,13 +1204,21 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		clearContentValidationAttempt()
 		handoff.cancelPendingCapacityRetryEdge(request.token.value)
 		check(handoff.pendingCapacityRetryEdgeCount() == 0)
+		pendingQaFaultInheritance = qaFaultCorrelation(request.token.value)
+			?.withRelation(ReaderPageQaFaultRelation.Recovery)
+			?.let { correlation ->
+				PendingQaFaultInheritance(
+					replacementToken = replacement.token.value,
+					correlation = correlation
+				)
+			}
 		onReplaced(request, replacement)
 		head = null
 		phase = Phase.Idle
 		contentValidationFailures = 0
 		contentValidationExhausted = false
 		contentValidationEpoch += 1L
-		clearQaFaultCorrelation()
+		clearQaFaultCorrelation(clearPendingInheritance = false)
 		val command = queue.commandToDispatch()
 		check(command == replacement)
 		dispatch(replacement)
@@ -1464,8 +1518,12 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		)
 	}
 
-	private fun clearQaFaultCorrelation() {
+	private fun clearQaFaultCorrelation(
+		clearPendingInheritance: Boolean = true
+	) {
 		headQaFaultCorrelation = null
+		inheritedHeadQaFaultCorrelation = null
+		if (clearPendingInheritance) pendingQaFaultInheritance = null
 		qaFaultAppliedHandoffAttemptId = null
 		currentHandoffAttemptId = null
 	}
@@ -1510,7 +1568,11 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 	}
 
 	fun cancelForQueueInvalidation() {
-		val request = head ?: return
+		val request = head
+		if (request == null) {
+			clearQaFaultCorrelation()
+			return
+		}
 		clearContentValidationAttempt()
 		publishPendingVisualTerminal(
 			request,

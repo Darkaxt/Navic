@@ -99,6 +99,37 @@ data class ReaderPageQaFaultCorrelation(
 		copy(relation = relation)
 }
 
+internal class ReaderPageRelocationQaFaultCorrelationStore {
+	private val correlations = mutableMapOf<String, ReaderPageQaFaultCorrelation>()
+
+	operator fun get(relocationToken: String): ReaderPageQaFaultCorrelation? =
+		correlations[relocationToken]
+
+	operator fun set(
+		relocationToken: String,
+		correlation: ReaderPageQaFaultCorrelation
+	) {
+		correlations[relocationToken] = correlation
+	}
+
+	fun remove(relocationToken: String): ReaderPageQaFaultCorrelation? =
+		correlations.remove(relocationToken)
+
+	fun transfer(
+		originalToken: String,
+		replacementToken: String
+	): ReaderPageQaFaultCorrelation? {
+		require(originalToken != replacementToken)
+		check(replacementToken !in correlations)
+		val original = correlations.remove(originalToken) ?: return null
+		return original.withRelation(ReaderPageQaFaultRelation.Recovery).also {
+			correlations[replacementToken] = it
+		}
+	}
+
+	fun clear() = correlations.clear()
+}
+
 data class ReaderPageQaFaultEvent(
 	val ticket: ReaderPageQaFaultTicket,
 	val seam: String,

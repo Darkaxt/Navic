@@ -1238,6 +1238,230 @@ class ReaderWebViewVisualHandoffTest {
 		assertEquals(listOf(replacement), hidden)
 	}
 
+	private data class FaultedReplacementFixture(
+		val queue: ReaderPageRelocationQueue,
+		val original: ReaderPageRelocationRequest,
+		val replacement: ReaderPageRelocationRequest,
+		val host: FakeVisualHandoffHost,
+		val coordinator: ReaderPageRelocationVisualHandoffCoordinator,
+		val events: MutableList<ReaderWebViewVisualHandoffAttemptEvent>,
+		val originalAttemptId: Long,
+		val updateState: (ReaderPageRelocationRequest) -> Unit
+	)
+
+	private fun prepareFaultedReplacement(
+		gestureId: Long,
+		requestId: String,
+		replacementRasterGeneration: Long,
+		replacementTextureGeneration: Long
+	): FaultedReplacementFixture {
+		val queue = ReaderPageRelocationQueue()
+		val original = enqueueVisualRequest(queue, gestureId = gestureId)
+		acknowledgeForVisualHandoff(queue, original)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(original)
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val events = mutableListOf<ReaderWebViewVisualHandoffAttemptEvent>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = dispatched::add,
+			publishRecovery = { _, _ -> },
+			hideSurface = {},
+			validateContent = { request, onValidated ->
+				onValidated(
+					if (request.token == original.token) {
+						ReaderPageRelocationContentValidationResult.ContentRejected
+					} else {
+						ReaderPageRelocationContentValidationResult.Accepted
+					}
+				)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			attemptEventSink = ReaderWebViewVisualHandoffAttemptEventSink(events::add)
+		)
+		assertTrue(coordinator.onAcknowledged(original))
+		val originalAttemptId = events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Started
+		>().single().handoffAttemptId
+		assertTrue(
+			coordinator.attachQaFault(
+				original.token.value,
+				originalAttemptId,
+				ReaderPageQaFaultCorrelation(
+					requestId = requestId,
+					appliedOperation = ReaderPageQaFaultOperationContext(
+						relocationToken = original.token.value,
+						handoffAttemptId = originalAttemptId
+					),
+					relation = ReaderPageQaFaultRelation.AppliedOperation
+				)
+			)
+		)
+		host.completeVisualState()
+		host.runNextFrame()
+		state = state.copy(
+			rasterGeneration = replacementRasterGeneration,
+			textureGeneration = replacementTextureGeneration
+		)
+		assertTrue(
+			coordinator.onRetryEvent(
+				ReaderPageRelocationVisualRetryEvent.Reprepared(
+					original.foliateSessionId,
+					original.destinationOrdinal,
+					replacementRasterGeneration,
+					replacementTextureGeneration
+				)
+			)
+		)
+		return FaultedReplacementFixture(
+			queue = queue,
+			original = original,
+			replacement = dispatched.single(),
+			host = host,
+			coordinator = coordinator,
+			events = events,
+			originalAttemptId = originalAttemptId,
+			updateState = { request -> state = visualStateFor(request) }
+		)
+	}
+
+	private fun acknowledgeReplacement(fixture: FaultedReplacementFixture) {
+		val replacement = fixture.replacement
+		assertTrue(
+			fixture.queue.acknowledge(
+				replacement.token.value,
+				replacement.destinationOrdinal,
+				replacement.foliateSessionId,
+				replacement.rasterGeneration,
+				replacement.textureGeneration
+			)
+		)
+	}
+
+	@Test
+	fun replacementHandoffRetainsOriginalVisualFaultAsRecovery() {
+		val fixture = prepareFaultedReplacement(
+			gestureId = 2L,
+			requestId = "replacement-visual-fault",
+			replacementRasterGeneration = 12L,
+			replacementTextureGeneration = 22L
+		)
+		acknowledgeReplacement(fixture)
+		val unrelatedRecovery = ReaderPageQaFaultCorrelation(
+			requestId = "unrelated-recovery-fault",
+			appliedOperation = ReaderPageQaFaultOperationContext(
+				relocationToken = "unrelated-token",
+				handoffAttemptId = fixture.originalAttemptId
+			),
+			relation = ReaderPageQaFaultRelation.Recovery
+		)
+		assertFalse(
+			fixture.coordinator.onAcknowledged(
+				fixture.replacement,
+				unrelatedRecovery
+			)
+		)
+		assertTrue(fixture.coordinator.onAcknowledged(fixture.replacement))
+		fixture.host.completeVisualState()
+		fixture.host.runNextFrame()
+
+		val replacementTerminal = fixture.events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Terminal
+		>().single { it.relocationToken == fixture.replacement.token.value }
+		assertIs<ReaderWebViewVisualHandoffResult.Ready>(replacementTerminal.result)
+		assertEquals(
+			"replacement-visual-fault",
+			replacementTerminal.qaFaultCorrelation?.requestId
+		)
+		assertEquals(
+			ReaderPageQaFaultRelation.Recovery,
+			replacementTerminal.qaFaultCorrelation?.relation
+		)
+		assertEquals(
+			fixture.original.token.value,
+			replacementTerminal.qaFaultCorrelation?.appliedOperation?.relocationToken
+		)
+		assertEquals(
+			fixture.originalAttemptId,
+			replacementTerminal.qaFaultCorrelation?.appliedOperation?.handoffAttemptId
+		)
+	}
+
+	@Test
+	fun replacementCanAttachItsOwnVisualFaultAfterInheritedRecovery() {
+		val fixture = prepareFaultedReplacement(
+			gestureId = 3L,
+			requestId = "original-visual-fault",
+			replacementRasterGeneration = 13L,
+			replacementTextureGeneration = 23L
+		)
+		acknowledgeReplacement(fixture)
+		assertTrue(fixture.coordinator.onAcknowledged(fixture.replacement))
+		val replacementAttempt = fixture.events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Started
+		>().single { it.relocationToken == fixture.replacement.token.value }
+		val replacementCorrelation = ReaderPageQaFaultCorrelation(
+			requestId = "replacement-own-visual-fault",
+			appliedOperation = ReaderPageQaFaultOperationContext(
+				relocationToken = fixture.replacement.token.value,
+				handoffAttemptId = replacementAttempt.handoffAttemptId
+			),
+			relation = ReaderPageQaFaultRelation.AppliedOperation
+		)
+		assertTrue(
+			fixture.coordinator.attachQaFault(
+				fixture.replacement.token.value,
+				replacementAttempt.handoffAttemptId,
+				replacementCorrelation
+			)
+		)
+		fixture.host.completeVisualState()
+		fixture.host.runNextFrame()
+
+		val replacementTerminal = fixture.events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Terminal
+		>().single { it.relocationToken == fixture.replacement.token.value }
+		assertEquals(
+			"replacement-own-visual-fault",
+			replacementTerminal.qaFaultCorrelation?.requestId
+		)
+		assertEquals(
+			ReaderPageQaFaultRelation.AppliedOperation,
+			replacementTerminal.qaFaultCorrelation?.relation
+		)
+	}
+
+	@Test
+	fun queueInvalidationClearsPendingReplacementFaultInheritance() {
+		val fixture = prepareFaultedReplacement(
+			gestureId = 4L,
+			requestId = "invalidated-replacement-fault",
+			replacementRasterGeneration = 14L,
+			replacementTextureGeneration = 24L
+		)
+		fixture.coordinator.cancelForQueueInvalidation()
+		fixture.queue.cancelAll()
+		val fresh = enqueueVisualRequest(
+			queue = fixture.queue,
+			gestureId = 5L,
+			rasterGeneration = 15L,
+			textureGeneration = 25L
+		)
+		acknowledgeForVisualHandoff(fixture.queue, fresh)
+		fixture.updateState(fresh)
+
+		assertTrue(fixture.coordinator.onAcknowledged(fresh))
+		fixture.host.completeVisualState()
+		fixture.host.runNextFrame()
+		val terminal = fixture.events.filterIsInstance<
+			ReaderWebViewVisualHandoffAttemptEvent.Terminal
+		>().single { it.relocationToken == fresh.token.value }
+		assertIs<ReaderWebViewVisualHandoffResult.Ready>(terminal.result)
+		assertNull(terminal.qaFaultCorrelation)
+	}
+
 	@Test
 	fun repreparedDuringValidationIsConsumedOnInvalidationWithoutSecondEvent() {
 		val queue = ReaderPageRelocationQueue()

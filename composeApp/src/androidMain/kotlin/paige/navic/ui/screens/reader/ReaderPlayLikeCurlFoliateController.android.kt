@@ -486,7 +486,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	)
 	private val relocationDiagnosticStarts = mutableMapOf<String, Long>()
 	private val relocationQaFaultCorrelations =
-		mutableMapOf<String, ReaderPageQaFaultCorrelation>()
+		ReaderPageRelocationQaFaultCorrelationStore()
 	private val handoffDiagnosticStarts = mutableMapOf<Long, Long>()
 	private val handoffDiagnosticTargets = mutableMapOf<Long, Int>()
 	private val staleHandoffDiagnosticStarts = mutableMapOf<Long, Long>()
@@ -4183,7 +4183,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		relocationDiagnosticStarts.remove(original.token.value)?.let { startedAt ->
 			relocationDiagnosticStarts[replacement.token.value] = startedAt
 		}
-		relocationQaFaultCorrelations.remove(original.token.value)
+		relocationQaFaultCorrelations.transfer(
+			originalToken = original.token.value,
+			replacementToken = replacement.token.value
+		)
 	}
 
 	private fun completeRelocationVisualHandoff(

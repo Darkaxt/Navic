@@ -52,6 +52,33 @@ class ReaderPageQaFaultRegistryTest {
 	) != null
 
 	@Test
+	fun relocationCorrelationStoreTransfersRecoveryIdentityAndCleansUp() {
+		val store = ReaderPageRelocationQaFaultCorrelationStore()
+		val original = ReaderPageQaFaultCorrelation(
+			requestId = "visual-replacement-store",
+			appliedOperation = ReaderPageQaFaultOperationContext(
+				relocationToken = "original-token",
+				handoffAttemptId = 7L
+			),
+			relation = ReaderPageQaFaultRelation.AppliedOperation
+		)
+		store["original-token"] = original
+
+		val recovery = store.transfer(
+			originalToken = "original-token",
+			replacementToken = "replacement-token"
+		)
+
+		assertNull(store["original-token"])
+		assertEquals(recovery, store["replacement-token"])
+		assertEquals("visual-replacement-store", recovery?.requestId)
+		assertEquals(original.appliedOperation, recovery?.appliedOperation)
+		assertEquals(ReaderPageQaFaultRelation.Recovery, recovery?.relation)
+		assertEquals(recovery, store.remove("replacement-token"))
+		assertNull(store["replacement-token"])
+	}
+
+	@Test
 	fun everyQueuedFaultEmitsOneStrictAppliedChain() {
 		ReaderPageQaFault.entries.forEachIndexed { index, fault ->
 			assertTrue(

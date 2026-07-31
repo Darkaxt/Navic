@@ -322,6 +322,22 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun replacementRelocationRetainsOriginalFaultAsRecovery() {
+		val source = controllerFile.readText()
+		val replacement = source
+			.substringAfter("private fun replaceRelocationDiagnosticIdentity(")
+			.substringBefore("private fun completeRelocationVisualHandoff(")
+
+		assertContains(
+			source,
+			"ReaderPageRelocationQaFaultCorrelationStore()"
+		)
+		assertContains(replacement, "relocationQaFaultCorrelations.transfer(")
+		assertContains(replacement, "originalToken = original.token.value")
+		assertContains(replacement, "replacementToken = replacement.token.value")
+	}
+
+	@Test
 	fun dispatchedRelocationHasBoundedIdentitySafeAcknowledgementRecovery() {
 		val source = controllerFile.readText()
 		val dispatch = source
