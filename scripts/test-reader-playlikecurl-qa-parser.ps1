@@ -334,7 +334,7 @@ $forcedRepairRelocationCompleted = $forcedRepairQueued.Replace(
     'state=Completed rejectionReason=None queueDepth=0 durationMs=12'
 )
 $promotedNormalDeck =
-    'reader-deck session=7 generation=9 repairAttempt=-1 role=Pending ' +
+    'reader-deck session=7 generation=9 repairAttempt=-1 role=Active ' +
     'prepared=true active=9 pending=null durationMs=8' +
     $NoQaCorrelationFields
 $drainedRepairOwnership = $success.Replace(
@@ -377,9 +377,26 @@ $promotedTexture = @(Get-ReaderPreparedPromotedTexture `
 if ($promotedTexture.Count -ne 1) {
     throw 'Already-promoted texture preparation was not recognized'
 }
+foreach ($invalidActiveDeckState in @(
+        'prepared=true active=8 pending=9',
+        'prepared=true active=9 pending=10'
+    )) {
+    $invalidActiveDeck = @(Get-ReaderPreparedPromotedTexture `
+        -Log $safelySupersededRepairLog.Replace(
+            'prepared=true active=9 pending=null',
+            $invalidActiveDeckState
+        ) `
+        -ReaderSession 7 `
+        -GestureId 101 `
+        -TextureGeneration 9 `
+        -Context "invalid active deck state $invalidActiveDeckState fixture")
+    if ($invalidActiveDeck.Count -ne 0) {
+        throw "Invalid active texture deck state was accepted: $invalidActiveDeckState"
+    }
+}
 $preparedWhilePendingDeck = $promotedNormalDeck.Replace(
-    'prepared=true active=9 pending=null',
-    'prepared=true active=8 pending=9'
+    'role=Active prepared=true active=9 pending=null',
+    'role=Pending prepared=true active=8 pending=9'
 )
 $preparedWhilePendingLog = $safelySupersededRepairLog.Replace(
     $promotedNormalDeck,
@@ -701,7 +718,7 @@ $completedForcedRepairTerminal = $forcedRepairCancelled.Replace(
     'state=Completed reason=None durationMs=8'
 )
 $completedRepairDeckUnprepared = $promotedNormalDeck.Replace(
-    'generation=9 repairAttempt=-1 role=Pending prepared=true active=9',
+    'generation=9 repairAttempt=-1 role=Active prepared=true active=9',
     'generation=8 repairAttempt=30 role=Active prepared=false active=8'
 ).Replace(
     $NoQaCorrelationFields,
@@ -1632,6 +1649,24 @@ foreach ($candidateTreeSource in $candidateTreeSources) {
         $correlatedInputFlow -notmatch '\$_.GestureId -eq \$gestureId' -or
         $correlatedInputFlow -match '-not \$SeenGestureIds.Contains') {
         throw "Runner does not correlate silent-input retries before terminal waiting: $candidateTreeSource"
+    }
+    $visualFaultFlow = $candidateTreeText.Substring(
+        $candidateTreeText.IndexOf(
+            "Add-ReaderQaFault `$visualId 'DelayNextVisualStateCallback'"
+        ),
+        $candidateTreeText.IndexOf(
+            "Add-ReaderQaFault `$repairId 'ForceRepairWithoutPreparedDeck'"
+        ) - $candidateTreeText.IndexOf(
+            "Add-ReaderQaFault `$visualId 'DelayNextVisualStateCallback'"
+        )
+    )
+    if ($visualFaultFlow -notmatch
+            '\$visualRelocation\s*=\s*Wait-ReaderQaRelocationCompleted' -or
+        $visualFaultFlow -notmatch
+            '-TextureGeneration \$visualRelocation\.Match\.TextureGeneration' -or
+        $visualFaultFlow -match
+            '-TextureGeneration \$visualTurn\.TextureGeneration') {
+        throw "Runner does not validate the completed replacement texture generation: $candidateTreeSource"
     }
     $forcedRepairFlow = $candidateTreeText.Substring(
         $candidateTreeText.IndexOf(

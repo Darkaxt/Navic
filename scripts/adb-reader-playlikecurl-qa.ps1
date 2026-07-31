@@ -1544,11 +1544,14 @@ function Invoke-ReaderQaFaultMatrix(
                 $_.QaFaultRequestId -eq $visualId -and $_.Result -eq 'Ready'
             }
         })
-    [void](Wait-ReaderQaRelocationCompleted $ReaderSession $visualTurn.GestureId 'ReaderDev visual relocation')
+    $visualRelocation = Wait-ReaderQaRelocationCompleted `
+        $ReaderSession `
+        $visualTurn.GestureId `
+        'ReaderDev visual relocation'
     [void](Wait-ReaderQaPreparedTextureGeneration `
         -ReaderSession $ReaderSession `
         -GestureId $visualTurn.GestureId `
-        -TextureGeneration $visualTurn.TextureGeneration `
+        -TextureGeneration $visualRelocation.Match.TextureGeneration `
         -Context 'ReaderDev visual promoted texture preparation')
 
     Add-ReaderQaFault $repairId 'ForceRepairWithoutPreparedDeck'

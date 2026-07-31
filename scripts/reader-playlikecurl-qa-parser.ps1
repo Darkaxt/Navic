@@ -639,15 +639,27 @@ function Get-ReaderPreparedPromotedTexture(
         ConvertFrom-ReaderDeckLog $Log | Where-Object {
             $_.Session -eq $ReaderSession -and
                 $_.Generation -eq $TextureGeneration -and
-                $_.Role -eq 'Pending' -and
                 $_.Prepared -and
                 $_.Index -lt $completed[0].Index -and
                 (
-                    ($_.Active -eq $_.Generation -and $null -eq $_.Pending) -or
                     (
-                        $null -ne $_.Active -and
-                            $_.Active -lt $_.Generation -and
-                            $_.Pending -eq $_.Generation
+                        $_.Role -eq 'Active' -and
+                            $_.Active -eq $_.Generation -and
+                            $null -eq $_.Pending
+                    ) -or
+                    (
+                        $_.Role -eq 'Pending' -and
+                            (
+                                (
+                                    $_.Active -eq $_.Generation -and
+                                        $null -eq $_.Pending
+                                ) -or
+                                (
+                                    $null -ne $_.Active -and
+                                        $_.Active -lt $_.Generation -and
+                                        $_.Pending -eq $_.Generation
+                                )
+                            )
                     )
                 )
         }
