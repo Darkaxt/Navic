@@ -802,6 +802,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		bundleSource = pageTurnBundleSource,
 		diagnostics = readerRuntimeDiagnostics,
 		qaFaultRegistry = qaFaultRegistry,
+		hasStaticRasterShieldOwnership = {
+			pageRasterPreparationController.hasStaticRasterShieldOwnership()
+		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
 		onAttachRasterRepairQaFault = ::attachPageRasterRepairQaFault,
 		onRequestRasterRepair = ::requestPageRasterRepair,

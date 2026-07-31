@@ -311,6 +311,16 @@ internal class ReaderPageRasterPreparationController(
 	)
 	private val rasterCacheInitializationJobs = linkedSetOf<Job>()
 
+	internal fun hasStaticRasterShieldOwnership(): Boolean =
+		preparationShield != null ||
+			preparationShieldSnapshot != null ||
+			preparationShieldSession != null ||
+			preparationShieldBatchLabel != null ||
+			activeRasterRepairShieldSession != null ||
+			backgroundPrefetchShield != null ||
+			backgroundPrefetchShieldSnapshot != null ||
+			backgroundPrefetchShieldSessionId != null
+
 	private fun trackVisualRestoration(
 		onRestored: () -> Unit
 	): (ReaderPageRasterCancellationRestoration) -> Unit {

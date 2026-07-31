@@ -1632,6 +1632,35 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun liveValidationRequiresNoRasterShieldAndAVisibleCurlSurfaceThroughThirdReceipt() {
+		val source = controllerFile.readText()
+		val host = hostFile.readText()
+		val constructor = source.substringAfter(
+			"internal class ReaderPlayLikeCurlFoliateController("
+		).substringBefore(") : ReaderPageTapTurnPort")
+		val currentness = source.substringAfter(
+			"private fun livePresentationValidationIsCurrent("
+		).substringBefore("private fun relocationVisualState()")
+		val wiring = host.substringAfter(
+			"private val playLikeCurlController: ReaderPlayLikeCurlFoliateController ="
+		).substringBefore("private val ownershipProbe")
+
+		assertContains(constructor, "private val hasStaticRasterShieldOwnership: () -> Boolean = { true }")
+		assertContains(currentness, "!hasStaticRasterShieldOwnership()")
+		assertContains(currentness, "surfaceView.visibility == View.VISIBLE")
+		assertContains(currentness, "surfaceView.alpha > 0f")
+		assertContains(currentness, "surfaceView.isAttachedToWindow")
+		assertContains(currentness, "surfaceView.isShown")
+		assertContains(currentness, "surfaceView.holder.surface.isValid")
+		assertContains(
+			wiring,
+			"hasStaticRasterShieldOwnership = {\n" +
+				"\t\t\tpageRasterPreparationController.hasStaticRasterShieldOwnership()\n" +
+				"\t\t}"
+		)
+	}
+
+	@Test
 	fun exhaustedLiveValidationFailsInteractionClosedAndRequestsPreparation() {
 		val source = controllerFile.readText()
 		val recovery = source.substringAfter(

@@ -96,6 +96,23 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
+	fun boundedGlyphEdgeOutliersAcceptTargetButStillRejectStaleSource() {
+		val target = authoredPage(accentX = 51, accentColor = 0xffa03020.toInt())
+		val source = target.copy().apply {
+			fillRect(left = 10, top = 44, right = 16, bottom = 48, color = 0xff202020.toInt())
+		}
+		val resampledTarget = target.copy().apply {
+			fillRect(left = 3, top = 3, right = 4, bottom = 4, color = 0xff202020.toInt())
+			fillRect(left = 76, top = 3, right = 77, bottom = 4, color = 0xff202020.toInt())
+			fillRect(left = 3, top = 56, right = 4, bottom = 57, color = 0xff202020.toInt())
+			fillRect(left = 76, top = 56, right = 77, bottom = 57, color = 0xff202020.toInt())
+		}
+
+		assertTrue(readerPageLiveRasterMatchesExpected(resampledTarget, target, source))
+		assertFalse(readerPageLiveRasterMatchesExpected(source, target, source))
+	}
+
+	@Test
 	fun blankAndUnrelatedRastersAreRejected() {
 		val source = authoredPage(accentX = 13, accentColor = 0xff204060.toInt())
 		val target = authoredPage(accentX = 51, accentColor = 0xffa03020.toInt())
@@ -368,6 +385,171 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
+	fun liveValidationCurrentnessRequiresOriginalOpenBundleGenerationAndCaller() {
+		assertTrue(
+			readerPageLiveValidationIsCurrent(
+				expectedGeneration = 8,
+				currentGeneration = 8,
+				closed = false,
+				callerCurrent = true
+			)
+		)
+		assertFalse(
+			readerPageLiveValidationIsCurrent(
+				expectedGeneration = 8,
+				currentGeneration = 9,
+				closed = false,
+				callerCurrent = true
+			)
+		)
+		assertFalse(
+			readerPageLiveValidationIsCurrent(
+				expectedGeneration = 8,
+				currentGeneration = 8,
+				closed = true,
+				callerCurrent = true
+			)
+		)
+		assertFalse(
+			readerPageLiveValidationIsCurrent(
+				expectedGeneration = 8,
+				currentGeneration = 8,
+				closed = false,
+				callerCurrent = false
+			)
+		)
+	}
+
+	@Test
+	fun acceptedWorkerRequiresTheExactThirdLiveReceipt() {
+		val target = liveTarget()
+		val acceptedReceipt = liveReceipt()
+
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.Accepted,
+			readerPageLiveValidationReceiptFencedResult(
+				workerResult = ReaderPageRelocationContentValidationResult.Accepted,
+				target = target,
+				acceptedReceipt = acceptedReceipt,
+				currentReceipt = acceptedReceipt,
+				isStillCurrent = true
+			)
+		)
+	}
+
+	@Test
+	fun receiptSequenceChangeAfterWorkerComparisonInvalidatesAcceptance() {
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.Invalidated,
+			readerPageLiveValidationReceiptFencedResult(
+				workerResult = ReaderPageRelocationContentValidationResult.Accepted,
+				target = liveTarget(),
+				acceptedReceipt = liveReceipt(),
+				currentReceipt = liveReceipt().copy(presentationSequence = 72),
+				isStillCurrent = true
+			)
+		)
+	}
+
+	@Test
+	fun targetOrCurrentnessChangeAtThirdReceiptInvalidatesAcceptance() {
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.Invalidated,
+			readerPageLiveValidationReceiptFencedResult(
+				workerResult = ReaderPageRelocationContentValidationResult.Accepted,
+				target = liveTarget(),
+				acceptedReceipt = liveReceipt(),
+				currentReceipt = liveReceipt().copy(token = "live-beta"),
+				isStillCurrent = true
+			)
+		)
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.Invalidated,
+			readerPageLiveValidationReceiptFencedResult(
+				workerResult = ReaderPageRelocationContentValidationResult.Accepted,
+				target = liveTarget(),
+				acceptedReceipt = liveReceipt(),
+				currentReceipt = liveReceipt(),
+				isStillCurrent = false
+			)
+		)
+	}
+
+	@Test
+	fun rejectedWorkerResultDoesNotBecomeAcceptedAtReceiptFence() {
+		assertEquals(
+			ReaderPageRelocationContentValidationResult.ContentRejected,
+			readerPageLiveValidationReceiptFencedResult(
+				workerResult = ReaderPageRelocationContentValidationResult.ContentRejected,
+				target = liveTarget(),
+				acceptedReceipt = liveReceipt(),
+				currentReceipt = liveReceipt(),
+				isStillCurrent = true
+			)
+		)
+	}
+
+	@Test
+	fun cancellationBetweenWorkerComparisonAndThirdReceiptCancelsFenceAndReleasesOnce() {
+		val target = Any()
+		val candidate = Any()
+		val released = mutableListOf<Any>()
+		var finalFenceCancellations = 0
+		var publications = 0
+		val ownership = ReaderPageLiveValidationSnapshotOwnership(
+			expectedTarget = target,
+			expectedSource = null,
+			releaseExpected = released::add,
+			releaseCandidate = released::add
+		)
+		assertNotNull(ownership.beginWorker(candidate))
+		assertTrue(
+			ownership.recordWorkerResult(
+				ReaderPageRelocationContentValidationResult.Accepted
+			)
+		)
+		assertTrue(ownership.workerFinished(cancelled = false))
+		ownership.attachFinalFence(
+			ReaderPageRelocationContentValidationHandle {
+				finalFenceCancellations += 1
+				true
+			}
+		)
+
+		assertTrue(ownership.cancel())
+		assertEquals(1, finalFenceCancellations)
+		assertFalse(ownership.publish { _, _, _, _ -> publications += 1 })
+		assertEquals(0, publications)
+		assertEquals(listOf(target, candidate), released)
+	}
+
+	@Test
+	fun liveValidatorUsesCompositorCaptureThenSynchronousThirdReceiptPublication() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageTurnBundleSource.android.kt"
+		).readText()
+		val validator = source.substringAfter(
+			"fun validateLivePresentation("
+		).substringBefore("fun capturePreparedRasterPage(")
+
+		val publication = source.substringAfter(
+			"private fun postLiveValidationResult("
+		).substringBefore("fun validateLivePresentation(")
+
+		assertTrue(validator.contains("bitmapSource.captureLiveCompositedSurface("))
+		assertFalse(validator.contains("bitmapSource.capturePresentedSurface("))
+		assertTrue(publication.contains("bitmapSource.confirmLivePresentationReceipt("))
+		val thirdReceiptCallback = publication
+			.substringAfter("bitmapSource.confirmLivePresentationReceipt(")
+			.substringAfter(") { currentReceipt ->")
+			.substringBefore("ownership.attachFinalFence(")
+		assertTrue(thirdReceiptCallback.contains("ownership.publish"))
+		assertTrue(thirdReceiptCallback.contains("onValidated("))
+		assertFalse(thirdReceiptCallback.contains("mainHandler.post"))
+	}
+
+	@Test
 	fun liveValidatorUsesExpectedRastersAndNeverPublishesTransientCapture() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
@@ -386,7 +568,13 @@ class ReaderPageTurnBundleTest {
 		assertTrue(validator.contains("rasterGeneration = request.rasterGeneration"))
 		assertTrue(validator.contains("textureGeneration = request.textureGeneration"))
 		assertTrue(validator.contains("ReaderPageLiveValidationSnapshotOwnership("))
-		assertTrue(validator.contains("bitmapSource.capturePresentedSurface("))
+		assertTrue(validator.contains("bitmapSource.captureLiveCompositedSurface("))
+		assertTrue(validator.contains("val expectedTargetBitmapWidth = expectedTarget.bitmap.width"))
+		assertTrue(validator.contains("val expectedTargetBitmapHeight = expectedTarget.bitmap.height"))
+		assertTrue(validator.contains("expectedBitmapWidth = expectedTargetBitmapWidth"))
+		assertTrue(validator.contains("expectedBitmapHeight = expectedTargetBitmapHeight"))
+		assertTrue(validator.contains("isStillCurrent = ::validationIsCurrent"))
+		assertFalse(validator.contains("isStillCurrent = isStillCurrent"))
 		assertTrue(validator.contains("rasterScope.launch(Dispatchers.Default)"))
 		val worker = validator.substringAfter("rasterScope.launch(Dispatchers.Default)")
 			.substringBefore("ownership.attachWorker(")
@@ -409,6 +597,43 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
+	fun liveValidationFencesBundleGenerationAndCloseDrainsItsWorkers() {
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageTurnBundleSource.android.kt"
+		).readText()
+		val validator = source.substringAfter(
+			"fun validateLivePresentation("
+		).substringBefore("fun capturePreparedRasterPage(")
+		val worker = validator.substringAfter("rasterScope.launch(Dispatchers.Default)")
+			.substringBefore("ownership.attachWorker(")
+		val hydrationClose = source.substringAfter("closeRasterHydrationWorkers = {")
+			.substringBefore("},\n\t\tclosePersistentStore")
+		val invalidation = source.substringAfter("fun invalidate(reason: String) {")
+			.substringBefore("fun fenceForClose()")
+
+		assertTrue(validator.contains("val validationGeneration = synchronized(closeFenceLock)"))
+		assertTrue(validator.contains("fun validationIsCurrent(): Boolean"))
+		assertTrue(validator.contains("expectedGeneration = validationGeneration"))
+		assertTrue(validator.contains("currentGeneration = activeGeneration"))
+		assertTrue(validator.contains("closed = closed"))
+		assertTrue(validator.contains("callerCurrent = callerCurrent"))
+		assertTrue(worker.contains("liveValidationGenerationIsCurrent()"))
+		assertTrue(
+			invalidation.contains(
+				"synchronized(closeFenceLock) { activeGeneration += 1 }"
+			)
+		)
+		assertTrue(hydrationClose.indexOf("hydrationScheduler.closeAndJoin()") >= 0)
+		assertTrue(
+			hydrationClose.indexOf("hydrationScheduler.closeAndJoin()") <
+				hydrationClose.indexOf("rasterJob.join()")
+		)
+		assertTrue(hydrationClose.contains("activeLiveValidations.isEmpty()"))
+		assertTrue(hydrationClose.contains("synchronized(closeFenceLock)"))
+	}
+
+	@Test
 	fun currentLayoutSnapshotLookupFencesGenerationAndQuality() {
 		val source = File(
 			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
@@ -424,6 +649,24 @@ class ReaderPageTurnBundleTest {
 		assertTrue(lookup.contains("expectedQuality != bitmapQuality"))
 		assertTrue(lookup.contains("key.bitmapQuality == expectedQuality"))
 	}
+
+	private fun liveTarget() = ReaderPageTurnPresentationTarget.Live(
+		token = "live-alpha",
+		pageIndex = 9,
+		foliateSessionId = "session-alpha",
+		rasterGeneration = 13,
+		textureGeneration = 17
+	)
+
+	private fun liveReceipt() = ReaderPageTurnPresentationReceipt(
+		scope = ReaderPageTurnPresentationScope.Live,
+		token = "live-alpha",
+		pageIndex = 9,
+		foliateSessionId = "session-alpha",
+		rasterGeneration = 13,
+		textureGeneration = 17,
+		presentationSequence = 71
+	)
 
 	private companion object {
 		val PaperColor: Int = 0xffead9ae.toInt()

@@ -124,6 +124,25 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun staticRasterShieldPredicateFailsClosedForEveryOwnedAttachmentState() {
+		val source = readerRasterPreparationSource()
+		val predicate = source.substringAfter(
+			"internal fun hasStaticRasterShieldOwnership()"
+		).substringBefore("private fun trackVisualRestoration(")
+
+		listOf(
+			"preparationShield != null",
+			"preparationShieldSnapshot != null",
+			"preparationShieldSession != null",
+			"preparationShieldBatchLabel != null",
+			"activeRasterRepairShieldSession != null",
+			"backgroundPrefetchShield != null",
+			"backgroundPrefetchShieldSnapshot != null",
+			"backgroundPrefetchShieldSessionId != null"
+		).forEach { ownership -> assertContains(predicate, ownership) }
+	}
+
+	@Test
 	fun preparationShieldIsReusedWithinOneRasterSession() {
 		val source = readerRasterPreparationSource()
 

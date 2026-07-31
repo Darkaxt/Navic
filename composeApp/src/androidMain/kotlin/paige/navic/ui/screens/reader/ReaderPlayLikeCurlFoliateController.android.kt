@@ -323,6 +323,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val onProfileBootstrapFailed: () -> Unit = {},
 	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
 	private val onUnsafeLifecycleEvent: (ReaderPageHostLifecycleEvent) -> Unit = {},
+	private val hasStaticRasterShieldOwnership: () -> Boolean = { true },
 	private val onOwnershipMutated: () -> Unit = {},
 	private val onOwnershipAvailabilityEdge: () -> Unit = {},
 	private val onOwnershipDiagnosticRequested: (ReaderPageOwnershipPhase) -> Unit = {}
@@ -4100,6 +4101,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	): Boolean =
 		!destroyed &&
 			enabled &&
+			!hasStaticRasterShieldOwnership() &&
+			surfaceView.isAttachedToWindow &&
+			surfaceView.isShown &&
+			surfaceView.visibility == View.VISIBLE &&
+			surfaceView.alpha > 0f &&
+			surfaceView.holder.surface.isValid &&
 			activeDeckGenerationId == request.textureGeneration &&
 			generationOwners[request.textureGeneration] === generationOwner &&
 			generationOwner.profile.rasterGeneration == request.rasterGeneration &&

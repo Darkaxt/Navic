@@ -50,6 +50,7 @@ private const val LiveValidationStripRows = 64
 private const val LiveValidationAbsoluteMeanDistance = 8.0
 private const val LiveValidationAbsoluteRmsDistance = 18.0
 private const val LiveValidationAbsoluteCloseRatio = 0.96
+private const val LiveValidationAbsoluteFarPixelLimit = 4L
 private const val LiveValidationRelativeDistanceRatio = 0.72
 private const val LiveValidationEquivalentMaximumDistance = 8
 private const val LiveValidationCloseDistance = 24
@@ -171,7 +172,7 @@ private fun ReaderPageRasterDistance.isAbsoluteTargetMatch(): Boolean =
 	mean <= LiveValidationAbsoluteMeanDistance &&
 		rms <= LiveValidationAbsoluteRmsDistance &&
 		closeRatio >= LiveValidationAbsoluteCloseRatio &&
-		farPixelCount == 0L
+		farPixelCount <= LiveValidationAbsoluteFarPixelLimit
 
 private fun ReaderPageRasterDistance.isAuthoredEquivalent(): Boolean =
 	mean <= 2.0 &&
@@ -227,6 +228,34 @@ internal fun <T : ReaderPageRasterPixels> readerPageSemanticLiveValidationResult
 	}
 }
 
+internal fun readerPageLiveValidationIsCurrent(
+	expectedGeneration: Long,
+	currentGeneration: Long,
+	closed: Boolean,
+	callerCurrent: Boolean
+): Boolean =
+	!closed &&
+		expectedGeneration == currentGeneration &&
+		callerCurrent
+
+internal fun readerPageLiveValidationReceiptFencedResult(
+	workerResult: ReaderPageRelocationContentValidationResult,
+	target: ReaderPageTurnPresentationTarget.Live,
+	acceptedReceipt: ReaderPageTurnPresentationReceipt,
+	currentReceipt: ReaderPageTurnPresentationReceipt?,
+	isStillCurrent: Boolean
+): ReaderPageRelocationContentValidationResult = when {
+	workerResult != ReaderPageRelocationContentValidationResult.Accepted -> workerResult
+	!isStillCurrent ||
+		!readerPageTurnPresentationReceiptAccepted(
+			target = target,
+			initialReceipt = acceptedReceipt,
+			finalReceipt = currentReceipt,
+			foregroundSuccess = true
+		) -> ReaderPageRelocationContentValidationResult.Invalidated
+	else -> ReaderPageRelocationContentValidationResult.Accepted
+}
+
 internal data class ReaderPageLiveValidationWork<T : Any, C : Any>(
 	val expectedTarget: T,
 	val expectedSource: T?,
@@ -266,6 +295,7 @@ internal class ReaderPageLiveValidationSnapshotOwnership<T : Any, C : Any>(
 	private var candidate: C? = null
 	private var captureHandle: ReaderPageRelocationContentValidationHandle? = null
 	private var workerHandle: ReaderPageRelocationContentValidationHandle? = null
+	private var finalFenceHandle: ReaderPageRelocationContentValidationHandle? = null
 	private var workerActive = false
 	private var workerResult: ReaderPageRelocationContentValidationResult? = null
 
@@ -369,12 +399,30 @@ internal class ReaderPageLiveValidationSnapshotOwnership<T : Any, C : Any>(
 		return shouldPost
 	}
 
+	fun attachFinalFence(handle: ReaderPageRelocationContentValidationHandle) {
+		val cancelImmediately = synchronized(lock) {
+			if (state == State.AwaitingMain) {
+				check(finalFenceHandle == null) { "Live validation final fence already attached" }
+				finalFenceHandle = handle
+				false
+			} else {
+				true
+			}
+		}
+		if (cancelImmediately) handle.cancel()
+	}
+
+	fun awaitingResult(): ReaderPageRelocationContentValidationResult? = synchronized(lock) {
+		workerResult.takeIf { state == State.AwaitingMain }
+	}
+
 	fun publish(
 		action: (T, T?, C?, ReaderPageRelocationContentValidationResult) -> Unit
 	): Boolean {
 		val publication = synchronized(lock) {
 			if (state != State.AwaitingMain) return false
 			state = State.Terminal
+			finalFenceHandle = null
 			val result = checkNotNull(workerResult)
 			Publication(
 				owned = takeOwnedLocked(),
@@ -398,6 +446,7 @@ internal class ReaderPageLiveValidationSnapshotOwnership<T : Any, C : Any>(
 		var released: Owned<T, C>? = null
 		var capture: ReaderPageRelocationContentValidationHandle? = null
 		var worker: ReaderPageRelocationContentValidationHandle? = null
+		var finalFence: ReaderPageRelocationContentValidationHandle? = null
 		val cancelled = synchronized(lock) {
 			when (state) {
 				State.Capturing -> {
@@ -415,6 +464,8 @@ internal class ReaderPageLiveValidationSnapshotOwnership<T : Any, C : Any>(
 				}
 				State.AwaitingMain -> {
 					state = State.Terminal
+					finalFence = finalFenceHandle
+					finalFenceHandle = null
 					released = takeOwnedLocked()
 					true
 				}
@@ -426,6 +477,7 @@ internal class ReaderPageLiveValidationSnapshotOwnership<T : Any, C : Any>(
 		try {
 			capture?.cancel()
 			worker?.cancel()
+			finalFence?.cancel()
 		} finally {
 			released?.let(::releaseOwned)
 		}
@@ -882,6 +934,10 @@ internal class ReaderPageTurnBundleSource(
 		},
 		closeRasterHydrationWorkers = {
 			hydrationScheduler.closeAndJoin()
+			rasterJob.join()
+			check(synchronized(closeFenceLock) { activeLiveValidations.isEmpty() }) {
+				"Live raster validation workers did not drain"
+			}
 		},
 		closePersistentStore = {
 			persistentStore?.close()
@@ -1590,20 +1646,56 @@ internal class ReaderPageTurnBundleSource(
 	private fun postLiveValidationResult(
 		ownership: ReaderPageLiveValidationSnapshotOwnership<
 			ReaderPageSlideSnapshot,
-			ReaderPageTurnCaptureResult
+			ReaderPageTurnLiveCaptureResult
 		>,
+		webView: WebView,
+		target: ReaderPageTurnPresentationTarget.Live,
+		acceptedReceipt: ReaderPageTurnPresentationReceipt?,
 		isStillCurrent: () -> Boolean,
 		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
 	) {
 		val posted = mainHandler.post {
-			ownership.publish { _, _, _, workerResult ->
-				val current = synchronized(closeFenceLock) { !closed } &&
-					runCatching(isStillCurrent).getOrDefault(false)
-				onValidated(
-					if (current) workerResult
-					else ReaderPageRelocationContentValidationResult.Invalidated
-				)
+			val workerResult = ownership.awaitingResult() ?: return@post
+			val current = synchronized(closeFenceLock) { !closed } &&
+				runCatching(isStillCurrent).getOrDefault(false)
+			val receipt = acceptedReceipt
+			if (
+				workerResult != ReaderPageRelocationContentValidationResult.Accepted ||
+				!current ||
+				receipt == null
+			) {
+				ownership.publish { _, _, _, completed ->
+					onValidated(
+						if (current) completed
+						else ReaderPageRelocationContentValidationResult.Invalidated
+					)
+				}
+				return@post
 			}
+			val finalFence = bitmapSource.confirmLivePresentationReceipt(
+				webView = webView,
+				target = target,
+				acceptedReceipt = receipt,
+				isStillCurrent = {
+					synchronized(closeFenceLock) { !closed } &&
+						runCatching(isStillCurrent).getOrDefault(false)
+				}
+			) { currentReceipt ->
+				ownership.publish { _, _, _, completed ->
+					val publicationCurrent = synchronized(closeFenceLock) { !closed } &&
+						runCatching(isStillCurrent).getOrDefault(false)
+					onValidated(
+						readerPageLiveValidationReceiptFencedResult(
+							workerResult = completed,
+							target = target,
+							acceptedReceipt = receipt,
+							currentReceipt = currentReceipt,
+							isStillCurrent = publicationCurrent
+						)
+					)
+				}
+			}
+			ownership.attachFinalFence(finalFence)
 		}
 		if (!posted) ownership.cancel()
 	}
@@ -1616,16 +1708,38 @@ internal class ReaderPageTurnBundleSource(
 		isStillCurrent: () -> Boolean,
 		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
 	): ReaderPageRelocationContentValidationHandle {
+		val validationGeneration = synchronized(closeFenceLock) { activeGeneration }
+		val expectedTargetBitmapWidth = expectedTarget.bitmap.width
+		val expectedTargetBitmapHeight = expectedTarget.bitmap.height
+		fun validationIsCurrent(): Boolean {
+			val callerCurrent = runCatching(isStillCurrent).getOrDefault(false)
+			return synchronized(closeFenceLock) {
+				readerPageLiveValidationIsCurrent(
+					expectedGeneration = validationGeneration,
+					currentGeneration = activeGeneration,
+					closed = closed,
+					callerCurrent = callerCurrent
+				)
+			}
+		}
+		fun liveValidationGenerationIsCurrent(): Boolean = synchronized(closeFenceLock) {
+			readerPageLiveValidationIsCurrent(
+				expectedGeneration = validationGeneration,
+				currentGeneration = activeGeneration,
+				closed = closed,
+				callerCurrent = true
+			)
+		}
 		lateinit var ownership: ReaderPageLiveValidationSnapshotOwnership<
 			ReaderPageSlideSnapshot,
-			ReaderPageTurnCaptureResult
+			ReaderPageTurnLiveCaptureResult
 		>
 		ownership = ReaderPageLiveValidationSnapshotOwnership(
 			expectedTarget = expectedTarget,
 			expectedSource = expectedSource,
 			releaseExpected = ReaderPageSlideSnapshot::release,
 			releaseCandidate = { captured ->
-				captured.bitmap.takeUnless { bitmap -> bitmap.isRecycled }?.recycle()
+				captured.captured.bitmap.takeUnless { bitmap -> bitmap.isRecycled }?.recycle()
 			},
 			onTerminal = { unregisterLiveValidation(ownership) }
 		)
@@ -1639,7 +1753,7 @@ internal class ReaderPageTurnBundleSource(
 			completeImmediately(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
-		if (!runCatching(isStillCurrent).getOrDefault(false)) {
+		if (!validationIsCurrent()) {
 			completeImmediately(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
@@ -1657,10 +1771,12 @@ internal class ReaderPageTurnBundleSource(
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
 		val captureHandle = try {
-			bitmapSource.capturePresentedSurface(
+			bitmapSource.captureLiveCompositedSurface(
 				webView = webView,
 				target = target,
-				isStillCurrent = isStillCurrent
+				expectedBitmapWidth = expectedTargetBitmapWidth,
+				expectedBitmapHeight = expectedTargetBitmapHeight,
+				isStillCurrent = ::validationIsCurrent
 			) { captured ->
 				if (captured == null) {
 					if (
@@ -1669,34 +1785,54 @@ internal class ReaderPageTurnBundleSource(
 							result = ReaderPageRelocationContentValidationResult.ContentRejected
 						)
 					) {
-						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+						postLiveValidationResult(
+							ownership = ownership,
+							webView = webView,
+							target = target,
+							acceptedReceipt = null,
+							isStillCurrent = ::validationIsCurrent,
+							onValidated = onValidated
+						)
 					}
-					return@capturePresentedSurface
+					return@captureLiveCompositedSurface
 				}
-				if (!runCatching(isStillCurrent).getOrDefault(false)) {
+				if (!validationIsCurrent()) {
 					if (
 						ownership.completeCapture(
 							candidate = captured,
 							result = ReaderPageRelocationContentValidationResult.Invalidated
 						)
 					) {
-						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+						postLiveValidationResult(
+							ownership = ownership,
+							webView = webView,
+							target = target,
+							acceptedReceipt = captured.acceptedReceipt,
+							isStillCurrent = ::validationIsCurrent,
+							onValidated = onValidated
+						)
 					}
-					return@capturePresentedSurface
+					return@captureLiveCompositedSurface
 				}
 				val work = ownership.beginWorker(captured)
-					?: return@capturePresentedSurface
+					?: return@captureLiveCompositedSurface
 				val workerJob = try {
 					rasterScope.launch(Dispatchers.Default) {
 						val workerContext = currentCoroutineContext()
 						val result = try {
 							workerContext.ensureActive()
-							readerPageLiveCaptureValidationResult(
-								candidate = work.candidate,
-								expectedTarget = work.expectedTarget,
-								expectedSource = work.expectedSource,
-								cancellationCheck = { workerContext.ensureActive() }
-							)
+							if (!liveValidationGenerationIsCurrent()) {
+								ReaderPageRelocationContentValidationResult.Invalidated
+							} else {
+								val compared = readerPageLiveCaptureValidationResult(
+									candidate = work.candidate.captured,
+									expectedTarget = work.expectedTarget,
+									expectedSource = work.expectedSource,
+									cancellationCheck = { workerContext.ensureActive() }
+								)
+								if (liveValidationGenerationIsCurrent()) compared
+								else ReaderPageRelocationContentValidationResult.Invalidated
+							}
 						} catch (cancelled: CancellationException) {
 							throw cancelled
 						} catch (_: Throwable) {
@@ -1709,9 +1845,16 @@ internal class ReaderPageTurnBundleSource(
 						ReaderPageRelocationContentValidationResult.Invalidated
 					)
 					if (ownership.workerFinished(cancelled = false)) {
-						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+						postLiveValidationResult(
+							ownership = ownership,
+							webView = webView,
+							target = target,
+							acceptedReceipt = work.candidate.acceptedReceipt,
+							isStillCurrent = ::validationIsCurrent,
+							onValidated = onValidated
+						)
 					}
-					return@capturePresentedSurface
+					return@captureLiveCompositedSurface
 				}
 				ownership.attachWorker(
 					ReaderPageRelocationContentValidationHandle {
@@ -1725,7 +1868,14 @@ internal class ReaderPageTurnBundleSource(
 							cancelled = failure is CancellationException
 						)
 					) {
-						postLiveValidationResult(ownership, isStillCurrent, onValidated)
+						postLiveValidationResult(
+							ownership = ownership,
+							webView = webView,
+							target = target,
+							acceptedReceipt = work.candidate.acceptedReceipt,
+							isStillCurrent = ::validationIsCurrent,
+							onValidated = onValidated
+						)
 					}
 				}
 			}
@@ -2683,7 +2833,7 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	fun invalidate(reason: String) {
-		activeGeneration += 1
+		synchronized(closeFenceLock) { activeGeneration += 1 }
 		try {
 			pendingDescriptorOwners.cancelAll()
 		} catch (failure: Throwable) {
