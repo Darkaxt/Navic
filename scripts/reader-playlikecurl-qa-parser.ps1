@@ -201,7 +201,8 @@ $HandoffPattern = [regex]::new(
     'handoffAttemptId=(?<HandoffAttemptId>\d+) target=(?<Target>-?\d+) ' +
     'visualState=(?<Visual>true|false) nextFrame=(?<Frame>true|false) ' +
     'result=(?<Result>Ready|Detached|TimedOut|Invalidated|' +
-        'CallbackCapacity|Cancelled|StalePhysicalCallbackReleased) ' +
+        'CallbackCapacity|ContentRejected|Cancelled|' +
+        'StalePhysicalCallbackReleased) ' +
     'durationMs=(?<DurationMs>\d+)' +
     $QaCorrelationPattern
 )

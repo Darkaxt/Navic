@@ -954,6 +954,20 @@ $relocationHandoffRecovery =
     'reader-handoff session=7 token=move-1 handoffAttemptId=4 target=2 ' +
     'visualState=true nextFrame=true result=Ready durationMs=3' +
     $relocationRecoveryRootFields
+$contentRejectedHandoff = $relocationHandoffRecovery.Replace(
+    'result=Ready',
+    'result=ContentRejected'
+)
+$parsedContentRejectedHandoff = @(
+    ConvertFrom-ReaderHandoffLog $contentRejectedHandoff
+)
+if ($parsedContentRejectedHandoff.Count -ne 1 -or
+    $parsedContentRejectedHandoff[0].Result -cne 'ContentRejected') {
+    throw 'Content-rejected handoff diagnostic did not parse'
+}
+Assert-ReaderDiagnosticRecordSet `
+    -Records @($contentRejectedHandoff) `
+    -Context 'content-rejected handoff schema fixture'
 $relocationCompletedRecovery =
     'reader-relocation session=7 token=move-1 gestureId=3 source=1 target=2 ' +
     'logicalDirection=Next rasterGeneration=2 textureGeneration=3 ' +
