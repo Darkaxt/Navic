@@ -66,6 +66,7 @@ import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.domain.repositories.PlaybackOriginRepository
 import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.ui.core.PlayerUiState
+import paige.navic.ui.core.withQueueSongReplacement
 import paige.navic.util.core.Logger
 import java.io.File
 import kotlin.time.Clock
@@ -135,19 +136,28 @@ class AndroidMediaPlayerViewModel(
 		playbackArtworkForSong = playbackArtworkResolver::resolve,
 		streamUriForSongId = ::getStreamUrl
 	)
+	private val staleSongResolver = createStalePlaybackSongResolver(sessionManager, playbackQueueInteractor)
 	private val playbackRecovery = AndroidStablePlaybackRecoveryCoordinator(
+		scope = viewModelScope,
 		downloadManager = downloadManager,
 		navidromeAvailabilityManager = navidromeAvailabilityManager,
 		diagnostics = playbackDiagnostics,
 		isAvailable = ::isAvailable,
 		skipMediaOnError = { preferenceManager.skipMediaOnError },
+		staleSongResolver = staleSongResolver::resolve,
+		onQueueSongReplaced = ::replaceQueuedSong,
 		mediaItemForSong = mediaItemFactory::toMediaItem,
 		claimMusicPlayback = ::claimMusicPlayback,
 		notifyPlaybackError = playbackErrorNotifier::notify,
 		notifyFailedDownload = playbackErrorNotifier::notifyFailedDownload,
+		notifySongNotFound = playbackErrorNotifier::notifySongNotFound,
 		markRecoveryPending = ::markPlaybackRecoveryPending,
 		clearRecoveryUi = ::clearPlaybackRecoveryUi
 	)
+
+	private fun replaceQueuedSong(index: Int, replacement: DomainSong) =
+		_uiState.update { state -> state.withQueueSongReplacement(index, replacement) }
+
 	private val downloadedMediaRecovery: AndroidDownloadedMediaRecovery =
 		DefaultAndroidDownloadedMediaRecovery(
 			downloadManager = downloadManager,

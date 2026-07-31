@@ -187,6 +187,55 @@ class AndroidMediaPlayerViewModelSourceTest {
 	}
 
 	@Test
+	fun parserFailuresResolveStaleIdsAndRepairTheLogicalQueueInPlace() {
+		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+
+		assertContains(viewModelText, "private val staleSongResolver = createStalePlaybackSongResolver(")
+		assertContains(viewModelText, "staleSongResolver = staleSongResolver::resolve")
+		assertContains(viewModelText, "onQueueSongReplaced = ::replaceQueuedSong")
+		assertContains(viewModelText, "private fun replaceQueuedSong(index: Int, replacement: DomainSong)")
+		assertContains(viewModelText, "state.withQueueSongReplacement(index, replacement)")
+		assertContains(recoveryText, "shouldProbeStalePlaybackSong(")
+		assertContains(recoveryText, "StalePlaybackProbeResolution.Replacement")
+		assertContains(recoveryText, "staleSongResolver(song)")
+		assertContains(recoveryText, "val activeRecovery = pending?.takeIf")
+		assertContains(recoveryText, "onQueueSongReplaced(currentIndex, resolution.song)")
+		assertContains(recoveryText, "upcomingIndexes = state.upcomingIndexes")
+	}
+
+	@Test
+	fun playbackDownloadRecoveryUsesExplicitRequestAndTerminalLifecycle() {
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+
+		assertContains(recoveryText, "downloadManager.requestPlaybackRecoveryDownload(song)")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.Enqueued")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.AlreadyActive")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.AlreadyDownloaded")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.MissingCatalogEntry")
+		assertContains(recoveryText, "PlaybackDownloadRequestResult.InactiveSession")
+		assertContains(recoveryText, "withActiveDownloadRequest(")
+		assertContains(recoveryText, "PlaybackRecoveryDownloadLifecycle.Active")
+		assertContains(recoveryText, "PlaybackRecoveryDownloadLifecycle.Rejected")
+		assertFalse(recoveryText.contains("downloadManager.prefetchPlaybackSongs"))
+	}
+
+	@Test
+	fun stalePlaybackRecoveryEmitsBoundedDecisionDiagnostics() {
+		val recoveryText = androidSharedSourceFile("AndroidStablePlaybackRecoveryCoordinator.android.kt").readText()
+		val diagnosticsText = androidSharedSourceFile("AndroidPlaybackDiagnosticsLogger.android.kt").readText()
+
+		assertContains(recoveryText, "diagnostics.onStaleSongProbeStarted(")
+		assertContains(recoveryText, "diagnostics.onStaleSongProbeResult(")
+		assertContains(recoveryText, "diagnostics.onStaleSongReplacement(")
+		assertContains(recoveryText, "diagnostics.onPlaybackDownloadRequestResult(")
+		assertContains(diagnosticsText, "stale-song-probe-started")
+		assertContains(diagnosticsText, "stale-song-probe-result")
+		assertContains(diagnosticsText, "stale-song-replaced")
+		assertContains(diagnosticsText, "playback-download-request-result")
+	}
+
+	@Test
 	fun bufferingDoesNotOverwriteUserPlaybackIntent() {
 		val viewModelText = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
 

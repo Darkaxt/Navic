@@ -51,6 +51,7 @@ import paige.navic.domain.models.collectionSongIdsToQueue
 import paige.navic.domain.models.downloadSchedulerWorkerCount
 import paige.navic.domain.models.failedDownloadRetryPlan
 import paige.navic.domain.models.HostedDownloadFailureAction
+import paige.navic.domain.models.PlaybackDownloadRequestResult
 import paige.navic.domain.models.hostedDownloadFailureAction
 import paige.navic.domain.models.shouldSaveLidaClipWithDownloadedMusic
 import paige.navic.domain.models.shouldRejectAudioDownloadContentType
@@ -172,6 +173,40 @@ class DownloadManager(
 		return scope.launch(Dispatchers.IO) {
 			queueSongDownloads(songs)
 		}
+	}
+
+	suspend fun requestPlaybackRecoveryDownload(
+		song: DomainSong
+	): PlaybackDownloadRequestResult {
+		startupQueueRecovery.join()
+		if (sessionLifetime.currentScope() == null) {
+			return PlaybackDownloadRequestResult.InactiveSession
+		}
+		if (songDao.getSongById(song.id) == null) {
+			return PlaybackDownloadRequestResult.MissingCatalogEntry
+		}
+
+		val existing = downloadDao.getDownloadById(song.id)
+		if (
+			existing?.status == DownloadStatus.DOWNLOADED &&
+			existing.filePath?.let(::isUsableDownloadedAudioFile) == true
+		) {
+			return PlaybackDownloadRequestResult.AlreadyDownloaded(existing.intentGeneration)
+		}
+		if (
+			existing != null &&
+			!existing.cancelled &&
+			existing.status in setOf(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING)
+		) {
+			return PlaybackDownloadRequestResult.AlreadyActive(existing.intentGeneration)
+		}
+
+		val generation = downloadDao.enqueueFreshIntent(
+			songId = song.id,
+			queuedAtEpochMs = Clock.System.now().toEpochMilliseconds()
+		)
+		downloadWakeups.trySend(Unit)
+		return PlaybackDownloadRequestResult.Enqueued(generation)
 	}
 
 	suspend fun downloadCollection(collection: DomainSongCollection) {

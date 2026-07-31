@@ -30,6 +30,19 @@ class PlaybackQueueRecoveryPolicyTest {
 	}
 
 	@Test
+	fun firstPlayableUpcomingIndexUsesMedia3TraversalOrder() {
+		assertEquals(
+			4,
+			firstPlayableUpcomingIndex(
+				currentIndex = 1,
+				queueSongIds = listOf("zero", "current", "natural", "later", "shuffled-first"),
+				availableSongIds = setOf("natural", "shuffled-first"),
+				upcomingIndexes = listOf(4, 2, 3, 0)
+			)
+		)
+	}
+
+	@Test
 	fun playbackFailureAdvancesOnlyWhenPreferenceAllowsIt() {
 		assertEquals(
 			3,
@@ -167,6 +180,107 @@ class PlaybackQueueRecoveryPolicyTest {
 				hasUsableLocalFile = false,
 				skipMediaOnError = true,
 				nextPlayableIndex = null
+			)
+		)
+	}
+
+	@Test
+	fun rejectedDownloadRequestIsTerminalWithoutWaitingForADatabaseRow() {
+		val pending = PendingPlaybackRecovery(
+			songId = "missing",
+			queueIndex = 2,
+			positionMs = 0L,
+			shouldResume = true,
+			reason = "source-error",
+			downloadLifecycle = PlaybackRecoveryDownloadLifecycle.Rejected
+		)
+
+		assertEquals(
+			PlaybackRecoveryResolution.Advance(4),
+			playbackRecoveryResolution(
+				pending = pending,
+				currentSongId = "missing",
+				currentIndex = 2,
+				downloadStatus = null,
+				hasUsableLocalFile = false,
+				skipMediaOnError = true,
+				nextPlayableIndex = 4
+			)
+		)
+	}
+
+	@Test
+	fun acceptedDownloadThatBecameActiveCannotReturnToNotDownloadedForever() {
+		val pending = PendingPlaybackRecovery(
+			songId = "cancelled",
+			queueIndex = 1,
+			positionMs = 0L,
+			shouldResume = true,
+			reason = "source-error",
+			downloadLifecycle = PlaybackRecoveryDownloadLifecycle.Active
+		)
+
+		assertEquals(
+			PlaybackRecoveryResolution.HoldFailure,
+			playbackRecoveryResolution(
+				pending = pending,
+				currentSongId = "cancelled",
+				currentIndex = 1,
+				downloadStatus = DownloadStatus.NOT_DOWNLOADED,
+				hasUsableLocalFile = false,
+				skipMediaOnError = true,
+				nextPlayableIndex = null
+			)
+		)
+	}
+
+	@Test
+	fun conclusiveQueuedRequestRecordsAnActiveGenerationImmediately() {
+		val active = PendingPlaybackRecovery(
+			songId = "queued",
+			queueIndex = 1,
+			positionMs = 0L,
+			shouldResume = true,
+			reason = "source-error"
+		).withActiveDownloadRequest(intentGeneration = 7L)
+
+		assertEquals(PlaybackRecoveryDownloadLifecycle.Active, active.downloadLifecycle)
+		assertEquals(7L, active.downloadIntentGeneration)
+		assertEquals(
+			PlaybackRecoveryResolution.HoldFailure,
+			playbackRecoveryResolution(
+				pending = active,
+				currentSongId = "queued",
+				currentIndex = 1,
+				downloadStatus = DownloadStatus.NOT_DOWNLOADED,
+				hasUsableLocalFile = false,
+				skipMediaOnError = false,
+				nextPlayableIndex = null
+			)
+		)
+	}
+
+	@Test
+	fun downloadedRowWithoutAUsableFileIsTerminal() {
+		val pending = PendingPlaybackRecovery(
+			songId = "broken-file",
+			queueIndex = 1,
+			positionMs = 0L,
+			shouldResume = true,
+			reason = "source-error",
+			downloadLifecycle = PlaybackRecoveryDownloadLifecycle.Active
+		)
+
+		assertEquals(
+			PlaybackRecoveryResolution.Advance(2),
+			playbackRecoveryResolution(
+				pending = pending,
+				currentSongId = "broken-file",
+				currentIndex = 1,
+				downloadStatus = DownloadStatus.DOWNLOADED,
+				hasUsableLocalFile = false,
+				skipMediaOnError = true,
+				nextPlayableIndex = 2
 			)
 		)
 	}
