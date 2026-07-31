@@ -283,9 +283,16 @@ def analyze_frames(
         ),
     }
 
+    animated_scenarios = {"slow-next", "previous", "rapid-turns", "snap-back"}
+    decoration_frames = evaluated
+    decoration_evaluation_scope = "timeline"
+    if scenario in animated_scenarios:
+        decoration_settled_count = max(3, math.ceil(sample_fps * 0.75))
+        decoration_frames = list(frames[-decoration_settled_count:])
+        decoration_evaluation_scope = "settled"
     decoration_samples = [
         sample
-        for frame in evaluated
+        for frame in decoration_frames
         for sample in decoration_metrics(frame, reference, decoration_regions)
     ]
     peak_changed = max(sample[0] for sample in decoration_samples)
@@ -303,6 +310,8 @@ def analyze_frames(
             "changedFractionLimit": thresholds.max_decoration_changed_fraction,
             "meanAbsoluteErrorLimit": thresholds.max_decoration_mae,
             "regions": len(decoration_regions),
+            "evaluatedFrames": len(decoration_frames),
+            "evaluationScope": decoration_evaluation_scope,
         },
     )
 

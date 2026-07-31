@@ -66,7 +66,7 @@ The JSON report contains aggregate pixel metrics only:
 - `blackRegions` — black-area growth relative to the stable opening surface.
 - `leafBounds` — minimum visible leaf coverage and bounding-area retention.
 - `gutterDrift` — landscape gutter movement when a stable gutter is detectable.
-- `decorationContinuity` — change in narrow, non-content outer decoration bands.
+- `decorationContinuity` — change in narrow, non-content outer decoration bands. Idle probes evaluate the complete timeline; gesture probes evaluate the final settled window so the moving curl edge itself cannot masquerade as lost decoration.
 - `idleStability` — large consecutive-frame changes during an idle probe.
 
 A skipped gutter check means the recording had insufficient non-content contrast for a privacy-safe gutter estimate. Use `-RequireAllVisualChecks` on the recorder, or `--require-all` on the analyzer, when a release gate requires every applicable metric to be measurable.

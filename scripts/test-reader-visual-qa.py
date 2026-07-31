@@ -156,6 +156,29 @@ class ReaderVisualQaTest(unittest.TestCase):
 
         self.assertEqual("pass", report["checks"]["decorationContinuity"]["status"])
 
+    def test_transient_full_edge_motion_does_not_fail_settled_decoration_continuity(self):
+        baseline = [bright_frame(width=120, height=200) for _ in range(12)]
+        moving = baseline[0].copy()
+        moving[:, :8] = 0
+        moving[:, -8:] = 0
+        frames = baseline + [moving.copy() for _ in range(10)] + [baseline[0].copy() for _ in range(10)]
+        roi = QA.Region(0.0, 0.0, 1.0, 1.0)
+
+        report = QA.analyze_frames(
+            frames=frames,
+            sample_fps=10.0,
+            orientation="portrait",
+            scenario="slow-next",
+            roi=roi,
+            decoration_regions=QA.default_decoration_regions("portrait", roi),
+        )
+
+        self.assertEqual("pass", report["checks"]["decorationContinuity"]["status"])
+        self.assertEqual(
+            "settled",
+            report["checks"]["decorationContinuity"]["metrics"]["evaluationScope"],
+        )
+
     def test_decoration_thresholds_must_fail_in_one_region_sample(self):
         baseline = [bright_frame(width=120, height=200) for _ in range(12)]
         changed = baseline[0].copy()
