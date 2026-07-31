@@ -168,11 +168,13 @@ private fun readerPageLiveRasterDistances(
 	)
 }
 
-private fun ReaderPageRasterDistance.isAbsoluteTargetMatch(): Boolean =
+private fun ReaderPageRasterDistance.isAggregateTargetMatch(): Boolean =
 	mean <= LiveValidationAbsoluteMeanDistance &&
 		rms <= LiveValidationAbsoluteRmsDistance &&
-		closeRatio >= LiveValidationAbsoluteCloseRatio &&
-		farPixelCount <= LiveValidationAbsoluteFarPixelLimit
+		closeRatio >= LiveValidationAbsoluteCloseRatio
+
+private fun ReaderPageRasterDistance.hasAbsoluteFarPixelAllowance(): Boolean =
+	farPixelCount <= LiveValidationAbsoluteFarPixelLimit
 
 private fun ReaderPageRasterDistance.isAuthoredEquivalent(): Boolean =
 	mean <= 2.0 &&
@@ -192,9 +194,12 @@ internal fun readerPageLiveRasterMatchesExpected(
 		cancellationCheck = cancellationCheck
 	) ?: return false
 	val targetDistance = distances.target
-	if (!targetDistance.isAbsoluteTargetMatch()) return false
-	val sourceTargetDistance = distances.sourceTarget ?: return expectedSource == null
-	if (sourceTargetDistance.isAuthoredEquivalent()) return true
+	if (!targetDistance.isAggregateTargetMatch()) return false
+	val sourceTargetDistance = distances.sourceTarget
+		?: return targetDistance.hasAbsoluteFarPixelAllowance()
+	if (sourceTargetDistance.isAuthoredEquivalent()) {
+		return targetDistance.hasAbsoluteFarPixelAllowance()
+	}
 	val sourceDistance = distances.source ?: return false
 	if (targetDistance.farPixelCount != sourceDistance.farPixelCount) {
 		return targetDistance.farPixelCount < sourceDistance.farPixelCount

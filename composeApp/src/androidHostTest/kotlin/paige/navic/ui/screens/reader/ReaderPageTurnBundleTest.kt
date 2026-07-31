@@ -96,7 +96,7 @@ class ReaderPageTurnBundleTest {
 	}
 
 	@Test
-	fun boundedGlyphEdgeOutliersAcceptTargetButStillRejectStaleSource() {
+	fun moreThanFourBoundedGlyphEdgeOutliersRequireDistinctSourceDirection() {
 		val target = authoredPage(accentX = 51, accentColor = 0xffa03020.toInt())
 		val source = target.copy().apply {
 			fillRect(left = 10, top = 44, right = 16, bottom = 48, color = 0xff202020.toInt())
@@ -105,10 +105,13 @@ class ReaderPageTurnBundleTest {
 			fillRect(left = 3, top = 3, right = 4, bottom = 4, color = 0xff202020.toInt())
 			fillRect(left = 76, top = 3, right = 77, bottom = 4, color = 0xff202020.toInt())
 			fillRect(left = 3, top = 56, right = 4, bottom = 57, color = 0xff202020.toInt())
+			fillRect(left = 40, top = 3, right = 41, bottom = 4, color = 0xff202020.toInt())
+			fillRect(left = 40, top = 56, right = 41, bottom = 57, color = 0xff202020.toInt())
 			fillRect(left = 76, top = 56, right = 77, bottom = 57, color = 0xff202020.toInt())
 		}
 
 		assertTrue(readerPageLiveRasterMatchesExpected(resampledTarget, target, source))
+		assertFalse(readerPageLiveRasterMatchesExpected(resampledTarget, target, null))
 		assertFalse(readerPageLiveRasterMatchesExpected(source, target, source))
 	}
 
@@ -141,6 +144,29 @@ class ReaderPageTurnBundleTest {
 				candidate = blank,
 				expectedTarget = target,
 				expectedSource = null
+			)
+		)
+	}
+
+	@Test
+	fun authoredIdenticalSparseSourceAndTargetStillRejectBlankCandidate() {
+		val target = TestRaster.solid(80, 60, PaperColor).apply {
+			fillRect(
+				left = 20,
+				top = 20,
+				right = 23,
+				bottom = 23,
+				color = 0xff202020.toInt()
+			)
+		}
+		val source = target.copy()
+		val blank = TestRaster.solid(target.width, target.height, PaperColor)
+
+		assertFalse(
+			readerPageLiveRasterMatchesExpected(
+				candidate = blank,
+				expectedTarget = target,
+				expectedSource = source
 			)
 		)
 	}
