@@ -1707,7 +1707,7 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
-	fun successiveRejectedGenerationsAreBoundedPerGesture() {
+	fun exhaustedReplacementBudgetReleasesAcknowledgedHeadAndDispatchesNextWithoutHidingShield() {
 		val queue = ReaderPageRelocationQueue()
 		val original = enqueueVisualRequest(queue, gestureId = 1L)
 		acknowledgeForVisualHandoff(queue, original)
@@ -1716,6 +1716,7 @@ class ReaderWebViewVisualHandoffTest {
 		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
 		val hidden = mutableListOf<ReaderPageRelocationRequest>()
 		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val terminalRejections = mutableListOf<ReaderPageRelocationRequest>()
 		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
 			queue = queue,
 			host = host,
@@ -1723,6 +1724,7 @@ class ReaderWebViewVisualHandoffTest {
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
 			hideSurface = hidden::add,
+			onRejectedContentReleased = terminalRejections::add,
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -1753,6 +1755,14 @@ class ReaderWebViewVisualHandoffTest {
 			)
 		)
 		assertTrue(coordinator.onAcknowledged(replacement))
+		val queued = enqueueVisualRequest(
+			queue = queue,
+			gestureId = 2L,
+			sourceOrdinal = 4,
+			destinationOrdinal = 5,
+			rasterGeneration = 12L,
+			textureGeneration = 22L
+		)
 		host.completeVisualState()
 		host.runNextFrame()
 
@@ -1767,12 +1777,15 @@ class ReaderWebViewVisualHandoffTest {
 				)
 			)
 		)
-		assertEquals(replacement, queue.head())
+		assertEquals(queued, queue.head())
+		assertEquals(1, queue.ownershipSnapshot().occupied)
+		assertEquals(listOf(replacement), terminalRejections)
 		assertEquals(
 			listOf(ReaderWebViewVisualHandoffFailure.ContentRejected),
 			recoveries
 		)
-		assertEquals(listOf(replacement), dispatched)
+		assertEquals(listOf(replacement, queued), dispatched)
+		assertEquals(0, coordinator.pendingCallbackCount())
 		assertTrue(hidden.isEmpty())
 	}
 

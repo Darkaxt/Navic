@@ -31,6 +31,14 @@ public interface PageSurfaceListener {
         onGestureRejected(generationId, reason);
     }
 
+    default void onGestureRejected(
+            long gestureId,
+            long generationId,
+            GestureRejectionReason reason,
+            PageChange pageChange) {
+        onGestureRejected(gestureId, generationId, reason);
+    }
+
     default void onGestureCancelled(
             long gestureId,
             long generationId) {}

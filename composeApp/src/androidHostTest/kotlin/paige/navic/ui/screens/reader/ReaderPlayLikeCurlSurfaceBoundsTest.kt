@@ -30,6 +30,34 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 		)
 	}
 
+	@Test
+	fun successfulHandoffCrossfadesValidatedRasterOnEverySupportedApi() {
+		val source = sourceFile(
+			"composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPlayLikeCurlFoliateController.android.kt"
+		).readText()
+		val handoff = source
+			.substringAfter("private fun hideSurfaceAfterHandoff(")
+			.substringBefore("private fun hideSurface()")
+		val reveal = source
+			.substringAfter("private fun revealSurfaceAfterNextPresentedFrame(")
+			.substringBefore("fun cancelGestureAfterHostTerminal(")
+
+		assertContains(source, "ReaderPageLiveHandoffCrossfadeMillis = 200L")
+		assertContains(handoff, "inlineRasterShield.present(")
+		assertContains(handoff, "hideSurfaceBehindInlineRasterShield()")
+		assertContains(
+			handoff,
+			"inlineRasterShield.fadeOut(ReaderPageLiveHandoffCrossfadeMillis)"
+		)
+		assertFalse(handoff.contains("surfaceView.animate()"))
+		assertContains(reveal, "surfaceView.animate().cancel()")
+		assertContains(reveal, "presentedSurfaceGestureId == gestureId")
+		assertContains(reveal, "surfaceView.alpha = 0f")
+		assertContains(reveal, "surfaceView.requestNextPresentedFrame")
+		assertContains(reveal, "surfaceView.alpha = 1f")
+	}
+
 	private fun sourceFile(relativePath: String): File {
 		var directory = File(System.getProperty("user.dir")).absoluteFile
 		repeat(8) {

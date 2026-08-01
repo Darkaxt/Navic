@@ -82,7 +82,8 @@ internal enum class ReaderPageRelocationDiagnosticRejectionReason {
 	CommitPublicationFailed,
 	QueueInvalidated,
 	AcknowledgementTimeout,
-	JavascriptDispatchFailed
+	JavascriptDispatchFailed,
+	ContentRejected
 }
 
 internal enum class ReaderPageHandoffDiagnosticResult {

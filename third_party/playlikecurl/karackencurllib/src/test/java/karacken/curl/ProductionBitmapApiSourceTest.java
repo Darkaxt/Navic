@@ -160,8 +160,10 @@ public class ProductionBitmapApiSourceTest {
         assertTrue(surfaceSource.contains(
                 "public boolean turn(PageChange pageChange, long gestureId)"));
         assertTrue(surfaceSource.contains("private long activeGestureId"));
-        assertTrue(surfaceSource.contains("SettlementContext.from(activeGestureId"));
-        assertTrue(surfaceSource.contains("onGestureRejected(gestureId"));
+        assertTrue(surfaceSource.contains(
+                "SettlementContext.from(\n                activeGestureId,"));
+        assertTrue(surfaceSource.contains(
+                "onGestureRejected(\n                gestureId,"));
         assertTrue(surfaceSource.contains("onGestureCancelled(gestureId"));
 
         assertTrue(listenerSource.contains("onGestureRejected(\n            long gestureId,"));

@@ -642,7 +642,7 @@ public class PageSurfaceView extends GLSurfaceView {
             return false;
         }
         if (!canSettle(pageChange)) {
-            rejectGesture(gestureId, GestureRejectionReason.BOUNDARY);
+            rejectGesture(gestureId, GestureRejectionReason.BOUNDARY, pageChange);
             activeGestureId = NO_GESTURE_ID;
             return false;
         }
@@ -1919,9 +1919,20 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     private void rejectGesture(long gestureId, GestureRejectionReason reason) {
+        rejectGesture(gestureId, reason, PageChange.NONE);
+    }
+
+    private void rejectGesture(
+            long gestureId,
+            GestureRejectionReason reason,
+            PageChange pageChange) {
         PageDeck<Bitmap> active = deckCoordinator.getActiveDeck();
         long generationId = active == null ? -1L : active.getGenerationId();
-        listenerFor(generationId).onGestureRejected(gestureId, generationId, reason);
+        listenerFor(generationId).onGestureRejected(
+                gestureId,
+                generationId,
+                reason,
+                pageChange);
     }
 
     private void dragInteraction(float physicalX) {
@@ -1981,7 +1992,9 @@ public class PageSurfaceView extends GLSurfaceView {
         if (settlementRunning) {
             throw new IllegalStateException("Boundary restoration cannot replace a settlement");
         }
-        SettlementContext context = settlementContext(PageChange.NONE);
+        SettlementContext context = settlementContext(
+                PageChange.NONE,
+                rejectedSettlement.getPageChange());
         Settlement restoration = boundaryRestoreSettlement(interaction);
         activeGestureId = NO_GESTURE_ID;
         activeSettlementContext = context;
@@ -2098,7 +2111,8 @@ public class PageSurfaceView extends GLSurfaceView {
             listenerFor(context.generationId).onGestureRejected(
                     context.gestureId,
                     context.generationId,
-                    GestureRejectionReason.BOUNDARY);
+                    GestureRejectionReason.BOUNDARY,
+                    context.pageChange);
         }
     }
 
@@ -2214,10 +2228,20 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     private SettlementContext settlementContext(PageChange pageChange) {
+        return settlementContext(pageChange, pageChange);
+    }
+
+    private SettlementContext settlementContext(
+            PageChange pageChange,
+            PageChange reportedPageChange) {
         PageDeck<Bitmap> deck = deckCoordinator.getActiveDeck();
         PageImage<Bitmap> source = deck.getSettlementPage(PageChange.NONE);
         PageImage<Bitmap> target = deck.getSettlementPage(pageChange);
-        return SettlementContext.from(activeGestureId, source, target);
+        return SettlementContext.from(
+                activeGestureId,
+                source,
+                target,
+                reportedPageChange);
     }
 
     private PlayLikeCurlModel interactionModelOrNull() {
@@ -2361,30 +2385,35 @@ public class PageSurfaceView extends GLSurfaceView {
         private final String sourceLogicalPageId;
         private final String targetLogicalPageId;
         private final int targetOrdinal;
+        private final PageChange pageChange;
 
         private SettlementContext(
                 long gestureId,
                 long generationId,
                 String sourceLogicalPageId,
                 String targetLogicalPageId,
-                int targetOrdinal) {
+                int targetOrdinal,
+                PageChange pageChange) {
             this.gestureId = gestureId;
             this.generationId = generationId;
             this.sourceLogicalPageId = sourceLogicalPageId;
             this.targetLogicalPageId = targetLogicalPageId;
             this.targetOrdinal = targetOrdinal;
+            this.pageChange = pageChange;
         }
 
         static SettlementContext from(
                 long gestureId,
                 PageImage<Bitmap> source,
-                PageImage<Bitmap> target) {
+                PageImage<Bitmap> target,
+                PageChange pageChange) {
             return new SettlementContext(
                     gestureId,
                     source.getGenerationId(),
                     source.getLogicalPageId(),
                     target.getLogicalPageId(),
-                    target.getOrdinal());
+                    target.getOrdinal(),
+                    pageChange);
         }
     }
 }

@@ -42,6 +42,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderWebViewVisualHandoff.android.kt"
 	)
+	private val inlineRasterShieldFile = File(
+		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+			"ReaderPageInlineRasterShield.android.kt"
+	)
 	private val diagnosticFile = File(
 		"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
 			"ReaderPageDiagnostic.android.kt"
@@ -1505,15 +1509,44 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			rejection.indexOf("finishGesture(") <
 				rejection.indexOf("hideSurfaceAfterGesture(gestureId)")
 		)
-		assertFalse(
-			rejection.contains("if (reason == GestureRejectionReason.BOUNDARY)"),
-			"Every rejected revealed curl gesture must restore the content surface."
+		assertEquals(
+			1,
+			Regex("hideSurfaceAfterGesture\\(gestureId\\)").findAll(rejection).count(),
+			"Every winning renderer rejection must restore the content surface once."
 		)
 		listOf(
 			"dispatchExactVisualPage(",
 			"submitLibraryDeck(",
 			"promotePendingDeck("
 		).forEach { forbidden -> assertFalse(rejection.contains(forbidden)) }
+	}
+
+	@Test
+	fun boundaryRejectionReturnsLogicalTurnToNativeCoverController() {
+		val source = controllerFile.readText()
+		val host = hostFile.readText()
+		val constructor = source.substringAfter(
+			"internal class ReaderPlayLikeCurlFoliateController("
+		).substringBefore(") : ReaderPageTapTurnPort")
+		val rejection = source.substringAfter(
+			"override fun onGestureRejected("
+		).substringBefore("override fun onGestureCancelled(")
+		val wiring = host.substringAfter(
+			"private val playLikeCurlController: ReaderPlayLikeCurlFoliateController ="
+		).substringBefore("private val ownershipProbe")
+
+		assertContains(constructor, "private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit")
+		assertContains(rejection, "pageChange: PageChange")
+		assertContains(rejection, "PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous")
+		assertContains(rejection, "PageChange.NEXT -> ReaderPageTurnDirection.Next")
+		assertContains(rejection, "boundaryTurn?.let(onBoundaryTurn)")
+		assertTrue(
+			rejection.indexOf("hideSurfaceAfterGesture(gestureId)") <
+				rejection.indexOf("boundaryTurn?.let(onBoundaryTurn)")
+		)
+		assertContains(wiring, "onBoundaryTurn = { direction ->")
+		assertContains(wiring, "ReaderPageTurnDirection.Previous -> KomikkuNavigationRegion.PREV")
+		assertContains(wiring, "ReaderPageTurnDirection.Next -> KomikkuNavigationRegion.NEXT")
 	}
 
 	@Test
@@ -1569,6 +1602,108 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			availability,
 			"hasFailedLivePresentation = failedLivePresentationGeneration != null"
 		)
+	}
+
+	@Test
+	fun exhaustedContentFailureRestoresInputOnlyBehindCommittedInlineRasterShield() {
+		val source = controllerFile.readText()
+		val host = hostFile.readText()
+		val shield = inlineRasterShieldFile.readText()
+		val validation = source.substringAfter(
+			"private fun validateLivePresentation("
+		).substringBefore("private fun livePresentationValidationIsCurrent(")
+		val release = source.substringAfter(
+			"private fun releaseTerminalContentFailure("
+		).substringBefore("private fun publishRelocationVisualRecovery(")
+		val reveal = source.substringAfter(
+			"private fun revealSurfaceAfterNextPresentedFrame("
+		).substringBefore("fun cancelGestureAfterHostTerminal(")
+		val hostLayers = host.substringAfter("init {")
+			.substringBefore("fun setShellCoverView(")
+		val pointerRouting = host.substringAfter(
+			"private fun applyPointerRoute("
+		).substringBefore("private fun updateGestureDiagnostic(")
+		val replacement = source.substringAfter(
+			"private fun replaceRelocationDiagnosticIdentity("
+		).substringBefore("private fun completeRelocationVisualHandoff(")
+		val longPress = host.substringAfter(
+			"private val playLikeCurlGestureDetector"
+		).substringAfter("override fun onLongTapConfirmed(event: MotionEvent)")
+			.substringBefore("private fun logReaderTapAction(")
+		val viewerSuppression = host.substringAfter(
+			"private fun suppressViewerContentPointerStream(source: MotionEvent?)"
+		).substringBefore("private fun dispatchContentCancel(")
+
+		assertContains(
+			source,
+			"onRejectedContentReleased = ::releaseTerminalContentFailure"
+		)
+		assertContains(validation, "retainInlineHandoffSnapshot(request, expectedTarget)")
+		assertTrue(
+			validation.indexOf("retainInlineHandoffSnapshot(request, expectedTarget)") <
+				validation.indexOf("bundleSource.validateLivePresentation(")
+		)
+		assertContains(validation, "clearRetainedInlineHandoffSnapshot(request)")
+		assertContains(release, "takeInlineHandoffSnapshot(request)")
+		assertFalse(release.contains("runCatching"))
+		assertContains(release, "hasNewerSurfacePresentationOwner(request.gestureId)")
+		assertContains(release, "inlineRasterShield.present(")
+		assertContains(release, "!presented ||")
+		assertContains(release, "hideSurfaceBehindInlineRasterShield()")
+		assertContains(release, "ReaderPageRelocationDiagnosticState.Rejected")
+		assertContains(
+			release,
+			"ReaderPageRelocationDiagnosticRejectionReason.ContentRejected"
+		)
+		assertContains(release, "failedLivePresentationGeneration = null")
+		assertContains(release, "livePresentationRecoveryRequest.clear()")
+		assertContains(release, "interaction = preparedInteractionState()")
+		val committedRelease = release.substringAfter(
+			"hideSurfaceBehindInlineRasterShield()"
+		)
+		assertContains(committedRelease, "retainsRejectedSurfaceInputShield = true")
+		assertContains(committedRelease, "failedLivePresentationGeneration = null")
+		assertContains(hostLayers, "playLikeCurlController.inlineRasterShieldView")
+		assertTrue(
+			hostLayers.indexOf("viewerContentContainer") <
+				hostLayers.indexOf("playLikeCurlController.inlineRasterShieldView")
+		)
+		assertTrue(
+			hostLayers.indexOf("playLikeCurlController.inlineRasterShieldView") <
+				hostLayers.indexOf("playLikeCurlController.surfaceView")
+		)
+		assertContains(pointerRouting, "shouldDispatchToViewerContent")
+		assertContains(pointerRouting, "shouldSuppressViewerContentInput")
+		assertContains(
+			pointerRouting,
+			"revokeViewerContentPointerStreamIfSuppressed(event)"
+		)
+		assertContains(pointerRouting, "playLikeCurlGestureDetector.onTouchEvent(event)")
+		assertContains(viewerSuppression, "shouldDispatchToViewerContent = false")
+		assertContains(viewerSuppression, "action = MotionEvent.ACTION_CANCEL")
+		assertContains(
+			viewerSuppression,
+			"viewerContentContainer.dispatchTouchEvent(cancel)"
+		)
+		assertContains(longPress, "revokeViewerContentPointerStreamIfSuppressed(event)")
+		assertContains(longPress, "shouldSuppressViewerContentInput")
+		assertTrue(
+			longPress.indexOf("shouldSuppressViewerContentInput") <
+				longPress.indexOf("onContentLongPress(")
+		)
+		assertContains(replacement, "failedLivePresentationGeneration?.matches(original)")
+		assertContains(replacement, "FailedLivePresentationGeneration(replacement)")
+		assertContains(source, "retainsRejectedSurfaceInputShield = true")
+		assertContains(
+			source,
+			"onPresentationOwnershipStarted = onViewerContentInputSuppressed"
+		)
+		assertContains(shield, "onPresentationOwnershipStarted()")
+		assertContains(shield, "snapshot.surfaceRectInWindow")
+		assertContains(shield, "getLocationInWindow")
+		assertContains(shield, "registerFrameCommitCallback")
+		assertContains(shield, "ReaderPageInlineRasterShieldTimeoutMillis")
+		assertContains(reveal, "inlineRasterShield.dismiss()")
 	}
 
 	@Test
@@ -1628,7 +1763,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			validator,
 			"isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) }"
 		)
-		assertContains(validator, "onValidated = onValidated")
+		assertContains(validator, "onValidated = { result ->")
+		assertContains(validator, "retainInlineHandoffSnapshot(request, expectedTarget)")
+		assertContains(validator, "onValidated(result)")
+		assertTrue(
+			validator.indexOf("retainInlineHandoffSnapshot(request, expectedTarget)") <
+				validator.indexOf("onValidated(result)")
+		)
 		assertContains(
 			validator,
 			"onValidated(ReaderPageRelocationContentValidationResult.Invalidated)"
@@ -1691,6 +1832,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			"failedLivePresentationGeneration = FailedLivePresentationGeneration(request)"
 		)
 		assertContains(contentFailure, "interaction = ReaderPageInteractionState.Failed")
+		assertContains(contentFailure, "onViewerContentInputSuppressed()")
 		assertContains(contentFailure, "requestLivePresentationRecovery()")
 		assertFalse(contentFailure.contains("hideSurface("))
 		assertFalse(contentFailure.contains("token"))
@@ -1708,7 +1850,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val completed = source.substringAfter(
 			"private fun completeRelocationVisualHandoff("
 		).substringBefore("private fun publishRelocationVisualRecovery(")
-		assertContains(completed, "!failedGeneration.matches(request)")
+		assertContains(completed, "if (failedLivePresentationGeneration != null)")
 		assertContains(completed, "failedLivePresentationGeneration = null")
 		assertContains(completed, "interaction = preparedInteractionState()")
 	}
@@ -1725,6 +1867,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val gestureHide = source
 			.substringAfter("private fun hideSurfaceAfterGesture(")
 			.substringBefore("private fun hideSurfaceAfterHandoff(")
+		val newerOwner = source
+			.substringAfter("private fun hasNewerSurfacePresentationOwner(")
+			.substringBefore("private fun hideSurfaceAfterHandoff(")
 		val handoffHide = source
 			.substringAfter("private fun hideSurfaceAfterHandoff(")
 			.substringBefore("private fun hideSurface()")
@@ -1736,7 +1881,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(gestureHide, "presentedFrameGestureId != gestureId")
 		assertContains(gestureHide, "presentedSurfaceGestureId != gestureId")
 		assertContains(handoffHide, "request.gestureId")
-		assertContains(handoffHide, "> request.gestureId")
+		assertContains(handoffHide, "hasNewerSurfacePresentationOwner(request.gestureId)")
+		assertContains(newerOwner, "owner > gestureId")
 		assertTrue(
 			gestureHide.indexOf("relocationQueue.ownershipSnapshot().queued > 0") <
 				gestureHide.indexOf("hideSurface()"),
@@ -1824,6 +1970,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val reveal = source
 			.substringAfter("private fun revealSurfaceAfterNextPresentedFrame(")
 			.substringBefore("fun cancelGesture(")
+		val hiddenReveal = reveal.substringAfter("presentedFrameGestureId = gestureId")
 		val tap = source
 			.substringAfter("private fun startTapTurn(")
 			.substringBefore("private fun revealSurfaceAfterNextPresentedFrame(")
@@ -1848,9 +1995,10 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(reveal, "gestureStillOwnsReveal")
 		assertFalse(tap.contains("surfaceView.alpha = 1f"))
 		assertContains(admittedTap, "revealSurfaceAfterNextPresentedFrame(gestureId)")
+		assertContains(reveal, "if (surfaceView.alpha != 0f)")
 		assertTrue(
-			reveal.indexOf("surfaceView.requestNextPresentedFrame") <
-				reveal.indexOf("surfaceView.alpha = 1f"),
+			hiddenReveal.indexOf("surfaceView.requestNextPresentedFrame") <
+				hiddenReveal.indexOf("surfaceView.alpha = 1f"),
 			"A hidden surface must not be revealed until its requested GL frame is presented."
 		)
 		assertContains(hide, "surfaceView.cancelPresentedFrameRequest")
@@ -2245,6 +2393,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val terminal = apply
 			.substringAfter("is ReaderPagePointerRoute.Terminal -> {")
 			.substringBefore("ReaderPagePointerRoute.Consume ->")
+		val viewerSuppression = hostSource
+			.substringAfter(
+				"private fun suppressViewerContentPointerStream(source: MotionEvent?)"
+			)
+			.substringBefore("private fun dispatchContentCancel(")
 		val contentCancel = hostSource
 			.substringAfter("private fun dispatchContentCancel(")
 			.substringBefore("private fun recycleRetainedContentDown()")
@@ -2268,8 +2421,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(contentTerminal, "completeHostGesture(")
 		assertContains(terminal, "dispatchContentCancel(event)")
 		assertFalse(terminal.contains("super.dispatchTouchEvent(event)"))
-		assertContains(contentCancel, "viewerContentContainer.dispatchTouchEvent(cancel)")
-		assertFalse(contentCancel.contains("super.dispatchTouchEvent(cancel)"))
+		assertContains(contentCancel, "suppressViewerContentPointerStream(source)")
+		assertContains(viewerSuppression, "viewerContentContainer.dispatchTouchEvent(cancel)")
+		assertFalse(viewerSuppression.contains("super.dispatchTouchEvent(cancel)"))
 		assertContains(apply, "ReaderPagePointerRoute.Consume -> true")
 		assertContains(apply, "ReaderPagePointerRoute.Ignore -> true")
 

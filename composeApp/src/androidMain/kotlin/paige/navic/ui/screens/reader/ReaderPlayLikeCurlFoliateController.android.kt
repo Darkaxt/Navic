@@ -59,6 +59,7 @@ import paige.navic.reader.readerPageOperationPolicy
 import paige.navic.util.core.Logger
 
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
+private const val ReaderPageLiveHandoffCrossfadeMillis = 200L
 private const val MAX_RASTER_ADAPTER_OWNERS = 2
 
 private data class FailedLivePresentationGeneration(
@@ -317,12 +318,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		outcome: ReaderPageGestureTerminalOutcome,
 		detail: ReaderPageGestureTerminalDetail
 	) -> Boolean,
+	private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit = {},
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
 	private val onPreparedActiveDeckChanged: (ReaderPagePreparedActiveDeck?) -> Unit = {},
 	private val onPaginationReadinessChanged: (ReaderPagePaginationReadiness) -> Unit = {},
 	private val onProfileBootstrapFailed: () -> Unit = {},
 	private val onReadinessStateChange: (ReaderPageRendererReadinessState) -> Unit = {},
 	private val onUnsafeLifecycleEvent: (ReaderPageHostLifecycleEvent) -> Unit = {},
+	private val onViewerContentInputSuppressed: () -> Unit = {},
 	private val hasStaticRasterShieldOwnership: () -> Boolean = { true },
 	private val onOwnershipMutated: () -> Unit = {},
 	private val onOwnershipAvailabilityEdge: () -> Unit = {},
@@ -364,6 +367,28 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val ordinal: Int,
 		val deck: PageDeck<Bitmap>
 	)
+
+	private data class RetainedInlineHandoffSnapshot(
+		val request: ReaderPageRelocationRequest,
+		val snapshot: ReaderPageSlideSnapshot
+	)
+
+	private val inlineRasterShield = ReaderPageInlineRasterShield(
+		host = host,
+		onOwnershipMutated = onOwnershipMutated,
+		onPresentationOwnershipStarted = onViewerContentInputSuppressed
+	)
+	val inlineRasterShieldView: View
+		get() = inlineRasterShield.view
+
+	val ownsInlineRasterShieldPresentation: Boolean
+		get() = inlineRasterShield.ownsPresentation()
+
+	val shouldSuppressViewerContentInput: Boolean
+		get() =
+			ownsInlineRasterShieldPresentation ||
+				retainsRejectedSurfaceInputShield ||
+				failedLivePresentationGeneration != null
 
 	val surfaceView = PageSurfaceView(host.context).apply {
 		holder.setFormat(PixelFormat.TRANSLUCENT)
@@ -467,6 +492,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var authoritativeLocationReady = false
 	private var currentFoliateSessionId: String? = null
 	private var failedLivePresentationGeneration: FailedLivePresentationGeneration? = null
+	private var retainsRejectedSurfaceInputShield = false
+	private var retainedInlineHandoffSnapshot: RetainedInlineHandoffSnapshot? = null
 	private val livePresentationRecoveryRequest =
 		ReaderPageLivePresentationRecoveryRequest()
 	private var foliateSessionRelocationPending = false
@@ -546,6 +573,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			onCompleted = { request ->
 				completeRelocationVisualHandoff(request)
 			},
+			onRejectedContentReleased = ::releaseTerminalContentFailure,
 			onReplaced = ::replaceRelocationDiagnosticIdentity
 		)
 	private var nextDeckGeneration = 1L
@@ -683,8 +711,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 			override fun onGestureRejected(
 				gestureId: Long,
 				generationId: Long,
-				reason: GestureRejectionReason
+				reason: GestureRejectionReason,
+				pageChange: PageChange
 			) {
+				val boundaryTurn = if (reason == GestureRejectionReason.BOUNDARY) {
+					when (pageChange) {
+						PageChange.PREVIOUS -> ReaderPageTurnDirection.Previous
+						PageChange.NEXT -> ReaderPageTurnDirection.Next
+						PageChange.NONE -> null
+					}
+				} else {
+					null
+				}
 				val outcome = when (reason) {
 					GestureRejectionReason.BOUNDARY ->
 						ReaderPageGestureTerminalOutcome.RejectedBoundary
@@ -705,6 +743,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					return
 				}
 				hideSurfaceAfterGesture(gestureId)
+				boundaryTurn?.let(onBoundaryTurn)
 			}
 
 			override fun onGestureCancelled(gestureId: Long, generationId: Long) {
@@ -1418,10 +1457,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return
 		}
-		if (surfaceView.alpha != 0f) {
-			presentedSurfaceGestureId = gestureId
+		surfaceView.animate().cancel()
+		if (presentedSurfaceGestureId == gestureId) {
+			surfaceView.alpha = 1f
+			inlineRasterShield.dismiss()
 			return
 		}
+		if (surfaceView.alpha != 0f) surfaceView.alpha = 0f
 		presentedFrameRequestId?.let { requestId ->
 			surfaceView.cancelPresentedFrameRequest(requestId)
 		}
@@ -1435,6 +1477,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (gestureStillOwnsReveal && enabled && attached && !destroyed) {
 					presentedSurfaceGestureId = gestureId
 					surfaceView.alpha = 1f
+					inlineRasterShield.dismiss()
 				}
 			}
 		} catch (failure: Throwable) {
@@ -1667,6 +1710,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason =
 			ReaderPageRelocationDiagnosticRejectionReason.QueueInvalidated
 	) {
+		clearRetainedInlineHandoffSnapshot()
 		val drained = cancelRelocationsWithDiagnostics(rejectionReason)
 		check(relocationGestureCoordinator.reservationCount() == 0)
 		check(relocationQueue.reservedCount() == 0)
@@ -1690,6 +1734,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
+		retainsRejectedSurfaceInputShield = false
 		livePresentationRecoveryRequest.clear()
 		decodedRefillCenterOrdinal = null
 		deferredDecodedRefillCenterOrdinal = null
@@ -2006,10 +2051,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			rasterResidency = rasterResidencyMetrics(),
 			pendingVisualCallbacks =
 				relocationVisualHandoffCoordinator.pendingCallbackCount() +
-					relocationDispatchTimeout.pendingCallbackCount(),
+					relocationDispatchTimeout.pendingCallbackCount() +
+					inlineRasterShield.pendingCallbackCount(),
 			pendingVisualCallbackLimit =
 				relocationVisualHandoffCoordinator.pendingCallbackLimit() +
-					relocationDispatchTimeout.pendingCallbackLimit,
+					relocationDispatchTimeout.pendingCallbackLimit +
+					inlineRasterShield.pendingCallbackLimit,
 			relocation = relocationQueue.ownershipSnapshot()
 		)
 
@@ -4085,14 +4132,62 @@ internal class ReaderPlayLikeCurlFoliateController(
 			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
-		return bundleSource.validateLivePresentation(
-			webView = webView,
-			request = request,
-			expectedTarget = expectedTarget,
-			expectedSource = expectedSource,
-			isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) },
-			onValidated = onValidated
-		)
+		retainInlineHandoffSnapshot(request, expectedTarget)
+		return try {
+			bundleSource.validateLivePresentation(
+				webView = webView,
+				request = request,
+				expectedTarget = expectedTarget,
+				expectedSource = expectedSource,
+				isStillCurrent = { livePresentationValidationIsCurrent(request, generationOwner) },
+				onValidated = { result ->
+					if (
+						result == ReaderPageRelocationContentValidationResult.Invalidated ||
+						!livePresentationValidationIsCurrent(request, generationOwner)
+					) {
+						clearRetainedInlineHandoffSnapshot(request)
+					}
+					onValidated(result)
+				}
+			)
+		} catch (failure: Throwable) {
+			clearRetainedInlineHandoffSnapshot(request)
+			throw failure
+		}
+	}
+
+	private fun retainInlineHandoffSnapshot(
+		request: ReaderPageRelocationRequest,
+		snapshot: ReaderPageSlideSnapshot
+	) {
+		snapshot.retain()
+		clearRetainedInlineHandoffSnapshot()
+		retainedInlineHandoffSnapshot = RetainedInlineHandoffSnapshot(request, snapshot)
+	}
+
+	private fun takeInlineHandoffSnapshot(
+		request: ReaderPageRelocationRequest
+	): ReaderPageSlideSnapshot? {
+		val retained = retainedInlineHandoffSnapshot ?: return null
+		retainedInlineHandoffSnapshot = null
+		return if (retained.request == request) {
+			retained.snapshot
+		} else {
+			retained.snapshot.release()
+			null
+		}
+	}
+
+	private fun clearRetainedInlineHandoffSnapshot(
+		request: ReaderPageRelocationRequest
+	) {
+		if (retainedInlineHandoffSnapshot?.request != request) return
+		clearRetainedInlineHandoffSnapshot()
+	}
+
+	private fun clearRetainedInlineHandoffSnapshot() {
+		retainedInlineHandoffSnapshot?.snapshot?.release()
+		retainedInlineHandoffSnapshot = null
 	}
 
 	private fun livePresentationValidationIsCurrent(
@@ -4180,6 +4275,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		original: ReaderPageRelocationRequest,
 		replacement: ReaderPageRelocationRequest
 	) {
+		if (failedLivePresentationGeneration?.matches(original) == true) {
+			failedLivePresentationGeneration =
+				FailedLivePresentationGeneration(replacement)
+		}
+		clearRetainedInlineHandoffSnapshot()
 		relocationDiagnosticStarts.remove(original.token.value)?.let { startedAt ->
 			relocationDiagnosticStarts[replacement.token.value] = startedAt
 		}
@@ -4197,17 +4297,95 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPageRelocationDiagnosticState.Completed,
 			terminal = true
 		)
-		failedLivePresentationGeneration?.let { failedGeneration ->
-			if (!failedGeneration.matches(request)) {
+		retainsRejectedSurfaceInputShield = false
+		if (failedLivePresentationGeneration != null) {
+			failedLivePresentationGeneration = null
+			livePresentationRecoveryRequest.clear()
+			updateReadiness(
+				interaction = preparedInteractionState(),
+				reason = "visual-handoff-replacement-validated"
+			)
+		}
+		onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
+	}
+
+	private fun releaseTerminalContentFailure(
+		request: ReaderPageRelocationRequest
+	) {
+		emitRelocationDiagnostic(
+			request = request,
+			state = ReaderPageRelocationDiagnosticState.Rejected,
+			rejectionReason =
+				ReaderPageRelocationDiagnosticRejectionReason.ContentRejected,
+			terminal = true
+		)
+		val snapshot = takeInlineHandoffSnapshot(request)
+		if (snapshot == null) {
+			Logger.e(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl terminal handoff has no retained raster " +
+					"gestureId=${request.gestureId}"
+			)
+			return
+		}
+		val generationOwner = generationOwners[request.textureGeneration]
+		if (
+			destroyed ||
+			failedLivePresentationGeneration?.matches(request) != true ||
+			activeDeckGenerationId != request.textureGeneration ||
+			generationOwner == null ||
+			generationOwner.profile.rasterGeneration != request.rasterGeneration ||
+			currentOrdinal != request.destinationOrdinal ||
+			hasNewerSurfacePresentationOwner(request.gestureId)
+		) {
+			snapshot.release()
+			return
+		}
+		inlineRasterShield.present(snapshot) { presented ->
+			val releaseStillCurrent =
+				!destroyed &&
+					failedLivePresentationGeneration?.matches(request) == true &&
+					activeDeckGenerationId == request.textureGeneration &&
+					generationOwners[request.textureGeneration] === generationOwner &&
+					currentOrdinal == request.destinationOrdinal &&
+					!hasNewerSurfacePresentationOwner(request.gestureId)
+			if (!presented || !releaseStillCurrent) {
+				if (!releaseStillCurrent) {
+					if (presented) inlineRasterShield.dismiss()
+					return@present
+				}
+				Logger.e(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl terminal raster shield presentation failed"
+				)
+				retainsRejectedSurfaceInputShield = true
 				failedLivePresentationGeneration = null
 				livePresentationRecoveryRequest.clear()
 				updateReadiness(
 					interaction = preparedInteractionState(),
-					reason = "visual-handoff-replacement-validated"
+					reason = "visual-handoff-content-rejection-surface-retained"
 				)
+				requestPrewarmIfIdle("terminal-raster-shield-presentation-failed")
+				onOwnershipDiagnosticRequested(
+					ReaderPageOwnershipPhase.SteadyState
+				)
+				return@present
 			}
+			hideSurfaceBehindInlineRasterShield()
+			retainsRejectedSurfaceInputShield = true
+			failedLivePresentationGeneration = null
+			livePresentationRecoveryRequest.clear()
+			updateReadiness(
+				interaction = preparedInteractionState(),
+				reason = "visual-handoff-content-rejection-released"
+			)
+			Logger.w(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl visual handoff transferred terminal raster shield " +
+					"gestureId=${request.gestureId}"
+			)
+			onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
 		}
-		onOwnershipDiagnosticRequested(ReaderPageOwnershipPhase.SteadyState)
 	}
 
 	private fun publishRelocationVisualRecovery(
@@ -4216,6 +4394,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) {
 		if (reason == ReaderWebViewVisualHandoffFailure.ContentRejected) {
 			failedLivePresentationGeneration = FailedLivePresentationGeneration(request)
+			retainsRejectedSurfaceInputShield = true
+			onViewerContentInputSuppressed()
 			Logger.e(
 				ReaderPlayLikeCurlFoliateControllerTag,
 				"PlayLikeCurl visual handoff content validation failed reason=$reason"
@@ -4239,12 +4419,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val webView = checkNotNull(
 			webViewProvider()?.takeIf { it.isAttachedToWindow }
 		) { "Visual relocation dispatch requires an attached WebView" }
+		clearRetainedInlineHandoffSnapshot()
 		dispatchExactVisualPage(webView, request)
 	}
 
 	private fun dispatchNextRelocation() {
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow } ?: return
 		val request = relocationQueue.commandToDispatch() ?: return
+		clearRetainedInlineHandoffSnapshot()
 		dispatchExactVisualPage(webView, request)
 	}
 
@@ -4427,24 +4609,77 @@ internal class ReaderPlayLikeCurlFoliateController(
 		hideSurface()
 	}
 
+	private fun hasNewerSurfacePresentationOwner(gestureId: Long): Boolean =
+		presentedFrameGestureId?.let { owner -> owner > gestureId } == true ||
+			presentedSurfaceGestureId?.let { owner -> owner > gestureId } == true
+
 	private fun hideSurfaceAfterHandoff(request: ReaderPageRelocationRequest) {
-		val newerFrameOwner = presentedFrameGestureId?.let { gestureId ->
-			gestureId > request.gestureId
-		} == true
-		val newerSurfaceOwner = presentedSurfaceGestureId?.let { gestureId ->
-			gestureId > request.gestureId
-		} == true
-		if (newerFrameOwner || newerSurfaceOwner) return
-		hideSurface()
+		val snapshot = takeInlineHandoffSnapshot(request) ?: return
+		val generationOwner = generationOwners[request.textureGeneration]
+		if (
+			destroyed ||
+			activeDeckGenerationId != request.textureGeneration ||
+			generationOwner == null ||
+			generationOwner.profile.rasterGeneration != request.rasterGeneration ||
+			currentOrdinal != request.destinationOrdinal ||
+			currentWebViewOrdinal != request.destinationOrdinal ||
+			currentFoliateSessionId != request.foliateSessionId ||
+			hasNewerSurfacePresentationOwner(request.gestureId)
+		) {
+			snapshot.release()
+			return
+		}
+		inlineRasterShield.present(snapshot) { presented ->
+			val handoffStillCurrent =
+				!destroyed &&
+					activeDeckGenerationId == request.textureGeneration &&
+					generationOwners[request.textureGeneration] === generationOwner &&
+					currentOrdinal == request.destinationOrdinal &&
+					currentWebViewOrdinal == request.destinationOrdinal &&
+					currentFoliateSessionId == request.foliateSessionId &&
+					!hasNewerSurfacePresentationOwner(request.gestureId)
+			if (!handoffStillCurrent) {
+				if (presented) inlineRasterShield.dismiss()
+				return@present
+			}
+			if (!presented) {
+				Logger.w(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl inline raster crossfade presentation failed"
+				)
+				hideCurlSurface()
+				return@present
+			}
+			hideSurfaceBehindInlineRasterShield()
+			inlineRasterShield.fadeOut(ReaderPageLiveHandoffCrossfadeMillis)
+		}
+	}
+
+	private fun hideSurfaceBehindInlineRasterShield() {
+		check(inlineRasterShield.ownsPresentation())
+		hideCurlSurface()
 	}
 
 	private fun hideSurface() {
+		if (
+			!destroyed &&
+			(retainsRejectedSurfaceInputShield || failedLivePresentationGeneration != null)
+		) {
+			return
+		}
+		hideCurlSurface()
+		inlineRasterShield.dismiss()
+		clearRetainedInlineHandoffSnapshot()
+	}
+
+	private fun hideCurlSurface() {
 		presentedFrameRequestId?.let { requestId ->
 			surfaceView.cancelPresentedFrameRequest(requestId)
 		}
 		presentedFrameRequestId = null
 		presentedFrameGestureId = null
 		presentedSurfaceGestureId = null
+		surfaceView.animate().cancel()
 		surfaceView.alpha = 0f
 	}
 

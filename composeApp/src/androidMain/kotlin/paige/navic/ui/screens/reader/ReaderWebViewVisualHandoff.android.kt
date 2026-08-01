@@ -848,6 +848,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		ReaderWebViewVisualHandoffAttemptEventSink { },
 	private val onAwaiting: (ReaderPageRelocationRequest) -> Unit = {},
 	private val onCompleted: (ReaderPageRelocationRequest) -> Unit = {},
+	private val onRejectedContentReleased: (ReaderPageRelocationRequest) -> Unit = {},
 	private val onReplaced: (
 		ReaderPageRelocationRequest,
 		ReaderPageRelocationRequest
@@ -1439,9 +1440,26 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			request,
 			ReaderWebViewVisualHandoffFailure.ContentRejected
 		)
-		if (!contentRecoveryReplacementExhausted(request)) {
-			publishRecovery(request, ReaderWebViewVisualHandoffFailure.ContentRejected)
+		if (contentRecoveryReplacementExhausted(request)) {
+			releaseRejectedContent(request)
+			return
 		}
+		publishRecovery(request, ReaderWebViewVisualHandoffFailure.ContentRejected)
+	}
+
+	private fun releaseRejectedContent(request: ReaderPageRelocationRequest) {
+		check(matchesAcknowledgedHead(request))
+		check(queue.completeHandoff(request.token.value))
+		phase = Phase.Idle
+		retainedRepreparedEvidence = null
+		contentValidationEpoch += 1L
+		contentValidationFailures = 0
+		contentValidationExhausted = false
+		clearContentRecoveryLineage()
+		head = null
+		clearQaFaultCorrelation()
+		onRejectedContentReleased(request)
+		queue.commandToDispatch()?.let(dispatch)
 	}
 
 	private fun contentRecoveryReplacementExhausted(

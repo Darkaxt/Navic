@@ -668,6 +668,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private var nativeSwipeIntercepted: Boolean = false
 	private var playLikeCurlGestureOwned: Boolean = false
 	private var retainedContentDown: MotionEvent? = null
+	private var shouldDispatchToViewerContent: Boolean = false
 	private var physicalDispatchMode: ReaderPagePhysicalDispatchMode? = null
 	private var pageTurnCanvasEnabled: Boolean = false
 	private var pageTurnReadingDirection: String? = null
@@ -811,6 +812,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		onGestureTerminal = { gestureId, outcome, detail ->
 			completePageGesture(gestureId, outcome, detail)
 		},
+		onBoundaryTurn = { direction ->
+			onAction(
+				when (direction) {
+					ReaderPageTurnDirection.Previous -> KomikkuNavigationRegion.PREV
+					ReaderPageTurnDirection.Next -> KomikkuNavigationRegion.NEXT
+				}
+			)
+		},
 		onRasterProfileEpochChanged = ::onRasterProfileEpochChanged,
 		onPreparedActiveDeckChanged = { deck ->
 			pageRasterPreparationController.onPreparedActiveDeckChanged(deck)
@@ -821,6 +830,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			pageRasterPreparationController.onProfileBootstrapFailed()
 		},
 		onReadinessStateChange = ::onRendererReadinessChanged,
+		onViewerContentInputSuppressed = ::suppressViewerContentPointerStream,
 		onUnsafeLifecycleEvent = { event ->
 			require(
 				event == ReaderPageHostLifecycleEvent.UnsafeContextLost ||
@@ -1134,6 +1144,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
 		addView(
 			viewerContentContainer,
+			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+		)
+		addView(
+			playLikeCurlController.inlineRasterShieldView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
 		addView(
@@ -1529,6 +1543,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 				)
 				if (dispatch.route != ReaderPagePointerRoute.Content) return
 				nativeTapLongConfirmed = true
+				revokeViewerContentPointerStreamIfSuppressed(event)
+				if (playLikeCurlController.shouldSuppressViewerContentInput) return
 				logReaderLongTap()
 				performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
 				onContentLongPress(event.x, event.y, width, height)
@@ -1803,8 +1819,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		)
 		return if (pointerDispatch != null) {
 			applyPointerRoute(event, pointerDispatch)
-		} else {
+		} else if (shouldDispatchToViewerContent) {
 			viewerContentContainer.dispatchTouchEvent(event)
+		} else {
+			true
 		}
 	}
 
@@ -1818,17 +1836,30 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 			if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 				retainedContentDown?.recycle()
 				retainedContentDown = MotionEvent.obtain(event)
+				shouldDispatchToViewerContent =
+					!playLikeCurlController.shouldSuppressViewerContentInput
 			}
-			viewerContentContainer.dispatchTouchEvent(event)
+			revokeViewerContentPointerStreamIfSuppressed(event)
+			if (shouldDispatchToViewerContent) {
+				viewerContentContainer.dispatchTouchEvent(event)
+			}
 			playLikeCurlGestureDetector.onTouchEvent(event)
-			if (event.actionMasked == MotionEvent.ACTION_UP) {
+			if (
+				event.actionMasked == MotionEvent.ACTION_UP ||
+				event.actionMasked == MotionEvent.ACTION_CANCEL
+			) {
 				recycleRetainedContentDown()
 				clearPlayLikeCurlPointerTapFlagsAfterUp()
 			}
 			true
 		}
 		is ReaderPagePointerRoute.ContentTerminal -> {
-			val handled = viewerContentContainer.dispatchTouchEvent(event)
+			revokeViewerContentPointerStreamIfSuppressed(event)
+			val handled = if (shouldDispatchToViewerContent) {
+				viewerContentContainer.dispatchTouchEvent(event)
+			} else {
+				true
+			}
 			playLikeCurlGestureDetector.onTouchEvent(event)
 			completeHostGesture(
 				route.gestureId,
@@ -1940,13 +1971,40 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 		}
 	}
 
-	private fun dispatchContentCancel(source: MotionEvent? = null) {
-		val retainedDown = retainedContentDown ?: return
+	private fun revokeViewerContentPointerStreamIfSuppressed(source: MotionEvent) {
+		if (!playLikeCurlController.shouldSuppressViewerContentInput) return
+		suppressViewerContentPointerStream(source)
+	}
+
+	private fun suppressViewerContentPointerStream() {
+		suppressViewerContentPointerStream(source = null)
+	}
+
+	private fun suppressViewerContentPointerStream(source: MotionEvent?) {
+		if (!shouldDispatchToViewerContent) return
+		val retainedDown = retainedContentDown
+		if (retainedDown == null) {
+			shouldDispatchToViewerContent = false
+			return
+		}
+		shouldDispatchToViewerContent = false
 		val cancel = MotionEvent.obtain(source ?: retainedDown).apply {
 			action = MotionEvent.ACTION_CANCEL
 		}
 		try {
 			viewerContentContainer.dispatchTouchEvent(cancel)
+		} finally {
+			cancel.recycle()
+		}
+	}
+
+	private fun dispatchContentCancel(source: MotionEvent? = null) {
+		val retainedDown = retainedContentDown ?: return
+		suppressViewerContentPointerStream(source)
+		val cancel = MotionEvent.obtain(source ?: retainedDown).apply {
+			action = MotionEvent.ACTION_CANCEL
+		}
+		try {
 			playLikeCurlGestureDetector.cancelForDrag(cancel)
 		} finally {
 			cancel.recycle()
@@ -1956,6 +2014,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) : FrameLayout
 	private fun recycleRetainedContentDown() {
 		retainedContentDown?.recycle()
 		retainedContentDown = null
+		shouldDispatchToViewerContent = false
 	}
 
 	private fun clearPlayLikeCurlPointerTapFlagsAfterUp() {

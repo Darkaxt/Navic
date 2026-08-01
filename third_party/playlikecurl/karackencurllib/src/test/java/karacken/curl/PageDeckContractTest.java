@@ -453,6 +453,7 @@ public class PageDeckContractTest {
     @Test
     public void boundaryTerminalIsPublishedOnlyAfterTokenArmedRestoredFrame() throws IOException {
         String surface = productionSource("PageSurfaceView.java");
+        String listener = productionSource("PageSurfaceListener.java");
         String renderer = productionSource("PageRenderer.java");
         String start = methodBody(surface, "private void startBoundaryRestoration(");
         String animationCompletion = methodBody(
@@ -464,6 +465,7 @@ public class PageDeckContractTest {
         String drawPage = methodBody(renderer, "private boolean drawPage(");
         String drawTextures = methodBody(renderer, "private void drawPageTextures(");
 
+        assertTrue(start.contains("rejectedSettlement.getPageChange()"));
         assertTrue(start.contains("deckCoordinator.beginSettlement()"));
         assertTrue(start.contains("startSettlementAnimation("));
         assertFalse(start.contains("rejectGesture("));
@@ -484,6 +486,8 @@ public class PageDeckContractTest {
         assertTrue(rendered.contains("shouldReleasePending()"));
         assertTrue(rendered.contains("releasePending(DeckReleaseReason.REPLACED)"));
         assertEquals(1, occurrences(rendered, "GestureRejectionReason.BOUNDARY"));
+        assertTrue(rendered.contains("context.pageChange"));
+        assertTrue(listener.contains("PageChange pageChange"));
         assertFalse(rendered.contains("onSettlement"));
         assertFalse(rendered.contains("onPageChanged"));
         assertFalse(rendered.contains("completeSettlement("));
@@ -556,7 +560,9 @@ public class PageDeckContractTest {
         String turn = methodBody(
                 surface, "public boolean turn(PageChange pageChange, long gestureId)");
         String context = methodBody(
-                surface, "private SettlementContext settlementContext(PageChange pageChange)");
+                surface,
+                "private SettlementContext settlementContext(\n" +
+                        "            PageChange pageChange,");
 
         int invalid = turn.indexOf("throw new IllegalArgumentException");
         int mutation = turn.indexOf("activeGestureId = gestureId");
@@ -566,7 +572,8 @@ public class PageDeckContractTest {
         assertTrue(invalid >= 0 && invalid < mutation);
         assertTrue(boundary >= 0 && boundary < modelTurn);
         assertTrue(direction >= 0 && direction < modelTurn);
-        assertTrue(turn.contains("GestureRejectionReason.BOUNDARY"));
+        assertTrue(turn.contains(
+                "rejectGesture(gestureId, GestureRejectionReason.BOUNDARY, pageChange)"));
         assertTrue(turn.contains("GestureRejectionReason.DECK_NOT_PREPARED"));
         assertTrue(turn.contains("GestureRejectionReason.MODEL_REJECTED"));
         assertEquals(4, occurrences(turn, "return false;"));
